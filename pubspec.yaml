@@ -1,0 +1,34 @@
+name: fly_player
+description: "A custom Android player application that integrates with the Feiniu NAS system."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  dio: ^5.4.0
+  shared_preferences: ^2.2.2
+  provider: ^6.1.1
+  crypto: ^3.0.3
+  file_picker: ^10.3.2
+  flutter_svg: ^2.0.10+1
+  url_launcher: ^6.3.1
+  palette_generator: ^0.3.3+6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icons/
+    - assets/fonts/
+    - lib/img/logo.png
+    - list2.json
