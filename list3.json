@@ -1,0 +1,21 @@
+{
+    "msg": "",
+    "code": 0,
+    "data": {
+        "audio_guid": "639c4cd0a97e4d0cb012428a6912ed09",
+        "audio_index": 2,
+        "hls_time": 4,
+        "is_subtitle_external": 0,
+        "media_guid": "948de65a1c4b452ebc96997ead70a512",
+        "play_link": "/v/media/3b079a0ae09803c1636869757240b0d0/preset.m3u8",
+        "subtitle_guid": "548d27ce1e66485c855917437cb792d1",
+        "subtitle_index": 5,
+        "subtitle_link": "",
+        "video_guid": "45f61b981a2e48faaf44c13a380e7a73",
+        "video_index": 0,
+        "non_fatal_errno": null,
+        "video_encoder": "",
+        "not_supported_resolution": "",
+        "supported_highest_resolution": ""
+    }
+}
