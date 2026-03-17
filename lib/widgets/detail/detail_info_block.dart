@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/app_theme.dart';
 import '../../theme/detail_tokens.dart';
 import '../../ui/adaptive_text.dart';
 import 'detail_meta_lines.dart';
@@ -9,16 +10,27 @@ class DetailTitleBlock extends StatelessWidget {
   final String title;
   final String subtitle;
   final double? titleFontSize;
+  final Widget? titleChild;
+  final Color? titleColor;
+  final Color? subtitleColor;
+  final List<Shadow>? textShadows;
 
   const DetailTitleBlock({
     super.key,
     required this.title,
     this.subtitle = '',
     this.titleFontSize,
+    this.titleChild,
+    this.titleColor,
+    this.subtitleColor,
+    this.textShadows,
   });
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final resolvedTitleColor = titleColor ?? colors.textPrimary;
+    final resolvedSubtitleColor = subtitleColor ?? colors.textPrimary;
     final titleSize =
         titleFontSize ??
         AdaptiveText.roleSize(
@@ -37,25 +49,30 @@ class DetailTitleBlock extends StatelessWidget {
               subtitle,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: DetailTokens.textPrimary,
+              style: TextStyle(
+                color: resolvedSubtitleColor,
                 fontSize: 16,
                 fontWeight: FontWeight.w500,
                 height: 1.25,
+                shadows: textShadows,
               ),
             ),
           ),
-        Text(
-          title,
-          maxLines: 2,
-          overflow: TextOverflow.clip,
-          style: TextStyle(
-            color: DetailTokens.textPrimary,
-            fontSize: titleSize,
-            fontWeight: FontWeight.w600,
-            height: 1.12,
+        if (titleChild != null)
+          titleChild!
+        else
+          Text(
+            title,
+            maxLines: 2,
+            overflow: TextOverflow.clip,
+            style: TextStyle(
+              color: resolvedTitleColor,
+              fontSize: titleSize,
+              fontWeight: FontWeight.w600,
+              height: 1.12,
+              shadows: textShadows,
+            ),
           ),
-        ),
       ],
     );
   }

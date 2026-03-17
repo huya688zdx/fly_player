@@ -1,12 +1,19 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../api/feiniu_api.dart';
+import '../controllers/media_item_action_sheet_controller.dart';
+import '../models/media_collection_view_type.dart';
 import '../models/media_library_item.dart';
 import '../providers/nas_provider.dart';
+import '../services/embedded_detail_launcher.dart';
+import '../theme/app_theme.dart';
+import '../ui/adaptive_detail_navigator.dart';
 import '../ui/app_transitions.dart';
+import '../ui/detail_presentation.dart';
 import '../ui/layout_adaptive.dart';
 import '../ui/media_poster_card.dart';
 import '../utils/api_url_helper.dart';
@@ -14,11 +21,16 @@ import '../utils/app_exception.dart';
 import '../utils/media_locale_store.dart';
 import '../utils/media_locale_text.dart';
 import '../widgets/common/app_error_state.dart';
-import 'person_detail_screen.dart';
-import 'play_detail_screen.dart';
+import '../widgets/library/media_collection_layout_sheet.dart';
+import '../widgets/library/media_library_list_tile.dart';
 import 'search_screen.dart';
 
+part 'favorite_items_screen_sheets.dart';
+part 'favorite_items_screen_widgets.dart';
+
 enum _FavoriteTab { all, movie, tv, episode, person }
+
+const String _favoriteListSettingKey = 'mdb:list:setting:favorite';
 
 class _FavoriteTabData {
   List<MediaLibraryItem> items = <MediaLibraryItem>[];
@@ -32,7 +44,10 @@ class _FavoriteTabData {
 }
 
 class FavoriteItemsScreen extends StatefulWidget {
-  const FavoriteItemsScreen({super.key});
+  final bool secondaryHost;
+
+  const FavoriteItemsScreen({super.key, this.secondaryHost = false});
+  const FavoriteItemsScreen.secondaryHost({super.key}) : secondaryHost = true;
 
   @override
   State<FavoriteItemsScreen> createState() => _FavoriteItemsScreenState();
@@ -53,24 +68,28 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
   late final Map<_FavoriteTab, ScrollController> _tabScrollControllers;
   late final Map<_FavoriteTab, _FavoriteTabData> _tabData;
 
-  Map<String, dynamic> _localeMap = {};
-  Map<String, List<dynamic>> _tagOptions = {};
-  Map<int, String> _genresFromApi = {};
-  Map<String, String> _locateFromApi = {};
+  Map<String, dynamic> _localeMap = <String, dynamic>{};
+  Map<String, List<dynamic>> _tagOptions = <String, List<dynamic>>{};
+  Map<int, String> _genresFromApi = <int, String>{};
+  Map<String, String> _locateFromApi = <String, String>{};
+  final Map<String, MediaLibraryItem> _episodePosterParentCache =
+      <String, MediaLibraryItem>{};
+  final Set<String> _episodePosterParentPending = <String>{};
 
   _FavoriteTab _selectedTab = _FavoriteTab.all;
   String _sortColumn = 'create_time';
   String _sortType = 'DESC';
+  MediaCollectionViewType _viewType = MediaCollectionViewType.verticalPoster;
 
-  Set<dynamic> _selectedGenres = {};
-  Set<dynamic> _selectedMediaTypes = {};
-  Set<dynamic> _selectedLocate = {};
-  Set<dynamic> _selectedDecades = {};
-  Set<dynamic> _selectedResolutions = {};
-  Set<dynamic> _selectedColorRange = {};
-  Set<dynamic> _selectedAudioType = {};
-  Set<dynamic> _selectedRecognitionStatus = {};
-  Set<dynamic> _selectedWatched = {};
+  Set<dynamic> _selectedGenres = <dynamic>{};
+  Set<dynamic> _selectedMediaTypes = <dynamic>{};
+  Set<dynamic> _selectedLocate = <dynamic>{};
+  Set<dynamic> _selectedDecades = <dynamic>{};
+  Set<dynamic> _selectedResolutions = <dynamic>{};
+  Set<dynamic> _selectedColorRange = <dynamic>{};
+  Set<dynamic> _selectedAudioType = <dynamic>{};
+  Set<dynamic> _selectedRecognitionStatus = <dynamic>{};
+  Set<dynamic> _selectedWatched = <dynamic>{};
 
   @override
   void initState() {
@@ -106,7 +125,7 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
   String _t(
     String path,
     String fallback, {
-    Map<String, Object?> params = const {},
+    Map<String, Object?> params = const <String, Object?>{},
   }) {
     return MediaLocaleText.text(
       _localeMap,
@@ -121,6 +140,10 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
     final localeMap = await MediaLocaleStore.load(context.read<NasProvider>());
     final genresMap = await api.getTagGenresMap(lan: 'zh-CN');
     final locateMap = await api.getTagIso3166Map(lan: 'zh-CN');
+    final setting = await api.getUserListSetting(
+      '',
+      key: _favoriteListSettingKey,
+    );
 
     Map<String, List<dynamic>> tags = const <String, List<dynamic>>{};
     try {
@@ -133,6 +156,11 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
       _genresFromApi = genresMap;
       _locateFromApi = locateMap;
       _tagOptions = tags;
+      if (setting != null) {
+        _sortColumn = setting.sortField;
+        _sortType = setting.sortType == 'ASC' ? 'ASC' : 'DESC';
+        _viewType = MediaCollectionViewTypeX.fromStorage(setting.viewType);
+      }
     });
     await _fetch(tab: _selectedTab, reset: true);
   }
@@ -142,13 +170,13 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
       case _FavoriteTab.all:
         return null;
       case _FavoriteTab.movie:
-        return const ['Movie'];
+        return const <String>['Movie'];
       case _FavoriteTab.tv:
-        return const ['TV'];
+        return const <String>['TV'];
       case _FavoriteTab.episode:
-        return const ['Episode'];
+        return const <String>['Episode'];
       case _FavoriteTab.person:
-        return const ['Person'];
+        return const <String>['Person'];
     }
   }
 
@@ -157,7 +185,7 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
     final type = _tabTypeFilter(tab);
     if (tab == _FavoriteTab.all) {
       if (_selectedMediaTypes.isNotEmpty) {
-        tags['type'] = _selectedMediaTypes.map((e) => '$e').toList();
+        tags['type'] = _selectedMediaTypes.map((value) => '$value').toList();
       }
     } else if (type != null) {
       tags['type'] = type;
@@ -189,7 +217,7 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
     if (_isPersonItem(item)) {
       final workCount = item.numberOfItem;
       if (workCount > 0) {
-        return '共 $workCount 个作品';
+        return '共$workCount 个作品';
       }
       return '';
     }
@@ -214,18 +242,18 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
               : item.episodeNumber);
 
     if (seasonCount == 1 && episodeCount > 0) {
-      final epText = _t(
+      final episodeText = _t(
         'layout.subheading.tv.episodes',
         '共 {count} 集',
-        params: {'count': episodeCount},
+        params: <String, Object?>{'count': episodeCount},
       );
-      return period.isEmpty ? epText : '$epText · $period';
+      return period.isEmpty ? episodeText : '$episodeText · $period';
     }
     if (seasonCount > 0) {
       final seasonText = _t(
         'layout.subheading.tv.seasons',
         '共 {count} 季',
-        params: {'count': seasonCount},
+        params: <String, Object?>{'count': seasonCount},
       );
       return period.isEmpty ? seasonText : '$seasonText · $period';
     }
@@ -351,6 +379,35 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
     return parts.join(' / ');
   }
 
+  bool get _hasActiveFilters =>
+      (_selectedTab == _FavoriteTab.all && _selectedMediaTypes.isNotEmpty) ||
+      _selectedGenres.isNotEmpty ||
+      _selectedLocate.isNotEmpty ||
+      _selectedDecades.isNotEmpty ||
+      _selectedResolutions.isNotEmpty ||
+      _selectedColorRange.isNotEmpty ||
+      _selectedAudioType.isNotEmpty ||
+      _selectedRecognitionStatus.isNotEmpty ||
+      _selectedWatched.isNotEmpty;
+
+  Future<void> _openLayoutSheet() async {
+    final next = await MediaCollectionLayoutSheet.show(
+      context,
+      currentViewType: _viewType,
+    );
+    if (!mounted || next == null || next == _viewType) {
+      return;
+    }
+    setState(() {
+      _viewType = next;
+    });
+    await FeiniuApi(context.read<NasProvider>()).setUserListSetting(
+      '',
+      viewType: next.storageValue,
+      key: _favoriteListSettingKey,
+    );
+  }
+
   _FavoriteTabData _dataOf(_FavoriteTab tab) => _tabData[tab]!;
 
   void _resetTabData(_FavoriteTabData data) {
@@ -416,26 +473,27 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
       setState(() {
         data.total = page.total;
         data.currentPage = pageNo;
-        data.items = reset ? page.items : [...data.items, ...page.items];
+        data.items = reset
+            ? page.items
+            : <MediaLibraryItem>[...data.items, ...page.items];
         data.hasMore = data.items.length < data.total && page.items.isNotEmpty;
         data.isLoading = false;
         data.isLoadingMore = false;
       });
-      _prefetchAdjacentTabs(tab);
-    } catch (e) {
+    } catch (error) {
       if (!mounted) return;
       setState(() {
         if (reset) {
           data.isLoading = false;
           data.error = AppException.from(
-            e,
+            error,
             action: 'favorite list',
             fallbackKind: AppExceptionKind.transient,
           );
         } else {
           data.isLoadingMore = false;
           data.loadMoreError = AppException.from(
-            e,
+            error,
             action: 'favorite list',
             fallbackKind: AppExceptionKind.transient,
           );
@@ -482,20 +540,57 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
     await _fetch(tab: tab, reset: true);
   }
 
-  void _prefetchAdjacentTabs(_FavoriteTab tab) {
-    final index = tab.index;
-    final candidates = <_FavoriteTab>[
-      if (index - 1 >= 0) _FavoriteTab.values[index - 1],
-      if (index + 1 < _FavoriteTab.values.length)
-        _FavoriteTab.values[index + 1],
-    ];
-    for (final candidate in candidates) {
-      final data = _dataOf(candidate);
-      if (data.items.isNotEmpty || data.isLoading || data.isLoadingMore) {
-        continue;
+  void _replaceFavoriteItemLocally(
+    String itemGuid,
+    MediaLibraryItem Function(MediaLibraryItem item) transform,
+  ) {
+    if (!mounted) return;
+    setState(() {
+      for (final data in _tabData.values) {
+        data.items = data.items
+            .map((item) => item.guid == itemGuid ? transform(item) : item)
+            .toList(growable: false);
       }
-      _fetch(tab: candidate, reset: true);
-    }
+    });
+  }
+
+  void _removeFavoriteItemLocally(String itemGuid) {
+    if (!mounted) return;
+    setState(() {
+      for (final data in _tabData.values) {
+        final before = data.items.length;
+        data.items = data.items
+            .where((item) => item.guid != itemGuid)
+            .toList(growable: false);
+        final removed = before - data.items.length;
+        if (removed > 0 && data.total > 0) {
+          data.total = max(0, data.total - removed);
+        }
+        data.hasMore = data.items.length < data.total;
+      }
+    });
+  }
+
+  Future<void> _showFavoriteItemActions(MediaLibraryItem item) async {
+    await const MediaItemActionSheetController().show(
+      context,
+      item: item,
+      title: MediaItemActionSheetController.defaultTitle(item),
+      localeMap: _localeMap,
+      favoriteOnly: _isPersonItem(item),
+      initialFavorite: true,
+      initialWatched: item.watched == 1,
+      onChanged: (state) {
+        if (!state.favorite) {
+          _removeFavoriteItemLocally(item.guid);
+          return;
+        }
+        _replaceFavoriteItemLocally(
+          item.guid,
+          (current) => current.copyWith(watched: state.watched ? 1 : 0),
+        );
+      },
+    );
   }
 
   void _handleTabControllerChanged() {
@@ -513,7 +608,7 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
   String _sortLabelFor(String column) {
     switch (column) {
       case 'create_time':
-        return _t('layout.list.sort.sortField.createTime', '按添加日期');
+        return _t('layout.list.sort.sortField.createTime', '按收藏日期');
       case 'release_date':
         return _t('layout.list.sort.sortField.releaseDate', '按发行年份');
       case 'title':
@@ -521,376 +616,113 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
       case 'vote_average':
         return _t('layout.list.sort.sortField.voteAverage', '按评分');
       default:
-        return _t('layout.list.sort.sortField.createTime', '按添加日期');
+        return _t('layout.list.sort.sortField.createTime', '按收藏日期');
     }
-  }
-
-  Future<void> _openSortSheet() async {
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: const Color(0xFF141C29),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (context) {
-        return SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  _t('layout.list.sort.title', '排序'),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 28,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                for (final column in _sortColumns)
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    minVerticalPadding: 0,
-                    visualDensity: const VisualDensity(vertical: -1),
-                    title: Text(
-                      _sortLabelFor(column),
-                      style: TextStyle(
-                        color: column == _sortColumn
-                            ? Colors.white
-                            : Colors.white70,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 17,
-                      ),
-                    ),
-                    trailing: column == _sortColumn
-                        ? Text(
-                            _sortType == 'ASC'
-                                ? '${_t('layout.list.sort.sortType.asc', '升序')} ↑'
-                                : '${_t('layout.list.sort.sortType.desc', '降序')} ↓',
-                            style: const TextStyle(
-                              color: Colors.white70,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 16,
-                            ),
-                          )
-                        : null,
-                    onTap: () {
-                      if (column == _sortColumn) {
-                        _sortType = _sortType == 'ASC' ? 'DESC' : 'ASC';
-                      } else {
-                        _sortColumn = column;
-                        _sortType = 'DESC';
-                      }
-                      Navigator.of(context).pop();
-                      _reloadAfterQueryChanged();
-                    },
-                  ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _openFilterSheet() async {
-    final tempMediaTypes = Set<dynamic>.from(_selectedMediaTypes);
-    final tempGenres = Set<dynamic>.from(_selectedGenres);
-    final tempLocate = Set<dynamic>.from(_selectedLocate);
-    final tempDecades = Set<dynamic>.from(_selectedDecades);
-    final tempResolutions = Set<dynamic>.from(_selectedResolutions);
-    final tempColorRange = Set<dynamic>.from(_selectedColorRange);
-    final tempAudioType = Set<dynamic>.from(_selectedAudioType);
-    final tempRecognition = Set<dynamic>.from(_selectedRecognitionStatus);
-    final tempWatched = Set<dynamic>.from(_selectedWatched);
-
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: const Color(0xFF141C29),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setModal) {
-            Widget chip(String label, bool selected, VoidCallback onTap) {
-              return GestureDetector(
-                onTap: onTap,
-                child: Container(
-                  margin: const EdgeInsets.only(right: 8, bottom: 8),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: selected
-                        ? const Color(0xFF0D4CA3)
-                        : const Color(0xFF1D2735),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      color: selected ? Colors.white : Colors.white70,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              );
-            }
-
-            Widget section(
-              String title,
-              List<dynamic> values,
-              Set<dynamic> selected,
-              String Function(dynamic) labeler,
-            ) {
-              if (values.isEmpty) return const SizedBox.shrink();
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    children: [
-                      chip(
-                        _t('layout.list.filter.all', '全部'),
-                        selected.isEmpty,
-                        () => setModal(() => selected.clear()),
-                      ),
-                      for (final v in values)
-                        chip(
-                          labeler(v),
-                          selected.contains(v),
-                          () => setModal(() {
-                            if (selected.contains(v)) {
-                              selected.clear();
-                            } else {
-                              selected
-                                ..clear()
-                                ..add(v);
-                            }
-                          }),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                ],
-              );
-            }
-
-            return SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-                child: SizedBox(
-                  height: MediaQuery.of(context).size.height * 0.78,
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          const Spacer(),
-                          Text(
-                            _t('layout.list.filter.filterButton', '筛选'),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 24,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const Spacer(),
-                          IconButton(
-                            onPressed: () => Navigator.of(context).pop(),
-                            icon: const Icon(
-                              Icons.close,
-                              color: Colors.white70,
-                            ),
-                          ),
-                        ],
-                      ),
-                      Expanded(
-                        child: ListView(
-                          children: [
-                            section(
-                              _t('layout.list.filter.tagMap.type', '影视类型'),
-                              _selectedTab == _FavoriteTab.all
-                                  ? const ['Movie', 'TV']
-                                  : const [],
-                              tempMediaTypes,
-                              _mediaTypeLabel,
-                            ),
-                            section(
-                              _t('layout.list.filter.tagMap.genres', '类型'),
-                              _tagOptions['genres'] ?? const [],
-                              tempGenres,
-                              _genreLabel,
-                            ),
-                            section(
-                              _t('layout.list.filter.tagMap.locate', '国家和地区'),
-                              _tagOptions['locate'] ?? const [],
-                              tempLocate,
-                              _locateLabel,
-                            ),
-                            section(
-                              _t('layout.list.filter.tagMap.decade', '发行年份'),
-                              _tagOptions['decades'] ?? const [],
-                              tempDecades,
-                              _decadeLabel,
-                            ),
-                            section(
-                              _t('layout.list.filter.tagMap.resolution', '分辨率'),
-                              _tagOptions['resolutions'] ?? const [],
-                              tempResolutions,
-                              (v) => _resolutionLabel('$v'),
-                            ),
-                            section(
-                              _t(
-                                'layout.list.filter.tagMap.color_range',
-                                '视频动态范围',
-                              ),
-                              _tagOptions['color_range'] ?? const [],
-                              tempColorRange,
-                              (v) => '$v',
-                            ),
-                            section(
-                              _t(
-                                'layout.list.filter.tagMap.audio_type',
-                                '音频规格',
-                              ),
-                              _tagOptions['audio_type'] ?? const [],
-                              tempAudioType,
-                              _audioLabel,
-                            ),
-                            section(
-                              _t(
-                                'layout.list.filter.tagMap.recognition_status',
-                                '匹配状态',
-                              ),
-                              _tagOptions['recognition_status'] ?? const [],
-                              tempRecognition,
-                              _recognitionStatusLabel,
-                            ),
-                            section(
-                              _t('layout.list.filter.tagMap.watched', '是否已观看'),
-                              const [1, 0],
-                              tempWatched,
-                              _watchedLabel,
-                            ),
-                          ],
-                        ),
-                      ),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: () {
-                                setModal(() {
-                                  tempMediaTypes.clear();
-                                  tempGenres.clear();
-                                  tempLocate.clear();
-                                  tempDecades.clear();
-                                  tempResolutions.clear();
-                                  tempColorRange.clear();
-                                  tempAudioType.clear();
-                                  tempRecognition.clear();
-                                  tempWatched.clear();
-                                });
-                              },
-                              style: OutlinedButton.styleFrom(
-                                side: const BorderSide(
-                                  color: Color(0x334F6B8F),
-                                ),
-                                foregroundColor: Colors.white70,
-                                minimumSize: const Size.fromHeight(44),
-                              ),
-                              child: Text(
-                                _t('layout.list.filter.resetButton', '重置'),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: FilledButton(
-                              onPressed: () {
-                                Navigator.of(context).pop();
-                                setState(() {
-                                  _selectedMediaTypes = tempMediaTypes;
-                                  _selectedGenres = tempGenres;
-                                  _selectedLocate = tempLocate;
-                                  _selectedDecades = tempDecades;
-                                  _selectedResolutions = tempResolutions;
-                                  _selectedColorRange = tempColorRange;
-                                  _selectedAudioType = tempAudioType;
-                                  _selectedRecognitionStatus = tempRecognition;
-                                  _selectedWatched = tempWatched;
-                                });
-                                _reloadAfterQueryChanged();
-                              },
-                              style: FilledButton.styleFrom(
-                                minimumSize: const Size.fromHeight(44),
-                              ),
-                              child: Text(
-                                _t('common.actions.default.default', '确定'),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
   }
 
   List<String> _posterCandidates(
     String baseUrl,
-    String rawPath, {
+    MediaLibraryItem item, {
     int width = 400,
+    bool preferDirectPath = false,
   }) {
-    return ApiUrlHelper.imageCandidates(baseUrl, rawPath, width: width);
+    final paths = <String>[
+      if (item.poster.trim().isNotEmpty) item.poster.trim(),
+      ...item.posterList.where((path) => path.trim().isNotEmpty),
+    ];
+    final unique = <String>{};
+    final ordered = <String>[];
+    for (final path in paths) {
+      if (unique.add(path)) {
+        ordered.add(path);
+      }
+    }
+    return ordered
+        .expand(
+          (path) => ApiUrlHelper.imageCandidates(
+            baseUrl,
+            path,
+            width: width,
+            preferDirectPath: preferDirectPath,
+          ),
+        )
+        .toList(growable: false);
   }
 
   bool _isPersonItem(MediaLibraryItem item) {
-    final t = item.type.trim().toLowerCase();
-    return t == 'person';
+    final type = item.type.trim().toLowerCase();
+    return type == 'person';
   }
 
   bool _isEpisodeItem(MediaLibraryItem item) {
     return item.type.trim().toLowerCase() == 'episode';
   }
 
+  DetailPresentation get _detailPresentation =>
+      widget.secondaryHost ? DetailPresentation.pane : DetailPresentation.page;
+
+  MediaLibraryItem _posterWallDisplayItem(MediaLibraryItem item) {
+    if (_viewType != MediaCollectionViewType.horizontalPoster ||
+        !_isEpisodeItem(item)) {
+      return item;
+    }
+    final parentGuid = item.parentGuid.trim();
+    if (parentGuid.isEmpty) {
+      return item;
+    }
+    final parentPoster = _episodePosterParentCache[parentGuid];
+    if (parentPoster != null && parentPoster.poster.trim().isNotEmpty) {
+      return item.copyWith(
+        poster: parentPoster.poster,
+        posterWidth: parentPoster.posterWidth,
+        posterHeight: parentPoster.posterHeight,
+        posterList: parentPoster.posterList,
+      );
+    }
+    _ensureEpisodePosterParentLoaded(parentGuid);
+    return item;
+  }
+
+  void _ensureEpisodePosterParentLoaded(String parentGuid) {
+    if (parentGuid.isEmpty ||
+        _episodePosterParentCache.containsKey(parentGuid) ||
+        _episodePosterParentPending.contains(parentGuid)) {
+      return;
+    }
+    _episodePosterParentPending.add(parentGuid);
+    unawaited(_loadEpisodePosterParent(parentGuid));
+  }
+
+  Future<void> _loadEpisodePosterParent(String parentGuid) async {
+    try {
+      final detail = await FeiniuApi(
+        context.read<NasProvider>(),
+      ).getItemDetail(parentGuid).timeout(const Duration(seconds: 2));
+      final parentItem = MediaLibraryItem.fromJson(detail);
+      if (!mounted || parentItem.poster.trim().isEmpty) {
+        return;
+      }
+      setState(() {
+        _episodePosterParentCache[parentGuid] = parentItem;
+      });
+    } catch (_) {
+      // Keep the current episode still if parent poster lookup fails.
+    } finally {
+      _episodePosterParentPending.remove(parentGuid);
+    }
+  }
+
   Future<void> _openItemDetail(MediaLibraryItem item) async {
     if (item.guid.trim().isEmpty) return;
     if (_isPersonItem(item)) {
-      Navigator.of(context).push(
-        AppTransitions.leftToRightPageTurnRoute(
-          PersonDetailScreen(
-            personGuid: item.guid,
-            initialName: item.displayTitle,
-            initialLocaleMap: _localeMap,
-          ),
+      await AdaptiveDetailNavigator.open<void>(
+        context,
+        AdaptiveDetailRequest.person(
+          personGuid: item.guid,
+          initialName: item.displayTitle,
+          initialLocaleMap: _localeMap,
         ),
+        presentation: _detailPresentation,
       );
       return;
     }
@@ -903,355 +735,16 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
       ).getItemDetail(item.guid).timeout(const Duration(milliseconds: 240));
     } catch (_) {}
     if (!mounted) return;
-    Navigator.of(context).push(
-      AppTransitions.leftToRightPageTurnRoute(
-        PlayDetailScreen(
-          itemGuid: item.guid,
-          heroTag: null,
-          initialItemDetail: initialDetail,
-        ),
+    await AdaptiveDetailNavigator.open<void>(
+      context,
+      AdaptiveDetailRequest.item(
+        itemGuid: item.guid,
+        initialItemDetail: initialDetail,
       ),
-    );
-  }
-
-  Widget _buildTabButton(_FavoriteTab tab, String text) {
-    final selected = _selectedTab == tab;
-    return Expanded(
-      child: InkWell(
-        onTap: () => _switchTab(tab),
-        child: SizedBox(
-          height: 42,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                text,
-                style: TextStyle(
-                  color: selected ? const Color(0xFF2D87FF) : Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 6),
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                width: 16,
-                height: 3,
-                decoration: BoxDecoration(
-                  color: selected
-                      ? const Color(0xFF2D87FF)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCurrentTabPage(
-    MediaLayoutProfile layout,
-    NasProvider provider,
-    _FavoriteTab tab,
-  ) {
-    return Column(
-      children: [
-        _buildSortFilterRow(layout, tab),
-        Expanded(
-          child: _buildGrid(
-            tab: tab,
-            baseUrl: provider.baseUrl,
-            token: provider.token,
-            layout: layout,
-          ),
-        ),
-      ],
+      presentation: _detailPresentation,
     );
   }
 
   @override
-  Widget build(BuildContext context) {
-    final provider = context.read<NasProvider>();
-    final layout = MediaLayoutProfile.of(context);
-    return Scaffold(
-      backgroundColor: const Color(0xFF07101B),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF07101B),
-        surfaceTintColor: Colors.transparent,
-        foregroundColor: Colors.white,
-        iconTheme: const IconThemeData(color: Colors.white),
-        actionsIconTheme: const IconThemeData(color: Colors.white),
-        titleTextStyle: const TextStyle(
-          color: Colors.white,
-          fontSize: 20,
-          fontWeight: FontWeight.w700,
-        ),
-        title: Text(_t('layout.sidebar.favorite', '收藏')),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () {
-              Navigator.of(context).push(
-                AppTransitions.fadeSlideRoute(
-                  SearchScreen(initialLocaleMap: _localeMap),
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Row(
-              children: [
-                _buildTabButton(
-                  _FavoriteTab.all,
-                  _t('layout.list.favoriteTabs.all', '全部'),
-                ),
-                _buildTabButton(
-                  _FavoriteTab.movie,
-                  _t('layout.list.favoriteTabs.movie', '电影'),
-                ),
-                _buildTabButton(
-                  _FavoriteTab.tv,
-                  _t('layout.list.favoriteTabs.tv', '电视节目'),
-                ),
-                _buildTabButton(
-                  _FavoriteTab.episode,
-                  _t('layout.list.favoriteTabs.episode', '单集'),
-                ),
-                _buildTabButton(
-                  _FavoriteTab.person,
-                  _t('layout.list.favoriteTabs.person', '人物'),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              physics: const BouncingScrollPhysics(),
-              children: _FavoriteTab.values
-                  .map((tab) => _buildCurrentTabPage(layout, provider, tab))
-                  .toList(),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSortFilterRow(MediaLayoutProfile layout, _FavoriteTab tab) {
-    final tabData = _dataOf(tab);
-    final showFilter = tab != _FavoriteTab.person;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: Row(
-              children: [
-                InkWell(
-                  onTap: _openSortSheet,
-                  borderRadius: BorderRadius.circular(8),
-                  child: Row(
-                    children: [
-                      Text(
-                        _sortLabelFor(_sortColumn),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Icon(
-                        _sortType == 'ASC'
-                            ? Icons.arrow_upward
-                            : Icons.arrow_downward,
-                        size: 16,
-                        color: Colors.white70,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1C2A3A),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    '${max(tabData.total, tabData.items.length)}',
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (showFilter)
-            Flexible(
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxWidth: layout.categoryFilterSummaryMaxWidth,
-                  ),
-                  child: InkWell(
-                    onTap: _openFilterSheet,
-                    borderRadius: BorderRadius.circular(8),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 4,
-                        vertical: 4,
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Flexible(
-                            child: Text(
-                              _filterSummaryLabel,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Color(0xFF3B82F6),
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 2),
-                          const Icon(
-                            Icons.arrow_drop_down,
-                            size: 18,
-                            color: Color(0xFF3B82F6),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildGrid({
-    required _FavoriteTab tab,
-    required String baseUrl,
-    required String token,
-    required MediaLayoutProfile layout,
-  }) {
-    final data = _dataOf(tab);
-    if (data.isLoading && data.items.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (data.error != null) {
-      return AppErrorState(
-        error: data.error!,
-        localeMap: _localeMap,
-        onRetry: () => _fetch(tab: tab, reset: true),
-      );
-    }
-    if (data.items.isEmpty) {
-      return Center(
-        child: Text(
-          _t('common.other.empty', '没有内容'),
-          style: const TextStyle(color: Colors.white70),
-        ),
-      );
-    }
-
-    final grid = GridView.builder(
-      controller: _tabScrollControllers[tab],
-      cacheExtent: MediaQuery.of(context).size.height * 2,
-      padding: EdgeInsets.fromLTRB(
-        layout.pageHorizontalPadding,
-        0,
-        layout.pageHorizontalPadding,
-        16 + (data.isLoadingMore || data.loadMoreError != null ? 44 : 0),
-      ),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: layout.categoryGridColumns,
-        mainAxisSpacing: layout.itemGap,
-        crossAxisSpacing: layout.itemGap,
-        mainAxisExtent: layout.categoryGridRowHeight,
-      ),
-      itemCount: data.items.length,
-      itemBuilder: (context, index) {
-        final item = data.items[index];
-        final urls = _posterCandidates(
-          baseUrl,
-          item.poster,
-          width: layout.categoryGridRequestWidth,
-        );
-        final rating = double.tryParse(item.voteAverage);
-        final resolutions = item.resolutions
-            .map(_resolutionLabel)
-            .where((e) => e.isNotEmpty)
-            .toList();
-        final card = MediaPosterCard(
-          urls: urls,
-          token: token,
-          title: item.displayTitle,
-          subtitle: _cardSubtitle(item),
-          rating: rating,
-          resolutions: resolutions,
-          imageHeight: layout.categoryGridImageHeight,
-          titleFontSize: layout.homePosterTitleFontSize,
-          subtitleFontSize: layout.homePosterSubtitleFontSize,
-          expandImageToFit: false,
-          imageFit: _isEpisodeItem(item) ? BoxFit.contain : BoxFit.cover,
-          heroTag: 'favorite_${tab.index}_${item.guid}_$index',
-          onTap: () => _openItemDetail(item),
-        );
-        return card;
-      },
-    );
-
-    return Stack(
-      children: [
-        grid,
-        if (data.isLoadingMore)
-          const Positioned(
-            left: 0,
-            right: 0,
-            bottom: 8,
-            child: Center(
-              child: SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ),
-          ),
-        if (data.loadMoreError != null)
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 6,
-            child: Center(
-              child: TextButton.icon(
-                onPressed: () => _fetch(tab: tab, reset: false),
-                icon: const Icon(Icons.refresh, size: 16),
-                label: Text(_t('layout.globalError.refresh', '刷新重试')),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
+  Widget build(BuildContext context) => _buildScreen(context);
 }

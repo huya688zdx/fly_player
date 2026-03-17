@@ -1,7 +1,7 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 
-import '../../theme/detail_tokens.dart';
+import '../../theme/app_theme.dart';
 
 class CreditPersonItem {
   final String personGuid;
@@ -34,6 +34,7 @@ class CreditsSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (items.isEmpty) return const SizedBox.shrink();
+    final colors = context.appColors;
     final media = MediaQuery.of(context);
     final shortestSide = media.size.shortestSide;
     final scale = (shortestSide / 411).clamp(0.88, 1.0);
@@ -50,8 +51,8 @@ class CreditsSection extends StatelessWidget {
       children: [
         Text(
           title,
-          style: const TextStyle(
-            color: DetailTokens.textPrimary,
+          style: TextStyle(
+            color: colors.textPrimary,
             fontSize: 20,
             fontWeight: FontWeight.w600,
           ),
@@ -104,6 +105,7 @@ class _CreditPersonCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final card = SizedBox(
       width: cardWidth,
       child: Column(
@@ -124,7 +126,7 @@ class _CreditPersonCard extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
             style: TextStyle(
-              color: DetailTokens.textPrimary,
+              color: colors.textPrimary,
               fontSize: nameSize,
               fontWeight: FontWeight.w500,
             ),
@@ -136,7 +138,7 @@ class _CreditPersonCard extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
             style: TextStyle(
-              color: DetailTokens.textMuted,
+              color: colors.textMuted,
               fontSize: subtitleSize,
               fontWeight: FontWeight.w500,
             ),
@@ -178,13 +180,18 @@ class _CreditAvatarState extends State<_CreditAvatar> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     if (widget.urls.isEmpty ||
         _index >= widget.urls.length ||
         widget.token.trim().isEmpty) {
       return Container(
-        color: const Color(0xFF1A2331),
+        color: colors.surfaceStrong,
         alignment: Alignment.center,
-        child: const Icon(Icons.person, color: Color(0x889FB2CC), size: 36),
+        child: Icon(
+          Icons.person,
+          color: colors.textMuted.withValues(alpha: 0.72),
+          size: 36,
+        ),
       );
     }
 
@@ -221,11 +228,11 @@ class _CreditAvatarState extends State<_CreditAvatar> {
               '[IMG][CREDIT_AVATAR] failed url=${widget.urls[_index]} error=$error -> no_more_fallback',
             );
             return Container(
-              color: const Color(0xFF1A2331),
+              color: colors.surfaceStrong,
               alignment: Alignment.center,
-              child: const Icon(
+              child: Icon(
                 Icons.person,
-                color: Color(0x889FB2CC),
+                color: colors.textMuted.withValues(alpha: 0.72),
                 size: 36,
               ),
             );

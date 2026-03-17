@@ -5,8 +5,11 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/feiniu_api.dart';
+import '../controllers/media_item_action_sheet_controller.dart';
 import '../models/media_library_item.dart';
 import '../providers/nas_provider.dart';
+import '../services/embedded_detail_launcher.dart';
+import '../theme/app_theme.dart';
 import '../ui/app_transitions.dart';
 import '../ui/layout_adaptive.dart';
 import '../ui/media_poster_card.dart';
@@ -20,10 +23,12 @@ import 'play_detail_screen.dart';
 
 class SearchScreen extends StatefulWidget {
   final Map<String, dynamic> initialLocaleMap;
+  final bool secondaryHost;
 
   const SearchScreen({
     super.key,
     this.initialLocaleMap = const <String, dynamic>{},
+    this.secondaryHost = false,
   });
 
   @override
@@ -183,6 +188,35 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
+  void _replaceSearchItemLocally(
+    String itemGuid,
+    MediaLibraryItem Function(MediaLibraryItem item) transform,
+  ) {
+    if (!mounted) return;
+    setState(() {
+      _results = _results
+          .map((item) => item.guid == itemGuid ? transform(item) : item)
+          .toList(growable: false);
+    });
+  }
+
+  Future<void> _showPosterItemActions(MediaLibraryItem item) async {
+    await const MediaItemActionSheetController().show(
+      context,
+      item: item,
+      title: MediaItemActionSheetController.defaultTitle(item),
+      localeMap: _localeMap,
+      favoriteOnly: _isPersonItem(item),
+      initialWatched: item.watched == 1,
+      onChanged: (state) {
+        _replaceSearchItemLocally(
+          item.guid,
+          (current) => current.copyWith(watched: state.watched ? 1 : 0),
+        );
+      },
+    );
+  }
+
   bool _isPersonItem(MediaLibraryItem item) {
     return item.type.trim().toLowerCase() == 'person';
   }
@@ -294,6 +328,7 @@ class _SearchScreenState extends State<SearchScreen> {
     if (_history.isEmpty) {
       return const SizedBox.shrink();
     }
+    final colors = context.appColors;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -302,8 +337,8 @@ class _SearchScreenState extends State<SearchScreen> {
             Expanded(
               child: Text(
                 _t('layout.search.history', '\u641c\u7d22\u5386\u53f2'),
-                style: const TextStyle(
-                  color: Colors.white,
+                style: TextStyle(
+                  color: colors.textPrimary,
                   fontSize: 18,
                   fontWeight: FontWeight.w600,
                 ),
@@ -311,7 +346,7 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
             IconButton(
               onPressed: _clearHistory,
-              icon: const Icon(Icons.delete_outline, color: Color(0xFF9FB2CC)),
+              icon: Icon(Icons.delete_outline, color: colors.textSecondary),
             ),
           ],
         ),
@@ -335,13 +370,13 @@ class _SearchScreenState extends State<SearchScreen> {
                       vertical: 10,
                     ),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF243142),
+                      color: colors.surface,
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
                       entry,
-                      style: const TextStyle(
-                        color: Color(0xFFD8E3F2),
+                      style: TextStyle(
+                        color: colors.textPrimary,
                         fontSize: 16,
                         fontWeight: FontWeight.w500,
                       ),
@@ -356,11 +391,12 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Widget _buildResultsGrid(NasProvider provider, MediaLayoutProfile layout) {
+    final colors = context.appColors;
     if (_query.trim().isEmpty) {
       return _buildHistorySection();
     }
     if (_isSearching) {
-      return const Center(child: CircularProgressIndicator());
+      return Center(child: CircularProgressIndicator(color: colors.accent));
     }
     if (_error != null) {
       return AppErrorState(
@@ -375,7 +411,7 @@ class _SearchScreenState extends State<SearchScreen> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            color: const Color(0xFF243142),
+            color: colors.surface,
             borderRadius: BorderRadius.circular(10),
           ),
           child: Text(
@@ -384,8 +420,8 @@ class _SearchScreenState extends State<SearchScreen> {
               '{count}\u4e2a\u641c\u7d22\u7ed3\u679c',
               params: <String, Object?>{'count': _results.length},
             ),
-            style: const TextStyle(
-              color: Color(0xFFD8E3F2),
+            style: TextStyle(
+              color: colors.textPrimary,
               fontSize: 14,
               fontWeight: FontWeight.w600,
             ),
@@ -416,12 +452,16 @@ class _SearchScreenState extends State<SearchScreen> {
                 subtitle: _cardSubtitle(item),
                 rating: rating,
                 resolutions: item.resolutions,
+                watched: item.watched == 1,
                 imageHeight: layout.categoryGridImageHeight,
                 titleFontSize: layout.homePosterTitleFontSize,
                 subtitleFontSize: layout.homePosterSubtitleFontSize,
                 expandImageToFit: false,
                 imageFit: _isEpisodeItem(item) ? BoxFit.contain : BoxFit.cover,
                 onTap: () => _openItemDetail(item),
+                onLongPress: () {
+                  _showPosterItemActions(item);
+                },
               );
             },
           ),
@@ -434,8 +474,9 @@ class _SearchScreenState extends State<SearchScreen> {
   Widget build(BuildContext context) {
     final provider = context.read<NasProvider>();
     final layout = MediaLayoutProfile.of(context);
+    final colors = context.appColors;
     return Scaffold(
-      backgroundColor: const Color(0xFF1B222C),
+      backgroundColor: colors.backgroundBase,
       body: SafeArea(
         bottom: false,
         child: Padding(
@@ -449,19 +490,16 @@ class _SearchScreenState extends State<SearchScreen> {
                     child: Container(
                       height: 48,
                       decoration: BoxDecoration(
-                        color: const Color(0xFF141C26),
+                        color: colors.backgroundElevated,
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: const Color(0xFF2D87FF),
-                          width: 1.2,
-                        ),
+                        border: Border.all(color: colors.accent, width: 1.2),
                       ),
                       child: Row(
                         children: [
                           const SizedBox(width: 12),
-                          const Icon(
+                          Icon(
                             Icons.search,
-                            color: Color(0xFFAFC0D8),
+                            color: colors.textSecondary,
                             size: 24,
                           ),
                           const SizedBox(width: 10),
@@ -472,8 +510,8 @@ class _SearchScreenState extends State<SearchScreen> {
                               onChanged: _onQueryChanged,
                               onSubmitted: (value) =>
                                   unawaited(_performSearch(value)),
-                              style: const TextStyle(
-                                color: Colors.white,
+                              style: TextStyle(
+                                color: colors.textPrimary,
                                 fontSize: 18,
                               ),
                               decoration: InputDecoration(
@@ -483,8 +521,8 @@ class _SearchScreenState extends State<SearchScreen> {
                                   'layout.search.placeholder',
                                   '\u641c\u7d22',
                                 ),
-                                hintStyle: const TextStyle(
-                                  color: Color(0xFF6D7B8D),
+                                hintStyle: TextStyle(
+                                  color: colors.textMuted,
                                   fontSize: 18,
                                 ),
                               ),
@@ -496,9 +534,9 @@ class _SearchScreenState extends State<SearchScreen> {
                                 _controller.clear();
                                 _onQueryChanged('');
                               },
-                              icon: const Icon(
+                              icon: Icon(
                                 Icons.cancel,
-                                color: Color(0xFF94A4B8),
+                                color: colors.textSecondary,
                                 size: 24,
                               ),
                             ),
@@ -508,11 +546,17 @@ class _SearchScreenState extends State<SearchScreen> {
                   ),
                   const SizedBox(width: 12),
                   InkWell(
-                    onTap: () => Navigator.of(context).maybePop(),
+                    onTap: () {
+                      unawaited(
+                        widget.secondaryHost
+                            ? EmbeddedDetailLauncher.closeHostOrPop(context)
+                            : Navigator.of(context).maybePop(),
+                      );
+                    },
                     child: Text(
                       _t('common.actions.cancel', '\u53d6\u6d88'),
-                      style: const TextStyle(
-                        color: Colors.white,
+                      style: TextStyle(
+                        color: colors.textPrimary,
                         fontSize: 18,
                         fontWeight: FontWeight.w500,
                       ),

@@ -40,6 +40,10 @@ flutter
 lib.rar
 probe_*
 tmp_*
+.codex_tmp/
+capture/
+/android/build/
+/android/.kotlin/
 
 # Symbolication related
 app.*.symbols

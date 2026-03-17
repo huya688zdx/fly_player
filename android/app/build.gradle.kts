@@ -57,6 +57,9 @@ android {
 }
 
 dependencies {
+    implementation("androidx.media:media:1.7.0")
+    implementation("androidx.palette:palette-ktx:1.0.0")
+    implementation("androidx.window:window:1.3.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.nanohttpd:nanohttpd:2.3.1")
 }

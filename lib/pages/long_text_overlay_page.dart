@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/nas_provider.dart';
-import '../theme/detail_tokens.dart';
-import '../ui/app_transitions.dart';
+import '../theme/app_theme.dart';
+import '../ui/app_sheet_transitions.dart';
 import '../utils/media_locale_store.dart';
 
 class LongTextOverlayPage extends StatelessWidget {
@@ -31,6 +31,7 @@ class LongTextOverlayPage extends StatelessWidget {
     final provider = context.read<NasProvider>();
     final localeMap = await MediaLocaleStore.load(provider);
     if (!context.mounted) return;
+    final inheritedTheme = Theme.of(context);
 
     final media = MediaQuery.of(context);
     final isLandscape = media.size.width > media.size.height;
@@ -47,11 +48,17 @@ class LongTextOverlayPage extends StatelessWidget {
         context: context,
         barrierDismissible: true,
         barrierColor: const Color(0xBF020812),
-        builder: (_) => page,
+        builder: (_) => Theme(data: inheritedTheme, child: page),
       );
     }
 
-    return AppTransitions.showDrawerSheet<void>(context, builder: (_) => page);
+    return AppSheetTransitions.showBottomSurface<void>(
+      context,
+      barrierDismissible: true,
+      barrierLabel: sectionTitle,
+      barrierColor: const Color(0xBF020812),
+      builder: (_) => Theme(data: inheritedTheme, child: page),
+    );
   }
 
   String _t(
@@ -69,6 +76,7 @@ class LongTextOverlayPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final media = MediaQuery.of(context);
     final panelHeight = (media.size.height * 0.72).clamp(420.0, 760.0);
     final panelDialogHeight = (media.size.height * 0.68).clamp(360.0, 700.0);
@@ -79,8 +87,10 @@ class LongTextOverlayPage extends StatelessWidget {
 
     final child = Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF1F2834),
-        borderRadius: BorderRadius.circular(floating ? 28 : 26),
+        color: colors.backgroundElevated,
+        borderRadius: floating
+            ? BorderRadius.circular(28)
+            : const BorderRadius.vertical(top: Radius.circular(26)),
       ),
       child: SafeArea(
         top: false,
@@ -99,8 +109,8 @@ class LongTextOverlayPage extends StatelessWidget {
                   const Spacer(),
                   Text(
                     sectionTitle,
-                    style: const TextStyle(
-                      color: DetailTokens.textPrimary,
+                    style: TextStyle(
+                      color: colors.textPrimary,
                       fontSize: 20,
                       fontWeight: FontWeight.w500,
                     ),
@@ -109,11 +119,11 @@ class LongTextOverlayPage extends StatelessWidget {
                   InkWell(
                     onTap: () => Navigator.of(context).maybePop(),
                     borderRadius: BorderRadius.circular(14),
-                    child: const Padding(
-                      padding: EdgeInsets.all(4),
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
                       child: Icon(
                         Icons.close,
-                        color: Color(0xFFB2C0D2),
+                        color: colors.textSecondary,
                         size: 28,
                       ),
                     ),
@@ -126,8 +136,8 @@ class LongTextOverlayPage extends StatelessWidget {
                   physics: const BouncingScrollPhysics(),
                   child: Text(
                     bodyText,
-                    style: const TextStyle(
-                      color: Color(0xFFC4D0DE),
+                    style: TextStyle(
+                      color: colors.textSecondary,
                       fontSize: 19,
                       height: 1.42,
                       fontWeight: FontWeight.w500,

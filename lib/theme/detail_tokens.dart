@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'app_theme.dart';
+
 class DetailTokens {
   DetailTokens._();
 
@@ -89,4 +91,117 @@ class DetailTokens {
     colors: [Color(0x59223550), Color(0xCC07101B), Color(0xEE07101B)],
     stops: [0.0, 0.56, 1.0],
   );
+
+  static Color pageBackgroundOf(BuildContext context) {
+    return context.appColors.backgroundBase;
+  }
+
+  static Color panelBackgroundOf(BuildContext context) {
+    return context.appColors.surface;
+  }
+
+  static Color topButtonBackgroundOf(BuildContext context) {
+    final colors = context.appColors;
+    return Color.alphaBlend(
+      colors.surfaceSubtle.withValues(alpha: 0.74),
+      colors.overlayScrim.withValues(alpha: 0.42),
+    );
+  }
+
+  static Color topButtonBorderOf(BuildContext context) {
+    return context.appColors.borderStrong;
+  }
+
+  static Color circleButtonBackgroundOf(BuildContext context) {
+    final colors = context.appColors;
+    return Color.alphaBlend(
+      colors.surface.withValues(alpha: 0.62),
+      colors.overlayScrim.withValues(alpha: 0.18),
+    );
+  }
+
+  static Color circleButtonBorderOf(BuildContext context) {
+    return context.appColors.borderStrong;
+  }
+
+  static Color progressTrackOf(BuildContext context) {
+    final isLight = context.appColors.backgroundBase.computeLuminance() >= 0.58;
+    return isLight ? const Color(0x22172030) : const Color(0x33FFFFFF);
+  }
+
+  static Color imageProgressTrackOf(BuildContext context) {
+    return const Color(0x52FFFFFF);
+  }
+
+  static Color imageProgressBorderOf(BuildContext context) {
+    return const Color(0x7AFFFFFF);
+  }
+
+  static Color progressActiveOf(BuildContext context) {
+    return context.appColors.accent;
+  }
+
+  static Color primaryButtonOf(BuildContext context) {
+    return context.appColors.accent;
+  }
+
+  static Color primaryButtonDisabledOf(BuildContext context) {
+    return context.appColors.textMuted.withValues(alpha: 0.42);
+  }
+
+  static Color chipBackgroundOf(BuildContext context) {
+    return context.appColors.chipBackground;
+  }
+
+  static Color chipBorderOf(BuildContext context) {
+    return context.appColors.chipBorder;
+  }
+
+  static Color chipSelectedBorderOf(BuildContext context) {
+    return context.appColors.selection;
+  }
+
+  static Color chipTextOf(BuildContext context) {
+    return context.appColors.chipText;
+  }
+
+  static Color chipSelectedTextOf(BuildContext context) {
+    return context.appColors.selectionStrong;
+  }
+
+  static Color selectorTextOf(BuildContext context) {
+    return context.appColors.textPrimary;
+  }
+
+  static Color selectorIconOf(BuildContext context) {
+    return context.appColors.textSecondary;
+  }
+
+  static LinearGradient heroOverlayGradientOf(BuildContext context) {
+    final colors = context.appColors;
+    return LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        Colors.transparent,
+        colors.overlayScrim.withValues(alpha: 0.30),
+        colors.backgroundBase,
+      ],
+      stops: const [0.0, 0.6, 1.0],
+    );
+  }
+
+  static LinearGradient glassPanelGradientOf(BuildContext context) {
+    final colors = context.appColors;
+    return LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        colors.surfaceStrong.withValues(alpha: 0.42),
+        colors.backgroundElevated.withValues(alpha: 0.88),
+        colors.backgroundBase.withValues(alpha: 0.94),
+      ],
+      stops: const [0.0, 0.56, 1.0],
+    );
+  }
 }
