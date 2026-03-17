@@ -26,6 +26,8 @@ class MpvPlayerView(
     private val methodChannel = MethodChannel(messenger, "fly_player/mpv_view_$viewId/methods")
     private val eventChannel = EventChannel(messenger, "fly_player/mpv_view_$viewId/events")
     private var eventSink: EventChannel.EventSink? = null
+    @Volatile
+    private var disposed = false
     private var latestState = MpvPlayerState(
         nativeLibLoaded = mpv.isAvailable(),
         statusText = if (mpv.isAvailable()) {
@@ -62,13 +64,17 @@ class MpvPlayerView(
     override fun getView(): View = rootView
 
     override fun dispose() {
+        if (disposed) return
+        disposed = true
         methodChannel.setMethodCallHandler(null)
+        eventChannel.setStreamHandler(null)
         surfaceView.holder.removeCallback(this)
         eventSink = null
         controller.dispose()
     }
 
     override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
+        if (disposed) return
         eventSink = events
         eventSink?.success(latestState.toMap())
     }
@@ -78,10 +84,16 @@ class MpvPlayerView(
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
+        if (disposed) {
+            result.success(null)
+            return
+        }
         when (call.method) {
-            "getState" -> result.success(controller.getStateMap())
+            "getState" -> result.success(latestState.toMap())
             "getPlaybackDiagnostics" -> result.success(controller.getPlaybackDiagnosticsMap())
+            "getPerformanceOverlayStats" -> result.success(controller.getPerformanceOverlayStatsMap())
             "getChapters" -> result.success(controller.getChapters())
+            "captureFrame" -> result.success(controller.captureFrame(methodArgumentsMap(call)))
             "load" -> {
                 controller.load(methodArgumentsMap(call))
                 result.success(null)
@@ -119,6 +131,11 @@ class MpvPlayerView(
                 controller.setSubtitleDelay(args["delay"].toDoubleValue())
                 result.success(null)
             }
+            "setAudioDelay" -> {
+                val args = methodArgumentsMap(call)
+                controller.setAudioDelay(args["delay"].toDoubleValue())
+                result.success(null)
+            }
             "setSubtitlePosition" -> {
                 val args = methodArgumentsMap(call)
                 controller.setSubtitlePosition(args["position"].toIntValue())
@@ -148,19 +165,30 @@ class MpvPlayerView(
                 controller.setSpeed(args["speed"].toDoubleValue())
                 result.success(null)
             }
+            "setVideoAdjustments" -> {
+                controller.setVideoAdjustments(methodArgumentsMap(call))
+                result.success(null)
+            }
+            "setMpvAdvancedSettings" -> {
+                controller.setMpvAdvancedSettings(methodArgumentsMap(call))
+                result.success(null)
+            }
             else -> result.notImplemented()
         }
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
+        if (disposed) return
         controller.surfaceCreated(holder)
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+        if (disposed) return
         controller.surfaceChanged(holder, format, width, height)
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
+        if (disposed) return
         controller.surfaceDestroyed(holder)
     }
 

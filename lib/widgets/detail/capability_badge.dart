@@ -3,7 +3,6 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../theme/detail_tokens.dart';
 import '../../ui/capability_badge_mapper.dart';
-import 'detail_tag_chip.dart';
 
 class CapabilityBadge extends StatelessWidget {
   final String label;
@@ -29,6 +28,24 @@ class CapabilityBadge extends StatelessWidget {
         child: SvgPicture.asset(asset, fit: BoxFit.contain),
       );
     }
-    return DetailTagChip(label: normalized, compact: true);
+    return Container(
+      height: badgeHeight,
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      decoration: BoxDecoration(
+        color: Colors.transparent,
+        borderRadius: DetailTokens.compactChipRadius,
+        border: Border.all(color: const Color(0xFFD6DEE8), width: 1),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        normalized,
+        style: const TextStyle(
+          color: Color(0xFFD6DEE8),
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
+          height: 1,
+        ),
+      ),
+    );
   }
 }

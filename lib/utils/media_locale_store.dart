@@ -12,7 +12,7 @@ class MediaLocaleStore {
 
   static Future<Map<String, dynamic>> load(
     NasProvider provider, {
-    String locale = 'en',
+    String locale = 'zh-CN',
     bool forceRefresh = false,
   }) {
     final key = _cacheKey(provider, locale);

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/app_theme.dart';
 import '../../theme/detail_tokens.dart';
 import '../../ui/adaptive_text.dart';
 
@@ -19,6 +20,7 @@ class DetailMetaLines extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final metaSize = AdaptiveText.roleSize(DetailTokens.metaFontSize);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -28,7 +30,7 @@ class DetailMetaLines extends StatelessWidget {
           maxLines: metaLineAMaxLines,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            color: DetailTokens.textSecondary,
+            color: colors.textSecondary,
             fontSize: metaSize,
             fontWeight: FontWeight.w500,
             height: 1.28,
@@ -41,7 +43,7 @@ class DetailMetaLines extends StatelessWidget {
             maxLines: metaLineBMaxLines,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: DetailTokens.textSecondary,
+              color: colors.textSecondary,
               fontSize: metaSize,
               fontWeight: FontWeight.w500,
               height: 1.28,

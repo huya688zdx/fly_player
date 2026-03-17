@@ -6,10 +6,16 @@ import 'package:provider/provider.dart';
 
 import '../api/feiniu_api.dart';
 import '../providers/nas_provider.dart';
+import '../theme/app_theme.dart';
+import '../ui/app_transitions.dart';
 import '../utils/action_rate_limiter.dart';
 import '../utils/api_url_helper.dart';
+import '../utils/app_error_reporter.dart';
+import '../utils/app_exception.dart';
 import '../utils/detail_top_tip.dart';
 import '../utils/media_locale_store.dart';
+import '../services/login_history_store.dart';
+import 'fn_connect_web_login_page.dart';
 
 class ConnectionScreen extends StatefulWidget {
   const ConnectionScreen({super.key});
@@ -32,17 +38,19 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   bool _obscurePassword = true;
   bool _isSubmitting = false;
   Map<String, dynamic> _localeMap = const <String, dynamic>{};
+  List<LoginHistoryEntry> _historyEntries = const <LoginHistoryEntry>[];
 
   @override
   void initState() {
     super.initState();
     final provider = context.read<NasProvider>();
-    _baseUrlController.text = provider.baseUrl;
+    _baseUrlController.text = provider.sourceBaseUrl;
     _userNameController.text = provider.userName;
     _passwordController.text = provider.password;
     _rememberPassword = provider.rememberPassword;
-    _useHttps = _looksLikeHttps(provider.baseUrl);
+    _useHttps = _looksLikeHttps(provider.sourceBaseUrl);
     _loadLocaleMap();
+    _loadLoginHistory();
   }
 
   @override
@@ -80,6 +88,14 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     } catch (_) {}
   }
 
+  Future<void> _loadLoginHistory() async {
+    final entries = await LoginHistoryStore.load();
+    if (!mounted) return;
+    setState(() {
+      _historyEntries = entries;
+    });
+  }
+
   void _showTopTip(String message, Color color) {
     if (!mounted || message.trim().isEmpty) return;
     _topTip.show(context, message: message, color: color);
@@ -103,21 +119,21 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     if (baseUrl.isEmpty) {
       _showTopTip(
         _t(_localeMap, 'layout.editMetadata.validation.required', '请输入服务器地址'),
-        const Color(0xFFD64545),
+        context.appColors.danger,
       );
       return;
     }
     if (userName.isEmpty) {
       _showTopTip(
         _t(_localeMap, 'common.validation.userName.empty', '请输入用户名'),
-        const Color(0xFFD64545),
+        context.appColors.danger,
       );
       return;
     }
     if (password.isEmpty) {
       _showTopTip(
         _t(_localeMap, 'common.validation.password.empty', '请输入密码'),
-        const Color(0xFFD64545),
+        context.appColors.danger,
       );
       return;
     }
@@ -128,21 +144,52 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     });
 
     try {
-      final token = await FeiniuApi.loginWithBaseUrl(
+      final loginResult = await FeiniuApi.loginWithBaseUrl(
         baseUrl: baseUrl,
         userName: userName,
         password: password,
       );
       if (!mounted) return;
-      await context.read<NasProvider>().updateSettings(
+      await _applyLoginResult(
+        sourceBaseUrl: baseUrl,
+        userName: userName,
+        password: password,
+        loginResult: loginResult,
+      );
+    } on FnConnectLoginException catch (error) {
+      final fallbackResult = await _tryFnConnectWebFallback(
         baseUrl: baseUrl,
         userName: userName,
         password: password,
-        rememberPassword: _rememberPassword,
-        token: token,
+        error: error,
       );
-    } catch (e) {
-      _showTopTip(_resolveLoginError(e), const Color(0xFFD64545));
+      if (!mounted) return;
+      if (fallbackResult?.isSuccess == true) {
+        await _applyLoginResult(
+          sourceBaseUrl: baseUrl,
+          userName: userName,
+          password: password,
+          loginResult: fallbackResult!.loginResult!,
+        );
+      } else if (fallbackResult?.errorMessage?.trim().isNotEmpty == true) {
+        _showTopTip(
+          fallbackResult!.errorMessage!.trim(),
+          context.appColors.danger,
+        );
+      } else {
+        _showTopTip(_resolveLoginError(error), context.appColors.danger);
+      }
+    } catch (error, stackTrace) {
+      if (!mounted) return;
+      await AppErrorReporter.showTopTip(
+        context,
+        _topTip,
+        error: error,
+        action: 'login',
+        source: 'connection_screen',
+        stackTrace: stackTrace,
+        fallbackKind: AppExceptionKind.unauthorized,
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -152,8 +199,130 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     }
   }
 
+  Future<void> _applyLoginResult({
+    required String sourceBaseUrl,
+    required String userName,
+    required String password,
+    required LoginWithBaseUrlResult loginResult,
+  }) async {
+    await context.read<NasProvider>().updateSettings(
+      baseUrl: sourceBaseUrl,
+      resolvedBaseUrl: loginResult.resolvedBaseUrl,
+      userName: userName,
+      password: password,
+      rememberPassword: _rememberPassword,
+      token: loginResult.token,
+    );
+    final entries = await LoginHistoryStore.save(
+      LoginHistoryEntry(
+        baseUrl: sourceBaseUrl,
+        userName: userName,
+        password: _rememberPassword ? password : '',
+        rememberPassword: _rememberPassword,
+        updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
+      ),
+    );
+    if (!mounted) return;
+    setState(() {
+      _historyEntries = entries;
+    });
+  }
+
+  Future<void> _showLoginHistorySheet() async {
+    final selected = await showModalBottomSheet<LoginHistoryEntry>(
+      context: context,
+      backgroundColor: const Color(0xFF16202C),
+      barrierColor: Colors.black.withValues(alpha: 0.56),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) {
+        return _LoginHistorySheet(
+          entries: _historyEntries,
+          onDelete: (entry) async {
+            final entries = await LoginHistoryStore.remove(entry);
+            if (!mounted) return;
+            setState(() {
+              _historyEntries = entries;
+            });
+            if (!sheetContext.mounted) return;
+            Navigator.of(sheetContext).pop();
+          },
+          onClear: () async {
+            await LoginHistoryStore.clear();
+            if (!mounted) return;
+            setState(() {
+              _historyEntries = const <LoginHistoryEntry>[];
+            });
+            if (!sheetContext.mounted) return;
+            Navigator.of(sheetContext).pop();
+          },
+        );
+      },
+    );
+    if (!mounted || selected == null) return;
+    _baseUrlController.text = selected.baseUrl;
+    _userNameController.text = selected.userName;
+    _passwordController.text = selected.rememberPassword
+        ? selected.password
+        : '';
+    setState(() {
+      _rememberPassword = selected.rememberPassword;
+      _useHttps = _looksLikeHttps(selected.baseUrl);
+    });
+  }
+
+  Future<FnConnectWebLoginPageResult?> _tryFnConnectWebFallback({
+    required String baseUrl,
+    required String userName,
+    required String password,
+    required FnConnectLoginException error,
+  }) async {
+    final fnConnectId = FeiniuApi.extractFnConnectIdFromInput(baseUrl);
+    if (fnConnectId == null || error.error.isUnauthorized) {
+      return null;
+    }
+    if (!_shouldUseFnConnectWebFallback(error)) {
+      return null;
+    }
+    if (!mounted) {
+      return null;
+    }
+    return Navigator.of(context).push<FnConnectWebLoginPageResult>(
+      AppTransitions.leftToRightPageTurnRoute<FnConnectWebLoginPageResult>(
+        FnConnectWebLoginPage(
+          fnConnectId: fnConnectId,
+          userName: userName,
+          password: password,
+        ),
+        fullscreenDialog: true,
+      ),
+    );
+  }
+
+  bool _shouldUseFnConnectWebFallback(FnConnectLoginException error) {
+    final message = error.error.message.toLowerCase();
+    if (message.contains('relay-only')) return true;
+    if (message.contains('web-only')) return true;
+    if (message.contains('none of them were reachable')) return true;
+    if (message.contains('direct api address')) return true;
+
+    final hasAttempts = error.diagnostic.attempts.isNotEmpty;
+    final hasReachabilityFailure = error.diagnostic.attempts.any((attempt) {
+      final status = attempt.status.toLowerCase();
+      return status == 'connection' ||
+          status == 'timeout' ||
+          status == 'transient' ||
+          status == 'redirect' ||
+          status.startsWith('http-');
+    });
+    return hasAttempts && hasReachabilityFailure;
+  }
+
   String _resolveLoginError(Object error) {
-    final raw = error.toString().replaceFirst('Exception: ', '').trim();
+    final raw = error is FnConnectLoginException
+        ? error.error.message.trim()
+        : error.toString().replaceFirst('Exception: ', '').trim();
     final message = raw.toLowerCase();
 
     if (message.contains('password incorrect') ||
@@ -182,6 +351,12 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       return _t(_localeMap, 'auth.login.validationFailed', '验证失败');
     }
 
+    if (message.contains('fn connect') ||
+        message.contains('302') ||
+        message.contains('redirection')) {
+      return raw;
+    }
+
     if (_containsChinese(raw)) {
       return raw;
     }
@@ -196,6 +371,10 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   String _normalizeBaseUrlInput(String raw) {
     final trimmed = raw.trim();
     if (trimmed.isEmpty) return '';
+    final fnConnectId = FeiniuApi.extractFnConnectIdFromInput(trimmed);
+    if (fnConnectId != null) {
+      return fnConnectId;
+    }
     final withScheme = trimmed.contains('://')
         ? trimmed
         : '${_useHttps ? 'https' : 'http'}://$trimmed';
@@ -271,21 +450,12 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                           textInputAction: TextInputAction.next,
                           autofillHints: const <String>[AutofillHints.url],
                           suffix: IconButton(
-                            onPressed: () {
-                              final normalized = _rewriteScheme(
-                                _baseUrlController.text,
-                                _useHttps,
-                              );
-                              _baseUrlController.value = TextEditingValue(
-                                text: normalized,
-                                selection: TextSelection.collapsed(
-                                  offset: normalized.length,
-                                ),
-                              );
-                            },
-                            icon: const Icon(
+                            onPressed: _showLoginHistorySheet,
+                            icon: Icon(
                               Icons.history_rounded,
-                              color: Color(0xFF7C8DA5),
+                              color: _historyEntries.isEmpty
+                                  ? const Color(0xFF58687C)
+                                  : const Color(0xFF7C8DA5),
                             ),
                           ),
                         ),
@@ -522,6 +692,149 @@ class _LoginBackdrop extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _LoginHistorySheet extends StatelessWidget {
+  final List<LoginHistoryEntry> entries;
+  final ValueChanged<LoginHistoryEntry> onDelete;
+  final Future<void> Function() onClear;
+
+  const _LoginHistorySheet({
+    required this.entries,
+    required this.onDelete,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.72,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 12, 18, 22),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 44,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF415064),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  const Text(
+                    '登录历史',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (entries.isNotEmpty)
+                    TextButton(
+                      onPressed: () => onClear(),
+                      child: const Text(
+                        '清空',
+                        style: TextStyle(color: Color(0xFF8FB7FF)),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (entries.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(0, 18, 0, 8),
+                  child: Text(
+                    '暂无登录历史',
+                    style: TextStyle(
+                      color: Color(0xFF9EADBE),
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                )
+              else
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: entries.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      final entry = entries[index];
+                      return Material(
+                        color: const Color(0xFF232D3A),
+                        borderRadius: BorderRadius.circular(16),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(16),
+                          onTap: () => Navigator.of(context).pop(entry),
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.dns_rounded,
+                                  color: Color(0xFF8FB7FF),
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        entry.baseUrl,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        entry.userName,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Color(0xFF9EADBE),
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  onPressed: () => onDelete(entry),
+                                  icon: const Icon(
+                                    Icons.delete_outline_rounded,
+                                    color: Color(0xFF7C8DA5),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

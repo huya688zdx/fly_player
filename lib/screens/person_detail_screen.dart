@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -7,11 +7,17 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../api/feiniu_api.dart';
+import '../controllers/media_item_action_sheet_controller.dart';
 import '../models/media_library_item.dart';
 import '../models/person_detail_profile.dart';
 import '../pages/long_text_overlay_page.dart';
+import '../providers/app_theme_provider.dart';
 import '../providers/nas_provider.dart';
-import '../ui/app_transitions.dart';
+import '../services/embedded_detail_launcher.dart';
+import '../theme/app_theme.dart';
+import '../theme/detail_tokens.dart';
+import '../ui/adaptive_detail_navigator.dart';
+import '../ui/detail_presentation.dart';
 import '../ui/layout_adaptive.dart';
 import '../ui/media_poster_card.dart';
 import '../utils/api_url_helper.dart';
@@ -21,19 +27,21 @@ import '../utils/media_locale_store.dart';
 import '../utils/media_locale_text.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/detail/detail_header.dart';
+import '../widgets/detail/dynamic_page_theme_scope.dart';
 import '../widgets/detail/link_section.dart';
-import 'play_detail_screen.dart';
 
 class PersonDetailScreen extends StatefulWidget {
   final String personGuid;
   final String initialName;
   final Map<String, dynamic> initialLocaleMap;
+  final DetailPresentation presentation;
 
   const PersonDetailScreen({
     super.key,
     required this.personGuid,
     this.initialName = '',
     this.initialLocaleMap = const <String, dynamic>{},
+    this.presentation = DetailPresentation.page,
   });
 
   @override
@@ -65,6 +73,8 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
   int _jobLoadVersion = 0;
   final ScrollController _scrollController = ScrollController();
   final ValueNotifier<double> _scrollOffsetNotifier = ValueNotifier<double>(0);
+
+  bool get _isPane => widget.presentation == DetailPresentation.pane;
 
   @override
   void initState() {
@@ -226,6 +236,41 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
     }
   }
 
+  void _replaceWorkItemLocally(
+    String itemGuid,
+    MediaLibraryItem Function(MediaLibraryItem item) transform,
+  ) {
+    if (!mounted) return;
+    setState(() {
+      _jobPages = _jobPages.map((job, page) {
+        final updatedItems = page.items
+            .map((item) => item.guid == itemGuid ? transform(item) : item)
+            .toList(growable: false);
+        return MapEntry(
+          job,
+          ItemListPage(total: page.total, items: updatedItems),
+        );
+      });
+    });
+  }
+
+  Future<void> _showWorkItemActions(MediaLibraryItem item) async {
+    await const MediaItemActionSheetController().show(
+      context,
+      item: item,
+      title: MediaItemActionSheetController.defaultTitle(item),
+      localeMap: _localeMap,
+      favoriteOnly: false,
+      initialWatched: item.watched == 1,
+      onChanged: (state) {
+        _replaceWorkItemLocally(
+          item.guid,
+          (current) => current.copyWith(watched: state.watched ? 1 : 0),
+        );
+      },
+    );
+  }
+
   String _jobTitle(String rawJob) {
     final key = rawJob.toLowerCase();
     final jobText = _t('common.person.job.$key', _jobFallback[key] ?? rawJob);
@@ -278,14 +323,13 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
       ).getItemDetail(item.guid).timeout(const Duration(milliseconds: 240));
     } catch (_) {}
     if (!mounted) return;
-    Navigator.of(context).push(
-      AppTransitions.leftToRightPageTurnRoute(
-        PlayDetailScreen(
-          itemGuid: item.guid,
-          heroTag: null,
-          initialItemDetail: initialDetail,
-        ),
+    AdaptiveDetailNavigator.open<void>(
+      context,
+      AdaptiveDetailRequest.item(
+        itemGuid: item.guid,
+        initialItemDetail: initialDetail,
       ),
+      presentation: _isPane ? DetailPresentation.pane : DetailPresentation.page,
     );
   }
 
@@ -294,235 +338,265 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
       urls: urls,
       token: token,
       fallback: Container(
-        color: const Color(0xFF202A36),
+        color: context.appColors.surfaceStrong,
         alignment: Alignment.center,
-        child: const Icon(Icons.person, color: Colors.white38, size: 42),
+        child: Icon(Icons.person, color: context.appColors.textMuted, size: 42),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = context.watch<AppThemeProvider>();
     final provider = context.read<NasProvider>();
-    final layout = MediaLayoutProfile.of(context);
-    final person = _person;
-    final media = MediaQuery.of(context);
-    final screenWidth = media.size.width;
-    final profileWidth = (screenWidth * 0.34).clamp(118.0, 148.0);
-    final profileHeight = profileWidth * 1.42;
-    final topContentInset = media.padding.top + kToolbarHeight + 8;
-    final title = person?.displayName ?? widget.initialName;
-    final body = _isLoading
-        ? const Center(child: CircularProgressIndicator())
-        : _isNoDataError(_error) || person == null
-        ? AppErrorState(
-            error: const AppException(
-              kind: AppExceptionKind.noData,
-              action: 'person detail',
-              message: 'No data',
-            ),
-            localeMap: _localeMap,
-          )
-        : _error != null
-        ? AppErrorState(
-            error: _error!,
-            localeMap: _localeMap,
-            onRetry: _loadData,
-          )
-        : CustomScrollView(
-            controller: _scrollController,
-            slivers: <Widget>[
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(16, topContentInset, 16, 10),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(14),
-                        child: SizedBox(
-                          width: profileWidth,
-                          height: profileHeight,
-                          child: _buildProfileImage(
-                            _imageCandidates(
-                              provider.baseUrl,
-                              person.profilePath,
-                              width: 460,
-                            ),
-                            provider.token,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: <Widget>[
-                            Text(
-                              person.displayName,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 42 / 2,
-                                fontWeight: FontWeight.w700,
-                                height: 1.08,
-                              ),
-                            ),
-                            if (person.originalName
-                                .trim()
-                                .isNotEmpty) ...<Widget>[
-                              const SizedBox(height: 4),
-                              Text(
-                                person.originalName,
-                                style: const TextStyle(
-                                  color: Color(0xFFCBD8E8),
-                                  fontSize: 32 / 2,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                            const SizedBox(height: 6),
-                            _buildBiographyPreview(person),
-                            const SizedBox(height: 8),
-                            Align(
-                              alignment: Alignment.centerLeft,
-                              child: SizedBox(
-                                width: 54,
-                                height: 54,
-                                child: OutlinedButton(
-                                  style: OutlinedButton.styleFrom(
-                                    padding: EdgeInsets.zero,
-                                    shape: const CircleBorder(),
-                                    side: const BorderSide(
-                                      color: Color(0x447E93AE),
-                                    ),
-                                  ),
-                                  onPressed: _favoriteUpdating
-                                      ? null
-                                      : _toggleFavorite,
-                                  child: Icon(
-                                    person.isFavorite
-                                        ? Icons.favorite
-                                        : Icons.favorite_border,
-                                    color: person.isFavorite
-                                        ? const Color(0xFFFF4D6D)
-                                        : Colors.white,
-                                    size: 26,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+    final dynamicThemeUrls =
+        _person == null || _person!.profilePath.trim().isEmpty
+        ? const <String>[]
+        : _imageCandidates(provider.baseUrl, _person!.profilePath, width: 240);
+
+    return DynamicPageThemeScope(
+      pageKey: widget.personGuid,
+      imageUrl: dynamicThemeUrls.isNotEmpty ? dynamicThemeUrls.first : '',
+      token: provider.token,
+      enabled: themeProvider.dynamicThemeEnabled,
+      syncGlobalTheme: _isPane,
+      intensity: themeProvider.dynamicThemeIntensity,
+      builder: (context, _) {
+        final colors = context.appColors;
+        final layout = MediaLayoutProfile.of(context);
+        final person = _person;
+        final media = MediaQuery.of(context);
+        final screenWidth = media.size.width;
+        final profileWidth = (screenWidth * 0.34).clamp(118.0, 148.0);
+        final profileHeight = profileWidth * 1.42;
+        final topContentInset = media.padding.top + kToolbarHeight + 8;
+        final title = person?.displayName ?? widget.initialName;
+        final body = _isLoading
+            ? Center(child: CircularProgressIndicator(color: colors.accent))
+            : _isNoDataError(_error) || person == null
+            ? AppErrorState(
+                error: const AppException(
+                  kind: AppExceptionKind.noData,
+                  action: 'person detail',
+                  message: 'No data',
                 ),
-              ),
-              for (final job in _jobs) ...<Widget>[
-                if ((_jobPages[job]?.items.isNotEmpty ?? false))
+                localeMap: _localeMap,
+              )
+            : _error != null
+            ? AppErrorState(
+                error: _error!,
+                localeMap: _localeMap,
+                onRetry: _loadData,
+              )
+            : CustomScrollView(
+                controller: _scrollController,
+                slivers: <Widget>[
                   SliverToBoxAdapter(
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
-                      child: Text(
-                        _jobTitle(job),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 36 / 2,
-                          fontWeight: FontWeight.w700,
+                      padding: EdgeInsets.fromLTRB(16, topContentInset, 16, 10),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(14),
+                            child: SizedBox(
+                              width: profileWidth,
+                              height: profileHeight,
+                              child: _buildProfileImage(
+                                _imageCandidates(
+                                  provider.baseUrl,
+                                  person.profilePath,
+                                  width: 460,
+                                ),
+                                provider.token,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                Text(
+                                  person.displayName,
+                                  style: TextStyle(
+                                    color: colors.textPrimary,
+                                    fontSize: 42 / 2,
+                                    fontWeight: FontWeight.w700,
+                                    height: 1.08,
+                                  ),
+                                ),
+                                if (person.originalName
+                                    .trim()
+                                    .isNotEmpty) ...<Widget>[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    person.originalName,
+                                    style: TextStyle(
+                                      color: colors.textSecondary,
+                                      fontSize: 32 / 2,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                                const SizedBox(height: 6),
+                                _buildBiographyPreview(person),
+                                const SizedBox(height: 8),
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: SizedBox(
+                                    width: 54,
+                                    height: 54,
+                                    child: OutlinedButton(
+                                      style: OutlinedButton.styleFrom(
+                                        padding: EdgeInsets.zero,
+                                        shape: const CircleBorder(),
+                                        side: BorderSide(
+                                          color: colors.borderStrong,
+                                        ),
+                                      ),
+                                      onPressed: _favoriteUpdating
+                                          ? null
+                                          : _toggleFavorite,
+                                      child: Icon(
+                                        person.isFavorite
+                                            ? Icons.favorite
+                                            : Icons.favorite_border,
+                                        color: person.isFavorite
+                                            ? colors.danger
+                                            : colors.textPrimary,
+                                        size: 26,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  for (final job in _jobs) ...<Widget>[
+                    if ((_jobPages[job]?.items.isNotEmpty ?? false))
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
+                          child: Text(
+                            _jobTitle(job),
+                            style: TextStyle(
+                              color: colors.textPrimary,
+                              fontSize: 36 / 2,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    if ((_jobPages[job]?.items.isNotEmpty ?? false))
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                        sliver: SliverGrid(
+                          delegate: SliverChildBuilderDelegate((
+                            context,
+                            index,
+                          ) {
+                            final list = _jobPages[job]!.items;
+                            final item = list[index];
+                            final rating = double.tryParse(item.voteAverage);
+                            final resolutions = item.resolutions
+                                .where((e) => e.trim().isNotEmpty)
+                                .toList();
+                            return MediaPosterCard(
+                              urls: _imageCandidates(
+                                provider.baseUrl,
+                                item.poster,
+                                width: layout.homePosterRequestWidth,
+                              ),
+                              token: provider.token,
+                              title: item.displayTitle,
+                              subtitle: _year(item),
+                              rating: rating,
+                              resolutions: resolutions,
+                              watched: item.watched == 1,
+                              imageHeight: layout.categoryGridImageHeight,
+                              titleFontSize: layout.homePosterTitleFontSize,
+                              subtitleFontSize:
+                                  layout.homePosterSubtitleFontSize,
+                              imageFit: _isEpisodeItem(item)
+                                  ? BoxFit.contain
+                                  : BoxFit.cover,
+                              onTap: () => _openItemDetail(item),
+                              onLongPress: () {
+                                _showWorkItemActions(item);
+                              },
+                            );
+                          }, childCount: _jobPages[job]!.items.length),
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: layout.categoryGridColumns,
+                                mainAxisSpacing: layout.itemGap,
+                                crossAxisSpacing: layout.itemGap,
+                                mainAxisExtent: layout.categoryGridRowHeight,
+                              ),
+                        ),
+                      ),
+                  ],
+                  if (person.imdbId.trim().isNotEmpty ||
+                      person.trimId.trim().isNotEmpty)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
+                        child: LinkSection(
+                          imdbId: person.imdbId,
+                          tmdbId: person.trimId,
+                          onImdbTap: _openImdb,
+                          onTmdbTap: _openTmdb,
                         ),
                       ),
                     ),
-                  ),
-                if ((_jobPages[job]?.items.isNotEmpty ?? false))
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-                    sliver: SliverGrid(
-                      delegate: SliverChildBuilderDelegate((context, index) {
-                        final list = _jobPages[job]!.items;
-                        final item = list[index];
-                        final rating = double.tryParse(item.voteAverage);
-                        final resolutions = item.resolutions
-                            .where((e) => e.trim().isNotEmpty)
-                            .toList();
-                        return MediaPosterCard(
-                          urls: _imageCandidates(
-                            provider.baseUrl,
-                            item.poster,
-                            width: layout.homePosterRequestWidth,
-                          ),
-                          token: provider.token,
-                          title: item.displayTitle,
-                          subtitle: _year(item),
-                          rating: rating,
-                          resolutions: resolutions,
-                          imageHeight: layout.categoryGridImageHeight,
-                          titleFontSize: layout.homePosterTitleFontSize,
-                          subtitleFontSize: layout.homePosterSubtitleFontSize,
-                          imageFit: _isEpisodeItem(item)
-                              ? BoxFit.contain
-                              : BoxFit.cover,
-                          onTap: () => _openItemDetail(item),
-                        );
-                      }, childCount: _jobPages[job]!.items.length),
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: layout.categoryGridColumns,
-                        mainAxisSpacing: layout.itemGap,
-                        crossAxisSpacing: layout.itemGap,
-                        mainAxisExtent: layout.categoryGridRowHeight,
-                      ),
-                    ),
-                  ),
-              ],
-              if (person.imdbId.trim().isNotEmpty ||
-                  person.trimId.trim().isNotEmpty)
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
-                    child: LinkSection(
-                      imdbId: person.imdbId,
-                      tmdbId: person.trimId,
-                      onImdbTap: _openImdb,
-                      onTmdbTap: _openTmdb,
-                    ),
-                  ),
-                ),
-              const SliverToBoxAdapter(child: SizedBox(height: 18)),
-            ],
-          );
-
-    return Scaffold(
-      backgroundColor: const Color(0xFF07101B),
-      body: Stack(
-        children: <Widget>[
-          Positioned.fill(child: body),
-          ValueListenableBuilder<double>(
-            valueListenable: _scrollOffsetNotifier,
-            builder: (context, offset, _) {
-              final titleOpacity = ((offset - 8.0) / 64.0).clamp(0.0, 1.0);
-              return DetailFloatingTopBar(
-                onBack: () => Navigator.of(context).maybePop(),
-                onMore: () {},
-                title: title,
-                titleOpacity: titleOpacity,
-                showMore: false,
+                  const SliverToBoxAdapter(child: SizedBox(height: 18)),
+                ],
               );
-            },
+
+        return Scaffold(
+          backgroundColor: DetailTokens.pageBackgroundOf(context),
+          body: Stack(
+            children: <Widget>[
+              Positioned.fill(child: body),
+              ValueListenableBuilder<double>(
+                valueListenable: _scrollOffsetNotifier,
+                builder: (context, offset, _) {
+                  final titleOpacity = ((offset - 8.0) / 64.0).clamp(0.0, 1.0);
+                  return DetailFloatingTopBar(
+                    onBack: () => unawaited(
+                      EmbeddedDetailLauncher.closeHostOrPop(context),
+                    ),
+                    onMore: () {},
+                    title: title,
+                    titleOpacity: titleOpacity,
+                    showBack: !_isPane,
+                    showMore: false,
+                  );
+                },
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
   Widget _buildBiographyPreview(PersonDetailProfile person) {
     final bio = person.biography.trim();
-    const bodyStyle = TextStyle(
-      color: Color(0xFFAFC0D8),
+    final colors = context.appColors;
+    final bodyStyle = TextStyle(
+      color: colors.textSecondary,
       fontSize: 13.5,
       height: 1.22,
       fontWeight: FontWeight.w500,
     );
-    const moreStyle = TextStyle(
-      color: Color(0xFF2D87FF),
+    final moreStyle = TextStyle(
+      color: colors.link,
       fontSize: 14,
       fontWeight: FontWeight.w600,
       height: 1.0,
@@ -541,7 +615,7 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
           textDirection: TextDirection.ltr,
           maxLines: 3,
         );
-        painter.text = const TextSpan(text: '', style: bodyStyle);
+        painter.text = TextSpan(text: '', style: bodyStyle);
         painter.text = TextSpan(text: bio, style: bodyStyle);
         painter.layout(maxWidth: safeWidth);
         if (!painter.didExceedMaxLines) {
@@ -562,7 +636,7 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
           painter.text = TextSpan(
             children: <InlineSpan>[
               TextSpan(text: '$head...', style: bodyStyle),
-              const TextSpan(text: '', style: bodyStyle),
+              TextSpan(text: '', style: bodyStyle),
               TextSpan(text: moreText, style: moreStyle),
             ],
           );
@@ -667,4 +741,3 @@ class _PersonProfileImageState extends State<_PersonProfileImage> {
     );
   }
 }
-

@@ -6,23 +6,42 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../api/feiniu_api.dart';
+import '../controllers/item_playback_launcher.dart';
+import '../controllers/media_item_action_sheet_controller.dart';
 import '../models/media_item.dart';
 import '../models/media_library_item.dart';
+import '../providers/app_theme_provider.dart';
 import '../providers/nas_provider.dart';
+import '../services/embedded_detail_launcher.dart';
+import '../services/parallel_browse_snapshot.dart';
+import '../theme/app_theme.dart';
+import '../theme/detail_tokens.dart';
 import '../ui/app_transitions.dart';
 import '../ui/layout_adaptive.dart';
 import '../ui/media_poster_card.dart';
-import '../utils/app_confirm_dialog.dart';
 import '../utils/api_url_helper.dart';
+import '../utils/app_confirm_dialog.dart';
 import '../utils/app_exception.dart';
 import '../utils/media_locale_store.dart';
 import '../utils/media_locale_text.dart';
+import '../widgets/common/app_action_sheet.dart';
 import '../widgets/common/app_error_state.dart';
 import 'category_items_screen.dart';
 import 'favorite_items_screen.dart';
 import 'person_detail_screen.dart';
 import 'play_detail_screen.dart';
 import 'search_screen.dart';
+
+part 'media_list_screen_actions.dart';
+part 'media_list_screen_widgets.dart';
+
+enum _ContinueWatchingAction {
+  viewDetail,
+  markWatched,
+  favorite,
+  restart,
+  remove,
+}
 
 class MediaListScreen extends StatefulWidget {
   const MediaListScreen({super.key});
@@ -34,15 +53,28 @@ class MediaListScreen extends StatefulWidget {
 class _MediaListScreenState extends State<MediaListScreen> {
   static const int _fallbackContinueLimit = 12;
 
-  List<MediaItem> _categories = [];
-  Map<String, List<MediaLibraryItem>> _itemsByCategory = {};
-  List<MediaLibraryItem> _continueWatching = [];
-  Map<String, dynamic> _mediaSummary = {};
-  Map<String, dynamic> _localeMap = {};
+  List<MediaItem> _categories = <MediaItem>[];
+  Map<String, List<MediaLibraryItem>> _itemsByCategory =
+      <String, List<MediaLibraryItem>>{};
+  List<MediaLibraryItem> _continueWatching = <MediaLibraryItem>[];
+  Map<String, dynamic> _mediaSummary = <String, dynamic>{};
+  Map<String, dynamic> _localeMap = <String, dynamic>{};
   String _lastLoadKey = '';
 
   bool _isLoading = false;
   AppException? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(
+        EmbeddedDetailLauncher.reportBrowseSnapshot(
+          const ParallelBrowseSnapshot.home(originTab: 0),
+        ),
+      );
+    });
+  }
 
   @override
   void didChangeDependencies() {
@@ -82,9 +114,9 @@ class _MediaListScreenState extends State<MediaListScreen> {
           );
           itemsByCategory[category.id] = items;
           allItems.addAll(items);
-        } catch (e) {
-          debugPrint('[UI][HOME] category load failed ${category.id}: $e');
-          itemsByCategory[category.id] = [];
+        } catch (error) {
+          debugPrint('[UI][HOME] category load failed ${category.id}: $error');
+          itemsByCategory[category.id] = <MediaLibraryItem>[];
         }
       }
 
@@ -101,12 +133,12 @@ class _MediaListScreenState extends State<MediaListScreen> {
         _localeMap = localeMap;
         _isLoading = false;
       });
-    } catch (e) {
-      debugPrint('[UI][HOME] load failed $e');
+    } catch (error) {
+      debugPrint('[UI][HOME] load failed $error');
       if (!mounted) return;
       setState(() {
         _error = AppException.from(
-          e,
+          error,
           action: 'home data',
           fallbackKind: AppExceptionKind.transient,
         );
@@ -131,10 +163,50 @@ class _MediaListScreenState extends State<MediaListScreen> {
     }
   }
 
+  void _showHomeSnackBar(String message, {Color? backgroundColor}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: backgroundColor ?? const Color(0xFF1E2834),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+  }
+
+  void _replaceItemLocally(
+    String itemGuid,
+    MediaLibraryItem Function(MediaLibraryItem item) transform,
+  ) {
+    if (!mounted) return;
+    setState(() {
+      _continueWatching = _continueWatching
+          .map((item) => item.guid == itemGuid ? transform(item) : item)
+          .toList(growable: false);
+      _itemsByCategory = _itemsByCategory.map((key, value) {
+        return MapEntry(
+          key,
+          value
+              .map((item) => item.guid == itemGuid ? transform(item) : item)
+              .toList(growable: false),
+        );
+      });
+    });
+  }
+
+  void _applyState(VoidCallback update) {
+    if (!mounted) return;
+    setState(update);
+  }
+
   List<MediaLibraryItem> _pickContinueWatching(List<MediaLibraryItem> items) {
     final watched =
         items
-            .where((e) => e.watched > 0 || e.watchedTs > 0 || e.ts > 0)
+            .where(
+              (item) => item.watched > 0 || item.watchedTs > 0 || item.ts > 0,
+            )
             .toList()
           ..sort((a, b) => b.watchedTs.compareTo(a.watchedTs));
 
@@ -154,7 +226,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
   String _t(
     String path,
     String fallback, {
-    Map<String, Object?> params = const {},
+    Map<String, Object?> params = const <String, Object?>{},
   }) {
     return MediaLocaleText.text(
       _localeMap,
@@ -177,12 +249,16 @@ class _MediaListScreenState extends State<MediaListScreen> {
   }
 
   void _openCategory(MediaItem category) {
-    Navigator.of(context).push(
-      AppTransitions.fadeSlideRoute(CategoryItemsScreen(category: category)),
-    );
+    unawaited(_openCategoryAsync(category));
   }
 
   void _openAllItems() {
+    unawaited(
+      _openCategoryAsync(
+        MediaItem(id: '', name: _t('layout.sidebar.allList', '全部影视')),
+      ),
+    );
+    return;
     Navigator.of(context).push(
       AppTransitions.fadeSlideRoute(
         CategoryItemsScreen(
@@ -196,6 +272,13 @@ class _MediaListScreenState extends State<MediaListScreen> {
   }
 
   void _openAllItemsByType(String title, List<String> types) {
+    unawaited(
+      _openCategoryAsync(
+        MediaItem(id: '', name: title),
+        initialTypeTags: types,
+      ),
+    );
+    return;
     Navigator.of(context).push(
       AppTransitions.fadeSlideRoute(
         CategoryItemsScreen(
@@ -207,14 +290,63 @@ class _MediaListScreenState extends State<MediaListScreen> {
   }
 
   void _openFavorites() {
+    unawaited(_openFavoritesAsync());
+    return;
     Navigator.of(
       context,
     ).push(AppTransitions.fadeSlideRoute(const FavoriteItemsScreen()));
   }
 
+  Future<void> _openCategoryAsync(
+    MediaItem category, {
+    List<String>? initialTypeTags,
+  }) async {
+    if (await EmbeddedDetailLauncher.openCategory(
+      category: category,
+      initialTypeTags: initialTypeTags,
+    )) {
+      return;
+    }
+    if (!mounted) return;
+    Navigator.of(context).push(
+      AppTransitions.fadeSlideRoute(
+        CategoryItemsScreen(
+          category: category,
+          initialTypeTags: initialTypeTags,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openFavoritesAsync() async {
+    if (await EmbeddedDetailLauncher.openFavorites()) {
+      return;
+    }
+    if (!mounted) return;
+    Navigator.of(
+      context,
+    ).push(AppTransitions.fadeSlideRoute(const FavoriteItemsScreen()));
+  }
+
+  Future<void> _openSearchAsync() async {
+    if (await EmbeddedDetailLauncher.openSearch()) {
+      return;
+    }
+    if (!mounted) return;
+    Navigator.of(context).push(
+      AppTransitions.fadeSlideRoute(SearchScreen(initialLocaleMap: _localeMap)),
+    );
+  }
+
   Future<void> _openItemDetail(MediaLibraryItem item, {String? heroTag}) async {
     if (item.guid.trim().isEmpty) return;
     if (_isPersonItem(item)) {
+      if (await EmbeddedDetailLauncher.openPersonDetail(
+        personGuid: item.guid,
+        initialName: item.displayTitle,
+      )) {
+        return;
+      }
       if (!mounted) return;
       Navigator.of(context).push(
         AppTransitions.leftToRightPageTurnRoute(
@@ -227,12 +359,16 @@ class _MediaListScreenState extends State<MediaListScreen> {
       );
       return;
     }
+
     final navigator = Navigator.of(context);
     final provider = context.read<NasProvider>();
-    final heroPath = item.poster.trim();
+    if (await EmbeddedDetailLauncher.openItemDetail(item.guid)) {
+      return;
+    }
+    if (!mounted) return;
     final warmupUrls = _posterCandidates(
       provider.baseUrl,
-      heroPath,
+      item.poster.trim(),
       width: 560,
     );
     if (warmupUrls.isNotEmpty) {
@@ -240,7 +376,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
         await precacheImage(
           NetworkImage(
             warmupUrls.first,
-            headers: {
+            headers: <String, String>{
               'Authorization': provider.token,
               'Trim-MC-token': provider.token,
             },
@@ -253,18 +389,20 @@ class _MediaListScreenState extends State<MediaListScreen> {
         );
       }
     }
+
     Map<String, dynamic>? initialDetail;
     try {
       initialDetail = await FeiniuApi(
         provider,
       ).getItemDetail(item.guid).timeout(const Duration(milliseconds: 240));
     } catch (_) {}
+
     if (!mounted) return;
     await navigator.push(
       AppTransitions.leftToRightPageTurnRoute(
         PlayDetailScreen(
           itemGuid: item.guid,
-          heroTag: null,
+          heroTag: heroTag,
           initialItemDetail: initialDetail,
         ),
       ),
@@ -314,20 +452,20 @@ class _MediaListScreenState extends State<MediaListScreen> {
     if (seasonCount == 1) {
       final episodes = episodeCount;
       if (episodes > 0) {
-        final epText = _t(
+        final episodeText = _t(
           'layout.subheading.tv.episodes',
           '共 {count} 集',
-          params: {'count': episodes},
+          params: <String, Object?>{'count': episodes},
         );
-        if (period.isEmpty) return epText;
-        return '$epText · $period';
+        if (period.isEmpty) return episodeText;
+        return '$episodeText · $period';
       }
     }
     if (seasonCount > 0) {
       final seasonText = _t(
         'layout.subheading.tv.seasons',
         '共 {count} 季',
-        params: {'count': seasonCount},
+        params: <String, Object?>{'count': seasonCount},
       );
       if (period.isEmpty) return seasonText;
       return '$seasonText · $period';
@@ -351,12 +489,12 @@ class _MediaListScreenState extends State<MediaListScreen> {
     final seasonText = _t(
       'layout.subheading.season.number',
       '第 {number} 季',
-      params: {'number': season},
+      params: <String, Object?>{'number': season},
     );
     final episodeText = _t(
       'layout.subheading.episode.number',
       '第 {number} 集',
-      params: {'number': episode},
+      params: <String, Object?>{'number': episode},
     );
     return '$seasonText · $episodeText';
   }
@@ -368,7 +506,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
       final episodeText = _t(
         'layout.subheading.episode.number',
         '第 {number} 集',
-        params: {'number': episode},
+        params: <String, Object?>{'number': episode},
       );
       return '$specialText · $episodeText';
     }
@@ -377,719 +515,12 @@ class _MediaListScreenState extends State<MediaListScreen> {
 
   double _progressValue(MediaLibraryItem item) {
     if (item.duration <= 0) return 0;
-    final raw = item.ts / item.duration;
+    final watchedTs = item.ts > 0 ? item.ts : item.watchedTs;
+    if (watchedTs <= 0) return 0;
+    final raw = watchedTs / item.duration;
     return raw.clamp(0, 1).toDouble();
   }
 
   @override
-  Widget build(BuildContext context) {
-    final provider = context.read<NasProvider>();
-    final baseUrl = provider.baseUrl;
-    final token = provider.token;
-
-    return Scaffold(
-      backgroundColor: const Color(0xFF07101B),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF07101B),
-        surfaceTintColor: Colors.transparent,
-        foregroundColor: Colors.white,
-        iconTheme: const IconThemeData(color: Colors.white),
-        actionsIconTheme: const IconThemeData(color: Colors.white),
-        titleTextStyle: const TextStyle(
-          color: Colors.white,
-          fontSize: 20,
-          fontWeight: FontWeight.w700,
-        ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            _confirmLogout();
-          },
-        ),
-        title: Text(_t('layout.sidebar.home', '首页')),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () {
-              Navigator.of(context).push(
-                AppTransitions.fadeSlideRoute(
-                  SearchScreen(initialLocaleMap: _localeMap),
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-      body: _buildBody(baseUrl, token),
-    );
-  }
-
-  Widget _buildBody(String baseUrl, String token) {
-    final layout = MediaLayoutProfile.of(context);
-    final isConfigured = context.watch<NasProvider>().isConfigured;
-    if (!isConfigured) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(20),
-          child: Text(
-            '请先到“设置”页登录 NAS，再返回影视页加载内容。',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white70, fontSize: 15),
-          ),
-        ),
-      );
-    }
-
-    if (_isLoading) return const Center(child: CircularProgressIndicator());
-
-    if (_error != null) {
-      return AppErrorState(
-        error: _error!,
-        localeMap: _localeMap,
-        onRetry: _fetchHomeData,
-      );
-    }
-
-    if (_categories.isEmpty) {
-      return Center(
-        child: Text(
-          _t('common.other.empty', '没有内容'),
-          style: const TextStyle(color: Colors.white70),
-        ),
-      );
-    }
-
-    final total = _summaryInt('total', 0);
-    final movie = _summaryInt('movie', 0);
-    final tv = _summaryInt('tv', 0);
-    final favorite = _summaryInt('favorite', 0);
-    final other = _summaryInt('other', 0);
-
-    return RefreshIndicator(
-      onRefresh: _fetchHomeData,
-      child: CustomScrollView(
-        cacheExtent: 1200,
-        physics: const AlwaysScrollableScrollPhysics(),
-        slivers: [
-          SliverPadding(
-            padding: EdgeInsets.fromLTRB(
-              layout.pageHorizontalPadding,
-              layout.itemGap,
-              layout.pageHorizontalPadding,
-              14,
-            ),
-            sliver: SliverToBoxAdapter(
-              child: RepaintBoundary(
-                child: _buildHomeTopSection(
-                  baseUrl: baseUrl,
-                  token: token,
-                  layout: layout,
-                  favorite: favorite,
-                  total: total,
-                  movie: movie,
-                  tv: tv,
-                  other: other,
-                ),
-              ),
-            ),
-          ),
-          SliverPadding(
-            padding: EdgeInsets.fromLTRB(
-              layout.pageHorizontalPadding,
-              0,
-              layout.pageHorizontalPadding,
-              20,
-            ),
-            sliver: SliverList.builder(
-              itemCount: _categories.length,
-              itemBuilder: (context, index) {
-                final category = _categories[index];
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildSectionTitle(category),
-                      const SizedBox(height: 8),
-                      _buildPosterRow(
-                        _itemsByCategory[category.id] ?? [],
-                        baseUrl,
-                        token,
-                        layout,
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHomeTopSection({
-    required String baseUrl,
-    required String token,
-    required MediaLayoutProfile layout,
-    required int favorite,
-    required int total,
-    required int movie,
-    required int tv,
-    required int other,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildCategoryStrip(baseUrl, token, layout),
-        const SizedBox(height: 10),
-        if (_continueWatching.isNotEmpty) ...[
-          Text(
-            _t('layout.list.continueWatching', '继续观看'),
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 6),
-          SizedBox(
-            height: layout.continueRowHeight,
-            child: ListView.separated(
-              padding: EdgeInsets.zero,
-              scrollDirection: Axis.horizontal,
-              cacheExtent: layout.continueCardWidth * 5,
-              itemCount: _continueWatching.length,
-              separatorBuilder: (_, __) => SizedBox(width: layout.itemGap),
-              itemBuilder: (context, index) {
-                final item = _continueWatching[index];
-                return _buildContinueItem(item, baseUrl, token, layout);
-              },
-            ),
-          ),
-          const SizedBox(height: 10),
-        ],
-        Row(
-          children: [
-            Expanded(
-              child: _buildStatCard(
-                _t('common.actions.favorite.favorite', '收藏'),
-                favorite,
-                onTap: _openFavorites,
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: _buildStatCard(
-                _t('layout.sidebar.allList', '全部影视'),
-                total,
-                onTap: _openAllItems,
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: _buildStatCard(
-                _t('layout.sidebar.movieList', '电影'),
-                movie,
-                onTap: () => _openAllItemsByType(
-                  _t('layout.sidebar.movieList', '电影'),
-                  const ['Movie'],
-                ),
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: _buildStatCard(
-                _t('layout.sidebar.tvList', '电视剧'),
-                tv,
-                onTap: () => _openAllItemsByType(
-                  _t('layout.sidebar.tvList', '电视剧'),
-                  const ['TV'],
-                ),
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: _buildStatCard(
-                _t('layout.sidebar.otherList', '其他'),
-                other,
-                onTap: () => _openAllItemsByType(
-                  _t('layout.sidebar.otherList', '其他'),
-                  const ['Directory', 'Video'],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildCategoryStrip(
-    String baseUrl,
-    String token,
-    MediaLayoutProfile layout,
-  ) {
-    final count = min(_categories.length, 10);
-    return SizedBox(
-      height: layout.categoryStripHeight,
-      child: ListView.separated(
-        padding: EdgeInsets.zero,
-        scrollDirection: Axis.horizontal,
-        cacheExtent: layout.categoryCardWidth * 6,
-        itemCount: count,
-        separatorBuilder: (_, __) => SizedBox(width: layout.itemGap),
-        itemBuilder: (context, index) {
-          final category = _categories[index];
-          final source = category.posters.isNotEmpty
-              ? category.posters
-              : (category.path?.isNotEmpty ?? false)
-              ? [category.path!]
-              : const <String>[];
-          final posters = source.take(3).toList();
-          return _CategoryPosterCard(
-            title: category.name,
-            posterUrls: posters
-                .map(
-                  (e) => _posterCandidates(
-                    baseUrl,
-                    e,
-                    width: (layout.categoryMiniPosterWidth * 3).round(),
-                  ),
-                )
-                .toList(),
-            token: token,
-            cardWidth: layout.categoryCardWidth,
-            miniPosterWidth: layout.categoryMiniPosterWidth,
-            miniPosterHeight: layout.categoryMiniPosterHeight,
-            onTap: () => _openCategory(category),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildContinueItem(
-    MediaLibraryItem item,
-    String baseUrl,
-    String token,
-    MediaLayoutProfile layout,
-  ) {
-    final heroTag = 'home_continue_${item.guid}';
-    final urls = _posterCandidates(
-      baseUrl,
-      item.poster,
-      width: layout.homeContinueRequestWidth,
-    );
-    final progress = _progressValue(item);
-    return InkWell(
-      onTap: () => _openItemDetail(item, heroTag: heroTag),
-      borderRadius: BorderRadius.circular(10),
-      child: RepaintBoundary(
-        child: SizedBox(
-          width: layout.continueCardWidth,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Hero(
-                tag: heroTag,
-                child: Container(
-                  height: layout.continueImageHeight,
-                  clipBehavior: Clip.hardEdge,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(10),
-                    color: const Color(0xFF243041),
-                  ),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      _PosterImage(
-                        urls: urls,
-                        token: token,
-                        fallback: const Center(
-                          child: Icon(Icons.movie, color: Colors.white38),
-                        ),
-                      ),
-                      if (progress > 0)
-                        Positioned(
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          child: Container(
-                            height: 4,
-                            color: const Color(0x557B8CA3),
-                            alignment: Alignment.centerLeft,
-                            child: FractionallySizedBox(
-                              widthFactor: progress,
-                              child: Container(color: const Color(0xFF2D87FF)),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                item.displayTitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 1),
-              Text(
-                _continueEpisodeText(item),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white70, fontSize: 13),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatCard(String label, int value, {VoidCallback? onTap}) {
-    final child = Container(
-      height: 58,
-      decoration: BoxDecoration(
-        color: const Color(0xFF1D2735),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(color: Colors.white, fontSize: 13),
-          ),
-          Text(
-            '$value',
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 18,
-            ),
-          ),
-        ],
-      ),
-    );
-    if (onTap == null) return child;
-    return Material(
-      type: MaterialType.transparency,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: child,
-      ),
-    );
-  }
-
-  Widget _buildSectionTitle(MediaItem category) {
-    return InkWell(
-      onTap: () => _openCategory(category),
-      child: Row(
-        children: [
-          Text(
-            category.name,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(width: 4),
-          const Icon(Icons.chevron_right, color: Colors.white54, size: 20),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPosterRow(
-    List<MediaLibraryItem> items,
-    String baseUrl,
-    String token,
-    MediaLayoutProfile layout,
-  ) {
-    if (items.isEmpty) {
-      return SizedBox(
-        height: 220,
-        child: Center(
-          child: Text(
-            _t('common.other.empty', '没有内容'),
-            style: const TextStyle(color: Colors.white54),
-          ),
-        ),
-      );
-    }
-
-    final maxCount = min(items.length, 12);
-    return SizedBox(
-      height: layout.homePosterRowHeight,
-      child: ListView.separated(
-        padding: EdgeInsets.zero,
-        scrollDirection: Axis.horizontal,
-        cacheExtent: layout.homePosterCardWidth * 6,
-        itemCount: maxCount,
-        separatorBuilder: (_, __) => SizedBox(width: layout.itemGap),
-        itemBuilder: (context, index) {
-          final item = items[index];
-          final urls = _posterCandidates(
-            baseUrl,
-            item.poster,
-            width: layout.homePosterRequestWidth,
-          );
-          final rating = double.tryParse(item.voteAverage);
-          final resolutions = item.resolutions
-              .map(_resolutionLabel)
-              .where((e) => e.isNotEmpty)
-              .toList();
-
-          return SizedBox(
-            width: layout.homePosterCardWidth,
-            child: MediaPosterCard(
-              urls: urls,
-              token: token,
-              title: item.displayTitle,
-              subtitle: _cardSubtitle(item),
-              rating: rating,
-              resolutions: resolutions,
-              imageHeight: layout.homePosterImageHeight,
-              titleFontSize: layout.homePosterTitleFontSize,
-              subtitleFontSize: layout.homePosterSubtitleFontSize,
-              imageFit: _isEpisodeItem(item) ? BoxFit.contain : BoxFit.cover,
-              heroTag: 'home_row_${item.guid}_$index',
-              onTap: () => _openItemDetail(
-                item,
-                heroTag: 'home_row_${item.guid}_$index',
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _CategoryPosterCard extends StatelessWidget {
-  final String title;
-  final List<List<String>> posterUrls;
-  final String token;
-  final double cardWidth;
-  final double miniPosterWidth;
-  final double miniPosterHeight;
-  final VoidCallback? onTap;
-
-  const _CategoryPosterCard({
-    required this.title,
-    required this.posterUrls,
-    required this.token,
-    required this.cardWidth,
-    required this.miniPosterWidth,
-    required this.miniPosterHeight,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final normalized = posterUrls.take(3).toList();
-
-    return RepaintBoundary(
-      child: Material(
-        type: MaterialType.transparency,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(10),
-          child: Container(
-            width: cardWidth,
-            decoration: BoxDecoration(
-              color: const Color(0xFF131D2A),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0x3361768E), width: 0.8),
-            ),
-            clipBehavior: Clip.hardEdge,
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: Container(
-                    color: const Color(0xFF111A27),
-                    padding: const EdgeInsets.fromLTRB(6, 8, 6, 24),
-                    child: Center(
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: List.generate(normalized.length, (index) {
-                          return Padding(
-                            padding: EdgeInsets.only(
-                              right: index == normalized.length - 1 ? 0 : 2,
-                            ),
-                            child: SizedBox(
-                              width: miniPosterWidth,
-                              height: miniPosterHeight,
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(3),
-                                clipBehavior: Clip.hardEdge,
-                                child: _PosterImage(
-                                  urls: normalized[index],
-                                  token: token,
-                                  fallback: Container(
-                                    color: const Color(0xFF223142),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          );
-                        }),
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned.fill(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.transparent,
-                          Colors.transparent,
-                          Colors.black.withValues(alpha: 0.08),
-                          Colors.black.withValues(alpha: 0.46),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: 8,
-                  right: 8,
-                  bottom: 7,
-                  child: Text(
-                    title,
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textScaler: const TextScaler.linear(1.0),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      height: 1.05,
-                      shadows: [
-                        Shadow(
-                          color: Color(0xB0000000),
-                          blurRadius: 6,
-                          offset: Offset(0, 1),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _PosterImage extends StatefulWidget {
-  final List<String> urls;
-  final String token;
-  final Widget fallback;
-
-  const _PosterImage({
-    required this.urls,
-    required this.token,
-    required this.fallback,
-  });
-
-  @override
-  State<_PosterImage> createState() => _PosterImageState();
-}
-
-class _PosterImageState extends State<_PosterImage> {
-  int _index = 0;
-
-  @override
-  void didUpdateWidget(covariant _PosterImage oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (!listEquals(oldWidget.urls, widget.urls)) {
-      _index = 0;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (widget.urls.isEmpty ||
-        _index >= widget.urls.length ||
-        widget.token.trim().isEmpty) {
-      return widget.fallback;
-    }
-
-    final current = widget.urls[_index];
-    final headers = widget.token.trim().isNotEmpty
-        ? <String, String>{
-            'Authorization': widget.token,
-            'Trim-MC-token': widget.token,
-          }
-        : null;
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final dpr = MediaQuery.of(context).devicePixelRatio;
-        final cacheW = constraints.maxWidth.isFinite
-            ? (constraints.maxWidth * dpr).round().clamp(80, 1000)
-            : null;
-        final cacheH = constraints.maxHeight.isFinite
-            ? (constraints.maxHeight * dpr).round().clamp(80, 1000)
-            : null;
-        return Image.network(
-          current,
-          fit: BoxFit.cover,
-          headers: headers,
-          filterQuality: FilterQuality.none,
-          gaplessPlayback: true,
-          cacheWidth: cacheW,
-          cacheHeight: cacheH,
-          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-            final loaded = wasSynchronouslyLoaded || frame != null;
-            return Stack(
-              fit: StackFit.expand,
-              children: [
-                widget.fallback,
-                AnimatedOpacity(
-                  opacity: loaded ? 1 : 0,
-                  duration: const Duration(milliseconds: 240),
-                  curve: Curves.linear,
-                  child: child,
-                ),
-              ],
-            );
-          },
-          errorBuilder: (context, error, stackTrace) {
-            if (_index < widget.urls.length - 1) {
-              final nextUrl = widget.urls[_index + 1];
-              debugPrint(
-                '[IMG][MEDIA_LIST] failed url=$current error=$error -> fallback=$nextUrl',
-              );
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) setState(() => _index++);
-              });
-              return widget.fallback;
-            }
-            debugPrint(
-              '[IMG][MEDIA_LIST] failed url=$current error=$error -> no_more_fallback',
-            );
-            return widget.fallback;
-          },
-        );
-      },
-    );
-  }
+  Widget build(BuildContext context) => _buildScreen(context);
 }

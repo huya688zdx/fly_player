@@ -1,10 +1,10 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/stream_track_data.dart';
 import '../providers/nas_provider.dart';
-import '../theme/detail_tokens.dart';
-import '../ui/app_transitions.dart';
+import '../theme/app_theme.dart';
+import '../ui/app_sheet_transitions.dart';
 import '../utils/media_language_mapper.dart';
 import '../utils/media_locale_store.dart';
 
@@ -63,8 +63,11 @@ class MediaDetailOverlayPage extends StatefulWidget {
         builder: (_) => page,
       );
     }
-    return AppTransitions.showDrawerSheet<void>(
+    return AppSheetTransitions.showBottomSurface<void>(
       context,
+      barrierDismissible: true,
+      barrierLabel: 'media_detail_overlay',
+      barrierColor: const Color(0xBF020812),
       builder: (_) => page,
     );
   }
@@ -121,6 +124,7 @@ class _MediaDetailOverlayPageState extends State<MediaDetailOverlayPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     if (widget.variants.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -132,7 +136,7 @@ class _MediaDetailOverlayPageState extends State<MediaDetailOverlayPage> {
 
     final child = Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF161F2A),
+        color: colors.backgroundElevated,
         borderRadius: BorderRadius.vertical(
           top: const Radius.circular(24),
           bottom: Radius.circular(isLandscape ? 24 : 0),
@@ -154,8 +158,8 @@ class _MediaDetailOverlayPageState extends State<MediaDetailOverlayPage> {
                   const Spacer(),
                   Text(
                     _t('player.videoDetails.title', '文件媒体信息'),
-                    style: const TextStyle(
-                      color: DetailTokens.textPrimary,
+                    style: TextStyle(
+                      color: colors.textPrimary,
                       fontSize: 18,
                       fontWeight: FontWeight.w600,
                     ),
@@ -164,11 +168,11 @@ class _MediaDetailOverlayPageState extends State<MediaDetailOverlayPage> {
                   InkWell(
                     onTap: () => Navigator.of(context).maybePop(),
                     borderRadius: BorderRadius.circular(14),
-                    child: const Padding(
+                    child: Padding(
                       padding: EdgeInsets.all(4),
                       child: Icon(
                         Icons.close,
-                        color: Color(0xFFB2C0D2),
+                        color: colors.textSecondary,
                         size: 28,
                       ),
                     ),
@@ -182,8 +186,8 @@ class _MediaDetailOverlayPageState extends State<MediaDetailOverlayPage> {
                   final current = widget.variants[index];
                   return Text(
                     '${current.title}  ${index + 1}/${widget.variants.length}',
-                    style: const TextStyle(
-                      color: DetailTokens.textMuted,
+                    style: TextStyle(
+                      color: colors.textMuted,
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                     ),
@@ -275,11 +279,7 @@ class _MediaDetailOverlayPageState extends State<MediaDetailOverlayPage> {
       );
     }
 
-    return SizedBox(
-      height: panelHeight,
-      width: double.infinity,
-      child: child,
-    );
+    return SizedBox(height: panelHeight, width: double.infinity, child: child);
   }
 }
 
@@ -290,10 +290,11 @@ class _SectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     return Text(
       title,
-      style: const TextStyle(
-        color: DetailTokens.textPrimary,
+      style: TextStyle(
+        color: colors.textPrimary,
         fontSize: 16,
         fontWeight: FontWeight.w600,
       ),
@@ -309,10 +310,11 @@ class _InfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: const Color(0xFF2A3441),
+        color: colors.surface,
         borderRadius: BorderRadius.circular(16),
       ),
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
@@ -321,8 +323,8 @@ class _InfoCard extends StatelessWidget {
         children: [
           Text(
             header,
-            style: const TextStyle(
-              color: DetailTokens.textPrimary,
+            style: TextStyle(
+              color: colors.textPrimary,
               fontSize: 14,
               fontWeight: FontWeight.w600,
             ),
@@ -330,7 +332,7 @@ class _InfoCard extends StatelessWidget {
           const SizedBox(height: 8),
           for (int i = 0; i < rows.length; i++) ...[
             if (i > 0 && _isDividerRow(rows[i])) ...[
-              const Divider(color: Color(0x2D4D637E), height: 14),
+              Divider(color: colors.borderSubtle, height: 14),
             ],
             if (!_isDividerRow(rows[i]))
               Padding(
@@ -340,8 +342,8 @@ class _InfoCard extends StatelessWidget {
                     Expanded(
                       child: Text(
                         rows[i].key,
-                        style: const TextStyle(
-                          color: DetailTokens.textMuted,
+                        style: TextStyle(
+                          color: colors.textMuted,
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
                         ),
@@ -349,8 +351,8 @@ class _InfoCard extends StatelessWidget {
                     ),
                     Text(
                       rows[i].value,
-                      style: const TextStyle(
-                        color: DetailTokens.textSecondary,
+                      style: TextStyle(
+                        color: colors.textSecondary,
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
                       ),
@@ -394,8 +396,14 @@ class _VideoCard extends StatelessWidget {
     return _InfoCard(
       header: headerParts.join(' '),
       rows: [
-        MapEntry(_t('stream.details.fields.encoder', '编码器'), _safe(video.codecName)),
-        MapEntry(_t('stream.details.fields.profile', '配置'), _safe(video.profile)),
+        MapEntry(
+          _t('stream.details.fields.encoder', '编码器'),
+          _safe(video.codecName),
+        ),
+        MapEntry(
+          _t('stream.details.fields.profile', '配置'),
+          _safe(video.profile),
+        ),
         MapEntry(_t('stream.details.fields.level', '等级'), _safe(video.level)),
         MapEntry(
           _t('stream.details.fields.resolution', '分辨率'),
@@ -410,8 +418,14 @@ class _VideoCard extends StatelessWidget {
           _t('stream.details.fields.interlaced', '隔行扫描'),
           _boolText(video.progressive == 1, localeMap),
         ),
-        MapEntry(_t('stream.details.fields.frameRate', '帧率'), _safe(video.rFrameRate)),
-        MapEntry(_t('stream.details.fields.bitrate', '码率'), _safe(_kbps(video.bps))),
+        MapEntry(
+          _t('stream.details.fields.frameRate', '帧率'),
+          _safe(video.rFrameRate),
+        ),
+        MapEntry(
+          _t('stream.details.fields.bitrate', '码率'),
+          _safe(_kbps(video.bps)),
+        ),
         MapEntry(
           _t('stream.details.fields.range', '视频动态范围'),
           _safe(video.colorRangeType),
@@ -480,17 +494,32 @@ class _AudioCard extends StatelessWidget {
           _t('stream.details.fields.language', '语言'),
           _safe(lan == '未知' ? '' : lan),
         ),
-        MapEntry(_t('stream.details.fields.encoder', '编码器'), _safe(audio.codecName)),
-        MapEntry(_t('stream.details.fields.profile', '配置'), _safe(audio.profile)),
+        MapEntry(
+          _t('stream.details.fields.encoder', '编码器'),
+          _safe(audio.codecName),
+        ),
+        MapEntry(
+          _t('stream.details.fields.profile', '配置'),
+          _safe(audio.profile),
+        ),
         const MapEntry('__divider__', ''),
-        MapEntry(_t('stream.details.fields.channels', '声道'), _safe(_channelText(audio.channels))),
+        MapEntry(
+          _t('stream.details.fields.channels', '声道'),
+          _safe(_channelText(audio.channels)),
+        ),
         MapEntry(
           _t('stream.details.fields.sampleRate', '采样率'),
           _safe(audio.sampleRate > 0 ? '${audio.sampleRate} Hz' : ''),
         ),
-        MapEntry(_t('stream.details.fields.bitrate', '码率'), _safe(_kbps(audio.bps))),
+        MapEntry(
+          _t('stream.details.fields.bitrate', '码率'),
+          _safe(_kbps(audio.bps)),
+        ),
         const MapEntry('__divider__', ''),
-        MapEntry(_t('stream.details.fields.layout', '布局'), _safe(audio.channelLayout)),
+        MapEntry(
+          _t('stream.details.fields.layout', '布局'),
+          _safe(audio.channelLayout),
+        ),
         MapEntry(
           _t('stream.details.fields.default', '默认'),
           _boolText(audio.isDefault == 1, localeMap),
@@ -535,7 +564,10 @@ class _SubtitleCard extends StatelessWidget {
           _t('stream.details.fields.language', '语言'),
           _safe(lan == '未知' ? '' : lan),
         ),
-        MapEntry(_t('stream.details.fields.encoder', '编码器'), _safe(fmt.toLowerCase())),
+        MapEntry(
+          _t('stream.details.fields.encoder', '编码器'),
+          _safe(fmt.toLowerCase()),
+        ),
         const MapEntry('__divider__', ''),
         MapEntry(
           _t('stream.details.fields.default', '默认'),

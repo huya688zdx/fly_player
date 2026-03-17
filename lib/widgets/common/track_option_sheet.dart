@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../theme/detail_tokens.dart';
+import '../../theme/app_theme.dart';
+import '../../ui/app_sheet_transitions.dart';
 
 class TrackOptionSheetItem {
   final String id;
@@ -21,6 +22,7 @@ class TrackOptionSheet {
     required List<TrackOptionSheetItem> items,
     String? selectedId,
   }) {
+    final colors = context.appColors;
     final media = MediaQuery.of(context);
     final isLandscape = media.size.width > media.size.height;
     final body = _TrackOptionSheetBody(
@@ -33,14 +35,15 @@ class TrackOptionSheet {
       return showDialog<String>(
         context: context,
         barrierDismissible: true,
-        barrierColor: const Color(0xBF020812),
+        barrierColor: colors.overlayScrim,
         builder: (_) => body,
       );
     }
-    return showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: false,
+    return AppSheetTransitions.showBottomSurface<String>(
+      context,
+      barrierDismissible: true,
+      barrierLabel: title,
+      barrierColor: colors.overlayScrim,
       builder: (_) => body,
     );
   }
@@ -61,6 +64,7 @@ class _TrackOptionSheetBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final media = MediaQuery.of(context);
     final maxHeight = floating
         ? (media.size.height * 0.78).clamp(320.0, 560.0)
@@ -71,7 +75,7 @@ class _TrackOptionSheetBody extends StatelessWidget {
       top: false,
       child: Container(
         decoration: BoxDecoration(
-          color: DetailTokens.panelBackground,
+          color: colors.surface,
           borderRadius: BorderRadius.vertical(
             top: const Radius.circular(24),
             bottom: Radius.circular(floating ? 24 : 0),
@@ -91,8 +95,8 @@ class _TrackOptionSheetBody extends StatelessWidget {
               const SizedBox(height: 4),
               Text(
                 title,
-                style: const TextStyle(
-                  color: DetailTokens.textPrimary,
+                style: TextStyle(
+                  color: colors.textPrimary,
                   fontSize: 20,
                   fontWeight: FontWeight.w500,
                 ),
@@ -124,10 +128,7 @@ class _TrackOptionSheetBody extends StatelessWidget {
       return Dialog(
         backgroundColor: Colors.transparent,
         insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-        child: SizedBox(
-          width: maxWidth,
-          child: child,
-        ),
+        child: SizedBox(width: maxWidth, child: child),
       );
     }
 
@@ -148,8 +149,9 @@ class _OptionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     return Material(
-      color: const Color(0xFF2A3441),
+      color: colors.surfaceSubtle,
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
         onTap: onTap,
@@ -166,8 +168,8 @@ class _OptionTile extends StatelessWidget {
                   children: [
                     Text(
                       item.title,
-                      style: const TextStyle(
-                        color: DetailTokens.textPrimary,
+                      style: TextStyle(
+                        color: colors.textPrimary,
                         fontSize: 35 / 2,
                         fontWeight: FontWeight.w500,
                         height: 1.15,
@@ -177,8 +179,8 @@ class _OptionTile extends StatelessWidget {
                       const SizedBox(height: 6),
                       Text(
                         item.subtitle,
-                        style: const TextStyle(
-                          color: Color(0xFFAFC0D5),
+                        style: TextStyle(
+                          color: colors.textSecondary,
                           fontSize: 30 / 2,
                           fontWeight: FontWeight.w500,
                           height: 1.1,
@@ -203,8 +205,9 @@ class _SelectionDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const active = DetailTokens.progressActive;
-    const inactive = Color(0xFF4A5F7D);
+    final colors = context.appColors;
+    final active = colors.selection;
+    final inactive = colors.chipBorder;
     return Container(
       width: 28,
       height: 28,
@@ -214,7 +217,7 @@ class _SelectionDot extends StatelessWidget {
         color: selected ? active : Colors.transparent,
       ),
       child: selected
-          ? const Icon(Icons.check, color: Colors.white, size: 16)
+          ? Icon(Icons.check, color: colors.textPrimary, size: 16)
           : null,
     );
   }

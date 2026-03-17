@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/app_theme.dart';
 import '../../utils/app_exception.dart';
 import '../../utils/media_locale_text.dart';
 
@@ -32,29 +33,31 @@ class AppErrorState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final (icon, title, tint) = switch (error.kind) {
       AppExceptionKind.noData => (
         Icons.folder_open_rounded,
-        _t('layout.dataLayout.noData', '无数据'),
-        const Color(0xFF8E99A8),
+        _t('layout.dataLayout.noData', '暂无数据'),
+        colors.textMuted,
       ),
       AppExceptionKind.unauthorized => (
         Icons.lock_outline_rounded,
-        _t('layout.dataLayout.noAccessLibrary', '无可访问的媒体库，请联系管理员'),
-        const Color(0xFFC7A54A),
+        _t('layout.dataLayout.noAccessLibrary', '没有可访问的媒体库，请联系管理员'),
+        colors.warning,
       ),
       AppExceptionKind.transient => (
         Icons.cloud_off_rounded,
         _t('layout.dataLayout.loadFailed', '加载失败'),
-        const Color(0xFFD67171),
+        colors.danger,
       ),
       AppExceptionKind.fatal => (
         Icons.error_outline_rounded,
         _t('layout.dataLayout.loadFailed', '加载失败'),
-        const Color(0xFFD67171),
+        colors.danger,
       ),
     };
-    final showRetry = onRetry != null &&
+    final showRetry =
+        onRetry != null &&
         error.kind != AppExceptionKind.noData &&
         error.kind != AppExceptionKind.unauthorized;
 
@@ -68,8 +71,9 @@ class AppErrorState extends StatelessWidget {
               width: 116,
               height: 88,
               decoration: BoxDecoration(
-                color: const Color(0xFF252C36),
+                color: colors.surface,
                 borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: colors.borderSubtle),
               ),
               alignment: Alignment.center,
               child: Icon(icon, size: 52, color: tint),
@@ -78,8 +82,8 @@ class AppErrorState extends StatelessWidget {
             Text(
               title,
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Color(0xFFB8C3D1),
+              style: TextStyle(
+                color: colors.textSecondary,
                 fontSize: 16,
                 fontWeight: FontWeight.w500,
               ),

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../theme/app_theme.dart';
 import 'app_transitions.dart';
 
 class DetailHeroImage extends StatefulWidget {
@@ -81,13 +82,14 @@ class _DetailHeroImageState extends State<DetailHeroImage> {
   }
 
   Widget _buildPlaceholder() {
+    const fallback = AppThemePalette.fallback;
     return Container(
-      color: const Color(0xFF1A2534),
-      child: const Center(
+      color: fallback.surfaceSubtle,
+      child: Center(
         child: Icon(
           Icons.movie_creation_outlined,
           size: 28,
-          color: Color(0x7FA8B7CB),
+          color: fallback.textMuted.withValues(alpha: 0.7),
         ),
       ),
     );
@@ -118,28 +120,35 @@ class DetailPrimaryPlayButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final label = Text(
-      text,
-      style:
-          textStyle ??
-          const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-    );
+    final colors = context.appColors;
+    final resolvedBackgroundColor = backgroundColor ?? colors.accent;
+    final resolvedForegroundColor = foregroundColor ?? colors.textPrimary;
+    final resolvedTextStyle =
+        (textStyle ??
+                const TextStyle(fontSize: 16, fontWeight: FontWeight.w500))
+            .copyWith(color: resolvedForegroundColor);
+    final label = Text(text, style: resolvedTextStyle);
     final animatedLabel = textSwitchKey == null
         ? label
         : AppTransitions.crossFadeSwitch(
             switchKey: textSwitchKey!,
             duration: AppTransitions.switchDuration,
             alignment: Alignment.centerLeft,
-            child: KeyedSubtree(key: ValueKey<String>(textSwitchKey!), child: label),
+            child: KeyedSubtree(
+              key: ValueKey<String>(textSwitchKey!),
+              child: label,
+            ),
           );
 
     return FilledButton(
       onPressed: enabled ? onTap ?? () {} : null,
       style: FilledButton.styleFrom(
         minimumSize: const Size.fromHeight(52),
-        backgroundColor: backgroundColor ?? const Color(0xFF2D87FF),
-        foregroundColor: foregroundColor ?? Colors.white,
-        disabledBackgroundColor: const Color(0x66385878),
+        backgroundColor: resolvedBackgroundColor,
+        foregroundColor: resolvedForegroundColor,
+        disabledBackgroundColor: resolvedBackgroundColor.withValues(
+          alpha: 0.32,
+        ),
         elevation: 0,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
       ),
@@ -150,8 +159,8 @@ class DetailPrimaryPlayButton extends StatelessWidget {
             Container(
               width: 24,
               height: 24,
-              decoration: const BoxDecoration(
-                color: Colors.white,
+              decoration: BoxDecoration(
+                color: colors.textPrimary,
                 shape: BoxShape.circle,
               ),
               child: Center(
@@ -159,15 +168,23 @@ class DetailPrimaryPlayButton extends StatelessWidget {
                   'assets/icons/play.svg',
                   width: 11,
                   height: 11,
-                  colorFilter: const ColorFilter.mode(
-                    Color(0xFF2D87FF),
+                  colorFilter: ColorFilter.mode(
+                    resolvedBackgroundColor,
                     BlendMode.srcIn,
                   ),
                 ),
               ),
             )
           else
-            SvgPicture.asset('assets/icons/play.svg', width: 18, height: 18),
+            SvgPicture.asset(
+              'assets/icons/play.svg',
+              width: 18,
+              height: 18,
+              colorFilter: ColorFilter.mode(
+                resolvedForegroundColor,
+                BlendMode.srcIn,
+              ),
+            ),
           const SizedBox(width: 8),
           animatedLabel,
         ],
@@ -178,6 +195,7 @@ class DetailPrimaryPlayButton extends StatelessWidget {
 
 class DetailRoundIconButton extends StatelessWidget {
   final String asset;
+  final String? selectedAsset;
   final bool selected;
   final VoidCallback? onTap;
   final Color? backgroundColor;
@@ -190,6 +208,7 @@ class DetailRoundIconButton extends StatelessWidget {
   const DetailRoundIconButton({
     super.key,
     required this.asset,
+    this.selectedAsset,
     this.selected = false,
     this.onTap,
     this.backgroundColor,
@@ -202,6 +221,10 @@ class DetailRoundIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final iconAsset = selected && selectedAsset != null
+        ? selectedAsset!
+        : asset;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(26),
@@ -210,24 +233,25 @@ class DetailRoundIconButton extends StatelessWidget {
         height: 52,
         decoration: BoxDecoration(
           color: selected
-              ? (selectedBackgroundColor ?? const Color(0xFF1F5EA7))
-              : (backgroundColor ?? const Color(0xFF162233)),
+              ? (selectedBackgroundColor ?? colors.selection)
+              : (backgroundColor ??
+                    colors.backgroundElevated.withValues(alpha: 0.82)),
           borderRadius: BorderRadius.circular(26),
           border: Border.all(
             color: selected
-                ? (selectedBorderColor ?? const Color(0x446E8DB1))
-                : (borderColor ?? const Color(0x446E8DB1)),
+                ? (selectedBorderColor ?? colors.selection)
+                : (borderColor ?? colors.borderStrong),
           ),
         ),
         child: Center(
           child: SvgPicture.asset(
-            asset,
+            iconAsset,
             width: 20,
             height: 20,
             colorFilter: ColorFilter.mode(
               selected
-                  ? (selectedIconColor ?? Colors.white)
-                  : (iconColor ?? Colors.white),
+                  ? (selectedIconColor ?? colors.textPrimary)
+                  : (iconColor ?? colors.textPrimary),
               BlendMode.srcIn,
             ),
           ),
@@ -267,7 +291,8 @@ class DetailActionBar extends StatelessWidget {
         const DetailRoundIconButton(asset: 'assets/icons/download.svg'),
         const SizedBox(width: 10),
         DetailRoundIconButton(
-          asset: 'assets/icons/check.svg',
+          asset: 'assets/icons/watched.svg',
+          selectedAsset: 'assets/icons/watched_selected.svg',
           selected: watched,
         ),
       ],
@@ -291,14 +316,15 @@ class DetailTagChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     return Container(
       height: compact ? 28 : 36,
       padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 12),
       decoration: BoxDecoration(
-        color: const Color(0xFF15243A),
+        color: selected ? colors.selectionSoft : colors.chipBackground,
         borderRadius: BorderRadius.circular(compact ? 9 : 12),
         border: Border.all(
-          color: selected ? const Color(0xFF2D87FF) : const Color(0x335D7392),
+          color: selected ? colors.selection : colors.chipBorder,
           width: selected ? 1.4 : 1,
         ),
       ),
@@ -308,7 +334,7 @@ class DetailTagChip extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
-              color: selected ? const Color(0xFF5AA8FF) : Colors.white70,
+              color: selected ? colors.selectionStrong : colors.chipText,
               fontSize: compact ? 11 : 12,
               fontWeight: FontWeight.w600,
             ),
@@ -318,7 +344,7 @@ class DetailTagChip extends StatelessWidget {
             Icon(
               Icons.keyboard_arrow_down,
               size: compact ? 14 : 16,
-              color: Colors.white70,
+              color: colors.textSecondary,
             ),
           ],
         ],
@@ -341,6 +367,7 @@ class DetailOverview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final value = text.trim().isEmpty ? '暂无简介' : text;
     return GestureDetector(
       onTap: onToggle,
@@ -348,7 +375,7 @@ class DetailOverview extends StatelessWidget {
         expanded ? value : value.replaceAll('\n', ' '),
         maxLines: expanded ? null : 3,
         overflow: expanded ? TextOverflow.visible : TextOverflow.ellipsis,
-        style: const TextStyle(color: Colors.white70, fontSize: 16),
+        style: TextStyle(color: colors.textSecondary, fontSize: 16),
       ),
     );
   }

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 
-import '../../theme/detail_tokens.dart';
+import '../../theme/app_theme.dart';
 import '../../ui/adaptive_text.dart';
 
 class DescriptionSection extends StatelessWidget {
@@ -20,18 +20,19 @@ class DescriptionSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final content = text.trim().isEmpty ? '\u6682\u65E0\u7B80\u4ECB' : text;
     final descSize = AdaptiveText.roleSize(
       baseFontSize,
       role: AdaptiveFontRole.body,
     );
     final textStyle = TextStyle(
-      color: DetailTokens.textSecondary,
+      color: colors.textSecondary,
       fontSize: descSize,
       height: 1.35,
     );
     final moreStyle = textStyle.copyWith(
-      color: const Color(0xFF2D87FF),
+      color: colors.link,
       fontWeight: FontWeight.w600,
     );
     final normalized = content.replaceAll('\n', ' ');

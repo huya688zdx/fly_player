@@ -13,20 +13,29 @@ import '../models/person_credit.dart';
 import '../models/stream_list_option.dart';
 import '../models/stream_track_data.dart';
 import 'long_text_overlay_page.dart';
-import '../player/mpv_player_controller.dart';
+import '../player/controllers/mpv_player_controller.dart';
 import '../player/mpv_player_page.dart';
-import '../player/player_source_controller.dart';
+import '../player/controllers/player_source_controller.dart';
+import '../providers/app_theme_provider.dart';
 import '../providers/nas_provider.dart';
+import '../services/app_log_service.dart';
+import '../services/embedded_detail_launcher.dart';
+import '../theme/app_theme.dart';
 import '../theme/detail_tokens.dart';
+import '../ui/adaptive_detail_navigator.dart';
 import '../ui/app_transitions.dart';
 import '../ui/capability_badge_mapper.dart';
+import '../ui/detail_presentation.dart';
 import '../utils/api_url_helper.dart';
+import '../utils/app_error_reporter.dart';
 import '../utils/app_exception.dart';
 import '../utils/detail_layout_solver.dart';
 import '../utils/detail_top_tip.dart';
 import '../utils/imdb_launcher.dart';
 import '../utils/media_language_mapper.dart';
 import '../utils/media_locale_store.dart';
+import '../utils/player_artwork_path_resolver.dart';
+import '../utils/player_title_formatter.dart';
 import '../utils/play_detail_formatters.dart';
 import '../utils/play_detail_track_selector.dart';
 import '../widgets/common/app_error_state.dart';
@@ -37,23 +46,25 @@ import '../widgets/detail/detail_hero_overlay.dart';
 import '../widgets/detail/detail_meta_lines.dart';
 import '../widgets/detail/detail_selector_row.dart';
 import '../widgets/detail/detail_resolution_section.dart';
+import '../widgets/detail/dynamic_page_theme_scope.dart';
 import '../widgets/detail/file_info_section.dart';
 import '../widgets/detail/immersive_detail_background.dart';
 import '../widgets/detail/link_section.dart';
 import '../widgets/detail/play_action_bar.dart';
 import '../widgets/detail/video_info_section.dart';
-import '../screens/person_detail_screen.dart';
 
 class PlayDetailPage extends StatefulWidget {
   final String itemGuid;
   final String? heroTag;
   final Map<String, dynamic>? initialItemDetail;
+  final DetailPresentation presentation;
 
   const PlayDetailPage({
     super.key,
     required this.itemGuid,
     this.heroTag,
     this.initialItemDetail,
+    this.presentation = DetailPresentation.page,
   });
 
   @override
@@ -74,6 +85,8 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   final ValueNotifier<double> _scrollOffsetNotifier = ValueNotifier<double>(0);
   static const Duration _favoriteTapCooldown = Duration(milliseconds: 900);
   static const Duration _watchedTapCooldown = Duration(milliseconds: 900);
+
+  bool get _isPane => widget.presentation == DetailPresentation.pane;
 
   PlayInfoData? _data;
   late String _currentItemGuid;
@@ -411,24 +424,8 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     await Future<void>.delayed(_phase2Delay);
     if (!mounted || _playerRouteActive) return;
     try {
-      final results = await Future.wait<dynamic>([
-        api.getStreamTrackData(_currentItemGuid),
-        api
-            .getTagGenresMap(lan: 'zh-CN')
-            .catchError((_) => const <int, String>{}),
-        api
-            .getTagIso3166Map(lan: 'zh-CN')
-            .catchError((_) => const <String, String>{}),
-        api
-            .getTagIso6392Map(lan: 'zh-CN')
-            .catchError((_) => const <String, String>{}),
-      ]);
+      final trackData = await api.getStreamTrackData(_currentItemGuid);
       if (!mounted || _playerRouteActive) return;
-      final trackData = results[0] as StreamTrackData;
-      final genresMap = results[1] as Map<int, String>;
-      final locateMap = results[2] as Map<String, String>;
-      final languageMap = results[3] as Map<String, String>;
-      MediaLanguageMapper.mergeLanguageMap(languageMap);
       final streams = trackData.options;
       final initialIndex = streams.indexWhere(
         (e) => e.mediaGuid == info.mediaGuid,
@@ -455,10 +452,36 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           preferred: info.audioGuid,
           tracks: audioTracks,
         );
-        _genresMapZhCn = genresMap;
-        _locateMapZhCn = locateMap;
       });
-    } catch (_) {
+
+      final genresMap = await api
+          .getTagGenresMap(lan: 'zh-CN')
+          .catchError((_) => const <int, String>{});
+      if (!mounted || _playerRouteActive) return;
+      setState(() => _genresMapZhCn = genresMap);
+
+      final locateMap = await api
+          .getTagIso3166Map(lan: 'zh-CN')
+          .catchError((_) => const <String, String>{});
+      if (!mounted || _playerRouteActive) return;
+      setState(() => _locateMapZhCn = locateMap);
+
+      final languageMap = await api
+          .getTagIso6392Map(lan: 'zh-CN')
+          .catchError((_) => const <String, String>{});
+      MediaLanguageMapper.mergeLanguageMap(languageMap);
+    } catch (error, stackTrace) {
+      unawaited(
+        AppErrorReporter.report(
+          error,
+          action: 'load play detail locale maps',
+          source: 'play_detail_page',
+          stackTrace: stackTrace,
+          fallbackKind: AppExceptionKind.noData,
+          level: AppLogLevel.warning,
+          details: 'itemGuid=$_currentItemGuid',
+        ),
+      );
       // Keep base UI alive even if track request fails.
     }
   }
@@ -600,14 +623,14 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     _selectedAudioGuid = synced.audioGuid;
   }
 
-  Future<void> _showSubtitleSheet() async {
+  Future<void> _showSubtitleSheet(BuildContext sheetContext) async {
     final tracks = _currentSubtitleTracks();
     if (tracks.isEmpty) return;
     if (mounted) {
       setState(() => _subtitleSelectorExpanded = true);
     }
     final result = await PlayDetailSheetController.showSubtitleSheet(
-      context,
+      sheetContext,
       subtitleTracks: tracks,
       selectedSubtitleGuid: _selectedSubtitleGuid,
     );
@@ -620,14 +643,14 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     });
   }
 
-  Future<void> _showAudioSheet() async {
+  Future<void> _showAudioSheet(BuildContext sheetContext) async {
     final tracks = _currentAudioTracks();
     if (tracks.length <= 1) return;
     if (mounted) {
       setState(() => _audioSelectorExpanded = true);
     }
     final result = await PlayDetailSheetController.showAudioSheet(
-      context,
+      sheetContext,
       audioTracks: tracks,
       selectedAudioGuid: _selectedAudioGuid,
     );
@@ -640,9 +663,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     });
   }
 
-  Future<void> _showMediaInfoDetail() async {
+  Future<void> _showMediaInfoDetail(BuildContext sheetContext) async {
     await PlayDetailSheetController.showMediaInfoDetail(
-      context,
+      sheetContext,
       streamOptions: _streamOptions,
       streamTrackData: _streamTrackData,
       selectedStreamIndex: _selectedStreamIndex,
@@ -668,10 +691,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       _showTopTip(
         _t(
           'player.playbackError.playError',
-          '鎾斁寮傚父: {error}',
+          '播放异常: {error}',
           params: {'error': 'missing media guid'},
         ),
-        const Color(0xFFD64545),
+        context.appColors.danger,
       );
       return;
     }
@@ -681,10 +704,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       _showTopTip(
         _t(
           'player.playbackError.playError',
-          '鎾斁寮傚父: {error}',
+          '播放异常: {error}',
           params: {'error': 'missing stream url'},
         ),
-        const Color(0xFFD64545),
+        context.appColors.danger,
       );
       return;
     }
@@ -696,10 +719,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       _showTopTip(
         _t(
           'player.playbackError.playError',
-          '閹绢厽鏂佸鍌氱埗: {error}',
+          '获取播放流失败: {error}',
           params: {'error': '$error'},
         ),
-        const Color(0xFFD64545),
+        context.appColors.danger,
       );
       return;
     }
@@ -716,11 +739,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
             _watched ||
             data.item.isWatched == 1);
     final item = data.item;
-    final title =
-        (item.type.trim().toLowerCase() == 'episode' &&
-            item.title.trim().isNotEmpty)
-        ? item.title.trim()
-        : item.displayTitle;
+    final title = formatPlayerTitleFromPlayItem(
+      item,
+      fallbackTitle: item.displayTitle,
+    );
 
     final selectedAudio = PlayDetailTrackSelector.selectedOrFirstAudio(
       selectedAudioGuid: _selectedAudioGuid?.trim().isNotEmpty == true
@@ -747,32 +769,54 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         ? playbackStream.videoStream!.resolutionType.trim()
         : selectedOption?.resolutionType ?? '';
     final playbackBitrate = playbackStream.videoStream?.bps ?? 0;
-    final preferExternalSubtitle = selectedSubtitle?.isExternal == 1;
-    PlaybackQualityOption? selectedQuality;
-    for (final quality in playbackStream.qualities) {
-      if (quality.mediaGuid == mediaGuid &&
-          (quality.videoGuid.isEmpty ||
-              quality.videoGuid == playbackVideoGuid)) {
-        selectedQuality = quality;
-        break;
-      }
-    }
-    selectedQuality ??= playbackStream.qualities
-        .cast<PlaybackQualityOption?>()
-        .firstWhere(
-          (quality) =>
-              quality != null &&
-              quality.mediaGuid == mediaGuid &&
-              quality.resolution.trim().isNotEmpty &&
-              quality.resolution.trim() == playbackResolution,
-          orElse: () => null,
-        );
+    final preferExternalSubtitle =
+        selectedSubtitle != null &&
+        (selectedSubtitle.isExternal == 1 ||
+            selectedSubtitle.extraFile == 1 ||
+            selectedSubtitle.guid.startsWith('local:'));
+    final embeddedSubtitleTrackIndex =
+        selectedSubtitle == null || preferExternalSubtitle
+        ? null
+        : (() {
+            final embeddedTracks = playerSubtitleTracks
+                .where((track) {
+                  if (track.guid.trim().isEmpty) return false;
+                  if (track.guid.startsWith('local:')) return false;
+                  return track.isExternal != 1 && track.extraFile != 1;
+                })
+                .toList(growable: false);
+            final ordinal = embeddedTracks.indexWhere(
+              (track) => track.guid == selectedSubtitle.guid,
+            );
+            if (ordinal < 0) return null;
+            return ordinal + 1;
+          })();
+    final mergedQualities = mergePlaybackQualitiesWithStreamTrackData(
+      playbackStream.qualities,
+      _streamTrackData,
+    );
+    final selectedQuality = PlayerSourceController.preferredInitialQuality(
+      mergedQualities,
+    );
+    final initialPlaybackVideoGuid =
+        selectedQuality?.videoGuid.trim().isNotEmpty == true
+        ? selectedQuality!.videoGuid.trim()
+        : playbackVideoGuid;
+    final initialPlaybackResolution =
+        selectedQuality?.isDirectLink == true &&
+            selectedQuality!.resolution.trim().isNotEmpty
+        ? selectedQuality.resolution.trim()
+        : playbackResolution;
+    final initialPlaybackBitrate = selectedQuality?.isDirectLink == true
+        ? selectedQuality!.bitrate
+        : playbackBitrate;
     final initialPlayback = await const PlayerSourceController()
         .buildInitialPlaybackResult(
           api: api,
           directUrl: streamUrl,
           mediaGuid: mediaGuid,
-          videoGuid: playbackVideoGuid,
+          videoGuid: initialPlaybackVideoGuid,
+          playbackStream: playbackStream,
           quality: selectedQuality,
           selectedAudio: selectedAudio,
           startPosition: Duration(seconds: effectiveTs),
@@ -784,10 +828,17 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         : (playbackCompleted ? Duration.zero : Duration(seconds: effectiveTs));
 
     final source = MpvMediaSource(
+      loadNonce: createMpvLoadNonce(),
       itemGuid: _currentItemGuid,
       seasonGuid: (widget.initialItemDetail?['parent_guid'] ?? '').toString(),
+      posterPath: resolvePlayerArtworkPathForPlayItem(item),
       mediaGuid: initialPlayback.mediaGuid,
+      mediaType: item.type,
+      ancestorName: item.ancestorName,
       videoGuid: initialPlayback.videoGuid,
+      directLinkQualityIndex: selectedQuality?.isDirectLink == true
+          ? selectedQuality!.directLinkQualityIndex
+          : null,
       videoWidth: playbackStream.videoStream?.width ?? 0,
       videoHeight: playbackStream.videoStream?.height ?? 0,
       proxySessionId: playableSource.proxySessionId,
@@ -795,16 +846,17 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       url: playableSource.url,
       headers: playableSource.headers,
       title: title,
+      seriesTitle: item.tvTitle.trim().isNotEmpty ? item.tvTitle.trim() : title,
+      seasonNumber: item.seasonNumber,
+      tmdbId: item.trimId,
       episodeNumber: item.episodeNumber,
       startPosition: resolvedStartPosition,
       audioTrackIndex: selectedAudio?.index,
-      subtitleTrackIndex: preferExternalSubtitle
-          ? null
-          : selectedSubtitle?.index,
+      subtitleTrackIndex: embeddedSubtitleTrackIndex,
       audioTrackGuid: selectedAudio?.guid ?? data.audioGuid,
       subtitleTrackGuid: selectedSubtitle?.guid ?? data.subtitleGuid,
-      resolution: playbackResolution,
-      bitrate: playbackBitrate,
+      resolution: initialPlaybackResolution,
+      bitrate: initialPlaybackBitrate,
       durationSeconds: effectiveDuration,
       videoCodecName: playbackStream.videoStream?.codecName ?? '',
       videoProfile: playbackStream.videoStream?.profile ?? '',
@@ -813,25 +865,34 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       colorPrimaries: playbackStream.videoStream?.colorPrimaries ?? '',
       bitDepth: playbackStream.videoStream?.bitDepth ?? 0,
       preferExternalSubtitle: preferExternalSubtitle,
+      forceNativeProxy: playableSource.forceNativeProxy,
       reliableSeek: playableSource.reliableSeek,
       seekProbeSummary: playableSource.seekProbeSummary,
-      serverPlaybackManaged: initialPlayback.serverPlaybackManaged,
+      playbackMode: initialPlayback.playbackMode,
       playbackSpeed: 1.0,
       audioTracks: playbackStream.audioStreams,
       subtitleTracks: playerSubtitleTracks,
-      qualities: playbackStream.qualities,
+      qualities: mergedQualities,
     );
 
     if (!mounted) return;
+    final navigator = Navigator.of(context);
     _playerRouteActive = true;
     _deferredSectionTimer?.cancel();
-    final result = await Navigator.of(context).push(
-      AppTransitions.playerRoute(
-        MpvPlayerPage(title: title, source: source),
-      ),
+    final embeddedResult = await EmbeddedDetailLauncher.openFullscreenPlayer(
+      title: title,
+      source: source,
     );
+    final result = embeddedResult.handled
+        ? embeddedResult.data
+        : await navigator.push(
+            AppTransitions.playerRoute(
+              MpvPlayerPage(title: title, source: source),
+            ),
+          );
     if (!mounted) return;
     _playerRouteActive = false;
+    _restoreContentVisibilityAfterPlayerExit();
     if (!_deferredSectionLoadStarted &&
         (_personCredits.isEmpty ||
             _authorizedDirs.isEmpty ||
@@ -865,6 +926,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
 
   Future<void> _refreshAfterPlayerExit() async {
     try {
+      await Future<void>.delayed(const Duration(milliseconds: 220));
+      if (!mounted) return;
+      _restoreContentVisibilityAfterPlayerExit();
       await _refreshAfterItemStateChange();
     } catch (error) {
       debugPrint('[PLAY_DETAIL] refresh after player failed error=$error');
@@ -907,6 +971,18 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       _imdbId = refreshed.imdbId;
       _trimId = refreshed.trimId;
     });
+    _restoreContentVisibilityAfterPlayerExit();
+  }
+
+  void _restoreContentVisibilityAfterPlayerExit() {
+    if (!mounted) return;
+    if (!_descriptionVisible) {
+      setState(() => _descriptionVisible = true);
+    }
+    if (_descriptionPopController.status != AnimationStatus.forward &&
+        _descriptionPopController.value < 1.0) {
+      _descriptionPopController.forward();
+    }
   }
 
   Future<void> _openImdb() async {
@@ -917,12 +993,12 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       case ImdbLaunchResult.empty:
         _showTopTip(
           _t('layout.details.castAndCrew.imdb', '暂无 IMDB 链接'),
-          const Color(0xFFB8860B),
+          context.appColors.warning,
         );
       case ImdbLaunchResult.failed:
         _showTopTip(
           _t('layout.details.castAndCrew.imdbOpenFailed', '无法打开 IMDB 链接'),
-          const Color(0xFFD64545),
+          context.appColors.danger,
         );
     }
   }
@@ -933,19 +1009,23 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       case ImdbLaunchResult.success:
         return;
       case ImdbLaunchResult.empty:
-        _showTopTip('暂无 TMDB 链接', const Color(0xFFB8860B));
+        _showTopTip('暂无 TMDB 链接', context.appColors.warning);
       case ImdbLaunchResult.failed:
-        _showTopTip('无法打开 TMDB 链接', const Color(0xFFD64545));
+        _showTopTip('无法打开 TMDB 链接', context.appColors.danger);
     }
   }
 
   void _openCreditPerson(CreditPersonItem person) {
     final guid = person.personGuid.trim();
     if (guid.isEmpty) return;
-    Navigator.of(context).push(
-      AppTransitions.leftToRightPageTurnRoute(
-        PersonDetailScreen(personGuid: guid, initialName: person.name),
+    AdaptiveDetailNavigator.open<void>(
+      context,
+      AdaptiveDetailRequest.person(
+        personGuid: guid,
+        initialName: person.name,
+        initialLocaleMap: _localeMap,
       ),
+      presentation: _isPane ? DetailPresentation.pane : DetailPresentation.page,
     );
   }
 
@@ -960,7 +1040,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         now.difference(_lastFavoriteTapAt) < _favoriteTapCooldown) {
       _showTopTip(
         _t('layout.globalError.clickToRetry', '点击过快，请稍后再试'),
-        const Color(0xFFB8860B),
+        context.appColors.warning,
       );
       return;
     }
@@ -976,14 +1056,24 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       setState(() => _liked = result.state);
       _showTopTip(
         result.message,
-        result.state ? const Color(0xFF19A35B) : const Color(0xFF3B4A5E),
+        result.state ? context.appColors.success : context.appColors.textMuted,
       );
-    } catch (_) {
+    } catch (error, stackTrace) {
+      unawaited(
+        AppErrorReporter.report(
+          error,
+          action: 'toggle favorite',
+          source: 'play_detail_page',
+          stackTrace: stackTrace,
+          fallbackKind: AppExceptionKind.transient,
+          details: 'itemGuid=$_currentItemGuid',
+        ),
+      );
       _showTopTip(
         _liked
             ? _t('common.actions.favorite.unfavoriteFailed', '取消收藏失败')
             : _t('common.actions.favorite.favoriteFailed', '收藏失败'),
-        const Color(0xFFD64545),
+        context.appColors.danger,
       );
     } finally {
       _favoriteUpdating = false;
@@ -996,7 +1086,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         now.difference(_lastWatchedTapAt) < _watchedTapCooldown) {
       _showTopTip(
         _t('layout.globalError.clickToRetry', '点击过快，请稍后再试'),
-        const Color(0xFFB8860B),
+        context.appColors.warning,
       );
       return;
     }
@@ -1012,17 +1102,27 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       setState(() => _watched = result.state);
       _showTopTip(
         result.message,
-        result.state ? const Color(0xFF19A35B) : const Color(0xFF3B4A5E),
+        result.state ? context.appColors.success : context.appColors.textMuted,
       );
       if (result.needRefresh) {
         await _refreshAfterItemStateChange();
       }
-    } catch (_) {
+    } catch (error, stackTrace) {
+      unawaited(
+        AppErrorReporter.report(
+          error,
+          action: 'toggle watched',
+          source: 'play_detail_page',
+          stackTrace: stackTrace,
+          fallbackKind: AppExceptionKind.transient,
+          details: 'itemGuid=$_currentItemGuid',
+        ),
+      );
       _showTopTip(
         _watched
             ? _t('common.actions.watched.markedAsUnwatchedFailed', '标记为未观看失败')
             : _t('common.actions.watched.markedAsWatchedFailed', '标记为已观看失败'),
-        const Color(0xFFD64545),
+        context.appColors.danger,
       );
     } finally {
       _watchedUpdating = false;
@@ -1031,569 +1131,662 @@ class _PlayDetailPageState extends State<PlayDetailPage>
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = context.watch<AppThemeProvider>();
+    final nasProvider = context.read<NasProvider>();
+    var dynamicThemeKey = _currentItemGuid.trim().isNotEmpty
+        ? _currentItemGuid
+        : widget.itemGuid;
+    var dynamicThemeImageUrl = '';
     if (_loading) {
       final initial = widget.initialItemDetail;
-      if (initial == null) {
-        return const Scaffold(
-          backgroundColor: DetailTokens.pageBackground,
-          body: SizedBox.shrink(),
+      if (initial != null) {
+        final rawItem = initial['item'];
+        final item = rawItem is Map<String, dynamic> ? rawItem : initial;
+        final urls = ApiUrlHelper.imageCandidates(
+          nasProvider.baseUrl,
+          _heroPathForItemMap(item),
+          width: 360,
         );
+        if (urls.isNotEmpty) {
+          dynamicThemeImageUrl = urls.first;
+        }
       }
-      final provider = context.read<NasProvider>();
-      final rawItem = initial['item'];
-      final item = rawItem is Map<String, dynamic> ? rawItem : initial;
-      final heroPath = _heroPathForItemMap(item);
-      final heroUrls = ApiUrlHelper.imageCandidates(
-        provider.baseUrl,
-        heroPath,
-        width: 1200,
+    } else if (_data != null) {
+      final urls = ApiUrlHelper.imageCandidates(
+        nasProvider.baseUrl,
+        _heroPathForPlayItem(_data!.item),
+        width: 360,
       );
-      final title = ((item['type'] ?? '').toString().toLowerCase() == 'episode')
-          ? ((item['title'] ?? '').toString())
-          : (((item['tv_title'] ?? '').toString().trim().isNotEmpty)
+      if (urls.isNotEmpty) {
+        dynamicThemeImageUrl = urls.first;
+      }
+    }
+
+    return DynamicPageThemeScope(
+      pageKey: dynamicThemeKey,
+      imageUrl: dynamicThemeImageUrl,
+      token: nasProvider.token,
+      enabled: themeProvider.dynamicThemeEnabled,
+      syncGlobalTheme: _isPane,
+      intensity: themeProvider.dynamicThemeIntensity,
+      builder: (context, ambientTint) {
+        final colors = context.appColors;
+        if (_loading) {
+          final initial = widget.initialItemDetail;
+          if (initial == null) {
+            return Scaffold(
+              backgroundColor: colors.backgroundBase,
+              body: SizedBox.shrink(),
+            );
+          }
+          final provider = context.read<NasProvider>();
+          final rawItem = initial['item'];
+          final item = rawItem is Map<String, dynamic> ? rawItem : initial;
+          final heroPath = _heroPathForItemMap(item);
+          final heroUrls = ApiUrlHelper.imageCandidates(
+            provider.baseUrl,
+            heroPath,
+            width: 1200,
+          );
+          final title = formatPlayerTitle(
+            seriesTitle: (item['tv_title'] ?? '').toString().trim().isNotEmpty
                 ? (item['tv_title'] ?? '').toString()
-                : (item['title'] ?? '').toString());
-      final episodeHeroSubtitle =
-          ((item['type'] ?? '').toString().trim().toLowerCase() == 'episode')
-          ? [
-              if ((item['tv_title'] ?? '').toString().trim().isNotEmpty)
-                (item['tv_title'] ?? '').toString().trim(),
-              if (_asInt(item['season_number']) == 0)
-                _t('layout.subheading.season.special', '特别篇')
-              else if (_asInt(item['season_number']) > 0)
-                _t(
-                  'layout.subheading.season.number',
-                  '第 {number} 季',
-                  params: {'number': _asInt(item['season_number'])},
+                : (item['display_title'] ?? item['title'] ?? '').toString(),
+            episodeTitle: (item['title'] ?? '').toString(),
+            seasonNumber: _asInt(item['season_number']),
+            episodeNumber: _asInt(item['episode_number']),
+            fallbackTitle: (item['display_title'] ?? item['title'] ?? '')
+                .toString(),
+          );
+          final logoUrls = ApiUrlHelper.imageCandidates(
+            provider.baseUrl,
+            (item['logos'] ?? '').toString(),
+            width: 1200,
+          );
+          final episodeHeroSubtitle =
+              ((item['type'] ?? '').toString().trim().toLowerCase() ==
+                  'episode')
+              ? [
+                  if ((item['tv_title'] ?? '').toString().trim().isNotEmpty)
+                    (item['tv_title'] ?? '').toString().trim(),
+                  if (_asInt(item['season_number']) == 0)
+                    _t('layout.subheading.season.special', '特别篇')
+                  else if (_asInt(item['season_number']) > 0)
+                    _t(
+                      'layout.subheading.season.number',
+                      '第 {number} 季',
+                      params: {'number': _asInt(item['season_number'])},
+                    ),
+                  if (_asInt(item['episode_number']) > 0)
+                    _t(
+                      'layout.subheading.episode.number',
+                      '第 {number} 集',
+                      params: {'number': _asInt(item['episode_number'])},
+                    ),
+                ].join(' · ')
+              : '';
+          final media = MediaQuery.of(context);
+          final posterHeight = media.size.height * 0.50;
+          final layout = DetailLayoutSolver.solve(
+            screenSize: media.size,
+            safePadding: media.padding,
+            posterHeight: posterHeight,
+          );
+          return Scaffold(
+            backgroundColor: DetailTokens.pageBackground,
+            body: Stack(
+              fit: StackFit.expand,
+              children: [
+                ImmersiveDetailBackground(
+                  urls: heroUrls,
+                  token: provider.token,
+                  scrollOffset: 0,
+                  posterHeight: posterHeight,
+                  parallaxFactor: 1.0,
+                  overlayOpacity: 0.62,
+                  ambientTintOverride: ambientTint,
                 ),
-              if (_asInt(item['episode_number']) > 0)
-                _t(
-                  'layout.subheading.episode.number',
-                  '第 {number} 集',
-                  params: {'number': _asInt(item['episode_number'])},
-                ),
-            ].join(' · ')
-          : '';
-      final media = MediaQuery.of(context);
-      final posterHeight = media.size.height * 0.50;
-      final layout = DetailLayoutSolver.solve(
-        screenSize: media.size,
-        safePadding: media.padding,
-        posterHeight: posterHeight,
-      );
-      return Scaffold(
-        backgroundColor: DetailTokens.pageBackground,
-        body: Stack(
-          fit: StackFit.expand,
-          children: [
-            ImmersiveDetailBackground(
-              urls: heroUrls,
-              token: provider.token,
-              scrollOffset: 0,
-              posterHeight: posterHeight,
-              parallaxFactor: 1.0,
-              overlayOpacity: 0.62,
-            ),
-            CustomScrollView(
-              physics: const NeverScrollableScrollPhysics(),
-              slivers: [
-                SliverToBoxAdapter(
-                  child: DetailHeroOverlay(
-                    height: layout.infoStart,
-                    title: title,
-                    subtitle: episodeHeroSubtitle,
-                    titleFontSize: 28,
-                    bottomInset: 20,
-                    useSoftGradient: true,
-                  ),
+                CustomScrollView(
+                  physics: const NeverScrollableScrollPhysics(),
+                  slivers: [
+                    SliverToBoxAdapter(
+                      child: DetailHeroOverlay(
+                        height: layout.infoStart,
+                        title: title,
+                        subtitle: episodeHeroSubtitle,
+                        titleFontSize: 28,
+                        bottomInset: 20,
+                        useSoftGradient: true,
+                        titleChild:
+                            logoUrls.isNotEmpty &&
+                                (item['type'] ?? '')
+                                        .toString()
+                                        .trim()
+                                        .toLowerCase() !=
+                                    'episode'
+                            ? DetailHeroLogoTitle(
+                                urls: logoUrls,
+                                token: provider.token,
+                                fallbackTitle: title,
+                                maxHeight: 112,
+                                maxWidth:
+                                    media.size.width -
+                                    (DetailTokens.screenHorizontalPadding * 2),
+                                fallbackFontSize: 28,
+                              )
+                            : null,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ],
-        ),
-      );
-    }
+          );
+        }
 
-    if (_error != null || _data == null) {
-      return Scaffold(
-        backgroundColor: DetailTokens.pageBackground,
-        appBar: AppBar(backgroundColor: DetailTokens.pageBackground),
-        body: AppErrorState(
-          error: _error!,
-          localeMap: _localeMap,
-          onRetry: _load,
-        ),
-      );
-    }
+        if (_error != null || _data == null) {
+          return Scaffold(
+            backgroundColor: colors.backgroundBase,
+            appBar: _isPane
+                ? null
+                : AppBar(backgroundColor: colors.backgroundBase),
+            body: AppErrorState(
+              error: _error!,
+              localeMap: _localeMap,
+              onRetry: _load,
+            ),
+          );
+        }
 
-    final provider = context.read<NasProvider>();
-    final data = _data!;
-    final item = data.item;
-    final media = MediaQuery.of(context);
-    final screenSize = media.size;
+        final provider = context.read<NasProvider>();
+        final data = _data!;
+        final item = data.item;
+        final media = MediaQuery.of(context);
+        final screenSize = media.size;
 
-    final posterHeight = screenSize.height * 0.50;
-    final layout = DetailLayoutSolver.solve(
-      screenSize: screenSize,
-      safePadding: media.padding,
-      posterHeight: posterHeight,
-    );
-
-    final collapseRange =
-        (layout.infoStart - media.padding.top - kToolbarHeight).clamp(
-          1.0,
-          layout.infoStart,
+        final posterHeight = screenSize.height * 0.50;
+        final layout = DetailLayoutSolver.solve(
+          screenSize: screenSize,
+          safePadding: media.padding,
+          posterHeight: posterHeight,
         );
-    final heroPath = _heroPathForPlayItem(item);
-    final heroUrls = ApiUrlHelper.imageCandidates(
-      provider.baseUrl,
-      heroPath,
-      width: 1200,
-    );
 
-    final selectedOption =
-        (_selectedStreamIndex != null &&
-            _selectedStreamIndex! >= 0 &&
-            _selectedStreamIndex! < _streamOptions.length)
-        ? _streamOptions[_selectedStreamIndex!]
-        : null;
+        final collapseRange =
+            (layout.infoStart - media.padding.top - kToolbarHeight).clamp(
+              1.0,
+              layout.infoStart,
+            );
+        final heroPath = _heroPathForPlayItem(item);
+        final heroUrls = ApiUrlHelper.imageCandidates(
+          provider.baseUrl,
+          heroPath,
+          width: 1200,
+        );
 
-    final effectiveDuration =
-        (selectedOption != null && selectedOption.duration > 0)
-        ? selectedOption.duration
-        : item.duration;
-    final sourceTs = data.ts > 0 ? data.ts : item.watchedTs;
-    final effectiveTs = sourceTs.clamp(0, effectiveDuration);
-    final remainSeconds = (effectiveDuration - effectiveTs).clamp(
-      0,
-      effectiveDuration,
-    );
-    final playbackCompleted =
-        effectiveDuration > 0 &&
-        (remainSeconds <= 0 || _watched || item.isWatched == 1);
-    final showProgress = effectiveTs > 0 && remainSeconds > 0;
+        final selectedOption =
+            (_selectedStreamIndex != null &&
+                _selectedStreamIndex! >= 0 &&
+                _selectedStreamIndex! < _streamOptions.length)
+            ? _streamOptions[_selectedStreamIndex!]
+            : null;
 
-    final resolvedPlayText = playbackCompleted
-        ? _t('player.play.replay', '重新播放')
-        : effectiveTs > 0
-        ? _t('player.play.continuePlay', '继续播放')
-        : _t('player.play.play', '播放');
-    final metaLineA = PlayDetailFormatters.metaLineA(
-      item,
-      genreMap: _genresMapZhCn,
-      locateMap: _locateMapZhCn,
-    );
-    final metaLineB = [
-      PlayDetailFormatters.formatDuration(effectiveDuration),
-      item.ancestorName,
-    ].where((e) => e.isNotEmpty).join(' / ');
+        final effectiveDuration =
+            (selectedOption != null && selectedOption.duration > 0)
+            ? selectedOption.duration
+            : item.duration;
+        final sourceTs = data.ts > 0 ? data.ts : item.watchedTs;
+        final effectiveTs = sourceTs.clamp(0, effectiveDuration);
+        final remainSeconds = (effectiveDuration - effectiveTs).clamp(
+          0,
+          effectiveDuration,
+        );
+        final playbackCompleted =
+            effectiveDuration > 0 &&
+            (remainSeconds <= 0 || _watched || item.isWatched == 1);
+        final showProgress = effectiveTs > 0 && remainSeconds > 0;
 
-    final resolutionOptions = _streamOptions
-        .map((e) => e.label)
-        .where((e) => e.trim().isNotEmpty)
-        .toList();
-    final showResolutionSelector = resolutionOptions.length > 1;
+        final resolvedPlayText = playbackCompleted
+            ? _t('player.play.replay', '重新播放')
+            : effectiveTs > 0
+            ? _t('player.play.continuePlay', '继续播放')
+            : _t('player.play.play', '播放');
+        final metaLineA = PlayDetailFormatters.metaLineA(
+          item,
+          genreMap: _genresMapZhCn,
+          locateMap: _locateMapZhCn,
+        );
+        final metaLineB = [
+          PlayDetailFormatters.formatDuration(effectiveDuration),
+          item.ancestorName,
+        ].where((e) => e.isNotEmpty).join(' / ');
 
-    final itemType = item.type.trim().toLowerCase();
-    final detailTitle = (itemType == 'episode' && item.title.trim().isNotEmpty)
-        ? item.title.trim()
-        : item.displayTitle;
-    final episodeHeroSubtitle = _episodeHeroSubtitle(item);
-
-    String? selectedKey;
-    if (_selectedStreamIndex != null &&
-        _selectedStreamIndex! >= 0 &&
-        _selectedStreamIndex! < resolutionOptions.length) {
-      selectedKey =
-          '${_selectedStreamIndex!}:${resolutionOptions[_selectedStreamIndex!]}';
-    }
-
-    final capabilityLabels = () {
-      if (selectedOption != null) {
-        return <String>[
-              selectedOption.resolutionType,
-              selectedOption.colorRangeType,
-              _currentAudioTypeForBadges(),
-            ]
-            .map(CapabilityBadgeMapper.normalize)
-            .where((e) => e.isNotEmpty)
+        final resolutionOptions = _streamOptions
+            .map((e) => e.label)
+            .where((e) => e.trim().isNotEmpty)
             .toList();
-      }
-      return <String>[
-            ...item.resolutions,
-            ...item.colorRanges,
-            ...item.audioTypes,
-          ]
-          .map(CapabilityBadgeMapper.normalize)
-          .where((e) => e.isNotEmpty)
-          .toSet()
-          .toList();
-    }();
-    final subtitleTracks = _currentSubtitleTracks();
-    final audioTracks = _currentAudioTracks();
-    final showSubtitleArrow = subtitleTracks.isNotEmpty;
-    final showAudioArrow = audioTracks.length > 1;
-    final subtitleLabel = PlayDetailTrackSelector.subtitleLabelForCurrentMedia(
-      selectedSubtitleGuid: _selectedSubtitleGuid,
-      subtitleTracks: subtitleTracks,
-      localeMap: _localeMap,
-    );
-    final audioLabel = PlayDetailTrackSelector.audioLabelForCurrentMedia(
-      selectedAudioGuid: _selectedAudioGuid,
-      audioTracks: audioTracks,
-      selectedOption: selectedOption,
-      localeMap: _localeMap,
-    );
+        final showResolutionSelector = resolutionOptions.length > 1;
 
-    final currentMediaGuid = _currentStreamOption()?.mediaGuid ?? '';
-    final currentFile = (currentMediaGuid.isNotEmpty)
-        ? _streamTrackData?.fileForMedia(currentMediaGuid)
-        : null;
-    final currentVideo = (currentMediaGuid.isNotEmpty)
-        ? _streamTrackData?.videoForMedia(currentMediaGuid)
-        : null;
-    final currentAudio = PlayDetailTrackSelector.selectedOrFirstAudio(
-      selectedAudioGuid: _selectedAudioGuid,
-      audioTracks: audioTracks,
-    );
-    final currentSubtitle = PlayDetailTrackSelector.selectedOrFirstSubtitle(
-      selectedSubtitleGuid: _selectedSubtitleGuid,
-      subtitleTracks: subtitleTracks,
-    );
-    final creditItems = _personCredits
-        .map(
-          (e) => CreditPersonItem(
-            personGuid: e.personGuid,
-            name: e.displayName,
-            subtitle: e.displaySubTitle,
-            imageUrls: ApiUrlHelper.personImageCandidates(
-              provider.baseUrl,
-              e.profilePath,
-              width: 320,
-            ),
-          ),
-        )
-        .toList();
+        final itemType = item.type.trim().toLowerCase();
+        final detailTitle =
+            (itemType == 'episode' && item.title.trim().isNotEmpty)
+            ? item.title.trim()
+            : item.displayTitle;
+        final logoUrls = ApiUrlHelper.imageCandidates(
+          provider.baseUrl,
+          item.logos,
+          width: 1200,
+        );
+        final episodeHeroSubtitle = _episodeHeroSubtitle(item);
 
-    return Scaffold(
-      backgroundColor: DetailTokens.pageBackground,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          ValueListenableBuilder<double>(
-            valueListenable: _scrollOffsetNotifier,
-            builder: (context, offset, _) {
-              final useHero =
-                  widget.heroTag != null &&
-                  widget.heroTag!.isNotEmpty &&
-                  itemType != 'episode';
-              final background = ImmersiveDetailBackground(
-                urls: heroUrls,
-                token: provider.token,
-                scrollOffset: offset,
-                posterHeight: posterHeight,
-                parallaxFactor: 1.0,
-                overlayOpacity: 0.62,
-              );
-              if (!useHero) {
-                return background;
-              }
-              return Hero(tag: widget.heroTag!, child: background);
-            },
-          ),
-          CustomScrollView(
-            controller: _scrollController,
-            physics: const BouncingScrollPhysics(
-              parent: AlwaysScrollableScrollPhysics(),
-            ),
-            slivers: [
-              SliverToBoxAdapter(
-                child: FadeTransition(
-                  opacity: _headerTitleOpacity,
-                  child: DetailHeroOverlay(
-                    height: layout.infoStart,
-                    title: detailTitle,
-                    subtitle: episodeHeroSubtitle,
-                    titleFontSize: itemType == 'episode' ? 28 : null,
-                    bottomInset: itemType == 'episode' ? 20 : 36,
-                    useSoftGradient: true,
-                  ),
+        String? selectedKey;
+        if (_selectedStreamIndex != null &&
+            _selectedStreamIndex! >= 0 &&
+            _selectedStreamIndex! < resolutionOptions.length) {
+          selectedKey =
+              '${_selectedStreamIndex!}:${resolutionOptions[_selectedStreamIndex!]}';
+        }
+
+        final capabilityLabels = () {
+          if (selectedOption != null) {
+            return <String>[
+                  selectedOption.resolutionType,
+                  selectedOption.colorRangeType,
+                  _currentAudioTypeForBadges(),
+                ]
+                .map(CapabilityBadgeMapper.normalize)
+                .where((e) => e.isNotEmpty)
+                .toList();
+          }
+          return <String>[
+                ...item.resolutions,
+                ...item.colorRanges,
+                ...item.audioTypes,
+              ]
+              .map(CapabilityBadgeMapper.normalize)
+              .where((e) => e.isNotEmpty)
+              .toSet()
+              .toList();
+        }();
+        final subtitleTracks = _currentSubtitleTracks();
+        final audioTracks = _currentAudioTracks();
+        final showSubtitleArrow = subtitleTracks.isNotEmpty;
+        final showAudioArrow = audioTracks.length > 1;
+        final subtitleLabel =
+            PlayDetailTrackSelector.subtitleLabelForCurrentMedia(
+              selectedSubtitleGuid: _selectedSubtitleGuid,
+              subtitleTracks: subtitleTracks,
+              localeMap: _localeMap,
+            );
+        final audioLabel = PlayDetailTrackSelector.audioLabelForCurrentMedia(
+          selectedAudioGuid: _selectedAudioGuid,
+          audioTracks: audioTracks,
+          selectedOption: selectedOption,
+          localeMap: _localeMap,
+        );
+
+        final currentMediaGuid = _currentStreamOption()?.mediaGuid ?? '';
+        final currentFile = (currentMediaGuid.isNotEmpty)
+            ? _streamTrackData?.fileForMedia(currentMediaGuid)
+            : null;
+        final currentVideo = (currentMediaGuid.isNotEmpty)
+            ? _streamTrackData?.videoForMedia(currentMediaGuid)
+            : null;
+        final currentAudio = PlayDetailTrackSelector.selectedOrFirstAudio(
+          selectedAudioGuid: _selectedAudioGuid,
+          audioTracks: audioTracks,
+        );
+        final currentSubtitle = PlayDetailTrackSelector.selectedOrFirstSubtitle(
+          selectedSubtitleGuid: _selectedSubtitleGuid,
+          subtitleTracks: subtitleTracks,
+        );
+        final creditItems = _personCredits
+            .map(
+              (e) => CreditPersonItem(
+                personGuid: e.personGuid,
+                name: e.displayName,
+                subtitle: e.displaySubTitle,
+                imageUrls: ApiUrlHelper.personImageCandidates(
+                  provider.baseUrl,
+                  e.profilePath,
+                  width: 320,
                 ),
               ),
-              SliverToBoxAdapter(
-                child: Container(
-                  color: DetailTokens.pageBackground,
-                  padding: const EdgeInsets.fromLTRB(
-                    DetailTokens.screenHorizontalPadding,
-                    8,
-                    DetailTokens.screenHorizontalPadding,
-                    18,
+            )
+            .toList();
+
+        return Scaffold(
+          backgroundColor: colors.backgroundBase,
+          body: Stack(
+            fit: StackFit.expand,
+            children: [
+              ValueListenableBuilder<double>(
+                valueListenable: _scrollOffsetNotifier,
+                builder: (context, offset, _) {
+                  return ImmersiveDetailBackground(
+                    urls: heroUrls,
+                    token: provider.token,
+                    scrollOffset: offset,
+                    posterHeight: posterHeight,
+                    parallaxFactor: 1.0,
+                    overlayOpacity: 0.62,
+                    ambientTintOverride: ambientTint,
+                  );
+                },
+              ),
+              CustomScrollView(
+                controller: _scrollController,
+                physics: const BouncingScrollPhysics(
+                  parent: AlwaysScrollableScrollPhysics(),
+                ),
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: FadeTransition(
+                      opacity: _headerTitleOpacity,
+                      child: DetailHeroOverlay(
+                        height: layout.infoStart,
+                        title: detailTitle,
+                        subtitle: episodeHeroSubtitle,
+                        titleFontSize: itemType == 'episode' ? 28 : null,
+                        bottomInset: itemType == 'episode' ? 20 : 36,
+                        useSoftGradient: true,
+                        titleChild: itemType != 'episode' && logoUrls.isNotEmpty
+                            ? DetailHeroLogoTitle(
+                                urls: logoUrls,
+                                token: provider.token,
+                                fallbackTitle: detailTitle,
+                                maxHeight: 112,
+                                maxWidth:
+                                    screenSize.width -
+                                    (DetailTokens.screenHorizontalPadding * 2),
+                              )
+                            : null,
+                      ),
+                    ),
                   ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      FadeTransition(
-                        opacity: _headerMetaOpacity,
-                        child: DetailMetaLines(
-                          metaLineA: metaLineA,
-                          metaLineB: metaLineB,
-                        ),
+                  SliverToBoxAdapter(
+                    child: Container(
+                      color: colors.backgroundBase,
+                      padding: const EdgeInsets.fromLTRB(
+                        DetailTokens.screenHorizontalPadding,
+                        8,
+                        DetailTokens.screenHorizontalPadding,
+                        18,
                       ),
-                      const SizedBox(height: 8),
-                      FadeTransition(
-                        opacity: _headerSelectorOpacity,
-                        child: DetailSelectorRow(
-                          subtitleLabel: subtitleLabel,
-                          audioLabel: audioLabel,
-                          capabilityLabels: capabilityLabels,
-                          showSubtitleArrow: showSubtitleArrow,
-                          showAudioArrow: showAudioArrow,
-                          subtitleExpanded: _subtitleSelectorExpanded,
-                          audioExpanded: _audioSelectorExpanded,
-                          onSubtitleTap: showSubtitleArrow
-                              ? _showSubtitleSheet
-                              : null,
-                          onAudioTap: showAudioArrow ? _showAudioSheet : null,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      AnimatedBuilder(
-                        animation: _actionsPopController,
-                        builder: (context, child) {
-                          return Opacity(
-                            opacity: _actionsOpacity.value,
-                            child: Transform.translate(
-                              offset: Offset(0, _actionsTranslateY.value),
-                              child: Transform.scale(
-                                scale: _actionsScale.value,
-                                alignment: Alignment.topCenter,
-                                child: child,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          FadeTransition(
+                            opacity: _headerMetaOpacity,
+                            child: DetailMetaLines(
+                              metaLineA: metaLineA,
+                              metaLineB: metaLineB,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          FadeTransition(
+                            opacity: _headerSelectorOpacity,
+                            child: DetailSelectorRow(
+                              subtitleLabel: subtitleLabel,
+                              audioLabel: audioLabel,
+                              capabilityLabels: capabilityLabels,
+                              showSubtitleArrow: showSubtitleArrow,
+                              showAudioArrow: showAudioArrow,
+                              subtitleExpanded: _subtitleSelectorExpanded,
+                              audioExpanded: _audioSelectorExpanded,
+                              onSubtitleTap: showSubtitleArrow
+                                  ? () => _showSubtitleSheet(context)
+                                  : null,
+                              onAudioTap: showAudioArrow
+                                  ? () => _showAudioSheet(context)
+                                  : null,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          AnimatedBuilder(
+                            animation: _actionsPopController,
+                            builder: (context, child) {
+                              return Opacity(
+                                opacity: _actionsOpacity.value,
+                                child: Transform.translate(
+                                  offset: Offset(0, _actionsTranslateY.value),
+                                  child: Transform.scale(
+                                    scale: _actionsScale.value,
+                                    alignment: Alignment.topCenter,
+                                    child: child,
+                                  ),
+                                ),
+                              );
+                            },
+                            child: PlayActionBar(
+                              progress: PlayDetailFormatters.progress(
+                                effectiveDuration,
+                                effectiveTs,
+                              ),
+                              remainText: PlayDetailFormatters.remainText(
+                                effectiveDuration,
+                                effectiveTs,
+                              ),
+                              showProgress: showProgress,
+                              primaryText: resolvedPlayText,
+                              primaryEnabled: item.canPlay == 1,
+                              liked: _liked,
+                              watched: _watched,
+                              onPrimaryTap: _openPlayer,
+                              onLikeTap: _toggleFavorite,
+                              onWatchedTap: _toggleWatched,
+                            ),
+                          ),
+                          if (showResolutionSelector)
+                            AnimatedBuilder(
+                              animation: _actionsPopController,
+                              builder: (context, child) {
+                                return Opacity(
+                                  opacity: _resolutionOpacity.value,
+                                  child: Transform.translate(
+                                    offset: Offset(
+                                      0,
+                                      _resolutionTranslateY.value,
+                                    ),
+                                    child: Transform.scale(
+                                      scale: _resolutionScale.value,
+                                      alignment: Alignment.topCenter,
+                                      child: child,
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: DetailResolutionSection(
+                                options: resolutionOptions,
+                                selected: selectedKey,
+                                onSelected: (index) {
+                                  setState(() {
+                                    _selectedStreamIndex = index;
+                                    _syncTrackSelectionForCurrentMedia();
+                                  });
+                                },
                               ),
                             ),
-                          );
-                        },
-                        child: PlayActionBar(
-                          progress: PlayDetailFormatters.progress(
-                            effectiveDuration,
-                            effectiveTs,
-                          ),
-                          remainText: PlayDetailFormatters.remainText(
-                            effectiveDuration,
-                            effectiveTs,
-                          ),
-                          showProgress: showProgress,
-                          primaryText: resolvedPlayText,
-                          primaryEnabled: item.canPlay == 1,
-                          liked: _liked,
-                          watched: _watched,
-                          onPrimaryTap: _openPlayer,
-                          onLikeTap: _toggleFavorite,
-                          onWatchedTap: _toggleWatched,
-                        ),
-                      ),
-                      if (showResolutionSelector)
-                        AnimatedBuilder(
-                          animation: _actionsPopController,
-                          builder: (context, child) {
-                            return Opacity(
-                              opacity: _resolutionOpacity.value,
-                              child: Transform.translate(
-                                offset: Offset(0, _resolutionTranslateY.value),
-                                child: Transform.scale(
-                                  scale: _resolutionScale.value,
-                                  alignment: Alignment.topCenter,
-                                  child: child,
-                                ),
+                          if (item.playError.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            Text(
+                              _t(
+                                'player.playbackError.playError',
+                                '播放异常: {error}',
+                                params: {'error': item.playError},
                               ),
-                            );
-                          },
-                          child: DetailResolutionSection(
-                            options: resolutionOptions,
-                            selected: selectedKey,
-                            onSelected: (index) {
-                              setState(() {
-                                _selectedStreamIndex = index;
-                                _syncTrackSelectionForCurrentMedia();
-                              });
-                            },
-                          ),
-                        ),
-                      if (item.playError.isNotEmpty) ...[
-                        const SizedBox(height: 12),
-                        Text(
-                          _t(
-                            'player.playbackError.playError',
-                            '播放异常: {error}',
-                            params: {'error': item.playError},
-                          ),
-                          style: const TextStyle(color: Colors.redAccent),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: AnimatedBuilder(
-                  animation: _descriptionPopController,
-                  builder: (context, child) {
-                    return Opacity(
-                      opacity: _descriptionVisible
-                          ? _descriptionOpacity.value
-                          : 0,
-                      child: Transform.translate(
-                        offset: Offset(
-                          0,
-                          _descriptionVisible
-                              ? _descriptionTranslateY.value
-                              : 10,
-                        ),
-                        child: Transform.scale(
-                          scale: _descriptionVisible
-                              ? _descriptionScale.value
-                              : 0.97,
-                          alignment: Alignment.topCenter,
-                          child: child,
-                        ),
+                              style: const TextStyle(color: Colors.redAccent),
+                            ),
+                          ],
+                        ],
                       ),
-                    );
-                  },
-                  child: Container(
-                    color: DetailTokens.pageBackground,
-                    padding: EdgeInsets.fromLTRB(
-                      DetailTokens.screenHorizontalPadding,
-                      8,
-                      DetailTokens.screenHorizontalPadding,
-                      media.padding.bottom + 18,
                     ),
-                    child: DetailDescriptionSection(
-                      text: item.overview,
-                      onMoreTap: () {
-                        LongTextOverlayPage.show(
-                          context,
-                          title: detailTitle,
-                          sectionTitle: _t(
-                            'layout.details.overview.overview',
-                            '简介',
+                  ),
+                  SliverToBoxAdapter(
+                    child: AnimatedBuilder(
+                      animation: _descriptionPopController,
+                      builder: (context, child) {
+                        return Opacity(
+                          opacity: _descriptionVisible
+                              ? _descriptionOpacity.value
+                              : 0,
+                          child: Transform.translate(
+                            offset: Offset(
+                              0,
+                              _descriptionVisible
+                                  ? _descriptionTranslateY.value
+                                  : 10,
+                            ),
+                            child: Transform.scale(
+                              scale: _descriptionVisible
+                                  ? _descriptionScale.value
+                                  : 0.97,
+                              alignment: Alignment.topCenter,
+                              child: child,
+                            ),
                           ),
-                          content: item.overview,
                         );
                       },
+                      child: Container(
+                        color: colors.backgroundBase,
+                        padding: EdgeInsets.fromLTRB(
+                          DetailTokens.screenHorizontalPadding,
+                          8,
+                          DetailTokens.screenHorizontalPadding,
+                          media.padding.bottom + 18,
+                        ),
+                        child: DetailDescriptionSection(
+                          text: item.overview,
+                          onMoreTap: () {
+                            LongTextOverlayPage.show(
+                              context,
+                              title: detailTitle,
+                              sectionTitle: _t(
+                                'layout.details.overview.overview',
+                                '简介',
+                              ),
+                              content: item.overview,
+                            );
+                          },
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                  if (_creditsVisible && creditItems.isNotEmpty)
+                    SliverToBoxAdapter(
+                      child: Container(
+                        color: colors.backgroundBase,
+                        padding: const EdgeInsets.fromLTRB(
+                          DetailTokens.screenHorizontalPadding,
+                          8,
+                          DetailTokens.screenHorizontalPadding,
+                          20,
+                        ),
+                        child: CreditsSection(
+                          title: _t('layout.details.castAndCrew.title', '演职人员'),
+                          items: creditItems,
+                          token: provider.token,
+                          onTap: _openCreditPerson,
+                        ),
+                      ),
+                    ),
+                  if (_fileInfoVisible)
+                    SliverToBoxAdapter(
+                      child: Container(
+                        color: colors.backgroundBase,
+                        padding: const EdgeInsets.fromLTRB(
+                          DetailTokens.screenHorizontalPadding,
+                          8,
+                          DetailTokens.screenHorizontalPadding,
+                          20,
+                        ),
+                        child: FileInfoSection(
+                          file: currentFile,
+                          authorizedDirs: _authorizedDirs,
+                          title: _t('layout.details.fileInfo.title', '文件信息'),
+                          locationLabel: _t(
+                            'layout.details.fileInfo.location',
+                            '文件位置',
+                          ),
+                          sizeLabel: _t('layout.details.fileInfo.size', '文件大小'),
+                          createdAtLabel: _t(
+                            'layout.details.fileInfo.createdAt',
+                            '文件创建日期',
+                          ),
+                          addedAtLabel: _t(
+                            'layout.details.fileInfo.addedAt',
+                            '添加日期',
+                          ),
+                          toggleToFriendlyLabel: _t(
+                            'layout.details.fileInfo.convert',
+                            '转换',
+                          ),
+                          toggleToRawLabel: '/vol',
+                        ),
+                      ),
+                    ),
+                  if (_videoInfoVisible)
+                    SliverToBoxAdapter(
+                      child: Container(
+                        color: colors.backgroundBase,
+                        padding: const EdgeInsets.fromLTRB(
+                          DetailTokens.screenHorizontalPadding,
+                          8,
+                          DetailTokens.screenHorizontalPadding,
+                          20,
+                        ),
+                        child: VideoInfoSection(
+                          video: currentVideo,
+                          audio: currentAudio,
+                          subtitle: currentSubtitle,
+                          onViewAll: () => _showMediaInfoDetail(context),
+                        ),
+                      ),
+                    ),
+                  if (_linkVisible &&
+                      (_imdbId.trim().isNotEmpty || _trimId.trim().isNotEmpty))
+                    SliverToBoxAdapter(
+                      child: Container(
+                        color: colors.backgroundBase,
+                        padding: const EdgeInsets.fromLTRB(
+                          DetailTokens.screenHorizontalPadding,
+                          8,
+                          DetailTokens.screenHorizontalPadding,
+                          24,
+                        ),
+                        child: LinkSection(
+                          imdbId: _imdbId,
+                          tmdbId: _trimId,
+                          onImdbTap: _openImdb,
+                          onTmdbTap: _openTmdb,
+                        ),
+                      ),
+                    ),
+                ],
               ),
-              if (_creditsVisible && creditItems.isNotEmpty)
-                SliverToBoxAdapter(
-                  child: Container(
-                    color: DetailTokens.pageBackground,
-                    padding: const EdgeInsets.fromLTRB(
-                      DetailTokens.screenHorizontalPadding,
-                      8,
-                      DetailTokens.screenHorizontalPadding,
-                      20,
+              ValueListenableBuilder<double>(
+                valueListenable: _scrollOffsetNotifier,
+                builder: (context, offset, _) {
+                  final collapseT = (offset / collapseRange).clamp(0.0, 1.0);
+                  final centerTitleOpacity = ((collapseT - 0.84) / 0.12).clamp(
+                    0.0,
+                    1.0,
+                  );
+                  return DetailFloatingTopBar(
+                    onBack: () => unawaited(
+                      EmbeddedDetailLauncher.closeHostOrPop(context),
                     ),
-                    child: CreditsSection(
-                      title: _t('layout.details.castAndCrew.title', '演职人员'),
-                      items: creditItems,
-                      token: provider.token,
-                      onTap: _openCreditPerson,
-                    ),
-                  ),
-                ),
-              if (_fileInfoVisible)
-                SliverToBoxAdapter(
-                  child: Container(
-                    color: DetailTokens.pageBackground,
-                    padding: const EdgeInsets.fromLTRB(
-                      DetailTokens.screenHorizontalPadding,
-                      8,
-                      DetailTokens.screenHorizontalPadding,
-                      20,
-                    ),
-                    child: FileInfoSection(
-                      file: currentFile,
-                      authorizedDirs: _authorizedDirs,
-                      title: _t('layout.details.fileInfo.title', '文件信息'),
-                      locationLabel: _t(
-                        'layout.details.fileInfo.location',
-                        '文件位置',
-                      ),
-                      sizeLabel: _t('layout.details.fileInfo.size', '文件大小'),
-                      createdAtLabel: _t(
-                        'layout.details.fileInfo.createdAt',
-                        '文件创建日期',
-                      ),
-                      addedAtLabel: _t(
-                        'layout.details.fileInfo.addedAt',
-                        '添加日期',
-                      ),
-                      toggleToFriendlyLabel: _t(
-                        'layout.details.fileInfo.convert',
-                        '转换',
-                      ),
-                      toggleToRawLabel: '/vol',
-                    ),
-                  ),
-                ),
-              if (_videoInfoVisible)
-                SliverToBoxAdapter(
-                  child: Container(
-                    color: DetailTokens.pageBackground,
-                    padding: const EdgeInsets.fromLTRB(
-                      DetailTokens.screenHorizontalPadding,
-                      8,
-                      DetailTokens.screenHorizontalPadding,
-                      20,
-                    ),
-                    child: VideoInfoSection(
-                      video: currentVideo,
-                      audio: currentAudio,
-                      subtitle: currentSubtitle,
-                      onViewAll: _showMediaInfoDetail,
-                    ),
-                  ),
-                ),
-              if (_linkVisible &&
-                  (_imdbId.trim().isNotEmpty || _trimId.trim().isNotEmpty))
-                SliverToBoxAdapter(
-                  child: Container(
-                    color: DetailTokens.pageBackground,
-                    padding: const EdgeInsets.fromLTRB(
-                      DetailTokens.screenHorizontalPadding,
-                      8,
-                      DetailTokens.screenHorizontalPadding,
-                      24,
-                    ),
-                    child: LinkSection(
-                      imdbId: _imdbId,
-                      tmdbId: _trimId,
-                      onImdbTap: _openImdb,
-                      onTmdbTap: _openTmdb,
-                    ),
-                  ),
-                ),
+                    onMore: () {},
+                    title: detailTitle,
+                    titleOpacity: centerTitleOpacity,
+                    showBack: !_isPane,
+                  );
+                },
+              ),
             ],
           ),
-          ValueListenableBuilder<double>(
-            valueListenable: _scrollOffsetNotifier,
-            builder: (context, offset, _) {
-              final collapseT = (offset / collapseRange).clamp(0.0, 1.0);
-              final centerTitleOpacity = ((collapseT - 0.84) / 0.12).clamp(
-                0.0,
-                1.0,
-              );
-              return DetailFloatingTopBar(
-                onBack: () => Navigator.of(context).maybePop(),
-                onMore: () {},
-                title: detailTitle,
-                titleOpacity: centerTitleOpacity,
-              );
-            },
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

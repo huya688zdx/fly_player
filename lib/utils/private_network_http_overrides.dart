@@ -11,16 +11,12 @@ class PrivateNetworkHttpOverrides extends HttpOverrides {
   }
 
   bool _isPrivateHost(String host) {
-    if (host == 'localhost' || host == '127.0.0.1') return true;
-    final parts = host.split('.');
-    if (parts.length != 4) return false;
-    final octets = parts.map(int.tryParse).toList();
-    if (octets.any((value) => value == null)) return false;
-    final first = octets[0]!;
-    final second = octets[1]!;
-    return first == 10 ||
-        first == 127 ||
-        (first == 192 && second == 168) ||
-        (first == 172 && second >= 16 && second <= 31);
+    final normalized = host.trim();
+    final address = InternetAddress.tryParse(normalized);
+    if (address != null) {
+      // Direct NAS access commonly uses self-signed certs on raw IP hosts.
+      return true;
+    }
+    return normalized == 'localhost';
   }
 }
