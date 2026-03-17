@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models/stream_track_data.dart';
-import '../../theme/detail_tokens.dart';
+import '../../theme/app_theme.dart';
 import '../../utils/media_language_mapper.dart';
 
 class VideoInfoSection extends StatelessWidget {
@@ -20,17 +20,24 @@ class VideoInfoSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final isLightSurface = colors.backgroundBase.computeLuminance() >= 0.58;
     if (video == null && audio == null && subtitle == null) {
       return const SizedBox.shrink();
     }
 
+    final panelColor = Color.alphaBlend(
+      colors.surfaceStrong.withValues(alpha: isLightSurface ? 0.10 : 0.16),
+      colors.backgroundElevated,
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           '\u89c6\u9891\u4fe1\u606f',
           style: TextStyle(
-            color: DetailTokens.textPrimary,
+            color: colors.textPrimary,
             fontSize: 20,
             fontWeight: FontWeight.w600,
           ),
@@ -38,8 +45,13 @@ class VideoInfoSection extends StatelessWidget {
         const SizedBox(height: 12),
         Container(
           decoration: BoxDecoration(
-            color: const Color(0xFF1A2331),
+            color: panelColor,
             borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: colors.borderSubtle.withValues(
+                alpha: isLightSurface ? 0.58 : 0.80,
+              ),
+            ),
           ),
           padding: const EdgeInsets.fromLTRB(18, 16, 18, 10),
           child: Column(
@@ -63,19 +75,19 @@ class VideoInfoSection extends StatelessWidget {
               ),
               if (onViewAll != null) ...[
                 const SizedBox(height: 14),
-                const Divider(color: Color(0x223F5A78), height: 1),
+                Divider(color: colors.borderSubtle, height: 1),
                 InkWell(
                   onTap: onViewAll,
                   borderRadius: BorderRadius.circular(10),
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
                     child: Row(
                       children: [
                         Expanded(
                           child: Text(
                             '\u67e5\u770b\u5168\u90e8',
                             style: TextStyle(
-                              color: DetailTokens.textSecondary,
+                              color: colors.textSecondary,
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
                             ),
@@ -83,7 +95,7 @@ class VideoInfoSection extends StatelessWidget {
                         ),
                         Icon(
                           Icons.chevron_right_rounded,
-                          color: DetailTokens.textSecondary,
+                          color: colors.textSecondary,
                           size: 22,
                         ),
                       ],
@@ -112,10 +124,11 @@ class _InfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, color: DetailTokens.textMuted, size: 18),
+        Icon(icon, color: colors.textMuted, size: 18),
         const SizedBox(width: 10),
         Expanded(
           child: Column(
@@ -123,8 +136,8 @@ class _InfoRow extends StatelessWidget {
             children: [
               Text(
                 title,
-                style: const TextStyle(
-                  color: DetailTokens.textMuted,
+                style: TextStyle(
+                  color: colors.textMuted,
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
                 ),
@@ -132,8 +145,8 @@ class _InfoRow extends StatelessWidget {
               const SizedBox(height: 4),
               Text(
                 value.isEmpty ? '-' : value,
-                style: const TextStyle(
-                  color: DetailTokens.textSecondary,
+                style: TextStyle(
+                  color: colors.textSecondary,
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
                   height: 1.2,
@@ -150,8 +163,12 @@ class _InfoRow extends StatelessWidget {
 String _videoLine(VideoStreamInfo? video) {
   if (video == null) return '';
   final res = video.resolutionType.trim().isEmpty ? '' : video.resolutionType;
-  final codec = video.codecName.trim().isEmpty ? '' : video.codecName.toUpperCase();
-  final mbps = video.bps > 0 ? '${(video.bps / 1000000.0).toStringAsFixed(2)} mbps' : '';
+  final codec = video.codecName.trim().isEmpty
+      ? ''
+      : video.codecName.toUpperCase();
+  final mbps = video.bps > 0
+      ? '${(video.bps / 1000000.0).toStringAsFixed(2)} mbps'
+      : '';
   final bit = video.bitDepth > 0 ? '${video.bitDepth} bit' : '';
   final parts = <String>[
     if (res.isNotEmpty) res,
@@ -165,8 +182,12 @@ String _videoLine(VideoStreamInfo? video) {
 String _audioLine(AudioTrackOption? audio) {
   if (audio == null) return '';
   final lan = MediaLanguageMapper.languageName(audio.language);
-  final codec = audio.codecName.trim().isEmpty ? '' : audio.codecName.toUpperCase();
-  final ch = audio.channelLayout.trim().isNotEmpty ? audio.channelLayout.trim() : _channelFromCount(audio.channels);
+  final codec = audio.codecName.trim().isEmpty
+      ? ''
+      : audio.codecName.toUpperCase();
+  final ch = audio.channelLayout.trim().isNotEmpty
+      ? audio.channelLayout.trim()
+      : _channelFromCount(audio.channels);
   final rate = audio.sampleRate > 0 ? '${audio.sampleRate} Hz' : '';
   final parts = <String>[
     if (lan.isNotEmpty && lan != '未知') lan,
@@ -180,7 +201,10 @@ String _audioLine(AudioTrackOption? audio) {
 String _subtitleLine(SubtitleTrackOption? subtitle) {
   if (subtitle == null) return '';
   final lan = MediaLanguageMapper.languageName(subtitle.language);
-  final fmt = (subtitle.format.isNotEmpty ? subtitle.format : subtitle.codecName).trim().toUpperCase();
+  final fmt =
+      (subtitle.format.isNotEmpty ? subtitle.format : subtitle.codecName)
+          .trim()
+          .toUpperCase();
   final parts = <String>[
     if (lan.isNotEmpty && lan != '未知') lan,
     if (fmt.isNotEmpty) fmt,

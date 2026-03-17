@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../theme/app_theme.dart';
 import '../../theme/detail_tokens.dart';
 
 class BottomGlassPanel extends StatelessWidget {
@@ -20,6 +21,7 @@ class BottomGlassPanel extends StatelessWidget {
     final isAndroid =
         !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
     final useBlur = enableBlur && !isAndroid;
+    final colors = context.appColors;
     return ClipRRect(
       borderRadius: DetailTokens.glassPanelRadius,
       child: Stack(
@@ -38,9 +40,9 @@ class BottomGlassPanel extends StatelessWidget {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    Colors.black.withValues(alpha: 0.30),
-                    Colors.black.withValues(alpha: 0.78),
-                    Colors.black.withValues(alpha: 0.90),
+                    colors.surfaceStrong.withValues(alpha: 0.38),
+                    colors.backgroundElevated.withValues(alpha: 0.82),
+                    colors.backgroundBase.withValues(alpha: 0.94),
                   ],
                   stops: const [0.0, 0.58, 1.0],
                 ),
@@ -50,10 +52,7 @@ class BottomGlassPanel extends StatelessWidget {
           Container(
             decoration: BoxDecoration(
               border: Border(
-                top: BorderSide(
-                  color: Colors.white.withValues(alpha: 0.14),
-                  width: 1,
-                ),
+                top: BorderSide(color: colors.borderStrong, width: 1),
               ),
             ),
             child: child,

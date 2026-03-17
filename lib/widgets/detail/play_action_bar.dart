@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/app_theme.dart';
 import '../../theme/detail_tokens.dart';
 import '../../ui/adaptive_text.dart';
 import '../../ui/app_transitions.dart';
@@ -35,6 +36,7 @@ class PlayActionBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final remainSize = AdaptiveText.roleSize(
       DetailTokens.remainFontSize,
       role: AdaptiveFontRole.caption,
@@ -63,9 +65,11 @@ class PlayActionBar extends StatelessWidget {
                               child: LinearProgressIndicator(
                                 value: progress,
                                 minHeight: DetailTokens.progressHeight,
-                                backgroundColor: DetailTokens.progressTrack,
-                                valueColor: const AlwaysStoppedAnimation<Color>(
-                                  DetailTokens.progressActive,
+                                backgroundColor: DetailTokens.progressTrackOf(
+                                  context,
+                                ),
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  DetailTokens.progressActiveOf(context),
                                 ),
                               ),
                             ),
@@ -74,7 +78,7 @@ class PlayActionBar extends StatelessWidget {
                           Text(
                             remainText,
                             style: TextStyle(
-                              color: DetailTokens.textSecondary,
+                              color: colors.textSecondary,
                               fontSize: remainSize,
                               fontWeight: FontWeight.w500,
                             ),

@@ -1,8 +1,13 @@
+import 'dart:async';
+
 import '../api/feiniu_api.dart';
 import '../models/person_credit.dart';
 import '../models/play_info.dart';
 import '../models/stream_list_option.dart';
 import '../models/stream_track_data.dart';
+import '../services/app_log_service.dart';
+import '../utils/app_error_reporter.dart';
+import '../utils/app_exception.dart';
 import '../utils/play_detail_track_selector.dart';
 
 class PlayDetailInitialData {
@@ -55,12 +60,46 @@ class PlayDetailPlayerReturnData {
   final String itemGuid;
   final int currentTsSeconds;
   final PlayDetailRefreshData? refreshData;
+  final String? parentItemGuid;
+  final bool canPopToParent;
 
   const PlayDetailPlayerReturnData({
     required this.itemGuid,
     required this.currentTsSeconds,
     this.refreshData,
+    this.parentItemGuid,
+    this.canPopToParent = false,
   });
+
+  Map<String, Object?> toMap() {
+    return <String, Object?>{
+      'itemGuid': itemGuid.trim(),
+      'currentTsSeconds': currentTsSeconds,
+      'parentItemGuid': parentItemGuid?.trim(),
+      'canPopToParent': canPopToParent,
+    };
+  }
+
+  factory PlayDetailPlayerReturnData.fromMap(Map<String, dynamic> raw) {
+    return PlayDetailPlayerReturnData(
+      itemGuid: (raw['itemGuid'] ?? '').toString().trim(),
+      currentTsSeconds:
+          int.tryParse(
+            '${raw['currentTsSeconds'] ?? raw['current_ts_seconds'] ?? 0}',
+          ) ??
+          0,
+      parentItemGuid:
+          (raw['parentItemGuid'] ?? raw['parent_item_guid'] ?? '')
+              .toString()
+              .trim()
+              .isEmpty
+          ? null
+          : (raw['parentItemGuid'] ?? raw['parent_item_guid'])
+                .toString()
+                .trim(),
+      canPopToParent: raw['canPopToParent'] == true,
+    );
+  }
 }
 
 class PlayDetailDataLoader {
@@ -69,20 +108,25 @@ class PlayDetailDataLoader {
   const PlayDetailDataLoader(this.api);
 
   Future<PlayDetailInitialData> load(String itemGuid) async {
-    final results = await Future.wait<dynamic>([
-      api.getPlayInfo(itemGuid),
-      api.getStreamTrackData(itemGuid),
-      api.getItemDetail(itemGuid),
-    ]);
-
     List<PersonCredit> people = const [];
+    final info = await api.getPlayInfo(itemGuid);
+    final streamTrackData = await api.getStreamTrackData(itemGuid);
+    final itemDetail = await api.getItemDetail(itemGuid);
     try {
       people = await api.getPersonList(itemGuid);
-    } catch (_) {}
-
-    final info = results[0] as PlayInfoData;
-    final streamTrackData = results[1] as StreamTrackData;
-    final itemDetail = results[2] as Map<String, dynamic>;
+    } catch (error, stackTrace) {
+      unawaited(
+        AppErrorReporter.report(
+          error,
+          action: 'load person list',
+          source: 'play_detail_data_loader',
+          stackTrace: stackTrace,
+          fallbackKind: AppExceptionKind.noData,
+          level: AppLogLevel.warning,
+          details: 'itemGuid=$itemGuid',
+        ),
+      );
+    }
     final streams = streamTrackData.options;
 
     final initialIndex = streams.indexWhere(
@@ -123,14 +167,9 @@ class PlayDetailDataLoader {
     required String? currentSubtitleGuid,
     required String? currentAudioGuid,
   }) async {
-    final results = await Future.wait<dynamic>([
-      api.getStreamTrackData(itemGuid),
-      api.getPlayInfo(itemGuid),
-      api.getItemDetail(itemGuid),
-    ]);
-    final refreshedTrack = results[0] as StreamTrackData;
-    final refreshedInfo = results[1] as PlayInfoData;
-    final refreshedItem = results[2] as Map<String, dynamic>;
+    final refreshedTrack = await api.getStreamTrackData(itemGuid);
+    final refreshedInfo = await api.getPlayInfo(itemGuid);
+    final refreshedItem = await api.getItemDetail(itemGuid);
     final refreshedStreams = refreshedTrack.options;
 
     int? selectedIndex;

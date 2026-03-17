@@ -1,6 +1,10 @@
 class ApiUrlHelper {
   ApiUrlHelper._();
 
+  static const String _apiImagePrefix = '/v/api/v1/sys/img';
+  static const String _directImagePrefix = '/sys/img';
+  static const String _vImagePrefix = '/v/sys/img';
+
   static String normalizeBaseUrl(String baseUrl) {
     final trimmed = baseUrl.trim();
     if (trimmed.isEmpty) return '';
@@ -37,12 +41,26 @@ class ApiUrlHelper {
     return '$normalizedBase${apiPath(path)}';
   }
 
-  static String streamUrl(String baseUrl, String mediaGuid) {
+  static String streamUrl(
+    String baseUrl,
+    String mediaGuid, {
+    int? directLinkQualityIndex,
+  }) {
     final guid = mediaGuid.trim();
     if (guid.isEmpty) return '';
-    final url = apiUrl(baseUrl, '/v/api/v1/media/range/$guid');
-    if (url.isEmpty) return '';
-    return url;
+    final origin = normalizeBaseUrl(baseUrl);
+    if (origin.isEmpty) return '';
+    final uri = Uri.parse('$origin/v/api/v1/media/range/$guid');
+    if (directLinkQualityIndex == null) {
+      return uri.toString();
+    }
+    return uri
+        .replace(
+          queryParameters: <String, String>{
+            'direct_link_quality_index': directLinkQualityIndex.toString(),
+          },
+        )
+        .toString();
   }
 
   static List<String> imageCandidates(
@@ -62,24 +80,15 @@ class ApiUrlHelper {
       );
     }
 
-    final normalizedPath = raw.startsWith('/') ? raw : '/$raw';
-    final normalizedBase = normalizeBaseUrl(baseUrl);
     final origin = originFromBaseUrl(baseUrl);
-    const sysImgDirectPrefix = '/sys/img';
-
-    final apiCandidates = <String>[
-      '$origin/v/api/v1/sys/img$normalizedPath?w=$width',
-      '$origin/v/api/v1/sys/img$normalizedPath',
-    ];
-    final directCandidates = <String>[
-      '$normalizedBase$sysImgDirectPrefix$normalizedPath',
-      '$normalizedBase/v$sysImgDirectPrefix$normalizedPath',
-    ];
-
-    return <String>{
-      ...(preferDirectPath ? directCandidates : apiCandidates),
-      ...(preferDirectPath ? apiCandidates : directCandidates),
-    }.where((value) => value.trim().isNotEmpty).toList();
+    if (origin.isEmpty) return const <String>[];
+    final imagePath = _extractImagePath(raw) ?? _ensureLeadingSlash(raw);
+    return _buildImageCandidates(
+      origin: origin,
+      imagePath: imagePath,
+      width: width,
+      preferDirectPath: preferDirectPath,
+    );
   }
 
   static List<String> personImageCandidates(
@@ -108,13 +117,7 @@ class ApiUrlHelper {
         host: uri.host,
         port: uri.hasPort ? uri.port : null,
       ).toString().replaceAll(RegExp(r'/$'), '');
-
-      const sysImgPrefix = '/v/api/v1/sys/img';
-      const sysImgDirectPrefix = '/sys/img';
-      String? originalPath;
-      if (uri.path.startsWith('$sysImgPrefix/')) {
-        originalPath = uri.path.substring(sysImgPrefix.length);
-      }
+      final originalPath = _extractImagePath(uri.path);
 
       final normalizedBase = normalizeBaseUrl(baseUrl);
       final baseOrigin = originFromBaseUrl(baseUrl);
@@ -124,41 +127,76 @@ class ApiUrlHelper {
           baseOrigin == absoluteOrigin;
 
       if (originalPath != null && originalPath.isNotEmpty) {
-        final apiCandidates = <String>[
-          '$absoluteOrigin$sysImgPrefix$originalPath?w=$width',
-          '$absoluteOrigin$sysImgPrefix$originalPath',
-        ];
-        final directCandidates = <String>[
-          '$absoluteOrigin$sysImgDirectPrefix$originalPath',
-          '$absoluteOrigin/v$sysImgDirectPrefix$originalPath',
-        ];
         return <String>{
-          ...apiCandidates,
           rawUrl,
-          ...directCandidates,
+          ..._buildImageCandidates(
+            origin: absoluteOrigin,
+            imagePath: originalPath,
+            width: width,
+            preferDirectPath: preferDirectPath,
+          ),
         }.where((value) => value.trim().isNotEmpty).toList();
       }
 
       if (sameOrigin && uri.path.isNotEmpty && uri.path != '/') {
-        final normalizedPath = uri.path.startsWith('/')
-            ? uri.path
-            : '/${uri.path}';
-        final apiCandidates = <String>[
-          '$absoluteOrigin/v/api/v1/sys/img$normalizedPath?w=$width',
-          '$absoluteOrigin/v/api/v1/sys/img$normalizedPath',
-        ];
-        final directCandidates = <String>[
-          rawUrl,
-          '$absoluteOrigin$sysImgDirectPrefix$normalizedPath',
-          '$absoluteOrigin/v$sysImgDirectPrefix$normalizedPath',
-        ];
         return <String>{
-          ...apiCandidates,
-          ...directCandidates,
+          rawUrl,
+          ..._buildImageCandidates(
+            origin: absoluteOrigin,
+            imagePath: _ensureLeadingSlash(uri.path),
+            width: width,
+            preferDirectPath: preferDirectPath,
+          ),
         }.where((value) => value.trim().isNotEmpty).toList();
       }
     } catch (_) {}
 
     return <String>[rawUrl];
+  }
+
+  static List<String> _buildImageCandidates({
+    required String origin,
+    required String imagePath,
+    required int width,
+    required bool preferDirectPath,
+  }) {
+    // Current FN media deployments serve poster assets from the API prefix;
+    // legacy /v/sys/img and /sys/img paths may resolve to HTML shells or 404s.
+    final apiCandidates = preferDirectPath
+        ? <String>[
+            '$origin$_apiImagePrefix$imagePath',
+            '$origin$_apiImagePrefix$imagePath?w=$width',
+          ]
+        : <String>[
+            '$origin$_apiImagePrefix$imagePath?w=$width',
+            '$origin$_apiImagePrefix$imagePath',
+          ];
+    return apiCandidates
+        .where((value) => value.trim().isNotEmpty)
+        .toSet()
+        .toList();
+  }
+
+  static String? _extractImagePath(String rawPath) {
+    final normalized = _ensureLeadingSlash(rawPath.trim());
+    if (normalized.isEmpty || normalized == '/') return null;
+    for (final prefix in <String>[
+      _apiImagePrefix,
+      _vImagePrefix,
+      _directImagePrefix,
+    ]) {
+      if (normalized == prefix) {
+        return '/';
+      }
+      if (normalized.startsWith('$prefix/')) {
+        return normalized.substring(prefix.length);
+      }
+    }
+    return null;
+  }
+
+  static String _ensureLeadingSlash(String value) {
+    if (value.isEmpty) return '';
+    return value.startsWith('/') ? value : '/$value';
   }
 }

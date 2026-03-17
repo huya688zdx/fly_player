@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/app_theme.dart';
 import '../../theme/detail_tokens.dart';
 
 class DetailTagChip extends StatelessWidget {
@@ -18,6 +19,7 @@ class DetailTagChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final height = compact
         ? DetailTokens.compactChipHeight
         : DetailTokens.chipHeight;
@@ -29,12 +31,10 @@ class DetailTagChip extends StatelessWidget {
       height: height,
       padding: EdgeInsets.symmetric(horizontal: compact ? 6 : 10),
       decoration: BoxDecoration(
-        color: DetailTokens.chipBackground,
+        color: selected ? colors.selectionSoft : colors.chipBackground,
         borderRadius: borderRadius,
         border: Border.all(
-          color: selected
-              ? DetailTokens.chipSelectedBorder
-              : DetailTokens.chipBorder,
+          color: selected ? colors.selection : colors.chipBorder,
           width: 1,
         ),
       ),
@@ -44,9 +44,7 @@ class DetailTagChip extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
-              color: selected
-                  ? DetailTokens.chipSelectedText
-                  : DetailTokens.chipText,
+              color: selected ? colors.selectionStrong : colors.chipText,
               fontSize: compact ? 9 : 14,
               fontWeight: FontWeight.w600,
               height: 1,
@@ -56,7 +54,7 @@ class DetailTagChip extends StatelessWidget {
             SizedBox(width: compact ? 2 : 4),
             Icon(
               Icons.keyboard_arrow_down,
-              color: DetailTokens.textSecondary,
+              color: colors.textSecondary,
               size: compact ? 14 : 18,
             ),
           ],

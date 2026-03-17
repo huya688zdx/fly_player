@@ -3,12 +3,18 @@ import 'package:provider/provider.dart';
 import 'dart:async';
 
 import '../api/feiniu_api.dart';
+import '../controllers/media_item_action_sheet_controller.dart';
 import '../controllers/play_detail_item_actions.dart';
+import '../controllers/tv_season_playback_launcher.dart';
 import '../models/media_library_item.dart';
 import '../models/play_info.dart';
+import '../providers/app_theme_provider.dart';
 import '../providers/nas_provider.dart';
+import '../services/embedded_detail_launcher.dart';
+import '../theme/app_theme.dart';
 import '../theme/detail_tokens.dart';
-import '../ui/app_transitions.dart';
+import '../ui/adaptive_detail_navigator.dart';
+import '../ui/detail_presentation.dart';
 import '../ui/layout_adaptive.dart';
 import '../ui/media_poster_card.dart';
 import '../utils/api_url_helper.dart';
@@ -22,22 +28,24 @@ import '../widgets/common/app_error_state.dart';
 import '../widgets/detail/detail_description_section.dart';
 import '../widgets/detail/detail_header.dart';
 import '../widgets/detail/detail_hero_overlay.dart';
+import '../widgets/detail/dynamic_page_theme_scope.dart';
 import '../widgets/detail/immersive_detail_background.dart';
 import '../widgets/detail/link_section.dart';
 import '../widgets/detail/play_control_row.dart';
 import 'long_text_overlay_page.dart';
-import 'tv_season_detail_page.dart';
 
 class TvDetailPage extends StatefulWidget {
   final String itemGuid;
   final Map<String, dynamic>? initialItemDetail;
   final String? heroTag;
+  final DetailPresentation presentation;
 
   const TvDetailPage({
     super.key,
     required this.itemGuid,
     this.initialItemDetail,
     this.heroTag,
+    this.presentation = DetailPresentation.page,
   });
 
   @override
@@ -89,6 +97,8 @@ class _TvDetailPageState extends State<TvDetailPage>
   bool _playPreparing = false;
   final DetailTopTip _topTip = DetailTopTip();
   Map<String, dynamic> _localeMap = const <String, dynamic>{};
+
+  bool get _isPane => widget.presentation == DetailPresentation.pane;
 
   @override
   void initState() {
@@ -245,6 +255,37 @@ class _TvDetailPageState extends State<TvDetailPage>
     }
     _detail = nextDetail;
     _watched = watched;
+  }
+
+  void _replaceSeasonItemLocally(
+    String itemGuid,
+    MediaLibraryItem Function(MediaLibraryItem item) transform,
+  ) {
+    if (!mounted) return;
+    setState(() {
+      _seasonItems = _seasonItems
+          .map((item) => item.guid == itemGuid ? transform(item) : item)
+          .toList(growable: false);
+    });
+  }
+
+  Future<void> _showSeasonItemActions(MediaLibraryItem season) async {
+    final item = _detail['item'] is Map<String, dynamic>
+        ? _detail['item'] as Map<String, dynamic>
+        : _detail;
+    await const MediaItemActionSheetController().show(
+      context,
+      item: season,
+      title: MediaItemActionSheetController.seasonTitle(_title(item), season),
+      localeMap: _localeMap,
+      initialWatched: season.watched == 1,
+      onChanged: (state) {
+        _replaceSeasonItemLocally(
+          season.guid,
+          (current) => current.copyWith(watched: state.watched ? 1 : 0),
+        );
+      },
+    );
   }
 
   Future<void> _refreshDetailSilently() async {
@@ -492,12 +533,14 @@ class _TvDetailPageState extends State<TvDetailPage>
   }
 
   Widget _buildMetaTagText(String text) {
+    final colors = context.appColors;
+    final metaForeground = colors.textPrimary.withValues(alpha: 0.78);
     return Text(
       text,
-      style: const TextStyle(
-        color: DetailTokens.textSecondary,
+      style: TextStyle(
+        color: metaForeground,
         fontSize: 13,
-        fontWeight: FontWeight.w500,
+        fontWeight: FontWeight.w600,
         height: 1.34,
         letterSpacing: 0.1,
       ),
@@ -505,12 +548,14 @@ class _TvDetailPageState extends State<TvDetailPage>
   }
 
   Widget _buildMetaDivider() {
-    return const Padding(
+    final colors = context.appColors;
+    final dividerForeground = colors.textPrimary.withValues(alpha: 0.52);
+    return Padding(
       padding: EdgeInsets.symmetric(horizontal: 4),
       child: Text(
         '/',
         style: TextStyle(
-          color: DetailTokens.textMuted,
+          color: dividerForeground,
           fontSize: 13,
           fontWeight: FontWeight.w500,
           height: 1.34,
@@ -544,15 +589,13 @@ class _TvDetailPageState extends State<TvDetailPage>
       addSegment(_buildMetaTagText(countryText));
     }
     if (ancestorName.isNotEmpty) {
+      final colors = context.appColors;
+      final iconForeground = colors.textPrimary.withValues(alpha: 0.60);
       addSegment(
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.public_outlined,
-              size: 14,
-              color: DetailTokens.textMuted,
-            ),
+            Icon(Icons.public_outlined, size: 14, color: iconForeground),
             const SizedBox(width: 4),
             _buildMetaTagText(ancestorName),
           ],
@@ -610,12 +653,12 @@ class _TvDetailPageState extends State<TvDetailPage>
       case ImdbLaunchResult.empty:
         _showTopTip(
           _t('layout.details.castAndCrew.imdb', '暂无 IMDB 链接'),
-          const Color(0xFFB8860B),
+          context.appColors.warning,
         );
       case ImdbLaunchResult.failed:
         _showTopTip(
           _t('layout.details.castAndCrew.imdbOpenFailed', '无法打开 IMDB 链接'),
-          const Color(0xFFD64545),
+          context.appColors.danger,
         );
     }
   }
@@ -626,17 +669,18 @@ class _TvDetailPageState extends State<TvDetailPage>
       case ImdbLaunchResult.success:
         return;
       case ImdbLaunchResult.empty:
-        _showTopTip('暂无 TMDB 链接', const Color(0xFFB8860B));
+        _showTopTip('暂无 TMDB 链接', context.appColors.warning);
       case ImdbLaunchResult.failed:
-        _showTopTip('无法打开 TMDB 链接', const Color(0xFFD64545));
+        _showTopTip('无法打开 TMDB 链接', context.appColors.danger);
     }
   }
 
+  // ignore: unused_element
   Future<void> _onPrimaryPlayTap() async {
     if (_playPreparing) {
       _showTopTip(
         _t('player.play.preparing', '正在准备播放'),
-        const Color(0xFFB8860B),
+        context.appColors.warning,
       );
       return;
     }
@@ -648,16 +692,61 @@ class _TvDetailPageState extends State<TvDetailPage>
       setState(() => _playInfo = info);
       _showTopTip(
         _t('player.play.placeholder', '播放接口已预留'),
-        const Color(0xFF19A35B),
+        context.appColors.success,
       );
       // TODO: hook real player launch here with `info`.
     } catch (_) {
       _showTopTip(
         _t('player.play.playInfoFailed', '获取播放信息失败'),
-        const Color(0xFFD64545),
+        context.appColors.danger,
       );
     } finally {
       _playPreparing = false;
+    }
+  }
+
+  Future<void> _launchPrimaryPlayback() async {
+    if (_playPreparing) {
+      _showTopTip(
+        _t('player.play.preparing', '正在准备播放'),
+        context.appColors.warning,
+      );
+      return;
+    }
+    setState(() => _playPreparing = true);
+    try {
+      final item = _detail['item'] is Map<String, dynamic>
+          ? _detail['item'] as Map<String, dynamic>
+          : _detail;
+      final result = await const TvSeasonPlaybackLauncher().open(
+        context,
+        itemGuid: widget.itemGuid,
+        seriesTitle: _title(item),
+      );
+      if (!mounted) return;
+      final api = FeiniuApi(context.read<NasProvider>());
+      final info = await api
+          .getPlayInfo(widget.itemGuid)
+          .then<PlayInfoData?>((value) => value)
+          .catchError((_) => null);
+      if (!mounted) return;
+      if (info != null) {
+        setState(() => _playInfo = info);
+      }
+      if (result != null) {
+        unawaited(_refreshDetailSilently());
+      }
+    } catch (_) {
+      _showTopTip(
+        _t('player.play.playInfoFailed', '获取播放信息失败'),
+        context.appColors.danger,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _playPreparing = false);
+      } else {
+        _playPreparing = false;
+      }
     }
   }
 
@@ -667,7 +756,7 @@ class _TvDetailPageState extends State<TvDetailPage>
         now.difference(_lastFavoriteTapAt) < _favoriteTapCooldown) {
       _showTopTip(
         _t('layout.globalError.clickToRetry', '点击过快，请稍后再试'),
-        const Color(0xFFB8860B),
+        context.appColors.warning,
       );
       return;
     }
@@ -683,14 +772,14 @@ class _TvDetailPageState extends State<TvDetailPage>
       setState(() => _liked = result.state);
       _showTopTip(
         result.message,
-        result.state ? const Color(0xFF19A35B) : const Color(0xFF3B4A5E),
+        result.state ? context.appColors.success : context.appColors.textMuted,
       );
     } catch (_) {
       _showTopTip(
         _liked
             ? _t('common.actions.favorite.unfavoriteFailed', '取消收藏失败')
             : _t('common.actions.favorite.favoriteFailed', '收藏失败'),
-        const Color(0xFFD64545),
+        context.appColors.danger,
       );
     } finally {
       _favoriteUpdating = false;
@@ -703,7 +792,7 @@ class _TvDetailPageState extends State<TvDetailPage>
         now.difference(_lastWatchedTapAt) < _watchedTapCooldown) {
       _showTopTip(
         _t('layout.globalError.clickToRetry', '点击过快，请稍后再试'),
-        const Color(0xFFB8860B),
+        context.appColors.warning,
       );
       return;
     }
@@ -721,7 +810,7 @@ class _TvDetailPageState extends State<TvDetailPage>
       });
       _showTopTip(
         result.message,
-        result.state ? const Color(0xFF19A35B) : const Color(0xFF3B4A5E),
+        result.state ? context.appColors.success : context.appColors.textMuted,
       );
       if (result.needRefresh) {
         unawaited(_refreshDetailSilently());
@@ -731,7 +820,7 @@ class _TvDetailPageState extends State<TvDetailPage>
         _watched
             ? _t('common.actions.watched.markedAsUnwatchedFailed', '标记为未观看失败')
             : _t('common.actions.watched.markedAsWatchedFailed', '标记为已观看失败'),
-        const Color(0xFFD64545),
+        context.appColors.danger,
       );
     } finally {
       _watchedUpdating = false;
@@ -740,324 +829,394 @@ class _TvDetailPageState extends State<TvDetailPage>
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return const Scaffold(
-        backgroundColor: DetailTokens.pageBackground,
-        body: SizedBox.shrink(),
+    final themeProvider = context.watch<AppThemeProvider>();
+    final nasProvider = context.read<NasProvider>();
+    var dynamicThemeImageUrl = '';
+    if (_detail.isNotEmpty) {
+      final item = _detail['item'] is Map<String, dynamic>
+          ? _detail['item'] as Map<String, dynamic>
+          : _detail;
+      final urls = ApiUrlHelper.imageCandidates(
+        nasProvider.baseUrl,
+        _backdrops(item),
+        width: 360,
       );
-    }
-    if (_error != null) {
-        return Scaffold(
-          backgroundColor: DetailTokens.pageBackground,
-          appBar: AppBar(backgroundColor: DetailTokens.pageBackground),
-          body: AppErrorState(
-            error: _error!,
-            localeMap: _localeMap,
-            onRetry: _load,
-          ),
-        );
+      if (urls.isNotEmpty) {
+        dynamicThemeImageUrl = urls.first;
       }
+    } else if (widget.initialItemDetail != null) {
+      final item = widget.initialItemDetail!['item'] is Map<String, dynamic>
+          ? widget.initialItemDetail!['item'] as Map<String, dynamic>
+          : widget.initialItemDetail!;
+      final urls = ApiUrlHelper.imageCandidates(
+        nasProvider.baseUrl,
+        _backdrops(item),
+        width: 360,
+      );
+      if (urls.isNotEmpty) {
+        dynamicThemeImageUrl = urls.first;
+      }
+    }
 
-    final provider = context.read<NasProvider>();
-    final layout = MediaLayoutProfile.of(context);
-    final media = MediaQuery.of(context);
-    final screenSize = media.size;
-    final heroAdaptive = TvHeroAdaptive.resolve(
-      screenSize,
-      devicePixelRatio: media.devicePixelRatio,
-    );
-    final posterHeight = screenSize.height * heroAdaptive.posterHeightRatio;
-    final collapseRange = (posterHeight - media.padding.top - kToolbarHeight)
-        .clamp(1.0, posterHeight);
-
-    final item = _detail['item'] is Map<String, dynamic>
-        ? _detail['item'] as Map<String, dynamic>
-        : _detail;
-
-    final title = _title(item);
-    final overview = _overview(item);
-    final primaryText = _tvPrimaryLabel(item);
-    final seasons = _asInt(item['number_of_seasons']);
-    final localSeasons = _asInt(item['local_number_of_seasons']);
-    final seasonCount = localSeasons > 0 ? localSeasons : seasons;
-    final contentRating = (item['content_ratings'] ?? '').toString().trim();
-    final genreNames = _genreNamesForMeta(item['genres']);
-    final countryNames = PlayDetailFormatters.countryNamesFromCodes(
-      item['production_countries'] is List
-          ? item['production_countries'] as List
-          : const [],
-      locateMap: _locateMapZhCn,
-    );
-    final countryText = countryNames.isNotEmpty ? countryNames.first : '';
-    final ancestorName = (item['ancestor_name'] ?? '').toString().trim();
-    final hasMetaLine =
-        contentRating.isNotEmpty ||
-        genreNames.isNotEmpty ||
-        countryText.isNotEmpty ||
-        ancestorName.isNotEmpty;
-
-    final heroUrls = ApiUrlHelper.imageCandidates(
-      provider.baseUrl,
-      _backdrops(item),
-      width: 1200,
-    );
-
-    return Scaffold(
-      backgroundColor: DetailTokens.pageBackground,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          ValueListenableBuilder<double>(
-            valueListenable: _scrollOffsetNotifier,
-            builder: (context, offset, _) {
-              final background = ImmersiveDetailBackground(
-                urls: heroUrls,
-                token: provider.token,
-                scrollOffset: offset,
-                posterHeight: posterHeight,
-                imageScale: heroAdaptive.imageScale,
-                imageFit: BoxFit.cover,
-                imageAlignment: Alignment(
-                  heroAdaptive.imageAlignX,
-                  heroAdaptive.imageAlignY,
-                ),
-                fillGapsWithImage: false,
-                enableBottomFade: false,
-                fadeStart: heroAdaptive.fadeStart,
-                fadeMid: heroAdaptive.fadeMid,
-                useMonetTint: false,
-                overlayOpacity: 0.74,
-                maxScrollZoom: 1.30,
-              );
-              if (widget.heroTag == null || widget.heroTag!.isEmpty) {
-                return background;
-              }
-              return Hero(tag: widget.heroTag!, child: background);
-            },
-          ),
-          CustomScrollView(
-            controller: _scrollController,
-            physics: const BouncingScrollPhysics(
-              parent: AlwaysScrollableScrollPhysics(),
+    return DynamicPageThemeScope(
+      pageKey: widget.itemGuid,
+      imageUrl: dynamicThemeImageUrl,
+      token: nasProvider.token,
+      enabled: themeProvider.dynamicThemeEnabled,
+      syncGlobalTheme: _isPane,
+      intensity: themeProvider.dynamicThemeIntensity,
+      builder: (context, ambientTint) {
+        final colors = context.appColors;
+        if (_loading) {
+          return Scaffold(
+            backgroundColor: colors.backgroundBase,
+            body: SizedBox.shrink(),
+          );
+        }
+        if (_error != null) {
+          return Scaffold(
+            backgroundColor: colors.backgroundBase,
+            appBar: _isPane
+                ? null
+                : AppBar(backgroundColor: colors.backgroundBase),
+            body: AppErrorState(
+              error: _error!,
+              localeMap: _localeMap,
+              onRetry: _load,
             ),
-            slivers: [
-              SliverToBoxAdapter(
-                child: DetailHeroOverlay(
-                  height: posterHeight,
-                  title: title,
-                  useSoftGradient: true,
-                ),
+          );
+        }
+
+        final provider = context.read<NasProvider>();
+        final layout = MediaLayoutProfile.of(context);
+        final media = MediaQuery.of(context);
+        final screenSize = media.size;
+        final heroAdaptive = TvHeroAdaptive.resolve(
+          screenSize,
+          devicePixelRatio: media.devicePixelRatio,
+        );
+        final posterHeight = screenSize.height * heroAdaptive.posterHeightRatio;
+        final collapseRange =
+            (posterHeight - media.padding.top - kToolbarHeight).clamp(
+              1.0,
+              posterHeight,
+            );
+
+        final item = _detail['item'] is Map<String, dynamic>
+            ? _detail['item'] as Map<String, dynamic>
+            : _detail;
+
+        final title = _title(item);
+        final overview = _overview(item);
+        final primaryText = _tvPrimaryLabel(item);
+        final seasons = _asInt(item['number_of_seasons']);
+        final localSeasons = _asInt(item['local_number_of_seasons']);
+        final seasonCount = localSeasons > 0 ? localSeasons : seasons;
+        final contentRating = (item['content_ratings'] ?? '').toString().trim();
+        final genreNames = _genreNamesForMeta(item['genres']);
+        final countryNames = PlayDetailFormatters.countryNamesFromCodes(
+          item['production_countries'] is List
+              ? item['production_countries'] as List
+              : const [],
+          locateMap: _locateMapZhCn,
+        );
+        final countryText = countryNames.isNotEmpty ? countryNames.first : '';
+        final ancestorName = (item['ancestor_name'] ?? '').toString().trim();
+        final hasMetaLine =
+            contentRating.isNotEmpty ||
+            genreNames.isNotEmpty ||
+            countryText.isNotEmpty ||
+            ancestorName.isNotEmpty;
+
+        final heroUrls = ApiUrlHelper.imageCandidates(
+          provider.baseUrl,
+          _backdrops(item),
+          width: 1200,
+        );
+        final logoUrls = ApiUrlHelper.imageCandidates(
+          provider.baseUrl,
+          (item['logos'] ?? '').toString(),
+          width: 1200,
+        );
+
+        return Scaffold(
+          backgroundColor: colors.backgroundBase,
+          body: Stack(
+            fit: StackFit.expand,
+            children: [
+              ValueListenableBuilder<double>(
+                valueListenable: _scrollOffsetNotifier,
+                builder: (context, offset, _) {
+                  return ImmersiveDetailBackground(
+                    urls: heroUrls,
+                    token: provider.token,
+                    scrollOffset: offset,
+                    posterHeight: posterHeight,
+                    imageScale: heroAdaptive.imageScale * 1.04,
+                    imageFit: BoxFit.cover,
+                    imageAlignment: Alignment(
+                      heroAdaptive.imageAlignX,
+                      heroAdaptive.imageAlignY,
+                    ),
+                    fillGapsWithImage: false,
+                    enableBottomFade: false,
+                    fadeStart: heroAdaptive.fadeStart,
+                    fadeMid: heroAdaptive.fadeMid,
+                    useMonetTint: false,
+                    overlayOpacity: 0.74,
+                    maxScrollZoom: 1.38,
+                    ambientTintOverride: ambientTint,
+                  );
+                },
               ),
-              SliverToBoxAdapter(
-                child: Container(
-                  color: DetailTokens.pageBackground,
-                  padding: const EdgeInsets.fromLTRB(
-                    DetailTokens.screenHorizontalPadding,
-                    8,
-                    DetailTokens.screenHorizontalPadding,
-                    18,
+              CustomScrollView(
+                controller: _scrollController,
+                physics: const BouncingScrollPhysics(
+                  parent: AlwaysScrollableScrollPhysics(),
+                ),
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: DetailHeroOverlay(
+                      height: posterHeight,
+                      title: title,
+                      useSoftGradient: true,
+                      titleChild: logoUrls.isNotEmpty
+                          ? DetailHeroLogoTitle(
+                              urls: logoUrls,
+                              token: provider.token,
+                              fallbackTitle: title,
+                              maxHeight: 124,
+                              maxWidth:
+                                  screenSize.width -
+                                  (DetailTokens.screenHorizontalPadding * 2),
+                            )
+                          : null,
+                    ),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (hasMetaLine)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 2),
-                          child: _buildTvMetaLine(
-                            contentRating: contentRating,
-                            genreNames: genreNames,
-                            countryText: countryText,
-                            ancestorName: ancestorName,
-                          ),
-                        ),
-                      const SizedBox(height: 14),
-                      PlayControlRow(
-                        primaryText: primaryText,
-                        primaryEnabled: true,
-                        liked: _liked,
-                        watched: _watched,
-                        showDownload: false,
-                        onPrimaryTap: _onPrimaryPlayTap,
-                        onLikeTap: _toggleFavorite,
-                        onWatchedTap: _toggleWatched,
+                  SliverToBoxAdapter(
+                    child: Container(
+                      color: colors.backgroundBase,
+                      padding: const EdgeInsets.fromLTRB(
+                        DetailTokens.screenHorizontalPadding,
+                        8,
+                        DetailTokens.screenHorizontalPadding,
+                        18,
                       ),
-                      const SizedBox(height: 12),
-                      AnimatedBuilder(
-                        animation: _descriptionPopController,
-                        builder: (context, child) {
-                          return Opacity(
-                            opacity: _descriptionVisible
-                                ? _descriptionOpacity.value
-                                : 0,
-                            child: Transform.translate(
-                              offset: Offset(
-                                0,
-                                _descriptionVisible
-                                    ? _descriptionTranslateY.value
-                                    : 10,
-                              ),
-                              child: Transform.scale(
-                                scale: _descriptionVisible
-                                    ? _descriptionScale.value
-                                    : 0.97,
-                                alignment: Alignment.topCenter,
-                                child: child,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (hasMetaLine)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 2),
+                              child: _buildTvMetaLine(
+                                contentRating: contentRating,
+                                genreNames: genreNames,
+                                countryText: countryText,
+                                ancestorName: ancestorName,
                               ),
                             ),
-                          );
-                        },
-                        child: DetailDescriptionSection(
-                          text: overview,
-                          onMoreTap: () {
-                            LongTextOverlayPage.show(
-                              context,
-                              title: title,
-                              sectionTitle: _t(
-                                'layout.details.overview.overview',
-                                '简介',
-                              ),
-                              content: overview,
-                            );
-                          },
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        _t(
-                          'layout.subheading.tv.seasons',
-                          '共 {count} 季',
-                          params: {'count': seasonCount},
-                        ),
-                        style: const TextStyle(
-                          color: DetailTokens.textPrimary,
-                          fontSize: 30,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      if (_seasonItems.isNotEmpty)
-                        AnimatedBuilder(
-                          animation: _seasonCardPopController,
-                          builder: (context, child) {
-                            return Opacity(
-                              opacity: _seasonCardsVisible
-                                  ? _seasonCardOpacity.value
-                                  : 0,
-                              child: Transform.translate(
-                                offset: Offset(
-                                  0,
-                                  _seasonCardsVisible
-                                      ? _seasonCardTranslateY.value
-                                      : 10,
-                                ),
-                                child: Transform.scale(
-                                  scale: _seasonCardsVisible
-                                      ? _seasonCardScale.value
-                                      : 0.97,
-                                  alignment: Alignment.topCenter,
-                                  child: child,
-                                ),
-                              ),
-                            );
-                          },
-                          child: SizedBox(
-                            height: layout.homePosterRowHeight,
-                            child: ListView.separated(
-                              scrollDirection: Axis.horizontal,
-                              itemCount: _seasonItems.length,
-                              separatorBuilder: (_, __) =>
-                                  SizedBox(width: layout.itemGap),
-                              itemBuilder: (context, index) {
-                                final season = _seasonItems[index];
-                                final rating = double.tryParse(
-                                  season.voteAverage,
-                                );
-                                return SizedBox(
-                                  width: layout.homePosterCardWidth,
-                                  child: MediaPosterCard(
-                                    urls: _posterCandidates(
-                                      provider.baseUrl,
-                                      season.poster,
-                                      width: layout.homePosterRequestWidth,
-                                    ),
-                                    token: provider.token,
-                                    title: _seasonTitle(season),
-                                    subtitle: _seasonSubtitle(season),
-                                    rating: (rating != null && rating > 0)
-                                        ? rating
-                                        : null,
-                                    resolutions: season.resolutions,
-                                    imageHeight: layout.homePosterImageHeight,
-                                    titleFontSize:
-                                        layout.homePosterTitleFontSize,
-                                    subtitleFontSize:
-                                        layout.homePosterSubtitleFontSize,
-                                    onTap: () {
-                                      Navigator.of(context).push(
-                                        AppTransitions.leftToRightPageTurnRoute(
-                                          TvSeasonDetailPage(
-                                            parentGuid: widget.itemGuid,
-                                            seriesTitle: title,
-                                            backdropPath: _backdrops(item),
-                                            seasonItem: season,
-                                          ),
-                                        ),
-                                      );
-                                    },
+                          const SizedBox(height: 14),
+                          PlayControlRow(
+                            primaryText: primaryText,
+                            primaryEnabled: true,
+                            liked: _liked,
+                            watched: _watched,
+                            showDownload: false,
+                            onPrimaryTap: _launchPrimaryPlayback,
+                            onLikeTap: _toggleFavorite,
+                            onWatchedTap: _toggleWatched,
+                          ),
+                          const SizedBox(height: 12),
+                          AnimatedBuilder(
+                            animation: _descriptionPopController,
+                            builder: (context, child) {
+                              return Opacity(
+                                opacity: _descriptionVisible
+                                    ? _descriptionOpacity.value
+                                    : 0,
+                                child: Transform.translate(
+                                  offset: Offset(
+                                    0,
+                                    _descriptionVisible
+                                        ? _descriptionTranslateY.value
+                                        : 10,
                                   ),
+                                  child: Transform.scale(
+                                    scale: _descriptionVisible
+                                        ? _descriptionScale.value
+                                        : 0.97,
+                                    alignment: Alignment.topCenter,
+                                    child: child,
+                                  ),
+                                ),
+                              );
+                            },
+                            child: DetailDescriptionSection(
+                              text: overview,
+                              onMoreTap: () {
+                                LongTextOverlayPage.show(
+                                  context,
+                                  title: title,
+                                  sectionTitle: _t(
+                                    'layout.details.overview.overview',
+                                    '简介',
+                                  ),
+                                  content: overview,
                                 );
                               },
                             ),
                           ),
-                        )
-                      else
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF1D2733),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Text(
-                            _t('layout.details.season.empty', '暂无季列表'),
+                          const SizedBox(height: 16),
+                          Text(
+                            _t(
+                              'layout.subheading.tv.seasons',
+                              '共 {count} 季',
+                              params: {'count': seasonCount},
+                            ),
                             style: TextStyle(
-                              color: DetailTokens.textSecondary,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
+                              color: colors.textPrimary,
+                              fontSize: 30,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
-                        ),
-                      const SizedBox(height: 16),
-                      LinkSection(
-                        imdbId: _imdbId,
-                        tmdbId: _trimId,
-                        onImdbTap: _openImdb,
-                        onTmdbTap: _openTmdb,
+                          const SizedBox(height: 12),
+                          if (_seasonItems.isNotEmpty)
+                            AnimatedBuilder(
+                              animation: _seasonCardPopController,
+                              builder: (context, child) {
+                                return Opacity(
+                                  opacity: _seasonCardsVisible
+                                      ? _seasonCardOpacity.value
+                                      : 0,
+                                  child: Transform.translate(
+                                    offset: Offset(
+                                      0,
+                                      _seasonCardsVisible
+                                          ? _seasonCardTranslateY.value
+                                          : 10,
+                                    ),
+                                    child: Transform.scale(
+                                      scale: _seasonCardsVisible
+                                          ? _seasonCardScale.value
+                                          : 0.97,
+                                      alignment: Alignment.topCenter,
+                                      child: child,
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: SizedBox(
+                                height: layout.homePosterRowHeight,
+                                child: ListView.separated(
+                                  scrollDirection: Axis.horizontal,
+                                  itemCount: _seasonItems.length,
+                                  separatorBuilder: (_, __) =>
+                                      SizedBox(width: layout.itemGap),
+                                  itemBuilder: (context, index) {
+                                    final season = _seasonItems[index];
+                                    final rating = double.tryParse(
+                                      season.voteAverage,
+                                    );
+                                    return SizedBox(
+                                      width: layout.homePosterCardWidth,
+                                      child: MediaPosterCard(
+                                        urls: _posterCandidates(
+                                          provider.baseUrl,
+                                          season.poster,
+                                          width: layout.homePosterRequestWidth,
+                                        ),
+                                        token: provider.token,
+                                        title: _seasonTitle(season),
+                                        subtitle: _seasonSubtitle(season),
+                                        rating: (rating != null && rating > 0)
+                                            ? rating
+                                            : null,
+                                        resolutions: season.resolutions,
+                                        watched: season.watched == 1,
+                                        imageHeight:
+                                            layout.homePosterImageHeight,
+                                        titleFontSize:
+                                            layout.homePosterTitleFontSize,
+                                        subtitleFontSize:
+                                            layout.homePosterSubtitleFontSize,
+                                        onTap: () {
+                                          AdaptiveDetailNavigator.open<void>(
+                                            context,
+                                            AdaptiveDetailRequest.season(
+                                              parentGuid: widget.itemGuid,
+                                              seriesTitle: title,
+                                              backdropPath: _backdrops(item),
+                                              seasonItem: season,
+                                            ),
+                                            presentation: _isPane
+                                                ? DetailPresentation.pane
+                                                : DetailPresentation.page,
+                                          );
+                                        },
+                                        onLongPress: () {
+                                          unawaited(
+                                            _showSeasonItemActions(season),
+                                          );
+                                        },
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            )
+                          else
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: colors.surface,
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Text(
+                                _t('layout.details.season.empty', '暂无季列表'),
+                                style: TextStyle(
+                                  color: colors.textSecondary,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          const SizedBox(height: 16),
+                          LinkSection(
+                            imdbId: _imdbId,
+                            tmdbId: _trimId,
+                            onImdbTap: _openImdb,
+                            onTmdbTap: _openTmdb,
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
-                ),
+                ],
+              ),
+              ValueListenableBuilder<double>(
+                valueListenable: _scrollOffsetNotifier,
+                builder: (context, offset, _) {
+                  final collapseT = (offset / collapseRange).clamp(0.0, 1.0);
+                  final centerTitleOpacity = ((collapseT - 0.84) / 0.12).clamp(
+                    0.0,
+                    1.0,
+                  );
+                  return DetailFloatingTopBar(
+                    onBack: () => unawaited(
+                      EmbeddedDetailLauncher.closeHostOrPop(context),
+                    ),
+                    onMore: () {},
+                    title: title,
+                    titleOpacity: centerTitleOpacity,
+                    showBack: !_isPane,
+                  );
+                },
               ),
             ],
           ),
-          ValueListenableBuilder<double>(
-            valueListenable: _scrollOffsetNotifier,
-            builder: (context, offset, _) {
-              final collapseT = (offset / collapseRange).clamp(0.0, 1.0);
-              final centerTitleOpacity = ((collapseT - 0.84) / 0.12).clamp(
-                0.0,
-                1.0,
-              );
-              return DetailFloatingTopBar(
-                onBack: () => Navigator.of(context).maybePop(),
-                onMore: () {},
-                title: title,
-                titleOpacity: centerTitleOpacity,
-              );
-            },
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

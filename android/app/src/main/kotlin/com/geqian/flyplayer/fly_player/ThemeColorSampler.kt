@@ -1,0 +1,206 @@
+package com.geqian.flyplayer.fly_player
+
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.os.Handler
+import android.os.Looper
+import androidx.core.graphics.ColorUtils
+import androidx.palette.graphics.Palette
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.util.concurrent.Executors
+import kotlin.math.max
+import kotlin.math.min
+
+object ThemeColorSampler {
+    private val client = OkHttpClient()
+    private val executor = Executors.newFixedThreadPool(2)
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    fun sample(
+        imageUrl: String,
+        token: String,
+        callback: (Map<String, Any>?) -> Unit,
+    ) {
+        executor.execute {
+            val result =
+                runCatching {
+                    sampleInternal(
+                        imageUrl = imageUrl,
+                        token = token,
+                    )
+                }.getOrNull()
+            mainHandler.post { callback(result) }
+        }
+    }
+
+    private fun sampleInternal(
+        imageUrl: String,
+        token: String,
+    ): Map<String, Any>? {
+        if (imageUrl.isBlank()) return null
+
+        val requestBuilder = Request.Builder().url(imageUrl)
+        if (token.isNotBlank()) {
+            requestBuilder.header("Authorization", token)
+            requestBuilder.header("Trim-MC-token", token)
+        }
+        client.newCall(requestBuilder.build()).execute().use { response ->
+            if (!response.isSuccessful) return null
+            val bytes = response.body?.bytes() ?: return null
+            val bitmap = decodeBitmap(bytes) ?: return null
+            return try {
+                buildSeedMap(bitmap)
+            } finally {
+                bitmap.recycle()
+            }
+        }
+    }
+
+    private fun decodeBitmap(bytes: ByteArray): Bitmap? {
+        val bounds =
+            BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+        val sampleSize = calculateInSampleSize(bounds.outWidth, bounds.outHeight, 220, 140)
+        val options =
+            BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+    }
+
+    private fun calculateInSampleSize(
+        width: Int,
+        height: Int,
+        reqWidth: Int,
+        reqHeight: Int,
+    ): Int {
+        var inSampleSize = 1
+        var halfWidth = width / 2
+        var halfHeight = height / 2
+        while (halfWidth / inSampleSize >= reqWidth && halfHeight / inSampleSize >= reqHeight) {
+            inSampleSize *= 2
+        }
+        return max(1, inSampleSize)
+    }
+
+    private fun buildSeedMap(bitmap: Bitmap): Map<String, Any>? {
+        val palette =
+            Palette
+                .from(bitmap)
+                .maximumColorCount(16)
+                .clearFilters()
+                .generate()
+
+        val backgroundCandidate =
+            firstAccepted(
+                listOf(
+                    palette.darkVibrantSwatch?.rgb,
+                    palette.vibrantSwatch?.rgb,
+                    palette.dominantSwatch?.rgb,
+                    palette.mutedSwatch?.rgb,
+                ),
+            )
+        val accentCandidate =
+            firstAccepted(
+                listOf(
+                    palette.vibrantSwatch?.rgb,
+                    palette.darkVibrantSwatch?.rgb,
+                    palette.lightVibrantSwatch?.rgb,
+                    palette.dominantSwatch?.rgb,
+                    palette.mutedSwatch?.rgb,
+                ),
+            )
+
+        val baseCandidate = backgroundCandidate ?: accentCandidate ?: return null
+        val actionCandidate = accentCandidate ?: backgroundCandidate ?: return null
+        val preferLightSurface = preferLightSurface(baseCandidate)
+        return mapOf(
+            "backgroundSeed" to backgroundSeedFor(baseCandidate, preferLightSurface),
+            "accentSeed" to accentSeedFor(actionCandidate),
+            "selectionSeed" to selectionSeedFor(actionCandidate),
+            "linkSeed" to linkSeedFor(actionCandidate),
+            "preferLightSurface" to preferLightSurface,
+        )
+    }
+
+    private fun firstAccepted(colors: List<Int?>): Int? {
+        for (color in colors) {
+            val normalized = normalizeCandidate(color) ?: continue
+            return normalized
+        }
+        return null
+    }
+
+    private fun normalizeCandidate(color: Int?): Int? {
+        color ?: return null
+        val hsl = FloatArray(3)
+        ColorUtils.colorToHSL(color, hsl)
+        if (hsl[1] < 0.08f) return null
+        if (hsl[2] < 0.06f || hsl[2] > 0.90f) return null
+
+        val hue = hsl[0]
+        val isHarshWarmHue = hue <= 14f || hue >= 342f || (hue >= 34f && hue <= 72f)
+        if (isHarshWarmHue && hsl[1] > 0.66f) {
+            hsl[1] = 0.66f
+        }
+        return ColorUtils.HSLToColor(hsl)
+    }
+
+    private fun preferLightSurface(color: Int): Boolean {
+        val hsl = FloatArray(3)
+        ColorUtils.colorToHSL(color, hsl)
+        return hsl[2] >= 0.62f
+    }
+
+    private fun backgroundSeedFor(
+        color: Int,
+        preferLightSurface: Boolean,
+    ): Int {
+        val hsl = FloatArray(3)
+        ColorUtils.colorToHSL(color, hsl)
+        if (preferLightSurface) {
+            hsl[1] = clamp(hsl[1] * 0.42f, 0.08f, 0.22f)
+            hsl[2] = clamp(hsl[2] * 0.92f, 0.74f, 0.90f)
+        } else {
+            hsl[1] = clamp(hsl[1] * 0.84f, 0.18f, 0.54f)
+            hsl[2] = clamp((hsl[2] * 0.58f) + 0.02f, 0.18f, 0.36f)
+        }
+        return ColorUtils.HSLToColor(hsl)
+    }
+
+    private fun accentSeedFor(color: Int): Int {
+        val hsl = FloatArray(3)
+        ColorUtils.colorToHSL(color, hsl)
+        hsl[1] = clamp(hsl[1], 0.22f, 0.58f)
+        hsl[2] = clamp(hsl[2], 0.34f, 0.56f)
+        return ColorUtils.HSLToColor(hsl)
+    }
+
+    private fun selectionSeedFor(color: Int): Int {
+        val hsl = FloatArray(3)
+        ColorUtils.colorToHSL(color, hsl)
+        hsl[1] = clamp(hsl[1], 0.24f, 0.62f)
+        hsl[2] = clamp(hsl[2] - 0.02f, 0.30f, 0.52f)
+        return ColorUtils.HSLToColor(hsl)
+    }
+
+    private fun linkSeedFor(color: Int): Int {
+        val hsl = FloatArray(3)
+        ColorUtils.colorToHSL(color, hsl)
+        hsl[1] = clamp(hsl[1], 0.20f, 0.54f)
+        hsl[2] = clamp(hsl[2] + 0.08f, 0.42f, 0.64f)
+        return ColorUtils.HSLToColor(hsl)
+    }
+
+    private fun clamp(
+        value: Float,
+        minValue: Float,
+        maxValue: Float,
+    ): Float = max(minValue, min(maxValue, value))
+}

@@ -3,10 +3,14 @@ package com.geqian.flyplayer.fly_player.mpv
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.net.Uri
 import android.os.Build
 import java.util.Locale
 
+private val RESOLUTION_DIGIT_PATTERN = Regex("(\\d{3,4})")
+
 data class MpvSource(
+    val loadNonce: Int,
     val itemGuid: String,
     val mediaGuid: String,
     val videoGuid: String,
@@ -18,6 +22,8 @@ data class MpvSource(
     val subtitleTrackIndex: Int?,
     val audioTrackGuid: String?,
     val subtitleTrackGuid: String?,
+    val videoWidth: Int,
+    val videoHeight: Int,
     val resolution: String,
     val bitrate: Int,
     val durationSeconds: Int,
@@ -28,6 +34,8 @@ data class MpvSource(
     val colorPrimaries: String,
     val bitDepth: Int,
     val preferExternalSubtitle: Boolean,
+    val forceNativeProxy: Boolean,
+    val extremePlaybackEnabled: Boolean,
     val reliableSeek: Boolean,
     val seekProbeSummary: String?,
     val playbackSpeed: Double,
@@ -37,6 +45,7 @@ data class MpvSource(
             @Suppress("UNCHECKED_CAST")
             val rawHeaders = map["headers"] as? Map<String, Any?> ?: emptyMap()
             return MpvSource(
+                loadNonce = map["loadNonce"].toIntValue() ?: 0,
                 itemGuid = map["itemGuid"]?.toString().orEmpty(),
                 mediaGuid = map["mediaGuid"]?.toString().orEmpty(),
                 videoGuid = map["videoGuid"]?.toString().orEmpty(),
@@ -49,6 +58,8 @@ data class MpvSource(
                 subtitleTrackIndex = map["subtitleTrackIndex"].toIntValue(),
                 audioTrackGuid = map["audioTrackGuid"]?.toString(),
                 subtitleTrackGuid = map["subtitleTrackGuid"]?.toString(),
+                videoWidth = map["videoWidth"].toIntValue() ?: 0,
+                videoHeight = map["videoHeight"].toIntValue() ?: 0,
                 resolution = map["resolution"]?.toString().orEmpty(),
                 bitrate = map["bitrate"].toIntValue() ?: 0,
                 durationSeconds = map["durationSeconds"].toIntValue() ?: 0,
@@ -59,6 +70,8 @@ data class MpvSource(
                 colorPrimaries = map["colorPrimaries"]?.toString().orEmpty(),
                 bitDepth = map["bitDepth"].toIntValue() ?: 0,
                 preferExternalSubtitle = map["preferExternalSubtitle"] as? Boolean ?: false,
+                forceNativeProxy = map["forceNativeProxy"] as? Boolean ?: false,
+                extremePlaybackEnabled = map["extremePlaybackEnabled"] as? Boolean ?: false,
                 reliableSeek = map["reliableSeek"] as? Boolean ?: true,
                 seekProbeSummary = map["seekProbeSummary"]?.toString(),
                 playbackSpeed = map["playbackSpeed"].toDoubleValue() ?: 1.0,
@@ -95,8 +108,49 @@ data class MpvSource(
         return hdrGamut && bitDepth10Plus
     }
 
+    fun isHevcLike(): Boolean {
+        val codec = videoCodecName.lowercase(Locale.US)
+        return codec.contains("hevc") ||
+            codec.contains("h265") ||
+            codec.contains("hev1") ||
+            codec.contains("hvc1") ||
+            codec.contains("x265")
+    }
+
+    fun isUltraHighResolution(): Boolean {
+        if (videoWidth >= 3840 || videoHeight >= 2160) return true
+        val normalized = resolution.lowercase(Locale.US)
+        if (normalized.contains("2160")) return true
+        val firstResolutionToken =
+            RESOLUTION_DIGIT_PATTERN.find(normalized)?.groupValues?.getOrNull(1)?.toIntOrNull()
+        return (firstResolutionToken ?: 0) >= 2160
+    }
+
+    fun isRemoteHttpSource(): Boolean {
+        val parsed = runCatching { Uri.parse(url) }.getOrNull() ?: return false
+        val scheme = parsed.scheme?.lowercase(Locale.US).orEmpty()
+        if (scheme != "http" && scheme != "https") return false
+        val host = parsed.host?.trim().orEmpty()
+        if (host.isEmpty() || host == "127.0.0.1" || host == "localhost") {
+            return false
+        }
+        val lowerHost = host.lowercase(Locale.US)
+        if (lowerHost.endsWith(".local")) return false
+        val ipv4Parts = lowerHost.split(".")
+        if (ipv4Parts.size == 4 && ipv4Parts.all { it.toIntOrNull() != null }) {
+            val octets = ipv4Parts.map { it.toInt() }
+            val first = octets[0]
+            val second = octets[1]
+            return !(first == 10 ||
+                first == 127 ||
+                (first == 192 && second == 168) ||
+                (first == 172 && second in 16..31))
+        }
+        return true
+    }
+
     fun debugSummary(): String {
-        return "codec=$videoCodecName profile=$videoProfile bitDepth=$bitDepth colorSpace=$colorSpace transfer=$colorTransfer primaries=$colorPrimaries"
+        return "codec=$videoCodecName profile=$videoProfile size=${videoWidth}x$videoHeight resolution=$resolution bitDepth=$bitDepth colorSpace=$colorSpace transfer=$colorTransfer primaries=$colorPrimaries"
     }
 }
 
@@ -118,20 +172,24 @@ enum class VideoColorPipeline {
 }
 
 data class MpvPlayerState(
+    val loadNonce: Int = 0,
     val ready: Boolean = false,
     val nativeLibLoaded: Boolean = false,
     val paused: Boolean = true,
     val positionMs: Long = 0L,
+    val bufferedPositionMs: Long = 0L,
     val durationMs: Long = 0L,
     val statusText: String = "Preparing player",
     val error: String? = null,
 ) {
     fun toMap(): Map<String, Any?> {
         return mapOf(
+            "loadNonce" to loadNonce,
             "ready" to ready,
             "nativeLibLoaded" to nativeLibLoaded,
             "paused" to paused,
             "positionMs" to positionMs,
+            "bufferedPositionMs" to bufferedPositionMs,
             "durationMs" to durationMs,
             "statusText" to statusText,
             "error" to error,

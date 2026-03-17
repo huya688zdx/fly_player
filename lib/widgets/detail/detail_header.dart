@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/app_theme.dart';
 import '../../theme/detail_tokens.dart';
 import '../../ui/app_transitions.dart';
 import 'detail_icon_button.dart';
@@ -21,7 +22,9 @@ class DetailFloatingTopBar extends StatelessWidget {
   final VoidCallback onMore;
   final String title;
   final double titleOpacity;
+  final bool showBack;
   final bool showMore;
+  final bool showBackgroundOverlay;
 
   const DetailFloatingTopBar({
     super.key,
@@ -29,34 +32,39 @@ class DetailFloatingTopBar extends StatelessWidget {
     required this.onMore,
     required this.title,
     required this.titleOpacity,
+    this.showBack = true,
     this.showMore = true,
+    this.showBackgroundOverlay = true,
   });
 
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
+    final colors = context.appColors;
     final top = media.padding.top + 6;
-    final barOverlayHeight = media.padding.top + DetailTokens.topButtonSize + 10;
+    final barOverlayHeight =
+        media.padding.top + DetailTokens.topButtonSize + 10;
     return Positioned.fill(
       child: Stack(
         children: [
-          Positioned(
-            left: 0,
-            right: 0,
-            top: 0,
-            child: IgnorePointer(
-              child: AnimatedOpacity(
-                duration: AppTransitions.topBarFadeDuration,
-                opacity: titleOpacity.clamp(0.0, 1.0),
-                child: SizedBox(
-                  height: barOverlayHeight,
-                  child: const DecoratedBox(
-                    decoration: BoxDecoration(color: DetailTokens.pageBackground),
+          if (showBackgroundOverlay)
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              child: IgnorePointer(
+                child: AnimatedOpacity(
+                  duration: AppTransitions.topBarFadeDuration,
+                  opacity: titleOpacity.clamp(0.0, 1.0),
+                  child: SizedBox(
+                    height: barOverlayHeight,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(color: colors.backgroundBase),
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
           Positioned(
             left: 0,
             right: 0,
@@ -71,11 +79,16 @@ class DetailFloatingTopBar extends StatelessWidget {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        DetailIconButton(
-                          iconAsset: 'assets/icons/back.svg',
-                          style: DetailIconButtonStyle.top,
-                          onTap: onBack,
-                        ),
+                        showBack
+                            ? DetailIconButton(
+                                iconAsset: 'assets/icons/back.svg',
+                                style: DetailIconButtonStyle.top,
+                                onTap: onBack,
+                              )
+                            : const SizedBox(
+                                width: DetailTokens.topButtonSize,
+                                height: DetailTokens.topButtonSize,
+                              ),
                         showMore
                             ? DetailIconButton(
                                 iconAsset: 'assets/icons/more.svg',
@@ -99,8 +112,8 @@ class DetailFloatingTopBar extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Colors.white,
+                            style: TextStyle(
+                              color: context.appColors.textPrimary,
                               fontSize: 34 / 2,
                               fontWeight: FontWeight.w600,
                               height: 1.1,

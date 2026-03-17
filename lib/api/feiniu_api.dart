@@ -26,6 +26,208 @@ import '../providers/nas_provider.dart';
 import '../utils/app_exception.dart';
 import '../utils/api_url_helper.dart';
 
+const bool _verboseApiLogsEnabled = false;
+
+void _apiVerboseLog(String message) {
+  if (_verboseApiLogsEnabled) {
+    debugPrint(message);
+  }
+}
+
+class LoginWithBaseUrlResult {
+  final String token;
+  final String resolvedBaseUrl;
+  final bool usedFnConnect;
+  final FnConnectLoginDiagnostic? diagnostic;
+
+  const LoginWithBaseUrlResult({
+    required this.token,
+    required this.resolvedBaseUrl,
+    this.usedFnConnect = false,
+    this.diagnostic,
+  });
+}
+
+class FnConnectOauthConfig {
+  final String baseUrl;
+  final String appId;
+
+  const FnConnectOauthConfig({required this.baseUrl, required this.appId});
+}
+
+class FnConnectDiscoveryDiagnostic {
+  final List<String> ddns;
+  final List<String> ipv4;
+  final List<String> ipv6;
+  final List<String> publicIpv4;
+  final List<String> publicIpv6;
+  final List<String> relayHosts;
+  final int httpPort;
+  final int httpsPort;
+
+  const FnConnectDiscoveryDiagnostic({
+    required this.ddns,
+    required this.ipv4,
+    required this.ipv6,
+    required this.publicIpv4,
+    required this.publicIpv6,
+    required this.relayHosts,
+    required this.httpPort,
+    required this.httpsPort,
+  });
+}
+
+class FnConnectAttemptDiagnostic {
+  final String label;
+  final String baseUrl;
+  final String status;
+  final String message;
+
+  const FnConnectAttemptDiagnostic({
+    required this.label,
+    required this.baseUrl,
+    required this.status,
+    required this.message,
+  });
+}
+
+class FnConnectLoginDiagnostic {
+  final String fnConnectId;
+  final FnConnectDiscoveryDiagnostic? discovery;
+  final List<FnConnectAttemptDiagnostic> attempts;
+
+  const FnConnectLoginDiagnostic({
+    required this.fnConnectId,
+    required this.discovery,
+    required this.attempts,
+  });
+
+  FnConnectLoginDiagnostic withAttempt(FnConnectAttemptDiagnostic attempt) {
+    return FnConnectLoginDiagnostic(
+      fnConnectId: fnConnectId,
+      discovery: discovery,
+      attempts: List<FnConnectAttemptDiagnostic>.unmodifiable([
+        ...attempts,
+        attempt,
+      ]),
+    );
+  }
+}
+
+class FnConnectLoginException implements Exception {
+  final AppException error;
+  final FnConnectLoginDiagnostic diagnostic;
+
+  const FnConnectLoginException({
+    required this.error,
+    required this.diagnostic,
+  });
+
+  @override
+  String toString() => error.toString();
+}
+
+class _FnConnectDiscoveryData {
+  final List<String> ddns;
+  final List<String> ipv4;
+  final List<String> ipv6;
+  final List<String> publicIpv4;
+  final List<String> publicIpv6;
+  final List<String> relayHosts;
+  final int httpPort;
+  final int httpsPort;
+
+  const _FnConnectDiscoveryData({
+    required this.ddns,
+    required this.ipv4,
+    required this.ipv6,
+    required this.publicIpv4,
+    required this.publicIpv6,
+    required this.relayHosts,
+    required this.httpPort,
+    required this.httpsPort,
+  });
+
+  bool get hasAnyAddress =>
+      ddns.isNotEmpty ||
+      ipv4.isNotEmpty ||
+      ipv6.isNotEmpty ||
+      publicIpv4.isNotEmpty ||
+      publicIpv6.isNotEmpty ||
+      relayHosts.isNotEmpty;
+
+  factory _FnConnectDiscoveryData.fromJson(Map<String, dynamic> json) {
+    final port = json['port'];
+    final portMap = port is Map<String, dynamic>
+        ? port
+        : const <String, dynamic>{};
+    return _FnConnectDiscoveryData(
+      ddns: _stringListOf(json['ddns']),
+      ipv4: _stringListOf(json['ipv4']),
+      ipv6: _stringListOf(json['ipv6']),
+      publicIpv4: _stringListOf(json['publicIpv4']),
+      publicIpv6: _stringListOf(json['publicIpv6']),
+      relayHosts: _stringListOf(json['fn']),
+      httpPort: _jsonInt(portMap['httpPort'], fallback: 5666),
+      httpsPort: _jsonInt(portMap['httpsPort'], fallback: 5667),
+    );
+  }
+}
+
+class _FnConnectLoginCandidate {
+  final String baseUrl;
+  final String label;
+
+  const _FnConnectLoginCandidate({required this.baseUrl, required this.label});
+}
+
+List<String> _stringListOf(dynamic value) {
+  if (value is! List) return const <String>[];
+  return value
+      .map((entry) => entry.toString().trim())
+      .where((entry) => entry.isNotEmpty)
+      .toList();
+}
+
+FnConnectDiscoveryDiagnostic _diagnosticFromDiscovery(
+  _FnConnectDiscoveryData discovery,
+) {
+  return FnConnectDiscoveryDiagnostic(
+    ddns: List<String>.unmodifiable(discovery.ddns),
+    ipv4: List<String>.unmodifiable(discovery.ipv4),
+    ipv6: List<String>.unmodifiable(discovery.ipv6),
+    publicIpv4: List<String>.unmodifiable(discovery.publicIpv4),
+    publicIpv6: List<String>.unmodifiable(discovery.publicIpv6),
+    relayHosts: List<String>.unmodifiable(discovery.relayHosts),
+    httpPort: discovery.httpPort,
+    httpsPort: discovery.httpsPort,
+  );
+}
+
+int _jsonInt(dynamic value, {required int fallback}) {
+  if (value is int) return value;
+  return int.tryParse('$value') ?? fallback;
+}
+
+Future<bool?> _hasGlobalIpv6Connectivity() async {
+  if (kIsWeb) return null;
+  try {
+    final interfaces = await NetworkInterface.list(
+      type: InternetAddressType.IPv6,
+      includeLoopback: false,
+      includeLinkLocal: false,
+    );
+    return interfaces.any((interface) => interface.addresses.isNotEmpty);
+  } catch (_) {
+    return null;
+  }
+}
+
+bool _isIpv6Host(String host) {
+  final address = InternetAddress.tryParse(host);
+  return address?.type == InternetAddressType.IPv6;
+}
+
 /// Centralized Feiniu backend client.
 ///
 /// Keeps request signing, common headers and response parsing in one place so
@@ -33,6 +235,7 @@ import '../utils/api_url_helper.dart';
 class FeiniuApi {
   static const String _apiPrefix = '/v/api/v1';
   static const String _loginPath = '$_apiPrefix/login';
+  static const String _authPath = '$_apiPrefix/auth';
   static const String _userInfoPath = '$_apiPrefix/user/info';
   static const String _mediaListPath = '$_apiPrefix/mediadb/list';
   static const String _mediaSummaryPath = '$_apiPrefix/mediadb/sum';
@@ -46,15 +249,17 @@ class FeiniuApi {
   static const String _favoriteListPath = '$_apiPrefix/favorite/list';
   static const String _runningTasksPath = '$_apiPrefix/task/running';
   static const String _userDataPath = '$_apiPrefix/user/getData';
+  static const String _userSetDataPath = '$_apiPrefix/user/setData';
+  static const String _folderListSettingKey = 'mdb:list:setting:folder';
   static const String _tagListPath = '$_apiPrefix/tag/list';
   static const String _tagGenresPath = '$_apiPrefix/tag/genres';
   static const String _tagIso3166Path = '$_apiPrefix/tag/iso3166';
-    static const String _tagIso6392Path = '$_apiPrefix/tag/iso6392';
-    static const String _playListPath = '$_apiPrefix/play/list';
-    static const String _playInfoPath = '$_apiPrefix/play/info';
-    static const String _playSetConfigByItemPath =
-        '$_apiPrefix/play/setConfigByItem';
-    static const String _playPlayPath = '$_apiPrefix/play/play';
+  static const String _tagIso6392Path = '$_apiPrefix/tag/iso6392';
+  static const String _playListPath = '$_apiPrefix/play/list';
+  static const String _playInfoPath = '$_apiPrefix/play/info';
+  static const String _playSetConfigByItemPath =
+      '$_apiPrefix/play/setConfigByItem';
+  static const String _playPlayPath = '$_apiPrefix/play/play';
   static const String _streamPath = '$_apiPrefix/stream';
   static const String _playRecordPath = '$_apiPrefix/play/record';
   static const String _favoritePath = '$_apiPrefix/item/favorite';
@@ -73,6 +278,13 @@ class FeiniuApi {
   static const String _streamMetadataPath =
       '$_apiPrefix/mediadb/stream/metadata';
   static const String _mediaLocalePathPrefix = '/v/locales';
+  static const String _fnConnectServiceBaseUrl = 'https://fnos.net';
+  static const String _fnConnectServicePath = '/api/v1/fn/con';
+  static const String _publicAuthxKey = 'NDzZTVxnRKP8Z0jXg1VAMonaG8akvh';
+  static const String _publicAuthxSecret = '16CCEB3D-AB42-077D-36A1-F355324E4237';
+  static const String _fnConnectApiKey = 'zIGtkc3dqZnJpd29qZXJqa2w7c';
+  static const String _fnConnectAuthxPrefix = _publicAuthxKey;
+  static final RegExp _fnConnectIdPattern = RegExp(r'^[a-z][a-z0-9-]{5,31}$');
 
   final NasProvider nasProvider;
   final Dio _dio = Dio();
@@ -89,7 +301,7 @@ class FeiniuApi {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
-          debugPrint(
+          _apiVerboseLog(
             '[API][REQ] ${options.method} ${options.baseUrl}${options.path} '
             'query=${options.queryParameters}',
           );
@@ -110,7 +322,7 @@ class FeiniuApi {
           final backendMsg = data is Map<String, dynamic>
               ? _backendMessage(data)
               : null;
-          debugPrint(
+          _apiVerboseLog(
             '[API][RESP] ${response.requestOptions.path} '
             'http=${response.statusCode} code=$backendCode message=$backendMsg',
           );
@@ -140,17 +352,73 @@ class FeiniuApi {
     );
   }
 
-  static Future<String> loginWithBaseUrl({
+  static String? extractFnConnectIdFromInput(String rawInput) {
+    final trimmed = rawInput.trim();
+    if (trimmed.isEmpty) return null;
+    final direct = trimmed.toLowerCase();
+    if (_fnConnectIdPattern.hasMatch(direct)) {
+      return direct;
+    }
+
+    final candidate = trimmed.contains('://') ? trimmed : 'https://$trimmed';
+    final uri = Uri.tryParse(candidate);
+    if (uri == null) return null;
+    final host = uri.host.toLowerCase();
+    if (host.endsWith('.fnos.net')) {
+      final subdomain = host.substring(0, host.length - '.fnos.net'.length);
+      if (_fnConnectIdPattern.hasMatch(subdomain)) {
+        return subdomain;
+      }
+    }
+    if (host == 'fnos.net' || host == 'www.fnos.net') {
+      for (final segment in uri.pathSegments) {
+        final normalized = segment.trim().toLowerCase();
+        if (_fnConnectIdPattern.hasMatch(normalized)) {
+          return normalized;
+        }
+      }
+    }
+    return null;
+  }
+
+  static Future<LoginWithBaseUrlResult> loginWithBaseUrl({
     required String baseUrl,
     required String userName,
     required String password,
-  }) {
-    final dio = Dio()
-      ..options.baseUrl = ApiUrlHelper.normalizeBaseUrl(baseUrl)
-      ..options.connectTimeout = const Duration(seconds: 10)
-      ..options.receiveTimeout = const Duration(seconds: 10);
-    _configureHttpsTrust(dio, baseUrl);
-    return _performLogin(dio, userName, password, baseUrlLabel: baseUrl);
+  }) async {
+    final fnConnectId = extractFnConnectIdFromInput(baseUrl);
+    if (fnConnectId != null) {
+      return _loginWithFnConnect(
+        fnConnectId: fnConnectId,
+        userName: userName,
+        password: password,
+      );
+    }
+
+    final normalizedBaseUrl = ApiUrlHelper.normalizeBaseUrl(baseUrl);
+    final uri = Uri.tryParse(normalizedBaseUrl);
+    if (uri != null && _isIpv6Host(uri.host)) {
+      final hasIpv6 = await _hasGlobalIpv6Connectivity();
+      if (hasIpv6 == false) {
+        throw AppException.api(
+          action: 'login',
+          message:
+              '当前设备没有可用的全局 IPv6 网络，无法直接连接 IPv6 NAS。Android 模拟器通常只有链路本地 IPv6，请改用真机或可用的 IPv6 网络。',
+        );
+      }
+    }
+    final dio = _buildLoginDio(normalizedBaseUrl);
+    final token = await _performLogin(
+      dio,
+      userName,
+      password,
+      baseUrlLabel: normalizedBaseUrl,
+    );
+    return LoginWithBaseUrlResult(
+      token: token,
+      resolvedBaseUrl: normalizedBaseUrl,
+      usedFnConnect: false,
+    );
   }
 
   static Future<String> _performLogin(
@@ -197,6 +465,456 @@ class FeiniuApi {
         fallbackKind: AppExceptionKind.unauthorized,
       );
     }
+  }
+
+  static Dio _buildLoginDio(String baseUrl) {
+    final normalizedBaseUrl = ApiUrlHelper.normalizeBaseUrl(baseUrl);
+    final dio = Dio()
+      ..options.baseUrl = normalizedBaseUrl
+      ..options.connectTimeout = const Duration(seconds: 10)
+      ..options.receiveTimeout = const Duration(seconds: 12);
+    _configureHttpsTrust(dio, normalizedBaseUrl);
+    return dio;
+  }
+
+  static Future<FnConnectOauthConfig> fetchFnConnectOauthConfig({
+    required String baseUrl,
+    required String cookie,
+  }) async {
+    final normalizedBaseUrl = ApiUrlHelper.normalizeBaseUrl(baseUrl);
+    final dio = _buildPublicApiDio(normalizedBaseUrl);
+    try {
+      final response = await dio.get(
+        _systemConfigPath,
+        options: Options(
+          headers: <String, String>{
+            'Content-Type': 'application/json',
+            'Cookie': _mergeRelayCookie(cookie),
+            'Authx': _buildPublicAuthxHeader(path: _systemConfigPath),
+          },
+        ),
+      );
+      final payload = response.data;
+      if (payload is! Map<String, dynamic>) {
+        throw AppException.api(
+          action: 'fn connect oauth config',
+          message: 'Invalid FN Connect system config response',
+        );
+      }
+      if (_jsonInt(payload['code'], fallback: -1) != 0) {
+        throw AppException.api(
+          action: 'fn connect oauth config',
+          message:
+              (payload['msg'] ?? payload['message'] ?? 'Failed to load system config')
+                  .toString(),
+          code: _jsonInt(payload['code'], fallback: -1),
+        );
+      }
+      final data = payload['data'];
+      if (data is! Map<String, dynamic>) {
+        throw AppException.api(
+          action: 'fn connect oauth config',
+          message: 'Missing FN Connect OAuth payload',
+        );
+      }
+      final oauth = data['nas_oauth'];
+      if (oauth is! Map<String, dynamic>) {
+        throw AppException.api(
+          action: 'fn connect oauth config',
+          message: 'Missing FN Connect OAuth configuration',
+        );
+      }
+      final appId = oauth['app_id']?.toString().trim() ?? '';
+      if (appId.isEmpty) {
+        throw AppException.api(
+          action: 'fn connect oauth config',
+          message: 'Missing FN Connect OAuth app id',
+        );
+      }
+      final oauthUrl = oauth['url']?.toString().trim() ?? '';
+      final targetBaseUrl =
+          oauthUrl.isNotEmpty && oauthUrl != '://'
+              ? ApiUrlHelper.normalizeBaseUrl(oauthUrl)
+              : ApiUrlHelper.originFromBaseUrl(normalizedBaseUrl);
+      return FnConnectOauthConfig(baseUrl: targetBaseUrl, appId: appId);
+    } on DioException catch (e) {
+      throw AppException.fromDio(e, action: 'fn connect oauth config');
+    } catch (e) {
+      throw AppException.from(
+        e,
+        action: 'fn connect oauth config',
+        fallbackKind: AppExceptionKind.transient,
+      );
+    }
+  }
+
+  static Future<LoginWithBaseUrlResult> loginWithFnConnectOauthCode({
+    required String baseUrl,
+    required String code,
+  }) async {
+    final normalizedBaseUrl = ApiUrlHelper.normalizeBaseUrl(baseUrl);
+    final body = <String, dynamic>{'source': 'Trim-NAS', 'code': code};
+    final dio = _buildPublicApiDio(normalizedBaseUrl);
+    try {
+      final response = await dio.post(
+        _authPath,
+        data: body,
+        options: Options(
+          headers: <String, String>{
+            'Content-Type': 'application/json',
+            'Cookie': 'mode=relay',
+            'Authx': _buildPublicAuthxHeader(path: _authPath, body: body),
+          },
+        ),
+      );
+      final payload = response.data;
+      if (payload is Map<String, dynamic> && payload['code'] == 0) {
+        final data = payload['data'];
+        if (data is Map<String, dynamic>) {
+          final token = data['token']?.toString() ?? '';
+          if (token.isNotEmpty) {
+            return LoginWithBaseUrlResult(
+              token: token,
+              resolvedBaseUrl: normalizedBaseUrl,
+              usedFnConnect: true,
+            );
+          }
+        }
+      }
+      throw AppException.api(
+        action: 'fn connect oauth auth',
+        message: _backendMessageOf(payload) ?? 'Failed to exchange FN Connect token',
+        code: payload is Map<String, dynamic>
+            ? _toInt(payload['code'], fallback: 0)
+            : null,
+      );
+    } on DioException catch (e) {
+      throw AppException.fromDio(e, action: 'fn connect oauth auth');
+    } catch (e) {
+      throw AppException.from(
+        e,
+        action: 'fn connect oauth auth',
+        fallbackKind: AppExceptionKind.transient,
+      );
+    }
+  }
+
+  static Future<LoginWithBaseUrlResult> _loginWithFnConnect({
+    required String fnConnectId,
+    required String userName,
+    required String password,
+  }) async {
+    late final _FnConnectDiscoveryData discovery;
+    try {
+      discovery = await _fetchFnConnectDiscovery(fnConnectId);
+    } catch (error) {
+      final exception = AppException.from(
+        error,
+        action: 'login',
+        fallbackKind: AppExceptionKind.transient,
+      );
+      throw FnConnectLoginException(
+        error: exception,
+        diagnostic: FnConnectLoginDiagnostic(
+          fnConnectId: fnConnectId,
+          discovery: null,
+          attempts: const <FnConnectAttemptDiagnostic>[],
+        ),
+      );
+    }
+    var diagnostic = FnConnectLoginDiagnostic(
+      fnConnectId: fnConnectId,
+      discovery: _diagnosticFromDiscovery(discovery),
+      attempts: const <FnConnectAttemptDiagnostic>[],
+    );
+    if (!discovery.hasAnyAddress) {
+      throw FnConnectLoginException(
+        error: AppException.api(
+          action: 'login',
+          message: 'FN Connect did not return any available address',
+        ),
+        diagnostic: diagnostic,
+      );
+    }
+
+    final hasIpv6 = await _hasGlobalIpv6Connectivity();
+    final candidates = _buildFnConnectLoginCandidates(
+      discovery: discovery,
+      allowIpv6: hasIpv6 != false,
+    );
+    if (candidates.isEmpty) {
+      throw FnConnectLoginException(
+        error: AppException.api(
+          action: 'login',
+          message:
+              'FN Connect did not provide a direct API address. Relay-only access is not supported by this app yet.',
+        ),
+        diagnostic: diagnostic,
+      );
+    }
+
+    AppException? unauthorizedError;
+    AppException? firstTransientError;
+    AppException? firstFatalError;
+
+    for (final candidate in candidates) {
+      debugPrint(
+        '[LOGIN][FN_CONNECT] try fnId=$fnConnectId '
+        'label=${candidate.label} baseUrl=${candidate.baseUrl}',
+      );
+      try {
+        final dio = _buildLoginDio(candidate.baseUrl);
+        final token = await _performLogin(
+          dio,
+          userName,
+          password,
+          baseUrlLabel: candidate.baseUrl,
+        );
+        return LoginWithBaseUrlResult(
+          token: token,
+          resolvedBaseUrl: ApiUrlHelper.normalizeBaseUrl(candidate.baseUrl),
+          usedFnConnect: true,
+          diagnostic: diagnostic.withAttempt(
+            FnConnectAttemptDiagnostic(
+              label: candidate.label,
+              baseUrl: candidate.baseUrl,
+              status: 'success',
+              message: 'Login succeeded',
+            ),
+          ),
+        );
+      } catch (error) {
+        final exception = AppException.from(
+          error,
+          action: 'login',
+          fallbackKind: AppExceptionKind.transient,
+        );
+        diagnostic = diagnostic.withAttempt(
+          FnConnectAttemptDiagnostic(
+            label: candidate.label,
+            baseUrl: candidate.baseUrl,
+            status: _fnConnectAttemptStatus(exception),
+            message: exception.message,
+          ),
+        );
+        debugPrint(
+          '[LOGIN][FN_CONNECT] failed fnId=$fnConnectId '
+          'label=${candidate.label} baseUrl=${candidate.baseUrl} '
+          'message=${exception.message}',
+        );
+        if (exception.isUnauthorized) {
+          unauthorizedError ??= exception;
+        } else if (exception.isTransient) {
+          firstTransientError ??= exception;
+        } else {
+          firstFatalError ??= exception;
+        }
+      }
+    }
+
+    final finalError =
+        unauthorizedError ??
+        (firstTransientError != null
+            ? AppException.api(
+                action: 'login',
+                message:
+                    'FN Connect resolved only direct API addresses, but none of them were reachable from the current network. Official relay access is web-only and is not supported by this app yet.',
+                cause: firstTransientError,
+              )
+            : null) ??
+        firstFatalError ??
+        AppException.api(
+          action: 'login',
+          message: 'FN Connect login failed for all resolved addresses',
+        );
+    throw FnConnectLoginException(error: finalError, diagnostic: diagnostic);
+  }
+
+  static Future<_FnConnectDiscoveryData> _fetchFnConnectDiscovery(
+    String fnConnectId,
+  ) async {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final body = <String, dynamic>{'fnId': fnConnectId};
+    final bodyText = jsonEncode(body);
+    final nonce = (Random().nextInt(900000) + 100000).toString();
+    final fnSign = sha256
+        .convert(utf8.encode('trim_connect`$fnConnectId`$timestamp`anna'))
+        .toString();
+    final md5Body = md5.convert(utf8.encode(bodyText)).toString();
+    final authRaw = [
+      _fnConnectAuthxPrefix,
+      _fnConnectServicePath,
+      nonce,
+      '$timestamp',
+      md5Body,
+      _fnConnectApiKey,
+    ].join('_');
+    final authx =
+        'nonce=$nonce&timestamp=$timestamp&sign=${md5.convert(utf8.encode(authRaw))}';
+
+    final dio = Dio()
+      ..options.baseUrl = _fnConnectServiceBaseUrl
+      ..options.connectTimeout = const Duration(seconds: 6)
+      ..options.receiveTimeout = const Duration(seconds: 8);
+    try {
+      final response = await dio.post(
+        _fnConnectServicePath,
+        data: body,
+        options: Options(
+          headers: <String, String>{
+            'Content-Type': 'application/json',
+            'Authx': authx,
+            'fn-sign': fnSign,
+          },
+        ),
+      );
+      final payload = response.data;
+      if (payload is! Map<String, dynamic>) {
+        throw AppException.api(
+          action: 'fn connect discovery',
+          message: 'Invalid FN Connect response format',
+        );
+      }
+      if (_jsonInt(payload['code'], fallback: -1) != 0) {
+        throw AppException.api(
+          action: 'fn connect discovery',
+          message: (payload['msg'] ?? payload['message'] ?? 'FN Connect failed')
+              .toString(),
+          code: _jsonInt(payload['code'], fallback: -1),
+        );
+      }
+      final data = payload['data'];
+      if (data is! Map<String, dynamic>) {
+        throw AppException.api(
+          action: 'fn connect discovery',
+          message: 'Missing FN Connect discovery payload',
+        );
+      }
+      debugPrint('[LOGIN][FN_CONNECT] discovery fnId=$fnConnectId data=$data');
+      return _FnConnectDiscoveryData.fromJson(data);
+    } on DioException catch (e) {
+      throw AppException.fromDio(e, action: 'fn connect discovery');
+    } catch (e) {
+      throw AppException.from(
+        e,
+        action: 'fn connect discovery',
+        fallbackKind: AppExceptionKind.transient,
+      );
+    }
+  }
+
+  static List<_FnConnectLoginCandidate> _buildFnConnectLoginCandidates({
+    required _FnConnectDiscoveryData discovery,
+    required bool allowIpv6,
+  }) {
+    final candidates = <_FnConnectLoginCandidate>[];
+    final seen = <String>{};
+
+    void addCandidate(String baseUrl, String label) {
+      final normalized = ApiUrlHelper.normalizeBaseUrl(baseUrl);
+      if (normalized.isEmpty) return;
+      if (!seen.add(normalized)) return;
+      candidates.add(
+        _FnConnectLoginCandidate(baseUrl: normalized, label: label),
+      );
+    }
+
+    for (final address in discovery.publicIpv4) {
+      addCandidate('https://$address:${discovery.httpsPort}', 'public-ipv4');
+    }
+    for (final address in discovery.ddns) {
+      addCandidate('https://$address:${discovery.httpsPort}', 'ddns');
+    }
+    if (allowIpv6) {
+      for (final address in discovery.publicIpv6) {
+        addCandidate(
+          'https://[$address]:${discovery.httpsPort}',
+          'public-ipv6',
+        );
+      }
+    }
+    for (final address in discovery.ipv4) {
+      addCandidate('https://$address:${discovery.httpsPort}', 'lan-ipv4');
+    }
+    if (allowIpv6) {
+      for (final address in discovery.ipv6) {
+        addCandidate('https://[$address]:${discovery.httpsPort}', 'lan-ipv6');
+      }
+    }
+    return candidates;
+  }
+
+  static String _fnConnectAttemptStatus(AppException exception) {
+    if (exception.isUnauthorized) {
+      return 'unauthorized';
+    }
+    final status = exception.httpStatus;
+    if (status == 302 || exception.message.contains('status code of 302')) {
+      return 'redirect';
+    }
+    if (status != null) {
+      return 'http-$status';
+    }
+    final message = exception.message.toLowerCase();
+    if (message.contains('timed out') || message.contains('timeout')) {
+      return 'timeout';
+    }
+    if (message.contains('connection failed') ||
+        message.contains('connection refused') ||
+        message.contains('network is unreachable') ||
+        message.contains('socketexception') ||
+        message.contains('failed host lookup')) {
+      return 'connection';
+    }
+    if (exception.isTransient) {
+      return 'transient';
+    }
+    return 'failed';
+  }
+
+  static Dio _buildPublicApiDio(String baseUrl) {
+    final normalizedBaseUrl = ApiUrlHelper.normalizeBaseUrl(baseUrl);
+    final dio = Dio()
+      ..options.baseUrl = normalizedBaseUrl
+      ..options.connectTimeout = const Duration(seconds: 10)
+      ..options.receiveTimeout = const Duration(seconds: 15);
+    _configureHttpsTrust(dio, normalizedBaseUrl);
+    return dio;
+  }
+
+  static String _buildPublicAuthxHeader({
+    required String path,
+    dynamic body,
+  }) {
+    final nonce = (Random().nextInt(900000) + 100000).toString();
+    final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
+    final payload = body == null ? '' : jsonEncode(body);
+    final payloadMd5 = md5.convert(utf8.encode(payload)).toString();
+    final signBase = [
+      _publicAuthxKey,
+      path,
+      nonce,
+      timestamp,
+      payloadMd5,
+      _publicAuthxSecret,
+    ].join('_');
+    final sign = md5.convert(utf8.encode(signBase)).toString();
+    return 'nonce=$nonce&timestamp=$timestamp&sign=$sign';
+  }
+
+  static String _mergeRelayCookie(String cookie) {
+    final entries = cookie
+        .split(';')
+        .map((entry) => entry.trim())
+        .where((entry) => entry.isNotEmpty)
+        .toList();
+    final hasRelayCookie = entries.any(
+      (entry) => entry.toLowerCase().startsWith('mode='),
+    );
+    if (!hasRelayCookie) {
+      entries.add('mode=relay');
+    }
+    return entries.join('; ');
   }
 
   Future<Map<String, dynamic>> getUserInfo() async {
@@ -248,23 +966,54 @@ class FeiniuApi {
     String locale = 'zh-CN',
   }) async {
     try {
-      final response = await _dio.get<List<int>>(
-        '$_mediaLocalePathPrefix/$locale/media.json',
-        options: Options(responseType: ResponseType.bytes),
-      );
-      final bytes = response.data;
-      if (bytes == null || bytes.isEmpty) return const <String, dynamic>{};
-
-      final text = utf8.decode(bytes, allowMalformed: true);
-      final decoded = jsonDecode(text);
-      if (decoded is! Map<String, dynamic>) {
-        return const <String, dynamic>{};
+      final localeMap = await _loadMediaLocaleMap(locale);
+      if (localeMap.isNotEmpty || locale == 'zh-CN') {
+        return localeMap;
       }
-      return _normalizeLocaleMap(decoded);
+
+      final fallbackLocaleMap = await _loadMediaLocaleMap('zh-CN');
+      if (fallbackLocaleMap.isNotEmpty) {
+        debugPrint('[API][LOCALE] fallback locale=$locale -> zh-CN');
+      }
+      return fallbackLocaleMap;
     } catch (e) {
       debugPrint('[API][LOCALE] load failed locale=$locale error=$e');
       return const <String, dynamic>{};
     }
+  }
+
+  Future<Map<String, dynamic>> _loadMediaLocaleMap(String locale) async {
+    final response = await _dio.get<List<int>>(
+      '$_mediaLocalePathPrefix/$locale/media.json',
+      options: Options(responseType: ResponseType.bytes),
+    );
+    final bytes = response.data;
+    if (bytes == null || bytes.isEmpty) return const <String, dynamic>{};
+
+    final contentType = response.headers.value(Headers.contentTypeHeader) ?? '';
+    final text = utf8.decode(bytes, allowMalformed: true).trim();
+    if (!_looksLikeJsonPayload(text, contentType)) {
+      return const <String, dynamic>{};
+    }
+
+    final decoded = jsonDecode(text);
+    if (decoded is! Map<String, dynamic>) {
+      return const <String, dynamic>{};
+    }
+    return _normalizeLocaleMap(decoded);
+  }
+
+  bool _looksLikeJsonPayload(String text, String contentType) {
+    final normalizedContentType = contentType.toLowerCase();
+    if (normalizedContentType.contains('application/json')) {
+      return true;
+    }
+    if (text.isEmpty) return false;
+    if (text.startsWith('{')) return true;
+    if (text.startsWith('<!doctype html') || text.startsWith('<html')) {
+      return false;
+    }
+    return normalizedContentType.contains('json');
   }
 
   static void _configureHttpsTrust(Dio dio, String urlOrBaseUrl) {
@@ -276,7 +1025,6 @@ class FeiniuApi {
         uri.host.isEmpty) {
       return;
     }
-    if (!_isPrivateHost(uri.host)) return;
 
     final adapter = dio.httpClientAdapter;
     if (adapter is IOHttpClientAdapter) {
@@ -288,20 +1036,6 @@ class FeiniuApi {
         return client;
       };
     }
-  }
-
-  static bool _isPrivateHost(String host) {
-    if (host == 'localhost' || host == '127.0.0.1') return true;
-    final parts = host.split('.');
-    if (parts.length != 4) return false;
-    final octets = parts.map(int.tryParse).toList();
-    if (octets.any((value) => value == null)) return false;
-    final first = octets[0]!;
-    final second = octets[1]!;
-    return first == 10 ||
-        first == 127 ||
-        (first == 192 && second == 168) ||
-        (first == 172 && second >= 16 && second <= 31);
   }
 
   Map<String, dynamic> _normalizeLocaleMap(Map<String, dynamic> input) {
@@ -598,28 +1332,12 @@ class FeiniuApi {
   }
 
   // User preferences / tags
-  Future<UserListSetting?> getUserListSetting(String ancestorGuid) async {
+  Future<UserListSetting?> getUserListSetting(
+    String ancestorGuid, {
+    String key = _folderListSettingKey,
+  }) async {
     try {
-      final response = await _dio.post(
-        _userDataPath,
-        data: {'key': 'mdb:list:setting', 'mdb_guid': ancestorGuid},
-      );
-
-      final payload = response.data;
-      if (payload is! Map<String, dynamic> || payload['code'] != 0) {
-        return null;
-      }
-
-      final data = payload['data'];
-      if (data is! Map<String, dynamic>) {
-        return null;
-      }
-
-      final rawValue = data['value'];
-      if (rawValue is! String || rawValue.isEmpty) {
-        return null;
-      }
-      final decoded = jsonDecode(rawValue);
+      final decoded = await getUserDataJsonValue(key, mdbGuid: ancestorGuid);
       if (decoded is! Map<String, dynamic>) {
         return null;
       }
@@ -628,6 +1346,111 @@ class FeiniuApi {
       debugPrint('[API][USER_SETTING] load failed: $e');
       return null;
     }
+  }
+
+  Future<bool> setUserListSetting(
+    String ancestorGuid, {
+    String? sortType,
+    String? sortField,
+    String? viewType,
+    String key = _folderListSettingKey,
+  }) async {
+    final current =
+        await getUserDataJsonValue(key, mdbGuid: ancestorGuid) ??
+        <String, dynamic>{};
+    final next = <String, dynamic>{...current};
+    if (sortType != null) {
+      next['sort_type'] = sortType.toUpperCase();
+    }
+    if (sortField != null) {
+      next['sort_field'] = sortField;
+    }
+    if (viewType != null) {
+      next['view_type'] = viewType;
+    }
+    return setUserDataJsonValue(key, next, mdbGuid: ancestorGuid);
+  }
+
+  Future<Map<String, dynamic>?> getUserDataEntry(
+    String key, {
+    String mdbGuid = '',
+  }) async {
+    try {
+      final payload = <String, dynamic>{'key': key};
+      if (mdbGuid.trim().isNotEmpty) {
+        payload['mdb_guid'] = mdbGuid;
+      }
+      final response = await _dio.post(_userDataPath, data: payload);
+      return _extractDataMap(response.data, 'user data');
+    } catch (e) {
+      debugPrint('[API][USER_DATA] load failed key=$key error=$e');
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> getUserDataJsonValue(
+    String key, {
+    String mdbGuid = '',
+  }) async {
+    final data = await getUserDataEntry(key, mdbGuid: mdbGuid);
+    if (data == null) return null;
+    final rawValue = data['value'];
+    if (rawValue is! String || rawValue.isEmpty) {
+      return null;
+    }
+    try {
+      final decoded = jsonDecode(rawValue);
+      return decoded is Map<String, dynamic> ? decoded : null;
+    } catch (e) {
+      debugPrint('[API][USER_DATA] decode failed key=$key error=$e');
+      return null;
+    }
+  }
+
+  Future<bool> setUserDataValue(
+    String key,
+    String value, {
+    String mdbGuid = '',
+  }) async {
+    try {
+      final payload = <String, dynamic>{'key': key, 'value': value};
+      if (mdbGuid.trim().isNotEmpty) {
+        payload['mdb_guid'] = mdbGuid;
+      }
+      final response = await _dio.post(_userSetDataPath, data: payload);
+      _extractDataMap(response.data, 'set user data');
+      return true;
+    } catch (e) {
+      debugPrint('[API][USER_DATA] save failed key=$key error=$e');
+      return false;
+    }
+  }
+
+  Future<bool> setUserDataJsonValue(
+    String key,
+    Map<String, dynamic> value, {
+    String mdbGuid = '',
+  }) {
+    return setUserDataValue(key, jsonEncode(value), mdbGuid: mdbGuid);
+  }
+
+  Future<String?> getPlaylistViewType() async {
+    final setting = await getUserDataJsonValue('playlist:setting');
+    final viewType = setting?['view_type']?.toString().trim();
+    if (viewType == 'button' || viewType == 'card') {
+      return viewType;
+    }
+    return null;
+  }
+
+  Future<bool> setPlaylistViewType(String viewType) {
+    if (viewType != 'button' && viewType != 'card') {
+      debugPrint('[API][USER_DATA] unsupported playlist view type=$viewType');
+      return Future<bool>.value(false);
+    }
+    return setUserDataJsonValue('playlist:setting', <String, dynamic>{
+      'view_type': viewType,
+    });
   }
 
   Future<Map<String, List<dynamic>>> getTagList({
@@ -787,7 +1610,7 @@ class FeiniuApi {
         },
       );
       final data = _extractDataMap(response.data, 'playback stream');
-      return PlaybackStreamData.fromJson(data);
+      return PlaybackStreamData.fromJson(data, requestUserAgent: userAgent);
     } catch (e) {
       throw AppException.from(
         e,
@@ -967,23 +1790,67 @@ class FeiniuApi {
     }
   }
 
+  Future<void> resetPlaybackRecord({
+    required String itemGuid,
+    required String mediaGuid,
+  }) async {
+    try {
+      final response = await _dio.post(
+        _playRecordPath,
+        data: <String, dynamic>{
+          'item_guid': itemGuid.trim(),
+          'media_guid': mediaGuid.trim(),
+          'ts': 0,
+        },
+      );
+      _requireSuccessPayload(response.data, 'playback reset');
+    } catch (e) {
+      throw AppException.from(
+        e,
+        action: 'playback reset',
+        fallbackKind: AppExceptionKind.transient,
+      );
+    }
+  }
+
+  Future<void> deletePlaybackRecord({required String itemGuid}) async {
+    try {
+      final response = await _dio.delete(
+        _playRecordPath,
+        data: <String, dynamic>{'item_guid': itemGuid.trim()},
+      );
+      _requireSuccessPayload(response.data, 'playback delete');
+    } catch (e) {
+      throw AppException.from(
+        e,
+        action: 'playback delete',
+        fallbackKind: AppExceptionKind.transient,
+      );
+    }
+  }
+
   Map<String, String> buildSignedHeadersForUrl(
     String url, {
     String method = 'GET',
     dynamic body,
+    bool includeInitialRangeHeader = true,
     Map<String, String> extraHeaders = const <String, String>{},
   }) {
     final uri = Uri.tryParse(url);
+    final shouldAttachNasAuth = _shouldAttachNasAuthToUrl(uri);
     final headers = <String, String>{
-      if (nasProvider.token.isNotEmpty) 'Authorization': nasProvider.token,
-      if (nasProvider.token.isNotEmpty) 'Trim-MC-token': nasProvider.token,
-      if ((uri?.path ?? '').startsWith('$_apiPrefix/media/range/'))
+      if (shouldAttachNasAuth && nasProvider.token.isNotEmpty)
+        'Authorization': nasProvider.token,
+      if (shouldAttachNasAuth && nasProvider.token.isNotEmpty)
+        'Trim-MC-token': nasProvider.token,
+      if (includeInitialRangeHeader &&
+          (uri?.path ?? '').startsWith('$_apiPrefix/media/range/'))
         'Range': 'bytes=0-',
       ...extraHeaders,
     };
 
     final path = uri?.path ?? '';
-    if (_shouldAttachAuthx(path)) {
+    if (shouldAttachNasAuth && _shouldAttachAuthx(path)) {
       headers['Authx'] = _buildAuthxHeaderFor(
         method: method,
         path: path,
@@ -997,12 +1864,14 @@ class FeiniuApi {
     String url, {
     String method = 'GET',
     dynamic body,
+    bool includeInitialRangeHeader = true,
     Map<String, String> extraHeaders = const <String, String>{},
   }) {
     return buildSignedHeadersForUrl(
       url,
       method: method,
       body: body,
+      includeInitialRangeHeader: includeInitialRangeHeader,
       extraHeaders: <String, String>{
         'User-Agent': _defaultPlaybackUserAgent,
         ...extraHeaders,
@@ -1231,8 +2100,12 @@ class FeiniuApi {
   }
 
   // Helpers
-  String getStreamUrl(String mediaGuid) {
-    return ApiUrlHelper.streamUrl(nasProvider.baseUrl, mediaGuid);
+  String getStreamUrl(String mediaGuid, {int? directLinkQualityIndex}) {
+    return ApiUrlHelper.streamUrl(
+      nasProvider.baseUrl,
+      mediaGuid,
+      directLinkQualityIndex: directLinkQualityIndex,
+    );
   }
 
   Map<String, dynamic> _requireSuccessPayload(dynamic payload, String action) {
@@ -1308,6 +2181,36 @@ class FeiniuApi {
     return path != _loginPath;
   }
 
+  bool _shouldAttachNasAuthToUrl(Uri? uri) {
+    if (uri == null) return true;
+    final scheme = uri.scheme.toLowerCase();
+    if (scheme != 'http' && scheme != 'https') {
+      return true;
+    }
+    final targetHost = uri.host.trim().toLowerCase();
+    if (targetHost.isEmpty) {
+      return true;
+    }
+    final baseUri = Uri.tryParse(ApiUrlHelper.normalizeBaseUrl(nasProvider.baseUrl));
+    final baseHost = baseUri?.host.trim().toLowerCase() ?? '';
+    if (baseHost.isEmpty) {
+      return true;
+    }
+    if (targetHost != baseHost) {
+      return false;
+    }
+    final targetPort = uri.hasPort
+        ? uri.port
+        : (scheme == 'https' ? 443 : 80);
+    final baseScheme = (baseUri?.scheme ?? '').toLowerCase();
+    final basePort = baseUri == null
+        ? targetPort
+        : (baseUri.hasPort
+              ? baseUri.port
+              : (baseScheme == 'https' ? 443 : 80));
+    return targetPort == basePort;
+  }
+
   // Authx is required by most protected endpoints and signs method/path/body.
   String _buildAuthxHeader(RequestOptions options) {
     return _buildAuthxHeaderFor(
@@ -1330,7 +2233,7 @@ class FeiniuApi {
     final signBase =
         '$normalizedMethod|$path|$payload|$nonce|$timestamp|$token';
     final sign = md5.convert(utf8.encode(signBase)).toString();
-    debugPrint(
+    _apiVerboseLog(
       '[API][AUTHX] method=$normalizedMethod path=$path nonce=$nonce timestamp=$timestamp sign=$sign',
     );
     return 'nonce=$nonce&timestamp=$timestamp&sign=$sign';

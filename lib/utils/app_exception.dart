@@ -21,12 +21,37 @@ class AppException implements Exception {
     this.stackTrace,
   });
 
+  AppException copyWith({
+    AppExceptionKind? kind,
+    String? action,
+    String? message,
+    int? code,
+    int? httpStatus,
+    Object? cause,
+    StackTrace? stackTrace,
+  }) {
+    return AppException(
+      kind: kind ?? this.kind,
+      action: action ?? this.action,
+      message: message ?? this.message,
+      code: code ?? this.code,
+      httpStatus: httpStatus ?? this.httpStatus,
+      cause: cause ?? this.cause,
+      stackTrace: stackTrace ?? this.stackTrace,
+    );
+  }
+
   factory AppException.from(
     Object error, {
     required String action,
     AppExceptionKind fallbackKind = AppExceptionKind.fatal,
+    StackTrace? stackTrace,
   }) {
-    if (error is AppException) return error;
+    if (error is AppException) {
+      return stackTrace != null && error.stackTrace == null
+          ? error.copyWith(stackTrace: stackTrace)
+          : error;
+    }
     if (error is DioException) {
       return AppException.fromDio(error, action: action);
     }
@@ -36,6 +61,7 @@ class AppException implements Exception {
       action: action,
       message: text,
       cause: error,
+      stackTrace: stackTrace,
     );
   }
 

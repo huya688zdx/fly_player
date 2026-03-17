@@ -5,25 +5,29 @@ import 'package:provider/provider.dart';
 
 import '../api/feiniu_api.dart';
 import '../providers/nas_provider.dart';
-import '../theme/detail_tokens.dart';
+import '../theme/app_theme.dart';
+import '../ui/detail_presentation.dart';
 import '../utils/app_exception.dart';
 import '../utils/media_locale_store.dart';
 import '../widgets/common/app_error_state.dart';
+import '../pages/media_collection_detail_page.dart';
 import '../pages/play_detail_page.dart';
 import '../pages/tv_detail_page.dart';
 
-enum DetailPageMode { movie, tv }
+enum DetailPageMode { movie, tv, library }
 
 class PlayDetailScreen extends StatefulWidget {
   final String itemGuid;
   final String? heroTag;
   final Map<String, dynamic>? initialItemDetail;
+  final DetailPresentation presentation;
 
   const PlayDetailScreen({
     super.key,
     required this.itemGuid,
     this.heroTag,
     this.initialItemDetail,
+    this.presentation = DetailPresentation.page,
   });
 
   @override
@@ -58,19 +62,6 @@ class _PlayDetailScreenState extends State<PlayDetailScreen> {
       if (!mounted) return;
       _load();
     });
-  }
-
-  String _t(
-    String path,
-    String fallback, {
-    Map<String, Object?> params = const <String, Object?>{},
-  }) {
-    return MediaLocaleStore.text(
-      _localeMap,
-      path,
-      fallback: fallback,
-      params: params,
-    );
   }
 
   Future<void> _ensureLocaleMapLoaded() async {
@@ -114,30 +105,39 @@ class _PlayDetailScreenState extends State<PlayDetailScreen> {
   DetailPageMode _resolveMode(Map<String, dynamic> detail) {
     final directType = (detail['type'] ?? '').toString().trim().toLowerCase();
     if (directType == 'tv') return DetailPageMode.tv;
+    if (directType == 'mediadb' || directType == 'directory') {
+      return DetailPageMode.library;
+    }
     if (directType == 'movie') return DetailPageMode.movie;
 
     final item = detail['item'];
     if (item is Map<String, dynamic>) {
       final nestedType = (item['type'] ?? '').toString().trim().toLowerCase();
       if (nestedType == 'tv') return DetailPageMode.tv;
+      if (nestedType == 'mediadb' || nestedType == 'directory') {
+        return DetailPageMode.library;
+      }
       if (nestedType == 'movie') return DetailPageMode.movie;
     }
     return DetailPageMode.movie;
   }
 
+  bool get _isPane => widget.presentation == DetailPresentation.pane;
+
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     if (_loading) {
-      return const Scaffold(
-        backgroundColor: DetailTokens.pageBackground,
+      return Scaffold(
+        backgroundColor: colors.backgroundBase,
         body: SizedBox.shrink(),
       );
     }
 
     if (_error != null) {
       return Scaffold(
-        backgroundColor: DetailTokens.pageBackground,
-        appBar: AppBar(backgroundColor: DetailTokens.pageBackground),
+        backgroundColor: colors.backgroundBase,
+        appBar: _isPane ? null : AppBar(backgroundColor: colors.backgroundBase),
         body: AppErrorState(
           error: _error!,
           localeMap: _localeMap,
@@ -151,6 +151,16 @@ class _PlayDetailScreenState extends State<PlayDetailScreen> {
         itemGuid: widget.itemGuid,
         initialItemDetail: _itemDetail,
         heroTag: widget.heroTag,
+        presentation: widget.presentation,
+      );
+    }
+
+    if (_mode == DetailPageMode.library) {
+      return MediaCollectionDetailPage(
+        itemGuid: widget.itemGuid,
+        initialItemDetail: _itemDetail,
+        heroTag: widget.heroTag,
+        presentation: widget.presentation,
       );
     }
 
@@ -158,6 +168,7 @@ class _PlayDetailScreenState extends State<PlayDetailScreen> {
       itemGuid: widget.itemGuid,
       heroTag: widget.heroTag,
       initialItemDetail: _itemDetail,
+      presentation: widget.presentation,
     );
   }
 }

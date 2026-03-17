@@ -4,7 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:palette_generator/palette_generator.dart';
 
-import '../../theme/detail_tokens.dart';
+import '../../theme/app_theme.dart';
+import '../../theme/dynamic_theme_seed_extractor.dart';
+
+final Map<String, Color?> _immersiveTintCache = <String, Color?>{};
 
 class ImmersiveDetailBackground extends StatefulWidget {
   final List<String> urls;
@@ -23,6 +26,10 @@ class ImmersiveDetailBackground extends StatefulWidget {
 
   final bool fillGapsWithImage;
   final bool useMonetTint;
+  final Color? ambientTintOverride;
+  final Color? bottomFadeTintColor;
+  final Color? bottomFadeBackgroundColor;
+  final double bottomFadeExtraHeight;
 
   final double parallaxFactor;
   final bool enableRealtimeBlur;
@@ -43,6 +50,10 @@ class ImmersiveDetailBackground extends StatefulWidget {
     this.fadeMid = 0.82,
     this.fillGapsWithImage = false,
     this.useMonetTint = false,
+    this.ambientTintOverride,
+    this.bottomFadeTintColor,
+    this.bottomFadeBackgroundColor,
+    this.bottomFadeExtraHeight = 180,
     this.parallaxFactor = 0.40,
     this.enableRealtimeBlur = false,
     this.overlayOpacity = 1.0,
@@ -70,6 +81,7 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
     super.didUpdateWidget(oldWidget);
     if (!listEquals(oldWidget.urls, widget.urls) ||
         oldWidget.useMonetTint != widget.useMonetTint ||
+        oldWidget.ambientTintOverride != widget.ambientTintOverride ||
         oldWidget.token != widget.token) {
       _index = 0;
       _monetTint = null;
@@ -82,6 +94,8 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
   Widget build(BuildContext context) {
     final isAndroid =
         !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+    final colors = context.appColors;
+    final isLightSurface = colors.backgroundBase.computeLuminance() >= 0.58;
 
     final mediaSize = MediaQuery.of(context).size;
     final screenWidth = mediaSize.width;
@@ -117,33 +131,41 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
     final enableGapBlur =
         widget.enableRealtimeBlur && widget.fillGapsWithImage && !isAndroid;
 
-    final fusionStart = widget.fadeStart.clamp(0.30, 0.72).toDouble();
+    final fusionStart = widget.fadeStart.clamp(0.30, 0.86).toDouble();
+    final fusionMid = widget.fadeMid.clamp(fusionStart + 0.06, 0.94).toDouble();
     final overlayOpacity = widget.overlayOpacity.clamp(0.0, 1.0);
-    final layerA = (fusionStart + 0.10)
-        .clamp(fusionStart + 0.05, 0.84)
+    final layerA = (fusionStart + ((fusionMid - fusionStart) * 0.36))
+        .clamp(fusionStart + 0.04, fusionMid - 0.02)
         .toDouble();
-    final layerB = (fusionStart + 0.22).clamp(layerA + 0.05, 0.92).toDouble();
-    final layerC = (fusionStart + 0.34).clamp(layerB + 0.05, 0.97).toDouble();
+    final layerB = fusionMid.toDouble();
+    final layerC = (fusionMid + ((1.0 - fusionMid) * 0.42))
+        .clamp(layerB + 0.04, 0.98)
+        .toDouble();
+    final layerD = (layerC + ((1.0 - layerC) * 0.52))
+        .clamp(layerC + 0.04, 0.995)
+        .toDouble();
 
-    final ambientTint = _monetTint?.withValues(alpha: 0.28);
-    final baseScrimAlpha =
-        (widget.enableBottomFade ? 0.03 : 0.15) * overlayOpacity;
-    final radialEndColor =
-        ambientTint ??
-        Colors.black.withValues(
-          alpha: (widget.enableBottomFade ? 0.05 : 0.19) * overlayOpacity,
-        );
-    final topShadeStrong = Colors.black.withValues(
-      alpha: 0.30 * overlayOpacity,
+    final bottomFadeBackground =
+        widget.bottomFadeBackgroundColor ?? colors.backgroundBase;
+    final bottomFadeTint =
+        widget.bottomFadeTintColor ??
+        widget.ambientTintOverride ??
+        _monetTint ??
+        (isLightSurface ? colors.backgroundElevated : colors.overlayScrim);
+    final bottomFogColor = Color.alphaBlend(
+      bottomFadeTint.withValues(alpha: isLightSurface ? 0.42 : 0.56),
+      bottomFadeBackground,
     );
-    final topShadeMid = Colors.black.withValues(alpha: 0.10 * overlayOpacity);
+    final baseScrimAlpha =
+        ((widget.enableBottomFade ? 0.0 : (isLightSurface ? 0.0 : 0.03))) *
+        overlayOpacity;
 
     final heroImageHeight = expandedHeroHeight + parallaxMax + 80;
 
     return RepaintBoundary(
       child: Stack(
         children: [
-          Positioned.fill(child: Container(color: DetailTokens.pageBackground)),
+          Positioned.fill(child: ColoredBox(color: colors.backgroundBase)),
 
           Positioned(
             top: 0,
@@ -211,36 +233,8 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
 
                   Positioned.fill(
                     child: ColoredBox(
-                      color: Colors.black.withValues(alpha: baseScrimAlpha),
-                    ),
-                  ),
-
-                  Positioned.fill(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: RadialGradient(
-                          center: const Alignment(0.0, -0.12),
-                          radius: 1.18,
-                          colors: [Colors.transparent, radialEndColor],
-                          stops: const [0.42, 1.0],
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  Positioned.fill(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            topShadeStrong,
-                            topShadeMid,
-                            Colors.transparent,
-                          ],
-                          stops: const [0.0, 0.16, 0.34],
-                        ),
+                      color: colors.overlayScrim.withValues(
+                        alpha: baseScrimAlpha,
                       ),
                     ),
                   ),
@@ -263,33 +257,39 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
               left: 0,
               right: 0,
               top: 0,
-              height: expandedHeroHeight + 220,
+              height: expandedHeroHeight + widget.bottomFadeExtraHeight,
               child: IgnorePointer(
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
-                      colors: const [
+                      colors: [
                         Colors.transparent,
-                        Colors.transparent,
-                        Color(0x1F000000),
-                        Color(0x1F000000),
-                        Color(0x4D000000),
-                        Color(0x4D000000),
-                        Color(0x8A000000),
-                        Color(0x8A000000),
-                        DetailTokens.pageBackground,
+                        bottomFogColor.withValues(
+                          alpha: isLightSurface ? 0.08 : 0.10,
+                        ),
+                        bottomFogColor.withValues(
+                          alpha: isLightSurface ? 0.18 : 0.22,
+                        ),
+                        bottomFogColor.withValues(
+                          alpha: isLightSurface ? 0.34 : 0.40,
+                        ),
+                        bottomFadeBackground.withValues(
+                          alpha: isLightSurface ? 0.68 : 0.62,
+                        ),
+                        bottomFadeBackground.withValues(
+                          alpha: isLightSurface ? 0.90 : 0.86,
+                        ),
+                        bottomFadeBackground,
                       ],
                       stops: [
                         0.0,
                         fusionStart,
                         layerA,
-                        layerA,
-                        layerB,
                         layerB,
                         layerC,
-                        layerC,
+                        layerD,
                         1.0,
                       ],
                     ),
@@ -310,7 +310,8 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
   }
 
   Future<void> _refreshMonetTint() async {
-    if (!widget.useMonetTint ||
+    if (widget.ambientTintOverride != null ||
+        !widget.useMonetTint ||
         widget.urls.isEmpty ||
         _index >= widget.urls.length) {
       if (_monetTint != null && mounted) {
@@ -321,37 +322,60 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
 
     final url = widget.urls[_index];
     if (_tintUrl == url && _monetTint != null) return;
+    if (_immersiveTintCache.containsKey(url)) {
+      final cachedTint = _immersiveTintCache[url];
+      if (!mounted || _tintUrl == url && _monetTint == cachedTint) return;
+      _tintUrl = url;
+      setState(() => _monetTint = cachedTint);
+      return;
+    }
 
     _tintUrl = url;
+    final requestedUrl = url;
 
     try {
-      final palette = await PaletteGenerator.fromImageProvider(
-        NetworkImage(
-          url,
-          headers: {
-            'Authorization': widget.token,
-            'Trim-MC-token': widget.token,
-          },
-        ),
-        maximumColorCount: 14,
-        size: const Size(220, 140),
-      );
-
-      final seed =
-          palette.darkVibrantColor?.color ??
-          palette.dominantColor?.color ??
-          palette.mutedColor?.color;
-
-      if (seed == null || !mounted) return;
-
-      var hsl = HSLColor.fromColor(seed);
-      hsl = hsl.withSaturation((hsl.saturation * 0.45).clamp(0.08, 0.28));
-      hsl = hsl.withLightness((hsl.lightness * 0.45).clamp(0.10, 0.22));
-
-      setState(() => _monetTint = hsl.toColor());
+      Color? tint;
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+        final seed = await DynamicThemeSeedExtractor.extract(
+          imageUrl: requestedUrl,
+          token: widget.token,
+        );
+        tint = seed == null ? null : _deriveTintColor(seed.backgroundSeed);
+      }
+      tint ??= await _extractTintWithPalette(requestedUrl);
+      _immersiveTintCache[requestedUrl] = tint;
+      if (!mounted || _tintUrl != requestedUrl) return;
+      setState(() => _monetTint = tint);
     } catch (_) {
-      if (mounted) setState(() => _monetTint = null);
+      _immersiveTintCache[requestedUrl] = null;
+      if (mounted && _tintUrl == requestedUrl) {
+        setState(() => _monetTint = null);
+      }
     }
+  }
+
+  Future<Color?> _extractTintWithPalette(String url) async {
+    final palette = await PaletteGenerator.fromImageProvider(
+      NetworkImage(
+        url,
+        headers: {'Authorization': widget.token, 'Trim-MC-token': widget.token},
+      ),
+      maximumColorCount: 14,
+      size: const Size(220, 140),
+    );
+
+    final seed =
+        palette.darkVibrantColor?.color ??
+        palette.dominantColor?.color ??
+        palette.mutedColor?.color;
+    return seed == null ? null : _deriveTintColor(seed);
+  }
+
+  Color _deriveTintColor(Color seed) {
+    var hsl = HSLColor.fromColor(seed);
+    hsl = hsl.withSaturation((hsl.saturation * 0.45).clamp(0.08, 0.28));
+    hsl = hsl.withLightness((hsl.lightness * 0.45).clamp(0.10, 0.22));
+    return hsl.toColor();
   }
 }
 
@@ -375,7 +399,7 @@ class _BackgroundImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (urls.isEmpty || index >= urls.length || token.trim().isEmpty) {
-      return Container(color: DetailTokens.panelBackground);
+      return Container(color: context.appColors.surface);
     }
 
     final currentUrl = urls[index];
@@ -393,7 +417,7 @@ class _BackgroundImage extends StatelessWidget {
               : '[IMG][DETAIL_BG] failed url=$currentUrl error=$error -> no_more_fallback',
         );
         WidgetsBinding.instance.addPostFrameCallback((_) => onErrorNext());
-        return Container(color: DetailTokens.panelBackground);
+        return Container(color: context.appColors.surface);
       },
     );
   }

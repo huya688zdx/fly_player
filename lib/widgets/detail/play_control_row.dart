@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../../theme/app_theme.dart';
 import '../../theme/detail_tokens.dart';
 import '../../ui/adaptive_text.dart';
 import '../../ui/app_transitions.dart';
@@ -32,6 +33,8 @@ class PlayControlRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final primaryForeground = Theme.of(context).colorScheme.onPrimary;
     final playTextSize = AdaptiveText.roleSize(
       DetailTokens.playTextFontSize,
       role: AdaptiveFontRole.button,
@@ -43,8 +46,9 @@ class PlayControlRow extends StatelessWidget {
             onPressed: primaryEnabled ? onPrimaryTap ?? () {} : null,
             style: FilledButton.styleFrom(
               minimumSize: const Size.fromHeight(DetailTokens.playButtonHeight),
-              backgroundColor: DetailTokens.primaryButton,
-              disabledBackgroundColor: DetailTokens.primaryButtonDisabled,
+              backgroundColor: colors.accent,
+              foregroundColor: primaryForeground,
+              disabledBackgroundColor: colors.accent.withValues(alpha: 0.32),
               shape: const RoundedRectangleBorder(
                 borderRadius: DetailTokens.playButtonBorderRadius,
               ),
@@ -58,6 +62,10 @@ class PlayControlRow extends StatelessWidget {
                     'assets/icons/play.svg',
                     width: DetailTokens.playButtonIconSize,
                     height: DetailTokens.playButtonIconSize,
+                    colorFilter: ColorFilter.mode(
+                      primaryForeground,
+                      BlendMode.srcIn,
+                    ),
                   ),
                   const SizedBox(width: 10),
                   AppTransitions.crossFadeSwitch(
@@ -70,7 +78,7 @@ class PlayControlRow extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: DetailTokens.textPrimary,
+                        color: primaryForeground,
                         fontSize: playTextSize,
                         fontWeight: FontWeight.w500,
                       ),
@@ -96,7 +104,8 @@ class PlayControlRow extends StatelessWidget {
         ],
         const SizedBox(width: 10),
         DetailIconButton(
-          iconAsset: 'assets/icons/check.svg',
+          iconAsset: 'assets/icons/watched.svg',
+          selectedIconAsset: 'assets/icons/watched_selected.svg',
           selected: watched,
           onTap: onWatchedTap,
         ),

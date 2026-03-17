@@ -1,0 +1,81 @@
+package com.geqian.flyplayer.fly_player.mpv
+
+data class PlaybackDiagnosticsSnapshotArgs(
+    val state: MpvPlayerState,
+    val source: MpvSource,
+    val audioOnlyVideoState: Boolean,
+    val surfaceReady: Boolean,
+    val surfaceAttached: Boolean,
+    val surfaceValid: Boolean,
+    val videoOutputReady: Boolean,
+    val videoTrackSuspended: Boolean,
+    val videoStreamLost: Boolean,
+    val videoStreamLossReason: String?,
+    val proxyOpenFailed: Boolean,
+    val proxyOpenFailureReason: String?,
+    val resumeAfterSurfaceRestore: Boolean,
+    val activeHwdecMode: String,
+    val forcedHwdecMode: String?,
+    val activeColorPipeline: VideoColorPipeline,
+    val forcedColorPipeline: VideoColorPipeline?,
+    val preferredHwdecMode: String,
+    val preferredColorPipeline: VideoColorPipeline,
+    val displayProfile: DisplayProfile,
+    val deviceProfile: DeviceProfile,
+)
+
+class PlaybackDiagnosticsSnapshotFactory(
+    private val sessionGate: PlaybackSessionGate,
+    private val sourceResolver: PlaybackSourceResolver,
+    private val restoreCoordinator: MpvPlaybackRestoreCoordinator,
+    private val advancedSettingsController: MpvAdvancedSettingsController,
+    private val videoOutputController: VideoOutputController,
+    private val audioOutputDiagnostics: PlaybackAudioOutputDiagnostics,
+) {
+    fun build(
+        args: PlaybackDiagnosticsSnapshotArgs,
+        loadState: PlaybackLoadStateTracker,
+    ): MpvPlaybackControllerDiagnosticsSnapshot {
+        val sessionSnapshot = sessionGate.currentSnapshot()
+        val audioOutputSnapshot = audioOutputDiagnostics.snapshot()
+        return MpvPlaybackControllerDiagnosticsSnapshot(
+            state = args.state,
+            source = args.source,
+            loadedSourceUrl = loadState.loadedSourceUrl,
+            loadingSourceUrl = loadState.loadingSourceUrl,
+            activePlaybackUrl = loadState.activePlaybackUrl,
+            nativeProxyUrl = sourceResolver.activeProxyUrl,
+            nativeProxySessionId = sourceResolver.activeProxySessionId,
+            audioOnlyVideoState = args.audioOnlyVideoState,
+            surfaceReady = args.surfaceReady,
+            surfaceAttached = args.surfaceAttached,
+            surfaceValid = args.surfaceValid,
+            videoOutputReady = args.videoOutputReady,
+            videoTrackSuspended = args.videoTrackSuspended,
+            videoStreamLost = args.videoStreamLost,
+            videoStreamLossReason = args.videoStreamLossReason,
+            proxyOpenFailed = args.proxyOpenFailed,
+            proxyOpenFailureReason = args.proxyOpenFailureReason,
+            pendingLoadRequested = loadState.pendingLoadRequested,
+            sourceFileLoaded = loadState.sourceFileLoaded,
+            sessionSnapshot = sessionSnapshot,
+            resumeAfterSurfaceRestore = args.resumeAfterSurfaceRestore,
+            pendingSeekPositionMs = restoreCoordinator.pendingSeekPositionMs,
+            activeHwdecMode = args.activeHwdecMode,
+            forcedHwdecMode = args.forcedHwdecMode,
+            activeColorPipeline = args.activeColorPipeline,
+            forcedColorPipeline = args.forcedColorPipeline,
+            preferredHwdecMode = args.preferredHwdecMode,
+            preferredColorPipeline = args.preferredColorPipeline,
+            advancedSettings = advancedSettingsController.snapshot(),
+            windowColorMode = videoOutputController.currentWindowColorMode(),
+            displayProfile = args.displayProfile,
+            deviceProfile = args.deviceProfile,
+            connectedAudioSummary = audioOutputSnapshot.connectedAudioSummary,
+            usbAudioConnected = audioOutputSnapshot.usbAudioConnected,
+            usbAudioSummary = audioOutputSnapshot.usbAudioSummary,
+            systemOutputSampleRate = audioOutputSnapshot.systemOutputSampleRate,
+            systemOutputFramesPerBuffer = audioOutputSnapshot.systemOutputFramesPerBuffer,
+        )
+    }
+}

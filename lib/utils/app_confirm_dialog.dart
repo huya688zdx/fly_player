@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 
+import '../theme/app_theme.dart';
+
 Future<bool> showAppConfirmDialog(
   BuildContext context, {
   required String title,
   required String content,
   required String cancelText,
   required String confirmText,
-  Color confirmColor = const Color(0xFF9B002A),
+  Color? confirmColor,
 }) async {
+  final colors = context.appColors;
   final result = await showDialog<bool>(
     context: context,
     barrierDismissible: true,
@@ -24,7 +27,7 @@ Future<bool> showAppConfirmDialog(
           ? 640.0
           : 560.0;
       return Dialog(
-        backgroundColor: const Color(0xFF171D26),
+        backgroundColor: colors.surface,
         insetPadding: EdgeInsets.symmetric(horizontal: horizontalInset),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         child: ConstrainedBox(
@@ -37,8 +40,8 @@ Future<bool> showAppConfirmDialog(
                 Text(
                   title,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: colors.textPrimary,
                     fontSize: 20,
                     fontWeight: FontWeight.w700,
                   ),
@@ -47,8 +50,8 @@ Future<bool> showAppConfirmDialog(
                 Text(
                   content,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Color(0xFFAAB5C8),
+                  style: TextStyle(
+                    color: colors.textSecondary,
                     fontSize: 16,
                     fontWeight: FontWeight.w500,
                   ),
@@ -59,8 +62,8 @@ Future<bool> showAppConfirmDialog(
                     Expanded(
                       child: _DialogActionButton(
                         label: cancelText,
-                        backgroundColor: const Color(0xFF303946),
-                        foregroundColor: const Color(0xFFD7DFEE),
+                        backgroundColor: colors.surfaceStrong,
+                        foregroundColor: colors.textSecondary,
                         onPressed: () => Navigator.of(dialogContext).pop(false),
                       ),
                     ),
@@ -68,8 +71,8 @@ Future<bool> showAppConfirmDialog(
                     Expanded(
                       child: _DialogActionButton(
                         label: confirmText,
-                        backgroundColor: confirmColor,
-                        foregroundColor: Colors.white,
+                        backgroundColor: confirmColor ?? colors.danger,
+                        foregroundColor: colors.textPrimary,
                         onPressed: () => Navigator.of(dialogContext).pop(true),
                       ),
                     ),

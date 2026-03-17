@@ -95,10 +95,12 @@ class PlayConfig {
 
 class PlayItem {
   final String guid;
+  final String trimId;
   final String type;
   final String title;
   final String tvTitle;
   final String parentTitle;
+  final String logos;
   final String posters;
   final String backdrops;
   final String stillPath;
@@ -128,10 +130,12 @@ class PlayItem {
 
   const PlayItem({
     required this.guid,
+    required this.trimId,
     required this.type,
     required this.title,
     required this.tvTitle,
     required this.parentTitle,
+    required this.logos,
     required this.posters,
     required this.backdrops,
     required this.stillPath,
@@ -167,10 +171,12 @@ class PlayItem {
         : const <String, dynamic>{};
     return PlayItem(
       guid: (json['guid'] ?? '').toString(),
+      trimId: (json['trim_id'] ?? '').toString(),
       type: (json['type'] ?? '').toString(),
       title: (json['title'] ?? '').toString(),
       tvTitle: (json['tv_title'] ?? '').toString(),
       parentTitle: (json['parent_title'] ?? '').toString(),
+      logos: (json['logos'] ?? '').toString(),
       posters: (json['posters'] ?? '').toString(),
       backdrops: (json['backdrops'] ?? '').toString(),
       stillPath: (json['still_path'] ?? '').toString(),

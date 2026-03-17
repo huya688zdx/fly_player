@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/app_theme.dart';
 import '../../theme/detail_tokens.dart';
 import '../../ui/adaptive_text.dart';
 import 'capability_badge.dart';
@@ -89,6 +90,7 @@ class _SelectorLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final selectorSize = AdaptiveText.roleSize(
       DetailTokens.selectorFontSize,
       role: AdaptiveFontRole.caption,
@@ -102,7 +104,7 @@ class _SelectorLabel extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
-              color: DetailTokens.selectorText,
+              color: colors.textSecondary,
               fontSize: selectorSize,
               fontWeight: FontWeight.w500,
             ),
@@ -113,9 +115,9 @@ class _SelectorLabel extends StatelessWidget {
               turns: expanded ? 0.5 : 0.0,
               duration: const Duration(milliseconds: 180),
               curve: Curves.easeOut,
-              child: const Icon(
+              child: Icon(
                 Icons.keyboard_arrow_down,
-                color: DetailTokens.selectorIcon,
+                color: colors.textMuted,
                 size: DetailTokens.selectorArrowSize,
               ),
             ),

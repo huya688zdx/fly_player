@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -5,10 +6,15 @@ import 'package:provider/provider.dart';
 
 import '../api/feiniu_api.dart';
 import '../api/item_list_request.dart';
+import '../controllers/media_item_action_sheet_controller.dart';
+import '../models/media_collection_view_type.dart';
 import '../models/media_item.dart';
 import '../models/media_library_item.dart';
 import '../providers/nas_provider.dart';
-import '../ui/app_transitions.dart';
+import '../services/embedded_detail_launcher.dart';
+import '../theme/app_theme.dart';
+import '../ui/adaptive_detail_navigator.dart';
+import '../ui/detail_presentation.dart';
 import '../ui/layout_adaptive.dart';
 import '../ui/media_poster_card.dart';
 import '../utils/api_url_helper.dart';
@@ -16,17 +22,19 @@ import '../utils/app_exception.dart';
 import '../utils/media_locale_store.dart';
 import '../utils/media_locale_text.dart';
 import '../widgets/common/app_error_state.dart';
-import 'person_detail_screen.dart';
-import 'play_detail_screen.dart';
+import '../widgets/library/media_collection_layout_sheet.dart';
+import '../widgets/library/media_library_list_tile.dart';
 
 class CategoryItemsScreen extends StatefulWidget {
   final MediaItem category;
   final List<String>? initialTypeTags;
+  final bool secondaryHost;
 
   const CategoryItemsScreen({
     super.key,
     required this.category,
     this.initialTypeTags,
+    this.secondaryHost = false,
   });
 
   @override
@@ -56,6 +64,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   bool _metaLoaded = false;
   String _sortColumn = 'create_time';
   String _sortType = 'DESC';
+  MediaCollectionViewType _viewType = MediaCollectionViewType.verticalPoster;
 
   Map<String, List<dynamic>> _tagOptions = {};
   Map<int, String> _genresFromApi = {};
@@ -71,6 +80,9 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   Set<dynamic> _selectedAudioType = {};
   Set<dynamic> _selectedRecognitionStatus = {};
   Set<dynamic> _selectedWatched = {};
+
+  DetailPresentation get _detailPresentation =>
+      widget.secondaryHost ? DetailPresentation.pane : DetailPresentation.page;
 
   bool get _typeLocked =>
       widget.initialTypeTags != null && widget.initialTypeTags!.isNotEmpty;
@@ -100,10 +112,10 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   }
 
   String _t(
-      String path,
-      String fallback, {
-        Map<String, Object?> params = const {},
-      }) {
+    String path,
+    String fallback, {
+    Map<String, Object?> params = const {},
+  }) {
     return MediaLocaleText.text(
       _localeMap,
       path,
@@ -144,6 +156,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
       if (setting != null) {
         _sortColumn = setting.sortField;
         _sortType = setting.sortType == 'ASC' ? 'ASC' : 'DESC';
+        _viewType = MediaCollectionViewTypeX.fromStorage(setting.viewType);
       }
     });
   }
@@ -184,12 +197,41 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     }
   }
 
+  void _replaceItemLocally(
+    String itemGuid,
+    MediaLibraryItem Function(MediaLibraryItem item) transform,
+  ) {
+    if (!mounted) return;
+    setState(() {
+      _items = _items
+          .map((item) => item.guid == itemGuid ? transform(item) : item)
+          .toList(growable: false);
+    });
+  }
+
+  Future<void> _showPosterItemActions(MediaLibraryItem item) async {
+    await const MediaItemActionSheetController().show(
+      context,
+      item: item,
+      title: MediaItemActionSheetController.defaultTitle(item),
+      localeMap: _localeMap,
+      favoriteOnly: _isPersonItem(item),
+      initialWatched: item.watched == 1,
+      onChanged: (state) {
+        _replaceItemLocally(
+          item.guid,
+          (current) => current.copyWith(watched: state.watched ? 1 : 0),
+        );
+      },
+    );
+  }
+
   ItemListRequest _buildRequest({required int page}) {
     final effectiveType = _typeLocked
         ? _lockedTypeTags
         : (_selectedType.isNotEmpty
-        ? _selectedType.toList()
-        : const ['Movie', 'TV', 'Directory', 'Video']);
+              ? _selectedType.toList()
+              : const ['Movie', 'TV', 'Directory', 'Video']);
     final tags = <String, dynamic>{'type': effectiveType};
     if (_selectedGenres.isNotEmpty) {
       tags['genres'] = _selectedGenres.first;
@@ -270,42 +312,63 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   Future<void> _openItemDetail(MediaLibraryItem item, {String? heroTag}) async {
     if (item.guid.trim().isEmpty) return;
     if (_isPersonItem(item)) {
-      Navigator.of(context).push(
-        AppTransitions.leftToRightPageTurnRoute(
-          PersonDetailScreen(
-            personGuid: item.guid,
-            initialName: item.displayTitle,
-            initialLocaleMap: _localeMap,
-          ),
+      await AdaptiveDetailNavigator.open<void>(
+        context,
+        AdaptiveDetailRequest.person(
+          personGuid: item.guid,
+          initialName: item.displayTitle,
+          initialLocaleMap: _localeMap,
         ),
+        presentation: _detailPresentation,
       );
       return;
     }
-    final provider = context.read<NasProvider>();
+
     Map<String, dynamic>? initialDetail;
     try {
       initialDetail = await FeiniuApi(
-        provider,
+        context.read<NasProvider>(),
       ).getItemDetail(item.guid).timeout(const Duration(milliseconds: 240));
     } catch (_) {}
     if (!mounted) return;
-    Navigator.of(context).push(
-      AppTransitions.leftToRightPageTurnRoute(
-        PlayDetailScreen(
-          itemGuid: item.guid,
-          heroTag: null,
-          initialItemDetail: initialDetail,
-        ),
+    await AdaptiveDetailNavigator.open<void>(
+      context,
+      AdaptiveDetailRequest.item(
+        itemGuid: item.guid,
+        heroTag: heroTag,
+        initialItemDetail: initialDetail,
       ),
+      presentation: _detailPresentation,
     );
   }
 
   List<String> _posterCandidates(
-      String baseUrl,
-      String rawPath, {
-        int width = 400,
-      }) {
-    return ApiUrlHelper.imageCandidates(baseUrl, rawPath, width: width);
+    String baseUrl,
+    MediaLibraryItem item, {
+    int width = 400,
+    bool preferDirectPath = false,
+  }) {
+    final paths = <String>[
+      if (item.poster.trim().isNotEmpty) item.poster.trim(),
+      ...item.posterList.where((path) => path.trim().isNotEmpty),
+    ];
+    final unique = <String>{};
+    final ordered = <String>[];
+    for (final path in paths) {
+      if (unique.add(path)) {
+        ordered.add(path);
+      }
+    }
+    return ordered
+        .expand(
+          (path) => ApiUrlHelper.imageCandidates(
+            baseUrl,
+            path,
+            width: width,
+            preferDirectPath: preferDirectPath,
+          ),
+        )
+        .toList(growable: false);
   }
 
   bool _isPersonItem(MediaLibraryItem item) {
@@ -325,7 +388,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     final startYear = _year(start);
     final endYear = _year(item.lastAirDate);
     final period =
-    (startYear.isNotEmpty && endYear.isNotEmpty && endYear != startYear)
+        (startYear.isNotEmpty && endYear.isNotEmpty && endYear != startYear)
         ? '$startYear-$endYear'
         : startYear;
     final seasonCount = item.localNumberOfSeasons > 0
@@ -334,8 +397,8 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     final episodeCount = item.localNumberOfEpisodes > 0
         ? item.localNumberOfEpisodes
         : (item.numberOfEpisodes > 0
-        ? item.numberOfEpisodes
-        : item.episodeNumber);
+              ? item.numberOfEpisodes
+              : item.episodeNumber);
 
     if (seasonCount == 1 && episodeCount > 0) {
       if (period.isEmpty) return '共$episodeCount集';
@@ -412,15 +475,9 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     final raw = value.toString();
     switch (raw) {
       case 'DolbySurround':
-        return _t(
-          'stream.audio.audioSpecs.dolbySurround',
-          '杜比环绕',
-        );
+        return _t('stream.audio.audioSpecs.dolbySurround', '杜比环绕');
       case 'DolbyAtmos':
-        return _t(
-          'stream.audio.audioSpecs.dolbyAtmos',
-          '杜比全景声',
-        );
+        return _t('stream.audio.audioSpecs.dolbyAtmos', '杜比全景声');
       case 'DTS':
         return _t('stream.audio.audioSpecs.dts', 'DTS');
       case 'Stereo':
@@ -471,10 +528,8 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
 
   String _watchedLabel(dynamic value) {
     final code = int.tryParse(value.toString()) ?? -1;
-    if (code == 1)
-      return _t('layout.list.filter.watched.1', '已观看');
-    if (code == 0)
-      return _t('layout.list.filter.watched.0', '未观看');
+    if (code == 1) return _t('layout.list.filter.watched.1', '已观看');
+    if (code == 0) return _t('layout.list.filter.watched.0', '未观看');
     return value.toString();
   }
 
@@ -485,32 +540,50 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   String _sortLabelFor(String column) {
     switch (column) {
       case 'create_time':
-        return _t(
-          'layout.list.sort.sortField.createTime',
-          '按添加日期',
-        );
+        return _t('layout.list.sort.sortField.createTime', '按添加日期');
       case 'release_date':
-        return _t(
-          'layout.list.sort.sortField.releaseDate',
-          '按发行年份',
-        );
+        return _t('layout.list.sort.sortField.releaseDate', '按发行年份');
       case 'title':
         return _t('layout.list.sort.sortField.title', '按标题');
       case 'vote_average':
-        return _t(
-          'layout.list.sort.sortField.voteAverage',
-          '按评分',
-        );
+        return _t('layout.list.sort.sortField.voteAverage', '按评分');
       default:
-        return _t(
-          'layout.list.sort.sortField.createTime',
-          '按添加日期',
-        );
+        return _t('layout.list.sort.sortField.createTime', '按添加日期');
     }
   }
 
   IconData get _sortArrow =>
       _sortType == 'ASC' ? Icons.arrow_upward : Icons.arrow_downward;
+
+  bool get _hasActiveFilters =>
+      _selectedGenres.isNotEmpty ||
+      _selectedLocate.isNotEmpty ||
+      _selectedDecades.isNotEmpty ||
+      _selectedResolutions.isNotEmpty ||
+      _selectedColorRange.isNotEmpty ||
+      _selectedAudioType.isNotEmpty ||
+      _selectedRecognitionStatus.isNotEmpty ||
+      _selectedWatched.isNotEmpty ||
+      (!_typeLocked && _selectedType.isNotEmpty && _selectedType.length < 4);
+
+  Future<void> _openLayoutSheet() async {
+    final next = await MediaCollectionLayoutSheet.show(
+      context,
+      currentViewType: _viewType,
+    );
+    if (!mounted || next == null || next == _viewType) {
+      return;
+    }
+    setState(() => _viewType = next);
+    if (widget.category.id.trim().isNotEmpty) {
+      await FeiniuApi(context.read<NasProvider>()).setUserListSetting(
+        widget.category.id,
+        sortField: _sortColumn,
+        sortType: _sortType,
+        viewType: next.storageValue,
+      );
+    }
+  }
 
   TextStyle get _bold12 => const TextStyle(
     color: Colors.white70,
@@ -519,9 +592,10 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   );
 
   Future<void> _openSortSheet() async {
+    final colors = context.appColors;
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: const Color(0xFF141C29),
+      backgroundColor: colors.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -536,7 +610,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                 Text(
                   _t('layout.list.sort.title', '排序'),
                   style: TextStyle(
-                    color: Colors.white,
+                    color: colors.textPrimary,
                     fontSize: 36,
                     fontWeight: FontWeight.w700,
                   ),
@@ -551,30 +625,30 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                       _sortLabelFor(column),
                       style: TextStyle(
                         color: column == _sortColumn
-                            ? Colors.white
-                            : Colors.white70,
+                            ? colors.textPrimary
+                            : colors.textSecondary,
                         fontWeight: FontWeight.w700,
                         fontSize: 17,
                       ),
                     ),
                     trailing: column == _sortColumn
                         ? Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          _sortType == 'ASC'
-                              ? '${_t('layout.list.sort.sortType.asc', '升序')} ↑'
-                              : '${_t('layout.list.sort.sortType.desc', '降序')} ↓',
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 16,
-                          ),
-                        ),
-                      ],
-                    )
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                _sortType == 'ASC'
+                                    ? '${_t('layout.list.sort.sortType.asc', '升序')} ↑'
+                                    : '${_t('layout.list.sort.sortType.desc', '降序')} ↓',
+                                style: TextStyle(
+                                  color: colors.textSecondary,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            ],
+                          )
                         : null,
-                    onTap: () {
+                    onTap: () async {
                       if (column == _sortColumn) {
                         _sortType = _sortType == 'ASC' ? 'DESC' : 'ASC';
                       } else {
@@ -582,6 +656,16 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                         _sortType = 'DESC';
                       }
                       Navigator.of(context).pop();
+                      if (widget.category.id.trim().isNotEmpty) {
+                        await FeiniuApi(
+                          context.read<NasProvider>(),
+                        ).setUserListSetting(
+                          widget.category.id,
+                          sortField: _sortColumn,
+                          sortType: _sortType,
+                          viewType: _viewType.storageValue,
+                        );
+                      }
                       _fetch();
                     },
                   ),
@@ -596,6 +680,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   Future<void> _openFilterSheet() async {
     if (!_metaLoaded) await _loadMeta();
     if (!mounted) return;
+    final colors = context.appColors;
 
     final tempType = Set<String>.from(_selectedType);
     final tempGenres = Set<dynamic>.from(_selectedGenres);
@@ -610,7 +695,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF141C29),
+      backgroundColor: colors.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -627,15 +712,16 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                     vertical: 8,
                   ),
                   decoration: BoxDecoration(
-                    color: selected
-                        ? const Color(0xFF0D4CA3)
-                        : const Color(0xFF1D2735),
+                    color: selected ? colors.selection : colors.chipBackground,
                     borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: selected ? colors.selection : colors.chipBorder,
+                    ),
                   ),
                   child: Text(
                     label,
                     style: TextStyle(
-                      color: selected ? Colors.white : Colors.white70,
+                      color: selected ? colors.textPrimary : colors.chipText,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -644,11 +730,11 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
             }
 
             Widget section(
-                String title,
-                List<dynamic> values,
-                Set<dynamic> selected,
-                String Function(dynamic) labeler,
-                ) {
+              String title,
+              List<dynamic> values,
+              Set<dynamic> selected,
+              String Function(dynamic) labeler,
+            ) {
               if (values.isEmpty) return const SizedBox.shrink();
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -660,13 +746,13 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                       chip(
                         _t('layout.list.filter.all', '全部'),
                         selected.isEmpty,
-                            () => setModal(() => selected.clear()),
+                        () => setModal(() => selected.clear()),
                       ),
                       for (final v in values)
                         chip(
                           labeler(v),
                           selected.contains(v),
-                              () => setModal(() {
+                          () => setModal(() {
                             if (selected.contains(v)) {
                               selected.clear();
                             } else {
@@ -695,12 +781,9 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                         children: [
                           const Spacer(),
                           Text(
-                            _t(
-                              'layout.list.filter.filterButton',
-                              '筛选',
-                            ),
+                            _t('layout.list.filter.filterButton', '筛选'),
                             style: TextStyle(
-                              color: Colors.white,
+                              color: colors.textPrimary,
                               fontSize: 24,
                               fontWeight: FontWeight.w700,
                             ),
@@ -708,9 +791,9 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                           const Spacer(),
                           IconButton(
                             onPressed: () => Navigator.of(context).pop(),
-                            icon: const Icon(
+                            icon: Icon(
                               Icons.close,
-                              color: Colors.white70,
+                              color: colors.textSecondary,
                             ),
                           ),
                         ],
@@ -720,57 +803,36 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                           children: [
                             if (!_typeLocked)
                               section(
-                                _t(
-                                  'layout.list.filter.tagMap.type',
-                                  '影视分类',
-                                ),
+                                _t('layout.list.filter.tagMap.type', '影视分类'),
                                 const ['Movie', 'TV'],
                                 tempType,
-                                    (v) => v == 'Movie'
-                                    ? _t(
-                                  'layout.list.filter.type.movie',
-                                  '电影',
-                                )
-                                    : _t(
-                                  'layout.list.filter.type.tv',
-                                  '电视剧',
-                                ),
+                                (v) => v == 'Movie'
+                                    ? _t('layout.list.filter.type.movie', '电影')
+                                    : _t('layout.list.filter.type.tv', '电视剧'),
                               ),
                             section(
-                              _t(
-                                'layout.list.filter.tagMap.genres',
-                                '类型',
-                              ),
+                              _t('layout.list.filter.tagMap.genres', '类型'),
                               _tagOptions['genres'] ?? const [],
                               tempGenres,
                               _genreLabel,
                             ),
                             section(
-                              _t(
-                                'layout.list.filter.tagMap.locate',
-                                '国家和地区',
-                              ),
+                              _t('layout.list.filter.tagMap.locate', '国家和地区'),
                               _tagOptions['locate'] ?? const [],
                               tempLocate,
                               _locateLabel,
                             ),
                             section(
-                              _t(
-                                'layout.list.filter.tagMap.decade',
-                                '发行年份',
-                              ),
+                              _t('layout.list.filter.tagMap.decade', '发行年份'),
                               _tagOptions['decades'] ?? const [],
                               tempDecades,
                               _decadeLabel,
                             ),
                             section(
-                              _t(
-                                'layout.list.filter.tagMap.resolution',
-                                '分辨率',
-                              ),
+                              _t('layout.list.filter.tagMap.resolution', '分辨率'),
                               _tagOptions['resolutions'] ?? const [],
                               tempResolutions,
-                                  (v) => _resolutionLabel('$v'),
+                              (v) => _resolutionLabel('$v'),
                             ),
                             section(
                               _t(
@@ -779,7 +841,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                               ),
                               _tagOptions['color_range'] ?? const [],
                               tempColorRange,
-                                  (v) => '$v',
+                              (v) => '$v',
                             ),
                             section(
                               _t(
@@ -800,10 +862,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                               _recognitionStatusLabel,
                             ),
                             section(
-                              _t(
-                                'layout.list.filter.tagMap.watched',
-                                '是否观看',
-                              ),
+                              _t('layout.list.filter.tagMap.watched', '是否观看'),
                               const [1, 0],
                               tempWatched,
                               _watchedLabel,
@@ -831,18 +890,15 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                                 });
                               },
                               style: OutlinedButton.styleFrom(
-                                side: const BorderSide(
-                                  color: Color(0x334F6B8F),
-                                ),
-                                foregroundColor: Colors.white70,
+                                side: BorderSide(color: colors.chipBorder),
+                                foregroundColor: colors.textSecondary,
                                 minimumSize: const Size.fromHeight(44),
                               ),
                               child: Text(
-                                _t(
-                                  'layout.list.filter.resetButton',
-                                  '重置',
+                                _t('layout.list.filter.resetButton', '重置'),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
                                 ),
-                                style: TextStyle(fontWeight: FontWeight.w700),
                               ),
                             ),
                           ),
@@ -870,11 +926,10 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                                 minimumSize: const Size.fromHeight(44),
                               ),
                               child: Text(
-                                _t(
-                                  'common.actions.default.default',
-                                  '确定',
+                                _t('common.actions.default.default', '确定'),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
                                 ),
-                                style: TextStyle(fontWeight: FontWeight.w700),
                               ),
                             ),
                           ),
@@ -894,16 +949,27 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   @override
   Widget build(BuildContext context) {
     final provider = context.read<NasProvider>();
+    final colors = context.appColors;
     return Scaffold(
-      backgroundColor: const Color(0xFF07101B),
+      backgroundColor: colors.backgroundBase,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF07101B),
+        backgroundColor: colors.backgroundBase,
         surfaceTintColor: Colors.transparent,
-        foregroundColor: Colors.white,
-        iconTheme: const IconThemeData(color: Colors.white),
-        actionsIconTheme: const IconThemeData(color: Colors.white),
-        titleTextStyle: const TextStyle(
-          color: Colors.white,
+        foregroundColor: colors.textPrimary,
+        iconTheme: IconThemeData(color: colors.textPrimary),
+        actionsIconTheme: IconThemeData(color: colors.textPrimary),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            unawaited(
+              widget.secondaryHost
+                  ? EmbeddedDetailLauncher.closeHostOrPop(context)
+                  : Navigator.of(context).maybePop(),
+            );
+          },
+        ),
+        titleTextStyle: TextStyle(
+          color: colors.textPrimary,
           fontSize: 20,
           fontWeight: FontWeight.w700,
         ),
@@ -915,6 +981,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
 
   Widget _buildBody(String baseUrl, String token) {
     final layout = MediaLayoutProfile.of(context);
+    final colors = context.appColors;
     if (_isLoading) return const Center(child: CircularProgressIndicator());
     if (_error != null) {
       return AppErrorState(
@@ -923,6 +990,9 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
         onRetry: _fetch,
       );
     }
+
+    final bottomPadding =
+        16.0 + (_isLoadingMore || _loadMoreError != null ? 44.0 : 0.0);
 
     return Column(
       children: [
@@ -940,14 +1010,18 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                         children: [
                           Text(
                             _sortLabel,
-                            style: const TextStyle(
-                              color: Colors.white70,
+                            style: TextStyle(
+                              color: colors.textSecondary,
                               fontSize: 16,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
                           const SizedBox(width: 4),
-                          Icon(_sortArrow, size: 16, color: Colors.white70),
+                          Icon(
+                            _sortArrow,
+                            size: 16,
+                            color: colors.textSecondary,
+                          ),
                         ],
                       ),
                     ),
@@ -958,13 +1032,13 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                         vertical: 2,
                       ),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF1C2A3A),
+                        color: colors.surfaceSubtle,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
                         '${max(_total, _items.length)}',
-                        style: const TextStyle(
-                          color: Colors.white70,
+                        style: TextStyle(
+                          color: colors.textSecondary,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -972,48 +1046,19 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                   ],
                 ),
               ),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxWidth: layout.categoryFilterSummaryMaxWidth,
-                    ),
-                    child: InkWell(
-                      onTap: _openFilterSheet,
-                      borderRadius: BorderRadius.circular(8),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 4,
-                          vertical: 4,
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Flexible(
-                              child: Text(
-                                _filterSummaryLabel,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Color(0xFF3B82F6),
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 2),
-                            const Icon(
-                              Icons.arrow_drop_down,
-                              size: 18,
-                              color: Color(0xFF3B82F6),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
+              const SizedBox(width: 10),
+              _CategoryToolButton(
+                icon: Icons.grid_view_rounded,
+                active: _viewType != MediaCollectionViewType.list,
+                onTap: _openLayoutSheet,
+              ),
+              const SizedBox(width: 10),
+              Tooltip(
+                message: _filterSummaryLabel,
+                child: _CategoryToolButton(
+                  icon: Icons.filter_alt_outlined,
+                  active: _hasActiveFilters,
+                  onTap: _openFilterSheet,
                 ),
               ),
             ],
@@ -1022,59 +1067,167 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
         Expanded(
           child: Stack(
             children: [
-              GridView.builder(
-                controller: _scrollController,
-                cacheExtent: MediaQuery.of(context).size.height * 2,
-                padding: EdgeInsets.fromLTRB(
-                  layout.pageHorizontalPadding,
-                  0,
-                  layout.pageHorizontalPadding,
-                  16 + (_isLoadingMore || _loadMoreError != null ? 44 : 0),
-                ),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: layout.categoryGridColumns,
-                  mainAxisSpacing: layout.itemGap,
-                  crossAxisSpacing: layout.itemGap,
-                  mainAxisExtent: layout.categoryGridRowHeight,
-                ),
-                itemCount: _items.length,
-                itemBuilder: (context, index) {
-                  final item = _items[index];
-                  final urls = _posterCandidates(
-                    baseUrl,
-                    item.poster,
-                    width: layout.categoryGridRequestWidth,
-                  );
-                  final rating = double.tryParse(item.voteAverage);
-                  final resolutions = item.resolutions
-                      .map(_resolutionLabel)
-                      .where((e) => e.isNotEmpty)
-                      .toList();
+              if (_viewType == MediaCollectionViewType.list)
+                ListView.separated(
+                  controller: _scrollController,
+                  cacheExtent: MediaQuery.of(context).size.height * 2,
+                  padding: EdgeInsets.fromLTRB(
+                    layout.pageHorizontalPadding,
+                    0,
+                    layout.pageHorizontalPadding,
+                    bottomPadding,
+                  ),
+                  itemCount: _items.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final item = _items[index];
+                    return MediaLibraryListTile(
+                      urls: _posterCandidates(baseUrl, item, width: 280),
+                      token: token,
+                      title: item.displayTitle,
+                      subtitle: _cardSubtitle(item),
+                      resolutions: item.resolutions
+                          .map(_resolutionLabel)
+                          .where((e) => e.isNotEmpty)
+                          .toList(),
+                      onTap: () => _openItemDetail(
+                        item,
+                        heroTag:
+                            'category_${widget.category.id}_${item.guid}_$index',
+                      ),
+                      onLongPress: () => _showPosterItemActions(item),
+                      onMoreTap: () => _showPosterItemActions(item),
+                    );
+                  },
+                )
+              else if (_viewType == MediaCollectionViewType.horizontalPoster)
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final crossAxisCount = layout.isTablet ? 3 : 2;
+                    final availableWidth =
+                        constraints.maxWidth -
+                        layout.pageHorizontalPadding * 2 -
+                        layout.itemGap * (crossAxisCount - 1);
+                    final cardWidth = availableWidth / crossAxisCount;
+                    final imageHeight = cardWidth * 0.56;
+                    final rowHeight = imageHeight + 58;
 
-                  return MediaPosterCard(
-                    urls: urls,
-                    token: token,
-                    title: item.displayTitle,
-                    subtitle: _cardSubtitle(item),
-                    rating: rating,
-                    resolutions: resolutions,
-                    imageHeight: layout.categoryGridImageHeight,
-                    titleFontSize: layout.homePosterTitleFontSize,
-                    subtitleFontSize: layout.homePosterSubtitleFontSize,
-                    expandImageToFit: false,
-                    imageFit: _isEpisodeItem(item)
-                        ? BoxFit.contain
-                        : BoxFit.cover,
-                    heroTag:
-                    'category_${widget.category.id}_${item.guid}_$index',
-                    onTap: () => _openItemDetail(
+                    return GridView.builder(
+                      controller: _scrollController,
+                      cacheExtent: MediaQuery.of(context).size.height * 2,
+                      padding: EdgeInsets.fromLTRB(
+                        layout.pageHorizontalPadding,
+                        0,
+                        layout.pageHorizontalPadding,
+                        bottomPadding,
+                      ),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: crossAxisCount,
+                        mainAxisSpacing: layout.itemGap,
+                        crossAxisSpacing: layout.itemGap,
+                        mainAxisExtent: rowHeight,
+                      ),
+                      itemCount: _items.length,
+                      itemBuilder: (context, index) {
+                        final item = _items[index];
+                        final urls = _posterCandidates(
+                          baseUrl,
+                          item,
+                          width: 720,
+                          preferDirectPath: true,
+                        );
+                        final rating = double.tryParse(item.voteAverage);
+                        final resolutions = item.resolutions
+                            .map(_resolutionLabel)
+                            .where((e) => e.isNotEmpty)
+                            .toList();
+
+                        return MediaPosterCard(
+                          urls: urls,
+                          token: token,
+                          title: item.displayTitle,
+                          subtitle: _cardSubtitle(item),
+                          imageAspectRatioHint: item.hasPosterSize
+                              ? item.posterWidth / item.posterHeight
+                              : null,
+                          rating: rating,
+                          resolutions: resolutions,
+                          watched: item.watched == 1,
+                          imageHeight: imageHeight,
+                          titleFontSize: layout.homePosterTitleFontSize,
+                          subtitleFontSize: layout.homePosterSubtitleFontSize,
+                          expandImageToFit: false,
+                          imageFit: BoxFit.contain,
+                          autoFitByImageAspect: false,
+                          heroTag:
+                              'category_${widget.category.id}_${item.guid}_$index',
+                          onTap: () => _openItemDetail(
+                            item,
+                            heroTag:
+                                'category_${widget.category.id}_${item.guid}_$index',
+                          ),
+                          onLongPress: () => _showPosterItemActions(item),
+                        );
+                      },
+                    );
+                  },
+                )
+              else
+                GridView.builder(
+                  controller: _scrollController,
+                  cacheExtent: MediaQuery.of(context).size.height * 2,
+                  padding: EdgeInsets.fromLTRB(
+                    layout.pageHorizontalPadding,
+                    0,
+                    layout.pageHorizontalPadding,
+                    bottomPadding,
+                  ),
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: layout.categoryGridColumns,
+                    mainAxisSpacing: layout.itemGap,
+                    crossAxisSpacing: layout.itemGap,
+                    mainAxisExtent: layout.categoryGridRowHeight,
+                  ),
+                  itemCount: _items.length,
+                  itemBuilder: (context, index) {
+                    final item = _items[index];
+                    final urls = _posterCandidates(
+                      baseUrl,
                       item,
+                      width: layout.categoryGridRequestWidth,
+                    );
+                    final rating = double.tryParse(item.voteAverage);
+                    final resolutions = item.resolutions
+                        .map(_resolutionLabel)
+                        .where((e) => e.isNotEmpty)
+                        .toList();
+
+                    return MediaPosterCard(
+                      urls: urls,
+                      token: token,
+                      title: item.displayTitle,
+                      subtitle: _cardSubtitle(item),
+                      rating: rating,
+                      resolutions: resolutions,
+                      watched: item.watched == 1,
+                      imageHeight: layout.categoryGridImageHeight,
+                      titleFontSize: layout.homePosterTitleFontSize,
+                      subtitleFontSize: layout.homePosterSubtitleFontSize,
+                      expandImageToFit: false,
+                      imageFit: _isEpisodeItem(item)
+                          ? BoxFit.contain
+                          : BoxFit.cover,
                       heroTag:
-                      'category_${widget.category.id}_${item.guid}_$index',
-                    ),
-                  );
-                },
-              ),
+                          'category_${widget.category.id}_${item.guid}_$index',
+                      onTap: () => _openItemDetail(
+                        item,
+                        heroTag:
+                            'category_${widget.category.id}_${item.guid}_$index',
+                      ),
+                      onLongPress: () => _showPosterItemActions(item),
+                    );
+                  },
+                ),
               if (_isLoadingMore)
                 const Positioned(
                   left: 0,
@@ -1097,9 +1250,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                     child: TextButton.icon(
                       onPressed: _fetchMore,
                       icon: const Icon(Icons.refresh, size: 16),
-                      label: Text(
-                        _t('layout.globalError.refresh', '加载更多失败，点击重试'),
-                      ),
+                      label: Text(_t('layout.globalError.refresh', '刷新重试')),
                     ),
                   ),
                 ),
@@ -1107,6 +1258,43 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _CategoryToolButton extends StatelessWidget {
+  final IconData icon;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _CategoryToolButton({
+    required this.icon,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: active ? colors.selectionSoft : colors.backgroundElevated,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: active ? colors.selection : colors.chipBorder,
+          ),
+        ),
+        child: Icon(
+          icon,
+          color: active ? colors.selectionStrong : colors.textSecondary,
+          size: 21,
+        ),
+      ),
     );
   }
 }

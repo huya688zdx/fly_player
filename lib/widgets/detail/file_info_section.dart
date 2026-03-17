@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/authorized_dir_entry.dart';
 import '../../models/stream_track_data.dart';
-import '../../theme/detail_tokens.dart';
+import '../../theme/app_theme.dart';
 
 class FileInfoSection extends StatefulWidget {
   final StreamFileInfo? file;
@@ -37,6 +37,7 @@ class _FileInfoSectionState extends State<FileInfoSection> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final f = widget.file;
     if (f == null) return const SizedBox.shrink();
 
@@ -50,8 +51,8 @@ class _FileInfoSectionState extends State<FileInfoSection> {
       children: [
         Text(
           widget.title,
-          style: const TextStyle(
-            color: DetailTokens.textPrimary,
+          style: TextStyle(
+            color: colors.textPrimary,
             fontSize: 24,
             fontWeight: FontWeight.w700,
           ),
@@ -60,10 +61,10 @@ class _FileInfoSectionState extends State<FileInfoSection> {
         Container(
           width: double.infinity,
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
+            gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [Color(0xFF1B2635), Color(0xFF182231)],
+              colors: [colors.surfaceStrong, colors.surface],
             ),
             borderRadius: BorderRadius.circular(20),
           ),
@@ -86,8 +87,8 @@ class _FileInfoSectionState extends State<FileInfoSection> {
                     ),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     foregroundColor: friendlyPath.isEmpty
-                        ? DetailTokens.textMuted
-                        : const Color(0xFF9FB5D3),
+                        ? colors.textMuted
+                        : colors.link,
                   ),
                   icon: Icon(
                     _showRawPath
@@ -135,6 +136,7 @@ class _RowBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -144,8 +146,8 @@ class _RowBlock extends StatelessWidget {
             Expanded(
               child: Text(
                 label,
-                style: const TextStyle(
-                  color: DetailTokens.textMuted,
+                style: TextStyle(
+                  color: colors.textMuted,
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
                 ),
@@ -157,8 +159,8 @@ class _RowBlock extends StatelessWidget {
         const SizedBox(height: 8),
         Text(
           value.isEmpty ? '-' : value,
-          style: const TextStyle(
-            color: DetailTokens.textSecondary,
+          style: TextStyle(
+            color: colors.textSecondary,
             fontSize: 15,
             fontWeight: FontWeight.w500,
             height: 1.34,

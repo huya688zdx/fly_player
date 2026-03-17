@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../theme/detail_tokens.dart';
+import '../../theme/app_theme.dart';
 
 class LinkSection extends StatelessWidget {
   final String imdbId;
@@ -20,14 +20,15 @@ class LinkSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final hasImdb = imdbId.trim().isNotEmpty;
     final hasTmdb = tmdbId.trim().isNotEmpty;
+    final colors = context.appColors;
     if (!hasImdb && !hasTmdb) return const SizedBox.shrink();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           '\u94fe\u63a5',
           style: TextStyle(
-            color: DetailTokens.textPrimary,
+            color: colors.textPrimary,
             fontSize: 20,
             fontWeight: FontWeight.w600,
           ),
@@ -54,19 +55,21 @@ class _LinkButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
         decoration: BoxDecoration(
-          color: const Color(0xFF1D2735),
+          color: colors.surfaceSubtle,
           borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: colors.borderSubtle),
         ),
         child: Text(
           label,
-          style: const TextStyle(
-            color: Color(0xFFBFCDE0),
+          style: TextStyle(
+            color: colors.link,
             fontSize: 15,
             fontWeight: FontWeight.w600,
           ),

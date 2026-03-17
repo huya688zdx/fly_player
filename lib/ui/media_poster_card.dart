@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../theme/app_theme.dart';
 import 'capability_badge_mapper.dart';
 
 class MediaPosterCard extends StatelessWidget {
@@ -8,15 +9,19 @@ class MediaPosterCard extends StatelessWidget {
   final String token;
   final String title;
   final String subtitle;
+  final double? imageAspectRatioHint;
   final double? rating;
   final List<String> resolutions;
+  final bool watched;
   final double imageHeight;
   final double titleFontSize;
   final double subtitleFontSize;
   final bool expandImageToFit;
   final BoxFit imageFit;
+  final bool autoFitByImageAspect;
   final String? heroTag;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
 
   const MediaPosterCard({
     super.key,
@@ -25,139 +30,183 @@ class MediaPosterCard extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.imageHeight,
+    this.imageAspectRatioHint,
     this.rating,
     this.resolutions = const [],
+    this.watched = false,
     this.titleFontSize = 12,
     this.subtitleFontSize = 11,
     this.expandImageToFit = false,
     this.imageFit = BoxFit.cover,
+    this.autoFitByImageAspect = false,
     this.heroTag,
     this.onTap,
+    this.onLongPress,
   });
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
     final posterArea = heroTag == null || heroTag!.isEmpty
         ? _buildPosterArea()
         : Hero(tag: heroTag!, child: _buildPosterArea());
     return RepaintBoundary(
       child: InkWell(
         onTap: onTap,
+        onLongPress: onLongPress,
         borderRadius: BorderRadius.circular(10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (expandImageToFit) Expanded(child: posterArea) else posterArea,
-            const SizedBox(height: 3),
-            Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: titleFontSize,
-                fontWeight: FontWeight.w700,
+        child: SizedBox(
+          width: double.infinity,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (expandImageToFit)
+                Expanded(
+                  child: SizedBox(width: double.infinity, child: posterArea),
+                )
+              else
+                SizedBox(width: double.infinity, child: posterArea),
+              const SizedBox(height: 3),
+              SizedBox(
+                width: double.infinity,
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: colors.textPrimary,
+                    fontSize: titleFontSize,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
-            ),
-            Text(
-              subtitle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: Colors.white60,
-                fontSize: subtitleFontSize,
-                fontWeight: FontWeight.w700,
+              SizedBox(
+                width: double.infinity,
+                child: Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: colors.textMuted,
+                    fontSize: subtitleFontSize,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
   Widget _buildPosterArea() {
-    return Stack(
-      children: [
-        Container(
-          height: expandImageToFit ? null : imageHeight,
-          clipBehavior: Clip.hardEdge,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(10),
-            color: const Color(0xFF1B2532),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.18),
-              width: 0.8,
-            ),
-          ),
-          child: _PosterImage(
-            urls: urls,
-            token: token,
-            fit: imageFit,
-            fallback: const Center(
-              child: Icon(Icons.movie, color: Colors.white38),
-            ),
-          ),
-        ),
-        if (rating != null && rating! > 0)
-          Positioned(
-            left: 6,
-            top: 6,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: const Color(0xFFC5A425),
-                borderRadius: BorderRadius.circular(6),
+    const fallback = AppThemePalette.fallback;
+    return SizedBox(
+      width: double.infinity,
+      height: expandImageToFit ? null : imageHeight,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Container(
+            clipBehavior: Clip.hardEdge,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              color: fallback.surfaceStrong,
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.18),
+                width: 0.6,
               ),
-              child: Text(
-                rating!.toStringAsFixed(1),
-                style: const TextStyle(
-                  color: Colors.black,
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
+            ),
+            child: _PosterImage(
+              urls: urls,
+              token: token,
+              fit: imageFit,
+              aspectRatioHint: imageAspectRatioHint,
+              autoFitByImageAspect: autoFitByImageAspect,
+              fallback: Center(
+                child: Icon(
+                  Icons.movie,
+                  color: fallback.textMuted.withValues(alpha: 0.5),
                 ),
               ),
             ),
           ),
-        if (resolutions.isNotEmpty)
-          Positioned.fill(
-            child: IgnorePointer(
-              child: Align(
-                alignment: Alignment.bottomCenter,
-                child: FractionallySizedBox(
-                  widthFactor: 1,
-                  heightFactor: 0.60,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.transparent,
-                          Colors.black.withValues(alpha: 0.12),
-                          Colors.black.withValues(alpha: 0.32),
-                        ],
-                        stops: const [0.0, 0.7, 1.0],
+          if (rating != null && rating! > 0)
+            Positioned(
+              left: 6,
+              top: 6,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFC5A425),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  rating!.toStringAsFixed(1),
+                  style: const TextStyle(
+                    color: Colors.black,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          if (resolutions.isNotEmpty || watched)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Align(
+                  alignment: Alignment.bottomCenter,
+                  child: FractionallySizedBox(
+                    widthFactor: 1,
+                    heightFactor: 0.60,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.transparent,
+                            Colors.black.withValues(alpha: 0.12),
+                            Colors.black.withValues(alpha: 0.32),
+                          ],
+                          stops: const [0.0, 0.7, 1.0],
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
-        if (resolutions.isNotEmpty)
-          Positioned(
-            right: 0,
-            bottom: 4,
-            child: Row(
-              children: [
-                for (int i = 0; i < resolutions.length; i++) ...[
-                  if (i > 0) const SizedBox(width: 0),
-                  _PosterCapabilityBadge(label: resolutions[i]),
-                ],
-              ],
+          if (watched)
+            Positioned(
+              left: 6,
+              bottom: 4,
+              child: SvgPicture.asset(
+                'assets/icons/watched_selected.svg',
+                width: 16,
+                height: 16,
+                colorFilter: const ColorFilter.mode(
+                  Colors.white,
+                  BlendMode.srcIn,
+                ),
+              ),
             ),
-          ),
-      ],
+          if (resolutions.isNotEmpty)
+            Positioned(
+              right: 0,
+              bottom: 4,
+              child: Row(
+                children: [
+                  for (int i = 0; i < resolutions.length; i++) ...[
+                    if (i > 0) const SizedBox(width: 0),
+                    _PosterCapabilityBadge(label: resolutions[i]),
+                  ],
+                ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -204,12 +253,16 @@ class _PosterImage extends StatefulWidget {
   final List<String> urls;
   final String token;
   final BoxFit fit;
+  final double? aspectRatioHint;
+  final bool autoFitByImageAspect;
   final Widget fallback;
 
   const _PosterImage({
     required this.urls,
     required this.token,
     required this.fit,
+    required this.aspectRatioHint,
+    required this.autoFitByImageAspect,
     required this.fallback,
   });
 
@@ -243,9 +296,6 @@ class _PosterImageState extends State<_PosterImage> {
         final cacheW = constraints.maxWidth.isFinite
             ? (constraints.maxWidth * dpr).round().clamp(120, 1200)
             : null;
-        final cacheH = constraints.maxHeight.isFinite
-            ? (constraints.maxHeight * dpr).round().clamp(120, 1800)
-            : null;
         final headers = <String, String>{
           'Authorization': widget.token,
           'Trim-MC-token': widget.token,
@@ -257,7 +307,6 @@ class _PosterImageState extends State<_PosterImage> {
           filterQuality: FilterQuality.none,
           gaplessPlayback: true,
           cacheWidth: cacheW,
-          cacheHeight: cacheH,
           headers: headers,
           frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
             final loaded = wasSynchronouslyLoaded || frame != null;

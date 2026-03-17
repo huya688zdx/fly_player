@@ -30,4 +30,15 @@ class MediaItem {
       meta: json['meta'],
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return <String, dynamic>{
+      'guid': id,
+      'name': name,
+      'type': type,
+      'path': path,
+      'posters': posters,
+      'meta': meta,
+    };
+  }
 }
