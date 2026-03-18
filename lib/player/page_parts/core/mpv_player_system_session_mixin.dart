@@ -90,6 +90,7 @@ extension _MpvPlayerSystemSessionMixin on _MpvPlayerPageState {
     final artist = _resolveSystemPlaybackArtist(subtitle);
     final description = _resolveSystemPlaybackDescription();
     final trackCount = _episodeItems.length;
+    final launchSource = _buildSystemPlaybackLaunchSource(position);
     return <String, Object?>{
       'itemGuid': _currentItemGuid,
       'title': title,
@@ -115,7 +116,111 @@ extension _MpvPlayerSystemSessionMixin on _MpvPlayerPageState {
       'canSkipToNext': _canSkipToNextEpisodeForSystemSession(),
       'ready': isReady,
       'error': hasError ? value.error!.trim() : null,
+      'launchTitle': title,
+      'launchSource': launchSource,
+      'launchFromParallelHost': widget.parallelLayoutToggleEnabled,
+      'launchLayoutMode': widget.parallelLayoutMode.trim().isNotEmpty
+          ? widget.parallelLayoutMode.trim()
+          : 'fullscreen',
+      'launchInitialRightPaneRoute': '',
     };
+  }
+
+  Map<String, Object?> _buildSystemPlaybackLaunchSource(Duration position) {
+    final safePosition = position >= Duration.zero ? position : Duration.zero;
+    final currentSource = widget.source.copyWith(
+      loadNonce: createMpvLoadNonce(),
+      itemGuid: _currentItemGuid.trim().isNotEmpty
+          ? _currentItemGuid.trim()
+          : widget.source.itemGuid,
+      seasonGuid: _currentSeasonGuid.trim().isNotEmpty
+          ? _currentSeasonGuid.trim()
+          : widget.source.seasonGuid,
+      posterPath: _currentPosterPath.trim().isNotEmpty
+          ? _currentPosterPath.trim()
+          : widget.source.posterPath,
+      mediaGuid: _currentMediaGuid.trim().isNotEmpty
+          ? _currentMediaGuid.trim()
+          : widget.source.mediaGuid,
+      mediaType: _currentMediaType.trim().isNotEmpty
+          ? _currentMediaType.trim()
+          : widget.source.mediaType,
+      ancestorName: _currentAncestorName.trim().isNotEmpty
+          ? _currentAncestorName.trim()
+          : widget.source.ancestorName,
+      videoGuid: _currentVideoGuid.trim().isNotEmpty
+          ? _currentVideoGuid.trim()
+          : widget.source.videoGuid,
+      directLinkQualityIndex: _currentDirectLinkQualityIndex,
+      clearDirectLinkQualityIndex: _currentDirectLinkQualityIndex == null,
+      videoWidth: _currentVideoWidth > 0
+          ? _currentVideoWidth
+          : widget.source.videoWidth,
+      videoHeight: _currentVideoHeight > 0
+          ? _currentVideoHeight
+          : widget.source.videoHeight,
+      proxySessionId: _activeProxySessionId,
+      playLink: _currentPlayLink,
+      url: _currentUrl.trim().isNotEmpty
+          ? _currentUrl.trim()
+          : widget.source.url,
+      headers: _currentHeaders.isNotEmpty
+          ? _currentHeaders
+          : widget.source.headers,
+      title: _currentTitle.trim().isNotEmpty
+          ? _currentTitle.trim()
+          : widget.source.title,
+      seriesTitle: _currentSeriesTitle.trim().isNotEmpty
+          ? _currentSeriesTitle.trim()
+          : widget.source.seriesTitle,
+      seasonNumber: _currentSeasonNumber > 0
+          ? _currentSeasonNumber
+          : widget.source.seasonNumber,
+      tmdbId: _currentTmdbId.trim().isNotEmpty
+          ? _currentTmdbId.trim()
+          : widget.source.tmdbId,
+      episodeNumber: _currentEpisodeNumber > 0
+          ? _currentEpisodeNumber
+          : widget.source.episodeNumber,
+      startPosition: safePosition,
+      audioTrackGuid: _currentAudioGuid,
+      clearAudioTrackGuid: _currentAudioGuid == null,
+      subtitleTrackGuid: _currentSubtitleGuid,
+      clearSubtitleTrackGuid: _currentSubtitleGuid == null,
+      resolution: _currentResolution.trim().isNotEmpty
+          ? _currentResolution.trim()
+          : widget.source.resolution,
+      bitrate: _currentBitrate > 0 ? _currentBitrate : widget.source.bitrate,
+      durationSeconds: _durationSeconds > 0
+          ? _durationSeconds
+          : widget.source.durationSeconds,
+      videoCodecName: _currentVideoCodecName.trim().isNotEmpty
+          ? _currentVideoCodecName.trim()
+          : widget.source.videoCodecName,
+      videoProfile: _currentVideoProfile.trim().isNotEmpty
+          ? _currentVideoProfile.trim()
+          : widget.source.videoProfile,
+      colorSpace: _currentColorSpace.trim().isNotEmpty
+          ? _currentColorSpace.trim()
+          : widget.source.colorSpace,
+      colorTransfer: _currentColorTransfer.trim().isNotEmpty
+          ? _currentColorTransfer.trim()
+          : widget.source.colorTransfer,
+      colorPrimaries: _currentColorPrimaries.trim().isNotEmpty
+          ? _currentColorPrimaries.trim()
+          : widget.source.colorPrimaries,
+      bitDepth: _currentBitDepth > 0
+          ? _currentBitDepth
+          : widget.source.bitDepth,
+      reliableSeek: _currentReliableSeek,
+      seekProbeSummary: _currentSeekProbeSummary,
+      clearSeekProbeSummary: _currentSeekProbeSummary == null,
+      playbackSpeed: _playbackSpeed,
+      audioTracks: _audioTracks,
+      subtitleTracks: _subtitleTracks,
+      qualities: _qualities,
+    );
+    return currentSource.toMap();
   }
 
   bool _shouldPublishSystemPlaybackSessionPayload(Map<String, Object?> next) {

@@ -13,12 +13,14 @@ import '../models/tv_episode_picker_mode.dart';
 import '../models/play_info.dart';
 import '../providers/app_theme_provider.dart';
 import '../providers/nas_provider.dart';
+import '../services/detail_runtime_cache.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../theme/app_theme.dart';
 import '../theme/detail_tokens.dart';
 import '../ui/adaptive_detail_navigator.dart';
 import '../ui/app_transitions.dart';
 import '../ui/detail_presentation.dart';
+import '../ui/player_pane_host_scope.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
 import '../utils/detail_top_tip.dart';
@@ -76,6 +78,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
   Map<String, dynamic> _localeMap = const <String, dynamic>{};
 
   bool get _isPane => widget.presentation == DetailPresentation.pane;
+  bool get _useRuntimeCache => _isPane;
 
   bool _loading = true;
   AppException? _error;
@@ -474,10 +477,53 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
 
   Future<PlayInfoData?> _loadPlayInfoOrNull(FeiniuApi api, String guid) async {
     try {
-      return await api.getPlayInfo(guid);
+      if (!_useRuntimeCache) {
+        return await api.getPlayInfo(guid);
+      }
+      return await DetailRuntimeCache.instance.getOrLoad<PlayInfoData>(
+        bucket: 'play_info',
+        key: guid,
+        loader: () => api.getPlayInfo(guid),
+      );
     } catch (_) {
       return null;
     }
+  }
+
+  Future<List<MediaLibraryItem>> _loadSeasonItems(
+    FeiniuApi api,
+    String itemGuid,
+  ) {
+    if (!_useRuntimeCache) {
+      return api.getSeasonList(itemGuid);
+    }
+    return DetailRuntimeCache.instance.getOrLoad<List<MediaLibraryItem>>(
+      bucket: 'season_list',
+      key: itemGuid,
+      loader: () => api.getSeasonList(itemGuid),
+    );
+  }
+
+  Future<Map<String, dynamic>> _loadItemDetail(FeiniuApi api, String itemGuid) {
+    if (!_useRuntimeCache) {
+      return api.getItemDetail(itemGuid);
+    }
+    return DetailRuntimeCache.instance.getOrLoad<Map<String, dynamic>>(
+      bucket: 'item_detail',
+      key: itemGuid,
+      loader: () => api.getItemDetail(itemGuid),
+    );
+  }
+
+  Future<List<PersonCredit>> _loadPersonCredits(FeiniuApi api, String itemGuid) {
+    if (!_useRuntimeCache) {
+      return api.getPersonList(itemGuid);
+    }
+    return DetailRuntimeCache.instance.getOrLoad<List<PersonCredit>>(
+      bucket: 'person_list',
+      key: itemGuid,
+      loader: () => api.getPersonList(itemGuid),
+    );
   }
 
   Map<String, dynamic> _fallbackSeasonDetail(MediaLibraryItem season) {
@@ -654,7 +700,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     String target = requestedGuid;
     try {
       final api = FeiniuApi(context.read<NasProvider>());
-      seasons = await api.getSeasonList(widget.parentGuid);
+      seasons = await _loadSeasonItems(api, widget.parentGuid);
       target = seasons.any((s) => s.guid == requestedGuid)
           ? requestedGuid
           : (seasons.isNotEmpty ? seasons.first.guid : requestedGuid);
@@ -668,7 +714,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
 
       Map<String, dynamic> detail;
       try {
-        detail = await api.getItemDetail(target);
+        detail = await _loadItemDetail(api, target);
       } catch (error) {
         final detailError = AppException.from(
           error,
@@ -786,7 +832,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     }
     final api = FeiniuApi(context.read<NasProvider>());
     try {
-      final people = await api.getPersonList(seasonGuid);
+      final people = await _loadPersonCredits(api, seasonGuid);
       if (!mounted ||
           seq != _seasonLoadSeq ||
           seasonGuid != _selectedSeasonGuid) {
@@ -922,7 +968,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
   Future<void> _refreshAfterPlayback(String episodeGuid) async {
     try {
       final api = FeiniuApi(context.read<NasProvider>());
-      final detail = await api.getItemDetail(_selectedSeasonGuid);
+      final detail = await _loadItemDetail(api, _selectedSeasonGuid);
       final playInfo = await _loadPlayInfoOrNull(api, _selectedSeasonGuid);
       final episodes = await _loadEpisodesForSeason(
         _selectedSeasonGuid,
@@ -951,9 +997,10 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
   Future<void> _openEpisodeDetail(MediaLibraryItem episode) async {
     Map<String, dynamic>? initialDetail;
     try {
-      initialDetail = await FeiniuApi(
-        context.read<NasProvider>(),
-      ).getItemDetail(episode.guid).timeout(const Duration(milliseconds: 240));
+      initialDetail = await _loadItemDetail(
+        FeiniuApi(context.read<NasProvider>()),
+        episode.guid,
+      ).timeout(const Duration(milliseconds: 240));
     } catch (_) {}
     if (!mounted) return;
     await AdaptiveDetailNavigator.open<void>(
@@ -1070,6 +1117,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
   Widget build(BuildContext context) {
     final themeProvider = context.watch<AppThemeProvider>();
     final nasProvider = context.read<NasProvider>();
+    final inPlayerPaneHost = PlayerPaneHostScope.maybeOf(context) != null;
     final dynamicBackdropUrls = widget.backdropPath.trim().isEmpty
         ? const <String>[]
         : ApiUrlHelper.imageCandidates(
@@ -1084,8 +1132,8 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
           : widget.seasonItem.guid,
       imageUrl: dynamicBackdropUrls.isNotEmpty ? dynamicBackdropUrls.first : '',
       token: nasProvider.token,
-      enabled: themeProvider.dynamicThemeEnabled,
-      syncGlobalTheme: _isPane,
+      enabled: themeProvider.dynamicThemeEnabled && !inPlayerPaneHost,
+      syncGlobalTheme: !_isPane || !inPlayerPaneHost,
       intensity: themeProvider.dynamicThemeIntensity,
       builder: (context, ambientTint) {
         final colors = context.appColors;
@@ -1138,8 +1186,16 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         final rating = double.tryParse(season.voteAverage) ?? 0;
         final title = widget.seriesTitle;
         final playLabel = _playLabel();
+        final backdropRequestWidth = (_isPane
+                ? screenSize.width * media.devicePixelRatio * 1.2
+                : 1200.0)
+            .clamp(720.0, 1200.0)
+            .round();
 
-        final backdropUrls = _imageCandidates(widget.backdropPath, width: 1200);
+        final backdropUrls = _imageCandidates(
+          widget.backdropPath,
+          width: backdropRequestWidth,
+        );
         final posterUrls = _imageCandidates(season.poster, width: 560);
         final episodeEntries = _episodeCardEntries(_episodeItems);
         final episodeEmptyText = _t('layout.details.episode.empty', '暂无剧集信息');

@@ -291,13 +291,12 @@ class AppThemeProvider extends ChangeNotifier {
     debugPrint(
       '[THEME][RUNTIME] set page=$normalizedPageKey broadcast=$broadcastToMain session=$_runtimeSessionId',
     );
+    final previousVisualSignature = _effectiveThemeSignature();
     final cachedSeed = _runtimeDynamicThemeCache[normalizedPageKey];
     final seedUnchanged = _sameRuntimeSeed(cachedSeed, seed);
     final alreadyTop =
         _runtimeDynamicThemeOrder.isNotEmpty &&
         _runtimeDynamicThemeOrder.last == normalizedPageKey;
-    final wasEffectivePage = _runtimeDynamicThemePage;
-    final wasEffectiveSeed = _runtimeDynamicThemeSeed;
     if (seedUnchanged && alreadyTop && _isReady) {
       return;
     }
@@ -305,13 +304,16 @@ class AppThemeProvider extends ChangeNotifier {
     _runtimeDynamicThemeOrder.remove(normalizedPageKey);
     _runtimeDynamicThemeOrder.add(normalizedPageKey);
     _syncRuntimeThemeFromCache();
-    final effectiveChanged =
-        wasEffectivePage != _runtimeDynamicThemePage ||
-        !_sameRuntimeSeeds(wasEffectiveSeed, _runtimeDynamicThemeSeed);
-    if (!effectiveChanged && !broadcastToMain) {
+    final visualChanged =
+        previousVisualSignature != _effectiveThemeSignature();
+    if (!visualChanged && !broadcastToMain) {
       return;
     }
-    await _persist(_persistCurrentRuntimeDynamicTheme);
+    if (visualChanged) {
+      _isReady = true;
+      notifyListeners();
+    }
+    await _persist(_persistCurrentRuntimeDynamicTheme, false);
     if (broadcastToMain) {
       debugPrint('[THEME][RUNTIME] push_to_main page=$normalizedPageKey');
       await RuntimeThemeSyncBridge.instance.pushRuntimeThemeToMain(
@@ -337,21 +339,23 @@ class AppThemeProvider extends ChangeNotifier {
     debugPrint(
       '[THEME][RUNTIME] clear page=$normalizedPageKey broadcast=$broadcastToMain session=$_runtimeSessionId',
     );
+    final previousVisualSignature = _effectiveThemeSignature();
     final removedFromOrder = _runtimeDynamicThemeOrder.remove(
       normalizedPageKey,
     );
     final removedSeed = _runtimeDynamicThemeCache.remove(normalizedPageKey);
     if (!removedFromOrder && removedSeed == null) return;
-    final wasEffectivePage = _runtimeDynamicThemePage;
-    final wasEffectiveSeed = _runtimeDynamicThemeSeed;
     _syncRuntimeThemeFromCache();
-    final effectiveChanged =
-        wasEffectivePage != _runtimeDynamicThemePage ||
-        !_sameRuntimeSeeds(wasEffectiveSeed, _runtimeDynamicThemeSeed);
-    if (!effectiveChanged && !broadcastToMain) {
+    final visualChanged =
+        previousVisualSignature != _effectiveThemeSignature();
+    if (!visualChanged && !broadcastToMain) {
       return;
     }
-    await _persist(_persistCurrentRuntimeDynamicTheme);
+    if (visualChanged) {
+      _isReady = true;
+      notifyListeners();
+    }
+    await _persist(_persistCurrentRuntimeDynamicTheme, false);
     if (broadcastToMain) {
       debugPrint('[THEME][RUNTIME] clear_on_main page=$normalizedPageKey');
       await RuntimeThemeSyncBridge.instance.clearRuntimeThemeOnMain(
@@ -361,10 +365,13 @@ class AppThemeProvider extends ChangeNotifier {
   }
 
   Future<void> _persist(
-    Future<void> Function(SharedPreferences prefs) write,
-  ) async {
+    Future<void> Function(SharedPreferences prefs) write, [
+    bool notify = true,
+  ]) async {
     _isReady = true;
-    notifyListeners();
+    if (notify) {
+      notifyListeners();
+    }
     final prefs = _prefs ?? await SharedPreferences.getInstance();
     _prefs = prefs;
     await write(prefs);
@@ -440,13 +447,43 @@ class AppThemeProvider extends ChangeNotifier {
       await _ensureRuntimeThemeSession(prefs);
       final nextRevision = prefs.getInt(_themeRevisionKey) ?? 0;
       if (nextRevision == _themeRevision) return;
+      final previousVisualSignature = _effectiveThemeSignature();
       _themeRevision = nextRevision;
       _applyStoredValues(prefs);
       _isReady = true;
-      notifyListeners();
+      if (previousVisualSignature != _effectiveThemeSignature()) {
+        notifyListeners();
+      }
     } finally {
       _syncInProgress = false;
     }
+  }
+
+  String _effectiveThemeSignature() {
+    final parts = <Object?>[
+      _preset.storageValue,
+      _backgroundTone.storageValue,
+      _accentTone.storageValue,
+      _selectionTone.storageValue,
+      _linkTone.storageValue,
+      _customBackgroundColor?.toARGB32(),
+      _customAccentColor?.toARGB32(),
+      _customSelectionColor?.toARGB32(),
+      _customLinkColor?.toARGB32(),
+      _dynamicThemeMode.storageValue,
+      _dynamicThemeIntensity.storageValue,
+    ];
+    if (dynamicThemeEnabled && _runtimeDynamicThemeSeed != null) {
+      final seed = _runtimeDynamicThemeSeed!;
+      parts.addAll(<Object?>[
+        seed.backgroundSeed.toARGB32(),
+        seed.accentSeed.toARGB32(),
+        seed.selectionSeed.toARGB32(),
+        seed.linkSeed.toARGB32(),
+        seed.preferLightSurface,
+      ]);
+    }
+    return parts.join('|');
   }
 
   Future<SharedPreferences> _obtainPrefs({bool refresh = false}) async {
@@ -609,12 +646,6 @@ class AppThemeProvider extends ChangeNotifier {
         a.selectionSeed.toARGB32() == b.selectionSeed.toARGB32() &&
         a.linkSeed.toARGB32() == b.linkSeed.toARGB32() &&
         a.preferLightSurface == b.preferLightSurface;
-  }
-
-  bool _sameRuntimeSeeds(DynamicThemeSeed? a, DynamicThemeSeed? b) {
-    if (identical(a, b)) return true;
-    if (a == null || b == null) return false;
-    return _sameRuntimeSeed(a, b);
   }
 
   Future<void> _registerRuntimeThemeSyncHandler() async {

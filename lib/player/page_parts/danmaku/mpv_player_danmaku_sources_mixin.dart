@@ -99,7 +99,7 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
       drawer.popPage();
       drawer.refresh();
       _showTopTip(
-            '已导入 ${result.comments.length} 条弹幕',
+        '已导入 ${result.comments.length} 条弹幕',
         context.appColors.success,
       );
     } catch (error) {
@@ -155,7 +155,7 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
       });
       drawer.refresh();
       _showTopTip(
-            '已导入 ${result.comments.length} 条弹幕',
+        '已导入 ${result.comments.length} 条弹幕',
         context.appColors.success,
       );
     } catch (error) {
@@ -179,7 +179,7 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
     try {
       final result = await _loadDanmakuResultForSource(source);
       if (result == null) {
-      throw StateError('没有获取到可用弹幕数据');
+        throw StateError('没有获取到可用弹幕数据');
       }
       await _danmakuSavedSourceStore.saveSource(
         DanmakuSavedSource(
@@ -215,7 +215,7 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
       });
       drawer.refresh();
       _showTopTip(
-            '已载入 ${result.comments.length} 条弹幕',
+        '已载入 ${result.comments.length} 条弹幕',
         context.appColors.success,
       );
     } catch (error) {
@@ -229,7 +229,7 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
         _danmakuImportingLocalPath = null;
       });
       drawer.refresh();
-    _showTopTip('弹幕文件已失效，已从列表移除', context.appColors.danger);
+      _showTopTip('弹幕文件已失效，已从列表移除', context.appColors.danger);
     }
   }
 

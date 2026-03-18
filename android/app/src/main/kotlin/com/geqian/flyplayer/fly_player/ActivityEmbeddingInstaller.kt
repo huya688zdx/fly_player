@@ -28,21 +28,12 @@ object ActivityEmbeddingInstaller {
 
         val preferredPrimaryOnRight =
             ParallelWindowCoordinator.preferredPrimaryPaneSide() == ParallelPaneSide.RIGHT
-        val preferredPlaybackPrimaryOnRight =
-            ParallelWindowCoordinator.preferredPlaybackPrimaryPaneSide() == ParallelPaneSide.RIGHT
         val browsePrimaryRatio = ParallelWindowCoordinator.browsePrimaryRatio()
-        val playerPrimaryRatio = ParallelWindowCoordinator.playerPrimaryRatio()
         val standardLayoutDirection =
             if (preferredPrimaryOnRight) {
                 SplitAttributes.LayoutDirection.RIGHT_TO_LEFT
             } else {
                 SplitAttributes.LayoutDirection.LOCALE
-            }
-        val attachPlayerLayoutDirection =
-            if (preferredPlaybackPrimaryOnRight) {
-                SplitAttributes.LayoutDirection.LOCALE
-            } else {
-                SplitAttributes.LayoutDirection.RIGHT_TO_LEFT
             }
 
         val splitAttributes =
@@ -50,13 +41,6 @@ object ActivityEmbeddingInstaller {
                 .Builder()
                 .setSplitType(SplitAttributes.SplitType.ratio(browsePrimaryRatio))
                 .setLayoutDirection(standardLayoutDirection)
-                .build()
-
-        val attachPlayerSplitAttributes =
-            SplitAttributes
-                .Builder()
-                .setSplitType(SplitAttributes.SplitType.ratio(playerPrimaryRatio))
-                .setLayoutDirection(attachPlayerLayoutDirection)
                 .build()
 
         val splitPairRule =
@@ -78,89 +62,13 @@ object ActivityEmbeddingInstaller {
                 .setClearTop(false)
                 .build()
 
-        val playerSplitRule =
-            SplitPairRule
-                .Builder(
-                    setOf(
-                        SplitPairFilter(
-                            ComponentName(context, DetailActivity::class.java),
-                            ComponentName(context, PlayerActivity::class.java),
-                            PlayerLaunchContract.ACTION_SPLIT_PLAYER,
-                        ),
-                    ),
-                ).setDefaultSplitAttributes(splitAttributes)
-                .setMinWidthDp(840)
-                .setMinSmallestWidthDp(600)
-                .setMaxAspectRatioInPortrait(EmbeddingAspectRatio.ratio(1.5f))
-                .setFinishPrimaryWithSecondary(SplitRule.FinishBehavior.NEVER)
-                .setFinishSecondaryWithPrimary(SplitRule.FinishBehavior.NEVER)
-                .setClearTop(false)
-                .build()
-
-        val homePlayerSplitRule =
-            SplitPairRule
-                .Builder(
-                    setOf(
-                        SplitPairFilter(
-                            ComponentName(context, MainActivity::class.java),
-                            ComponentName(context, PlayerActivity::class.java),
-                            PlayerLaunchContract.ACTION_SPLIT_PLAYER,
-                        ),
-                    ),
-                ).setDefaultSplitAttributes(splitAttributes)
-                .setMinWidthDp(840)
-                .setMinSmallestWidthDp(600)
-                .setMaxAspectRatioInPortrait(EmbeddingAspectRatio.ratio(1.5f))
-                .setFinishPrimaryWithSecondary(SplitRule.FinishBehavior.NEVER)
-                .setFinishSecondaryWithPrimary(SplitRule.FinishBehavior.NEVER)
-                .setClearTop(false)
-                .build()
-
-        val playerDetailSplitRule =
-            SplitPairRule
-                .Builder(
-                    setOf(
-                        SplitPairFilter(
-                            ComponentName(context, PlayerActivity::class.java),
-                            ComponentName(context, DetailActivity::class.java),
-                            PlayerLaunchContract.ACTION_ATTACH_DETAIL_TO_PLAYER,
-                        ),
-                    ),
-                ).setDefaultSplitAttributes(attachPlayerSplitAttributes)
-                .setMinWidthDp(840)
-                .setMinSmallestWidthDp(600)
-                .setMaxAspectRatioInPortrait(EmbeddingAspectRatio.ratio(1.5f))
-                .setFinishPrimaryWithSecondary(SplitRule.FinishBehavior.NEVER)
-                .setFinishSecondaryWithPrimary(SplitRule.FinishBehavior.ALWAYS)
-                .setClearTop(false)
-                .build()
-
-        val playerHomeSplitRule =
-            SplitPairRule
-                .Builder(
-                    setOf(
-                        SplitPairFilter(
-                            ComponentName(context, PlayerActivity::class.java),
-                            ComponentName(context, HomePaneActivity::class.java),
-                            "com.geqian.flyplayer.fly_player.action.ATTACH_HOME_TO_PLAYER",
-                        ),
-                    ),
-                ).setDefaultSplitAttributes(attachPlayerSplitAttributes)
-                .setMinWidthDp(840)
-                .setMinSmallestWidthDp(600)
-                .setMaxAspectRatioInPortrait(EmbeddingAspectRatio.ratio(1.5f))
-                .setFinishPrimaryWithSecondary(SplitRule.FinishBehavior.NEVER)
-                .setFinishSecondaryWithPrimary(SplitRule.FinishBehavior.ALWAYS)
-                .setClearTop(false)
-                .build()
-
         val fullscreenPlayerRule =
             ActivityRule
                 .Builder(
                     setOf(
-                        androidx.window.embedding.ActivityFilter(
+                        ActivityFilter(
                             ComponentName(context, PlayerActivity::class.java),
-                            PlayerLaunchContract.ACTION_FULLSCREEN_PLAYER,
+                            null,
                         ),
                     ),
                 ).setAlwaysExpand(true)
@@ -172,10 +80,6 @@ object ActivityEmbeddingInstaller {
                 .setRules(
                     setOf(
                         splitPairRule,
-                        playerSplitRule,
-                        homePlayerSplitRule,
-                        playerDetailSplitRule,
-                        playerHomeSplitRule,
                         fullscreenPlayerRule,
                     ),
                 )
