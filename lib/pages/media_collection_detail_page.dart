@@ -18,6 +18,7 @@ import '../theme/app_theme.dart';
 import '../theme/detail_tokens.dart';
 import '../ui/adaptive_detail_navigator.dart';
 import '../ui/detail_presentation.dart';
+import '../ui/player_pane_host_scope.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
 import '../utils/detail_top_tip.dart';
@@ -945,6 +946,7 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
   Widget build(BuildContext context) {
     final themeProvider = context.watch<AppThemeProvider>();
     final provider = context.read<NasProvider>();
+    final inPlayerPaneHost = PlayerPaneHostScope.maybeOf(context) != null;
     String dynamicPosterPath = '';
     for (final item in _items.isNotEmpty ? _items : _allItems) {
       final candidate = item.poster.trim().isNotEmpty ? item.poster.trim() : '';
@@ -968,8 +970,8 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
       pageKey: widget.itemGuid,
       imageUrl: dynamicThemeImageUrl,
       token: provider.token,
-      enabled: themeProvider.dynamicThemeEnabled,
-      syncGlobalTheme: _isPane,
+      enabled: themeProvider.dynamicThemeEnabled && !inPlayerPaneHost,
+      syncGlobalTheme: !_isPane || !inPlayerPaneHost,
       intensity: themeProvider.dynamicThemeIntensity,
       builder: (context, _) {
         final colors = context.appColors;

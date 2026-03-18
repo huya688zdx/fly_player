@@ -2,7 +2,9 @@ package com.geqian.flyplayer.fly_player
 
 import android.content.Intent
 import android.os.Bundle
+import java.io.Serializable
 import java.util.ArrayList
+import java.util.HashMap
 
 data class PlaybackSessionPayload(
     val itemGuid: String,
@@ -29,6 +31,11 @@ data class PlaybackSessionPayload(
     val canSkipToNext: Boolean,
     val ready: Boolean,
     val error: String?,
+    val launchTitle: String,
+    val launchSource: HashMap<String, Any?>?,
+    val launchFromParallelHost: Boolean,
+    val launchLayoutMode: String,
+    val launchInitialRightPaneRoute: String,
 ) {
     fun toBundle(): Bundle =
         Bundle().apply {
@@ -63,6 +70,11 @@ data class PlaybackSessionPayload(
             putBoolean(EXTRA_CAN_SKIP_TO_NEXT, canSkipToNext)
             putBoolean(EXTRA_READY, ready)
             putString(EXTRA_ERROR, error)
+            putString(EXTRA_LAUNCH_TITLE, launchTitle)
+            putSerializable(EXTRA_LAUNCH_SOURCE, launchSource)
+            putBoolean(EXTRA_LAUNCH_FROM_PARALLEL_HOST, launchFromParallelHost)
+            putString(EXTRA_LAUNCH_LAYOUT_MODE, launchLayoutMode)
+            putString(EXTRA_LAUNCH_INITIAL_RIGHT_PANE_ROUTE, launchInitialRightPaneRoute)
         }
 
     companion object {
@@ -90,6 +102,11 @@ data class PlaybackSessionPayload(
         private const val EXTRA_CAN_SKIP_TO_NEXT = "canSkipToNext"
         private const val EXTRA_READY = "ready"
         private const val EXTRA_ERROR = "error"
+        private const val EXTRA_LAUNCH_TITLE = "launchTitle"
+        private const val EXTRA_LAUNCH_SOURCE = "launchSource"
+        private const val EXTRA_LAUNCH_FROM_PARALLEL_HOST = "launchFromParallelHost"
+        private const val EXTRA_LAUNCH_LAYOUT_MODE = "launchLayoutMode"
+        private const val EXTRA_LAUNCH_INITIAL_RIGHT_PANE_ROUTE = "launchInitialRightPaneRoute"
 
         fun fromArguments(arguments: Any?): PlaybackSessionPayload? {
             val map = arguments as? Map<*, *> ?: return null
@@ -120,6 +137,18 @@ data class PlaybackSessionPayload(
                 canSkipToNext = map[EXTRA_CAN_SKIP_TO_NEXT] as? Boolean ?: false,
                 ready = map[EXTRA_READY] as? Boolean ?: false,
                 error = map[EXTRA_ERROR]?.toString()?.trim()?.ifEmpty { null },
+                launchTitle =
+                    map[EXTRA_LAUNCH_TITLE]?.toString()?.trim()?.ifEmpty { null } ?: title,
+                launchSource = serializableHashMapOf(map[EXTRA_LAUNCH_SOURCE]),
+                launchFromParallelHost =
+                    map[EXTRA_LAUNCH_FROM_PARALLEL_HOST] as? Boolean ?: false,
+                launchLayoutMode =
+                    map[EXTRA_LAUNCH_LAYOUT_MODE]
+                        ?.toString()
+                        ?.trim()
+                        ?.ifEmpty { null } ?: PlayerLaunchContract.MODE_FULLSCREEN,
+                launchInitialRightPaneRoute =
+                    map[EXTRA_LAUNCH_INITIAL_RIGHT_PANE_ROUTE]?.toString()?.trim().orEmpty(),
             )
         }
 
@@ -154,6 +183,17 @@ data class PlaybackSessionPayload(
                 canSkipToNext = extras.getBoolean(EXTRA_CAN_SKIP_TO_NEXT, false),
                 ready = extras.getBoolean(EXTRA_READY, false),
                 error = extras.getString(EXTRA_ERROR)?.trim()?.ifEmpty { null },
+                launchTitle =
+                    extras.getString(EXTRA_LAUNCH_TITLE)?.trim()?.ifEmpty { null } ?: title,
+                launchSource = readSerializableHashMap(extras, EXTRA_LAUNCH_SOURCE),
+                launchFromParallelHost =
+                    extras.getBoolean(EXTRA_LAUNCH_FROM_PARALLEL_HOST, false),
+                launchLayoutMode =
+                    extras.getString(EXTRA_LAUNCH_LAYOUT_MODE)
+                        ?.trim()
+                        ?.ifEmpty { null } ?: PlayerLaunchContract.MODE_FULLSCREEN,
+                launchInitialRightPaneRoute =
+                    extras.getString(EXTRA_LAUNCH_INITIAL_RIGHT_PANE_ROUTE).orEmpty().trim(),
             )
         }
 
@@ -199,6 +239,58 @@ data class PlaybackSessionPayload(
                         }
                     }.toMap()
                 else -> emptyMap()
+            }
+
+        private fun serializableHashMapOf(value: Any?): HashMap<String, Any?>? {
+            val rawMap = value as? Map<*, *> ?: return null
+            if (rawMap.isEmpty()) return null
+            val normalized = HashMap<String, Any?>()
+            rawMap.forEach { (key, entryValue) ->
+                val normalizedKey = key?.toString()?.trim().orEmpty()
+                if (normalizedKey.isEmpty()) {
+                    return@forEach
+                }
+                normalized[normalizedKey] = serializableValueOf(entryValue)
+            }
+            return normalized.takeIf { it.isNotEmpty() }
+        }
+
+        @Suppress("UNCHECKED_CAST", "DEPRECATION")
+        private fun readSerializableHashMap(
+            extras: Bundle,
+            key: String,
+        ): HashMap<String, Any?>? {
+            val value =
+                extras.get(key)
+                    ?: if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                        extras.getSerializable(key, HashMap::class.java)
+                    } else {
+                        extras.getSerializable(key)
+                    }
+            return when (value) {
+                is HashMap<*, *> -> value as HashMap<String, Any?>
+                is Map<*, *> -> serializableHashMapOf(value)
+                is Serializable -> value as? HashMap<String, Any?>
+                else -> null
+            }
+        }
+
+        private fun serializableValueOf(value: Any?): Any? =
+            when (value) {
+                null,
+                is String,
+                is Boolean,
+                is Int,
+                is Long,
+                is Double,
+                is Float,
+                is Short,
+                is Byte,
+                is Char,
+                -> value
+                is Map<*, *> -> serializableHashMapOf(value)
+                is List<*> -> ArrayList(value.map(::serializableValueOf))
+                else -> value.toString()
             }
 
         private fun longOf(value: Any?): Long =

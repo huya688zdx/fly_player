@@ -6,7 +6,9 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
   String _danmakuSummaryText() => _danmakuController.summaryText;
 
   String _danmakuSourcePriorityLabel() {
-    return _danmakuController.settings.preferLocalSource ? '鏈湴浼樺厛' : '缃戠粶浼樺厛';
+    return _danmakuController.settings.preferLocalSource
+        ? '本地优先'
+        : '网络优先';
   }
 
   String _danmakuOpacityLabel() {
@@ -31,10 +33,10 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
 
   String _danmakuSpeedLabel() {
     final speed = _danmakuController.settings.speed;
-    if (speed <= 0.85) return '鎱?';
-    if (speed >= 1.55) return '蹇?';
-    if (speed >= 1.25) return '杈冨揩';
-    return '姝ｅ父';
+    if (speed <= 0.85) return '慢速';
+    if (speed >= 1.55) return '极速';
+    if (speed >= 1.25) return '较快';
+    return '标准';
   }
 
   Future<void> _updateDanmakuSettings(
@@ -56,7 +58,10 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
       await _tryLoadPreferredDanmakuSource();
     }
     if (!mounted) return;
-    _showTransientMessage(nextEnabled ? '弹幕已开启' : '弹幕已关闭');
+    _showTopTip(
+      nextEnabled ? '弹幕已开启' : '弹幕已关闭',
+      nextEnabled ? context.appColors.success : context.appColors.warning,
+    );
   }
 
   Future<void> _openDanmakuSettings() {
@@ -110,6 +115,9 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
     );
     await _tryLoadPreferredDanmakuSource();
     if (!mounted) return;
-    _showTransientMessage(preferLocalSource ? '宸插垏鎹负鏈湴浼樺厛' : '宸插垏鎹负缃戠粶浼樺厛');
+    _showTopTip(
+      preferLocalSource ? '已切换为本地优先' : '已切换为网络优先',
+      context.appColors.success,
+    );
   }
 }

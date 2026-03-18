@@ -6,8 +6,9 @@ import 'package:flutter/services.dart';
 
 import '../controllers/play_detail_data_loader.dart';
 import '../models/media_item.dart';
-import '../player/controllers/mpv_player_controller.dart';
 import '../models/media_library_item.dart';
+import '../player/controllers/mpv_player_controller.dart';
+import '../ui/player_pane_host_scope.dart';
 import 'parallel_browse_snapshot.dart';
 
 class EmbeddedPlayerLaunchResult {
@@ -33,9 +34,23 @@ class EmbeddedDetailLauncher {
     }
   }
 
-  static Future<bool> openItemDetail(String itemGuid) async {
+  static Future<bool> openItemDetail(
+    String itemGuid, {
+    BuildContext? context,
+  }) async {
     final normalizedGuid = itemGuid.trim();
     if (normalizedGuid.isEmpty) return false;
+    final paneHost = context == null
+        ? null
+        : PlayerPaneHostScope.maybeOf(context);
+    if (paneHost != null) {
+      return paneHost.openRoute(
+        Uri(
+          path: '/detail/item',
+          queryParameters: <String, String>{'itemGuid': normalizedGuid},
+        ).toString(),
+      );
+    }
     try {
       return await _channel.invokeMethod<bool>('openItemDetail', <String, String>{
             'itemGuid': normalizedGuid,
@@ -47,6 +62,7 @@ class EmbeddedDetailLauncher {
   }
 
   static Future<bool> openSeasonDetail({
+    BuildContext? context,
     required String parentGuid,
     required String seriesTitle,
     required String backdropPath,
@@ -56,6 +72,22 @@ class EmbeddedDetailLauncher {
     final normalizedSeasonGuid = seasonItem.guid.trim();
     if (normalizedParentGuid.isEmpty || normalizedSeasonGuid.isEmpty) {
       return false;
+    }
+    final paneHost = context == null
+        ? null
+        : PlayerPaneHostScope.maybeOf(context);
+    if (paneHost != null) {
+      return paneHost.openRoute(
+        Uri(
+          path: '/detail/season',
+          queryParameters: <String, String>{
+            'parentGuid': normalizedParentGuid,
+            'seriesTitle': seriesTitle.trim(),
+            'backdropPath': backdropPath.trim(),
+            'seasonItem': jsonEncode(seasonItem.toJson()),
+          },
+        ).toString(),
+      );
     }
     try {
       return await _channel.invokeMethod<bool>('openSeasonDetail', <String, Object?>{
@@ -70,19 +102,20 @@ class EmbeddedDetailLauncher {
     }
   }
 
-  static Future<bool> openSearch() async {
-    return _openRoute('/screen/search');
+  static Future<bool> openSearch({BuildContext? context}) async {
+    return _openRoute('/screen/search', context: context);
   }
 
-  static Future<bool> openFavorites() async {
-    return _openRoute('/screen/favorites');
+  static Future<bool> openFavorites({BuildContext? context}) async {
+    return _openRoute('/screen/favorites', context: context);
   }
 
-  static Future<bool> openSettings() async {
-    return _openRoute('/screen/settings');
+  static Future<bool> openSettings({BuildContext? context}) async {
+    return _openRoute('/screen/settings', context: context);
   }
 
   static Future<bool> openCategory({
+    BuildContext? context,
     required MediaItem category,
     List<String>? initialTypeTags,
   }) async {
@@ -94,10 +127,12 @@ class EmbeddedDetailLauncher {
           if (initialTypeTags != null) 'types': jsonEncode(initialTypeTags),
         },
       ).toString(),
+      context: context,
     );
   }
 
   static Future<bool> openPersonDetail({
+    BuildContext? context,
     required String personGuid,
     String initialName = '',
   }) async {
@@ -111,13 +146,25 @@ class EmbeddedDetailLauncher {
           if (initialName.trim().isNotEmpty) 'initialName': initialName.trim(),
         },
       ).toString(),
+      context: context,
     );
   }
 
   static Future<EmbeddedPlayerLaunchResult> openFullscreenPlayer({
+    BuildContext? context,
     required String title,
     required MpvMediaSource source,
   }) async {
+    if (context != null) {
+      final paneHost = PlayerPaneHostScope.maybeOf(context);
+      if (paneHost != null) {
+        final handled = await paneHost.replacePlayerSource(
+          title: title,
+          source: source,
+        );
+        return EmbeddedPlayerLaunchResult(handled: handled);
+      }
+    }
     if (!Platform.isAndroid) {
       return const EmbeddedPlayerLaunchResult(handled: false);
     }
@@ -156,8 +203,13 @@ class EmbeddedDetailLauncher {
 
   static Future<void> closeHostOrPop(BuildContext context) async {
     final navigator = Navigator.of(context);
+    final paneHost = PlayerPaneHostScope.maybeOf(context);
     if (await navigator.maybePop()) {
       return;
+    }
+    if (paneHost != null) {
+      if (await paneHost.backInPane()) return;
+      if (await paneHost.closePane()) return;
     }
     await closeRightPane();
   }
@@ -173,10 +225,19 @@ class EmbeddedDetailLauncher {
     }
   }
 
-  static Future<bool> _openRoute(String routeName) async {
+  static Future<bool> _openRoute(
+    String routeName, {
+    BuildContext? context,
+  }) async {
     if (!Platform.isAndroid) return false;
     final normalizedRoute = routeName.trim();
     if (normalizedRoute.isEmpty) return false;
+    final paneHost = context == null
+        ? null
+        : PlayerPaneHostScope.maybeOf(context);
+    if (paneHost != null) {
+      return paneHost.openRoute(normalizedRoute);
+    }
     try {
       return await _channel.invokeMethod<bool>(
             'openSecondaryRoute',

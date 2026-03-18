@@ -19,6 +19,7 @@ import '../player/controllers/player_source_controller.dart';
 import '../providers/app_theme_provider.dart';
 import '../providers/nas_provider.dart';
 import '../services/app_log_service.dart';
+import '../services/detail_runtime_cache.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../theme/app_theme.dart';
 import '../theme/detail_tokens.dart';
@@ -26,6 +27,7 @@ import '../ui/adaptive_detail_navigator.dart';
 import '../ui/app_transitions.dart';
 import '../ui/capability_badge_mapper.dart';
 import '../ui/detail_presentation.dart';
+import '../ui/player_pane_host_scope.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/app_error_reporter.dart';
 import '../utils/app_exception.dart';
@@ -87,6 +89,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   static const Duration _watchedTapCooldown = Duration(milliseconds: 900);
 
   bool get _isPane => widget.presentation == DetailPresentation.pane;
+  bool get _useRuntimeCache => _isPane;
 
   PlayInfoData? _data;
   late String _currentItemGuid;
@@ -358,7 +361,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     try {
       final api = FeiniuApi(context.read<NasProvider>());
       // Phase 1: load only base play info for immediate first paint.
-      final info = await api.getPlayInfo(_currentItemGuid);
+      final info = await _loadPlayInfo(api, _currentItemGuid);
       if (!mounted) return;
       setState(() {
         _currentItemGuid = info.item.guid.trim().isNotEmpty
@@ -424,7 +427,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     await Future<void>.delayed(_phase2Delay);
     if (!mounted || _playerRouteActive) return;
     try {
-      final trackData = await api.getStreamTrackData(_currentItemGuid);
+      final trackData = await _loadStreamTrackData(api, _currentItemGuid);
       if (!mounted || _playerRouteActive) return;
       final streams = trackData.options;
       final initialIndex = streams.indexWhere(
@@ -492,8 +495,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     final api = FeiniuApi(context.read<NasProvider>());
 
     try {
-      final people = await api
-          .getPersonList(_currentItemGuid)
+      final people = await _loadPersonCredits(api, _currentItemGuid)
           .then<List<PersonCredit>>((v) => v)
           .catchError((_) => const <PersonCredit>[]);
       if (!mounted) return;
@@ -538,7 +540,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       return;
     }
     try {
-      final detail = await api.getItemDetail(_currentItemGuid);
+      final detail = await _loadItemDetail(api, _currentItemGuid);
       if (!mounted) return;
       if (_playerRouteActive) {
         _deferredSectionLoadStarted = false;
@@ -579,6 +581,50 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         '[IMG][PRECACHE][DETAIL] failed url=${urls.first} error=$error',
       );
     });
+  }
+
+  Future<PlayInfoData> _loadPlayInfo(FeiniuApi api, String itemGuid) {
+    if (!_useRuntimeCache) {
+      return api.getPlayInfo(itemGuid);
+    }
+    return DetailRuntimeCache.instance.getOrLoad<PlayInfoData>(
+      bucket: 'play_info',
+      key: itemGuid,
+      loader: () => api.getPlayInfo(itemGuid),
+    );
+  }
+
+  Future<StreamTrackData> _loadStreamTrackData(FeiniuApi api, String itemGuid) {
+    if (!_useRuntimeCache) {
+      return api.getStreamTrackData(itemGuid);
+    }
+    return DetailRuntimeCache.instance.getOrLoad<StreamTrackData>(
+      bucket: 'stream_track',
+      key: itemGuid,
+      loader: () => api.getStreamTrackData(itemGuid),
+    );
+  }
+
+  Future<List<PersonCredit>> _loadPersonCredits(FeiniuApi api, String itemGuid) {
+    if (!_useRuntimeCache) {
+      return api.getPersonList(itemGuid);
+    }
+    return DetailRuntimeCache.instance.getOrLoad<List<PersonCredit>>(
+      bucket: 'person_list',
+      key: itemGuid,
+      loader: () => api.getPersonList(itemGuid),
+    );
+  }
+
+  Future<Map<String, dynamic>> _loadItemDetail(FeiniuApi api, String itemGuid) {
+    if (!_useRuntimeCache) {
+      return api.getItemDetail(itemGuid);
+    }
+    return DetailRuntimeCache.instance.getOrLoad<Map<String, dynamic>>(
+      bucket: 'item_detail',
+      key: itemGuid,
+      loader: () => api.getItemDetail(itemGuid),
+    );
   }
 
   StreamListOption? _currentStreamOption() {
@@ -880,6 +926,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     _playerRouteActive = true;
     _deferredSectionTimer?.cancel();
     final embeddedResult = await EmbeddedDetailLauncher.openFullscreenPlayer(
+      context: context,
       title: title,
       source: source,
     );
@@ -1133,6 +1180,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   Widget build(BuildContext context) {
     final themeProvider = context.watch<AppThemeProvider>();
     final nasProvider = context.read<NasProvider>();
+    final inPlayerPaneHost = PlayerPaneHostScope.maybeOf(context) != null;
     var dynamicThemeKey = _currentItemGuid.trim().isNotEmpty
         ? _currentItemGuid
         : widget.itemGuid;
@@ -1166,8 +1214,8 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       pageKey: dynamicThemeKey,
       imageUrl: dynamicThemeImageUrl,
       token: nasProvider.token,
-      enabled: themeProvider.dynamicThemeEnabled,
-      syncGlobalTheme: _isPane,
+      enabled: themeProvider.dynamicThemeEnabled && !inPlayerPaneHost,
+      syncGlobalTheme: !_isPane || !inPlayerPaneHost,
       intensity: themeProvider.dynamicThemeIntensity,
       builder: (context, ambientTint) {
         final colors = context.appColors;
@@ -1180,13 +1228,24 @@ class _PlayDetailPageState extends State<PlayDetailPage>
             );
           }
           final provider = context.read<NasProvider>();
+          final media = MediaQuery.of(context);
+          final backdropRequestWidth = (_isPane
+                  ? media.size.width * media.devicePixelRatio * 1.2
+                  : 1200.0)
+              .clamp(720.0, 1200.0)
+              .round();
+          final logoRequestWidth = (_isPane
+                  ? media.size.width * media.devicePixelRatio
+                  : 1200.0)
+              .clamp(480.0, 1200.0)
+              .round();
           final rawItem = initial['item'];
           final item = rawItem is Map<String, dynamic> ? rawItem : initial;
           final heroPath = _heroPathForItemMap(item);
           final heroUrls = ApiUrlHelper.imageCandidates(
             provider.baseUrl,
             heroPath,
-            width: 1200,
+            width: backdropRequestWidth,
           );
           final title = formatPlayerTitle(
             seriesTitle: (item['tv_title'] ?? '').toString().trim().isNotEmpty
@@ -1201,7 +1260,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           final logoUrls = ApiUrlHelper.imageCandidates(
             provider.baseUrl,
             (item['logos'] ?? '').toString(),
-            width: 1200,
+            width: logoRequestWidth,
           );
           final episodeHeroSubtitle =
               ((item['type'] ?? '').toString().trim().toLowerCase() ==
@@ -1225,7 +1284,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                     ),
                 ].join(' · ')
               : '';
-          final media = MediaQuery.of(context);
           final posterHeight = media.size.height * 0.50;
           final layout = DetailLayoutSolver.solve(
             screenSize: media.size,
@@ -1303,6 +1361,16 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         final item = data.item;
         final media = MediaQuery.of(context);
         final screenSize = media.size;
+        final backdropRequestWidth = (_isPane
+                ? screenSize.width * media.devicePixelRatio * 1.2
+                : 1200.0)
+            .clamp(720.0, 1200.0)
+            .round();
+        final logoRequestWidth = (_isPane
+                ? screenSize.width * media.devicePixelRatio
+                : 1200.0)
+            .clamp(480.0, 1200.0)
+            .round();
 
         final posterHeight = screenSize.height * 0.50;
         final layout = DetailLayoutSolver.solve(
@@ -1320,7 +1388,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         final heroUrls = ApiUrlHelper.imageCandidates(
           provider.baseUrl,
           heroPath,
-          width: 1200,
+          width: backdropRequestWidth,
         );
 
         final selectedOption =
@@ -1374,7 +1442,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         final logoUrls = ApiUrlHelper.imageCandidates(
           provider.baseUrl,
           item.logos,
-          width: 1200,
+          width: logoRequestWidth,
         );
         final episodeHeroSubtitle = _episodeHeroSubtitle(item);
 

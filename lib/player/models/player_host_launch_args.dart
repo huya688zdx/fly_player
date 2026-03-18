@@ -5,12 +5,14 @@ class PlayerHostLaunchArgs {
   final MpvMediaSource source;
   final bool fromParallelHost;
   final String layoutMode;
+  final String initialRightPaneRoute;
 
   const PlayerHostLaunchArgs({
     required this.title,
     required this.source,
     required this.fromParallelHost,
     required this.layoutMode,
+    required this.initialRightPaneRoute,
   });
 
   static PlayerHostLaunchArgs? fromPlatformMap(Map<Object?, Object?> raw) {
@@ -27,6 +29,9 @@ class PlayerHostLaunchArgs {
       source: MpvMediaSource.fromMap(sourceMap),
       fromParallelHost: raw['fromParallelHost'] == true,
       layoutMode: layoutMode.isEmpty ? 'fullscreen' : layoutMode,
+      initialRightPaneRoute: (raw['initialRightPaneRoute'] ?? '')
+          .toString()
+          .trim(),
     );
   }
 
@@ -36,6 +41,7 @@ class PlayerHostLaunchArgs {
       'source': source.toMap(),
       'fromParallelHost': fromParallelHost,
       'layoutMode': layoutMode,
+      'initialRightPaneRoute': initialRightPaneRoute,
     };
   }
 

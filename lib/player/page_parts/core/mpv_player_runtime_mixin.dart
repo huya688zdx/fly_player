@@ -559,7 +559,7 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
         paused: false,
         visualStartPosition: source.startPosition,
         targetPaused: false,
-        statusText: 'Preparing playback',
+        statusText: '正在准备播放',
       ),
     );
     unawaited(_refreshPlayerStateAfterSourceReplace());
@@ -1071,7 +1071,7 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
       await _controller.seek(target);
       if (mounted) {
         _showCenterPopupMessage(
-          segment.isIntro ? 'Skipped intro' : 'Skipped outro',
+          segment.isIntro ? '已跳过片头' : '已跳过片尾',
           hideAfter: const Duration(milliseconds: 1500),
         );
       }
@@ -1086,7 +1086,7 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     _dismissedChapterSkipKeys.add(prompt.key);
     _clearActiveChapterSkipPrompt();
     _showCenterPopupMessage(
-      'Skip prompt dismissed for this playback. Disable OP/ED skip in settings if needed.',
+      '本次播放已忽略跳过提示，如需关闭可在设置中禁用片头片尾跳过。',
     );
   }
 
@@ -1178,6 +1178,15 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     bool landscape, {
     bool? controlsVisible,
   }) {
+    if (widget.parallelLayoutMode == 'split') {
+      final immersiveStatusBar =
+          context.read<ParallelWindowSettingsProvider>().immersiveStatusBar;
+      return _setSystemUiModeIfNeeded(
+        immersiveStatusBar
+            ? SystemUiMode.immersiveSticky
+            : SystemUiMode.edgeToEdge,
+      );
+    }
     final showSystemBars = controlsVisible ?? _controlsVisible;
     return _setSystemUiModeIfNeeded(
       showSystemBars ? SystemUiMode.edgeToEdge : SystemUiMode.immersiveSticky,
@@ -1232,7 +1241,7 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
         widget.onParallelLayoutModeChanged?.call(targetMode);
         return;
       }
-      _showCenterPopupMessage('Failed to switch playback layout');
+      _showCenterPopupMessage('切换播放布局失败');
       return;
     }
     final switchToLandscape = !_isLandscapeViewport();
@@ -1348,7 +1357,7 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     _showControls();
     final value = _controller.value.value;
     if (value.paused && _shouldReloadSourceBeforeResume()) {
-      _showSubtitleSwitchMessage('褰撳墠鎾斁闇€瑕侀噸鏂板姞杞斤紝姝ｅ湪涓烘偍鎭㈠鎾斁锛岃绋嶅€?..');
+      _showSubtitleSwitchMessage('当前播放需要重新加载，正在为您恢复播放，请稍候...');
       _uiController.pendingLoadingTransition = true;
       _markAwaitingVisualPlaybackStart(
         _displayPosition(value),
@@ -1384,19 +1393,34 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
 
   void _showTransientMessage(String message) {
     if (!mounted) return;
-    _showControls();
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    if (messenger == null) return;
-    messenger
-      ..hideCurrentSnackBar()
-      ..clearSnackBars()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(message),
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 2),
-        ),
-      );
+    _showTopTip(message, _transientMessageColor(message));
+  }
+
+  Color _transientMessageColor(String message) {
+    final normalized = message.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return context.appColors.warning;
+    }
+    const dangerHints = <String>[
+      'failed',
+      'failure',
+      'error',
+      'unsupported',
+      'missing',
+      '失败',
+      '错误',
+      '不可',
+      '缺少',
+      '暂无',
+      '未加载',
+      '未提取',
+    ];
+    for (final hint in dangerHints) {
+      if (normalized.contains(hint)) {
+        return context.appColors.danger;
+      }
+    }
+    return context.appColors.warning;
   }
 
   void _showTopTip(String message, Color color, {bool revealControls = false}) {

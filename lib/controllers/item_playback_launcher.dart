@@ -195,6 +195,7 @@ class ItemPlaybackLauncher {
     if (!context.mounted) return null;
     final navigator = Navigator.of(context);
     final embeddedResult = await EmbeddedDetailLauncher.openFullscreenPlayer(
+      context: context,
       title: title,
       source: source,
     );

@@ -123,7 +123,7 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
       _subtitleFailureNoticeShownGuids.remove(normalized);
       _serverFallbackSubtitleGuids.remove(normalized);
     });
-    _showSubtitleSwitchMessage(_subtitleSwitchMessageForTrack(selected));
+    _showSubtitleSwitchMessage(_subtitleSwitchPromptForTrack(selected));
     try {
       await _applySubtitleSelection();
       _showControls();
@@ -190,7 +190,7 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
       targetPaused: pausedAfterReload,
     );
     _showSubtitleSwitchMessage(
-      loadingMessage ?? PlayerSourceController.qualitySwitchMessageFor(quality),
+      loadingMessage ?? _qualitySwitchPromptFor(quality),
     );
     var reloadStarted = false;
     try {
@@ -210,7 +210,7 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
       reloadStarted = true;
       _showControls();
     } catch (error) {
-      _showTransientMessage('获取字幕切换提示失败: $error');
+      _showTransientMessage('切换清晰度失败: $error');
     } finally {
       if (!reloadStarted) {
         _cancelPendingLoadingTransition();
@@ -512,6 +512,28 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
     _subtitleSwitchOverlayTimer?.cancel();
     if (!mounted) return;
     _updatePlayerState(() => _uiController.subtitleSwitchMessage = message);
+  }
+
+  String _subtitleSwitchPromptForTrack(SubtitleTrackOption? track) {
+    if (track == null) {
+      return '正在为您关闭字幕，请稍等...';
+    }
+    final title = _subtitleTitle(track);
+    final format = (track.format.isNotEmpty ? track.format : track.codecName)
+        .trim()
+        .toLowerCase();
+    final suffix = format.isEmpty ? '' : '($format)';
+    return '正在为您切换至 $title$suffix 字幕，请稍等...';
+  }
+
+  String _qualitySwitchPromptFor(PlaybackQualityOption quality) {
+    final title = quality.resolution.trim().isNotEmpty
+        ? quality.resolution.trim()
+        : (quality.isDefault == 1 ? '原画' : '清晰度');
+    final bitrate = quality.bitrate > 0
+        ? ' ${(quality.bitrate / 1000000).toStringAsFixed(0)} Mbps'
+        : '';
+    return '正在为您切换至 $title$bitrate 画质，请稍等...';
   }
 
   void _hideSubtitleSwitchMessage({Duration? delay}) {

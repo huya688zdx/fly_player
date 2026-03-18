@@ -29,6 +29,7 @@ import '../models/playback_stream.dart';
 import '../models/remote_subtitle.dart';
 import '../models/stream_track_data.dart';
 import '../providers/nas_provider.dart';
+import '../providers/parallel_window_settings_provider.dart';
 import '../services/app_log_service.dart';
 import '../services/player_host_bridge.dart';
 import '../services/player_system_session_bridge.dart';
@@ -128,6 +129,7 @@ class MpvPlayerPage extends StatefulWidget {
   final bool parallelLayoutToggleEnabled;
   final String parallelLayoutMode;
   final ValueChanged<String>? onParallelLayoutModeChanged;
+  final bool interceptSystemBack;
   final Future<void> Function(PlayDetailPlayerReturnData result)?
   onCloseRequested;
 
@@ -138,6 +140,7 @@ class MpvPlayerPage extends StatefulWidget {
     this.parallelLayoutToggleEnabled = false,
     this.parallelLayoutMode = 'fullscreen',
     this.onParallelLayoutModeChanged,
+    this.interceptSystemBack = true,
     this.onCloseRequested,
   });
 
@@ -728,6 +731,10 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
       (_) => unawaited(_submitPlaybackRecord()),
     );
     _scheduleControlsAutoHide();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_syncParallelLayoutOrientationLock());
+    });
   }
 
   @override
@@ -743,6 +750,8 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   @override
   void didUpdateWidget(covariant MpvPlayerPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final layoutModeChanged =
+        oldWidget.parallelLayoutMode != widget.parallelLayoutMode;
     final sourceChanged =
         oldWidget.source.loadNonce != widget.source.loadNonce ||
         oldWidget.source.url != widget.source.url ||
@@ -750,6 +759,15 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
         oldWidget.source.mediaGuid != widget.source.mediaGuid ||
         oldWidget.source.videoGuid != widget.source.videoGuid ||
         oldWidget.source.startPosition != widget.source.startPosition;
+    if (layoutModeChanged) {
+      unawaited(_syncParallelLayoutOrientationLock());
+      unawaited(
+        _applySystemUiForOrientation(
+          _isLandscapeViewport(),
+          controlsVisible: _controlsVisible,
+        ),
+      );
+    }
     if (sourceChanged) {
       _replacePlayerSource(widget.source);
     }
@@ -759,17 +777,12 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   void didChangeMetrics() {
     if (!mounted) return;
     final isLandscape = _isLandscapeViewport();
+    if (widget.parallelLayoutMode == 'split' && !isLandscape) {
+      unawaited(_setPlayerOrientationMode('landscape'));
+    }
     unawaited(_applySystemUiForOrientation(isLandscape));
     if (_uiController.orientationChangeInProgress) {
-      Future<void>.delayed(const Duration(milliseconds: 450), () {
-        if (!mounted) return;
-        unawaited(_controller.refreshState());
-        _showControls();
-        Future<void>.delayed(const Duration(milliseconds: 120), () {
-          if (!mounted) return;
-          setState(_uiController.finishOrientationChange);
-        });
-      });
+      _completeOrientationTransitionAfterMetrics();
       return;
     }
     unawaited(_controller.refreshState());
@@ -837,6 +850,11 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
         return;
       case AppLifecycleState.hidden:
       case AppLifecycleState.paused:
+        if (_shouldKeepPlaybackAliveInBackground()) {
+          _resumeAfterLifecyclePause = false;
+          unawaited(_startOrUpdateSystemPlaybackSession(force: true));
+          return;
+        }
         final playing = !_controller.value.value.paused;
         _resumeAfterLifecyclePause = playing;
         if (playing) {
@@ -845,6 +863,32 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
       case AppLifecycleState.detached:
         _resumeAfterLifecyclePause = false;
     }
+  }
+
+  bool _shouldKeepPlaybackAliveInBackground() {
+    if (!Platform.isAndroid) {
+      return false;
+    }
+    return _systemPlaybackSessionStarted && !_exitInProgress;
+  }
+
+  Future<void> _syncParallelLayoutOrientationLock() async {
+    if (!Platform.isAndroid) return;
+    await _setPlayerOrientationMode(
+      widget.parallelLayoutMode == 'split' ? 'landscape' : 'system',
+    );
+  }
+
+  void _completeOrientationTransitionAfterMetrics() {
+    Future<void>.delayed(const Duration(milliseconds: 450), () {
+      if (!mounted) return;
+      unawaited(_controller.refreshState());
+      _showControls();
+      Future<void>.delayed(const Duration(milliseconds: 120), () {
+        if (!mounted) return;
+        setState(_uiController.finishOrientationChange);
+      });
+    });
   }
 
   @override

@@ -272,13 +272,31 @@ class PlaybackSessionManager(
     }
 
     private fun buildContentIntent(): PendingIntent? {
+        val payload = lastPayload
         val launchIntent =
-            context.packageManager
-                .getLaunchIntentForPackage(context.packageName)
-                ?.apply {
+            payload
+                ?.launchSource
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { source ->
+                    PlayerActivity.createResumeIntent(
+                        context = context,
+                        title = payload.launchTitle.ifBlank { payload.title },
+                        source = HashMap(source),
+                        fromParallelHost = payload.launchFromParallelHost,
+                        layoutMode = payload.launchLayoutMode,
+                        initialRightPaneRoute = payload.launchInitialRightPaneRoute,
+                    )
+                }?.apply {
                     addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
                     addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                 }
+                ?: context.packageManager
+                    .getLaunchIntentForPackage(context.packageName)
+                    ?.apply {
+                        addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    }
                 ?: return null
         val flags =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {

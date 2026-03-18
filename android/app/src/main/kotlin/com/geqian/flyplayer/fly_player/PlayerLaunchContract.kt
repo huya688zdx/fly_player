@@ -12,6 +12,8 @@ object PlayerLaunchContract {
         "com.geqian.flyplayer.fly_player.action.SPLIT_PLAYER"
     const val ACTION_FULLSCREEN_PLAYER =
         "com.geqian.flyplayer.fly_player.action.FULLSCREEN_PLAYER"
+    const val ACTION_RESUME_PLAYER =
+        "com.geqian.flyplayer.fly_player.action.RESUME_PLAYER"
     const val ACTION_ATTACH_DETAIL_TO_PLAYER =
         "com.geqian.flyplayer.fly_player.action.ATTACH_DETAIL_TO_PLAYER"
 
@@ -21,6 +23,7 @@ object PlayerLaunchContract {
     private const val EXTRA_PLAYER_FROM_PARALLEL_HOST = "player_from_parallel_host"
     private const val EXTRA_PLAYER_HOST_CONTEXT = "player_host_context"
     private const val EXTRA_PLAYER_LAYOUT_MODE = "player_layout_mode"
+    private const val EXTRA_PLAYER_INITIAL_RIGHT_PANE_ROUTE = "player_initial_right_pane_route"
 
     fun applyLaunchExtras(
         intent: Intent,
@@ -29,6 +32,7 @@ object PlayerLaunchContract {
         fromParallelHost: Boolean,
         hostContext: HashMap<String, Any?>,
         layoutMode: String,
+        initialRightPaneRoute: String = "",
         ): Intent {
         return intent.apply {
             action =
@@ -42,12 +46,17 @@ object PlayerLaunchContract {
             putExtra(EXTRA_PLAYER_FROM_PARALLEL_HOST, fromParallelHost)
             putExtra(EXTRA_PLAYER_HOST_CONTEXT, HashMap(hostContext))
             putExtra(EXTRA_PLAYER_LAYOUT_MODE, layoutMode)
+            putExtra(EXTRA_PLAYER_INITIAL_RIGHT_PANE_ROUTE, initialRightPaneRoute.trim())
         }
     }
 
     fun readLayoutMode(intent: Intent?): String {
         val value = intent?.getStringExtra(EXTRA_PLAYER_LAYOUT_MODE).orEmpty()
         return if (value == MODE_SPLIT) MODE_SPLIT else MODE_FULLSCREEN
+    }
+
+    fun readInitialRightPaneRoute(intent: Intent?): String {
+        return intent?.getStringExtra(EXTRA_PLAYER_INITIAL_RIGHT_PANE_ROUTE).orEmpty().trim()
     }
 
     fun updateLayoutMode(
@@ -73,6 +82,8 @@ object PlayerLaunchContract {
                 (intent?.getBooleanExtra(EXTRA_PLAYER_FROM_PARALLEL_HOST, false) ?: false),
             "parallelHostContext" to hostContext,
             "layoutMode" to intent?.getStringExtra(EXTRA_PLAYER_LAYOUT_MODE).orEmpty(),
+            "initialRightPaneRoute" to
+                intent?.getStringExtra(EXTRA_PLAYER_INITIAL_RIGHT_PANE_ROUTE).orEmpty(),
         )
     }
 

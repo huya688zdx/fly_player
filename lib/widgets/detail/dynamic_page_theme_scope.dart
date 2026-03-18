@@ -254,26 +254,27 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
     final parentTheme = Theme.of(context);
     final baseColors = context.appColors;
     final effectiveSeed = widget.enabled ? _seed : null;
-    final effectiveColors = effectiveSeed == null
-        ? baseColors
-        : DynamicThemeMapper.map(
-            baseColors: baseColors,
-            seed: effectiveSeed,
-            intensity: widget.intensity,
-          );
-    final effectiveTheme = effectiveSeed == null
-        ? parentTheme
-        : AppThemeBuilder.buildFromColors(
-            effectiveColors,
-            baseTheme: parentTheme,
-          );
-    final ambientTint = effectiveSeed == null
-        ? null
-        : DynamicThemeMapper.ambientTint(
-            baseColors: baseColors,
-            seed: effectiveSeed,
-            intensity: widget.intensity,
-          );
+    if (effectiveSeed == null) {
+      return Builder(
+        builder: (context) {
+          return widget.builder(context, null);
+        },
+      );
+    }
+    final effectiveColors = DynamicThemeMapper.map(
+      baseColors: baseColors,
+      seed: effectiveSeed,
+      intensity: widget.intensity,
+    );
+    final effectiveTheme = AppThemeBuilder.buildFromColors(
+      effectiveColors,
+      baseTheme: parentTheme,
+    );
+    final ambientTint = DynamicThemeMapper.ambientTint(
+      baseColors: baseColors,
+      seed: effectiveSeed,
+      intensity: widget.intensity,
+    );
 
     return AnimatedTheme(
       data: effectiveTheme,

@@ -461,7 +461,7 @@ class _MainNavigationState extends State<MainNavigation> {
 
   Future<void> _handleNavigationTap(int index) async {
     if (index == 1) {
-      final opened = await EmbeddedDetailLauncher.openSettings();
+      final opened = await EmbeddedDetailLauncher.openSettings(context: context);
       if (opened) {
         if (!mounted) return;
         setState(() => _selectedIndex = 0);

@@ -33,7 +33,9 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: _confirmLogout,
+          onPressed: widget.secondaryHost
+              ? () => EmbeddedDetailLauncher.closeHostOrPop(context)
+              : _confirmLogout,
         ),
         title: Text(_t('layout.sidebar.home', '首页')),
         actions: <Widget>[
@@ -118,7 +120,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     return RefreshIndicator(
       onRefresh: _fetchHomeData,
       child: CustomScrollView(
-        cacheExtent: 1200,
+        cacheExtent: _scrollCacheExtent,
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: <Widget>[
           SliverPadding(
@@ -209,7 +211,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
             child: ListView.separated(
               padding: EdgeInsets.zero,
               scrollDirection: Axis.horizontal,
-              cacheExtent: layout.continueCardWidth * 5,
+              cacheExtent: _rowCacheExtent(layout.continueCardWidth),
               itemCount: _continueWatching.length,
               separatorBuilder: (_, __) => SizedBox(width: layout.itemGap),
               itemBuilder: (context, index) {
@@ -281,13 +283,13 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     String token,
     MediaLayoutProfile layout,
   ) {
-    final count = min(_categories.length, 10);
+    final count = min(_categories.length, widget.secondaryHost ? 6 : 10);
     return SizedBox(
       height: layout.categoryStripHeight,
       child: ListView.separated(
         padding: EdgeInsets.zero,
         scrollDirection: Axis.horizontal,
-        cacheExtent: layout.categoryCardWidth * 6,
+        cacheExtent: _rowCacheExtent(layout.categoryCardWidth),
         itemCount: count,
         separatorBuilder: (_, __) => SizedBox(width: layout.itemGap),
         itemBuilder: (context, index) {
@@ -310,6 +312,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
                 )
                 .toList(),
             token: token,
+            lightweight: widget.secondaryHost,
             cardWidth: layout.categoryCardWidth,
             miniPosterWidth: layout.categoryMiniPosterWidth,
             miniPosterHeight: layout.categoryMiniPosterHeight,
@@ -362,6 +365,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
                       _PosterImage(
                         urls: urls,
                         token: token,
+                        lightweight: widget.secondaryHost,
                         fallback: Center(
                           child: Icon(
                             Icons.movie,
@@ -514,7 +518,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
       child: ListView.separated(
         padding: EdgeInsets.zero,
         scrollDirection: Axis.horizontal,
-        cacheExtent: layout.homePosterCardWidth * 6,
+        cacheExtent: _rowCacheExtent(layout.homePosterCardWidth),
         itemCount: maxCount,
         separatorBuilder: (_, __) => SizedBox(width: layout.itemGap),
         itemBuilder: (context, index) {
@@ -562,6 +566,7 @@ class _CategoryPosterCard extends StatelessWidget {
   final String title;
   final List<List<String>> posterUrls;
   final String token;
+  final bool lightweight;
   final double cardWidth;
   final double miniPosterWidth;
   final double miniPosterHeight;
@@ -571,6 +576,7 @@ class _CategoryPosterCard extends StatelessWidget {
     required this.title,
     required this.posterUrls,
     required this.token,
+    this.lightweight = false,
     required this.cardWidth,
     required this.miniPosterWidth,
     required this.miniPosterHeight,
@@ -620,6 +626,7 @@ class _CategoryPosterCard extends StatelessWidget {
                                 child: _PosterImage(
                                   urls: normalized[index],
                                   token: token,
+                                  lightweight: lightweight,
                                   fallback: Container(
                                     color: colors.surfaceStrong,
                                   ),
@@ -691,11 +698,13 @@ class _CategoryPosterCard extends StatelessWidget {
 class _PosterImage extends StatefulWidget {
   final List<String> urls;
   final String token;
+  final bool lightweight;
   final Widget fallback;
 
   const _PosterImage({
     required this.urls,
     required this.token,
+    this.lightweight = false,
     required this.fallback,
   });
 
@@ -748,6 +757,9 @@ class _PosterImageState extends State<_PosterImage> {
           cacheHeight: cacheHeight,
           frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
             final loaded = wasSynchronouslyLoaded || frame != null;
+            if (widget.lightweight) {
+              return loaded ? child : widget.fallback;
+            }
             return Stack(
               fit: StackFit.expand,
               children: <Widget>[

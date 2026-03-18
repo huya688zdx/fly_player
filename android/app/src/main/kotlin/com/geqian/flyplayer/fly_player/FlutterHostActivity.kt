@@ -399,6 +399,12 @@ abstract class FlutterHostActivity : FlutterActivity() {
                 .appendQueryParameter("itemGuid", normalizedGuid)
                 .build()
                 .toString()
+        if (ParallelWindowCoordinator.isSplitPlayerVisible()) {
+            ParallelWindowCoordinator.updateCurrentDetailItemGuid(normalizedGuid)
+            ParallelWindowCoordinator.updateCurrentDetailRoute(route)
+            val playerHost = ParallelWindowCoordinator.currentPlayerHost() ?: return false
+            return playerHost.replaceRightPaneRouteInPlace(route)
+        }
         if (replaceCurrentDetailRouteIfSamePath(route)) {
             ParallelWindowCoordinator.updateCurrentDetailItemGuid(normalizedGuid)
             return true
@@ -411,6 +417,18 @@ abstract class FlutterHostActivity : FlutterActivity() {
     protected open fun openEmbeddedRoute(routeName: String): Boolean {
         val normalizedRoute = routeName.trim()
         if (normalizedRoute.isEmpty() || !canOpenEmbeddedDetail()) return false
+        if (ParallelWindowCoordinator.isSplitPlayerVisible()) {
+            ParallelWindowCoordinator.updateCurrentDetailRoute(normalizedRoute)
+            val parsedUri = Uri.parse(normalizedRoute)
+            parsedUri.getQueryParameter("itemGuid")?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                ParallelWindowCoordinator.updateCurrentDetailItemGuid(it)
+            }
+            parsedUri.getQueryParameter("personGuid")?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                ParallelWindowCoordinator.updateCurrentDetailItemGuid(it)
+            }
+            val playerHost = ParallelWindowCoordinator.currentPlayerHost() ?: return false
+            return playerHost.replaceRightPaneRouteInPlace(normalizedRoute)
+        }
         if (replaceCurrentDetailRouteIfSamePath(normalizedRoute)) {
             ParallelWindowCoordinator.updateCurrentDetailRoute(normalizedRoute)
             return true
@@ -444,6 +462,12 @@ abstract class FlutterHostActivity : FlutterActivity() {
                     org.json.JSONObject(normalizedSeasonItem as Map<*, *>).toString(),
                 ).build()
                 .toString()
+        if (ParallelWindowCoordinator.isSplitPlayerVisible()) {
+            ParallelWindowCoordinator.updateCurrentDetailItemGuid(seasonGuid)
+            ParallelWindowCoordinator.updateCurrentDetailRoute(route)
+            val playerHost = ParallelWindowCoordinator.currentPlayerHost() ?: return false
+            return playerHost.replaceRightPaneRouteInPlace(route)
+        }
         if (replaceCurrentDetailRouteIfSamePath(route)) {
             ParallelWindowCoordinator.updateCurrentDetailItemGuid(seasonGuid)
             return true
@@ -574,6 +598,18 @@ abstract class FlutterHostActivity : FlutterActivity() {
         return context
     }
 
+    protected open fun resolvePlayerInitialRightPaneRoute(): String {
+        val currentRoute = ParallelWindowCoordinator.currentDetailRoute().trim()
+        if (currentRoute.isNotEmpty() && currentRoute != "/") {
+            return currentRoute
+        }
+        val rememberedRoute = ParallelWindowCoordinator.rememberedDetailRoute().trim()
+        if (rememberedRoute.isNotEmpty() && rememberedRoute != "/") {
+            return rememberedRoute
+        }
+        return "/screen/home"
+    }
+
     protected open fun consumeInitialPlayerArgs(): HashMap<String, Any?>? = null
 
     protected open fun finishPlayerActivity(result: HashMap<String, Any?>?): Boolean = false
@@ -657,6 +693,7 @@ abstract class FlutterHostActivity : FlutterActivity() {
                         fromParallelHost = true,
                         hostContext = getParallelHostContext(),
                         layoutMode = PlayerLaunchContract.MODE_SPLIT,
+                        initialRightPaneRoute = resolvePlayerInitialRightPaneRoute(),
                     ).apply {
                         addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                         addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -690,6 +727,7 @@ abstract class FlutterHostActivity : FlutterActivity() {
                         } else {
                             PlayerLaunchContract.MODE_SPLIT
                         },
+                    initialRightPaneRoute = resolvePlayerInitialRightPaneRoute(),
                 ),
                 PLAYER_ACTIVITY_REQUEST_CODE,
             )

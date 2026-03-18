@@ -13,6 +13,7 @@ import '../models/person_detail_profile.dart';
 import '../pages/long_text_overlay_page.dart';
 import '../providers/app_theme_provider.dart';
 import '../providers/nas_provider.dart';
+import '../services/detail_runtime_cache.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../theme/app_theme.dart';
 import '../theme/detail_tokens.dart';
@@ -20,6 +21,7 @@ import '../ui/adaptive_detail_navigator.dart';
 import '../ui/detail_presentation.dart';
 import '../ui/layout_adaptive.dart';
 import '../ui/media_poster_card.dart';
+import '../ui/player_pane_host_scope.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
 import '../utils/imdb_launcher.dart';
@@ -75,6 +77,7 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
   final ValueNotifier<double> _scrollOffsetNotifier = ValueNotifier<double>(0);
 
   bool get _isPane => widget.presentation == DetailPresentation.pane;
+  bool get _useRuntimeCache => _isPane;
 
   @override
   void initState() {
@@ -151,7 +154,7 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
       final localeFuture = _localeMap.isEmpty
           ? MediaLocaleStore.load(context.read<NasProvider>())
           : Future.value(_localeMap);
-      final personFuture = api.getPersonDetail(widget.personGuid);
+      final personFuture = _loadPersonDetail(api, widget.personGuid);
 
       final locale = await localeFuture;
       final person = await personFuture;
@@ -181,14 +184,7 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
     for (final job in _jobs) {
       if (!mounted || loadVersion != _jobLoadVersion) return;
       try {
-        final page = await api.getPersonItemList(
-          personGuid: widget.personGuid,
-          job: job,
-          page: 1,
-          pageSize: 200,
-          sortColumn: 'update_time',
-          sortType: 'desc',
-        );
+        final page = await _loadPersonJobPage(api, widget.personGuid, job);
         if (!mounted || loadVersion != _jobLoadVersion) return;
         setState(() {
           _jobPages[job] = page;
@@ -271,6 +267,46 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
     );
   }
 
+  Future<PersonDetailProfile> _loadPersonDetail(FeiniuApi api, String personGuid) {
+    if (!_useRuntimeCache) {
+      return api.getPersonDetail(personGuid);
+    }
+    return DetailRuntimeCache.instance.getOrLoad<PersonDetailProfile>(
+      bucket: 'person_detail',
+      key: personGuid,
+      loader: () => api.getPersonDetail(personGuid),
+    );
+  }
+
+  Future<ItemListPage> _loadPersonJobPage(
+    FeiniuApi api,
+    String personGuid,
+    String job,
+  ) {
+    if (!_useRuntimeCache) {
+      return api.getPersonItemList(
+        personGuid: personGuid,
+        job: job,
+        page: 1,
+        pageSize: 200,
+        sortColumn: 'update_time',
+        sortType: 'desc',
+      );
+    }
+    return DetailRuntimeCache.instance.getOrLoad<ItemListPage>(
+      bucket: 'person_job_page',
+      key: '$personGuid::$job',
+      loader: () => api.getPersonItemList(
+        personGuid: personGuid,
+        job: job,
+        page: 1,
+        pageSize: 200,
+        sortColumn: 'update_time',
+        sortType: 'desc',
+      ),
+    );
+  }
+
   String _jobTitle(String rawJob) {
     final key = rawJob.toLowerCase();
     final jobText = _t('common.person.job.$key', _jobFallback[key] ?? rawJob);
@@ -349,6 +385,7 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
   Widget build(BuildContext context) {
     final themeProvider = context.watch<AppThemeProvider>();
     final provider = context.read<NasProvider>();
+    final inPlayerPaneHost = PlayerPaneHostScope.maybeOf(context) != null;
     final dynamicThemeUrls =
         _person == null || _person!.profilePath.trim().isEmpty
         ? const <String>[]
@@ -358,8 +395,8 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
       pageKey: widget.personGuid,
       imageUrl: dynamicThemeUrls.isNotEmpty ? dynamicThemeUrls.first : '',
       token: provider.token,
-      enabled: themeProvider.dynamicThemeEnabled,
-      syncGlobalTheme: _isPane,
+      enabled: themeProvider.dynamicThemeEnabled && !inPlayerPaneHost,
+      syncGlobalTheme: !_isPane || !inPlayerPaneHost,
       intensity: themeProvider.dynamicThemeIntensity,
       builder: (context, _) {
         final colors = context.appColors;

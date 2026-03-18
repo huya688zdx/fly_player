@@ -16,24 +16,28 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
     final compactUi = screenWidth < 900;
     final titleFontSize = compactUi ? 14.0 : 15.5;
     final timeFontSize = compactUi ? 11.5 : 13.0;
+    final scaffold = Scaffold(
+      backgroundColor: colors.backgroundBase,
+      resizeToAvoidBottomInset: false,
+      body: _buildAndroidPlayerBody(
+        context,
+        colors: colors,
+        media: media,
+        compactUi: compactUi,
+        isLandscape: isLandscape,
+        titleFontSize: titleFontSize,
+        timeFontSize: timeFontSize,
+      ),
+    );
+    if (!widget.interceptSystemBack) {
+      return scaffold;
+    }
     return WillPopScope(
       onWillPop: () async {
         await _closePlayer();
         return false;
       },
-      child: Scaffold(
-        backgroundColor: colors.backgroundBase,
-        resizeToAvoidBottomInset: false,
-        body: _buildAndroidPlayerBody(
-          context,
-          colors: colors,
-          media: media,
-          compactUi: compactUi,
-          isLandscape: isLandscape,
-          titleFontSize: titleFontSize,
-          timeFontSize: timeFontSize,
-        ),
-      ),
+      child: scaffold,
     );
   }
 
@@ -632,7 +636,7 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
             SizedBox(width: compactUi ? 8 : 10),
             PlayerTopIconButton(
               icon: Icons.fit_screen_outlined,
-              onPressed: () => _showTransientMessage('Display mode pending'),
+              onPressed: () => _showTransientMessage('画面模式暂未接入'),
             ),
             if (_danmakuEnabled) ...[
               SizedBox(width: compactUi ? 6 : 8),
@@ -1031,9 +1035,7 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
         : _cloudDriveProxyQualityOption();
     if (quality == null) {
       _showTransientMessage(
-        direct
-            ? 'No direct cloud-drive stream is available'
-            : 'No NAS proxy stream is available',
+        direct ? '当前没有可用的网盘直链播放源' : '当前没有可用的 NAS 代理播放源',
       );
       return;
     }
