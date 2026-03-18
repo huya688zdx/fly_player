@@ -15,7 +15,7 @@ extension _MpvPlayerEpisodeMixin on _MpvPlayerPageState {
     try {
       final result = await EpisodePickerSheet.show(
         context,
-        title: 'Episode Picker',
+        title: '选集',
         sectionLabel: buildEpisodePickerSectionLabel(episodes),
         autoPlayEnabled: _autoPlayEnabled,
         onAutoPlayChanged: (value) => unawaited(_setAutoPlayEnabled(value)),
@@ -49,7 +49,7 @@ extension _MpvPlayerEpisodeMixin on _MpvPlayerPageState {
   Future<void> _showNextEpisode() async {
     final nextEpisode = await _nextEpisodeOrNull();
     if (nextEpisode == null) {
-      _showTransientMessage('Already at the last episode');
+      _showTransientMessage('已经是最后一集了');
       return;
     }
     await _switchToEpisode(nextEpisode);
@@ -58,7 +58,7 @@ extension _MpvPlayerEpisodeMixin on _MpvPlayerPageState {
   Future<void> _showPreviousEpisode() async {
     final previousEpisode = await _previousEpisodeOrNull();
     if (previousEpisode == null) {
-      _showTransientMessage('Already at the first episode');
+      _showTransientMessage('已经是第一集了');
       return;
     }
     await _switchToEpisode(previousEpisode);
@@ -125,9 +125,7 @@ extension _MpvPlayerEpisodeMixin on _MpvPlayerPageState {
 
     final seasonGuid = await _resolveSeasonGuid();
     if (!mounted || seasonGuid.isEmpty) {
-      _showTransientMessage(
-        'No episode list is available for the current item',
-      );
+      _showTransientMessage('当前片源没有可用选集列表');
       return const <MediaLibraryItem>[];
     }
 
@@ -160,7 +158,7 @@ extension _MpvPlayerEpisodeMixin on _MpvPlayerPageState {
       return items;
     } catch (error) {
       if (mounted) {
-        _showTransientMessage('Failed to load episode list: $error');
+        _showTransientMessage('加载选集列表失败: $error');
       }
       return const <MediaLibraryItem>[];
     } finally {
@@ -364,12 +362,12 @@ extension _MpvPlayerEpisodeMixin on _MpvPlayerPageState {
 
   String _episodeSwitchLoadingMessage(MediaLibraryItem episode) {
     final episodeLabel = episode.episodeNumber > 0
-        ? 'Episode ${episode.episodeNumber}'
+        ? '第 ${episode.episodeNumber} 集'
         : episode.title.trim();
     if (episodeLabel.isEmpty) {
-      return 'Preparing playback...';
+      return '正在准备播放...';
     }
-    return 'Switching to $episodeLabel...';
+    return '正在切换到 $episodeLabel...';
   }
 
   Future<void> _switchToEpisode(
@@ -624,7 +622,7 @@ extension _MpvPlayerEpisodeMixin on _MpvPlayerPageState {
       reloadStarted = true;
       _showControls();
     } catch (error) {
-      _showTransientMessage('鍒囨崲鍓ч泦澶辫触: $error');
+      _showTransientMessage('切换剧集失败: $error');
     } finally {
       if (!reloadStarted) {
         _cancelPendingLoadingTransition();

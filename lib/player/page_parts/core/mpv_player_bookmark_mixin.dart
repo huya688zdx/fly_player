@@ -160,7 +160,11 @@ extension _MpvPlayerBookmarkMixin on _MpvPlayerPageState {
     await _loadBookmarksForCurrentMedia();
     if (!mounted) return;
     drawer.refresh();
-    _showTopTip('当前片段书签已清空', context.appColors.warning, revealControls: false);
+    _showTopTip(
+      '当前片段书签已清空',
+      context.appColors.warning,
+      revealControls: false,
+    );
   }
 
   Future<void> _seekToBookmark(
@@ -250,8 +254,7 @@ extension _MpvPlayerBookmarkMixin on _MpvPlayerPageState {
               yield _PlaybackBookmarkTile(
                 note: entry.value.note,
                 timeLabel: _formatDuration(entry.value.position),
-                subtitle:
-                    '创建于 ${_formatBookmarkCreatedAt(entry.value.createdAt)}',
+                subtitle: '创建于 ${_formatBookmarkCreatedAt(entry.value.createdAt)}',
                 onJump: () => unawaited(_seekToBookmark(entry.value, drawer)),
                 onDelete: () =>
                     unawaited(_removeBookmark(entry.value, drawer: drawer)),

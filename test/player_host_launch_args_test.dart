@@ -28,6 +28,7 @@ void main() {
       expect(args!.title, 'Episode 1');
       expect(args.fromParallelHost, isTrue);
       expect(args.layoutMode, 'pip');
+      expect(args.initialRightPaneRoute, isEmpty);
       expect(args.source.itemGuid, 'item-1');
       expect(args.source.mediaGuid, 'media-1');
       expect(args.source.videoGuid, 'video-1');
@@ -63,6 +64,7 @@ void main() {
         source: source,
         fromParallelHost: false,
         layoutMode: 'fullscreen',
+        initialRightPaneRoute: '/screen/home',
       );
 
       final encoded = args.toMap();
@@ -70,6 +72,7 @@ void main() {
       expect(encoded['title'], 'Episode 2');
       expect(encoded['fromParallelHost'], isFalse);
       expect(encoded['layoutMode'], 'fullscreen');
+      expect(encoded['initialRightPaneRoute'], '/screen/home');
       expect(encoded['source'], isA<Map<String, Object?>>());
       expect((encoded['source'] as Map<String, Object?>)['itemGuid'], 'item-2');
     });

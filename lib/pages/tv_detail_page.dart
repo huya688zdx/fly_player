@@ -10,12 +10,14 @@ import '../models/media_library_item.dart';
 import '../models/play_info.dart';
 import '../providers/app_theme_provider.dart';
 import '../providers/nas_provider.dart';
+import '../services/detail_runtime_cache.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../theme/app_theme.dart';
 import '../theme/detail_tokens.dart';
 import '../ui/adaptive_detail_navigator.dart';
 import '../ui/detail_presentation.dart';
 import '../ui/layout_adaptive.dart';
+import '../ui/player_pane_host_scope.dart';
 import '../ui/media_poster_card.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
@@ -99,6 +101,7 @@ class _TvDetailPageState extends State<TvDetailPage>
   Map<String, dynamic> _localeMap = const <String, dynamic>{};
 
   bool get _isPane => widget.presentation == DetailPresentation.pane;
+  bool get _useRuntimeCache => _isPane;
 
   @override
   void initState() {
@@ -211,7 +214,7 @@ class _TvDetailPageState extends State<TvDetailPage>
           !_usedInitialDetail && widget.initialItemDetail != null;
       final Map<String, dynamic> detail = canUseInitial
           ? widget.initialItemDetail!
-          : await api.getItemDetail(widget.itemGuid);
+          : await _loadItemDetail(api, widget.itemGuid);
       if (!mounted) return;
       setState(() {
         _detail = detail;
@@ -291,7 +294,7 @@ class _TvDetailPageState extends State<TvDetailPage>
   Future<void> _refreshDetailSilently() async {
     try {
       final api = FeiniuApi(context.read<NasProvider>());
-      final detail = await api.getItemDetail(widget.itemGuid);
+      final detail = await _loadItemDetail(api, widget.itemGuid);
       if (!mounted) return;
       setState(() {
         _detail = detail;
@@ -324,7 +327,7 @@ class _TvDetailPageState extends State<TvDetailPage>
     final api = FeiniuApi(context.read<NasProvider>());
 
     try {
-      final seasonItems = await api.getSeasonList(widget.itemGuid);
+      final seasonItems = await _loadSeasonItems(api, widget.itemGuid);
       if (!mounted) return;
       seasonItems.sort((a, b) => a.seasonNumber.compareTo(b.seasonNumber));
       setState(() {
@@ -355,10 +358,7 @@ class _TvDetailPageState extends State<TvDetailPage>
     await Future<void>.delayed(_deferredSectionStepDelay);
     if (!mounted) return;
     try {
-      final playInfo = await api
-          .getPlayInfo(widget.itemGuid)
-          .then<PlayInfoData?>((value) => value)
-          .catchError((_) => null);
+      final playInfo = await _loadPlayInfoOrNull(api, widget.itemGuid);
       if (!mounted || playInfo == null) return;
       setState(() => _playInfo = playInfo);
     } catch (_) {}
@@ -687,7 +687,7 @@ class _TvDetailPageState extends State<TvDetailPage>
     _playPreparing = true;
     try {
       final api = FeiniuApi(context.read<NasProvider>());
-      final info = await api.getPlayInfo(widget.itemGuid);
+      final info = await _loadPlayInfo(api, widget.itemGuid);
       if (!mounted) return;
       setState(() => _playInfo = info);
       _showTopTip(
@@ -725,10 +725,7 @@ class _TvDetailPageState extends State<TvDetailPage>
       );
       if (!mounted) return;
       final api = FeiniuApi(context.read<NasProvider>());
-      final info = await api
-          .getPlayInfo(widget.itemGuid)
-          .then<PlayInfoData?>((value) => value)
-          .catchError((_) => null);
+      final info = await _loadPlayInfoOrNull(api, widget.itemGuid);
       if (!mounted) return;
       if (info != null) {
         setState(() => _playInfo = info);
@@ -827,10 +824,52 @@ class _TvDetailPageState extends State<TvDetailPage>
     }
   }
 
+  Future<Map<String, dynamic>> _loadItemDetail(FeiniuApi api, String itemGuid) {
+    if (!_useRuntimeCache) {
+      return api.getItemDetail(itemGuid);
+    }
+    return DetailRuntimeCache.instance.getOrLoad<Map<String, dynamic>>(
+      bucket: 'item_detail',
+      key: itemGuid,
+      loader: () => api.getItemDetail(itemGuid),
+    );
+  }
+
+  Future<List<MediaLibraryItem>> _loadSeasonItems(FeiniuApi api, String itemGuid) {
+    if (!_useRuntimeCache) {
+      return api.getSeasonList(itemGuid);
+    }
+    return DetailRuntimeCache.instance.getOrLoad<List<MediaLibraryItem>>(
+      bucket: 'season_list',
+      key: itemGuid,
+      loader: () => api.getSeasonList(itemGuid),
+    );
+  }
+
+  Future<PlayInfoData> _loadPlayInfo(FeiniuApi api, String itemGuid) {
+    if (!_useRuntimeCache) {
+      return api.getPlayInfo(itemGuid);
+    }
+    return DetailRuntimeCache.instance.getOrLoad<PlayInfoData>(
+      bucket: 'play_info',
+      key: itemGuid,
+      loader: () => api.getPlayInfo(itemGuid),
+    );
+  }
+
+  Future<PlayInfoData?> _loadPlayInfoOrNull(FeiniuApi api, String itemGuid) async {
+    try {
+      return await _loadPlayInfo(api, itemGuid);
+    } catch (_) {
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final themeProvider = context.watch<AppThemeProvider>();
     final nasProvider = context.read<NasProvider>();
+    final inPlayerPaneHost = PlayerPaneHostScope.maybeOf(context) != null;
     var dynamicThemeImageUrl = '';
     if (_detail.isNotEmpty) {
       final item = _detail['item'] is Map<String, dynamic>
@@ -862,8 +901,8 @@ class _TvDetailPageState extends State<TvDetailPage>
       pageKey: widget.itemGuid,
       imageUrl: dynamicThemeImageUrl,
       token: nasProvider.token,
-      enabled: themeProvider.dynamicThemeEnabled,
-      syncGlobalTheme: _isPane,
+      enabled: themeProvider.dynamicThemeEnabled && !inPlayerPaneHost,
+      syncGlobalTheme: !_isPane || !inPlayerPaneHost,
       intensity: themeProvider.dynamicThemeIntensity,
       builder: (context, ambientTint) {
         final colors = context.appColors;
@@ -927,16 +966,26 @@ class _TvDetailPageState extends State<TvDetailPage>
             genreNames.isNotEmpty ||
             countryText.isNotEmpty ||
             ancestorName.isNotEmpty;
+        final backdropRequestWidth = (_isPane
+                ? screenSize.width * media.devicePixelRatio * 1.2
+                : 1200.0)
+            .clamp(720.0, 1200.0)
+            .round();
+        final logoRequestWidth = (_isPane
+                ? screenSize.width * media.devicePixelRatio
+                : 1200.0)
+            .clamp(480.0, 1200.0)
+            .round();
 
         final heroUrls = ApiUrlHelper.imageCandidates(
           provider.baseUrl,
           _backdrops(item),
-          width: 1200,
+          width: backdropRequestWidth,
         );
         final logoUrls = ApiUrlHelper.imageCandidates(
           provider.baseUrl,
           (item['logos'] ?? '').toString(),
-          width: 1200,
+          width: logoRequestWidth,
         );
 
         return Scaffold(

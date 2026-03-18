@@ -44,7 +44,9 @@ enum _ContinueWatchingAction {
 }
 
 class MediaListScreen extends StatefulWidget {
-  const MediaListScreen({super.key});
+  final bool secondaryHost;
+
+  const MediaListScreen({super.key, this.secondaryHost = false});
 
   @override
   State<MediaListScreen> createState() => _MediaListScreenState();
@@ -52,6 +54,9 @@ class MediaListScreen extends StatefulWidget {
 
 class _MediaListScreenState extends State<MediaListScreen> {
   static const int _fallbackContinueLimit = 12;
+  static const int _secondaryContinueLimit = 4;
+  static const int _defaultCategoryPreviewLimit = 30;
+  static const int _secondaryCategoryPreviewLimit = 8;
 
   List<MediaItem> _categories = <MediaItem>[];
   Map<String, List<MediaLibraryItem>> _itemsByCategory =
@@ -63,6 +68,20 @@ class _MediaListScreenState extends State<MediaListScreen> {
 
   bool _isLoading = false;
   AppException? _error;
+
+  int get _continueLimit =>
+      widget.secondaryHost ? _secondaryContinueLimit : _fallbackContinueLimit;
+
+  int get _categoryPreviewLimit => widget.secondaryHost
+      ? _secondaryCategoryPreviewLimit
+      : _defaultCategoryPreviewLimit;
+
+  double get _scrollCacheExtent => widget.secondaryHost ? 220 : 1200;
+
+  double _rowCacheExtent(double itemExtent) {
+    final multiplier = widget.secondaryHost ? 2 : 6;
+    return itemExtent * multiplier;
+  }
 
   @override
   void initState() {
@@ -110,7 +129,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
           final items = await api.getItemsByCategoryGuid(
             category.id,
             page: 1,
-            limit: 30,
+            limit: _categoryPreviewLimit,
           );
           itemsByCategory[category.id] = items;
           allItems.addAll(items);
@@ -121,7 +140,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
       }
 
       final continueWatching = playList.isNotEmpty
-          ? playList.take(_fallbackContinueLimit).toList()
+          ? playList.take(_continueLimit).toList()
           : _pickContinueWatching(allItems);
 
       if (!mounted) return;
@@ -156,7 +175,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
       final playList = await api.getPlayList();
       if (!mounted) return;
       setState(() {
-        _continueWatching = playList.take(_fallbackContinueLimit).toList();
+        _continueWatching = playList.take(_continueLimit).toList();
       });
     } catch (error) {
       debugPrint('[UI][HOME] continue watching refresh failed $error');
@@ -211,9 +230,9 @@ class _MediaListScreenState extends State<MediaListScreen> {
           ..sort((a, b) => b.watchedTs.compareTo(a.watchedTs));
 
     if (watched.isNotEmpty) {
-      return watched.take(_fallbackContinueLimit).toList();
+      return watched.take(_continueLimit).toList();
     }
-    return items.take(_fallbackContinueLimit).toList();
+    return items.take(_continueLimit).toList();
   }
 
   int _summaryInt(String key, int fallback) {
@@ -302,6 +321,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
     List<String>? initialTypeTags,
   }) async {
     if (await EmbeddedDetailLauncher.openCategory(
+      context: context,
       category: category,
       initialTypeTags: initialTypeTags,
     )) {
@@ -319,7 +339,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
   }
 
   Future<void> _openFavoritesAsync() async {
-    if (await EmbeddedDetailLauncher.openFavorites()) {
+    if (await EmbeddedDetailLauncher.openFavorites(context: context)) {
       return;
     }
     if (!mounted) return;
@@ -329,7 +349,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
   }
 
   Future<void> _openSearchAsync() async {
-    if (await EmbeddedDetailLauncher.openSearch()) {
+    if (await EmbeddedDetailLauncher.openSearch(context: context)) {
       return;
     }
     if (!mounted) return;
@@ -342,6 +362,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
     if (item.guid.trim().isEmpty) return;
     if (_isPersonItem(item)) {
       if (await EmbeddedDetailLauncher.openPersonDetail(
+        context: context,
         personGuid: item.guid,
         initialName: item.displayTitle,
       )) {
@@ -362,7 +383,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
 
     final navigator = Navigator.of(context);
     final provider = context.read<NasProvider>();
-    if (await EmbeddedDetailLauncher.openItemDetail(item.guid)) {
+    if (await EmbeddedDetailLauncher.openItemDetail(item.guid, context: context)) {
       return;
     }
     if (!mounted) return;
