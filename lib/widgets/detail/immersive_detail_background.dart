@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
@@ -7,7 +8,26 @@ import 'package:palette_generator/palette_generator.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/dynamic_theme_seed_extractor.dart';
 
-final Map<String, Color?> _immersiveTintCache = <String, Color?>{};
+const int _maxImmersiveTintCacheEntries = 24;
+final LinkedHashMap<String, Color?> _immersiveTintCache =
+    LinkedHashMap<String, Color?>();
+
+Color? _cachedImmersiveTint(String url) {
+  final hadEntry = _immersiveTintCache.containsKey(url);
+  final cached = _immersiveTintCache.remove(url);
+  if (hadEntry) {
+    _immersiveTintCache[url] = cached;
+  }
+  return cached;
+}
+
+void _storeImmersiveTint(String url, Color? tint) {
+  _immersiveTintCache.remove(url);
+  _immersiveTintCache[url] = tint;
+  while (_immersiveTintCache.length > _maxImmersiveTintCacheEntries) {
+    _immersiveTintCache.remove(_immersiveTintCache.keys.first);
+  }
+}
 
 class ImmersiveDetailBackground extends StatefulWidget {
   final List<String> urls;
@@ -323,7 +343,7 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
     final url = widget.urls[_index];
     if (_tintUrl == url && _monetTint != null) return;
     if (_immersiveTintCache.containsKey(url)) {
-      final cachedTint = _immersiveTintCache[url];
+      final cachedTint = _cachedImmersiveTint(url);
       if (!mounted || _tintUrl == url && _monetTint == cachedTint) return;
       _tintUrl = url;
       setState(() => _monetTint = cachedTint);
@@ -343,11 +363,11 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
         tint = seed == null ? null : _deriveTintColor(seed.backgroundSeed);
       }
       tint ??= await _extractTintWithPalette(requestedUrl);
-      _immersiveTintCache[requestedUrl] = tint;
+      _storeImmersiveTint(requestedUrl, tint);
       if (!mounted || _tintUrl != requestedUrl) return;
       setState(() => _monetTint = tint);
     } catch (_) {
-      _immersiveTintCache[requestedUrl] = null;
+      _storeImmersiveTint(requestedUrl, null);
       if (mounted && _tintUrl == requestedUrl) {
         setState(() => _monetTint = null);
       }
@@ -403,21 +423,34 @@ class _BackgroundImage extends StatelessWidget {
     }
 
     final currentUrl = urls[index];
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final media = MediaQuery.of(context);
+        final dpr = media.devicePixelRatio.clamp(1.0, 2.2);
+        final targetWidth = constraints.hasBoundedWidth
+            ? constraints.maxWidth
+            : media.size.width;
+        final cacheWidth = (targetWidth * dpr).round().clamp(720, 2048);
 
-    return Image.network(
-      currentUrl,
-      fit: fit,
-      alignment: alignment,
-      headers: {'Authorization': token, 'Trim-MC-token': token},
-      errorBuilder: (_, error, ___) {
-        final nextUrl = index + 1 < urls.length ? urls[index + 1] : null;
-        debugPrint(
-          nextUrl != null
-              ? '[IMG][DETAIL_BG] failed url=$currentUrl error=$error -> fallback=$nextUrl'
-              : '[IMG][DETAIL_BG] failed url=$currentUrl error=$error -> no_more_fallback',
+        return Image.network(
+          currentUrl,
+          fit: fit,
+          alignment: alignment,
+          filterQuality: FilterQuality.medium,
+          gaplessPlayback: true,
+          cacheWidth: cacheWidth,
+          headers: {'Authorization': token, 'Trim-MC-token': token},
+          errorBuilder: (_, error, ___) {
+            final nextUrl = index + 1 < urls.length ? urls[index + 1] : null;
+            debugPrint(
+              nextUrl != null
+                  ? '[IMG][DETAIL_BG] failed url=$currentUrl error=$error -> fallback=$nextUrl'
+                  : '[IMG][DETAIL_BG] failed url=$currentUrl error=$error -> no_more_fallback',
+            );
+            WidgetsBinding.instance.addPostFrameCallback((_) => onErrorNext());
+            return Container(color: context.appColors.surface);
+          },
         );
-        WidgetsBinding.instance.addPostFrameCallback((_) => onErrorNext());
-        return Container(color: context.appColors.surface);
       },
     );
   }

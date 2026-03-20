@@ -1,8 +1,7 @@
 package com.geqian.flyplayer.fly_player.mpv
 
 import android.graphics.Color
-import android.view.SurfaceHolder
-import android.view.SurfaceView
+import android.view.Surface
 import android.view.View
 import android.widget.FrameLayout
 import io.flutter.plugin.common.BinaryMessenger
@@ -19,10 +18,10 @@ class MpvPlayerView(
 ) : PlatformView,
     MethodChannel.MethodCallHandler,
     EventChannel.StreamHandler,
-    SurfaceHolder.Callback {
+    VideoOutputTarget.Listener {
     private val mpv: MpvFacade = DefaultMpvFacade
     private val rootView = FrameLayout(context)
-    private val surfaceView = SurfaceView(context)
+    private val videoOutputTarget: VideoOutputTarget = TextureViewVideoOutputTarget(context)
     private val methodChannel = MethodChannel(messenger, "fly_player/mpv_view_$viewId/methods")
     private val eventChannel = EventChannel(messenger, "fly_player/mpv_view_$viewId/events")
     private var eventSink: EventChannel.EventSink? = null
@@ -39,7 +38,7 @@ class MpvPlayerView(
     )
     private val controller = MpvPlaybackController(
         context = context,
-        surfaceView = surfaceView,
+        videoOutputTarget = videoOutputTarget,
         creationParams = creationParams,
         stateListener = MpvPlaybackStateListener { state, overlayText ->
             latestState = state
@@ -49,9 +48,9 @@ class MpvPlayerView(
 
     init {
         rootView.setBackgroundColor(Color.BLACK)
-        surfaceView.holder.addCallback(this)
+        videoOutputTarget.setListener(this)
         rootView.addView(
-            surfaceView,
+            videoOutputTarget.view,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -68,9 +67,10 @@ class MpvPlayerView(
         disposed = true
         methodChannel.setMethodCallHandler(null)
         eventChannel.setStreamHandler(null)
-        surfaceView.holder.removeCallback(this)
         eventSink = null
+        videoOutputTarget.setListener(null)
         controller.dispose()
+        videoOutputTarget.release()
     }
 
     override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
@@ -90,6 +90,7 @@ class MpvPlayerView(
         }
         when (call.method) {
             "getState" -> result.success(latestState.toMap())
+            "getTrackSnapshot" -> result.success(controller.getTrackSnapshotMap())
             "getPlaybackDiagnostics" -> result.success(controller.getPlaybackDiagnosticsMap())
             "getPerformanceOverlayStats" -> result.success(controller.getPerformanceOverlayStatsMap())
             "getChapters" -> result.success(controller.getChapters())
@@ -113,12 +114,18 @@ class MpvPlayerView(
             }
             "setAudioTrack" -> {
                 val args = methodArgumentsMap(call)
-                controller.setAudioTrack(args["trackIndex"].toIntValue())
+                controller.setAudioTrack(
+                    trackIndex = args["trackIndex"].toIntValue(),
+                    trackGuid = args["trackGuid"]?.toString(),
+                )
                 result.success(null)
             }
             "setSubtitleTrack" -> {
                 val args = methodArgumentsMap(call)
-                controller.setSubtitleTrack(args["trackIndex"].toIntValue())
+                controller.setSubtitleTrack(
+                    trackIndex = args["trackIndex"].toIntValue(),
+                    trackGuid = args["trackGuid"]?.toString(),
+                )
                 result.success(null)
             }
             "setExternalSubtitleFile" -> {
@@ -177,19 +184,39 @@ class MpvPlayerView(
         }
     }
 
-    override fun surfaceCreated(holder: SurfaceHolder) {
+    override fun onSurfaceAvailable(
+        surface: Surface,
+        generation: Long,
+        width: Int,
+        height: Int,
+    ) {
         if (disposed) return
-        controller.surfaceCreated(holder)
+        controller.onVideoOutputSurfaceAvailable(
+            surface = surface,
+            generation = generation,
+            width = width,
+            height = height,
+        )
     }
 
-    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+    override fun onSurfaceSizeChanged(
+        surface: Surface,
+        generation: Long,
+        width: Int,
+        height: Int,
+    ) {
         if (disposed) return
-        controller.surfaceChanged(holder, format, width, height)
+        controller.onVideoOutputSurfaceSizeChanged(
+            surface = surface,
+            generation = generation,
+            width = width,
+            height = height,
+        )
     }
 
-    override fun surfaceDestroyed(holder: SurfaceHolder) {
+    override fun onSurfaceDestroyed(generation: Long) {
         if (disposed) return
-        controller.surfaceDestroyed(holder)
+        controller.onVideoOutputSurfaceDestroyed(generation)
     }
 
     @Suppress("UNCHECKED_CAST")

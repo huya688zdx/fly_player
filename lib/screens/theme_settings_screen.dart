@@ -3,12 +3,12 @@ import 'package:provider/provider.dart';
 
 import '../providers/app_theme_provider.dart';
 import '../theme/app_theme.dart';
-import '../widgets/settings/theme/theme_settings_color_picker_dialog.dart';
-import '../widgets/settings/theme/theme_settings_helpers.dart';
+import '../ui/app_transitions.dart';
+import '../widgets/detail/detail_more_actions_sheet.dart';
 import '../widgets/settings/theme/theme_settings_panels.dart';
 import '../widgets/settings/theme/theme_settings_preset_card.dart';
 import '../widgets/settings/theme/theme_settings_preview_card.dart';
-import '../widgets/settings/theme/theme_settings_samples.dart';
+import 'theme_custom_recipe_screen.dart';
 
 class ThemeSettingsScreen extends StatelessWidget {
   const ThemeSettingsScreen({super.key});
@@ -17,7 +17,6 @@ class ThemeSettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final provider = context.watch<AppThemeProvider>();
-    final themeColors = provider.themeColors;
 
     return Scaffold(
       backgroundColor: colors.backgroundBase,
@@ -36,52 +35,30 @@ class ThemeSettingsScreen extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
             children: <Widget>[
               ThemeSettingsPreviewCard(
-                themeTitle: provider.effectiveThemeTitle,
-                backgroundTitle: provider.usesCustomBackgroundColor
-                    ? '自定义'
-                    : provider.backgroundTone.title,
-                actionTitle: provider.usesCustomAccentColor
-                    ? '自定义'
-                    : provider.accentTone.title,
-                selectionTitle: provider.usesCustomSelectionColor
-                    ? '自定义'
-                    : provider.selectionTone.title,
-                linkTitle: provider.usesCustomLinkColor
-                    ? '自定义'
-                    : provider.linkTone.title,
-                colors: themeColors,
+                themeTitle: provider.currentThemeTitle,
+                themeSubtitle: provider.currentThemeSubtitle,
+                colors: provider.selectedThemeBaseColors,
               ),
               const SizedBox(height: 18),
               const ThemeSettingsSectionTitle(
                 title: '固定主题',
-                subtitle:
-                    '向右滑动选择整套预设。继续微调下面的颜色分类时，会自动从当前预设切到自定义主题。动态取色在下方单独控制。',
+                subtitle: '这里保留官方预设。切换后会直接作为全局主题生效，不影响你下面保存过的自定义主题。',
               ),
               const SizedBox(height: 12),
               SizedBox(
                 height: 212,
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
-                  itemCount: AppThemePreset.values.length + 1,
+                  itemCount: AppThemePreset.values.length,
                   separatorBuilder: (_, __) => const SizedBox(width: 12),
                   itemBuilder: (context, index) {
-                    if (index == 0) {
-                      return ThemeSettingsPresetCard(
-                        title: '自定义',
-                        subtitle: '当前固定主题的微调结果会落到这里，方便你继续细调。',
-                        previewColors: themeColors,
-                        selected: provider.isPresetCustomized,
-                        onTap: () {},
-                      );
-                    }
-                    final preset = AppThemePreset.values[index - 1];
+                    final preset = AppThemePreset.values[index];
                     return ThemeSettingsPresetCard(
                       title: preset.title,
                       subtitle: preset.subtitle,
                       previewColors: provider.previewColorsForPreset(preset),
                       selected:
-                          !provider.isPresetCustomized &&
-                          provider.preset == preset,
+                          provider.isPresetActive && provider.preset == preset,
                       onTap: () => provider.applyPreset(preset),
                     );
                   },
@@ -91,177 +68,175 @@ class ThemeSettingsScreen extends StatelessWidget {
               ThemeSettingsDynamicThemePanel(provider: provider),
               const SizedBox(height: 22),
               const ThemeSettingsSectionTitle(
-                title: '颜色分类控制',
-                subtitle: '每一类都会展示真实颜色和使用场景。你可以用预设色，也可以直接打开调色盘自定义。',
+                title: '自定义主题',
+                subtitle: '当前自定义用于继续调色；保存过的主题是独立预设，可应用、重命名和删除。',
               ),
               const SizedBox(height: 12),
-              ThemeSettingsControlPanel(
-                title: '背景主色',
-                subtitle:
-                    '这里决定页面底色、卡片层级、底栏和深浅氛围。奶白、浅灰、深色都可以直接切换。',
-                currentToneTitle: provider.usesCustomBackgroundColor
-                    ? '自定义'
-                    : provider.backgroundTone.title,
-                currentColor: provider.backgroundPreviewColor,
-                currentHex: themeSettingsColorHex(
-                  provider.backgroundPreviewColor,
-                ),
-                usesCustomColor: provider.usesCustomBackgroundColor,
-                sample: ThemeSettingsBackgroundSample(colors: themeColors),
-                onOpenCustomPicker: () => _pickCustomColor(
-                  context,
-                  title: '自定义背景色',
-                  initialColor:
-                      provider.customBackgroundColor ??
-                      provider.backgroundPreviewColor,
-                  quickColors: AppBackgroundTone.values
-                      .map((tone) => tone.tint)
-                      .toList(growable: false),
-                  onApply: provider.setCustomBackgroundColor,
-                ),
-                options: AppBackgroundTone.values
-                    .map(
-                      (tone) => ThemeSettingsColorOptionChip(
-                        label: tone.title,
-                        swatchColor: tone.tint,
+              _CurrentCustomThemeCard(provider: provider),
+              if (provider.savedThemes.isNotEmpty) ...<Widget>[
+                const SizedBox(height: 14),
+                SizedBox(
+                  height: 212,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: provider.savedThemes.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 12),
+                    itemBuilder: (context, index) {
+                      final savedTheme = provider.savedThemes[index];
+                      return _SavedThemeCard(
+                        theme: savedTheme,
                         selected:
-                            !provider.usesCustomBackgroundColor &&
-                            provider.backgroundTone == tone,
-                        onTap: () => provider.setBackgroundTone(tone),
-                      ),
-                    )
-                    .toList(growable: false),
-              ),
-              const SizedBox(height: 14),
-              ThemeSettingsControlPanel(
-                title: '主操作色',
-                subtitle: '主按钮、进度条、开关、确认动作都会跟着变化。',
-                currentToneTitle: provider.usesCustomAccentColor
-                    ? '自定义'
-                    : provider.accentTone.title,
-                currentColor: provider.accentPreviewColor,
-                currentHex: themeSettingsColorHex(provider.accentPreviewColor),
-                usesCustomColor: provider.usesCustomAccentColor,
-                sample: ThemeSettingsActionSample(colors: themeColors),
-                onOpenCustomPicker: () => _pickCustomColor(
-                  context,
-                  title: '自定义主操作色',
-                  initialColor:
-                      provider.customAccentColor ?? provider.accentPreviewColor,
-                  quickColors: AppAccentTone.values
-                      .map((tone) => tone.color)
-                      .toList(growable: false),
-                  onApply: provider.setCustomAccentColor,
+                            provider.isSavedThemeActive &&
+                            provider.activeSavedThemeId == savedTheme.id,
+                      );
+                    },
+                  ),
                 ),
-                options: AppAccentTone.values
-                    .map(
-                      (tone) => ThemeSettingsColorOptionChip(
-                        label: tone.title,
-                        swatchColor: tone.color,
-                        selected:
-                            !provider.usesCustomAccentColor &&
-                            provider.accentTone == tone,
-                        onTap: () => provider.setAccentTone(tone),
-                      ),
-                    )
-                    .toList(growable: false),
-              ),
-              const SizedBox(height: 14),
-              ThemeSettingsControlPanel(
-                title: '选中色',
-                subtitle: '标签选中态、已选边框和高亮卡片都会跟着变化。',
-                currentToneTitle: provider.usesCustomSelectionColor
-                    ? '自定义'
-                    : provider.selectionTone.title,
-                currentColor: provider.selectionPreviewColor,
-                currentHex: themeSettingsColorHex(
-                  provider.selectionPreviewColor,
-                ),
-                usesCustomColor: provider.usesCustomSelectionColor,
-                sample: ThemeSettingsSelectionSample(colors: themeColors),
-                onOpenCustomPicker: () => _pickCustomColor(
-                  context,
-                  title: '自定义选中色',
-                  initialColor:
-                      provider.customSelectionColor ??
-                      provider.selectionPreviewColor,
-                  quickColors: AppAccentTone.values
-                      .map((tone) => tone.color)
-                      .toList(growable: false),
-                  onApply: provider.setCustomSelectionColor,
-                ),
-                options: AppAccentTone.values
-                    .map(
-                      (tone) => ThemeSettingsColorOptionChip(
-                        label: tone.title,
-                        swatchColor: tone.color,
-                        selected:
-                            !provider.usesCustomSelectionColor &&
-                            provider.selectionTone == tone,
-                        onTap: () => provider.setSelectionTone(tone),
-                      ),
-                    )
-                    .toList(growable: false),
-              ),
-              const SizedBox(height: 14),
-              ThemeSettingsControlPanel(
-                title: '链接高亮色',
-                subtitle: '“更多”、文字链接和轻量跳转提示都会跟着变化。',
-                currentToneTitle: provider.usesCustomLinkColor
-                    ? '自定义'
-                    : provider.linkTone.title,
-                currentColor: provider.linkPreviewColor,
-                currentHex: themeSettingsColorHex(provider.linkPreviewColor),
-                usesCustomColor: provider.usesCustomLinkColor,
-                sample: ThemeSettingsLinkSample(colors: themeColors),
-                onOpenCustomPicker: () => _pickCustomColor(
-                  context,
-                  title: '自定义链接色',
-                  initialColor:
-                      provider.customLinkColor ?? provider.linkPreviewColor,
-                  quickColors: AppAccentTone.values
-                      .map((tone) => tone.strongColor)
-                      .toList(growable: false),
-                  onApply: provider.setCustomLinkColor,
-                ),
-                options: AppAccentTone.values
-                    .map(
-                      (tone) => ThemeSettingsColorOptionChip(
-                        label: tone.title,
-                        swatchColor: tone.strongColor,
-                        selected:
-                            !provider.usesCustomLinkColor &&
-                            provider.linkTone == tone,
-                        onTap: () => provider.setLinkTone(tone),
-                      ),
-                    )
-                    .toList(growable: false),
-              ),
-              const SizedBox(height: 16),
-              ThemeSettingsRecipePanel(provider: provider),
+              ] else ...<Widget>[
+                const SizedBox(height: 14),
+                _EmptySavedThemesCard(),
+              ],
             ],
           ),
         ),
       ),
     );
   }
+}
 
-  static Future<void> _pickCustomColor(
-    BuildContext context, {
-    required String title,
-    required Color initialColor,
-    required List<Color> quickColors,
-    required Future<void> Function(Color value) onApply,
-  }) async {
-    final result = await showDialog<Color>(
-      context: context,
-      builder: (_) => ThemeSettingsColorPickerDialog(
-        title: title,
-        initialColor: initialColor,
-        quickColors: quickColors,
-      ),
+class _CurrentCustomThemeCard extends StatelessWidget {
+  final AppThemeProvider provider;
+
+  const _CurrentCustomThemeCard({required this.provider});
+
+  @override
+  Widget build(BuildContext context) {
+    return ThemeSettingsPresetCard(
+      title: '当前自定义',
+      subtitle: '进入三级菜单继续编辑颜色分类控制和当前配方。',
+      previewColors: provider.themeColors,
+      selected: provider.isCurrentCustomActive,
+      onTap: () async {
+        await provider.activateCurrentCustomTheme();
+        if (!context.mounted) {
+          return;
+        }
+        await Navigator.of(context).push(
+          AppTransitions.leftToRightPageTurnRoute<void>(
+            const ThemeCustomRecipeScreen(),
+          ),
+        );
+      },
     );
-    if (result == null) return;
-    await onApply(result);
   }
 }
+
+class _SavedThemeCard extends StatelessWidget {
+  final SavedCustomTheme theme;
+  final bool selected;
+
+  const _SavedThemeCard({required this.theme, required this.selected});
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.read<AppThemeProvider>();
+    return SizedBox(
+      width: 232,
+      child: Stack(
+        children: <Widget>[
+          ThemeSettingsPresetCard(
+            title: theme.name,
+            subtitle: theme.description.trim().isEmpty
+                ? '已保存主题'
+                : theme.description,
+            previewColors: theme.colorsSnapshot,
+            selected: selected,
+            onTap: () => provider.applySavedTheme(theme.id),
+          ),
+          Positioned(
+            top: 10,
+            right: 10,
+            child: PopupMenuButton<_SavedThemeMenuAction>(
+              icon: Icon(
+                Icons.more_horiz_rounded,
+                color: context.appColors.textSecondary,
+                size: 18,
+              ),
+              onSelected: (action) async {
+                if (action == _SavedThemeMenuAction.rename) {
+                  final result = await showSaveThemeDialog(
+                    context,
+                    initialName: theme.name,
+                    initialDescription: theme.description,
+                    existingThemeId: theme.id,
+                  );
+                  if (result == null) {
+                    return;
+                  }
+                  await provider.renameSavedTheme(
+                    theme.id,
+                    name: result.name,
+                    description: result.description,
+                  );
+                  return;
+                }
+                await provider.deleteSavedTheme(theme.id);
+              },
+              itemBuilder: (context) =>
+                  const <PopupMenuEntry<_SavedThemeMenuAction>>[
+                    PopupMenuItem<_SavedThemeMenuAction>(
+                      value: _SavedThemeMenuAction.rename,
+                      child: Text('重命名'),
+                    ),
+                    PopupMenuItem<_SavedThemeMenuAction>(
+                      value: _SavedThemeMenuAction.delete,
+                      child: Text('删除'),
+                    ),
+                  ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptySavedThemesCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: colors.borderSubtle),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            '还没有已保存主题',
+            style: TextStyle(
+              color: colors.textPrimary,
+              fontSize: 15.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '去详情页右上角三点，使用“保存当前主题”把喜欢的取色存下来。',
+            style: TextStyle(
+              color: colors.textSecondary,
+              fontSize: 13.2,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+enum _SavedThemeMenuAction { rename, delete }

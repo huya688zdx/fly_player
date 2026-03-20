@@ -66,9 +66,23 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
     return '正常';
   }
 
-  String _areaLabel(double ratio) => '${(ratio * 100).round()}%';
+  String _areaLabel(double ratio) {
+    if (ratio <= 0.10) return '1/10屏';
+    if (ratio <= 0.25) return '1/4屏';
+    if (ratio <= 0.5) return '半屏';
+    if (ratio <= 0.75) return '3/4屏';
+    return '全屏';
+  }
 
   String _percentLabel(double value) => '${(value * 100).round()}%';
+
+  String _fontScaleLabel(double value) {
+    if (value < 0.8) return '较小';
+    if (value < 0.95) return '偏小';
+    if (value <= 1.05) return '标准';
+    if (value < 1.2) return '偏大';
+    return '较大';
+  }
 
   Future<void> _openDanmakuManager() async {
     await Navigator.of(context).push(
@@ -200,9 +214,9 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                             title: '显示区域',
                             valueLabel: _areaLabel(_settings.displayAreaRatio),
                             value: _settings.displayAreaRatio,
-                            min: 0.25,
+                            min: 0.1,
                             max: 1.0,
-                            divisions: 3,
+                            divisions: 4,
                             onChanged: (value) {
                               setState(() {
                                 _settings = _settings.copyWith(
@@ -235,8 +249,25 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                           ),
                           const _DanmakuDivider(),
                           _DanmakuSliderTile(
+                            title: '弹幕密度',
+                            valueLabel: _percentLabel(_settings.density),
+                            value: _settings.density,
+                            min: 0.2,
+                            max: 1.0,
+                            divisions: 8,
+                            onChanged: (value) {
+                              setState(() {
+                                _settings = _settings.copyWith(density: value);
+                              });
+                            },
+                            onChangeEnd: (value) {
+                              _save(_settings.copyWith(density: value));
+                            },
+                          ),
+                          const _DanmakuDivider(),
+                          _DanmakuSliderTile(
                             title: '字体大小',
-                            valueLabel: _percentLabel(_settings.fontScale),
+                            valueLabel: _fontScaleLabel(_settings.fontScale),
                             value: _settings.fontScale,
                             min: 0.6,
                             max: 1.4,
@@ -427,11 +458,12 @@ class _DanmakuCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    return DecoratedBox(
-      decoration: BoxDecoration(
+    return Material(
+      color: colors.surfaceSubtle,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(24),
-        color: colors.surfaceSubtle,
-        border: Border.all(color: colors.borderSubtle),
+        side: BorderSide(color: colors.borderSubtle),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),

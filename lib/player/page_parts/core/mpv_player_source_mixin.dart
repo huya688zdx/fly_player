@@ -120,6 +120,9 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
 
   int? _mpvAudioTrackId(AudioTrackOption? track) {
     if (track == null) return null;
+    if (track.guid.startsWith('mpv-audio:') && track.index > 0) {
+      return track.index;
+    }
     final ordinal = _audioTracks.indexWhere((item) => item.guid == track.guid);
     if (ordinal < 0) return null;
     return ordinal + 1;
@@ -127,6 +130,9 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
 
   int? _mpvSubtitleTrackId(SubtitleTrackOption? track) {
     if (track == null) return null;
+    if (track.guid.startsWith('mpv-subtitle:') && track.index > 0) {
+      return track.index;
+    }
     final embeddedTracks = _subtitleTracks
         .where((item) {
           if (item.guid.trim().isEmpty) return false;
@@ -204,7 +210,7 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
   }
 
   String _selectedQualityId() {
-    final visibleQualities = _visibleQualityOptionsForCurrentMode();
+    final visibleQualities = _displayQualityOptionsForCurrentMode();
     for (final quality in visibleQualities) {
       if (_currentDirectLinkQualityIndex != null &&
           quality.directLinkQualityIndex == _currentDirectLinkQualityIndex) {
@@ -307,6 +313,55 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
       visible.add(quality);
     }
     return visible.isNotEmpty ? visible : _qualities;
+  }
+
+  List<PlaybackQualityOption> _displayQualityOptionsForCurrentMode() {
+    final visible = _visibleQualityOptionsForCurrentMode();
+    if (visible.length <= 1) return visible;
+    final deduped = <String, PlaybackQualityOption>{};
+    for (final quality in visible) {
+      final key = _qualityDisplayDedupKey(quality);
+      final existing = deduped[key];
+      if (existing == null ||
+          _shouldPreferDisplayedQuality(quality, existing)) {
+        deduped[key] = quality;
+      }
+    }
+    return deduped.values.toList(growable: false);
+  }
+
+  String _qualityDisplayDedupKey(PlaybackQualityOption quality) {
+    final normalizedResolution = _normalizeQualityResolution(
+      quality.resolution,
+    );
+    final fallbackLabel = _qualityLabel(quality).trim().toLowerCase();
+    return '${normalizedResolution.isNotEmpty ? normalizedResolution : fallbackLabel}|${quality.bitrate}';
+  }
+
+  bool _shouldPreferDisplayedQuality(
+    PlaybackQualityOption candidate,
+    PlaybackQualityOption current,
+  ) {
+    if (candidate.isOriginalProxy != current.isOriginalProxy) {
+      return candidate.isOriginalProxy;
+    }
+    if ((candidate.isDefault == 1) != (current.isDefault == 1)) {
+      return candidate.isDefault == 1;
+    }
+    final candidateResolution = int.tryParse(
+      _normalizeQualityResolution(candidate.resolution),
+    );
+    final currentResolution = int.tryParse(
+      _normalizeQualityResolution(current.resolution),
+    );
+    if (candidateResolution != currentResolution) {
+      return (candidateResolution ?? -1) > (currentResolution ?? -1);
+    }
+    if (candidate.bitrate != current.bitrate) {
+      return candidate.bitrate > current.bitrate;
+    }
+    return _qualityLabel(candidate).trim().length <
+        _qualityLabel(current).trim().length;
   }
 
   PlaybackQualityOption? _originalQualityOption() {

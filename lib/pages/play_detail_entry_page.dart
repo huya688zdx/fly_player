@@ -50,10 +50,6 @@ class _PlayDetailEntryPageState extends State<PlayDetailEntryPage> {
       _itemDetail = initial;
       _mode = _resolveMode(initial);
       _loading = false;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _load(silent: true);
-      });
       return;
     }
     WidgetsBinding.instance.addPostFrameCallback((_) async {

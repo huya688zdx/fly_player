@@ -6,9 +6,7 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
   String _danmakuSummaryText() => _danmakuController.summaryText;
 
   String _danmakuSourcePriorityLabel() {
-    return _danmakuController.settings.preferLocalSource
-        ? '本地优先'
-        : '网络优先';
+    return _danmakuController.settings.preferLocalSource ? '本地优先' : '网络优先';
   }
 
   String _danmakuOpacityLabel() {
@@ -16,19 +14,29 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
     return '$percent%';
   }
 
-  String _danmakuFontScaleLabel() {
-    final percent = (_danmakuController.settings.fontScale * 100).round();
+  String _danmakuDensityLabel() {
+    final percent = (_danmakuController.settings.density * 100).round();
     return '$percent%';
   }
 
+  String _danmakuFontScaleLabel() {
+    final scale = _danmakuController.settings.fontScale;
+    if (scale < 0.8) return '较小';
+    if (scale < 0.95) return '偏小';
+    if (scale <= 1.05) return '标准';
+    if (scale < 1.2) return '偏大';
+    return '较大';
+  }
+
   String _danmakuAreaLabel() {
-    final percent =
-        (_nearestDanmakuAreaPreset(
-                  _danmakuController.settings.displayAreaRatio,
-                ) *
-                100)
-            .round();
-    return '$percent%';
+    final ratio = _nearestDanmakuAreaPreset(
+      _danmakuController.settings.displayAreaRatio,
+    );
+    if (ratio <= 0.10) return '1/10屏';
+    if (ratio <= 0.25) return '1/4屏';
+    if (ratio <= 0.5) return '半屏';
+    if (ratio <= 0.75) return '3/4屏';
+    return '全屏';
   }
 
   String _danmakuSpeedLabel() {
@@ -58,9 +66,9 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
       await _tryLoadPreferredDanmakuSource();
     }
     if (!mounted) return;
-    _showTopTip(
+    _showStatusMessage(
       nextEnabled ? '弹幕已开启' : '弹幕已关闭',
-      nextEnabled ? context.appColors.success : context.appColors.warning,
+      hideAfter: const Duration(milliseconds: 1400),
     );
   }
 
@@ -87,6 +95,12 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
   Future<void> _setDanmakuOpacity(double value) {
     return _updateDanmakuSettings(
       (current) => current.copyWith(opacity: value.clamp(0.2, 1.0)),
+    );
+  }
+
+  Future<void> _setDanmakuDensity(double value) {
+    return _updateDanmakuSettings(
+      (current) => current.copyWith(density: value.clamp(0.2, 1.0)),
     );
   }
 

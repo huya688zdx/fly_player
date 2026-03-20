@@ -12,6 +12,7 @@ class DanmakuSettings {
   final bool avoidSubtitleArea;
   final bool avoidCenterArea;
   final double opacity;
+  final double density;
   final double fontScale;
   final double speed;
   final double displayAreaRatio;
@@ -28,6 +29,7 @@ class DanmakuSettings {
     required this.avoidSubtitleArea,
     required this.avoidCenterArea,
     required this.opacity,
+    required this.density,
     required this.fontScale,
     required this.speed,
     required this.displayAreaRatio,
@@ -45,6 +47,7 @@ class DanmakuSettings {
     avoidSubtitleArea: true,
     avoidCenterArea: true,
     opacity: 0.85,
+    density: 1.0,
     fontScale: 1.0,
     speed: 1.0,
     displayAreaRatio: 0.50,
@@ -62,6 +65,7 @@ class DanmakuSettings {
     bool? avoidSubtitleArea,
     bool? avoidCenterArea,
     double? opacity,
+    double? density,
     double? fontScale,
     double? speed,
     double? displayAreaRatio,
@@ -78,6 +82,7 @@ class DanmakuSettings {
       avoidSubtitleArea: avoidSubtitleArea ?? this.avoidSubtitleArea,
       avoidCenterArea: avoidCenterArea ?? this.avoidCenterArea,
       opacity: opacity ?? this.opacity,
+      density: density ?? this.density,
       fontScale: fontScale ?? this.fontScale,
       speed: speed ?? this.speed,
       displayAreaRatio: displayAreaRatio ?? this.displayAreaRatio,
@@ -97,6 +102,7 @@ class DanmakuSettings {
       'avoidSubtitleArea': avoidSubtitleArea,
       'avoidCenterArea': avoidCenterArea,
       'opacity': opacity,
+      'density': density,
       'fontScale': fontScale,
       'speed': speed,
       'displayAreaRatio': displayAreaRatio,
@@ -125,6 +131,7 @@ class DanmakuSettings {
       avoidSubtitleArea: json['avoidSubtitleArea'] != false,
       avoidCenterArea: json['avoidCenterArea'] != false,
       opacity: _readDouble(json['opacity'], defaults.opacity),
+      density: _readDouble(json['density'], defaults.density),
       fontScale: _readDouble(json['fontScale'], defaults.fontScale),
       speed: _readDouble(json['speed'], defaults.speed),
       displayAreaRatio: _readDouble(

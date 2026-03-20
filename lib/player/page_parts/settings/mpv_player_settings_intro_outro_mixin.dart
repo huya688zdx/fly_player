@@ -428,7 +428,7 @@ extension _MpvPlayerSettingsIntroOutroMixin on _MpvPlayerPageState {
       case _MpvPlayerPageState._introOutroSourceModeChapter:
       return '章节判断';
       default:
-        return '宸插叧闂?';
+        return '已关闭';
     }
   }
 

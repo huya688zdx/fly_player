@@ -12,6 +12,7 @@ import '../models/media_item.dart';
 import '../models/media_library_item.dart';
 import '../providers/app_theme_provider.dart';
 import '../providers/nas_provider.dart';
+import '../services/download_task_service.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../services/parallel_browse_snapshot.dart';
 import '../theme/app_theme.dart';
@@ -22,6 +23,7 @@ import '../ui/media_poster_card.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/app_confirm_dialog.dart';
 import '../utils/app_exception.dart';
+import '../utils/app_top_tip.dart';
 import '../utils/media_locale_store.dart';
 import '../utils/media_locale_text.dart';
 import '../widgets/common/app_action_sheet.dart';
@@ -86,6 +88,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(DownloadTaskService.instance.initialize());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(
         EmbeddedDetailLauncher.reportBrowseSnapshot(
@@ -172,7 +175,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
 
     try {
       final api = FeiniuApi(provider);
-      final playList = await api.getPlayList();
+      final playList = await api.getPlayList(forceRefresh: true);
       if (!mounted) return;
       setState(() {
         _continueWatching = playList.take(_continueLimit).toList();
@@ -184,15 +187,11 @@ class _MediaListScreenState extends State<MediaListScreen> {
 
   void _showHomeSnackBar(String message, {Color? backgroundColor}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor: backgroundColor ?? const Color(0xFF1E2834),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+    AppTopTip().show(
+      context,
+      message: message,
+      color: backgroundColor ?? context.appColors.success,
+    );
   }
 
   void _replaceItemLocally(
@@ -383,7 +382,10 @@ class _MediaListScreenState extends State<MediaListScreen> {
 
     final navigator = Navigator.of(context);
     final provider = context.read<NasProvider>();
-    if (await EmbeddedDetailLauncher.openItemDetail(item.guid, context: context)) {
+    if (await EmbeddedDetailLauncher.openItemDetail(
+      item.guid,
+      context: context,
+    )) {
       return;
     }
     if (!mounted) return;

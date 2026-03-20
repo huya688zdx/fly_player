@@ -14,6 +14,7 @@ class PlayActionBar extends StatelessWidget {
   final bool primaryEnabled;
   final bool liked;
   final bool watched;
+  final bool downloaded;
   final VoidCallback? onPrimaryTap;
   final VoidCallback? onLikeTap;
   final VoidCallback? onDownloadTap;
@@ -28,6 +29,7 @@ class PlayActionBar extends StatelessWidget {
     required this.primaryEnabled,
     required this.liked,
     required this.watched,
+    this.downloaded = false,
     this.onPrimaryTap,
     this.onLikeTap,
     this.onDownloadTap,
@@ -96,6 +98,7 @@ class PlayActionBar extends StatelessWidget {
           primaryEnabled: primaryEnabled,
           liked: liked,
           watched: watched,
+          downloaded: downloaded,
           onPrimaryTap: onPrimaryTap,
           onLikeTap: onLikeTap,
           onDownloadTap: onDownloadTap,

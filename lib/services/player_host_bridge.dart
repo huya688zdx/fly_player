@@ -10,10 +10,9 @@ class PlayerHostBridge {
 
   static Future<PlayerHostLaunchArgs?> consumeInitialPlayerArgs() async {
     try {
-      final result =
-          await _channel.invokeMapMethod<Object?, Object?>(
-            'consumeInitialPlayerArgs',
-          );
+      final result = await _channel.invokeMapMethod<Object?, Object?>(
+        'consumeInitialPlayerArgs',
+      );
       if (result == null) return null;
       return PlayerHostLaunchArgs.fromPlatformMap(result);
     } on PlatformException {
@@ -25,9 +24,10 @@ class PlayerHostBridge {
     PlayDetailPlayerReturnData result,
   ) async {
     try {
-      return await _channel.invokeMethod<bool>('finishPlayerActivity', <String, Object?>{
-            'result': result.toMap(),
-          }) ??
+      return await _channel.invokeMethod<bool>(
+            'finishPlayerActivity',
+            <String, Object?>{'result': result.toMap()},
+          ) ??
           false;
     } on PlatformException {
       return false;
@@ -41,12 +41,22 @@ class PlayerHostBridge {
     required PlayDetailPlayerReturnData result,
   }) async {
     try {
-      return await _channel.invokeMethod<bool>('switchPlayerLayoutMode', <String, Object?>{
-            'title': title,
-            'source': source,
-            'targetMode': targetMode,
-            'result': result.toMap(),
-          }) ??
+      return await _channel
+              .invokeMethod<bool>('switchPlayerLayoutMode', <String, Object?>{
+                'title': title,
+                'source': source,
+                'targetMode': targetMode,
+                'result': result.toMap(),
+              }) ??
+          false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  static Future<bool> isSystemMultiWindowActive() async {
+    try {
+      return await _channel.invokeMethod<bool>('isSystemMultiWindowActive') ??
           false;
     } on PlatformException {
       return false;

@@ -721,8 +721,13 @@ class PlayerSourceController {
   static String _resolvePlayableUrl(FeiniuApi api, String pathOrUrl) {
     final raw = pathOrUrl.trim();
     if (raw.isEmpty) return '';
-    if (raw.startsWith('http://') || raw.startsWith('https://')) {
+    if (raw.startsWith('http://') ||
+        raw.startsWith('https://') ||
+        raw.startsWith('file://')) {
       return raw;
+    }
+    if (raw.startsWith('/') || RegExp(r'^[A-Za-z]:[\\/]').hasMatch(raw)) {
+      return Uri.file(raw, windows: Platform.isWindows).toString();
     }
     return ApiUrlHelper.apiUrl(api.nasProvider.baseUrl, raw);
   }

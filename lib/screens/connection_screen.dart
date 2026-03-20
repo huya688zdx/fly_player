@@ -15,6 +15,7 @@ import '../utils/app_exception.dart';
 import '../utils/detail_top_tip.dart';
 import '../utils/media_locale_store.dart';
 import '../services/login_history_store.dart';
+import 'download_list_screen.dart';
 import 'fn_connect_web_login_page.dart';
 
 class ConnectionScreen extends StatefulWidget {
@@ -270,6 +271,15 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       _rememberPassword = selected.rememberPassword;
       _useHttps = _looksLikeHttps(selected.baseUrl);
     });
+  }
+
+  Future<void> _openDownloadedData() async {
+    await Navigator.of(context).push(
+      AppTransitions.leftToRightPageTurnRoute<void>(
+        const DownloadListScreen(),
+        fullscreenDialog: true,
+      ),
+    );
   }
 
   Future<FnConnectWebLoginPageResult?> _tryFnConnectWebFallback({
@@ -595,6 +605,26 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                                 : Text(
                                     _t(_localeMap, 'auth.login.login', '登录'),
                                   ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Center(
+                          child: TextButton(
+                            onPressed: _openDownloadedData,
+                            style: TextButton.styleFrom(
+                              foregroundColor: const Color(0xFF8FA6C7),
+                              minimumSize: Size.zero,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 6,
+                              ),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              textStyle: theme.textTheme.bodySmall?.copyWith(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            child: const Text('查看已下载数据'),
                           ),
                         ),
                       ],

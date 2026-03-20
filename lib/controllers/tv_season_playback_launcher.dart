@@ -197,7 +197,13 @@ class TvSeasonPlaybackLauncher {
       return embeddedResult.data;
     }
     final result = await navigator.push(
-      AppTransitions.playerRoute(MpvPlayerPage(title: title, source: source)),
+      AppTransitions.playerRoute(
+        MpvPlayerPage(
+          title: title,
+          source: source,
+          initialPlayInfo: playInfo,
+        ),
+      ),
     );
     return result is PlayDetailPlayerReturnData ? result : null;
   }

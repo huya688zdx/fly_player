@@ -18,6 +18,7 @@ class TrackSelectionController(
     private var pendingSubtitleGuid: String? = null
 
     fun onLoadRequested(source: MpvSource) {
+        purgeExternalSubtitleTracks()
         pendingPlaybackSpeed = source.playbackSpeed
         pendingAudioTrackIndex = source.audioTrackIndex
         pendingSubtitleTrackIndex = source.subtitleTrackIndex
@@ -34,6 +35,7 @@ class TrackSelectionController(
     fun onSubtitleTrackSelectedManually() {
         pendingExternalSubtitlePath = null
         activeExternalSubtitlePath = null
+        purgeExternalSubtitleTracks()
     }
 
     fun onFileLoaded() {
@@ -59,7 +61,11 @@ class TrackSelectionController(
             runCatching { mpv.setPropertyInt("aid", index.toLong()) }
         }
         when {
-            pendingPreferExternalSubtitle -> runCatching {
+            pendingPreferExternalSubtitle &&
+                pendingExternalSubtitlePath?.isNotBlank() == true -> runCatching {
+                // Only disable the current subtitle track when an external file is
+                // actually ready to be mounted. Otherwise the UI may still show the
+                // selected subtitle while mpv has already been forced to sid=no.
                 mpv.setPropertyString("sid", "no")
             }
             pendingSubtitleTrackIndex != null -> runCatching {
@@ -83,7 +89,12 @@ class TrackSelectionController(
 
     fun applyPendingExternalSubtitle(): Boolean {
         val path = pendingExternalSubtitlePath?.takeIf { it.isNotBlank() } ?: return false
+        if (activeExternalSubtitlePath == path) {
+            pendingExternalSubtitlePath = null
+            return true
+        }
         val success = runCatching {
+            purgeExternalSubtitleTracks()
             Log.d("FlyPlayerMpv", "sub-add path=$path")
             runCatching {
                 mpv.setPropertyString("sid", "no")
@@ -138,11 +149,54 @@ class TrackSelectionController(
     }
 
     fun reset() {
+        purgeExternalSubtitleTracks()
         pendingExternalSubtitlePath = null
         activeExternalSubtitlePath = null
         pendingAudioTrackIndex = null
         pendingSubtitleTrackIndex = null
         pendingPreferExternalSubtitle = false
         pendingSubtitleGuid = null
+    }
+
+    private fun purgeExternalSubtitleTracks() {
+        val count = runCatching { mpv.getPropertyInt("track-list/count") }
+            .getOrDefault(0L)
+            .coerceIn(0L, 64L)
+            .toInt()
+        if (count <= 0) return
+        val externalIds = mutableListOf<Int>()
+        for (index in 0 until count) {
+            val type = runCatching { mpv.getPropertyString("track-list/$index/type") }
+                .getOrNull()
+                ?.trim()
+                ?.lowercase()
+                ?: continue
+            if (type != "sub") continue
+            val externalPath = runCatching {
+                mpv.getPropertyString("track-list/$index/external-filename")
+            }
+                .getOrNull()
+                ?.trim()
+                .orEmpty()
+            val external = externalPath.isNotEmpty() ||
+                (runCatching { mpv.getPropertyString("track-list/$index/external") }
+                    .getOrNull()
+                    ?.trim()
+                    ?.lowercase()
+                    ?.let { it == "yes" || it == "true" || it == "1" }
+                    ?: false)
+            if (!external) continue
+            val trackId = runCatching { mpv.getPropertyInt("track-list/$index/id") }
+                .getOrDefault(0L)
+                .toInt()
+            if (trackId > 0) {
+                externalIds += trackId
+            }
+        }
+        for (trackId in externalIds) {
+            runCatching {
+                mpv.command(arrayOf("sub-remove", trackId.toString()))
+            }
+        }
     }
 }

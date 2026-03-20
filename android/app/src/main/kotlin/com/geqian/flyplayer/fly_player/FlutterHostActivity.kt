@@ -11,6 +11,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.provider.DocumentsContract
 import android.provider.Settings
 import android.util.Log
 import androidx.core.app.ActivityCompat
@@ -31,22 +32,35 @@ abstract class FlutterHostActivity : FlutterActivity() {
         get() = javaClass.simpleName
 
     private var pendingStoragePermissionResult: MethodChannel.Result? = null
+    private var pendingScopedTreeAccessResult: MethodChannel.Result? = null
+    private var awaitingManageStorageAccessResult = false
     private var pendingPlayerResult: MethodChannel.Result? = null
+    private val scopedTreeAccessController by lazy {
+        ScopedTreeAccessController(applicationContext)
+    }
     protected var systemChannel: MethodChannel? = null
     protected var detailHostChannel: MethodChannel? = null
     protected var playerHostStateChannel: MethodChannel? = null
     protected var runtimeThemeSyncChannel: MethodChannel? = null
+    protected var sessionStateChannel: MethodChannel? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ParallelWindowCoordinator.restoreFromPreferences(this)
         ActivityEmbeddingInstaller.install(this)
         applyParallelWindowImmersiveMode()
+        notifyPlayerHostSystemWindowMode()
     }
 
     override fun onResume() {
         super.onResume()
         applyParallelWindowImmersiveMode()
+        notifyPlayerHostSystemWindowMode()
+        if (awaitingManageStorageAccessResult) {
+            awaitingManageStorageAccessResult = false
+            pendingStoragePermissionResult?.success(hasFileAccess())
+            pendingStoragePermissionResult = null
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -59,12 +73,14 @@ abstract class FlutterHostActivity : FlutterActivity() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         applyParallelWindowImmersiveMode()
+        notifyPlayerHostSystemWindowMode()
     }
 
     override fun onDestroy() {
         PlaybackSessionCoordinator.detachHost(this)
         systemChannel = null
         runtimeThemeSyncChannel = null
+        sessionStateChannel = null
         super.onDestroy()
     }
 
@@ -115,6 +131,11 @@ abstract class FlutterHostActivity : FlutterActivity() {
                 "playerSessionStart",
                 "playerSessionUpdate",
                 -> {
+                    if (PlaybackSessionCoordinator.areSessionUpdatesBlocked()) {
+                        Log.d(logTag, "ignore ${call.method} because session updates are blocked")
+                        result.success(false)
+                        return@setMethodCallHandler
+                    }
                     val payload = PlaybackSessionPayload.fromArguments(call.arguments)
                     if (payload == null) {
                         result.success(false)
@@ -139,10 +160,69 @@ abstract class FlutterHostActivity : FlutterActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
             "fly_player/storage",
         ).setMethodCallHandler { call, result ->
+            val storageController = StorageManagementController(applicationContext)
             when (call.method) {
                 "hasFileAccess" -> result.success(hasFileAccess())
                 "requestFileAccess" -> requestFileAccess(result)
+                "openFileAccessSettings" -> result.success(openFileAccessSettings())
                 "getPrimaryStorageRoot" -> result.success(primaryStorageRoot())
+                "getScopedTreeRoot" -> result.success(scopedTreeAccessController.grantedRoot())
+                "requestScopedTreeAccess" -> requestScopedTreeAccess(result)
+                "listScopedTreeEntries" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val allowedExtensions =
+                        (call.argument<List<*>>("allowedExtensions") ?: emptyList<Any?>())
+                            .mapNotNull { it?.toString() }
+                    result.success(
+                        scopedTreeAccessController.listEntries(
+                            directoryId = call.argument<String>("directoryId"),
+                            allowedExtensions = allowedExtensions,
+                        ),
+                    )
+                }
+                "readScopedFileBytes" -> {
+                    val identifier = call.argument<String>("identifier").orEmpty()
+                    result.success(scopedTreeAccessController.readFileBytes(identifier))
+                }
+                "getStorageOverview" -> {
+                    result.success(storageController.loadOverview(hasFileAccess()))
+                }
+                "clearStorageAction" -> {
+                    val action = call.argument<String>("action").orEmpty()
+                    result.success(storageController.clear(action, hasFileAccess()))
+                }
+                "queryCachedDownloadable" -> {
+                    result.success(
+                        storageController.queryCachedDownloadable(
+                            itemGuid = call.argument<String>("itemGuid").orEmpty(),
+                            mediaGuid = call.argument<String>("mediaGuid").orEmpty(),
+                            videoGuid = call.argument<String>("videoGuid").orEmpty(),
+                            resourceKey = call.argument<String>("resourceKey").orEmpty(),
+                        ),
+                    )
+                }
+                "promoteCachedMedia" -> {
+                    result.success(
+                        storageController.promoteCachedMedia(
+                            itemGuid = call.argument<String>("itemGuid").orEmpty(),
+                            mediaGuid = call.argument<String>("mediaGuid").orEmpty(),
+                            videoGuid = call.argument<String>("videoGuid").orEmpty(),
+                            resourceKey = call.argument<String>("resourceKey").orEmpty(),
+                            targetMode = call.argument<String>("targetMode").orEmpty(),
+                            hasFileAccess = hasFileAccess(),
+                        ),
+                    )
+                }
+                "listPlaybackCacheEntries" -> {
+                    result.success(storageController.listPlaybackCacheEntries())
+                }
+                "clearPlaybackCacheEntries" -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val resourceKeys =
+                        (call.argument<List<*>>("resourceKeys") ?: emptyList<Any?>())
+                            .mapNotNull { it?.toString() }
+                    result.success(storageController.clearPlaybackCacheEntries(resourceKeys))
+                }
                 else -> result.notImplemented()
             }
         }
@@ -193,6 +273,12 @@ abstract class FlutterHostActivity : FlutterActivity() {
                     }
                 }
             }
+
+        sessionStateChannel =
+            MethodChannel(
+                flutterEngine.dartExecutor.binaryMessenger,
+                "fly_player/session_state",
+            )
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -302,6 +388,9 @@ abstract class FlutterHostActivity : FlutterActivity() {
                         ),
                     )
                 }
+                "isSystemMultiWindowActive" -> {
+                    result.success(isSystemMultiWindowActive())
+                }
                 else -> result.notImplemented()
             }
         }
@@ -311,6 +400,7 @@ abstract class FlutterHostActivity : FlutterActivity() {
                 flutterEngine.dartExecutor.binaryMessenger,
                 "fly_player/player_host_state",
             )
+        notifyPlayerHostSystemWindowMode()
 
         detailHostChannel =
             MethodChannel(
@@ -347,6 +437,32 @@ abstract class FlutterHostActivity : FlutterActivity() {
         data: Intent?,
     ) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == SCOPED_TREE_ACCESS_REQUEST_CODE) {
+            val callback = pendingScopedTreeAccessResult
+            pendingScopedTreeAccessResult = null
+            if (callback == null) {
+                return
+            }
+            if (resultCode != RESULT_OK || data?.data == null) {
+                callback.success(null)
+                return
+            }
+            val treeUri = data.data ?: run {
+                callback.success(null)
+                return
+            }
+            val grantFlags =
+                data.flags and
+                    (Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            callback.success(
+                scopedTreeAccessController.persistGrantedTree(
+                    treeUri = treeUri,
+                    grantFlags = grantFlags,
+                ),
+            )
+            return
+        }
         if (requestCode != PLAYER_ACTIVITY_REQUEST_CODE) return
         val callback = pendingPlayerResult ?: return
         pendingPlayerResult = null
@@ -384,7 +500,7 @@ abstract class FlutterHostActivity : FlutterActivity() {
             configuration.smallestScreenWidthDp >= MIN_EMBEDDED_SMALLEST_WIDTH_DP
         Log.d(
             logTag,
-            "canOpenEmbeddedDetail=$canOpen orientation=${configuration.orientation} widthDp=${configuration.screenWidthDp} smallestWidthDp=${configuration.smallestScreenWidthDp}",
+            "canOpenEmbeddedDetail=$canOpen splitSupportStatus=$splitSupportStatus orientation=${configuration.orientation} widthDp=${configuration.screenWidthDp} smallestWidthDp=${configuration.smallestScreenWidthDp}",
         )
         return canOpen
     }
@@ -529,6 +645,11 @@ abstract class FlutterHostActivity : FlutterActivity() {
         ParallelWindowCoordinator.clearRightPane()
         ParallelWindowCoordinator.setSplitPlayerVisible(false)
 
+        ParallelWindowCoordinator.currentMainHost()?.dispatchSessionState("loggedOut")
+        ParallelWindowCoordinator.currentDetailHost()?.dispatchSessionState("loggedOut")
+        ParallelWindowCoordinator.currentPlaceholderHost()?.dispatchSessionState("loggedOut")
+        ParallelWindowCoordinator.currentPlayerHost()?.dispatchSessionState("loggedOut")
+
         ParallelWindowCoordinator.currentPlayerHost()?.let { playerHost ->
             if (playerHost !== this) {
                 playerHost.finish()
@@ -558,6 +679,12 @@ abstract class FlutterHostActivity : FlutterActivity() {
             finish()
         }
         return true
+    }
+
+    open fun dispatchSessionState(method: String) {
+        runOnUiThread {
+            sessionStateChannel?.invokeMethod(method, null)
+        }
     }
 
     protected open fun shouldUseParallelWindowImmersiveMode(): Boolean {
@@ -596,6 +723,22 @@ abstract class FlutterHostActivity : FlutterActivity() {
             context["hostRole"] = role.wireValue
         }
         return context
+    }
+
+    protected fun isSystemMultiWindowActive(): Boolean {
+        return isInMultiWindowMode ||
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                isInPictureInPictureMode
+            } else {
+                false
+            }
+    }
+
+    protected fun notifyPlayerHostSystemWindowMode() {
+        playerHostStateChannel?.invokeMethod(
+            "systemMultiWindowModeChanged",
+            hashMapOf("active" to isSystemMultiWindowActive()),
+        )
     }
 
     protected open fun resolvePlayerInitialRightPaneRoute(): String {
@@ -674,6 +817,7 @@ abstract class FlutterHostActivity : FlutterActivity() {
             result.error("invalid_args", "missing player arguments", null)
             return
         }
+        PlaybackSessionCoordinator.allowSessionUpdates()
         if (ParallelWindowCoordinator.isSplitPlayerVisible() && this !is PlayerActivity) {
             ParallelWindowCoordinator.currentPlayerHost()?.let { playerHost ->
                 Log.d(
@@ -792,18 +936,15 @@ abstract class FlutterHostActivity : FlutterActivity() {
             return
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            runCatching {
-                val intent =
-                    Intent(
-                        Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                        Uri.parse("package:$packageName"),
-                    )
-                startActivity(intent)
-            }.recoverCatching {
-                val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                startActivity(intent)
+            pendingStoragePermissionResult?.success(false)
+            pendingStoragePermissionResult = result
+            awaitingManageStorageAccessResult = true
+            val launched = openFileAccessSettings()
+            if (!launched) {
+                awaitingManageStorageAccessResult = false
+                pendingStoragePermissionResult?.success(false)
+                pendingStoragePermissionResult = null
             }
-            result.success(false)
             return
         }
         pendingStoragePermissionResult?.success(false)
@@ -815,13 +956,63 @@ abstract class FlutterHostActivity : FlutterActivity() {
         )
     }
 
+    private fun openFileAccessSettings(): Boolean {
+        return runCatching {
+            val intent =
+                Intent(
+                    Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    Uri.parse("package:$packageName"),
+                )
+            startActivity(intent)
+            true
+        }.recoverCatching {
+            val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+            startActivity(intent)
+            true
+        }.recoverCatching {
+            val intent =
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:$packageName"),
+                )
+            startActivity(intent)
+            true
+        }.getOrElse { false }
+    }
+
     private fun primaryStorageRoot(): String {
         return Environment.getExternalStorageDirectory().absolutePath
+    }
+
+    private fun requestScopedTreeAccess(result: MethodChannel.Result) {
+        pendingScopedTreeAccessResult?.success(null)
+        pendingScopedTreeAccessResult = result
+        runCatching {
+            val intent =
+                Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                    addFlags(
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                            Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
+                            Intent.FLAG_GRANT_PREFIX_URI_PERMISSION,
+                    )
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        scopedTreeAccessController.currentTreeUri()?.let { uri ->
+                            putExtra(DocumentsContract.EXTRA_INITIAL_URI, uri)
+                        }
+                    }
+                }
+            startActivityForResult(intent, SCOPED_TREE_ACCESS_REQUEST_CODE)
+        }.onFailure {
+            pendingScopedTreeAccessResult = null
+            result.success(null)
+        }
     }
 
     private companion object {
         const val PLAYER_ACTIVITY_REQUEST_CODE = 2072
         const val STORAGE_PERMISSION_REQUEST_CODE = 2071
+        const val SCOPED_TREE_ACCESS_REQUEST_CODE = 2073
         const val MIN_EMBEDDED_WIDTH_DP = 840
         const val MIN_EMBEDDED_SMALLEST_WIDTH_DP = 600
     }

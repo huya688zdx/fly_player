@@ -199,10 +199,45 @@ extension AppDynamicThemeIntensityX on AppDynamicThemeIntensity {
     AppDynamicThemeIntensity.vivid => '高级',
   };
 
+  bool get usesAmbientOnly => this == AppDynamicThemeIntensity.subtle;
+
+  bool allowsGlobalRuntimeThemeSync({
+    required bool inPlayerPaneHost,
+    required bool isPane,
+  }) {
+    if (inPlayerPaneHost) {
+      return false;
+    }
+    return this == AppDynamicThemeIntensity.vivid;
+  }
+
+  String get behaviorDescription => switch (this) {
+    AppDynamicThemeIntensity.subtle => '当前页轻量取色，按钮和边框会跟随变化',
+    AppDynamicThemeIntensity.medium => '当前页完整取色，推荐',
+    AppDynamicThemeIntensity.vivid => '高级取色，普通页面流可联动主屏',
+  };
+
   static AppDynamicThemeIntensity fromStorageValue(String? value) {
     return AppDynamicThemeIntensity.values.firstWhere(
       (intensity) => intensity.storageValue == value,
       orElse: () => AppDynamicThemeIntensity.medium,
+    );
+  }
+}
+
+enum AppThemeSourceType { preset, currentCustom, savedCustomTheme }
+
+extension AppThemeSourceTypeX on AppThemeSourceType {
+  String get storageValue => switch (this) {
+    AppThemeSourceType.preset => 'preset',
+    AppThemeSourceType.currentCustom => 'current_custom',
+    AppThemeSourceType.savedCustomTheme => 'saved_custom_theme',
+  };
+
+  static AppThemeSourceType fromStorageValue(String? value) {
+    return AppThemeSourceType.values.firstWhere(
+      (source) => source.storageValue == value,
+      orElse: () => AppThemeSourceType.preset,
     );
   }
 }
@@ -357,6 +392,159 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
       warning: Color.lerp(warning, other.warning, t)!,
       danger: Color.lerp(danger, other.danger, t)!,
       overlayScrim: Color.lerp(overlayScrim, other.overlayScrim, t)!,
+    );
+  }
+
+  Map<String, int> toMap() {
+    return <String, int>{
+      'backgroundBase': backgroundBase.toARGB32(),
+      'backgroundElevated': backgroundElevated.toARGB32(),
+      'surface': surface.toARGB32(),
+      'surfaceSubtle': surfaceSubtle.toARGB32(),
+      'surfaceStrong': surfaceStrong.toARGB32(),
+      'navBarBackground': navBarBackground.toARGB32(),
+      'borderSubtle': borderSubtle.toARGB32(),
+      'borderStrong': borderStrong.toARGB32(),
+      'accent': accent.toARGB32(),
+      'accentSoft': accentSoft.toARGB32(),
+      'accentStrong': accentStrong.toARGB32(),
+      'selection': selection.toARGB32(),
+      'selectionSoft': selectionSoft.toARGB32(),
+      'selectionStrong': selectionStrong.toARGB32(),
+      'link': link.toARGB32(),
+      'chipBackground': chipBackground.toARGB32(),
+      'chipBorder': chipBorder.toARGB32(),
+      'chipText': chipText.toARGB32(),
+      'textPrimary': textPrimary.toARGB32(),
+      'textSecondary': textSecondary.toARGB32(),
+      'textMuted': textMuted.toARGB32(),
+      'success': success.toARGB32(),
+      'warning': warning.toARGB32(),
+      'danger': danger.toARGB32(),
+      'overlayScrim': overlayScrim.toARGB32(),
+    };
+  }
+
+  static AppThemeColors fromMap(Map<String, dynamic> map) {
+    final fallback = AppThemePalette.fallback;
+    return AppThemeColors(
+      backgroundBase: _readColor(
+        map,
+        'backgroundBase',
+        fallback.backgroundBase,
+      ),
+      backgroundElevated: _readColor(
+        map,
+        'backgroundElevated',
+        fallback.backgroundElevated,
+      ),
+      surface: _readColor(map, 'surface', fallback.surface),
+      surfaceSubtle: _readColor(map, 'surfaceSubtle', fallback.surfaceSubtle),
+      surfaceStrong: _readColor(map, 'surfaceStrong', fallback.surfaceStrong),
+      navBarBackground: _readColor(
+        map,
+        'navBarBackground',
+        fallback.navBarBackground,
+      ),
+      borderSubtle: _readColor(map, 'borderSubtle', fallback.borderSubtle),
+      borderStrong: _readColor(map, 'borderStrong', fallback.borderStrong),
+      accent: _readColor(map, 'accent', fallback.accent),
+      accentSoft: _readColor(map, 'accentSoft', fallback.accentSoft),
+      accentStrong: _readColor(map, 'accentStrong', fallback.accentStrong),
+      selection: _readColor(map, 'selection', fallback.selection),
+      selectionSoft: _readColor(map, 'selectionSoft', fallback.selectionSoft),
+      selectionStrong: _readColor(
+        map,
+        'selectionStrong',
+        fallback.selectionStrong,
+      ),
+      link: _readColor(map, 'link', fallback.link),
+      chipBackground: _readColor(
+        map,
+        'chipBackground',
+        fallback.chipBackground,
+      ),
+      chipBorder: _readColor(map, 'chipBorder', fallback.chipBorder),
+      chipText: _readColor(map, 'chipText', fallback.chipText),
+      textPrimary: _readColor(map, 'textPrimary', fallback.textPrimary),
+      textSecondary: _readColor(map, 'textSecondary', fallback.textSecondary),
+      textMuted: _readColor(map, 'textMuted', fallback.textMuted),
+      success: _readColor(map, 'success', fallback.success),
+      warning: _readColor(map, 'warning', fallback.warning),
+      danger: _readColor(map, 'danger', fallback.danger),
+      overlayScrim: _readColor(map, 'overlayScrim', fallback.overlayScrim),
+    );
+  }
+
+  static Color _readColor(
+    Map<String, dynamic> map,
+    String key,
+    Color fallback,
+  ) {
+    final value = map[key];
+    return value is int ? Color(value) : fallback;
+  }
+}
+
+@immutable
+class SavedCustomTheme {
+  final String id;
+  final String name;
+  final String description;
+  final DateTime createdAt;
+  final AppThemeColors colorsSnapshot;
+
+  const SavedCustomTheme({
+    required this.id,
+    required this.name,
+    required this.description,
+    required this.createdAt,
+    required this.colorsSnapshot,
+  });
+
+  SavedCustomTheme copyWith({
+    String? id,
+    String? name,
+    String? description,
+    DateTime? createdAt,
+    AppThemeColors? colorsSnapshot,
+  }) {
+    return SavedCustomTheme(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      description: description ?? this.description,
+      createdAt: createdAt ?? this.createdAt,
+      colorsSnapshot: colorsSnapshot ?? this.colorsSnapshot,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return <String, dynamic>{
+      'id': id,
+      'name': name,
+      'description': description,
+      'createdAt': createdAt.toIso8601String(),
+      'colorsSnapshot': colorsSnapshot.toMap(),
+    };
+  }
+
+  static SavedCustomTheme? fromMap(Map<String, dynamic> map) {
+    final id = (map['id'] ?? '').toString().trim();
+    final name = (map['name'] ?? '').toString().trim();
+    if (id.isEmpty || name.isEmpty) {
+      return null;
+    }
+    final createdAtText = (map['createdAt'] ?? '').toString().trim();
+    final rawColors = map['colorsSnapshot'];
+    if (rawColors is! Map) {
+      return null;
+    }
+    return SavedCustomTheme(
+      id: id,
+      name: name,
+      description: (map['description'] ?? '').toString().trim(),
+      createdAt: DateTime.tryParse(createdAtText)?.toLocal() ?? DateTime.now(),
+      colorsSnapshot: AppThemeColors.fromMap(rawColors.cast<String, dynamic>()),
     );
   }
 }

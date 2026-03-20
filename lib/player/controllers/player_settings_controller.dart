@@ -60,16 +60,10 @@ class PlayerSettingsController {
   }
 
   String playbackMonitorStatusLabel() {
-    if (performanceOverlayEnabled && fpsOverlayEnabled) {
-      return '全部开启';
-    }
-    if (performanceOverlayEnabled || fpsOverlayEnabled) {
-      return '部分开启';
-    }
-    return '已关闭';
+    return performanceOverlayEnabled ? '部分开启' : '已关闭';
   }
 
   String decoderSwitchMessage(String modeLabel) {
-    return '正在切换为$modeLabel，请稍等...';
+    return '正在切换为 $modeLabel，请稍等...';
   }
 }

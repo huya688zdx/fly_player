@@ -1,10 +1,11 @@
-﻿part of mpv_player_page;
+part of mpv_player_page;
 
 const String _audioMainPageId = 'audio_main';
 const String _audioAdjustPageId = 'audio_adjust';
 
 extension _MpvPlayerAudioDrawerMixin on _MpvPlayerPageState {
   Future<void> _showAudioDrawer() async {
+    _hideSpeedDialOverlay(restoreAutoHide: false);
     final audioProcessingKeys = <String>{
       _MpvPlayerPageState._mpvSettingVolumeGain,
       _MpvPlayerPageState._mpvSettingAudioHighFidelity,
@@ -15,6 +16,10 @@ extension _MpvPlayerAudioDrawerMixin on _MpvPlayerPageState {
       _MpvPlayerPageState._mpvSettingAudioVoiceEnhance,
       _MpvPlayerPageState._mpvSettingChannelMix,
     };
+    if (_isLocalRuntimeTrackSource()) {
+      await _refreshRuntimeTracks(force: true);
+      if (!mounted) return;
+    }
     if (_audioTracks.isEmpty) {
       _showTransientMessage('当前没有可用音轨');
       return;

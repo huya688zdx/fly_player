@@ -7,6 +7,57 @@ import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
 import '../ui/app_transitions.dart';
 import '../ui/mpv_audio_eq_advanced_panel.dart';
+import '../utils/app_top_tip.dart';
+import '../widgets/common/named_preset_save_dialog.dart';
+
+const double _videoAdjustmentMin = -100;
+const double _videoAdjustmentMax = 100;
+
+Future<bool> _showMpvPerformanceWarningDialog(
+  BuildContext context,
+  MpvPerformanceImpactWarning warning,
+) async {
+  final colors = context.appColors;
+  final result = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        backgroundColor: colors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: colors.borderSubtle),
+        ),
+        title: Text(
+          warning.title,
+          style: TextStyle(
+            color: colors.textPrimary,
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        content: Text(
+          warning.message,
+          style: TextStyle(
+            color: colors.textSecondary,
+            fontSize: 14,
+            height: 1.5,
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('继续开启'),
+          ),
+        ],
+      );
+    },
+  );
+  return result ?? false;
+}
 
 class MpvPlayerSettingsScreen extends StatefulWidget {
   static const String sectionQuickMode = 'quick_mode';
@@ -251,6 +302,11 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
   Map<String, String> _settings = Map<String, String>.from(
     MpvSettingsCatalog.defaults,
   );
+  Map<String, double> _videoAdjustments = Map<String, double>.from(
+    MpvSettingsCatalog.videoAdjustmentDefaults,
+  );
+  List<SavedMpvPreset> _savedPicturePresets = const <SavedMpvPreset>[];
+  List<SavedMpvPreset> _savedAudioPresets = const <SavedMpvPreset>[];
   bool _loading = true;
   bool _initialTargetHandled = false;
 
@@ -261,10 +317,19 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
   }
 
   Future<void> _loadSettings() async {
-    final settings = await _store.load();
+    final bundle = await _store.loadBundle();
+    final savedPicturePresets = await _store.loadSavedPresets(
+      SavedMpvPresetKind.picture,
+    );
+    final savedAudioPresets = await _store.loadSavedPresets(
+      SavedMpvPresetKind.audio,
+    );
     if (!mounted) return;
     setState(() {
-      _settings = settings;
+      _settings = bundle.settings;
+      _videoAdjustments = bundle.videoAdjustments;
+      _savedPicturePresets = savedPicturePresets;
+      _savedAudioPresets = savedAudioPresets;
       _loading = false;
     });
     if (!_initialTargetHandled &&
@@ -276,16 +341,98 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
     }
   }
 
-  Future<void> _applyPreset(MpvSettingPreset preset) async {
-    final next = await _store.applyPreset(preset);
+  Future<void> _applyBuiltInPreset(
+    SavedMpvPresetKind kind,
+    MpvSettingPreset preset,
+  ) async {
+    final next = await _store.applyBuiltInPreset(
+      kind,
+      preset,
+      currentSettings: _settings,
+      currentVideoAdjustments: _videoAdjustments,
+    );
     if (!mounted) return;
-    setState(() => _settings = next);
+    setState(() {
+      _settings = next.settings;
+      _videoAdjustments = next.videoAdjustments;
+    });
+  }
+
+  Future<void> _applyScenePreset(MpvScenePreset preset) async {
+    final next = await _store.applyScenePreset(
+      preset,
+      currentSettings: _settings,
+      currentVideoAdjustments: _videoAdjustments,
+    );
+    if (!mounted) return;
+    setState(() {
+      _settings = next.settings;
+      _videoAdjustments = next.videoAdjustments;
+    });
   }
 
   Future<void> _resetSettings() async {
-    final next = await _store.reset();
+    final next = await _store.resetAll();
     if (!mounted) return;
-    setState(() => _settings = next);
+    setState(() {
+      _settings = next.settings;
+      _videoAdjustments = next.videoAdjustments;
+    });
+  }
+
+  Future<void> _applySavedPreset(SavedMpvPreset preset) async {
+    final next = await _store.applySavedPreset(
+      preset,
+      currentSettings: _settings,
+      currentVideoAdjustments: _videoAdjustments,
+    );
+    if (!mounted) return;
+    setState(() {
+      _settings = next.settings;
+      _videoAdjustments = next.videoAdjustments;
+    });
+  }
+
+  Future<void> _renameSavedPreset(
+    SavedMpvPresetKind kind,
+    SavedMpvPreset preset,
+  ) async {
+    final result = await showNamedPresetSaveDialog(
+      context,
+      title: '重命名${kind.label}预设',
+      initialName: preset.name,
+      initialDescription: preset.description,
+      nameLabel: '${kind.label}预设名称',
+      descriptionLabel: '说明（可选）',
+      validateName: (name) {
+        final presets = kind == SavedMpvPresetKind.picture
+            ? _savedPicturePresets
+            : _savedAudioPresets;
+        for (final item in presets) {
+          if (item.id == preset.id) continue;
+          if (item.name.trim().toLowerCase() == name.trim().toLowerCase()) {
+            return '${kind.label}预设名称不能重复';
+          }
+        }
+        return null;
+      },
+    );
+    if (result == null) return;
+    await _store.renameSavedPreset(
+      kind,
+      preset.id,
+      name: result.name,
+      description: result.description,
+    );
+    await _loadSettings();
+  }
+
+  Future<void> _deleteSavedPreset(
+    SavedMpvPresetKind kind,
+    SavedMpvPreset preset,
+  ) async {
+    await _store.deleteSavedPreset(kind, preset.id);
+    await _loadSettings();
   }
 
   Route<void> _buildAutoRoute(
@@ -318,66 +465,6 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
         );
       },
     );
-  }
-
-  Future<void> _openCategory(
-    MpvSettingCategory category, {
-    bool animated = true,
-  }) async {
-    await Navigator.of(context).push(
-      _buildAutoRoute(
-        _MpvSettingCategoryScreen(
-          category: category,
-          initialSettings: _settings,
-        ),
-        animated: animated,
-      ),
-    );
-    await _loadSettings();
-  }
-
-  Future<void> _openDefinition(
-    MpvSettingDefinition definition, {
-    bool animated = true,
-  }) async {
-    if (definition.key == MpvSettingsCatalog.cacheSizeMbKey) {
-      await Navigator.of(context).push(
-        _buildAutoRoute(
-          _MpvCacheSizeScreen(
-            definition: definition,
-            currentValue: MpvSettingsCatalog.settingValue(
-              definition.key,
-              _settings,
-            ),
-          ),
-          animated: animated,
-        ),
-      );
-    } else if (definition.key == MpvSettingsCatalog.audioEqKey) {
-      await Navigator.of(context).push(
-        _buildAutoRoute(
-          _MpvAudioEqChoiceScreen(
-            definition: definition,
-            currentSettings: _settings,
-          ),
-          animated: animated,
-        ),
-      );
-    } else {
-      await Navigator.of(context).push(
-        _buildAutoRoute(
-          _MpvSettingChoiceScreen(
-            definition: definition,
-            currentValue: MpvSettingsCatalog.settingValue(
-              definition.key,
-              _settings,
-            ),
-          ),
-          animated: animated,
-        ),
-      );
-    }
-    await _loadSettings();
   }
 
   Future<void> _openInitialTarget() async {
@@ -591,41 +678,139 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
     };
   }
 
-  String _displayPresetLabel(MpvSettingPreset preset) {
-    return switch (preset.id) {
-      'off' => '关闭增强',
-      'anime' => '动画清晰',
-      'cinema' => '影院柔和',
-      'smooth' => '流畅优先',
-      _ => preset.label,
-    };
+  SavedMpvPreset? _activeSavedPreset(SavedMpvPresetKind kind) {
+    return MpvSettingsCatalog.activeSavedPreset(
+      kind,
+      kind == SavedMpvPresetKind.picture
+          ? _savedPicturePresets
+          : _savedAudioPresets,
+      settings: _settings,
+      videoAdjustments: _videoAdjustments,
+    );
   }
 
-  String _displayPresetDescription(MpvSettingPreset preset) {
-    return switch (preset.id) {
-      'off' => '关闭大部分增强项，优先保证兼容性和稳定性。',
-      'anime' => '提升线条和边缘观感，适合动画和较干净的片源。',
-      'cinema' => '更柔和地压制噪点和高反差，适合老片和暗场。',
-      'smooth' => '优先保证拖动响应和播放稳定性。',
-      _ => preset.description,
-    };
+  MpvSettingPreset? _activeBuiltInPicturePreset() {
+    return MpvSettingsCatalog.activeBuiltInPicturePreset(
+      _settings,
+      _videoAdjustments,
+    );
   }
 
-  String _highFidelitySummaryLabel() {
-    return _settings[MpvSettingsCatalog.audioHighFidelityKey] == 'on'
-        ? '开启'
-        : '关闭';
+  MpvSettingPreset? _activeBuiltInAudioPreset() {
+    return MpvSettingsCatalog.activeBuiltInAudioPreset(_settings);
   }
 
-  String _quickModeSummaryLabel() {
-    final preset = MpvSettingsCatalog.activePreset(_settings);
-    final presetLabel = preset == null ? '自定义' : _displayPresetLabel(preset);
-    if (_settings[MpvSettingsCatalog.audioHighFidelityKey] == 'on') {
-      return '$presetLabel / 高保真';
+  MpvScenePreset? _activeScenePreset() {
+    if (_activeSavedPreset(SavedMpvPresetKind.picture) != null ||
+        _activeSavedPreset(SavedMpvPresetKind.audio) != null) {
+      return null;
     }
-    return presetLabel;
+    return MpvSettingsCatalog.activeBuiltInScenePreset(
+      _settings,
+      _videoAdjustments,
+    );
   }
 
+  String _scenePresetSummaryLabel() {
+    final preset = _activeScenePreset();
+    if (preset != null) return preset.label;
+    if (_settingsStatusLabel() == '默认') return '未使用';
+    return '当前组合';
+  }
+
+  String _picturePresetSummaryLabel() {
+    final savedPreset = _activeSavedPreset(SavedMpvPresetKind.picture);
+    if (savedPreset != null) return savedPreset.name;
+    final preset = _activeBuiltInPicturePreset();
+    if (preset != null) return preset.label;
+    final changed =
+        MpvSettingsCatalog.changedCount(
+          _settings,
+          MpvSettingsCatalog.picturePresetKeys,
+        ) +
+        MpvSettingsCatalog.videoAdjustmentChangedCount(_videoAdjustments);
+    return changed == 0 ? '默认' : '当前自定义';
+  }
+
+  String _audioPresetSummaryLabel() {
+    final savedPreset = _activeSavedPreset(SavedMpvPresetKind.audio);
+    if (savedPreset != null) return savedPreset.name;
+    final preset = _activeBuiltInAudioPreset();
+    if (preset != null) return preset.label;
+    final changed = MpvSettingsCatalog.changedCount(
+      _settings,
+      MpvSettingsCatalog.audioPresetKeys,
+    );
+    return changed == 0 ? '默认' : '当前自定义';
+  }
+
+  String _settingsStatusLabel() {
+    final scenePreset = _activeScenePreset();
+    if (scenePreset != null) return scenePreset.label;
+    final picture = _picturePresetSummaryLabel();
+    final audio = _audioPresetSummaryLabel();
+    if (picture == '默认' && audio == '默认') return '默认';
+    if (picture == '默认') return audio;
+    if (audio == '默认') return picture;
+    return '$picture / $audio';
+  }
+
+  String _settingsSummaryText() {
+    final scenePreset = _activeScenePreset();
+    if (scenePreset != null) return scenePreset.description;
+    final parts = <String>[];
+    final savedPicture = _activeSavedPreset(SavedMpvPresetKind.picture);
+    final builtInPicture = _activeBuiltInPicturePreset();
+    final savedAudio = _activeSavedPreset(SavedMpvPresetKind.audio);
+    final builtInAudio = _activeBuiltInAudioPreset();
+    if (savedPicture != null) {
+      parts.add(
+        '画质：${savedPicture.description.isEmpty ? savedPicture.name : savedPicture.description}',
+      );
+    } else if (builtInPicture != null && builtInPicture.id != 'off') {
+      parts.add('画质：${builtInPicture.description}');
+    }
+    if (savedAudio != null) {
+      parts.add(
+        '音频：${savedAudio.description.isEmpty ? savedAudio.name : savedAudio.description}',
+      );
+    } else if (builtInAudio != null && builtInAudio.id != 'off') {
+      parts.add('音频：${builtInAudio.description}');
+    }
+    if (parts.isNotEmpty) return parts.join('  ');
+    final labels = <String>[];
+    if (MpvSettingsCatalog.videoAdjustmentChangedCount(_videoAdjustments) > 0) {
+      for (final entry in MpvSettingsCatalog.videoAdjustmentDefaults.entries) {
+        final current = _videoAdjustments[entry.key] ?? entry.value;
+        if (current == entry.value) continue;
+        labels.add(
+          '${MpvSettingsCatalog.videoAdjustmentTitle(entry.key)} ${MpvSettingsCatalog.formatVideoAdjustmentValue(current)}',
+        );
+        if (labels.length == 3) break;
+      }
+    }
+    for (final definition in MpvSettingsCatalog.definitions) {
+      final current = MpvSettingsCatalog.settingValue(
+        definition.key,
+        _settings,
+      );
+      final fallback = MpvSettingsCatalog.defaults[definition.key];
+      if (current == fallback) continue;
+      labels.add(
+        '${definition.shortTitle} ${MpvSettingsCatalog.labelForSetting(definition.key, _settings)}',
+      );
+      if (labels.length == 3) break;
+    }
+    final changed =
+        MpvSettingsCatalog.changedCount(_settings) +
+        MpvSettingsCatalog.videoAdjustmentChangedCount(_videoAdjustments);
+    if (changed == 0) return '当前使用默认 MPV 参数。';
+    return labels.isEmpty
+        ? '已调整 $changed 项。'
+        : '已调整 $changed 项：${labels.join(' / ')}';
+  }
+
+  // ignore: unused_element
   String _displayCategorySummary(MpvSettingCategory category) {
     var changed = 0;
     for (final entry in category.entries) {
@@ -641,6 +826,19 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
     }
     if (changed == 0) return '默认';
     return '$changed 项';
+  }
+
+  Future<void> _openCustomManagementScreen() async {
+    await Navigator.of(context).push(
+      _buildAutoRoute(
+        _MpvCustomManagementScreen(
+          initialSettings: _settings,
+          initialVideoAdjustments: _videoAdjustments,
+        ),
+        animated: true,
+      ),
+    );
+    await _loadSettings();
   }
 
   @override
@@ -681,85 +879,641 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
                   children: <Widget>[
                     _HeroCard(
                       title: '当前方案',
-                      status: _quickModeSummaryLabel(),
-                      summary: MpvSettingsCatalog.summaryText(_settings),
+                      status: _settingsStatusLabel(),
+                      summary: _settingsSummaryText(),
+                    ),
+                    const SizedBox(height: 18),
+                    _CardBlock(
+                      child: _MenuTile(
+                        icon: Icons.tune_rounded,
+                        title: '自定义管理',
+                        subtitle: '把画质自定义和音频自定义统一收进三级页面管理，首页只保留快速预设和已保存预设。',
+                        trailing: _settingsStatusLabel(),
+                        onTap: () => unawaited(_openCustomManagementScreen()),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    const _SectionTitle(title: '画质快速预设'),
+                    const SizedBox(height: 12),
+                    _CardBlock(
+                      child: SizedBox(
+                        height: 152,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount:
+                              MpvSettingsCatalog.builtInPicturePresets.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(width: 12),
+                          itemBuilder: (context, index) {
+                            final preset =
+                                MpvSettingsCatalog.builtInPicturePresets[index];
+                            final selected =
+                                _activeSavedPreset(
+                                      SavedMpvPresetKind.picture,
+                                    ) ==
+                                    null &&
+                                _activeBuiltInPicturePreset()?.id == preset.id;
+                            return _PresetChip(
+                              selected: selected,
+                              title: preset.label,
+                              subtitle: preset.description,
+                              onTap: () => _applyBuiltInPreset(
+                                SavedMpvPresetKind.picture,
+                                preset,
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    if (_savedPicturePresets.isNotEmpty)
+                      SizedBox(
+                        height: 166,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: _savedPicturePresets.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(width: 12),
+                          itemBuilder: (context, index) {
+                            final preset = _savedPicturePresets[index];
+                            return _SavedMpvPresetCard(
+                              preset: preset,
+                              selected:
+                                  _activeSavedPreset(
+                                    SavedMpvPresetKind.picture,
+                                  )?.id ==
+                                  preset.id,
+                              onApply: () => _applySavedPreset(preset),
+                              onRename: () => _renameSavedPreset(
+                                SavedMpvPresetKind.picture,
+                                preset,
+                              ),
+                              onDelete: () => _deleteSavedPreset(
+                                SavedMpvPresetKind.picture,
+                                preset,
+                              ),
+                            );
+                          },
+                        ),
+                      )
+                    else
+                      const _HintCard(
+                        title: '还没有已保存画质预设',
+                        content: '去“画质自定义”里微调即时调节和画质项后，再把喜欢的结果另存下来。',
+                      ),
+                    const SizedBox(height: 18),
+                    const _SectionTitle(title: '音频快速预设'),
+                    const SizedBox(height: 12),
+                    _CardBlock(
+                      child: SizedBox(
+                        height: 152,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount:
+                              MpvSettingsCatalog.builtInAudioPresets.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(width: 12),
+                          itemBuilder: (context, index) {
+                            final preset =
+                                MpvSettingsCatalog.builtInAudioPresets[index];
+                            final selected =
+                                _activeSavedPreset(SavedMpvPresetKind.audio) ==
+                                    null &&
+                                _activeBuiltInAudioPreset()?.id == preset.id;
+                            return _PresetChip(
+                              selected: selected,
+                              title: preset.label,
+                              subtitle: preset.description,
+                              onTap: () => _applyBuiltInPreset(
+                                SavedMpvPresetKind.audio,
+                                preset,
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    if (_savedAudioPresets.isNotEmpty)
+                      SizedBox(
+                        height: 166,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: _savedAudioPresets.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(width: 12),
+                          itemBuilder: (context, index) {
+                            final preset = _savedAudioPresets[index];
+                            return _SavedMpvPresetCard(
+                              preset: preset,
+                              selected:
+                                  _activeSavedPreset(
+                                    SavedMpvPresetKind.audio,
+                                  )?.id ==
+                                  preset.id,
+                              onApply: () => _applySavedPreset(preset),
+                              onRename: () => _renameSavedPreset(
+                                SavedMpvPresetKind.audio,
+                                preset,
+                              ),
+                              onDelete: () => _deleteSavedPreset(
+                                SavedMpvPresetKind.audio,
+                                preset,
+                              ),
+                            );
+                          },
+                        ),
+                      )
+                    else
+                      const _HintCard(
+                        title: '还没有已保存音频预设',
+                        content: '去“音频自定义”里把高保真、EQ 和增强调好后，再把常用听感保存成独立预设。',
+                      ),
+                    const SizedBox(height: 18),
+                    const _HintCard(
+                      title: '当前自定义',
+                      content: '当前自定义会持续保留，已保存预设是独立快照，可应用、重命名和删除。',
+                    ),
+                  ],
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MpvCustomManagementScreen extends StatefulWidget {
+  final Map<String, String> initialSettings;
+  final Map<String, double> initialVideoAdjustments;
+
+  const _MpvCustomManagementScreen({
+    required this.initialSettings,
+    required this.initialVideoAdjustments,
+  });
+
+  @override
+  State<_MpvCustomManagementScreen> createState() =>
+      _MpvCustomManagementScreenState();
+}
+
+class _MpvCustomManagementScreenState
+    extends State<_MpvCustomManagementScreen> {
+  final MpvSettingsStore _store = const MpvSettingsStore();
+
+  late Map<String, String> _settings = Map<String, String>.from(
+    widget.initialSettings,
+  );
+  late Map<String, double> _videoAdjustments = Map<String, double>.from(
+    widget.initialVideoAdjustments,
+  );
+  List<SavedMpvPreset> _savedPicturePresets = const <SavedMpvPreset>[];
+  List<SavedMpvPreset> _savedAudioPresets = const <SavedMpvPreset>[];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_refresh());
+  }
+
+  Future<void> _refresh() async {
+    final bundle = await _store.loadBundle();
+    final savedPicturePresets = await _store.loadSavedPresets(
+      SavedMpvPresetKind.picture,
+    );
+    final savedAudioPresets = await _store.loadSavedPresets(
+      SavedMpvPresetKind.audio,
+    );
+    if (!mounted) return;
+    setState(() {
+      _settings = bundle.settings;
+      _videoAdjustments = bundle.videoAdjustments;
+      _savedPicturePresets = savedPicturePresets;
+      _savedAudioPresets = savedAudioPresets;
+      _loading = false;
+    });
+  }
+
+  String _pictureLabel() {
+    final savedPreset = MpvSettingsCatalog.activeSavedPreset(
+      SavedMpvPresetKind.picture,
+      _savedPicturePresets,
+      settings: _settings,
+      videoAdjustments: _videoAdjustments,
+    );
+    if (savedPreset != null) return savedPreset.name;
+    final builtInPreset = MpvSettingsCatalog.activeBuiltInPicturePreset(
+      _settings,
+      _videoAdjustments,
+    );
+    if (builtInPreset != null) return builtInPreset.label;
+    final changed =
+        MpvSettingsCatalog.changedCount(
+          _settings,
+          MpvSettingsCatalog.picturePresetKeys,
+        ) +
+        MpvSettingsCatalog.videoAdjustmentChangedCount(_videoAdjustments);
+    return changed == 0 ? '默认' : '当前自定义';
+  }
+
+  String _audioLabel() {
+    final savedPreset = MpvSettingsCatalog.activeSavedPreset(
+      SavedMpvPresetKind.audio,
+      _savedAudioPresets,
+      settings: _settings,
+      videoAdjustments: _videoAdjustments,
+    );
+    if (savedPreset != null) return savedPreset.name;
+    final builtInPreset = MpvSettingsCatalog.activeBuiltInAudioPreset(
+      _settings,
+    );
+    if (builtInPreset != null) return builtInPreset.label;
+    final changed = MpvSettingsCatalog.changedCount(
+      _settings,
+      MpvSettingsCatalog.audioPresetKeys,
+    );
+    return changed == 0 ? '默认' : '当前自定义';
+  }
+
+  Future<void> _openCustomPresetScreen(SavedMpvPresetKind kind) async {
+    await Navigator.of(context).push(
+      AppTransitions.leftToRightPageTurnRoute<void>(
+        _MpvCustomPresetScreen(
+          kind: kind,
+          initialSettings: _settings,
+          initialVideoAdjustments: _videoAdjustments,
+        ),
+      ),
+    );
+    await _refresh();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Scaffold(
+      backgroundColor: colors.backgroundBase,
+      appBar: AppBar(
+        title: Text(
+          '自定义管理',
+          style: TextStyle(
+            color: colors.textPrimary,
+            fontSize: AdaptiveText.roleSize(18, role: AdaptiveFontRole.title),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+      body: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: <Color>[colors.backgroundElevated, colors.backgroundBase],
+          ),
+        ),
+        child: SafeArea(
+          top: false,
+          child: _loading
+              ? Center(child: CircularProgressIndicator(color: colors.accent))
+              : ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                  children: <Widget>[
+                    const _HeroCard(
+                      title: '自定义管理',
+                      status: '三级页面',
+                      summary: '首页只保留快速预设和已保存预设，当前画质自定义与音频自定义统一收进这里继续细调、保存和管理。',
+                      icon: Icons.tune_rounded,
                     ),
                     const SizedBox(height: 18),
                     _CardBlock(
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
-                          const _SectionTitle(title: '快速模式'),
-                          const SizedBox(height: 12),
                           _MenuTile(
-                            icon: Icons.hearing_rounded,
-                            title: '高保真模式',
-                            subtitle: '优先保留干净解码输出，旁路大部分音频后处理。',
-                            trailing: _highFidelitySummaryLabel(),
-                            onTap: () async {
-                              final definition =
-                                  MpvSettingsCatalog.definitionByKey(
-                                    MpvSettingsCatalog.audioHighFidelityKey,
-                                  );
-                              if (definition == null) return;
-                              await _openDefinition(definition);
-                            },
+                            icon: Icons.movie_filter_outlined,
+                            title: '画质自定义',
+                            subtitle: '即时调节、滤镜、HDR、插帧、同步、缓存和兼容项都在这里继续管理。',
+                            trailing: _pictureLabel(),
+                            onTap: () => unawaited(
+                              _openCustomPresetScreen(
+                                SavedMpvPresetKind.picture,
+                              ),
+                            ),
                           ),
-                          const SizedBox(height: 14),
-                          Wrap(
-                            spacing: 10,
-                            runSpacing: 10,
-                            children: MpvSettingsCatalog.presets
-                                .map((preset) {
-                                  final selected =
-                                      MpvSettingsCatalog.activePreset(
-                                        _settings,
-                                      )?.id ==
-                                      preset.id;
-                                  return _PresetChip(
-                                    selected: selected,
-                                    title: _displayPresetLabel(preset),
-                                    subtitle: _displayPresetDescription(preset),
-                                    onTap: () => _applyPreset(preset),
-                                  );
-                                })
-                                .toList(growable: false),
+                          const _DividerLine(),
+                          _MenuTile(
+                            icon: Icons.graphic_eq_rounded,
+                            title: '音频自定义',
+                            subtitle: '高保真、音量增强、EQ、限幅、低音增强、人声增强和声道混合都在这里继续管理。',
+                            trailing: _audioLabel(),
+                            onTap: () => unawaited(
+                              _openCustomPresetScreen(SavedMpvPresetKind.audio),
+                            ),
                           ),
                         ],
                       ),
                     ),
+                  ],
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MpvCustomPresetScreen extends StatefulWidget {
+  final SavedMpvPresetKind kind;
+  final Map<String, String> initialSettings;
+  final Map<String, double> initialVideoAdjustments;
+
+  const _MpvCustomPresetScreen({
+    required this.kind,
+    required this.initialSettings,
+    required this.initialVideoAdjustments,
+  });
+
+  @override
+  State<_MpvCustomPresetScreen> createState() => _MpvCustomPresetScreenState();
+}
+
+class _MpvCustomPresetScreenState extends State<_MpvCustomPresetScreen> {
+  final MpvSettingsStore _store = const MpvSettingsStore();
+
+  late Map<String, String> _settings = Map<String, String>.from(
+    widget.initialSettings,
+  );
+  late Map<String, double> _videoAdjustments = Map<String, double>.from(
+    widget.initialVideoAdjustments,
+  );
+  List<SavedMpvPreset> _savedPresets = const <SavedMpvPreset>[];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_refresh());
+  }
+
+  Future<void> _refresh() async {
+    final bundle = await _store.loadBundle();
+    final savedPresets = await _store.loadSavedPresets(widget.kind);
+    if (!mounted) return;
+    setState(() {
+      _settings = bundle.settings;
+      _videoAdjustments = bundle.videoAdjustments;
+      _savedPresets = savedPresets;
+      _loading = false;
+    });
+  }
+
+  List<MpvSettingCategory> get _categories {
+    const pictureCategoryIds = <String>{
+      MpvSettingsCatalog.videoFiltersCategoryId,
+      MpvSettingsCatalog.pictureRenderingCategoryId,
+      MpvSettingsCatalog.playbackSyncCategoryId,
+      MpvSettingsCatalog.compatibilityCategoryId,
+    };
+    const audioCategoryIds = <String>{
+      MpvSettingsCatalog.audioProcessingCategoryId,
+    };
+    final allowedIds = widget.kind == SavedMpvPresetKind.picture
+        ? pictureCategoryIds
+        : audioCategoryIds;
+    return MpvSettingsCatalog.categories
+        .where((category) => allowedIds.contains(category.id))
+        .toList(growable: false);
+  }
+
+  SavedMpvPreset? _activeSavedPreset() {
+    return MpvSettingsCatalog.activeSavedPreset(
+      widget.kind,
+      _savedPresets,
+      settings: _settings,
+      videoAdjustments: _videoAdjustments,
+    );
+  }
+
+  MpvSettingPreset? _activeBuiltInPreset() {
+    return widget.kind == SavedMpvPresetKind.picture
+        ? MpvSettingsCatalog.activeBuiltInPicturePreset(
+            _settings,
+            _videoAdjustments,
+          )
+        : MpvSettingsCatalog.activeBuiltInAudioPreset(_settings);
+  }
+
+  String _statusLabel() {
+    final savedPreset = _activeSavedPreset();
+    if (savedPreset != null) return savedPreset.name;
+    final builtInPreset = _activeBuiltInPreset();
+    if (builtInPreset != null) return builtInPreset.label;
+    final changed = widget.kind == SavedMpvPresetKind.picture
+        ? MpvSettingsCatalog.changedCount(
+                _settings,
+                MpvSettingsCatalog.picturePresetKeys,
+              ) +
+              MpvSettingsCatalog.videoAdjustmentChangedCount(_videoAdjustments)
+        : MpvSettingsCatalog.changedCount(
+            _settings,
+            MpvSettingsCatalog.audioPresetKeys,
+          );
+    return changed == 0 ? '默认' : '当前自定义';
+  }
+
+  String _summaryText() {
+    final savedPreset = _activeSavedPreset();
+    if (savedPreset != null && savedPreset.description.isNotEmpty) {
+      return savedPreset.description;
+    }
+    final builtInPreset = _activeBuiltInPreset();
+    if (builtInPreset != null && builtInPreset.id != 'off') {
+      return builtInPreset.description;
+    }
+    if (widget.kind == SavedMpvPresetKind.picture) {
+      return '即时调节、滤镜、HDR、插帧、同步和缓存都会纳入当前画质自定义，保存后可在播放器抽屉和设置页直接复用。';
+    }
+    return '高保真、音量增强、EQ、限幅、低音增强、人声增强和声道混合都会纳入当前音频自定义，保存后可快速切换。';
+  }
+
+  String _videoAdjustmentTrailingLabel() {
+    final changed = MpvSettingsCatalog.videoAdjustmentChangedCount(
+      _videoAdjustments,
+    );
+    if (changed == 0) return '默认';
+    if (changed == 1) {
+      for (final key in MpvSettingsCatalog.videoAdjustmentDefaults.keys) {
+        final current =
+            _videoAdjustments[key] ??
+            MpvSettingsCatalog.videoAdjustmentDefaults[key]!;
+        if (current == 0) continue;
+        return '${MpvSettingsCatalog.videoAdjustmentTitle(key)} ${MpvSettingsCatalog.formatVideoAdjustmentValue(current)}';
+      }
+    }
+    return '$changed 项';
+  }
+
+  Future<void> _openCategory(MpvSettingCategory category) async {
+    await Navigator.of(context).push(
+      AppTransitions.leftToRightPageTurnRoute<void>(
+        _MpvSettingCategoryScreen(
+          category: category,
+          initialSettings: _settings,
+        ),
+      ),
+    );
+    await _refresh();
+  }
+
+  Future<void> _openVideoAdjustments() async {
+    await Navigator.of(context).push(
+      AppTransitions.leftToRightPageTurnRoute<void>(
+        _MpvVideoAdjustmentsScreen(initialValues: _videoAdjustments),
+      ),
+    );
+    await _refresh();
+  }
+
+  Future<String> _suggestedPresetName() async {
+    final builtInPreset = _activeBuiltInPreset();
+    final baseName = builtInPreset != null && builtInPreset.id != 'off'
+        ? builtInPreset.label
+        : '${widget.kind.label}预设';
+    return _store.nextSavedPresetNameFromBase(widget.kind, baseName);
+  }
+
+  Future<void> _saveCurrentPreset() async {
+    final suggestedName = await _suggestedPresetName();
+    if (!mounted) return;
+    final result = await showNamedPresetSaveDialog(
+      context,
+      title: widget.kind == SavedMpvPresetKind.picture ? '保存当前画质' : '保存当前音频',
+      initialName: suggestedName,
+      suggestedName: suggestedName,
+      nameLabel: '${widget.kind.label}预设名称',
+      descriptionLabel: '说明（可选）',
+      validateName: (name) {
+        for (final preset in _savedPresets) {
+          if (preset.name.trim().toLowerCase() == name.trim().toLowerCase()) {
+            return '${widget.kind.label}预设名称不能重复';
+          }
+        }
+        return null;
+      },
+    );
+    if (result == null) return;
+    final savedPreset = await _store.savePresetSnapshot(
+      kind: widget.kind,
+      name: result.name,
+      description: result.description,
+      settings: _settings,
+      videoAdjustments: _videoAdjustments,
+    );
+    await _refresh();
+    if (!mounted) return;
+    AppTopTip().show(
+      context,
+      message: '已保存${widget.kind.label}预设：${savedPreset.name}',
+      color: context.appColors.success,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final title = widget.kind == SavedMpvPresetKind.picture ? '画质自定义' : '音频自定义';
+    final saveTitle = widget.kind == SavedMpvPresetKind.picture
+        ? '保存当前画质'
+        : '保存当前音频';
+    final saveSubtitle = widget.kind == SavedMpvPresetKind.picture
+        ? '将即时调节和画质增强项保存为独立预设，后续可以在播放器抽屉和设置页快速应用。'
+        : '将高保真、EQ 和增强项保存为独立预设，后续可以在播放器抽屉和设置页快速应用。';
+    return Scaffold(
+      backgroundColor: colors.backgroundBase,
+      appBar: AppBar(
+        title: Text(
+          title,
+          style: TextStyle(
+            color: colors.textPrimary,
+            fontSize: AdaptiveText.roleSize(18, role: AdaptiveFontRole.title),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+      body: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: <Color>[colors.backgroundElevated, colors.backgroundBase],
+          ),
+        ),
+        child: SafeArea(
+          top: false,
+          child: _loading
+              ? Center(child: CircularProgressIndicator(color: colors.accent))
+              : ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                  children: <Widget>[
+                    _HeroCard(
+                      title: title,
+                      status: _statusLabel(),
+                      summary: _summaryText(),
+                      icon: widget.kind == SavedMpvPresetKind.picture
+                          ? Icons.movie_filter_outlined
+                          : Icons.graphic_eq_rounded,
+                    ),
                     const SizedBox(height: 18),
                     _CardBlock(
                       child: Column(
                         children: <Widget>[
+                          if (widget.kind == SavedMpvPresetKind.picture) ...[
+                            _MenuTile(
+                              icon: Icons.tune_rounded,
+                              title: '即时调节',
+                              subtitle: '亮度、对比度、饱和度、Gamma 和色相会一起保存到画质预设中。',
+                              trailing: _videoAdjustmentTrailingLabel(),
+                              onTap: () => unawaited(_openVideoAdjustments()),
+                            ),
+                            const _DividerLine(),
+                          ],
                           for (
                             var index = 0;
-                            index < _displayCategories.length;
+                            index < _categories.length;
                             index++
                           ) ...[
                             _MenuTile(
-                              icon: _iconForCategory(
-                                _displayCategories[index].id,
+                              icon: _iconForCustomCategory(
+                                _categories[index].id,
                               ),
-                              title: _displayCategories[index].title,
-                              subtitle: _displayCategories[index].subtitle,
-                              trailing: _displayCategorySummary(
-                                _displayCategories[index],
+                              title: _categories[index].title,
+                              subtitle: _categories[index].subtitle,
+                              trailing: MpvSettingsCatalog.categorySummaryLabel(
+                                _categories[index],
+                                _settings,
                               ),
-                              onTap: () =>
-                                  _openCategory(_displayCategories[index]),
+                              onTap: () => _openCategory(_categories[index]),
                             ),
-                            if (index != _displayCategories.length - 1)
+                            if (index != _categories.length - 1)
                               const _DividerLine(),
                           ],
                         ],
                       ),
                     ),
                     const SizedBox(height: 18),
+                    _CardBlock(
+                      child: _MenuTile(
+                        icon: Icons.bookmark_add_outlined,
+                        title: saveTitle,
+                        subtitle: saveSubtitle,
+                        trailing: '保存',
+                        onTap: () => unawaited(_saveCurrentPreset()),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
                     const _HintCard(
-                      title: '三级结构',
+                      title: '当前自定义',
                       content:
-                          '这个页面只保留入口和预设，具体调节项都放在下一级分类页，再进入单项页选择，避免主页设置堆得太重。',
+                          '当前自定义会持续保留；你保存出来的是独立快照。后续继续微调当前自定义，不会反向覆盖已经保存的预设。',
                     ),
                   ],
                 ),
@@ -768,12 +1522,14 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
     );
   }
 
-  IconData _iconForCategory(String id) {
+  IconData _iconForCustomCategory(String id) {
     return switch (id) {
-      _displayPictureCategoryId => Icons.movie_filter_outlined,
-      _displayAudioCategoryId => Icons.graphic_eq_rounded,
-      _displayPlaybackCategoryId => Icons.sync_rounded,
-      _displayCompatibilityCategoryId => Icons.shield_outlined,
+      MpvSettingsCatalog.videoFiltersCategoryId => Icons.auto_fix_high_rounded,
+      MpvSettingsCatalog.pictureRenderingCategoryId =>
+        Icons.high_quality_rounded,
+      MpvSettingsCatalog.playbackSyncCategoryId => Icons.sync_rounded,
+      MpvSettingsCatalog.audioProcessingCategoryId => Icons.graphic_eq_rounded,
+      MpvSettingsCatalog.compatibilityCategoryId => Icons.shield_outlined,
       _ => Icons.tune_rounded,
     };
   }
@@ -933,6 +1689,16 @@ class _MpvSettingChoiceScreenState extends State<_MpvSettingChoiceScreen> {
   final MpvSettingsStore _store = const MpvSettingsStore();
   late String _currentValue = widget.currentValue;
 
+  Future<bool> _confirmSelection(String value) async {
+    if (_currentValue == value) return true;
+    final warning = MpvSettingsCatalog.performanceWarningForSelection(
+      widget.definition.key,
+      value,
+    );
+    if (warning == null) return true;
+    return _showMpvPerformanceWarningDialog(context, warning);
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
@@ -990,13 +1756,13 @@ class _MpvSettingChoiceScreenState extends State<_MpvSettingChoiceScreen> {
                   selected:
                       _currentValue == widget.definition.options[index].value,
                   onTap: () async {
-                    await _store.saveSetting(
-                      widget.definition.key,
-                      widget.definition.options[index].value,
-                    );
+                    final nextValue = widget.definition.options[index].value;
+                    final confirmed = await _confirmSelection(nextValue);
+                    if (!confirmed) return;
+                    await _store.saveSetting(widget.definition.key, nextValue);
                     if (!mounted) return;
                     setState(() {
-                      _currentValue = widget.definition.options[index].value;
+                      _currentValue = nextValue;
                     });
                   },
                 ),
@@ -1286,21 +2052,49 @@ class _MpvCacheSizeScreenState extends State<_MpvCacheSizeScreen> {
   final MpvSettingsStore _store = const MpvSettingsStore();
 
   late bool _auto = widget.currentValue == 'auto';
+  late String _persistedValue = widget.currentValue;
   late double _sliderValue = MpvSettingsCatalog.mbToCachePercent(
     int.tryParse(widget.currentValue) ??
         MpvSettingsCatalog.cacheSizeExtremeMinimumMb,
   ).toDouble();
 
-  Future<void> _saveCurrentSliderValue() async {
+  void _restorePersistedSliderValue() {
+    if (_persistedValue == 'auto') return;
+    _sliderValue = MpvSettingsCatalog.mbToCachePercent(
+      int.tryParse(_persistedValue) ??
+          MpvSettingsCatalog.cacheSizeExtremeMinimumMb,
+    ).toDouble();
+  }
+
+  Future<bool> _saveCurrentSliderValue() async {
     final normalized = _sliderValue.round().clamp(
       MpvSettingsCatalog.cachePercentSliderMin,
       MpvSettingsCatalog.cachePercentSliderMax,
     );
     final mapped = MpvSettingsCatalog.cachePercentToMb(normalized);
+    if (_persistedValue == mapped.toString()) return true;
+    final warning = MpvSettingsCatalog.performanceWarningForSelection(
+      MpvSettingsCatalog.cacheSizeMbKey,
+      mapped.toString(),
+    );
+    if (warning != null) {
+      final confirmed = await _showMpvPerformanceWarningDialog(
+        context,
+        warning,
+      );
+      if (!confirmed) {
+        if (mounted) {
+          setState(_restorePersistedSliderValue);
+        }
+        return false;
+      }
+    }
     await _store.saveSetting(
       MpvSettingsCatalog.cacheSizeMbKey,
       mapped.toString(),
     );
+    _persistedValue = mapped.toString();
+    return true;
   }
 
   @override
@@ -1359,8 +2153,12 @@ class _MpvCacheSizeScreenState extends State<_MpvCacheSizeScreen> {
                             MpvSettingsCatalog.cacheSizeMbKey,
                             'auto',
                           );
+                          _persistedValue = 'auto';
                         } else {
-                          await _saveCurrentSliderValue();
+                          final saved = await _saveCurrentSliderValue();
+                          if (!saved && mounted) {
+                            setState(() => _auto = true);
+                          }
                         }
                       },
                       title: Text(
@@ -1466,6 +2264,105 @@ class _MpvCacheSizeScreenState extends State<_MpvCacheSizeScreen> {
                   ],
                 ),
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MpvVideoAdjustmentsScreen extends StatefulWidget {
+  final Map<String, double> initialValues;
+
+  const _MpvVideoAdjustmentsScreen({required this.initialValues});
+
+  @override
+  State<_MpvVideoAdjustmentsScreen> createState() =>
+      _MpvVideoAdjustmentsScreenState();
+}
+
+class _MpvVideoAdjustmentsScreenState
+    extends State<_MpvVideoAdjustmentsScreen> {
+  final MpvSettingsStore _store = const MpvSettingsStore();
+  late Map<String, double> _values =
+      MpvSettingsCatalog.normalizeVideoAdjustments(widget.initialValues);
+
+  Future<void> _saveValues() async {
+    final normalized = await _store.saveVideoAdjustments(_values);
+    if (!mounted) return;
+    setState(() => _values = normalized);
+  }
+
+  Future<void> _resetAll() async {
+    final normalized = await _store.saveVideoAdjustments(
+      MpvSettingsCatalog.videoAdjustmentDefaults,
+    );
+    if (!mounted) return;
+    setState(() => _values = normalized);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Scaffold(
+      backgroundColor: colors.backgroundBase,
+      appBar: AppBar(
+        title: Text(
+          '即时调节',
+          style: TextStyle(
+            color: colors.textPrimary,
+            fontSize: AdaptiveText.roleSize(18, role: AdaptiveFontRole.title),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => unawaited(_resetAll()),
+            child: const Text('恢复默认'),
+          ),
+        ],
+      ),
+      body: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: <Color>[colors.backgroundElevated, colors.backgroundBase],
+          ),
+        ),
+        child: SafeArea(
+          top: false,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+            children: <Widget>[
+              _HeroCard(
+                title: '即时调节',
+                status:
+                    '${MpvSettingsCatalog.videoAdjustmentChangedCount(_values)} 项已调整',
+                summary: '这些值会直接写入 mpv 的亮度、对比度、饱和度、Gamma 和色相参数，并会一起保存到画质预设中。',
+                icon: Icons.tune_rounded,
+              ),
+              const SizedBox(height: 18),
+              for (final key
+                  in MpvSettingsCatalog.videoAdjustmentDefaults.keys) ...[
+                _VideoAdjustmentSliderCard(
+                  title: MpvSettingsCatalog.videoAdjustmentTitle(key),
+                  subtitle: MpvSettingsCatalog.videoAdjustmentSubtitle(key),
+                  value: _values[key] ?? 0,
+                  onChanged: (value) {
+                    setState(() {
+                      _values[key] = value.clamp(
+                        _videoAdjustmentMin,
+                        _videoAdjustmentMax,
+                      );
+                    });
+                  },
+                  onChangeEnd: (_) => _saveValues(),
+                ),
+                if (key != MpvSettingsCatalog.videoAdjustmentDefaults.keys.last)
+                  const SizedBox(height: 12),
+              ],
             ],
           ),
         ),
@@ -1685,6 +2582,109 @@ class _PresetChip extends StatelessWidget {
                 color: colors.textSecondary,
                 fontSize: AdaptiveText.roleSize(13.2),
                 height: 1.4,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SavedMpvPresetCard extends StatelessWidget {
+  final SavedMpvPreset preset;
+  final bool selected;
+  final VoidCallback onApply;
+  final VoidCallback onRename;
+  final VoidCallback onDelete;
+
+  const _SavedMpvPresetCard({
+    required this.preset,
+    required this.selected,
+    required this.onApply,
+    required this.onRename,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: onApply,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        width: 260,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: selected ? colors.accentSoft : colors.surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: selected ? colors.accent : colors.borderSubtle,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: Text(
+                    preset.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: colors.textPrimary,
+                      fontSize: AdaptiveText.roleSize(15),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                PopupMenuButton<String>(
+                  onSelected: (value) {
+                    if (value == 'rename') {
+                      onRename();
+                      return;
+                    }
+                    if (value == 'delete') {
+                      onDelete();
+                    }
+                  },
+                  itemBuilder: (_) => const <PopupMenuEntry<String>>[
+                    PopupMenuItem<String>(value: 'rename', child: Text('重命名')),
+                    PopupMenuItem<String>(value: 'delete', child: Text('删除')),
+                  ],
+                  icon: Icon(Icons.more_horiz_rounded, color: colors.textMuted),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              preset.description.isEmpty
+                  ? '已保存的独立预设，可随时再次应用。'
+                  : preset.description,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: colors.textSecondary,
+                fontSize: AdaptiveText.roleSize(13.1),
+                height: 1.4,
+              ),
+            ),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: selected ? colors.accent : colors.backgroundElevated,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                selected ? '当前已应用' : '点按应用',
+                style: TextStyle(
+                  color: selected ? colors.textPrimary : colors.textSecondary,
+                  fontSize: AdaptiveText.roleSize(12.4),
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ],
@@ -1919,6 +2919,104 @@ class _HintCard extends StatelessWidget {
               fontSize: AdaptiveText.roleSize(13.4),
               height: 1.45,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _VideoAdjustmentSliderCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final double value;
+  final ValueChanged<double> onChanged;
+  final ValueChanged<double> onChangeEnd;
+
+  const _VideoAdjustmentSliderCard({
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+    required this.onChangeEnd,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final safeValue = value.clamp(_videoAdjustmentMin, _videoAdjustmentMax);
+    return _CardBlock(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    color: colors.textPrimary,
+                    fontSize: AdaptiveText.roleSize(15.5),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Text(
+                MpvSettingsCatalog.formatVideoAdjustmentValue(safeValue),
+                style: TextStyle(
+                  color: colors.accentStrong,
+                  fontSize: AdaptiveText.roleSize(13.4),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            subtitle,
+            style: TextStyle(
+              color: colors.textSecondary,
+              fontSize: AdaptiveText.roleSize(13.1),
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 12),
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              activeTrackColor: colors.accent,
+              inactiveTrackColor: colors.borderStrong,
+              thumbColor: colors.textPrimary,
+              overlayColor: colors.accentSoft,
+              trackHeight: 4,
+            ),
+            child: Slider(
+              min: _videoAdjustmentMin,
+              max: _videoAdjustmentMax,
+              divisions: (_videoAdjustmentMax - _videoAdjustmentMin).round(),
+              value: safeValue,
+              label: MpvSettingsCatalog.formatVideoAdjustmentValue(safeValue),
+              onChanged: onChanged,
+              onChangeEnd: onChangeEnd,
+            ),
+          ),
+          Row(
+            children: <Widget>[
+              Text(
+                '-100',
+                style: TextStyle(
+                  color: colors.textSecondary,
+                  fontSize: AdaptiveText.roleSize(12),
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '+100',
+                style: TextStyle(
+                  color: colors.textSecondary,
+                  fontSize: AdaptiveText.roleSize(12),
+                ),
+              ),
+            ],
           ),
         ],
       ),

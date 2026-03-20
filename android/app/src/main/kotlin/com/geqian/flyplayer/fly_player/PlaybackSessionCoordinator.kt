@@ -6,6 +6,9 @@ object PlaybackSessionCoordinator {
     @Volatile
     private var activeHostRef: WeakReference<FlutterHostActivity>? = null
 
+    @Volatile
+    private var sessionUpdatesBlocked: Boolean = false
+
     fun attachHost(activity: FlutterHostActivity) {
         activeHostRef = WeakReference(activity)
     }
@@ -23,4 +26,14 @@ object PlaybackSessionCoordinator {
     ) {
         activeHostRef?.get()?.dispatchSystemPlaybackCommand(method, arguments)
     }
+
+    fun blockSessionUpdates() {
+        sessionUpdatesBlocked = true
+    }
+
+    fun allowSessionUpdates() {
+        sessionUpdatesBlocked = false
+    }
+
+    fun areSessionUpdatesBlocked(): Boolean = sessionUpdatesBlocked
 }

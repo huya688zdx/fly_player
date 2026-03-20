@@ -144,7 +144,23 @@ extension _MpvPlayerDanmakuMixin on _MpvPlayerPageState {
         ),
       );
     }
-    return DanmakuImportParser.parseFile(source.sourceKey);
+    if (!StorageAccessService.isScopedIdentifier(source.sourceKey)) {
+      return DanmakuImportParser.parseFile(source.sourceKey);
+    }
+    return (() async {
+      final bytes = await StorageAccessService.readScopedFileBytes(
+        source.sourceKey,
+      );
+      if (bytes == null || bytes.isEmpty) {
+        throw const FileSystemException('无法读取已保存的弹幕文件');
+      }
+      return DanmakuImportParser.parseBytes(
+        bytes,
+        fileName: source.detail.trim().isNotEmpty
+            ? source.detail.trim()
+            : source.label,
+      );
+    })();
   }
 
   Future<bool> _tryLoadPreferredDanmakuSource() async {

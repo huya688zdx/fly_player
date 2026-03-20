@@ -1,413 +1,125 @@
-请求 URL
-http://192.168.6.120:5666/v/api/v1/item/list
-请求方法
-POST
+http://192.168.6.120:5666/v/api/v1/stream/list/23069eae5111415493bf37caf987b4a0?guid=23069eae5111415493bf37caf987b4a0&before_play=1&lan=zh-CN
 {
-    "parent_guid": "fv_bc68b87f1d7d474bac91402c54aae864",
-    "tags": {},
-    "sort_type": "ASC",
-    "sort_column": "sort_title",
-    "page": 1,
-    "page_size": 50
+  "msg": "",
+  "code": 0,
+  "data": {
+    "files": [
+      {
+        "guid": "0dd5ab9997d649c1929a88f42e032574",
+        "path": "/vol4/1000/动漫TV2/葬送的芙莉莲/[Nekomoe kissaten\u0026VCB-Studio] Sousou no Frieren [Ma10p_1080p]/Mini Anime/葬送的芙莉莲 Mini Anime 第02集.mkv",
+        "file_name": "葬送的芙莉莲 Mini Anime 第02集.mkv",
+        "size": 27282268,
+        "timestamp": 1768142795063,
+        "type": 1,
+        "can_play": 1,
+        "play_error": "",
+        "create_time": 1768662977913,
+        "update_time": 1768662977913,
+        "parent_fv_guid": "fv_c36641da3f08464ba261472e32605720",
+        "file_birth_time": 1768142773815,
+        "progress_thumb_hash_dir": ""
+      }
+    ],
+    "video_streams": [
+      {
+        "media_guid": "0dd5ab9997d649c1929a88f42e032574",
+        "title": "",
+        "guid": "c7f313d1c12a4ae7a43216e2d1b9cc6d",
+        "resolution_type": "1080p",
+        "color_range_type": "SDR",
+        "codec_name": "hevc",
+        "codec_type": "video",
+        "color_range": "tv",
+        "profile": "Main 10",
+        "index": 0,
+        "width": 1920,
+        "height": 1080,
+        "coded_width": 0,
+        "coded_height": 0,
+        "display_aspect_ratio": "16:9",
+        "pix_fmt": "yuv420p10le",
+        "level": "120",
+        "color_space": "bt709",
+        "color_transfer": "",
+        "color_primaries": "",
+        "duration": 74,
+        "dv_profile": 0,
+        "refs": 1,
+        "r_frame_rate": "23.98 fps",
+        "avg_frame_rate": "23.98 fps",
+        "bits_per_raw_sample": "",
+        "bps": 1816641,
+        "progressive": 1,
+        "bit_depth": 10,
+        "wrapper": "MKV",
+        "create_time": 1768662978005,
+        "update_time": 1768662978005,
+        "rotation": 0,
+        "ext1": 0,
+        "is_bluray": false
+      }
+    ],
+    "audio_streams": [
+      {
+        "media_guid": "0dd5ab9997d649c1929a88f42e032574",
+        "title": "Main Audio",
+        "guid": "f0a11cfed12c47bc828ea185e6a7a0bc",
+        "audio_type": "Others",
+        "codec_name": "flac",
+        "codec_type": "audio",
+        "language": "jpn",
+        "channels": 2,
+        "profile": "",
+        "sample_rate": "48000",
+        "is_default": 1,
+        "channel_layout": "stereo",
+        "duration": 74,
+        "index": 1,
+        "bits_per_raw_sample": "24",
+        "bps": 1117228,
+        "create_time": 1768662978005,
+        "update_time": 1768662978005,
+        "is_fake": false
+      }
+    ],
+    "subtitle_streams": [
+      {
+        "media_guid": "0dd5ab9997d649c1929a88f42e032574",
+        "title": "",
+        "guid": "de3303450efe428e8bc4fd04b6b7902b",
+        "codec_name": "ass",
+        "codec_type": "subtitle",
+        "language": "und",
+        "forced": 0,
+        "index": 0,
+        "is_default": 0,
+        "is_external": 1,
+        "format": "ass",
+        "trim_id": "",
+        "source_id": "",
+        "Source": "",
+        "create_time": 1768662978008,
+        "update_time": 1768662978008,
+        "extra_file": 1,
+        "is_bitmap": 0,
+        "file_size": 0
+      }
+    ]
+  }
+}
+
+http://192.168.6.120:5666/v/api/v1/download/task
+{
+  "media_guid": "0dd5ab9997d649c1929a88f42e032574",
+  "item_guid": "23069eae5111415493bf37caf987b4a0",
+  "resolution": "1080p",
+  "type": 1,
+  "lan": "zh-CN"
 }
 {
-    "msg": "",
-    "code": 0,
-    "data": {
-        "mdb_name": "其他视频测试",
-        "mdb_category": "Others",
-        "top_dir": "",
-        "dir": "/vol4/1000/tset/混合电影",
-        "total": 9,
-        "list": [
-            {
-                "guid": "6fc6c106002844379605a9197a2e0afa",
-                "lan": "",
-                "imdb_id": "",
-                "tv_title": "",
-                "parent_guid": "fv_bc68b87f1d7d474bac91402c54aae864",
-                "parent_title": "混合电影",
-                "title": "1729600017518.mp4",
-                "type": "Video",
-                "poster": "/21/01/poster-6fc6c106002844379605a9197a2e0afa.webp",
-                "poster_width": 720,
-                "poster_height": 1540,
-                "is_favorite": 0,
-                "watched": 0,
-                "watched_ts": 0,
-                "vote_average": "0",
-                "media_stream": {
-                    "resolutions": [
-                        "1080p"
-                    ],
-                    "audio_type": null,
-                    "color_range_type": [
-                        "SDR"
-                    ]
-                },
-                "season_number": 0,
-                "episode_number": 0,
-                "number_of_seasons": 0,
-                "number_of_episodes": 0,
-                "local_number_of_seasons": 0,
-                "local_number_of_episodes": 0,
-                "status": "",
-                "ancestor_guid": "8f6f326b4d23469889f2f82fbdac8344",
-                "ancestor_name": "其他视频测试",
-                "ancestor_category": "Others",
-                "ts": 0,
-                "duration": 7,
-                "single_child_guid": "",
-                "media_guid": "98bad219c9914e16b7526df4412ae779",
-                "file_name": "1729600017518.mp4",
-                "path": "/vol4/1000/tset/混合电影/1729600017518.mp4"
-            },
-            {
-                "guid": "840996c66f9344a2b6b29a27c1006313",
-                "lan": "",
-                "imdb_id": "",
-                "tv_title": "",
-                "parent_guid": "fv_bc68b87f1d7d474bac91402c54aae864",
-                "parent_title": "混合电影",
-                "title": "dreamina_7605872522982346008_1770880621066_m.mp4",
-                "type": "Video",
-                "poster": "/f4/01/poster-840996c66f9344a2b6b29a27c1006313.webp",
-                "poster_width": 720,
-                "poster_height": 1280,
-                "is_favorite": 0,
-                "watched": 0,
-                "watched_ts": 0,
-                "vote_average": "0",
-                "media_stream": {
-                    "resolutions": [
-                        "480p"
-                    ],
-                    "audio_type": null,
-                    "color_range_type": [
-                        "SDR"
-                    ]
-                },
-                "season_number": 0,
-                "episode_number": 0,
-                "number_of_seasons": 0,
-                "number_of_episodes": 0,
-                "local_number_of_seasons": 0,
-                "local_number_of_episodes": 0,
-                "status": "",
-                "ancestor_guid": "8f6f326b4d23469889f2f82fbdac8344",
-                "ancestor_name": "其他视频测试",
-                "ancestor_category": "Others",
-                "ts": 0,
-                "duration": 12,
-                "single_child_guid": "",
-                "media_guid": "a91ced26e511488d9e1bfc1f715655f5",
-                "file_name": "dreamina_7605872522982346008_1770880621066_m.mp4",
-                "path": "/vol4/1000/tset/混合电影/dreamina_7605872522982346008_1770880621066_m.mp4"
-            },
-            {
-                "guid": "56be09abb8304d74a83e7dc752431761",
-                "lan": "",
-                "imdb_id": "",
-                "tv_title": "",
-                "parent_guid": "fv_bc68b87f1d7d474bac91402c54aae864",
-                "parent_title": "混合电影",
-                "title": "dreamina_7605877036099603736_1770881619207_m.mp4",
-                "type": "Video",
-                "poster": "/89/14/poster-56be09abb8304d74a83e7dc752431761.webp",
-                "poster_width": 720,
-                "poster_height": 1280,
-                "is_favorite": 0,
-                "watched": 0,
-                "watched_ts": 0,
-                "vote_average": "0",
-                "media_stream": {
-                    "resolutions": [
-                        "480p"
-                    ],
-                    "audio_type": null,
-                    "color_range_type": [
-                        "SDR"
-                    ]
-                },
-                "season_number": 0,
-                "episode_number": 0,
-                "number_of_seasons": 0,
-                "number_of_episodes": 0,
-                "local_number_of_seasons": 0,
-                "local_number_of_episodes": 0,
-                "status": "",
-                "ancestor_guid": "8f6f326b4d23469889f2f82fbdac8344",
-                "ancestor_name": "其他视频测试",
-                "ancestor_category": "Others",
-                "ts": 0,
-                "duration": 12,
-                "single_child_guid": "",
-                "media_guid": "853ff96613a644e39e361a3bbadced94",
-                "file_name": "dreamina_7605877036099603736_1770881619207_m.mp4",
-                "path": "/vol4/1000/tset/混合电影/dreamina_7605877036099603736_1770881619207_m.mp4"
-            },
-            {
-                "guid": "b1ec9665a712450687e576f174d99b43",
-                "lan": "",
-                "imdb_id": "",
-                "tv_title": "",
-                "parent_guid": "fv_bc68b87f1d7d474bac91402c54aae864",
-                "parent_title": "混合电影",
-                "title": "dreamina_7605884222296853784_1770883239142_m.mp4",
-                "type": "Video",
-                "poster": "/91/05/poster-b1ec9665a712450687e576f174d99b43.webp",
-                "poster_width": 720,
-                "poster_height": 1280,
-                "is_favorite": 0,
-                "watched": 0,
-                "watched_ts": 0,
-                "vote_average": "0",
-                "media_stream": {
-                    "resolutions": [
-                        "480p"
-                    ],
-                    "audio_type": null,
-                    "color_range_type": [
-                        "SDR"
-                    ]
-                },
-                "season_number": 0,
-                "episode_number": 0,
-                "number_of_seasons": 0,
-                "number_of_episodes": 0,
-                "local_number_of_seasons": 0,
-                "local_number_of_episodes": 0,
-                "status": "",
-                "ancestor_guid": "8f6f326b4d23469889f2f82fbdac8344",
-                "ancestor_name": "其他视频测试",
-                "ancestor_category": "Others",
-                "ts": 0,
-                "duration": 12,
-                "single_child_guid": "",
-                "media_guid": "8f8051a33e464cafbd31ea920ed942b3",
-                "file_name": "dreamina_7605884222296853784_1770883239142_m.mp4",
-                "path": "/vol4/1000/tset/混合电影/dreamina_7605884222296853784_1770883239142_m.mp4"
-            },
-            {
-                "guid": "4dcf77f9ca8d42449390083e3d9b8a99",
-                "lan": "",
-                "imdb_id": "",
-                "tv_title": "",
-                "parent_guid": "fv_bc68b87f1d7d474bac91402c54aae864",
-                "parent_title": "混合电影",
-                "title": "dreamina_7605884222296853784_1770884515547_m.mp4",
-                "type": "Video",
-                "poster": "/ee/01/poster-4dcf77f9ca8d42449390083e3d9b8a99.webp",
-                "poster_width": 720,
-                "poster_height": 1280,
-                "is_favorite": 0,
-                "watched": 0,
-                "watched_ts": 0,
-                "vote_average": "0",
-                "media_stream": {
-                    "resolutions": [
-                        "480p"
-                    ],
-                    "audio_type": null,
-                    "color_range_type": [
-                        "SDR"
-                    ]
-                },
-                "season_number": 0,
-                "episode_number": 0,
-                "number_of_seasons": 0,
-                "number_of_episodes": 0,
-                "local_number_of_seasons": 0,
-                "local_number_of_episodes": 0,
-                "status": "",
-                "ancestor_guid": "8f6f326b4d23469889f2f82fbdac8344",
-                "ancestor_name": "其他视频测试",
-                "ancestor_category": "Others",
-                "ts": 0,
-                "duration": 12,
-                "single_child_guid": "",
-                "media_guid": "8b91b014caed45939cf07f77c8cfd61d",
-                "file_name": "dreamina_7605884222296853784_1770884515547_m.mp4",
-                "path": "/vol4/1000/tset/混合电影/dreamina_7605884222296853784_1770884515547_m.mp4"
-            },
-            {
-                "guid": "f8c8df3f55eb41cbbe92f0e47485550c",
-                "lan": "",
-                "imdb_id": "",
-                "tv_title": "",
-                "parent_guid": "fv_bc68b87f1d7d474bac91402c54aae864",
-                "parent_title": "混合电影",
-                "title": "dreamina_7605884222296853784_1770884524673_m.mp4",
-                "type": "Video",
-                "poster": "/c6/19/poster-f8c8df3f55eb41cbbe92f0e47485550c.webp",
-                "poster_width": 720,
-                "poster_height": 1280,
-                "is_favorite": 0,
-                "watched": 0,
-                "watched_ts": 0,
-                "vote_average": "0",
-                "media_stream": {
-                    "resolutions": [
-                        "480p"
-                    ],
-                    "audio_type": null,
-                    "color_range_type": [
-                        "SDR"
-                    ]
-                },
-                "season_number": 0,
-                "episode_number": 0,
-                "number_of_seasons": 0,
-                "number_of_episodes": 0,
-                "local_number_of_seasons": 0,
-                "local_number_of_episodes": 0,
-                "status": "",
-                "ancestor_guid": "8f6f326b4d23469889f2f82fbdac8344",
-                "ancestor_name": "其他视频测试",
-                "ancestor_category": "Others",
-                "ts": 0,
-                "duration": 12,
-                "single_child_guid": "",
-                "media_guid": "6a93f50843a04c929997b24f73a193f4",
-                "file_name": "dreamina_7605884222296853784_1770884524673_m.mp4",
-                "path": "/vol4/1000/tset/混合电影/dreamina_7605884222296853784_1770884524673_m.mp4"
-            },
-            {
-                "guid": "532b9c7f9aa0436aacfa22fc155daf78",
-                "lan": "",
-                "imdb_id": "",
-                "tv_title": "",
-                "parent_guid": "fv_bc68b87f1d7d474bac91402c54aae864",
-                "parent_title": "混合电影",
-                "title": "dreamina_7605884222296853784_1770884541415_m.mp4",
-                "type": "Video",
-                "poster": "/e3/18/poster-532b9c7f9aa0436aacfa22fc155daf78.webp",
-                "poster_width": 720,
-                "poster_height": 1280,
-                "is_favorite": 0,
-                "watched": 0,
-                "watched_ts": 0,
-                "vote_average": "0",
-                "media_stream": {
-                    "resolutions": [
-                        "480p"
-                    ],
-                    "audio_type": null,
-                    "color_range_type": [
-                        "SDR"
-                    ]
-                },
-                "season_number": 0,
-                "episode_number": 0,
-                "number_of_seasons": 0,
-                "number_of_episodes": 0,
-                "local_number_of_seasons": 0,
-                "local_number_of_episodes": 0,
-                "status": "",
-                "ancestor_guid": "8f6f326b4d23469889f2f82fbdac8344",
-                "ancestor_name": "其他视频测试",
-                "ancestor_category": "Others",
-                "ts": 0,
-                "duration": 12,
-                "single_child_guid": "",
-                "media_guid": "88f80685103d4a24a9ba4633f886bb13",
-                "file_name": "dreamina_7605884222296853784_1770884541415_m.mp4",
-                "path": "/vol4/1000/tset/混合电影/dreamina_7605884222296853784_1770884541415_m.mp4"
-            },
-            {
-                "guid": "c08a870e690b4790baeada8c536ba06e",
-                "lan": "",
-                "imdb_id": "",
-                "tv_title": "",
-                "parent_guid": "fv_bc68b87f1d7d474bac91402c54aae864",
-                "parent_title": "混合电影",
-                "title": "dreamina_7607326848510430490_1771335075675_m.mp4",
-                "type": "Video",
-                "poster": "/6c/16/poster-c08a870e690b4790baeada8c536ba06e.webp",
-                "poster_width": 1280,
-                "poster_height": 720,
-                "is_favorite": 0,
-                "watched": 0,
-                "watched_ts": 0,
-                "vote_average": "0",
-                "media_stream": {
-                    "resolutions": [
-                        "720p"
-                    ],
-                    "audio_type": null,
-                    "color_range_type": [
-                        "SDR"
-                    ]
-                },
-                "season_number": 0,
-                "episode_number": 0,
-                "number_of_seasons": 0,
-                "number_of_episodes": 0,
-                "local_number_of_seasons": 0,
-                "local_number_of_episodes": 0,
-                "status": "",
-                "ancestor_guid": "8f6f326b4d23469889f2f82fbdac8344",
-                "ancestor_name": "其他视频测试",
-                "ancestor_category": "Others",
-                "ts": 0,
-                "duration": 10,
-                "single_child_guid": "",
-                "media_guid": "63e5367ab2114257b71354376d2094b7",
-                "file_name": "dreamina_7607326848510430490_1771335075675_m.mp4",
-                "path": "/vol4/1000/tset/混合电影/dreamina_7607326848510430490_1771335075675_m.mp4"
-            },
-            {
-                "guid": "df53beec8cc54808a3493af21213ef81",
-                "lan": "",
-                "imdb_id": "",
-                "tv_title": "",
-                "parent_guid": "fv_bc68b87f1d7d474bac91402c54aae864",
-                "parent_title": "混合电影",
-                "title": "dreamina_7607787897084759334_1771334878633_m.mp4",
-                "type": "Video",
-                "poster": "/db/03/poster-df53beec8cc54808a3493af21213ef81.webp",
-                "poster_width": 1280,
-                "poster_height": 720,
-                "is_favorite": 0,
-                "watched": 0,
-                "watched_ts": 0,
-                "vote_average": "0",
-                "media_stream": {
-                    "resolutions": [
-                        "720p"
-                    ],
-                    "audio_type": null,
-                    "color_range_type": [
-                        "SDR"
-                    ]
-                },
-                "season_number": 0,
-                "episode_number": 0,
-                "number_of_seasons": 0,
-                "number_of_episodes": 0,
-                "local_number_of_seasons": 0,
-                "local_number_of_episodes": 0,
-                "status": "",
-                "ancestor_guid": "8f6f326b4d23469889f2f82fbdac8344",
-                "ancestor_name": "其他视频测试",
-                "ancestor_category": "Others",
-                "ts": 0,
-                "duration": 10,
-                "single_child_guid": "",
-                "media_guid": "0aaf8cf58a404f5a8b14d6744547a2b7",
-                "file_name": "dreamina_7607787897084759334_1771334878633_m.mp4",
-                "path": "/vol4/1000/tset/混合电影/dreamina_7607787897084759334_1771334878633_m.mp4"
-            }
-        ],
-        "jump_list": [
-            {
-                "fv_guid": "",
-                "base_name": "其他视频测试"
-            },
-            {
-                "fv_guid": "fv_bc68b87f1d7d474bac91402c54aae864",
-                "base_name": "混合电影"
-            }
-        ]
-    }
+  "msg": "",
+  "code": 0,
+  "data": "675bf442249843a7b6f0c669b4592885"
 }
+
+http://192.168.6.120:5666/v/api/v1/download/task/675bf442249843a7b6f0c669b4592885

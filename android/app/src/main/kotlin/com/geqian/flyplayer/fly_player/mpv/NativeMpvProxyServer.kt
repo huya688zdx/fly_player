@@ -54,6 +54,7 @@ private data class NativeProxySession(
     val disableTlsVerify: Boolean,
     val chunkedRangeProxy: Boolean,
     val extremePlaybackEnabled: Boolean,
+    val cacheResourceKey: String?,
     val cacheSession: ExtremePlaybackCacheSession?,
 )
 
@@ -68,31 +69,31 @@ data class NativeProxyCacheProgress(
 )
 
 private class ExtremePlaybackCacheSession(
-    private val cacheDir: File,
+    private val cacheEntry: PersistentPlaybackCacheEntry,
     private val sessionId: String,
     private val remoteUrl: String,
 ) {
     private val monitor = Object()
-    private val cacheFile = cacheDir.resolve("$sessionId.cache")
+    private val cacheFile = cacheEntry.dataFile
     private val startedAtMs = SystemClock.elapsedRealtime()
-    private val cachedRanges = mutableListOf<LongRange>()
+    private val cachedRanges = cacheEntry.metadata.cachedRanges.toMutableList()
     private val inFlightRanges = mutableListOf<LongRange>()
     @Volatile
     private var started = false
     @Volatile
     private var closed = false
     @Volatile
-    private var completed = false
+    private var completed = cacheEntry.metadata.isComplete
     @Volatile
     private var prefetchStarted = false
     @Volatile
     private var failed: Throwable? = null
     @Volatile
-    private var totalBytes = -1L
+    private var totalBytes = cacheEntry.metadata.totalBytes
     @Volatile
-    private var downloadedBytes = 0L
+    private var downloadedBytes = cacheEntry.metadata.downloadedBytes
     @Volatile
-    private var mimeType = "application/octet-stream"
+    private var mimeType = cacheEntry.metadata.mimeType.ifBlank { "application/octet-stream" }
     @Volatile
     private var lastDemandFetchAtMs = 0L
     @Volatile
@@ -105,10 +106,11 @@ private class ExtremePlaybackCacheSession(
     private var upstreamRequestBuilder: ((String, String?, String) -> Request?)? = null
 
     init {
-        cacheDir.mkdirs()
+        cacheEntry.rootDir.mkdirs()
         if (!cacheFile.exists()) {
             runCatching { cacheFile.createNewFile() }
         }
+        cacheEntry.touch()
     }
 
     fun ensureStarted(
@@ -125,6 +127,7 @@ private class ExtremePlaybackCacheSession(
             if (started || closed) return
             started = true
         }
+        cacheEntry.touch()
         ensureMetadataFetched()
     }
 
@@ -188,6 +191,8 @@ private class ExtremePlaybackCacheSession(
     fun mimeType(): String = mimeType
 
     fun totalBytes(): Long = totalBytes
+
+    fun resourceKey(): String = cacheEntry.metadata.resourceKey
 
     fun openInputStream(start: Long, endInclusive: Long?): InputStream {
         return ExtremePlaybackCacheInputStream(
@@ -269,7 +274,7 @@ private class ExtremePlaybackCacheSession(
         synchronized(monitor) {
             monitor.notifyAll()
         }
-        runCatching { cacheFile.delete() }
+        cacheEntry.touch()
     }
 
     private fun fail(error: Throwable) {
@@ -332,6 +337,7 @@ private class ExtremePlaybackCacheSession(
                         }
                     } ?:
                     totalBytes
+                cacheEntry.updateRemoteState(totalBytes = totalBytes, mimeType = mimeType)
                 val writeStart =
                     parseRangeStartFromContentRange(upstream.header("Content-Range").orEmpty()) ?: start
                 val buffer = ByteArray(256 * 1024)
@@ -414,6 +420,13 @@ private class ExtremePlaybackCacheSession(
             cachedRanges += mergedStart..mergedEnd
             cachedRanges.sortBy { it.first }
             downloadedBytes = cachedRanges.sumOf { it.last - it.first + 1L }
+            cacheEntry.updateRanges(
+                ranges = cachedRanges,
+                downloadedBytes = downloadedBytes,
+                totalBytes = totalBytes,
+                mimeType = mimeType,
+                complete = completed || (totalBytes > 0L && downloadedBytes >= totalBytes),
+            )
         }
     }
 
@@ -1006,9 +1019,10 @@ private object UnsafeOkHttpClient {
 
 object NativeMpvProxyServer {
     private val sessions = ConcurrentHashMap<String, NativeProxySession>()
-    private val cacheDirectories = ConcurrentHashMap.newKeySet<String>()
     private val random = SecureRandom()
     private var server: NativeProxyHttpServer? = null
+    @Volatile
+    private var playbackCacheStore: PersistentPlaybackCacheStore? = null
 
     @Synchronized
     fun register(
@@ -1016,10 +1030,11 @@ object NativeMpvProxyServer {
         headers: Map<String, String>,
         disableTlsVerify: Boolean,
         extremePlaybackEnabled: Boolean,
-        cacheDir: File,
+        cacheStore: PersistentPlaybackCacheStore,
+        cacheDescriptor: PersistentPlaybackCacheDescriptor,
     ): NativeProxyRegistration {
         ensureStarted()
-        cacheDirectories += cacheDir.absolutePath
+        playbackCacheStore = cacheStore
         val authToken = headers.entries.firstOrNull {
             it.key.equals("authorization", ignoreCase = true) ||
                 it.key.equals("trim-mc-token", ignoreCase = true)
@@ -1029,8 +1044,9 @@ object NativeMpvProxyServer {
         }?.value.orEmpty()
         val sessionId = nextSessionId()
         val cacheSession = if (extremePlaybackEnabled) {
+            val entry = cacheStore.resolveEntry(cacheDescriptor)
             ExtremePlaybackCacheSession(
-                cacheDir = cacheDir,
+                cacheEntry = entry,
                 sessionId = sessionId,
                 remoteUrl = remoteUrl,
             )
@@ -1045,8 +1061,10 @@ object NativeMpvProxyServer {
             disableTlsVerify = disableTlsVerify,
             chunkedRangeProxy = shouldUseChunkedRangeProxy(remoteUrl),
             extremePlaybackEnabled = extremePlaybackEnabled,
+            cacheResourceKey = cacheSession?.resourceKey(),
             cacheSession = cacheSession,
         )
+        cacheStore.evictIfNeeded(protectedResourceKeys = activeCacheResourceKeys())
         proxyVerboseLog {
             "register host=${remoteUrl.toHttpUrlOrNull()?.host.orEmpty()} chunked=${shouldUseChunkedRangeProxy(remoteUrl)} extreme=$extremePlaybackEnabled headers=${headers.keys.joinToString(",")}"
         }
@@ -1061,9 +1079,7 @@ object NativeMpvProxyServer {
     fun unregister(sessionId: String?) {
         if (sessionId.isNullOrBlank()) return
         sessions.remove(sessionId)?.cacheSession?.close()
-        if (sessions.isEmpty()) {
-            clearCacheDirectories()
-        }
+        playbackCacheStore?.evictIfNeeded(protectedResourceKeys = activeCacheResourceKeys())
     }
 
     fun getCacheProgress(sessionId: String?): NativeProxyCacheProgress? {
@@ -1074,7 +1090,6 @@ object NativeMpvProxyServer {
     @Synchronized
     private fun ensureStarted() {
         if (server != null) return
-        clearCacheDirectories()
         server = NativeProxyHttpServer(sessions).also {
             it.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
             proxyVerboseLog { "started port=${it.listeningPort}" }
@@ -1082,8 +1097,46 @@ object NativeMpvProxyServer {
     }
 
     fun clearAllCaches() {
-        sessions.keys.toList().forEach(::unregister)
-        clearCacheDirectories()
+        playbackCacheStore?.clearAll(protectedResourceKeys = activeCacheResourceKeys())
+    }
+
+    fun hasActiveSessions(): Boolean = sessions.isNotEmpty()
+
+    fun getPersistentCacheStats(): PersistentPlaybackCacheStats =
+        playbackCacheStore?.loadStats() ?: PersistentPlaybackCacheStats(0L, 0, 0)
+
+    fun queryCachedDownloadable(
+        itemGuid: String,
+        mediaGuid: String,
+        videoGuid: String,
+        resourceKey: String,
+    ): Map<String, Any?> {
+        return playbackCacheStore?.queryDownloadable(
+            itemGuid = itemGuid,
+            mediaGuid = mediaGuid,
+            videoGuid = videoGuid,
+            resourceKey = resourceKey,
+        ) ?: mapOf("found" to false, "code" to "not_found")
+    }
+
+    fun promoteCachedMedia(
+        itemGuid: String,
+        mediaGuid: String,
+        videoGuid: String,
+        resourceKey: String,
+        targetMode: String,
+        hasFileAccess: Boolean,
+        context: android.content.Context,
+    ): Map<String, Any?> {
+        return playbackCacheStore?.promote(
+            itemGuid = itemGuid,
+            mediaGuid = mediaGuid,
+            videoGuid = videoGuid,
+            resourceKey = resourceKey,
+            targetMode = targetMode,
+            hasFileAccess = hasFileAccess,
+            context = context,
+        ) ?: mapOf("success" to false, "code" to "not_found")
     }
 
     private fun nextSessionId(): String {
@@ -1094,13 +1147,8 @@ object NativeMpvProxyServer {
         }
     }
 
-    private fun clearCacheDirectories() {
-        cacheDirectories.forEach { path ->
-            runCatching {
-                File(path).deleteRecursively()
-                File(path).mkdirs()
-            }
-        }
+    private fun activeCacheResourceKeys(): Set<String> {
+        return sessions.values.mapNotNull { it.cacheResourceKey }.toSet()
     }
 }
 

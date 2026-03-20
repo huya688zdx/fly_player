@@ -17,9 +17,7 @@ data class PlaybackTarget(
 class PlaybackSourceResolver(
     context: Context,
 ) {
-    private val proxyCacheDir: File = context.cacheDir.resolve("extreme_playback").apply {
-        mkdirs()
-    }
+    private val playbackCacheStore = PersistentPlaybackCacheStore(context)
     var activeProxySessionId: String? = null
         private set
     var activeProxyUrl: String? = null
@@ -28,7 +26,19 @@ class PlaybackSourceResolver(
     private val retiredProxySessionIds = LinkedHashSet<String>()
 
     fun prepare(source: MpvSource): PlaybackTarget {
-        if (!shouldUseNativeProxy(source)) {
+        val cacheDescriptor = PersistentPlaybackCacheDescriptor.fromSource(source)
+        val localPlayback = playbackCacheStore.findCompleteLocalPlayback(cacheDescriptor)
+        if (localPlayback != null) {
+            retireActiveProxy()
+            return PlaybackTarget(
+                url = localPlayback.filePath,
+                headers = emptyMap(),
+                disableTlsVerify = false,
+                viaNativeProxy = false,
+            )
+        }
+        val hasReusableCache = playbackCacheStore.hasReusableEntry(cacheDescriptor)
+        if (!shouldUseNativeProxy(source, hasReusableCache)) {
             return PlaybackTarget(
                 url = source.url,
                 headers = source.headers,
@@ -36,7 +46,11 @@ class PlaybackSourceResolver(
                 viaNativeProxy = false,
             )
         }
-        val registration = ensureNativeProxyRegistration(source)
+        val registration = ensureNativeProxyRegistration(
+            source = source,
+            cacheDescriptor = cacheDescriptor,
+            enablePlaybackCache = source.extremePlaybackEnabled || hasReusableCache,
+        )
         return PlaybackTarget(
             url = registration.localUrl,
             headers = emptyMap(),
@@ -75,14 +89,18 @@ class PlaybackSourceResolver(
         activeProxyKey = null
     }
 
-    private fun ensureNativeProxyRegistration(source: MpvSource): NativeProxyRegistration {
+    private fun ensureNativeProxyRegistration(
+        source: MpvSource,
+        cacheDescriptor: PersistentPlaybackCacheDescriptor,
+        enablePlaybackCache: Boolean,
+    ): NativeProxyRegistration {
         val disableTlsVerify = shouldDisableTlsVerify(source.url, source.headers)
         val key = buildString {
             append(source.url)
             append('|')
             append(disableTlsVerify)
             append('|')
-            append(source.extremePlaybackEnabled)
+            append(enablePlaybackCache)
             append('|')
             append(
                 source.headers.entries
@@ -101,8 +119,9 @@ class PlaybackSourceResolver(
             remoteUrl = source.url,
             headers = source.headers,
             disableTlsVerify = disableTlsVerify,
-            extremePlaybackEnabled = source.extremePlaybackEnabled,
-            cacheDir = proxyCacheDir,
+            extremePlaybackEnabled = enablePlaybackCache,
+            cacheStore = playbackCacheStore,
+            cacheDescriptor = cacheDescriptor,
         ).also { registration ->
             activeProxySessionId = registration.sessionId
             activeProxyUrl = registration.localUrl
@@ -118,8 +137,10 @@ class PlaybackSourceResolver(
         activeProxyKey = null
     }
 
-    private fun shouldUseNativeProxy(source: MpvSource): Boolean {
-        if (!source.forceNativeProxy && !source.extremePlaybackEnabled) return false
+    private fun shouldUseNativeProxy(source: MpvSource, hasReusableCache: Boolean): Boolean {
+        if (!source.forceNativeProxy && !source.extremePlaybackEnabled && !hasReusableCache) {
+            return false
+        }
         val uri = runCatching { java.net.URI(source.url) }.getOrNull() ?: return false
         val scheme = uri.scheme?.lowercase(Locale.US) ?: return false
         if (scheme != "http" && scheme != "https") return false

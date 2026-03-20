@@ -1,51 +1,45 @@
 package com.geqian.flyplayer.fly_player.mpv
 
+import android.app.ActivityManager
+import android.content.Context
+import android.system.Os
+import android.system.OsConstants
 import android.os.Process
 import android.os.SystemClock
 import java.io.File
-import java.util.Locale
 
 data class PlaybackPerformanceSnapshot(
     val cpuUsagePercent: Double?,
-    val gpuUsagePercent: Double?,
-    val estimatedVfFps: Double?,
-    val containerFps: Double?,
-    val displayFps: Double?,
+    val appMemoryUsedBytes: Long?,
+    val systemMemoryTotalBytes: Long?,
 ) {
     fun toMap(): Map<String, Any?> {
         return linkedMapOf(
             "cpuUsagePercent" to cpuUsagePercent,
-            "gpuUsagePercent" to gpuUsagePercent,
-            "estimatedVfFps" to estimatedVfFps,
-            "containerFps" to containerFps,
-            "displayFps" to displayFps,
+            "appMemoryUsedBytes" to appMemoryUsedBytes,
+            "systemMemoryTotalBytes" to systemMemoryTotalBytes,
         )
     }
 }
 
 class PlaybackPerformanceSampler(
-    private val mpv: MpvFacade = DefaultMpvFacade,
+    context: Context,
 ) {
+    private val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
     private val cpuCoreCount = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
-    private val unsupportedMpvProperties = mutableSetOf<String>()
     private var lastCpuSampleUptimeMs = 0L
     private var lastProcessCpuTimeMs = 0L
-    private var gpuUsageReader: (() -> Double?)? = null
-    private var triedResolveGpuUsageReader = false
 
     fun reset() {
         lastCpuSampleUptimeMs = 0L
         lastProcessCpuTimeMs = 0L
-        unsupportedMpvProperties.clear()
     }
 
     fun sample(): PlaybackPerformanceSnapshot {
         return PlaybackPerformanceSnapshot(
             cpuUsagePercent = sampleCpuUsagePercent(),
-            gpuUsagePercent = sampleGpuUsagePercent(),
-            estimatedVfFps = sampleFirstMpvDouble("estimated-vf-fps", "fps"),
-            containerFps = sampleFirstMpvDouble("container-fps"),
-            displayFps = null,
+            appMemoryUsedBytes = sampleAppMemoryUsedBytes(),
+            systemMemoryTotalBytes = sampleSystemMemoryTotalBytes(),
         )
     }
 
@@ -66,101 +60,60 @@ class PlaybackPerformanceSampler(
         return usage.coerceIn(0.0, 100.0)
     }
 
-    private fun sampleGpuUsagePercent(): Double? {
-        if (!triedResolveGpuUsageReader) {
-            gpuUsageReader = resolveGpuUsageReader()
-            triedResolveGpuUsageReader = true
+    private fun sampleAppMemoryUsedBytes(): Long? {
+        val residentBytes = sampleResidentSetBytes()
+        if (residentBytes != null && residentBytes > 0L) {
+            return residentBytes
         }
-        return gpuUsageReader?.invoke()?.coerceIn(0.0, 100.0)
-    }
-
-    private fun resolveGpuUsageReader(): (() -> Double?)? {
-        val directCandidates = listOf(
-            "/sys/class/kgsl/kgsl-3d0/gpu_busy_percentage",
-            "/sys/class/kgsl/kgsl-3d0/devfreq/gpu_busy_percentage",
-            "/sys/devices/platform/kgsl-3d0.0/gpu_busy_percentage",
-            "/sys/class/misc/mali0/device/utilization",
-            "/sys/devices/platform/mali/utilization",
-        )
-        for (path in directCandidates) {
-            val reader = buildSimplePercentReader(File(path))
-            if (reader != null) return reader
-        }
-
-        val devfreqRoot = File("/sys/class/devfreq")
-        val devfreqEntries = devfreqRoot.listFiles().orEmpty()
-        for (entry in devfreqEntries) {
-            val normalizedName = entry.name.lowercase(Locale.US)
-            if (!normalizedName.contains("mali") &&
-                !normalizedName.contains("gpu") &&
-                !normalizedName.contains("3d")
-            ) {
-                continue
-            }
-            val readers = listOf(
-                buildSimplePercentReader(entry.resolve("gpu_busy_percentage")),
-                buildSimplePercentReader(entry.resolve("load")),
-                buildSimplePercentReader(entry.resolve("utilization")),
-                buildSimplePercentReader(entry.resolve("busy_percent")),
-                buildSimplePercentReader(entry.resolve("device/utilization")),
-                buildSimplePercentReader(entry.resolve("device/gpu_busy_percentage")),
-                buildSimplePercentReader(entry.resolve("device/load")),
-            )
-            for (reader in readers) {
-                if (reader != null) return reader
+        val manager = activityManager
+        if (manager != null) {
+            val processMemoryBytes =
+                runCatching {
+                    val processInfo = manager.getProcessMemoryInfo(intArrayOf(Process.myPid()))
+                    processInfo.firstOrNull()?.totalPss?.toLong()?.times(1024L)
+                }.getOrNull()
+            if (processMemoryBytes != null && processMemoryBytes > 0L) {
+                return processMemoryBytes
             }
         }
-        return null
+        val runtime = Runtime.getRuntime()
+        val heapUsedBytes = runtime.totalMemory() - runtime.freeMemory()
+        return heapUsedBytes.takeIf { it > 0L }
     }
 
-    private fun buildSimplePercentReader(file: File): (() -> Double?)? {
-        if (!file.isFile || !file.canRead()) return null
-        return {
-            val raw = runCatching { file.readText() }.getOrNull()?.trim().orEmpty()
-            parsePercentLikeValue(raw)
-        }
-    }
-
-    private fun parsePercentLikeValue(raw: String): Double? {
-        if (raw.isBlank()) return null
-        val allTokens = raw
-            .split(Regex("[^0-9.]+"))
-            .filter { it.isNotBlank() }
-        if (allTokens.size >= 2) {
-            val busy = allTokens[0].toDoubleOrNull()
-            val total = allTokens[1].toDoubleOrNull()
-            if (busy != null && total != null && total > 0.0) {
-                return ((busy / total) * 100.0).coerceIn(0.0, 100.0)
+    private fun sampleResidentSetBytes(): Long? {
+        val pageSize = runCatching { Os.sysconf(OsConstants._SC_PAGESIZE) }.getOrNull()
+        val statmBytes =
+            if (pageSize != null && pageSize > 0L) {
+                runCatching {
+                    val content = File("/proc/self/statm").readText().trim()
+                    val residentPages = content.split(Regex("\\s+")).getOrNull(1)?.toLongOrNull()
+                    residentPages?.times(pageSize)
+                }.getOrNull()
+            } else {
+                null
             }
+        if (statmBytes != null && statmBytes > 0L) {
+            return statmBytes
         }
-        val firstToken = allTokens.firstOrNull() ?: return null
-        val numeric = firstToken.toDoubleOrNull() ?: return null
-        return when {
-            numeric <= 100.0 -> numeric
-            numeric <= 1000.0 -> numeric / 10.0
-            else -> null
-        }
+        return runCatching {
+            File("/proc/self/status")
+                .useLines { lines ->
+                    lines.firstOrNull { it.startsWith("VmRSS:") }
+                }
+                ?.split(Regex("\\s+"))
+                ?.getOrNull(1)
+                ?.toLongOrNull()
+                ?.times(1024L)
+        }.getOrNull()
     }
 
-    private fun sampleFirstMpvDouble(vararg properties: String): Double? {
-        for (property in properties) {
-            sampleMpvDouble(property)?.let { return it }
-        }
-        return null
-    }
-
-    private fun sampleMpvDouble(property: String): Double? {
-        if (unsupportedMpvProperties.contains(property)) return null
-        val numericValue = sanitizeMpvDoubleProperty(
-            property = property,
-            value = runCatching { mpv.getPropertyDouble(property) }.getOrNull(),
-        )
-        if (numericValue != null) return numericValue
-        val stringValue = runCatching { mpv.getPropertyString(property) }.getOrNull()?.trim()
-        val parsed = sanitizeMpvDoubleProperty(property, stringValue?.toDoubleOrNull())
-        if (parsed == null && stringValue.isNullOrEmpty()) {
-            unsupportedMpvProperties += property
-        }
-        return parsed
+    private fun sampleSystemMemoryTotalBytes(): Long? {
+        val manager = activityManager ?: return null
+        val memoryInfo = ActivityManager.MemoryInfo()
+        return runCatching {
+            manager.getMemoryInfo(memoryInfo)
+            memoryInfo.totalMem.takeIf { it > 0L }
+        }.getOrNull()
     }
 }

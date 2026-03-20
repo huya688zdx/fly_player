@@ -10,8 +10,7 @@ import android.os.SystemClock
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
-import android.view.SurfaceHolder
-import android.view.SurfaceView
+import android.view.Surface
 import com.geqian.flyplayer.fly_player.PlayerLayoutHandoffCoordinator
 import `is`.xyz.mpv.MPVLib
 import java.io.File
@@ -33,11 +32,10 @@ private const val ENABLE_MPV_VERBOSE_LOGS = false
 
 class MpvPlaybackController(
     private val context: Context,
-    private val surfaceView: SurfaceView,
+    private val videoOutputTarget: VideoOutputTarget,
     creationParams: Map<String, Any?>,
     private val stateListener: MpvPlaybackStateListener,
-) : SurfaceHolder.Callback,
-    MPVLib.EventObserver,
+) : MPVLib.EventObserver,
     MPVLib.LogObserver {
     private val mpv: MpvFacade = DefaultMpvFacade
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -99,7 +97,7 @@ class MpvPlaybackController(
     private val recoveryOrchestrator = PlaybackRecoveryOrchestrator(recoveryPolicy)
     private val sessionGate = PlaybackSessionGate()
     private val runtimeBootstrap = MpvRuntimeBootstrap(context, mpv)
-    private val performanceSampler = PlaybackPerformanceSampler(mpv)
+    private val performanceSampler = PlaybackPerformanceSampler(context)
     private val captureExportController = MpvCaptureExportController(context, mpv)
     private val chapterSnapshotBuilder = MpvChapterSnapshotBuilder(TAG, mpv)
     private val pauseController = PlaybackPauseController(TAG, mpv)
@@ -110,7 +108,7 @@ class MpvPlaybackController(
     )
     private val videoAdjustmentController = VideoAdjustmentController(mpv)
     private val videoOutputController = VideoOutputController(
-        surfaceView = surfaceView,
+        videoOutputTarget = videoOutputTarget,
         hostActivity = hostActivity,
         displayProfile = displayProfile,
         deviceProfile = deviceProfile,
@@ -154,6 +152,7 @@ class MpvPlaybackController(
         mpv.removeObserver(this)
         mpv.removeLogObserver(this)
         playbackHandler.post {
+            playbackHandler.removeCallbacksAndMessages(null)
             disposeInternal()
             playbackThread.quitSafely()
         }
@@ -213,6 +212,11 @@ class MpvPlaybackController(
     fun getChapters(): List<Map<String, Any?>> {
         if (disposed) return emptyList()
         return callOnPlaybackThread { buildChapterList() }
+    }
+
+    fun getTrackSnapshotMap(): Map<String, Any?> {
+        if (disposed) return emptyMap()
+        return callOnPlaybackThread { buildTrackSnapshotMap() }
     }
 
     fun captureFrame(args: Map<String, Any?> = emptyMap()): Map<String, Any?> {
@@ -403,11 +407,20 @@ class MpvPlaybackController(
         return true
     }
 
-    fun setAudioTrack(trackIndex: Int?): Boolean {
+    fun setAudioTrack(trackIndex: Int?, trackGuid: String?): Boolean {
         if (disposed) return false
         runOnPlaybackThread {
-            val success = if (initialized && mpv.isAvailable() && trackIndex != null) {
-                runCatching { mpv.setPropertyInt("aid", trackIndex.toLong()) }.getOrDefault(false)
+            val resolvedTrackId = resolveRequestedTrackId(
+                type = "audio",
+                trackIndex = trackIndex,
+                trackGuid = trackGuid,
+            )
+            Log.d(
+                TAG,
+                "setAudioTrack requestedIndex=$trackIndex requestedGuid=${trackGuid.orEmpty()} resolvedId=$resolvedTrackId",
+            )
+            val success = if (initialized && mpv.isAvailable() && resolvedTrackId != null) {
+                runCatching { mpv.setPropertyInt("aid", resolvedTrackId.toLong()) }.getOrDefault(false)
             } else {
                 false
             }
@@ -421,17 +434,26 @@ class MpvPlaybackController(
         return true
     }
 
-    fun setSubtitleTrack(trackIndex: Int?): Boolean {
+    fun setSubtitleTrack(trackIndex: Int?, trackGuid: String?): Boolean {
         if (disposed) return false
         runOnPlaybackThread {
+            val resolvedTrackId = resolveRequestedTrackId(
+                type = "sub",
+                trackIndex = trackIndex,
+                trackGuid = trackGuid,
+            )
+            Log.d(
+                TAG,
+                "setSubtitleTrack requestedIndex=$trackIndex requestedGuid=${trackGuid.orEmpty()} resolvedId=$resolvedTrackId",
+            )
             val success = if (initialized && mpv.isAvailable()) {
                 trackSelectionController.onSubtitleTrackSelectedManually()
                 when {
-                    trackIndex == null -> runCatching {
+                    resolvedTrackId == null -> runCatching {
                         mpv.setPropertyString("sid", "no")
                     }.getOrDefault(false)
                     else -> runCatching {
-                        mpv.setPropertyInt("sid", trackIndex.toLong())
+                        mpv.setPropertyInt("sid", resolvedTrackId.toLong())
                     }.getOrDefault(false)
                 }
             } else {
@@ -693,13 +715,18 @@ class MpvPlaybackController(
         return true
     }
 
-    override fun surfaceCreated(holder: SurfaceHolder) {
+    fun onVideoOutputSurfaceAvailable(
+        surface: Surface,
+        generation: Long,
+        width: Int,
+        height: Int,
+    ) {
         runOnPlaybackThread {
             surfaceReady = true
             lastSurfaceTransitionUptimeMs = SystemClock.uptimeMillis()
             Log.d(
                 TAG,
-                "surfaceCreated created=$created initialized=$initialized mpvAvailable=${mpv.isAvailable()} url=${source.url}",
+                "surfaceAvailable generation=$generation size=${width}x$height created=$created initialized=$initialized mpvAvailable=${mpv.isAvailable()} url=${source.url}",
             )
             if (created && mpv.isAvailable()) {
                 var initError: Throwable? = null
@@ -740,7 +767,10 @@ class MpvPlaybackController(
                     )
                     return@runOnPlaybackThread
                 }
-                val attachSuccess = videoOutputController.onSurfaceCreated(holder)
+                val attachSuccess = videoOutputController.onSurfaceAvailable(
+                    surface = surface,
+                    generation = generation,
+                )
                 syncVideoOutputState()
                 if (!attachSuccess) {
                     updateState(
@@ -831,16 +861,21 @@ class MpvPlaybackController(
         }
     }
 
-    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) = Unit
+    fun onVideoOutputSurfaceSizeChanged(
+        surface: Surface,
+        generation: Long,
+        width: Int,
+        height: Int,
+    ) = Unit
 
-    override fun surfaceDestroyed(holder: SurfaceHolder) {
+    fun onVideoOutputSurfaceDestroyed(generation: Long) {
         runOnPlaybackThread {
             invalidateVideoOutputSanityChecks()
             lastSurfaceTransitionUptimeMs = SystemClock.uptimeMillis()
             if (shouldPreserveSessionForHostHandoff()) {
                 Log.d(
                     TAG,
-                    "surfaceDestroyed preserving mpv session during host handoff host=${hostActivity?.javaClass?.simpleName}",
+                    "surfaceDestroyed generation=$generation preserving mpv session during host handoff host=${hostActivity?.javaClass?.simpleName}",
                 )
                 videoOutputController.detachSurfaceForHandoff()
                 syncVideoOutputState()
@@ -872,7 +907,11 @@ class MpvPlaybackController(
             resumeAfterSurfaceRestore = wasPlaying && pausedForSurfaceLoss
             pendingAutoResumeAfterSurfaceRestore = false
             sessionGate.onSurfaceLost()
-            videoOutputController.onSurfaceDestroyed(initialized, mpv.isAvailable())
+            videoOutputController.onSurfaceDestroyed(
+                initialized = initialized,
+                available = mpv.isAvailable(),
+                generation = generation,
+            )
             syncVideoOutputState()
             updateState(
                 state.copy(
@@ -1007,11 +1046,13 @@ class MpvPlaybackController(
         sessionGate.onLoadCommandFinished(loaded)
         if (loaded) {
             loadState.onLoadCommandStarted(source.url, playbackTarget.url)
+            // Seed track selection state before building the restore plan so
+            // mode switches/reloads can correctly carry external subtitles.
+            trackSelectionController.onLoadRequested(source)
             restoreCoordinator.onLoadRequested(
                 0L,
                 trackSelectionController.hasPendingExternalSubtitle(),
             )
-            trackSelectionController.onLoadRequested(source)
         } else {
             loadState.onLoadCommandFailed()
         }
@@ -1317,6 +1358,176 @@ class MpvPlaybackController(
 
     private fun buildChapterList(): List<Map<String, Any?>> {
         return chapterSnapshotBuilder.buildChapterList()
+    }
+
+    private fun buildTrackSnapshotMap(): Map<String, Any?> {
+        val trackEntries = readRuntimeTrackEntries()
+        val selectedAudioId =
+            trackEntries.firstOrNull { it.type == "audio" && it.selected }?.id
+                ?: currentTrackId("aid")
+        val selectedSubtitleId =
+            trackEntries.firstOrNull { it.type == "sub" && it.selected }?.id
+                ?: currentTrackId("sid")
+        val mediaGuid = source.mediaGuid.trim()
+        val audioTracks = mutableListOf<Map<String, Any?>>()
+        val subtitleTracks = mutableListOf<Map<String, Any?>>()
+        var fallbackAudioGuid = ""
+
+        for (entry in trackEntries) {
+            when (entry.type) {
+                "audio" -> {
+                    val guid = "mpv-audio:${entry.id}"
+                    if (fallbackAudioGuid.isEmpty()) {
+                        fallbackAudioGuid = guid
+                    }
+                    val selected = selectedAudioId == entry.id
+                    audioTracks +=
+                        mapOf(
+                            "mediaGuid" to mediaGuid,
+                            "guid" to guid,
+                            "title" to entry.title,
+                            "codecName" to entry.codec,
+                            "profile" to "",
+                            "language" to entry.language,
+                            "audioType" to "",
+                            "channelLayout" to entry.channelLayout,
+                            "channels" to entry.channels,
+                            "sampleRate" to entry.sampleRate,
+                            "bps" to entry.bitrate,
+                            "index" to entry.id,
+                            "isDefault" to if (selected || (selectedAudioId == null && audioTracks.isEmpty())) 1 else 0,
+                        )
+                }
+                "sub" -> {
+                    val guid = "mpv-subtitle:${entry.id}"
+                    val selected = selectedSubtitleId == entry.id
+                    subtitleTracks +=
+                        mapOf(
+                            "mediaGuid" to mediaGuid,
+                            "guid" to guid,
+                            "title" to entry.title,
+                            "codecName" to entry.codec,
+                            "format" to entry.codec,
+                            "language" to entry.language,
+                            "index" to entry.id,
+                            "isDefault" to if (selected || (selectedSubtitleId == null && subtitleTracks.isEmpty())) 1 else 0,
+                            "forced" to if (entry.forced) 1 else 0,
+                            "isExternal" to if (entry.external) 1 else 0,
+                            "extraFile" to if (entry.external) 1 else 0,
+                            "isBitmap" to if (entry.bitmap) 1 else 0,
+                        )
+                }
+            }
+        }
+
+        val selectedAudioGuid =
+            when {
+                selectedAudioId != null && selectedAudioId > 0 -> "mpv-audio:$selectedAudioId"
+                fallbackAudioGuid.isNotEmpty() -> fallbackAudioGuid
+                else -> ""
+            }
+        val selectedSubtitleGuid =
+            when {
+                selectedSubtitleId != null && selectedSubtitleId > 0 -> "mpv-subtitle:$selectedSubtitleId"
+                else -> ""
+            }
+        return mapOf(
+            "audioTracks" to audioTracks,
+            "subtitleTracks" to subtitleTracks,
+            "selectedAudioGuid" to selectedAudioGuid,
+            "selectedSubtitleGuid" to selectedSubtitleGuid,
+        )
+    }
+
+    private fun readRuntimeTrackEntries(): List<RuntimeTrackEntry> {
+        val entries = mutableListOf<RuntimeTrackEntry>()
+        val reportedCount = rawMpvInt("track-list/count")?.toInt()?.coerceIn(0, 64) ?: 0
+        val maxIndex = if (reportedCount > 0) reportedCount else 32
+        var emptyStreak = 0
+        var audioOrdinal = 0
+        var subtitleOrdinal = 0
+        for (index in 0 until maxIndex) {
+            val type = currentMpvString("track-list/$index/type")?.lowercase() ?: ""
+            if (type.isEmpty()) {
+                emptyStreak += 1
+                if (reportedCount <= 0 && emptyStreak >= 3 && entries.isNotEmpty()) {
+                    break
+                }
+                continue
+            }
+            emptyStreak = 0
+            if (type != "audio" && type != "sub") {
+                continue
+            }
+            val trackId =
+                when (type) {
+                    "audio" -> {
+                        audioOrdinal += 1
+                        audioOrdinal
+                    }
+                    "sub" -> {
+                        subtitleOrdinal += 1
+                        subtitleOrdinal
+                    }
+                    else -> index + 1
+                }
+            val externalFileName =
+                currentMpvString("track-list/$index/external-filename").orEmpty()
+            entries +=
+                RuntimeTrackEntry(
+                    id = trackId,
+                    type = type,
+                    title = currentMpvString("track-list/$index/title").orEmpty(),
+                    language = currentMpvString("track-list/$index/lang").orEmpty(),
+                    codec = currentMpvString("track-list/$index/codec").orEmpty(),
+                    external =
+                        externalFileName.isNotEmpty() ||
+                            currentMpvFlag("track-list/$index/external") == true,
+                    selected =
+                        currentMpvFlag("track-list/$index/selected") == true ||
+                            currentMpvFlag("track-list/$index/current") == true,
+                    forced = currentMpvFlag("track-list/$index/forced") == true,
+                    bitmap = currentMpvFlag("track-list/$index/image") == true,
+                    channels = currentMpvInt("track-list/$index/demux-channel-count")?.toInt() ?: 0,
+                    channelLayout = currentMpvString("track-list/$index/demux-channels").orEmpty(),
+                    sampleRate = currentMpvInt("track-list/$index/demux-samplerate")?.toInt() ?: 0,
+                    bitrate = currentMpvInt("track-list/$index/demux-bitrate")?.toInt() ?: 0,
+                )
+        }
+        return entries
+    }
+
+    private fun resolveRequestedTrackId(
+        type: String,
+        trackIndex: Int?,
+        trackGuid: String?,
+    ): Int? {
+        val normalizedType =
+            when (type.trim().lowercase()) {
+                "audio" -> "audio"
+                "sub", "subtitle" -> "sub"
+                else -> return trackIndex?.takeIf { it > 0 }
+            }
+        val normalizedGuid = trackGuid?.trim().orEmpty()
+        if (normalizedGuid.isNotEmpty()) {
+            val parsedFromGuid = when {
+                normalizedType == "audio" && normalizedGuid.startsWith("mpv-audio:") ->
+                    normalizedGuid.substringAfter("mpv-audio:").toIntOrNull()
+                normalizedType == "sub" && normalizedGuid.startsWith("mpv-subtitle:") ->
+                    normalizedGuid.substringAfter("mpv-subtitle:").toIntOrNull()
+                else -> null
+            }
+            if (parsedFromGuid != null && parsedFromGuid > 0) {
+                val runtimeMatch =
+                    readRuntimeTrackEntries().firstOrNull {
+                        it.type == normalizedType && it.id == parsedFromGuid
+                    }
+                if (runtimeMatch != null) {
+                    return runtimeMatch.id
+                }
+            }
+        }
+        return trackIndex?.takeIf { it > 0 }
     }
 
     private fun runOnMainThread(block: () -> Unit) {
@@ -1869,6 +2080,45 @@ class MpvPlaybackController(
             ?.takeUnless { it.isEmpty() || it == "-" }
     }
 
+    private fun rawMpvInt(property: String): Long? {
+        return runCatching { mpv.getPropertyInt(property) }.getOrNull()
+    }
+
+    private fun currentMpvFlag(property: String): Boolean? {
+        val rawString =
+            runCatching { mpv.getPropertyString(property) }
+                .getOrNull()
+                ?.trim()
+                ?.lowercase()
+        when (rawString) {
+            "yes", "true", "1" -> return true
+            "no", "false", "0" -> return false
+        }
+        val rawInt = rawMpvInt(property)
+        if (rawInt == 0L) return false
+        if (rawInt == 1L) return true
+        return null
+    }
+
+    private fun currentTrackId(property: String): Int? {
+        val rawString = currentMpvString(property)
+        if (rawString != null) {
+            val normalized = rawString.trim().lowercase()
+            if (normalized == "no" || normalized == "auto") {
+                return null
+            }
+            val parsed = normalized.toIntOrNull()
+            if (parsed != null && parsed > 0) {
+                return parsed
+            }
+        }
+        val rawInt = rawMpvInt(property)?.toInt()
+        if (rawInt != null && rawInt > 0) {
+            return rawInt
+        }
+        return null
+    }
+
     private fun currentVideoOutputName(): String? = currentMpvString("vo")
 
     private fun isNullVideoOutputMode(mode: String?): Boolean {
@@ -2029,4 +2279,20 @@ class MpvPlaybackController(
         }
         return success
     }
+
+    private data class RuntimeTrackEntry(
+        val id: Int,
+        val type: String,
+        val title: String,
+        val language: String,
+        val codec: String,
+        val external: Boolean,
+        val selected: Boolean,
+        val forced: Boolean,
+        val bitmap: Boolean,
+        val channels: Int,
+        val channelLayout: String,
+        val sampleRate: Int,
+        val bitrate: Int,
+    )
 }

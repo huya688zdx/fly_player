@@ -78,6 +78,7 @@ class AdaptiveDetailRequest {
     required String seriesTitle,
     required String backdropPath,
     required MediaLibraryItem seasonItem,
+    List<MediaLibraryItem>? initialSeasonItems,
   }) {
     return AdaptiveDetailRequest._(
       buildRoute: (presentation) => AppTransitions.leftToRightPageTurnRoute(
@@ -86,6 +87,7 @@ class AdaptiveDetailRequest {
           seriesTitle: seriesTitle,
           backdropPath: backdropPath,
           seasonItem: seasonItem,
+          initialSeasonItems: initialSeasonItems,
           presentation: presentation,
         ),
       ),
@@ -135,9 +137,9 @@ class AdaptiveDetailNavigator {
 
   static Future<T?> open<T>(
     BuildContext context,
-    AdaptiveDetailRequest request,
-    {DetailPresentation presentation = DetailPresentation.page}
-  ) async {
+    AdaptiveDetailRequest request, {
+    DetailPresentation presentation = DetailPresentation.page,
+  }) async {
     final navigator = Navigator.of(context);
     final paneHost = PlayerPaneHostScope.maybeOf(context);
     final localRouteName = request.localRouteName;
@@ -154,8 +156,6 @@ class AdaptiveDetailNavigator {
         await tryOpenEmbedded()) {
       return null;
     }
-    return navigator.push<T>(
-      request.buildRoute(presentation) as Route<T>,
-    );
+    return navigator.push<T>(request.buildRoute(presentation) as Route<T>);
   }
 }

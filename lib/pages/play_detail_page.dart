@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
+import 'dart:io';
+import 'dart:math' as math;
 
 import '../api/feiniu_api.dart';
 import '../controllers/play_detail_data_loader.dart';
+import '../controllers/play_detail_download_sheet_controller.dart';
 import '../controllers/play_detail_item_actions.dart';
 import '../controllers/play_detail_sheet_controller.dart';
 import '../models/authorized_dir_entry.dart';
+import '../models/download_task_record.dart';
 import '../models/playback_stream.dart';
 import '../models/play_info.dart';
 import '../models/person_credit.dart';
@@ -20,6 +24,7 @@ import '../providers/app_theme_provider.dart';
 import '../providers/nas_provider.dart';
 import '../services/app_log_service.dart';
 import '../services/detail_runtime_cache.dart';
+import '../services/download_task_service.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../theme/app_theme.dart';
 import '../theme/detail_tokens.dart';
@@ -45,6 +50,7 @@ import '../widgets/detail/credits_section.dart';
 import '../widgets/detail/detail_description_section.dart';
 import '../widgets/detail/detail_header.dart';
 import '../widgets/detail/detail_hero_overlay.dart';
+import '../widgets/detail/detail_more_actions_sheet.dart';
 import '../widgets/detail/detail_meta_lines.dart';
 import '../widgets/detail/detail_selector_row.dart';
 import '../widgets/detail/detail_resolution_section.dart';
@@ -53,6 +59,7 @@ import '../widgets/detail/file_info_section.dart';
 import '../widgets/detail/immersive_detail_background.dart';
 import '../widgets/detail/link_section.dart';
 import '../widgets/detail/play_action_bar.dart';
+import '../widgets/detail/theme_save_name_helper.dart';
 import '../widgets/detail/video_info_section.dart';
 
 class PlayDetailPage extends StatefulWidget {
@@ -78,6 +85,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   static const Duration _headerFadeDuration = Duration(milliseconds: 360);
   static const Duration _actionsPopDuration = Duration(milliseconds: 300);
   static const Duration _descriptionPopDuration = Duration(milliseconds: 320);
+  static const Duration _asyncContentFadeDuration = Duration(milliseconds: 220);
   static const Duration _phase2Delay = Duration(milliseconds: 120);
   static const Duration _deferredSectionStartDelay = Duration(
     milliseconds: 160,
@@ -85,6 +93,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   static const Duration _deferredSectionStepDelay = Duration(milliseconds: 140);
   final ScrollController _scrollController = ScrollController();
   final ValueNotifier<double> _scrollOffsetNotifier = ValueNotifier<double>(0);
+  final PlayDetailDownloadSheetController _downloadSheetController =
+      const PlayDetailDownloadSheetController();
+  final DownloadTaskService _downloadTaskService = DownloadTaskService.instance;
   static const Duration _favoriteTapCooldown = Duration(milliseconds: 900);
   static const Duration _watchedTapCooldown = Duration(milliseconds: 900);
 
@@ -119,10 +130,12 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   bool _fileInfoVisible = false;
   bool _videoInfoVisible = false;
   bool _linkVisible = false;
+  bool _heroAsyncSectionsResolved = false;
   bool _subtitleSelectorExpanded = false;
   bool _audioSelectorExpanded = false;
   bool _deferredSectionLoadStarted = false;
   bool _playerRouteActive = false;
+  ImageProvider<Object>? _warmedHeroImageProvider;
   Timer? _entryActionTimer;
   Timer? _deferredSectionTimer;
   late final AnimationController _headerFadeController;
@@ -134,6 +147,70 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   late final Animation<double> _actionsOpacity;
   late final Animation<double> _actionsScale;
   late final Animation<double> _actionsTranslateY;
+
+  double _backdropHeroHeight(Size screenSize) {
+    final isLandscape = screenSize.width > screenSize.height;
+    if (isLandscape) {
+      return screenSize.height * 0.50;
+    }
+    final byHeight = screenSize.height * 0.38;
+    final byWidth = screenSize.width / 1.36;
+    return math.min(byHeight, byWidth).clamp(300.0, 560.0).toDouble();
+  }
+
+  bool _isPhonePortrait(Size screenSize) {
+    return screenSize.width < screenSize.height &&
+        screenSize.shortestSide < 600.0;
+  }
+
+  Alignment _backdropImageAlignment(Size screenSize) {
+    if (_isPhonePortrait(screenSize)) {
+      return const Alignment(0.0, -0.22);
+    }
+    return Alignment.topCenter;
+  }
+
+  double _backdropImageScale(Size screenSize) {
+    if (_isPhonePortrait(screenSize)) {
+      return 1.05;
+    }
+    return 1.0;
+  }
+
+  double _heroInfoBlockReservedHeight(
+    Size screenSize, {
+    required bool canPlay,
+  }) {
+    if (!canPlay) {
+      return _isPhonePortrait(screenSize) ? 148.0 : 132.0;
+    }
+    if (_isPhonePortrait(screenSize)) {
+      return 252.0;
+    }
+    return screenSize.width > screenSize.height ? 188.0 : 208.0;
+  }
+
+  Widget _asyncFadeSwitcher(Widget child, {required Object switchKey}) {
+    return AnimatedSwitcher(
+      duration: _asyncContentFadeDuration,
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeOut,
+      layoutBuilder: (currentChild, previousChildren) {
+        return Stack(
+          alignment: Alignment.topLeft,
+          children: [
+            ...previousChildren,
+            if (currentChild != null) currentChild,
+          ],
+        );
+      },
+      transitionBuilder: (child, animation) {
+        return FadeTransition(opacity: animation, child: child);
+      },
+      child: KeyedSubtree(key: ValueKey<Object>(switchKey), child: child),
+    );
+  }
+
   late final Animation<double> _resolutionOpacity;
   late final Animation<double> _resolutionScale;
   late final Animation<double> _resolutionTranslateY;
@@ -214,6 +291,8 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       end: 0,
     ).animate(descriptionCurve);
     _scrollController.addListener(_onScroll);
+    _downloadTaskService.addListener(_handleDownloadTasksChanged);
+    unawaited(_downloadTaskService.initialize());
     _load();
   }
 
@@ -222,10 +301,16 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     _topTip.dispose();
     _entryActionTimer?.cancel();
     _deferredSectionTimer?.cancel();
+    final warmedProvider = _warmedHeroImageProvider;
+    if (warmedProvider != null) {
+      unawaited(warmedProvider.evict());
+      _warmedHeroImageProvider = null;
+    }
     _headerFadeController.dispose();
     _actionsPopController.dispose();
     _descriptionPopController.dispose();
     _scrollController.removeListener(_onScroll);
+    _downloadTaskService.removeListener(_handleDownloadTasksChanged);
     _scrollController.dispose();
     _scrollOffsetNotifier.dispose();
     super.dispose();
@@ -235,6 +320,42 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     final offset = _scrollController.offset;
     if ((offset - _scrollOffsetNotifier.value).abs() > 0.5) {
       _scrollOffsetNotifier.value = offset;
+    }
+  }
+
+  void _handleDownloadTasksChanged() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  DownloadTaskRecord? _downloadedRecordForCurrentItem() {
+    return _downloadTaskService.downloadedRecordForItem(_currentItemGuid);
+  }
+
+  StreamFileInfo? _localDownloadedFileInfo(DownloadTaskRecord? record) {
+    if (record == null) return null;
+    final path = record.filePath.trim();
+    if (path.isEmpty) return null;
+    final file = File(path);
+    if (!file.existsSync()) return null;
+    try {
+      final stat = file.statSync();
+      final modifiedAt = stat.modified.millisecondsSinceEpoch;
+      return StreamFileInfo(
+        mediaGuid: record.mediaGuid,
+        path: path,
+        fileName: record.fileName.trim().isEmpty
+            ? file.uri.pathSegments.isEmpty
+                  ? ''
+                  : file.uri.pathSegments.last
+            : record.fileName.trim(),
+        size: stat.size,
+        fileBirthTime: record.createdAtMs > 0 ? record.createdAtMs : modifiedAt,
+        createTime: record.createdAtMs > 0 ? record.createdAtMs : modifiedAt,
+        updateTime: record.updatedAtMs > 0 ? record.updatedAtMs : modifiedAt,
+      );
+    } catch (_) {
+      return null;
     }
   }
 
@@ -260,9 +381,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     final stillPath = (item['still_path'] ?? '').toString().trim();
 
     if (type == 'episode') {
-      if (posters.isNotEmpty) return posters;
       if (stillPath.isNotEmpty) return stillPath;
-      return backdrops;
+      if (backdrops.isNotEmpty) return backdrops;
+      return posters;
     }
     if (backdrops.isNotEmpty) return backdrops;
     if (stillPath.isNotEmpty) return stillPath;
@@ -272,9 +393,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   String _heroPathForPlayItem(PlayItem item) {
     final type = item.type.trim().toLowerCase();
     if (type == 'episode') {
-      if (item.posters.isNotEmpty) return item.posters;
       if (item.stillPath.isNotEmpty) return item.stillPath;
-      return item.backdrops;
+      if (item.backdrops.isNotEmpty) return item.backdrops;
+      return item.posters;
     }
     if (item.backdrops.isNotEmpty) return item.backdrops;
     if (item.stillPath.isNotEmpty) return item.stillPath;
@@ -318,6 +439,25 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     return parts.join(' · ');
   }
 
+  String _suggestedThemeNameBase(PlayItem item, String detailTitle) {
+    final itemType = item.type.trim().toLowerCase();
+    if (itemType == 'episode') {
+      final seriesTitle = item.tvTitle.trim().isNotEmpty
+          ? item.tvTitle.trim()
+          : (item.parentTitle.trim().isNotEmpty
+                ? item.parentTitle.trim()
+                : detailTitle);
+      return buildThemeSaveNameBase(
+        title: detailTitle,
+        seriesTitle: seriesTitle,
+        seasonNumber: item.seasonNumber,
+        episodeNumber: item.episodeNumber,
+        isEpisode: true,
+      );
+    }
+    return buildThemeSaveNameBase(title: detailTitle);
+  }
+
   Future<void> _ensureLocaleMapLoaded() async {
     if (_localeMap.isNotEmpty) return;
     final provider = context.read<NasProvider>();
@@ -345,6 +485,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       _videoInfoVisible = false;
       _linkVisible = false;
       _deferredSectionLoadStarted = false;
+      _heroAsyncSectionsResolved = false;
       _personCredits = const [];
       _streamOptions = const [];
       _streamTrackData = null;
@@ -406,18 +547,15 @@ class _PlayDetailPageState extends State<PlayDetailPage>
 
   void _startEntryAnimations() {
     if (_playerRouteActive) return;
-    _headerFadeController.forward(from: 0);
+    _headerFadeController.value = 1.0;
     _entryActionTimer?.cancel();
     _deferredSectionTimer?.cancel();
-    _deferredSectionTimer = Timer(
-      _headerFadeDuration + _actionsPopDuration + _deferredSectionStartDelay,
-      () {
-        if (!mounted || _playerRouteActive) return;
-        setState(() => _descriptionVisible = true);
-        _descriptionPopController.forward(from: 0);
-        unawaited(_loadDeferredSections());
-      },
-    );
+    _deferredSectionTimer = Timer(_deferredSectionStartDelay, () {
+      if (!mounted || _playerRouteActive) return;
+      setState(() => _descriptionVisible = true);
+      _descriptionPopController.forward(from: 0);
+      unawaited(_loadDeferredSections());
+    });
   }
 
   Future<void> _loadPhase2({
@@ -486,6 +624,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         ),
       );
       // Keep base UI alive even if track request fails.
+    } finally {
+      if (mounted && !_playerRouteActive && !_heroAsyncSectionsResolved) {
+        setState(() => _heroAsyncSectionsResolved = true);
+      }
     }
   }
 
@@ -540,16 +682,34 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       return;
     }
     try {
-      final detail = await _loadItemDetail(api, _currentItemGuid);
+      final initialDetail = widget.initialItemDetail;
+      var imdbId = initialDetail == null
+          ? ''
+          : PlayDetailDataLoader.extractImdbId(initialDetail);
+      var trimId = initialDetail == null
+          ? ''
+          : PlayDetailDataLoader.extractTrimId(initialDetail);
+      if (trimId.isEmpty) {
+        trimId = _data?.item.trimId.trim() ?? '';
+      }
+      if (imdbId.isEmpty && trimId.isEmpty) {
+        final detail = await _loadItemDetail(api, _currentItemGuid);
+        if (!mounted) return;
+        if (_playerRouteActive) {
+          _deferredSectionLoadStarted = false;
+          return;
+        }
+        imdbId = PlayDetailDataLoader.extractImdbId(detail);
+        trimId = PlayDetailDataLoader.extractTrimId(detail);
+      }
       if (!mounted) return;
       if (_playerRouteActive) {
         _deferredSectionLoadStarted = false;
         return;
       }
-      final imdbId = PlayDetailDataLoader.extractImdbId(detail);
       setState(() {
         _imdbId = imdbId;
-        _trimId = PlayDetailDataLoader.extractTrimId(detail);
+        _trimId = trimId;
         _linkVisible = _imdbId.trim().isNotEmpty || _trimId.trim().isNotEmpty;
       });
     } catch (_) {}
@@ -564,10 +724,18 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     final urls = ApiUrlHelper.imageCandidates(
       provider.baseUrl,
       heroPath,
-      width: 1200,
+      width: 960,
     );
     if (urls.isEmpty) return;
-    precacheImage(
+    final media = MediaQuery.of(context);
+    final dpr = media.devicePixelRatio.clamp(1.0, 2.0);
+    final cacheWidth = (media.size.width * dpr)
+        .round()
+        .clamp(720, 1280)
+        .toInt();
+    final imageProvider = ResizeImage.resizeIfNeeded(
+      cacheWidth,
+      null,
       NetworkImage(
         urls.first,
         headers: {
@@ -575,8 +743,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           'Trim-MC-token': provider.token,
         },
       ),
-      context,
-    ).catchError((error, stackTrace) {
+    );
+    _warmedHeroImageProvider = imageProvider;
+    precacheImage(imageProvider, context).catchError((error, stackTrace) {
       debugPrint(
         '[IMG][PRECACHE][DETAIL] failed url=${urls.first} error=$error',
       );
@@ -605,7 +774,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     );
   }
 
-  Future<List<PersonCredit>> _loadPersonCredits(FeiniuApi api, String itemGuid) {
+  Future<List<PersonCredit>> _loadPersonCredits(
+    FeiniuApi api,
+    String itemGuid,
+  ) {
     if (!_useRuntimeCache) {
       return api.getPersonList(itemGuid);
     }
@@ -728,6 +900,12 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   Future<void> _openPlayer() async {
     final data = _data;
     if (data == null) return;
+
+    final localRecord = _downloadedRecordForCurrentItem();
+    if (localRecord != null) {
+      await _openLocalPlayer(localRecord);
+      return;
+    }
 
     final provider = context.read<NasProvider>();
     final api = FeiniuApi(provider);
@@ -921,6 +1099,101 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       qualities: mergedQualities,
     );
 
+    await _launchPlayer(title: title, source: source, initialPlayInfo: data);
+  }
+
+  Future<void> _openLocalPlayer(DownloadTaskRecord record) async {
+    final data = _data;
+    if (data == null) return;
+    if (record.filePath.trim().isEmpty) {
+      _showTopTip('本地视频文件无效', context.appColors.warning);
+      return;
+    }
+
+    final selectedOption = _currentStreamOption();
+    final effectiveDuration =
+        (selectedOption != null && selectedOption.duration > 0)
+        ? selectedOption.duration
+        : data.item.duration;
+    final sourceTs = data.ts > 0 ? data.ts : data.item.watchedTs;
+    final effectiveTs = sourceTs.clamp(0, effectiveDuration);
+    final playbackCompleted =
+        effectiveDuration > 0 &&
+        ((effectiveDuration - effectiveTs) <= 0 ||
+            _watched ||
+            data.item.isWatched == 1);
+    final startPosition = playbackCompleted
+        ? Duration.zero
+        : Duration(seconds: effectiveTs);
+    final item = data.item;
+    final title = formatPlayerTitleFromPlayItem(
+      item,
+      fallbackTitle: item.displayTitle,
+    );
+    final localVideo =
+        _streamTrackData?.videoForMedia(record.mediaGuid) ??
+        _streamTrackData?.videoForMedia(selectedOption?.mediaGuid ?? '') ??
+        _streamTrackData?.videoForMedia(data.mediaGuid);
+    final resolvedMediaGuid = record.mediaGuid.trim().isEmpty
+        ? data.mediaGuid
+        : record.mediaGuid;
+    final localAudioTracks = _currentAudioTracks();
+    final selectedAudio = PlayDetailTrackSelector.selectedOrFirstAudio(
+      selectedAudioGuid: _selectedAudioGuid?.trim().isNotEmpty == true
+          ? _selectedAudioGuid
+          : data.audioGuid,
+      audioTracks: localAudioTracks,
+    );
+    final mergedQualities = mergePlaybackQualitiesWithStreamTrackData(
+      const <PlaybackQualityOption>[],
+      _streamTrackData,
+    );
+    final source = MpvMediaSource.localFile(
+      filePath: record.filePath,
+      itemGuid: _currentItemGuid,
+      seasonGuid: (widget.initialItemDetail?['parent_guid'] ?? '').toString(),
+      posterPath: resolvePlayerArtworkPathForPlayItem(item),
+      mediaGuid: resolvedMediaGuid,
+      mediaType: item.type,
+      ancestorName: item.ancestorName,
+      videoGuid: localVideo?.guid.trim().isNotEmpty == true
+          ? localVideo!.guid.trim()
+          : data.videoGuid,
+      title: title,
+      seriesTitle: item.tvTitle.trim().isNotEmpty ? item.tvTitle.trim() : title,
+      seasonNumber: item.seasonNumber,
+      tmdbId: item.trimId,
+      episodeNumber: item.episodeNumber,
+      startPosition: startPosition,
+      audioTrackGuid: selectedAudio?.guid ?? data.audioGuid,
+      subtitleTrackGuid: _selectedSubtitleGuid?.trim().isNotEmpty == true
+          ? _selectedSubtitleGuid
+          : data.subtitleGuid,
+      resolution: record.resolution,
+      bitrate: 0,
+      durationSeconds: effectiveDuration,
+      videoWidth: localVideo?.width ?? 0,
+      videoHeight: localVideo?.height ?? 0,
+      videoCodecName: localVideo?.codecName ?? '',
+      videoProfile: localVideo?.profile ?? '',
+      colorSpace: localVideo?.colorSpace ?? '',
+      colorTransfer: localVideo?.colorTransfer ?? '',
+      colorPrimaries: localVideo?.colorPrimaries ?? '',
+      bitDepth: localVideo?.bitDepth ?? 0,
+      audioTracks: localAudioTracks,
+      subtitleTracks: const <SubtitleTrackOption>[],
+      qualities: mergedQualities,
+      playbackSpeed: 1.0,
+    );
+
+    await _launchPlayer(title: title, source: source, initialPlayInfo: data);
+  }
+
+  Future<void> _launchPlayer({
+    required String title,
+    required MpvMediaSource source,
+    PlayInfoData? initialPlayInfo,
+  }) async {
     if (!mounted) return;
     final navigator = Navigator.of(context);
     _playerRouteActive = true;
@@ -934,7 +1207,11 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         ? embeddedResult.data
         : await navigator.push(
             AppTransitions.playerRoute(
-              MpvPlayerPage(title: title, source: source),
+              MpvPlayerPage(
+                title: title,
+                source: source,
+                initialPlayInfo: initialPlayInfo,
+              ),
             ),
           );
     if (!mounted) return;
@@ -1013,6 +1290,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       _selectedStreamIndex = refreshed.selectedStreamIndex;
       _selectedSubtitleGuid = refreshed.selectedSubtitleGuid;
       _selectedAudioGuid = refreshed.selectedAudioGuid;
+      _heroAsyncSectionsResolved = true;
       _liked = refreshed.info.item.isFavorite == 1;
       _watched = refreshed.info.item.isWatched == 1;
       _imdbId = refreshed.imdbId;
@@ -1176,6 +1454,46 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     }
   }
 
+  void _handleDownloadTap() {
+    final item = _data?.item;
+    final itemGuid = _currentItemGuid.trim();
+    if (item == null || itemGuid.isEmpty) {
+      _showTopTip(
+        _t('common.actions.download.unavailable', '暂无可下载资源'),
+        context.appColors.warning,
+      );
+      return;
+    }
+    final subtitleTracks = _currentSubtitleTracks();
+    final selectedSubtitle = PlayDetailTrackSelector.selectedOrFirstSubtitle(
+      selectedSubtitleGuid: _selectedSubtitleGuid?.trim().isNotEmpty == true
+          ? _selectedSubtitleGuid
+          : _data?.subtitleGuid,
+      subtitleTracks: subtitleTracks,
+    );
+    unawaited(
+      _downloadSheetController.show(
+        context,
+        itemGuid: itemGuid,
+        item: item,
+        selectedSubtitleTrack: selectedSubtitle,
+        parentGuid:
+            (widget.initialItemDetail?['parent_guid'] ?? '')
+                .toString()
+                .trim()
+                .isNotEmpty
+            ? (widget.initialItemDetail?['parent_guid'] ?? '').toString().trim()
+            : (_data?.parentGuid.trim() ?? ''),
+        previewUrls: ApiUrlHelper.imageCandidates(
+          context.read<NasProvider>().baseUrl,
+          _heroPathForPlayItem(item),
+          width: 720,
+        ),
+        localeMap: _localeMap,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final themeProvider = context.watch<AppThemeProvider>();
@@ -1210,13 +1528,17 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       }
     }
 
+    final dynamicThemeIntensity = themeProvider.dynamicThemeIntensity;
     return DynamicPageThemeScope(
       pageKey: dynamicThemeKey,
       imageUrl: dynamicThemeImageUrl,
       token: nasProvider.token,
-      enabled: themeProvider.dynamicThemeEnabled && !inPlayerPaneHost,
-      syncGlobalTheme: !_isPane || !inPlayerPaneHost,
-      intensity: themeProvider.dynamicThemeIntensity,
+      enabled: themeProvider.dynamicThemeEnabled,
+      syncGlobalTheme: dynamicThemeIntensity.allowsGlobalRuntimeThemeSync(
+        inPlayerPaneHost: inPlayerPaneHost,
+        isPane: _isPane,
+      ),
+      intensity: dynamicThemeIntensity,
       builder: (context, ambientTint) {
         final colors = context.appColors;
         if (_loading) {
@@ -1224,21 +1546,21 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           if (initial == null) {
             return Scaffold(
               backgroundColor: colors.backgroundBase,
-              body: SizedBox.shrink(),
+              body: const SizedBox.shrink(),
             );
           }
           final provider = context.read<NasProvider>();
           final media = MediaQuery.of(context);
-          final backdropRequestWidth = (_isPane
-                  ? media.size.width * media.devicePixelRatio * 1.2
-                  : 1200.0)
-              .clamp(720.0, 1200.0)
-              .round();
-          final logoRequestWidth = (_isPane
-                  ? media.size.width * media.devicePixelRatio
-                  : 1200.0)
-              .clamp(480.0, 1200.0)
-              .round();
+          final backdropRequestWidth =
+              (_isPane
+                      ? media.size.width * media.devicePixelRatio * 1.2
+                      : 1200.0)
+                  .clamp(720.0, 1200.0)
+                  .round();
+          final logoRequestWidth =
+              (_isPane ? media.size.width * media.devicePixelRatio : 1200.0)
+                  .clamp(480.0, 1200.0)
+                  .round();
           final rawItem = initial['item'];
           final item = rawItem is Map<String, dynamic> ? rawItem : initial;
           final heroPath = _heroPathForItemMap(item);
@@ -1284,7 +1606,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                     ),
                 ].join(' · ')
               : '';
-          final posterHeight = media.size.height * 0.50;
+          final posterHeight = _backdropHeroHeight(media.size);
+          final imageAlignment = _backdropImageAlignment(media.size);
+          final imageScale = _backdropImageScale(media.size);
           final layout = DetailLayoutSolver.solve(
             screenSize: media.size,
             safePadding: media.padding,
@@ -1300,6 +1624,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                   token: provider.token,
                   scrollOffset: 0,
                   posterHeight: posterHeight,
+                  imageScale: imageScale,
+                  imageFit: BoxFit.cover,
+                  imageAlignment: imageAlignment,
                   parallaxFactor: 1.0,
                   overlayOpacity: 0.62,
                   ambientTintOverride: ambientTint,
@@ -1361,18 +1688,18 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         final item = data.item;
         final media = MediaQuery.of(context);
         final screenSize = media.size;
-        final backdropRequestWidth = (_isPane
-                ? screenSize.width * media.devicePixelRatio * 1.2
-                : 1200.0)
-            .clamp(720.0, 1200.0)
-            .round();
-        final logoRequestWidth = (_isPane
-                ? screenSize.width * media.devicePixelRatio
-                : 1200.0)
-            .clamp(480.0, 1200.0)
-            .round();
+        final backdropRequestWidth =
+            (_isPane ? screenSize.width * media.devicePixelRatio * 1.2 : 1200.0)
+                .clamp(720.0, 1200.0)
+                .round();
+        final logoRequestWidth =
+            (_isPane ? screenSize.width * media.devicePixelRatio : 1200.0)
+                .clamp(480.0, 1200.0)
+                .round();
 
-        final posterHeight = screenSize.height * 0.50;
+        final posterHeight = _backdropHeroHeight(screenSize);
+        final imageAlignment = _backdropImageAlignment(screenSize);
+        final imageScale = _backdropImageScale(screenSize);
         final layout = DetailLayoutSolver.solve(
           screenSize: screenSize,
           safePadding: media.padding,
@@ -1439,6 +1766,11 @@ class _PlayDetailPageState extends State<PlayDetailPage>
             (itemType == 'episode' && item.title.trim().isNotEmpty)
             ? item.title.trim()
             : item.displayTitle;
+        final heroInfoBlockReservedHeight = _heroInfoBlockReservedHeight(
+          screenSize,
+          canPlay: item.canPlay == 1,
+        );
+        final reserveHeroInfoBlockHeight = !_heroAsyncSectionsResolved;
         final logoUrls = ApiUrlHelper.imageCandidates(
           provider.baseUrl,
           item.logos,
@@ -1493,9 +1825,15 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         );
 
         final currentMediaGuid = _currentStreamOption()?.mediaGuid ?? '';
-        final currentFile = (currentMediaGuid.isNotEmpty)
-            ? _streamTrackData?.fileForMedia(currentMediaGuid)
-            : null;
+        final localDownloadRecord = _downloadedRecordForCurrentItem();
+        final localDownloadedFile = _localDownloadedFileInfo(
+          localDownloadRecord,
+        );
+        final currentFile =
+            localDownloadedFile ??
+            ((currentMediaGuid.isNotEmpty)
+                ? _streamTrackData?.fileForMedia(currentMediaGuid)
+                : null);
         final currentVideo = (currentMediaGuid.isNotEmpty)
             ? _streamTrackData?.videoForMedia(currentMediaGuid)
             : null;
@@ -1535,6 +1873,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                     token: provider.token,
                     scrollOffset: offset,
                     posterHeight: posterHeight,
+                    imageScale: imageScale,
+                    imageFit: BoxFit.cover,
+                    imageAlignment: imageAlignment,
                     parallaxFactor: 1.0,
                     overlayOpacity: 0.62,
                     ambientTintOverride: ambientTint,
@@ -1580,113 +1921,159 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                         DetailTokens.screenHorizontalPadding,
                         18,
                       ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          FadeTransition(
-                            opacity: _headerMetaOpacity,
-                            child: DetailMetaLines(
-                              metaLineA: metaLineA,
-                              metaLineB: metaLineB,
-                            ),
+                      child: AnimatedSize(
+                        duration: _asyncContentFadeDuration,
+                        curve: Curves.easeOut,
+                        alignment: Alignment.topCenter,
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            minHeight: reserveHeroInfoBlockHeight
+                                ? heroInfoBlockReservedHeight
+                                : 0.0,
                           ),
-                          const SizedBox(height: 8),
-                          FadeTransition(
-                            opacity: _headerSelectorOpacity,
-                            child: DetailSelectorRow(
-                              subtitleLabel: subtitleLabel,
-                              audioLabel: audioLabel,
-                              capabilityLabels: capabilityLabels,
-                              showSubtitleArrow: showSubtitleArrow,
-                              showAudioArrow: showAudioArrow,
-                              subtitleExpanded: _subtitleSelectorExpanded,
-                              audioExpanded: _audioSelectorExpanded,
-                              onSubtitleTap: showSubtitleArrow
-                                  ? () => _showSubtitleSheet(context)
-                                  : null,
-                              onAudioTap: showAudioArrow
-                                  ? () => _showAudioSheet(context)
-                                  : null,
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          AnimatedBuilder(
-                            animation: _actionsPopController,
-                            builder: (context, child) {
-                              return Opacity(
-                                opacity: _actionsOpacity.value,
-                                child: Transform.translate(
-                                  offset: Offset(0, _actionsTranslateY.value),
-                                  child: Transform.scale(
-                                    scale: _actionsScale.value,
-                                    alignment: Alignment.topCenter,
-                                    child: child,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              FadeTransition(
+                                opacity: _headerMetaOpacity,
+                                child: _asyncFadeSwitcher(
+                                  DetailMetaLines(
+                                    metaLineA: metaLineA,
+                                    metaLineB: metaLineB,
+                                  ),
+                                  switchKey: 'meta:$metaLineA|$metaLineB',
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              FadeTransition(
+                                opacity: _headerSelectorOpacity,
+                                child: _asyncFadeSwitcher(
+                                  DetailSelectorRow(
+                                    subtitleLabel: subtitleLabel,
+                                    audioLabel: audioLabel,
+                                    capabilityLabels: capabilityLabels,
+                                    showSubtitleArrow: showSubtitleArrow,
+                                    showAudioArrow: showAudioArrow,
+                                    subtitleExpanded: _subtitleSelectorExpanded,
+                                    audioExpanded: _audioSelectorExpanded,
+                                    onSubtitleTap: showSubtitleArrow
+                                        ? () => _showSubtitleSheet(context)
+                                        : null,
+                                    onAudioTap: showAudioArrow
+                                        ? () => _showAudioSheet(context)
+                                        : null,
+                                  ),
+                                  switchKey:
+                                      'selector:$subtitleLabel|$audioLabel|${capabilityLabels.join(",")}',
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              AnimatedBuilder(
+                                animation: _actionsPopController,
+                                builder: (context, child) {
+                                  return Opacity(
+                                    opacity: _actionsOpacity.value,
+                                    child: Transform.translate(
+                                      offset: Offset(
+                                        0,
+                                        _actionsTranslateY.value,
+                                      ),
+                                      child: Transform.scale(
+                                        scale: _actionsScale.value,
+                                        alignment: Alignment.topCenter,
+                                        child: child,
+                                      ),
+                                    ),
+                                  );
+                                },
+                                child: AnimatedBuilder(
+                                  animation: _downloadTaskService,
+                                  builder: (context, _) {
+                                    final downloaded =
+                                        _downloadedRecordForCurrentItem() !=
+                                        null;
+                                    return PlayActionBar(
+                                      progress: PlayDetailFormatters.progress(
+                                        effectiveDuration,
+                                        effectiveTs,
+                                      ),
+                                      remainText:
+                                          PlayDetailFormatters.remainText(
+                                            effectiveDuration,
+                                            effectiveTs,
+                                          ),
+                                      showProgress: showProgress,
+                                      primaryText: resolvedPlayText,
+                                      primaryEnabled: item.canPlay == 1,
+                                      liked: _liked,
+                                      watched: _watched,
+                                      downloaded: downloaded,
+                                      onPrimaryTap: _openPlayer,
+                                      onLikeTap: _toggleFavorite,
+                                      onDownloadTap: _handleDownloadTap,
+                                      onWatchedTap: _toggleWatched,
+                                    );
+                                  },
+                                ),
+                              ),
+                              AnimatedBuilder(
+                                animation: _actionsPopController,
+                                builder: (context, child) {
+                                  return Opacity(
+                                    opacity: showResolutionSelector
+                                        ? _resolutionOpacity.value
+                                        : 1.0,
+                                    child: Transform.translate(
+                                      offset: Offset(
+                                        0,
+                                        showResolutionSelector
+                                            ? _resolutionTranslateY.value
+                                            : 0,
+                                      ),
+                                      child: Transform.scale(
+                                        scale: showResolutionSelector
+                                            ? _resolutionScale.value
+                                            : 1.0,
+                                        alignment: Alignment.topCenter,
+                                        child: child,
+                                      ),
+                                    ),
+                                  );
+                                },
+                                child: _asyncFadeSwitcher(
+                                  showResolutionSelector
+                                      ? DetailResolutionSection(
+                                          options: resolutionOptions,
+                                          selected: selectedKey,
+                                          onSelected: (index) {
+                                            setState(() {
+                                              _selectedStreamIndex = index;
+                                              _syncTrackSelectionForCurrentMedia();
+                                            });
+                                          },
+                                        )
+                                      : const SizedBox.shrink(),
+                                  switchKey:
+                                      'resolution:${showResolutionSelector ? resolutionOptions.join(",") : "empty"}|$selectedKey',
+                                ),
+                              ),
+                              if (item.playError.isNotEmpty) ...[
+                                const SizedBox(height: 12),
+                                Text(
+                                  _t(
+                                    'player.playbackError.playError',
+                                    '播放异常: {error}',
+                                    params: {'error': item.playError},
+                                  ),
+                                  style: const TextStyle(
+                                    color: Colors.redAccent,
                                   ),
                                 ),
-                              );
-                            },
-                            child: PlayActionBar(
-                              progress: PlayDetailFormatters.progress(
-                                effectiveDuration,
-                                effectiveTs,
-                              ),
-                              remainText: PlayDetailFormatters.remainText(
-                                effectiveDuration,
-                                effectiveTs,
-                              ),
-                              showProgress: showProgress,
-                              primaryText: resolvedPlayText,
-                              primaryEnabled: item.canPlay == 1,
-                              liked: _liked,
-                              watched: _watched,
-                              onPrimaryTap: _openPlayer,
-                              onLikeTap: _toggleFavorite,
-                              onWatchedTap: _toggleWatched,
-                            ),
+                              ],
+                            ],
                           ),
-                          if (showResolutionSelector)
-                            AnimatedBuilder(
-                              animation: _actionsPopController,
-                              builder: (context, child) {
-                                return Opacity(
-                                  opacity: _resolutionOpacity.value,
-                                  child: Transform.translate(
-                                    offset: Offset(
-                                      0,
-                                      _resolutionTranslateY.value,
-                                    ),
-                                    child: Transform.scale(
-                                      scale: _resolutionScale.value,
-                                      alignment: Alignment.topCenter,
-                                      child: child,
-                                    ),
-                                  ),
-                                );
-                              },
-                              child: DetailResolutionSection(
-                                options: resolutionOptions,
-                                selected: selectedKey,
-                                onSelected: (index) {
-                                  setState(() {
-                                    _selectedStreamIndex = index;
-                                    _syncTrackSelectionForCurrentMedia();
-                                  });
-                                },
-                              ),
-                            ),
-                          if (item.playError.isNotEmpty) ...[
-                            const SizedBox(height: 12),
-                            Text(
-                              _t(
-                                'player.playbackError.playError',
-                                '播放异常: {error}',
-                                params: {'error': item.playError},
-                              ),
-                              style: const TextStyle(color: Colors.redAccent),
-                            ),
-                          ],
-                        ],
+                        ),
                       ),
                     ),
                   ),
@@ -1844,7 +2231,19 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                     onBack: () => unawaited(
                       EmbeddedDetailLauncher.closeHostOrPop(context),
                     ),
-                    onMore: () {},
+                    onMore: () => unawaited(
+                      showDetailMoreActionsSheet(
+                        context,
+                        pageKey: dynamicThemeKey,
+                        pageTitle: detailTitle,
+                        suggestedThemeName: context
+                            .read<AppThemeProvider>()
+                            .nextSavedThemeNameFromBase(
+                              _suggestedThemeNameBase(item, detailTitle),
+                            ),
+                        clearRuntimeBroadcastToMain: !inPlayerPaneHost,
+                      ),
+                    ),
                     title: detailTitle,
                     titleOpacity: centerTitleOpacity,
                     showBack: !_isPane,

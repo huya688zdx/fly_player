@@ -165,12 +165,13 @@ class PlayerGestureController extends ChangeNotifier {
     required DragStartDetails details,
     required Duration currentPosition,
     required bool restoreControlsVisible,
+    required double width,
   }) {
     _gestureOverlayTimer?.cancel();
     _setPendingSeekPosition(null);
     _gestureSeekActive = true;
     _gestureSeekRestoreControlsVisible = restoreControlsVisible;
-    _gestureSeekStartDx = details.localPosition.dx;
+    _gestureSeekStartDx = details.localPosition.dx.clamp(0.0, width);
     _gestureSeekBasePosition = currentPosition;
     _draggingPosition = currentPosition;
     _gestureOverlayData = null;
@@ -246,6 +247,13 @@ class PlayerGestureController extends ChangeNotifier {
       notifyListeners();
     }
     return restoreSpeed;
+  }
+
+  double? cancelSpeedBoost(double playbackSpeed) {
+    if (!_speedBoostActive && _speedBoostRestoreSpeed == null) {
+      return null;
+    }
+    return endSpeedBoost(playbackSpeed);
   }
 
   Future<void> _syncAdjustmentBaseline(

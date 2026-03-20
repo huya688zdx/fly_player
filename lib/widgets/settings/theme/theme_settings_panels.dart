@@ -495,6 +495,26 @@ class ThemeSettingsDynamicThemePanel extends StatelessWidget {
                       )
                       .toList(growable: false),
                 ),
+                const SizedBox(height: 12),
+                Text(
+                  enabled
+                      ? provider.dynamicThemeIntensity.behaviorDescription
+                      : '关闭后不再执行详情页取色',
+                  style: TextStyle(
+                    color: colors.textSecondary,
+                    fontSize: AdaptiveText.roleSize(12.8),
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '播放态不会覆盖主屏主题；普通页面流下，高级档会联动主屏。',
+                  style: TextStyle(
+                    color: colors.textMuted,
+                    fontSize: AdaptiveText.roleSize(12.2),
+                    height: 1.4,
+                  ),
+                ),
               ],
             ),
           ),
