@@ -52,10 +52,9 @@ class PlayerRuntimeController {
 
   bool wantsPerformanceOverlayPolling({
     required bool performanceOverlayEnabled,
-    required bool fpsOverlayEnabled,
     required bool playerReady,
   }) {
-    return (performanceOverlayEnabled || fpsOverlayEnabled) && playerReady;
+    return performanceOverlayEnabled && playerReady;
   }
 
   bool samePerformanceOverlayStats(
@@ -63,9 +62,7 @@ class PlayerRuntimeController {
     MpvPerformanceOverlayStats right,
   ) {
     return left.cpuUsagePercent == right.cpuUsagePercent &&
-        left.gpuUsagePercent == right.gpuUsagePercent &&
-        left.estimatedVfFps == right.estimatedVfFps &&
-        left.containerFps == right.containerFps &&
-        left.displayFps == right.displayFps;
+        left.appMemoryUsedBytes == right.appMemoryUsedBytes &&
+        left.systemMemoryTotalBytes == right.systemMemoryTotalBytes;
   }
 }

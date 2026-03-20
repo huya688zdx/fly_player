@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../api/feiniu_api.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
+import '../controllers/tv_season_download_sheet_controller.dart';
 import '../controllers/tv_season_playback_launcher.dart';
 import '../models/media_library_item.dart';
 import '../models/person_credit.dart';
@@ -14,6 +16,7 @@ import '../models/play_info.dart';
 import '../providers/app_theme_provider.dart';
 import '../providers/nas_provider.dart';
 import '../services/detail_runtime_cache.dart';
+import '../services/download_task_service.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../theme/app_theme.dart';
 import '../theme/detail_tokens.dart';
@@ -30,9 +33,11 @@ import '../utils/tv_hero_adaptive.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/detail/credits_section.dart';
 import '../widgets/detail/detail_header.dart';
+import '../widgets/detail/detail_more_actions_sheet.dart';
 import '../widgets/detail/dynamic_page_theme_scope.dart';
 import '../widgets/detail/immersive_detail_background.dart';
 import '../widgets/detail/link_section.dart';
+import '../widgets/detail/theme_save_name_helper.dart';
 import '../widgets/detail/tv_episode_browser_section.dart';
 import '../widgets/detail/tv_episode_picker_sheet.dart';
 import '../widgets/detail/tv_season_detail_panel.dart';
@@ -43,6 +48,7 @@ class TvSeasonDetailPage extends StatefulWidget {
   final String seriesTitle;
   final String backdropPath;
   final MediaLibraryItem seasonItem;
+  final List<MediaLibraryItem>? initialSeasonItems;
   final DetailPresentation presentation;
 
   const TvSeasonDetailPage({
@@ -51,6 +57,7 @@ class TvSeasonDetailPage extends StatefulWidget {
     required this.seriesTitle,
     required this.backdropPath,
     required this.seasonItem,
+    this.initialSeasonItems,
     this.presentation = DetailPresentation.page,
   });
 
@@ -75,6 +82,9 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
   final ScrollController _scrollController = ScrollController();
   final ValueNotifier<double> _scrollOffsetNotifier = ValueNotifier<double>(0);
   final DetailTopTip _topTip = DetailTopTip();
+  final TvSeasonDownloadSheetController _downloadSheetController =
+      const TvSeasonDownloadSheetController();
+  final DownloadTaskService _downloadTaskService = DownloadTaskService.instance;
   Map<String, dynamic> _localeMap = const <String, dynamic>{};
 
   bool get _isPane => widget.presentation == DetailPresentation.pane;
@@ -112,6 +122,20 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
       <String, List<MediaLibraryItem>>{};
   final Map<String, Future<List<MediaLibraryItem>>> _episodeInflight =
       <String, Future<List<MediaLibraryItem>>>{};
+  List<MediaLibraryItem>? _seasonListCache;
+  Future<List<MediaLibraryItem>>? _seasonListInflight;
+  final Map<String, Map<String, dynamic>> _seasonDetailCache =
+      <String, Map<String, dynamic>>{};
+  final Map<String, Future<Map<String, dynamic>>> _seasonDetailInflight =
+      <String, Future<Map<String, dynamic>>>{};
+  final Map<String, PlayInfoData?> _seasonPlayInfoCache =
+      <String, PlayInfoData?>{};
+  final Map<String, Future<PlayInfoData?>> _seasonPlayInfoInflight =
+      <String, Future<PlayInfoData?>>{};
+  final Map<String, List<PersonCredit>> _personCreditsCache =
+      <String, List<PersonCredit>>{};
+  final Map<String, Future<List<PersonCredit>>> _personCreditsInflight =
+      <String, Future<List<PersonCredit>>>{};
 
   late final AnimationController _headerFadeController;
   late final Animation<double> _headerMetaOpacity;
@@ -128,14 +152,23 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
       curve: const Interval(0.34, 1.0, curve: Curves.linear),
     );
 
+    final initialSeasonItems = widget.initialSeasonItems;
+    if (initialSeasonItems != null && initialSeasonItems.isNotEmpty) {
+      _seasonListCache = List<MediaLibraryItem>.unmodifiable(
+        initialSeasonItems,
+      );
+    }
     _selectedSeasonGuid = widget.seasonItem.guid;
     _scrollController.addListener(_onScroll);
+    _downloadTaskService.addListener(_handleDownloadTasksChanged);
+    unawaited(_downloadTaskService.initialize());
     unawaited(_loadEpisodePickerModeSetting());
     _loadSeasonData(_selectedSeasonGuid, showLoading: true);
   }
 
   @override
   void dispose() {
+    _downloadTaskService.removeListener(_handleDownloadTasksChanged);
     _topTip.dispose();
     _deferredLoadTimer?.cancel();
     _headerFadeController.dispose();
@@ -143,6 +176,11 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     _scrollController.dispose();
     _scrollOffsetNotifier.dispose();
     super.dispose();
+  }
+
+  void _handleDownloadTasksChanged() {
+    if (!mounted) return;
+    setState(() {});
   }
 
   void _onScroll() {
@@ -234,6 +272,23 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
       );
     }
     return _t('player.play.play', '播放');
+  }
+
+  String _suggestedThemeNameBase(MediaLibraryItem season) {
+    final currentEpisode = _playInfo?.item.episodeNumber ?? 0;
+    final seasonNumber = season.seasonNumber;
+    if (currentEpisode > 0) {
+      return buildThemeSaveNameBase(
+        title: widget.seriesTitle,
+        seriesTitle: widget.seriesTitle,
+        seasonNumber: seasonNumber,
+        episodeNumber: currentEpisode,
+        isEpisode: true,
+      );
+    }
+    return buildThemeSaveNameBase(
+      title: '${widget.seriesTitle}·${_seasonLabel(season)}',
+    );
   }
 
   TvEpisodePickerMode _episodePickerModeFromSetting(String? viewType) {
@@ -475,55 +530,164 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     return generated;
   }
 
-  Future<PlayInfoData?> _loadPlayInfoOrNull(FeiniuApi api, String guid) async {
-    try {
-      if (!_useRuntimeCache) {
-        return await api.getPlayInfo(guid);
+  Future<PlayInfoData?> _loadPlayInfoOrNull(
+    FeiniuApi api,
+    String guid, {
+    bool forceRefresh = false,
+  }) async {
+    if (!forceRefresh) {
+      if (_seasonPlayInfoCache.containsKey(guid)) {
+        return _seasonPlayInfoCache[guid];
       }
-      return await DetailRuntimeCache.instance.getOrLoad<PlayInfoData>(
-        bucket: 'play_info',
-        key: guid,
-        loader: () => api.getPlayInfo(guid),
-      );
-    } catch (_) {
-      return null;
+      final inflight = _seasonPlayInfoInflight[guid];
+      if (inflight != null) return inflight;
+    } else {
+      _seasonPlayInfoCache.remove(guid);
+      _seasonPlayInfoInflight.remove(guid);
+    }
+
+    final future = () async {
+      try {
+        if (!_useRuntimeCache) {
+          return await api.getPlayInfo(guid);
+        }
+        return await DetailRuntimeCache.instance.getOrLoad<PlayInfoData>(
+          bucket: 'play_info',
+          key: guid,
+          loader: () => api.getPlayInfo(guid),
+        );
+      } catch (_) {
+        return null;
+      }
+    }();
+
+    _seasonPlayInfoInflight[guid] = future;
+    try {
+      final result = await future;
+      _seasonPlayInfoCache[guid] = result;
+      return result;
+    } finally {
+      _seasonPlayInfoInflight.remove(guid);
     }
   }
 
   Future<List<MediaLibraryItem>> _loadSeasonItems(
     FeiniuApi api,
-    String itemGuid,
-  ) {
-    if (!_useRuntimeCache) {
-      return api.getSeasonList(itemGuid);
+    String itemGuid, {
+    bool forceRefresh = false,
+  }) async {
+    if (!forceRefresh) {
+      final cached = _seasonListCache;
+      if (cached != null) return cached;
+      final inflight = _seasonListInflight;
+      if (inflight != null) return inflight;
+    } else {
+      _seasonListCache = null;
+      _seasonListInflight = null;
     }
-    return DetailRuntimeCache.instance.getOrLoad<List<MediaLibraryItem>>(
-      bucket: 'season_list',
-      key: itemGuid,
-      loader: () => api.getSeasonList(itemGuid),
-    );
+
+    final future = () {
+      if (!_useRuntimeCache) {
+        return api.getSeasonList(itemGuid);
+      }
+      return DetailRuntimeCache.instance.getOrLoad<List<MediaLibraryItem>>(
+        bucket: 'season_list',
+        key: itemGuid,
+        loader: () => api.getSeasonList(itemGuid),
+      );
+    }();
+    _seasonListInflight = future;
+    try {
+      final seasons = await future;
+      _seasonListCache = seasons;
+      return seasons;
+    } finally {
+      _seasonListInflight = null;
+    }
   }
 
-  Future<Map<String, dynamic>> _loadItemDetail(FeiniuApi api, String itemGuid) {
-    if (!_useRuntimeCache) {
-      return api.getItemDetail(itemGuid);
+  Future<Map<String, dynamic>> _loadItemDetail(
+    FeiniuApi api,
+    String itemGuid, {
+    bool forceRefresh = false,
+  }) async {
+    if (!forceRefresh) {
+      final cached = _seasonDetailCache[itemGuid];
+      if (cached != null) return cached;
+      final inflight = _seasonDetailInflight[itemGuid];
+      if (inflight != null) return inflight;
+    } else {
+      _seasonDetailCache.remove(itemGuid);
+      _seasonDetailInflight.remove(itemGuid);
     }
-    return DetailRuntimeCache.instance.getOrLoad<Map<String, dynamic>>(
-      bucket: 'item_detail',
-      key: itemGuid,
-      loader: () => api.getItemDetail(itemGuid),
-    );
+
+    final future = () {
+      if (!_useRuntimeCache) {
+        return api.getItemDetail(itemGuid);
+      }
+      return DetailRuntimeCache.instance.getOrLoad<Map<String, dynamic>>(
+        bucket: 'item_detail',
+        key: itemGuid,
+        loader: () => api.getItemDetail(itemGuid),
+      );
+    }();
+    _seasonDetailInflight[itemGuid] = future;
+    try {
+      final detail = await future;
+      _seasonDetailCache[itemGuid] = detail;
+      return detail;
+    } finally {
+      _seasonDetailInflight.remove(itemGuid);
+    }
   }
 
-  Future<List<PersonCredit>> _loadPersonCredits(FeiniuApi api, String itemGuid) {
-    if (!_useRuntimeCache) {
-      return api.getPersonList(itemGuid);
+  Future<List<PersonCredit>> _loadPersonCredits(
+    FeiniuApi api,
+    String itemGuid, {
+    bool forceRefresh = false,
+  }) async {
+    if (!forceRefresh) {
+      final cached = _personCreditsCache[itemGuid];
+      if (cached != null) return cached;
+      final inflight = _personCreditsInflight[itemGuid];
+      if (inflight != null) return inflight;
+    } else {
+      _personCreditsCache.remove(itemGuid);
+      _personCreditsInflight.remove(itemGuid);
     }
-    return DetailRuntimeCache.instance.getOrLoad<List<PersonCredit>>(
-      bucket: 'person_list',
-      key: itemGuid,
-      loader: () => api.getPersonList(itemGuid),
-    );
+
+    final future = () async {
+      try {
+        if (!_useRuntimeCache) {
+          return await api.getPersonList(itemGuid);
+        }
+        return await DetailRuntimeCache.instance.getOrLoad<List<PersonCredit>>(
+          bucket: 'person_list',
+          key: itemGuid,
+          loader: () => api.getPersonList(itemGuid),
+        );
+      } catch (error, stackTrace) {
+        final appError = AppException.from(
+          error,
+          action: 'tv season detail credits',
+          fallbackKind: AppExceptionKind.transient,
+          stackTrace: stackTrace,
+        );
+        if (appError.isNoData) {
+          return const <PersonCredit>[];
+        }
+        rethrow;
+      }
+    }();
+
+    _personCreditsInflight[itemGuid] = future;
+    try {
+      final credits = await future;
+      _personCreditsCache[itemGuid] = credits;
+      return credits;
+    } finally {
+      _personCreditsInflight.remove(itemGuid);
+    }
   }
 
   Map<String, dynamic> _fallbackSeasonDetail(MediaLibraryItem season) {
@@ -545,6 +709,38 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         'is_watched': season.watched,
       },
     };
+  }
+
+  void _applyFallbackSeasonState({
+    required List<MediaLibraryItem> seasons,
+    required String target,
+    required MediaLibraryItem fallbackSeason,
+    required bool showLoading,
+  }) {
+    setState(() {
+      _seasonItems = seasons.isNotEmpty
+          ? seasons
+          : <MediaLibraryItem>[widget.seasonItem];
+      _selectedSeasonGuid = target;
+      _detail = _fallbackSeasonDetail(fallbackSeason);
+      _playInfo = null;
+      _imdbId = '';
+      _trimId = '';
+      _watched = fallbackSeason.watched == 1;
+      _episodeItems = const <MediaLibraryItem>[];
+      _selectedEpisodeGuid = '';
+      _episodeRangeIndex = 0;
+      if (showLoading) {
+        _personCredits = const [];
+        _creditsVisible = false;
+      }
+      _descriptionVisible = !showLoading;
+      _loading = false;
+      _error = null;
+    });
+    _resetScrollToTop();
+    if (showLoading) _startEntryAnimations();
+    _startDeferredLoad(seq: _seasonLoadSeq, seasonGuid: target);
   }
 
   Widget _seasonNumberWidget(AppThemeColors colors, MediaLibraryItem season) {
@@ -766,38 +962,23 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         action: 'tv season detail',
         fallbackKind: AppExceptionKind.transient,
       );
-      if (appError.isNoData) {
-        MediaLibraryItem fallbackSeason = widget.seasonItem;
-        for (final season in seasons) {
-          if (season.guid == target) {
-            fallbackSeason = season;
-            break;
-          }
+      MediaLibraryItem fallbackSeason = widget.seasonItem;
+      for (final season in seasons) {
+        if (season.guid == target) {
+          fallbackSeason = season;
+          break;
         }
-        setState(() {
-          _seasonItems = seasons.isNotEmpty
-              ? seasons
-              : <MediaLibraryItem>[widget.seasonItem];
-          _selectedSeasonGuid = target;
-          _detail = _fallbackSeasonDetail(fallbackSeason);
-          _playInfo = null;
-          _imdbId = '';
-          _trimId = '';
-          _watched = fallbackSeason.watched == 1;
-          _episodeItems = const <MediaLibraryItem>[];
-          _selectedEpisodeGuid = '';
-          _episodeRangeIndex = 0;
-          if (showLoading) {
-            _personCredits = const [];
-            _creditsVisible = false;
-          }
-          _descriptionVisible = !showLoading;
-          _loading = false;
-          _error = null;
-        });
-        _resetScrollToTop();
-        if (showLoading) _startEntryAnimations();
-        _startDeferredLoad(seq: seq, seasonGuid: target);
+      }
+      final canFallback =
+          fallbackSeason.guid.trim().isNotEmpty &&
+          (appError.isNoData || fallbackSeason.guid == requestedGuid);
+      if (canFallback) {
+        _applyFallbackSeasonState(
+          seasons: seasons,
+          target: target,
+          fallbackSeason: fallbackSeason,
+          showLoading: showLoading,
+        );
         return;
       }
       setState(() {
@@ -958,6 +1139,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     }
   }
 
+  // ignore: unused_element
   void _onDownloadTap() {
     _showTopTip(
       _t('common.actions.download.placeholder', '下载接口已预留'),
@@ -965,11 +1147,147 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     );
   }
 
+  void _handleDownloadTap() {
+    final episodeEntries = _episodeCardEntries(_episodeItems);
+    unawaited(
+      _downloadSheetController.show(
+        context,
+        episode: _selectedDownloadEpisode(),
+        candidateItemGuids: <String>[
+          _selectedEpisodeGuid,
+          _currentPlaybackEpisodeGuid(),
+          _playInfo?.item.guid ?? '',
+          if (_episodeItems.isNotEmpty) _episodeItems.first.guid,
+          _selectedSeasonGuid,
+          widget.seasonItem.guid,
+        ],
+        episodeEntries: episodeEntries,
+        initialRangeIndex: _episodeRangeIndex,
+        rangeSize: _episodePageSize,
+        seriesTitle: widget.seriesTitle,
+        preferredSubtitleGuid: _playInfo?.subtitleGuid ?? '',
+        localeMap: _localeMap,
+      ),
+    );
+  }
+
+  MediaLibraryItem? _selectedDownloadEpisode() {
+    if (_episodeItems.isNotEmpty) {
+      final preferredGuid = _preferredEpisodeGuid(_episodeItems).trim();
+      if (preferredGuid.isNotEmpty) {
+        for (final episode in _episodeItems) {
+          if (episode.guid == preferredGuid) {
+            return episode;
+          }
+        }
+      }
+      return _episodeItems.first;
+    }
+
+    final playItem = _playInfo?.item;
+    if (playItem != null && playItem.guid.trim().isNotEmpty) {
+      return MediaLibraryItem(
+        guid: playItem.guid.trim(),
+        title: playItem.title,
+        tvTitle: playItem.tvTitle,
+        type: playItem.type,
+        poster: playItem.posters,
+        releaseDate: playItem.releaseDate,
+        firstAirDate: playItem.airDate,
+        lastAirDate: '',
+        voteAverage: playItem.voteAverage,
+        overview: playItem.overview,
+        watched: playItem.isWatched,
+        watchedTs: playItem.watchedTs,
+        ts: playItem.watchedTs,
+        duration: playItem.duration,
+        seasonNumber: playItem.seasonNumber,
+        episodeNumber: playItem.episodeNumber,
+        numberOfSeasons: playItem.numberOfSeasons,
+        numberOfEpisodes: playItem.numberOfEpisodes,
+        localNumberOfSeasons: playItem.localNumberOfSeasons,
+        localNumberOfEpisodes: playItem.localNumberOfEpisodes,
+        parentGuid: _playInfo?.parentGuid ?? '',
+        parentTitle: playItem.parentTitle,
+        ancestorGuid: '',
+        ancestorName: playItem.ancestorName,
+        path: '',
+        resolutions: playItem.resolutions,
+      );
+    }
+
+    final selectedGuid = _selectedEpisodeGuid.trim();
+    if (selectedGuid.isNotEmpty) {
+      return MediaLibraryItem(
+        guid: selectedGuid,
+        title: '',
+        tvTitle: widget.seriesTitle,
+        type: 'Episode',
+        poster: '',
+        releaseDate: '',
+        firstAirDate: '',
+        lastAirDate: '',
+        voteAverage: '',
+        overview: '',
+        watched: 0,
+        watchedTs: 0,
+        ts: 0,
+        duration: 0,
+        seasonNumber: _currentSeason().seasonNumber,
+        episodeNumber: 0,
+        numberOfSeasons: 0,
+        numberOfEpisodes: 0,
+        localNumberOfSeasons: 0,
+        localNumberOfEpisodes: 0,
+        parentGuid: _selectedSeasonGuid,
+        parentTitle: _currentSeason().title,
+        ancestorGuid: '',
+        ancestorName: '',
+        path: '',
+      );
+    }
+
+    return null;
+  }
+
+  bool _isCurrentSeasonFullyDownloaded() {
+    if (_episodeItems.isNotEmpty) {
+      var downloadableCount = 0;
+      for (final episode in _episodeItems) {
+        final guid = episode.guid.trim();
+        if (guid.isEmpty) continue;
+        downloadableCount += 1;
+        if (!_downloadTaskService.actionStateForItem(guid).downloaded) {
+          return false;
+        }
+      }
+      return downloadableCount > 0;
+    }
+
+    final selectedEpisode = _selectedDownloadEpisode();
+    final selectedGuid = selectedEpisode?.guid.trim() ?? '';
+    final totalEpisodes = _currentSeason().localNumberOfEpisodes > 0
+        ? _currentSeason().localNumberOfEpisodes
+        : _currentSeason().numberOfEpisodes;
+    if (totalEpisodes <= 1 && selectedGuid.isNotEmpty) {
+      return _downloadTaskService.actionStateForItem(selectedGuid).downloaded;
+    }
+    return false;
+  }
+
   Future<void> _refreshAfterPlayback(String episodeGuid) async {
     try {
       final api = FeiniuApi(context.read<NasProvider>());
-      final detail = await _loadItemDetail(api, _selectedSeasonGuid);
-      final playInfo = await _loadPlayInfoOrNull(api, _selectedSeasonGuid);
+      final detail = await _loadItemDetail(
+        api,
+        _selectedSeasonGuid,
+        forceRefresh: true,
+      );
+      final playInfo = await _loadPlayInfoOrNull(
+        api,
+        _selectedSeasonGuid,
+        forceRefresh: true,
+      );
       final episodes = await _loadEpisodesForSeason(
         _selectedSeasonGuid,
         forceRefresh: true,
@@ -1125,18 +1443,39 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
             widget.backdropPath,
             width: 360,
           );
+    final dynamicThemeKey = widget.parentGuid.trim().isNotEmpty
+        ? 'tv-season-series:${widget.parentGuid.trim()}'
+        : (widget.backdropPath.trim().isNotEmpty
+              ? 'tv-season-backdrop:${widget.backdropPath.trim()}'
+              : (_selectedSeasonGuid.trim().isNotEmpty
+                    ? _selectedSeasonGuid
+                    : widget.seasonItem.guid));
 
+    final dynamicThemeIntensity = themeProvider.dynamicThemeIntensity;
     return DynamicPageThemeScope(
-      pageKey: _selectedSeasonGuid.trim().isNotEmpty
-          ? _selectedSeasonGuid
-          : widget.seasonItem.guid,
+      pageKey: dynamicThemeKey,
       imageUrl: dynamicBackdropUrls.isNotEmpty ? dynamicBackdropUrls.first : '',
       token: nasProvider.token,
-      enabled: themeProvider.dynamicThemeEnabled && !inPlayerPaneHost,
-      syncGlobalTheme: !_isPane || !inPlayerPaneHost,
-      intensity: themeProvider.dynamicThemeIntensity,
+      enabled: themeProvider.dynamicThemeEnabled,
+      syncGlobalTheme: dynamicThemeIntensity.allowsGlobalRuntimeThemeSync(
+        inPlayerPaneHost: inPlayerPaneHost,
+        isPane: _isPane,
+      ),
+      intensity: dynamicThemeIntensity,
       builder: (context, ambientTint) {
         final colors = context.appColors;
+        final heroFogBase = Color.alphaBlend(
+          (ambientTint ?? colors.backgroundElevated).withValues(
+            alpha: colors.backgroundBase.computeLuminance() >= 0.58
+                ? 0.18
+                : 0.28,
+          ),
+          colors.backgroundBase,
+        );
+        final heroFogShadow = Color.alphaBlend(
+          colors.overlayScrim.withValues(alpha: 0.12),
+          heroFogBase,
+        );
         if (_error != null) {
           return Scaffold(
             backgroundColor: colors.backgroundBase,
@@ -1164,12 +1503,15 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
           screenSize,
           devicePixelRatio: media.devicePixelRatio,
         );
-        final posterHeightRatio = isLandscape ? 0.42 : 0.35;
-        final heroImageFit = isLandscape ? BoxFit.cover : BoxFit.fitWidth;
+        final posterHeightRatio = isLandscape ? 0.42 : 0.31;
+        const heroImageFit = BoxFit.cover;
         final heroImageAlignment = isLandscape
             ? Alignment(heroAdaptive.imageAlignX, heroAdaptive.imageAlignY)
             : Alignment(heroAdaptive.imageAlignX, -1.0);
-        final posterHeight = screenSize.height * posterHeightRatio;
+        final posterHeight = math
+            .min(screenSize.height * posterHeightRatio, screenSize.width / 1.55)
+            .clamp(260.0, screenSize.height * 0.42)
+            .toDouble();
         final collapseRange =
             (posterHeight - media.padding.top - kToolbarHeight).clamp(
               120.0,
@@ -1186,11 +1528,10 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         final rating = double.tryParse(season.voteAverage) ?? 0;
         final title = widget.seriesTitle;
         final playLabel = _playLabel();
-        final backdropRequestWidth = (_isPane
-                ? screenSize.width * media.devicePixelRatio * 1.2
-                : 1200.0)
-            .clamp(720.0, 1200.0)
-            .round();
+        final backdropRequestWidth =
+            (_isPane ? screenSize.width * media.devicePixelRatio * 1.2 : 1200.0)
+                .clamp(720.0, 1200.0)
+                .round();
 
         final backdropUrls = _imageCandidates(
           widget.backdropPath,
@@ -1279,7 +1620,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                             fadeMid: 0.42,
                             useMonetTint: false,
                             ambientTintOverride: ambientTint,
-                            bottomFadeTintColor: colors.overlayScrim,
+                            bottomFadeTintColor: heroFogBase,
                             bottomFadeBackgroundColor: colors.backgroundBase,
                             bottomFadeExtraHeight: 340,
                             overlayOpacity: 0.0,
@@ -1293,14 +1634,15 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                             180.0,
                             560.0,
                           );
-                          final overlayShift = offset
+                          final collapseShift = offset
                               .clamp(0.0, double.infinity)
                               .clamp(0.0, parallaxMax);
+                          final pullDownShift = (-offset).clamp(0.0, 180.0);
                           return Positioned(
                             left: 0,
                             right: 0,
-                            top: -overlayShift,
-                            height: topContentInset + 10,
+                            top: pullDownShift - collapseShift,
+                            height: topContentInset + 10 + pullDownShift,
                             child: IgnorePointer(
                               child: Stack(
                                 fit: StackFit.expand,
@@ -1312,18 +1654,10 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                                         end: Alignment.bottomCenter,
                                         colors: [
                                           Colors.transparent,
-                                          colors.overlayScrim.withValues(
-                                            alpha: 0.08,
-                                          ),
-                                          colors.overlayScrim.withValues(
-                                            alpha: 0.16,
-                                          ),
-                                          colors.overlayScrim.withValues(
-                                            alpha: 0.30,
-                                          ),
-                                          colors.overlayScrim.withValues(
-                                            alpha: 0.46,
-                                          ),
+                                          heroFogBase.withValues(alpha: 0.05),
+                                          heroFogBase.withValues(alpha: 0.11),
+                                          heroFogShadow.withValues(alpha: 0.22),
+                                          heroFogShadow.withValues(alpha: 0.34),
                                           colors.backgroundBase,
                                         ],
                                         stops: const [
@@ -1343,12 +1677,8 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                                         center: const Alignment(0.18, 0.72),
                                         radius: 0.92,
                                         colors: [
-                                          colors.overlayScrim.withValues(
-                                            alpha: 0.22,
-                                          ),
-                                          colors.overlayScrim.withValues(
-                                            alpha: 0.10,
-                                          ),
+                                          heroFogShadow.withValues(alpha: 0.16),
+                                          heroFogBase.withValues(alpha: 0.07),
                                           Colors.transparent,
                                         ],
                                         stops: const [0.0, 0.42, 1.0],
@@ -1363,6 +1693,9 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                       ),
                       CustomScrollView(
                         controller: _scrollController,
+                        physics: const BouncingScrollPhysics(
+                          parent: AlwaysScrollableScrollPhysics(),
+                        ),
                         slivers: [
                           SliverToBoxAdapter(
                             child: SizedBox(height: topContentInset),
@@ -1446,6 +1779,8 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                                     playLabel: playLabel,
                                     playLabelFontSize: playLabelFontSize,
                                     watched: _watched,
+                                    downloaded:
+                                        _isCurrentSeasonFullyDownloaded(),
                                     descriptionVisible: _descriptionVisible,
                                     switchDuration: _seasonDataFadeDuration,
                                     overview: overview,
@@ -1516,7 +1851,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                                           )
                                         : null,
                                     onPlayTap: _onPlayTap,
-                                    onDownloadTap: _onDownloadTap,
+                                    onDownloadTap: _handleDownloadTap,
                                     onWatchedTap: _toggleWatched,
                                     onOverviewTap: () {
                                       LongTextOverlayPage.show(
@@ -1549,7 +1884,21 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                             onBack: () => unawaited(
                               EmbeddedDetailLauncher.closeHostOrPop(context),
                             ),
-                            onMore: () {},
+                            onMore: () => unawaited(
+                              showDetailMoreActionsSheet(
+                                context,
+                                pageKey: _selectedSeasonGuid.trim().isNotEmpty
+                                    ? _selectedSeasonGuid
+                                    : widget.seasonItem.guid,
+                                pageTitle: '$title ${_seasonLabel(season)}',
+                                suggestedThemeName: context
+                                    .read<AppThemeProvider>()
+                                    .nextSavedThemeNameFromBase(
+                                      _suggestedThemeNameBase(season),
+                                    ),
+                                clearRuntimeBroadcastToMain: !inPlayerPaneHost,
+                              ),
+                            ),
                             title: '$title ${_seasonLabel(season)}',
                             titleOpacity: centerTitleOpacity,
                             showBack: !_isPane,

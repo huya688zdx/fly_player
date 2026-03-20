@@ -16,6 +16,7 @@ class PlayerGestureLayer extends StatelessWidget {
   final VoidCallback onDoubleTap;
   final GestureLongPressStartCallback onLongPressStart;
   final GestureLongPressEndCallback onLongPressEnd;
+  final VoidCallback? onLongPressCancel;
   final GestureDragStartCallback onHorizontalDragStart;
   final GestureDragUpdateCallback onHorizontalDragUpdate;
   final GestureDragEndCallback onHorizontalDragEnd;
@@ -32,6 +33,7 @@ class PlayerGestureLayer extends StatelessWidget {
     required this.onDoubleTap,
     required this.onLongPressStart,
     required this.onLongPressEnd,
+    this.onLongPressCancel,
     required this.onHorizontalDragStart,
     required this.onHorizontalDragUpdate,
     required this.onHorizontalDragEnd,
@@ -50,6 +52,7 @@ class PlayerGestureLayer extends StatelessWidget {
       onDoubleTap: onDoubleTap,
       onLongPressStart: onLongPressStart,
       onLongPressEnd: onLongPressEnd,
+      onLongPressCancel: onLongPressCancel,
       onHorizontalDragStart: onHorizontalDragStart,
       onHorizontalDragUpdate: onHorizontalDragUpdate,
       onHorizontalDragEnd: onHorizontalDragEnd,
@@ -81,6 +84,7 @@ class PlayerGestureOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     final adjustmentData = adjustment;
     final status = statusMessage?.trim() ?? '';
+    final media = MediaQuery.of(context);
     if (adjustmentData == null && !speedBoostActive && status.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -93,16 +97,13 @@ class PlayerGestureOverlay extends StatelessWidget {
             if (status.isNotEmpty) const SafeArea(child: SizedBox.expand()),
             if (status.isNotEmpty)
               Positioned(
-                top: 18,
+                top: _statusBannerTopOffset(media),
                 left: 16,
                 right: 16,
-                child: SafeArea(
-                  bottom: false,
-                  child: Center(
-                    child: _StatusBanner(
-                      message: status,
-                      showSpinner: statusLoading,
-                    ),
+                child: Center(
+                  child: _StatusBanner(
+                    message: status,
+                    showSpinner: statusLoading,
                   ),
                 ),
               ),
@@ -127,6 +128,18 @@ class PlayerGestureOverlay extends StatelessWidget {
       ),
     );
   }
+}
+
+double _statusBannerTopOffset(MediaQueryData media) {
+  final shortestSide = media.size.shortestSide;
+  final isLandscape = media.orientation == Orientation.landscape;
+  final width = media.size.width;
+  final adaptiveSpacing = (shortestSide * (isLandscape ? 0.085 : 0.105)).clamp(
+    34.0,
+    56.0,
+  );
+  final compactBoost = width < 900 ? 8.0 : 0.0;
+  return media.padding.top + adaptiveSpacing + compactBoost;
 }
 
 class PlayerLoadingOverlay extends StatelessWidget {

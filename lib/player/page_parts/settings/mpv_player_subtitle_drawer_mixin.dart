@@ -11,34 +11,41 @@ const double _subtitleScaleMax = 2.0;
 
 extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
   Future<void> _showSubtitleDrawer() async {
-    final nasProvider = context.read<NasProvider>();
+    _hideSpeedDialOverlay(restoreAutoHide: false);
     _deferredSubtitleSelectionTimer?.cancel();
     _overlayState.cancelAutoHide();
     final restoreControls = _controlsVisible;
     if (restoreControls) {
       _hideControlsImmediately();
     }
-    try {
-      final languageMap = await FeiniuApi(
-        nasProvider,
-      ).getTagIso6392Map(lan: 'zh-CN');
-      if (languageMap.isNotEmpty) {
-        MediaLanguageMapper.mergeLanguageMap(languageMap);
+    if (!_isLocalRuntimeTrackSource()) {
+      final nasProvider = context.read<NasProvider>();
+      try {
+        final languageMap = await FeiniuApi(
+          nasProvider,
+        ).getTagIso6392Map(lan: 'zh-CN');
+        if (languageMap.isNotEmpty) {
+          MediaLanguageMapper.mergeLanguageMap(languageMap);
+        }
+      } catch (error, trace) {
+        unawaited(
+          AppErrorReporter.report(
+            error,
+            action: 'load subtitle language map',
+            source: 'mpv_player_subtitle',
+            stackTrace: trace,
+            fallbackKind: AppExceptionKind.noData,
+            level: AppLogLevel.warning,
+          ),
+        );
       }
-    } catch (error, trace) {
-      unawaited(
-        AppErrorReporter.report(
-          error,
-          action: 'load subtitle language map',
-          source: 'mpv_player_subtitle',
-          stackTrace: trace,
-          fallbackKind: AppExceptionKind.noData,
-          level: AppLogLevel.warning,
-        ),
-      );
     }
 
     if (!mounted) return;
+    if (_isLocalRuntimeTrackSource()) {
+      await _refreshRuntimeTracks(force: true);
+      if (!mounted) return;
+    }
     try {
       await PlayerNestedSheet.show<void>(
         context,
@@ -162,6 +169,7 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
     BuildContext context,
     PlayerNestedSheetController<void> drawer,
   ) {
+    final localRuntimeSource = _isLocalRuntimeTrackSource();
     return PlayerNestedSheetScaffold(
       header: PlayerNestedSheetHeader(
         title: '\u9009\u62e9\u5b57\u5e55\u6dfb\u52a0\u65b9\u5f0f',
@@ -170,14 +178,15 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
-          _SubtitleMenuTile(
-            title: '\u641c\u7d22\u4e0b\u8f7d\u5b57\u5e55',
-            onTap: () {
-              drawer.push(_subtitleSearchPageId);
-              unawaited(_loadRemoteSubtitleSearch(drawer));
-            },
-          ),
-          const SizedBox(height: 12),
+          if (!localRuntimeSource)
+            _SubtitleMenuTile(
+              title: '\u641c\u7d22\u4e0b\u8f7d\u5b57\u5e55',
+              onTap: () {
+                drawer.push(_subtitleSearchPageId);
+                unawaited(_loadRemoteSubtitleSearch(drawer));
+              },
+            ),
+          if (!localRuntimeSource) const SizedBox(height: 12),
           _SubtitleMenuTile(
             title: '\u6dfb\u52a0\u672c\u5730\u5b57\u5e55',
             onTap: () =>
@@ -206,7 +215,9 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
             children: [
               Expanded(
                 child: Text(
-                  _currentTitle.trim().isEmpty ? '\u5f53\u524d\u89c6\u9891' : _currentTitle,
+                  _currentTitle.trim().isEmpty
+                      ? '\u5f53\u524d\u89c6\u9891'
+                      : _currentTitle,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -286,7 +297,10 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
       <String, String>{'label': '\u82f1\u6587', 'value': 'en'},
     ];
     return PlayerNestedSheetScaffold(
-      header: PlayerNestedSheetHeader(title: '\u9009\u62e9\u8bed\u8a00', onBack: drawer.popPage),
+      header: PlayerNestedSheetHeader(
+        title: '\u9009\u62e9\u8bed\u8a00',
+        onBack: drawer.popPage,
+      ),
       child: ListView.separated(
         padding: EdgeInsets.zero,
         itemCount: items.length,
@@ -450,7 +464,9 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
         drawer.close();
         return;
       case PlayerSubtitleSelectionAction.blockedByDirectFile:
-        _showTransientMessage('\u5f53\u524d\u5b57\u5e55\u6682\u4e0d\u652f\u6301\u5207\u6362');
+        _showTransientMessage(
+          '\u5f53\u524d\u5b57\u5e55\u6682\u4e0d\u652f\u6301\u5207\u6362',
+        );
         return;
       case PlayerSubtitleSelectionAction.apply:
         break;
@@ -483,7 +499,9 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
         ? _subtitleSourceMediaGuid.trim()
         : _currentMediaGuid;
     if (mediaGuid.isEmpty) {
-      _showTransientMessage('\u5f53\u524d\u89c6\u9891\u7f3a\u5c11\u5a92\u4f53\u6807\u8bc6');
+      _showTransientMessage(
+        '\u5f53\u524d\u89c6\u9891\u7f3a\u5c11\u5a92\u4f53\u6807\u8bc6',
+      );
       return;
     }
     if (!_subtitleController.beginRemoteSearch(_subtitleSearchLanguage)) {
@@ -542,7 +560,9 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
         ? _subtitleSourceMediaGuid.trim()
         : _currentMediaGuid;
     if (mediaGuid.isEmpty) {
-      _showTransientMessage('\u5f53\u524d\u89c6\u9891\u7f3a\u5c11\u5a92\u4f53\u6807\u8bc6');
+      _showTransientMessage(
+        '\u5f53\u524d\u89c6\u9891\u7f3a\u5c11\u5a92\u4f53\u6807\u8bc6',
+      );
       return;
     }
     _subtitleController.beginRemoteDownload(item.trimId);
@@ -583,7 +603,7 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
     PlayerNestedSheetController<void> drawer,
   ) async {
     try {
-      final path = await LocalFileBrowserSheet.pickFile(
+      final selection = await LocalFileBrowserSheet.pickFile(
         context,
         title: '\u9009\u62e9\u5b57\u5e55\u6587\u4ef6',
         allowedExtensions: const <String>[
@@ -595,10 +615,31 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
           'txt',
         ],
       );
-      if (!mounted || path == null || path.isEmpty) return;
+      if (!mounted || selection == null) return;
       final guid = 'local:${DateTime.now().microsecondsSinceEpoch}';
-      final title = path.split(Platform.pathSeparator).last;
-      final format = _subtitleFormatFromFileName(title, path);
+      final title = selection.displayName.trim();
+      if (title.isEmpty) return;
+      final format = _subtitleFormatFromFileName(title, selection.identifier);
+      final path = StorageAccessService.isScopedIdentifier(selection.identifier)
+          ? await (() async {
+              final bytes = await StorageAccessService.readScopedFileBytes(
+                selection.identifier,
+              );
+              if (bytes == null || bytes.isEmpty) {
+                throw const FileSystemException(
+                  '\u65e0\u6cd5\u8bfb\u53d6\u5df2\u9009\u62e9\u7684\u5b57\u5e55\u6587\u4ef6',
+                );
+              }
+              final tempPath =
+                  '${Directory.systemTemp.path}${Platform.pathSeparator}'
+                  'fly_player_local_sub_${DateTime.now().microsecondsSinceEpoch}.$format';
+              return _writeSubtitleBytesToTempFile(
+                path: tempPath,
+                bytes: bytes,
+              );
+            })()
+          : selection.identifier;
+      if (!mounted || path.trim().isEmpty) return;
       _subtitleController.cacheLocalSubtitleFile(guid: guid, path: path);
       _upsertSubtitleTrack(
         _subtitleController.buildLocalSubtitleTrack(
@@ -614,15 +655,39 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
       await _selectSubtitleFromDrawer(guid, drawer);
     } catch (error) {
       if (mounted) {
-        _showTopTip('\u6dfb\u52a0\u672c\u5730\u5b57\u5e55\u5931\u8d25: $error', context.appColors.danger);
+        _showTopTip(
+          '\u6dfb\u52a0\u672c\u5730\u5b57\u5e55\u5931\u8d25: $error',
+          context.appColors.danger,
+        );
       }
     }
+  }
+
+  Future<bool> _ensureStorageAccessForLocalSubtitleImport() async {
+    var hasAccess = await StorageAccessService.hasFileAccess();
+    if (hasAccess) return true;
+    final granted = await StorageAccessService.requestFileAccess();
+    if (granted) return true;
+    hasAccess = await StorageAccessService.hasFileAccess();
+    if (hasAccess) return true;
+    final openedSettings = await StorageAccessService.openFileAccessSettings();
+    if (mounted) {
+      _showTopTip(
+        openedSettings
+            ? '\u5df2\u8df3\u8f6c\u7cfb\u7edf\u8bbe\u7f6e\uff0c\u8bf7\u5f00\u542f\u6587\u4ef6\u8bbf\u95ee\u6743\u9650\u540e\u8fd4\u56de\u91cd\u8bd5'
+            : '\u8bf7\u5148\u6388\u4e88\u6587\u4ef6\u8bbf\u95ee\u6743\u9650',
+        context.appColors.danger,
+      );
+    }
+    return false;
   }
 
   Future<void> _pickAndAttachLocalSubtitle(
     PlayerNestedSheetController<void> drawer,
   ) async {
     try {
+      final hasAccess = await _ensureStorageAccessForLocalSubtitleImport();
+      if (!mounted || !hasAccess) return;
       final result = await FilePicker.platform.pickFiles(
         allowMultiple: false,
         withData: true,
@@ -664,7 +729,9 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
       await _selectSubtitleFromDrawer(guid, drawer);
     } catch (error) {
       if (mounted) {
-        _showTransientMessage('\u6dfb\u52a0\u672c\u5730\u5b57\u5e55\u5931\u8d25: $error');
+        _showTransientMessage(
+          '\u6dfb\u52a0\u672c\u5730\u5b57\u5e55\u5931\u8d25: $error',
+        );
       }
     }
   }

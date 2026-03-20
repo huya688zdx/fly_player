@@ -7,6 +7,7 @@ import '../../models/playback_stream.dart';
 import '../../models/stream_track_data.dart';
 import 'player_source_controller.dart';
 import '../stores/screenshot_settings_store.dart';
+import '../../utils/local_subtitle_bundle.dart';
 
 int createMpvLoadNonce() {
   return DateTime.now().microsecondsSinceEpoch & 0x7fffffff;
@@ -41,12 +42,14 @@ class MpvMediaSource {
   final String resolution;
   final int bitrate;
   final int durationSeconds;
+  final Map<String, String> localSubtitleFiles;
   final String videoCodecName;
   final String videoProfile;
   final String colorSpace;
   final String colorTransfer;
   final String colorPrimaries;
   final int bitDepth;
+  final bool isDownloadedFile;
   final bool preferExternalSubtitle;
   final bool forceNativeProxy;
   final bool extremePlaybackEnabled;
@@ -89,12 +92,14 @@ class MpvMediaSource {
     this.resolution = '',
     this.bitrate = 0,
     this.durationSeconds = 0,
+    this.localSubtitleFiles = const <String, String>{},
     this.videoCodecName = '',
     this.videoProfile = '',
     this.colorSpace = '',
     this.colorTransfer = '',
     this.colorPrimaries = '',
     this.bitDepth = 0,
+    this.isDownloadedFile = false,
     this.preferExternalSubtitle = false,
     this.forceNativeProxy = false,
     this.extremePlaybackEnabled = false,
@@ -141,12 +146,14 @@ class MpvMediaSource {
     String? resolution,
     int? bitrate,
     int? durationSeconds,
+    Map<String, String>? localSubtitleFiles,
     String? videoCodecName,
     String? videoProfile,
     String? colorSpace,
     String? colorTransfer,
     String? colorPrimaries,
     int? bitDepth,
+    bool? isDownloadedFile,
     bool? preferExternalSubtitle,
     bool? forceNativeProxy,
     bool? extremePlaybackEnabled,
@@ -198,12 +205,14 @@ class MpvMediaSource {
       resolution: resolution ?? this.resolution,
       bitrate: bitrate ?? this.bitrate,
       durationSeconds: durationSeconds ?? this.durationSeconds,
+      localSubtitleFiles: localSubtitleFiles ?? this.localSubtitleFiles,
       videoCodecName: videoCodecName ?? this.videoCodecName,
       videoProfile: videoProfile ?? this.videoProfile,
       colorSpace: colorSpace ?? this.colorSpace,
       colorTransfer: colorTransfer ?? this.colorTransfer,
       colorPrimaries: colorPrimaries ?? this.colorPrimaries,
       bitDepth: bitDepth ?? this.bitDepth,
+      isDownloadedFile: isDownloadedFile ?? this.isDownloadedFile,
       preferExternalSubtitle:
           preferExternalSubtitle ?? this.preferExternalSubtitle,
       forceNativeProxy: forceNativeProxy ?? this.forceNativeProxy,
@@ -218,6 +227,127 @@ class MpvMediaSource {
       audioTracks: audioTracks ?? this.audioTracks,
       subtitleTracks: subtitleTracks ?? this.subtitleTracks,
       qualities: qualities ?? this.qualities,
+    );
+  }
+
+  factory MpvMediaSource.localFile({
+    required String filePath,
+    required String itemGuid,
+    required String mediaGuid,
+    required String title,
+    String seasonGuid = '',
+    String posterPath = '',
+    String mediaType = '',
+    String ancestorName = '',
+    String videoGuid = '',
+    String seriesTitle = '',
+    int seasonNumber = 0,
+    String tmdbId = '',
+    int episodeNumber = 0,
+    Duration startPosition = Duration.zero,
+    String resolution = '',
+    int bitrate = 0,
+    int durationSeconds = 0,
+    int? audioTrackIndex,
+    int? subtitleTrackIndex,
+    String? audioTrackGuid,
+    String? subtitleTrackGuid,
+    int? directLinkQualityIndex,
+    int videoWidth = 0,
+    int videoHeight = 0,
+    String videoCodecName = '',
+    String videoProfile = '',
+    String colorSpace = '',
+    String colorTransfer = '',
+    String colorPrimaries = '',
+    int bitDepth = 0,
+    double playbackSpeed = 1.0,
+    List<AudioTrackOption> audioTracks = const <AudioTrackOption>[],
+    List<SubtitleTrackOption> subtitleTracks = const <SubtitleTrackOption>[],
+    List<PlaybackQualityOption> qualities = const <PlaybackQualityOption>[],
+    int? loadNonce,
+  }) {
+    final normalizedItemGuid = itemGuid.trim();
+    final normalizedMediaGuid = mediaGuid.trim().isNotEmpty
+        ? mediaGuid.trim()
+        : normalizedItemGuid;
+    final normalizedVideoGuid = videoGuid.trim().isNotEmpty
+        ? videoGuid.trim()
+        : normalizedMediaGuid;
+    final normalizedPath = filePath.trim();
+    final localSubtitleBundle = discoverLocalSubtitleBundle(
+      mediaGuid: normalizedMediaGuid,
+      videoFilePath: normalizedPath,
+    );
+    final mergedSubtitleTracks = <SubtitleTrackOption>[];
+    final seenSubtitleGuids = <String>{};
+
+    void addSubtitleTrack(SubtitleTrackOption track) {
+      final guid = track.guid.trim();
+      if (guid.isEmpty || !seenSubtitleGuids.add(guid)) {
+        return;
+      }
+      mergedSubtitleTracks.add(track);
+    }
+
+    for (final track in localSubtitleBundle.tracks) {
+      addSubtitleTrack(track);
+    }
+    for (final track in subtitleTracks) {
+      addSubtitleTrack(track);
+    }
+    final normalizedSubtitleGuid = subtitleTrackGuid?.trim() ?? '';
+    final resolvedSubtitleTrackGuid =
+        normalizedSubtitleGuid.startsWith('local:')
+        ? normalizedSubtitleGuid
+        : (localSubtitleBundle.preferredGuid?.trim().isNotEmpty == true
+              ? localSubtitleBundle.preferredGuid!.trim()
+              : (normalizedSubtitleGuid.isNotEmpty
+                    ? normalizedSubtitleGuid
+                    : null));
+    return MpvMediaSource(
+      loadNonce: loadNonce ?? createMpvLoadNonce(),
+      itemGuid: normalizedItemGuid,
+      seasonGuid: seasonGuid,
+      posterPath: posterPath,
+      mediaGuid: normalizedMediaGuid,
+      mediaType: mediaType,
+      ancestorName: ancestorName,
+      videoGuid: normalizedVideoGuid,
+      directLinkQualityIndex: directLinkQualityIndex,
+      url: Uri.file(normalizedPath).toString(),
+      headers: const <String, String>{},
+      title: title,
+      seriesTitle: seriesTitle,
+      seasonNumber: seasonNumber,
+      tmdbId: tmdbId,
+      episodeNumber: episodeNumber,
+      startPosition: startPosition,
+      audioTrackIndex: audioTrackIndex,
+      subtitleTrackIndex: subtitleTrackIndex,
+      audioTrackGuid: audioTrackGuid,
+      subtitleTrackGuid: resolvedSubtitleTrackGuid,
+      resolution: resolution,
+      bitrate: bitrate,
+      durationSeconds: durationSeconds,
+      localSubtitleFiles: localSubtitleBundle.fileByGuid,
+      videoWidth: videoWidth,
+      videoHeight: videoHeight,
+      videoCodecName: videoCodecName,
+      videoProfile: videoProfile,
+      colorSpace: colorSpace,
+      colorTransfer: colorTransfer,
+      colorPrimaries: colorPrimaries,
+      bitDepth: bitDepth,
+      isDownloadedFile: true,
+      preferExternalSubtitle: localSubtitleBundle.tracks.isNotEmpty,
+      reliableSeek: true,
+      seekProbeSummary: 'local-download',
+      playbackMode: PlayerPlaybackMode.originalQuality,
+      playbackSpeed: playbackSpeed,
+      audioTracks: audioTracks,
+      subtitleTracks: mergedSubtitleTracks,
+      qualities: qualities,
     );
   }
 
@@ -251,12 +381,14 @@ class MpvMediaSource {
       'resolution': resolution,
       'bitrate': bitrate,
       'durationSeconds': durationSeconds,
+      'localSubtitleFiles': localSubtitleFiles,
       'videoCodecName': videoCodecName,
       'videoProfile': videoProfile,
       'colorSpace': colorSpace,
       'colorTransfer': colorTransfer,
       'colorPrimaries': colorPrimaries,
       'bitDepth': bitDepth,
+      'isDownloadedFile': isDownloadedFile,
       'preferExternalSubtitle': preferExternalSubtitle,
       'forceNativeProxy': forceNativeProxy,
       'extremePlaybackEnabled': extremePlaybackEnabled,
@@ -286,6 +418,17 @@ class MpvMediaSource {
     if (rawHeaders is Map) {
       rawHeaders.forEach((key, value) {
         headers[key.toString()] = value?.toString() ?? '';
+      });
+    }
+
+    final rawLocalSubtitleFiles = raw['localSubtitleFiles'];
+    final localSubtitleFiles = <String, String>{};
+    if (rawLocalSubtitleFiles is Map) {
+      rawLocalSubtitleFiles.forEach((key, value) {
+        final normalizedKey = key.toString().trim();
+        final normalizedValue = value?.toString().trim() ?? '';
+        if (normalizedKey.isEmpty || normalizedValue.isEmpty) return;
+        localSubtitleFiles[normalizedKey] = normalizedValue;
       });
     }
 
@@ -416,12 +559,14 @@ class MpvMediaSource {
       resolution: (raw['resolution'] ?? '').toString(),
       bitrate: intOf(raw['bitrate']),
       durationSeconds: intOf(raw['durationSeconds']),
+      localSubtitleFiles: localSubtitleFiles,
       videoCodecName: (raw['videoCodecName'] ?? '').toString(),
       videoProfile: (raw['videoProfile'] ?? '').toString(),
       colorSpace: (raw['colorSpace'] ?? '').toString(),
       colorTransfer: (raw['colorTransfer'] ?? '').toString(),
       colorPrimaries: (raw['colorPrimaries'] ?? '').toString(),
       bitDepth: intOf(raw['bitDepth']),
+      isDownloadedFile: raw['isDownloadedFile'] == true,
       preferExternalSubtitle: raw['preferExternalSubtitle'] == true,
       forceNativeProxy: raw['forceNativeProxy'] == true,
       extremePlaybackEnabled: raw['extremePlaybackEnabled'] == true,
@@ -571,6 +716,99 @@ class MpvPlayerValue {
 }
 
 @immutable
+class MpvRuntimeTrackSnapshot {
+  final List<AudioTrackOption> audioTracks;
+  final List<SubtitleTrackOption> subtitleTracks;
+  final String selectedAudioGuid;
+  final String selectedSubtitleGuid;
+
+  const MpvRuntimeTrackSnapshot({
+    required this.audioTracks,
+    required this.subtitleTracks,
+    required this.selectedAudioGuid,
+    required this.selectedSubtitleGuid,
+  });
+
+  static const empty = MpvRuntimeTrackSnapshot(
+    audioTracks: <AudioTrackOption>[],
+    subtitleTracks: <SubtitleTrackOption>[],
+    selectedAudioGuid: '',
+    selectedSubtitleGuid: '',
+  );
+
+  factory MpvRuntimeTrackSnapshot.fromMap(Map<String, Object?> raw) {
+    int intOf(Object? value) =>
+        value is int ? value : int.tryParse('$value') ?? 0;
+
+    final audioTracks = (raw['audioTracks'] as List<Object?>? ?? const [])
+        .whereType<Map>()
+        .map(
+          (entry) => AudioTrackOption(
+            mediaGuid: (entry['mediaGuid'] ?? '').toString(),
+            guid: (entry['guid'] ?? '').toString(),
+            title: (entry['title'] ?? '').toString(),
+            codecName: (entry['codecName'] ?? '').toString(),
+            profile: (entry['profile'] ?? '').toString(),
+            language: (entry['language'] ?? '').toString(),
+            audioType: (entry['audioType'] ?? '').toString(),
+            channelLayout: (entry['channelLayout'] ?? '').toString(),
+            channels: intOf(entry['channels']),
+            sampleRate: intOf(entry['sampleRate']),
+            bps: intOf(entry['bps']),
+            index: intOf(entry['index']),
+            isDefault:
+                ((entry['isDefault'] == true || intOf(entry['isDefault']) == 1)
+                ? 1
+                : 0),
+          ),
+        )
+        .toList(growable: false);
+    final subtitleTracks = (raw['subtitleTracks'] as List<Object?>? ?? const [])
+        .whereType<Map>()
+        .map(
+          (entry) => SubtitleTrackOption(
+            mediaGuid: (entry['mediaGuid'] ?? '').toString(),
+            guid: (entry['guid'] ?? '').toString(),
+            title: (entry['title'] ?? '').toString(),
+            codecName: (entry['codecName'] ?? '').toString(),
+            format: (entry['format'] ?? '').toString(),
+            language: (entry['language'] ?? '').toString(),
+            index: intOf(entry['index']),
+            isDefault:
+                ((entry['isDefault'] == true || intOf(entry['isDefault']) == 1)
+                ? 1
+                : 0),
+            forced: ((entry['forced'] == true || intOf(entry['forced']) == 1)
+                ? 1
+                : 0),
+            isExternal:
+                ((entry['isExternal'] == true ||
+                    intOf(entry['isExternal']) == 1)
+                ? 1
+                : 0),
+            extraFile:
+                ((entry['extraFile'] == true || intOf(entry['extraFile']) == 1)
+                ? 1
+                : 0),
+            isBitmap:
+                ((entry['isBitmap'] == true || intOf(entry['isBitmap']) == 1)
+                ? 1
+                : 0),
+          ),
+        )
+        .toList(growable: false);
+    return MpvRuntimeTrackSnapshot(
+      audioTracks: audioTracks,
+      subtitleTracks: subtitleTracks,
+      selectedAudioGuid: (raw['selectedAudioGuid'] ?? '').toString().trim(),
+      selectedSubtitleGuid: (raw['selectedSubtitleGuid'] ?? '')
+          .toString()
+          .trim(),
+    );
+  }
+}
+
+@immutable
 class MpvChapterItem {
   final int index;
   final String title;
@@ -586,17 +824,13 @@ class MpvChapterItem {
 @immutable
 class MpvPerformanceOverlayStats {
   final double? cpuUsagePercent;
-  final double? gpuUsagePercent;
-  final double? estimatedVfFps;
-  final double? containerFps;
-  final double? displayFps;
+  final int? appMemoryUsedBytes;
+  final int? systemMemoryTotalBytes;
 
   const MpvPerformanceOverlayStats({
     this.cpuUsagePercent,
-    this.gpuUsagePercent,
-    this.estimatedVfFps,
-    this.containerFps,
-    this.displayFps,
+    this.appMemoryUsedBytes,
+    this.systemMemoryTotalBytes,
   });
 
   static const empty = MpvPerformanceOverlayStats();
@@ -607,12 +841,16 @@ class MpvPerformanceOverlayStats {
       return double.tryParse('$value');
     }
 
+    int? intOf(Object? value) {
+      if (value is int) return value;
+      if (value is num) return value.toInt();
+      return int.tryParse('$value');
+    }
+
     return MpvPerformanceOverlayStats(
       cpuUsagePercent: numberOf(raw['cpuUsagePercent']),
-      gpuUsagePercent: numberOf(raw['gpuUsagePercent']),
-      estimatedVfFps: numberOf(raw['estimatedVfFps']),
-      containerFps: numberOf(raw['containerFps']),
-      displayFps: numberOf(raw['displayFps']),
+      appMemoryUsedBytes: intOf(raw['appMemoryUsedBytes']),
+      systemMemoryTotalBytes: intOf(raw['systemMemoryTotalBytes']),
     );
   }
 }
@@ -887,6 +1125,23 @@ class MpvPlayerController {
     } on PlatformException catch (error) {
       _setError(error.message ?? error.code);
       return MpvPerformanceOverlayStats.empty;
+    }
+  }
+
+  Future<MpvRuntimeTrackSnapshot> getTrackSnapshot() async {
+    final channel = _methodChannel;
+    if (channel == null) return MpvRuntimeTrackSnapshot.empty;
+    try {
+      final state = await channel.invokeMapMethod<Object?, Object?>(
+        'getTrackSnapshot',
+      );
+      if (state == null) return MpvRuntimeTrackSnapshot.empty;
+      return MpvRuntimeTrackSnapshot.fromMap(_normalizeMap(state));
+    } on MissingPluginException {
+      return MpvRuntimeTrackSnapshot.empty;
+    } on PlatformException catch (error) {
+      _setError(error.message ?? error.code);
+      return MpvRuntimeTrackSnapshot.empty;
     }
   }
 

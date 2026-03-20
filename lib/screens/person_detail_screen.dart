@@ -29,8 +29,10 @@ import '../utils/media_locale_store.dart';
 import '../utils/media_locale_text.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/detail/detail_header.dart';
+import '../widgets/detail/detail_more_actions_sheet.dart';
 import '../widgets/detail/dynamic_page_theme_scope.dart';
 import '../widgets/detail/link_section.dart';
+import '../widgets/detail/theme_save_name_helper.dart';
 
 class PersonDetailScreen extends StatefulWidget {
   final String personGuid;
@@ -57,6 +59,8 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
     'Screenplay',
     'Producer',
   ];
+  static const int _initialJobPrefetchCount = 2;
+  static const double _jobLoadMoreTriggerOffset = 420;
 
   static const Map<String, String> _jobFallback = <String, String>{
     'actor': '\u6f14\u5458',
@@ -73,6 +77,8 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
   bool _favoriteUpdating = false;
   AppException? _error;
   int _jobLoadVersion = 0;
+  int _nextJobIndex = 0;
+  bool _jobLoading = false;
   final ScrollController _scrollController = ScrollController();
   final ValueNotifier<double> _scrollOffsetNotifier = ValueNotifier<double>(0);
 
@@ -100,6 +106,7 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
     if ((offset - _scrollOffsetNotifier.value).abs() > 0.5) {
       _scrollOffsetNotifier.value = offset;
     }
+    unawaited(_loadMoreJobsIfNeeded());
   }
 
   String _t(
@@ -130,6 +137,19 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
     return item.type.trim().toLowerCase() == 'episode';
   }
 
+  PersonDetailProfile _fallbackPersonProfile() {
+    return PersonDetailProfile(
+      guid: widget.personGuid,
+      name: widget.initialName.trim(),
+      originalName: '',
+      profilePath: '',
+      imdbId: '',
+      trimId: '',
+      biography: '',
+      isFavorite: false,
+    );
+  }
+
   Future<void> _loadData() async {
     if (widget.personGuid.trim().isEmpty) {
       setState(() {
@@ -146,14 +166,17 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
     setState(() {
       _isLoading = true;
       _error = null;
+      _jobPages = <String, ItemListPage>{};
+      _nextJobIndex = 0;
+      _jobLoading = false;
     });
 
     final api = FeiniuApi(context.read<NasProvider>());
     final loadVersion = ++_jobLoadVersion;
+    final localeFuture = _localeMap.isEmpty
+        ? MediaLocaleStore.load(context.read<NasProvider>())
+        : Future.value(_localeMap);
     try {
-      final localeFuture = _localeMap.isEmpty
-          ? MediaLocaleStore.load(context.read<NasProvider>())
-          : Future.value(_localeMap);
       final personFuture = _loadPersonDetail(api, widget.personGuid);
 
       final locale = await localeFuture;
@@ -164,41 +187,111 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
         _localeMap = locale;
         _person = person;
         _jobPages = <String, ItemListPage>{};
+        _nextJobIndex = 0;
+        _jobLoading = false;
         _isLoading = false;
       });
-      unawaited(_loadJobsSequentially(api, loadVersion));
+      unawaited(_loadInitialJobs(api, loadVersion));
     } catch (e) {
+      final appError = AppException.from(
+        e,
+        action: 'person detail',
+        fallbackKind: AppExceptionKind.transient,
+      );
+      final locale =
+          await localeFuture.catchError((_) => Map<String, dynamic>.from(_localeMap));
       if (!mounted) return;
+      if (appError.isNoData) {
+        setState(() {
+          _localeMap = locale;
+          _person = _fallbackPersonProfile();
+          _jobPages = <String, ItemListPage>{};
+          _nextJobIndex = 0;
+          _jobLoading = false;
+          _isLoading = false;
+          _error = null;
+        });
+        return;
+      }
       setState(() {
+        _localeMap = locale;
         _isLoading = false;
-        _error = AppException.from(
-          e,
-          action: 'person detail',
-          fallbackKind: AppExceptionKind.transient,
-        );
+        _error = appError;
       });
     }
   }
 
-  Future<void> _loadJobsSequentially(FeiniuApi api, int loadVersion) async {
-    for (final job in _jobs) {
-      if (!mounted || loadVersion != _jobLoadVersion) return;
-      try {
-        final page = await _loadPersonJobPage(api, widget.personGuid, job);
-        if (!mounted || loadVersion != _jobLoadVersion) return;
-        setState(() {
-          _jobPages[job] = page;
-        });
-      } catch (_) {
-        if (!mounted || loadVersion != _jobLoadVersion) return;
-        setState(() {
-          _jobPages[job] = const ItemListPage(
-            total: 0,
-            items: <MediaLibraryItem>[],
-          );
-        });
-      }
+  Future<void> _loadInitialJobs(FeiniuApi api, int loadVersion) async {
+    for (var index = 0; index < _initialJobPrefetchCount; index += 1) {
+      final loaded = await _loadNextPendingJob(api, loadVersion);
+      if (!loaded) break;
     }
+    _scheduleMoreJobsIfViewportNotFilled();
+  }
+
+  Future<void> _loadMoreJobsIfNeeded({bool force = false}) async {
+    if (_jobLoading ||
+        _isLoading ||
+        _error != null ||
+        _person == null ||
+        _nextJobIndex >= _jobs.length) {
+      return;
+    }
+    if (!force) {
+      if (!_scrollController.hasClients) return;
+      final remaining =
+          _scrollController.position.maxScrollExtent - _scrollController.offset;
+      if (remaining > _jobLoadMoreTriggerOffset) return;
+    }
+    await _loadNextPendingJob(
+      FeiniuApi(context.read<NasProvider>()),
+      _jobLoadVersion,
+    );
+    _scheduleMoreJobsIfViewportNotFilled();
+  }
+
+  Future<bool> _loadNextPendingJob(FeiniuApi api, int loadVersion) async {
+    if (_jobLoading ||
+        !mounted ||
+        loadVersion != _jobLoadVersion ||
+        _nextJobIndex >= _jobs.length) {
+      return false;
+    }
+    final job = _jobs[_nextJobIndex];
+    _jobLoading = true;
+    _nextJobIndex += 1;
+    try {
+      final page = await _loadPersonJobPage(api, widget.personGuid, job);
+      if (!mounted || loadVersion != _jobLoadVersion) return false;
+      setState(() {
+        _jobPages[job] = page;
+      });
+      return true;
+    } catch (_) {
+      if (!mounted || loadVersion != _jobLoadVersion) return false;
+      setState(() {
+        _jobPages[job] = const ItemListPage(
+          total: 0,
+          items: <MediaLibraryItem>[],
+        );
+      });
+      return true;
+    } finally {
+      _jobLoading = false;
+    }
+  }
+
+  void _scheduleMoreJobsIfViewportNotFilled() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _jobLoading || _nextJobIndex >= _jobs.length) return;
+      if (!_scrollController.hasClients) {
+        unawaited(_loadMoreJobsIfNeeded(force: true));
+        return;
+      }
+      if (_scrollController.position.maxScrollExtent <= 0) {
+        unawaited(_loadMoreJobsIfNeeded(force: true));
+      }
+    });
   }
 
   Future<void> _toggleFavorite() async {
@@ -267,7 +360,10 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
     );
   }
 
-  Future<PersonDetailProfile> _loadPersonDetail(FeiniuApi api, String personGuid) {
+  Future<PersonDetailProfile> _loadPersonDetail(
+    FeiniuApi api,
+    String personGuid,
+  ) {
     if (!_useRuntimeCache) {
       return api.getPersonDetail(personGuid);
     }
@@ -391,13 +487,17 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
         ? const <String>[]
         : _imageCandidates(provider.baseUrl, _person!.profilePath, width: 240);
 
+    final dynamicThemeIntensity = themeProvider.dynamicThemeIntensity;
     return DynamicPageThemeScope(
       pageKey: widget.personGuid,
       imageUrl: dynamicThemeUrls.isNotEmpty ? dynamicThemeUrls.first : '',
       token: provider.token,
-      enabled: themeProvider.dynamicThemeEnabled && !inPlayerPaneHost,
-      syncGlobalTheme: !_isPane || !inPlayerPaneHost,
-      intensity: themeProvider.dynamicThemeIntensity,
+      enabled: themeProvider.dynamicThemeEnabled,
+      syncGlobalTheme: dynamicThemeIntensity.allowsGlobalRuntimeThemeSync(
+        inPlayerPaneHost: inPlayerPaneHost,
+        isPane: _isPane,
+      ),
+      intensity: dynamicThemeIntensity,
       builder: (context, _) {
         final colors = context.appColors;
         final layout = MediaLayoutProfile.of(context);
@@ -578,6 +678,22 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
                         ),
                       ),
                   ],
+                  if (_jobLoading)
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                        child: Center(
+                          child: SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.2,
+                              color: colors.accent,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   if (person.imdbId.trim().isNotEmpty ||
                       person.trimId.trim().isNotEmpty)
                     SliverToBoxAdapter(
@@ -608,11 +724,22 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
                     onBack: () => unawaited(
                       EmbeddedDetailLauncher.closeHostOrPop(context),
                     ),
-                    onMore: () {},
+                    onMore: () => unawaited(
+                      showDetailMoreActionsSheet(
+                        context,
+                        pageKey: widget.personGuid,
+                        pageTitle: title,
+                        suggestedThemeName: context
+                            .read<AppThemeProvider>()
+                            .nextSavedThemeNameFromBase(
+                              buildThemeSaveNameBase(title: title),
+                            ),
+                        clearRuntimeBroadcastToMain: !inPlayerPaneHost,
+                      ),
+                    ),
                     title: title,
                     titleOpacity: titleOpacity,
                     showBack: !_isPane,
-                    showMore: false,
                   );
                 },
               ),

@@ -30,6 +30,7 @@ class PlayerActivity : FlutterHostActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        PlaybackSessionCoordinator.allowSessionUpdates()
         ParallelWindowCoordinator.attachPlayerHost(this)
         applyLayoutModeState()
         Log.d(
@@ -55,6 +56,11 @@ class PlayerActivity : FlutterHostActivity() {
     }
 
     override fun onDestroy() {
+        if (isFinishing && !isChangingConfigurations) {
+            PlaybackSessionCoordinator.blockSessionUpdates()
+            PlaybackSessionCoordinator.detachHost(this)
+            PlayerNotificationService.stop(applicationContext)
+        }
         ParallelWindowCoordinator.detachPlayerHost(this)
         ParallelWindowCoordinator.setSplitPlayerVisible(false)
         super.onDestroy()
@@ -105,6 +111,9 @@ class PlayerActivity : FlutterHostActivity() {
     }
 
     override fun finishPlayerActivity(result: HashMap<String, Any?>?): Boolean {
+        PlaybackSessionCoordinator.blockSessionUpdates()
+        PlaybackSessionCoordinator.detachHost(this)
+        PlayerNotificationService.stop(applicationContext)
         Log.d(
             TAG,
             "finishPlayerActivity layoutMode=${currentLayoutMode()} rightPaneRoute=${currentInitialRightPaneRoute()}",

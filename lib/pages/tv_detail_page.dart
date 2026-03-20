@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
+import 'dart:math' as math;
 
 import '../api/feiniu_api.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
@@ -30,10 +31,12 @@ import '../widgets/common/app_error_state.dart';
 import '../widgets/detail/detail_description_section.dart';
 import '../widgets/detail/detail_header.dart';
 import '../widgets/detail/detail_hero_overlay.dart';
+import '../widgets/detail/detail_more_actions_sheet.dart';
 import '../widgets/detail/dynamic_page_theme_scope.dart';
 import '../widgets/detail/immersive_detail_background.dart';
 import '../widgets/detail/link_section.dart';
 import '../widgets/detail/play_control_row.dart';
+import '../widgets/detail/theme_save_name_helper.dart';
 import 'long_text_overlay_page.dart';
 
 class TvDetailPage extends StatefulWidget {
@@ -523,6 +526,28 @@ class _TvDetailPageState extends State<TvDetailPage>
     return parts.join(' \u00b7 ');
   }
 
+  String _suggestedThemeNameBase(Map<String, dynamic> item) {
+    final playItem = _playInfo?.item;
+    final itemType = (playItem?.type ?? item['type'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    final title = _title(item);
+    if (itemType == 'episode') {
+      return buildThemeSaveNameBase(
+        title: title,
+        seriesTitle: playItem?.tvTitle.trim().isNotEmpty == true
+            ? playItem!.tvTitle.trim()
+            : title,
+        seasonNumber: playItem?.seasonNumber ?? _asInt(item['season_number']),
+        episodeNumber:
+            playItem?.episodeNumber ?? _asInt(item['episode_number']),
+        isEpisode: true,
+      );
+    }
+    return buildThemeSaveNameBase(title: title);
+  }
+
   List<String> _genreNamesForMeta(dynamic rawGenres) {
     if (rawGenres is! List) return const [];
     return PlayDetailFormatters.genreNamesFromIds(
@@ -835,7 +860,10 @@ class _TvDetailPageState extends State<TvDetailPage>
     );
   }
 
-  Future<List<MediaLibraryItem>> _loadSeasonItems(FeiniuApi api, String itemGuid) {
+  Future<List<MediaLibraryItem>> _loadSeasonItems(
+    FeiniuApi api,
+    String itemGuid,
+  ) {
     if (!_useRuntimeCache) {
       return api.getSeasonList(itemGuid);
     }
@@ -857,7 +885,10 @@ class _TvDetailPageState extends State<TvDetailPage>
     );
   }
 
-  Future<PlayInfoData?> _loadPlayInfoOrNull(FeiniuApi api, String itemGuid) async {
+  Future<PlayInfoData?> _loadPlayInfoOrNull(
+    FeiniuApi api,
+    String itemGuid,
+  ) async {
     try {
       return await _loadPlayInfo(api, itemGuid);
     } catch (_) {
@@ -897,13 +928,17 @@ class _TvDetailPageState extends State<TvDetailPage>
       }
     }
 
+    final dynamicThemeIntensity = themeProvider.dynamicThemeIntensity;
     return DynamicPageThemeScope(
       pageKey: widget.itemGuid,
       imageUrl: dynamicThemeImageUrl,
       token: nasProvider.token,
-      enabled: themeProvider.dynamicThemeEnabled && !inPlayerPaneHost,
-      syncGlobalTheme: !_isPane || !inPlayerPaneHost,
-      intensity: themeProvider.dynamicThemeIntensity,
+      enabled: themeProvider.dynamicThemeEnabled,
+      syncGlobalTheme: dynamicThemeIntensity.allowsGlobalRuntimeThemeSync(
+        inPlayerPaneHost: inPlayerPaneHost,
+        isPane: _isPane,
+      ),
+      intensity: dynamicThemeIntensity,
       builder: (context, ambientTint) {
         final colors = context.appColors;
         if (_loading) {
@@ -934,7 +969,13 @@ class _TvDetailPageState extends State<TvDetailPage>
           screenSize,
           devicePixelRatio: media.devicePixelRatio,
         );
-        final posterHeight = screenSize.height * heroAdaptive.posterHeightRatio;
+        final posterHeight = math
+            .min(
+              screenSize.height * heroAdaptive.posterHeightRatio,
+              screenSize.width / 1.55,
+            )
+            .clamp(300.0, screenSize.height * 0.48)
+            .toDouble();
         final collapseRange =
             (posterHeight - media.padding.top - kToolbarHeight).clamp(
               1.0,
@@ -966,16 +1007,14 @@ class _TvDetailPageState extends State<TvDetailPage>
             genreNames.isNotEmpty ||
             countryText.isNotEmpty ||
             ancestorName.isNotEmpty;
-        final backdropRequestWidth = (_isPane
-                ? screenSize.width * media.devicePixelRatio * 1.2
-                : 1200.0)
-            .clamp(720.0, 1200.0)
-            .round();
-        final logoRequestWidth = (_isPane
-                ? screenSize.width * media.devicePixelRatio
-                : 1200.0)
-            .clamp(480.0, 1200.0)
-            .round();
+        final backdropRequestWidth =
+            (_isPane ? screenSize.width * media.devicePixelRatio * 1.2 : 1200.0)
+                .clamp(720.0, 1200.0)
+                .round();
+        final logoRequestWidth =
+            (_isPane ? screenSize.width * media.devicePixelRatio : 1200.0)
+                .clamp(480.0, 1200.0)
+                .round();
 
         final heroUrls = ApiUrlHelper.imageCandidates(
           provider.baseUrl,
@@ -1196,6 +1235,7 @@ class _TvDetailPageState extends State<TvDetailPage>
                                               seriesTitle: title,
                                               backdropPath: _backdrops(item),
                                               seasonItem: season,
+                                              initialSeasonItems: _seasonItems,
                                             ),
                                             presentation: _isPane
                                                 ? DetailPresentation.pane
@@ -1255,7 +1295,19 @@ class _TvDetailPageState extends State<TvDetailPage>
                     onBack: () => unawaited(
                       EmbeddedDetailLauncher.closeHostOrPop(context),
                     ),
-                    onMore: () {},
+                    onMore: () => unawaited(
+                      showDetailMoreActionsSheet(
+                        context,
+                        pageKey: widget.itemGuid,
+                        pageTitle: title,
+                        suggestedThemeName: context
+                            .read<AppThemeProvider>()
+                            .nextSavedThemeNameFromBase(
+                              _suggestedThemeNameBase(item),
+                            ),
+                        clearRuntimeBroadcastToMain: !inPlayerPaneHost,
+                      ),
+                    ),
                     title: title,
                     titleOpacity: centerTitleOpacity,
                     showBack: !_isPane,

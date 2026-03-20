@@ -3,6 +3,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../theme/app_theme.dart';
 import '../controllers/mpv_player_controller.dart';
+import 'player_overlay_sections.dart';
 import 'mpv_player_widgets.dart';
 
 class PlayerControlsTopBar extends StatelessWidget {
@@ -10,11 +11,16 @@ class PlayerControlsTopBar extends StatelessWidget {
   final bool compactUi;
   final double titleFontSize;
   final String title;
+  final bool showDownloadedBadge;
   final bool danmakuEnabled;
+  final bool collapseActionsToSubtitleAndMore;
   final VoidCallback onBack;
   final VoidCallback onFitMode;
   final bool captureFrameBusy;
   final VoidCallback? onCaptureFrame;
+  final bool showCacheDownloadAction;
+  final bool cacheDownloadBusy;
+  final VoidCallback? onCacheDownload;
   final String? abLoopLabel;
   final bool abLoopActive;
   final VoidCallback? onAbLoop;
@@ -27,11 +33,16 @@ class PlayerControlsTopBar extends StatelessWidget {
     required this.compactUi,
     required this.titleFontSize,
     required this.title,
+    this.showDownloadedBadge = false,
     required this.danmakuEnabled,
+    this.collapseActionsToSubtitleAndMore = false,
     required this.onBack,
     required this.onFitMode,
     this.captureFrameBusy = false,
     this.onCaptureFrame,
+    this.showCacheDownloadAction = false,
+    this.cacheDownloadBusy = false,
+    this.onCacheDownload,
     this.abLoopLabel,
     this.abLoopActive = false,
     this.onAbLoop,
@@ -50,40 +61,61 @@ class PlayerControlsTopBar extends StatelessWidget {
       fontSize: titleFontSize,
       fontWeight: FontWeight.w600,
     );
-    final topActions = <Widget>[
-      if (onCaptureFrame != null)
-        _PlayerTopGlassIconButton(
-          icon: captureFrameBusy
-              ? Icons.downloading_rounded
-              : Icons.photo_camera_outlined,
-          compact: compactUi,
-          onPressed: onCaptureFrame!,
-        ),
-      if (abLoopLabel != null && onAbLoop != null)
-        _PlayerTopGlassPillButton(
-          label: abLoopLabel!,
-          compact: compactUi,
-          active: abLoopActive,
-          onPressed: onAbLoop!,
-        )
-      else
-        _PlayerTopGlassIconButton(
-          icon: Icons.fit_screen_outlined,
-          compact: compactUi,
-          onPressed: onFitMode,
-        ),
-      if (danmakuEnabled)
-        _PlayerTopGlassAssetButton(
-          assetName: 'assets/icons/player_danmaku_settings.svg',
-          compact: compactUi,
-          onPressed: onDanmakuSettings,
-        ),
-      _PlayerTopGlassIconButton(
-        icon: Icons.more_horiz_rounded,
-        compact: compactUi,
-        onPressed: onMore,
-      ),
-    ];
+    final topActions = collapseActionsToSubtitleAndMore
+        ? <Widget>[
+            _PlayerTopGlassAssetButton(
+              assetName: 'assets/icons/player_danmaku_settings.svg',
+              compact: compactUi,
+              onPressed: onDanmakuSettings,
+            ),
+            _PlayerTopGlassIconButton(
+              icon: Icons.more_horiz_rounded,
+              compact: compactUi,
+              onPressed: onMore,
+            ),
+          ]
+        : <Widget>[
+            if (onCaptureFrame != null)
+              _PlayerTopGlassIconButton(
+                icon: captureFrameBusy
+                    ? Icons.downloading_rounded
+                    : Icons.photo_camera_outlined,
+                compact: compactUi,
+                onPressed: onCaptureFrame!,
+              ),
+            if (abLoopLabel != null && onAbLoop != null)
+              _PlayerTopGlassPillButton(
+                label: abLoopLabel!,
+                compact: compactUi,
+                active: abLoopActive,
+                onPressed: onAbLoop!,
+              )
+            else
+              _PlayerTopGlassIconButton(
+                icon: Icons.fit_screen_outlined,
+                compact: compactUi,
+                onPressed: onFitMode,
+              ),
+            if (danmakuEnabled)
+              _PlayerTopGlassAssetButton(
+                assetName: 'assets/icons/player_danmaku_settings.svg',
+                compact: compactUi,
+                onPressed: onDanmakuSettings,
+              ),
+            if (showCacheDownloadAction && onCacheDownload != null)
+              _PlayerTopGlassIconButton(
+                icon: cacheDownloadBusy
+                    ? Icons.downloading_rounded
+                    : Icons.download_rounded,
+                compact: compactUi,
+                onPressed: onCacheDownload!,
+              ),
+            _PlayerTopGlassIconButton(
+              icon: Icons.more_horiz_rounded,
+              compact: compactUi,
+              onPressed: onMore,
+            ),
+          ];
     return Row(
       children: [
         _PlayerTopGlassIconButton(
@@ -93,9 +125,19 @@ class PlayerControlsTopBar extends StatelessWidget {
         ),
         SizedBox(width: compactUi ? 12 : 14),
         Expanded(
-          child: Padding(
-            padding: EdgeInsets.only(right: compactUi ? 12 : 16),
-            child: PlayerMarqueeText(text: title, style: titleStyle),
+          child: Row(
+            children: [
+              if (showDownloadedBadge) ...[
+                _PlayerTopStatusBadge(compact: compactUi, label: '已下载'),
+                SizedBox(width: compactUi ? 8 : 10),
+              ],
+              Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(right: compactUi ? 12 : 16),
+                  child: PlayerMarqueeText(text: title, style: titleStyle),
+                ),
+              ),
+            ],
           ),
         ),
         Wrap(
@@ -104,6 +146,43 @@ class PlayerControlsTopBar extends StatelessWidget {
           children: topActions,
         ),
       ],
+    );
+  }
+}
+
+class _PlayerTopStatusBadge extends StatelessWidget {
+  final bool compact;
+  final String label;
+
+  const _PlayerTopStatusBadge({required this.compact, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final vertical = compact ? 5.0 : 6.0;
+    final horizontal = compact ? 10.0 : 12.0;
+    final fontSize = compact ? 13.0 : 14.0;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colors.overlayScrim.withValues(alpha: 0.42),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+      ),
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: horizontal,
+          vertical: vertical,
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: fontSize,
+            fontWeight: FontWeight.w600,
+            height: 1,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -248,6 +327,10 @@ class _PlayerTopGlassPillButton extends StatelessWidget {
 }
 
 class PlayerControlsBottomPanel extends StatelessWidget {
+  static const Duration _minimalSeekTransitionDuration = Duration(
+    milliseconds: 220,
+  );
+
   final bool panelVisible;
   final bool extendedChromeVisible;
   final bool compactUi;
@@ -264,6 +347,8 @@ class PlayerControlsBottomPanel extends StatelessWidget {
   final PlayerProgressRangeHighlight? progressHighlight;
   final MpvPlayerValue value;
   final Widget? statusCard;
+  final PlayerResumePromptData? resumePrompt;
+  final PlayerAutoPlayPromptData? autoPlayPrompt;
   final Widget? bottomControls;
   final ValueChanged<double>? onTimelineChangeStart;
   final ValueChanged<double>? onTimelineChanged;
@@ -291,6 +376,8 @@ class PlayerControlsBottomPanel extends StatelessWidget {
     this.progressHighlight,
     required this.value,
     required this.statusCard,
+    this.resumePrompt,
+    this.autoPlayPrompt,
     required this.bottomControls,
     required this.onTimelineChangeStart,
     required this.onTimelineChanged,
@@ -336,22 +423,38 @@ class PlayerControlsBottomPanel extends StatelessWidget {
         children: [
           if (showStatusCard && extendedChromeVisible && statusCard != null)
             statusCard!,
+          if (extendedChromeVisible && resumePrompt != null)
+            _PlayerResumePromptCard(data: resumePrompt!),
+          if (extendedChromeVisible && autoPlayPrompt != null)
+            Align(
+              alignment: Alignment.centerRight,
+              child: _PlayerAutoPlayPromptCard(data: autoPlayPrompt!),
+            ),
           SizedBox(height: compactUi ? 5 : 7),
           Padding(
             padding: EdgeInsets.only(left: compactUi ? 2 : 4),
-            child: Align(
-              alignment: minimalSeekMode
-                  ? Alignment.center
-                  : Alignment.centerLeft,
-              child: Transform.translate(
-                offset: Offset(minimalSeekMode ? (compactUi ? 6 : 8) : 0, 0),
-                child: Text(
-                  '${formatDuration(clampedPosition)}/${formatDuration(duration)}',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: timeFontSize,
-                    fontWeight: FontWeight.w500,
+            child: SizedBox(
+              width: double.infinity,
+              child: AnimatedAlign(
+                duration: _minimalSeekTransitionDuration,
+                curve: Curves.easeOutCubic,
+                alignment: minimalSeekMode
+                    ? Alignment.center
+                    : Alignment.centerLeft,
+                child: AnimatedSlide(
+                  duration: _minimalSeekTransitionDuration,
+                  curve: Curves.easeOutCubic,
+                  offset: minimalSeekMode
+                      ? Offset.zero
+                      : Offset(compactUi ? -0.04 : -0.06, 0),
+                  child: Text(
+                    '${formatDuration(clampedPosition)}/${formatDuration(duration)}',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: timeFontSize,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
               ),
@@ -392,9 +495,151 @@ class PlayerControlsBottomPanel extends StatelessWidget {
             ],
           ),
           SizedBox(height: compactUi ? 2 : 4),
-          if (extendedChromeVisible && bottomControls != null) bottomControls!,
+          if (bottomControls != null)
+            Visibility(
+              visible: extendedChromeVisible,
+              maintainState: minimalSeekMode,
+              maintainAnimation: minimalSeekMode,
+              maintainSize: minimalSeekMode,
+              child: bottomControls!,
+            ),
         ],
       ),
+    );
+  }
+}
+
+class _PlayerResumePromptCard extends StatelessWidget {
+  final PlayerResumePromptData data;
+
+  const _PlayerResumePromptCard({required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return _PlayerPromptCardShell(
+      maxWidth: 360,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            child: Text(
+              data.message,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                height: 1.2,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton(
+            onPressed: data.onRestart,
+            style: TextButton.styleFrom(
+              foregroundColor: colors.accentStrong,
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+              minimumSize: const Size(0, 22),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: Text(
+              data.restartLabel,
+              style: const TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          _PlayerPromptCloseButton(onPressed: data.onDismiss),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlayerAutoPlayPromptCard extends StatelessWidget {
+  final PlayerAutoPlayPromptData data;
+
+  const _PlayerAutoPlayPromptCard({required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return _PlayerPromptCardShell(
+      maxWidth: 420,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            child: Text(
+              data.message,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                height: 1.2,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          _PlayerPromptCloseButton(onPressed: data.onSkip),
+          IconButton(
+            onPressed: data.onReplay,
+            icon: const Icon(Icons.check_rounded),
+            color: colors.accentStrong,
+            iconSize: 18,
+            padding: const EdgeInsets.all(2),
+            constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+            splashRadius: 14,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlayerPromptCardShell extends StatelessWidget {
+  final double maxWidth;
+  final Widget child;
+
+  const _PlayerPromptCardShell({required this.maxWidth, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Container(
+      constraints: BoxConstraints(maxWidth: maxWidth, minHeight: 42),
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(left: 12, right: 6, top: 7, bottom: 7),
+      decoration: BoxDecoration(
+        color: Color.alphaBlend(
+          colors.surfaceSubtle.withValues(alpha: 0.26),
+          colors.overlayScrim.withValues(alpha: 0.52),
+        ),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: colors.surfaceStrong.withValues(alpha: 0.42)),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _PlayerPromptCloseButton extends StatelessWidget {
+  final VoidCallback onPressed;
+
+  const _PlayerPromptCloseButton({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return IconButton(
+      onPressed: onPressed,
+      icon: const Icon(Icons.close_rounded),
+      color: colors.textSecondary.withValues(alpha: 0.92),
+      iconSize: 15,
+      padding: const EdgeInsets.all(2),
+      constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
+      splashRadius: 13,
     );
   }
 }

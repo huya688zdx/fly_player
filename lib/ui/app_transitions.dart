@@ -133,10 +133,22 @@ class AppTransitions {
         final curved = CurvedAnimation(
           parent: animation,
           curve: Curves.easeOut,
+          reverseCurve: Curves.easeInOutCubic,
         );
+        final scale = Tween<double>(begin: 1.02, end: 1.0).animate(curved);
+        final slide = Tween<Offset>(
+          begin: const Offset(0.0, 0.018),
+          end: Offset.zero,
+        ).animate(curved);
         return FadeTransition(
           opacity: curved,
-          child: ColoredBox(color: Colors.black, child: child),
+          child: SlideTransition(
+            position: slide,
+            child: ScaleTransition(
+              scale: scale,
+              child: ColoredBox(color: Colors.black, child: child),
+            ),
+          ),
         );
       },
     );

@@ -15,10 +15,7 @@ class EmbeddedPlayerLaunchResult {
   final bool handled;
   final PlayDetailPlayerReturnData? data;
 
-  const EmbeddedPlayerLaunchResult({
-    required this.handled,
-    this.data,
-  });
+  const EmbeddedPlayerLaunchResult({required this.handled, this.data});
 }
 
 class EmbeddedDetailLauncher {
@@ -28,7 +25,8 @@ class EmbeddedDetailLauncher {
 
   static Future<bool> canOpenEmbeddedDetail() async {
     try {
-      return await _channel.invokeMethod<bool>('canOpenEmbeddedDetail') ?? false;
+      return await _channel.invokeMethod<bool>('canOpenEmbeddedDetail') ??
+          false;
     } on PlatformException {
       return false;
     }
@@ -52,9 +50,10 @@ class EmbeddedDetailLauncher {
       );
     }
     try {
-      return await _channel.invokeMethod<bool>('openItemDetail', <String, String>{
-            'itemGuid': normalizedGuid,
-          }) ??
+      return await _channel.invokeMethod<bool>(
+            'openItemDetail',
+            <String, String>{'itemGuid': normalizedGuid},
+          ) ??
           false;
     } on PlatformException {
       return false;
@@ -90,12 +89,13 @@ class EmbeddedDetailLauncher {
       );
     }
     try {
-      return await _channel.invokeMethod<bool>('openSeasonDetail', <String, Object?>{
-            'parentGuid': normalizedParentGuid,
-            'seriesTitle': seriesTitle.trim(),
-            'backdropPath': backdropPath.trim(),
-            'seasonItem': seasonItem.toJson(),
-          }) ??
+      return await _channel
+              .invokeMethod<bool>('openSeasonDetail', <String, Object?>{
+                'parentGuid': normalizedParentGuid,
+                'seriesTitle': seriesTitle.trim(),
+                'backdropPath': backdropPath.trim(),
+                'seasonItem': seasonItem.toJson(),
+              }) ??
           false;
     } on PlatformException {
       return false;
@@ -112,6 +112,42 @@ class EmbeddedDetailLauncher {
 
   static Future<bool> openSettings({BuildContext? context}) async {
     return _openRoute('/screen/settings', context: context);
+  }
+
+  static Future<bool> openDownloads({
+    BuildContext? context,
+    String? tab,
+  }) async {
+    final normalizedTab = tab?.trim() ?? '';
+    return _openRoute(
+      Uri(
+        path: '/screen/downloads',
+        queryParameters: <String, String>{
+          if (normalizedTab.isNotEmpty) 'tab': normalizedTab,
+        },
+      ).toString(),
+      context: context,
+    );
+  }
+
+  static Future<bool> openDownloadDetail({
+    BuildContext? context,
+    required String groupId,
+    String? tab,
+  }) async {
+    final normalizedGroupId = groupId.trim();
+    if (normalizedGroupId.isEmpty) return false;
+    final normalizedTab = tab?.trim() ?? '';
+    return _openRoute(
+      Uri(
+        path: '/screen/downloads/detail',
+        queryParameters: <String, String>{
+          'groupId': normalizedGroupId,
+          if (normalizedTab.isNotEmpty) 'tab': normalizedTab,
+        },
+      ).toString(),
+      context: context,
+    );
   }
 
   static Future<bool> openCategory({
@@ -175,10 +211,7 @@ class EmbeddedDetailLauncher {
     try {
       final result = await _channel.invokeMapMethod<Object?, Object?>(
         'openFullscreenPlayer',
-        <String, Object?>{
-          'title': normalizedTitle,
-          'source': source.toMap(),
-        },
+        <String, Object?>{'title': normalizedTitle, 'source': source.toMap()},
       );
       if (result == null) {
         return const EmbeddedPlayerLaunchResult(handled: true);
@@ -219,7 +252,10 @@ class EmbeddedDetailLauncher {
   ) async {
     if (!Platform.isAndroid) return;
     try {
-      await _channel.invokeMethod<void>('reportBrowseSnapshot', snapshot.toMap());
+      await _channel.invokeMethod<void>(
+        'reportBrowseSnapshot',
+        snapshot.toMap(),
+      );
     } on PlatformException {
       // Ignore snapshot reporting failures; navigation should continue.
     }

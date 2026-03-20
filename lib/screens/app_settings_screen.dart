@@ -11,10 +11,13 @@ import '../ui/app_transitions.dart';
 import 'app_log_screen.dart';
 import 'bookmark_manager_screen.dart';
 import 'danmaku_settings_screen.dart';
+import 'download_list_screen.dart';
 import 'mpv_player_settings_screen.dart';
 import 'parallel_window_settings_screen.dart';
 import 'screenshot_settings_screen.dart';
 import 'settings_search_screen.dart';
+import 'storage_management_screen.dart';
+import 'theme_custom_recipe_screen.dart';
 import 'theme_settings_screen.dart';
 
 class AppSettingsScreen extends StatelessWidget {
@@ -52,11 +55,29 @@ class AppSettingsScreen extends StatelessWidget {
         id: 'theme_settings',
         title: '主题设置',
         subtitle:
-            '${themeProvider.preset.title} · ${themeProvider.accentTone.title}',
+            '${themeProvider.currentThemeTitle} · ${themeProvider.currentThemeSubtitle}',
         location: '设置',
         keywords: const <String>['主题', '配色', '颜色', '外观'],
         destinationBuilder: () => const ThemeSettingsScreen(),
         onSelect: () => _pushPage(context, const ThemeSettingsScreen()),
+      ),
+      SettingsSearchEntry(
+        id: 'theme_custom_saved',
+        title: '自定义主题',
+        subtitle: '查看已保存主题，并支持应用、重命名和删除',
+        location: '设置 > 主题设置',
+        keywords: const <String>['自定义主题', '保存主题', '主题管理'],
+        destinationBuilder: () => const ThemeSettingsScreen(),
+        onSelect: () => _pushPage(context, const ThemeSettingsScreen()),
+      ),
+      SettingsSearchEntry(
+        id: 'theme_custom_recipe',
+        title: '颜色分类控制',
+        subtitle: '继续编辑当前自定义配方',
+        location: '设置 > 主题设置 > 当前自定义',
+        keywords: const <String>['颜色分类', '当前自定义', '调色'],
+        destinationBuilder: () => const ThemeCustomRecipeScreen(),
+        onSelect: () => _pushPage(context, const ThemeCustomRecipeScreen()),
       ),
       SettingsSearchEntry(
         id: 'mpv_settings',
@@ -76,6 +97,24 @@ class AppSettingsScreen extends StatelessWidget {
         destinationBuilder: () => const ParallelWindowSettingsScreen(),
         onSelect: () =>
             _pushPage(context, const ParallelWindowSettingsScreen()),
+      ),
+      SettingsSearchEntry(
+        id: 'download_management',
+        title: '下载管理',
+        subtitle: '查看已下载和下载中的影片，支持播放、删除和管理',
+        location: '设置',
+        keywords: const <String>['下载', '下载管理', '已下载', '下载中', '离线视频'],
+        destinationBuilder: () => const DownloadListScreen(),
+        onSelect: () => _pushPage(context, const DownloadListScreen()),
+      ),
+      SettingsSearchEntry(
+        id: 'storage_management',
+        title: '储存管理',
+        subtitle: '查看缓存、截图、日志和应用数据占用，并支持清理',
+        location: '设置',
+        keywords: const <String>['储存管理', '缓存', '播放缓存', '截图文件', '应用数据', '清理缓存'],
+        destinationBuilder: () => const StorageManagementScreen(),
+        onSelect: () => _pushPage(context, const StorageManagementScreen()),
       ),
       SettingsSearchEntry(
         id: 'other_settings',
@@ -362,8 +401,8 @@ class AppSettingsScreen extends StatelessWidget {
                       children: <Widget>[
                         _SettingsHero(
                           compact: compact,
-                          themeTitle: themeProvider.preset.title,
-                          accentTitle: themeProvider.accentTone.title,
+                          themeTitle: themeProvider.currentThemeTitle,
+                          accentTitle: themeProvider.currentThemeSubtitle,
                           parallelSummary: parallelSummary,
                         ),
                         const SizedBox(height: 18),
@@ -373,7 +412,7 @@ class AppSettingsScreen extends StatelessWidget {
                               icon: Icons.palette_outlined,
                               title: '主题设置',
                               subtitle:
-                                  '${themeProvider.preset.title} · ${themeProvider.accentTone.title}',
+                                  '${themeProvider.currentThemeTitle} · ${themeProvider.currentThemeSubtitle}',
                               onTap: () {
                                 _pushPage(context, const ThemeSettingsScreen());
                               },
@@ -400,6 +439,27 @@ class AppSettingsScreen extends StatelessWidget {
                                   context,
                                   const ParallelWindowSettingsScreen(),
                                 );
+                              },
+                            ),
+                            const _SettingsGroupDivider(),
+                            _SettingsEntryTile(
+                              icon: Icons.storage_rounded,
+                              title: '储存管理',
+                              subtitle: '查看缓存、截图、日志和应用数据占用',
+                              onTap: () {
+                                _pushPage(
+                                  context,
+                                  const StorageManagementScreen(),
+                                );
+                              },
+                            ),
+                            const _SettingsGroupDivider(),
+                            _SettingsEntryTile(
+                              icon: Icons.download_rounded,
+                              title: '下载管理',
+                              subtitle: '查看已下载和下载中的影片，支持播放、删除和管理',
+                              onTap: () {
+                                _pushPage(context, const DownloadListScreen());
                               },
                             ),
                             const _SettingsGroupDivider(),
@@ -561,12 +621,16 @@ class _HeroBadge extends StatelessWidget {
         children: <Widget>[
           Icon(icon, color: colors.accentStrong, size: 18),
           const SizedBox(width: 8),
-          Text(
-            text,
-            style: TextStyle(
-              color: colors.textSecondary,
-              fontSize: AdaptiveText.roleSize(13),
-              fontWeight: FontWeight.w600,
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: colors.textSecondary,
+                fontSize: AdaptiveText.roleSize(13),
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],

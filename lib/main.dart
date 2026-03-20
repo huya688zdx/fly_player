@@ -16,6 +16,7 @@ import 'screens/app_settings_screen.dart';
 import 'screens/category_items_screen.dart';
 import 'screens/connection_screen.dart';
 import 'screens/detail_host_screen.dart';
+import 'screens/download_list_screen.dart';
 import 'screens/favorite_items_screen.dart';
 import 'screens/media_list_screen.dart';
 import 'screens/parallel_placeholder_screen.dart';
@@ -194,6 +195,27 @@ Route<dynamic> _buildRoute(RouteSettings settings) {
   if (uri != null && uri.path == '/screen/favorites') {
     return AppTransitions.leftToRightPageTurnRoute<void>(
       const FavoriteRoute(),
+      settings: settings,
+    );
+  }
+  if (uri != null && uri.path == '/screen/downloads') {
+    return AppTransitions.leftToRightPageTurnRoute<void>(
+      DownloadListRoute(
+        initialTab: DownloadListTabX.fromRouteValue(
+          uri.queryParameters['tab'] ?? '',
+        ),
+      ),
+      settings: settings,
+    );
+  }
+  if (uri != null && uri.path == '/screen/downloads/detail') {
+    return AppTransitions.leftToRightPageTurnRoute<void>(
+      DownloadGroupDetailRoute(
+        groupId: uri.queryParameters['groupId'] ?? '',
+        initialTab: DownloadListTabX.fromRouteValue(
+          uri.queryParameters['tab'] ?? '',
+        ),
+      ),
       settings: settings,
     );
   }
@@ -377,6 +399,48 @@ class FavoriteRoute extends StatelessWidget {
   }
 }
 
+class DownloadListRoute extends StatelessWidget {
+  final DownloadListTab initialTab;
+
+  const DownloadListRoute({
+    super.key,
+    this.initialTab = DownloadListTab.downloaded,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _ProviderGate(
+      requireConfigured: false,
+      child: DownloadListScreen(initialTab: initialTab),
+    );
+  }
+}
+
+class DownloadGroupDetailRoute extends StatelessWidget {
+  final String groupId;
+  final DownloadListTab initialTab;
+
+  const DownloadGroupDetailRoute({
+    super.key,
+    required this.groupId,
+    this.initialTab = DownloadListTab.downloaded,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (groupId.trim().isEmpty) {
+      return const _RouteErrorScreen(message: '缺少下载详情参数');
+    }
+    return _ProviderGate(
+      requireConfigured: false,
+      child: DownloadGroupDetailScreen(
+        groupId: groupId,
+        initialTab: initialTab,
+      ),
+    );
+  }
+}
+
 class CategoryRoute extends StatelessWidget {
   final MediaItem category;
   final List<String>? initialTypeTags;
@@ -461,7 +525,9 @@ class _MainNavigationState extends State<MainNavigation> {
 
   Future<void> _handleNavigationTap(int index) async {
     if (index == 1) {
-      final opened = await EmbeddedDetailLauncher.openSettings(context: context);
+      final opened = await EmbeddedDetailLauncher.openSettings(
+        context: context,
+      );
       if (opened) {
         if (!mounted) return;
         setState(() => _selectedIndex = 0);
@@ -478,22 +544,7 @@ class _MainNavigationState extends State<MainNavigation> {
     final colors = context.appColors;
 
     return Scaffold(
-      body: AnimatedSwitcher(
-        duration: AppTransitions.switchDuration,
-        switchInCurve: AppTransitions.easeOut,
-        switchOutCurve: AppTransitions.easeIn,
-        transitionBuilder: (child, animation) {
-          return AppTransitions.fadeSlideTransition(
-            child,
-            animation,
-            begin: const Offset(0.04, 0),
-          );
-        },
-        child: KeyedSubtree(
-          key: ValueKey<int>(_selectedIndex),
-          child: pages[_selectedIndex],
-        ),
-      ),
+      body: IndexedStack(index: _selectedIndex, children: pages),
       bottomNavigationBar: BottomNavigationBar(
         backgroundColor: colors.navBarBackground,
         currentIndex: _selectedIndex,

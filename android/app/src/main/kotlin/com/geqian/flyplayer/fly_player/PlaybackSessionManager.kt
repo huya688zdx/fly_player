@@ -17,7 +17,6 @@ import android.util.Log
 import android.util.LruCache
 import androidx.core.app.NotificationCompat
 import androidx.media.app.NotificationCompat.MediaStyle
-import androidx.media.session.MediaButtonReceiver
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.ExecutorService
@@ -90,38 +89,29 @@ class PlaybackSessionManager(
 
     fun buildNotification(): android.app.Notification {
         val payload = lastPayload ?: error("Playback payload is not available")
+        val actions = mutableListOf<NotificationCompat.Action>()
+        val compactViewIndexes = mutableListOf<Int>()
         val playPauseAction =
             if (payload.isPlaying) {
                 NotificationCompat.Action(
                     android.R.drawable.ic_media_pause,
                     "Pause",
-                    MediaButtonReceiver.buildMediaButtonPendingIntent(
-                        context,
-                        PlaybackStateCompat.ACTION_PAUSE,
-                    ),
+                    buildCommandPendingIntent(PlaybackCommandReceiver.ACTION_PAUSE),
                 )
             } else {
                 NotificationCompat.Action(
                     android.R.drawable.ic_media_play,
                     "Play",
-                    MediaButtonReceiver.buildMediaButtonPendingIntent(
-                        context,
-                        PlaybackStateCompat.ACTION_PLAY,
-                    ),
+                    buildCommandPendingIntent(PlaybackCommandReceiver.ACTION_PLAY),
                 )
             }
-        val actions = mutableListOf<NotificationCompat.Action>()
-        val compactViewIndexes = mutableListOf<Int>()
         if (payload.canSkipToPrevious) {
             compactViewIndexes += actions.size
             actions +=
                 NotificationCompat.Action(
                     android.R.drawable.ic_media_previous,
                     "Previous",
-                    MediaButtonReceiver.buildMediaButtonPendingIntent(
-                        context,
-                        PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS,
-                    ),
+                    buildCommandPendingIntent(PlaybackCommandReceiver.ACTION_SKIP_TO_PREVIOUS),
                 )
         }
         compactViewIndexes += actions.size
@@ -132,10 +122,7 @@ class PlaybackSessionManager(
                 NotificationCompat.Action(
                     android.R.drawable.ic_media_next,
                     "Next",
-                    MediaButtonReceiver.buildMediaButtonPendingIntent(
-                        context,
-                        PlaybackStateCompat.ACTION_SKIP_TO_NEXT,
-                    ),
+                    buildCommandPendingIntent(PlaybackCommandReceiver.ACTION_SKIP_TO_NEXT),
                 )
         }
 
@@ -155,11 +142,7 @@ class PlaybackSessionManager(
                 .setOngoing(payload.isPlaying)
                 .setShowWhen(false)
                 .setLargeIcon(artworkBitmap)
-                .setStyle(
-                    MediaStyle()
-                        .setMediaSession(mediaSession.sessionToken)
-                        .setShowActionsInCompactView(*compactViewIndexes.toIntArray()),
-                )
+                .setStyle(buildMediaStyle(compactViewIndexes))
         actions.forEach(builder::addAction)
         return builder.build()
     }
@@ -271,6 +254,14 @@ class PlaybackSessionManager(
             .build()
     }
 
+    private fun buildMediaStyle(compactViewIndexes: List<Int>): MediaStyle {
+        val style = MediaStyle().setMediaSession(mediaSession.sessionToken)
+        if (compactViewIndexes.isNotEmpty()) {
+            style.setShowActionsInCompactView(*compactViewIndexes.toIntArray())
+        }
+        return style
+    }
+
     private fun buildContentIntent(): PendingIntent? {
         val payload = lastPayload
         val launchIntent =
@@ -305,6 +296,29 @@ class PlaybackSessionManager(
                 PendingIntent.FLAG_UPDATE_CURRENT
             }
         return PendingIntent.getActivity(context, 0, launchIntent, flags)
+    }
+
+    private fun buildCommandPendingIntent(action: String): PendingIntent {
+        val intent =
+            Intent(context, PlaybackCommandReceiver::class.java).apply {
+                this.action = action
+                `package` = context.packageName
+            }
+        val requestCode =
+            when (action) {
+                PlaybackCommandReceiver.ACTION_PLAY -> 11
+                PlaybackCommandReceiver.ACTION_PAUSE -> 12
+                PlaybackCommandReceiver.ACTION_SKIP_TO_PREVIOUS -> 13
+                PlaybackCommandReceiver.ACTION_SKIP_TO_NEXT -> 14
+                else -> action.hashCode()
+            }
+        val flags =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
+        return PendingIntent.getBroadcast(context, requestCode, intent, flags)
     }
 
     private fun buildSessionExtras(payload: PlaybackSessionPayload): Bundle =

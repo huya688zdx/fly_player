@@ -147,6 +147,12 @@ class DanmakuSavedSourceStore {
     _notifyChanged();
   }
 
+  Future<void> clearAll() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_prefKey);
+    _notifyChanged();
+  }
+
   Future<Map<String, dynamic>> _loadPayload() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_prefKey) ?? '';

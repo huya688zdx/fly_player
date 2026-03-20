@@ -42,8 +42,8 @@ class MpvAdvancedSettingsController(
         success = applyDeband(adaptiveFilterBypass) && success
         success = applyVideoFilters(adaptiveFilterBypass) && success
         success = applyScaleProfile(adaptiveFilterBypass) && success
-        success = applyFrameInterpolation(adaptiveFilterBypass) && success
-        success = applyVideoSync(adaptiveFilterBypass) && success
+        success = applyFrameInterpolation(adaptiveFilterBypass, source) && success
+        success = applyVideoSync(adaptiveFilterBypass, source) && success
         success = applyCacheProfile(source) && success
         success = applyAudioProcessing() && success
         success = applyHdrMode(source) && success
@@ -64,7 +64,7 @@ class MpvAdvancedSettingsController(
     fun canTriggerAutomaticFilterFallback(source: MpvSource): Boolean {
         if (automaticFilterFallbackActive) return false
         if (!videoOutputController.shouldBypassHeavyVideoFilters(source)) return false
-        return hasHeavyVideoEnhancementsEnabled()
+        return hasHeavyVideoEnhancementsEnabled(source)
     }
 
     fun triggerAutomaticFilterFallback(
@@ -157,8 +157,8 @@ class MpvAdvancedSettingsController(
         return true
     }
 
-    private fun applyFrameInterpolation(adaptiveFilterBypass: Boolean): Boolean {
-        val enabled = isFrameInterpolationEnabled(adaptiveFilterBypass)
+    private fun applyFrameInterpolation(adaptiveFilterBypass: Boolean, source: MpvSource): Boolean {
+        val enabled = isFrameInterpolationEnabled(adaptiveFilterBypass, source)
         return runCatching {
             mpv.setPropertyBoolean("interpolation", enabled)
             mpv.setPropertyString(
@@ -177,8 +177,8 @@ class MpvAdvancedSettingsController(
         }.getOrDefault(false)
     }
 
-    private fun applyVideoSync(adaptiveFilterBypass: Boolean): Boolean {
-        val interpolationEnabled = isFrameInterpolationEnabled(adaptiveFilterBypass)
+    private fun applyVideoSync(adaptiveFilterBypass: Boolean, source: MpvSource): Boolean {
+        val interpolationEnabled = isFrameInterpolationEnabled(adaptiveFilterBypass, source)
         val requestedMode = settings["video_sync"] ?: "auto"
         val mode =
             if (interpolationEnabled) {
@@ -274,6 +274,7 @@ class MpvAdvancedSettingsController(
         return runCatching {
             mpv.setPropertyString("audio-channels", channelMix)
             mpv.setPropertyInt("volume-max", volumeMax)
+            mpv.setPropertyInt("volume", volumeMax)
             mpv.setPropertyString("af", afFilters.joinToString(","))
             true
         }.getOrDefault(false)
@@ -351,11 +352,15 @@ class MpvAdvancedSettingsController(
         return true
     }
 
-    private fun hasHeavyVideoEnhancementsEnabled(): Boolean {
+    private fun hasHeavyVideoEnhancementsEnabled(source: MpvSource): Boolean {
         val debandEnabled = (settings["deband"] ?: "off") != "off"
         val sharpenEnabled = (settings["sharpen"] ?: "off") != "off"
         val denoiseEnabled = (settings["denoise"] ?: "off") != "off"
-        val interpolationEnabled = (settings["frame_interpolation"] ?: "off") != "off"
+        val interpolationEnabled =
+            isFrameInterpolationEnabled(
+                adaptiveFilterBypass = false,
+                source = source,
+            )
         val qualityScaleEnabled = (settings["scale_profile"] ?: "balanced") == "quality"
         return debandEnabled ||
             sharpenEnabled ||
@@ -364,9 +369,24 @@ class MpvAdvancedSettingsController(
             qualityScaleEnabled
     }
 
-    private fun isFrameInterpolationEnabled(adaptiveFilterBypass: Boolean): Boolean {
+    private fun isFrameInterpolationEnabled(adaptiveFilterBypass: Boolean, source: MpvSource): Boolean {
         val value = if (adaptiveFilterBypass) "off" else (settings["frame_interpolation"] ?: "off")
-        return value == "on" || value == "auto"
+        return when (value) {
+            "on" -> true
+            "auto" -> shouldEnableAutomaticFrameInterpolation(source)
+            else -> false
+        }
+    }
+
+    private fun shouldEnableAutomaticFrameInterpolation(source: MpvSource): Boolean {
+        if (source.isHdrLikely()) return false
+        if (source.bitDepth >= 10) return false
+        if (source.isUltraHighResolution()) return false
+        if (source.videoWidth > 1920 || source.videoHeight > 1080) return false
+        if (source.isRemoteHttpSource()) return false
+        if (source.isHevcLike() && source.bitrate >= 8_000_000) return false
+        if (source.bitrate >= 12_000_000) return false
+        return true
     }
 }
 

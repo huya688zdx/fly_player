@@ -6,6 +6,11 @@ import android.content.Intent
 import java.util.HashMap
 
 class FullscreenPlayerActivity : FlutterHostActivity() {
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        PlaybackSessionCoordinator.allowSessionUpdates()
+    }
+
     override fun getInitialRoute(): String = "/player?layoutMode=fullscreen"
 
     override fun hostSurface(): String = "player"
@@ -19,6 +24,9 @@ class FullscreenPlayerActivity : FlutterHostActivity() {
     }
 
     override fun finishPlayerActivity(result: HashMap<String, Any?>?): Boolean {
+        PlaybackSessionCoordinator.blockSessionUpdates()
+        PlaybackSessionCoordinator.detachHost(this)
+        PlayerNotificationService.stop(applicationContext)
         setResult(
             Activity.RESULT_OK,
             Intent().apply {
@@ -27,6 +35,15 @@ class FullscreenPlayerActivity : FlutterHostActivity() {
         )
         finish()
         return true
+    }
+
+    override fun onDestroy() {
+        if (isFinishing && !isChangingConfigurations) {
+            PlaybackSessionCoordinator.blockSessionUpdates()
+            PlaybackSessionCoordinator.detachHost(this)
+            PlayerNotificationService.stop(applicationContext)
+        }
+        super.onDestroy()
     }
 
     override fun switchPlayerLayoutMode(
