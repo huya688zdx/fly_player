@@ -150,6 +150,34 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
     );
   }
 
+  Future<void> _maybeStartAutoPlayPromptNearEnd() async {
+    if (_autoPlayPromptRequestInFlight ||
+        _completionController.autoPlayPromptVisible ||
+        _completionController.autoPlayPromptSuppressed ||
+        _playbackCompleted ||
+        _completionActionInFlight) {
+      return;
+    }
+    _autoPlayPromptRequestInFlight = true;
+    try {
+      final nextEpisode = await _nextEpisodeOrNull();
+      if (!mounted || nextEpisode == null) {
+        return;
+      }
+      _overlayState.showControls();
+      _overlayState.cancelAutoHide();
+      _completionController.beginAutoPlayPrompt(
+        hasNextEpisode: true,
+        onTimeout: () {
+          if (!mounted) return;
+          unawaited(_skipToNextEpisodeFromPrompt());
+        },
+      );
+    } finally {
+      _autoPlayPromptRequestInFlight = false;
+    }
+  }
+
   Future<void> _skipToNextEpisodeFromPrompt() async {
     final nextEpisode = await _nextEpisodeOrNull();
     _completionController.cancelAutoPlayPrompt();
@@ -188,24 +216,17 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
     if (!mounted) return;
     final hasNextEpisode = nextEpisode != null;
 
-    if (_autoPlayEnabled && nextEpisode != null) {
-      _completionController.markTransitionInFlight(
-        hasNextEpisode: hasNextEpisode,
-      );
-      _completionController.beginPlaybackCompletionSuppression();
-      try {
-        await _switchToEpisode(nextEpisode, fromAutoPlay: true);
-        if (_currentItemGuid != nextEpisode.guid) {
-          _completionController.clearPlaybackCompletionSuppression();
-        }
-      } finally {
-        if (mounted) {
-          _completionController.finishTransitionInFlight();
-        }
-      }
+    if (_autoPlayEnabled &&
+        nextEpisode != null &&
+        !_completionController.autoPlayPromptSuppressed) {
+      await _pauseForAutoPlayPromptIfNeeded();
       return;
     }
 
+    if (!_controller.value.value.paused) {
+      await _controller.pause();
+      if (!mounted) return;
+    }
     _overlayState.showControls();
     _overlayState.cancelAutoHide();
     _completionController.markPlaybackCompleted(hasNextEpisode: hasNextEpisode);
@@ -214,7 +235,7 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
   Future<void> _replayCompletedItem() async {
     _clearPlaybackCompletionState();
     _overlayState.showControls();
-    _overlayState.setResumePromptVisible(false);
+    _setResumePromptVisibility(false);
     _gestureController.resetSeekTracking();
     await _controller.seek(Duration.zero);
     await _controller.play();

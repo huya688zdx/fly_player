@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/session_exit_bridge.dart';
 
 class NasProvider extends ChangeNotifier {
+  static const MethodChannel _sessionStateChannel = MethodChannel(
+    'fly_player/session_state',
+  );
+
   String _baseUrl = '';
   String _resolvedBaseUrl = '';
   String _userName = '';
@@ -25,7 +30,13 @@ class NasProvider extends ChangeNotifier {
   bool get isConfigured => _baseUrl.isNotEmpty && _token.isNotEmpty;
 
   NasProvider() {
+    _sessionStateChannel.setMethodCallHandler(_handleSessionStateMethodCall);
     _loadSettings();
+  }
+
+  Future<void> _handleSessionStateMethodCall(MethodCall call) async {
+    if (call.method != 'loggedOut') return;
+    await _applyLoggedOutState(notify: true);
   }
 
   Future<void> _loadSettings() async {
@@ -77,13 +88,19 @@ class NasProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> logout() async {
+  Future<void> _applyLoggedOutState({bool notify = true}) async {
     final prefs = await SharedPreferences.getInstance();
     _token = '';
     _resolvedBaseUrl = '';
     await prefs.remove('token');
     await prefs.remove('resolved_base_url');
+    if (notify) {
+      notifyListeners();
+    }
+  }
+
+  Future<void> logout() async {
+    await _applyLoggedOutState(notify: true);
     await SessionExitBridge.logoutAndResetParallelUi();
-    notifyListeners();
   }
 }

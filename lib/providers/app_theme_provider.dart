@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -21,6 +22,10 @@ class AppThemeProvider extends ChangeNotifier {
   static const String _customLinkColorKey = 'app_theme_custom_link';
   static const String _dynamicThemeModeKey = 'app_theme_dynamic_mode';
   static const String _dynamicThemeIntensityKey = 'app_theme_dynamic_intensity';
+  static const String _themeSourceTypeKey = 'app_theme_source_type';
+  static const String _activeSavedThemeIdKey =
+      'app_theme_active_saved_theme_id';
+  static const String _savedThemesKey = 'app_theme_saved_themes_v1';
   static const String _runtimeDynamicThemePageKey =
       'app_theme_runtime_dynamic_page_key';
   static const String _runtimeDynamicBackgroundSeedKey =
@@ -50,6 +55,9 @@ class AppThemeProvider extends ChangeNotifier {
   AppDynamicThemeMode _dynamicThemeMode = AppDynamicThemeMode.off;
   AppDynamicThemeIntensity _dynamicThemeIntensity =
       AppDynamicThemeIntensity.medium;
+  AppThemeSourceType _themeSourceType = AppThemeSourceType.preset;
+  String _activeSavedThemeId = '';
+  List<SavedCustomTheme> _savedThemes = const <SavedCustomTheme>[];
   String _runtimeDynamicThemePage = '';
   DynamicThemeSeed? _runtimeDynamicThemeSeed;
   final Map<String, DynamicThemeSeed> _runtimeDynamicThemeCache =
@@ -80,10 +88,43 @@ class AppThemeProvider extends ChangeNotifier {
   Color? get customLinkColor => _customLinkColor;
   AppDynamicThemeMode get dynamicThemeMode => _dynamicThemeMode;
   AppDynamicThemeIntensity get dynamicThemeIntensity => _dynamicThemeIntensity;
+  AppThemeSourceType get themeSourceType => _themeSourceType;
+  String get activeSavedThemeId => _activeSavedThemeId;
+  List<SavedCustomTheme> get savedThemes =>
+      List<SavedCustomTheme>.unmodifiable(_savedThemes);
   bool get dynamicThemeEnabled =>
       _dynamicThemeMode == AppDynamicThemeMode.detailsAndPeople;
   String get runtimeDynamicThemePage => _runtimeDynamicThemePage;
   DynamicThemeSeed? get runtimeDynamicThemeSeed => _runtimeDynamicThemeSeed;
+  SavedCustomTheme? get activeSavedTheme => savedThemeById(_activeSavedThemeId);
+  bool get isSavedThemeActive =>
+      _themeSourceType == AppThemeSourceType.savedCustomTheme;
+  bool get isCurrentCustomActive =>
+      _themeSourceType == AppThemeSourceType.currentCustom;
+  bool get isPresetActive => _themeSourceType == AppThemeSourceType.preset;
+  AppThemeColors get selectedThemeBaseColors {
+    if (_themeSourceType == AppThemeSourceType.savedCustomTheme) {
+      final savedTheme = activeSavedTheme;
+      if (savedTheme != null) {
+        return savedTheme.colorsSnapshot;
+      }
+    }
+    return themeColors;
+  }
+
+  String get currentThemeTitle => switch (_themeSourceType) {
+    AppThemeSourceType.preset => _preset.title,
+    AppThemeSourceType.currentCustom => '当前自定义',
+    AppThemeSourceType.savedCustomTheme => activeSavedTheme?.name ?? '当前自定义',
+  };
+  String get currentThemeSubtitle => switch (_themeSourceType) {
+    AppThemeSourceType.preset => '固定主题',
+    AppThemeSourceType.currentCustom => '手动配方',
+    AppThemeSourceType.savedCustomTheme =>
+      activeSavedTheme?.description.trim().isNotEmpty == true
+          ? activeSavedTheme!.description
+          : '已保存主题',
+  };
 
   bool get usesCustomBackgroundColor => _customBackgroundColor != null;
   bool get usesCustomAccentColor => _customAccentColor != null;
@@ -116,7 +157,7 @@ class AppThemeProvider extends ChangeNotifier {
   );
 
   AppThemeColors get effectiveThemeColors {
-    final baseColors = themeColors;
+    final baseColors = selectedThemeBaseColors;
     final runtimeSeed = _runtimeDynamicThemeSeed;
     if (!dynamicThemeEnabled || runtimeSeed == null) {
       return baseColors;
@@ -157,6 +198,151 @@ class AppThemeProvider extends ChangeNotifier {
     );
   }
 
+  SavedCustomTheme? savedThemeById(String id) {
+    final normalizedId = id.trim();
+    if (normalizedId.isEmpty) {
+      return null;
+    }
+    for (final theme in _savedThemes) {
+      if (theme.id == normalizedId) {
+        return theme;
+      }
+    }
+    return null;
+  }
+
+  bool isSavedThemeNameAvailable(String name, {String? excludingId}) {
+    return _isThemeNameAvailable(name, excludingId: excludingId);
+  }
+
+  String nextSavedThemeName() {
+    var index = 1;
+    while (true) {
+      final candidate = '自定义主题$index';
+      if (_isThemeNameAvailable(candidate)) {
+        return candidate;
+      }
+      index++;
+    }
+  }
+
+  Future<void> activateCurrentCustomTheme() async {
+    _themeSourceType = AppThemeSourceType.currentCustom;
+    _activeSavedThemeId = '';
+    await _persist(_persistThemeSelection);
+  }
+
+  String nextSavedThemeNameFromBase(String baseName) {
+    final normalizedBase = baseName.trim();
+    if (normalizedBase.isEmpty) {
+      return nextSavedThemeName();
+    }
+    var index = 1;
+    while (true) {
+      final candidate = '$normalizedBase$index';
+      if (_isThemeNameAvailable(candidate)) {
+        return candidate;
+      }
+      index++;
+    }
+  }
+
+  Future<void> applySavedTheme(String id) async {
+    final theme = savedThemeById(id);
+    if (theme == null) {
+      return;
+    }
+    _themeSourceType = AppThemeSourceType.savedCustomTheme;
+    _activeSavedThemeId = theme.id;
+    await _persist(_persistThemeSelection);
+  }
+
+  Future<void> saveThemeSnapshot({
+    required AppThemeColors colors,
+    required String name,
+    String description = '',
+    String? pageKey,
+    bool clearRuntimeBroadcastToMain = true,
+  }) async {
+    final normalizedName = name.trim();
+    if (normalizedName.isEmpty) {
+      throw ArgumentError('Theme name must not be empty.');
+    }
+    if (!_isThemeNameAvailable(normalizedName)) {
+      throw StateError('Theme name already exists.');
+    }
+    final savedTheme = SavedCustomTheme(
+      id: 'saved_theme_${DateTime.now().microsecondsSinceEpoch}',
+      name: normalizedName,
+      description: description.trim(),
+      createdAt: DateTime.now(),
+      colorsSnapshot: colors,
+    );
+    _savedThemes = <SavedCustomTheme>[..._savedThemes, savedTheme];
+    _themeSourceType = AppThemeSourceType.savedCustomTheme;
+    _activeSavedThemeId = savedTheme.id;
+    await _persist((prefs) async {
+      await _persistSavedThemes(prefs);
+      await _persistThemeSelection(prefs);
+    });
+    final normalizedPageKey = pageKey?.trim() ?? '';
+    if (normalizedPageKey.isNotEmpty) {
+      await clearRuntimeDynamicTheme(
+        normalizedPageKey,
+        broadcastToMain: clearRuntimeBroadcastToMain,
+      );
+    }
+  }
+
+  Future<void> renameSavedTheme(
+    String id, {
+    required String name,
+    String description = '',
+  }) async {
+    final normalizedName = name.trim();
+    if (normalizedName.isEmpty) {
+      throw ArgumentError('Theme name must not be empty.');
+    }
+    if (!_isThemeNameAvailable(normalizedName, excludingId: id)) {
+      throw StateError('Theme name already exists.');
+    }
+    final nextThemes = <SavedCustomTheme>[];
+    var updated = false;
+    for (final theme in _savedThemes) {
+      if (theme.id == id) {
+        nextThemes.add(
+          theme.copyWith(name: normalizedName, description: description.trim()),
+        );
+        updated = true;
+      } else {
+        nextThemes.add(theme);
+      }
+    }
+    if (!updated) {
+      return;
+    }
+    _savedThemes = nextThemes;
+    await _persist(_persistSavedThemes);
+  }
+
+  Future<void> deleteSavedTheme(String id) async {
+    final nextThemes = _savedThemes
+        .where((theme) => theme.id != id)
+        .toList(growable: false);
+    if (nextThemes.length == _savedThemes.length) {
+      return;
+    }
+    _savedThemes = nextThemes;
+    if (_activeSavedThemeId == id) {
+      _themeSourceType = AppThemeSourceType.currentCustom;
+      _activeSavedThemeId = '';
+    }
+    await _persist((prefs) async {
+      await _persistSavedThemes(prefs);
+      await _persistThemeSelection(prefs);
+    });
+  }
+
   Future<void> load() async {
     final prefs = await _obtainPrefs(refresh: true);
     await _ensureRuntimeThemeSession(prefs);
@@ -181,6 +367,8 @@ class AppThemeProvider extends ChangeNotifier {
     _customAccentColor = null;
     _customSelectionColor = null;
     _customLinkColor = null;
+    _themeSourceType = AppThemeSourceType.preset;
+    _activeSavedThemeId = '';
     await _persist((prefs) async {
       await prefs.setString(_presetKey, value.storageValue);
       await prefs.setString(
@@ -197,71 +385,96 @@ class AppThemeProvider extends ChangeNotifier {
       await prefs.remove(_customAccentColorKey);
       await prefs.remove(_customSelectionColorKey);
       await prefs.remove(_customLinkColorKey);
+      await _persistThemeSelection(prefs);
     });
   }
 
   Future<void> setBackgroundTone(AppBackgroundTone value) async {
     _backgroundTone = value;
     _customBackgroundColor = null;
+    _themeSourceType = AppThemeSourceType.currentCustom;
+    _activeSavedThemeId = '';
     await _persist((prefs) async {
       await prefs.setString(_backgroundToneKey, value.storageValue);
       await prefs.remove(_customBackgroundColorKey);
+      await _persistThemeSelection(prefs);
     });
   }
 
   Future<void> setAccentTone(AppAccentTone value) async {
     _accentTone = value;
     _customAccentColor = null;
+    _themeSourceType = AppThemeSourceType.currentCustom;
+    _activeSavedThemeId = '';
     await _persist((prefs) async {
       await prefs.setString(_accentToneKey, value.storageValue);
       await prefs.remove(_customAccentColorKey);
+      await _persistThemeSelection(prefs);
     });
   }
 
   Future<void> setSelectionTone(AppAccentTone value) async {
     _selectionTone = value;
     _customSelectionColor = null;
+    _themeSourceType = AppThemeSourceType.currentCustom;
+    _activeSavedThemeId = '';
     await _persist((prefs) async {
       await prefs.setString(_selectionToneKey, value.storageValue);
       await prefs.remove(_customSelectionColorKey);
+      await _persistThemeSelection(prefs);
     });
   }
 
   Future<void> setLinkTone(AppAccentTone value) async {
     _linkTone = value;
     _customLinkColor = null;
+    _themeSourceType = AppThemeSourceType.currentCustom;
+    _activeSavedThemeId = '';
     await _persist((prefs) async {
       await prefs.setString(_linkToneKey, value.storageValue);
       await prefs.remove(_customLinkColorKey);
+      await _persistThemeSelection(prefs);
     });
   }
 
   Future<void> setCustomBackgroundColor(Color value) async {
     _customBackgroundColor = value;
-    await _persist(
-      (prefs) => prefs.setInt(_customBackgroundColorKey, value.toARGB32()),
-    );
+    _themeSourceType = AppThemeSourceType.currentCustom;
+    _activeSavedThemeId = '';
+    await _persist((prefs) async {
+      await prefs.setInt(_customBackgroundColorKey, value.toARGB32());
+      await _persistThemeSelection(prefs);
+    });
   }
 
   Future<void> setCustomAccentColor(Color value) async {
     _customAccentColor = value;
-    await _persist(
-      (prefs) => prefs.setInt(_customAccentColorKey, value.toARGB32()),
-    );
+    _themeSourceType = AppThemeSourceType.currentCustom;
+    _activeSavedThemeId = '';
+    await _persist((prefs) async {
+      await prefs.setInt(_customAccentColorKey, value.toARGB32());
+      await _persistThemeSelection(prefs);
+    });
   }
 
   Future<void> setCustomSelectionColor(Color value) async {
     _customSelectionColor = value;
-    await _persist(
-      (prefs) => prefs.setInt(_customSelectionColorKey, value.toARGB32()),
-    );
+    _themeSourceType = AppThemeSourceType.currentCustom;
+    _activeSavedThemeId = '';
+    await _persist((prefs) async {
+      await prefs.setInt(_customSelectionColorKey, value.toARGB32());
+      await _persistThemeSelection(prefs);
+    });
   }
 
   Future<void> setCustomLinkColor(Color value) async {
     _customLinkColor = value;
-    await _persist(
-      (prefs) => prefs.setInt(_customLinkColorKey, value.toARGB32()),
-    );
+    _themeSourceType = AppThemeSourceType.currentCustom;
+    _activeSavedThemeId = '';
+    await _persist((prefs) async {
+      await prefs.setInt(_customLinkColorKey, value.toARGB32());
+      await _persistThemeSelection(prefs);
+    });
   }
 
   Future<void> setDynamicThemeMode(AppDynamicThemeMode value) async {
@@ -304,8 +517,7 @@ class AppThemeProvider extends ChangeNotifier {
     _runtimeDynamicThemeOrder.remove(normalizedPageKey);
     _runtimeDynamicThemeOrder.add(normalizedPageKey);
     _syncRuntimeThemeFromCache();
-    final visualChanged =
-        previousVisualSignature != _effectiveThemeSignature();
+    final visualChanged = previousVisualSignature != _effectiveThemeSignature();
     if (!visualChanged && !broadcastToMain) {
       return;
     }
@@ -346,8 +558,7 @@ class AppThemeProvider extends ChangeNotifier {
     final removedSeed = _runtimeDynamicThemeCache.remove(normalizedPageKey);
     if (!removedFromOrder && removedSeed == null) return;
     _syncRuntimeThemeFromCache();
-    final visualChanged =
-        previousVisualSignature != _effectiveThemeSignature();
+    final visualChanged = previousVisualSignature != _effectiveThemeSignature();
     if (!visualChanged && !broadcastToMain) {
       return;
     }
@@ -432,6 +643,63 @@ class AppThemeProvider extends ChangeNotifier {
     };
   }
 
+  bool _isThemeNameAvailable(String name, {String? excludingId}) {
+    final normalizedName = _normalizeThemeName(name);
+    if (normalizedName.isEmpty) {
+      return false;
+    }
+    for (final theme in _savedThemes) {
+      if (excludingId != null && theme.id == excludingId) {
+        continue;
+      }
+      if (_normalizeThemeName(theme.name) == normalizedName) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  String _normalizeThemeName(String value) {
+    return value.trim().toLowerCase();
+  }
+
+  List<SavedCustomTheme> _decodeSavedThemes(String? raw) {
+    if (raw == null || raw.trim().isEmpty) {
+      return const <SavedCustomTheme>[];
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) {
+        return const <SavedCustomTheme>[];
+      }
+      final result = <SavedCustomTheme>[];
+      for (final item in decoded) {
+        if (item is! Map) {
+          continue;
+        }
+        final theme = SavedCustomTheme.fromMap(item.cast<String, dynamic>());
+        if (theme != null) {
+          result.add(theme);
+        }
+      }
+      return result;
+    } catch (_) {
+      return const <SavedCustomTheme>[];
+    }
+  }
+
+  Future<void> _persistThemeSelection(SharedPreferences prefs) async {
+    await prefs.setString(_themeSourceTypeKey, _themeSourceType.storageValue);
+    await prefs.setString(_activeSavedThemeIdKey, _activeSavedThemeId);
+  }
+
+  Future<void> _persistSavedThemes(SharedPreferences prefs) async {
+    final payload = _savedThemes
+        .map((theme) => theme.toMap())
+        .toList(growable: false);
+    await prefs.setString(_savedThemesKey, jsonEncode(payload));
+  }
+
   void _startSyncLoop() {
     _syncTimer?.cancel();
     _syncTimer = Timer.periodic(_syncInterval, (_) {
@@ -461,6 +729,8 @@ class AppThemeProvider extends ChangeNotifier {
 
   String _effectiveThemeSignature() {
     final parts = <Object?>[
+      _themeSourceType.storageValue,
+      _activeSavedThemeId,
       _preset.storageValue,
       _backgroundTone.storageValue,
       _accentTone.storageValue,
@@ -472,6 +742,7 @@ class AppThemeProvider extends ChangeNotifier {
       _customLinkColor?.toARGB32(),
       _dynamicThemeMode.storageValue,
       _dynamicThemeIntensity.storageValue,
+      ...selectedThemeBaseColors.toMap().values,
     ];
     if (dynamicThemeEnabled && _runtimeDynamicThemeSeed != null) {
       final seed = _runtimeDynamicThemeSeed!;
@@ -541,6 +812,17 @@ class AppThemeProvider extends ChangeNotifier {
     _dynamicThemeIntensity = AppDynamicThemeIntensityX.fromStorageValue(
       prefs.getString(_dynamicThemeIntensityKey),
     );
+    _themeSourceType = AppThemeSourceTypeX.fromStorageValue(
+      prefs.getString(_themeSourceTypeKey),
+    );
+    _activeSavedThemeId = prefs.getString(_activeSavedThemeIdKey)?.trim() ?? '';
+    _savedThemes = _decodeSavedThemes(prefs.getString(_savedThemesKey));
+    if (savedThemeById(_activeSavedThemeId) == null) {
+      _activeSavedThemeId = '';
+      if (_themeSourceType == AppThemeSourceType.savedCustomTheme) {
+        _themeSourceType = AppThemeSourceType.currentCustom;
+      }
+    }
     final runtimePage =
         prefs.getString(_runtimeDynamicThemePageKey)?.trim() ?? '';
     final backgroundSeed = prefs.getInt(_runtimeDynamicBackgroundSeedKey);

@@ -10,6 +10,7 @@ import '../pages/tv_season_detail_page.dart';
 import '../ui/detail_presentation.dart';
 import 'app_settings_screen.dart';
 import 'category_items_screen.dart';
+import 'download_list_screen.dart';
 import 'favorite_items_screen.dart';
 import 'media_list_screen.dart';
 import 'parallel_placeholder_screen.dart';
@@ -167,10 +168,15 @@ class DetailHostScreenState extends State<DetailHostScreen> {
 
   void _pushRoute(String routeName) {
     final normalized = _normalizeRoute(routeName);
-    final current = _routeStack.isEmpty ? '/parallel/placeholder' : _routeStack.last;
+    final current = _routeStack.isEmpty
+        ? '/parallel/placeholder'
+        : _routeStack.last;
     if (normalized == current) return;
     setState(() {
-      if (_shouldReplaceTopRoute(currentRoute: current, nextRoute: normalized)) {
+      if (_shouldReplaceTopRoute(
+        currentRoute: current,
+        nextRoute: normalized,
+      )) {
         if (_routeStack.isEmpty) {
           _routeStack.add(normalized);
         } else {
@@ -208,12 +214,20 @@ class DetailHostScreenState extends State<DetailHostScreen> {
   @override
   Widget build(BuildContext context) {
     final pages = _routeStack
+        .asMap()
         .map(
-          (routeName) => MaterialPage<void>(
-            key: ValueKey<String>('detail-host-$routeName'),
-            child: _buildRouteChild(routeName),
+          (index, routeName) => MapEntry(
+            index,
+            MaterialPage<void>(
+              key: ValueKey<String>('detail-host-$routeName'),
+              child: _buildRouteChild(
+                routeName,
+                isActiveRoute: index == _routeStack.length - 1,
+              ),
+            ),
           ),
         )
+        .values
         .toList(growable: false);
     return Navigator(
       key: _navigatorKey,
@@ -223,7 +237,7 @@ class DetailHostScreenState extends State<DetailHostScreen> {
   }
 }
 
-Widget _buildRouteChild(String routeName) {
+Widget _buildRouteChild(String routeName, {required bool isActiveRoute}) {
   final normalizedRoute = routeName.trim().isEmpty
       ? '/parallel/placeholder'
       : routeName.trim();
@@ -309,6 +323,29 @@ Widget _buildRouteChild(String routeName) {
     );
   }
 
+  if (uri.path == '/screen/downloads') {
+    return DownloadListScreen(
+      key: ValueKey<String>(routeName),
+      initialTab: DownloadListTabX.fromRouteValue(
+        uri.queryParameters['tab'] ?? '',
+      ),
+    );
+  }
+
+  if (uri.path == '/screen/downloads/detail') {
+    final groupId = uri.queryParameters['groupId'] ?? '';
+    if (groupId.trim().isEmpty) {
+      return const _DetailHostRouteError(message: '缺少下载详情参数');
+    }
+    return DownloadGroupDetailScreen(
+      key: ValueKey<String>(routeName),
+      groupId: groupId,
+      initialTab: DownloadListTabX.fromRouteValue(
+        uri.queryParameters['tab'] ?? '',
+      ),
+    );
+  }
+
   if (uri.path == '/screen/settings') {
     return const AppSettingsScreen(
       key: ValueKey<String>('/screen/settings'),
@@ -317,9 +354,12 @@ Widget _buildRouteChild(String routeName) {
   }
 
   if (uri.path == '/screen/home') {
-    return const MediaListScreen(
-      key: ValueKey<String>('/screen/home'),
-      secondaryHost: true,
+    return _DeferredRouteChild(
+      active: isActiveRoute,
+      child: const MediaListScreen(
+        key: ValueKey<String>('/screen/home'),
+        secondaryHost: true,
+      ),
     );
   }
 
@@ -330,6 +370,38 @@ Widget _buildRouteChild(String routeName) {
   }
 
   return const _DetailHostRouteError(message: '鏆備笉鏀寔鐨勫壇灞忚矾鐢?');
+}
+
+class _DeferredRouteChild extends StatefulWidget {
+  final bool active;
+  final Widget child;
+
+  const _DeferredRouteChild({required this.active, required this.child});
+
+  @override
+  State<_DeferredRouteChild> createState() => _DeferredRouteChildState();
+}
+
+class _DeferredRouteChildState extends State<_DeferredRouteChild> {
+  late bool _activated = widget.active;
+
+  @override
+  void didUpdateWidget(covariant _DeferredRouteChild oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_activated && widget.active) {
+      setState(() {
+        _activated = true;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_activated) {
+      return const SizedBox.expand();
+    }
+    return widget.child;
+  }
 }
 
 class _DetailHostRouteError extends StatelessWidget {

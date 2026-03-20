@@ -55,15 +55,12 @@ class TvHeroAdaptive {
       }
 
       final posterHeightRatio =
-          (0.54 - widthNorm * 0.03 - (aspectRatio - 0.50) * 0.04).clamp(
+          (0.46 - widthNorm * 0.03 - (aspectRatio - 0.50) * 0.04).clamp(
+            0.40,
             0.48,
-            0.56,
           );
-      final imageScale =
-          (1.05 - widthNorm * 0.01 - (aspectRatio - 0.50) * 0.02).clamp(
-            1.03,
-            1.10,
-          );
+      final imageScale = (1.03 - widthNorm * 0.01 - (aspectRatio - 0.50) * 0.02)
+          .clamp(1.00, 1.07);
       final imageAlignX = (0.14 + widthNorm * 0.10).clamp(0.10, 0.24);
       return TvHeroAdaptiveMetrics(
         posterHeightRatio: posterHeightRatio.toDouble(),

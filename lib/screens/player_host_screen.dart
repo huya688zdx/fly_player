@@ -13,6 +13,7 @@ import '../providers/parallel_window_settings_provider.dart';
 import '../services/player_host_bridge.dart';
 import '../theme/app_theme.dart';
 import '../ui/player_pane_host_scope.dart';
+import '../utils/back_dismiss_manager.dart';
 import 'connection_screen.dart';
 import 'detail_host_screen.dart';
 
@@ -37,6 +38,7 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
   final ValueNotifier<String> _rightPaneRouteNotifier = ValueNotifier<String>(
     _homeRoute,
   );
+  final BackDismissManager _playerBackDismissManager = BackDismissManager();
   final GlobalKey<DetailHostScreenState> _detailHostKey =
       GlobalKey<DetailHostScreenState>();
   final List<String> _rightPaneRouteStack = <String>[_homeRoute];
@@ -201,7 +203,9 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
     required _PlayerHostActivePane activePane,
     required bool syncPlatform,
   }) async {
-    final normalizedMode = nextMode == _splitMode ? _splitMode : _fullscreenMode;
+    final normalizedMode = nextMode == _splitMode
+        ? _splitMode
+        : _fullscreenMode;
     final layoutChanged = _layoutMode != normalizedMode;
     if (mounted) {
       setState(() {
@@ -262,6 +266,17 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
           '';
       if (routeName.isEmpty) return;
       await openRoute(routeName);
+      return;
+    }
+    if (call.method == 'systemMultiWindowModeChanged') {
+      final active =
+          (call.arguments as Map<Object?, Object?>?)?['active'] == true;
+      if (!active || !_isSplitMode || !mounted) return;
+      await _setLayoutMode(
+        _fullscreenMode,
+        activePane: _PlayerHostActivePane.player,
+        syncPlatform: true,
+      );
     }
   }
 
@@ -339,13 +354,13 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
   }
 
   Future<void> _handleSystemBack() async {
+    if (await _playerBackDismissManager.dismissActive()) {
+      return;
+    }
     await _finishPlayer(force: false);
   }
 
-  Future<void> _finishPlayer({
-    Object? result,
-    bool force = false,
-  }) async {
+  Future<void> _finishPlayer({Object? result, bool force = false}) async {
     if (!force && await _consumeSplitBackProtection()) {
       return;
     }
@@ -402,8 +417,11 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
                 final detailContent = Listener(
                   behavior: HitTestBehavior.translucent,
                   onPointerDown: (_) {
-                    if (_activePane != _PlayerHostActivePane.detail && mounted) {
-                      setState(() => _activePane = _PlayerHostActivePane.detail);
+                    if (_activePane != _PlayerHostActivePane.detail &&
+                        mounted) {
+                      setState(
+                        () => _activePane = _PlayerHostActivePane.detail,
+                      );
                     }
                   },
                   child: SizedBox(
@@ -439,6 +457,9 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
                     final reveal = _paneTransition.value.clamp(0.0, 1.0);
                     final reserveDetailPaneSpace =
                         _detailPaneReserved || reveal > 0.001;
+                    final detailPaneWidth = reserveDetailPaneSpace
+                        ? splitWidth * reveal
+                        : 0.0;
                     final playerPane = Expanded(
                       child: Listener(
                         behavior: HitTestBehavior.translucent,
@@ -457,7 +478,9 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
                             child: MpvPlayerPage(
                               title: args.title,
                               source: args.source,
-                              parallelLayoutToggleEnabled: args.fromParallelHost,
+                              backDismissManager: _playerBackDismissManager,
+                              parallelLayoutToggleEnabled:
+                                  args.fromParallelHost,
                               parallelLayoutMode: _layoutMode,
                               interceptSystemBack: false,
                               onParallelLayoutModeChanged: (nextMode) async {
@@ -468,7 +491,10 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
                                 );
                               },
                               onCloseRequested: (result) async {
-                                await _finishPlayer(result: result, force: true);
+                                await _finishPlayer(
+                                  result: result,
+                                  force: true,
+                                );
                               },
                             ),
                           ),
@@ -476,7 +502,7 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
                       ),
                     );
                     final detailPane = SizedBox(
-                      width: reserveDetailPaneSpace ? splitWidth : 0,
+                      width: detailPaneWidth,
                       child: IgnorePointer(
                         ignoring: reveal < 0.98,
                         child: ClipRect(
@@ -484,10 +510,16 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
                             alignment: playbackPrimaryOnLeft
                                 ? Alignment.centerLeft
                                 : Alignment.centerRight,
-                            widthFactor: reveal,
                             child: Opacity(
                               opacity: reveal,
-                              child: RepaintBoundary(child: detailContent),
+                              child: Transform.translate(
+                                offset: Offset(
+                                  (1 - reveal) *
+                                      (playbackPrimaryOnLeft ? 24 : -24),
+                                  0,
+                                ),
+                                child: RepaintBoundary(child: detailContent),
+                              ),
                             ),
                           ),
                         ),

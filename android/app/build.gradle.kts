@@ -57,6 +57,7 @@ android {
 }
 
 dependencies {
+    implementation("androidx.documentfile:documentfile:1.0.1")
     implementation("androidx.media:media:1.7.0")
     implementation("androidx.palette:palette-ktx:1.0.0")
     implementation("androidx.window:window:1.3.0")

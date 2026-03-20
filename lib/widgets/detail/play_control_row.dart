@@ -12,6 +12,7 @@ class PlayControlRow extends StatelessWidget {
   final bool primaryEnabled;
   final bool liked;
   final bool watched;
+  final bool downloaded;
   final VoidCallback? onPrimaryTap;
   final VoidCallback? onLikeTap;
   final VoidCallback? onDownloadTap;
@@ -24,6 +25,7 @@ class PlayControlRow extends StatelessWidget {
     required this.primaryEnabled,
     required this.liked,
     required this.watched,
+    this.downloaded = false,
     this.onPrimaryTap,
     this.onLikeTap,
     this.onDownloadTap,
@@ -99,6 +101,8 @@ class PlayControlRow extends StatelessWidget {
           const SizedBox(width: 10),
           DetailIconButton(
             iconAsset: 'assets/icons/download.svg',
+            selectedIconAsset: 'assets/icons/check.svg',
+            selected: downloaded,
             onTap: onDownloadTap,
           ),
         ],

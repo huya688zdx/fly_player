@@ -265,6 +265,7 @@ object ParallelWindowCoordinator {
             .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putBoolean(KEY_ENABLED, parallelWindowEnabled)
+            .remove("parallel_window_force_enabled")
             .putString(KEY_PRIMARY_SIDE, preferredPrimaryPaneSide.wireValue)
             .putString(KEY_PLAYBACK_PRIMARY_SIDE, preferredPlaybackPrimaryPaneSide.wireValue)
             .putString(KEY_SPLIT_RATIO_PRESET, this.splitRatioPreset)

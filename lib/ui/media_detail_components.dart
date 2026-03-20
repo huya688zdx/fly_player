@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -8,8 +10,14 @@ import 'app_transitions.dart';
 class DetailHeroImage extends StatefulWidget {
   final List<String> urls;
   final String token;
+  final BoxFit fit;
 
-  const DetailHeroImage({super.key, required this.urls, required this.token});
+  const DetailHeroImage({
+    super.key,
+    required this.urls,
+    required this.token,
+    this.fit = BoxFit.cover,
+  });
 
   @override
   State<DetailHeroImage> createState() => _DetailHeroImageState();
@@ -28,12 +36,14 @@ class _DetailHeroImageState extends State<DetailHeroImage> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.urls.isEmpty ||
-        _index >= widget.urls.length ||
-        widget.token.trim().isEmpty) {
+    if (widget.urls.isEmpty || _index >= widget.urls.length) {
       return _buildPlaceholder();
     }
     final url = widget.urls[_index];
+    final isLocal = _isLocalImageSource(url);
+    if (!isLocal && widget.token.trim().isEmpty) {
+      return _buildPlaceholder();
+    }
     return LayoutBuilder(
       builder: (context, constraints) {
         final dpr = MediaQuery.of(context).devicePixelRatio;
@@ -47,38 +57,72 @@ class _DetailHeroImageState extends State<DetailHeroImage> {
           switchKey: 'detail-hero-$url',
           duration: AppTransitions.contentSwitchDuration,
           alignment: Alignment.center,
-          child: Image.network(
-            url,
-            key: ValueKey<String>(url),
-            fit: BoxFit.cover,
-            filterQuality: FilterQuality.low,
-            gaplessPlayback: true,
-            cacheWidth: cacheW,
-            cacheHeight: cacheH,
-            headers: {
-              'Authorization': widget.token,
-              'Trim-MC-token': widget.token,
-            },
-            errorBuilder: (_, error, ___) {
-              if (_index + 1 < widget.urls.length) {
-                final nextUrl = widget.urls[_index + 1];
-                debugPrint(
-                  '[IMG][DETAIL_HERO] failed url=$url error=$error -> fallback=$nextUrl',
-                );
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) setState(() => _index += 1);
-                });
-                return const SizedBox.expand();
-              }
-              debugPrint(
-                '[IMG][DETAIL_HERO] failed url=$url error=$error -> no_more_fallback',
-              );
-              return _buildPlaceholder();
-            },
-          ),
+          child: isLocal
+              ? Image.file(
+                  File(_localImagePath(url)),
+                  key: ValueKey<String>(url),
+                  fit: widget.fit,
+                  filterQuality: FilterQuality.low,
+                  gaplessPlayback: true,
+                  cacheWidth: cacheW,
+                  cacheHeight: cacheH,
+                  errorBuilder: (_, error, ___) =>
+                      _fallbackOrPlaceholder(currentUrl: url, error: error),
+                )
+              : Image.network(
+                  url,
+                  key: ValueKey<String>(url),
+                  fit: widget.fit,
+                  filterQuality: FilterQuality.low,
+                  gaplessPlayback: true,
+                  cacheWidth: cacheW,
+                  cacheHeight: cacheH,
+                  headers: {
+                    'Authorization': widget.token,
+                    'Trim-MC-token': widget.token,
+                  },
+                  errorBuilder: (_, error, ___) =>
+                      _fallbackOrPlaceholder(currentUrl: url, error: error),
+                ),
         );
       },
     );
+  }
+
+  Widget _fallbackOrPlaceholder({
+    required String currentUrl,
+    required Object error,
+  }) {
+    if (_index + 1 < widget.urls.length) {
+      final nextUrl = widget.urls[_index + 1];
+      debugPrint(
+        '[IMG][DETAIL_HERO] failed url=$currentUrl error=$error -> fallback=$nextUrl',
+      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _index += 1);
+      });
+      return const SizedBox.expand();
+    }
+    debugPrint(
+      '[IMG][DETAIL_HERO] failed url=$currentUrl error=$error -> no_more_fallback',
+    );
+    return _buildPlaceholder();
+  }
+
+  bool _isLocalImageSource(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return false;
+    final uri = Uri.tryParse(trimmed);
+    if (uri?.scheme == 'file') return true;
+    if (trimmed.startsWith('/')) return true;
+    return RegExp(r'^[A-Za-z]:[\\/]').hasMatch(trimmed);
+  }
+
+  String _localImagePath(String value) {
+    final trimmed = value.trim();
+    final uri = Uri.tryParse(trimmed);
+    if (uri?.scheme == 'file') return uri!.toFilePath();
+    return trimmed;
   }
 
   Widget _buildPlaceholder() {

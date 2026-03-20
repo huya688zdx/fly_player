@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
@@ -20,12 +21,26 @@ class DanmakuImportParser {
   }
 
   static Future<DanmakuImportResult> parseFile(String path) async {
-    final payload = await Isolate.run<Map<String, dynamic>>(
+    final payload = await Isolate.run<Map<String, Object?>>(
       () => _parseFilePayload(path),
     );
+    return _decodePayload(payload);
+  }
+
+  static Future<DanmakuImportResult> parseBytes(
+    Uint8List bytes, {
+    required String fileName,
+  }) async {
+    final payload = await Isolate.run<Map<String, Object?>>(
+      () => _parseBytesPayload(bytes, fileName),
+    );
+    return _decodePayload(payload);
+  }
+
+  static DanmakuImportResult _decodePayload(Map<String, Object?> payload) {
     final rawComments =
         (payload['comments'] as List<dynamic>? ?? const <dynamic>[])
-            .whereType<Map<String, dynamic>>()
+            .whereType<Map<Object?, Object?>>()
             .toList(growable: false);
     final comments = rawComments
         .map(
@@ -86,7 +101,11 @@ class DanmakuImportParser {
   }
 
   static List<DanmakuComment> _parseDanDanPlayXmlComments(String content) {
-    final itemPattern = RegExp(r'<item\b([^>]*)\/?>', multiLine: true, dotAll: true);
+    final itemPattern = RegExp(
+      r'<item\b([^>]*)\/?>',
+      multiLine: true,
+      dotAll: true,
+    );
     final comments = <DanmakuComment>[];
     var index = 0;
     for (final match in itemPattern.allMatches(content)) {
@@ -145,7 +164,8 @@ class DanmakuImportParser {
 
   static int _readTimeMs(dynamic value) {
     return switch (value) {
-      final num number => number > 1000 ? number.round() : (number * 1000).round(),
+      final num number =>
+        number > 1000 ? number.round() : (number * 1000).round(),
       final String text => _readTimeMs(double.tryParse(text) ?? 0),
       _ => 0,
     };
@@ -203,16 +223,31 @@ class DanmakuImportParser {
   }
 }
 
-Map<String, dynamic> _parseFilePayload(String path) {
+Map<String, Object?> _parseFilePayload(String path) {
   final file = File(path);
   if (!file.existsSync()) {
     throw const FileSystemException('文件不存在');
   }
   final fileName = file.path.split(Platform.pathSeparator).last;
+  final content = file.readAsStringSync();
+  return _buildPayload(fileName: fileName, content: content);
+}
+
+Map<String, Object?> _parseBytesPayload(Uint8List bytes, String fileName) {
+  if (bytes.isEmpty) {
+    throw const FormatException('文件内容为空');
+  }
+  final content = utf8.decode(bytes, allowMalformed: true);
+  return _buildPayload(fileName: fileName, content: content);
+}
+
+Map<String, Object?> _buildPayload({
+  required String fileName,
+  required String content,
+}) {
   final extension = fileName.contains('.')
       ? fileName.split('.').last.toLowerCase()
       : '';
-  final content = file.readAsStringSync();
   final comments = switch (extension) {
     'xml' => DanmakuImportParser._parseXmlComments(content),
     'json' => DanmakuImportParser._parseJsonComments(content),
@@ -221,11 +256,11 @@ Map<String, dynamic> _parseFilePayload(String path) {
   if (comments.isEmpty) {
     throw const FormatException('没有识别到可用弹幕');
   }
-  return <String, dynamic>{
+  return <String, Object?>{
     'sourceLabel': fileName,
     'comments': comments
         .map(
-          (item) => <String, dynamic>{
+          (item) => <String, Object?>{
             'id': item.id,
             'timeMs': item.timeMs,
             'text': item.text,

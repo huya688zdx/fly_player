@@ -2,6 +2,7 @@ part of mpv_player_page;
 
 extension _MpvPlayerEpisodeMixin on _MpvPlayerPageState {
   Future<void> _showEpisodeSheet() async {
+    _hideSpeedDialOverlay(restoreAutoHide: false);
     final episodes = await _ensureEpisodeItems();
     if (!mounted || episodes.length <= 1) return;
 
@@ -528,11 +529,7 @@ extension _MpvPlayerEpisodeMixin on _MpvPlayerPageState {
           ? (preferredQuality?.bitrate ?? playbackStream.videoStream?.bps ?? 0)
           : (playbackStream.videoStream?.bps ?? preferredQuality?.bitrate ?? 0);
 
-      if (fromAutoPlay) {
-        _completionController.cancelAutoPlayPrompt(notify: false);
-      } else {
-        _completionController.clear();
-      }
+      _completionController.clear();
       _updatePlayerState(() {
         _serverFallbackSubtitleGuids.clear();
         _subtitleFailureNoticeShownGuids.clear();
@@ -589,7 +586,7 @@ extension _MpvPlayerEpisodeMixin on _MpvPlayerPageState {
         _completionController.requestPauseAfterReadyForAutoPlayPrompt();
       }
       _gestureController.resetSeekTracking();
-      _overlayState.setResumePromptVisible(
+      _setResumePromptVisibility(
         _shouldShowResumePrompt(
           startPosition: resolvedResumeStartPosition,
           durationSeconds: durationSeconds,

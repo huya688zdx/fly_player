@@ -66,7 +66,11 @@ extension _MpvPlayerSystemSessionMixin on _MpvPlayerPageState {
     await PlayerSystemSessionBridge.stop();
   }
 
-  Map<String, Object?> _buildSystemPlaybackSessionPayload() {
+  Map<String, Object?> _buildSystemPlaybackSessionPayload({
+    bool? isPlayingOverride,
+    double? speedOverride,
+    bool? readyOverride,
+  }) {
     final value = _controller.value.value;
     final position = _displayPosition(value);
     final duration = _effectiveDuration();
@@ -79,7 +83,6 @@ extension _MpvPlayerSystemSessionMixin on _MpvPlayerPageState {
         : (_currentAncestorName.trim().isNotEmpty
               ? _currentAncestorName.trim()
               : _currentMediaType.trim());
-    final isReady = value.ready && value.nativeLibLoaded;
     final hasError = (value.error ?? '').trim().isNotEmpty;
     final safePositionMs = position.inMilliseconds.clamp(0, 1 << 31);
     final safeDurationMs = duration.inMilliseconds.clamp(0, 1 << 31);
@@ -91,6 +94,10 @@ extension _MpvPlayerSystemSessionMixin on _MpvPlayerPageState {
     final description = _resolveSystemPlaybackDescription();
     final trackCount = _episodeItems.length;
     final launchSource = _buildSystemPlaybackLaunchSource(position);
+    final isReady = readyOverride ?? (value.ready && value.nativeLibLoaded);
+    final isPlaying =
+        isPlayingOverride ?? (isReady && !hasError && !value.paused);
+    final speed = speedOverride ?? (!value.paused ? _playbackSpeed : 0.0);
     return <String, Object?>{
       'itemGuid': _currentItemGuid,
       'title': title,
@@ -105,10 +112,10 @@ extension _MpvPlayerSystemSessionMixin on _MpvPlayerPageState {
       'artworkUrl': artworkUrl,
       'artworkUrls': artworkUrls,
       'artworkHeaders': artworkHeaders,
-      'isPlaying': isReady && !hasError && !value.paused,
+      'isPlaying': isPlaying,
       'positionMs': safePositionMs,
       'durationMs': safeDurationMs,
-      'speed': !value.paused ? _playbackSpeed : 0.0,
+      'speed': speed,
       'canSeek': safeDurationMs > 0,
       'canPause': true,
       'canPlay': true,

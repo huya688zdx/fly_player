@@ -57,6 +57,21 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                 ),
                 const SizedBox(height: 18),
                 _DanmakuSliderRow(
+                  label: '弹幕密度',
+                  trailing: _danmakuDensityLabel(),
+                  slider: _DanmakuLineSlider(
+                    value: settings.density,
+                    min: 0.2,
+                    max: 1.0,
+                    activeColor: context.appColors.accent,
+                    onChanged: (value) {
+                      unawaited(_setDanmakuDensity(value));
+                      drawer.refresh();
+                    },
+                  ),
+                ),
+                const SizedBox(height: 18),
+                _DanmakuSliderRow(
                   label: '字体大小',
                   trailing: _danmakuFontScaleLabel(),
                   slider: _DanmakuLineSlider(
