@@ -11,17 +11,19 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
           themeProvider.dynamicThemeEnabled &&
           themeProvider.runtimeDynamicThemeSeed != null,
     );
+    final topSurfaceColor = hasRuntimeDynamicTheme
+        ? Color.alphaBlend(
+            colors.accentSoft.withValues(alpha: 0.16),
+            colors.backgroundElevated,
+          )
+        : colors.backgroundBase;
 
     final body = _buildBody(baseUrl, token);
 
     return Scaffold(
-      backgroundColor: hasRuntimeDynamicTheme
-          ? Colors.transparent
-          : colors.backgroundBase,
+      backgroundColor: topSurfaceColor,
       appBar: AppBar(
-        backgroundColor: hasRuntimeDynamicTheme
-            ? Colors.transparent
-            : colors.backgroundBase,
+        backgroundColor: topSurfaceColor,
         surfaceTintColor: Colors.transparent,
         foregroundColor: colors.textPrimary,
         iconTheme: IconThemeData(color: colors.textPrimary),
@@ -330,7 +332,6 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     MediaLayoutProfile layout,
   ) {
     final colors = context.appColors;
-    final downloadService = DownloadTaskService.instance;
     final heroTag = 'home_continue_${item.guid}';
     final urls = _posterCandidates(
       baseUrl,
@@ -339,129 +340,97 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     );
     final progress = _progressValue(item);
     final progressActiveColor = DetailTokens.progressActiveOf(context);
-    return AnimatedBuilder(
-      animation: downloadService,
-      builder: (context, _) {
-        final downloaded = downloadService
-            .actionStateForItem(item.guid)
-            .downloaded;
-        return InkWell(
-          onTap: () => _openItemDetail(item, heroTag: heroTag),
-          onLongPress: () {
-            unawaited(_showContinueWatchingActionsV2(item, heroTag: heroTag));
-          },
-          borderRadius: BorderRadius.circular(10),
-          child: RepaintBoundary(
-            child: SizedBox(
-              width: layout.continueCardWidth,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Hero(
-                    tag: heroTag,
-                    child: Container(
-                      height: layout.continueImageHeight,
-                      clipBehavior: Clip.hardEdge,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(10),
-                        color: colors.surface,
-                      ),
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: <Widget>[
-                          _PosterImage(
-                            urls: urls,
-                            token: token,
-                            lightweight: widget.secondaryHost,
-                            fallback: Center(
-                              child: Icon(
-                                Icons.movie,
-                                color: colors.textMuted.withValues(alpha: 0.5),
-                              ),
-                            ),
-                          ),
-                          if (downloaded)
-                            Positioned(
-                              top: 8,
-                              right: 8,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withValues(alpha: 0.58),
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                    color: colors.accent.withValues(alpha: 0.7),
-                                    width: 0.8,
-                                  ),
-                                ),
-                                child: Text(
-                                  '\u5df2\u4e0b\u8f7d',
-                                  style: TextStyle(
-                                    color: colors.textPrimary,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          if (progress > 0)
-                            Positioned(
-                              left: 0,
-                              right: 0,
-                              bottom: 0,
-                              child: LayoutBuilder(
-                                builder: (context, constraints) {
-                                  final visualWidth =
-                                      (constraints.maxWidth * progress).clamp(
-                                        4.0,
-                                        constraints.maxWidth,
-                                      );
-                                  return Align(
-                                    alignment: Alignment.centerLeft,
-                                    child: SizedBox(
-                                      width: visualWidth,
-                                      height: 5,
-                                      child: ColoredBox(
-                                        color: progressActiveColor,
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    item.displayTitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: colors.textPrimary,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 1),
-                  Text(
-                    item.type.trim().toLowerCase() == 'movie'
-                        ? _t('layout.list.filter.type.movie', '电影')
-                        : _continueEpisodeText(item),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: colors.textSecondary, fontSize: 13),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
+    return InkWell(
+      onTap: () => _openItemDetail(item, heroTag: heroTag),
+      onLongPress: () {
+        unawaited(_showContinueWatchingActionsV2(item, heroTag: heroTag));
       },
+      borderRadius: BorderRadius.circular(10),
+      child: RepaintBoundary(
+        child: SizedBox(
+          width: layout.continueCardWidth,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Hero(
+                tag: heroTag,
+                child: Container(
+                  height: layout.continueImageHeight,
+                  clipBehavior: Clip.hardEdge,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    color: colors.surface,
+                  ),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: <Widget>[
+                      _PosterImage(
+                        urls: urls,
+                        token: token,
+                        lightweight: widget.secondaryHost,
+                        fallback: Center(
+                          child: Icon(
+                            Icons.movie,
+                            color: colors.textMuted.withValues(alpha: 0.5),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: _ContinueDownloadBadge(itemGuid: item.guid),
+                      ),
+                      if (progress > 0)
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              final visualWidth =
+                                  (constraints.maxWidth * progress).clamp(
+                                    4.0,
+                                    constraints.maxWidth,
+                                  );
+                              return Align(
+                                alignment: Alignment.centerLeft,
+                                child: SizedBox(
+                                  width: visualWidth,
+                                  height: 5,
+                                  child: ColoredBox(color: progressActiveColor),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                item.displayTitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: colors.textPrimary,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 1),
+              Text(
+                item.type.trim().toLowerCase() == 'movie'
+                    ? _t('layout.list.filter.type.movie', '电影')
+                    : _continueEpisodeText(item),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: colors.textSecondary, fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -726,6 +695,48 @@ class _CategoryPosterCard extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ContinueDownloadBadge extends StatelessWidget {
+  final String itemGuid;
+
+  const _ContinueDownloadBadge({required this.itemGuid});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return ListenableBuilder(
+      listenable: DownloadTaskService.instance,
+      builder: (context, child) {
+        final downloaded = DownloadTaskService.instance
+            .actionStateForItem(itemGuid)
+            .downloaded;
+        if (!downloaded) {
+          return const SizedBox.shrink();
+        }
+        return child!;
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.58),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: colors.accent.withValues(alpha: 0.7),
+            width: 0.8,
+          ),
+        ),
+        child: Text(
+          '\u5df2\u4e0b\u8f7d',
+          style: TextStyle(
+            color: colors.textPrimary,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
           ),
         ),
       ),

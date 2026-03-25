@@ -44,6 +44,7 @@ private fun proxyVerboseLog(message: () -> String) {
 data class NativeProxyRegistration(
     val sessionId: String,
     val localUrl: String,
+    val cacheResourceKey: String?,
 )
 
 private data class NativeProxySession(
@@ -1073,6 +1074,7 @@ object NativeMpvProxyServer {
         return NativeProxyRegistration(
             sessionId = sessionId,
             localUrl = "http://127.0.0.1:$port/stream/$sessionId/$entry",
+            cacheResourceKey = cacheSession?.resourceKey(),
         )
     }
 

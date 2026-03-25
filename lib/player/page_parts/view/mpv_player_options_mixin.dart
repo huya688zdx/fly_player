@@ -6,6 +6,7 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
   }
 
   void _toggleSpeedDialOverlay() {
+    if (_playerUiLocked) return;
     if (_speedDialVisible) {
       _hideSpeedDialOverlay();
       return;
@@ -14,6 +15,7 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
   }
 
   void _showSpeedDialOverlay() {
+    if (_playerUiLocked) return;
     if (_speedDialVisible || !mounted) return;
     _overlayState.cancelAutoHide();
     final restoreControls = _controlsVisible || _controlsAnimatingOut;
@@ -75,6 +77,7 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
     bool centeredTitle = false,
     bool useCardStyle = false,
   }) async {
+    if (_playerUiLocked) return null;
     _hideSpeedDialOverlay(restoreAutoHide: false);
     _overlayState.cancelAutoHide();
     final restoreControls = _controlsVisible;
@@ -234,7 +237,7 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
     var reloadStarted = false;
     try {
       final localDownloadRecord = _downloadedRecordForQuality(quality);
-      if (widget.source.isDownloadedFile && localDownloadRecord != null) {
+      if (_currentSourceIsDownloadedFile && localDownloadRecord != null) {
         await _reloadDownloadedLocalQuality(
           localDownloadRecord,
           quality: quality,
@@ -291,6 +294,7 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
     Duration? startPosition,
     bool? pausedAfterReload,
   }) async {
+    _invalidateNextEpisodePreload();
     final path = record.filePath.trim();
     if (path.isEmpty || !File(path).existsSync()) {
       throw Exception('local downloaded file missing');
@@ -440,6 +444,7 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
     Duration? startPosition,
     bool? pausedAfterReload,
   }) async {
+    _invalidateNextEpisodePreload();
     final api = FeiniuApi(context.read<NasProvider>());
     final currentPosition =
         startPosition ?? _displayPosition(_controller.value.value);
@@ -604,6 +609,7 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
     Duration? startPosition,
     bool? pausedAfterReload,
   }) async {
+    _invalidateNextEpisodePreload();
     final api = FeiniuApi(context.read<NasProvider>());
     final currentPosition =
         startPosition ?? _displayPosition(_controller.value.value);
@@ -822,6 +828,7 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
   }
 
   Future<bool> _applySubtitleSelection() async {
+    _invalidateNextEpisodePreload();
     final localRuntimeSource = _isLocalRuntimeTrackSource();
     var normalizedGuid = (_currentSubtitleGuid ?? '').trim();
     if (normalizedGuid.isEmpty &&

@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../models/media_item.dart';
 import '../models/media_library_item.dart';
 import '../pages/tv_season_detail_page.dart';
+import '../ui/app_transitions.dart';
 import '../ui/detail_presentation.dart';
 import 'app_settings_screen.dart';
 import 'category_items_screen.dart';
@@ -17,6 +18,7 @@ import 'parallel_placeholder_screen.dart';
 import 'person_detail_screen.dart';
 import 'play_detail_screen.dart';
 import 'search_screen.dart';
+import 'settings_destination_routes.dart';
 
 class DetailHostScreen extends StatefulWidget {
   final String initialRouteName;
@@ -80,6 +82,10 @@ class DetailHostScreenState extends State<DetailHostScreen> {
 
   List<String> _buildInitialStack() {
     final initialRoute = _normalizeRoute(widget.initialRouteName);
+    final settingsStack = _settingsRouteStack(initialRoute);
+    if (settingsStack != null && settingsStack.isNotEmpty) {
+      return settingsStack;
+    }
     final rootRoute = widget.rootRouteName?.trim().isNotEmpty == true
         ? _normalizeRoute(widget.rootRouteName!)
         : null;
@@ -168,6 +174,20 @@ class DetailHostScreenState extends State<DetailHostScreen> {
 
   void _pushRoute(String routeName) {
     final normalized = _normalizeRoute(routeName);
+    final settingsStack = _settingsRouteStack(normalized);
+    if (settingsStack != null && settingsStack.isNotEmpty) {
+      if (listEquals(_routeStack, settingsStack)) {
+        _syncRouteListenableValue(settingsStack.last);
+        return;
+      }
+      setState(() {
+        _routeStack
+          ..clear()
+          ..addAll(settingsStack);
+      });
+      _syncRouteListenableValue(settingsStack.last);
+      return;
+    }
     final current = _routeStack.isEmpty
         ? '/parallel/placeholder'
         : _routeStack.last;
@@ -186,6 +206,33 @@ class DetailHostScreenState extends State<DetailHostScreen> {
         _routeStack.add(normalized);
       }
     });
+    _syncRouteListenableValue(normalized);
+  }
+
+  List<String>? _settingsRouteStack(String routeName) {
+    final settingsStack = SettingsDestinationRoutes.buildNavigationStack(
+      routeName,
+    );
+    if (settingsStack == null || settingsStack.isEmpty) {
+      return null;
+    }
+    final rootRoute = widget.rootRouteName?.trim().isNotEmpty == true
+        ? _normalizeRoute(widget.rootRouteName!)
+        : null;
+    if (rootRoute == null ||
+        settingsStack.first == rootRoute ||
+        routeName == rootRoute) {
+      return settingsStack;
+    }
+    return <String>[rootRoute, ...settingsStack];
+  }
+
+  void _syncRouteListenableValue(String routeName) {
+    final routeListenable = widget.routeListenable;
+    if (routeListenable is ValueNotifier<String> &&
+        routeListenable.value != routeName) {
+      routeListenable.value = routeName;
+    }
   }
 
   void _handleRouteListenable() {
@@ -196,10 +243,31 @@ class DetailHostScreenState extends State<DetailHostScreen> {
 
   Future<void> _handleMethodCall(MethodCall call) async {
     if (call.method != 'replaceRoute') return;
-    final routeName =
-        (call.arguments as Map?)?['routeName']?.toString().trim() ?? '';
+    final arguments = call.arguments as Map?;
+    final routeName = arguments?['routeName']?.toString().trim() ?? '';
+    final resetStack = arguments?['resetStack'] == true;
     if (!mounted || routeName.isEmpty) return;
+    if (resetStack) {
+      _replaceRouteStack(routeName);
+      return;
+    }
     _pushRoute(routeName);
+  }
+
+  void _replaceRouteStack(String routeName) {
+    final normalizedRoute = _normalizeRoute(routeName);
+    final settingsStack = _settingsRouteStack(normalizedRoute);
+    final nextStack = settingsStack ?? <String>[normalizedRoute];
+    if (listEquals(_routeStack, nextStack)) {
+      _syncRouteListenableValue(nextStack.last);
+      return;
+    }
+    setState(() {
+      _routeStack
+        ..clear()
+        ..addAll(nextStack);
+    });
+    _syncRouteListenableValue(nextStack.last);
   }
 
   bool _handlePopPage(Route<dynamic> route, Object? result) {
@@ -218,8 +286,9 @@ class DetailHostScreenState extends State<DetailHostScreen> {
         .map(
           (index, routeName) => MapEntry(
             index,
-            MaterialPage<void>(
+            AppTransitions.paneCardPage<void>(
               key: ValueKey<String>('detail-host-$routeName'),
+              name: routeName,
               child: _buildRouteChild(
                 routeName,
                 isActiveRoute: index == _routeStack.length - 1,
@@ -229,10 +298,15 @@ class DetailHostScreenState extends State<DetailHostScreen> {
         )
         .values
         .toList(growable: false);
-    return Navigator(
-      key: _navigatorKey,
-      pages: pages,
-      onPopPage: _handlePopPage,
+    return NavigatorPopHandler<Object?>(
+      onPopWithResult: (result) {
+        _navigatorKey.currentState?.pop(result);
+      },
+      child: Navigator(
+        key: _navigatorKey,
+        pages: pages,
+        onPopPage: _handlePopPage,
+      ),
     );
   }
 }
@@ -243,17 +317,23 @@ Widget _buildRouteChild(String routeName, {required bool isActiveRoute}) {
       : routeName.trim();
   final uri = Uri.tryParse(normalizedRoute);
   if (uri == null) {
-    return const _DetailHostRouteError(message: '璺敱鏃犳晥');
+    return const _DetailHostRouteError(message: '路由格式错误');
   }
 
   if (uri.path == '/detail/item') {
     final itemGuid = uri.queryParameters['itemGuid'] ?? '';
+    final rawInitialItemDetail = uri.queryParameters['initialItemDetail'] ?? '';
+    final decodedInitialItemDetail = rawInitialItemDetail.isEmpty
+        ? null
+        : (jsonDecode(rawInitialItemDetail) as Map).cast<String, dynamic>();
     if (itemGuid.trim().isEmpty) {
-      return const _DetailHostRouteError(message: '缂哄皯璇︽儏鍙傛暟');
+      return const _DetailHostRouteError(message: '缺少详情参数');
     }
     return PlayDetailScreen(
       key: ValueKey<String>(routeName),
       itemGuid: itemGuid,
+      seriesGuid: uri.queryParameters['seriesGuid'] ?? '',
+      initialItemDetail: decodedInitialItemDetail,
       presentation: DetailPresentation.pane,
     );
   }
@@ -266,7 +346,7 @@ Widget _buildRouteChild(String routeName, {required bool isActiveRoute}) {
     final parentGuid = uri.queryParameters['parentGuid'] ?? '';
     final seasonItem = MediaLibraryItem.fromJson(decodedSeasonItem);
     if (parentGuid.trim().isEmpty || seasonItem.guid.trim().isEmpty) {
-      return const _DetailHostRouteError(message: '缂哄皯瀛ｈ鎯呭弬鏁?');
+      return const _DetailHostRouteError(message: '缺少季详情参数');
     }
     return TvSeasonDetailPage(
       key: ValueKey<String>(routeName),
@@ -281,7 +361,7 @@ Widget _buildRouteChild(String routeName, {required bool isActiveRoute}) {
   if (uri.path == '/detail/person') {
     final personGuid = uri.queryParameters['personGuid'] ?? '';
     if (personGuid.trim().isEmpty) {
-      return const _DetailHostRouteError(message: '缂哄皯浜虹墿鍙傛暟');
+      return const _DetailHostRouteError(message: '缺少人物详情参数');
     }
     return PersonDetailScreen(
       key: ValueKey<String>(routeName),
@@ -346,9 +426,17 @@ Widget _buildRouteChild(String routeName, {required bool isActiveRoute}) {
     );
   }
 
-  if (uri.path == '/screen/settings') {
+  final settingsDestination = SettingsDestinationRoutes.buildRoute(
+    routeName,
+    key: ValueKey<String>(routeName),
+  );
+  if (settingsDestination != null) {
+    return settingsDestination;
+  }
+
+  if (uri.path == SettingsDestinationRoutes.home) {
     return const AppSettingsScreen(
-      key: ValueKey<String>('/screen/settings'),
+      key: ValueKey<String>(SettingsDestinationRoutes.home),
       secondaryHost: true,
     );
   }
@@ -369,7 +457,7 @@ Widget _buildRouteChild(String routeName, {required bool isActiveRoute}) {
     );
   }
 
-  return const _DetailHostRouteError(message: '鏆備笉鏀寔鐨勫壇灞忚矾鐢?');
+  return const _DetailHostRouteError(message: '未找到对应页面');
 }
 
 class _DeferredRouteChild extends StatefulWidget {

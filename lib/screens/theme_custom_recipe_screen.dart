@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../providers/app_theme_provider.dart';
 import '../theme/app_theme.dart';
+import '../ui/secondary_host_navigation.dart';
 import '../utils/app_top_tip.dart';
 import '../widgets/detail/detail_more_actions_sheet.dart';
 import '../widgets/settings/theme/theme_settings_color_picker_dialog.dart';
@@ -21,7 +22,8 @@ class ThemeCustomRecipeScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: AppBar(
+      appBar: buildSecondaryHostAppBar(
+        context,
         title: const Text('颜色分类控制'),
         actions: <Widget>[
           TextButton(

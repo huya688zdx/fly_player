@@ -1,6 +1,23 @@
 import 'dart:convert';
 
+class DanmakuAiPrecisionPreset {
+  static const String performance = 'performance';
+  static const String balanced = 'balanced';
+  static const String quality = 'quality';
+
+  static const List<String> values = <String>[
+    performance,
+    balanced,
+    quality,
+  ];
+}
+
 class DanmakuSettings {
+  static const int minAiSampleIntervalMs = 200;
+  static const int maxAiSampleIntervalMs = 500;
+  static const int minAiInputWidth = 160;
+  static const int maxAiInputWidth = 320;
+
   final bool enabled;
   final bool previewEnabled;
   final bool preferLocalSource;
@@ -16,6 +33,8 @@ class DanmakuSettings {
   final double fontScale;
   final double speed;
   final double displayAreaRatio;
+  final int aiSampleIntervalMs;
+  final int aiInputWidth;
 
   const DanmakuSettings({
     required this.enabled,
@@ -33,6 +52,8 @@ class DanmakuSettings {
     required this.fontScale,
     required this.speed,
     required this.displayAreaRatio,
+    required this.aiSampleIntervalMs,
+    required this.aiInputWidth,
   });
 
   static const DanmakuSettings defaults = DanmakuSettings(
@@ -51,6 +72,8 @@ class DanmakuSettings {
     fontScale: 1.0,
     speed: 1.0,
     displayAreaRatio: 0.50,
+    aiSampleIntervalMs: 500,
+    aiInputWidth: 256,
   );
 
   DanmakuSettings copyWith({
@@ -69,7 +92,15 @@ class DanmakuSettings {
     double? fontScale,
     double? speed,
     double? displayAreaRatio,
+    int? aiSampleIntervalMs,
+    int? aiInputWidth,
+    String? aiPrecisionPreset,
   }) {
+    final nextAiInputWidth = aiInputWidth ?? this.aiInputWidth;
+    final mappedAiInputWidth =
+        aiPrecisionPreset != null
+        ? _mapAiPrecisionPresetToWidth(aiPrecisionPreset)
+        : nextAiInputWidth;
     return DanmakuSettings(
       enabled: enabled ?? this.enabled,
       previewEnabled: previewEnabled ?? this.previewEnabled,
@@ -86,7 +117,24 @@ class DanmakuSettings {
       fontScale: fontScale ?? this.fontScale,
       speed: speed ?? this.speed,
       displayAreaRatio: displayAreaRatio ?? this.displayAreaRatio,
+      aiSampleIntervalMs: aiSampleIntervalMs ?? this.aiSampleIntervalMs,
+      aiInputWidth: mappedAiInputWidth.clamp(minAiInputWidth, maxAiInputWidth),
     );
+  }
+
+  String get aiPrecisionPreset {
+    if (aiInputWidth <= 208) {
+      return DanmakuAiPrecisionPreset.performance;
+    }
+    if (aiInputWidth >= 288) {
+      return DanmakuAiPrecisionPreset.quality;
+    }
+    return DanmakuAiPrecisionPreset.balanced;
+  }
+
+  int get aiInputHeight {
+    final height = (aiInputWidth * 9 / 16).round();
+    return height.isEven ? height : height + 1;
   }
 
   Map<String, dynamic> toJson() {
@@ -106,6 +154,8 @@ class DanmakuSettings {
       'fontScale': fontScale,
       'speed': speed,
       'displayAreaRatio': displayAreaRatio,
+      'aiSampleIntervalMs': aiSampleIntervalMs,
+      'aiInputWidth': aiInputWidth,
     };
   }
 
@@ -138,6 +188,11 @@ class DanmakuSettings {
         json['displayAreaRatio'],
         defaults.displayAreaRatio,
       ),
+      aiSampleIntervalMs: _readInt(
+        json['aiSampleIntervalMs'],
+        defaults.aiSampleIntervalMs,
+      ).clamp(minAiSampleIntervalMs, maxAiSampleIntervalMs),
+      aiInputWidth: _readAiInputWidth(json),
     );
   }
 
@@ -148,5 +203,45 @@ class DanmakuSettings {
       _ => null,
     };
     return parsed ?? fallback;
+  }
+
+  static int _readInt(dynamic value, int fallback) {
+    final parsed = switch (value) {
+      final num number => number.toInt(),
+      final String text => int.tryParse(text),
+      _ => null,
+    };
+    return parsed ?? fallback;
+  }
+
+  static String _readAiPrecisionPreset(dynamic value, String fallback) {
+    final normalized = value?.toString().trim().toLowerCase();
+    if (normalized == null) {
+      return fallback;
+    }
+    if (DanmakuAiPrecisionPreset.values.contains(normalized)) {
+      return normalized;
+    }
+    return fallback;
+  }
+
+  static int _readAiInputWidth(Map<String, dynamic> json) {
+    final direct = _readInt(json['aiInputWidth'], -1);
+    if (direct > 0) {
+      return direct.clamp(minAiInputWidth, maxAiInputWidth);
+    }
+    final legacyPreset = _readAiPrecisionPreset(
+      json['aiPrecisionPreset'],
+      DanmakuAiPrecisionPreset.balanced,
+    );
+    return _mapAiPrecisionPresetToWidth(legacyPreset);
+  }
+
+  static int _mapAiPrecisionPresetToWidth(String value) {
+    return switch (value) {
+      DanmakuAiPrecisionPreset.performance => 192,
+      DanmakuAiPrecisionPreset.quality => 320,
+      _ => 256,
+    };
   }
 }

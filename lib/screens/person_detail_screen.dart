@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -438,8 +438,8 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
     final result = await ImdbLauncher.openTmdbExternal(trimId);
     if (!mounted || result == ImdbLaunchResult.success) return;
     final text = result == ImdbLaunchResult.empty
-        ? '鏆傛棤 TMDB 閾炬帴'
-        : '鏃犳硶鎵撳紑 TMDB 閾炬帴';
+        ? '暂无 TMDB 链接'
+        : '无法打开 TMDB 链接';
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(text), duration: const Duration(seconds: 2)),
     );

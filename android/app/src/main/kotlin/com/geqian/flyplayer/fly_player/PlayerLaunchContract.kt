@@ -19,6 +19,8 @@ object PlayerLaunchContract {
 
     private const val EXTRA_PLAYER_TITLE = "player_title"
     private const val EXTRA_PLAYER_SOURCE = "player_source"
+    private const val EXTRA_PLAYER_INITIAL_PLAY_INFO = "player_initial_play_info"
+    private const val EXTRA_PLAYER_START_SOURCE = "player_start_source"
     private const val EXTRA_PLAYER_RESULT = "player_result"
     private const val EXTRA_PLAYER_FROM_PARALLEL_HOST = "player_from_parallel_host"
     private const val EXTRA_PLAYER_HOST_CONTEXT = "player_host_context"
@@ -29,6 +31,8 @@ object PlayerLaunchContract {
         intent: Intent,
         title: String,
         source: HashMap<String, Any?>,
+        initialPlayInfo: HashMap<String, Any?>? = null,
+        startSource: String = "manual",
         fromParallelHost: Boolean,
         hostContext: HashMap<String, Any?>,
         layoutMode: String,
@@ -43,6 +47,8 @@ object PlayerLaunchContract {
                 }
             putExtra(EXTRA_PLAYER_TITLE, title.trim())
             putExtra(EXTRA_PLAYER_SOURCE, HashMap(source))
+            putExtra(EXTRA_PLAYER_INITIAL_PLAY_INFO, initialPlayInfo?.let { HashMap(it) })
+            putExtra(EXTRA_PLAYER_START_SOURCE, startSource.trim())
             putExtra(EXTRA_PLAYER_FROM_PARALLEL_HOST, fromParallelHost)
             putExtra(EXTRA_PLAYER_HOST_CONTEXT, HashMap(hostContext))
             putExtra(EXTRA_PLAYER_LAYOUT_MODE, layoutMode)
@@ -78,6 +84,8 @@ object PlayerLaunchContract {
         return hashMapOf(
             "title" to intent?.getStringExtra(EXTRA_PLAYER_TITLE).orEmpty(),
             "source" to source,
+            "initialPlayInfo" to readSerializableHashMap(intent, EXTRA_PLAYER_INITIAL_PLAY_INFO),
+            "startSource" to intent?.getStringExtra(EXTRA_PLAYER_START_SOURCE).orEmpty(),
             "fromParallelHost" to
                 (intent?.getBooleanExtra(EXTRA_PLAYER_FROM_PARALLEL_HOST, false) ?: false),
             "parallelHostContext" to hostContext,

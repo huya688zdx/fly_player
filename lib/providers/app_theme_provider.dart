@@ -42,6 +42,7 @@ class AppThemeProvider extends ChangeNotifier {
       'app_theme_runtime_dynamic_session_id';
   static const String _themeRevisionKey = 'app_theme_revision';
   static const Duration _syncInterval = Duration(milliseconds: 700);
+  static _AppThemeBootstrapSnapshot? _bootstrapSnapshot;
 
   AppThemePreset _preset = AppThemePreset.midnight;
   AppBackgroundTone _backgroundTone = AppBackgroundTone.night;
@@ -71,6 +72,11 @@ class AppThemeProvider extends ChangeNotifier {
   String _runtimeSessionId = '';
 
   AppThemeProvider() {
+    final bootstrap = _bootstrapSnapshot;
+    if (bootstrap != null) {
+      _applyBootstrapSnapshot(bootstrap);
+      _isReady = true;
+    }
     unawaited(_registerRuntimeThemeSyncHandler());
     load();
     _startSyncLoop();
@@ -349,6 +355,7 @@ class AppThemeProvider extends ChangeNotifier {
     _applyStoredValues(prefs);
     _themeRevision = prefs.getInt(_themeRevisionKey) ?? _themeRevision;
     _isReady = true;
+    _cacheBootstrapSnapshot();
     notifyListeners();
   }
 
@@ -580,6 +587,7 @@ class AppThemeProvider extends ChangeNotifier {
     bool notify = true,
   ]) async {
     _isReady = true;
+    _cacheBootstrapSnapshot();
     if (notify) {
       notifyListeners();
     }
@@ -589,6 +597,7 @@ class AppThemeProvider extends ChangeNotifier {
     final revision = DateTime.now().microsecondsSinceEpoch;
     await prefs.setInt(_themeRevisionKey, revision);
     _themeRevision = revision;
+    _cacheBootstrapSnapshot();
   }
 
   static Color? _readColor(SharedPreferences prefs, String key) {
@@ -719,6 +728,7 @@ class AppThemeProvider extends ChangeNotifier {
       _themeRevision = nextRevision;
       _applyStoredValues(prefs);
       _isReady = true;
+      _cacheBootstrapSnapshot();
       if (previousVisualSignature != _effectiveThemeSignature()) {
         notifyListeners();
       }
@@ -857,6 +867,60 @@ class AppThemeProvider extends ChangeNotifier {
     }
   }
 
+  void _applyBootstrapSnapshot(_AppThemeBootstrapSnapshot snapshot) {
+    _preset = snapshot.preset;
+    _backgroundTone = snapshot.backgroundTone;
+    _accentTone = snapshot.accentTone;
+    _selectionTone = snapshot.selectionTone;
+    _linkTone = snapshot.linkTone;
+    _customBackgroundColor = snapshot.customBackgroundColor;
+    _customAccentColor = snapshot.customAccentColor;
+    _customSelectionColor = snapshot.customSelectionColor;
+    _customLinkColor = snapshot.customLinkColor;
+    _dynamicThemeMode = snapshot.dynamicThemeMode;
+    _dynamicThemeIntensity = snapshot.dynamicThemeIntensity;
+    _themeSourceType = snapshot.themeSourceType;
+    _activeSavedThemeId = snapshot.activeSavedThemeId;
+    _savedThemes = snapshot.savedThemes;
+    _runtimeDynamicThemePage = snapshot.runtimeDynamicThemePage;
+    _runtimeDynamicThemeSeed = snapshot.runtimeDynamicThemeSeed;
+    _runtimeDynamicThemeCache
+      ..clear()
+      ..addAll(snapshot.runtimeDynamicThemeCache);
+    _runtimeDynamicThemeOrder
+      ..clear()
+      ..addAll(snapshot.runtimeDynamicThemeOrder);
+    _themeRevision = snapshot.themeRevision;
+    _runtimeSessionId = snapshot.runtimeSessionId;
+  }
+
+  void _cacheBootstrapSnapshot() {
+    _bootstrapSnapshot = _AppThemeBootstrapSnapshot(
+      preset: _preset,
+      backgroundTone: _backgroundTone,
+      accentTone: _accentTone,
+      selectionTone: _selectionTone,
+      linkTone: _linkTone,
+      customBackgroundColor: _customBackgroundColor,
+      customAccentColor: _customAccentColor,
+      customSelectionColor: _customSelectionColor,
+      customLinkColor: _customLinkColor,
+      dynamicThemeMode: _dynamicThemeMode,
+      dynamicThemeIntensity: _dynamicThemeIntensity,
+      themeSourceType: _themeSourceType,
+      activeSavedThemeId: _activeSavedThemeId,
+      savedThemes: List<SavedCustomTheme>.from(_savedThemes),
+      runtimeDynamicThemePage: _runtimeDynamicThemePage,
+      runtimeDynamicThemeSeed: _runtimeDynamicThemeSeed,
+      runtimeDynamicThemeCache: Map<String, DynamicThemeSeed>.from(
+        _runtimeDynamicThemeCache,
+      ),
+      runtimeDynamicThemeOrder: List<String>.from(_runtimeDynamicThemeOrder),
+      themeRevision: _themeRevision,
+      runtimeSessionId: _runtimeSessionId,
+    );
+  }
+
   void _syncRuntimeThemeFromCache() {
     while (_runtimeDynamicThemeOrder.isNotEmpty &&
         !_runtimeDynamicThemeCache.containsKey(
@@ -984,6 +1048,52 @@ class AppThemeProvider extends ChangeNotifier {
     unawaited(RuntimeThemeSyncBridge.instance.unregisterHandler(this));
     super.dispose();
   }
+}
+
+class _AppThemeBootstrapSnapshot {
+  final AppThemePreset preset;
+  final AppBackgroundTone backgroundTone;
+  final AppAccentTone accentTone;
+  final AppAccentTone selectionTone;
+  final AppAccentTone linkTone;
+  final Color? customBackgroundColor;
+  final Color? customAccentColor;
+  final Color? customSelectionColor;
+  final Color? customLinkColor;
+  final AppDynamicThemeMode dynamicThemeMode;
+  final AppDynamicThemeIntensity dynamicThemeIntensity;
+  final AppThemeSourceType themeSourceType;
+  final String activeSavedThemeId;
+  final List<SavedCustomTheme> savedThemes;
+  final String runtimeDynamicThemePage;
+  final DynamicThemeSeed? runtimeDynamicThemeSeed;
+  final Map<String, DynamicThemeSeed> runtimeDynamicThemeCache;
+  final List<String> runtimeDynamicThemeOrder;
+  final int themeRevision;
+  final String runtimeSessionId;
+
+  const _AppThemeBootstrapSnapshot({
+    required this.preset,
+    required this.backgroundTone,
+    required this.accentTone,
+    required this.selectionTone,
+    required this.linkTone,
+    required this.customBackgroundColor,
+    required this.customAccentColor,
+    required this.customSelectionColor,
+    required this.customLinkColor,
+    required this.dynamicThemeMode,
+    required this.dynamicThemeIntensity,
+    required this.themeSourceType,
+    required this.activeSavedThemeId,
+    required this.savedThemes,
+    required this.runtimeDynamicThemePage,
+    required this.runtimeDynamicThemeSeed,
+    required this.runtimeDynamicThemeCache,
+    required this.runtimeDynamicThemeOrder,
+    required this.themeRevision,
+    required this.runtimeSessionId,
+  });
 }
 
 class _PresetDefaults {

@@ -13,6 +13,7 @@ import '../player/controllers/player_source_controller.dart';
 import '../providers/nas_provider.dart';
 import '../services/app_log_service.dart';
 import '../services/embedded_detail_launcher.dart';
+import '../services/play_stats/play_stats.dart';
 import '../ui/app_transitions.dart';
 import '../utils/app_error_reporter.dart';
 import '../utils/app_exception.dart';
@@ -145,6 +146,7 @@ class ItemPlaybackLauncher {
     final source = MpvMediaSource(
       loadNonce: createMpvLoadNonce(),
       itemGuid: playInfo.item.guid,
+      seriesGuid: playInfo.grandGuid.trim(),
       seasonGuid: playInfo.parentGuid,
       posterPath: resolvePlayerArtworkPathForPlayItem(playInfo.item),
       mediaGuid: initialPlayback.mediaGuid,
@@ -198,6 +200,8 @@ class ItemPlaybackLauncher {
       context: context,
       title: title,
       source: source,
+      initialPlayInfo: playInfo,
+      startSource: PlayStartSource.manual,
     );
     if (embeddedResult.handled) {
       return embeddedResult.data;
@@ -208,6 +212,7 @@ class ItemPlaybackLauncher {
           title: title,
           source: source,
           initialPlayInfo: playInfo,
+          startSource: PlayStartSource.manual,
         ),
       ),
     );

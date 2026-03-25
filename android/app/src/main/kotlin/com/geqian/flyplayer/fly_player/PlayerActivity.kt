@@ -1,10 +1,15 @@
 package com.geqian.flyplayer.fly_player
 
 import android.app.Activity
+import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.util.Rational
+import android.view.WindowManager
 import java.util.HashMap
 
 class PlayerActivity : FlutterHostActivity() {
@@ -30,6 +35,7 @@ class PlayerActivity : FlutterHostActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         PlaybackSessionCoordinator.allowSessionUpdates()
         ParallelWindowCoordinator.attachPlayerHost(this)
         applyLayoutModeState()
@@ -56,6 +62,7 @@ class PlayerActivity : FlutterHostActivity() {
     }
 
     override fun onDestroy() {
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         if (isFinishing && !isChangingConfigurations) {
             PlaybackSessionCoordinator.blockSessionUpdates()
             PlaybackSessionCoordinator.detachHost(this)
@@ -69,6 +76,8 @@ class PlayerActivity : FlutterHostActivity() {
     fun replaceSourceInPlace(
         title: String,
         source: HashMap<String, Any?>,
+        initialPlayInfo: HashMap<String, Any?>? = null,
+        startSource: String = "manual",
     ) {
         val normalizedTitle = title.trim()
         if (normalizedTitle.isEmpty() || source.isEmpty()) return
@@ -77,6 +86,8 @@ class PlayerActivity : FlutterHostActivity() {
                 context = this,
                 title = normalizedTitle,
                 source = HashMap(source),
+                initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
+                startSource = startSource,
                 fromParallelHost = PlayerLaunchContract.isFromParallelHost(intent),
                 hostContext = getParallelHostContext(),
                 layoutMode = currentLayoutMode(),
@@ -131,6 +142,8 @@ class PlayerActivity : FlutterHostActivity() {
     override fun switchPlayerLayoutMode(
         title: String,
         source: HashMap<String, Any?>?,
+        initialPlayInfo: HashMap<String, Any?>?,
+        startSource: String,
         targetMode: String,
         resultPayload: HashMap<String, Any?>?,
     ): Boolean {
@@ -146,6 +159,56 @@ class PlayerActivity : FlutterHostActivity() {
         return true
     }
 
+    override fun isPictureInPictureSupported(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return false
+        }
+        if (!packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+            return false
+        }
+        if (currentLayoutMode() != PlayerLaunchContract.MODE_FULLSCREEN) {
+            return false
+        }
+        if (PlayerLaunchContract.isFromParallelHost(intent)) {
+            return false
+        }
+        return !isInPictureInPictureMode
+    }
+
+    override fun enterPictureInPicture(): Boolean {
+        if (!isPictureInPictureSupported()) {
+            return false
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return false
+        }
+        val decorView = window.decorView
+        val width = decorView.width.coerceAtLeast(1)
+        val height = decorView.height.coerceAtLeast(1)
+        val params =
+            PictureInPictureParams
+                .Builder()
+                .setAspectRatio(Rational(width, height))
+                .build()
+        return runCatching { enterPictureInPictureMode(params) }.getOrDefault(false)
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration,
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        playerHostStateChannel?.invokeMethod(
+            "pictureInPictureModeChanged",
+            hashMapOf("active" to isInPictureInPictureMode),
+        )
+        notifyPlayerHostSystemWindowMode()
+        Log.d(
+            TAG,
+            "onPictureInPictureModeChanged active=$isInPictureInPictureMode layoutMode=${currentLayoutMode()}",
+        )
+    }
+
     companion object {
         private const val TAG = "PlayerActivity"
 
@@ -153,6 +216,8 @@ class PlayerActivity : FlutterHostActivity() {
             context: Context,
             title: String,
             source: HashMap<String, Any?>,
+            initialPlayInfo: HashMap<String, Any?>? = null,
+            startSource: String = "manual",
             fromParallelHost: Boolean = false,
             hostContext: HashMap<String, Any?> = hashMapOf(),
             layoutMode: String = PlayerLaunchContract.MODE_FULLSCREEN,
@@ -162,6 +227,8 @@ class PlayerActivity : FlutterHostActivity() {
                 intent = Intent(context, PlayerActivity::class.java),
                 title = title,
                 source = source,
+                initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
+                startSource = startSource,
                 fromParallelHost = fromParallelHost,
                 hostContext = hostContext,
                 layoutMode = layoutMode,
@@ -173,6 +240,8 @@ class PlayerActivity : FlutterHostActivity() {
             context: Context,
             title: String,
             source: HashMap<String, Any?>,
+            initialPlayInfo: HashMap<String, Any?>? = null,
+            startSource: String = "manual",
             fromParallelHost: Boolean = false,
             layoutMode: String = PlayerLaunchContract.MODE_FULLSCREEN,
             initialRightPaneRoute: String = "",
@@ -181,6 +250,8 @@ class PlayerActivity : FlutterHostActivity() {
                 context = context,
                 title = title,
                 source = source,
+                initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
+                startSource = startSource,
                 fromParallelHost = fromParallelHost,
                 hostContext = hashMapOf(),
                 layoutMode = layoutMode,
