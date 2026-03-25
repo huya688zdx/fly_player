@@ -6,11 +6,16 @@ import '../danmaku/models/danmaku_settings.dart';
 import '../danmaku/settings/danmaku_settings_store.dart';
 import '../player/stores/bookmark_store.dart';
 import '../player/stores/screenshot_settings_store.dart';
+import '../services/storage_access_service.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
 import '../ui/app_transitions.dart';
+import '../ui/secondary_host_navigation.dart';
+import '../utils/app_confirm_dialog.dart';
+import '../utils/app_top_tip.dart';
 import 'bookmark_manager_screen.dart';
 import 'danmaku_settings_screen.dart';
+import 'screenshot_preview_screen.dart';
 
 class OtherSettingsScreen extends StatefulWidget {
   const OtherSettingsScreen({super.key});
@@ -29,6 +34,7 @@ class _OtherSettingsScreenState extends State<OtherSettingsScreen> {
     includeSubtitles: ScreenshotSettingsStore.defaultIncludeSubtitles,
     savePathMode: ScreenshotSettingsStore.defaultSavePathMode,
   );
+  ScreenshotCustomDirectoryInfo? _customScreenshotDirectory;
   DanmakuSettings _danmakuSettings = DanmakuSettings.defaults;
   int _bookmarkCount = 0;
   bool _loading = true;
@@ -51,16 +57,18 @@ class _OtherSettingsScreenState extends State<OtherSettingsScreen> {
   }
 
   Future<void> _loadSettings() async {
-    final results = await Future.wait<Object>(<Future<Object>>[
+    final results = await Future.wait<Object?>(<Future<Object?>>[
       _screenshotStore.load(),
       _danmakuStore.load(),
       _bookmarkStore.loadAll(),
+      StorageAccessService.getScreenshotCustomDirectory(),
     ]);
     if (!mounted) return;
     setState(() {
       _screenshotSettings = results[0] as ScreenshotSettingsData;
       _danmakuSettings = results[1] as DanmakuSettings;
       _bookmarkCount = (results[2] as List<PlayerBookmarkEntry>).length;
+      _customScreenshotDirectory = results[3] as ScreenshotCustomDirectoryInfo?;
       _loading = false;
     });
   }
@@ -103,12 +111,24 @@ class _OtherSettingsScreenState extends State<OtherSettingsScreen> {
     return '$enabled / $source';
   }
 
+  String _screenshotSummary() {
+    final savePathLabel = switch (_screenshotSettings.savePathMode) {
+      ScreenshotSettingsStore.customSavePathMode =>
+        _customScreenshotDirectory?.available == true
+            ? _customScreenshotDirectory!.name
+            : '自定义目录未就绪',
+      _ => _screenshotStore.savePathLabel(_screenshotSettings.savePathMode),
+    };
+    return '${_screenshotStore.subtitleModeLabel(_screenshotSettings.includeSubtitles)} / $savePathLabel';
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: AppBar(
+      appBar: buildSecondaryHostAppBar(
+        context,
         title: Text(
           '其他',
           style: TextStyle(
@@ -153,8 +173,7 @@ class _OtherSettingsScreenState extends State<OtherSettingsScreen> {
                           _MenuTile(
                             icon: Icons.photo_camera_back_outlined,
                             title: '截图设置',
-                            subtitle:
-                                '${_screenshotStore.subtitleModeLabel(_screenshotSettings.includeSubtitles)} / ${_screenshotStore.savePathLabel(_screenshotSettings.savePathMode)}',
+                            subtitle: _screenshotSummary(),
                             onTap: _openScreenshotSettings,
                           ),
                         ],
@@ -171,6 +190,8 @@ class _OtherSettingsScreenState extends State<OtherSettingsScreen> {
 class ScreenshotSettingsScreen extends StatefulWidget {
   static const String targetIncludeSubtitles = 'include_subtitles';
   static const String targetSavePath = 'save_path';
+  static const String targetPreview = 'preview';
+  static const String targetCustomDirectory = 'custom_directory';
 
   final String? initialTarget;
 
@@ -228,6 +249,9 @@ class _ScreenshotSettingsDestinationScreenState
         initialValue: settings.savePathMode,
         store: _store,
       ),
+      ScreenshotSettingsScreen.targetPreview => const ScreenshotPreviewScreen(),
+      ScreenshotSettingsScreen.targetCustomDirectory =>
+        _ScreenshotCustomDirectoryScreen(store: _store),
       _ => const ScreenshotSettingsScreen(),
     };
   }
@@ -239,6 +263,7 @@ class _ScreenshotSettingsScreenState extends State<ScreenshotSettingsScreen> {
     includeSubtitles: ScreenshotSettingsStore.defaultIncludeSubtitles,
     savePathMode: ScreenshotSettingsStore.defaultSavePathMode,
   );
+  ScreenshotCustomDirectoryInfo? _customDirectoryInfo;
   bool _loading = true;
   bool _initialTargetHandled = false;
 
@@ -249,10 +274,14 @@ class _ScreenshotSettingsScreenState extends State<ScreenshotSettingsScreen> {
   }
 
   Future<void> _loadSettings() async {
-    final settings = await _store.load();
+    final results = await Future.wait<Object?>(<Future<Object?>>[
+      _store.load(),
+      StorageAccessService.getScreenshotCustomDirectory(),
+    ]);
     if (!mounted) return;
     setState(() {
-      _settings = settings;
+      _settings = results[0] as ScreenshotSettingsData;
+      _customDirectoryInfo = results[1] as ScreenshotCustomDirectoryInfo?;
       _loading = false;
     });
     if (!_initialTargetHandled && widget.initialTarget != null) {
@@ -321,6 +350,23 @@ class _ScreenshotSettingsScreenState extends State<ScreenshotSettingsScreen> {
     await _loadSettings();
   }
 
+  Future<void> _openPreview({bool animated = true}) async {
+    await Navigator.of(context).push(
+      _buildAutoRoute(const ScreenshotPreviewScreen(), animated: animated),
+    );
+    await _loadSettings();
+  }
+
+  Future<void> _openCustomDirectory({bool animated = true}) async {
+    await Navigator.of(context).push(
+      _buildAutoRoute(
+        _ScreenshotCustomDirectoryScreen(store: _store),
+        animated: animated,
+      ),
+    );
+    await _loadSettings();
+  }
+
   Future<void> _openInitialTarget() async {
     if (!mounted) return;
     switch (widget.initialTarget) {
@@ -348,9 +394,41 @@ class _ScreenshotSettingsScreenState extends State<ScreenshotSettingsScreen> {
           ),
         );
         break;
+      case ScreenshotSettingsScreen.targetPreview:
+        await Navigator.of(context).pushReplacement(
+          _buildAutoRoute(
+            const ScreenshotPreviewScreen(),
+            animated: false,
+            keepReverseAnimation: true,
+          ),
+        );
+        break;
+      case ScreenshotSettingsScreen.targetCustomDirectory:
+        await Navigator.of(context).pushReplacement(
+          _buildAutoRoute(
+            _ScreenshotCustomDirectoryScreen(store: _store),
+            animated: false,
+            keepReverseAnimation: true,
+          ),
+        );
+        break;
       default:
         break;
     }
+  }
+
+  String _savePathSummary() {
+    if (_settings.savePathMode != ScreenshotSettingsStore.customSavePathMode) {
+      return _store.savePathDescription(_settings.savePathMode);
+    }
+    final customInfo = _customDirectoryInfo;
+    if (customInfo == null) {
+      return '使用用户指定的目录保存截图，当前还未选择文件夹。';
+    }
+    if (!customInfo.available) {
+      return '已记录自定义目录“${customInfo.name}”，但授权失效，需要重新选择。';
+    }
+    return '当前保存到自定义目录“${customInfo.name}”。';
   }
 
   @override
@@ -358,7 +436,8 @@ class _ScreenshotSettingsScreenState extends State<ScreenshotSettingsScreen> {
     final colors = context.appColors;
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: AppBar(
+      appBar: buildSecondaryHostAppBar(
+        context,
         title: Text(
           '截图设置',
           style: TextStyle(
@@ -398,19 +477,29 @@ class _ScreenshotSettingsScreenState extends State<ScreenshotSettingsScreen> {
                           _MenuTile(
                             icon: Icons.folder_outlined,
                             title: '截图保存路径设置',
-                            subtitle: _store.savePathDescription(
-                              _settings.savePathMode,
-                            ),
+                            subtitle: _savePathSummary(),
                             onTap: _openSavePathMode,
+                          ),
+                          const _DividerLine(),
+                          _MenuTile(
+                            icon: Icons.collections_outlined,
+                            title: '截图预览',
+                            subtitle: '查看、筛选和管理已保存的截图。',
+                            onTap: _openPreview,
                           ),
                         ],
                       ),
                     ),
                     const SizedBox(height: 18),
-                    const _HintCard(
+                    _HintCard(
                       title: '说明',
                       content:
-                          '这里的修改只影响后续新截图，不会改动已经保存的图片。三级页现在改成即时保存但不自动返回，你可以连续切换对比后再手动返回。',
+                          '这里的修改只影响后续新截图，不会改动已经保存的图片。你可以在“截图保存路径设置”里管理自定义目录，在“截图预览”里集中查看和删除已有截图。',
+                      trailing: FilledButton.tonalIcon(
+                        onPressed: _openCustomDirectory,
+                        icon: const Icon(Icons.folder_special_outlined),
+                        label: const Text('管理自定义目录'),
+                      ),
                     ),
                   ],
                 ),
@@ -456,7 +545,8 @@ class _ScreenshotSubtitleModeScreenState
     final colors = context.appColors;
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: AppBar(
+      appBar: buildSecondaryHostAppBar(
+        context,
         title: Text(
           '截图是否携带字幕',
           style: TextStyle(
@@ -515,27 +605,98 @@ class _ScreenshotSavePathScreen extends StatefulWidget {
 }
 
 class _ScreenshotSavePathScreenState extends State<_ScreenshotSavePathScreen> {
+  final AppTopTip _topTip = AppTopTip();
+
   late String _currentValue;
+  ScreenshotCustomDirectoryInfo? _customDirectoryInfo;
+  bool _loadingCustomInfo = true;
 
   @override
   void initState() {
     super.initState();
     _currentValue = widget.initialValue;
+    unawaited(_loadCustomDirectoryInfo());
+  }
+
+  @override
+  void dispose() {
+    _topTip.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadCustomDirectoryInfo() async {
+    final info = await StorageAccessService.getScreenshotCustomDirectory();
+    if (!mounted) return;
+    setState(() {
+      _customDirectoryInfo = info;
+      _loadingCustomInfo = false;
+    });
+  }
+
+  Future<void> _manageCustomDirectory() async {
+    await Navigator.of(context).push(
+      AppTransitions.leftToRightPageTurnRoute<void>(
+        _ScreenshotCustomDirectoryScreen(store: widget.store),
+      ),
+    );
+    final results = await Future.wait<Object?>(<Future<Object?>>[
+      widget.store.load(),
+      StorageAccessService.getScreenshotCustomDirectory(),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _currentValue = (results[0] as ScreenshotSettingsData).savePathMode;
+      _customDirectoryInfo = results[1] as ScreenshotCustomDirectoryInfo?;
+      _loadingCustomInfo = false;
+    });
   }
 
   Future<void> _select(String value) async {
+    if (value == ScreenshotSettingsStore.customSavePathMode) {
+      final info = _customDirectoryInfo;
+      if (info?.available != true) {
+        _topTip.show(
+          context,
+          message: info == null ? '请先选择截图自定义目录' : '自定义目录已失效，请重新选择',
+          color: context.appColors.warning,
+        );
+        await _manageCustomDirectory();
+        if (!mounted) return;
+        if (_customDirectoryInfo?.available != true) {
+          return;
+        }
+      }
+    }
     if (_currentValue == value) return;
     await widget.store.savePathMode(value);
     if (!mounted) return;
     setState(() => _currentValue = value);
   }
 
+  String _customOptionSubtitle() {
+    if (_loadingCustomInfo) {
+      return '正在读取当前自定义目录状态…';
+    }
+    final info = _customDirectoryInfo;
+    if (info == null) {
+      return '保存到用户自己选择的文件夹，当前还未设置目录。';
+    }
+    if (!info.available) {
+      return '已记录目录“${info.name}”，但当前授权失效，需要重新选择。';
+    }
+    return '当前目录：${info.name}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final customDirectoryReady = _customDirectoryInfo?.available == true;
+    final customSelected =
+        _currentValue == ScreenshotSettingsStore.customSavePathMode;
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: AppBar(
+      appBar: buildSecondaryHostAppBar(
+        context,
         title: Text(
           '截图保存路径设置',
           style: TextStyle(
@@ -565,9 +726,13 @@ class _ScreenshotSavePathScreenState extends State<_ScreenshotSavePathScreen> {
               ) ...[
                 _ChoiceTile(
                   title: ScreenshotSettingsStore.savePathOptions[index].label,
-                  subtitle: ScreenshotSettingsStore
-                      .savePathOptions[index]
-                      .description,
+                  subtitle:
+                      ScreenshotSettingsStore.savePathOptions[index].value ==
+                          ScreenshotSettingsStore.customSavePathMode
+                      ? _customOptionSubtitle()
+                      : ScreenshotSettingsStore
+                            .savePathOptions[index]
+                            .description,
                   selected:
                       ScreenshotSettingsStore.savePathOptions[index].value ==
                       _currentValue,
@@ -578,8 +743,374 @@ class _ScreenshotSavePathScreenState extends State<_ScreenshotSavePathScreen> {
                 if (index != ScreenshotSettingsStore.savePathOptions.length - 1)
                   const SizedBox(height: 12),
               ],
+              const SizedBox(height: 18),
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(24),
+                  color: colors.surfaceSubtle,
+                  border: Border.all(color: colors.borderSubtle),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: Text(
+                            '自定义目录管理',
+                            style: TextStyle(
+                              color: colors.textPrimary,
+                              fontSize: AdaptiveText.roleSize(
+                                16,
+                                role: AdaptiveFontRole.title,
+                              ),
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        _StatusBadge(
+                          label: customDirectoryReady
+                              ? '目录可用'
+                              : _customDirectoryInfo == null
+                              ? '未设置'
+                              : '需重选',
+                          color: customDirectoryReady
+                              ? colors.success
+                              : colors.warning,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      customDirectoryReady
+                          ? '截图会保存到“${_customDirectoryInfo!.name}”，你可以把它设为当前保存目录，也可以随时更换。'
+                          : _customDirectoryInfo == null
+                          ? '先选择一个文件夹，再切换到“自定义目录”模式。'
+                          : '原来的目录“${_customDirectoryInfo!.name}”不可用了，请重新选择。',
+                      style: TextStyle(
+                        color: colors.textSecondary,
+                        fontSize: AdaptiveText.roleSize(
+                          13,
+                          role: AdaptiveFontRole.body,
+                        ),
+                        height: 1.5,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: <Widget>[
+                        FilledButton.tonalIcon(
+                          onPressed: _manageCustomDirectory,
+                          icon: Icon(
+                            _customDirectoryInfo == null
+                                ? Icons.create_new_folder_outlined
+                                : Icons.folder_open_outlined,
+                          ),
+                          label: Text(
+                            _customDirectoryInfo == null ? '选择目录' : '更换目录',
+                          ),
+                        ),
+                        if (_customDirectoryInfo != null)
+                          OutlinedButton.icon(
+                            onPressed: _manageCustomDirectory,
+                            icon: const Icon(Icons.tune_rounded),
+                            label: const Text('查看详情'),
+                          ),
+                        if (customDirectoryReady && !customSelected)
+                          FilledButton.icon(
+                            onPressed: () => _select(
+                              ScreenshotSettingsStore.customSavePathMode,
+                            ),
+                            icon: const Icon(Icons.check_circle_outline),
+                            label: const Text('设为当前保存目录'),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ScreenshotCustomDirectoryScreen extends StatefulWidget {
+  final ScreenshotSettingsStore store;
+
+  const _ScreenshotCustomDirectoryScreen({required this.store});
+
+  @override
+  State<_ScreenshotCustomDirectoryScreen> createState() =>
+      _ScreenshotCustomDirectoryScreenState();
+}
+
+class _ScreenshotCustomDirectoryScreenState
+    extends State<_ScreenshotCustomDirectoryScreen> {
+  final AppTopTip _topTip = AppTopTip();
+
+  ScreenshotSettingsData _settings = const ScreenshotSettingsData(
+    includeSubtitles: ScreenshotSettingsStore.defaultIncludeSubtitles,
+    savePathMode: ScreenshotSettingsStore.defaultSavePathMode,
+  );
+  ScreenshotCustomDirectoryInfo? _directoryInfo;
+  bool _loading = true;
+  bool _selecting = false;
+  bool _clearing = false;
+
+  bool get _directoryReady => _directoryInfo?.available == true;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  @override
+  void dispose() {
+    _topTip.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final results = await Future.wait<Object?>(<Future<Object?>>[
+      widget.store.load(),
+      StorageAccessService.getScreenshotCustomDirectory(),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _settings = results[0] as ScreenshotSettingsData;
+      _directoryInfo = results[1] as ScreenshotCustomDirectoryInfo?;
+      _loading = false;
+    });
+  }
+
+  Future<void> _pickDirectory() async {
+    if (_selecting) return;
+    setState(() => _selecting = true);
+    try {
+      final info =
+          await StorageAccessService.requestScreenshotCustomDirectory();
+      if (!mounted) return;
+      if (info == null) {
+        _topTip.show(
+          context,
+          message: '未选择目录',
+          color: context.appColors.warning,
+        );
+        return;
+      }
+      setState(() => _directoryInfo = info);
+      _topTip.show(
+        context,
+        message: info.available ? '已更新截图自定义目录' : '目录已记录，但当前不可用',
+        color: info.available
+            ? context.appColors.success
+            : context.appColors.warning,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _selecting = false);
+      }
+    }
+  }
+
+  Future<void> _clearDirectory() async {
+    if (_clearing || _directoryInfo == null) return;
+    final confirmed = await showAppConfirmDialog(
+      context,
+      title: '清除截图自定义目录',
+      content: '这不会删除已经保存的截图，只会移除当前目录授权。',
+      cancelText: '取消',
+      confirmText: '清除',
+      confirmColor: context.appColors.warning,
+    );
+    if (!confirmed || !mounted) return;
+    setState(() => _clearing = true);
+    try {
+      await StorageAccessService.clearScreenshotCustomDirectory();
+      if (!mounted) return;
+      if (_settings.savePathMode ==
+          ScreenshotSettingsStore.customSavePathMode) {
+        final nextSettings = await widget.store.savePathMode(
+          ScreenshotSettingsStore.defaultSavePathMode,
+        );
+        if (!mounted) return;
+        _settings = nextSettings;
+      }
+      setState(() => _directoryInfo = null);
+      _topTip.show(
+        context,
+        message: '已清除截图自定义目录',
+        color: context.appColors.success,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _clearing = false);
+      }
+    }
+  }
+
+  Future<void> _activateCustomMode() async {
+    if (!_directoryReady) return;
+    final nextSettings = await widget.store.savePathMode(
+      ScreenshotSettingsStore.customSavePathMode,
+    );
+    if (!mounted) return;
+    setState(() => _settings = nextSettings);
+    _topTip.show(
+      context,
+      message: '截图保存目录已切换为自定义目录',
+      color: context.appColors.success,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final usingCustomDirectory =
+        _settings.savePathMode == ScreenshotSettingsStore.customSavePathMode;
+    return Scaffold(
+      backgroundColor: colors.backgroundBase,
+      appBar: buildSecondaryHostAppBar(
+        context,
+        title: Text(
+          '截图自定义目录',
+          style: TextStyle(
+            color: colors.textPrimary,
+            fontSize: AdaptiveText.roleSize(18, role: AdaptiveFontRole.title),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+      body: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: <Color>[colors.backgroundElevated, colors.backgroundBase],
+          ),
+        ),
+        child: SafeArea(
+          top: false,
+          child: _loading
+              ? Center(child: CircularProgressIndicator(color: colors.accent))
+              : ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                  children: <Widget>[
+                    Container(
+                      padding: const EdgeInsets.all(22),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(28),
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: <Color>[
+                            colors.accent.withValues(alpha: 0.22),
+                            colors.surfaceSubtle,
+                          ],
+                        ),
+                        border: Border.all(color: colors.borderSubtle),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Row(
+                            children: <Widget>[
+                              Expanded(
+                                child: Text(
+                                  _directoryInfo?.name ?? '还没有选择目录',
+                                  style: TextStyle(
+                                    color: colors.textPrimary,
+                                    fontSize: AdaptiveText.roleSize(
+                                      22,
+                                      role: AdaptiveFontRole.title,
+                                    ),
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                              _StatusBadge(
+                                label: _directoryReady
+                                    ? '可写入'
+                                    : _directoryInfo == null
+                                    ? '未设置'
+                                    : '已失效',
+                                color: _directoryReady
+                                    ? colors.success
+                                    : colors.warning,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            _directoryReady
+                                ? '新的截图会直接写入这个目录。'
+                                : _directoryInfo == null
+                                ? '选择一个文件夹后，就可以把截图保存到你指定的位置。'
+                                : '目录授权已经失效，需要重新选择后才能继续保存截图。',
+                            style: TextStyle(
+                              color: colors.textSecondary,
+                              fontSize: AdaptiveText.roleSize(
+                                14,
+                                role: AdaptiveFontRole.body,
+                              ),
+                              height: 1.5,
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          Wrap(
+                            spacing: 10,
+                            runSpacing: 10,
+                            children: <Widget>[
+                              FilledButton.icon(
+                                onPressed: _selecting ? null : _pickDirectory,
+                                icon: Icon(
+                                  _directoryInfo == null
+                                      ? Icons.create_new_folder_outlined
+                                      : Icons.sync_alt_rounded,
+                                ),
+                                label: Text(
+                                  _directoryInfo == null ? '选择目录' : '更换目录',
+                                ),
+                              ),
+                              if (_directoryInfo != null)
+                                OutlinedButton.icon(
+                                  onPressed: _clearing ? null : _clearDirectory,
+                                  icon: const Icon(Icons.delete_outline),
+                                  label: const Text('清除授权'),
+                                ),
+                              if (_directoryReady && !usingCustomDirectory)
+                                FilledButton.tonalIcon(
+                                  onPressed: _activateCustomMode,
+                                  icon: const Icon(Icons.check_circle_outline),
+                                  label: const Text('设为当前保存目录'),
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    _HintCard(
+                      title: '当前状态',
+                      content: usingCustomDirectory
+                          ? '当前截图已经使用自定义目录保存。更换目录后，新截图会进入新目录，旧截图不会迁移。'
+                          : '当前截图还没有切换到自定义目录。设置好目录后，可以在保存路径页或本页直接启用。',
+                    ),
+                    const SizedBox(height: 14),
+                    const _HintCard(
+                      title: '说明',
+                      content:
+                          '自定义目录与字幕导入使用不同的授权，不会互相覆盖。目录失效时，截图不会自动回退到固定目录，而是提示你重新选择。',
+                    ),
+                  ],
+                ),
         ),
       ),
     );
@@ -766,6 +1297,33 @@ class _ChoiceTile extends StatelessWidget {
   }
 }
 
+class _StatusBadge extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _StatusBadge({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color: color.withValues(alpha: 0.16),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: AdaptiveText.roleSize(12, role: AdaptiveFontRole.body),
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
 class _DividerLine extends StatelessWidget {
   const _DividerLine();
 
@@ -782,8 +1340,9 @@ class _DividerLine extends StatelessWidget {
 class _HintCard extends StatelessWidget {
   final String title;
   final String content;
+  final Widget? trailing;
 
-  const _HintCard({required this.title, required this.content});
+  const _HintCard({required this.title, required this.content, this.trailing});
 
   @override
   Widget build(BuildContext context) {
@@ -816,6 +1375,10 @@ class _HintCard extends StatelessWidget {
               height: 1.5,
             ),
           ),
+          if (trailing != null) ...<Widget>[
+            const SizedBox(height: 16),
+            trailing!,
+          ],
         ],
       ),
     );

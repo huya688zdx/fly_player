@@ -280,8 +280,10 @@ class _RangeChips extends StatelessWidget {
   }
 
   int rangeSizeHint(List<List<TvEpisodeCardData>> ranges, int index) {
-    if (ranges.isEmpty) return 1;
-    return ranges.first.length;
+    if (ranges.isEmpty) return 0;
+    if (ranges.length == 1) return ranges.first.length;
+    if (index == 0) return ranges.first.length;
+    return ranges[0].length;
   }
 }
 

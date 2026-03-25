@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../providers/parallel_window_settings_provider.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
+import '../ui/secondary_host_navigation.dart';
 
 class ParallelWindowSettingsScreen extends StatelessWidget {
   const ParallelWindowSettingsScreen({super.key});
@@ -16,7 +17,8 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: AppBar(
+      appBar: buildSecondaryHostAppBar(
+        context,
         title: Text(
           '平行窗口设置',
           style: TextStyle(

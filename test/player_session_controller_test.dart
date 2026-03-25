@@ -83,6 +83,7 @@ void main() {
         seekProbeSummary: 'direct',
         playbackMode: PlayerPlaybackMode.directLinkQuality,
         playbackSpeed: 1.25,
+        listenVideoModeEnabled: true,
         audioTracks: [audioTrack],
         subtitleTracks: [subtitleTrack],
         qualities: [quality],
@@ -103,6 +104,7 @@ void main() {
       expect(controller.currentMediaGuid, 'media-1');
       expect(controller.currentHeaders, {'Authorization': 'token'});
       expect(controller.playbackMode, PlayerPlaybackMode.directLinkQuality);
+      expect(controller.listenVideoModeEnabled, isTrue);
       expect(controller.resumeStartPosition, const Duration(seconds: 45));
       expect(controller.audioTracks.single.guid, 'audio-1');
       expect(snapshot.subtitleGuid, 'sub-1');

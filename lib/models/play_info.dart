@@ -69,6 +69,21 @@ class PlayInfoData {
   }
 
   bool get isEpisode => type == 'Episode' || item.type == 'Episode';
+
+  Map<String, Object?> toJson() {
+    return <String, Object?>{
+      'grand_guid': grandGuid,
+      'type': type,
+      'ts': ts,
+      'media_guid': mediaGuid,
+      'video_guid': videoGuid,
+      'audio_guid': audioGuid,
+      'subtitle_guid': subtitleGuid,
+      'parent_guid': parentGuid,
+      'item': item.toJson(),
+      'play_config': playConfig?.toJson(),
+    };
+  }
 }
 
 class PlayConfig {
@@ -76,11 +91,7 @@ class PlayConfig {
   final int? skipOpening;
   final int? skipEnding;
 
-  const PlayConfig({
-    required this.guid,
-    this.skipOpening,
-    this.skipEnding,
-  });
+  const PlayConfig({required this.guid, this.skipOpening, this.skipEnding});
 
   factory PlayConfig.fromJson(Map<String, dynamic> json) {
     return PlayConfig(
@@ -91,6 +102,14 @@ class PlayConfig {
   }
 
   bool get enabled => skipOpening != null || skipEnding != null;
+
+  Map<String, Object?> toJson() {
+    return <String, Object?>{
+      'guid': guid,
+      'skip_opening': skipOpening,
+      'skip_ending': skipEnding,
+    };
+  }
 }
 
 class PlayItem {
@@ -213,6 +232,46 @@ class PlayItem {
       return title;
     }
     return parentTitle;
+  }
+
+  Map<String, Object?> toJson() {
+    return <String, Object?>{
+      'guid': guid,
+      'trim_id': trimId,
+      'type': type,
+      'title': title,
+      'tv_title': tvTitle,
+      'parent_title': parentTitle,
+      'logos': logos,
+      'posters': posters,
+      'backdrops': backdrops,
+      'still_path': stillPath,
+      'vote_average': voteAverage,
+      'release_date': releaseDate,
+      'air_date': airDate,
+      'runtime': runtime,
+      'duration': duration,
+      'watched_ts': watchedTs,
+      'overview': overview,
+      'season_number': seasonNumber,
+      'episode_number': episodeNumber,
+      'number_of_seasons': numberOfSeasons,
+      'local_number_of_seasons': localNumberOfSeasons,
+      'number_of_episodes': numberOfEpisodes,
+      'local_number_of_episodes': localNumberOfEpisodes,
+      'genres': genres,
+      'production_countries': productionCountries,
+      'media_stream': <String, Object?>{
+        'resolutions': resolutions,
+        'audio_type': audioTypes,
+        'color_range_type': colorRanges,
+      },
+      'ancestor_name': ancestorName,
+      'can_play': canPlay,
+      'play_error': playError,
+      'is_favorite': isFavorite,
+      'is_watched': isWatched,
+    };
   }
 }
 

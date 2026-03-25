@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Bundle
 import android.os.Build
 import android.os.Handler
@@ -19,6 +20,7 @@ import androidx.core.app.NotificationCompat
 import androidx.media.app.NotificationCompat.MediaStyle
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -418,6 +420,11 @@ class PlaybackSessionManager(
         headers: Map<String, String>,
     ): Pair<String, Bitmap>? {
         for (url in urls) {
+            val localBitmap = loadArtworkBitmapFromLocalSource(url)
+            if (localBitmap != null) {
+                Log.d(logTag, "Artwork loaded from local source: $url ${localBitmap.width}x${localBitmap.height}")
+                return url to localBitmap
+            }
             val bitmap =
                 runCatching {
                     Log.d(logTag, "Artwork request: $url")
@@ -459,6 +466,45 @@ class PlaybackSessionManager(
             }
         }
         return null
+    }
+
+    private fun loadArtworkBitmapFromLocalSource(url: String): Bitmap? {
+        val trimmed = url.trim()
+        if (trimmed.isEmpty()) {
+            return null
+        }
+        return runCatching {
+            val uri = Uri.parse(trimmed)
+            when {
+                uri.scheme.equals("file", ignoreCase = true) -> {
+                    val path = uri.path?.trim().orEmpty()
+                    if (path.isEmpty()) {
+                        null
+                    } else {
+                        loadArtworkBitmapFromFile(File(path))
+                    }
+                }
+                uri.scheme.equals("content", ignoreCase = true) -> {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        decodeArtworkBitmap(input.readBytes())
+                    }
+                }
+                uri.scheme.isNullOrBlank() && trimmed.startsWith("/") -> {
+                    loadArtworkBitmapFromFile(File(trimmed))
+                }
+                else -> null
+            }
+        }.getOrElse { error ->
+            Log.w(logTag, "Artwork local read failed for $trimmed: ${error.message}")
+            null
+        }
+    }
+
+    private fun loadArtworkBitmapFromFile(file: File): Bitmap? {
+        if (!file.isFile || file.length() <= 0L) {
+            return null
+        }
+        return decodeArtworkBitmap(file.readBytes())
     }
 
     private fun decodeArtworkBitmap(bytes: ByteArray): Bitmap? {

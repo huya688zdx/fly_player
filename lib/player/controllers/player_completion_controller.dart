@@ -15,6 +15,7 @@ class PlayerCompletionController extends ChangeNotifier {
   bool _completionHasNextEpisode = false;
   bool _suppressPlaybackCompletionUntilReady = false;
   bool _autoPlayPromptSuppressed = false;
+  bool _autoPlayCountdownPaused = false;
   late int _autoPlayCountdownSeconds;
 
   PlayerCompletionController({
@@ -98,6 +99,7 @@ class PlayerCompletionController extends ChangeNotifier {
     final changed = _autoPlayPromptVisible || _pauseAfterReadyForAutoPlayPrompt;
     _autoPlayPromptVisible = false;
     _pauseAfterReadyForAutoPlayPrompt = false;
+    _autoPlayCountdownPaused = false;
     _autoPlayCountdownSeconds = autoPlayCountdownDuration.inSeconds;
     if (notify && changed) {
       notifyListeners();
@@ -114,6 +116,7 @@ class PlayerCompletionController extends ChangeNotifier {
     _completionHasNextEpisode = hasNextEpisode;
     _autoPlayPromptSuppressed = false;
     _autoPlayPromptVisible = true;
+    _autoPlayCountdownPaused = false;
     _autoPlayCountdownSeconds = autoPlayCountdownDuration.inSeconds;
     notifyListeners();
 
@@ -124,6 +127,9 @@ class PlayerCompletionController extends ChangeNotifier {
         timer.cancel();
         return;
       }
+      if (_autoPlayCountdownPaused) {
+        return;
+      }
       if (_autoPlayCountdownSeconds <= 1) {
         timer.cancel();
         onTimeout();
@@ -132,6 +138,10 @@ class PlayerCompletionController extends ChangeNotifier {
       _autoPlayCountdownSeconds -= 1;
       notifyListeners();
     });
+  }
+
+  void setAutoPlayCountdownPaused(bool paused) {
+    _autoPlayCountdownPaused = paused;
   }
 
   void markTransitionInFlight({required bool hasNextEpisode}) {
@@ -192,6 +202,7 @@ class PlayerCompletionController extends ChangeNotifier {
     _autoPlayPromptVisible = false;
     _pauseAfterReadyForAutoPlayPrompt = false;
     _autoPlayPromptSuppressed = true;
+    _autoPlayCountdownPaused = false;
     _autoPlayCountdownSeconds = autoPlayCountdownDuration.inSeconds;
     if (changed) {
       notifyListeners();
@@ -216,6 +227,7 @@ class PlayerCompletionController extends ChangeNotifier {
     _completionHasNextEpisode = false;
     _suppressPlaybackCompletionUntilReady = false;
     _autoPlayPromptSuppressed = false;
+    _autoPlayCountdownPaused = false;
     _autoPlayCountdownSeconds = autoPlayCountdownDuration.inSeconds;
     if (changed) {
       notifyListeners();

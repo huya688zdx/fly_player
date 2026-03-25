@@ -25,6 +25,7 @@ class AdaptiveDetailRequest {
 
   factory AdaptiveDetailRequest.item({
     required String itemGuid,
+    String seriesGuid = '',
     String? heroTag,
     Map<String, dynamic>? initialItemDetail,
   }) {
@@ -32,15 +33,25 @@ class AdaptiveDetailRequest {
       buildRoute: (presentation) => AppTransitions.leftToRightPageTurnRoute(
         PlayDetailScreen(
           itemGuid: itemGuid,
+          seriesGuid: seriesGuid,
           heroTag: heroTag,
           initialItemDetail: initialItemDetail,
           presentation: presentation,
         ),
       ),
-      tryOpenEmbedded: () => EmbeddedDetailLauncher.openItemDetail(itemGuid),
+      tryOpenEmbedded: () => EmbeddedDetailLauncher.openItemDetail(
+        itemGuid,
+        seriesGuid: seriesGuid,
+        initialItemDetail: initialItemDetail,
+      ),
       localRouteName: Uri(
         path: '/detail/item',
-        queryParameters: <String, String>{'itemGuid': itemGuid.trim()},
+        queryParameters: <String, String>{
+          'itemGuid': itemGuid.trim(),
+          if (seriesGuid.trim().isNotEmpty) 'seriesGuid': seriesGuid.trim(),
+          if (initialItemDetail != null)
+            'initialItemDetail': jsonEncode(initialItemDetail),
+        },
       ).toString(),
     );
   }

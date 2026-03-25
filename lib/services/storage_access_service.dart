@@ -73,6 +73,93 @@ class LocalBrowserFileSelection {
   });
 }
 
+class ScreenshotCustomDirectoryInfo {
+  final String id;
+  final String name;
+  final String locationLabel;
+  final bool available;
+
+  const ScreenshotCustomDirectoryInfo({
+    required this.id,
+    required this.name,
+    required this.locationLabel,
+    required this.available,
+  });
+
+  factory ScreenshotCustomDirectoryInfo.fromMap(Map<Object?, Object?> raw) {
+    return ScreenshotCustomDirectoryInfo(
+      id: (raw['id'] ?? '').toString(),
+      name: (raw['name'] ?? '').toString(),
+      locationLabel: (raw['locationLabel'] ?? '').toString(),
+      available: raw['available'] == true,
+    );
+  }
+}
+
+class ScreenshotLibraryItem {
+  final String id;
+  final String name;
+  final String sourceKind;
+  final String locationLabel;
+  final int sizeBytes;
+  final DateTime modifiedAt;
+  final bool isScoped;
+  final String pathOrIdentifier;
+
+  const ScreenshotLibraryItem({
+    required this.id,
+    required this.name,
+    required this.sourceKind,
+    required this.locationLabel,
+    required this.sizeBytes,
+    required this.modifiedAt,
+    required this.isScoped,
+    required this.pathOrIdentifier,
+  });
+
+  factory ScreenshotLibraryItem.fromMap(Map<Object?, Object?> raw) {
+    final modifiedAtMs = switch (raw['modifiedAtMs']) {
+      final int value => value,
+      final num value => value.toInt(),
+      _ => 0,
+    };
+    return ScreenshotLibraryItem(
+      id: (raw['id'] ?? '').toString(),
+      name: (raw['name'] ?? '').toString(),
+      sourceKind: (raw['sourceKind'] ?? '').toString(),
+      locationLabel: (raw['locationLabel'] ?? '').toString(),
+      sizeBytes: switch (raw['sizeBytes']) {
+        final int value => value,
+        final num value => value.toInt(),
+        _ => 0,
+      },
+      modifiedAt: DateTime.fromMillisecondsSinceEpoch(modifiedAtMs),
+      isScoped: raw['isScoped'] == true,
+      pathOrIdentifier: (raw['pathOrIdentifier'] ?? '').toString(),
+    );
+  }
+
+  Map<String, Object?> toMap() {
+    return <String, Object?>{
+      'id': id,
+      'name': name,
+      'sourceKind': sourceKind,
+      'locationLabel': locationLabel,
+      'sizeBytes': sizeBytes,
+      'modifiedAtMs': modifiedAt.millisecondsSinceEpoch,
+      'isScoped': isScoped,
+      'pathOrIdentifier': pathOrIdentifier,
+    };
+  }
+
+  Map<String, String> toDeletePayload() {
+    return <String, String>{
+      'sourceKind': sourceKind,
+      'pathOrIdentifier': pathOrIdentifier,
+    };
+  }
+}
+
 class StorageAccessService {
   static const MethodChannel _channel = MethodChannel('fly_player/storage');
 
@@ -138,6 +225,78 @@ class StorageAccessService {
       'readScopedFileBytes',
       <String, Object?>{'identifier': trimmed},
     );
+  }
+
+  static Future<ScreenshotCustomDirectoryInfo?>
+  getScreenshotCustomDirectory() async {
+    final raw = await _channel.invokeMethod<Map<Object?, Object?>>(
+      'getScreenshotCustomDirectory',
+    );
+    if (raw == null || raw.isEmpty) return null;
+    return ScreenshotCustomDirectoryInfo.fromMap(raw);
+  }
+
+  static Future<ScreenshotCustomDirectoryInfo?>
+  requestScreenshotCustomDirectory() async {
+    final raw = await _channel.invokeMethod<Map<Object?, Object?>>(
+      'requestScreenshotCustomDirectory',
+    );
+    if (raw == null || raw.isEmpty) return null;
+    return ScreenshotCustomDirectoryInfo.fromMap(raw);
+  }
+
+  static Future<bool> clearScreenshotCustomDirectory() async {
+    final result = await _channel.invokeMethod<bool>(
+      'clearScreenshotCustomDirectory',
+    );
+    return result == true;
+  }
+
+  static Future<List<ScreenshotLibraryItem>> listScreenshotLibrary() async {
+    final raw = await _channel.invokeMethod<List<dynamic>>(
+      'listScreenshotLibrary',
+    );
+    return (raw ?? const <dynamic>[])
+        .whereType<Map>()
+        .map(
+          (item) =>
+              ScreenshotLibraryItem.fromMap(item.cast<Object?, Object?>()),
+        )
+        .toList(growable: false);
+  }
+
+  static Future<Uint8List?> readScreenshotFileBytes({
+    required String sourceKind,
+    required String pathOrIdentifier,
+  }) async {
+    final trimmedSource = sourceKind.trim();
+    final trimmedPath = pathOrIdentifier.trim();
+    if (trimmedSource.isEmpty || trimmedPath.isEmpty) return null;
+    return _channel.invokeMethod<Uint8List>(
+      'readScreenshotFileBytes',
+      <String, Object?>{
+        'sourceKind': trimmedSource,
+        'pathOrIdentifier': trimmedPath,
+      },
+    );
+  }
+
+  static Future<int> deleteScreenshotFiles(
+    List<ScreenshotLibraryItem> items,
+  ) async {
+    if (items.isEmpty) return 0;
+    final raw = await _channel.invokeMethod<Map<Object?, Object?>>(
+      'deleteScreenshotFiles',
+      <String, Object?>{
+        'items': items.map((item) => item.toDeletePayload()).toList(),
+      },
+    );
+    if (raw == null || raw.isEmpty) return 0;
+    return switch (raw['deletedCount']) {
+      final int value => value,
+      final num value => value.toInt(),
+      _ => 0,
+    };
   }
 
   static bool isScopedIdentifier(String identifier) {

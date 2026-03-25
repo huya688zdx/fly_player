@@ -121,6 +121,54 @@ class AppTransitions {
     );
   }
 
+  static Page<T> paneCardPage<T>({
+    required Widget child,
+    required LocalKey key,
+    String? name,
+    Object? arguments,
+    String? restorationId,
+    bool maintainState = true,
+    bool disableHero = true,
+  }) {
+    return AppPaneCardPage<T>(
+      key: key,
+      name: name,
+      arguments: arguments,
+      restorationId: restorationId,
+      maintainState: maintainState,
+      disableHero: disableHero,
+      child: child,
+    );
+  }
+
+  static Route<T> paneCardRoute<T>(
+    Widget page, {
+    RouteSettings? settings,
+    bool maintainState = true,
+    bool disableHero = true,
+  }) {
+    return AppPaneCardRoute<T>(
+      builder: (_) => page,
+      settings: settings,
+      maintainState: maintainState,
+      disableHero: disableHero,
+    );
+  }
+
+  static Route<T> splitPaneHostRoute<T>(
+    Widget page, {
+    RouteSettings? settings,
+    bool maintainState = true,
+    bool disableHero = true,
+  }) {
+    return _AppSplitPaneHostRoute<T>(
+      builder: (_) => page,
+      settings: settings,
+      maintainState: maintainState,
+      disableHero: disableHero,
+    );
+  }
+
   // Dedicated route for immersive player pages. Avoid lateral page-turn so the
   // previous detail page does not leak from the edge during entry.
   static Route<T> playerRoute<T>(Widget page) {
@@ -229,4 +277,212 @@ class AppTransitions {
       child: KeyedSubtree(key: ValueKey<String>(switchKey), child: child),
     );
   }
+}
+
+class AppPaneCardPage<T> extends Page<T> {
+  final Widget child;
+  final bool maintainState;
+  final bool disableHero;
+
+  const AppPaneCardPage({
+    required this.child,
+    required LocalKey key,
+    super.name,
+    super.arguments,
+    super.restorationId,
+    this.maintainState = true,
+    this.disableHero = true,
+  }) : super(key: key);
+
+  @override
+  Route<T> createRoute(BuildContext context) {
+    return _AppPageBasedPaneCardRoute<T>(page: this);
+  }
+}
+
+class AppPaneCardRoute<T> extends PageRoute<T> {
+  final WidgetBuilder builder;
+  @override
+  final bool maintainState;
+  final bool disableHero;
+
+  AppPaneCardRoute({
+    required this.builder,
+    super.settings,
+    this.maintainState = true,
+    this.disableHero = true,
+    super.allowSnapshotting = true,
+    super.barrierDismissible = false,
+  });
+
+  @override
+  Duration get transitionDuration => AppTransitions.routeEnter;
+
+  @override
+  Duration get reverseTransitionDuration => AppTransitions.routeExit;
+
+  @override
+  DelegatedTransitionBuilder? get delegatedTransition => null;
+
+  Widget _buildPageContent(BuildContext context) {
+    final child = builder(context);
+    if (!disableHero) return child;
+    return HeroMode(enabled: false, child: child);
+  }
+
+  @override
+  Color? get barrierColor => null;
+
+  @override
+  String? get barrierLabel => null;
+
+  @override
+  Widget buildPage(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+  ) {
+    return _buildPageContent(context);
+  }
+
+  @override
+  Widget buildTransitions(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    return AppTransitions.leftToRightPageTurnTransition(
+      child,
+      animation,
+      secondaryAnimation,
+      context,
+    );
+  }
+
+  @override
+  String get debugLabel => '${super.debugLabel}(${settings.name})';
+}
+
+class _AppPageBasedPaneCardRoute<T> extends PageRoute<T> {
+  _AppPageBasedPaneCardRoute({
+    required AppPaneCardPage<T> page,
+    super.allowSnapshotting = true,
+  }) : super(settings: page);
+
+  AppPaneCardPage<T> get _page => settings as AppPaneCardPage<T>;
+
+  @override
+  Duration get transitionDuration => AppTransitions.routeEnter;
+
+  @override
+  Duration get reverseTransitionDuration => AppTransitions.routeExit;
+
+  @override
+  DelegatedTransitionBuilder? get delegatedTransition => null;
+
+  @override
+  bool get maintainState => _page.maintainState;
+
+  @override
+  Color? get barrierColor => null;
+
+  @override
+  String? get barrierLabel => null;
+
+  Widget _buildPageContent(BuildContext context) {
+    if (!_page.disableHero) return _page.child;
+    return HeroMode(enabled: false, child: _page.child);
+  }
+
+  @override
+  Widget buildPage(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+  ) {
+    return _buildPageContent(context);
+  }
+
+  @override
+  Widget buildTransitions(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    return AppTransitions.leftToRightPageTurnTransition(
+      child,
+      animation,
+      secondaryAnimation,
+      context,
+    );
+  }
+
+  @override
+  String get debugLabel => '${super.debugLabel}(${settings.name})';
+}
+
+class _AppSplitPaneHostRoute<T> extends PageRoute<T> {
+  final WidgetBuilder builder;
+  @override
+  final bool maintainState;
+  final bool disableHero;
+
+  _AppSplitPaneHostRoute({
+    required this.builder,
+    super.settings,
+    this.maintainState = true,
+    this.disableHero = true,
+    super.allowSnapshotting = true,
+    super.barrierDismissible = false,
+  });
+
+  @override
+  Duration get transitionDuration => AppTransitions.routeEnter;
+
+  @override
+  Duration get reverseTransitionDuration => AppTransitions.routeExit;
+
+  @override
+  DelegatedTransitionBuilder? get delegatedTransition => null;
+
+  @override
+  Color? get barrierColor => null;
+
+  @override
+  String? get barrierLabel => null;
+
+  Widget _buildPageContent(BuildContext context) {
+    final child = builder(context);
+    if (!disableHero) return child;
+    return HeroMode(enabled: false, child: child);
+  }
+
+  @override
+  Widget buildPage(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+  ) {
+    return _buildPageContent(context);
+  }
+
+  @override
+  Widget buildTransitions(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    return AppTransitions.leftToRightPageTurnTransition(
+      child,
+      animation,
+      secondaryAnimation,
+      context,
+    );
+  }
+
+  @override
+  String get debugLabel => '${super.debugLabel}(${settings.name})';
 }

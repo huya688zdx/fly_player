@@ -5,9 +5,13 @@ import android.util.Log
 class TrackSelectionController(
     private val mpv: MpvFacade = DefaultMpvFacade,
 ) {
+    companion object {
+        private const val DEFAULT_SUBTITLE_POSITION = 92
+    }
+
     private var pendingAudioDelay = 0.0
     private var pendingSubtitleDelay = 0.0
-    private var pendingSubtitlePosition = 100
+    private var pendingSubtitlePosition = DEFAULT_SUBTITLE_POSITION
     private var pendingSubtitleScale = 1.0
     private var pendingExternalSubtitlePath: String? = null
     private var activeExternalSubtitlePath: String? = null
@@ -144,7 +148,7 @@ class TrackSelectionController(
 
     fun resetSubtitleStyle() {
         pendingSubtitleDelay = 0.0
-        pendingSubtitlePosition = 100
+        pendingSubtitlePosition = DEFAULT_SUBTITLE_POSITION
         pendingSubtitleScale = 1.0
     }
 

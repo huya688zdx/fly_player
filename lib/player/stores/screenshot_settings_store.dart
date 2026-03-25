@@ -28,13 +28,14 @@ class ScreenshotSettingsStore {
 
   static const bool defaultIncludeSubtitles = false;
   static const String defaultSavePathMode = 'pictures';
+  static const String customSavePathMode = 'custom';
 
   static const List<ScreenshotSavePathOption> savePathOptions =
       <ScreenshotSavePathOption>[
         ScreenshotSavePathOption(
           value: 'pictures',
           label: '系统相册',
-          description: '保存到 Pictures/FlyPlayer，最适合普通截图查看。',
+          description: '保存到 Pictures/FlyPlayer，适合普通截图查看。',
         ),
         ScreenshotSavePathOption(
           value: 'dcim',
@@ -45,6 +46,11 @@ class ScreenshotSettingsStore {
           value: 'app_pictures',
           label: '应用目录',
           description: '保存到应用专属图片目录，更干净，但部分图库不会直接扫描。',
+        ),
+        ScreenshotSavePathOption(
+          value: customSavePathMode,
+          label: '自定义目录',
+          description: '保存到用户自己选择的文件夹，适合集中管理截图。',
         ),
       ];
 

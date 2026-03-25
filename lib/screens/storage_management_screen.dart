@@ -11,6 +11,7 @@ import '../services/download_task_service.dart';
 import '../services/storage_management_service.dart';
 import '../theme/app_theme.dart';
 import '../ui/app_transitions.dart';
+import '../ui/secondary_host_navigation.dart';
 import '../utils/app_top_tip.dart';
 
 class StorageManagementScreen extends StatefulWidget {
@@ -436,6 +437,7 @@ class _StorageManagementScreenState extends State<StorageManagementScreen> {
       StorageItemKind.screenshots => const Color(0xFF06B6D4),
       StorageItemKind.logs => const Color(0xFFF59E0B),
       StorageItemKind.appData => const Color(0xFF60A5FA),
+      StorageItemKind.danmakuAiCache => const Color(0xFFEC4899),
       StorageItemKind.otherCache => const Color(0xFF64748B),
     };
   }
@@ -456,7 +458,8 @@ class _StorageManagementScreenState extends State<StorageManagementScreen> {
     final overview = _overview;
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: AppBar(
+      appBar: buildSecondaryHostAppBar(
+        context,
         title: const Text('储存管理'),
         actions: <Widget>[
           IconButton(
@@ -496,6 +499,10 @@ class _StorageManagementScreenState extends State<StorageManagementScreen> {
                     StorageItemKind.screenshots,
                   ),
                   logsItem: _itemOfKind(overview, StorageItemKind.logs),
+                  danmakuAiCacheItem: _itemOfKind(
+                    overview,
+                    StorageItemKind.danmakuAiCache,
+                  ),
                   appDataItem: _itemOfKind(overview, StorageItemKind.appData),
                   otherCacheItem: _itemOfKind(
                     overview,
@@ -663,7 +670,7 @@ class _StorageAppDataScreenState extends State<StorageAppDataScreen> {
     final overview = widget.overview;
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: AppBar(title: const Text('应用数据与危险操作')),
+      appBar: buildSecondaryHostAppBar(context, title: const Text('应用数据与危险操作')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
         children: <Widget>[
@@ -714,7 +721,9 @@ class _StorageAppDataScreenState extends State<StorageAppDataScreen> {
                 _DangerActionRow(
                   title: '清空弹幕来源',
                   subtitle: '删除已保存的弹幕来源记录',
-                  trailing: widget.formatBytes(overview.danmakuSourcesBytes),
+                  trailing: widget.formatBytes(
+                    overview.danmakuSourcesBytes + overview.danmakuCacheBytes,
+                  ),
                   busy: _working,
                   onTap: () => _runDangerAction(
                     title: '清空弹幕来源',
@@ -832,8 +841,33 @@ class _StorageChartCard extends StatefulWidget {
   State<_StorageChartCard> createState() => _StorageChartCardState();
 }
 
-class _StorageChartCardState extends State<_StorageChartCard> {
+class _StorageChartCardState extends State<_StorageChartCard>
+    with SingleTickerProviderStateMixin {
   StorageItemKind? _selectedKind;
+  StorageItemKind? _animatedKind;
+  late final AnimationController _selectionController;
+  late final CurvedAnimation _selectionCurve;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectionController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 280),
+      reverseDuration: const Duration(milliseconds: 220),
+    );
+    _selectionCurve = CurvedAnimation(
+      parent: _selectionController,
+      curve: Curves.easeOutBack,
+      reverseCurve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  void dispose() {
+    _selectionController.dispose();
+    super.dispose();
+  }
 
   StorageItemKind? _effectiveSelectedKind(List<StorageBreakdownItem> items) {
     if (items.isEmpty) return null;
@@ -844,10 +878,23 @@ class _StorageChartCardState extends State<_StorageChartCard> {
     return null;
   }
 
-  void _toggleSelected(StorageItemKind kind) {
+  Future<void> _toggleSelected(StorageItemKind kind) async {
+    if (_selectedKind == kind) {
+      setState(() {
+        _selectedKind = null;
+        _animatedKind = kind;
+      });
+      await _selectionController.reverse(from: _selectionController.value);
+      if (!mounted) return;
+      setState(() => _animatedKind = null);
+      return;
+    }
+
     setState(() {
-      _selectedKind = _selectedKind == kind ? null : kind;
+      _selectedKind = kind;
+      _animatedKind = kind;
     });
+    await _selectionController.forward(from: 0);
   }
 
   StorageBreakdownItem? _itemAtOffset(
@@ -895,6 +942,12 @@ class _StorageChartCardState extends State<_StorageChartCard> {
         .toList(growable: false);
     final total = activeItems.fold<int>(0, (sum, item) => sum + item.bytes);
     final selectedKind = _effectiveSelectedKind(activeItems);
+    final highlightKind =
+        selectedKind ??
+        (_animatedKind != null &&
+                activeItems.any((item) => item.kind == _animatedKind)
+            ? _animatedKind
+            : null);
     final selectedItem = selectedKind == null
         ? null
         : activeItems.cast<StorageBreakdownItem?>().firstWhere(
@@ -905,16 +958,36 @@ class _StorageChartCardState extends State<_StorageChartCard> {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final compactLayout = constraints.maxWidth < 430;
-          final donut = SizedBox(
-            height: compactLayout ? 200 : 250,
-            child: CustomPaint(
-              painter: _StorageDonutPainter(
-                items: activeItems,
-                colorFor: widget.colorFor,
-                totalBytes: total,
-                trackColor: colors.borderSubtle,
-                selectedKind: selectedKind,
-              ),
+          final wideLegendWidth = compactLayout
+              ? constraints.maxWidth
+              : (constraints.maxWidth * 0.46).clamp(220.0, 320.0);
+          final wideLegendTwoColumns =
+              !compactLayout &&
+              wideLegendWidth >= 240 &&
+              activeItems.length > 2;
+          final donutSize = compactLayout
+              ? 200.0
+              : (constraints.maxWidth - wideLegendWidth - 18).clamp(
+                  190.0,
+                  250.0,
+                );
+          final donut = SizedBox.square(
+            dimension: donutSize,
+            child: AnimatedBuilder(
+              animation: _selectionCurve,
+              builder: (context, child) {
+                return CustomPaint(
+                  painter: _StorageDonutPainter(
+                    items: activeItems,
+                    colorFor: widget.colorFor,
+                    totalBytes: total,
+                    trackColor: colors.borderSubtle,
+                    selectedKind: highlightKind,
+                    progress: _selectionCurve.value,
+                  ),
+                  child: child,
+                );
+              },
               child: LayoutBuilder(
                 builder: (context, donutConstraints) {
                   return GestureDetector(
@@ -930,39 +1003,57 @@ class _StorageChartCardState extends State<_StorageChartCard> {
                       _toggleSelected(tapped.kind);
                     },
                     child: Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          Text(
-                            selectedItem?.title ?? '总计',
-                            style: TextStyle(
-                              color: selectedItem == null
-                                  ? colors.textSecondary
-                                  : widget.colorFor(selectedItem.kind),
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 220),
+                        switchInCurve: Curves.easeOutCubic,
+                        switchOutCurve: Curves.easeInCubic,
+                        transitionBuilder: (child, animation) {
+                          return FadeTransition(
+                            opacity: animation,
+                            child: ScaleTransition(
+                              scale: Tween<double>(
+                                begin: 0.96,
+                                end: 1,
+                              ).animate(animation),
+                              child: child,
                             ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            widget.formatBytes(selectedItem?.bytes ?? total),
-                            style: TextStyle(
-                              color: colors.textPrimary,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          if (selectedItem != null) ...<Widget>[
-                            const SizedBox(height: 4),
+                          );
+                        },
+                        child: Column(
+                          key: ValueKey<StorageItemKind?>(selectedKind),
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
                             Text(
-                              '${(selectedItem.bytes / total * 100).toStringAsFixed(1)}%',
+                              selectedItem?.title ?? '总计',
                               style: TextStyle(
-                                color: colors.textMuted,
-                                fontSize: 12,
+                                color: selectedItem == null
+                                    ? colors.textSecondary
+                                    : widget.colorFor(selectedItem.kind),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
+                            const SizedBox(height: 4),
+                            Text(
+                              widget.formatBytes(selectedItem?.bytes ?? total),
+                              style: TextStyle(
+                                color: colors.textPrimary,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            if (selectedItem != null) ...<Widget>[
+                              const SizedBox(height: 4),
+                              Text(
+                                '${(selectedItem.bytes / total * 100).toStringAsFixed(1)}%',
+                                style: TextStyle(
+                                  color: colors.textMuted,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
                     ),
                   );
@@ -1003,28 +1094,55 @@ class _StorageChartCardState extends State<_StorageChartCard> {
                       .toList(growable: false),
                 )
               : SizedBox(
-                  width: 170,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: activeItems
-                        .map((item) {
-                          final ratio = total <= 0
-                              ? 0
-                              : item.bytes / total * 100;
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: _StorageChartLegendItem(
+                  width: wideLegendWidth,
+                  child: wideLegendTwoColumns
+                      ? GridView.builder(
+                          primary: false,
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 2,
+                                mainAxisSpacing: 10,
+                                crossAxisSpacing: 10,
+                                childAspectRatio: 1.55,
+                              ),
+                          itemCount: activeItems.length,
+                          itemBuilder: (context, index) {
+                            final item = activeItems[index];
+                            final ratio = total <= 0
+                                ? 0
+                                : item.bytes / total * 100;
+                            return _StorageChartLegendItem(
                               item: item,
                               ratioLabel:
                                   '${ratio.toStringAsFixed(1)}% · ${widget.formatBytes(item.bytes)}',
                               color: widget.colorFor(item.kind),
                               selected: item.kind == selectedKind,
                               onTap: () => _toggleSelected(item.kind),
-                            ),
-                          );
-                        })
-                        .toList(growable: false),
-                  ),
+                            );
+                          },
+                        )
+                      : ListView.separated(
+                          primary: false,
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          itemCount: activeItems.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 12),
+                          itemBuilder: (context, index) {
+                            final item = activeItems[index];
+                            final ratio = total <= 0
+                                ? 0
+                                : item.bytes / total * 100;
+                            return _StorageChartLegendItem(
+                              item: item,
+                              ratioLabel:
+                                  '${ratio.toStringAsFixed(1)}% · ${widget.formatBytes(item.bytes)}',
+                              color: widget.colorFor(item.kind),
+                              selected: item.kind == selectedKind,
+                              onTap: () => _toggleSelected(item.kind),
+                            );
+                          },
+                        ),
                 );
 
           return Column(
@@ -1048,8 +1166,13 @@ class _StorageChartCardState extends State<_StorageChartCard> {
                   height: 250,
                   child: Row(
                     children: <Widget>[
-                      Expanded(child: donut),
-                      const SizedBox(width: 20),
+                      Expanded(
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: donut,
+                        ),
+                      ),
+                      const SizedBox(width: 18),
                       legend,
                     ],
                   ),
@@ -1107,7 +1230,7 @@ class _StorageChartLegendItem extends StatelessWidget {
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
+          children: <Widget>[
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
@@ -1140,10 +1263,7 @@ class _StorageChartLegendItem extends StatelessWidget {
                         ratioLabel,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: colors.textMuted,
-                          fontSize: 12,
-                        ),
+                        style: TextStyle(color: colors.textMuted, fontSize: 12),
                       ),
                     ],
                   ),
@@ -1173,6 +1293,7 @@ class _StorageCategoriesCard extends StatelessWidget {
   final StorageBreakdownItem? downloadsItem;
   final StorageBreakdownItem? screenshotsItem;
   final StorageBreakdownItem? logsItem;
+  final StorageBreakdownItem? danmakuAiCacheItem;
   final StorageBreakdownItem? appDataItem;
   final StorageBreakdownItem? otherCacheItem;
   final Color Function(StorageItemKind kind) colorFor;
@@ -1204,6 +1325,7 @@ class _StorageCategoriesCard extends StatelessWidget {
     required this.downloadsItem,
     required this.screenshotsItem,
     required this.logsItem,
+    required this.danmakuAiCacheItem,
     required this.appDataItem,
     required this.otherCacheItem,
     required this.colorFor,
@@ -1316,6 +1438,18 @@ class _StorageCategoriesCard extends StatelessWidget {
               onClear: logsItem!.clearAction == null
                   ? null
                   : () => onClearSystemItem(logsItem!),
+            ),
+            const Divider(height: 24),
+          ],
+          if (danmakuAiCacheItem != null) ...<Widget>[
+            _StorageItemRow(
+              item: danmakuAiCacheItem!,
+              color: colorFor(danmakuAiCacheItem!.kind),
+              formatBytes: formatBytes,
+              busy: busy,
+              onClear: danmakuAiCacheItem!.clearAction == null
+                  ? null
+                  : () => onClearSystemItem(danmakuAiCacheItem!),
             ),
             const Divider(height: 24),
           ],
@@ -2004,6 +2138,7 @@ class _StorageDonutPainter extends CustomPainter {
   final int totalBytes;
   final Color trackColor;
   final StorageItemKind? selectedKind;
+  final double progress;
 
   const _StorageDonutPainter({
     required this.items,
@@ -2011,6 +2146,7 @@ class _StorageDonutPainter extends CustomPainter {
     required this.totalBytes,
     required this.trackColor,
     required this.selectedKind,
+    required this.progress,
   });
 
   @override
@@ -2032,25 +2168,27 @@ class _StorageDonutPainter extends CustomPainter {
       final isSelected = item.kind == selectedKind;
       final segmentColor = colorFor(item.kind);
       final midAngle = startAngle + sweepAngle / 2;
-      final popOutOffset = isSelected ? 10.0 : 0.0;
+      final popOutOffset = isSelected ? 10.0 * progress : 0.0;
       final segmentCenter = Offset(
         center.dx + math.cos(midAngle) * popOutOffset,
         center.dy + math.sin(midAngle) * popOutOffset,
       );
       final segmentRect = Rect.fromCircle(
         center: segmentCenter,
-        radius: radius,
+        radius: radius + (2.0 * progress),
       );
       final paint = Paint()
         ..color = segmentColor
         ..style = PaintingStyle.stroke
-        ..strokeWidth = isSelected ? strokeWidth + 3 : strokeWidth
+        ..strokeWidth = isSelected
+            ? strokeWidth + (3.0 * progress)
+            : strokeWidth
         ..strokeCap = StrokeCap.butt;
       if (isSelected) {
         final glowPaint = Paint()
-          ..color = segmentColor.withValues(alpha: 0.18)
+          ..color = segmentColor.withValues(alpha: 0.18 * progress)
           ..style = PaintingStyle.stroke
-          ..strokeWidth = strokeWidth + 10
+          ..strokeWidth = strokeWidth + (10.0 * progress)
           ..strokeCap = StrokeCap.butt
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10);
         canvas.drawArc(segmentRect, startAngle, sweepAngle, false, glowPaint);
@@ -2065,6 +2203,7 @@ class _StorageDonutPainter extends CustomPainter {
     return oldDelegate.items != items ||
         oldDelegate.totalBytes != totalBytes ||
         oldDelegate.trackColor != trackColor ||
-        oldDelegate.selectedKind != selectedKind;
+        oldDelegate.selectedKind != selectedKind ||
+        oldDelegate.progress != progress;
   }
 }

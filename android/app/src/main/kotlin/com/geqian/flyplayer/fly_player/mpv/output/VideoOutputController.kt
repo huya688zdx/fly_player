@@ -299,6 +299,33 @@ class VideoOutputController(
         }.getOrDefault(false)
     }
 
+    fun enableListenVideoMode(initialized: Boolean, available: Boolean): Boolean {
+        if (!initialized || !available) return false
+        lastErrorMessage = null
+        return runCatching {
+            mpv.setPropertyString("vid", "no")
+            mpv.setPropertyString("vo", VIDEO_OUTPUT_NONE)
+            videoTrackSuspended = true
+            videoOutputReady = false
+            applyWindowColorMode(VideoColorPipeline.SDR)
+            true
+        }.onFailure { error ->
+            lastErrorMessage = formatNativePlaybackError("listen video mode", error)
+        }.getOrDefault(false)
+    }
+
+    fun disableListenVideoMode(initialized: Boolean, available: Boolean): Boolean {
+        if (!initialized || !available) return false
+        lastErrorMessage = null
+        return runCatching {
+            mpv.setPropertyString("vid", "auto")
+            videoTrackSuspended = false
+            true
+        }.onFailure { error ->
+            lastErrorMessage = formatNativePlaybackError("video playback mode", error)
+        }.getOrDefault(false)
+    }
+
     fun ensureVideoOutputReady(
         initialized: Boolean,
         available: Boolean,
