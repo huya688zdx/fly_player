@@ -1,6 +1,15 @@
 part of mpv_player_page;
 
 extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
+  static const List<String> _danmakuAiBackendOrder = <String>[
+    'paddle',
+  ];
+  static const List<String> _danmakuAiPrecisionPresets = <String>[
+    DanmakuAiPrecisionPreset.performance,
+    DanmakuAiPrecisionPreset.balanced,
+    DanmakuAiPrecisionPreset.quality,
+  ];
+
   String _danmakuStatusLabel() => _danmakuController.statusLabel;
 
   String _danmakuSummaryText() => _danmakuController.summaryText;
@@ -47,14 +56,31 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
     return '标准';
   }
 
+  String _danmakuAiSampleIntervalLabel() {
+    return '${_danmakuController.settings.aiSampleIntervalMs}ms';
+  }
+
+  String _danmakuAiPrecisionLabel() {
+    return switch (_danmakuController.settings.aiPrecisionPreset) {
+      DanmakuAiPrecisionPreset.performance => '低',
+      DanmakuAiPrecisionPreset.quality => '高',
+      _ => '标准',
+    };
+  }
+
+  String _danmakuAiInputSizeLabel() {
+    final settings = _danmakuController.settings;
+    return '${settings.aiInputWidth}x${settings.aiInputHeight}';
+  }
+
   Future<void> _updateDanmakuSettings(
     DanmakuSettings Function(DanmakuSettings current) transformer,
-  ) {
+  ) async {
     final next = transformer(_danmakuController.settings);
-    return _danmakuController.updateSettings(next).then((_) {
-      if (!mounted) return;
-      _updatePlayerState(() {});
-    });
+    await _danmakuController.updateSettings(next);
+    await _syncDanmakuDynamicOcclusionConfig();
+    if (!mounted) return;
+    _updatePlayerState(() {});
   }
 
   Future<void> _toggleDanmakuEnabled() async {
@@ -73,6 +99,7 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
   }
 
   Future<void> _openDanmakuSettings() {
+    if (_playerUiLocked) return Future<void>.value();
     return _showPlaybackSettingsDrawer(
       initialPageId: _playerSettingsDanmakuPageId,
     );
@@ -116,6 +143,35 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
     );
   }
 
+  Future<void> _setDanmakuAiSampleInterval(int value) {
+    final normalized = value.clamp(
+      DanmakuSettings.minAiSampleIntervalMs,
+      DanmakuSettings.maxAiSampleIntervalMs,
+    );
+    return _updateDanmakuSettings(
+      (current) => current.copyWith(aiSampleIntervalMs: normalized),
+    );
+  }
+
+  Future<void> _setDanmakuAiInputWidth(int value) {
+    final normalized = value.clamp(
+      DanmakuSettings.minAiInputWidth,
+      DanmakuSettings.maxAiInputWidth,
+    );
+    return _updateDanmakuSettings(
+      (current) => current.copyWith(aiInputWidth: normalized),
+    );
+  }
+
+  Future<void> _setDanmakuAiPrecisionPreset(String value) {
+    final normalized = _danmakuAiPrecisionPresets.contains(value)
+        ? value
+        : DanmakuAiPrecisionPreset.balanced;
+    return _updateDanmakuSettings(
+      (current) => current.copyWith(aiPrecisionPreset: normalized),
+    );
+  }
+
   Future<void> _setDanmakuSourcePriority({
     required bool preferLocalSource,
   }) async {
@@ -133,5 +189,24 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
       preferLocalSource ? '已切换为本地优先' : '已切换为网络优先',
       context.appColors.success,
     );
+  }
+
+  Future<void> _syncDanmakuDynamicOcclusionConfig() async {
+    if (!Platform.isAndroid || !_platformViewAttached) {
+      return;
+    }
+    final settings = _danmakuController.settings;
+    final enabled =
+        settings.enabled &&
+        settings.avoidCenterArea &&
+        !widget.pictureInPictureActive;
+    await _controller.setDanmakuOcclusionConfig(<String, Object?>{
+      'enabled': enabled,
+      'sampleIntervalMs': settings.aiSampleIntervalMs,
+      'preferredBackendOrder': _danmakuAiBackendOrder,
+      'inputWidth': settings.aiInputWidth,
+      'inputHeight': settings.aiInputHeight,
+      'sampleAreaRatio': settings.displayAreaRatio,
+    });
   }
 }

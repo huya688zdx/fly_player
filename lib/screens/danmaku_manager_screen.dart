@@ -7,6 +7,7 @@ import '../danmaku/settings/danmaku_saved_source_store.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
 import '../ui/app_transitions.dart';
+import '../ui/secondary_host_navigation.dart';
 
 bool _sourceIsTv(DanmakuSavedSource source) {
   final type = source.mediaType.trim().toLowerCase();
@@ -131,7 +132,8 @@ class _DanmakuManagerScreenState extends State<DanmakuManagerScreen> {
     final groups = _ancestorGroups();
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: AppBar(
+      appBar: buildSecondaryHostAppBar(
+        context,
         title: Text(
           '弹幕管理',
           style: TextStyle(
@@ -279,7 +281,10 @@ class _DanmakuSeriesListScreenState extends State<_DanmakuSeriesListScreen> {
     final groups = _seriesGroups();
     return Scaffold(
       backgroundColor: context.appColors.backgroundBase,
-      appBar: AppBar(title: Text(widget.ancestorLabel)),
+      appBar: buildSecondaryHostAppBar(
+        context,
+        title: Text(widget.ancestorLabel),
+      ),
       body: groups.isEmpty
           ? const SizedBox.shrink()
           : ListView.separated(
@@ -396,7 +401,10 @@ class _DanmakuSeasonListScreenState extends State<_DanmakuSeasonListScreen> {
     final groups = _seasonGroups();
     return Scaffold(
       backgroundColor: context.appColors.backgroundBase,
-      appBar: AppBar(title: Text(widget.seriesLabel)),
+      appBar: buildSecondaryHostAppBar(
+        context,
+        title: Text(widget.seriesLabel),
+      ),
       body: groups.isEmpty
           ? const SizedBox.shrink()
           : ListView.separated(
@@ -493,7 +501,10 @@ class _DanmakuSeasonDetailScreenState
         .toList(growable: false);
     return Scaffold(
       backgroundColor: context.appColors.backgroundBase,
-      appBar: AppBar(title: Text(widget.seasonLabel)),
+      appBar: buildSecondaryHostAppBar(
+        context,
+        title: Text(widget.seasonLabel),
+      ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
         children: <Widget>[
@@ -609,7 +620,10 @@ class _DanmakuDirectEntryScreenState extends State<_DanmakuDirectEntryScreen> {
     final groups = _groups();
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: AppBar(title: Text(widget.ancestorLabel)),
+      appBar: buildSecondaryHostAppBar(
+        context,
+        title: Text(widget.ancestorLabel),
+      ),
       body: ListView.separated(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
         itemCount: groups.length,

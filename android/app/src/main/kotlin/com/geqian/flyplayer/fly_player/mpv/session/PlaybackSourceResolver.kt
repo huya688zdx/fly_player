@@ -22,6 +22,8 @@ class PlaybackSourceResolver(
         private set
     var activeProxyUrl: String? = null
         private set
+    var activeCacheResourceKey: String? = null
+        private set
     private var activeProxyKey: String? = null
     private val retiredProxySessionIds = LinkedHashSet<String>()
 
@@ -112,6 +114,7 @@ class PlaybackSourceResolver(
             return NativeProxyRegistration(
                 sessionId = activeProxySessionId!!,
                 localUrl = activeProxyUrl!!,
+                cacheResourceKey = activeCacheResourceKey,
             )
         }
         retireActiveProxy()
@@ -125,6 +128,7 @@ class PlaybackSourceResolver(
         ).also { registration ->
             activeProxySessionId = registration.sessionId
             activeProxyUrl = registration.localUrl
+            activeCacheResourceKey = registration.cacheResourceKey
             activeProxyKey = key
             Log.d("FlyPlayerMpv", "native proxy registered session=${registration.sessionId} local=${registration.localUrl}")
         }
@@ -134,6 +138,7 @@ class PlaybackSourceResolver(
         activeProxySessionId?.let(retiredProxySessionIds::add)
         activeProxySessionId = null
         activeProxyUrl = null
+        activeCacheResourceKey = null
         activeProxyKey = null
     }
 

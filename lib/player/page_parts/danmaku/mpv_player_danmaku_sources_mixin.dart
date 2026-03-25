@@ -1,6 +1,26 @@
 part of mpv_player_page;
 
 extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
+  Future<bool> _ensureDanDanPlayConfigured() async {
+    final configured = await DanDanPlayConfig.ensureConfigured();
+    if (configured) {
+      return true;
+    }
+    if (!mounted) {
+      return false;
+    }
+    _showTopTip(DanDanPlayConfig.unavailableMessage, context.appColors.danger);
+    return false;
+  }
+
+  String _describeDanDanPlayError(Object error, {required String fallback}) {
+    if (error is DanDanPlayApiException) {
+      return error.message;
+    }
+    final raw = error.toString().trim();
+    return raw.isEmpty ? fallback : '$fallback: $raw';
+  }
+
   Future<bool> _ensureStorageAccessForDanmakuImport() async {
     var hasAccess = await StorageAccessService.hasFileAccess();
     if (hasAccess) {
@@ -31,37 +51,52 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
     drawer.push(_playerSettingsDanmakuImportPageId);
   }
 
-  Future<void> _searchDanmaku(PlayerNestedSheetController<void> drawer) async {
-    if (!DanDanPlayConfig.configured) {
-      _showTopTip(
-        '请先配置 DanDanPlay AppId / AppSecret',
-        context.appColors.danger,
-      );
+  Future<void> _searchDanmaku(
+    PlayerNestedSheetController<void> drawer, {
+    bool userInitiated = true,
+  }) async {
+    if (!await _ensureDanDanPlayConfigured()) {
       return;
     }
     final keyword = _danmakuSearchController.text.trim();
-    if (keyword.isEmpty) {
+    final hasTmdbSearchContext =
+        DanDanPlayResolver.normalizeTmdbId(_currentTmdbId) != null;
+    if (keyword.isEmpty && !hasTmdbSearchContext) {
       _showTopTip('请先输入要搜索的番剧名称', context.appColors.danger);
       return;
     }
+    final remaining = _danmakuSearchRateLimiter.remaining();
+    if (remaining > Duration.zero) {
+      if (userInitiated) {
+        final seconds =
+            remaining.inSeconds +
+            (remaining.inMilliseconds % 1000 == 0 ? 0 : 1);
+        _showTopTip('搜索过于频繁，请 $seconds 秒后再试。', context.appColors.warning);
+      }
+      return;
+    }
+    _danmakuSearchRateLimiter.shouldBlock();
     _updatePlayerState(() {
       _danmakuSearchLoading = true;
       _danmakuSearchResults = const <DanDanPlayEpisodeSearchItem>[];
     });
+    final requestContextKey = _danmakuSearchContextKey(keyword);
     try {
       final results = await _danDanPlayResolver.searchEpisodeCandidates(
         keyword: keyword,
         episodeNumber: _currentEpisodeNumber,
         tmdbId: _currentTmdbId,
+        allowLooseTitleFallback: true,
       );
       if (!mounted) return;
       _updatePlayerState(() {
         _danmakuSearchLoading = false;
         _danmakuSearchResults = results;
+        _danmakuSearchLastCompletedContextKey = requestContextKey;
       });
       drawer.refresh();
       if (results.isEmpty) {
-        _showTopTip('没有找到可用弹幕结果', context.appColors.danger);
+        _showTopTip('没有搜索到可用弹幕结果', context.appColors.danger);
       }
     } catch (error) {
       if (!mounted) return;
@@ -69,7 +104,10 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
         _danmakuSearchLoading = false;
       });
       drawer.refresh();
-      _showTopTip('搜索弹幕失败: $error', context.appColors.danger);
+      _showTopTip(
+        _describeDanDanPlayError(error, fallback: '搜索弹幕失败'),
+        context.appColors.danger,
+      );
     }
   }
 
@@ -77,11 +115,7 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
     PlayerNestedSheetController<void> drawer,
     DanDanPlayEpisodeSearchItem item,
   ) async {
-    if (!DanDanPlayConfig.configured) {
-      _showTopTip(
-        '请先配置 DanDanPlay AppId / AppSecret',
-        context.appColors.danger,
-      );
+    if (!await _ensureDanDanPlayConfigured()) {
       return;
     }
     _updatePlayerState(() {
@@ -113,7 +147,11 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
         ancestorName: _currentAncestorName.trim(),
         seriesTitle: _currentSeriesTitle.trim(),
         itemTitle: _currentTitle.trim(),
+        itemGuid: _currentItemGuid.trim(),
+        seasonGuid: _currentSeasonGuid.trim(),
+        mediaGuid: _currentMediaGuid.trim(),
         seasonNumber: _currentSeasonNumber,
+        episodeNumber: _currentEpisodeNumber,
         mediaType: _currentMediaType.trim(),
         commentCount: result.comments.length,
         updatedAtMs: DateTime.now().millisecondsSinceEpoch,
@@ -144,7 +182,10 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
         _danmakuImportingEpisodeId = null;
       });
       drawer.refresh();
-      _showTopTip('导入弹幕失败: $error', context.appColors.danger);
+      _showTopTip(
+        _describeDanDanPlayError(error, fallback: '导入弹幕失败'),
+        context.appColors.danger,
+      );
     }
   }
 
@@ -193,7 +234,11 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
           ancestorName: _currentAncestorName.trim(),
           seriesTitle: _currentSeriesTitle.trim(),
           itemTitle: _currentTitle.trim(),
+          itemGuid: _currentItemGuid.trim(),
+          seasonGuid: _currentSeasonGuid.trim(),
+          mediaGuid: _currentMediaGuid.trim(),
           seasonNumber: _currentSeasonNumber,
+          episodeNumber: _currentEpisodeNumber,
           mediaType: _currentMediaType.trim(),
           commentCount: result.comments.length,
           updatedAtMs: DateTime.now().millisecondsSinceEpoch,
@@ -219,7 +264,7 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
         _danmakuImportingLocalPath = null;
       });
       drawer.refresh();
-      _showTopTip('导入弹幕失败: $error', context.appColors.danger);
+      _showTopTip('导入弹幕失败: ', context.appColors.danger);
     }
   }
 
@@ -246,7 +291,11 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
           ancestorName: source.ancestorName,
           seriesTitle: source.seriesTitle,
           itemTitle: source.itemTitle,
+          itemGuid: source.itemGuid,
+          seasonGuid: source.seasonGuid,
+          mediaGuid: source.mediaGuid,
           seasonNumber: source.seasonNumber,
+          episodeNumber: source.episodeNumber,
           mediaType: source.mediaType,
           commentCount: result.comments.length,
           updatedAtMs: DateTime.now().millisecondsSinceEpoch,

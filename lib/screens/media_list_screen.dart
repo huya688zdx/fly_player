@@ -78,10 +78,10 @@ class _MediaListScreenState extends State<MediaListScreen> {
       ? _secondaryCategoryPreviewLimit
       : _defaultCategoryPreviewLimit;
 
-  double get _scrollCacheExtent => widget.secondaryHost ? 220 : 1200;
+  double get _scrollCacheExtent => widget.secondaryHost ? 160 : 420;
 
   double _rowCacheExtent(double itemExtent) {
-    final multiplier = widget.secondaryHost ? 2 : 6;
+    final multiplier = widget.secondaryHost ? 1.2 : 2.4;
     return itemExtent * multiplier;
   }
 
@@ -395,8 +395,8 @@ class _MediaListScreenState extends State<MediaListScreen> {
       width: 560,
     );
     if (warmupUrls.isNotEmpty) {
-      try {
-        await precacheImage(
+      unawaited(
+        precacheImage(
           NetworkImage(
             warmupUrls.first,
             headers: <String, String>{
@@ -405,29 +405,21 @@ class _MediaListScreenState extends State<MediaListScreen> {
             },
           ),
           navigator.context,
-        ).timeout(const Duration(milliseconds: 140));
-      } catch (error) {
-        debugPrint(
-          '[IMG][PRECACHE][HOME] failed url=${warmupUrls.first} error=$error',
-        );
-      }
+        ).timeout(const Duration(milliseconds: 140)).catchError((
+          Object error,
+          StackTrace stackTrace,
+        ) {
+          debugPrint(
+            '[IMG][PRECACHE][HOME] failed url=${warmupUrls.first} error=$error',
+          );
+        }),
+      );
     }
-
-    Map<String, dynamic>? initialDetail;
-    try {
-      initialDetail = await FeiniuApi(
-        provider,
-      ).getItemDetail(item.guid).timeout(const Duration(milliseconds: 240));
-    } catch (_) {}
 
     if (!mounted) return;
     await navigator.push(
       AppTransitions.leftToRightPageTurnRoute(
-        PlayDetailScreen(
-          itemGuid: item.guid,
-          heroTag: heroTag,
-          initialItemDetail: initialDetail,
-        ),
+        PlayDetailScreen(itemGuid: item.guid, heroTag: heroTag),
       ),
     );
     if (!mounted) return;

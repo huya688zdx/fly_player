@@ -1,8 +1,12 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite/sqflite.dart';
 
+import '../danmaku/cache/dandanplay_comment_cache_store.dart';
 import '../danmaku/settings/danmaku_saved_source_store.dart';
 import '../player/stores/bookmark_store.dart';
 import '../providers/app_theme_provider.dart';
@@ -10,6 +14,7 @@ import '../providers/parallel_window_settings_provider.dart';
 import '../services/app_log_service.dart';
 import '../services/login_history_store.dart';
 import '../models/download_task_record.dart';
+import 'play_stats/play_stats_database.dart';
 import 'download_task_service.dart';
 import '../theme/app_theme.dart';
 
@@ -19,6 +24,7 @@ enum StorageItemKind {
   screenshots,
   logs,
   appData,
+  danmakuAiCache,
   otherCache,
 }
 
@@ -27,6 +33,7 @@ enum StorageClearAction {
   clearDownloads,
   clearScreenshots,
   clearLogs,
+  clearDanmakuAiCache,
   clearOtherCache,
   clearBookmarks,
   clearSavedThemes,
@@ -66,7 +73,9 @@ class StorageOverview {
   final int bookmarksBytes;
   final int savedThemesBytes;
   final int danmakuSourcesBytes;
+  final int danmakuCacheBytes;
   final int loginHistoryBytes;
+  final int playStatsBytes;
   final int otherSettingsBytes;
 
   const StorageOverview({
@@ -76,7 +85,9 @@ class StorageOverview {
     required this.bookmarksBytes,
     required this.savedThemesBytes,
     required this.danmakuSourcesBytes,
+    required this.danmakuCacheBytes,
     required this.loginHistoryBytes,
+    required this.playStatsBytes,
     required this.otherSettingsBytes,
   });
 }
@@ -356,10 +367,12 @@ class StorageManagementService {
       _danmakuSourcesKey,
       danmakuSourcesValue,
     );
+    final danmakuCacheBytes = await _estimateDanmakuCacheBytes();
     final loginHistoryBytes = _estimatePrefEntryBytes(
       _loginHistoryKey,
       loginHistoryValue,
     );
+    final playStatsBytes = await _estimatePlayStatsBytes();
     final logsBytes = _estimatePrefEntryBytes(_logPrefsKey, logsValue);
     final nativeSettingsBytes = _asInt(native['nativeSettingsBytes']);
     final otherSettingsBytes =
@@ -369,7 +382,9 @@ class StorageManagementService {
         bookmarksBytes +
         savedThemesBytes +
         danmakuSourcesBytes +
+        danmakuCacheBytes +
         loginHistoryBytes +
+        playStatsBytes +
         otherSettingsBytes +
         extraAppDataBytes;
 
@@ -377,6 +392,7 @@ class StorageManagementService {
     final downloadBytes = downloadService.downloadedBytes;
     final downloadCount = downloadService.downloadedRecordCount;
     final screenshots = _normalizeMap(native['screenshots']);
+    final danmakuAiCache = _normalizeMap(native['danmakuAiCache']);
     final otherCache = _normalizeMap(native['otherCache']);
 
     final items = <StorageBreakdownItem>[
@@ -419,13 +435,21 @@ class StorageManagementService {
         note: '应用内日志，不含导出文件',
       ),
       StorageBreakdownItem(
+        kind: StorageItemKind.danmakuAiCache,
+        title: '弹幕蒙版缓存',
+        bytes: _asInt(danmakuAiCache['bytes']),
+        countLabel: _fileCountLabel(_asInt(danmakuAiCache['fileCount'])),
+        clearAction: StorageClearAction.clearDanmakuAiCache,
+        note: '每集的人像分割缩略图与蒙版 warm-start 缓存',
+      ),
+      StorageBreakdownItem(
         kind: StorageItemKind.appData,
         title: '应用数据',
         bytes: appDataBytes,
         countLabel:
             '${_countStoredEntries(savedThemesValue) + _countStoredEntries(loginHistoryValue) + _countBookmarkEntries(bookmarksValue) + _countDanmakuSourceEntries(danmakuSourcesValue)} 项',
         isEstimated: true,
-        note: '含书签、主题、弹幕来源和设置估算值',
+        note: '含书签、主题、弹幕来源和设置估算值 / 播放统计(SQLite) ${formatBytes(playStatsBytes)}',
       ),
       StorageBreakdownItem(
         kind: StorageItemKind.otherCache,
@@ -444,7 +468,9 @@ class StorageManagementService {
       bookmarksBytes: bookmarksBytes,
       savedThemesBytes: savedThemesBytes,
       danmakuSourcesBytes: danmakuSourcesBytes,
+      danmakuCacheBytes: danmakuCacheBytes,
       loginHistoryBytes: loginHistoryBytes,
+      playStatsBytes: playStatsBytes,
       otherSettingsBytes: otherSettingsBytes,
     );
   }
@@ -462,6 +488,7 @@ class StorageManagementService {
     }
     final actionName = switch (action) {
       StorageClearAction.clearPlaybackCache => 'clearPlaybackCache',
+      StorageClearAction.clearDanmakuAiCache => 'clearDanmakuAiCache',
       StorageClearAction.clearOtherCache => 'clearOtherCache',
       StorageClearAction.clearScreenshots => 'clearScreenshots',
       _ => '',
@@ -506,8 +533,10 @@ class StorageManagementService {
     await themeProvider.load();
   }
 
-  Future<void> clearDanmakuSources() =>
-      const DanmakuSavedSourceStore().clearAll();
+  Future<void> clearDanmakuSources() async {
+    await const DanmakuSavedSourceStore().clearAll();
+    await const DanDanPlayCommentCacheStore().clearAll();
+  }
 
   Future<void> clearLoginHistory() => LoginHistoryStore.clear();
 
@@ -776,6 +805,46 @@ class StorageManagementService {
       if (decoded is! Map) return 0;
       final sources = decoded['sources'];
       return sources is List ? sources.length : 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  static Future<int> _estimatePlayStatsBytes() async {
+    try {
+      final databasesPath = await getDatabasesPath();
+      final basePath = p.join(
+        databasesPath,
+        SqflitePlayStatsDatabase.databaseName,
+      );
+      var total = 0;
+      for (final path in <String>[basePath, '$basePath-wal', '$basePath-shm']) {
+        final file = File(path);
+        if (await file.exists()) {
+          total += await file.length();
+        }
+      }
+      return total;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  static Future<int> _estimateDanmakuCacheBytes() async {
+    try {
+      final databasesPath = await getDatabasesPath();
+      final basePath = p.join(
+        databasesPath,
+        DanDanPlayCommentCacheStore.databaseName,
+      );
+      var total = 0;
+      for (final path in <String>[basePath, '$basePath-wal', '$basePath-shm']) {
+        final file = File(path);
+        if (await file.exists()) {
+          total += await file.length();
+        }
+      }
+      return total;
     } catch (_) {
       return 0;
     }

@@ -1,6 +1,8 @@
 import 'package:flutter/widgets.dart';
 
+import '../models/play_info.dart';
 import '../player/controllers/mpv_player_controller.dart';
+import '../services/play_stats/play_stats.dart';
 
 abstract class PlayerPaneHostController {
   Future<bool> openRoute(String routeName);
@@ -12,6 +14,8 @@ abstract class PlayerPaneHostController {
   Future<bool> replacePlayerSource({
     required String title,
     required MpvMediaSource source,
+    PlayInfoData? initialPlayInfo,
+    PlayStartSource startSource = PlayStartSource.manual,
   });
 }
 

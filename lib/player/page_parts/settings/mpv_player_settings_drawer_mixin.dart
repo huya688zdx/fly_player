@@ -80,6 +80,7 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
   Future<void> _showPlaybackSettingsDrawer({
     String initialPageId = _playerSettingsMainPageId,
   }) async {
+    if (_playerUiLocked) return;
     _overlayState.cancelAutoHide();
     final restoreControls = _controlsVisible;
     if (restoreControls) {
@@ -301,6 +302,31 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
             value: _autoRotateEnabled,
             onChanged: (value) {
               unawaited(_setAutoRotateEnabled(value));
+              drawer.refresh();
+            },
+          ),
+          const SizedBox(height: 12),
+          PlaybackSettingsSwitchTile(
+            title: '自动连播',
+            subtitle: _autoPlayEnabled ? '当前集播放完成后自动播放下一集' : '关闭后播放完成停留当前集',
+            value: _autoPlayEnabled,
+            onChanged: (value) {
+              unawaited(_setAutoPlayEnabled(value));
+              drawer.refresh();
+            },
+          ),
+          const SizedBox(height: 12),
+          PlaybackSettingsSwitchTile(
+            title: '下一级预加载',
+            subtitle: _autoPlayEnabled
+                ? (_nextEpisodePreloadEnabled
+                      ? '片尾倒计时开始时预加载下一集，尽量减少黑屏和等待'
+                      : '关闭后保持原本的自动连播切集方式')
+                : '需先开启自动连播',
+            value: _nextEpisodePreloadEnabled,
+            enabled: _autoPlayEnabled,
+            onChanged: (value) {
+              unawaited(_setNextEpisodePreloadEnabled(value));
               drawer.refresh();
             },
           ),

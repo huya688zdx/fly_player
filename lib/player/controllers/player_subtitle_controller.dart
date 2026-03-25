@@ -36,6 +36,7 @@ class PlayerSubtitleDeletionResult {
 }
 
 class PlayerSubtitleController {
+  static const double defaultSubtitlePositionFactor = 0.08;
   final Map<String, String> subtitleFileByGuid = <String, String>{};
   final Set<String> serverFallbackSubtitleGuids = <String>{};
   final Set<String> subtitleFailureNoticeShownGuids = <String>{};
@@ -46,7 +47,7 @@ class PlayerSubtitleController {
   bool pendingSubtitleSelectionRefresh = false;
 
   double subtitleDelaySeconds = 0;
-  double subtitlePositionFactor = 0;
+  double subtitlePositionFactor = defaultSubtitlePositionFactor;
   double subtitleScaleFactor = 0;
 
   DateTime? subtitleStatusTipSuppressedUntil;
@@ -239,7 +240,7 @@ class PlayerSubtitleController {
     required double maxScale,
   }) {
     subtitleDelaySeconds = 0;
-    subtitlePositionFactor = 0;
+    subtitlePositionFactor = defaultSubtitlePositionFactor;
     subtitleScaleFactor = (1.0 - minScale) / (maxScale - minScale);
   }
 

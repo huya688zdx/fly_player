@@ -47,6 +47,7 @@ data class MpvSource(
     val reliableSeek: Boolean,
     val seekProbeSummary: String?,
     val playbackSpeed: Double,
+    val listenVideoModeEnabled: Boolean,
 ) {
     companion object {
         fun fromMap(map: Map<String, Any?>): MpvSource {
@@ -91,6 +92,7 @@ data class MpvSource(
                 reliableSeek = map["reliableSeek"] as? Boolean ?: true,
                 seekProbeSummary = map["seekProbeSummary"]?.toString(),
                 playbackSpeed = map["playbackSpeed"].toDoubleValue() ?: 1.0,
+                listenVideoModeEnabled = map["listenVideoModeEnabled"] as? Boolean ?: false,
             )
         }
     }
@@ -195,8 +197,11 @@ data class MpvPlayerState(
     val positionMs: Long = 0L,
     val bufferedPositionMs: Long = 0L,
     val durationMs: Long = 0L,
+    val listenVideoModeEnabled: Boolean = false,
     val statusText: String = "Preparing player",
     val error: String? = null,
+    val nativeProxySessionId: String? = null,
+    val cacheResourceKey: String? = null,
 ) {
     fun toMap(): Map<String, Any?> {
         return mapOf(
@@ -207,8 +212,11 @@ data class MpvPlayerState(
             "positionMs" to positionMs,
             "bufferedPositionMs" to bufferedPositionMs,
             "durationMs" to durationMs,
+            "listenVideoModeEnabled" to listenVideoModeEnabled,
             "statusText" to statusText,
             "error" to error,
+            "nativeProxySessionId" to nativeProxySessionId,
+            "cacheResourceKey" to cacheResourceKey,
         )
     }
 }

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../api/feiniu_api.dart';
+import '../api/person_list_request.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
 import '../controllers/tv_season_download_sheet_controller.dart';
 import '../controllers/tv_season_playback_launcher.dart';
@@ -78,6 +79,10 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
   static const Duration _seasonDataFadeDuration = Duration(milliseconds: 240);
   static const Duration _deferredStartDelay = Duration(milliseconds: 160);
   static const Duration _deferredCreditsDelay = Duration(milliseconds: 140);
+  static const PersonListRequest _creditsRequest = PersonListRequest(
+    page: 1,
+    pageSize: 200,
+  );
 
   final ScrollController _scrollController = ScrollController();
   final ValueNotifier<double> _scrollOffsetNotifier = ValueNotifier<double>(0);
@@ -659,12 +664,12 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     final future = () async {
       try {
         if (!_useRuntimeCache) {
-          return await api.getPersonList(itemGuid);
+          return await api.getPersonList(itemGuid, request: _creditsRequest);
         }
         return await DetailRuntimeCache.instance.getOrLoad<List<PersonCredit>>(
           bucket: 'person_list',
           key: itemGuid,
-          loader: () => api.getPersonList(itemGuid),
+          loader: () => api.getPersonList(itemGuid, request: _creditsRequest),
         );
       } catch (error, stackTrace) {
         final appError = AppException.from(
@@ -1074,6 +1079,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         context,
         itemGuid: episodeGuid,
         seriesTitle: widget.seriesTitle,
+        seriesGuid: widget.parentGuid,
       );
       if (!mounted) return;
       final nextEpisodeGuid = result?.itemGuid.trim().isNotEmpty == true
@@ -1325,6 +1331,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
       context,
       AdaptiveDetailRequest.item(
         itemGuid: episode.guid,
+        seriesGuid: widget.parentGuid,
         initialItemDetail: initialDetail,
       ),
       presentation: _isPane ? DetailPresentation.pane : DetailPresentation.page,

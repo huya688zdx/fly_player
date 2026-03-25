@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../providers/app_theme_provider.dart';
 import '../theme/app_theme.dart';
 import '../ui/app_transitions.dart';
+import '../ui/secondary_host_navigation.dart';
 import '../widgets/detail/detail_more_actions_sheet.dart';
 import '../widgets/settings/theme/theme_settings_panels.dart';
 import '../widgets/settings/theme/theme_settings_preset_card.dart';
@@ -20,7 +21,7 @@ class ThemeSettingsScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: AppBar(title: const Text('主题设置')),
+      appBar: buildSecondaryHostAppBar(context, title: const Text('主题设置')),
       body: DecoratedBox(
         decoration: BoxDecoration(
           gradient: LinearGradient(

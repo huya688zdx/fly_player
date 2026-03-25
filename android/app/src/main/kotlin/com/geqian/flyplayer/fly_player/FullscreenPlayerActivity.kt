@@ -49,6 +49,8 @@ class FullscreenPlayerActivity : FlutterHostActivity() {
     override fun switchPlayerLayoutMode(
         title: String,
         source: HashMap<String, Any?>?,
+        initialPlayInfo: HashMap<String, Any?>?,
+        startSource: String,
         targetMode: String,
         resultPayload: HashMap<String, Any?>?,
     ): Boolean {
@@ -68,6 +70,8 @@ class FullscreenPlayerActivity : FlutterHostActivity() {
         detailHost.launchSplitPlayer(
             title = normalizedTitle,
             source = HashMap(normalizedSource),
+            initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
+            startSource = startSource,
         )
         finish()
         return true
@@ -78,6 +82,8 @@ class FullscreenPlayerActivity : FlutterHostActivity() {
             context: Context,
             title: String,
             source: HashMap<String, Any?>,
+            initialPlayInfo: HashMap<String, Any?>? = null,
+            startSource: String = "manual",
             fromParallelHost: Boolean = false,
             hostContext: HashMap<String, Any?> = hashMapOf(),
         ): Intent {
@@ -85,6 +91,8 @@ class FullscreenPlayerActivity : FlutterHostActivity() {
                 intent = Intent(context, FullscreenPlayerActivity::class.java),
                 title = title,
                 source = source,
+                initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
+                startSource = startSource,
                 fromParallelHost = fromParallelHost,
                 hostContext = hostContext,
                 layoutMode = PlayerLaunchContract.MODE_FULLSCREEN,

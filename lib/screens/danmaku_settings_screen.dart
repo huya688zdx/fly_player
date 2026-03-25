@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 import '../danmaku/models/danmaku_saved_source.dart';
 import '../danmaku/models/danmaku_settings.dart';
@@ -376,7 +376,7 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                         children: <Widget>[
                           _DanmakuSwitchTile(
                             title: '隐藏重复弹幕',
-                            subtitle: '减少同屏高频重复内容。',
+                            subtitle: '合并高频重复内容，减少同屏密集刷屏。',
                             value: _settings.hideDuplicate,
                             onChanged: (value) {
                               _save(_settings.copyWith(hideDuplicate: value));
@@ -384,8 +384,8 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                           ),
                           const _DanmakuDivider(),
                           _DanmakuSwitchTile(
-                            title: '避开字幕区域',
-                            subtitle: '尽量避免弹幕压住底部字幕。',
+                            title: '底部字幕区域防遮挡',
+                            subtitle: '优先避开字幕所在区域，减少弹幕压住字幕。',
                             value: _settings.avoidSubtitleArea,
                             onChanged: (value) {
                               _save(
@@ -395,8 +395,8 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                           ),
                           const _DanmakuDivider(),
                           _DanmakuSwitchTile(
-                            title: '避开画面中央',
-                            subtitle: '优先保留主体区域的观看空间。',
+                            title: '主体穿透遮挡',
+                            subtitle: '优先使用动态蒙版扣除人物区域内的弹幕，不可用时会恢复普通弹幕。',
                             value: _settings.avoidCenterArea,
                             onChanged: (value) {
                               _save(_settings.copyWith(avoidCenterArea: value));

@@ -487,6 +487,7 @@ class DownloadTaskService extends ChangeNotifier {
     required List<String> groupPosterUrls,
     StreamFileInfo? fileInfo,
     SubtitleTrackOption? subtitleTrack,
+    String? subtitleFilePath,
   }) async {
     await initialize();
     final itemGuid = identity.itemGuid.trim();
@@ -505,6 +506,7 @@ class DownloadTaskService extends ChangeNotifier {
     if (existingDownloaded != null &&
         existingDownloaded.filePath.trim().isNotEmpty &&
         File(existingDownloaded.filePath).existsSync()) {
+      await _clearImportedCacheEntry(identity);
       return DownloadStartResult(
         state: DownloadStartState.downloaded,
         record: existingDownloaded,
@@ -567,24 +569,46 @@ class DownloadTaskService extends ChangeNotifier {
       );
       await _relocateImportedFile(promotedFile.path, finalFilePath);
 
+      final importArtwork = provider == null
+          ? _ImportedCacheArtwork(
+              posterUrls: posterUrls,
+              groupPosterUrls: groupPosterUrls.isNotEmpty
+                  ? groupPosterUrls
+                  : posterUrls,
+            )
+          : await _resolveImportedCacheArtwork(
+              provider: provider,
+              itemGuid: itemGuid,
+              fallbackPosterUrls: posterUrls,
+              fallbackGroupPosterUrls: groupPosterUrls,
+            );
+
       final cachedPosterUrls = provider == null
-          ? posterUrls
+          ? importArtwork.posterUrls
           : await _cacheArtworkUrls(
               provider: provider,
-              sourceUrls: posterUrls,
+              sourceUrls: importArtwork.posterUrls,
               videoFilePath: finalFilePath,
               suffix: 'cover',
             );
       final cachedGroupPosterUrls = provider == null
-          ? groupPosterUrls
+          ? importArtwork.groupPosterUrls
           : await _cacheArtworkUrls(
               provider: provider,
-              sourceUrls: groupPosterUrls,
+              sourceUrls: importArtwork.groupPosterUrls,
               videoFilePath: finalFilePath,
               suffix: 'group_cover',
             );
 
       final actualBytes = await File(finalFilePath).length();
+      final api = provider == null ? null : FeiniuApi(provider);
+      final resolvedSubtitleTrack =
+          subtitleTrack ??
+          await _resolveImportedCacheSubtitleTrack(
+            api: api,
+            itemGuid: itemGuid,
+            mediaGuid: mediaGuid,
+          );
       var record = DownloadTaskRecord(
         id: _buildId(),
         remoteTaskId: downloadability.resourceKey.trim().isEmpty
@@ -613,14 +637,12 @@ class DownloadTaskService extends ChangeNotifier {
         createdAtMs: DateTime.now().millisecondsSinceEpoch,
         updatedAtMs: DateTime.now().millisecondsSinceEpoch,
       );
-      if (provider != null) {
-        final api = FeiniuApi(provider);
-        await _materializeSubtitleForRecord(
-          api: api,
-          record: record,
-          subtitleTrack: subtitleTrack,
-        );
-      }
+      await _materializeSubtitleForRecord(
+        api: api,
+        record: record,
+        subtitleTrack: resolvedSubtitleTrack,
+        localSubtitleFilePath: subtitleFilePath,
+      );
       final refreshedBytes = await File(finalFilePath).length();
       record = record.copyWith(
         totalBytes: math.max(
@@ -631,6 +653,10 @@ class DownloadTaskService extends ChangeNotifier {
         updatedAtMs: DateTime.now().millisecondsSinceEpoch,
       );
       _upsertRecord(record, persistImmediately: true);
+      await _clearImportedCacheEntry(
+        identity,
+        resolvedResourceKey: downloadability.resourceKey,
+      );
       return DownloadStartResult(
         state: DownloadStartState.importedFromCache,
         record: record,
@@ -1527,11 +1553,41 @@ class DownloadTaskService extends ChangeNotifier {
   }
 
   Future<void> _materializeSubtitleForRecord({
-    required FeiniuApi api,
+    required FeiniuApi? api,
     required DownloadTaskRecord record,
     required SubtitleTrackOption? subtitleTrack,
+    String? localSubtitleFilePath,
   }) async {
-    if (subtitleTrack == null) return;
+    final localFilePath = _resolveImportedLocalSubtitlePath(
+      subtitleTrack: subtitleTrack,
+      explicitFilePath: localSubtitleFilePath,
+    );
+    if (localFilePath != null) {
+      try {
+        final sourceFile = File(localFilePath);
+        if (!sourceFile.existsSync()) return;
+        if (subtitleTrack == null) return;
+        final targetFile = File(
+          _subtitleFilePath(record.filePath, subtitleTrack),
+        );
+        await targetFile.parent.create(recursive: true);
+        if (targetFile.existsSync()) {
+          await targetFile.delete();
+        }
+        await sourceFile.copy(targetFile.path);
+      } catch (error, stackTrace) {
+        await AppLogService.instance.recordWarning(
+          error: error,
+          stackTrace: stackTrace,
+          source: 'download-subtitle-local',
+          details:
+              'item=${record.itemGuid} subtitle=${subtitleTrack?.guid ?? ''} media=${record.mediaGuid}',
+        );
+      }
+      return;
+    }
+    if (subtitleTrack == null || api == null) return;
+    if (!_isDownloadableSubtitleTrack(subtitleTrack)) return;
     try {
       final text = await api.downloadSubtitleText(subtitleTrack.guid);
       if (text.trim().isEmpty) return;
@@ -1551,6 +1607,91 @@ class DownloadTaskService extends ChangeNotifier {
     }
   }
 
+  Future<SubtitleTrackOption?> _resolveImportedCacheSubtitleTrack({
+    required FeiniuApi? api,
+    required String itemGuid,
+    required String mediaGuid,
+  }) async {
+    if (api == null) return null;
+    final normalizedItemGuid = itemGuid.trim();
+    final normalizedMediaGuid = mediaGuid.trim();
+    if (normalizedItemGuid.isEmpty || normalizedMediaGuid.isEmpty) {
+      return null;
+    }
+    try {
+      final streamData = await api.getStreamTrackData(normalizedItemGuid);
+      return _resolveDownloadSubtitleTrack(
+        streamData.subtitlesForMedia(normalizedMediaGuid),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<_ImportedCacheArtwork> _resolveImportedCacheArtwork({
+    required NasProvider provider,
+    required String itemGuid,
+    required List<String> fallbackPosterUrls,
+    required List<String> fallbackGroupPosterUrls,
+  }) async {
+    final detailPosterUrls = await _fetchItemPosterUrls(
+      provider: provider,
+      itemGuid: itemGuid,
+    );
+    final normalizedFallbackPosterUrls = _normalizedArtworkUrls(
+      fallbackPosterUrls,
+    );
+    final normalizedFallbackGroupPosterUrls = _normalizedArtworkUrls(
+      fallbackGroupPosterUrls,
+    );
+    final resolvedPosterUrls = detailPosterUrls.isNotEmpty
+        ? detailPosterUrls
+        : normalizedFallbackPosterUrls;
+    var resolvedGroupPosterUrls = normalizedFallbackGroupPosterUrls;
+    if (resolvedGroupPosterUrls.isEmpty) {
+      resolvedGroupPosterUrls = resolvedPosterUrls;
+    }
+    return _ImportedCacheArtwork(
+      posterUrls: resolvedPosterUrls,
+      groupPosterUrls: resolvedGroupPosterUrls,
+    );
+  }
+
+  Future<List<String>> _fetchItemPosterUrls({
+    required NasProvider provider,
+    required String itemGuid,
+  }) async {
+    final normalizedItemGuid = itemGuid.trim();
+    if (normalizedItemGuid.isEmpty) return const <String>[];
+    try {
+      final api = FeiniuApi(provider);
+      final detail = await api.getItemDetail(normalizedItemGuid);
+      final rawItem = detail['item'];
+      final item = rawItem is Map
+          ? rawItem.map((key, value) => MapEntry('$key', value))
+          : detail;
+      final posterPath = (item['posters'] ?? item['poster'] ?? '')
+          .toString()
+          .trim();
+      if (posterPath.isEmpty) return const <String>[];
+      return ApiUrlHelper.imageCandidates(
+        provider.baseUrl,
+        posterPath,
+        width: 720,
+        preferDirectPath: true,
+      );
+    } catch (_) {
+      return const <String>[];
+    }
+  }
+
+  List<String> _normalizedArtworkUrls(List<String> sourceUrls) {
+    return sourceUrls
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
+  }
+
   String _subtitleFilePath(
     String videoFilePath,
     SubtitleTrackOption subtitleTrack,
@@ -1563,6 +1704,29 @@ class DownloadTaskService extends ChangeNotifier {
     );
     final extension = _subtitleExtension(subtitleTrack);
     return '${videoFile.parent.path}/$baseName.$extension';
+  }
+
+  String? _resolveImportedLocalSubtitlePath({
+    required SubtitleTrackOption? subtitleTrack,
+    String? explicitFilePath,
+  }) {
+    final normalizedPath = (explicitFilePath ?? '').trim();
+    if (normalizedPath.isNotEmpty) {
+      return normalizedPath;
+    }
+    final guid = subtitleTrack?.guid.trim() ?? '';
+    if (!guid.startsWith('local:')) {
+      return null;
+    }
+    final fileUri = Uri.tryParse(guid.substring('local:'.length));
+    if (fileUri == null || fileUri.scheme != 'file') {
+      return null;
+    }
+    try {
+      return fileUri.toFilePath(windows: Platform.isWindows);
+    } catch (_) {
+      return null;
+    }
   }
 
   String _subtitleExtension(SubtitleTrackOption subtitleTrack) {
@@ -1594,6 +1758,31 @@ class DownloadTaskService extends ChangeNotifier {
     } catch (_) {
       return null;
     }
+  }
+
+  Future<void> _clearImportedCacheEntry(
+    CachedMediaSourceIdentity identity, {
+    String resolvedResourceKey = '',
+  }) async {
+    final explicitKey = identity.resourceKey.trim();
+    var resourceKey = resolvedResourceKey.trim().isNotEmpty
+        ? resolvedResourceKey.trim()
+        : explicitKey;
+    if (resourceKey.isEmpty) {
+      try {
+        final downloadability = await StorageManagementService.instance
+            .canPromoteCachedMedia(identity);
+        resourceKey = downloadability.resourceKey.trim();
+      } catch (_) {
+        resourceKey = '';
+      }
+    }
+    if (resourceKey.isEmpty) return;
+    try {
+      await StorageManagementService.instance.clearPlaybackCacheEntries(
+        <String>[resourceKey],
+      );
+    } catch (_) {}
   }
 
   String _buildId() {
@@ -1656,6 +1845,16 @@ class DownloadTaskService extends ChangeNotifier {
     createdAtMs: 0,
     updatedAtMs: 0,
   );
+}
+
+class _ImportedCacheArtwork {
+  final List<String> posterUrls;
+  final List<String> groupPosterUrls;
+
+  const _ImportedCacheArtwork({
+    required this.posterUrls,
+    required this.groupPosterUrls,
+  });
 }
 
 class _DownloadProgressSample {

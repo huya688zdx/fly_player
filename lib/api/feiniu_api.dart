@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
@@ -32,6 +33,43 @@ void _apiVerboseLog(String message) {
   if (_verboseApiLogsEnabled) {
     debugPrint(message);
   }
+}
+
+Future<T> _parseOffMainIsolate<S, T>(S payload, T Function(S payload) parser) {
+  if (kIsWeb) {
+    return Future<T>.value(parser(payload));
+  }
+  return Isolate.run<T>(() => parser(payload));
+}
+
+List<MediaLibraryItem> _parseMediaLibraryItems(List<dynamic> data) {
+  return data
+      .whereType<Map>()
+      .map(
+        (entry) => MediaLibraryItem.fromJson(Map<String, dynamic>.from(entry)),
+      )
+      .toList(growable: false);
+}
+
+PlayInfoData _parsePlayInfoData(Map<String, dynamic> data) {
+  return PlayInfoData.fromJson(Map<String, dynamic>.from(data));
+}
+
+StreamTrackData _parseStreamTrackData(Map<String, dynamic> data) {
+  return StreamTrackData.fromApiData(Map<String, dynamic>.from(data));
+}
+
+List<PersonCredit> _parsePersonCredits(Map<String, dynamic> data) {
+  final list = (data['list'] as List?) ?? const <dynamic>[];
+  final people =
+      list
+          .whereType<Map>()
+          .map(
+            (entry) => PersonCredit.fromJson(Map<String, dynamic>.from(entry)),
+          )
+          .toList()
+        ..sort((a, b) => a.order.compareTo(b.order));
+  return List<PersonCredit>.unmodifiable(people);
 }
 
 class LoginWithBaseUrlResult {
@@ -315,6 +353,7 @@ class FeiniuApi {
       <String, DateTime>{};
   static const Duration _homeReadCacheTtl = Duration(seconds: 8);
   static const Duration _playListCacheTtl = Duration(seconds: 2);
+  static const Duration _detailReadCacheTtl = Duration(seconds: 4);
 
   final NasProvider nasProvider;
   final Dio _dio = Dio();
@@ -1607,10 +1646,8 @@ class FeiniuApi {
     Future<List<MediaLibraryItem>> load() async {
       try {
         final response = await _dio.get(_playListPath);
-        final items = _extractDataList(
-          response.data,
-          'play list',
-        ).map(MediaLibraryItem.fromJson).toList();
+        final data = _extractDataList(response.data, 'play list');
+        final items = await _parseOffMainIsolate(data, _parseMediaLibraryItems);
         debugPrint('[API][PLAY_LIST] items=${items.length}');
         return items;
       } catch (e) {
@@ -1642,7 +1679,7 @@ class FeiniuApi {
         data: {'item_guid': itemGuid},
       );
       final data = _extractDataMap(response.data, 'play info');
-      return PlayInfoData.fromJson(data);
+      return await _parseOffMainIsolate(data, _parsePlayInfoData);
     } catch (e) {
       throw AppException.from(
         e,
@@ -2240,21 +2277,33 @@ class FeiniuApi {
   }
 
   Future<StreamTrackData> getStreamTrackData(String itemGuid) async {
-    try {
-      final response = await _dio.get('$_streamListPathPrefix/$itemGuid');
-      final data = _extractDataMap(response.data, 'stream list');
-      final trackData = StreamTrackData.fromApiData(data);
-      debugPrint(
-        '[API][STREAM_LIST] item=$itemGuid options=${trackData.options.length}',
-      );
-      return trackData;
-    } catch (e) {
-      throw AppException.from(
-        e,
-        action: 'stream list',
-        fallbackKind: AppExceptionKind.transient,
-      );
-    }
+    final normalizedItemGuid = itemGuid.trim();
+    return _getOrLoadSharedResource<StreamTrackData>(
+      cacheKey: _sharedResourceKey('stream_track|$normalizedItemGuid'),
+      maxAge: _detailReadCacheTtl,
+      loader: () async {
+        try {
+          final response = await _dio.get(
+            '$_streamListPathPrefix/$normalizedItemGuid',
+          );
+          final data = _extractDataMap(response.data, 'stream list');
+          final trackData = await _parseOffMainIsolate(
+            data,
+            _parseStreamTrackData,
+          );
+          debugPrint(
+            '[API][STREAM_LIST] item=$normalizedItemGuid options=${trackData.options.length}',
+          );
+          return trackData;
+        } catch (e) {
+          throw AppException.from(
+            e,
+            action: 'stream list',
+            fallbackKind: AppExceptionKind.transient,
+          );
+        }
+      },
+    );
   }
 
   // People
@@ -2262,28 +2311,35 @@ class FeiniuApi {
     String itemGuid, {
     PersonListRequest request = const PersonListRequest(),
   }) async {
-    try {
-      final response = await _dio.post(
-        '$_personListPathPrefix/$itemGuid',
-        data: request.toJson(),
-      );
-      final data = _extractDataMap(response.data, 'person list');
-      final list = (data['list'] as List?) ?? const <dynamic>[];
-      final people =
-          list
-              .whereType<Map<String, dynamic>>()
-              .map(PersonCredit.fromJson)
-              .toList()
-            ..sort((a, b) => a.order.compareTo(b.order));
-      debugPrint('[API][PERSON_LIST] item=$itemGuid count=${people.length}');
-      return people;
-    } catch (e) {
-      throw AppException.from(
-        e,
-        action: 'person list',
-        fallbackKind: AppExceptionKind.transient,
-      );
-    }
+    final normalizedItemGuid = itemGuid.trim();
+    final requestPayload = request.toJson();
+    final requestKey = jsonEncode(requestPayload);
+    return _getOrLoadSharedResource<List<PersonCredit>>(
+      cacheKey: _sharedResourceKey(
+        'person_list|$normalizedItemGuid|$requestKey',
+      ),
+      maxAge: _detailReadCacheTtl,
+      loader: () async {
+        try {
+          final response = await _dio.post(
+            '$_personListPathPrefix/$normalizedItemGuid',
+            data: requestPayload,
+          );
+          final data = _extractDataMap(response.data, 'person list');
+          final people = await _parseOffMainIsolate(data, _parsePersonCredits);
+          debugPrint(
+            '[API][PERSON_LIST] item=$normalizedItemGuid count=${people.length}',
+          );
+          return people;
+        } catch (e) {
+          throw AppException.from(
+            e,
+            action: 'person list',
+            fallbackKind: AppExceptionKind.transient,
+          );
+        }
+      },
+    );
   }
 
   Future<PersonDetailProfile> getPersonDetail(String personGuid) async {

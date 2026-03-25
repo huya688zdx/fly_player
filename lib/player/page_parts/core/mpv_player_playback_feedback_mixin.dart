@@ -148,6 +148,12 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
         unawaited(_skipToNextEpisodeFromPrompt());
       },
     );
+    unawaited(_preloadNextEpisodeIfNeeded(nextEpisode));
+    final value = _controller.value.value;
+    final statusText = value.statusText.trim().toLowerCase();
+    _completionController.setAutoPlayCountdownPaused(
+      value.paused && statusText != 'playback ended',
+    );
   }
 
   Future<void> _maybeStartAutoPlayPromptNearEnd() async {
@@ -173,6 +179,12 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
           unawaited(_skipToNextEpisodeFromPrompt());
         },
       );
+      unawaited(_preloadNextEpisodeIfNeeded(nextEpisode));
+      final value = _controller.value.value;
+      final statusText = value.statusText.trim().toLowerCase();
+      _completionController.setAutoPlayCountdownPaused(
+        value.paused && statusText != 'playback ended',
+      );
     } finally {
       _autoPlayPromptRequestInFlight = false;
     }
@@ -195,12 +207,6 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
   }
 
   Future<void> _pauseForAutoPlayPromptIfNeeded() async {
-    if (_controller.value.value.paused) {
-      await _showAutoPlayPrompt();
-      return;
-    }
-    await _controller.pause();
-    if (!mounted) return;
     await _showAutoPlayPrompt();
   }
 
@@ -215,9 +221,13 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
     final nextEpisode = await _nextEpisodeOrNull();
     if (!mounted) return;
     final hasNextEpisode = nextEpisode != null;
+    final hasPlayedLongEnoughForAutoPlay = _hasPlayedLongEnoughForAutoPlay(
+      _displayPosition(_controller.value.value),
+    );
 
     if (_autoPlayEnabled &&
         nextEpisode != null &&
+        hasPlayedLongEnoughForAutoPlay &&
         !_completionController.autoPlayPromptSuppressed) {
       await _pauseForAutoPlayPromptIfNeeded();
       return;
@@ -237,7 +247,17 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
     _overlayState.showControls();
     _setResumePromptVisibility(false);
     _gestureController.resetSeekTracking();
-    await _controller.seek(Duration.zero);
+    await _finishPlayStatsSession('replay_restart');
+    await _startPlayStatsSession(
+      startSource: PlayStartSource.replay,
+      info: _playStatsCurrentInfo,
+      source: _buildCurrentSource(
+        startPosition: Duration.zero,
+        loadNonce: _issueNextLoadNonce(),
+      ),
+      startPositionMs: 0,
+    );
+    await _seekWithStats(Duration.zero, userInitiated: false);
     await _controller.play();
     if (!mounted) return;
     _scheduleControlsAutoHide();

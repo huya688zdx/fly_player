@@ -8,6 +8,7 @@ class NasProvider extends ChangeNotifier {
   static const MethodChannel _sessionStateChannel = MethodChannel(
     'fly_player/session_state',
   );
+  static _NasProviderBootstrapSnapshot? _bootstrapSnapshot;
 
   String _baseUrl = '';
   String _resolvedBaseUrl = '';
@@ -30,6 +31,16 @@ class NasProvider extends ChangeNotifier {
   bool get isConfigured => _baseUrl.isNotEmpty && _token.isNotEmpty;
 
   NasProvider() {
+    final bootstrap = _bootstrapSnapshot;
+    if (bootstrap != null) {
+      _baseUrl = bootstrap.baseUrl;
+      _resolvedBaseUrl = bootstrap.resolvedBaseUrl;
+      _userName = bootstrap.userName;
+      _password = bootstrap.password;
+      _token = bootstrap.token;
+      _rememberPassword = bootstrap.rememberPassword;
+      _isReady = true;
+    }
     _sessionStateChannel.setMethodCallHandler(_handleSessionStateMethodCall);
     _loadSettings();
   }
@@ -52,6 +63,7 @@ class NasProvider extends ChangeNotifier {
     }
     _rememberPassword = prefs.getBool('remember_password') ?? true;
     _isReady = true;
+    _cacheBootstrapSnapshot();
     notifyListeners();
   }
 
@@ -78,6 +90,7 @@ class NasProvider extends ChangeNotifier {
     await prefs.setBool('remember_password', _rememberPassword);
     await prefs.setString('token', _token);
 
+    _cacheBootstrapSnapshot();
     notifyListeners();
   }
 
@@ -85,6 +98,7 @@ class NasProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _token = token;
     await prefs.setString('token', _token);
+    _cacheBootstrapSnapshot();
     notifyListeners();
   }
 
@@ -94,6 +108,7 @@ class NasProvider extends ChangeNotifier {
     _resolvedBaseUrl = '';
     await prefs.remove('token');
     await prefs.remove('resolved_base_url');
+    _cacheBootstrapSnapshot();
     if (notify) {
       notifyListeners();
     }
@@ -103,4 +118,33 @@ class NasProvider extends ChangeNotifier {
     await _applyLoggedOutState(notify: true);
     await SessionExitBridge.logoutAndResetParallelUi();
   }
+
+  void _cacheBootstrapSnapshot() {
+    _bootstrapSnapshot = _NasProviderBootstrapSnapshot(
+      baseUrl: _baseUrl,
+      resolvedBaseUrl: _resolvedBaseUrl,
+      userName: _userName,
+      password: _password,
+      token: _token,
+      rememberPassword: _rememberPassword,
+    );
+  }
+}
+
+class _NasProviderBootstrapSnapshot {
+  final String baseUrl;
+  final String resolvedBaseUrl;
+  final String userName;
+  final String password;
+  final String token;
+  final bool rememberPassword;
+
+  const _NasProviderBootstrapSnapshot({
+    required this.baseUrl,
+    required this.resolvedBaseUrl,
+    required this.userName,
+    required this.password,
+    required this.token,
+    required this.rememberPassword,
+  });
 }

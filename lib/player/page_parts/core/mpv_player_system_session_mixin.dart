@@ -18,8 +18,9 @@ extension _MpvPlayerSystemSessionMixin on _MpvPlayerPageState {
             num value => value.toInt(),
             _ => int.tryParse('$rawPosition') ?? 0,
           };
-          await _controller.seek(
+          await _seekWithStats(
             Duration(milliseconds: positionMs.clamp(0, 1 << 31)),
+            userInitiated: true,
           );
         }
         return;
@@ -275,6 +276,10 @@ extension _MpvPlayerSystemSessionMixin on _MpvPlayerPageState {
   }
 
   List<String> _resolveSystemPlaybackArtworkUrls() {
+    final localArtworkUrls = _resolveLocalDownloadedArtworkUrls();
+    if (localArtworkUrls.isNotEmpty) {
+      return localArtworkUrls;
+    }
     final rawPath = _currentPosterPath.trim().isNotEmpty
         ? _currentPosterPath.trim()
         : widget.source.posterPath.trim();
@@ -283,6 +288,82 @@ extension _MpvPlayerSystemSessionMixin on _MpvPlayerPageState {
     }
     final baseUrl = context.read<NasProvider>().baseUrl;
     return ApiUrlHelper.imageCandidates(baseUrl, rawPath, width: 480);
+  }
+
+  List<String> _resolveLocalDownloadedArtworkUrls() {
+    if (!_currentSourceIsDownloadedFile) {
+      return const <String>[];
+    }
+    final service = DownloadTaskService.instance;
+    final currentItemGuid = _currentItemGuid.trim().isNotEmpty
+        ? _currentItemGuid.trim()
+        : widget.source.itemGuid.trim();
+    final currentMediaGuid = _currentMediaGuid.trim().isNotEmpty
+        ? _currentMediaGuid.trim()
+        : widget.source.mediaGuid.trim();
+    final currentFilePath = _resolveCurrentLocalPlaybackFilePath();
+
+    DownloadTaskRecord? fallbackRecord;
+    for (final record in service.downloadedRecords) {
+      if (currentFilePath.isNotEmpty &&
+          _sameLocalPlaybackPath(record.filePath, currentFilePath)) {
+        final urls = _preferredLocalArtworkUrlsForRecord(record);
+        if (urls.isNotEmpty) {
+          return urls;
+        }
+      }
+      if (currentItemGuid.isEmpty || record.itemGuid != currentItemGuid) {
+        continue;
+      }
+      if (currentMediaGuid.isNotEmpty && record.mediaGuid == currentMediaGuid) {
+        fallbackRecord = record;
+        break;
+      }
+      fallbackRecord ??= record;
+    }
+    return fallbackRecord == null
+        ? const <String>[]
+        : _preferredLocalArtworkUrlsForRecord(fallbackRecord);
+  }
+
+  String _resolveCurrentLocalPlaybackFilePath() {
+    final rawUrl = _currentUrl.trim().isNotEmpty
+        ? _currentUrl.trim()
+        : widget.source.url.trim();
+    if (rawUrl.isEmpty) {
+      return '';
+    }
+    final parsed = Uri.tryParse(rawUrl);
+    if (parsed != null && parsed.scheme.toLowerCase() == 'file') {
+      return parsed.toFilePath();
+    }
+    return rawUrl.startsWith('/') ? rawUrl : '';
+  }
+
+  bool _sameLocalPlaybackPath(String a, String b) {
+    final normalizedA = a.trim().replaceAll('\\', '/');
+    final normalizedB = b.trim().replaceAll('\\', '/');
+    if (normalizedA.isEmpty || normalizedB.isEmpty) {
+      return false;
+    }
+    return normalizedA == normalizedB;
+  }
+
+  List<String> _preferredLocalArtworkUrlsForRecord(DownloadTaskRecord record) {
+    final combined = <String>[...record.posterUrls, ...record.groupPosterUrls];
+    final local = combined.where(_isLocalArtworkUrl).toList(growable: false);
+    if (local.isNotEmpty) {
+      return local;
+    }
+    return combined
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  bool _isLocalArtworkUrl(String value) {
+    final normalized = value.trim().toLowerCase();
+    return normalized.startsWith('file://') || normalized.startsWith('/');
   }
 
   Map<String, String> _resolveSystemPlaybackArtworkHeaders() {

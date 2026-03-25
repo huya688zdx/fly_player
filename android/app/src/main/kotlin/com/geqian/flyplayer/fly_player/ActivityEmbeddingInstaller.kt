@@ -74,6 +74,18 @@ object ActivityEmbeddingInstaller {
                 ).setAlwaysExpand(true)
                 .build()
 
+        val fullscreenScreenshotRule =
+            ActivityRule
+                .Builder(
+                    setOf(
+                        ActivityFilter(
+                            ComponentName(context, FullscreenScreenshotActivity::class.java),
+                            null,
+                        ),
+                    ),
+                ).setAlwaysExpand(true)
+                .build()
+
         runCatching {
             RuleController
                 .getInstance(context)
@@ -81,6 +93,7 @@ object ActivityEmbeddingInstaller {
                     setOf(
                         splitPairRule,
                         fullscreenPlayerRule,
+                        fullscreenScreenshotRule,
                     ),
                 )
         }.onFailure { error ->

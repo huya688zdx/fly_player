@@ -7,8 +7,11 @@ import 'package:flutter/services.dart';
 import '../controllers/play_detail_data_loader.dart';
 import '../models/media_item.dart';
 import '../models/media_library_item.dart';
+import '../models/play_info.dart';
 import '../player/controllers/mpv_player_controller.dart';
+import '../services/play_stats/play_stats.dart';
 import '../ui/player_pane_host_scope.dart';
+import 'main_host_bridge.dart';
 import 'parallel_browse_snapshot.dart';
 
 class EmbeddedPlayerLaunchResult {
@@ -32,32 +35,51 @@ class EmbeddedDetailLauncher {
     }
   }
 
-  static Future<bool> openItemDetail(
-    String itemGuid, {
-    BuildContext? context,
-  }) async {
-    final normalizedGuid = itemGuid.trim();
-    if (normalizedGuid.isEmpty) return false;
-    final paneHost = context == null
-        ? null
-        : PlayerPaneHostScope.maybeOf(context);
-    if (paneHost != null) {
-      return paneHost.openRoute(
-        Uri(
-          path: '/detail/item',
-          queryParameters: <String, String>{'itemGuid': normalizedGuid},
-        ).toString(),
-      );
-    }
+  static Future<bool> isParallelWindowSupported() async {
     try {
-      return await _channel.invokeMethod<bool>(
-            'openItemDetail',
-            <String, String>{'itemGuid': normalizedGuid},
-          ) ??
+      return await _channel.invokeMethod<bool>('isParallelWindowSupported') ??
           false;
     } on PlatformException {
       return false;
     }
+  }
+
+  static Future<bool> openItemDetail(
+    String itemGuid, {
+    BuildContext? context,
+    String seriesGuid = '',
+    Map<String, dynamic>? initialItemDetail,
+  }) async {
+    final normalizedGuid = itemGuid.trim();
+    final normalizedSeriesGuid = seriesGuid.trim();
+    if (normalizedGuid.isEmpty) return false;
+    final routeName = Uri(
+      path: '/detail/item',
+      queryParameters: <String, String>{
+        'itemGuid': normalizedGuid,
+        if (normalizedSeriesGuid.isNotEmpty) 'seriesGuid': normalizedSeriesGuid,
+        if (initialItemDetail != null)
+          'initialItemDetail': jsonEncode(initialItemDetail),
+      },
+    ).toString();
+    final paneHost = context == null
+        ? null
+        : PlayerPaneHostScope.maybeOf(context);
+    if (paneHost != null) {
+      return paneHost.openRoute(routeName);
+    }
+    if (Platform.isAndroid) {
+      try {
+        return await _channel.invokeMethod<bool>(
+              'openSecondaryRoute',
+              <String, String>{'routeName': routeName},
+            ) ??
+            false;
+      } on PlatformException {
+        return false;
+      }
+    }
+    return false;
   }
 
   static Future<bool> openSeasonDetail({
@@ -110,8 +132,27 @@ class EmbeddedDetailLauncher {
     return _openRoute('/screen/favorites', context: context);
   }
 
-  static Future<bool> openSettings({BuildContext? context}) async {
-    return _openRoute('/screen/settings', context: context);
+  static Future<bool> openSettings({
+    BuildContext? context,
+    String? destinationRoute,
+  }) async {
+    final normalizedDestination = destinationRoute?.trim() ?? '';
+    final handled = await MainHostBridge.openPrimarySettings(
+      destinationRoute: normalizedDestination.isEmpty
+          ? null
+          : normalizedDestination,
+    );
+    if (handled) return true;
+    if (context == null || !context.mounted) return false;
+    final fallbackRoute = normalizedDestination.isEmpty
+        ? '/screen/settings'
+        : normalizedDestination;
+    try {
+      await Navigator.of(context, rootNavigator: true).pushNamed(fallbackRoute);
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   static Future<bool> openDownloads({
@@ -190,6 +231,8 @@ class EmbeddedDetailLauncher {
     BuildContext? context,
     required String title,
     required MpvMediaSource source,
+    PlayInfoData? initialPlayInfo,
+    PlayStartSource startSource = PlayStartSource.manual,
   }) async {
     if (context != null) {
       final paneHost = PlayerPaneHostScope.maybeOf(context);
@@ -197,6 +240,8 @@ class EmbeddedDetailLauncher {
         final handled = await paneHost.replacePlayerSource(
           title: title,
           source: source,
+          initialPlayInfo: initialPlayInfo,
+          startSource: startSource,
         );
         return EmbeddedPlayerLaunchResult(handled: handled);
       }
@@ -211,7 +256,12 @@ class EmbeddedDetailLauncher {
     try {
       final result = await _channel.invokeMapMethod<Object?, Object?>(
         'openFullscreenPlayer',
-        <String, Object?>{'title': normalizedTitle, 'source': source.toMap()},
+        <String, Object?>{
+          'title': normalizedTitle,
+          'source': source.toMap(),
+          'initialPlayInfo': initialPlayInfo?.toJson(),
+          'startSource': PlayStatsSqlMapper.startSourceToText(startSource),
+        },
       );
       if (result == null) {
         return const EmbeddedPlayerLaunchResult(handled: true);
@@ -265,22 +315,36 @@ class EmbeddedDetailLauncher {
     String routeName, {
     BuildContext? context,
   }) async {
-    if (!Platform.isAndroid) return false;
     final normalizedRoute = routeName.trim();
     if (normalizedRoute.isEmpty) return false;
     final paneHost = context == null
         ? null
         : PlayerPaneHostScope.maybeOf(context);
     if (paneHost != null) {
-      return paneHost.openRoute(normalizedRoute);
+      final handled = await paneHost.openRoute(normalizedRoute);
+      if (handled) return true;
     }
+    if (Platform.isAndroid) {
+      try {
+        final handled =
+            await _channel.invokeMethod<bool>(
+              'openSecondaryRoute',
+              <String, Object?>{'routeName': normalizedRoute},
+            ) ??
+            false;
+        if (handled) return true;
+      } on PlatformException {
+        // Fall through to local navigator push when a Flutter context exists.
+      }
+    }
+    if (context == null || !context.mounted) return false;
     try {
-      return await _channel.invokeMethod<bool>(
-            'openSecondaryRoute',
-            <String, Object?>{'routeName': normalizedRoute},
-          ) ??
-          false;
-    } on PlatformException {
+      await Navigator.of(
+        context,
+        rootNavigator: true,
+      ).pushNamed(normalizedRoute);
+      return true;
+    } catch (_) {
       return false;
     }
   }

@@ -5,6 +5,7 @@ const String _audioAdjustPageId = 'audio_adjust';
 
 extension _MpvPlayerAudioDrawerMixin on _MpvPlayerPageState {
   Future<void> _showAudioDrawer() async {
+    if (_playerUiLocked) return;
     _hideSpeedDialOverlay(restoreAutoHide: false);
     final audioProcessingKeys = <String>{
       _MpvPlayerPageState._mpvSettingVolumeGain,
@@ -222,6 +223,7 @@ extension _MpvPlayerAudioDrawerMixin on _MpvPlayerPageState {
       drawer.close();
       return;
     }
+    _invalidateNextEpisodePreload();
     if (_playbackMode.isServerManaged) {
       final currentPosition = _displayPosition(_controller.value.value);
       var reloadStarted = false;

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../../danmaku/models/danmaku_dynamic_occlusion.dart';
 import '../../models/playback_stream.dart';
 import '../../models/stream_track_data.dart';
 import 'player_source_controller.dart';
@@ -16,6 +17,7 @@ int createMpvLoadNonce() {
 class MpvMediaSource {
   final int loadNonce;
   final String itemGuid;
+  final String seriesGuid;
   final String seasonGuid;
   final String posterPath;
   final String mediaGuid;
@@ -57,6 +59,7 @@ class MpvMediaSource {
   final String? seekProbeSummary;
   final PlayerPlaybackMode playbackMode;
   final double playbackSpeed;
+  final bool listenVideoModeEnabled;
   final List<AudioTrackOption> audioTracks;
   final List<SubtitleTrackOption> subtitleTracks;
   final List<PlaybackQualityOption> qualities;
@@ -66,6 +69,7 @@ class MpvMediaSource {
   const MpvMediaSource({
     this.loadNonce = 0,
     required this.itemGuid,
+    this.seriesGuid = '',
     this.seasonGuid = '',
     this.posterPath = '',
     required this.mediaGuid,
@@ -107,6 +111,7 @@ class MpvMediaSource {
     this.seekProbeSummary,
     this.playbackMode = PlayerPlaybackMode.originalQuality,
     this.playbackSpeed = 1.0,
+    this.listenVideoModeEnabled = false,
     this.audioTracks = const <AudioTrackOption>[],
     this.subtitleTracks = const <SubtitleTrackOption>[],
     this.qualities = const <PlaybackQualityOption>[],
@@ -115,6 +120,7 @@ class MpvMediaSource {
   MpvMediaSource copyWith({
     int? loadNonce,
     String? itemGuid,
+    String? seriesGuid,
     String? seasonGuid,
     String? posterPath,
     String? mediaGuid,
@@ -162,6 +168,7 @@ class MpvMediaSource {
     bool clearSeekProbeSummary = false,
     PlayerPlaybackMode? playbackMode,
     double? playbackSpeed,
+    bool? listenVideoModeEnabled,
     List<AudioTrackOption>? audioTracks,
     List<SubtitleTrackOption>? subtitleTracks,
     List<PlaybackQualityOption>? qualities,
@@ -169,6 +176,7 @@ class MpvMediaSource {
     return MpvMediaSource(
       loadNonce: loadNonce ?? this.loadNonce,
       itemGuid: itemGuid ?? this.itemGuid,
+      seriesGuid: seriesGuid ?? this.seriesGuid,
       seasonGuid: seasonGuid ?? this.seasonGuid,
       posterPath: posterPath ?? this.posterPath,
       mediaGuid: mediaGuid ?? this.mediaGuid,
@@ -224,6 +232,8 @@ class MpvMediaSource {
           : seekProbeSummary ?? this.seekProbeSummary,
       playbackMode: playbackMode ?? this.playbackMode,
       playbackSpeed: playbackSpeed ?? this.playbackSpeed,
+      listenVideoModeEnabled:
+          listenVideoModeEnabled ?? this.listenVideoModeEnabled,
       audioTracks: audioTracks ?? this.audioTracks,
       subtitleTracks: subtitleTracks ?? this.subtitleTracks,
       qualities: qualities ?? this.qualities,
@@ -235,6 +245,7 @@ class MpvMediaSource {
     required String itemGuid,
     required String mediaGuid,
     required String title,
+    String seriesGuid = '',
     String seasonGuid = '',
     String posterPath = '',
     String mediaType = '',
@@ -262,6 +273,7 @@ class MpvMediaSource {
     String colorPrimaries = '',
     int bitDepth = 0,
     double playbackSpeed = 1.0,
+    bool listenVideoModeEnabled = false,
     List<AudioTrackOption> audioTracks = const <AudioTrackOption>[],
     List<SubtitleTrackOption> subtitleTracks = const <SubtitleTrackOption>[],
     List<PlaybackQualityOption> qualities = const <PlaybackQualityOption>[],
@@ -308,6 +320,7 @@ class MpvMediaSource {
     return MpvMediaSource(
       loadNonce: loadNonce ?? createMpvLoadNonce(),
       itemGuid: normalizedItemGuid,
+      seriesGuid: seriesGuid,
       seasonGuid: seasonGuid,
       posterPath: posterPath,
       mediaGuid: normalizedMediaGuid,
@@ -345,6 +358,7 @@ class MpvMediaSource {
       seekProbeSummary: 'local-download',
       playbackMode: PlayerPlaybackMode.originalQuality,
       playbackSpeed: playbackSpeed,
+      listenVideoModeEnabled: listenVideoModeEnabled,
       audioTracks: audioTracks,
       subtitleTracks: mergedSubtitleTracks,
       qualities: qualities,
@@ -355,6 +369,7 @@ class MpvMediaSource {
     return <String, Object?>{
       'loadNonce': loadNonce,
       'itemGuid': itemGuid,
+      'seriesGuid': seriesGuid,
       'seasonGuid': seasonGuid,
       'posterPath': posterPath,
       'mediaGuid': mediaGuid,
@@ -397,6 +412,7 @@ class MpvMediaSource {
       'playbackMode': playbackMode.name,
       'serverPlaybackManaged': serverPlaybackManaged,
       'playbackSpeed': playbackSpeed,
+      'listenVideoModeEnabled': listenVideoModeEnabled,
       'audioTracks': audioTracks.map(_audioTrackToMap).toList(),
       'subtitleTracks': subtitleTracks.map(_subtitleTrackToMap).toList(),
       'qualities': qualities.map(_qualityToMap).toList(),
@@ -527,6 +543,7 @@ class MpvMediaSource {
     return MpvMediaSource(
       loadNonce: intOf(raw['loadNonce']),
       itemGuid: (raw['itemGuid'] ?? '').toString(),
+      seriesGuid: (raw['seriesGuid'] ?? '').toString(),
       seasonGuid: (raw['seasonGuid'] ?? '').toString(),
       posterPath: (raw['posterPath'] ?? '').toString(),
       mediaGuid: (raw['mediaGuid'] ?? '').toString(),
@@ -577,6 +594,7 @@ class MpvMediaSource {
         orElse: () => PlayerPlaybackMode.originalQuality,
       ),
       playbackSpeed: doubleOf(raw['playbackSpeed']).clamp(0.0, 16.0),
+      listenVideoModeEnabled: raw['listenVideoModeEnabled'] == true,
       audioTracks: parseAudioTracks(raw['audioTracks']),
       subtitleTracks: parseSubtitleTracks(raw['subtitleTracks']),
       qualities: parseQualities(raw['qualities']),
@@ -638,8 +656,11 @@ class MpvPlayerValue {
   final Duration position;
   final Duration bufferedPosition;
   final Duration duration;
+  final bool listenVideoModeEnabled;
   final String statusText;
   final String? error;
+  final String? nativeProxySessionId;
+  final String? cacheResourceKey;
 
   const MpvPlayerValue({
     required this.loadNonce,
@@ -649,8 +670,11 @@ class MpvPlayerValue {
     required this.position,
     required this.bufferedPosition,
     required this.duration,
+    required this.listenVideoModeEnabled,
     required this.statusText,
     required this.error,
+    required this.nativeProxySessionId,
+    required this.cacheResourceKey,
   });
 
   const MpvPlayerValue.initial()
@@ -661,8 +685,11 @@ class MpvPlayerValue {
       position = Duration.zero,
       bufferedPosition = Duration.zero,
       duration = Duration.zero,
+      listenVideoModeEnabled = false,
       statusText = 'Preparing player',
-      error = null;
+      error = null,
+      nativeProxySessionId = null,
+      cacheResourceKey = null;
 
   MpvPlayerValue copyWith({
     int? loadNonce,
@@ -672,9 +699,14 @@ class MpvPlayerValue {
     Duration? position,
     Duration? bufferedPosition,
     Duration? duration,
+    bool? listenVideoModeEnabled,
     String? statusText,
     String? error,
     bool clearError = false,
+    String? nativeProxySessionId,
+    bool clearNativeProxySessionId = false,
+    String? cacheResourceKey,
+    bool clearCacheResourceKey = false,
   }) {
     return MpvPlayerValue(
       loadNonce: loadNonce ?? this.loadNonce,
@@ -684,8 +716,16 @@ class MpvPlayerValue {
       position: position ?? this.position,
       bufferedPosition: bufferedPosition ?? this.bufferedPosition,
       duration: duration ?? this.duration,
+      listenVideoModeEnabled:
+          listenVideoModeEnabled ?? this.listenVideoModeEnabled,
       statusText: statusText ?? this.statusText,
       error: clearError ? null : error ?? this.error,
+      nativeProxySessionId: clearNativeProxySessionId
+          ? null
+          : nativeProxySessionId ?? this.nativeProxySessionId,
+      cacheResourceKey: clearCacheResourceKey
+          ? null
+          : cacheResourceKey ?? this.cacheResourceKey,
     );
   }
 
@@ -708,9 +748,18 @@ class MpvPlayerValue {
       position: durationFrom(event['positionMs']),
       bufferedPosition: durationFrom(event['bufferedPositionMs']),
       duration: durationFrom(event['durationMs']),
+      listenVideoModeEnabled: event['listenVideoModeEnabled'] as bool?,
       statusText: event['statusText']?.toString(),
       error: event['error']?.toString(),
       clearError: event.containsKey('error') && event['error'] == null,
+      nativeProxySessionId: event['nativeProxySessionId']?.toString(),
+      clearNativeProxySessionId:
+          event.containsKey('nativeProxySessionId') &&
+          event['nativeProxySessionId'] == null,
+      cacheResourceKey: event['cacheResourceKey']?.toString(),
+      clearCacheResourceKey:
+          event.containsKey('cacheResourceKey') &&
+          event['cacheResourceKey'] == null,
     );
   }
 }
@@ -880,10 +929,16 @@ class MpvPlayerController {
   final ValueNotifier<MpvPlayerValue> value = ValueNotifier<MpvPlayerValue>(
     const MpvPlayerValue.initial(),
   );
+  final ValueNotifier<DanmakuDynamicOcclusionState> danmakuOcclusionState =
+      ValueNotifier<DanmakuDynamicOcclusionState>(
+        DanmakuDynamicOcclusionState.disabled,
+      );
 
   MethodChannel? _methodChannel;
   EventChannel? _eventChannel;
+  EventChannel? _danmakuAiEventChannel;
   StreamSubscription<dynamic>? _eventSubscription;
+  StreamSubscription<dynamic>? _danmakuAiEventSubscription;
   bool _suppressNativeStateUntilCurrentLoad = false;
   int _pendingLoadNonce = 0;
   Duration _pendingLoadPosition = Duration.zero;
@@ -892,14 +947,25 @@ class MpvPlayerController {
   void attach(int viewId) {
     _methodChannel = MethodChannel('fly_player/mpv_view_$viewId/methods');
     _eventChannel = EventChannel('fly_player/mpv_view_$viewId/events');
+    _danmakuAiEventChannel = EventChannel(
+      'fly_player/mpv_view_$viewId/danmaku_ai_events',
+    );
     final previousSubscription = _eventSubscription;
+    final previousDanmakuAiSubscription = _danmakuAiEventSubscription;
     if (previousSubscription != null) {
       unawaited(_cancelSubscription(previousSubscription));
     }
+    if (previousDanmakuAiSubscription != null) {
+      unawaited(_cancelSubscription(previousDanmakuAiSubscription));
+    }
+    danmakuOcclusionState.value = DanmakuDynamicOcclusionState.disabled;
     _eventSubscription = _eventChannel!.receiveBroadcastStream().listen(
       _handleEvent,
       onError: _handleError,
     );
+    _danmakuAiEventSubscription = _danmakuAiEventChannel!
+        .receiveBroadcastStream()
+        .listen(_handleDanmakuAiEvent, onError: _handleError);
   }
 
   Future<void> refreshState() async {
@@ -948,6 +1014,7 @@ class MpvPlayerController {
     _pendingLoadDuration = source.durationSeconds > 0
         ? Duration(seconds: source.durationSeconds)
         : Duration.zero;
+    _publishDanmakuOcclusionState(DanmakuDynamicOcclusionState.disabled);
     value.value = MpvPlayerValue(
       loadNonce: source.loadNonce,
       ready: false,
@@ -958,14 +1025,18 @@ class MpvPlayerController {
       duration: source.durationSeconds > 0
           ? Duration(seconds: source.durationSeconds)
           : Duration.zero,
+      listenVideoModeEnabled: source.listenVideoModeEnabled,
       statusText: statusText,
       error: null,
+      nativeProxySessionId: null,
+      cacheResourceKey: null,
     );
   }
 
   Future<void> reload(MpvMediaSource source) async {
     _suppressNativeStateUntilCurrentLoad = true;
     _pendingLoadNonce = source.loadNonce;
+    _publishDanmakuOcclusionState(DanmakuDynamicOcclusionState.disabled);
     await _invoke('load', source.toMap());
   }
 
@@ -1033,6 +1104,56 @@ class MpvPlayerController {
     return _invoke('setMpvAdvancedSettings', <String, Object?>{
       'settings': settings,
     });
+  }
+
+  Future<MpvListenVideoModeResult> setListenVideoMode(bool enabled) async {
+    final channel = _methodChannel;
+    if (channel == null) {
+      return MpvListenVideoModeResult(
+        success: false,
+        enabled: value.value.listenVideoModeEnabled,
+        message: '播放器未就绪',
+      );
+    }
+    try {
+      final result = await channel.invokeMapMethod<Object?, Object?>(
+        'setListenVideoMode',
+        <String, Object?>{'enabled': enabled},
+      );
+      final normalized = result == null
+          ? const <String, Object?>{}
+          : _normalizeMap(result);
+      final success = normalized['success'] == true;
+      final resolvedEnabled = normalized['enabled'] == true;
+      final message = normalized['message']?.toString().trim();
+      if (success) {
+        _publishValue(
+          value.value.copyWith(
+            listenVideoModeEnabled: resolvedEnabled,
+            clearError: true,
+          ),
+          force: true,
+        );
+      }
+      return MpvListenVideoModeResult(
+        success: success,
+        enabled: resolvedEnabled,
+        message: message == null || message.isEmpty ? null : message,
+      );
+    } on MissingPluginException {
+      return MpvListenVideoModeResult(
+        success: false,
+        enabled: value.value.listenVideoModeEnabled,
+        message: '播放器未就绪',
+      );
+    } on PlatformException catch (error) {
+      _setError(error.message ?? error.code);
+      return MpvListenVideoModeResult(
+        success: false,
+        enabled: value.value.listenVideoModeEnabled,
+        message: error.message ?? error.code,
+      );
+    }
   }
 
   Future<Map<String, Object?>> captureFrame({
@@ -1145,6 +1266,29 @@ class MpvPlayerController {
     }
   }
 
+  Future<DanmakuDynamicOcclusionState> getDanmakuOcclusionState() async {
+    final channel = _methodChannel;
+    if (channel == null) return DanmakuDynamicOcclusionState.disabled;
+    try {
+      final state = await channel.invokeMapMethod<Object?, Object?>(
+        'getDanmakuOcclusionState',
+      );
+      if (state == null) return DanmakuDynamicOcclusionState.disabled;
+      final normalized = DanmakuDynamicOcclusionState.fromMap(state);
+      _publishDanmakuOcclusionState(normalized);
+      return normalized;
+    } on MissingPluginException {
+      return DanmakuDynamicOcclusionState.disabled;
+    } on PlatformException catch (error) {
+      _setError(error.message ?? error.code);
+      return DanmakuDynamicOcclusionState.disabled;
+    }
+  }
+
+  Future<void> setDanmakuOcclusionConfig(Map<String, Object?> config) {
+    return _invoke('setDanmakuOcclusionConfig', config);
+  }
+
   List<MpvChapterItem> _filterZeroTimeChapters(List<MpvChapterItem> chapters) {
     if (chapters.isEmpty) return chapters;
     bool seenZero = false;
@@ -1174,6 +1318,11 @@ class MpvPlayerController {
   void _handleEvent(dynamic event) {
     if (event is! Map<Object?, Object?>) return;
     _handleNativeState(MpvPlayerValue.fromEvent(event, fallback: value.value));
+  }
+
+  void _handleDanmakuAiEvent(dynamic event) {
+    if (event is! Map<Object?, Object?>) return;
+    _publishDanmakuOcclusionState(DanmakuDynamicOcclusionState.fromMap(event));
   }
 
   void _handleError(Object error) {
@@ -1253,13 +1402,23 @@ class MpvPlayerController {
     value.value = next;
   }
 
+  void _publishDanmakuOcclusionState(DanmakuDynamicOcclusionState next) {
+    if (danmakuOcclusionState.value == next) {
+      return;
+    }
+    danmakuOcclusionState.value = next;
+  }
+
   bool _shouldPublishValue(MpvPlayerValue previous, MpvPlayerValue next) {
     if (previous.ready != next.ready ||
         previous.nativeLibLoaded != next.nativeLibLoaded ||
         previous.paused != next.paused ||
+        previous.listenVideoModeEnabled != next.listenVideoModeEnabled ||
         previous.duration != next.duration ||
         previous.statusText != next.statusText ||
-        previous.error != next.error) {
+        previous.error != next.error ||
+        previous.nativeProxySessionId != next.nativeProxySessionId ||
+        previous.cacheResourceKey != next.cacheResourceKey) {
       return true;
     }
     final bufferedDelta = (next.bufferedPosition - previous.bufferedPosition)
@@ -1289,12 +1448,19 @@ class MpvPlayerController {
   Future<void> dispose() async {
     _suppressNativeStateUntilCurrentLoad = false;
     final subscription = _eventSubscription;
+    final danmakuAiSubscription = _danmakuAiEventSubscription;
     _eventSubscription = null;
+    _danmakuAiEventSubscription = null;
     if (subscription != null) {
       await _cancelSubscription(subscription);
     }
+    if (danmakuAiSubscription != null) {
+      await _cancelSubscription(danmakuAiSubscription);
+    }
     _eventChannel = null;
+    _danmakuAiEventChannel = null;
     _methodChannel = null;
+    danmakuOcclusionState.dispose();
     value.dispose();
   }
 
@@ -1315,4 +1481,17 @@ class MpvPlayerController {
     }
     return value;
   }
+}
+
+@immutable
+class MpvListenVideoModeResult {
+  final bool success;
+  final bool enabled;
+  final String? message;
+
+  const MpvListenVideoModeResult({
+    required this.success,
+    required this.enabled,
+    this.message,
+  });
 }

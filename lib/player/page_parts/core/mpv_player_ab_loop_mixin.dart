@@ -16,7 +16,9 @@ extension _MpvPlayerAbLoopMixin on _MpvPlayerPageState {
   bool get _abLoopButtonActive => _abLoopEnabled || _abLoopStart != null;
 
   Duration _currentAbLoopAnchorPosition(Duration duration) {
-    final base = _uiController.draggingPosition ?? _displayPosition(_controller.value.value);
+    final base =
+        _uiController.draggingPosition ??
+        _displayPosition(_controller.value.value);
     if (duration <= Duration.zero) {
       return base;
     }
@@ -41,7 +43,10 @@ extension _MpvPlayerAbLoopMixin on _MpvPlayerPageState {
         _abLoopEnd = null;
         _abLoopSeekPending = false;
       });
-      _showTopTip('A 点已设置到 ${_formatDuration(position)}', context.appColors.accent);
+      _showTopTip(
+        'A 点已设置到 ${_formatDuration(position)}',
+        context.appColors.accent,
+      );
       return;
     }
     if (end == null) {
@@ -114,7 +119,7 @@ extension _MpvPlayerAbLoopMixin on _MpvPlayerPageState {
     if (value.position < trigger) return;
     _abLoopSeekPending = true;
     _gestureController.resetSeekTracking();
-    unawaited(_controller.seek(start));
+    unawaited(_seekWithStats(start, userInitiated: false));
   }
 
   List<PlayerProgressChapterMarker> _abLoopProgressMarkers(Duration duration) {
@@ -125,7 +130,8 @@ extension _MpvPlayerAbLoopMixin on _MpvPlayerPageState {
     if (start != null) {
       markers.add(
         PlayerProgressChapterMarker(
-          fraction: start.inMilliseconds / duration.inMilliseconds.clamp(1, 1 << 30),
+          fraction:
+              start.inMilliseconds / duration.inMilliseconds.clamp(1, 1 << 30),
           active: true,
           kind: PlayerProgressMarkerKind.abLoop,
           snapTarget: false,
@@ -135,7 +141,8 @@ extension _MpvPlayerAbLoopMixin on _MpvPlayerPageState {
     if (end != null) {
       markers.add(
         PlayerProgressChapterMarker(
-          fraction: end.inMilliseconds / duration.inMilliseconds.clamp(1, 1 << 30),
+          fraction:
+              end.inMilliseconds / duration.inMilliseconds.clamp(1, 1 << 30),
           active: true,
           kind: PlayerProgressMarkerKind.abLoop,
           snapTarget: false,

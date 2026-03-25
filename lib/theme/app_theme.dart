@@ -1047,6 +1047,27 @@ class AppThemeBuilder {
           return colors.surfaceStrong;
         }),
       ),
+      scrollbarTheme: ScrollbarThemeData(
+        radius: const Radius.circular(999),
+        thickness: WidgetStateProperty.all(7),
+        thumbVisibility: WidgetStateProperty.all(true),
+        trackVisibility: WidgetStateProperty.all(true),
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.dragged)) {
+            return colors.accentStrong.withValues(alpha: 0.92);
+          }
+          if (states.contains(WidgetState.hovered)) {
+            return colors.accent.withValues(alpha: 0.82);
+          }
+          return colors.borderStrong.withValues(alpha: 0.8);
+        }),
+        trackColor: WidgetStateProperty.resolveWith((states) {
+          return colors.surfaceStrong.withValues(alpha: 0.5);
+        }),
+        trackBorderColor: WidgetStateProperty.resolveWith((states) {
+          return colors.borderSubtle.withValues(alpha: 0.25);
+        }),
+      ),
       progressIndicatorTheme: ProgressIndicatorThemeData(color: colors.accent),
     );
   }

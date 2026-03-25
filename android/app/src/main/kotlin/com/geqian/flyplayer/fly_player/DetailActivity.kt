@@ -5,6 +5,9 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
+import io.flutter.embedding.android.FlutterActivityLaunchConfigs
+import io.flutter.embedding.android.RenderMode
+import io.flutter.embedding.engine.FlutterEngine
 import org.json.JSONObject
 
 class DetailActivity : FlutterHostActivity() {
@@ -18,13 +21,21 @@ class DetailActivity : FlutterHostActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        ParallelFlutterEngineRegistry.prepareDetailRoute(
+            applicationContext,
+            intentToInitialRoute(intent),
+        )
         super.onCreate(savedInstanceState)
         ParallelWindowCoordinator.updateCurrentDetailRoute(intentToInitialRoute(intent))
         ParallelWindowCoordinator.attachDetailHost(this)
-        ParallelWindowCoordinator.attachRightPaneHost()
+        ParallelWindowCoordinator.attachRightPaneHost(this)
     }
 
     override fun onNewIntent(intent: Intent) {
+        ParallelFlutterEngineRegistry.prepareDetailRoute(
+            applicationContext,
+            intentToInitialRoute(intent),
+        )
         super.onNewIntent(intent)
         setIntent(intent)
         ParallelWindowCoordinator.updateCurrentDetailRoute(intentToInitialRoute(intent))
@@ -33,6 +44,23 @@ class DetailActivity : FlutterHostActivity() {
     override fun getInitialRoute(): String {
         return wrappedInitialRoute(intentToInitialRoute(intent))
     }
+
+    override fun provideFlutterEngine(context: Context): FlutterEngine? {
+        return ParallelFlutterEngineRegistry.detailEngine(context) ?: super.provideFlutterEngine(context)
+    }
+
+    override fun shouldDestroyEngineWithHost(): Boolean {
+        return !ParallelFlutterEngineRegistry.hasDetailEngine()
+    }
+
+    override fun getRenderMode(): RenderMode = RenderMode.texture
+
+    override fun getBackgroundMode(): FlutterActivityLaunchConfigs.BackgroundMode =
+        FlutterActivityLaunchConfigs.BackgroundMode.transparent
+
+    override fun shouldSkipBaseFlutterEngineConfiguration(
+        flutterEngine: FlutterEngine,
+    ): Boolean = ParallelFlutterEngineRegistry.isDetailEngine(flutterEngine)
 
     override fun hostSurface(): String = "detail"
 
@@ -53,7 +81,7 @@ class DetailActivity : FlutterHostActivity() {
     override fun onDestroy() {
         if (isFinishing) {
             ParallelWindowCoordinator.detachDetailHost(this)
-            ParallelWindowCoordinator.detachRightPaneHost()
+            ParallelWindowCoordinator.detachRightPaneHost(this)
             ParallelWindowCoordinator.clearRightPane()
         }
         super.onDestroy()
@@ -73,7 +101,10 @@ class DetailActivity : FlutterHostActivity() {
         Log.d("DetailActivity", "replaceRouteInPlace route=$normalizedRoute")
         detailHostChannel?.invokeMethod(
             "replaceRoute",
-            mapOf("routeName" to normalizedRoute),
+            mapOf(
+                "routeName" to normalizedRoute,
+                "resetStack" to false,
+            ),
         )
         return true
     }
@@ -81,12 +112,16 @@ class DetailActivity : FlutterHostActivity() {
     fun launchSplitPlayer(
         title: String,
         source: HashMap<String, Any?>,
+        initialPlayInfo: HashMap<String, Any?>? = null,
+        startSource: String = "manual",
     ) {
         startActivity(
             PlayerActivity.createIntent(
                 context = this,
                 title = title,
                 source = source,
+                initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
+                startSource = startSource,
                 fromParallelHost = true,
                 hostContext = getParallelHostContext(),
                 layoutMode = PlayerLaunchContract.MODE_SPLIT,

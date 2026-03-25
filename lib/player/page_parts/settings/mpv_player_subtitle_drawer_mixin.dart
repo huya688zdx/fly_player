@@ -11,6 +11,7 @@ const double _subtitleScaleMax = 2.0;
 
 extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
   Future<void> _showSubtitleDrawer() async {
+    if (_playerUiLocked) return;
     _hideSpeedDialOverlay(restoreAutoHide: false);
     _deferredSubtitleSelectionTimer?.cancel();
     _overlayState.cancelAutoHide();
@@ -471,6 +472,7 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
       case PlayerSubtitleSelectionAction.apply:
         break;
     }
+    _invalidateNextEpisodePreload();
     _updatePlayerState(() {
       _uiController.qualitySwitchLoading = true;
       _currentSubtitleGuid = plan.normalizedGuid;
@@ -813,10 +815,10 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
     double value, {
     required PlayerNestedSheetController<void> drawer,
   }) async {
-    final mpvPosition = _subtitleController.updateSubtitlePositionFactor(value);
+    _subtitleController.updateSubtitlePositionFactor(value);
     _subtitlePositionFactor = _subtitleController.subtitlePositionFactor;
     drawer.refresh();
-    await _controller.setSubtitlePosition(mpvPosition);
+    await _syncEffectiveSubtitlePosition(force: true);
   }
 
   Future<void> _setSubtitleScaleFactor(
@@ -845,6 +847,8 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
     _subtitleScaleFactor = _subtitleController.subtitleScaleFactor;
     drawer.refresh();
     await _controller.resetSubtitleStyle();
+    _lastAppliedEffectiveSubtitlePosition = null;
+    await _syncEffectiveSubtitlePosition(force: true);
   }
 
   String _subtitleSearchLanguageLabel(String language) {

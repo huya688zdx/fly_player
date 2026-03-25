@@ -24,7 +24,10 @@ class MpvPlayerView(
     private val videoOutputTarget: VideoOutputTarget = TextureViewVideoOutputTarget(context)
     private val methodChannel = MethodChannel(messenger, "fly_player/mpv_view_$viewId/methods")
     private val eventChannel = EventChannel(messenger, "fly_player/mpv_view_$viewId/events")
+    private val danmakuAiEventChannel =
+        EventChannel(messenger, "fly_player/mpv_view_$viewId/danmaku_ai_events")
     private var eventSink: EventChannel.EventSink? = null
+    private var danmakuAiEventSink: EventChannel.EventSink? = null
     @Volatile
     private var disposed = false
     private var latestState = MpvPlayerState(
@@ -44,6 +47,9 @@ class MpvPlayerView(
             latestState = state
             eventSink?.success(state.toMap())
         },
+        danmakuOcclusionStateListener = { state ->
+            danmakuAiEventSink?.success(state.toMap())
+        },
     )
 
     init {
@@ -58,6 +64,19 @@ class MpvPlayerView(
         )
         methodChannel.setMethodCallHandler(this)
         eventChannel.setStreamHandler(this)
+        danmakuAiEventChannel.setStreamHandler(
+            object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
+                    if (disposed) return
+                    danmakuAiEventSink = events
+                    danmakuAiEventSink?.success(controller.getDanmakuOcclusionStateMap())
+                }
+
+                override fun onCancel(arguments: Any?) {
+                    danmakuAiEventSink = null
+                }
+            },
+        )
     }
 
     override fun getView(): View = rootView
@@ -67,7 +86,9 @@ class MpvPlayerView(
         disposed = true
         methodChannel.setMethodCallHandler(null)
         eventChannel.setStreamHandler(null)
+        danmakuAiEventChannel.setStreamHandler(null)
         eventSink = null
+        danmakuAiEventSink = null
         videoOutputTarget.setListener(null)
         controller.dispose()
         videoOutputTarget.release()
@@ -94,6 +115,7 @@ class MpvPlayerView(
             "getPlaybackDiagnostics" -> result.success(controller.getPlaybackDiagnosticsMap())
             "getPerformanceOverlayStats" -> result.success(controller.getPerformanceOverlayStatsMap())
             "getChapters" -> result.success(controller.getChapters())
+            "getDanmakuOcclusionState" -> result.success(controller.getDanmakuOcclusionStateMap())
             "captureFrame" -> result.success(controller.captureFrame(methodArgumentsMap(call)))
             "load" -> {
                 controller.load(methodArgumentsMap(call))
@@ -178,6 +200,14 @@ class MpvPlayerView(
             }
             "setMpvAdvancedSettings" -> {
                 controller.setMpvAdvancedSettings(methodArgumentsMap(call))
+                result.success(null)
+            }
+            "setListenVideoMode" -> {
+                val args = methodArgumentsMap(call)
+                result.success(controller.setListenVideoMode(args["enabled"] == true))
+            }
+            "setDanmakuOcclusionConfig" -> {
+                controller.setDanmakuOcclusionConfig(methodArgumentsMap(call))
                 result.success(null)
             }
             else -> result.notImplemented()

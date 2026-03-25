@@ -64,6 +64,7 @@ import '../widgets/detail/video_info_section.dart';
 
 class PlayDetailPage extends StatefulWidget {
   final String itemGuid;
+  final String seriesGuid;
   final String? heroTag;
   final Map<String, dynamic>? initialItemDetail;
   final DetailPresentation presentation;
@@ -71,6 +72,7 @@ class PlayDetailPage extends StatefulWidget {
   const PlayDetailPage({
     super.key,
     required this.itemGuid,
+    this.seriesGuid = '',
     this.heroTag,
     this.initialItemDetail,
     this.presentation = DetailPresentation.page,
@@ -86,11 +88,11 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   static const Duration _actionsPopDuration = Duration(milliseconds: 300);
   static const Duration _descriptionPopDuration = Duration(milliseconds: 320);
   static const Duration _asyncContentFadeDuration = Duration(milliseconds: 220);
-  static const Duration _phase2Delay = Duration(milliseconds: 120);
+  static const Duration _phase2Delay = Duration(milliseconds: 420);
   static const Duration _deferredSectionStartDelay = Duration(
-    milliseconds: 160,
+    milliseconds: 560,
   );
-  static const Duration _deferredSectionStepDelay = Duration(milliseconds: 140);
+  static const Duration _deferredSectionStepDelay = Duration(milliseconds: 180);
   final ScrollController _scrollController = ScrollController();
   final ValueNotifier<double> _scrollOffsetNotifier = ValueNotifier<double>(0);
   final PlayDetailDownloadSheetController _downloadSheetController =
@@ -565,6 +567,15 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     await Future<void>.delayed(_phase2Delay);
     if (!mounted || _playerRouteActive) return;
     try {
+      final genresMapFuture = api
+          .getTagGenresMap(lan: 'zh-CN')
+          .catchError((_) => const <int, String>{});
+      final locateMapFuture = api
+          .getTagIso3166Map(lan: 'zh-CN')
+          .catchError((_) => const <String, String>{});
+      final languageMapFuture = api
+          .getTagIso6392Map(lan: 'zh-CN')
+          .catchError((_) => const <String, String>{});
       final trackData = await _loadStreamTrackData(api, _currentItemGuid);
       if (!mounted || _playerRouteActive) return;
       final streams = trackData.options;
@@ -580,7 +591,11 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           : '';
       final subtitleTracks = trackData.subtitlesForMedia(selectedMediaGuid);
       final audioTracks = trackData.audiosForMedia(selectedMediaGuid);
-
+      final genresMap = await genresMapFuture;
+      final locateMap = await locateMapFuture;
+      final languageMap = await languageMapFuture;
+      if (!mounted || _playerRouteActive) return;
+      MediaLanguageMapper.mergeLanguageMap(languageMap);
       setState(() {
         _streamTrackData = trackData;
         _streamOptions = streams;
@@ -593,24 +608,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           preferred: info.audioGuid,
           tracks: audioTracks,
         );
+        _genresMapZhCn = genresMap;
+        _locateMapZhCn = locateMap;
       });
-
-      final genresMap = await api
-          .getTagGenresMap(lan: 'zh-CN')
-          .catchError((_) => const <int, String>{});
-      if (!mounted || _playerRouteActive) return;
-      setState(() => _genresMapZhCn = genresMap);
-
-      final locateMap = await api
-          .getTagIso3166Map(lan: 'zh-CN')
-          .catchError((_) => const <String, String>{});
-      if (!mounted || _playerRouteActive) return;
-      setState(() => _locateMapZhCn = locateMap);
-
-      final languageMap = await api
-          .getTagIso6392Map(lan: 'zh-CN')
-          .catchError((_) => const <String, String>{});
-      MediaLanguageMapper.mergeLanguageMap(languageMap);
     } catch (error, stackTrace) {
       unawaited(
         AppErrorReporter.report(

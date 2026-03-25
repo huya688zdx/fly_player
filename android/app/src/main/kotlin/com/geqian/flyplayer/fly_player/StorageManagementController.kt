@@ -11,9 +11,14 @@ internal class StorageManagementController(
 ) {
     private val playbackCacheStore = PersistentPlaybackCacheStore(context)
     private val scopedTreeAccessController = ScopedTreeAccessController(context)
+    private val screenshotDirectoryAccessController =
+        ScreenshotDirectoryAccessController(context)
+    private val screenshotLibraryController =
+        ScreenshotLibraryController(context, screenshotDirectoryAccessController)
 
     companion object {
         const val ACTION_CLEAR_PLAYBACK_CACHE = "clearPlaybackCache"
+        const val ACTION_CLEAR_DANMAKU_AI_CACHE = "clearDanmakuAiCache"
         const val ACTION_CLEAR_OTHER_CACHE = "clearOtherCache"
         const val ACTION_CLEAR_SCREENSHOTS = "clearScreenshots"
         const val ACTION_CLEAR_PARALLEL_SETTINGS = "clearParallelWindowSettings"
@@ -21,16 +26,26 @@ internal class StorageManagementController(
 
         private const val PARALLEL_PREFS_NAME = "parallel_window_settings"
         private const val SCOPED_TREE_PREFS_NAME = "fly_player_scoped_tree"
+        private const val DANMAKU_AI_CACHE_DIR_NAME = "danmaku_ai_cache"
     }
 
     fun loadOverview(hasFileAccess: Boolean): Map<String, Any?> {
+        val danmakuAiCacheStats = computeStats(danmakuAiCacheRoot())
         val cacheStats = computeStats(otherCacheRoots())
         val playbackStats = playbackCacheStore.loadStats()
-        val otherCacheBytes = cacheStats.bytes.coerceAtLeast(0L)
-        val otherCacheFiles = cacheStats.fileCount.coerceAtLeast(0)
+        val danmakuAiCacheBytes = danmakuAiCacheStats.bytes.coerceAtLeast(0L)
+        val danmakuAiCacheFiles = danmakuAiCacheStats.fileCount.coerceAtLeast(0)
+        val otherCacheBytes =
+            (cacheStats.bytes - danmakuAiCacheStats.bytes).coerceAtLeast(0L)
+        val otherCacheFiles =
+            (cacheStats.fileCount - danmakuAiCacheStats.fileCount).coerceAtLeast(0)
 
-        val screenshotRoots = screenshotRoots(includePublic = hasFileAccess)
-        val screenshotStats = computeStats(screenshotRoots)
+        val screenshotItems = screenshotLibraryController.listLibrary(hasFileAccess)
+        val screenshotBytes =
+            screenshotItems.fold(0L) { sum, item ->
+                sum + ((item["sizeBytes"] as? Number)?.toLong() ?: 0L)
+            }
+        val screenshotCount = screenshotItems.size
         val parallelPrefs =
             context.getSharedPreferences(PARALLEL_PREFS_NAME, Context.MODE_PRIVATE)
         val scopedTreePrefs =
@@ -47,6 +62,11 @@ internal class StorageManagementController(
                     "completeCount" to playbackStats.completeCount,
                     "active" to hasActivePlaybackCache(),
                 ),
+            "danmakuAiCache" to
+                mapOf(
+                    "bytes" to danmakuAiCacheBytes,
+                    "fileCount" to danmakuAiCacheFiles,
+                ),
             "otherCache" to
                 mapOf(
                     "bytes" to otherCacheBytes,
@@ -54,8 +74,8 @@ internal class StorageManagementController(
                 ),
             "screenshots" to
                 mapOf(
-                    "bytes" to screenshotStats.bytes,
-                    "fileCount" to screenshotStats.fileCount,
+                    "bytes" to screenshotBytes,
+                    "fileCount" to screenshotCount,
                     "restricted" to !hasFileAccess,
                 ),
             "nativeSettingsBytes" to nativeSettingsBytes,
@@ -81,12 +101,33 @@ internal class StorageManagementController(
                 mapOf("success" to true)
             }
 
+            ACTION_CLEAR_DANMAKU_AI_CACHE -> {
+                clearDanmakuAiCache()
+                mapOf("success" to true)
+            }
+
             ACTION_CLEAR_SCREENSHOTS -> {
-                val roots = screenshotRoots(includePublic = hasFileAccess)
-                roots.forEach(::clearDirectoryContents)
+                val items = screenshotLibraryController.listLibrary(hasFileAccess)
+                val deleted =
+                    screenshotLibraryController.deleteEntries(
+                        items.mapNotNull { entry ->
+                            val sourceKind = entry["sourceKind"]?.toString()?.trim().orEmpty()
+                            val pathOrIdentifier =
+                                entry["pathOrIdentifier"]?.toString()?.trim().orEmpty()
+                            if (sourceKind.isEmpty() || pathOrIdentifier.isEmpty()) {
+                                null
+                            } else {
+                                mapOf(
+                                    "sourceKind" to sourceKind,
+                                    "pathOrIdentifier" to pathOrIdentifier,
+                                )
+                            }
+                        },
+                    )
                 mapOf(
                     "success" to true,
                     "restricted" to !hasFileAccess,
+                    "deletedCount" to deleted,
                 )
             }
 
@@ -185,6 +226,10 @@ internal class StorageManagementController(
         otherCacheRoots().forEach(::clearDirectoryContents)
     }
 
+    private fun clearDanmakuAiCache() {
+        clearDirectoryContents(danmakuAiCacheRoot())
+    }
+
     private fun otherCacheRoots(): List<File> {
         val roots = linkedMapOf<String, File>()
 
@@ -208,6 +253,10 @@ internal class StorageManagementController(
         )
 
         return roots.values.toList()
+    }
+
+    private fun danmakuAiCacheRoot(): File {
+        return context.cacheDir.resolve(DANMAKU_AI_CACHE_DIR_NAME).canonicalOrSelf()
     }
 
     private fun screenshotRoots(includePublic: Boolean): List<File> {

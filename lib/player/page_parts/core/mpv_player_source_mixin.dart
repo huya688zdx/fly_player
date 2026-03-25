@@ -209,6 +209,19 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
     return 16 / 9;
   }
 
+  bool _currentSourceHasVideoTrack() {
+    if (_currentVideoWidth > 0 && _currentVideoHeight > 0) {
+      return true;
+    }
+    if (_currentVideoGuid.trim().isNotEmpty) {
+      return true;
+    }
+    if (widget.source.videoWidth > 0 && widget.source.videoHeight > 0) {
+      return true;
+    }
+    return widget.source.videoGuid.trim().isNotEmpty;
+  }
+
   String _selectedQualityId() {
     final visibleQualities = _displayQualityOptionsForCurrentMode();
     for (final quality in visibleQualities) {
@@ -437,6 +450,7 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
       colorTransfer: _currentColorTransfer,
       colorPrimaries: _currentColorPrimaries,
       bitDepth: _currentBitDepth,
+      isDownloadedFile: _currentSourceIsDownloadedFile,
       proxySessionId: _activeProxySessionId,
       playLink: _currentPlayLink,
       url: _currentUrl,
@@ -468,6 +482,7 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
       seekProbeSummary: _currentSeekProbeSummary,
       playbackMode: _playbackMode,
       playbackSpeed: _playbackSpeed,
+      listenVideoModeEnabled: _listenVideoModeEnabled,
       audioTracks: _audioTracks,
       subtitleTracks: _subtitleTracks,
       qualities: _qualities,

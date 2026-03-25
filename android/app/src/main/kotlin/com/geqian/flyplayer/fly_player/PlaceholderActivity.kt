@@ -15,13 +15,13 @@ class PlaceholderActivity : FlutterHostActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ParallelWindowCoordinator.attachPlaceholderHost(this)
-        ParallelWindowCoordinator.attachRightPaneHost()
+        ParallelWindowCoordinator.attachRightPaneHost(this)
     }
 
     override fun onDestroy() {
         if (isFinishing) {
             ParallelWindowCoordinator.detachPlaceholderHost(this)
-            ParallelWindowCoordinator.detachRightPaneHost()
+            ParallelWindowCoordinator.detachRightPaneHost(this)
             ParallelWindowCoordinator.clearRightPane()
         }
         super.onDestroy()

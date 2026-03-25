@@ -11,7 +11,11 @@ class DanmakuSavedSource {
   final String ancestorName;
   final String seriesTitle;
   final String itemTitle;
+  final String itemGuid;
+  final String seasonGuid;
+  final String mediaGuid;
   final int seasonNumber;
+  final int episodeNumber;
   final String mediaType;
 
   const DanmakuSavedSource({
@@ -25,7 +29,11 @@ class DanmakuSavedSource {
     this.ancestorName = '',
     this.seriesTitle = '',
     this.itemTitle = '',
+    this.itemGuid = '',
+    this.seasonGuid = '',
+    this.mediaGuid = '',
     this.seasonNumber = 0,
+    this.episodeNumber = 0,
     this.mediaType = '',
   });
 
@@ -44,7 +52,11 @@ class DanmakuSavedSource {
       'ancestorName': ancestorName,
       'seriesTitle': seriesTitle,
       'itemTitle': itemTitle,
+      'itemGuid': itemGuid,
+      'seasonGuid': seasonGuid,
+      'mediaGuid': mediaGuid,
       'seasonNumber': seasonNumber,
+      'episodeNumber': episodeNumber,
       'mediaType': mediaType,
     };
   }
@@ -67,7 +79,11 @@ class DanmakuSavedSource {
       ancestorName: (json['ancestorName'] ?? '').toString(),
       seriesTitle: (json['seriesTitle'] ?? '').toString(),
       itemTitle: (json['itemTitle'] ?? '').toString(),
+      itemGuid: (json['itemGuid'] ?? '').toString(),
+      seasonGuid: (json['seasonGuid'] ?? '').toString(),
+      mediaGuid: (json['mediaGuid'] ?? '').toString(),
       seasonNumber: _readInt(json['seasonNumber']),
+      episodeNumber: _readInt(json['episodeNumber']),
       mediaType: (json['mediaType'] ?? '').toString(),
     );
   }

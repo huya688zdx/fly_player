@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../theme/app_theme.dart';
@@ -10,58 +12,157 @@ class PlayerAdjustmentOverlayData {
   const PlayerAdjustmentOverlayData({required this.type, required this.value});
 }
 
-class PlayerGestureLayer extends StatelessWidget {
+class PlayerGestureLayer extends StatefulWidget {
   final Widget child;
-  final VoidCallback onTap;
-  final VoidCallback onDoubleTap;
-  final GestureLongPressStartCallback onLongPressStart;
-  final GestureLongPressEndCallback onLongPressEnd;
+  final VoidCallback? onTap;
+  final VoidCallback? onDoubleTap;
+  final GestureLongPressStartCallback? onLongPressStart;
+  final GestureLongPressEndCallback? onLongPressEnd;
   final VoidCallback? onLongPressCancel;
-  final GestureDragStartCallback onHorizontalDragStart;
-  final GestureDragUpdateCallback onHorizontalDragUpdate;
-  final GestureDragEndCallback onHorizontalDragEnd;
+  final GestureDragStartCallback? onHorizontalDragStart;
+  final GestureDragUpdateCallback? onHorizontalDragUpdate;
+  final GestureDragEndCallback? onHorizontalDragEnd;
   final GestureDragCancelCallback? onHorizontalDragCancel;
-  final GestureDragStartCallback onVerticalDragStart;
-  final GestureDragUpdateCallback onVerticalDragUpdate;
-  final GestureDragEndCallback onVerticalDragEnd;
+  final GestureDragStartCallback? onVerticalDragStart;
+  final GestureDragUpdateCallback? onVerticalDragUpdate;
+  final GestureDragEndCallback? onVerticalDragEnd;
   final GestureDragCancelCallback? onVerticalDragCancel;
 
   const PlayerGestureLayer({
     super.key,
     this.child = const SizedBox.expand(),
-    required this.onTap,
-    required this.onDoubleTap,
-    required this.onLongPressStart,
-    required this.onLongPressEnd,
+    this.onTap,
+    this.onDoubleTap,
+    this.onLongPressStart,
+    this.onLongPressEnd,
     this.onLongPressCancel,
-    required this.onHorizontalDragStart,
-    required this.onHorizontalDragUpdate,
-    required this.onHorizontalDragEnd,
+    this.onHorizontalDragStart,
+    this.onHorizontalDragUpdate,
+    this.onHorizontalDragEnd,
     this.onHorizontalDragCancel,
-    required this.onVerticalDragStart,
-    required this.onVerticalDragUpdate,
-    required this.onVerticalDragEnd,
+    this.onVerticalDragStart,
+    this.onVerticalDragUpdate,
+    this.onVerticalDragEnd,
     this.onVerticalDragCancel,
   });
+
+  @override
+  State<PlayerGestureLayer> createState() => _PlayerGestureLayerState();
+}
+
+class _PlayerGestureLayerState extends State<PlayerGestureLayer> {
+  static const Duration _doubleTapMaxInterval = Duration(milliseconds: 220);
+  static const double _doubleTapMaxDistance = 56;
+
+  Timer? _pendingTapTimer;
+  DateTime? _lastTapTime;
+  Offset? _lastTapPosition;
+  Offset? _currentTapPosition;
+
+  @override
+  void dispose() {
+    _pendingTapTimer?.cancel();
+    super.dispose();
+  }
+
+  void _handleTapDown(TapDownDetails details) {
+    _currentTapPosition = details.localPosition;
+  }
+
+  void _handleTapCancel() {
+    _currentTapPosition = null;
+  }
+
+  void _handleTap() {
+    final now = DateTime.now();
+    final tapPosition = _currentTapPosition;
+    final hasPendingTap = _pendingTapTimer?.isActive ?? false;
+
+    if (widget.onDoubleTap == null) {
+      widget.onTap?.call();
+      return;
+    }
+
+    final withinInterval =
+        _lastTapTime != null &&
+        now.difference(_lastTapTime!) <= _doubleTapMaxInterval;
+    final withinDistance =
+        tapPosition != null &&
+        _lastTapPosition != null &&
+        (tapPosition - _lastTapPosition!).distance <= _doubleTapMaxDistance;
+
+    if (hasPendingTap && withinInterval && withinDistance) {
+      _pendingTapTimer?.cancel();
+      _clearTapTracking();
+      widget.onDoubleTap?.call();
+      return;
+    }
+
+    if (hasPendingTap) {
+      _pendingTapTimer?.cancel();
+      final pendingSingleTap = widget.onTap;
+      _clearTapTracking(clearCurrentTapPosition: false);
+      pendingSingleTap?.call();
+    }
+
+    _lastTapTime = now;
+    _lastTapPosition = tapPosition;
+    _pendingTapTimer = Timer(_doubleTapMaxInterval, () {
+      _pendingTapTimer = null;
+      final singleTap = widget.onTap;
+      _clearTapTracking(clearCurrentTapPosition: false);
+      singleTap?.call();
+    });
+  }
+
+  void _clearTapTracking({bool clearCurrentTapPosition = true}) {
+    _pendingTapTimer = null;
+    _lastTapTime = null;
+    _lastTapPosition = null;
+    if (clearCurrentTapPosition) {
+      _currentTapPosition = null;
+    }
+  }
+
+  void _cancelPendingTapRecognition() {
+    _pendingTapTimer?.cancel();
+    _clearTapTracking();
+  }
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      onDoubleTap: onDoubleTap,
-      onLongPressStart: onLongPressStart,
-      onLongPressEnd: onLongPressEnd,
-      onLongPressCancel: onLongPressCancel,
-      onHorizontalDragStart: onHorizontalDragStart,
-      onHorizontalDragUpdate: onHorizontalDragUpdate,
-      onHorizontalDragEnd: onHorizontalDragEnd,
-      onHorizontalDragCancel: onHorizontalDragCancel,
-      onVerticalDragStart: onVerticalDragStart,
-      onVerticalDragUpdate: onVerticalDragUpdate,
-      onVerticalDragEnd: onVerticalDragEnd,
-      onVerticalDragCancel: onVerticalDragCancel,
-      child: child,
+      onTapDown: _handleTapDown,
+      onTapCancel: _handleTapCancel,
+      onTap: _handleTap,
+      onLongPressStart: widget.onLongPressStart == null
+          ? null
+          : (details) {
+              _cancelPendingTapRecognition();
+              widget.onLongPressStart?.call(details);
+            },
+      onLongPressEnd: widget.onLongPressEnd,
+      onLongPressCancel: widget.onLongPressCancel,
+      onHorizontalDragStart: widget.onHorizontalDragStart == null
+          ? null
+          : (details) {
+              _cancelPendingTapRecognition();
+              widget.onHorizontalDragStart?.call(details);
+            },
+      onHorizontalDragUpdate: widget.onHorizontalDragUpdate,
+      onHorizontalDragEnd: widget.onHorizontalDragEnd,
+      onHorizontalDragCancel: widget.onHorizontalDragCancel,
+      onVerticalDragStart: widget.onVerticalDragStart == null
+          ? null
+          : (details) {
+              _cancelPendingTapRecognition();
+              widget.onVerticalDragStart?.call(details);
+            },
+      onVerticalDragUpdate: widget.onVerticalDragUpdate,
+      onVerticalDragEnd: widget.onVerticalDragEnd,
+      onVerticalDragCancel: widget.onVerticalDragCancel,
+      child: widget.child,
     );
   }
 }
@@ -138,8 +239,9 @@ double _statusBannerTopOffset(MediaQueryData media) {
     34.0,
     56.0,
   );
-  final compactBoost = width < 900 ? 8.0 : 0.0;
-  return media.padding.top + adaptiveSpacing + compactBoost;
+  final compactBoost = width < 900 ? 12.0 : 6.0;
+  final visualDrop = isLandscape ? 14.0 : 10.0;
+  return media.padding.top + adaptiveSpacing + compactBoost + visualDrop;
 }
 
 class PlayerLoadingOverlay extends StatelessWidget {
@@ -242,10 +344,51 @@ class PlayerCenterMessageOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final text = message?.trim() ?? '';
+    final media = MediaQuery.of(context);
+    final liftOffset = (media.size.height * 0.12).clamp(56.0, 104.0);
     return IgnorePointer(
-      child: _PlayerEdgeNoticeOverlay(
+      child: _PlayerCenterNoticeOverlay(
         visible: text.isNotEmpty,
-        child: _PlayerEdgeNoticeCard(title: text),
+        verticalLift: liftOffset,
+        child: _PlayerEdgeNoticeCard(title: text, centerText: true),
+      ),
+    );
+  }
+}
+
+class _PlayerCenterNoticeOverlay extends StatelessWidget {
+  final bool visible;
+  final double verticalLift;
+  final Widget child;
+
+  const _PlayerCenterNoticeOverlay({
+    required this.visible,
+    required this.verticalLift,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Align(
+        alignment: Alignment.center,
+        child: Transform.translate(
+          offset: Offset(0, -verticalLift),
+          child: IgnorePointer(
+            ignoring: !visible,
+            child: AnimatedSlide(
+              offset: visible ? Offset.zero : const Offset(0, 0.08),
+              duration: const Duration(milliseconds: 240),
+              curve: Curves.easeOutCubic,
+              child: AnimatedOpacity(
+                opacity: visible ? 1 : 0,
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
+                child: child,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -293,11 +436,13 @@ class _PlayerEdgeNoticeCard extends StatelessWidget {
   final String title;
   final String? subtitle;
   final VoidCallback? onClose;
+  final bool centerText;
 
   const _PlayerEdgeNoticeCard({
     required this.title,
     this.subtitle,
     this.onClose,
+    this.centerText = false,
   });
 
   @override
@@ -333,10 +478,15 @@ class _PlayerEdgeNoticeCard extends StatelessWidget {
                 Flexible(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: centerText
+                        ? CrossAxisAlignment.center
+                        : CrossAxisAlignment.start,
                     children: [
                       Text(
                         title,
+                        textAlign: centerText
+                            ? TextAlign.center
+                            : TextAlign.left,
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 12.6 * scale,
@@ -348,6 +498,9 @@ class _PlayerEdgeNoticeCard extends StatelessWidget {
                         SizedBox(height: 5 * scale),
                         Text(
                           subtitleText,
+                          textAlign: centerText
+                              ? TextAlign.center
+                              : TextAlign.left,
                           style: TextStyle(
                             color: colors.textSecondary,
                             fontSize: 11.1 * scale,
@@ -391,7 +544,7 @@ class _StatusBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final media = MediaQuery.of(context);
-    final scale = (media.size.shortestSide / 411).clamp(0.76, 1.0);
+    final scale = (media.size.shortestSide / 411).clamp(0.8, 1.02);
     final maxWidth = (media.size.width * 0.8).clamp(240.0, 420.0);
     return ConstrainedBox(
       constraints: BoxConstraints(maxWidth: maxWidth),
@@ -399,14 +552,18 @@ class _StatusBanner extends StatelessWidget {
         decoration: BoxDecoration(
           color: colors.backgroundElevated.withValues(alpha: 0.92),
           borderRadius: BorderRadius.circular(14 * scale),
+          border: Border.all(
+            color: colors.borderSubtle.withValues(alpha: 0.85),
+          ),
         ),
         child: Padding(
           padding: EdgeInsets.symmetric(
             horizontal: 16 * scale,
-            vertical: 11 * scale,
+            vertical: 13 * scale,
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               if (showSpinner) ...[
                 SizedBox(
@@ -425,11 +582,18 @@ class _StatusBanner extends StatelessWidget {
                 child: Text(
                   message,
                   textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  strutStyle: StrutStyle(
+                    fontSize: 13.4 * scale,
+                    height: 1.32,
+                    forceStrutHeight: true,
+                  ),
                   style: TextStyle(
                     color: Colors.white,
-                    fontSize: 13 * scale,
+                    fontSize: 13.4 * scale,
                     fontWeight: FontWeight.w500,
-                    height: 1.25,
+                    height: 1.32,
                   ),
                 ),
               ),

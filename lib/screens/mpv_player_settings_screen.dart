@@ -7,6 +7,7 @@ import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
 import '../ui/app_transitions.dart';
 import '../ui/mpv_audio_eq_advanced_panel.dart';
+import '../ui/secondary_host_navigation.dart';
 import '../utils/app_top_tip.dart';
 import '../widgets/common/named_preset_save_dialog.dart';
 
@@ -846,7 +847,8 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
     final colors = context.appColors;
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: AppBar(
+      appBar: buildSecondaryHostAppBar(
+        context,
         title: Text(
           'MPV播放器设置',
           style: TextStyle(
@@ -1154,7 +1156,8 @@ class _MpvCustomManagementScreenState
     final colors = context.appColors;
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: AppBar(
+      appBar: buildSecondaryHostAppBar(
+        context,
         title: Text(
           '自定义管理',
           style: TextStyle(
@@ -1429,7 +1432,8 @@ class _MpvCustomPresetScreenState extends State<_MpvCustomPresetScreen> {
         : '将高保真、EQ 和增强项保存为独立预设，后续可以在播放器抽屉和设置页快速应用。';
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: AppBar(
+      appBar: buildSecondaryHostAppBar(
+        context,
         title: Text(
           title,
           style: TextStyle(
@@ -1600,7 +1604,8 @@ class _MpvSettingCategoryScreenState extends State<_MpvSettingCategoryScreen> {
     final colors = context.appColors;
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: AppBar(
+      appBar: buildSecondaryHostAppBar(
+        context,
         title: Text(
           widget.category.title,
           style: TextStyle(
@@ -1704,7 +1709,8 @@ class _MpvSettingChoiceScreenState extends State<_MpvSettingChoiceScreen> {
     final colors = context.appColors;
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: AppBar(
+      appBar: buildSecondaryHostAppBar(
+        context,
         title: Text(
           widget.definition.title,
           style: TextStyle(
@@ -1888,7 +1894,8 @@ class _MpvAudioEqChoiceScreenState extends State<_MpvAudioEqChoiceScreen> {
         .toList(growable: false);
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: AppBar(
+      appBar: buildSecondaryHostAppBar(
+        context,
         title: Text(
           widget.definition.title,
           style: TextStyle(
@@ -2000,7 +2007,8 @@ class _MpvAudioEqAdvancedScreenState extends State<_MpvAudioEqAdvancedScreen> {
     final colors = context.appColors;
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: AppBar(
+      appBar: buildSecondaryHostAppBar(
+        context,
         title: Text(
           '高级均衡',
           style: TextStyle(
@@ -2106,7 +2114,8 @@ class _MpvCacheSizeScreenState extends State<_MpvCacheSizeScreen> {
     );
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: AppBar(
+      appBar: buildSecondaryHostAppBar(
+        context,
         title: Text(
           widget.definition.title,
           style: TextStyle(
@@ -2307,7 +2316,8 @@ class _MpvVideoAdjustmentsScreenState
     final colors = context.appColors;
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: AppBar(
+      appBar: buildSecondaryHostAppBar(
+        context,
         title: Text(
           '即时调节',
           style: TextStyle(

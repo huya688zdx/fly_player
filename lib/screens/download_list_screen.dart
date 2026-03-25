@@ -16,6 +16,7 @@ import '../player/mpv_player_page.dart';
 import '../providers/nas_provider.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../services/download_task_service.dart';
+import '../services/play_stats/play_stats.dart';
 import '../theme/app_theme.dart';
 import '../ui/app_transitions.dart';
 import '../ui/capability_badge_mapper.dart';
@@ -136,173 +137,165 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
     final colors = context.appColors;
     final token = context.watch<NasProvider>().token;
 
-    return PopScope(
-      canPop: !_editing,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop || !_editing || !mounted) return;
-        setState(() {
-          _editing = false;
-          _selectedGroupIds.clear();
-        });
-      },
-      child: Scaffold(
-        backgroundColor: colors.backgroundBase,
-        body: SafeArea(
-          bottom: false,
-          child: Column(
-            children: <Widget>[
+    return Scaffold(
+      backgroundColor: colors.backgroundBase,
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 14, 0),
+              child: Row(
+                children: <Widget>[
+                  _TopActionButton(
+                    icon: Icons.arrow_back_ios_new_rounded,
+                    onTap: () {
+                      unawaited(EmbeddedDetailLauncher.closeHostOrPop(context));
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Center(
+                      child: _DownloadTabSwitcher(
+                        selectedTab: _selectedTab,
+                        onChanged: (tab) => unawaited(_switchTab(tab)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  TextButton(
+                    onPressed: _selectedTab != DownloadListTab.downloaded
+                        ? null
+                        : () {
+                            setState(() {
+                              _editing = !_editing;
+                              if (!_editing) {
+                                _selectedGroupIds.clear();
+                              }
+                            });
+                          },
+                    style: TextButton.styleFrom(
+                      foregroundColor: _editing
+                          ? colors.textPrimary
+                          : colors.textMuted,
+                      minimumSize: Size.zero,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 6,
+                      ),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      textStyle: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    child: Text(_editing ? '取消' : '编辑'),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: AnimatedBuilder(
+                animation: _service,
+                builder: (context, _) {
+                  final downloadedGroups = _service.groupsByStatus(
+                    DownloadTaskStatus.downloaded,
+                  );
+                  _selectedGroupIds.removeWhere(
+                    (id) => !downloadedGroups.any((group) => group.id == id),
+                  );
+                  final downloadingRecords = _service.recordsByStatus(
+                    DownloadTaskStatus.downloading,
+                  );
+                  return PageView(
+                    controller: _pageController,
+                    onPageChanged: _handlePageChanged,
+                    physics: const BouncingScrollPhysics(),
+                    children: <Widget>[
+                      _buildDownloadedPage(
+                        context: context,
+                        token: token,
+                        groups: downloadedGroups,
+                      ),
+                      _buildDownloadingPage(
+                        context: context,
+                        token: token,
+                        records: downloadingRecords,
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+            if (_editing) ...<Widget>[
+              const SizedBox(height: 8),
               Padding(
-                padding: const EdgeInsets.fromLTRB(10, 8, 14, 0),
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
                 child: Row(
                   children: <Widget>[
-                    _TopActionButton(
-                      icon: Icons.arrow_back_ios_new_rounded,
-                      onTap: () => Navigator.of(context).maybePop(),
-                    ),
-                    const SizedBox(width: 8),
                     Expanded(
-                      child: Center(
-                        child: _DownloadTabSwitcher(
-                          selectedTab: _selectedTab,
-                          onChanged: (tab) => unawaited(_switchTab(tab)),
+                      child: FilledButton.tonal(
+                        onPressed: () {
+                          final groups = _service.groupsByStatus(
+                            _selectedTab.status,
+                          );
+                          setState(() {
+                            if (_selectedGroupIds.length == groups.length &&
+                                groups.isNotEmpty) {
+                              _selectedGroupIds.clear();
+                            } else {
+                              _selectedGroupIds
+                                ..clear()
+                                ..addAll(groups.map((group) => group.id));
+                            }
+                          });
+                        },
+                        style: FilledButton.styleFrom(
+                          minimumSize: const Size.fromHeight(58),
+                          backgroundColor: colors.surfaceStrong,
+                          foregroundColor: colors.textPrimary,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                        ),
+                        child: Text(
+                          _selectedGroupIds.length ==
+                                      _service
+                                          .groupsByStatus(_selectedTab.status)
+                                          .length &&
+                                  _service
+                                      .groupsByStatus(_selectedTab.status)
+                                      .isNotEmpty
+                              ? '取消全选'
+                              : '全选',
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    TextButton(
-                      onPressed: _selectedTab != DownloadListTab.downloaded
-                          ? null
-                          : () {
-                              setState(() {
-                                _editing = !_editing;
-                                if (!_editing) {
-                                  _selectedGroupIds.clear();
-                                }
-                              });
-                            },
-                      style: TextButton.styleFrom(
-                        foregroundColor: _editing
-                            ? colors.textPrimary
-                            : colors.textMuted,
-                        minimumSize: Size.zero,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 6,
+                    const SizedBox(width: 18),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: _selectedGroupIds.isEmpty
+                            ? null
+                            : () => _confirmDeleteSelectedGroups(context),
+                        style: FilledButton.styleFrom(
+                          minimumSize: const Size.fromHeight(58),
+                          backgroundColor: const Color(0xFF7E0913),
+                          disabledBackgroundColor: const Color(
+                            0xFF7E0913,
+                          ).withValues(alpha: 0.35),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(18),
+                          ),
                         ),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        textStyle: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500,
-                        ),
+                        child: const Text('删除'),
                       ),
-                      child: Text(_editing ? '取消' : '编辑'),
                     ),
                   ],
                 ),
               ),
-              Expanded(
-                child: AnimatedBuilder(
-                  animation: _service,
-                  builder: (context, _) {
-                    final downloadedGroups = _service.groupsByStatus(
-                      DownloadTaskStatus.downloaded,
-                    );
-                    _selectedGroupIds.removeWhere(
-                      (id) => !downloadedGroups.any((group) => group.id == id),
-                    );
-                    final downloadingRecords = _service.recordsByStatus(
-                      DownloadTaskStatus.downloading,
-                    );
-                    return PageView(
-                      controller: _pageController,
-                      onPageChanged: _handlePageChanged,
-                      physics: const BouncingScrollPhysics(),
-                      children: <Widget>[
-                        _buildDownloadedPage(
-                          context: context,
-                          token: token,
-                          groups: downloadedGroups,
-                        ),
-                        _buildDownloadingPage(
-                          context: context,
-                          token: token,
-                          records: downloadingRecords,
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-              if (_editing) ...<Widget>[
-                const SizedBox(height: 8),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
-                  child: Row(
-                    children: <Widget>[
-                      Expanded(
-                        child: FilledButton.tonal(
-                          onPressed: () {
-                            final groups = _service.groupsByStatus(
-                              _selectedTab.status,
-                            );
-                            setState(() {
-                              if (_selectedGroupIds.length == groups.length &&
-                                  groups.isNotEmpty) {
-                                _selectedGroupIds.clear();
-                              } else {
-                                _selectedGroupIds
-                                  ..clear()
-                                  ..addAll(groups.map((group) => group.id));
-                              }
-                            });
-                          },
-                          style: FilledButton.styleFrom(
-                            minimumSize: const Size.fromHeight(58),
-                            backgroundColor: colors.surfaceStrong,
-                            foregroundColor: colors.textPrimary,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(18),
-                            ),
-                          ),
-                          child: Text(
-                            _selectedGroupIds.length ==
-                                        _service
-                                            .groupsByStatus(_selectedTab.status)
-                                            .length &&
-                                    _service
-                                        .groupsByStatus(_selectedTab.status)
-                                        .isNotEmpty
-                                ? '取消全选'
-                                : '全选',
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 18),
-                      Expanded(
-                        child: FilledButton(
-                          onPressed: _selectedGroupIds.isEmpty
-                              ? null
-                              : () => _confirmDeleteSelectedGroups(context),
-                          style: FilledButton.styleFrom(
-                            minimumSize: const Size.fromHeight(58),
-                            backgroundColor: const Color(0xFF7E0913),
-                            disabledBackgroundColor: const Color(
-                              0xFF7E0913,
-                            ).withValues(alpha: 0.35),
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(18),
-                            ),
-                          ),
-                          child: const Text('删除'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
             ],
-          ),
+          ],
         ),
       ),
     );
@@ -690,6 +683,8 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
         context: context,
         title: title,
         source: source,
+        initialPlayInfo: initialPlayInfo,
+        startSource: PlayStartSource.manual,
       );
       if (embeddedResult.handled || !mounted) return;
     }
@@ -699,6 +694,7 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
           title: title,
           source: source,
           initialPlayInfo: initialPlayInfo,
+          startSource: PlayStartSource.manual,
         ),
       ),
     );
@@ -721,198 +717,188 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
     final colors = context.appColors;
     final token = context.watch<NasProvider>().token;
 
-    return PopScope(
-      canPop: !_editing,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop || !_editing || !mounted) return;
-        setState(() {
-          _editing = false;
-          _selectedRecordIds.clear();
-        });
-      },
-      child: Scaffold(
-        backgroundColor: colors.backgroundBase,
-        body: SafeArea(
-          bottom: false,
-          child: AnimatedBuilder(
-            animation: _service,
-            builder: (context, _) {
-              final group = _service.groupById(
-                widget.groupId,
-                status: _selectedTab.status,
-              );
-              final title = group?.title.trim().isNotEmpty == true
-                  ? group!.title
-                  : '下载详情';
-              final records = group?.records ?? const <DownloadTaskRecord>[];
-              _selectedRecordIds.removeWhere(
-                (id) => !records.any((record) => record.id == id),
-              );
-              final selectedCount = _selectedRecordIds.length;
+    return Scaffold(
+      backgroundColor: colors.backgroundBase,
+      body: SafeArea(
+        bottom: false,
+        child: AnimatedBuilder(
+          animation: _service,
+          builder: (context, _) {
+            final group = _service.groupById(
+              widget.groupId,
+              status: _selectedTab.status,
+            );
+            final title = group?.title.trim().isNotEmpty == true
+                ? group!.title
+                : '下载详情';
+            final records = group?.records ?? const <DownloadTaskRecord>[];
+            _selectedRecordIds.removeWhere(
+              (id) => !records.any((record) => record.id == id),
+            );
+            final selectedCount = _selectedRecordIds.length;
 
-              return Column(
-                children: <Widget>[
+            return Column(
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 8, 14, 0),
+                  child: Row(
+                    children: <Widget>[
+                      _TopActionButton(
+                        icon: Icons.arrow_back_ios_new_rounded,
+                        onTap: () {
+                          unawaited(
+                            EmbeddedDetailLauncher.closeHostOrPop(context),
+                          );
+                        },
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          _editing ? '已选择 $selectedCount 项' : title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: colors.textPrimary,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      TextButton(
+                        onPressed:
+                            records.isEmpty ||
+                                _selectedTab != DownloadListTab.downloaded
+                            ? null
+                            : () {
+                                setState(() {
+                                  _editing = !_editing;
+                                  if (!_editing) {
+                                    _selectedRecordIds.clear();
+                                  }
+                                });
+                              },
+                        style: TextButton.styleFrom(
+                          foregroundColor: _editing
+                              ? colors.textPrimary
+                              : colors.textMuted,
+                          textStyle: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        child: Text(_editing ? '取消' : '编辑'),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: records.isEmpty
+                      ? Center(
+                          child: Text(
+                            _selectedTab.emptyLabel,
+                            style: TextStyle(
+                              color: colors.textMuted,
+                              fontSize: 16,
+                            ),
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
+                          itemCount: records.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 18),
+                          itemBuilder: (context, index) {
+                            final record = records[index];
+                            return _DownloadRecordRow(
+                              record: record,
+                              token: token,
+                              downloadSpeedBytesPerSecond: _service
+                                  .downloadSpeedBytesPerSecondFor(record.id),
+                              editing: _editing,
+                              selected: _selectedRecordIds.contains(record.id),
+                              onLongPress: () =>
+                                  _handleRecordLongPress(record.id),
+                              onSelectToggle: _editing
+                                  ? () => _toggleRecordSelection(record.id)
+                                  : null,
+                              onTap: _editing
+                                  ? () => _toggleRecordSelection(record.id)
+                                  : _selectedTab != DownloadListTab.downloaded
+                                  ? null
+                                  : () => _playDownloadedRecord(record),
+                            );
+                          },
+                        ),
+                ),
+                if (_editing) ...<Widget>[
+                  const SizedBox(height: 8),
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(10, 8, 14, 0),
+                    padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
                     child: Row(
                       children: <Widget>[
-                        _TopActionButton(
-                          icon: Icons.arrow_back_ios_new_rounded,
-                          onTap: () => Navigator.of(context).maybePop(),
-                        ),
-                        const SizedBox(width: 12),
                         Expanded(
-                          child: Text(
-                            _editing ? '已选择 $selectedCount 项' : title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: colors.textPrimary,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
+                          child: FilledButton.tonal(
+                            onPressed: records.isEmpty
+                                ? null
+                                : () {
+                                    setState(() {
+                                      if (_selectedRecordIds.length ==
+                                          records.length) {
+                                        _selectedRecordIds.clear();
+                                      } else {
+                                        _selectedRecordIds
+                                          ..clear()
+                                          ..addAll(
+                                            records.map((record) => record.id),
+                                          );
+                                      }
+                                    });
+                                  },
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size.fromHeight(58),
+                              backgroundColor: colors.surfaceStrong,
+                              foregroundColor: colors.textPrimary,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                            ),
+                            child: Text(
+                              _selectedRecordIds.length == records.length &&
+                                      records.isNotEmpty
+                                  ? '取消全选'
+                                  : '全选',
                             ),
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        TextButton(
-                          onPressed:
-                              records.isEmpty ||
-                                  _selectedTab != DownloadListTab.downloaded
-                              ? null
-                              : () {
-                                  setState(() {
-                                    _editing = !_editing;
-                                    if (!_editing) {
-                                      _selectedRecordIds.clear();
-                                    }
-                                  });
-                                },
-                          style: TextButton.styleFrom(
-                            foregroundColor: _editing
-                                ? colors.textPrimary
-                                : colors.textMuted,
-                            textStyle: const TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w500,
+                        const SizedBox(width: 18),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: _selectedRecordIds.isEmpty
+                                ? null
+                                : () => _confirmDeleteSelected(context),
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size.fromHeight(58),
+                              backgroundColor: const Color(0xFF7E0913),
+                              disabledBackgroundColor: const Color(
+                                0xFF7E0913,
+                              ).withValues(alpha: 0.35),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(18),
+                              ),
                             ),
+                            child: const Text('删除'),
                           ),
-                          child: Text(_editing ? '取消' : '编辑'),
                         ),
                       ],
                     ),
                   ),
-                  Expanded(
-                    child: records.isEmpty
-                        ? Center(
-                            child: Text(
-                              _selectedTab.emptyLabel,
-                              style: TextStyle(
-                                color: colors.textMuted,
-                                fontSize: 16,
-                              ),
-                            ),
-                          )
-                        : ListView.separated(
-                            padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
-                            itemCount: records.length,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(height: 18),
-                            itemBuilder: (context, index) {
-                              final record = records[index];
-                              return _DownloadRecordRow(
-                                record: record,
-                                token: token,
-                                downloadSpeedBytesPerSecond: _service
-                                    .downloadSpeedBytesPerSecondFor(record.id),
-                                editing: _editing,
-                                selected: _selectedRecordIds.contains(
-                                  record.id,
-                                ),
-                                onLongPress: () =>
-                                    _handleRecordLongPress(record.id),
-                                onSelectToggle: _editing
-                                    ? () => _toggleRecordSelection(record.id)
-                                    : null,
-                                onTap: _editing
-                                    ? () => _toggleRecordSelection(record.id)
-                                    : _selectedTab != DownloadListTab.downloaded
-                                    ? null
-                                    : () => _playDownloadedRecord(record),
-                              );
-                            },
-                          ),
-                  ),
-                  if (_editing) ...<Widget>[
-                    const SizedBox(height: 8),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
-                      child: Row(
-                        children: <Widget>[
-                          Expanded(
-                            child: FilledButton.tonal(
-                              onPressed: records.isEmpty
-                                  ? null
-                                  : () {
-                                      setState(() {
-                                        if (_selectedRecordIds.length ==
-                                            records.length) {
-                                          _selectedRecordIds.clear();
-                                        } else {
-                                          _selectedRecordIds
-                                            ..clear()
-                                            ..addAll(
-                                              records.map(
-                                                (record) => record.id,
-                                              ),
-                                            );
-                                        }
-                                      });
-                                    },
-                              style: FilledButton.styleFrom(
-                                minimumSize: const Size.fromHeight(58),
-                                backgroundColor: colors.surfaceStrong,
-                                foregroundColor: colors.textPrimary,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(18),
-                                ),
-                              ),
-                              child: Text(
-                                _selectedRecordIds.length == records.length &&
-                                        records.isNotEmpty
-                                    ? '取消全选'
-                                    : '全选',
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 18),
-                          Expanded(
-                            child: FilledButton(
-                              onPressed: _selectedRecordIds.isEmpty
-                                  ? null
-                                  : () => _confirmDeleteSelected(context),
-                              style: FilledButton.styleFrom(
-                                minimumSize: const Size.fromHeight(58),
-                                backgroundColor: const Color(0xFF7E0913),
-                                disabledBackgroundColor: const Color(
-                                  0xFF7E0913,
-                                ).withValues(alpha: 0.35),
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(18),
-                                ),
-                              ),
-                              child: const Text('删除'),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
                 ],
-              );
-            },
-          ),
+              ],
+            );
+          },
         ),
       ),
     );

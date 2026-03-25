@@ -747,6 +747,7 @@ class _TvDetailPageState extends State<TvDetailPage>
         context,
         itemGuid: widget.itemGuid,
         seriesTitle: _title(item),
+        seriesGuid: widget.itemGuid,
       );
       if (!mounted) return;
       final api = FeiniuApi(context.read<NasProvider>());
