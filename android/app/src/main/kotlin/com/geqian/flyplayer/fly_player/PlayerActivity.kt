@@ -135,7 +135,9 @@ class PlayerActivity : FlutterHostActivity() {
                 PlayerLaunchContract.putResultPayload(this, result)
             },
         )
-        finish()
+        runAfterMethodReply {
+            finish()
+        }
         return true
     }
 
@@ -147,15 +149,65 @@ class PlayerActivity : FlutterHostActivity() {
         targetMode: String,
         resultPayload: HashMap<String, Any?>?,
     ): Boolean {
+        val normalizedTitle = title.trim()
+        val normalizedSource = source ?: hashMapOf()
+        if (normalizedTitle.isEmpty() || normalizedSource.isEmpty()) {
+            return false
+        }
         if (targetMode != PlayerLaunchContract.MODE_SPLIT &&
             targetMode != PlayerLaunchContract.MODE_FULLSCREEN
         ) {
             return false
         }
-        PlayerLaunchContract.updateLayoutMode(intent, targetMode)
-        setIntent(intent)
+        val nextIntent =
+            createIntent(
+                context = this,
+                title = normalizedTitle,
+                source = HashMap(normalizedSource),
+                initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
+                startSource = startSource,
+                fromParallelHost = PlayerLaunchContract.isFromParallelHost(intent),
+                hostContext = getParallelHostContext(),
+                layoutMode = targetMode,
+                initialRightPaneRoute = currentInitialRightPaneRoute(),
+            )
+        setIntent(nextIntent)
         applyLayoutModeState()
-        Log.d(TAG, "switchPlayerLayoutMode target=$targetMode handledInFlutter=true")
+        Log.d(
+            TAG,
+            "switchPlayerLayoutMode target=$targetMode handledInFlutter=true itemGuid=${normalizedSource["itemGuid"]}",
+        )
+        return true
+    }
+
+    override fun syncPlayerLaunchState(
+        title: String,
+        source: HashMap<String, Any?>?,
+        initialPlayInfo: HashMap<String, Any?>?,
+        startSource: String,
+    ): Boolean {
+        val normalizedTitle = title.trim()
+        val normalizedSource = source ?: hashMapOf()
+        if (normalizedTitle.isEmpty() || normalizedSource.isEmpty()) {
+            return false
+        }
+        val nextIntent =
+            createIntent(
+                context = this,
+                title = normalizedTitle,
+                source = HashMap(normalizedSource),
+                initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
+                startSource = startSource,
+                fromParallelHost = PlayerLaunchContract.isFromParallelHost(intent),
+                hostContext = getParallelHostContext(),
+                layoutMode = currentLayoutMode(),
+                initialRightPaneRoute = currentInitialRightPaneRoute(),
+            )
+        setIntent(nextIntent)
+        Log.d(
+            TAG,
+            "syncPlayerLaunchState layoutMode=${currentLayoutMode()} itemGuid=${normalizedSource["itemGuid"]}",
+        )
         return true
     }
 

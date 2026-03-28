@@ -1294,6 +1294,12 @@ extension _MpvPlayerEpisodeMixin on _MpvPlayerPageState {
       selectedAudioGuid,
       playbackStream.audioStreams,
     );
+    final selectedSubtitle = mergedSubtitleTracks
+        .cast<SubtitleTrackOption?>()
+        .firstWhere(
+          (track) => track?.guid == selectedSubtitleGuid,
+          orElse: () => null,
+        );
 
     final sourceTs = info.ts > 0 ? info.ts : info.item.watchedTs;
     final durationSeconds = info.item.duration > 0
@@ -1323,6 +1329,7 @@ extension _MpvPlayerEpisodeMixin on _MpvPlayerPageState {
       playbackStream: playbackStream,
       quality: preferredQuality,
       selectedAudio: selectedAudio,
+      selectedSubtitle: selectedSubtitle,
       startPosition: resumeStartPosition,
     );
     final playableSource = initialPlayback.playableSource;

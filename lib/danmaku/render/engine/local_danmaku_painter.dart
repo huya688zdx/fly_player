@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../models/danmaku_settings.dart';
 import 'local_danmaku_item.dart';
 
 class LocalDanmakuPainter<T> extends CustomPainter {
@@ -11,7 +12,8 @@ class LocalDanmakuPainter<T> extends CustomPainter {
   final ValueListenable<int> timelineListenable;
   final double devicePixelRatio;
   final ui.Image? maskImage;
-  final double maskCoverageRatio;
+  final double displayAreaRatio;
+  final double captureAreaRatio;
 
   static final Paint _paint = Paint();
   static final Paint _maskPaint = Paint()
@@ -25,7 +27,8 @@ class LocalDanmakuPainter<T> extends CustomPainter {
     required this.timelineListenable,
     required this.devicePixelRatio,
     required this.maskImage,
-    required this.maskCoverageRatio,
+    required this.displayAreaRatio,
+    required this.captureAreaRatio,
   }) : super(repaint: repaint);
 
   @override
@@ -49,17 +52,22 @@ class LocalDanmakuPainter<T> extends CustomPainter {
     }
     final currentMask = maskImage;
     if (currentMask != null) {
+      final destinationCoverage = clampDanmakuAreaRatio(displayAreaRatio);
+      final sourceCoverage = resolveDanmakuMaskSourceCoverageRatio(
+        displayAreaRatio: displayAreaRatio,
+        captureAreaRatio: captureAreaRatio,
+      );
       final src = Rect.fromLTWH(
         0,
         0,
         currentMask.width.toDouble(),
-        currentMask.height.toDouble(),
+        currentMask.height.toDouble() * sourceCoverage,
       );
       final dst = Rect.fromLTWH(
         0,
         0,
         size.width,
-        size.height * maskCoverageRatio.clamp(0.1, 1.0),
+        size.height * destinationCoverage,
       );
       canvas.drawImageRect(currentMask, src, dst, _maskPaint);
       canvas.restore();
@@ -92,6 +100,7 @@ class LocalDanmakuPainter<T> extends CustomPainter {
         oldDelegate.staticItems != staticItems ||
         oldDelegate.devicePixelRatio != devicePixelRatio ||
         oldDelegate.maskImage != maskImage ||
-        oldDelegate.maskCoverageRatio != maskCoverageRatio;
+        oldDelegate.displayAreaRatio != displayAreaRatio ||
+        oldDelegate.captureAreaRatio != captureAreaRatio;
   }
 }

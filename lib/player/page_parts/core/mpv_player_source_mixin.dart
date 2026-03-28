@@ -39,9 +39,27 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
     return null;
   }
 
+  bool _subtitleShouldPreferEmbeddedTrack(SubtitleTrackOption? track) {
+    if (track == null) return false;
+    final normalizedGuid = track.guid.trim().toLowerCase();
+    if (normalizedGuid.startsWith('local:')) return false;
+    if (track.isExternal == 1 || track.extraFile == 1) return false;
+    if (track.isBitmap == 1) return true;
+    final format = track.format.trim().toLowerCase();
+    final codec = track.codecName.trim().toLowerCase();
+    return format.contains('pgs') ||
+        format.contains('sup') ||
+        codec.contains('pgs') ||
+        codec.contains('sup') ||
+        codec.contains('hdmv_pgs') ||
+        codec.contains('dvd_subtitle') ||
+        codec.contains('vobsub');
+  }
+
   bool _subtitleShouldUseExternalFile(SubtitleTrackOption? track) {
     if (track == null) return false;
     if (_serverFallbackSubtitleGuids.contains(track.guid)) return false;
+    if (_subtitleShouldPreferEmbeddedTrack(track)) return false;
     if (track.isExternal == 1 || track.extraFile == 1) return true;
     return track.guid.startsWith('local:');
   }
@@ -421,12 +439,24 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
   }) {
     final audio = _currentAudioTrack();
     final subtitle = _currentSubtitleTrack();
+    final serverManagedPlayback = _playbackMode.isServerManaged;
     final preferExternalSubtitle =
         _subtitleShouldUseExternalFile(subtitle) ||
         (_activeSubtitleProxySessionId?.isNotEmpty ?? false);
     final subtitleExplicitOff =
         _subtitleExplicitlyDisabled &&
         (_currentSubtitleGuid ?? '').trim().isEmpty;
+    final audioTrackIndex = serverManagedPlayback
+        ? null
+        : _mpvAudioTrackId(audio);
+    final clearAudioTrackIndex = serverManagedPlayback || audio == null;
+    final subtitleTrackIndex = serverManagedPlayback
+        ? null
+        : (subtitleExplicitOff
+              ? -1
+              : (preferExternalSubtitle ? null : _mpvSubtitleTrackId(subtitle)));
+    final clearSubtitleTrackIndex =
+        serverManagedPlayback || preferExternalSubtitle || subtitle == null;
     final normalizedStartPosition = _normalizedSourceStartPosition(
       startPosition ?? _controller.value.value.position,
     );
@@ -453,17 +483,16 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
       isDownloadedFile: _currentSourceIsDownloadedFile,
       proxySessionId: _activeProxySessionId,
       playLink: _currentPlayLink,
+      serverSessionHlsTimeSeconds: _currentServerSessionHlsTimeSeconds,
       url: _currentUrl,
       headers: Map<String, String>.from(_currentHeaders),
       title: _currentTitle,
       episodeNumber: _currentEpisodeNumber,
       startPosition: normalizedStartPosition,
-      audioTrackIndex: _mpvAudioTrackId(audio),
-      clearAudioTrackIndex: audio == null,
-      subtitleTrackIndex: subtitleExplicitOff
-          ? -1
-          : (preferExternalSubtitle ? null : _mpvSubtitleTrackId(subtitle)),
-      clearSubtitleTrackIndex: preferExternalSubtitle || subtitle == null,
+      audioTrackIndex: audioTrackIndex,
+      clearAudioTrackIndex: clearAudioTrackIndex,
+      subtitleTrackIndex: subtitleTrackIndex,
+      clearSubtitleTrackIndex: clearSubtitleTrackIndex,
       audioTrackGuid: audio?.guid,
       clearAudioTrackGuid: audio == null,
       subtitleTrackGuid: (_currentSubtitleGuid ?? '').trim().isEmpty

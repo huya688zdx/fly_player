@@ -1,5 +1,8 @@
 part of mpv_player_page;
 
+const Duration _serverManagedPlayLinkCheckCooldown = Duration(seconds: 12);
+const Duration _serverSessionRecoveryCooldown = Duration(seconds: 8);
+
 class _ChapterSkipSegment extends PlayerChapterSkipSegment {
   const _ChapterSkipSegment({
     required String kind,
@@ -471,6 +474,22 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
       return metadataDuration;
     }
     return value.duration;
+  }
+
+  bool _shouldApplyPendingExternalSubtitlePath(String pendingPath) {
+    final normalizedPath = pendingPath.trim();
+    if (normalizedPath.isEmpty) return false;
+    final selectedGuid = (_currentSubtitleGuid ?? '').trim();
+    if (selectedGuid.isEmpty) return false;
+    final selectedTrack = _findSubtitleTrack(selectedGuid);
+    if (!_subtitleShouldUseExternalFile(selectedTrack)) {
+      return false;
+    }
+    final expectedPath = _subtitleFileByGuid[selectedGuid]?.trim() ?? '';
+    if (expectedPath.isEmpty) {
+      return true;
+    }
+    return expectedPath == normalizedPath;
   }
 
   Duration _completionReferenceDuration(MpvPlayerValue value) {
@@ -1217,12 +1236,151 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
       return;
     }
     _pendingExternalSubtitlePath = null;
+    if (!_shouldApplyPendingExternalSubtitlePath(pendingPath)) {
+      return;
+    }
     unawaited(_controller.setExternalSubtitleFile(pendingPath));
   }
 
   void _handleOverlayControllersChanged() {
     if (!mounted) return;
     _updatePlayerState(() {});
+  }
+
+  bool _shouldCheckServerManagedPlayLink(MpvPlayerValue value) {
+    if (_exitInProgress ||
+        _playbackCompleted ||
+        _completionActionInFlight ||
+        _serverSessionRecoveryInFlight ||
+        _serverManagedPlayLinkCheckInFlight) {
+      return false;
+    }
+    if (!_playbackMode.isServerManaged) return false;
+    if ((_currentPlayLink ?? '').trim().isEmpty) return false;
+    if (!value.ready || !value.nativeLibLoaded || value.paused) {
+      return false;
+    }
+    if (_uiController.pendingLoadingTransition ||
+        _uiController.qualitySwitchLoading ||
+        _uiController.awaitingVisualPlaybackStart) {
+      return false;
+    }
+    final remaining =
+        _completionReferenceDuration(value) - _displayPosition(value);
+    if (remaining > Duration.zero && remaining <= const Duration(seconds: 20)) {
+      return false;
+    }
+    final lastCheckAt = _lastServerManagedPlayLinkCheckAt;
+    if (lastCheckAt != null &&
+        DateTime.now().difference(lastCheckAt) <
+            _serverManagedPlayLinkCheckCooldown) {
+      return false;
+    }
+    return value.statusText.trim().toLowerCase() != 'playback ended';
+  }
+
+  Future<bool> _checkServerSessionExpired([FeiniuApi? api]) async {
+    if (!_playbackMode.isServerManaged || !mounted || _exitInProgress) {
+      return false;
+    }
+    final playLink = (_currentPlayLink ?? '').trim();
+    if (playLink.isEmpty) return false;
+    try {
+      final effectiveApi = api ?? FeiniuApi(context.read<NasProvider>());
+      return await effectiveApi.checkPlayLinkExpired(playLink) == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _checkServerManagedPlayLinkIfNeeded({
+    required MpvPlayerValue value,
+    FeiniuApi? api,
+  }) async {
+    if (!_shouldCheckServerManagedPlayLink(value)) {
+      return;
+    }
+    _serverManagedPlayLinkCheckInFlight = true;
+    _lastServerManagedPlayLinkCheckAt = DateTime.now();
+    try {
+      if (!await _checkServerSessionExpired(api)) {
+        return;
+      }
+      if (!mounted || _exitInProgress) return;
+      final latestValue = _controller.value.value;
+      await _refreshServerManagedSession(
+        startPosition: _displayPosition(latestValue),
+        pausedAfterReload: latestValue.paused,
+        background: !latestValue.paused,
+      );
+    } finally {
+      _serverManagedPlayLinkCheckInFlight = false;
+    }
+  }
+
+  Future<bool> _ensureServerSessionPlaybackReadyBeforeResume() async {
+    if (!_playbackMode.isServerManaged) return false;
+    if (_serverSessionRecoveryInFlight || _serverManagedPlayLinkCheckInFlight) {
+      return true;
+    }
+    final api = FeiniuApi(context.read<NasProvider>());
+    if (await _checkServerSessionExpired(api)) {
+      final value = _controller.value.value;
+      await _refreshServerManagedSession(
+        startPosition: _displayPosition(value),
+        pausedAfterReload: false,
+        background: false,
+      );
+      return true;
+    }
+    return false;
+  }
+
+  Future<void> _refreshServerManagedSession({
+    required Duration startPosition,
+    required bool pausedAfterReload,
+    required bool background,
+  }) async {
+    if (!mounted || _exitInProgress || !_playbackMode.isServerManaged) return;
+    final playLink = (_currentPlayLink ?? '').trim();
+    if (playLink.isEmpty || _serverSessionRecoveryInFlight) return;
+    final now = DateTime.now();
+    final lastRecoveryAt = _lastServerSessionRecoveryAt;
+    if (lastRecoveryAt != null &&
+        now.difference(lastRecoveryAt) < _serverSessionRecoveryCooldown) {
+      return;
+    }
+
+    _serverSessionRecoveryInFlight = true;
+    _lastServerSessionRecoveryAt = now;
+    final currentPosition = startPosition;
+    final proactive = background;
+
+    final recoveryMessage = proactive ? '正在刷新播放会话...' : '播放会话已过期，正在恢复播放...';
+    final failureMessagePrefix = proactive ? '刷新播放会话失败' : '恢复播放会话失败';
+
+    _uiController.pendingLoadingTransition = true;
+    _showSubtitleSwitchMessage(recoveryMessage);
+    _showSubtitleSwitchMessage('播放会话已过期，正在恢复播放...');
+    _showSubtitleSwitchMessage(recoveryMessage);
+    _markAwaitingVisualPlaybackStart(
+      currentPosition,
+      targetPaused: pausedAfterReload,
+      background: background,
+    );
+
+    try {
+      await _reloadServerPlaySession(
+        startPosition: currentPosition,
+        pausedAfterReload: pausedAfterReload,
+      );
+    } catch (error) {
+      _cancelPendingLoadingTransition();
+      _showTransientMessage('$failureMessagePrefix: $error');
+      _showTransientMessage('恢复播放会话失败: $error');
+    } finally {
+      _serverSessionRecoveryInFlight = false;
+    }
   }
 
   void _setResumePromptVisibility(bool visible) {
@@ -2225,7 +2383,11 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
         bitrate: _currentBitrate,
         ts: ts.clamp(0, duration),
         duration: duration,
+        playLink: _currentPlayLink,
       );
+      if (!force) {
+        await _checkServerManagedPlayLinkIfNeeded(value: value, api: api);
+      }
     } catch (error, stackTrace) {
       debugPrint('[MPV][RECORD] report failed error=$error');
       unawaited(
@@ -2245,6 +2407,9 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
   Future<void> _togglePlayback() async {
     _showControls();
     final value = _controller.value.value;
+    if (value.paused && await _ensureServerSessionPlaybackReadyBeforeResume()) {
+      return;
+    }
     if (value.paused && _shouldReloadSourceBeforeResume()) {
       _showSubtitleSwitchMessage('当前播放需要重新加载，正在为您恢复播放，请稍候...');
       _uiController.pendingLoadingTransition = true;

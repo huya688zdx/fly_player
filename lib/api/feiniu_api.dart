@@ -315,6 +315,7 @@ class FeiniuApi {
   static const String _playSetConfigByItemPath =
       '$_apiPrefix/play/setConfigByItem';
   static const String _playPlayPath = '$_apiPrefix/play/play';
+  static const String _playMediaBridgePath = '$_apiPrefix/media/p';
   static const String _streamPath = '$_apiPrefix/stream';
   static const String _playRecordPath = '$_apiPrefix/play/record';
   static const String _favoritePath = '$_apiPrefix/item/favorite';
@@ -1911,6 +1912,37 @@ class FeiniuApi {
     }
   }
 
+  Future<bool?> checkPlayLinkExpired(String? playLink) async {
+    final normalizedPlayLink = (playLink ?? '').trim();
+    if (normalizedPlayLink.isEmpty) {
+      return null;
+    }
+    try {
+      final clientId = await _ensurePlaybackClientId();
+      final response = await _dio.post(
+        _playMediaBridgePath,
+        data: <String, dynamic>{
+          'playLink': normalizedPlayLink,
+          'req': 'media.checkPlayLink',
+          'reqid': clientId
+              .substring(0, min(16, clientId.length))
+              .toUpperCase(),
+        },
+      );
+      final errno = _extractMediaBridgeErrno(response.data);
+      if (errno == null) {
+        return false;
+      }
+      return errno == 4100;
+    } catch (e) {
+      throw AppException.from(
+        e,
+        action: 'check play link',
+        fallbackKind: AppExceptionKind.transient,
+      );
+    }
+  }
+
   Future<void> resetPlaybackRecord({
     required String itemGuid,
     required String mediaGuid,
@@ -2579,6 +2611,23 @@ class FeiniuApi {
         .join();
     await prefs.setString('playback_client_id', value);
     return value;
+  }
+
+  int? _extractMediaBridgeErrno(dynamic payload) {
+    if (payload is Map<String, dynamic>) {
+      final directErrno = payload['errno'];
+      if (directErrno is num) {
+        return directErrno.toInt();
+      }
+      final data = payload['data'];
+      if (data is Map<String, dynamic>) {
+        final nestedErrno = data['errno'];
+        if (nestedErrno is num) {
+          return nestedErrno.toInt();
+        }
+      }
+    }
+    return null;
   }
 }
 

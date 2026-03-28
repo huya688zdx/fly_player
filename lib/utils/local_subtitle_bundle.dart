@@ -75,7 +75,7 @@ LocalSubtitleBundle discoverLocalSubtitleBundle({
       forced: 0,
       isExternal: 1,
       extraFile: 1,
-      isBitmap: 0,
+      isBitmap: extension == 'sup' || extension == 'pgs' ? 1 : 0,
     );
     tracks.add(track);
     fileByGuid[guid] = file.path;
@@ -97,6 +97,8 @@ const Set<String> _supportedSubtitleExtensions = <String>{
   'sub',
   'idx',
   'lrc',
+  'sup',
+  'pgs',
 };
 
 String _fileNameBase(String fileName) {

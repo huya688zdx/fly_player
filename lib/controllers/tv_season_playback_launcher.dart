@@ -126,6 +126,7 @@ class TvSeasonPlaybackLauncher {
           playbackStream: playbackStream,
           quality: initialQuality,
           selectedAudio: selectedAudio,
+          selectedSubtitle: selectedSubtitle,
           startPosition: Duration(seconds: effectiveTs),
         );
     final playableSource = initialPlayback.playableSource;
@@ -157,6 +158,7 @@ class TvSeasonPlaybackLauncher {
       videoHeight: playbackStream.videoStream?.height ?? 0,
       proxySessionId: playableSource.proxySessionId,
       playLink: initialPlayback.playLink,
+      serverSessionHlsTimeSeconds: initialPlayback.serverSessionHlsTimeSeconds,
       url: playableSource.url,
       headers: playableSource.headers,
       title: title,

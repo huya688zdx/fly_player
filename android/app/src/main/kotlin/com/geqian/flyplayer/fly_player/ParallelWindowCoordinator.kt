@@ -377,6 +377,13 @@ object ParallelWindowCoordinator {
         currentDetailRoute = ""
     }
 
+    fun clearSessionUiState() {
+        clearRightPane()
+        rememberedDetailItemGuid = ""
+        rememberedDetailRoute = ""
+        lastBrowseSnapshot = null
+    }
+
     @Synchronized
     private fun pruneRightPaneHostsLocked() {
         rightPaneHostRefs.removeAll { reference -> reference.get() == null }

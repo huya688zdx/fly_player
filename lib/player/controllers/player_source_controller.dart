@@ -47,6 +47,7 @@ class PlayerInitialPlaybackResult {
   final String mediaGuid;
   final String videoGuid;
   final String? playLink;
+  final int serverSessionHlsTimeSeconds;
   final PlayerPlaybackMode playbackMode;
 
   const PlayerInitialPlaybackResult({
@@ -54,6 +55,7 @@ class PlayerInitialPlaybackResult {
     required this.mediaGuid,
     required this.videoGuid,
     required this.playLink,
+    required this.serverSessionHlsTimeSeconds,
     required this.playbackMode,
   });
 }
@@ -120,6 +122,7 @@ class PlayerServerReloadResult {
   final String? activeProxySessionId;
   final String? activeSubtitleProxySessionId;
   final String? currentPlayLink;
+  final int currentServerSessionHlsTimeSeconds;
   final String currentUrl;
   final Map<String, String> currentHeaders;
   final bool reliableSeek;
@@ -150,6 +153,7 @@ class PlayerServerReloadResult {
     required this.activeProxySessionId,
     required this.activeSubtitleProxySessionId,
     required this.currentPlayLink,
+    required this.currentServerSessionHlsTimeSeconds,
     required this.currentUrl,
     required this.currentHeaders,
     required this.reliableSeek,
@@ -193,6 +197,23 @@ class PlayerSubtitleRefreshResult {
 class PlayerSourceController {
   const PlayerSourceController();
 
+  static bool _subtitleShouldPreferEmbeddedTrack(SubtitleTrackOption? track) {
+    if (track == null) return false;
+    final normalizedGuid = track.guid.trim().toLowerCase();
+    if (normalizedGuid.startsWith('local:')) return false;
+    if (track.isExternal == 1 || track.extraFile == 1) return false;
+    if (track.isBitmap == 1) return true;
+    final format = track.format.trim().toLowerCase();
+    final codec = track.codecName.trim().toLowerCase();
+    return format.contains('pgs') ||
+        format.contains('sup') ||
+        codec.contains('pgs') ||
+        codec.contains('sup') ||
+        codec.contains('hdmv_pgs') ||
+        codec.contains('dvd_subtitle') ||
+        codec.contains('vobsub');
+  }
+
   static PlayerPlaybackMode playbackModeForQuality(
     PlaybackQualityOption? quality,
   ) {
@@ -213,6 +234,7 @@ class PlayerSourceController {
     required PlaybackStreamData playbackStream,
     required PlaybackQualityOption? quality,
     required AudioTrackOption? selectedAudio,
+    required SubtitleTrackOption? selectedSubtitle,
     required Duration startPosition,
   }) async {
     final normalizedMediaGuid = mediaGuid.trim();
@@ -230,6 +252,7 @@ class PlayerSourceController {
         mediaGuid: normalizedMediaGuid,
         videoGuid: normalizedVideoGuid,
         playLink: null,
+        serverSessionHlsTimeSeconds: 0,
         playbackMode: PlayerPlaybackMode.originalQuality,
       );
     }
@@ -260,16 +283,21 @@ class PlayerSourceController {
         mediaGuid: targetMediaGuid,
         videoGuid: targetVideoGuid,
         playLink: null,
+        serverSessionHlsTimeSeconds: 0,
         playbackMode: PlayerPlaybackMode.directLinkQuality,
       );
     }
 
     final startTimestamp = startPosition.inSeconds.clamp(0, 2147483647);
+    final selectedServerSubtitleGuid =
+        subtitleShouldUseExternalFile(selectedSubtitle, const <String>{})
+        ? ''
+        : (selectedSubtitle?.guid.trim() ?? '');
     final session = await api.createServerPlaySession(
       mediaGuid: targetMediaGuid,
       videoGuid: targetVideoGuid,
       audioGuid: selectedAudio?.guid.trim() ?? '',
-      subtitleGuid: '',
+      subtitleGuid: selectedServerSubtitleGuid,
       videoEncoder: 'hevc',
       resolution: _normalizeServerResolution(selectedQuality.resolution),
       bitrate: selectedQuality.bitrate,
@@ -292,6 +320,7 @@ class PlayerSourceController {
       playLink: session.playLink.trim().isEmpty
           ? null
           : session.playLink.trim(),
+      serverSessionHlsTimeSeconds: session.hlsTime,
       playbackMode: PlayerPlaybackMode.serverSession,
     );
   }
@@ -302,6 +331,8 @@ class PlayerSourceController {
     required PlayerServerReloadRequest request,
   }) async {
     final selectedQuality = request.quality;
+    final preserveCurrentServerManagedVideoState =
+        selectedQuality == null && snapshot.playbackMode.isServerManaged;
     final targetMediaGuid = selectedQuality?.mediaGuid.trim().isNotEmpty == true
         ? request.quality!.mediaGuid.trim()
         : snapshot.mediaGuid;
@@ -380,6 +411,9 @@ class PlayerSourceController {
     );
     final targetVideoGuid = selectedQuality?.videoGuid.trim().isNotEmpty == true
         ? request.quality!.videoGuid.trim()
+        : preserveCurrentServerManagedVideoState &&
+              snapshot.videoGuid.trim().isNotEmpty
+        ? snapshot.videoGuid.trim()
         : (targetVideoInfo?.guid.trim().isNotEmpty == true
               ? targetVideoInfo!.guid.trim()
               : snapshot.videoGuid);
@@ -407,6 +441,7 @@ class PlayerSourceController {
         activeProxySessionId: playableSource.proxySessionId,
         activeSubtitleProxySessionId: null,
         currentPlayLink: null,
+        currentServerSessionHlsTimeSeconds: 0,
         currentUrl: playableSource.url,
         currentHeaders: playableSource.headers,
         reliableSeek: playableSource.reliableSeek,
@@ -445,18 +480,28 @@ class PlayerSourceController {
     }
     final normalizedResolution = _normalizeServerResolution(
       request.quality?.resolution ??
+          (preserveCurrentServerManagedVideoState ? snapshot.resolution : null) ??
           targetVideoInfo?.resolutionType ??
           snapshot.resolution,
     );
-    final targetBitrate =
-        request.quality?.bitrate ?? targetVideoInfo?.bps ?? snapshot.bitrate;
+    final targetBitrate = request.quality?.bitrate ??
+        (preserveCurrentServerManagedVideoState ? snapshot.bitrate : null) ??
+        targetVideoInfo?.bps ??
+        snapshot.bitrate;
     final startTimestamp = request.startPosition.inSeconds.clamp(0, 2147483647);
+    final selectedServerSubtitleGuid =
+        subtitleShouldUseExternalFile(
+          selectedSubtitleTrack,
+          snapshot.serverFallbackSubtitleGuids,
+        )
+        ? ''
+        : selectedSubtitleGuid;
 
     final session = await api.createServerPlaySession(
       mediaGuid: targetMediaGuid,
       videoGuid: targetVideoGuid,
       audioGuid: selectedAudioGuid,
-      subtitleGuid: '',
+      subtitleGuid: selectedServerSubtitleGuid,
       videoEncoder: 'hevc',
       resolution: normalizedResolution,
       bitrate: targetBitrate,
@@ -480,6 +525,7 @@ class PlayerSourceController {
       currentPlayLink: session.playLink.trim().isEmpty
           ? null
           : session.playLink.trim(),
+      currentServerSessionHlsTimeSeconds: session.hlsTime,
       currentUrl: playableSource.url,
       currentHeaders: playableSource.headers,
       reliableSeek: playableSource.reliableSeek,
@@ -491,10 +537,16 @@ class PlayerSourceController {
       audioTracks: targetAudioTracks,
       subtitleTracks: targetSubtitleTracks,
       qualities: targetQualities,
-      currentVideoWidth: targetVideoInfo?.width ?? snapshot.videoWidth,
-      currentVideoHeight: targetVideoInfo?.height ?? snapshot.videoHeight,
+      currentVideoWidth: preserveCurrentServerManagedVideoState
+          ? snapshot.videoWidth
+          : (targetVideoInfo?.width ?? snapshot.videoWidth),
+      currentVideoHeight: preserveCurrentServerManagedVideoState
+          ? snapshot.videoHeight
+          : (targetVideoInfo?.height ?? snapshot.videoHeight),
       currentResolution: request.quality?.resolution.trim().isNotEmpty == true
           ? request.quality!.resolution.trim()
+          : preserveCurrentServerManagedVideoState
+          ? snapshot.resolution
           : (targetVideoInfo?.resolutionType.trim().isNotEmpty == true
                 ? targetVideoInfo!.resolutionType.trim()
                 : snapshot.resolution),
@@ -561,6 +613,7 @@ class PlayerSourceController {
   ) {
     if (track == null) return false;
     if (serverFallbackSubtitleGuids.contains(track.guid)) return false;
+    if (_subtitleShouldPreferEmbeddedTrack(track)) return false;
     return track.isExternal == 1 || track.extraFile == 1;
   }
 
@@ -726,8 +779,20 @@ class PlayerSourceController {
         raw.startsWith('file://')) {
       return raw;
     }
-    if (raw.startsWith('/') || RegExp(r'^[A-Za-z]:[\\/]').hasMatch(raw)) {
+    if (RegExp(r'^[A-Za-z]:[\\/]').hasMatch(raw)) {
       return Uri.file(raw, windows: Platform.isWindows).toString();
+    }
+    if (raw.startsWith('/')) {
+      final looksLikeLocalFilePath =
+          raw.startsWith('/storage/') ||
+          raw.startsWith('/sdcard/') ||
+          raw.startsWith('/mnt/') ||
+          raw.startsWith('/data/') ||
+          raw.startsWith('/system/');
+      if (looksLikeLocalFilePath) {
+        return Uri.file(raw, windows: Platform.isWindows).toString();
+      }
+      return ApiUrlHelper.apiUrl(api.nasProvider.baseUrl, raw);
     }
     return ApiUrlHelper.apiUrl(api.nasProvider.baseUrl, raw);
   }

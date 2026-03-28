@@ -85,9 +85,13 @@ class PlayerSubtitleController {
   bool selectionRequiresDirectFile({
     required bool serverManagedPlayback,
     required String nextGuid,
+    required bool requiresExternalFile,
     required bool hasDirectFile,
   }) {
-    return serverManagedPlayback && nextGuid.isNotEmpty && !hasDirectFile;
+    return serverManagedPlayback &&
+        nextGuid.isNotEmpty &&
+        requiresExternalFile &&
+        !hasDirectFile;
   }
 
   void beginSelectionChange(String nextGuid) {
@@ -102,6 +106,7 @@ class PlayerSubtitleController {
     required String guid,
     required String? currentGuid,
     required bool serverManagedPlayback,
+    required bool requiresExternalFile,
     required bool hasDirectFile,
   }) {
     final normalizedGuid = normalizeSelectionGuid(guid);
@@ -119,6 +124,7 @@ class PlayerSubtitleController {
     if (selectionRequiresDirectFile(
       serverManagedPlayback: serverManagedPlayback,
       nextGuid: normalizedGuid,
+      requiresExternalFile: requiresExternalFile,
       hasDirectFile: hasDirectFile,
     )) {
       return PlayerSubtitleSelectionPlan(

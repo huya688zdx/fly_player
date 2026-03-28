@@ -568,6 +568,7 @@ class MpvPlaybackController(
                 "setSubtitleTrack requestedIndex=$trackIndex requestedGuid=${trackGuid.orEmpty()} resolvedId=$resolvedTrackId",
             )
             val success = if (initialized && mpv.isAvailable()) {
+                restoreCoordinator.clearPendingExternalSubtitle()
                 trackSelectionController.onSubtitleTrackSelectedManually()
                 when {
                     resolvedTrackId == null -> runCatching {
@@ -1636,6 +1637,15 @@ class MpvPlaybackController(
             val type = currentMpvString("track-list/$index/type")?.lowercase() ?: ""
             if (type.isEmpty()) {
                 emptyStreak += 1
+                if (entries.isNotEmpty() && emptyStreak >= 3) {
+                    break
+                }
+                if (reportedCount > 0 && index >= 7 && emptyStreak >= 8) {
+                    // Some mpv/Android states report a bogus count (for example 64)
+                    // while every track-list/N/type read is empty. Stop scanning early
+                    // in that case instead of hammering nonexistent entries.
+                    break
+                }
                 if (reportedCount <= 0 && emptyStreak >= 3 && entries.isNotEmpty()) {
                     break
                 }

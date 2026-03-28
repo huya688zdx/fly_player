@@ -1043,6 +1043,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           playbackStream: playbackStream,
           quality: selectedQuality,
           selectedAudio: selectedAudio,
+          selectedSubtitle: selectedSubtitle,
           startPosition: Duration(seconds: effectiveTs),
         );
     final playableSource = initialPlayback.playableSource;
@@ -1067,6 +1068,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       videoHeight: playbackStream.videoStream?.height ?? 0,
       proxySessionId: playableSource.proxySessionId,
       playLink: initialPlayback.playLink,
+      serverSessionHlsTimeSeconds: initialPlayback.serverSessionHlsTimeSeconds,
       url: playableSource.url,
       headers: playableSource.headers,
       title: title,

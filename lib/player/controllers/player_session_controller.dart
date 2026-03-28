@@ -31,6 +31,7 @@ class PlayerSessionController {
   String? activeSubtitleProxySessionId;
   String? activeCacheResourceKey;
   String? currentPlayLink;
+  int currentServerSessionHlsTimeSeconds = 0;
   String currentUrl = '';
   Map<String, String> currentHeaders = <String, String>{};
   bool currentReliableSeek = true;
@@ -79,6 +80,7 @@ class PlayerSessionController {
     activeSubtitleProxySessionId = null;
     activeCacheResourceKey = null;
     currentPlayLink = source.playLink;
+    currentServerSessionHlsTimeSeconds = source.serverSessionHlsTimeSeconds;
     currentUrl = source.url;
     currentHeaders = Map<String, String>.from(source.headers);
     currentReliableSeek = source.reliableSeek;

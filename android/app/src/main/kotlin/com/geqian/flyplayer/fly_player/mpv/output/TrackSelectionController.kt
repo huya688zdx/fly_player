@@ -1,6 +1,7 @@
 package com.geqian.flyplayer.fly_player.mpv
 
 import android.util.Log
+import java.io.File
 
 class TrackSelectionController(
     private val mpv: MpvFacade = DefaultMpvFacade,
@@ -23,17 +24,18 @@ class TrackSelectionController(
 
     fun onLoadRequested(source: MpvSource) {
         purgeExternalSubtitleTracks()
+        // External subtitle restoration is driven by the Flutter side after the
+        // new source is ready. Carrying the previous external path across loads
+        // here causes the native restore coordinator to sub-add the same file a
+        // second time, which then triggers extra refresh seeks and visible
+        // subtitle stutter.
+        activeExternalSubtitlePath = null
         pendingPlaybackSpeed = source.playbackSpeed
         pendingAudioTrackIndex = source.audioTrackIndex
         pendingSubtitleTrackIndex = source.subtitleTrackIndex
         pendingPreferExternalSubtitle = source.preferExternalSubtitle
         pendingSubtitleGuid = source.subtitleTrackGuid
-        pendingExternalSubtitlePath =
-            if (pendingPreferExternalSubtitle) {
-                activeExternalSubtitlePath
-            } else {
-                null
-            }
+        pendingExternalSubtitlePath = null
     }
 
     fun onSubtitleTrackSelectedManually() {
@@ -93,6 +95,26 @@ class TrackSelectionController(
 
     fun applyPendingExternalSubtitle(): Boolean {
         val path = pendingExternalSubtitlePath?.takeIf { it.isNotBlank() } ?: return false
+        val existingTrackIds = findExternalSubtitleTrackIds(path)
+        if (existingTrackIds.isNotEmpty()) {
+            val primaryTrackId = existingTrackIds.first()
+            if (existingTrackIds.size > 1) {
+                existingTrackIds.drop(1).forEach { duplicateTrackId ->
+                    runCatching {
+                        mpv.command(arrayOf("sub-remove", duplicateTrackId.toString()))
+                    }
+                }
+            }
+            val selectedExisting = runCatching {
+                mpv.setPropertyInt("sid", primaryTrackId.toLong())
+            }.getOrDefault(false)
+            if (selectedExisting) {
+                Log.d("FlyPlayerMpv", "reuse external subtitle path=$path sid=$primaryTrackId")
+                activeExternalSubtitlePath = path
+                pendingExternalSubtitlePath = null
+                return true
+            }
+        }
         if (activeExternalSubtitlePath == path) {
             pendingExternalSubtitlePath = null
             return true
@@ -202,5 +224,59 @@ class TrackSelectionController(
                 mpv.command(arrayOf("sub-remove", trackId.toString()))
             }
         }
+    }
+
+    private fun findExternalSubtitleTrackIds(path: String): List<Int> {
+        val normalizedPath = normalizeExternalSubtitlePath(path)
+        val fallbackTitle = File(path).name.trim().lowercase()
+        val count = runCatching { mpv.getPropertyInt("track-list/count") }
+            .getOrDefault(0L)
+            .coerceIn(0L, 64L)
+            .toInt()
+        if (count <= 0) return emptyList()
+        val trackIds = mutableListOf<Int>()
+        for (index in 0 until count) {
+            val type = runCatching { mpv.getPropertyString("track-list/$index/type") }
+                .getOrNull()
+                ?.trim()
+                ?.lowercase()
+                ?: continue
+            if (type != "sub") continue
+            val externalPath = runCatching {
+                mpv.getPropertyString("track-list/$index/external-filename")
+            }
+                .getOrNull()
+                ?.trim()
+                .orEmpty()
+            val external = externalPath.isNotEmpty() ||
+                (runCatching { mpv.getPropertyString("track-list/$index/external") }
+                    .getOrNull()
+                    ?.trim()
+                    ?.lowercase()
+                    ?.let { it == "yes" || it == "true" || it == "1" }
+                    ?: false)
+            if (!external) continue
+            val title = runCatching { mpv.getPropertyString("track-list/$index/title") }
+                .getOrNull()
+                ?.trim()
+                ?.lowercase()
+                .orEmpty()
+            val normalizedExternalPath = normalizeExternalSubtitlePath(externalPath)
+            val pathMatches = normalizedExternalPath.isNotEmpty() &&
+                normalizedExternalPath == normalizedPath
+            val titleMatches = title.isNotEmpty() && title == fallbackTitle
+            if (!pathMatches && !titleMatches) continue
+            val trackId = runCatching { mpv.getPropertyInt("track-list/$index/id") }
+                .getOrDefault(0L)
+                .toInt()
+            if (trackId > 0) {
+                trackIds += trackId
+            }
+        }
+        return trackIds
+    }
+
+    private fun normalizeExternalSubtitlePath(path: String): String {
+        return path.trim().replace('\\', '/').lowercase()
     }
 }

@@ -348,14 +348,18 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
                   adjustment: _gestureOverlayData,
                   speedBoostActive: _speedBoostActive,
                   statusMessage:
-                      (_uiController.subtitleSwitchMessage?.trim().isNotEmpty ??
-                          false)
+                      !_uiController.backgroundLoadingTransition &&
+                          (_uiController.subtitleSwitchMessage
+                                  ?.trim()
+                                  .isNotEmpty ??
+                              false)
                       ? _uiController.subtitleSwitchMessage
                       : _uiController.statusMessage,
                   statusLoading:
-                      _uiController.qualitySwitchLoading ||
-                      _uiController.pendingLoadingTransition ||
-                      _uiController.awaitingVisualPlaybackStart,
+                      !_uiController.backgroundLoadingTransition &&
+                      (_uiController.qualitySwitchLoading ||
+                          _uiController.pendingLoadingTransition ||
+                          _uiController.awaitingVisualPlaybackStart),
                 ),
               ],
             );
@@ -1407,9 +1411,10 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
         PlayerBottomControlButton(
           icon: value.paused ? Icons.play_arrow_rounded : Icons.pause_rounded,
           loading:
-              _uiController.pendingLoadingTransition ||
-              _uiController.qualitySwitchLoading ||
-              _uiController.awaitingVisualPlaybackStart,
+              !_uiController.backgroundLoadingTransition &&
+              (_uiController.pendingLoadingTransition ||
+                  _uiController.qualitySwitchLoading ||
+                  _uiController.awaitingVisualPlaybackStart),
           compact: compactUi,
           emphasis: true,
           scale: playControlScale,

@@ -26,6 +26,7 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
       return;
     }
     _uiController.pendingLoadingTransition = false;
+    _uiController.backgroundLoadingTransition = false;
     _uiController.pendingTransitionTargetPaused = false;
     if (mounted) {
       _updatePlayerState(() => _uiController.qualitySwitchLoading = false);
@@ -39,6 +40,7 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
     Duration hideDelay = const Duration(milliseconds: 900),
   }) {
     _uiController.awaitingVisualPlaybackStart = false;
+    _uiController.backgroundLoadingTransition = false;
     _uiController.pendingTransitionTargetPaused = false;
     _finishPendingLoadingTransition(hideDelay: hideDelay);
   }
@@ -46,10 +48,12 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
   void _markAwaitingVisualPlaybackStart(
     Duration anchorPosition, {
     required bool targetPaused,
+    bool background = false,
   }) {
     _uiController.markAwaitingVisualPlaybackStart(
       anchorPosition,
       targetPaused: targetPaused,
+      background: background,
     );
     _syncVideoLoadingOverlayVisibility();
   }
@@ -275,6 +279,12 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
 
   bool _wantsVideoLoadingOverlay(MpvPlayerValue value) {
     if (_exitInProgress || _playbackCompleted || _completionActionInFlight) {
+      return false;
+    }
+    if (_uiController.backgroundLoadingTransition &&
+        (_uiController.pendingLoadingTransition ||
+            _uiController.awaitingVisualPlaybackStart ||
+            _uiController.qualitySwitchLoading)) {
       return false;
     }
     if (_uiController.qualitySwitchLoading) {

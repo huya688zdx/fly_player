@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart';
 
 abstract class PlayStatsDatabase {
   Future<void> open();
+  Future<void> bindOwnerScope(String ownerScope);
   Future<Database> get rawDatabase;
   Future<T> transaction<T>(Future<T> Function(DatabaseExecutor txn) action);
   Future<void> clearAll();
@@ -13,6 +14,7 @@ class SqflitePlayStatsDatabase implements PlayStatsDatabase {
   static const int databaseVersion = 3;
 
   Database? _database;
+  String _ownerScope = '';
 
   @override
   Future<void> open() async {
@@ -20,11 +22,25 @@ class SqflitePlayStatsDatabase implements PlayStatsDatabase {
   }
 
   @override
+  Future<void> bindOwnerScope(String ownerScope) async {
+    final normalized = ownerScope.trim().toLowerCase();
+    if (_ownerScope == normalized) {
+      return;
+    }
+    final existing = _database;
+    _database = null;
+    _ownerScope = normalized;
+    if (existing != null && existing.isOpen) {
+      await existing.close();
+    }
+  }
+
+  @override
   Future<Database> get rawDatabase async {
     final existing = _database;
     if (existing != null) return existing;
     final databasesPath = await getDatabasesPath();
-    final databasePath = p.join(databasesPath, databaseName);
+    final databasePath = p.join(databasesPath, _databaseFileNameForScope());
     final database = await openDatabase(
       databasePath,
       version: databaseVersion,
@@ -136,6 +152,19 @@ WHERE COALESCE(country_codes_json, '') = ''
     if (!exists) {
       await db.execute('ALTER TABLE $table ADD COLUMN $column $definition');
     }
+  }
+
+  String _databaseFileNameForScope() {
+    if (_ownerScope.isEmpty) {
+      return databaseName;
+    }
+    final sanitized = _ownerScope.replaceAll(RegExp(r'[^a-z0-9]+'), '_');
+    final suffix = sanitized.replaceAll(RegExp(r'^_+|_+$'), '');
+    final safeSuffix = suffix.isEmpty ? 'account' : suffix;
+    final truncated = safeSuffix.length > 72
+        ? safeSuffix.substring(0, 72)
+        : safeSuffix;
+    return 'play_stats_$truncated.db';
   }
 }
 

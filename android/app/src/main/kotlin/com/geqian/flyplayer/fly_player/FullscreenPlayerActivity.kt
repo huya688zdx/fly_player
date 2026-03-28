@@ -33,7 +33,9 @@ class FullscreenPlayerActivity : FlutterHostActivity() {
                 PlayerLaunchContract.putResultPayload(this, result)
             },
         )
-        finish()
+        runAfterMethodReply {
+            finish()
+        }
         return true
     }
 
@@ -67,13 +69,38 @@ class FullscreenPlayerActivity : FlutterHostActivity() {
                 PlayerLaunchContract.putResultPayload(this, resultPayload)
             },
         )
-        detailHost.launchSplitPlayer(
-            title = normalizedTitle,
-            source = HashMap(normalizedSource),
-            initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
-            startSource = startSource,
-        )
-        finish()
+        runAfterMethodReply {
+            detailHost.launchSplitPlayer(
+                title = normalizedTitle,
+                source = HashMap(normalizedSource),
+                initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
+                startSource = startSource,
+            )
+            finish()
+        }
+        return true
+    }
+
+    override fun syncPlayerLaunchState(
+        title: String,
+        source: HashMap<String, Any?>?,
+        initialPlayInfo: HashMap<String, Any?>?,
+        startSource: String,
+    ): Boolean {
+        val normalizedTitle = title.trim()
+        val normalizedSource = source ?: hashMapOf()
+        if (normalizedTitle.isEmpty() || normalizedSource.isEmpty()) return false
+        val nextIntent =
+            createIntent(
+                context = this,
+                title = normalizedTitle,
+                source = HashMap(normalizedSource),
+                initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
+                startSource = startSource,
+                fromParallelHost = PlayerLaunchContract.isFromParallelHost(intent),
+                hostContext = getParallelHostContext(),
+            )
+        setIntent(nextIntent)
         return true
     }
 
