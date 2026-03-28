@@ -383,6 +383,7 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
       _activeProxySessionId = null;
       _activeSubtitleProxySessionId = null;
       _currentPlayLink = null;
+      _currentServerSessionHlsTimeSeconds = 0;
       _currentUrl = localSource.url;
       _currentHeaders = const <String, String>{};
       _currentReliableSeek = true;
@@ -523,6 +524,7 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
       _activeProxySessionId = playableSource.proxySessionId;
       _activeSubtitleProxySessionId = null;
       _currentPlayLink = null;
+      _currentServerSessionHlsTimeSeconds = 0;
       _currentUrl = playableSource.url;
       _currentHeaders = playableSource.headers;
       _currentReliableSeek = playableSource.reliableSeek;
@@ -608,6 +610,7 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
     PlaybackQualityOption? quality,
     Duration? startPosition,
     bool? pausedAfterReload,
+    String? pendingExternalSubtitlePath,
   }) async {
     _invalidateNextEpisodePreload();
     final api = FeiniuApi(context.read<NasProvider>());
@@ -624,10 +627,16 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
       ),
     );
     _cancelScheduledProxyRelease(result.activeProxySessionId);
+    final normalizedPendingExternalSubtitlePath =
+        pendingExternalSubtitlePath?.trim().isNotEmpty == true
+        ? pendingExternalSubtitlePath!.trim()
+        : null;
     _updatePlayerState(() {
       _activeProxySessionId = result.activeProxySessionId;
       _activeSubtitleProxySessionId = result.activeSubtitleProxySessionId;
       _currentPlayLink = result.currentPlayLink;
+      _currentServerSessionHlsTimeSeconds =
+          result.currentServerSessionHlsTimeSeconds;
       _currentUrl = result.currentUrl;
       _currentHeaders = result.currentHeaders;
       _currentReliableSeek = result.reliableSeek;
@@ -655,10 +664,10 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
       _currentColorTransfer = result.currentColorTransfer;
       _currentColorPrimaries = result.currentColorPrimaries;
       _currentBitDepth = result.currentBitDepth;
-      _pendingExternalSubtitlePath = null;
+      _pendingExternalSubtitlePath = normalizedPendingExternalSubtitlePath;
       _pendingSubtitleSelectionRefresh =
           result.pendingSubtitleSelectionRefresh ||
-          (result.currentSubtitleGuid?.trim().isNotEmpty == true);
+          normalizedPendingExternalSubtitlePath != null;
       _pendingReloadAutoplayRefresh = true;
       _playbackMode = result.playbackMode;
     });
@@ -830,6 +839,8 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
   Future<bool> _applySubtitleSelection() async {
     _invalidateNextEpisodePreload();
     final localRuntimeSource = _isLocalRuntimeTrackSource();
+    final serverManagedRuntimeSource =
+        _playbackMode.isServerManaged && !localRuntimeSource;
     var normalizedGuid = (_currentSubtitleGuid ?? '').trim();
     if (normalizedGuid.isEmpty &&
         localRuntimeSource &&
@@ -847,6 +858,10 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
     if (normalizedGuid.isEmpty) {
       _pendingExternalSubtitlePath = null;
       _releaseSubtitleProxySession();
+      if (serverManagedRuntimeSource) {
+        await _reloadServerPlaySession(subtitleGuid: '');
+        return true;
+      }
       await _controller.setSubtitleTrack(trackIndex: null, trackGuid: null);
       return true;
     }
@@ -874,6 +889,12 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
       if (path == null) {
         _serverFallbackSubtitleGuids.add(selected.guid);
         final fallbackTrackId = _mpvSubtitleTrackId(selected);
+        if (serverManagedRuntimeSource) {
+          _pendingExternalSubtitlePath = null;
+          _releaseSubtitleProxySession();
+          await _reloadServerPlaySession(subtitleGuid: selected.guid);
+          return true;
+        }
         if (fallbackTrackId != null) {
           await _controller.setSubtitleTrack(
             trackIndex: fallbackTrackId,
@@ -884,9 +905,33 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
       }
       _serverFallbackSubtitleGuids.remove(subtitleForFile.guid);
       _subtitleFailureNoticeShownGuids.remove(subtitleForFile.guid);
-      _pendingExternalSubtitlePath = path;
       _releaseSubtitleProxySession();
+      if (serverManagedRuntimeSource) {
+        await _reloadServerPlaySession(
+          subtitleGuid: selected.guid,
+          pendingExternalSubtitlePath: path,
+        );
+        return true;
+      }
+      _pendingExternalSubtitlePath = path;
       _handlePlayerValueChanged();
+      return true;
+    }
+    if (serverManagedRuntimeSource) {
+      _serverFallbackSubtitleGuids.remove(selected.guid);
+      _pendingExternalSubtitlePath = null;
+      _releaseSubtitleProxySession();
+      await _reloadServerPlaySession(subtitleGuid: selected.guid);
+      return true;
+    }
+    if (_subtitleShouldPreferEmbeddedTrack(selected)) {
+      _serverFallbackSubtitleGuids.remove(selected.guid);
+      _pendingExternalSubtitlePath = null;
+      _releaseSubtitleProxySession();
+      await _controller.setSubtitleTrack(
+        trackIndex: _mpvSubtitleTrackId(selected),
+        trackGuid: selected.guid,
+      );
       return true;
     }
     _pendingExternalSubtitlePath = null;
@@ -927,6 +972,7 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
     final existing = _subtitleFileByGuid[subtitle.guid];
     if (existing != null && File(existing).existsSync()) return existing;
     if (_isLocalRuntimeTrackSource()) return null;
+    if (_subtitleShouldPreferEmbeddedTrack(subtitle)) return null;
     if (_subtitleLoading) return existing;
 
     _subtitleLoading = true;

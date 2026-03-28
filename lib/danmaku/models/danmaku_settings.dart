@@ -1,15 +1,49 @@
 import 'dart:convert';
 
+const List<double> danmakuDisplayAreaPresets = <double>[
+  0.10,
+  0.25,
+  0.50,
+  0.75,
+  1.0,
+];
+
+double clampDanmakuAreaRatio(double value) {
+  return value.clamp(0.1, 1.0).toDouble();
+}
+
+double resolveDanmakuCaptureAreaRatio(double displayAreaRatio) {
+  final normalized = clampDanmakuAreaRatio(displayAreaRatio);
+  for (var index = 0; index < danmakuDisplayAreaPresets.length; index += 1) {
+    final preset = danmakuDisplayAreaPresets[index];
+    if (normalized <= preset + 0.0001) {
+      final nextIndex = index + 1 < danmakuDisplayAreaPresets.length
+          ? index + 1
+          : danmakuDisplayAreaPresets.length - 1;
+      return danmakuDisplayAreaPresets[nextIndex];
+    }
+  }
+  return danmakuDisplayAreaPresets.last;
+}
+
+double resolveDanmakuMaskSourceCoverageRatio({
+  required double displayAreaRatio,
+  required double captureAreaRatio,
+}) {
+  final display = clampDanmakuAreaRatio(displayAreaRatio);
+  final capture = clampDanmakuAreaRatio(captureAreaRatio);
+  if (capture <= 0) {
+    return 1.0;
+  }
+  return (display / capture).clamp(0.0, 1.0).toDouble();
+}
+
 class DanmakuAiPrecisionPreset {
   static const String performance = 'performance';
   static const String balanced = 'balanced';
   static const String quality = 'quality';
 
-  static const List<String> values = <String>[
-    performance,
-    balanced,
-    quality,
-  ];
+  static const List<String> values = <String>[performance, balanced, quality];
 }
 
 class DanmakuSettings {
@@ -97,8 +131,7 @@ class DanmakuSettings {
     String? aiPrecisionPreset,
   }) {
     final nextAiInputWidth = aiInputWidth ?? this.aiInputWidth;
-    final mappedAiInputWidth =
-        aiPrecisionPreset != null
+    final mappedAiInputWidth = aiPrecisionPreset != null
         ? _mapAiPrecisionPresetToWidth(aiPrecisionPreset)
         : nextAiInputWidth;
     return DanmakuSettings(

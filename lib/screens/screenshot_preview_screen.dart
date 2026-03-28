@@ -46,6 +46,8 @@ class ScreenshotLightboxRouteScreen extends StatelessWidget {
         'name': item.name,
         'sourceKind': item.sourceKind,
         'locationLabel': item.locationLabel,
+        'formatKind': item.formatKind,
+        'isHdr': '${item.isHdr}',
         'sizeBytes': '${item.sizeBytes}',
         'modifiedAtMs': '${item.modifiedAt.millisecondsSinceEpoch}',
         'isScoped': '${item.isScoped}',
@@ -81,6 +83,8 @@ class ScreenshotLightboxRouteScreen extends StatelessWidget {
           : pathOrIdentifier.split(Platform.pathSeparator).last,
       sourceKind: uri.queryParameters['sourceKind']?.trim() ?? 'app',
       locationLabel: uri.queryParameters['locationLabel']?.trim() ?? '',
+      formatKind: uri.queryParameters['formatKind']?.trim() ?? '',
+      isHdr: uri.queryParameters['isHdr'] == 'true',
       sizeBytes: sizeBytes,
       modifiedAt: DateTime.fromMillisecondsSinceEpoch(modifiedAtMs),
       isScoped: uri.queryParameters['isScoped'] == 'true',
@@ -1551,6 +1555,12 @@ class _GalleryCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(27),
                 child: _ScreenshotImage(item: item, fit: BoxFit.cover),
               ),
+              if (item.isHdr)
+                Positioned(
+                  top: 12,
+                  left: 12,
+                  child: _MetaPill(label: _formatBadgeLabel(item)),
+                ),
               Positioned(
                 top: 12,
                 right: 12,
@@ -1797,6 +1807,7 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox> {
                         label: '分类',
                         value: _sourceLabel(item.sourceKind),
                       ),
+                      _InfoTile(label: '格式', value: _formatLabel(item)),
                       _InfoTile(label: '来源目录', value: item.locationLabel),
                       _InfoTile(
                         label: '拍摄时间',
@@ -1819,6 +1830,18 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox> {
                     ],
                   ),
                   const SizedBox(height: 12),
+                  if (item.isHdr)
+                    Text(
+                      '该文件为 Ultra HDR JPEG，应用内预览可能只显示 SDR 基底，相册中可按系统能力显示 HDR。',
+                      style: TextStyle(
+                        color: colors.textSecondary,
+                        fontSize: AdaptiveText.roleSize(
+                          12,
+                          role: AdaptiveFontRole.body,
+                        ),
+                        height: 1.5,
+                      ),
+                    ),
                 ],
               ),
             );
@@ -1961,6 +1984,10 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox> {
                                     fontWeight: FontWeight.w500,
                                   ),
                                 ),
+                                if (item.isHdr) ...<Widget>[
+                                  const SizedBox(height: 6),
+                                  _MetaPill(label: _formatBadgeLabel(item)),
+                                ],
                               ],
                             ),
                           ),
@@ -2014,6 +2041,7 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox> {
                                       _MetaPill(
                                         label: _sourceLabel(item.sourceKind),
                                       ),
+                                      _MetaPill(label: _formatLabel(item)),
                                       _MetaPill(label: _formatDate(item.modifiedAt)),
                                       _MetaPill(label: _formatBytes(item.sizeBytes)),
                                       if (metadata?.hasDimensions == true)
@@ -2492,6 +2520,26 @@ String _sourceLabel(String sourceKind) {
     'custom' => '自定义目录',
     _ => '应用目录',
   };
+}
+
+String _formatLabel(ScreenshotLibraryItem item) {
+  if (item.isHdr) {
+    return 'Ultra HDR JPEG';
+  }
+  return switch (item.formatKind.trim()) {
+    'jpeg' => 'JPEG',
+    'png' => 'PNG',
+    'webp' => 'WebP',
+    'bmp' => 'BMP',
+    _ => '图片',
+  };
+}
+
+String _formatBadgeLabel(ScreenshotLibraryItem item) {
+  if (item.isHdr) {
+    return 'Ultra HDR';
+  }
+  return _formatLabel(item);
 }
 
 String _sortFieldLabel(_ScreenshotSortField field) {

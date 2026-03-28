@@ -62,6 +62,28 @@ class PlayerHostBridge {
     }
   }
 
+  static Future<bool> syncPlayerLaunchState({
+    required String title,
+    required Map<String, Object?> source,
+    PlayInfoData? initialPlayInfo,
+    PlayStartSource startSource = PlayStartSource.manual,
+  }) async {
+    try {
+      return await _channel.invokeMethod<bool>(
+            'syncPlayerLaunchState',
+            <String, Object?>{
+              'title': title,
+              'source': source,
+              'initialPlayInfo': initialPlayInfo?.toJson(),
+              'startSource': PlayStatsSqlMapper.startSourceToText(startSource),
+            },
+          ) ??
+          false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
   static Future<bool> isSystemMultiWindowActive() async {
     try {
       return await _channel.invokeMethod<bool>('isSystemMultiWindowActive') ??

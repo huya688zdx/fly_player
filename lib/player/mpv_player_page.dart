@@ -451,6 +451,8 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   bool _initialFrameReady = false;
   bool _runtimeTrackSnapshotInFlight = false;
   bool _runtimeTrackSnapshotLoaded = false;
+  bool _serverManagedPlayLinkCheckInFlight = false;
+  bool _serverSessionRecoveryInFlight = false;
   bool _cacheDownloadAvailable = false;
   bool _cacheDownloadCheckInFlight = false;
   bool _cacheDownloadImportInFlight = false;
@@ -513,6 +515,8 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   SystemUiMode? _lastAppliedSystemUiMode;
   PlayInfoData? _playStatsCurrentInfo;
   String _playStatsCurrentVideoId = '';
+  DateTime? _lastServerManagedPlayLinkCheckAt;
+  DateTime? _lastServerSessionRecoveryAt;
 
   bool get _gestureSeekActive => _gestureController.gestureSeekActive;
   bool get _speedBoostActive => _gestureController.speedBoostActive;
@@ -755,6 +759,10 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   String? get _currentPlayLink => _sessionController.currentPlayLink;
   set _currentPlayLink(String? value) =>
       _sessionController.currentPlayLink = value;
+  int get _currentServerSessionHlsTimeSeconds =>
+      _sessionController.currentServerSessionHlsTimeSeconds;
+  set _currentServerSessionHlsTimeSeconds(int value) =>
+      _sessionController.currentServerSessionHlsTimeSeconds = value;
   String get _currentUrl => _sessionController.currentUrl;
   set _currentUrl(String value) => _sessionController.currentUrl = value;
   bool get _currentSourceIsDownloadedFile {

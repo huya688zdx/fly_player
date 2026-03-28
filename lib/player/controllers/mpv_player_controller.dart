@@ -29,6 +29,7 @@ class MpvMediaSource {
   final int videoHeight;
   final String? proxySessionId;
   final String? playLink;
+  final int serverSessionHlsTimeSeconds;
   final String url;
   final Map<String, String> headers;
   final String title;
@@ -81,6 +82,7 @@ class MpvMediaSource {
     this.videoHeight = 0,
     this.proxySessionId,
     this.playLink,
+    this.serverSessionHlsTimeSeconds = 0,
     required this.url,
     required this.headers,
     required this.title,
@@ -133,6 +135,7 @@ class MpvMediaSource {
     int? videoHeight,
     String? proxySessionId,
     String? playLink,
+    int? serverSessionHlsTimeSeconds,
     String? url,
     Map<String, String>? headers,
     String? title,
@@ -190,6 +193,8 @@ class MpvMediaSource {
       videoHeight: videoHeight ?? this.videoHeight,
       proxySessionId: proxySessionId ?? this.proxySessionId,
       playLink: playLink ?? this.playLink,
+      serverSessionHlsTimeSeconds:
+          serverSessionHlsTimeSeconds ?? this.serverSessionHlsTimeSeconds,
       url: url ?? this.url,
       headers: headers ?? this.headers,
       title: title ?? this.title,
@@ -381,6 +386,7 @@ class MpvMediaSource {
       'videoHeight': videoHeight,
       'proxySessionId': proxySessionId,
       'playLink': playLink,
+      'serverSessionHlsTimeSeconds': serverSessionHlsTimeSeconds,
       'url': url,
       'headers': headers,
       'title': title,
@@ -557,6 +563,7 @@ class MpvMediaSource {
       videoHeight: intOf(raw['videoHeight']),
       proxySessionId: stringOrNull(raw['proxySessionId']),
       playLink: stringOrNull(raw['playLink']),
+      serverSessionHlsTimeSeconds: intOf(raw['serverSessionHlsTimeSeconds']),
       url: (raw['url'] ?? '').toString(),
       headers: headers,
       title: (raw['title'] ?? '').toString(),

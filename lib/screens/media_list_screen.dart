@@ -102,8 +102,19 @@ class _MediaListScreenState extends State<MediaListScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final provider = context.read<NasProvider>();
+    if (!provider.isConfigured) {
+      _lastLoadKey = '';
+      _categories = <MediaItem>[];
+      _itemsByCategory = <String, List<MediaLibraryItem>>{};
+      _continueWatching = <MediaLibraryItem>[];
+      _mediaSummary = <String, dynamic>{};
+      _localeMap = <String, dynamic>{};
+      _error = null;
+      _isLoading = false;
+      return;
+    }
     final loadKey = '${provider.baseUrl}|${provider.token}';
-    if (provider.isConfigured && loadKey != _lastLoadKey) {
+    if (loadKey != _lastLoadKey) {
       _lastLoadKey = loadKey;
       _fetchHomeData();
     }

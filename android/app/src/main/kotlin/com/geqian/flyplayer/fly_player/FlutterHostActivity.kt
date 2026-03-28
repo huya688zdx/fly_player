@@ -26,6 +26,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.window.embedding.SplitController
 import com.geqian.flyplayer.fly_player.mpv.MpvPlayerViewFactory
 import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.RenderMode
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.util.HashMap
@@ -93,11 +94,15 @@ abstract class FlutterHostActivity : FlutterActivity() {
     override fun onDestroy() {
         PlaybackSessionCoordinator.detachHost(this)
         systemChannel = null
+        detailHostChannel = null
+        playerHostStateChannel = null
         mainHostChannel = null
         runtimeThemeSyncChannel = null
         sessionStateChannel = null
         super.onDestroy()
     }
+
+    override fun getRenderMode(): RenderMode = RenderMode.texture
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         if (!shouldSkipBaseFlutterEngineConfiguration(flutterEngine)) {
@@ -548,6 +553,21 @@ abstract class FlutterHostActivity : FlutterActivity() {
                         ),
                     )
                 }
+                "syncPlayerLaunchState" -> {
+                    val title = call.argument<String>("title").orEmpty()
+                    val source = call.argument<HashMap<String, Any?>>("source")
+                    val initialPlayInfo =
+                        call.argument<HashMap<String, Any?>>("initialPlayInfo")
+                    val startSource = call.argument<String>("startSource").orEmpty()
+                    result.success(
+                        syncPlayerLaunchState(
+                            title = title,
+                            source = source,
+                            initialPlayInfo = initialPlayInfo,
+                            startSource = startSource,
+                        ),
+                    )
+                }
                 "isSystemMultiWindowActive" -> {
                     result.success(isSystemMultiWindowActive())
                 }
@@ -926,14 +946,16 @@ abstract class FlutterHostActivity : FlutterActivity() {
     }
 
     protected open fun logoutAndResetParallelUi(): Boolean {
-        ParallelWindowCoordinator.clearRightPane()
+        ParallelWindowCoordinator.clearSessionUiState()
         ParallelWindowCoordinator.setSplitPlayerVisible(false)
         val rightPaneHosts = ParallelWindowCoordinator.rightPaneHostsSnapshot()
 
         ParallelWindowCoordinator.currentMainHost()?.dispatchSessionState("loggedOut")
+        ParallelWindowCoordinator.currentHomePaneHost()?.dispatchSessionState("loggedOut")
         ParallelWindowCoordinator.currentDetailHost()?.dispatchSessionState("loggedOut")
         ParallelWindowCoordinator.currentPlaceholderHost()?.dispatchSessionState("loggedOut")
         ParallelWindowCoordinator.currentPlayerHost()?.dispatchSessionState("loggedOut")
+        ParallelWindowCoordinator.currentBrowseHost()?.dispatchSessionState("loggedOut")
 
         ParallelWindowCoordinator.currentPlayerHost()?.let { playerHost ->
             if (playerHost !== this) {
@@ -947,7 +969,12 @@ abstract class FlutterHostActivity : FlutterActivity() {
             }
         }
 
-        if (this is DetailActivity || this is PlaceholderActivity || this is PlayerActivity) {
+        if (
+            this is DetailActivity ||
+                this is PlaceholderActivity ||
+                this is PlayerActivity ||
+                this is HomePaneActivity
+        ) {
             startActivity(
                 Intent(this, MainActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
@@ -1028,6 +1055,23 @@ abstract class FlutterHostActivity : FlutterActivity() {
         )
     }
 
+    protected fun runAfterMethodReply(action: () -> Unit) {
+        val decorView = window?.decorView
+        if (decorView != null) {
+            decorView.post {
+                if (!isDestroyed) {
+                    action()
+                }
+            }
+            return
+        }
+        runOnUiThread {
+            if (!isDestroyed) {
+                action()
+            }
+        }
+    }
+
     protected open fun resolvePlayerInitialRightPaneRoute(): String {
         val currentRoute = ParallelWindowCoordinator.currentDetailRoute().trim()
         if (currentRoute.isNotEmpty() && currentRoute != "/") {
@@ -1051,6 +1095,13 @@ abstract class FlutterHostActivity : FlutterActivity() {
         startSource: String,
         targetMode: String,
         resultPayload: HashMap<String, Any?>?,
+    ): Boolean = false
+
+    protected open fun syncPlayerLaunchState(
+        title: String,
+        source: HashMap<String, Any?>?,
+        initialPlayInfo: HashMap<String, Any?>?,
+        startSource: String,
     ): Boolean = false
 
     protected open fun isPictureInPictureSupported(): Boolean = false
