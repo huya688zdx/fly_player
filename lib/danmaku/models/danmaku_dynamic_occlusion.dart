@@ -47,10 +47,12 @@ class DanmakuDynamicOcclusionState {
   final String backend;
   final int updatedAtMs;
   final String? maskPath;
+  final String? maskSignature;
   final int maskWidth;
   final int maskHeight;
   final String? framePath;
   final bool cacheHit;
+  final double captureAreaRatio;
   final DanmakuDynamicOcclusionRect? normalizedRect;
 
   const DanmakuDynamicOcclusionState({
@@ -59,10 +61,12 @@ class DanmakuDynamicOcclusionState {
     required this.backend,
     required this.updatedAtMs,
     required this.maskPath,
+    required this.maskSignature,
     required this.maskWidth,
     required this.maskHeight,
     required this.framePath,
     required this.cacheHit,
+    required this.captureAreaRatio,
     required this.normalizedRect,
   });
 
@@ -72,10 +76,12 @@ class DanmakuDynamicOcclusionState {
     backend: 'disabled',
     updatedAtMs: 0,
     maskPath: null,
+    maskSignature: null,
     maskWidth: 0,
     maskHeight: 0,
     framePath: null,
     cacheHit: false,
+    captureAreaRatio: 1.0,
     normalizedRect: null,
   );
 
@@ -92,10 +98,12 @@ class DanmakuDynamicOcclusionState {
         _ => 0,
       },
       maskPath: _readText(raw['maskPath']),
+      maskSignature: _readText(raw['maskSignature']),
       maskWidth: _readInt(raw['maskWidth']),
       maskHeight: _readInt(raw['maskHeight']),
       framePath: _readText(raw['framePath']),
       cacheHit: raw['cacheHit'] == true,
+      captureAreaRatio: _readDouble(raw['captureAreaRatio'], fallback: 1.0),
       normalizedRect: rectRaw is Map<Object?, Object?>
           ? DanmakuDynamicOcclusionRect.fromMap(rectRaw)
           : null,
@@ -108,10 +116,12 @@ class DanmakuDynamicOcclusionState {
     String? backend,
     int? updatedAtMs,
     String? maskPath,
+    String? maskSignature,
     int? maskWidth,
     int? maskHeight,
     String? framePath,
     bool? cacheHit,
+    double? captureAreaRatio,
     DanmakuDynamicOcclusionRect? normalizedRect,
     bool clearMaskPath = false,
     bool clearFramePath = false,
@@ -123,10 +133,12 @@ class DanmakuDynamicOcclusionState {
       backend: backend ?? this.backend,
       updatedAtMs: updatedAtMs ?? this.updatedAtMs,
       maskPath: clearMaskPath ? null : maskPath ?? this.maskPath,
+      maskSignature: clearMaskPath ? null : maskSignature ?? this.maskSignature,
       maskWidth: maskWidth ?? this.maskWidth,
       maskHeight: maskHeight ?? this.maskHeight,
       framePath: clearFramePath ? null : framePath ?? this.framePath,
       cacheHit: cacheHit ?? this.cacheHit,
+      captureAreaRatio: captureAreaRatio ?? this.captureAreaRatio,
       normalizedRect: clearRect ? null : normalizedRect ?? this.normalizedRect,
     );
   }
@@ -145,10 +157,12 @@ class DanmakuDynamicOcclusionState {
         other.backend == backend &&
         other.updatedAtMs == updatedAtMs &&
         other.maskPath == maskPath &&
+        other.maskSignature == maskSignature &&
         other.maskWidth == maskWidth &&
         other.maskHeight == maskHeight &&
         other.framePath == framePath &&
         other.cacheHit == cacheHit &&
+        other.captureAreaRatio == captureAreaRatio &&
         other.normalizedRect == normalizedRect;
   }
 
@@ -159,10 +173,12 @@ class DanmakuDynamicOcclusionState {
     backend,
     updatedAtMs,
     maskPath,
+    maskSignature,
     maskWidth,
     maskHeight,
     framePath,
     cacheHit,
+    captureAreaRatio,
     normalizedRect,
   );
 
@@ -178,5 +194,14 @@ class DanmakuDynamicOcclusionState {
       final String text => int.tryParse(text) ?? 0,
       _ => 0,
     };
+  }
+
+  static double _readDouble(Object? value, {required double fallback}) {
+    final parsed = switch (value) {
+      final num number => number.toDouble(),
+      final String text => double.tryParse(text),
+      _ => null,
+    };
+    return parsed ?? fallback;
   }
 }

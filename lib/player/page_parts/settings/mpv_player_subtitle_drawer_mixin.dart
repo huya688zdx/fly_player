@@ -458,6 +458,7 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
       guid: guid,
       currentGuid: _currentSubtitleGuid,
       serverManagedPlayback: _playbackMode.isServerManaged,
+      requiresExternalFile: _subtitleShouldUseExternalFile(selected),
       hasDirectFile: _subtitleHasDirectFile(selected),
     );
     switch (plan.action) {

@@ -555,6 +555,8 @@ class DownloadTaskService extends ChangeNotifier {
     }
 
     String? finalFilePath;
+    var finalVideoPath = promotedFile.path;
+    var finalVideoFileName = promoteResult.fileName.trim();
     try {
       final importedFileName = _resolveImportedFileName(
         promotedFileName: promoteResult.fileName,
@@ -563,11 +565,34 @@ class DownloadTaskService extends ChangeNotifier {
         title: title,
         resolution: normalizedResolution,
       );
-      finalFilePath = await _buildDownloadFilePath(
-        groupTitle: groupTitle,
-        fileName: importedFileName,
-      );
-      await _relocateImportedFile(promotedFile.path, finalFilePath);
+      try {
+        finalFilePath = await _buildDownloadFilePath(
+          groupTitle: groupTitle,
+          fileName: importedFileName,
+        );
+        await _relocateImportedFile(promotedFile.path, finalFilePath);
+        finalVideoPath = finalFilePath;
+        finalVideoFileName = importedFileName;
+      } catch (error, stackTrace) {
+        await AppLogService.instance.recordWarning(
+          error: error,
+          stackTrace: stackTrace,
+          source: 'cache-import-relocate',
+          details:
+              'item=$itemGuid media=$mediaGuid video=$videoGuid fallback=promoted_path',
+        );
+        finalVideoPath = promotedFile.path;
+        finalVideoFileName = promotedFile.uri.pathSegments.isNotEmpty
+            ? promotedFile.uri.pathSegments.last
+            : promotedFile.path.split(Platform.pathSeparator).last;
+      }
+      if (finalVideoPath.trim().isEmpty) {
+        return null;
+      }
+      final resolvedVideoPath = finalVideoPath;
+      final resolvedFileName = finalVideoFileName.trim().isEmpty
+          ? importedFileName
+          : finalVideoFileName.trim();
 
       final importArtwork = provider == null
           ? _ImportedCacheArtwork(
@@ -588,7 +613,7 @@ class DownloadTaskService extends ChangeNotifier {
           : await _cacheArtworkUrls(
               provider: provider,
               sourceUrls: importArtwork.posterUrls,
-              videoFilePath: finalFilePath,
+              videoFilePath: resolvedVideoPath,
               suffix: 'cover',
             );
       final cachedGroupPosterUrls = provider == null
@@ -596,11 +621,11 @@ class DownloadTaskService extends ChangeNotifier {
           : await _cacheArtworkUrls(
               provider: provider,
               sourceUrls: importArtwork.groupPosterUrls,
-              videoFilePath: finalFilePath,
+              videoFilePath: resolvedVideoPath,
               suffix: 'group_cover',
             );
 
-      final actualBytes = await File(finalFilePath).length();
+      final actualBytes = await File(resolvedVideoPath).length();
       final api = provider == null ? null : FeiniuApi(provider);
       final resolvedSubtitleTrack =
           subtitleTrack ??
@@ -625,8 +650,8 @@ class DownloadTaskService extends ChangeNotifier {
         posterUrls: cachedPosterUrls,
         groupPosterUrls: cachedGroupPosterUrls,
         resolution: normalizedResolution,
-        fileName: importedFileName,
-        filePath: finalFilePath,
+        fileName: resolvedFileName,
+        filePath: resolvedVideoPath,
         totalBytes: math.max(
           actualBytes,
           math.max(downloadability.totalBytes, fileInfo?.size ?? 0),
@@ -643,7 +668,7 @@ class DownloadTaskService extends ChangeNotifier {
         subtitleTrack: resolvedSubtitleTrack,
         localSubtitleFilePath: subtitleFilePath,
       );
-      final refreshedBytes = await File(finalFilePath).length();
+      final refreshedBytes = await File(resolvedVideoPath).length();
       record = record.copyWith(
         totalBytes: math.max(
           refreshedBytes,
@@ -665,12 +690,12 @@ class DownloadTaskService extends ChangeNotifier {
       if (finalFilePath != null) {
         await _deleteIfExists(File(finalFilePath));
       }
-      if (promotedFile.existsSync()) {
+      if (promotedFile.existsSync() && promotedFile.path != finalVideoPath) {
         await _deleteIfExists(promotedFile);
       }
       return null;
     } finally {
-      if (promotedFile.existsSync()) {
+      if (promotedFile.existsSync() && promotedFile.path != finalVideoPath) {
         await _deleteIfExists(promotedFile);
       }
     }

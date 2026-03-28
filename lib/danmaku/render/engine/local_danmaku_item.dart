@@ -3,6 +3,15 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+class DanmakuImageDisposer {
+  static const Duration _disposeDelay = Duration(milliseconds: 260);
+
+  static void deferDispose(ui.Image? image) {
+    if (image == null) return;
+    Future<void>.delayed(_disposeDelay, image.dispose);
+  }
+}
+
 enum LocalDanmakuItemType { scroll, top, bottom }
 
 class LocalDanmakuContentItem<T> {
@@ -68,7 +77,7 @@ class LocalDanmakuItem<T> {
   }
 
   void dispose() {
-    image.dispose();
+    DanmakuImageDisposer.deferDispose(image);
   }
 
   static LocalDanmakuItem<T> rasterize<T>({

@@ -20,6 +20,7 @@ class DanmakuOverlay extends StatefulWidget {
   final bool paused;
   final double playbackSpeedFactor;
   final DanmakuDynamicOcclusionState occlusionState;
+  final bool deferViewportSync;
 
   const DanmakuOverlay({
     super.key,
@@ -28,6 +29,7 @@ class DanmakuOverlay extends StatefulWidget {
     required this.paused,
     this.playbackSpeedFactor = 1.0,
     required this.occlusionState,
+    this.deferViewportSync = false,
   });
 
   @override
@@ -44,6 +46,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   static const double _lineHeight = 1.0;
   static const int _fontWeightIndex = 7;
   static const double _strokeWidth = 0.9;
+  static const Duration _maskEmptyStateClearGrace = Duration(milliseconds: 900);
 
   final ValueNotifier<int> _timelineNotifier = ValueNotifier<int>(0);
   final ValueNotifier<int> _sceneRevision = ValueNotifier<int>(0);
@@ -79,6 +82,11 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   ui.Image? _maskImage;
   String? _maskImageKey;
   int _maskLoadGeneration = 0;
+  Timer? _maskClearTimer;
+  bool _pendingViewportSync = false;
+  Size? _pendingViewportSize;
+  double? _pendingViewportDevicePixelRatio;
+  String? _pendingViewportSignature;
 
   @override
   void initState() {
@@ -114,6 +122,9 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     if (maskChanged) {
       unawaited(_syncMaskImage());
     }
+    if (oldWidget.deferViewportSync && !widget.deferViewportSync) {
+      _flushDeferredViewportMetrics();
+    }
     if (positionChanged || pausedChanged) {
       if (widget.paused) {
         final freezePositionMs = pausedChanged
@@ -129,9 +140,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
                 }
                 return stabilizedPositionMs;
               }()
-            : (_timelineMs > 0
-                  ? _timelineMs
-                  : widget.position.inMilliseconds);
+            : (_timelineMs > 0 ? _timelineMs : widget.position.inMilliseconds);
         _pendingPauseSyncPositionMs = freezePositionMs;
         _lastScheduledPositionMs = math.max(
           _lastScheduledPositionMs,
@@ -155,6 +164,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     );
     widget.controller.removeListener(_handleControllerChanged);
     _maskLoadGeneration += 1;
+    _cancelPendingMaskClear();
     _detachEngineState();
     _disposeMaskImage();
     _ticker.dispose();
@@ -200,7 +210,8 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
                     timelineListenable: _timelineNotifier,
                     devicePixelRatio: _devicePixelRatio,
                     maskImage: settings.avoidCenterArea ? _maskImage : null,
-                    maskCoverageRatio: settings.displayAreaRatio,
+                    displayAreaRatio: settings.displayAreaRatio,
+                    captureAreaRatio: widget.occlusionState.captureAreaRatio,
                   ),
                   size: Size.infinite,
                 ),
@@ -215,7 +226,40 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   void _updateViewportMetrics(Size size, double devicePixelRatio) {
     if (size.isEmpty) return;
     final signature = _buildViewportSignature(size, devicePixelRatio);
+    if (widget.deferViewportSync) {
+      if (_pendingViewportSync && signature == _pendingViewportSignature) {
+        return;
+      }
+      _pendingViewportSync = true;
+      _pendingViewportSize = size;
+      _pendingViewportDevicePixelRatio = devicePixelRatio;
+      _pendingViewportSignature = signature;
+      return;
+    }
+    if (_pendingViewportSync &&
+        signature == _pendingViewportSignature &&
+        _lastViewportSignature != signature) {
+      _applyViewportMetrics(
+        size: size,
+        devicePixelRatio: devicePixelRatio,
+        signature: signature,
+      );
+      _clearDeferredViewportMetrics();
+      return;
+    }
     if (signature == _lastViewportSignature) return;
+    _applyViewportMetrics(
+      size: size,
+      devicePixelRatio: devicePixelRatio,
+      signature: signature,
+    );
+  }
+
+  void _applyViewportMetrics({
+    required Size size,
+    required double devicePixelRatio,
+    required String signature,
+  }) {
     _viewportSize = size;
     _devicePixelRatio = devicePixelRatio;
     _lastViewportSignature = signature;
@@ -224,6 +268,32 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
       _syncEngineState(forceSourceReset: true);
       setState(() {});
     });
+  }
+
+  void _flushDeferredViewportMetrics() {
+    if (!_pendingViewportSync) return;
+    final size = _pendingViewportSize;
+    final devicePixelRatio = _pendingViewportDevicePixelRatio;
+    final signature = _pendingViewportSignature;
+    _clearDeferredViewportMetrics();
+    if (size == null || devicePixelRatio == null || signature == null) {
+      return;
+    }
+    if (signature == _lastViewportSignature) {
+      return;
+    }
+    _applyViewportMetrics(
+      size: size,
+      devicePixelRatio: devicePixelRatio,
+      signature: signature,
+    );
+  }
+
+  void _clearDeferredViewportMetrics() {
+    _pendingViewportSync = false;
+    _pendingViewportSize = null;
+    _pendingViewportDevicePixelRatio = null;
+    _pendingViewportSignature = null;
   }
 
   void _handleTick(Duration elapsed) {
@@ -419,7 +489,10 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     if (!state.hasUsableMask) {
       return '';
     }
-    return '${state.maskPath ?? ''}|${state.updatedAtMs}|'
+    final versionToken = state.maskSignature?.trim().isNotEmpty == true
+        ? state.maskSignature!.trim()
+        : state.updatedAtMs.toString();
+    return '${state.maskPath ?? ''}|$versionToken|'
         '${state.maskWidth}x${state.maskHeight}';
   }
 
@@ -430,6 +503,11 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
       'nextKey=${nextKey.isEmpty ? '-' : nextKey} currentKey=${_maskImageKey ?? '-'}',
     );
     if (nextKey.isEmpty) {
+      if (_shouldDelayMaskClear()) {
+        _scheduleDeferredMaskClear();
+        return;
+      }
+      _cancelPendingMaskClear();
       _maskLoadGeneration += 1;
       if (_maskImage != null || _maskImageKey != null) {
         debugPrint(
@@ -443,6 +521,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
       }
       return;
     }
+    _cancelPendingMaskClear();
     if (_maskImageKey == nextKey && _maskImage != null) {
       return;
     }
@@ -481,7 +560,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
       final frame = await codec.getNextFrame();
       codec.dispose();
       if (!mounted || generation != _maskLoadGeneration) {
-        frame.image.dispose();
+        DanmakuImageDisposer.deferDispose(frame.image);
         return;
       }
       debugPrint(
@@ -512,9 +591,49 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
         'key=${_maskImageKey ?? '-'}',
       );
     }
-    _maskImage?.dispose();
+    DanmakuImageDisposer.deferDispose(_maskImage);
     _maskImage = null;
     _maskImageKey = null;
+  }
+
+  bool _shouldDelayMaskClear() {
+    if (_maskImage == null || _maskImageKey == null) {
+      return false;
+    }
+    if (!widget.occlusionState.enabled) {
+      return false;
+    }
+    return widget.occlusionState.backend.trim().toLowerCase() != 'disabled';
+  }
+
+  void _scheduleDeferredMaskClear() {
+    if (_maskClearTimer != null) {
+      return;
+    }
+    final generation = ++_maskLoadGeneration;
+    _maskClearTimer = Timer(_maskEmptyStateClearGrace, () {
+      _maskClearTimer = null;
+      if (!mounted || generation != _maskLoadGeneration) {
+        return;
+      }
+      if (_maskStateKey(widget.occlusionState).isNotEmpty) {
+        return;
+      }
+      if (_maskImage == null && _maskImageKey == null) {
+        return;
+      }
+      debugPrint(
+        '[DANMAKU][OVERLAY] clear overlay=${identityHashCode(this)} '
+        'reason=empty_state_grace_elapsed currentKey=${_maskImageKey ?? '-'}',
+      );
+      _disposeMaskImage();
+      setState(() {});
+    });
+  }
+
+  void _cancelPendingMaskClear() {
+    _maskClearTimer?.cancel();
+    _maskClearTimer = null;
   }
 
   void _clearActiveItems({required bool notify}) {
@@ -571,7 +690,9 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
 
   int _stabilizePausedPositionMs() {
     final renderedTimelineMs = _timelineMs;
-    if ((_ticker.isActive || _scrollItems.isNotEmpty || _staticItems.isNotEmpty) &&
+    if ((_ticker.isActive ||
+            _scrollItems.isNotEmpty ||
+            _staticItems.isNotEmpty) &&
         renderedTimelineMs > 0) {
       return renderedTimelineMs;
     }

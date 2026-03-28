@@ -66,4 +66,8 @@ class PlayStatsService {
   late final AnimeStatsUpdater animeStatsUpdater;
   late final PlayStatsRepository repository;
   late final PlayStatsSessionController sessionController;
+
+  Future<void> bindOwnerScope(String ownerScope) {
+    return database.bindOwnerScope(ownerScope);
+  }
 }

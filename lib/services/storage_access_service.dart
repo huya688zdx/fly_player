@@ -101,6 +101,8 @@ class ScreenshotLibraryItem {
   final String name;
   final String sourceKind;
   final String locationLabel;
+  final String formatKind;
+  final bool isHdr;
   final int sizeBytes;
   final DateTime modifiedAt;
   final bool isScoped;
@@ -111,6 +113,8 @@ class ScreenshotLibraryItem {
     required this.name,
     required this.sourceKind,
     required this.locationLabel,
+    required this.formatKind,
+    required this.isHdr,
     required this.sizeBytes,
     required this.modifiedAt,
     required this.isScoped,
@@ -128,6 +132,8 @@ class ScreenshotLibraryItem {
       name: (raw['name'] ?? '').toString(),
       sourceKind: (raw['sourceKind'] ?? '').toString(),
       locationLabel: (raw['locationLabel'] ?? '').toString(),
+      formatKind: (raw['formatKind'] ?? '').toString(),
+      isHdr: raw['isHdr'] == true,
       sizeBytes: switch (raw['sizeBytes']) {
         final int value => value,
         final num value => value.toInt(),
@@ -145,6 +151,8 @@ class ScreenshotLibraryItem {
       'name': name,
       'sourceKind': sourceKind,
       'locationLabel': locationLabel,
+      'formatKind': formatKind,
+      'isHdr': isHdr,
       'sizeBytes': sizeBytes,
       'modifiedAtMs': modifiedAt.millisecondsSinceEpoch,
       'isScoped': isScoped,
