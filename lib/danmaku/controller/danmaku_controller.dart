@@ -98,6 +98,10 @@ class DanmakuController extends ChangeNotifier {
     _sourceLabel = '';
     _loadedSourceType = DanmakuLoadedSourceType.none;
     _comments = _normalizeComments(comments);
+    debugPrint(
+      '[DANMAKU][LOAD] source=manual total=${comments.length} '
+      'normalized=${_comments.length}',
+    );
     notifyListeners();
   }
 
@@ -109,18 +113,23 @@ class DanmakuController extends ChangeNotifier {
     _sourceLabel = sourceLabel.trim();
     _loadedSourceType = sourceType;
     _comments = _normalizeComments(comments);
+    debugPrint(
+      '[DANMAKU][LOAD] source=${sourceType.name} label=$_sourceLabel '
+      'total=${comments.length} normalized=${_comments.length}',
+    );
     notifyListeners();
   }
 
   List<DanmakuComment> _normalizeComments(List<DanmakuComment> comments) {
-    final normalized = comments
-        .where((item) => item.text.trim().isNotEmpty)
-        .toList(growable: false)
-      ..sort((left, right) {
-        final timeCompare = left.timeMs.compareTo(right.timeMs);
-        if (timeCompare != 0) return timeCompare;
-        return left.id.compareTo(right.id);
-      });
+    final normalized =
+        comments
+            .where((item) => item.text.trim().isNotEmpty)
+            .toList(growable: false)
+          ..sort((left, right) {
+            final timeCompare = left.timeMs.compareTo(right.timeMs);
+            if (timeCompare != 0) return timeCompare;
+            return left.id.compareTo(right.id);
+          });
     return List<DanmakuComment>.unmodifiable(normalized);
   }
 

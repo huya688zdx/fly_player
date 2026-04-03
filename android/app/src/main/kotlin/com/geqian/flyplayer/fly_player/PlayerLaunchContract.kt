@@ -12,23 +12,31 @@ object PlayerLaunchContract {
         "com.geqian.flyplayer.fly_player.action.SPLIT_PLAYER"
     const val ACTION_FULLSCREEN_PLAYER =
         "com.geqian.flyplayer.fly_player.action.FULLSCREEN_PLAYER"
+    const val ACTION_RESUME_PLAYER =
+        "com.geqian.flyplayer.fly_player.action.RESUME_PLAYER"
     const val ACTION_ATTACH_DETAIL_TO_PLAYER =
         "com.geqian.flyplayer.fly_player.action.ATTACH_DETAIL_TO_PLAYER"
 
     private const val EXTRA_PLAYER_TITLE = "player_title"
     private const val EXTRA_PLAYER_SOURCE = "player_source"
+    private const val EXTRA_PLAYER_INITIAL_PLAY_INFO = "player_initial_play_info"
+    private const val EXTRA_PLAYER_START_SOURCE = "player_start_source"
     private const val EXTRA_PLAYER_RESULT = "player_result"
     private const val EXTRA_PLAYER_FROM_PARALLEL_HOST = "player_from_parallel_host"
     private const val EXTRA_PLAYER_HOST_CONTEXT = "player_host_context"
     private const val EXTRA_PLAYER_LAYOUT_MODE = "player_layout_mode"
+    private const val EXTRA_PLAYER_INITIAL_RIGHT_PANE_ROUTE = "player_initial_right_pane_route"
 
     fun applyLaunchExtras(
         intent: Intent,
         title: String,
         source: HashMap<String, Any?>,
+        initialPlayInfo: HashMap<String, Any?>? = null,
+        startSource: String = "manual",
         fromParallelHost: Boolean,
         hostContext: HashMap<String, Any?>,
         layoutMode: String,
+        initialRightPaneRoute: String = "",
         ): Intent {
         return intent.apply {
             action =
@@ -39,15 +47,22 @@ object PlayerLaunchContract {
                 }
             putExtra(EXTRA_PLAYER_TITLE, title.trim())
             putExtra(EXTRA_PLAYER_SOURCE, HashMap(source))
+            putExtra(EXTRA_PLAYER_INITIAL_PLAY_INFO, initialPlayInfo?.let { HashMap(it) })
+            putExtra(EXTRA_PLAYER_START_SOURCE, startSource.trim())
             putExtra(EXTRA_PLAYER_FROM_PARALLEL_HOST, fromParallelHost)
             putExtra(EXTRA_PLAYER_HOST_CONTEXT, HashMap(hostContext))
             putExtra(EXTRA_PLAYER_LAYOUT_MODE, layoutMode)
+            putExtra(EXTRA_PLAYER_INITIAL_RIGHT_PANE_ROUTE, initialRightPaneRoute.trim())
         }
     }
 
     fun readLayoutMode(intent: Intent?): String {
         val value = intent?.getStringExtra(EXTRA_PLAYER_LAYOUT_MODE).orEmpty()
         return if (value == MODE_SPLIT) MODE_SPLIT else MODE_FULLSCREEN
+    }
+
+    fun readInitialRightPaneRoute(intent: Intent?): String {
+        return intent?.getStringExtra(EXTRA_PLAYER_INITIAL_RIGHT_PANE_ROUTE).orEmpty().trim()
     }
 
     fun updateLayoutMode(
@@ -69,10 +84,14 @@ object PlayerLaunchContract {
         return hashMapOf(
             "title" to intent?.getStringExtra(EXTRA_PLAYER_TITLE).orEmpty(),
             "source" to source,
+            "initialPlayInfo" to readSerializableHashMap(intent, EXTRA_PLAYER_INITIAL_PLAY_INFO),
+            "startSource" to intent?.getStringExtra(EXTRA_PLAYER_START_SOURCE).orEmpty(),
             "fromParallelHost" to
                 (intent?.getBooleanExtra(EXTRA_PLAYER_FROM_PARALLEL_HOST, false) ?: false),
             "parallelHostContext" to hostContext,
             "layoutMode" to intent?.getStringExtra(EXTRA_PLAYER_LAYOUT_MODE).orEmpty(),
+            "initialRightPaneRoute" to
+                intent?.getStringExtra(EXTRA_PLAYER_INITIAL_RIGHT_PANE_ROUTE).orEmpty(),
         )
     }
 

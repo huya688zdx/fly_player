@@ -168,7 +168,7 @@ extension _MpvPlayerBookmarkMixin on _MpvPlayerPageState {
     PlayerNestedSheetController<void> drawer,
   ) async {
     drawer.close();
-    await _controller.seek(entry.position);
+    await _seekWithStats(entry.position, userInitiated: true);
     if (!mounted) return;
     _showTopTip(
       '已跳转到 ${_formatDuration(entry.position)}',

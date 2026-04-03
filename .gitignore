@@ -44,6 +44,7 @@ tmp_*
 capture/
 /android/build/
 /android/.kotlin/
+/android/local.properties
 
 # Symbolication related
 app.*.symbols

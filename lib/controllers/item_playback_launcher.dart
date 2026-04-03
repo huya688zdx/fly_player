@@ -13,6 +13,7 @@ import '../player/controllers/player_source_controller.dart';
 import '../providers/nas_provider.dart';
 import '../services/app_log_service.dart';
 import '../services/embedded_detail_launcher.dart';
+import '../services/play_stats/play_stats.dart';
 import '../ui/app_transitions.dart';
 import '../utils/app_error_reporter.dart';
 import '../utils/app_exception.dart';
@@ -130,6 +131,7 @@ class ItemPlaybackLauncher {
           playbackStream: playbackStream,
           quality: initialQuality,
           selectedAudio: selectedAudio,
+          selectedSubtitle: selectedSubtitle,
           startPosition: Duration(seconds: initialSeconds),
         );
     final playableSource = initialPlayback.playableSource;
@@ -145,6 +147,7 @@ class ItemPlaybackLauncher {
     final source = MpvMediaSource(
       loadNonce: createMpvLoadNonce(),
       itemGuid: playInfo.item.guid,
+      seriesGuid: playInfo.grandGuid.trim(),
       seasonGuid: playInfo.parentGuid,
       posterPath: resolvePlayerArtworkPathForPlayItem(playInfo.item),
       mediaGuid: initialPlayback.mediaGuid,
@@ -158,6 +161,7 @@ class ItemPlaybackLauncher {
       videoHeight: playbackStream.videoStream?.height ?? 0,
       proxySessionId: playableSource.proxySessionId,
       playLink: initialPlayback.playLink,
+      serverSessionHlsTimeSeconds: initialPlayback.serverSessionHlsTimeSeconds,
       url: playableSource.url,
       headers: playableSource.headers,
       title: title,
@@ -195,14 +199,24 @@ class ItemPlaybackLauncher {
     if (!context.mounted) return null;
     final navigator = Navigator.of(context);
     final embeddedResult = await EmbeddedDetailLauncher.openFullscreenPlayer(
+      context: context,
       title: title,
       source: source,
+      initialPlayInfo: playInfo,
+      startSource: PlayStartSource.manual,
     );
     if (embeddedResult.handled) {
       return embeddedResult.data;
     }
     final result = await navigator.push(
-      AppTransitions.playerRoute(MpvPlayerPage(title: title, source: source)),
+      AppTransitions.playerRoute(
+        MpvPlayerPage(
+          title: title,
+          source: source,
+          initialPlayInfo: playInfo,
+          startSource: PlayStartSource.manual,
+        ),
+      ),
     );
     return result is PlayDetailPlayerReturnData ? result : null;
   }

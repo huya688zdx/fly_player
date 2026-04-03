@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:io';
-import 'dart:isolate';
 
 import 'package:flutter/material.dart';
 
@@ -8,103 +6,6 @@ import '../../services/storage_access_service.dart';
 import '../../theme/app_theme.dart';
 import '../../ui/app_sheet_transitions.dart';
 import '../../utils/app_top_tip.dart';
-
-const String _defaultLocalBrowserPath = '/storage/emulated/0';
-
-class _BrowserEntryRecord {
-  final String path;
-  final bool isDirectory;
-  final int sizeBytes;
-
-  const _BrowserEntryRecord({
-    required this.path,
-    required this.isDirectory,
-    required this.sizeBytes,
-  });
-
-  String get name => path.split(Platform.pathSeparator).last;
-
-  factory _BrowserEntryRecord.fromMap(Map<String, Object?> raw) {
-    return _BrowserEntryRecord(
-      path: (raw['path'] ?? '').toString(),
-      isDirectory: raw['isDirectory'] == true,
-      sizeBytes: switch (raw['sizeBytes']) {
-        final int value => value,
-        final num value => value.toInt(),
-        _ => 0,
-      },
-    );
-  }
-}
-
-Map<String, Object?> _readDirectoryEntriesPayload({
-  required String normalizedPath,
-  required List<String> allowedExtensions,
-}) {
-  final directory = Directory(normalizedPath);
-  if (!directory.existsSync()) {
-    throw const FileSystemException('Directory not found');
-  }
-
-  final allowed = allowedExtensions
-      .map((value) => value.trim().toLowerCase())
-      .where((value) => value.isNotEmpty)
-      .toSet();
-
-  final entries =
-      directory
-          .listSync(followLinks: false)
-          .map<Map<String, Object?>?>((entity) {
-            final name = entity.path.split(Platform.pathSeparator).last.trim();
-            if (name.isEmpty || name.startsWith('.')) return null;
-            if (entity is Directory) {
-              return <String, Object?>{
-                'path': entity.path,
-                'isDirectory': true,
-                'sizeBytes': 0,
-              };
-            }
-            if (entity is! File) return null;
-            final dot = name.lastIndexOf('.');
-            if (dot <= 0 || dot >= name.length - 1) return null;
-            final extension = name.substring(dot + 1).toLowerCase();
-            if (!allowed.contains(extension)) return null;
-            final sizeBytes = (() {
-              try {
-                return entity.lengthSync();
-              } catch (_) {
-                return 0;
-              }
-            })();
-            return <String, Object?>{
-              'path': entity.path,
-              'isDirectory': false,
-              'sizeBytes': sizeBytes,
-            };
-          })
-          .whereType<Map<String, Object?>>()
-          .toList()
-        ..sort((left, right) {
-          final leftIsDir = left['isDirectory'] == true;
-          final rightIsDir = right['isDirectory'] == true;
-          if (leftIsDir != rightIsDir) {
-            return leftIsDir ? -1 : 1;
-          }
-          final leftName = (left['path'] ?? '')
-              .toString()
-              .split(Platform.pathSeparator)
-              .last
-              .toLowerCase();
-          final rightName = (right['path'] ?? '')
-              .toString()
-              .split(Platform.pathSeparator)
-              .last
-              .toLowerCase();
-          return leftName.compareTo(rightName);
-        });
-
-  return <String, Object?>{'path': normalizedPath, 'entries': entries};
-}
 
 class LocalFileBrowserSheet extends StatelessWidget {
   final String title;
@@ -116,14 +17,14 @@ class LocalFileBrowserSheet extends StatelessWidget {
     required this.allowedExtensions,
   });
 
-  static Future<String?> pickFile(
+  static Future<LocalBrowserFileSelection?> pickFile(
     BuildContext context, {
     required String title,
     required List<String> allowedExtensions,
   }) async {
     if (!context.mounted) return null;
 
-    return AppSheetTransitions.showAdaptiveSheet<String>(
+    return AppSheetTransitions.showAdaptiveSheet<LocalBrowserFileSelection>(
       context,
       barrierDismissible: true,
       barrierLabel: title,
@@ -233,9 +134,9 @@ class LocalFileBrowserSheet extends StatelessWidget {
           Expanded(
             child: LocalFileBrowserBody(
               allowedExtensions: allowedExtensions,
-              onFileSelected: (path) async {
+              onFileSelected: (selection) async {
                 if (!context.mounted) return;
-                Navigator.of(context).pop(path);
+                Navigator.of(context).pop(selection);
               },
             ),
           ),
@@ -247,13 +148,12 @@ class LocalFileBrowserSheet extends StatelessWidget {
 
 class LocalFileBrowserBody extends StatefulWidget {
   final List<String> allowedExtensions;
-  final String initialPath;
-  final Future<void> Function(String path)? onFileSelected;
+  final Future<void> Function(LocalBrowserFileSelection selection)?
+  onFileSelected;
 
   const LocalFileBrowserBody({
     super.key,
     required this.allowedExtensions,
-    this.initialPath = _defaultLocalBrowserPath,
     this.onFileSelected,
   });
 
@@ -263,22 +163,19 @@ class LocalFileBrowserBody extends StatefulWidget {
 
 class _LocalFileBrowserBodyState extends State<LocalFileBrowserBody> {
   final AppTopTip _topTip = AppTopTip();
-  late final Set<String> _allowedExtensions = widget.allowedExtensions
-      .map((value) => value.trim().toLowerCase())
-      .where((value) => value.isNotEmpty)
-      .toSet();
-  late final String _rootPath = _normalizePath(widget.initialPath);
 
-  String _currentPath = '';
-  List<_BrowserEntryRecord> _entries = const <_BrowserEntryRecord>[];
+  List<ScopedBrowserDirectory> _directoryStack =
+      const <ScopedBrowserDirectory>[];
+  List<ScopedBrowserEntry> _entries = const <ScopedBrowserEntry>[];
   bool _loading = true;
   bool _blocked = false;
-  int _directoryLoadGeneration = 0;
+  int _loadGeneration = 0;
+  String _statusMessage = '请先授权一个文件夹，然后在应用内选择本地文件';
 
   @override
   void initState() {
     super.initState();
-    unawaited(_ensureAccessAndOpen());
+    unawaited(_bootstrap());
   }
 
   @override
@@ -287,31 +184,54 @@ class _LocalFileBrowserBodyState extends State<LocalFileBrowserBody> {
     super.dispose();
   }
 
-  Future<void> _ensureAccessAndOpen() async {
-    final hasAccess = await StorageAccessService.hasFileAccess();
-    if (!hasAccess) {
-      final granted = await StorageAccessService.requestFileAccess();
-      if (!granted) {
-        if (!mounted) return;
-        setState(() {
-          _loading = false;
-          _blocked = true;
-        });
-        _topTip.show(
-          context,
-          message: '文件访问权限未授予，请先在系统设置中允许访问后重试',
-          color: context.appColors.danger,
-        );
-        return;
-      }
+  Future<void> _bootstrap() async {
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _blocked = false;
+      });
     }
-    await StorageAccessService.primaryStorageRoot();
-    await _openDirectory(_rootPath);
+    final root = await StorageAccessService.getScopedTreeRoot();
+    if (!mounted) return;
+    if (root == null) {
+      setState(() {
+        _loading = false;
+        _blocked = true;
+        _directoryStack = const <ScopedBrowserDirectory>[];
+        _entries = const <ScopedBrowserEntry>[];
+        _statusMessage = '还没有授权本地文件夹，先授权一个目录后才能在应用内浏览';
+      });
+      return;
+    }
+    _directoryStack = <ScopedBrowserDirectory>[root];
+    await _openDirectory(root.id, depth: 0);
   }
 
-  Future<void> _openDirectory(String path) async {
-    final normalizedPath = _sanitizePath(path);
-    final loadGeneration = ++_directoryLoadGeneration;
+  Future<void> _requestFolderAccess() async {
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _blocked = false;
+      });
+    }
+    final root = await StorageAccessService.requestScopedTreeAccess();
+    if (!mounted) return;
+    if (root == null) {
+      setState(() {
+        _loading = false;
+        _blocked = true;
+        _directoryStack = const <ScopedBrowserDirectory>[];
+        _entries = const <ScopedBrowserEntry>[];
+        _statusMessage = '没有完成文件夹授权，无法读取本地文件';
+      });
+      return;
+    }
+    _directoryStack = <ScopedBrowserDirectory>[root];
+    await _openDirectory(root.id, depth: 0);
+  }
+
+  Future<void> _openDirectory(String directoryId, {required int depth}) async {
+    final loadGeneration = ++_loadGeneration;
     if (mounted) {
       setState(() {
         _loading = true;
@@ -319,80 +239,56 @@ class _LocalFileBrowserBodyState extends State<LocalFileBrowserBody> {
       });
     }
     try {
-      final payload = await Isolate.run<Map<String, Object?>>(
-        () => _readDirectoryEntriesPayload(
-          normalizedPath: normalizedPath,
-          allowedExtensions: _allowedExtensions.toList(growable: false),
-        ),
+      final listing = await StorageAccessService.listScopedTreeEntries(
+        directoryId: directoryId,
+        allowedExtensions: widget.allowedExtensions,
       );
-      if (!mounted || loadGeneration != _directoryLoadGeneration) return;
-      final entries =
-          (payload['entries'] as List<dynamic>? ?? const <dynamic>[])
-              .whereType<Map>()
-              .map(
-                (raw) =>
-                    _BrowserEntryRecord.fromMap(raw.cast<String, Object?>()),
-              )
-              .toList(growable: false);
+      if (!mounted || loadGeneration != _loadGeneration) return;
+      if (listing == null) {
+        setState(() {
+          _loading = false;
+          _blocked = true;
+          _directoryStack = _directoryStack.take(depth).toList(growable: false);
+          _entries = const <ScopedBrowserEntry>[];
+          _statusMessage = '已授权的目录当前不可访问，请重新授权文件夹';
+        });
+        return;
+      }
+      final nextStack = <ScopedBrowserDirectory>[
+        ..._directoryStack.take(depth),
+        listing.directory,
+      ];
       setState(() {
-        _currentPath = normalizedPath;
-        _entries = entries;
         _loading = false;
         _blocked = false;
+        _directoryStack = nextStack;
+        _entries = listing.entries;
       });
-    } catch (_) {
-      if (!mounted || loadGeneration != _directoryLoadGeneration) return;
+    } catch (error) {
+      if (!mounted || loadGeneration != _loadGeneration) return;
       setState(() {
         _loading = false;
         _blocked = true;
+        _entries = const <ScopedBrowserEntry>[];
+        _statusMessage = '读取目录失败，请重新授权后重试';
       });
       _topTip.show(
         context,
-        message: '无法读取当前目录，请确认已授予文件访问权限',
+        message: '读取目录失败: $error',
         color: context.appColors.danger,
       );
     }
   }
 
-  List<String> get _segments {
-    final normalized = _normalizePath(_currentPath);
-    if (normalized == _rootPath) {
-      return const <String>['0'];
-    }
-    final relative = normalized.startsWith('$_rootPath/')
-        ? normalized.substring(_rootPath.length + 1)
-        : '';
-    final children = relative
-        .split('/')
-        .where((item) => item.trim().isNotEmpty)
-        .toList(growable: false);
-    return <String>['0', ...children];
-  }
-
-  String _pathForSegment(int index) {
-    if (index <= 0) return _rootPath;
-    final relativeParts = _segments.skip(1).take(index).toList(growable: false);
-    return '$_rootPath/${relativeParts.join('/')}';
-  }
-
   Future<void> _goUp() async {
-    if (_currentPath.trim().isEmpty) return;
-    final normalizedCurrent = _normalizePath(_currentPath);
-    if (normalizedCurrent == _rootPath) return;
-    final parent = _normalizePath(Directory(normalizedCurrent).parent.path);
-    if (parent == normalizedCurrent) return;
-    await _openDirectory(parent);
+    if (_directoryStack.length <= 1) return;
+    final parentIndex = _directoryStack.length - 2;
+    await _openDirectory(_directoryStack[parentIndex].id, depth: parentIndex);
   }
 
-  String _normalizePath(String path) {
-    return path.replaceAll('\\', '/').replaceAll(RegExp('/+'), '/');
-  }
-
-  String _sanitizePath(String path) {
-    final normalized = _normalizePath(path);
-    if (normalized == _rootPath) return normalized;
-    if (normalized.startsWith('$_rootPath/')) return normalized;
-    return _rootPath;
+  Future<void> _jumpToDirectory(int index) async {
+    if (index < 0 || index >= _directoryStack.length) return;
+    await _openDirectory(_directoryStack[index].id, depth: index);
   }
 
   @override
@@ -415,45 +311,67 @@ class _LocalFileBrowserBodyState extends State<LocalFileBrowserBody> {
       return Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Text(
-            '无法访问本地目录，请检查系统文件访问权限后重试',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: colors.textSecondary,
-              fontSize: 14,
-              height: 1.5,
-            ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                _statusMessage,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: colors.textSecondary,
+                  fontSize: 14,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 14),
+              FilledButton.tonalIcon(
+                onPressed: () => unawaited(_requestFolderAccess()),
+                icon: const Icon(Icons.folder_open_rounded),
+                label: const Text('授权文件夹'),
+              ),
+            ],
           ),
         ),
       );
     }
 
-    final atRoot = _normalizePath(_currentPath) == _rootPath;
+    final atRoot = _directoryStack.length <= 1;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              for (var i = 0; i < _segments.length; i++) ...[
-                if (i > 0)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    child: Icon(
-                      Icons.chevron_right_rounded,
-                      color: colors.textMuted,
-                      size: 18,
-                    ),
-                  ),
-                _BreadcrumbText(
-                  label: _segments[i],
-                  onTap: () => _openDirectory(_pathForSegment(i)),
+        Row(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (var i = 0; i < _directoryStack.length; i++) ...[
+                      if (i > 0)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          child: Icon(
+                            Icons.chevron_right_rounded,
+                            color: colors.textMuted,
+                            size: 18,
+                          ),
+                        ),
+                      _BreadcrumbText(
+                        label: _directoryStack[i].name,
+                        onTap: () => unawaited(_jumpToDirectory(i)),
+                      ),
+                    ],
+                  ],
                 ),
-              ],
-            ],
-          ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            TextButton(
+              onPressed: () => unawaited(_requestFolderAccess()),
+              child: const Text('更换文件夹'),
+            ),
+          ],
         ),
         const SizedBox(height: 12),
         Expanded(
@@ -472,7 +390,7 @@ class _LocalFileBrowserBodyState extends State<LocalFileBrowserBody> {
                     icon: Icons.arrow_upward_rounded,
                     title: '..',
                     subtitle: '返回上一级',
-                    onTap: _goUp,
+                    onTap: () => unawaited(_goUp()),
                   );
                 }
                 final actualIndex = atRoot ? index : index - 1;
@@ -482,14 +400,23 @@ class _LocalFileBrowserBodyState extends State<LocalFileBrowserBody> {
                     icon: Icons.folder_rounded,
                     title: entry.name,
                     subtitle: '文件夹',
-                    onTap: () => _openDirectory(entry.path),
+                    onTap: () => unawaited(
+                      _openDirectory(entry.id, depth: _directoryStack.length),
+                    ),
                   );
                 }
                 return _BrowserEntryTile(
                   icon: Icons.insert_drive_file_rounded,
                   title: entry.name,
                   subtitle: _humanFileSize(entry.sizeBytes),
-                  onTap: () async => widget.onFileSelected?.call(entry.path),
+                  onTap: () async {
+                    await widget.onFileSelected?.call(
+                      LocalBrowserFileSelection(
+                        identifier: entry.id,
+                        displayName: entry.name,
+                      ),
+                    );
+                  },
                 );
               },
             ),

@@ -10,12 +10,16 @@ const String _playerSettingsDanmakuSearchPageId =
 const List<double> _danmakuAreaPresets = <double>[0.10, 0.25, 0.50, 0.75, 1.0];
 
 extension _MpvPlayerDanmakuMixin on _MpvPlayerPageState {
+  static const String _danmakuAutoBlockNoResult = 'no_result';
+  static const String _danmakuAutoBlockFailed = 'failed';
+
   bool get _danmakuEnabled => _danmakuController.settings.enabled;
+  bool get _useNativeDanmakuRenderer => Platform.isAndroid && _platformViewAttached;
 
   DanDanPlayResolver get _danDanPlayResolver => DanDanPlayResolver(
     DanDanPlayApi(
       appId: DanDanPlayConfig.appId,
-      appSecret: DanDanPlayConfig.appSecret,
+      appSecrets: DanDanPlayConfig.appSecrets,
     ),
   );
 
@@ -23,17 +27,97 @@ extension _MpvPlayerDanmakuMixin on _MpvPlayerPageState {
       ? 'assets/icons/player_danmaku_on.svg'
       : 'assets/icons/player_danmaku_off.svg';
 
+  void _handleDanmakuControllerChanged() {
+    if (!_useNativeDanmakuRenderer) {
+      return;
+    }
+    debugPrint(
+      '[DANMAKU][NATIVE] controller_changed '
+      'ready=${_danmakuController.ready} '
+      'enabled=${_danmakuController.settings.enabled} '
+      'comments=${_danmakuController.comments.length} '
+      'platformAttached=$_platformViewAttached',
+    );
+    unawaited(_syncNativeDanmakuRenderer());
+  }
+
   Future<void> _loadDanmakuPreferences() async {
+    await DanDanPlayConfig.ensureLoaded();
     await _danmakuController.initialize();
     _syncDanmakuMediaContext();
     await _loadSavedLocalDanmakuSources();
     await _tryLoadPreferredDanmakuSource();
+    await _syncDanmakuDynamicOcclusionConfig();
+    await _syncNativeDanmakuRenderer();
     if (!mounted) return;
     _updatePlayerState(() {});
   }
 
-  void _syncDanmakuMediaContext() {
+  Future<void> _syncNativeDanmakuRenderer() async {
+    if (!_useNativeDanmakuRenderer) {
+      return;
+    }
+    if (!_danmakuController.ready) {
+      debugPrint('[DANMAKU][NATIVE] clear reason=controller_not_ready');
+      await _controller.clearNativeDanmaku();
+      return;
+    }
+    final settings = _danmakuController.settings;
+    final comments = _danmakuController.comments;
+    if (!settings.enabled || comments.isEmpty) {
+      debugPrint(
+        '[DANMAKU][NATIVE] clear reason=empty '
+        'enabled=${settings.enabled} comments=${comments.length}',
+      );
+      await _controller.clearNativeDanmaku();
+      return;
+    }
+    final payload = <String, Object?>{
+      'enabled': settings.enabled,
+      'opacity': settings.opacity,
+      'density': settings.density,
+      'fontScale': settings.fontScale,
+      'speed': settings.speed,
+      'displayAreaRatio': settings.displayAreaRatio,
+      'scrollEnabled': settings.scrollEnabled,
+      'topEnabled': settings.topEnabled,
+      'bottomEnabled': settings.bottomEnabled,
+      'colorEnabled': settings.colorEnabled,
+      'hideDuplicate': settings.hideDuplicate,
+      'avoidSubtitleArea': settings.avoidSubtitleArea,
+      'avoidCenterArea': settings.avoidCenterArea,
+      'playbackSpeed': _speedBoostActive ? 2.0 : _playbackSpeed,
+      'sourceKey': _currentDanmakuMediaKey(),
+      'comments': comments
+          .map(
+            (comment) => <String, Object?>{
+              'id': comment.id,
+              'timeMs': comment.timeMs,
+              'text': comment.text,
+              'type': comment.type.name,
+              'color': comment.color.toARGB32(),
+            },
+          )
+          .toList(growable: false),
+    };
+    debugPrint(
+      '[DANMAKU][NATIVE] sync '
+      'source=${_currentDanmakuMediaKey()} '
+      'comments=${comments.length} '
+      'speed=${payload['playbackSpeed']}',
+    );
+    await _controller.setNativeDanmakuPayload(payload);
+  }
+
+  void _syncDanmakuMediaContext({bool triggerAutoLoad = false}) {
+    final requestToken = ++_danmakuContextToken;
     _activeDanmakuSourceKey = null;
+    _savedLocalDanmakuSources = const <DanmakuSavedSource>[];
+    _danmakuSearchResults = const <DanDanPlayEpisodeSearchItem>[];
+    _danmakuSearchLoading = false;
+    _danmakuSearchPreparedContextKey = '';
+    _danmakuSearchLastCompletedContextKey = '';
+    _danmakuSearchController.clear();
     _danmakuController.updateMediaContext(
       title: _currentSeriesTitle.trim().isNotEmpty
           ? _currentSeriesTitle
@@ -42,24 +126,57 @@ extension _MpvPlayerDanmakuMixin on _MpvPlayerPageState {
       seasonNumber: _currentSeasonNumber,
       episodeNumber: _currentEpisodeNumber,
     );
-    unawaited(_loadSavedLocalDanmakuSources(refreshUi: mounted));
+    unawaited(
+      _loadSavedLocalDanmakuSources(
+        refreshUi: mounted,
+        requestToken: requestToken,
+      ),
+    );
+    if (triggerAutoLoad &&
+        _danmakuController.ready &&
+        _danmakuController.settings.enabled) {
+      unawaited(_tryLoadPreferredDanmakuSource(requestToken: requestToken));
+    }
+  }
+
+  bool _isActiveDanmakuContext(int requestToken, String mediaKey) {
+    return mounted &&
+        requestToken == _danmakuContextToken &&
+        mediaKey == _currentDanmakuMediaKey();
   }
 
   String _currentDanmakuMediaKey() {
-    if (_currentItemGuid.trim().isNotEmpty) {
-      return 'item:${_currentItemGuid.trim()}';
+    final itemGuid = _currentItemGuid.trim();
+    final mediaGuid = _currentMediaGuid.trim();
+    final seasonGuid = _currentSeasonGuid.trim();
+    final seriesTitle = _currentSeriesTitle.trim();
+    final itemTitle = _currentTitle.trim();
+    if (itemGuid.isNotEmpty ||
+        mediaGuid.isNotEmpty ||
+        seasonGuid.isNotEmpty ||
+        _currentEpisodeNumber > 0) {
+      return [
+        'v2',
+        'item=$itemGuid',
+        'media=$mediaGuid',
+        'season=$seasonGuid',
+        's=$_currentSeasonNumber',
+        'e=$_currentEpisodeNumber',
+      ].join('|');
     }
-    final title =
-        (_currentSeriesTitle.trim().isNotEmpty
-                ? _currentSeriesTitle
-                : _currentTitle)
-            .trim();
-    return 'fallback:$title:$_currentSeasonNumber:$_currentEpisodeNumber';
+    final title = (seriesTitle.isNotEmpty ? seriesTitle : itemTitle).trim();
+    return 'fallback:v2:$title:$_currentSeasonNumber:$_currentEpisodeNumber';
   }
 
-  Future<void> _loadSavedLocalDanmakuSources({bool refreshUi = false}) async {
+  Future<void> _loadSavedLocalDanmakuSources({
+    bool refreshUi = false,
+    int? requestToken,
+  }) async {
     final mediaKey = _currentDanmakuMediaKey();
     final sources = await _danmakuSavedSourceStore.loadForMedia(mediaKey);
+    if (requestToken != null && !_isActiveDanmakuContext(requestToken, mediaKey)) {
+      return;
+    }
     if (!mounted) return;
     _savedLocalDanmakuSources = sources;
     if (refreshUi) {
@@ -67,22 +184,28 @@ extension _MpvPlayerDanmakuMixin on _MpvPlayerPageState {
     }
   }
 
-  Future<bool> _restoreSavedLocalDanmakuIfNeeded() async {
+  Future<bool> _restoreSavedLocalDanmakuIfNeeded({int? requestToken}) async {
     final settings = _danmakuController.settings;
     if (!settings.enabled) return false;
     final mediaKey = _currentDanmakuMediaKey();
     final activeSourceKey = await _danmakuSavedSourceStore.loadActiveSourceKey(
       mediaKey,
     );
+    if (requestToken != null && !_isActiveDanmakuContext(requestToken, mediaKey)) {
+      return false;
+    }
     if (activeSourceKey != null && activeSourceKey.trim().isNotEmpty) {
       final activeSource = _savedLocalDanmakuSources
           .where((item) => item.sourceKey == activeSourceKey)
           .cast<DanmakuSavedSource?>()
           .firstWhere((item) => item != null, orElse: () => null);
       if (activeSource != null) {
-        final restored = await _restoreSavedDanmakuSource(activeSource);
+        final restored = await _restoreSavedDanmakuSource(
+          activeSource,
+          requestToken: requestToken,
+        );
         if (restored) return true;
-        await _loadSavedLocalDanmakuSources();
+        await _loadSavedLocalDanmakuSources(requestToken: requestToken);
       }
     }
     final preferredType = settings.preferLocalSource
@@ -90,14 +213,23 @@ extension _MpvPlayerDanmakuMixin on _MpvPlayerPageState {
         : DanmakuSavedSourceType.danDanPlay;
     final preferredSource = _pickNewestSavedDanmakuSourceOfType(preferredType);
     if (preferredSource == null) return false;
-    return _restoreSavedDanmakuSource(preferredSource);
+    return _restoreSavedDanmakuSource(
+      preferredSource,
+      requestToken: requestToken,
+    );
   }
 
-  Future<bool> _restoreSavedDanmakuSource(DanmakuSavedSource source) async {
+  Future<bool> _restoreSavedDanmakuSource(
+    DanmakuSavedSource source, {
+    int? requestToken,
+  }) async {
     final mediaKey = _currentDanmakuMediaKey();
     try {
       final result = await _loadDanmakuResultForSource(source);
       if (result == null) return false;
+      if (requestToken != null && !_isActiveDanmakuContext(requestToken, mediaKey)) {
+        return false;
+      }
       if (!mounted) return false;
       _danmakuController.applyImportedComments(
         sourceLabel: result.sourceLabel,
@@ -106,18 +238,38 @@ extension _MpvPlayerDanmakuMixin on _MpvPlayerPageState {
             : DanmakuLoadedSourceType.local,
         comments: result.comments,
       );
+      if (_useNativeDanmakuRenderer) {
+        await _syncNativeDanmakuRenderer();
+      }
       _activeDanmakuSourceKey = source.sourceKey;
       await _danmakuSavedSourceStore.setActiveSourceKey(
         mediaKey: mediaKey,
         sourceKey: source.sourceKey,
       );
       return true;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      debugPrint(
+        '[DANMAKU][RESTORE] failed sourceKey=${source.sourceKey} '
+        'type=${source.type.name} error=$error',
+      );
+      unawaited(
+        AppLogService.instance.recordWarning(
+          error: error,
+          stackTrace: stackTrace,
+          source: 'danmaku.restore_saved',
+          details:
+              'mediaKey=$mediaKey sourceKey=${source.sourceKey} '
+              'type=${source.type.name}',
+        ),
+      );
       await _danmakuSavedSourceStore.removeSource(
         mediaKey: mediaKey,
         sourceKey: source.sourceKey,
       );
-      await _loadSavedLocalDanmakuSources(refreshUi: mounted);
+      await _loadSavedLocalDanmakuSources(
+        refreshUi: mounted,
+        requestToken: requestToken,
+      );
       return false;
     }
   }
@@ -144,14 +296,34 @@ extension _MpvPlayerDanmakuMixin on _MpvPlayerPageState {
         ),
       );
     }
-    return DanmakuImportParser.parseFile(source.sourceKey);
+    if (!StorageAccessService.isScopedIdentifier(source.sourceKey)) {
+      return DanmakuImportParser.parseFile(source.sourceKey);
+    }
+    return (() async {
+      final bytes = await StorageAccessService.readScopedFileBytes(
+        source.sourceKey,
+      );
+      if (bytes == null || bytes.isEmpty) {
+        throw const FileSystemException('无法读取已保存的弹幕文件');
+      }
+      return DanmakuImportParser.parseBytes(
+        bytes,
+        fileName: source.detail.trim().isNotEmpty
+            ? source.detail.trim()
+            : source.label,
+      );
+    })();
   }
 
-  Future<bool> _tryLoadPreferredDanmakuSource() async {
+  Future<bool> _tryLoadPreferredDanmakuSource({int? requestToken}) async {
     final settings = _danmakuController.settings;
     if (!settings.enabled) return false;
-    await _loadSavedLocalDanmakuSources();
-    if (await _restoreSavedLocalDanmakuIfNeeded()) {
+    final mediaKey = _currentDanmakuMediaKey();
+    await _loadSavedLocalDanmakuSources(requestToken: requestToken);
+    if (requestToken != null && !_isActiveDanmakuContext(requestToken, mediaKey)) {
+      return false;
+    }
+    if (await _restoreSavedLocalDanmakuIfNeeded(requestToken: requestToken)) {
       return true;
     }
     if (settings.preferLocalSource) {
@@ -159,30 +331,45 @@ extension _MpvPlayerDanmakuMixin on _MpvPlayerPageState {
         DanmakuSavedSourceType.danDanPlay,
       );
       if (networkSaved != null &&
-          await _restoreSavedDanmakuSource(networkSaved)) {
+          await _restoreSavedDanmakuSource(
+            networkSaved,
+            requestToken: requestToken,
+          )) {
         return true;
       }
-      return _tryLoadDanDanPlayComments();
+      return _tryLoadDanDanPlayComments(requestToken: requestToken);
     }
-    if (await _tryLoadDanDanPlayComments()) {
+    if (await _tryLoadDanDanPlayComments(requestToken: requestToken)) {
       return true;
     }
     final localSaved = _pickNewestSavedDanmakuSourceOfType(
       DanmakuSavedSourceType.localFile,
     );
     if (localSaved != null) {
-      return _restoreSavedDanmakuSource(localSaved);
+      return _restoreSavedDanmakuSource(
+        localSaved,
+        requestToken: requestToken,
+      );
     }
     return false;
   }
 
-  Future<bool> _tryLoadDanDanPlayComments() async {
+  Future<bool> _tryLoadDanDanPlayComments({int? requestToken}) async {
     final settings = _danmakuController.settings;
-    if (!DanDanPlayConfig.configured) return false;
+    if (!await DanDanPlayConfig.ensureConfigured()) return false;
     if (!settings.enabled) return false;
+    final mediaKey = _currentDanmakuMediaKey();
+    final blockedReason = await _danmakuSavedSourceStore
+        .loadAutoMatchBlockedReason(mediaKey);
+    if (blockedReason != null && blockedReason.isNotEmpty) {
+      debugPrint(
+        '[DANMAKU][AUTO_LOAD] skipped mediaKey=$mediaKey blocked=$blockedReason',
+      );
+      return false;
+    }
 
     try {
-      final result = await _danDanPlayResolver.resolveForPlayback(
+      final resolved = await _danDanPlayResolver.resolveForPlayback(
         seriesTitle: _currentSeriesTitle.trim().isNotEmpty
             ? _currentSeriesTitle
             : _currentTitle,
@@ -190,32 +377,133 @@ extension _MpvPlayerDanmakuMixin on _MpvPlayerPageState {
         episodeNumber: _currentEpisodeNumber,
         tmdbId: _currentTmdbId,
       );
-      if (!mounted || result == null) return false;
+      if (resolved == null) {
+        await _danmakuSavedSourceStore.saveAutoMatchBlockedReason(
+          mediaKey: mediaKey,
+          reason: _danmakuAutoBlockNoResult,
+        );
+        if (mounted) {
+          _showTopTip(
+            '当前片源自动匹配弹幕无结果，后续不再自动请求，可手动搜索。',
+            context.appColors.warning,
+          );
+        }
+        return false;
+      }
+      if (requestToken != null && !_isActiveDanmakuContext(requestToken, mediaKey)) {
+        return false;
+      }
+      if (!mounted) return false;
+      final result = resolved.result;
+      final matchedItem = resolved.item;
       _danmakuController.applyImportedComments(
         sourceLabel: result.sourceLabel,
         sourceType: DanmakuLoadedSourceType.network,
         comments: result.comments,
       );
-      _activeDanmakuSourceKey = null;
+      final savedSource = DanmakuSavedSource(
+        type: DanmakuSavedSourceType.danDanPlay,
+        mediaKey: mediaKey,
+        sourceKey: matchedItem.episodeId.toString(),
+        label: matchedItem.displayTitle,
+        detail: matchedItem.displaySubtitle,
+        ancestorName: _currentAncestorName.trim(),
+        seriesTitle: _currentSeriesTitle.trim(),
+        itemTitle: _currentTitle.trim(),
+        itemGuid: _currentItemGuid.trim(),
+        seasonGuid: _currentSeasonGuid.trim(),
+        mediaGuid: _currentMediaGuid.trim(),
+        seasonNumber: _currentSeasonNumber,
+        episodeNumber: _currentEpisodeNumber,
+        mediaType: _currentMediaType.trim(),
+        commentCount: result.comments.length,
+        updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      await _danmakuSavedSourceStore.saveSource(savedSource);
+      await _loadSavedLocalDanmakuSources(requestToken: requestToken);
+      _activeDanmakuSourceKey = savedSource.sourceKey;
       await _danmakuSavedSourceStore.setActiveSourceKey(
-        mediaKey: _currentDanmakuMediaKey(),
-        sourceKey: null,
+        mediaKey: mediaKey,
+        sourceKey: savedSource.sourceKey,
       );
       _updatePlayerState(() {});
+      _showTopTip(
+        '已加载 ${result.comments.length} 条弹幕',
+        context.appColors.success,
+      );
       return true;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await _danmakuSavedSourceStore.saveAutoMatchBlockedReason(
+        mediaKey: mediaKey,
+        reason: _danmakuAutoBlockFailed,
+      );
+      final seriesTitle = _currentSeriesTitle.trim().isNotEmpty
+          ? _currentSeriesTitle
+          : _currentTitle;
+      debugPrint(
+        '[DANMAKU][AUTO_LOAD] failed title=$seriesTitle '
+        'season=$_currentSeasonNumber episode=$_currentEpisodeNumber '
+        'tmdb=$_currentTmdbId error=$error',
+      );
+      unawaited(
+        AppLogService.instance.recordWarning(
+          error: error,
+          stackTrace: stackTrace,
+          source: 'danmaku.auto_load',
+          details:
+              'title=$seriesTitle season=$_currentSeasonNumber '
+              'episode=$_currentEpisodeNumber tmdb=$_currentTmdbId',
+        ),
+      );
+      if (mounted) {
+        final reason = error is DanDanPlayApiException
+            ? error.message
+            : '当前片源自动匹配弹幕失败';
+        _showTopTip('$reason，后续不再自动请求，可手动搜索。', context.appColors.warning);
+      }
       return false;
     }
   }
 
-  void _primeDanmakuSearch() {
-    final keyword = DanDanPlayResolver.normalizeSeriesTitle(
+  String _defaultDanmakuSearchKeyword() {
+    return DanDanPlayResolver.normalizeSeriesTitle(
       _currentSeriesTitle.trim().isNotEmpty
           ? _currentSeriesTitle
           : _currentTitle,
     );
-    if (_danmakuSearchController.text.trim().isEmpty && keyword.isNotEmpty) {
-      _danmakuSearchController.text = keyword;
+  }
+
+  String _danmakuSearchContextKey([String? keyword]) {
+    final normalizedKeyword = DanDanPlayResolver.normalizeSeriesTitle(
+      keyword ?? _danmakuSearchController.text,
+    );
+    final normalizedTmdbId = DanDanPlayResolver.normalizeTmdbId(_currentTmdbId);
+    return [
+      _currentDanmakuMediaKey(),
+      'q=$normalizedKeyword',
+      'tmdb=${normalizedTmdbId ?? ''}',
+    ].join('|');
+  }
+
+  void _primeDanmakuSearch() {
+    final keyword = _defaultDanmakuSearchKeyword();
+    final contextKey = _danmakuSearchContextKey(keyword);
+    if (_danmakuSearchPreparedContextKey == contextKey) {
+      return;
+    }
+    _danmakuSearchPreparedContextKey = contextKey;
+    _danmakuSearchLastCompletedContextKey = '';
+    _danmakuSearchResults = const <DanDanPlayEpisodeSearchItem>[];
+    if (_danmakuSearchController.text.trim() == keyword.trim()) {
+      return;
+    }
+    if (keyword.isNotEmpty) {
+      _danmakuSearchController.value = TextEditingValue(
+        text: keyword,
+        selection: TextSelection.collapsed(offset: keyword.length),
+      );
+    } else {
+      _danmakuSearchController.clear();
     }
   }
 

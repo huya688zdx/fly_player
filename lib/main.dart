@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import 'models/media_item.dart';
@@ -16,6 +17,7 @@ import 'screens/app_settings_screen.dart';
 import 'screens/category_items_screen.dart';
 import 'screens/connection_screen.dart';
 import 'screens/detail_host_screen.dart';
+import 'screens/download_list_screen.dart';
 import 'screens/favorite_items_screen.dart';
 import 'screens/media_list_screen.dart';
 import 'screens/parallel_placeholder_screen.dart';
@@ -23,8 +25,10 @@ import 'screens/person_detail_screen.dart';
 import 'screens/play_detail_screen.dart';
 import 'screens/player_host_screen.dart';
 import 'screens/search_screen.dart';
+import 'screens/screenshot_preview_screen.dart';
 import 'services/app_log_service.dart';
-import 'services/embedded_detail_launcher.dart';
+import 'services/main_host_bridge.dart';
+import 'screens/settings_destination_routes.dart';
 import 'theme/app_theme.dart';
 import 'ui/adaptive_text.dart';
 import 'ui/app_transitions.dart';
@@ -38,16 +42,14 @@ void main() {
       FlutterError.onError = (details) {
         FlutterError.presentError(details);
         debugPrint('[APP][FLUTTER_ERROR] ${details.exceptionAsString()}');
-        unawaited(AppLogService.instance.recordFlutterError(details));
+        AppLogService.instance.recordFlutterErrorSync(details);
       };
       PlatformDispatcher.instance.onError = (error, stack) {
         debugPrint('[APP][PLATFORM_ERROR] $error');
-        unawaited(
-          AppLogService.instance.recordError(
-            error: error,
-            stackTrace: stack,
-            source: 'platform',
-          ),
+        AppLogService.instance.recordErrorSync(
+          error: error,
+          stackTrace: stack,
+          source: 'platform',
         );
         return true;
       };
@@ -62,12 +64,10 @@ void main() {
     },
     (error, stack) {
       debugPrint('[APP][ZONE_ERROR] $error');
-      unawaited(
-        AppLogService.instance.recordError(
-          error: error,
-          stackTrace: stack,
-          source: 'zone',
-        ),
+      AppLogService.instance.recordErrorSync(
+        error: error,
+        stackTrace: stack,
+        source: 'zone',
       );
     },
   );
@@ -150,13 +150,21 @@ Route<dynamic> _buildRoute(RouteSettings settings) {
   final uri = Uri.tryParse(routeName);
 
   if (uri != null && uri.path == '/detail/item') {
+    final rawInitialItemDetail = uri.queryParameters['initialItemDetail'] ?? '';
+    final decodedInitialItemDetail = rawInitialItemDetail.isEmpty
+        ? null
+        : (jsonDecode(rawInitialItemDetail) as Map).cast<String, dynamic>();
     return AppTransitions.leftToRightPageTurnRoute<void>(
-      DetailItemRoute(itemGuid: uri.queryParameters['itemGuid'] ?? ''),
+      DetailItemRoute(
+        itemGuid: uri.queryParameters['itemGuid'] ?? '',
+        seriesGuid: uri.queryParameters['seriesGuid'] ?? '',
+        initialItemDetail: decodedInitialItemDetail,
+      ),
       settings: settings,
     );
   }
   if (uri != null && uri.path == '/detail/host') {
-    return AppTransitions.leftToRightPageTurnRoute<void>(
+    return AppTransitions.splitPaneHostRoute<void>(
       DetailHostRoute(initialRouteName: uri.queryParameters['route'] ?? '/'),
       settings: settings,
     );
@@ -197,6 +205,27 @@ Route<dynamic> _buildRoute(RouteSettings settings) {
       settings: settings,
     );
   }
+  if (uri != null && uri.path == '/screen/downloads') {
+    return AppTransitions.leftToRightPageTurnRoute<void>(
+      DownloadListRoute(
+        initialTab: DownloadListTabX.fromRouteValue(
+          uri.queryParameters['tab'] ?? '',
+        ),
+      ),
+      settings: settings,
+    );
+  }
+  if (uri != null && uri.path == '/screen/downloads/detail') {
+    return AppTransitions.leftToRightPageTurnRoute<void>(
+      DownloadGroupDetailRoute(
+        groupId: uri.queryParameters['groupId'] ?? '',
+        initialTab: DownloadListTabX.fromRouteValue(
+          uri.queryParameters['tab'] ?? '',
+        ),
+      ),
+      settings: settings,
+    );
+  }
   if (uri != null && uri.path == '/screen/category') {
     final rawCategory = uri.queryParameters['category'] ?? '';
     final rawTypes = uri.queryParameters['types'] ?? '';
@@ -213,6 +242,29 @@ Route<dynamic> _buildRoute(RouteSettings settings) {
         category: MediaItem.fromJson(decodedCategory),
         initialTypeTags: decodedTypes,
       ),
+      settings: settings,
+    );
+  }
+  if (uri != null && uri.path == ScreenshotLightboxRouteScreen.routePath) {
+    final payloadToken = ScreenshotLightboxRouteScreen.payloadTokenFromUri(uri);
+    if (payloadToken != null) {
+      return ScreenshotLightboxRouteScreen.buildRoute(
+        payloadToken: payloadToken,
+        settings: settings,
+      );
+    }
+    final item = ScreenshotLightboxRouteScreen.itemFromUri(uri);
+    if (item != null) {
+      return ScreenshotLightboxRouteScreen.buildRoute(
+        item: item,
+        settings: settings,
+      );
+    }
+  }
+  final settingsDestination = SettingsDestinationRoutes.buildRoute(routeName);
+  if (settingsDestination != null) {
+    return AppTransitions.leftToRightPageTurnRoute<void>(
+      settingsDestination,
       settings: settings,
     );
   }
@@ -270,25 +322,65 @@ class _ProviderGate extends StatelessWidget {
 }
 
 class AppEntry extends StatelessWidget {
-  const AppEntry({super.key});
+  final MainPrimaryTab initialTab;
+
+  const AppEntry({super.key, this.initialTab = MainPrimaryTab.home});
 
   @override
   Widget build(BuildContext context) {
-    return const _ProviderGate(child: MainNavigation());
+    return _ProviderGate(child: MainNavigation(initialTab: initialTab));
+  }
+}
+
+enum MainPrimaryTab {
+  home('home', 0),
+  settings('settings', 1);
+
+  const MainPrimaryTab(this.tabId, this.tabIndex);
+
+  final String tabId;
+  final int tabIndex;
+
+  static MainPrimaryTab fromIndex(int index) {
+    for (final tab in values) {
+      if (tab.tabIndex == index) return tab;
+    }
+    return home;
+  }
+
+  static MainPrimaryTab fromTabId(String tabId) {
+    final normalizedTabId = tabId.trim();
+    for (final tab in values) {
+      if (tab.tabId == normalizedTabId) return tab;
+    }
+    return home;
   }
 }
 
 class DetailItemRoute extends StatelessWidget {
   final String itemGuid;
+  final String seriesGuid;
+  final Map<String, dynamic>? initialItemDetail;
 
-  const DetailItemRoute({super.key, required this.itemGuid});
+  const DetailItemRoute({
+    super.key,
+    required this.itemGuid,
+    this.seriesGuid = '',
+    this.initialItemDetail,
+  });
 
   @override
   Widget build(BuildContext context) {
     if (itemGuid.trim().isEmpty) {
       return const _RouteErrorScreen(message: '缺少详情参数');
     }
-    return _ProviderGate(child: PlayDetailScreen(itemGuid: itemGuid));
+    return _ProviderGate(
+      child: PlayDetailScreen(
+        itemGuid: itemGuid,
+        seriesGuid: seriesGuid,
+        initialItemDetail: initialItemDetail,
+      ),
+    );
   }
 }
 
@@ -377,6 +469,48 @@ class FavoriteRoute extends StatelessWidget {
   }
 }
 
+class DownloadListRoute extends StatelessWidget {
+  final DownloadListTab initialTab;
+
+  const DownloadListRoute({
+    super.key,
+    this.initialTab = DownloadListTab.downloaded,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _ProviderGate(
+      requireConfigured: false,
+      child: DownloadListScreen(initialTab: initialTab),
+    );
+  }
+}
+
+class DownloadGroupDetailRoute extends StatelessWidget {
+  final String groupId;
+  final DownloadListTab initialTab;
+
+  const DownloadGroupDetailRoute({
+    super.key,
+    required this.groupId,
+    this.initialTab = DownloadListTab.downloaded,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (groupId.trim().isEmpty) {
+      return const _RouteErrorScreen(message: '缺少下载详情参数');
+    }
+    return _ProviderGate(
+      requireConfigured: false,
+      child: DownloadGroupDetailScreen(
+        groupId: groupId,
+        initialTab: initialTab,
+      ),
+    );
+  }
+}
+
 class CategoryRoute extends StatelessWidget {
   final MediaItem category;
   final List<String>? initialTypeTags;
@@ -404,7 +538,9 @@ class SettingsRoute extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const _ProviderGate(child: AppSettingsScreen(secondaryHost: true));
+    return const _ProviderGate(
+      child: MainNavigation(initialTab: MainPrimaryTab.settings),
+    );
   }
 }
 
@@ -450,26 +586,64 @@ class _RouteErrorScreen extends StatelessWidget {
 }
 
 class MainNavigation extends StatefulWidget {
-  const MainNavigation({super.key});
+  final MainPrimaryTab initialTab;
+
+  const MainNavigation({super.key, this.initialTab = MainPrimaryTab.home});
 
   @override
   State<MainNavigation> createState() => _MainNavigationState();
 }
 
 class _MainNavigationState extends State<MainNavigation> {
-  int _selectedIndex = 0;
+  late MainPrimaryTab _selectedTab = widget.initialTab;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(MainHostBridge.setMethodCallHandler(_handleMainHostMethodCall));
+  }
+
+  @override
+  void didUpdateWidget(covariant MainNavigation oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialTab != widget.initialTab) {
+      _selectedTab = widget.initialTab;
+    }
+  }
+
+  @override
+  void dispose() {
+    unawaited(MainHostBridge.setMethodCallHandler(null));
+    super.dispose();
+  }
+
+  Future<dynamic> _handleMainHostMethodCall(MethodCall call) async {
+    final arguments = (call.arguments as Map?)?.map(
+      (key, value) => MapEntry('${key ?? ''}', value),
+    );
+    switch (call.method) {
+      case 'switchPrimaryTab':
+      case 'openPrimarySettings':
+        final tabId =
+            arguments?['tabId']?.toString() ??
+            (call.method == 'openPrimarySettings'
+                ? MainPrimaryTab.settings.tabId
+                : MainPrimaryTab.home.tabId);
+        if (!mounted) return null;
+        setState(() {
+          _selectedTab = MainPrimaryTab.fromTabId(tabId);
+        });
+        return true;
+      default:
+        return null;
+    }
+  }
 
   Future<void> _handleNavigationTap(int index) async {
-    if (index == 1) {
-      final opened = await EmbeddedDetailLauncher.openSettings();
-      if (opened) {
-        if (!mounted) return;
-        setState(() => _selectedIndex = 0);
-        return;
-      }
-    }
     if (!mounted) return;
-    setState(() => _selectedIndex = index);
+    setState(() {
+      _selectedTab = MainPrimaryTab.fromIndex(index);
+    });
   }
 
   @override
@@ -478,25 +652,10 @@ class _MainNavigationState extends State<MainNavigation> {
     final colors = context.appColors;
 
     return Scaffold(
-      body: AnimatedSwitcher(
-        duration: AppTransitions.switchDuration,
-        switchInCurve: AppTransitions.easeOut,
-        switchOutCurve: AppTransitions.easeIn,
-        transitionBuilder: (child, animation) {
-          return AppTransitions.fadeSlideTransition(
-            child,
-            animation,
-            begin: const Offset(0.04, 0),
-          );
-        },
-        child: KeyedSubtree(
-          key: ValueKey<int>(_selectedIndex),
-          child: pages[_selectedIndex],
-        ),
-      ),
+      body: IndexedStack(index: _selectedTab.tabIndex, children: pages),
       bottomNavigationBar: BottomNavigationBar(
         backgroundColor: colors.navBarBackground,
-        currentIndex: _selectedIndex,
+        currentIndex: _selectedTab.tabIndex,
         onTap: (index) {
           unawaited(_handleNavigationTap(index));
         },

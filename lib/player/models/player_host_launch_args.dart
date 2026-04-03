@@ -1,16 +1,24 @@
 import '../controllers/mpv_player_controller.dart';
+import '../../models/play_info.dart';
+import '../../services/play_stats/play_stats.dart';
 
 class PlayerHostLaunchArgs {
   final String title;
   final MpvMediaSource source;
+  final PlayInfoData? initialPlayInfo;
+  final PlayStartSource startSource;
   final bool fromParallelHost;
   final String layoutMode;
+  final String initialRightPaneRoute;
 
   const PlayerHostLaunchArgs({
     required this.title,
     required this.source,
+    this.initialPlayInfo,
+    this.startSource = PlayStartSource.manual,
     required this.fromParallelHost,
     required this.layoutMode,
+    required this.initialRightPaneRoute,
   });
 
   static PlayerHostLaunchArgs? fromPlatformMap(Map<Object?, Object?> raw) {
@@ -22,11 +30,21 @@ class PlayerHostLaunchArgs {
     final sourceMap = _mapValue(raw['source']);
     if (title.isEmpty || sourceMap == null) return null;
     final layoutMode = (raw['layoutMode'] ?? 'fullscreen').toString().trim();
+    final playInfoMap = _mapValue(raw['initialPlayInfo']);
     return PlayerHostLaunchArgs(
       title: title,
       source: MpvMediaSource.fromMap(sourceMap),
+      initialPlayInfo: playInfoMap == null
+          ? null
+          : PlayInfoData.fromJson(playInfoMap),
+      startSource: PlayStatsSqlMapper.startSourceFromText(
+        (raw['startSource'] ?? 'manual').toString(),
+      ),
       fromParallelHost: raw['fromParallelHost'] == true,
       layoutMode: layoutMode.isEmpty ? 'fullscreen' : layoutMode,
+      initialRightPaneRoute: (raw['initialRightPaneRoute'] ?? '')
+          .toString()
+          .trim(),
     );
   }
 
@@ -34,8 +52,11 @@ class PlayerHostLaunchArgs {
     return <String, Object?>{
       'title': title,
       'source': source.toMap(),
+      'initialPlayInfo': initialPlayInfo?.toJson(),
+      'startSource': PlayStatsSqlMapper.startSourceToText(startSource),
       'fromParallelHost': fromParallelHost,
       'layoutMode': layoutMode,
+      'initialRightPaneRoute': initialRightPaneRoute,
     };
   }
 

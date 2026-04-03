@@ -39,9 +39,27 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
     return null;
   }
 
+  bool _subtitleShouldPreferEmbeddedTrack(SubtitleTrackOption? track) {
+    if (track == null) return false;
+    final normalizedGuid = track.guid.trim().toLowerCase();
+    if (normalizedGuid.startsWith('local:')) return false;
+    if (track.isExternal == 1 || track.extraFile == 1) return false;
+    if (track.isBitmap == 1) return true;
+    final format = track.format.trim().toLowerCase();
+    final codec = track.codecName.trim().toLowerCase();
+    return format.contains('pgs') ||
+        format.contains('sup') ||
+        codec.contains('pgs') ||
+        codec.contains('sup') ||
+        codec.contains('hdmv_pgs') ||
+        codec.contains('dvd_subtitle') ||
+        codec.contains('vobsub');
+  }
+
   bool _subtitleShouldUseExternalFile(SubtitleTrackOption? track) {
     if (track == null) return false;
     if (_serverFallbackSubtitleGuids.contains(track.guid)) return false;
+    if (_subtitleShouldPreferEmbeddedTrack(track)) return false;
     if (track.isExternal == 1 || track.extraFile == 1) return true;
     return track.guid.startsWith('local:');
   }
@@ -120,6 +138,9 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
 
   int? _mpvAudioTrackId(AudioTrackOption? track) {
     if (track == null) return null;
+    if (track.guid.startsWith('mpv-audio:') && track.index > 0) {
+      return track.index;
+    }
     final ordinal = _audioTracks.indexWhere((item) => item.guid == track.guid);
     if (ordinal < 0) return null;
     return ordinal + 1;
@@ -127,6 +148,9 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
 
   int? _mpvSubtitleTrackId(SubtitleTrackOption? track) {
     if (track == null) return null;
+    if (track.guid.startsWith('mpv-subtitle:') && track.index > 0) {
+      return track.index;
+    }
     final embeddedTracks = _subtitleTracks
         .where((item) {
           if (item.guid.trim().isEmpty) return false;
@@ -203,8 +227,21 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
     return 16 / 9;
   }
 
+  bool _currentSourceHasVideoTrack() {
+    if (_currentVideoWidth > 0 && _currentVideoHeight > 0) {
+      return true;
+    }
+    if (_currentVideoGuid.trim().isNotEmpty) {
+      return true;
+    }
+    if (widget.source.videoWidth > 0 && widget.source.videoHeight > 0) {
+      return true;
+    }
+    return widget.source.videoGuid.trim().isNotEmpty;
+  }
+
   String _selectedQualityId() {
-    final visibleQualities = _visibleQualityOptionsForCurrentMode();
+    final visibleQualities = _displayQualityOptionsForCurrentMode();
     for (final quality in visibleQualities) {
       if (_currentDirectLinkQualityIndex != null &&
           quality.directLinkQualityIndex == _currentDirectLinkQualityIndex) {
@@ -309,6 +346,55 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
     return visible.isNotEmpty ? visible : _qualities;
   }
 
+  List<PlaybackQualityOption> _displayQualityOptionsForCurrentMode() {
+    final visible = _visibleQualityOptionsForCurrentMode();
+    if (visible.length <= 1) return visible;
+    final deduped = <String, PlaybackQualityOption>{};
+    for (final quality in visible) {
+      final key = _qualityDisplayDedupKey(quality);
+      final existing = deduped[key];
+      if (existing == null ||
+          _shouldPreferDisplayedQuality(quality, existing)) {
+        deduped[key] = quality;
+      }
+    }
+    return deduped.values.toList(growable: false);
+  }
+
+  String _qualityDisplayDedupKey(PlaybackQualityOption quality) {
+    final normalizedResolution = _normalizeQualityResolution(
+      quality.resolution,
+    );
+    final fallbackLabel = _qualityLabel(quality).trim().toLowerCase();
+    return '${normalizedResolution.isNotEmpty ? normalizedResolution : fallbackLabel}|${quality.bitrate}';
+  }
+
+  bool _shouldPreferDisplayedQuality(
+    PlaybackQualityOption candidate,
+    PlaybackQualityOption current,
+  ) {
+    if (candidate.isOriginalProxy != current.isOriginalProxy) {
+      return candidate.isOriginalProxy;
+    }
+    if ((candidate.isDefault == 1) != (current.isDefault == 1)) {
+      return candidate.isDefault == 1;
+    }
+    final candidateResolution = int.tryParse(
+      _normalizeQualityResolution(candidate.resolution),
+    );
+    final currentResolution = int.tryParse(
+      _normalizeQualityResolution(current.resolution),
+    );
+    if (candidateResolution != currentResolution) {
+      return (candidateResolution ?? -1) > (currentResolution ?? -1);
+    }
+    if (candidate.bitrate != current.bitrate) {
+      return candidate.bitrate > current.bitrate;
+    }
+    return _qualityLabel(candidate).trim().length <
+        _qualityLabel(current).trim().length;
+  }
+
   PlaybackQualityOption? _originalQualityOption() {
     if (_qualities.isEmpty) return null;
     for (final quality in _qualities) {
@@ -353,12 +439,24 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
   }) {
     final audio = _currentAudioTrack();
     final subtitle = _currentSubtitleTrack();
+    final serverManagedPlayback = _playbackMode.isServerManaged;
     final preferExternalSubtitle =
         _subtitleShouldUseExternalFile(subtitle) ||
         (_activeSubtitleProxySessionId?.isNotEmpty ?? false);
     final subtitleExplicitOff =
         _subtitleExplicitlyDisabled &&
         (_currentSubtitleGuid ?? '').trim().isEmpty;
+    final audioTrackIndex = serverManagedPlayback
+        ? null
+        : _mpvAudioTrackId(audio);
+    final clearAudioTrackIndex = serverManagedPlayback || audio == null;
+    final subtitleTrackIndex = serverManagedPlayback
+        ? null
+        : (subtitleExplicitOff
+              ? -1
+              : (preferExternalSubtitle ? null : _mpvSubtitleTrackId(subtitle)));
+    final clearSubtitleTrackIndex =
+        serverManagedPlayback || preferExternalSubtitle || subtitle == null;
     final normalizedStartPosition = _normalizedSourceStartPosition(
       startPosition ?? _controller.value.value.position,
     );
@@ -382,19 +480,19 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
       colorTransfer: _currentColorTransfer,
       colorPrimaries: _currentColorPrimaries,
       bitDepth: _currentBitDepth,
+      isDownloadedFile: _currentSourceIsDownloadedFile,
       proxySessionId: _activeProxySessionId,
       playLink: _currentPlayLink,
+      serverSessionHlsTimeSeconds: _currentServerSessionHlsTimeSeconds,
       url: _currentUrl,
       headers: Map<String, String>.from(_currentHeaders),
       title: _currentTitle,
       episodeNumber: _currentEpisodeNumber,
       startPosition: normalizedStartPosition,
-      audioTrackIndex: _mpvAudioTrackId(audio),
-      clearAudioTrackIndex: audio == null,
-      subtitleTrackIndex: subtitleExplicitOff
-          ? -1
-          : (preferExternalSubtitle ? null : _mpvSubtitleTrackId(subtitle)),
-      clearSubtitleTrackIndex: preferExternalSubtitle || subtitle == null,
+      audioTrackIndex: audioTrackIndex,
+      clearAudioTrackIndex: clearAudioTrackIndex,
+      subtitleTrackIndex: subtitleTrackIndex,
+      clearSubtitleTrackIndex: clearSubtitleTrackIndex,
       audioTrackGuid: audio?.guid,
       clearAudioTrackGuid: audio == null,
       subtitleTrackGuid: (_currentSubtitleGuid ?? '').trim().isEmpty
@@ -413,6 +511,7 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
       seekProbeSummary: _currentSeekProbeSummary,
       playbackMode: _playbackMode,
       playbackSpeed: _playbackSpeed,
+      listenVideoModeEnabled: _listenVideoModeEnabled,
       audioTracks: _audioTracks,
       subtitleTracks: _subtitleTracks,
       qualities: _qualities,

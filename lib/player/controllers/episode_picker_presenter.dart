@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models/media_library_item.dart';
+import '../../models/tv_episode_browser_models.dart';
 import '../panels/episode_picker_sheet.dart';
 
 class EpisodePickerPlaybackState {
@@ -17,16 +18,69 @@ class EpisodePickerPlaybackState {
   });
 }
 
-String buildEpisodePickerSectionLabel(List<MediaLibraryItem> episodes) {
+String buildEpisodePickerSectionLabel(
+  List<MediaLibraryItem> episodes, {
+  String fallbackSeriesTitle = '',
+}) {
+  final first = episodes.isNotEmpty ? episodes.first : null;
+  final seriesTitle = buildEpisodePickerSeriesTitle(
+    episodes,
+    fallbackSeriesTitle: fallbackSeriesTitle,
+  );
+  final seasonLabel = first == null ? '' : buildEpisodePickerSeasonLabel(first);
+  if (seriesTitle.isNotEmpty && seasonLabel.isNotEmpty) {
+    return '$seriesTitle $seasonLabel';
+  }
+  if (seasonLabel.isNotEmpty) return seasonLabel;
+  if (seriesTitle.isNotEmpty) return seriesTitle;
+  return '剧集列表';
+}
+
+String buildEpisodePickerSeriesTitle(
+  List<MediaLibraryItem> episodes, {
+  String fallbackSeriesTitle = '',
+}) {
   final first = episodes.isNotEmpty ? episodes.first : null;
   final seriesTitle = first?.tvTitle.trim() ?? '';
-  final seasonNumber = first?.seasonNumber ?? 0;
-  if (seriesTitle.isNotEmpty && seasonNumber > 0) {
-    return '$seriesTitle \u7B2C$seasonNumber\u5B63';
-  }
   if (seriesTitle.isNotEmpty) return seriesTitle;
-  if (seasonNumber > 0) return '\u7B2C$seasonNumber\u5B63';
-  return '\u5267\u96C6\u5217\u8868';
+  return fallbackSeriesTitle.trim();
+}
+
+String buildEpisodePickerSeasonLabel(
+  MediaLibraryItem item, {
+  String fallbackLabel = '',
+}) {
+  if (item.seasonNumber == 0) return '特别篇';
+  if (item.seasonNumber > 0) return '第${item.seasonNumber}季';
+
+  final normalizedFallback = fallbackLabel.trim();
+  if (normalizedFallback.isNotEmpty) return normalizedFallback;
+
+  final parentTitle = item.parentTitle.trim();
+  if (parentTitle.isNotEmpty && parentTitle != item.tvTitle.trim()) {
+    return parentTitle;
+  }
+
+  final title = item.title.trim();
+  if (title.isNotEmpty && title != item.tvTitle.trim()) {
+    return title;
+  }
+  return '';
+}
+
+List<TvEpisodeSeasonOptionData> buildEpisodePickerSeasonOptions(
+  List<MediaLibraryItem> seasons, {
+  required String selectedSeasonGuid,
+}) {
+  return seasons
+      .map(
+        (season) => TvEpisodeSeasonOptionData(
+          guid: season.guid,
+          label: buildEpisodePickerSeasonLabel(season),
+          selected: season.guid == selectedSeasonGuid,
+        ),
+      )
+      .toList(growable: false);
 }
 
 EpisodePickerSheetItem buildEpisodePickerSheetItem(
@@ -39,11 +93,13 @@ EpisodePickerSheetItem buildEpisodePickerSheetItem(
   );
   return EpisodePickerSheetItem(
     id: episode.guid,
+    shortLabel: _episodeShortLabel(episode),
     title: _episodeTitle(episode),
     durationLabel: _episodeDurationLabel(episode, playbackState: playbackState),
     statusLabel: playback.$1,
     statusColor: playback.$2,
     posterPath: episode.poster,
+    completed: _episodeCompleted(episode, playbackState: playbackState),
     isPlaying:
         episode.guid == playbackState.currentItemGuid &&
         playbackState.isPlaying,
@@ -56,21 +112,71 @@ String _episodeTitle(MediaLibraryItem episode) {
       ? '${episode.episodeNumber.toString().padLeft(2, '0')}. '
       : '';
   final seriesTitle = episode.tvTitle.trim();
-  final episodeTitle = episode.title.trim();
-  final fallbackTitle = episode.displayTitle.trim();
+  final episodeTitle = _stripSeriesTitlePrefix(
+    episode.title.trim(),
+    seriesTitle,
+  );
+  final fallbackTitle = _stripSeriesTitlePrefix(
+    episode.displayTitle.trim(),
+    seriesTitle,
+  );
 
   final contentTitle = switch ((
-    seriesTitle.isNotEmpty,
     episodeTitle.isNotEmpty,
+    fallbackTitle.isNotEmpty,
   )) {
-    (true, true) when seriesTitle != episodeTitle =>
-      '$seriesTitle $episodeTitle',
-    (_, true) => episodeTitle,
-    (true, _) => seriesTitle,
-    _ => fallbackTitle,
+    (true, _) => episodeTitle,
+    (_, true) => fallbackTitle,
+    _ => seriesTitle,
   };
 
   return '$prefix$contentTitle'.trim();
+}
+
+String _stripSeriesTitlePrefix(String title, String seriesTitle) {
+  if (title.isEmpty || seriesTitle.isEmpty) return title;
+
+  var result = title;
+  const separators = <String>[
+    ' ',
+    '　',
+    '-',
+    '–',
+    '—',
+    '·',
+    ':',
+    '：',
+    '/',
+    '／',
+    '|',
+    '｜',
+    '《',
+    '》',
+    '「',
+    '」',
+    '(',
+    '（',
+  ];
+
+  while (result.startsWith(seriesTitle)) {
+    result = result.substring(seriesTitle.length).trimLeft();
+    if (result.isEmpty) {
+      return title;
+    }
+    final first = result.characters.first;
+    if (!separators.contains(first)) {
+      return title;
+    }
+    result = result.substring(first.length).trimLeft();
+  }
+
+  return result.isEmpty ? title : result;
+}
+
+String _episodeShortLabel(MediaLibraryItem episode) {
+  if (episode.episodeNumber > 0) return '${episode.episodeNumber}';
+  if (episode.numberOfItem > 0) return '${episode.numberOfItem}';
+  return '?';
 }
 
 String _episodeDurationLabel(
@@ -110,20 +216,36 @@ String _episodeDurationLabel(
       : rawSeconds.clamp(0, 999999);
 
   if (isCurrent) {
-    return ('\u64AD\u653E\u4E2D..', const Color(0xFF2D87FF));
+    return ('播放中..', const Color(0xFF2D87FF));
   }
   if (episode.watched == 1 && watchedSeconds <= 0) {
-    return ('\u5DF2\u89C2\u770B', Colors.white);
+    return ('已观看', Colors.white);
   }
   if (durationSeconds > 0 && watchedSeconds > 0) {
     final percent = (watchedSeconds / durationSeconds * 100).clamp(0, 100);
     if (percent >= 95 || episode.watched == 1) {
-      return ('\u5DF2\u89C2\u770B', Colors.white);
+      return ('已观看', Colors.white);
     }
-    return ('\u5DF2\u89C2\u770B${percent.round()}%', const Color(0xFF2D87FF));
+    return ('已观看${percent.round()}%', const Color(0xFF2D87FF));
   }
   if (episode.watched == 1) {
-    return ('\u5DF2\u89C2\u770B', Colors.white);
+    return ('已观看', Colors.white);
   }
-  return ('\u672A\u89C2\u770B', Colors.white70);
+  return ('未观看', Colors.white70);
+}
+
+bool _episodeCompleted(
+  MediaLibraryItem episode, {
+  required EpisodePickerPlaybackState playbackState,
+}) {
+  final isCurrent = episode.guid == playbackState.currentItemGuid;
+  final durationSeconds = episode.duration > 0
+      ? episode.duration
+      : (isCurrent ? playbackState.currentDurationSeconds : 0);
+  final rawSeconds = isCurrent
+      ? playbackState.currentPositionSeconds
+      : (episode.ts > 0 ? episode.ts : episode.watchedTs);
+  if (episode.watched == 1) return true;
+  if (durationSeconds <= 0 || rawSeconds <= 0) return false;
+  return (rawSeconds / durationSeconds) >= 0.95;
 }

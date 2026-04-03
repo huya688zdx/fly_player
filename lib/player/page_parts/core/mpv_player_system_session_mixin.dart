@@ -18,8 +18,9 @@ extension _MpvPlayerSystemSessionMixin on _MpvPlayerPageState {
             num value => value.toInt(),
             _ => int.tryParse('$rawPosition') ?? 0,
           };
-          await _controller.seek(
+          await _seekWithStats(
             Duration(milliseconds: positionMs.clamp(0, 1 << 31)),
+            userInitiated: true,
           );
         }
         return;
@@ -66,7 +67,11 @@ extension _MpvPlayerSystemSessionMixin on _MpvPlayerPageState {
     await PlayerSystemSessionBridge.stop();
   }
 
-  Map<String, Object?> _buildSystemPlaybackSessionPayload() {
+  Map<String, Object?> _buildSystemPlaybackSessionPayload({
+    bool? isPlayingOverride,
+    double? speedOverride,
+    bool? readyOverride,
+  }) {
     final value = _controller.value.value;
     final position = _displayPosition(value);
     final duration = _effectiveDuration();
@@ -79,7 +84,6 @@ extension _MpvPlayerSystemSessionMixin on _MpvPlayerPageState {
         : (_currentAncestorName.trim().isNotEmpty
               ? _currentAncestorName.trim()
               : _currentMediaType.trim());
-    final isReady = value.ready && value.nativeLibLoaded;
     final hasError = (value.error ?? '').trim().isNotEmpty;
     final safePositionMs = position.inMilliseconds.clamp(0, 1 << 31);
     final safeDurationMs = duration.inMilliseconds.clamp(0, 1 << 31);
@@ -90,6 +94,11 @@ extension _MpvPlayerSystemSessionMixin on _MpvPlayerPageState {
     final artist = _resolveSystemPlaybackArtist(subtitle);
     final description = _resolveSystemPlaybackDescription();
     final trackCount = _episodeItems.length;
+    final launchSource = _buildSystemPlaybackLaunchSource(position);
+    final isReady = readyOverride ?? (value.ready && value.nativeLibLoaded);
+    final isPlaying =
+        isPlayingOverride ?? (isReady && !hasError && !value.paused);
+    final speed = speedOverride ?? (!value.paused ? _playbackSpeed : 0.0);
     return <String, Object?>{
       'itemGuid': _currentItemGuid,
       'title': title,
@@ -104,10 +113,10 @@ extension _MpvPlayerSystemSessionMixin on _MpvPlayerPageState {
       'artworkUrl': artworkUrl,
       'artworkUrls': artworkUrls,
       'artworkHeaders': artworkHeaders,
-      'isPlaying': isReady && !hasError && !value.paused,
+      'isPlaying': isPlaying,
       'positionMs': safePositionMs,
       'durationMs': safeDurationMs,
-      'speed': !value.paused ? _playbackSpeed : 0.0,
+      'speed': speed,
       'canSeek': safeDurationMs > 0,
       'canPause': true,
       'canPlay': true,
@@ -115,7 +124,111 @@ extension _MpvPlayerSystemSessionMixin on _MpvPlayerPageState {
       'canSkipToNext': _canSkipToNextEpisodeForSystemSession(),
       'ready': isReady,
       'error': hasError ? value.error!.trim() : null,
+      'launchTitle': title,
+      'launchSource': launchSource,
+      'launchFromParallelHost': widget.parallelLayoutToggleEnabled,
+      'launchLayoutMode': widget.parallelLayoutMode.trim().isNotEmpty
+          ? widget.parallelLayoutMode.trim()
+          : 'fullscreen',
+      'launchInitialRightPaneRoute': '',
     };
+  }
+
+  Map<String, Object?> _buildSystemPlaybackLaunchSource(Duration position) {
+    final safePosition = position >= Duration.zero ? position : Duration.zero;
+    final currentSource = widget.source.copyWith(
+      loadNonce: createMpvLoadNonce(),
+      itemGuid: _currentItemGuid.trim().isNotEmpty
+          ? _currentItemGuid.trim()
+          : widget.source.itemGuid,
+      seasonGuid: _currentSeasonGuid.trim().isNotEmpty
+          ? _currentSeasonGuid.trim()
+          : widget.source.seasonGuid,
+      posterPath: _currentPosterPath.trim().isNotEmpty
+          ? _currentPosterPath.trim()
+          : widget.source.posterPath,
+      mediaGuid: _currentMediaGuid.trim().isNotEmpty
+          ? _currentMediaGuid.trim()
+          : widget.source.mediaGuid,
+      mediaType: _currentMediaType.trim().isNotEmpty
+          ? _currentMediaType.trim()
+          : widget.source.mediaType,
+      ancestorName: _currentAncestorName.trim().isNotEmpty
+          ? _currentAncestorName.trim()
+          : widget.source.ancestorName,
+      videoGuid: _currentVideoGuid.trim().isNotEmpty
+          ? _currentVideoGuid.trim()
+          : widget.source.videoGuid,
+      directLinkQualityIndex: _currentDirectLinkQualityIndex,
+      clearDirectLinkQualityIndex: _currentDirectLinkQualityIndex == null,
+      videoWidth: _currentVideoWidth > 0
+          ? _currentVideoWidth
+          : widget.source.videoWidth,
+      videoHeight: _currentVideoHeight > 0
+          ? _currentVideoHeight
+          : widget.source.videoHeight,
+      proxySessionId: _activeProxySessionId,
+      playLink: _currentPlayLink,
+      url: _currentUrl.trim().isNotEmpty
+          ? _currentUrl.trim()
+          : widget.source.url,
+      headers: _currentHeaders.isNotEmpty
+          ? _currentHeaders
+          : widget.source.headers,
+      title: _currentTitle.trim().isNotEmpty
+          ? _currentTitle.trim()
+          : widget.source.title,
+      seriesTitle: _currentSeriesTitle.trim().isNotEmpty
+          ? _currentSeriesTitle.trim()
+          : widget.source.seriesTitle,
+      seasonNumber: _currentSeasonNumber > 0
+          ? _currentSeasonNumber
+          : widget.source.seasonNumber,
+      tmdbId: _currentTmdbId.trim().isNotEmpty
+          ? _currentTmdbId.trim()
+          : widget.source.tmdbId,
+      episodeNumber: _currentEpisodeNumber > 0
+          ? _currentEpisodeNumber
+          : widget.source.episodeNumber,
+      startPosition: safePosition,
+      audioTrackGuid: _currentAudioGuid,
+      clearAudioTrackGuid: _currentAudioGuid == null,
+      subtitleTrackGuid: _currentSubtitleGuid,
+      clearSubtitleTrackGuid: _currentSubtitleGuid == null,
+      resolution: _currentResolution.trim().isNotEmpty
+          ? _currentResolution.trim()
+          : widget.source.resolution,
+      bitrate: _currentBitrate > 0 ? _currentBitrate : widget.source.bitrate,
+      durationSeconds: _durationSeconds > 0
+          ? _durationSeconds
+          : widget.source.durationSeconds,
+      videoCodecName: _currentVideoCodecName.trim().isNotEmpty
+          ? _currentVideoCodecName.trim()
+          : widget.source.videoCodecName,
+      videoProfile: _currentVideoProfile.trim().isNotEmpty
+          ? _currentVideoProfile.trim()
+          : widget.source.videoProfile,
+      colorSpace: _currentColorSpace.trim().isNotEmpty
+          ? _currentColorSpace.trim()
+          : widget.source.colorSpace,
+      colorTransfer: _currentColorTransfer.trim().isNotEmpty
+          ? _currentColorTransfer.trim()
+          : widget.source.colorTransfer,
+      colorPrimaries: _currentColorPrimaries.trim().isNotEmpty
+          ? _currentColorPrimaries.trim()
+          : widget.source.colorPrimaries,
+      bitDepth: _currentBitDepth > 0
+          ? _currentBitDepth
+          : widget.source.bitDepth,
+      reliableSeek: _currentReliableSeek,
+      seekProbeSummary: _currentSeekProbeSummary,
+      clearSeekProbeSummary: _currentSeekProbeSummary == null,
+      playbackSpeed: _playbackSpeed,
+      audioTracks: _audioTracks,
+      subtitleTracks: _subtitleTracks,
+      qualities: _qualities,
+    );
+    return currentSource.toMap();
   }
 
   bool _shouldPublishSystemPlaybackSessionPayload(Map<String, Object?> next) {
@@ -163,6 +276,10 @@ extension _MpvPlayerSystemSessionMixin on _MpvPlayerPageState {
   }
 
   List<String> _resolveSystemPlaybackArtworkUrls() {
+    final localArtworkUrls = _resolveLocalDownloadedArtworkUrls();
+    if (localArtworkUrls.isNotEmpty) {
+      return localArtworkUrls;
+    }
     final rawPath = _currentPosterPath.trim().isNotEmpty
         ? _currentPosterPath.trim()
         : widget.source.posterPath.trim();
@@ -171,6 +288,82 @@ extension _MpvPlayerSystemSessionMixin on _MpvPlayerPageState {
     }
     final baseUrl = context.read<NasProvider>().baseUrl;
     return ApiUrlHelper.imageCandidates(baseUrl, rawPath, width: 480);
+  }
+
+  List<String> _resolveLocalDownloadedArtworkUrls() {
+    if (!_currentSourceIsDownloadedFile) {
+      return const <String>[];
+    }
+    final service = DownloadTaskService.instance;
+    final currentItemGuid = _currentItemGuid.trim().isNotEmpty
+        ? _currentItemGuid.trim()
+        : widget.source.itemGuid.trim();
+    final currentMediaGuid = _currentMediaGuid.trim().isNotEmpty
+        ? _currentMediaGuid.trim()
+        : widget.source.mediaGuid.trim();
+    final currentFilePath = _resolveCurrentLocalPlaybackFilePath();
+
+    DownloadTaskRecord? fallbackRecord;
+    for (final record in service.downloadedRecords) {
+      if (currentFilePath.isNotEmpty &&
+          _sameLocalPlaybackPath(record.filePath, currentFilePath)) {
+        final urls = _preferredLocalArtworkUrlsForRecord(record);
+        if (urls.isNotEmpty) {
+          return urls;
+        }
+      }
+      if (currentItemGuid.isEmpty || record.itemGuid != currentItemGuid) {
+        continue;
+      }
+      if (currentMediaGuid.isNotEmpty && record.mediaGuid == currentMediaGuid) {
+        fallbackRecord = record;
+        break;
+      }
+      fallbackRecord ??= record;
+    }
+    return fallbackRecord == null
+        ? const <String>[]
+        : _preferredLocalArtworkUrlsForRecord(fallbackRecord);
+  }
+
+  String _resolveCurrentLocalPlaybackFilePath() {
+    final rawUrl = _currentUrl.trim().isNotEmpty
+        ? _currentUrl.trim()
+        : widget.source.url.trim();
+    if (rawUrl.isEmpty) {
+      return '';
+    }
+    final parsed = Uri.tryParse(rawUrl);
+    if (parsed != null && parsed.scheme.toLowerCase() == 'file') {
+      return parsed.toFilePath();
+    }
+    return rawUrl.startsWith('/') ? rawUrl : '';
+  }
+
+  bool _sameLocalPlaybackPath(String a, String b) {
+    final normalizedA = a.trim().replaceAll('\\', '/');
+    final normalizedB = b.trim().replaceAll('\\', '/');
+    if (normalizedA.isEmpty || normalizedB.isEmpty) {
+      return false;
+    }
+    return normalizedA == normalizedB;
+  }
+
+  List<String> _preferredLocalArtworkUrlsForRecord(DownloadTaskRecord record) {
+    final combined = <String>[...record.posterUrls, ...record.groupPosterUrls];
+    final local = combined.where(_isLocalArtworkUrl).toList(growable: false);
+    if (local.isNotEmpty) {
+      return local;
+    }
+    return combined
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  bool _isLocalArtworkUrl(String value) {
+    final normalized = value.trim().toLowerCase();
+    return normalized.startsWith('file://') || normalized.startsWith('/');
   }
 
   Map<String, String> _resolveSystemPlaybackArtworkHeaders() {

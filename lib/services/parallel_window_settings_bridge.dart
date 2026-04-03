@@ -20,8 +20,8 @@ class ParallelWindowSettings {
   factory ParallelWindowSettings.fromMap(Map<String, dynamic> map) {
     return ParallelWindowSettings(
       enabled: map['enabled'] == true,
-      preferredPrimaryPaneSide:
-          (map['preferredPrimaryPaneSide'] ?? 'left').toString(),
+      preferredPrimaryPaneSide: (map['preferredPrimaryPaneSide'] ?? 'left')
+          .toString(),
       preferredPlaybackPrimaryPaneSide:
           (map['preferredPlaybackPrimaryPaneSide'] ?? 'right').toString(),
       splitRatioPreset: (map['splitRatioPreset'] ?? 'balanced').toString(),
@@ -43,7 +43,8 @@ class ParallelWindowSettings {
       preferredPrimaryPaneSide:
           preferredPrimaryPaneSide ?? this.preferredPrimaryPaneSide,
       preferredPlaybackPrimaryPaneSide:
-          preferredPlaybackPrimaryPaneSide ?? this.preferredPlaybackPrimaryPaneSide,
+          preferredPlaybackPrimaryPaneSide ??
+          this.preferredPlaybackPrimaryPaneSide,
       splitRatioPreset: splitRatioPreset ?? this.splitRatioPreset,
       defaultPlaybackFullscreen:
           defaultPlaybackFullscreen ?? this.defaultPlaybackFullscreen,
@@ -59,10 +60,9 @@ class ParallelWindowSettingsBridge {
 
   static Future<ParallelWindowSettings> load() async {
     try {
-      final result =
-          await _channel.invokeMapMethod<Object?, Object?>(
-            'getParallelWindowSettings',
-          );
+      final result = await _channel.invokeMapMethod<Object?, Object?>(
+        'getParallelWindowSettings',
+      );
       if (result == null) {
         return const ParallelWindowSettings(
           enabled: true,
@@ -95,18 +95,17 @@ class ParallelWindowSettingsBridge {
     required bool immersiveStatusBar,
   }) async {
     try {
-      final result =
-          await _channel.invokeMapMethod<Object?, Object?>(
-            'updateParallelWindowSettings',
-            <String, Object?>{
-              'enabled': enabled,
-              'preferredPrimaryPaneSide': preferredPrimaryPaneSide,
-              'preferredPlaybackPrimaryPaneSide': preferredPlaybackPrimaryPaneSide,
-              'splitRatioPreset': splitRatioPreset,
-              'defaultPlaybackFullscreen': defaultPlaybackFullscreen,
-              'immersiveStatusBar': immersiveStatusBar,
-            },
-          );
+      final result = await _channel.invokeMapMethod<Object?, Object?>(
+        'updateParallelWindowSettings',
+        <String, Object?>{
+          'enabled': enabled,
+          'preferredPrimaryPaneSide': preferredPrimaryPaneSide,
+          'preferredPlaybackPrimaryPaneSide': preferredPlaybackPrimaryPaneSide,
+          'splitRatioPreset': splitRatioPreset,
+          'defaultPlaybackFullscreen': defaultPlaybackFullscreen,
+          'immersiveStatusBar': immersiveStatusBar,
+        },
+      );
       if (result == null) {
         return ParallelWindowSettings(
           enabled: enabled,

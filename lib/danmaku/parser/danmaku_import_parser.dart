@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
@@ -10,22 +11,47 @@ import '../models/danmaku_import_result.dart';
 class DanmakuImportParser {
   static DanmakuImportResult parseXmlString(
     String content, {
-    String sourceLabel = '网络弹幕',
+    String sourceLabel = 'Network Danmaku',
   }) {
     final comments = _parseXmlComments(content);
     if (comments.isEmpty) {
-      throw const FormatException('没有识别到可用弹幕');
+      throw const FormatException('No usable danmaku comments were recognized');
+    }
+    return DanmakuImportResult(sourceLabel: sourceLabel, comments: comments);
+  }
+
+  static DanmakuImportResult parseContentString(
+    String content, {
+    String sourceLabel = 'Network Danmaku',
+  }) {
+    final comments = _parseContentComments(content);
+    if (comments.isEmpty) {
+      throw _buildContentFormatException(content);
     }
     return DanmakuImportResult(sourceLabel: sourceLabel, comments: comments);
   }
 
   static Future<DanmakuImportResult> parseFile(String path) async {
-    final payload = await Isolate.run<Map<String, dynamic>>(
+    final payload = await Isolate.run<Map<String, Object?>>(
       () => _parseFilePayload(path),
     );
+    return _decodePayload(payload);
+  }
+
+  static Future<DanmakuImportResult> parseBytes(
+    Uint8List bytes, {
+    required String fileName,
+  }) async {
+    final payload = await Isolate.run<Map<String, Object?>>(
+      () => _parseBytesPayload(bytes, fileName),
+    );
+    return _decodePayload(payload);
+  }
+
+  static DanmakuImportResult _decodePayload(Map<String, Object?> payload) {
     final rawComments =
         (payload['comments'] as List<dynamic>? ?? const <dynamic>[])
-            .whereType<Map<String, dynamic>>()
+            .whereType<Map<Object?, Object?>>()
             .toList(growable: false);
     final comments = rawComments
         .map(
@@ -42,6 +68,17 @@ class DanmakuImportParser {
       sourceLabel: payload['sourceLabel'] as String? ?? '',
       comments: comments,
     );
+  }
+
+  static List<DanmakuComment> _parseContentComments(String content) {
+    final normalized = content.trim();
+    if (normalized.isEmpty) {
+      return const <DanmakuComment>[];
+    }
+    if (normalized.startsWith('{') || normalized.startsWith('[')) {
+      return _parseJsonComments(normalized);
+    }
+    return _parseXmlComments(normalized);
   }
 
   static List<DanmakuComment> _parseXmlComments(String content) {
@@ -86,7 +123,11 @@ class DanmakuImportParser {
   }
 
   static List<DanmakuComment> _parseDanDanPlayXmlComments(String content) {
-    final itemPattern = RegExp(r'<item\b([^>]*)\/?>', multiLine: true, dotAll: true);
+    final itemPattern = RegExp(
+      r'<item\b([^>]*)\/?>',
+      multiLine: true,
+      dotAll: true,
+    );
     final comments = <DanmakuComment>[];
     var index = 0;
     for (final match in itemPattern.allMatches(content)) {
@@ -125,14 +166,29 @@ class DanmakuImportParser {
       final item = list[i];
       if (item is! Map) continue;
       final map = Map<String, dynamic>.from(item);
-      final text = (map['text'] ?? map['content'] ?? '').toString().trim();
+      final p = (map['p'] ?? '').toString().trim();
+      dynamic timeRaw = map['timeMs'] ?? map['time'] ?? map['progress'];
+      dynamic modeRaw = map['mode'] ?? map['type'];
+      dynamic colorRaw = map['color'];
+      if (p.isNotEmpty) {
+        final parts = p.split(',');
+        if (timeRaw == null && parts.isNotEmpty) {
+          timeRaw = parts[0];
+        }
+        if (modeRaw == null && parts.length > 1) {
+          modeRaw = parts[1];
+        }
+        if (colorRaw == null && parts.length > 2) {
+          colorRaw = parts[2];
+        }
+      }
+      final text = (map['text'] ?? map['content'] ?? map['m'] ?? '')
+          .toString()
+          .trim();
       if (text.isEmpty) continue;
-      final timeRaw = map['timeMs'] ?? map['time'] ?? map['progress'];
-      final modeRaw = map['mode'] ?? map['type'];
-      final colorRaw = map['color'];
       comments.add(
         DanmakuComment(
-          id: 'json-$i',
+          id: (map['id'] ?? map['cid'] ?? 'json-$i').toString(),
           timeMs: _readTimeMs(timeRaw),
           text: text,
           type: _mapMode(_readInt(modeRaw, fallback: 1)),
@@ -143,12 +199,61 @@ class DanmakuImportParser {
     return comments;
   }
 
+  static FormatException _buildContentFormatException(String content) {
+    final normalized = content.trimLeft();
+    if (normalized.isEmpty) {
+      return const FormatException('Danmaku content is empty');
+    }
+    if (normalized.startsWith('{') || normalized.startsWith('[')) {
+      return const FormatException(
+        'Danmaku API returned JSON but no usable comments were found',
+      );
+    }
+    if (normalized.startsWith('<!DOCTYPE') ||
+        normalized.startsWith('<html') ||
+        normalized.startsWith('<HTML')) {
+      return const FormatException(
+        'Danmaku API returned HTML instead of comment data',
+      );
+    }
+    return const FormatException('No usable danmaku comments were recognized');
+  }
+
   static int _readTimeMs(dynamic value) {
     return switch (value) {
-      final num number => number > 1000 ? number.round() : (number * 1000).round(),
-      final String text => _readTimeMs(double.tryParse(text) ?? 0),
+      final num number =>
+        number > 1000 ? number.round() : (number * 1000).round(),
+      final String text => _readStringTimeMs(text),
       _ => 0,
     };
+  }
+
+  static int _readStringTimeMs(String value) {
+    final text = value.trim();
+    if (text.isEmpty) return 0;
+    if (text.contains(':')) {
+      final parts = text.split(':');
+      var seconds = 0.0;
+      for (final part in parts) {
+        final unit = double.tryParse(part.trim()) ?? 0.0;
+        seconds = (seconds * 60) + unit;
+      }
+      return (seconds * 1000).round();
+    }
+    if (text.contains('.')) {
+      final seconds = double.tryParse(text);
+      if (seconds == null) return 0;
+      return (seconds * 1000).round();
+    }
+    final parsedInt = int.tryParse(text);
+    if (parsedInt != null) {
+      return parsedInt > 1000 ? parsedInt : parsedInt * 1000;
+    }
+    final parsedDouble = double.tryParse(text);
+    if (parsedDouble == null) return 0;
+    return parsedDouble > 1000
+        ? parsedDouble.round()
+        : (parsedDouble * 1000).round();
   }
 
   static int _readInt(dynamic value, {required int fallback}) {
@@ -203,29 +308,46 @@ class DanmakuImportParser {
   }
 }
 
-Map<String, dynamic> _parseFilePayload(String path) {
+Map<String, Object?> _parseFilePayload(String path) {
   final file = File(path);
   if (!file.existsSync()) {
-    throw const FileSystemException('文件不存在');
+    throw const FileSystemException('File does not exist');
   }
   final fileName = file.path.split(Platform.pathSeparator).last;
+  final content = file.readAsStringSync();
+  return _buildPayload(fileName: fileName, content: content);
+}
+
+Map<String, Object?> _parseBytesPayload(Uint8List bytes, String fileName) {
+  if (bytes.isEmpty) {
+    throw const FormatException('File content is empty');
+  }
+  final content = utf8.decode(bytes, allowMalformed: true);
+  return _buildPayload(fileName: fileName, content: content);
+}
+
+Map<String, Object?> _buildPayload({
+  required String fileName,
+  required String content,
+}) {
   final extension = fileName.contains('.')
       ? fileName.split('.').last.toLowerCase()
       : '';
-  final content = file.readAsStringSync();
   final comments = switch (extension) {
     'xml' => DanmakuImportParser._parseXmlComments(content),
     'json' => DanmakuImportParser._parseJsonComments(content),
-    _ => throw const FormatException('当前仅支持 XML / JSON 弹幕文件'),
+    _ => throw const FormatException(
+      'Only XML and JSON danmaku files are supported',
+    ),
   };
   if (comments.isEmpty) {
-    throw const FormatException('没有识别到可用弹幕');
+    throw const FormatException('No usable danmaku comments were recognized');
   }
-  return <String, dynamic>{
+  return <String, Object?>{
     'sourceLabel': fileName,
     'comments': comments
         .map(
-          (item) => <String, dynamic>{
+          (item) => <String, Object?>{
             'id': item.id,
             'timeMs': item.timeMs,
             'text': item.text,

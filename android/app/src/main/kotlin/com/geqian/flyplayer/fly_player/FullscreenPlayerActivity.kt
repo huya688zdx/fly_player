@@ -6,6 +6,11 @@ import android.content.Intent
 import java.util.HashMap
 
 class FullscreenPlayerActivity : FlutterHostActivity() {
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        PlaybackSessionCoordinator.allowSessionUpdates()
+    }
+
     override fun getInitialRoute(): String = "/player?layoutMode=fullscreen"
 
     override fun hostSurface(): String = "player"
@@ -19,19 +24,35 @@ class FullscreenPlayerActivity : FlutterHostActivity() {
     }
 
     override fun finishPlayerActivity(result: HashMap<String, Any?>?): Boolean {
+        PlaybackSessionCoordinator.blockSessionUpdates()
+        PlaybackSessionCoordinator.detachHost(this)
+        PlayerNotificationService.stop(applicationContext)
         setResult(
             Activity.RESULT_OK,
             Intent().apply {
                 PlayerLaunchContract.putResultPayload(this, result)
             },
         )
-        finish()
+        runAfterMethodReply {
+            finish()
+        }
         return true
+    }
+
+    override fun onDestroy() {
+        if (isFinishing && !isChangingConfigurations) {
+            PlaybackSessionCoordinator.blockSessionUpdates()
+            PlaybackSessionCoordinator.detachHost(this)
+            PlayerNotificationService.stop(applicationContext)
+        }
+        super.onDestroy()
     }
 
     override fun switchPlayerLayoutMode(
         title: String,
         source: HashMap<String, Any?>?,
+        initialPlayInfo: HashMap<String, Any?>?,
+        startSource: String,
         targetMode: String,
         resultPayload: HashMap<String, Any?>?,
     ): Boolean {
@@ -48,11 +69,38 @@ class FullscreenPlayerActivity : FlutterHostActivity() {
                 PlayerLaunchContract.putResultPayload(this, resultPayload)
             },
         )
-        detailHost.launchSplitPlayer(
-            title = normalizedTitle,
-            source = HashMap(normalizedSource),
-        )
-        finish()
+        runAfterMethodReply {
+            detailHost.launchSplitPlayer(
+                title = normalizedTitle,
+                source = HashMap(normalizedSource),
+                initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
+                startSource = startSource,
+            )
+            finish()
+        }
+        return true
+    }
+
+    override fun syncPlayerLaunchState(
+        title: String,
+        source: HashMap<String, Any?>?,
+        initialPlayInfo: HashMap<String, Any?>?,
+        startSource: String,
+    ): Boolean {
+        val normalizedTitle = title.trim()
+        val normalizedSource = source ?: hashMapOf()
+        if (normalizedTitle.isEmpty() || normalizedSource.isEmpty()) return false
+        val nextIntent =
+            createIntent(
+                context = this,
+                title = normalizedTitle,
+                source = HashMap(normalizedSource),
+                initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
+                startSource = startSource,
+                fromParallelHost = PlayerLaunchContract.isFromParallelHost(intent),
+                hostContext = getParallelHostContext(),
+            )
+        setIntent(nextIntent)
         return true
     }
 
@@ -61,6 +109,8 @@ class FullscreenPlayerActivity : FlutterHostActivity() {
             context: Context,
             title: String,
             source: HashMap<String, Any?>,
+            initialPlayInfo: HashMap<String, Any?>? = null,
+            startSource: String = "manual",
             fromParallelHost: Boolean = false,
             hostContext: HashMap<String, Any?> = hashMapOf(),
         ): Intent {
@@ -68,6 +118,8 @@ class FullscreenPlayerActivity : FlutterHostActivity() {
                 intent = Intent(context, FullscreenPlayerActivity::class.java),
                 title = title,
                 source = source,
+                initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
+                startSource = startSource,
                 fromParallelHost = fromParallelHost,
                 hostContext = hostContext,
                 layoutMode = PlayerLaunchContract.MODE_FULLSCREEN,

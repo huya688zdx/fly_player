@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/app_log_service.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
+import '../ui/secondary_host_navigation.dart';
 import '../utils/app_confirm_dialog.dart';
 import '../utils/app_top_tip.dart';
 
@@ -91,7 +92,7 @@ class _AppLogScreenState extends State<AppLogScreen> {
 
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: AppBar(title: const Text('日志信息')),
+      appBar: buildSecondaryHostAppBar(context, title: const Text('日志信息')),
       body: DecoratedBox(
         decoration: BoxDecoration(
           gradient: LinearGradient(

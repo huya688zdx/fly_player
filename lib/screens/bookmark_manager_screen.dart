@@ -9,6 +9,7 @@ import '../ui/adaptive_text.dart';
 import '../ui/bookmark_note_dialog.dart';
 import '../ui/bookmark_note_preview.dart';
 import '../ui/app_transitions.dart';
+import '../ui/secondary_host_navigation.dart';
 
 bool _bookmarkIsTv(PlayerBookmarkEntry entry) {
   final type = entry.mediaType.trim().toLowerCase();
@@ -153,7 +154,8 @@ class _BookmarkManagerScreenState extends State<BookmarkManagerScreen> {
     final groups = _ancestorGroups();
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: AppBar(
+      appBar: buildSecondaryHostAppBar(
+        context,
         title: Text(
           '书签管理',
           style: TextStyle(
@@ -305,7 +307,10 @@ class _BookmarkSeriesListScreenState extends State<_BookmarkSeriesListScreen> {
     final groups = _seriesGroups();
     return Scaffold(
       backgroundColor: context.appColors.backgroundBase,
-      appBar: AppBar(title: Text(widget.ancestorLabel)),
+      appBar: buildSecondaryHostAppBar(
+        context,
+        title: Text(widget.ancestorLabel),
+      ),
       body: groups.isEmpty
           ? const SizedBox.shrink()
           : ListView.separated(
@@ -422,7 +427,10 @@ class _BookmarkSeasonListScreenState extends State<_BookmarkSeasonListScreen> {
     final groups = _seasonGroups();
     return Scaffold(
       backgroundColor: context.appColors.backgroundBase,
-      appBar: AppBar(title: Text(widget.seriesLabel)),
+      appBar: buildSecondaryHostAppBar(
+        context,
+        title: Text(widget.seriesLabel),
+      ),
       body: groups.isEmpty
           ? const SizedBox.shrink()
           : ListView.separated(
@@ -544,7 +552,10 @@ class _BookmarkEpisodeListScreenState
     final groups = _episodeGroups();
     return Scaffold(
       backgroundColor: context.appColors.backgroundBase,
-      appBar: AppBar(title: Text(widget.seasonLabel)),
+      appBar: buildSecondaryHostAppBar(
+        context,
+        title: Text(widget.seasonLabel),
+      ),
       body: groups.isEmpty
           ? const SizedBox.shrink()
           : ListView.separated(
@@ -658,7 +669,10 @@ class _BookmarkEpisodeBookmarksScreenState
     final colors = context.appColors;
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: AppBar(title: Text(widget.episodeLabel)),
+      appBar: buildSecondaryHostAppBar(
+        context,
+        title: Text(widget.episodeLabel),
+      ),
       body: _entries.isEmpty
           ? Center(
               child: Text(
@@ -797,7 +811,10 @@ class _BookmarkDirectEntryScreenState
     final groups = _groups();
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: AppBar(title: Text(widget.ancestorLabel)),
+      appBar: buildSecondaryHostAppBar(
+        context,
+        title: Text(widget.ancestorLabel),
+      ),
       body: groups.isEmpty
           ? const SizedBox.shrink()
           : ListView.separated(

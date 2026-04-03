@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
+import 'dart:math' as math;
 
 import '../api/feiniu_api.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
@@ -10,12 +11,14 @@ import '../models/media_library_item.dart';
 import '../models/play_info.dart';
 import '../providers/app_theme_provider.dart';
 import '../providers/nas_provider.dart';
+import '../services/detail_runtime_cache.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../theme/app_theme.dart';
 import '../theme/detail_tokens.dart';
 import '../ui/adaptive_detail_navigator.dart';
 import '../ui/detail_presentation.dart';
 import '../ui/layout_adaptive.dart';
+import '../ui/player_pane_host_scope.dart';
 import '../ui/media_poster_card.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
@@ -28,10 +31,12 @@ import '../widgets/common/app_error_state.dart';
 import '../widgets/detail/detail_description_section.dart';
 import '../widgets/detail/detail_header.dart';
 import '../widgets/detail/detail_hero_overlay.dart';
+import '../widgets/detail/detail_more_actions_sheet.dart';
 import '../widgets/detail/dynamic_page_theme_scope.dart';
 import '../widgets/detail/immersive_detail_background.dart';
 import '../widgets/detail/link_section.dart';
 import '../widgets/detail/play_control_row.dart';
+import '../widgets/detail/theme_save_name_helper.dart';
 import 'long_text_overlay_page.dart';
 
 class TvDetailPage extends StatefulWidget {
@@ -99,6 +104,7 @@ class _TvDetailPageState extends State<TvDetailPage>
   Map<String, dynamic> _localeMap = const <String, dynamic>{};
 
   bool get _isPane => widget.presentation == DetailPresentation.pane;
+  bool get _useRuntimeCache => _isPane;
 
   @override
   void initState() {
@@ -211,7 +217,7 @@ class _TvDetailPageState extends State<TvDetailPage>
           !_usedInitialDetail && widget.initialItemDetail != null;
       final Map<String, dynamic> detail = canUseInitial
           ? widget.initialItemDetail!
-          : await api.getItemDetail(widget.itemGuid);
+          : await _loadItemDetail(api, widget.itemGuid);
       if (!mounted) return;
       setState(() {
         _detail = detail;
@@ -291,7 +297,7 @@ class _TvDetailPageState extends State<TvDetailPage>
   Future<void> _refreshDetailSilently() async {
     try {
       final api = FeiniuApi(context.read<NasProvider>());
-      final detail = await api.getItemDetail(widget.itemGuid);
+      final detail = await _loadItemDetail(api, widget.itemGuid);
       if (!mounted) return;
       setState(() {
         _detail = detail;
@@ -324,7 +330,7 @@ class _TvDetailPageState extends State<TvDetailPage>
     final api = FeiniuApi(context.read<NasProvider>());
 
     try {
-      final seasonItems = await api.getSeasonList(widget.itemGuid);
+      final seasonItems = await _loadSeasonItems(api, widget.itemGuid);
       if (!mounted) return;
       seasonItems.sort((a, b) => a.seasonNumber.compareTo(b.seasonNumber));
       setState(() {
@@ -355,10 +361,7 @@ class _TvDetailPageState extends State<TvDetailPage>
     await Future<void>.delayed(_deferredSectionStepDelay);
     if (!mounted) return;
     try {
-      final playInfo = await api
-          .getPlayInfo(widget.itemGuid)
-          .then<PlayInfoData?>((value) => value)
-          .catchError((_) => null);
+      final playInfo = await _loadPlayInfoOrNull(api, widget.itemGuid);
       if (!mounted || playInfo == null) return;
       setState(() => _playInfo = playInfo);
     } catch (_) {}
@@ -521,6 +524,28 @@ class _TvDetailPageState extends State<TvDetailPage>
     }
     if (year.isNotEmpty) parts.add(year);
     return parts.join(' \u00b7 ');
+  }
+
+  String _suggestedThemeNameBase(Map<String, dynamic> item) {
+    final playItem = _playInfo?.item;
+    final itemType = (playItem?.type ?? item['type'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    final title = _title(item);
+    if (itemType == 'episode') {
+      return buildThemeSaveNameBase(
+        title: title,
+        seriesTitle: playItem?.tvTitle.trim().isNotEmpty == true
+            ? playItem!.tvTitle.trim()
+            : title,
+        seasonNumber: playItem?.seasonNumber ?? _asInt(item['season_number']),
+        episodeNumber:
+            playItem?.episodeNumber ?? _asInt(item['episode_number']),
+        isEpisode: true,
+      );
+    }
+    return buildThemeSaveNameBase(title: title);
   }
 
   List<String> _genreNamesForMeta(dynamic rawGenres) {
@@ -687,7 +712,7 @@ class _TvDetailPageState extends State<TvDetailPage>
     _playPreparing = true;
     try {
       final api = FeiniuApi(context.read<NasProvider>());
-      final info = await api.getPlayInfo(widget.itemGuid);
+      final info = await _loadPlayInfo(api, widget.itemGuid);
       if (!mounted) return;
       setState(() => _playInfo = info);
       _showTopTip(
@@ -722,13 +747,11 @@ class _TvDetailPageState extends State<TvDetailPage>
         context,
         itemGuid: widget.itemGuid,
         seriesTitle: _title(item),
+        seriesGuid: widget.itemGuid,
       );
       if (!mounted) return;
       final api = FeiniuApi(context.read<NasProvider>());
-      final info = await api
-          .getPlayInfo(widget.itemGuid)
-          .then<PlayInfoData?>((value) => value)
-          .catchError((_) => null);
+      final info = await _loadPlayInfoOrNull(api, widget.itemGuid);
       if (!mounted) return;
       if (info != null) {
         setState(() => _playInfo = info);
@@ -827,10 +850,58 @@ class _TvDetailPageState extends State<TvDetailPage>
     }
   }
 
+  Future<Map<String, dynamic>> _loadItemDetail(FeiniuApi api, String itemGuid) {
+    if (!_useRuntimeCache) {
+      return api.getItemDetail(itemGuid);
+    }
+    return DetailRuntimeCache.instance.getOrLoad<Map<String, dynamic>>(
+      bucket: 'item_detail',
+      key: itemGuid,
+      loader: () => api.getItemDetail(itemGuid),
+    );
+  }
+
+  Future<List<MediaLibraryItem>> _loadSeasonItems(
+    FeiniuApi api,
+    String itemGuid,
+  ) {
+    if (!_useRuntimeCache) {
+      return api.getSeasonList(itemGuid);
+    }
+    return DetailRuntimeCache.instance.getOrLoad<List<MediaLibraryItem>>(
+      bucket: 'season_list',
+      key: itemGuid,
+      loader: () => api.getSeasonList(itemGuid),
+    );
+  }
+
+  Future<PlayInfoData> _loadPlayInfo(FeiniuApi api, String itemGuid) {
+    if (!_useRuntimeCache) {
+      return api.getPlayInfo(itemGuid);
+    }
+    return DetailRuntimeCache.instance.getOrLoad<PlayInfoData>(
+      bucket: 'play_info',
+      key: itemGuid,
+      loader: () => api.getPlayInfo(itemGuid),
+    );
+  }
+
+  Future<PlayInfoData?> _loadPlayInfoOrNull(
+    FeiniuApi api,
+    String itemGuid,
+  ) async {
+    try {
+      return await _loadPlayInfo(api, itemGuid);
+    } catch (_) {
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final themeProvider = context.watch<AppThemeProvider>();
     final nasProvider = context.read<NasProvider>();
+    final inPlayerPaneHost = PlayerPaneHostScope.maybeOf(context) != null;
     var dynamicThemeImageUrl = '';
     if (_detail.isNotEmpty) {
       final item = _detail['item'] is Map<String, dynamic>
@@ -858,13 +929,17 @@ class _TvDetailPageState extends State<TvDetailPage>
       }
     }
 
+    final dynamicThemeIntensity = themeProvider.dynamicThemeIntensity;
     return DynamicPageThemeScope(
       pageKey: widget.itemGuid,
       imageUrl: dynamicThemeImageUrl,
       token: nasProvider.token,
       enabled: themeProvider.dynamicThemeEnabled,
-      syncGlobalTheme: _isPane,
-      intensity: themeProvider.dynamicThemeIntensity,
+      syncGlobalTheme: dynamicThemeIntensity.allowsGlobalRuntimeThemeSync(
+        inPlayerPaneHost: inPlayerPaneHost,
+        isPane: _isPane,
+      ),
+      intensity: dynamicThemeIntensity,
       builder: (context, ambientTint) {
         final colors = context.appColors;
         if (_loading) {
@@ -895,7 +970,13 @@ class _TvDetailPageState extends State<TvDetailPage>
           screenSize,
           devicePixelRatio: media.devicePixelRatio,
         );
-        final posterHeight = screenSize.height * heroAdaptive.posterHeightRatio;
+        final posterHeight = math
+            .min(
+              screenSize.height * heroAdaptive.posterHeightRatio,
+              screenSize.width / 1.55,
+            )
+            .clamp(300.0, screenSize.height * 0.48)
+            .toDouble();
         final collapseRange =
             (posterHeight - media.padding.top - kToolbarHeight).clamp(
               1.0,
@@ -927,16 +1008,24 @@ class _TvDetailPageState extends State<TvDetailPage>
             genreNames.isNotEmpty ||
             countryText.isNotEmpty ||
             ancestorName.isNotEmpty;
+        final backdropRequestWidth =
+            (_isPane ? screenSize.width * media.devicePixelRatio * 1.2 : 1200.0)
+                .clamp(720.0, 1200.0)
+                .round();
+        final logoRequestWidth =
+            (_isPane ? screenSize.width * media.devicePixelRatio : 1200.0)
+                .clamp(480.0, 1200.0)
+                .round();
 
         final heroUrls = ApiUrlHelper.imageCandidates(
           provider.baseUrl,
           _backdrops(item),
-          width: 1200,
+          width: backdropRequestWidth,
         );
         final logoUrls = ApiUrlHelper.imageCandidates(
           provider.baseUrl,
           (item['logos'] ?? '').toString(),
-          width: 1200,
+          width: logoRequestWidth,
         );
 
         return Scaffold(
@@ -1147,6 +1236,7 @@ class _TvDetailPageState extends State<TvDetailPage>
                                               seriesTitle: title,
                                               backdropPath: _backdrops(item),
                                               seasonItem: season,
+                                              initialSeasonItems: _seasonItems,
                                             ),
                                             presentation: _isPane
                                                 ? DetailPresentation.pane
@@ -1206,7 +1296,19 @@ class _TvDetailPageState extends State<TvDetailPage>
                     onBack: () => unawaited(
                       EmbeddedDetailLauncher.closeHostOrPop(context),
                     ),
-                    onMore: () {},
+                    onMore: () => unawaited(
+                      showDetailMoreActionsSheet(
+                        context,
+                        pageKey: widget.itemGuid,
+                        pageTitle: title,
+                        suggestedThemeName: context
+                            .read<AppThemeProvider>()
+                            .nextSavedThemeNameFromBase(
+                              _suggestedThemeNameBase(item),
+                            ),
+                        clearRuntimeBroadcastToMain: !inPlayerPaneHost,
+                      ),
+                    ),
                     title: title,
                     titleOpacity: centerTitleOpacity,
                     showBack: !_isPane,

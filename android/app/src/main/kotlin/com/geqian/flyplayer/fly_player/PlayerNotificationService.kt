@@ -43,6 +43,7 @@ class PlayerNotificationService : Service() {
     }
 
     override fun onDestroy() {
+        stopForeground(STOP_FOREGROUND_REMOVE)
         if (::playbackSessionManager.isInitialized) {
             playbackSessionManager.release()
         }
@@ -98,11 +99,14 @@ class PlayerNotificationService : Service() {
         }
 
         fun stop(context: Context) {
-            val intent =
-                Intent(context, PlayerNotificationService::class.java).apply {
-                    action = ACTION_STOP
-                }
-            context.startService(intent)
+            runCatching {
+                context.startService(
+                    Intent(context, PlayerNotificationService::class.java).apply {
+                        action = ACTION_STOP
+                    },
+                )
+            }
+            context.stopService(Intent(context, PlayerNotificationService::class.java))
         }
     }
 }

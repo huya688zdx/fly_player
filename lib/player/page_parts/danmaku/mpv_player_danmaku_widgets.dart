@@ -1,5 +1,7 @@
 part of mpv_player_page;
 
+const double _kDanmakuSliderVisualInset = 7;
+
 class _DanmakuPanelCard extends StatelessWidget {
   final Widget child;
 
@@ -7,8 +9,14 @@ class _DanmakuPanelCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: _settingsCardDecoration(context),
+    final colors = context.appColors;
+    return Material(
+      color: colors.surface.withValues(alpha: 0.58),
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(24),
+        side: BorderSide(color: colors.borderSubtle),
+      ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
         child: child,
@@ -86,19 +94,24 @@ class _DanmakuLineSlider extends StatelessWidget {
     final colors = context.appColors;
     return SizedBox(
       height: 24,
-      child: SliderTheme(
-        data: SliderTheme.of(context).copyWith(
-          trackHeight: 4,
-          activeTrackColor: activeColor,
-          inactiveTrackColor: colors.borderStrong,
-          thumbColor: colors.textPrimary,
-          overlayColor: activeColor.withValues(alpha: 0.16),
-          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-          overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: _kDanmakuSliderVisualInset,
         ),
-        child: Slider(
-          value: normalized,
-          onChanged: (next) => onChanged(min + ((max - min) * next)),
+        child: SliderTheme(
+          data: SliderTheme.of(context).copyWith(
+            trackHeight: 4,
+            activeTrackColor: activeColor,
+            inactiveTrackColor: colors.borderStrong,
+            thumbColor: colors.textPrimary,
+            overlayColor: activeColor.withValues(alpha: 0.16),
+            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+            overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+          ),
+          child: Slider(
+            value: normalized,
+            onChanged: (next) => onChanged(min + ((max - min) * next)),
+          ),
         ),
       ),
     );
@@ -119,105 +132,50 @@ class _DanmakuDiscreteDotsSlider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final rawSelectedIndex = values.indexOf(value);
-    final selectedIndex = rawSelectedIndex < 0 ? 0 : rawSelectedIndex;
-    const double trackHeight = 4;
-    const double trackInset = 7;
-    const double selectedDotRadius = 7;
-    const double normalDotRadius = 3.5;
-    const double tapTargetSize = 24;
+    if (values.isEmpty) {
+      return const SizedBox(height: 24);
+    }
+
+    var selectedIndex = 0;
+    var bestDistance = double.infinity;
+    for (var index = 0; index < values.length; index++) {
+      final distance = (values[index] - value).abs();
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        selectedIndex = index;
+      }
+    }
 
     return SizedBox(
       height: 24,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final width = constraints.maxWidth;
-          final availableWidth = width - (trackInset * 2);
-          final safeWidth = availableWidth > 0 ? availableWidth : 0.0;
-          final step = values.length <= 1
-              ? 0.0
-              : safeWidth / (values.length - 1);
-          final selectedCenter = trackInset + (step * selectedIndex);
-
-          return Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Positioned(
-                left: trackInset,
-                right: trackInset,
-                top: (24 - trackHeight) / 2,
-                child: Container(
-                  height: trackHeight,
-                  decoration: BoxDecoration(
-                    color: colors.borderStrong,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-              ),
-              Positioned(
-                left: trackInset,
-                top: (24 - trackHeight) / 2,
-                width: selectedCenter - trackInset,
-                child: Container(
-                  height: trackHeight,
-                  decoration: BoxDecoration(
-                    color: colors.accent,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-              ),
-              ...List<Widget>.generate(values.length, (index) {
-                final selected = index == selectedIndex;
-                final center = trackInset + (step * index);
-                final radius = selected ? selectedDotRadius : normalDotRadius;
-                final rawLeft = center - (tapTargetSize / 2);
-                final maxLeft = width - tapTargetSize;
-                final left = rawLeft < 0
-                    ? 0.0
-                    : (rawLeft > maxLeft ? maxLeft : rawLeft);
-
-                return Positioned(
-                  left: left,
-                  top: 0,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => onChanged(values[index]),
-                    child: SizedBox(
-                      width: tapTargetSize,
-                      height: 24,
-                      child: Center(
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 140),
-                          width: radius * 2,
-                          height: radius * 2,
-                          decoration: BoxDecoration(
-                            color: colors.textPrimary,
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: selected
-                                  ? colors.accentSoft
-                                  : Colors.transparent,
-                            ),
-                            boxShadow: selected
-                                ? <BoxShadow>[
-                                    BoxShadow(
-                                      color: colors.overlayScrim.withValues(
-                                        alpha: 0.16,
-                                      ),
-                                      blurRadius: 6,
-                                    ),
-                                  ]
-                                : null,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              }),
-            ],
-          );
-        },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: _kDanmakuSliderVisualInset,
+        ),
+        child: SliderTheme(
+          data: SliderTheme.of(context).copyWith(
+            trackHeight: 4,
+            activeTrackColor: colors.accent,
+            inactiveTrackColor: colors.borderStrong,
+            thumbColor: colors.textPrimary,
+            overlayColor: colors.accent.withValues(alpha: 0.16),
+            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+            overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+            activeTickMarkColor: colors.textPrimary,
+            inactiveTickMarkColor: colors.textPrimary.withValues(alpha: 0.9),
+            tickMarkShape: const RoundSliderTickMarkShape(tickMarkRadius: 3),
+          ),
+          child: Slider(
+            value: selectedIndex.toDouble(),
+            min: 0,
+            max: (values.length - 1).toDouble(),
+            divisions: values.length > 1 ? values.length - 1 : 1,
+            onChanged: (next) {
+              final index = next.round().clamp(0, values.length - 1);
+              onChanged(values[index]);
+            },
+          ),
+        ),
       ),
     );
   }
@@ -396,7 +354,7 @@ class _DanmakuSearchButton extends StatelessWidget {
                   ),
                 )
               : Text(
-                  '鎼滅储',
+                  '搜索',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: colors.textPrimary,
@@ -500,7 +458,7 @@ class _SavedDanmakuSourceTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final sourceTypeLabel = source.isDanDanPlay ? '寮瑰脊play' : '鏈湴';
+    final sourceTypeLabel = source.isDanDanPlay ? 'DanDanPlay' : '本地';
     final colors = context.appColors;
     final sourceTypeColor = source.isDanDanPlay
         ? colors.success
@@ -511,8 +469,8 @@ class _SavedDanmakuSourceTile extends StatelessWidget {
               ? source.sourceKey.split(Platform.pathSeparator).last
               : source.sourceKey);
     final subtitle = source.commentCount > 0
-        ? '$sourceTypeLabel 路 ${source.commentCount} 鏉?路 $detail'
-        : '$sourceTypeLabel 路 $detail';
+        ? '$sourceTypeLabel · ${source.commentCount} 条 · $detail'
+        : '$sourceTypeLabel · $detail';
     return Row(
       children: [
         Expanded(
@@ -574,7 +532,7 @@ class _SavedDanmakuSourceTile extends StatelessWidget {
                             border: Border.all(color: colors.selection),
                           ),
                           child: Text(
-                            '褰撳墠',
+                            '当前',
                             style: TextStyle(
                               color: colors.selectionStrong,
                               fontSize: 11,

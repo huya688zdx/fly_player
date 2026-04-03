@@ -30,6 +30,8 @@ object ParallelWindowCoordinator {
     @Volatile
     private var rightPaneHostCount: Int = 0
 
+    private val rightPaneHostRefs = mutableListOf<WeakReference<FlutterHostActivity>>()
+
     @Volatile
     private var preferredPrimaryPaneSide: ParallelPaneSide = ParallelPaneSide.LEFT
 
@@ -62,6 +64,12 @@ object ParallelWindowCoordinator {
 
     @Volatile
     private var mainHostRef: WeakReference<MainActivity>? = null
+
+    @Volatile
+    private var homePaneHostRef: WeakReference<HomePaneActivity>? = null
+
+    @Volatile
+    private var browseHostRef: WeakReference<FlutterHostActivity>? = null
 
     fun updateBrowseSnapshot(snapshot: HashMap<String, Any?>) {
         lastBrowseSnapshot = HashMap(snapshot)
@@ -246,6 +254,33 @@ object ParallelWindowCoordinator {
 
     fun currentMainHost(): MainActivity? = mainHostRef?.get()
 
+    fun attachHomePaneHost(activity: HomePaneActivity) {
+        homePaneHostRef = WeakReference(activity)
+    }
+
+    fun detachHomePaneHost(activity: HomePaneActivity) {
+        val current = homePaneHostRef?.get()
+        if (current === activity) {
+            homePaneHostRef = null
+        }
+    }
+
+    fun currentHomePaneHost(): HomePaneActivity? = homePaneHostRef?.get()
+
+    fun attachBrowseHost(activity: FlutterHostActivity) {
+        browseHostRef = WeakReference(activity)
+    }
+
+    fun detachBrowseHost(activity: FlutterHostActivity) {
+        val current = browseHostRef?.get()
+        if (current === activity) {
+            browseHostRef = null
+        }
+    }
+
+    fun currentBrowseHost(): FlutterHostActivity? =
+        browseHostRef?.get() ?: currentHomePaneHost() ?: currentMainHost()
+
     fun persistSettings(
         context: Context,
         enabled: Boolean,
@@ -265,6 +300,7 @@ object ParallelWindowCoordinator {
             .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putBoolean(KEY_ENABLED, parallelWindowEnabled)
+            .remove("parallel_window_force_enabled")
             .putString(KEY_PRIMARY_SIDE, preferredPrimaryPaneSide.wireValue)
             .putString(KEY_PLAYBACK_PRIMARY_SIDE, preferredPlaybackPrimaryPaneSide.wireValue)
             .putString(KEY_SPLIT_RATIO_PRESET, this.splitRatioPreset)
@@ -306,15 +342,32 @@ object ParallelWindowCoordinator {
     }
 
     @Synchronized
-    fun attachRightPaneHost() {
-        rightPaneHostCount += 1
+    fun attachRightPaneHost(activity: FlutterHostActivity) {
+        pruneRightPaneHostsLocked()
+        val exists =
+            rightPaneHostRefs.any { reference ->
+                reference.get() === activity
+            }
+        if (!exists) {
+            rightPaneHostRefs += WeakReference(activity)
+        }
+        rightPaneHostCount = rightPaneHostRefs.size
     }
 
     @Synchronized
-    fun detachRightPaneHost() {
-        if (rightPaneHostCount > 0) {
-            rightPaneHostCount -= 1
+    fun detachRightPaneHost(activity: FlutterHostActivity) {
+        rightPaneHostRefs.removeAll { reference ->
+            val host = reference.get()
+            host == null || host === activity
         }
+        rightPaneHostCount = rightPaneHostRefs.size
+    }
+
+    @Synchronized
+    fun rightPaneHostsSnapshot(): List<FlutterHostActivity> {
+        pruneRightPaneHostsLocked()
+        rightPaneHostCount = rightPaneHostRefs.size
+        return rightPaneHostRefs.mapNotNull { reference -> reference.get() }
     }
 
     fun hasRightPaneHost(): Boolean = rightPaneHostCount > 0
@@ -322,5 +375,17 @@ object ParallelWindowCoordinator {
     fun clearRightPane() {
         currentDetailItemGuid = ""
         currentDetailRoute = ""
+    }
+
+    fun clearSessionUiState() {
+        clearRightPane()
+        rememberedDetailItemGuid = ""
+        rememberedDetailRoute = ""
+        lastBrowseSnapshot = null
+    }
+
+    @Synchronized
+    private fun pruneRightPaneHostsLocked() {
+        rightPaneHostRefs.removeAll { reference -> reference.get() == null }
     }
 }

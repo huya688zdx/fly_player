@@ -22,6 +22,7 @@ class TvSeasonDetailPanel extends StatelessWidget {
   final String playLabel;
   final double playLabelFontSize;
   final bool watched;
+  final bool downloaded;
   final bool descriptionVisible;
   final Duration switchDuration;
   final String overview;
@@ -51,6 +52,7 @@ class TvSeasonDetailPanel extends StatelessWidget {
     required this.playLabel,
     required this.playLabelFontSize,
     required this.watched,
+    this.downloaded = false,
     required this.descriptionVisible,
     required this.switchDuration,
     required this.overview,
@@ -146,6 +148,8 @@ class TvSeasonDetailPanel extends StatelessWidget {
                   const SizedBox(width: 12),
                   DetailIconButton(
                     iconAsset: 'assets/icons/download.svg',
+                    selectedIconAsset: 'assets/icons/check.svg',
+                    selected: downloaded,
                     onTap: onDownloadTap,
                   ),
                   const SizedBox(width: 10),

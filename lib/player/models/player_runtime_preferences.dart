@@ -2,6 +2,7 @@ import 'dart:ui';
 
 class PlayerRuntimePreferences {
   final bool autoPlayEnabled;
+  final bool nextEpisodePreloadEnabled;
   final bool autoRotateEnabled;
   final bool extremePlaybackEnabled;
   final bool performanceOverlayEnabled;
@@ -18,6 +19,7 @@ class PlayerRuntimePreferences {
 
   const PlayerRuntimePreferences({
     required this.autoPlayEnabled,
+    required this.nextEpisodePreloadEnabled,
     required this.autoRotateEnabled,
     required this.extremePlaybackEnabled,
     required this.performanceOverlayEnabled,

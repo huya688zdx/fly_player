@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../api/feiniu_api.dart';
+import '../api/person_list_request.dart';
 import '../models/person_credit.dart';
 import '../models/play_info.dart';
 import '../models/stream_list_option.dart';
@@ -103,6 +104,11 @@ class PlayDetailPlayerReturnData {
 }
 
 class PlayDetailDataLoader {
+  static const PersonListRequest _creditsRequest = PersonListRequest(
+    page: 1,
+    pageSize: 200,
+  );
+
   final FeiniuApi api;
 
   const PlayDetailDataLoader(this.api);
@@ -113,7 +119,7 @@ class PlayDetailDataLoader {
     final streamTrackData = await api.getStreamTrackData(itemGuid);
     final itemDetail = await api.getItemDetail(itemGuid);
     try {
-      people = await api.getPersonList(itemGuid);
+      people = await api.getPersonList(itemGuid, request: _creditsRequest);
     } catch (error, stackTrace) {
       unawaited(
         AppErrorReporter.report(

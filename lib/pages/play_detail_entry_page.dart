@@ -18,6 +18,7 @@ enum DetailPageMode { movie, tv, library }
 
 class PlayDetailEntryPage extends StatefulWidget {
   final String itemGuid;
+  final String seriesGuid;
   final String? heroTag;
   final Map<String, dynamic>? initialItemDetail;
   final DetailPresentation presentation;
@@ -25,6 +26,7 @@ class PlayDetailEntryPage extends StatefulWidget {
   const PlayDetailEntryPage({
     super.key,
     required this.itemGuid,
+    this.seriesGuid = '',
     this.heroTag,
     this.initialItemDetail,
     this.presentation = DetailPresentation.page,
@@ -50,18 +52,9 @@ class _PlayDetailEntryPageState extends State<PlayDetailEntryPage> {
       _itemDetail = initial;
       _mode = _resolveMode(initial);
       _loading = false;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _load(silent: true);
-      });
       return;
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted) return;
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-      if (!mounted) return;
-      _load();
-    });
+    unawaited(_load());
   }
 
   Future<void> _ensureLocaleMapLoaded() async {
@@ -128,10 +121,7 @@ class _PlayDetailEntryPageState extends State<PlayDetailEntryPage> {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     if (_loading) {
-      return Scaffold(
-        backgroundColor: colors.backgroundBase,
-        body: SizedBox.shrink(),
-      );
+      return const SizedBox.expand();
     }
 
     if (_error != null) {
@@ -164,6 +154,7 @@ class _PlayDetailEntryPageState extends State<PlayDetailEntryPage> {
     }
     return PlayDetailPage(
       itemGuid: widget.itemGuid,
+      seriesGuid: widget.seriesGuid,
       heroTag: widget.heroTag,
       initialItemDetail: _itemDetail,
       presentation: widget.presentation,

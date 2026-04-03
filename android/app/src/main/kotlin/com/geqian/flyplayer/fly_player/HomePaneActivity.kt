@@ -8,12 +8,19 @@ import android.util.Log
 class HomePaneActivity : FlutterHostActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        ParallelWindowCoordinator.attachHomePaneHost(this)
+        ParallelWindowCoordinator.attachBrowseHost(this)
         Log.d(TAG, "onCreate action=${intent?.action} splitPlayerVisible=${ParallelWindowCoordinator.isSplitPlayerVisible()}")
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         Log.d(TAG, "onNewIntent action=${intent.action} splitPlayerVisible=${ParallelWindowCoordinator.isSplitPlayerVisible()}")
+    }
+
+    override fun onResume() {
+        super.onResume()
+        ParallelWindowCoordinator.attachBrowseHost(this)
     }
 
     override fun getInitialRoute(): String = "/"
@@ -33,6 +40,14 @@ class HomePaneActivity : FlutterHostActivity() {
         } else {
             null
         }
+
+    override fun onDestroy() {
+        if (isFinishing) {
+            ParallelWindowCoordinator.detachHomePaneHost(this)
+            ParallelWindowCoordinator.detachBrowseHost(this)
+        }
+        super.onDestroy()
+    }
 
     companion object {
         private const val TAG = "HomePaneActivity"

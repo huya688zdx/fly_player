@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 class AppMotion {
   const AppMotion._();
 
-  static const Duration routeEnter = Duration(milliseconds: 280);
-  static const Duration routeExit = Duration(milliseconds: 280);
+  static const Duration routeEnter = Duration(milliseconds: 380);
+  static const Duration routeExit = Duration(milliseconds: 380);
   static const Duration playerRoute = Duration(milliseconds: 180);
   static const Duration sheetTransition = Duration(milliseconds: 220);
   static const Duration switchDuration = Duration(milliseconds: 280);

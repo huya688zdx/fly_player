@@ -88,6 +88,7 @@ class PlaybackSettingsSwitchTile extends StatelessWidget {
   final String title;
   final String subtitle;
   final bool value;
+  final bool enabled;
   final ValueChanged<bool> onChanged;
 
   const PlaybackSettingsSwitchTile({
@@ -95,6 +96,7 @@ class PlaybackSettingsSwitchTile extends StatelessWidget {
     required this.title,
     this.subtitle = '',
     required this.value,
+    this.enabled = true,
     required this.onChanged,
   });
 
@@ -105,21 +107,24 @@ class PlaybackSettingsSwitchTile extends StatelessWidget {
       decoration: _settingsCardDecoration(context),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-        child: Row(
-          children: [
-            Expanded(
-              child: _SettingsTextBlock(title: title, subtitle: subtitle),
-            ),
-            const SizedBox(width: 12),
-            Switch(
-              value: value,
-              onChanged: onChanged,
-              activeThumbColor: colors.textPrimary,
-              activeTrackColor: colors.accent,
-              inactiveThumbColor: colors.textPrimary,
-              inactiveTrackColor: colors.borderStrong,
-            ),
-          ],
+        child: Opacity(
+          opacity: enabled ? 1 : 0.58,
+          child: Row(
+            children: [
+              Expanded(
+                child: _SettingsTextBlock(title: title, subtitle: subtitle),
+              ),
+              const SizedBox(width: 12),
+              Switch(
+                value: value,
+                onChanged: enabled ? onChanged : null,
+                activeThumbColor: colors.textPrimary,
+                activeTrackColor: colors.accent,
+                inactiveThumbColor: colors.textPrimary,
+                inactiveTrackColor: colors.borderStrong,
+              ),
+            ],
+          ),
         ),
       ),
     );

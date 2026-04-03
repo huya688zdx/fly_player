@@ -21,8 +21,16 @@ const String _playerSettingsChapterConfigPageId =
 const String _playerSettingsMpvPageId = 'player_settings_mpv';
 const String _playerSettingsMpvQuickAdjustPageId =
     'player_settings_mpv_quick_adjust';
+const String _playerSettingsMpvScenePresetPageId =
+    'player_settings_mpv_scene_preset';
 const String _playerSettingsMpvPresetPageId = 'player_settings_mpv_preset';
+const String _playerSettingsMpvAudioPresetPageId =
+    'player_settings_mpv_audio_preset';
 const String _playerSettingsMpvCustomPageId = 'player_settings_mpv_custom';
+const String _playerSettingsMpvPictureCustomPageId =
+    'player_settings_mpv_picture_custom';
+const String _playerSettingsMpvAudioCustomPageId =
+    'player_settings_mpv_audio_custom';
 const String _playerSettingsMpvVideoFiltersPageId =
     'player_settings_mpv_video_filters';
 const String _playerSettingsMpvPictureRenderingPageId =
@@ -72,6 +80,7 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
   Future<void> _showPlaybackSettingsDrawer({
     String initialPageId = _playerSettingsMainPageId,
   }) async {
+    if (_playerUiLocked) return;
     _overlayState.cancelAutoHide();
     final restoreControls = _controlsVisible;
     if (restoreControls) {
@@ -80,6 +89,8 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
 
     if (!mounted) return;
     try {
+      await _syncMpvPresetStateFromStore();
+      if (!mounted) return;
       setState(() => _playbackSettingsDrawerVisible = true);
       await PlayerNestedSheet.show<void>(
         context,
@@ -161,6 +172,10 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
             builder: _buildMpvQuickAdjustPage,
           ),
           PlayerNestedSheetPage<void>(
+            id: _playerSettingsMpvScenePresetPageId,
+            builder: _buildPlaybackSettingsMpvScenePresetPage,
+          ),
+          PlayerNestedSheetPage<void>(
             id: _playerSettingsBookmarkPageId,
             builder: _buildPlaybackSettingsBookmarkPage,
           ),
@@ -185,8 +200,20 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
             builder: _buildPlaybackSettingsMpvPresetPage,
           ),
           PlayerNestedSheetPage<void>(
+            id: _playerSettingsMpvAudioPresetPageId,
+            builder: _buildPlaybackSettingsMpvAudioPresetPage,
+          ),
+          PlayerNestedSheetPage<void>(
             id: _playerSettingsMpvCustomPageId,
             builder: _buildPlaybackSettingsMpvCustomPage,
+          ),
+          PlayerNestedSheetPage<void>(
+            id: _playerSettingsMpvPictureCustomPageId,
+            builder: _buildPlaybackSettingsMpvPictureCustomPage,
+          ),
+          PlayerNestedSheetPage<void>(
+            id: _playerSettingsMpvAudioCustomPageId,
+            builder: _buildPlaybackSettingsMpvAudioCustomPage,
           ),
           PlayerNestedSheetPage<void>(
             id: _playerSettingsMpvVideoFiltersPageId,
@@ -275,6 +302,31 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
             value: _autoRotateEnabled,
             onChanged: (value) {
               unawaited(_setAutoRotateEnabled(value));
+              drawer.refresh();
+            },
+          ),
+          const SizedBox(height: 12),
+          PlaybackSettingsSwitchTile(
+            title: '自动连播',
+            subtitle: _autoPlayEnabled ? '当前集播放完成后自动播放下一集' : '关闭后播放完成停留当前集',
+            value: _autoPlayEnabled,
+            onChanged: (value) {
+              unawaited(_setAutoPlayEnabled(value));
+              drawer.refresh();
+            },
+          ),
+          const SizedBox(height: 12),
+          PlaybackSettingsSwitchTile(
+            title: '下一级预加载',
+            subtitle: _autoPlayEnabled
+                ? (_nextEpisodePreloadEnabled
+                      ? '片尾倒计时开始时预加载下一集，尽量减少黑屏和等待'
+                      : '关闭后保持原本的自动连播切集方式')
+                : '需先开启自动连播',
+            value: _nextEpisodePreloadEnabled,
+            enabled: _autoPlayEnabled,
+            onChanged: (value) {
+              unawaited(_setNextEpisodePreloadEnabled(value));
               drawer.refresh();
             },
           ),

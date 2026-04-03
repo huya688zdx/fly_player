@@ -424,8 +424,11 @@ class PlayerBottomAssetControlButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final useCompact = compact || MediaQuery.of(context).size.width < 900;
+    final isDanmakuAsset = assetName.contains('player_danmaku');
     final iconSize = emphasis
         ? (useCompact ? 30.0 : 34.0)
+        : isDanmakuAsset
+        ? (useCompact ? 24.5 : 28.5)
         : (useCompact ? 22.0 : 26.0);
     final splashRadius = emphasis
         ? (useCompact ? 22.0 : 26.0)
@@ -433,6 +436,8 @@ class PlayerBottomAssetControlButton extends StatelessWidget {
     final edge = emphasis ? 0.0 : (useCompact ? 6.0 : 8.0);
     final minSize = emphasis
         ? (useCompact ? 46.0 : 54.0)
+        : isDanmakuAsset
+        ? (useCompact ? 36.0 : 42.0)
         : (useCompact ? 34.0 : 40.0);
     final effectiveScale = scale.clamp(0.7, 1.0);
     final effectiveMinSize =
@@ -959,7 +964,7 @@ class _PlayerTimelinePainter extends CustomPainter {
           canvas.drawCircle(center, radius, fillPaint);
           canvas.drawCircle(center, radius, outlinePaint);
         case PlayerProgressMarkerKind.abLoop:
-          final lineWidth = 2.6;
+          const lineWidth = 2.6;
           final lineHeight = marker.active ? 12.0 : 10.0;
           final lineRect = RRect.fromRectAndRadius(
             Rect.fromCenter(

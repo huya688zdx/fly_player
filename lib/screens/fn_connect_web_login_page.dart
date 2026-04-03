@@ -5,17 +5,17 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../api/feiniu_api.dart';
-import '../utils/app_exception.dart';
+import '../utils/login_error_resolver.dart';
 
 class FnConnectWebLoginPageResult {
   final LoginWithBaseUrlResult? loginResult;
   final String? errorMessage;
 
   const FnConnectWebLoginPageResult.success(this.loginResult)
-      : errorMessage = null;
+    : errorMessage = null;
 
   const FnConnectWebLoginPageResult.failure(this.errorMessage)
-      : loginResult = null;
+    : loginResult = null;
 
   bool get isSuccess => loginResult != null;
 }
@@ -122,9 +122,7 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
       );
       await _controller.loadRequest(Uri.parse(_entryUrl));
     } catch (error) {
-      _completeFailure(
-        'Failed to initialize FN Connect: ${_readableError(error)}',
-      );
+      _completeFailure(LoginErrorResolver.resolve(error));
     }
   }
 
@@ -391,10 +389,7 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
         baseUrl: currentBaseUrl,
         cookie: cookie,
       );
-      await _navigateToSignin(
-        baseUrl: config.baseUrl,
-        appId: config.appId,
-      );
+      await _navigateToSignin(baseUrl: config.baseUrl, appId: config.appId);
     } catch (_) {
       _isFetchingOauthConfig = false;
     }
@@ -414,15 +409,11 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
 
       final oauthUrl = oauth['url']?.toString().trim() ?? '';
       final fallbackBaseUrl = _originFromUrl(pageUrl ?? '');
-      final targetBaseUrl =
-          oauthUrl.isNotEmpty && oauthUrl != '://'
-              ? _originFromUrl(oauthUrl)
-              : fallbackBaseUrl;
+      final targetBaseUrl = oauthUrl.isNotEmpty && oauthUrl != '://'
+          ? _originFromUrl(oauthUrl)
+          : fallbackBaseUrl;
       if (targetBaseUrl.isEmpty) return;
-      await _navigateToSignin(
-        baseUrl: targetBaseUrl,
-        appId: appId,
-      );
+      await _navigateToSignin(baseUrl: targetBaseUrl, appId: appId);
     } catch (_) {}
   }
 
@@ -482,7 +473,7 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
     if (_isExchangingCode || _isClosing) return;
     final baseUrl = _resolvedBaseUrl;
     if (baseUrl.isEmpty) {
-      _completeFailure('FN Connect login failed: NAS base URL was not resolved');
+      _completeFailure('FN Connect 登录失败，未能解析 NAS 地址');
       return;
     }
 
@@ -500,7 +491,7 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
       );
       _completeSuccess(result);
     } catch (error) {
-      _completeFailure('FN Connect login failed: ${_readableError(error)}');
+      _completeFailure(LoginErrorResolver.resolve(error));
     }
   }
 
@@ -523,17 +514,13 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
   void _completeSuccess(LoginWithBaseUrlResult result) {
     if (!mounted || _isClosing) return;
     _isClosing = true;
-    Navigator.of(
-      context,
-    ).pop(FnConnectWebLoginPageResult.success(result));
+    Navigator.of(context).pop(FnConnectWebLoginPageResult.success(result));
   }
 
   void _completeFailure(String message) {
     if (!mounted || _isClosing) return;
     _isClosing = true;
-    Navigator.of(
-      context,
-    ).pop(FnConnectWebLoginPageResult.failure(message));
+    Navigator.of(context).pop(FnConnectWebLoginPageResult.failure(message));
   }
 
   String _friendlyUrl(String url) {
@@ -551,13 +538,6 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
       host: uri.host,
       port: uri.hasPort ? uri.port : null,
     ).toString().replaceAll(RegExp(r'/$'), '');
-  }
-
-  String _readableError(Object error) {
-    if (error is AppException) {
-      return error.message;
-    }
-    return error.toString().replaceFirst('Exception: ', '').trim();
   }
 
   @override

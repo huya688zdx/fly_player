@@ -1,14 +1,33 @@
+import '../cache/dandanplay_comment_cache_store.dart';
 import '../models/dandanplay_episode_search_item.dart';
 import '../models/danmaku_import_result.dart';
 import '../parser/danmaku_import_parser.dart';
 import 'dandanplay_api.dart';
 
+class DanDanPlayPlaybackResolveResult {
+  final DanDanPlayEpisodeSearchItem item;
+  final DanmakuImportResult result;
+
+  const DanDanPlayPlaybackResolveResult({
+    required this.item,
+    required this.result,
+  });
+}
+
 class DanDanPlayResolver {
   final DanDanPlayApi _api;
+  final DanDanPlayCommentCacheStore _cacheStore;
 
-  const DanDanPlayResolver(this._api);
+  static final Map<int, Future<DanmakuImportResult?>> _inFlightImports =
+      <int, Future<DanmakuImportResult?>>{};
 
-  Future<DanmakuImportResult?> resolveForPlayback({
+  const DanDanPlayResolver(
+    this._api, {
+    DanDanPlayCommentCacheStore cacheStore =
+        const DanDanPlayCommentCacheStore(),
+  }) : _cacheStore = cacheStore;
+
+  Future<DanDanPlayPlaybackResolveResult?> resolveForPlayback({
     required String seriesTitle,
     required int seasonNumber,
     required int episodeNumber,
@@ -18,15 +37,20 @@ class DanDanPlayResolver {
       keyword: seriesTitle,
       episodeNumber: episodeNumber,
       tmdbId: tmdbId,
+      allowLooseTitleFallback: false,
     );
     if (results.isEmpty) return null;
-    return importEpisodeById(results.first);
+    final item = results.first;
+    final result = await importEpisodeById(item);
+    if (result == null) return null;
+    return DanDanPlayPlaybackResolveResult(item: item, result: result);
   }
 
   Future<List<DanDanPlayEpisodeSearchItem>> searchEpisodeCandidates({
     required String keyword,
     required int episodeNumber,
     required String tmdbId,
+    bool allowLooseTitleFallback = false,
   }) async {
     if (!_api.ready) return const <DanDanPlayEpisodeSearchItem>[];
     final normalizedKeyword = _normalizeSeriesTitle(keyword);
@@ -35,34 +59,120 @@ class DanDanPlayResolver {
       return const <DanDanPlayEpisodeSearchItem>[];
     }
 
-    final searchResponse = await _api.searchEpisodes(
-      anime: normalizedKeyword,
-      episode: episodeNumber > 0 ? episodeNumber : null,
+    final filteredEpisodeNumber = episodeNumber > 0 ? episodeNumber : null;
+    final exactResults = await _searchEpisodeCandidatesOnce(
+      keyword: normalizedKeyword,
+      episodeNumber: filteredEpisodeNumber,
       tmdbId: tmdbNumericId,
     );
-    final payload = searchResponse.data ?? const <String, dynamic>{};
-    final items = (payload['animes'] is List)
-        ? payload['animes'] as List<dynamic>
-        : ((payload['episodes'] is List)
-            ? payload['episodes'] as List<dynamic>
-            : const <dynamic>[]);
-    return _collectEpisodeItems(items);
+    if (exactResults.isNotEmpty) {
+      return exactResults;
+    }
+
+    if (normalizedKeyword.isNotEmpty && tmdbNumericId != null) {
+      final fallbackWithoutTmdb = await _searchEpisodeCandidatesOnce(
+        keyword: normalizedKeyword,
+        episodeNumber: filteredEpisodeNumber,
+      );
+      if (fallbackWithoutTmdb.isNotEmpty) {
+        return fallbackWithoutTmdb;
+      }
+    }
+
+    if (!allowLooseTitleFallback || normalizedKeyword.isEmpty) {
+      return const <DanDanPlayEpisodeSearchItem>[];
+    }
+
+    for (final fallbackKeyword in _buildLooseTitleFallbackKeywords(
+      normalizedKeyword,
+    )) {
+      final fallbackResults = await _searchEpisodeCandidatesOnce(
+        keyword: fallbackKeyword,
+        episodeNumber: filteredEpisodeNumber,
+      );
+      if (fallbackResults.isNotEmpty) {
+        return fallbackResults;
+      }
+    }
+    return const <DanDanPlayEpisodeSearchItem>[];
   }
 
   Future<DanmakuImportResult?> importEpisodeById(
     DanDanPlayEpisodeSearchItem item,
   ) async {
+    if (item.episodeId <= 0) return null;
+    final cached = await _loadCachedResult(item);
+    if (cached != null) {
+      return cached;
+    }
     if (!_api.ready) return null;
-    final commentsResponse = await _api.fetchComments(item.episodeId);
-    final xml = commentsResponse.data?.trim() ?? '';
-    if (xml.isEmpty) return null;
-    return DanmakuImportParser.parseXmlString(
-      xml,
-      sourceLabel: '弹弹play · ${item.displaySubtitle}',
-    );
+    final inFlight = _inFlightImports[item.episodeId];
+    if (inFlight != null) {
+      return inFlight;
+    }
+    final future = _fetchAndCacheEpisode(item);
+    _inFlightImports[item.episodeId] = future;
+    try {
+      return await future;
+    } finally {
+      if (identical(_inFlightImports[item.episodeId], future)) {
+        _inFlightImports.remove(item.episodeId);
+      }
+    }
   }
 
-  static String normalizeSeriesTitle(String value) => _normalizeSeriesTitle(value);
+  Future<DanmakuImportResult?> _loadCachedResult(
+    DanDanPlayEpisodeSearchItem item,
+  ) async {
+    final content = await _cacheStore.loadComments(item.episodeId);
+    if (content == null || content.isEmpty) return null;
+    try {
+      return DanmakuImportParser.parseContentString(
+        content,
+        sourceLabel: '弹弹play · ${item.displaySubtitle}',
+      );
+    } catch (_) {
+      await _cacheStore.removeComments(item.episodeId);
+      return null;
+    }
+  }
+
+  Future<DanmakuImportResult?> _fetchAndCacheEpisode(
+    DanDanPlayEpisodeSearchItem item,
+  ) async {
+    final commentsResponse = await _api.fetchComments(item.episodeId);
+    final content = commentsResponse.data?.trim() ?? '';
+    if (content.isEmpty) return null;
+    final result = DanmakuImportParser.parseContentString(
+      content,
+      sourceLabel: '弹弹play · ${item.displaySubtitle}',
+    );
+    await _cacheStore.saveComments(episodeId: item.episodeId, content: content);
+    return result;
+  }
+
+  static String normalizeSeriesTitle(String value) =>
+      _normalizeSeriesTitle(value);
+  static int? normalizeTmdbId(String value) => _normalizeTmdbId(value);
+
+  Future<List<DanDanPlayEpisodeSearchItem>> _searchEpisodeCandidatesOnce({
+    required String keyword,
+    required int? episodeNumber,
+    int? tmdbId,
+  }) async {
+    final searchResponse = await _api.searchEpisodes(
+      anime: keyword,
+      episode: episodeNumber,
+      tmdbId: tmdbId,
+    );
+    final payload = searchResponse.data ?? const <String, dynamic>{};
+    final items = (payload['animes'] is List)
+        ? payload['animes'] as List<dynamic>
+        : ((payload['episodes'] is List)
+              ? payload['episodes'] as List<dynamic>
+              : const <dynamic>[]);
+    return _collectEpisodeItems(items);
+  }
 
   static String _normalizeSeriesTitle(String value) {
     var title = value.trim();
@@ -74,10 +184,37 @@ class DanDanPlayResolver {
 
   static int? _normalizeTmdbId(String trimId) {
     final raw = trimId.trim();
+    if (raw.isEmpty) return null;
+    if (RegExp(r'^\d+$').hasMatch(raw)) {
+      return int.tryParse(raw);
+    }
     if (raw.length < 3) return null;
     final prefix = raw.substring(0, 2).toLowerCase();
-    if (prefix != 'tm' && prefix != 'tt') return null;
+    if (prefix != 'tm') return null;
     return int.tryParse(raw.substring(2).trim());
+  }
+
+  static List<String> _buildLooseTitleFallbackKeywords(String title) {
+    final segments = title
+        .split(RegExp(r'''[\s\-_:：,，、/\\()（）【】《》“”"'!！?？]+'''))
+        .expand((item) => item.split(RegExp(r'[与和及之的]')))
+        .map((item) => item.trim())
+        .where((item) => item.length >= 2 && item != title)
+        .toSet()
+        .toList(growable: false);
+    if (segments.isNotEmpty) {
+      return segments;
+    }
+
+    final compact = title.replaceAll(RegExp(r'\s+'), '');
+    if (compact.length <= 4) {
+      return const <String>[];
+    }
+    return <String>[
+      compact.substring(compact.length - 4),
+      compact.substring(compact.length - 3),
+      compact.substring(compact.length - 2),
+    ].toSet().toList(growable: false);
   }
 
   static List<DanDanPlayEpisodeSearchItem> _collectEpisodeItems(
@@ -91,41 +228,36 @@ class DanDanPlayResolver {
       for (final item in source) {
         if (item is! Map) continue;
         final map = Map<String, dynamic>.from(item);
-        final animeTitle = _readString(
-          map,
-          const <String>[
-            'animeTitle',
-            'animeTitleCN',
-            'animeTitleCHS',
-            'title',
-            'anime',
-            'subjectName',
-          ],
-          fallback: currentAnimeTitle,
-        );
-        final episodeId = _readInt(
-          map,
-          const <String>['episodeId', 'id', 'episode_id'],
-        );
+        final animeTitle = _readString(map, const <String>[
+          'animeTitle',
+          'animeTitleCN',
+          'animeTitleCHS',
+          'title',
+          'anime',
+          'subjectName',
+        ], fallback: currentAnimeTitle);
+        final episodeId = _readInt(map, const <String>[
+          'episodeId',
+          'id',
+          'episode_id',
+        ]);
         if (episodeId != null && seenIds.add(episodeId)) {
           results.add(
             DanDanPlayEpisodeSearchItem(
               episodeId: episodeId,
               animeTitle: animeTitle,
-              episodeTitle: _readString(
-                map,
-                const <String>[
-                  'episodeTitle',
-                  'episodeName',
-                  'title',
-                  'name',
-                ],
-              ),
+              episodeTitle: _readString(map, const <String>[
+                'episodeTitle',
+                'episodeName',
+                'title',
+                'name',
+              ]),
               episodeNumber:
-                  _readInt(
-                    map,
-                    const <String>['episodeNumber', 'episode', 'ep'],
-                  ) ??
+                  _readInt(map, const <String>[
+                    'episodeNumber',
+                    'episode',
+                    'ep',
+                  ]) ??
                   0,
             ),
           );

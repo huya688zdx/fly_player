@@ -15,6 +15,19 @@ extension _MpvPlayerAbLoopMixin on _MpvPlayerPageState {
 
   bool get _abLoopButtonActive => _abLoopEnabled || _abLoopStart != null;
 
+  Duration _currentAbLoopAnchorPosition(Duration duration) {
+    final base =
+        _uiController.draggingPosition ??
+        _displayPosition(_controller.value.value);
+    if (duration <= Duration.zero) {
+      return base;
+    }
+    if (base <= Duration.zero) {
+      return Duration.zero;
+    }
+    return base > duration ? duration : base;
+  }
+
   Future<void> _handleAbLoopButtonPressed() async {
     final duration = _effectiveDuration();
     if (duration <= Duration.zero) {
@@ -106,7 +119,7 @@ extension _MpvPlayerAbLoopMixin on _MpvPlayerPageState {
     if (value.position < trigger) return;
     _abLoopSeekPending = true;
     _gestureController.resetSeekTracking();
-    unawaited(_controller.seek(start));
+    unawaited(_seekWithStats(start, userInitiated: false));
   }
 
   List<PlayerProgressChapterMarker> _abLoopProgressMarkers(Duration duration) {
@@ -118,10 +131,7 @@ extension _MpvPlayerAbLoopMixin on _MpvPlayerPageState {
       markers.add(
         PlayerProgressChapterMarker(
           fraction:
-              start.inMilliseconds
-                  .clamp(0, duration.inMilliseconds)
-                  .toDouble() /
-              duration.inMilliseconds,
+              start.inMilliseconds / duration.inMilliseconds.clamp(1, 1 << 30),
           active: true,
           kind: PlayerProgressMarkerKind.abLoop,
           snapTarget: false,
@@ -132,8 +142,7 @@ extension _MpvPlayerAbLoopMixin on _MpvPlayerPageState {
       markers.add(
         PlayerProgressChapterMarker(
           fraction:
-              end.inMilliseconds.clamp(0, duration.inMilliseconds).toDouble() /
-              duration.inMilliseconds,
+              end.inMilliseconds / duration.inMilliseconds.clamp(1, 1 << 30),
           active: true,
           kind: PlayerProgressMarkerKind.abLoop,
           snapTarget: false,
@@ -146,27 +155,17 @@ extension _MpvPlayerAbLoopMixin on _MpvPlayerPageState {
   PlayerProgressRangeHighlight? _abLoopProgressHighlight(Duration duration) {
     final start = _abLoopStart;
     final end = _abLoopEnd;
-    if (start == null || end == null || duration <= Duration.zero) return null;
-    final durationMs = duration.inMilliseconds;
-    if (durationMs <= 0) return null;
-    final startFraction =
-        start.inMilliseconds.clamp(0, durationMs).toDouble() / durationMs;
-    final endFraction =
-        end.inMilliseconds.clamp(0, durationMs).toDouble() / durationMs;
+    if (duration <= Duration.zero || start == null || end == null) {
+      return null;
+    }
+    final totalMs = duration.inMilliseconds;
+    if (totalMs <= 0) return null;
+    final startFraction = (start.inMilliseconds / totalMs).clamp(0.0, 1.0);
+    final endFraction = (end.inMilliseconds / totalMs).clamp(0.0, 1.0);
     if (endFraction <= startFraction) return null;
     return PlayerProgressRangeHighlight(
       startFraction: startFraction,
       endFraction: endFraction,
-      active: true,
     );
-  }
-
-  Duration _currentAbLoopAnchorPosition(Duration duration) {
-    final current =
-        _uiController.draggingPosition ??
-        _displayPosition(_controller.value.value);
-    if (current <= Duration.zero) return Duration.zero;
-    if (current >= duration) return duration;
-    return current;
   }
 }

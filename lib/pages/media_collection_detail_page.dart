@@ -18,12 +18,15 @@ import '../theme/app_theme.dart';
 import '../theme/detail_tokens.dart';
 import '../ui/adaptive_detail_navigator.dart';
 import '../ui/detail_presentation.dart';
+import '../ui/player_pane_host_scope.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
 import '../utils/detail_top_tip.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/detail/dynamic_page_theme_scope.dart';
+import '../widgets/detail/detail_more_actions_sheet.dart';
 import '../widgets/detail/play_control_row.dart';
+import '../widgets/detail/theme_save_name_helper.dart';
 import '../widgets/library/media_collection_browser.dart';
 import '../widgets/library/media_collection_layout_sheet.dart';
 
@@ -945,6 +948,7 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
   Widget build(BuildContext context) {
     final themeProvider = context.watch<AppThemeProvider>();
     final provider = context.read<NasProvider>();
+    final inPlayerPaneHost = PlayerPaneHostScope.maybeOf(context) != null;
     String dynamicPosterPath = '';
     for (final item in _items.isNotEmpty ? _items : _allItems) {
       final candidate = item.poster.trim().isNotEmpty ? item.poster.trim() : '';
@@ -964,13 +968,17 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
         ? dynamicThemeUrls.first
         : '';
 
+    final dynamicThemeIntensity = themeProvider.dynamicThemeIntensity;
     return DynamicPageThemeScope(
       pageKey: widget.itemGuid,
       imageUrl: dynamicThemeImageUrl,
       token: provider.token,
       enabled: themeProvider.dynamicThemeEnabled,
-      syncGlobalTheme: _isPane,
-      intensity: themeProvider.dynamicThemeIntensity,
+      syncGlobalTheme: dynamicThemeIntensity.allowsGlobalRuntimeThemeSync(
+        inPlayerPaneHost: inPlayerPaneHost,
+        isPane: _isPane,
+      ),
+      intensity: dynamicThemeIntensity,
       builder: (context, _) {
         final colors = context.appColors;
         if (_loading) {
@@ -1031,7 +1039,28 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
                             const Spacer(),
                             _TopBarIconButton(
                               icon: Icons.more_horiz_rounded,
-                              onTap: _openLayoutSheet,
+                              onTap: () => unawaited(
+                                showDetailMoreActionsSheet(
+                                  context,
+                                  pageKey: widget.itemGuid,
+                                  pageTitle: title,
+                                  suggestedThemeName: context
+                                      .read<AppThemeProvider>()
+                                      .nextSavedThemeNameFromBase(
+                                        buildThemeSaveNameBase(title: title),
+                                      ),
+                                  clearRuntimeBroadcastToMain:
+                                      !inPlayerPaneHost,
+                                  extraActions: <DetailMoreActionItem>[
+                                    DetailMoreActionItem(
+                                      icon: Icons.grid_view_rounded,
+                                      title: '布局方式',
+                                      subtitle: '切换合集详情中的列表布局',
+                                      onTap: (context) => _openLayoutSheet(),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
                           ],
                         ),

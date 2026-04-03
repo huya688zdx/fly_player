@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -12,10 +14,47 @@ val mpvAndroidJniLibsDir = mpvAndroidDir?.let {
     file("$it/app/src/main/jniLibs")
 }?.takeIf { it.exists() }
 
+val localProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localPropertiesFile.inputStream().use(::load)
+    }
+}
+
+fun resolveSecretConfig(name: String): String {
+    return providers.gradleProperty(name).orNull
+        ?: localProperties.getProperty(name)
+        ?: System.getenv(name)
+        ?: ""
+}
+
+fun buildConfigString(value: String): String {
+    val escaped = value.replace("\\", "\\\\").replace("\"", "\\\"")
+    return "\"$escaped\""
+}
+
+val danDanPlayAppId = resolveSecretConfig("DANDANPLAY_APP_ID")
+val danDanPlayAppSecret = resolveSecretConfig("DANDANPLAY_APP_SECRET")
+val danDanPlayAppSecretFallback = resolveSecretConfig("DANDANPLAY_APP_SECRET_FALLBACK")
+
 android {
     namespace = "com.geqian.flyplayer.fly_player"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
+
+    androidResources {
+        noCompress += listOf("pdmodel", "pdiparams", "pdiparams.info", "yaml", "yml")
+    }
+
+    buildFeatures {
+        buildConfig = true
+    }
+
+    packaging {
+        jniLibs {
+            pickFirsts += listOf("**/libc++_shared.so")
+        }
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -31,10 +70,17 @@ android {
         applicationId = "com.geqian.flyplayer.fly_player"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdk = maxOf(flutter.minSdkVersion, 23)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        buildConfigField("String", "DANDANPLAY_APP_ID", buildConfigString(danDanPlayAppId))
+        buildConfigField("String", "DANDANPLAY_APP_SECRET", buildConfigString(danDanPlayAppSecret))
+        buildConfigField(
+            "String",
+            "DANDANPLAY_APP_SECRET_FALLBACK",
+            buildConfigString(danDanPlayAppSecretFallback),
+        )
     }
 
     buildTypes {
@@ -42,6 +88,7 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            proguardFiles("proguard-rules.pro")
         }
     }
 
@@ -57,11 +104,13 @@ android {
 }
 
 dependencies {
+    implementation("androidx.documentfile:documentfile:1.0.1")
     implementation("androidx.media:media:1.7.0")
     implementation("androidx.palette:palette-ktx:1.0.0")
     implementation("androidx.window:window:1.3.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.nanohttpd:nanohttpd:2.3.1")
+    implementation(files("libs/fastdeploy-android-sdk-latest-dev.aar"))
 }
 
 flutter {

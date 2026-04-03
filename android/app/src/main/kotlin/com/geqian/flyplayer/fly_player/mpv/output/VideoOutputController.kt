@@ -4,8 +4,7 @@ import android.app.Activity
 import android.content.pm.ActivityInfo
 import android.os.Build
 import android.util.Log
-import android.view.SurfaceHolder
-import android.view.SurfaceView
+import android.view.Surface
 import java.util.Locale
 
 private const val VIDEO_OUTPUT_TAG = "FlyPlayerMpv"
@@ -25,7 +24,7 @@ private const val VIDEO_TARGET_PRIM_SDR = "bt.709"
 private const val VIDEO_TARGET_TRC_SDR = "bt.1886"
 
 class VideoOutputController(
-    private val surfaceView: SurfaceView,
+    private val videoOutputTarget: VideoOutputTarget,
     private val hostActivity: Activity?,
     val displayProfile: DisplayProfile,
     val deviceProfile: DeviceProfile,
@@ -33,6 +32,8 @@ class VideoOutputController(
     private val mpv: MpvFacade = DefaultMpvFacade,
 ) {
     private var lastErrorMessage: String? = null
+    private var latestSurfaceGeneration = -1L
+    private var attachedSurfaceGeneration = -1L
     var surfaceReady = false
         private set
     var surfaceAttached = false
@@ -67,6 +68,8 @@ class VideoOutputController(
         videoTrackSuspended = false
         activeColorPipeline = VideoColorPipeline.SDR
         lastErrorMessage = null
+        latestSurfaceGeneration = -1L
+        attachedSurfaceGeneration = -1L
         applyWindowColorMode(VideoColorPipeline.SDR)
     }
 
@@ -76,25 +79,41 @@ class VideoOutputController(
         return message
     }
 
-    fun onSurfaceCreated(holder: SurfaceHolder): Boolean {
+    fun onSurfaceAvailable(
+        surface: Surface,
+        generation: Long,
+    ): Boolean {
+        if (generation < latestSurfaceGeneration) {
+            return true
+        }
+        latestSurfaceGeneration = generation
         surfaceReady = true
         lastErrorMessage = null
         return runCatching {
-            rebindSurface(holder.surface, "surfaceCreated")
+            rebindSurface(surface, "surfaceAvailable", generation)
             true
         }.onFailure { error ->
             lastErrorMessage = formatNativePlaybackError("surface attachment", error)
         }.getOrDefault(false)
     }
 
-    fun onSurfaceDestroyed(initialized: Boolean, available: Boolean) {
+    fun onSurfaceDestroyed(
+        initialized: Boolean,
+        available: Boolean,
+        generation: Long,
+    ) {
+        if (generation < latestSurfaceGeneration) {
+            return
+        }
+        latestSurfaceGeneration = generation
         surfaceReady = false
         videoOutputReady = false
         lastErrorMessage = null
         runCatching {
-            if (surfaceAttached) {
+            if (surfaceAttached && attachedSurfaceGeneration <= generation) {
                 mpv.detachSurface()
                 surfaceAttached = false
+                attachedSurfaceGeneration = -1L
             }
             if (initialized && available) {
                 mpv.setPropertyString("vid", "no")
@@ -107,6 +126,14 @@ class VideoOutputController(
         applyWindowColorMode(VideoColorPipeline.SDR)
     }
 
+    fun onSurfaceDestroyed(initialized: Boolean, available: Boolean) {
+        onSurfaceDestroyed(
+            initialized = initialized,
+            available = available,
+            generation = latestSurfaceGeneration,
+        )
+    }
+
     fun detachSurfaceForHandoff() {
         surfaceReady = false
         videoOutputReady = false
@@ -115,6 +142,7 @@ class VideoOutputController(
             if (surfaceAttached) {
                 mpv.detachSurface()
                 surfaceAttached = false
+                attachedSurfaceGeneration = -1L
             }
         }.onFailure { error ->
             lastErrorMessage = formatNativePlaybackError("surface handoff", error)
@@ -271,6 +299,33 @@ class VideoOutputController(
         }.getOrDefault(false)
     }
 
+    fun enableListenVideoMode(initialized: Boolean, available: Boolean): Boolean {
+        if (!initialized || !available) return false
+        lastErrorMessage = null
+        return runCatching {
+            mpv.setPropertyString("vid", "no")
+            mpv.setPropertyString("vo", VIDEO_OUTPUT_NONE)
+            videoTrackSuspended = true
+            videoOutputReady = false
+            applyWindowColorMode(VideoColorPipeline.SDR)
+            true
+        }.onFailure { error ->
+            lastErrorMessage = formatNativePlaybackError("listen video mode", error)
+        }.getOrDefault(false)
+    }
+
+    fun disableListenVideoMode(initialized: Boolean, available: Boolean): Boolean {
+        if (!initialized || !available) return false
+        lastErrorMessage = null
+        return runCatching {
+            mpv.setPropertyString("vid", "auto")
+            videoTrackSuspended = false
+            true
+        }.onFailure { error ->
+            lastErrorMessage = formatNativePlaybackError("video playback mode", error)
+        }.getOrDefault(false)
+    }
+
     fun ensureVideoOutputReady(
         initialized: Boolean,
         available: Boolean,
@@ -317,9 +372,14 @@ class VideoOutputController(
             Log.w(VIDEO_OUTPUT_TAG, "skip video output recovery reason=$reason surfaceReady=$surfaceReady")
             return
         }
+        val currentSurface = videoOutputTarget.currentSurface()
+        if (currentSurface == null || !currentSurface.isValid) {
+            Log.w(VIDEO_OUTPUT_TAG, "skip video output recovery reason=$reason surfaceMissing=true")
+            return
+        }
         lastErrorMessage = null
         runCatching {
-            rebindSurface(surfaceView.holder.surface, "recover:$reason")
+            rebindSurface(currentSurface, "recover:$reason", latestSurfaceGeneration)
         }.onFailure { error ->
             lastErrorMessage = formatNativePlaybackError(
                 action = "video output recovery",
@@ -396,16 +456,18 @@ class VideoOutputController(
     }
 
     private fun currentSurfaceValid(): Boolean {
-        return runCatching { surfaceView.holder.surface?.isValid == true }.getOrDefault(false)
+        return videoOutputTarget.isSurfaceValid()
     }
 
     private fun rebindSurface(
-        surface: android.view.Surface,
+        surface: Surface,
         reason: String,
+        generation: Long,
     ) {
         if (!surface.isValid) {
             surfaceAttached = false
             videoOutputReady = false
+            attachedSurfaceGeneration = -1L
             error("invalid surface for $reason")
         }
         if (surfaceAttached) {
@@ -415,9 +477,11 @@ class VideoOutputController(
                 Log.w(VIDEO_OUTPUT_TAG, "detach stale surface failed reason=$reason", error)
             }
             surfaceAttached = false
+            attachedSurfaceGeneration = -1L
         }
         mpv.attachSurface(surface)
         surfaceAttached = true
+        attachedSurfaceGeneration = generation
         videoOutputReady = false
     }
 

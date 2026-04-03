@@ -13,6 +13,29 @@ import '../../theme/dynamic_theme_seed_extractor.dart';
 typedef DynamicPageThemeBuilder =
     Widget Function(BuildContext context, Color? ambientTint);
 
+class DynamicPageThemeSnapshot extends InheritedWidget {
+  final bool hasDynamicTheme;
+  final AppThemeColors effectiveColors;
+
+  const DynamicPageThemeSnapshot({
+    super.key,
+    required this.hasDynamicTheme,
+    required this.effectiveColors,
+    required super.child,
+  });
+
+  static DynamicPageThemeSnapshot? maybeOf(BuildContext context) {
+    return context
+        .dependOnInheritedWidgetOfExactType<DynamicPageThemeSnapshot>();
+  }
+
+  @override
+  bool updateShouldNotify(DynamicPageThemeSnapshot oldWidget) {
+    return hasDynamicTheme != oldWidget.hasDynamicTheme ||
+        effectiveColors != oldWidget.effectiveColors;
+  }
+}
+
 class DynamicPageThemeScope extends StatefulWidget {
   final String pageKey;
   final String imageUrl;
@@ -73,8 +96,18 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
     final urlChanged = oldWidget.imageUrl != widget.imageUrl;
     final tokenChanged = oldWidget.token != widget.token;
     final enabledChanged = oldWidget.enabled != widget.enabled;
-    if (keyChanged || urlChanged || tokenChanged || enabledChanged) {
+    final syncGlobalThemeChanged =
+        oldWidget.syncGlobalTheme != widget.syncGlobalTheme;
+    final intensityChanged = oldWidget.intensity != widget.intensity;
+    if (keyChanged ||
+        urlChanged ||
+        tokenChanged ||
+        enabledChanged ||
+        syncGlobalThemeChanged ||
+        intensityChanged) {
       if (keyChanged) {
+        _clearGlobalTheme(oldWidget.pageKey);
+      } else if (oldWidget.syncGlobalTheme && !widget.syncGlobalTheme) {
         _clearGlobalTheme(oldWidget.pageKey);
       }
       _seed = widget.enabled
@@ -254,35 +287,63 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
     final parentTheme = Theme.of(context);
     final baseColors = context.appColors;
     final effectiveSeed = widget.enabled ? _seed : null;
-    final effectiveColors = effectiveSeed == null
-        ? baseColors
+    if (effectiveSeed == null) {
+      return DynamicPageThemeSnapshot(
+        hasDynamicTheme: false,
+        effectiveColors: baseColors,
+        child: Builder(
+          builder: (context) {
+            return widget.builder(context, null);
+          },
+        ),
+      );
+    }
+    final ambientTint = DynamicThemeMapper.ambientTint(
+      baseColors: baseColors,
+      seed: effectiveSeed,
+      intensity: widget.intensity,
+    );
+    final effectiveColors = widget.intensity.usesAmbientOnly
+        ? DynamicThemeMapper.mapSubtle(
+            baseColors: baseColors,
+            seed: effectiveSeed,
+          )
         : DynamicThemeMapper.map(
             baseColors: baseColors,
             seed: effectiveSeed,
             intensity: widget.intensity,
           );
-    final effectiveTheme = effectiveSeed == null
-        ? parentTheme
-        : AppThemeBuilder.buildFromColors(
-            effectiveColors,
-            baseTheme: parentTheme,
-          );
-    final ambientTint = effectiveSeed == null
-        ? null
-        : DynamicThemeMapper.ambientTint(
-            baseColors: baseColors,
-            seed: effectiveSeed,
-            intensity: widget.intensity,
-          );
+    final effectiveTheme = AppThemeBuilder.buildFromColors(
+      effectiveColors,
+      baseTheme: parentTheme,
+    );
+    if (widget.intensity.usesAmbientOnly) {
+      return Theme(
+        data: effectiveTheme,
+        child: DynamicPageThemeSnapshot(
+          hasDynamicTheme: true,
+          effectiveColors: effectiveColors,
+          child: Builder(
+            builder: (context) {
+              return widget.builder(context, ambientTint);
+            },
+          ),
+        ),
+      );
+    }
 
     return AnimatedTheme(
       data: effectiveTheme,
       duration: const Duration(milliseconds: 140),
       curve: Curves.easeOutCubic,
-      child: Builder(
-        builder: (context) {
-          return widget.builder(context, ambientTint);
-        },
+      child: DynamicPageThemeSnapshot(
+        hasDynamicTheme: true,
+        effectiveColors: effectiveColors,
+        child: Builder(
+          builder: (context) {
+            return widget.builder(context, ambientTint);
+          },
+        ),
       ),
     );
   }

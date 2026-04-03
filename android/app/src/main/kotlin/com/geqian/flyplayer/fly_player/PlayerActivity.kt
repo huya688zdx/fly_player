@@ -1,14 +1,23 @@
 package com.geqian.flyplayer.fly_player
 
 import android.app.Activity
+import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.util.Rational
+import android.view.WindowManager
 import java.util.HashMap
 
 class PlayerActivity : FlutterHostActivity() {
     private fun currentLayoutMode(): String = PlayerLaunchContract.readLayoutMode(intent)
+
+    private fun currentInitialRightPaneRoute(): String {
+        return PlayerLaunchContract.readInitialRightPaneRoute(intent)
+    }
 
     private fun applyLayoutModeState() {
         ParallelWindowCoordinator.setSplitPlayerVisible(
@@ -20,27 +29,19 @@ class PlayerActivity : FlutterHostActivity() {
 
     override fun hostSurface(): String = "player"
 
-    override fun hostPaneSide(): ParallelPaneSide =
-        if (currentLayoutMode() == PlayerLaunchContract.MODE_SPLIT) {
-            ParallelWindowCoordinator.activePlayerPrimaryPaneSide()
-        } else {
-            ParallelPaneSide.FULLSCREEN
-        }
+    override fun hostPaneSide(): ParallelPaneSide = ParallelPaneSide.FULLSCREEN
 
-    override fun hostRoleOverride(): ParallelHostRole =
-        if (currentLayoutMode() == PlayerLaunchContract.MODE_SPLIT) {
-            ParallelHostRole.PRIMARY
-        } else {
-            ParallelHostRole.FULLSCREEN
-        }
+    override fun hostRoleOverride(): ParallelHostRole = ParallelHostRole.FULLSCREEN
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        PlaybackSessionCoordinator.allowSessionUpdates()
         ParallelWindowCoordinator.attachPlayerHost(this)
         applyLayoutModeState()
         Log.d(
             TAG,
-            "onCreate layoutMode=${currentLayoutMode()} action=${intent?.action} fromParallel=${PlayerLaunchContract.isFromParallelHost(intent)}",
+            "onCreate layoutMode=${currentLayoutMode()} action=${intent?.action} fromParallel=${PlayerLaunchContract.isFromParallelHost(intent)} rightPaneRoute=${currentInitialRightPaneRoute()}",
         )
     }
 
@@ -50,24 +51,33 @@ class PlayerActivity : FlutterHostActivity() {
         applyLayoutModeState()
         Log.d(
             TAG,
-            "onNewIntent layoutMode=${currentLayoutMode()} action=${intent.action} fromParallel=${PlayerLaunchContract.isFromParallelHost(intent)}",
+            "onNewIntent layoutMode=${currentLayoutMode()} action=${intent.action} fromParallel=${PlayerLaunchContract.isFromParallelHost(intent)} rightPaneRoute=${currentInitialRightPaneRoute()}",
         )
+        if (intent.action == PlayerLaunchContract.ACTION_RESUME_PLAYER) {
+            return
+        }
         PlayerLaunchContract.buildInitialArgs(intent)?.let { args ->
             playerHostStateChannel?.invokeMethod("replaceSource", args)
         }
     }
 
     override fun onDestroy() {
-        ParallelWindowCoordinator.detachPlayerHost(this)
-        if (isFinishing && currentLayoutMode() == PlayerLaunchContract.MODE_SPLIT) {
-            ParallelWindowCoordinator.setSplitPlayerVisible(false)
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (isFinishing && !isChangingConfigurations) {
+            PlaybackSessionCoordinator.blockSessionUpdates()
+            PlaybackSessionCoordinator.detachHost(this)
+            PlayerNotificationService.stop(applicationContext)
         }
+        ParallelWindowCoordinator.detachPlayerHost(this)
+        ParallelWindowCoordinator.setSplitPlayerVisible(false)
         super.onDestroy()
     }
 
     fun replaceSourceInPlace(
         title: String,
         source: HashMap<String, Any?>,
+        initialPlayInfo: HashMap<String, Any?>? = null,
+        startSource: String = "manual",
     ) {
         val normalizedTitle = title.trim()
         if (normalizedTitle.isEmpty() || source.isEmpty()) return
@@ -76,9 +86,12 @@ class PlayerActivity : FlutterHostActivity() {
                 context = this,
                 title = normalizedTitle,
                 source = HashMap(source),
-                fromParallelHost = true,
+                initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
+                startSource = startSource,
+                fromParallelHost = PlayerLaunchContract.isFromParallelHost(intent),
                 hostContext = getParallelHostContext(),
                 layoutMode = currentLayoutMode(),
+                initialRightPaneRoute = currentInitialRightPaneRoute(),
             )
         setIntent(nextIntent)
         PlayerLaunchContract.buildInitialArgs(nextIntent)?.let { args ->
@@ -90,131 +103,162 @@ class PlayerActivity : FlutterHostActivity() {
         }
     }
 
+    fun replaceRightPaneRouteInPlace(routeName: String): Boolean {
+        val normalizedRoute = routeName.trim()
+        if (normalizedRoute.isEmpty()) return false
+        Log.d(
+            TAG,
+            "replaceRightPaneRouteInPlace layoutMode=${currentLayoutMode()} route=$normalizedRoute",
+        )
+        playerHostStateChannel?.invokeMethod(
+            "replaceRightPaneRoute",
+            hashMapOf("routeName" to normalizedRoute),
+        )
+        return true
+    }
+
     override fun consumeInitialPlayerArgs(): HashMap<String, Any?>? {
         return PlayerLaunchContract.buildInitialArgs(intent)
     }
 
     override fun finishPlayerActivity(result: HashMap<String, Any?>?): Boolean {
+        PlaybackSessionCoordinator.blockSessionUpdates()
+        PlaybackSessionCoordinator.detachHost(this)
+        PlayerNotificationService.stop(applicationContext)
         Log.d(
             TAG,
-            "finishPlayerActivity layoutMode=${currentLayoutMode()} rememberedDetailRoute=${ParallelWindowCoordinator.rememberedDetailRoute()} rememberedDetailItem=${ParallelWindowCoordinator.rememberedDetailItemGuid()}",
+            "finishPlayerActivity layoutMode=${currentLayoutMode()} rightPaneRoute=${currentInitialRightPaneRoute()}",
         )
-        if (currentLayoutMode() == PlayerLaunchContract.MODE_SPLIT) {
-            ParallelWindowCoordinator.setSplitPlayerVisible(false)
-            val restoreRoute =
-                ParallelWindowCoordinator.rememberedDetailRoute().ifBlank {
-                    val itemGuid = ParallelWindowCoordinator.rememberedDetailItemGuid().trim()
-                    if (itemGuid.isBlank()) {
-                        ""
-                    } else {
-                        DetailActivity.createIntent(this, itemGuid)
-                            .getStringExtra("initial_route")
-                            .orEmpty()
-                    }
-                }
-            if (restoreRoute.isNotBlank()) {
-                startActivity(
-                    DetailActivity.createResumeIntent(
-                        context = this,
-                        routeName = restoreRoute,
-                    ),
-                )
-            }
-        }
         setResult(
             Activity.RESULT_OK,
             Intent().apply {
                 PlayerLaunchContract.putResultPayload(this, result)
             },
         )
-        finish()
+        runAfterMethodReply {
+            finish()
+        }
         return true
     }
 
     override fun switchPlayerLayoutMode(
         title: String,
         source: HashMap<String, Any?>?,
+        initialPlayInfo: HashMap<String, Any?>?,
+        startSource: String,
         targetMode: String,
         resultPayload: HashMap<String, Any?>?,
     ): Boolean {
         val normalizedTitle = title.trim()
         val normalizedSource = source ?: hashMapOf()
-        if (normalizedTitle.isEmpty() || normalizedSource.isEmpty()) return false
-
-        return when (targetMode) {
-            PlayerLaunchContract.MODE_SPLIT -> enterSplitMode()
-            PlayerLaunchContract.MODE_FULLSCREEN -> enterFullscreenMode()
-            else -> false
+        if (normalizedTitle.isEmpty() || normalizedSource.isEmpty()) {
+            return false
         }
-    }
-
-    private fun enterSplitMode(): Boolean {
-        if (currentLayoutMode() == PlayerLaunchContract.MODE_SPLIT) return true
-        if (!PlayerLaunchContract.isFromParallelHost(intent)) return false
-
-        Log.d(
-            TAG,
-            "enterSplitMode start action=${intent?.action} rememberedDetailRoute=${ParallelWindowCoordinator.rememberedDetailRoute()} currentDetailRoute=${ParallelWindowCoordinator.currentDetailRoute()}",
-        )
-        ParallelWindowCoordinator.snapshotDetailForRestore()
-        PlayerLaunchContract.updateLayoutMode(intent, PlayerLaunchContract.MODE_SPLIT)
-        setIntent(intent)
-        applyLayoutModeState()
-        ParallelWindowCoordinator.currentDetailHost()?.let { detailHost ->
-            Log.d(TAG, "enterSplitMode finishingDetailHost=${detailHost.javaClass.simpleName}")
-            detailHost.finish()
+        if (targetMode != PlayerLaunchContract.MODE_SPLIT &&
+            targetMode != PlayerLaunchContract.MODE_FULLSCREEN
+        ) {
+            return false
         }
-        val attachHomeIntent = HomePaneActivity.createAttachToPlayerIntent(this)
-        Log.d(
-            TAG,
-            "enterSplitMode launching=${attachHomeIntent.component?.className} action=${attachHomeIntent.action}",
-        )
-        startActivity(attachHomeIntent)
-        return true
-    }
-
-    private fun enterFullscreenMode(): Boolean {
-        if (currentLayoutMode() == PlayerLaunchContract.MODE_FULLSCREEN) return true
-
-        val initialArgs = consumeInitialPlayerArgs() ?: return false
-        val title = initialArgs["title"]?.toString()?.trim().orEmpty()
-        val source = initialArgs["source"] as? HashMap<String, Any?> ?: return false
-        if (title.isEmpty() || source.isEmpty()) return false
-        val fullscreenIntent =
+        val nextIntent =
             createIntent(
                 context = this,
-                title = title,
-                source = source,
+                title = normalizedTitle,
+                source = HashMap(normalizedSource),
+                initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
+                startSource = startSource,
                 fromParallelHost = PlayerLaunchContract.isFromParallelHost(intent),
                 hostContext = getParallelHostContext(),
-                layoutMode = PlayerLaunchContract.MODE_FULLSCREEN,
-            ).apply {
-                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-            }
+                layoutMode = targetMode,
+                initialRightPaneRoute = currentInitialRightPaneRoute(),
+            )
+        setIntent(nextIntent)
+        applyLayoutModeState()
         Log.d(
             TAG,
-            "enterFullscreenMode start rememberedDetailRoute=${ParallelWindowCoordinator.rememberedDetailRoute()} currentDetailRoute=${ParallelWindowCoordinator.currentDetailRoute()} action=${fullscreenIntent.action}",
+            "switchPlayerLayoutMode target=$targetMode handledInFlutter=true itemGuid=${normalizedSource["itemGuid"]}",
         )
-        PlayerLayoutHandoffCoordinator.beginFrom(this)
-        ParallelWindowCoordinator.snapshotDetailForRestore()
-        PlayerLaunchContract.updateLayoutMode(intent, PlayerLaunchContract.MODE_FULLSCREEN)
-        setIntent(intent)
-        applyLayoutModeState()
-        ParallelWindowCoordinator.setSplitPlayerVisible(false)
-        ParallelWindowCoordinator.currentDetailHost()?.let { detailHost ->
-            Log.d(TAG, "enterFullscreenMode finishingDetailHost=${detailHost.javaClass.simpleName}")
-            detailHost.finish()
-        }
-        window.decorView.post {
-            Log.d(
-                TAG,
-                "enterFullscreenMode relaunching=${fullscreenIntent.component?.className} action=${fullscreenIntent.action}",
-            )
-            startActivity(fullscreenIntent)
-        }
         return true
+    }
+
+    override fun syncPlayerLaunchState(
+        title: String,
+        source: HashMap<String, Any?>?,
+        initialPlayInfo: HashMap<String, Any?>?,
+        startSource: String,
+    ): Boolean {
+        val normalizedTitle = title.trim()
+        val normalizedSource = source ?: hashMapOf()
+        if (normalizedTitle.isEmpty() || normalizedSource.isEmpty()) {
+            return false
+        }
+        val nextIntent =
+            createIntent(
+                context = this,
+                title = normalizedTitle,
+                source = HashMap(normalizedSource),
+                initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
+                startSource = startSource,
+                fromParallelHost = PlayerLaunchContract.isFromParallelHost(intent),
+                hostContext = getParallelHostContext(),
+                layoutMode = currentLayoutMode(),
+                initialRightPaneRoute = currentInitialRightPaneRoute(),
+            )
+        setIntent(nextIntent)
+        Log.d(
+            TAG,
+            "syncPlayerLaunchState layoutMode=${currentLayoutMode()} itemGuid=${normalizedSource["itemGuid"]}",
+        )
+        return true
+    }
+
+    override fun isPictureInPictureSupported(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return false
+        }
+        if (!packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+            return false
+        }
+        if (currentLayoutMode() != PlayerLaunchContract.MODE_FULLSCREEN) {
+            return false
+        }
+        if (PlayerLaunchContract.isFromParallelHost(intent)) {
+            return false
+        }
+        return !isInPictureInPictureMode
+    }
+
+    override fun enterPictureInPicture(): Boolean {
+        if (!isPictureInPictureSupported()) {
+            return false
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return false
+        }
+        val decorView = window.decorView
+        val width = decorView.width.coerceAtLeast(1)
+        val height = decorView.height.coerceAtLeast(1)
+        val params =
+            PictureInPictureParams
+                .Builder()
+                .setAspectRatio(Rational(width, height))
+                .build()
+        return runCatching { enterPictureInPictureMode(params) }.getOrDefault(false)
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration,
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        playerHostStateChannel?.invokeMethod(
+            "pictureInPictureModeChanged",
+            hashMapOf("active" to isInPictureInPictureMode),
+        )
+        notifyPlayerHostSystemWindowMode()
+        Log.d(
+            TAG,
+            "onPictureInPictureModeChanged active=$isInPictureInPictureMode layoutMode=${currentLayoutMode()}",
+        )
     }
 
     companion object {
@@ -224,18 +268,49 @@ class PlayerActivity : FlutterHostActivity() {
             context: Context,
             title: String,
             source: HashMap<String, Any?>,
+            initialPlayInfo: HashMap<String, Any?>? = null,
+            startSource: String = "manual",
             fromParallelHost: Boolean = false,
             hostContext: HashMap<String, Any?> = hashMapOf(),
             layoutMode: String = PlayerLaunchContract.MODE_FULLSCREEN,
+            initialRightPaneRoute: String = "",
         ): Intent {
             return PlayerLaunchContract.applyLaunchExtras(
                 intent = Intent(context, PlayerActivity::class.java),
                 title = title,
                 source = source,
+                initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
+                startSource = startSource,
                 fromParallelHost = fromParallelHost,
                 hostContext = hostContext,
                 layoutMode = layoutMode,
+                initialRightPaneRoute = initialRightPaneRoute,
             )
+        }
+
+        fun createResumeIntent(
+            context: Context,
+            title: String,
+            source: HashMap<String, Any?>,
+            initialPlayInfo: HashMap<String, Any?>? = null,
+            startSource: String = "manual",
+            fromParallelHost: Boolean = false,
+            layoutMode: String = PlayerLaunchContract.MODE_FULLSCREEN,
+            initialRightPaneRoute: String = "",
+        ): Intent {
+            return createIntent(
+                context = context,
+                title = title,
+                source = source,
+                initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
+                startSource = startSource,
+                fromParallelHost = fromParallelHost,
+                hostContext = hashMapOf(),
+                layoutMode = layoutMode,
+                initialRightPaneRoute = initialRightPaneRoute,
+            ).apply {
+                action = PlayerLaunchContract.ACTION_RESUME_PLAYER
+            }
         }
     }
 }

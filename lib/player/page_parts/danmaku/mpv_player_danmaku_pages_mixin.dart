@@ -1,6 +1,42 @@
-part of mpv_player_page;
+﻿part of mpv_player_page;
 
 extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
+  String _danmakuAiBackendLabel(DanmakuDynamicOcclusionState state) {
+    return switch (state.backend.trim().toLowerCase()) {
+      'paddle' => 'Paddle',
+      'gpu' => 'GPU',
+      'cpu' => 'CPU',
+      'disabled' => '未启用动态遮挡',
+      final value when value.isNotEmpty => value.toUpperCase(),
+      _ => '未启用动态遮挡',
+    };
+  }
+
+  String _danmakuAiStatusText(DanmakuDynamicOcclusionState state) {
+    final playerPaused = _controller.value.value.paused;
+    if (!_danmakuController.settings.avoidCenterArea) {
+      return '当前：未启用';
+    }
+    if (!_danmakuController.settings.enabled) {
+      return '当前：弹幕已关闭';
+    }
+    if (!state.enabled) {
+      return '当前：等待播放器启动';
+    }
+    if (state.available) {
+      final suffix = state.cacheHit ? ' · 缓存预热' : '';
+      final pausedSuffix = playerPaused ? ' · 已暂停' : '';
+      return '当前后端：${_danmakuAiBackendLabel(state)}$suffix$pausedSuffix';
+    }
+    if (playerPaused) {
+      return '当前：已暂停，等待恢复播放';
+    }
+    if (state.backend.trim().toLowerCase() == 'disabled') {
+      return '当前：未读取到蒙版，已恢复普通弹幕';
+    }
+    return '当前后端：${_danmakuAiBackendLabel(state)} · 等待蒙版';
+  }
+
   Widget _buildPlaybackSettingsDanmakuPage(
     BuildContext context,
     PlayerNestedSheetController<void> drawer,
@@ -51,6 +87,21 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                     activeColor: context.appColors.accent,
                     onChanged: (value) {
                       unawaited(_setDanmakuOpacity(value));
+                      drawer.refresh();
+                    },
+                  ),
+                ),
+                const SizedBox(height: 18),
+                _DanmakuSliderRow(
+                  label: '弹幕密度',
+                  trailing: _danmakuDensityLabel(),
+                  slider: _DanmakuLineSlider(
+                    value: settings.density,
+                    min: 0.2,
+                    max: 1.0,
+                    activeColor: context.appColors.accent,
+                    onChanged: (value) {
+                      unawaited(_setDanmakuDensity(value));
                       drawer.refresh();
                     },
                   ),
@@ -197,8 +248,8 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                 ),
                 const SizedBox(height: 18),
                 _DanmakuSwitchRow(
-                  title: '人像防遮挡',
-                  subtitle: '当前先按主体安全区避让，后续再接更细的人像检测。',
+                  title: '主体穿透遮挡',
+                  subtitle: '优先使用动态蒙版扣除人物区域内的弹幕，不可用时会恢复普通弹幕。',
                   value: settings.avoidCenterArea,
                   onChanged: (value) {
                     unawaited(
@@ -207,6 +258,188 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                       ),
                     );
                     drawer.refresh();
+                  },
+                ),
+                const SizedBox(height: 18),
+                _SettingsTextBlock(
+                  title: '采样精度',
+                  subtitle:
+                      '控制 AI 遮挡识别的输入分辨率。越高越准，但更吃性能。当前：${_danmakuAiPrecisionLabel()}',
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _DanmakuPriorityButton(
+                        label: '低',
+                        selected:
+                            settings.aiPrecisionPreset ==
+                            DanmakuAiPrecisionPreset.performance,
+                        onTap: () {
+                          unawaited(
+                            _setDanmakuAiPrecisionPreset(
+                              DanmakuAiPrecisionPreset.performance,
+                            ),
+                          );
+                          drawer.refresh();
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _DanmakuPriorityButton(
+                        label: '标准',
+                        selected:
+                            settings.aiPrecisionPreset ==
+                            DanmakuAiPrecisionPreset.balanced,
+                        onTap: () {
+                          unawaited(
+                            _setDanmakuAiPrecisionPreset(
+                              DanmakuAiPrecisionPreset.balanced,
+                            ),
+                          );
+                          drawer.refresh();
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _DanmakuPriorityButton(
+                        label: '高',
+                        selected:
+                            settings.aiPrecisionPreset ==
+                            DanmakuAiPrecisionPreset.quality,
+                        onTap: () {
+                          unawaited(
+                            _setDanmakuAiPrecisionPreset(
+                              DanmakuAiPrecisionPreset.quality,
+                            ),
+                          );
+                          drawer.refresh();
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                _SettingsTextBlock(
+                  title: '采样频率',
+                  subtitle:
+                      '控制 AI 重新采样的频率。越高响应越快，但更耗电。当前：${_danmakuAiSampleIntervalLabel()}',
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _DanmakuPriorityButton(
+                        label: '高频',
+                        selected: settings.aiSampleIntervalMs == 200,
+                        onTap: () {
+                          unawaited(_setDanmakuAiSampleInterval(200));
+                          drawer.refresh();
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _DanmakuPriorityButton(
+                        label: '标准',
+                        selected: settings.aiSampleIntervalMs == 350,
+                        onTap: () {
+                          unawaited(_setDanmakuAiSampleInterval(350));
+                          drawer.refresh();
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _DanmakuPriorityButton(
+                        label: '省电',
+                        selected: settings.aiSampleIntervalMs == 500,
+                        onTap: () {
+                          unawaited(_setDanmakuAiSampleInterval(500));
+                          drawer.refresh();
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Theme(
+                  data: Theme.of(
+                    context,
+                  ).copyWith(dividerColor: Colors.transparent),
+                  child: ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    childrenPadding: EdgeInsets.zero,
+                    iconColor: context.appColors.textSecondary,
+                    collapsedIconColor: context.appColors.textSecondary,
+                    title: Text(
+                      '高级设置',
+                      style: TextStyle(
+                        color: context.appColors.textPrimary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    subtitle: Text(
+                      '精细调节采样分辨率和采样间隔',
+                      style: TextStyle(
+                        color: context.appColors.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                    children: [
+                      const SizedBox(height: 8),
+                      _DanmakuSliderRow(
+                        label: '分辨率',
+                        trailing: _danmakuAiInputSizeLabel(),
+                        slider: _DanmakuLineSlider(
+                          value: settings.aiInputWidth.toDouble(),
+                          min: DanmakuSettings.minAiInputWidth.toDouble(),
+                          max: DanmakuSettings.maxAiInputWidth.toDouble(),
+                          activeColor: context.appColors.accent,
+                          onChanged: (value) {
+                            final snapped = (value / 16).round() * 16;
+                            unawaited(_setDanmakuAiInputWidth(snapped));
+                            drawer.refresh();
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      _DanmakuSliderRow(
+                        label: '间隔',
+                        trailing: _danmakuAiSampleIntervalLabel(),
+                        slider: _DanmakuLineSlider(
+                          value: settings.aiSampleIntervalMs.toDouble(),
+                          min: DanmakuSettings.minAiSampleIntervalMs.toDouble(),
+                          max: DanmakuSettings.maxAiSampleIntervalMs.toDouble(),
+                          activeColor: context.appColors.accent,
+                          onChanged: (value) {
+                            final snapped = (value / 10).round() * 10;
+                            unawaited(_setDanmakuAiSampleInterval(snapped));
+                            drawer.refresh();
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                ValueListenableBuilder<DanmakuDynamicOcclusionState>(
+                  valueListenable: _controller.danmakuOcclusionState,
+                  builder: (context, state, _) {
+                    return Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        _danmakuAiStatusText(state),
+                        style: TextStyle(
+                          color: context.appColors.textSecondary,
+                          fontSize: 12,
+                          height: 1.4,
+                        ),
+                      ),
+                    );
                   },
                 ),
               ],
@@ -323,8 +556,10 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
             onTap: () {
               _primeDanmakuSearch();
               drawer.push(_playerSettingsDanmakuSearchPageId);
-              if (_danmakuSearchResults.isEmpty && !_danmakuSearchLoading) {
-                unawaited(_searchDanmaku(drawer));
+              final currentContextKey = _danmakuSearchContextKey();
+              if (!_danmakuSearchLoading &&
+                  _danmakuSearchLastCompletedContextKey != currentContextKey) {
+                unawaited(_searchDanmaku(drawer, userInitiated: false));
               }
             },
           ),
@@ -456,23 +691,53 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       Expanded(
-                        child: TextField(
-                          controller: _danmakuSearchController,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                          ),
-                          textInputAction: TextInputAction.search,
-                          decoration: InputDecoration(
-                            hintText: '输入番剧名称',
-                            hintStyle: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.35),
-                              fontSize: 14,
-                            ),
-                            isDense: true,
-                            border: InputBorder.none,
-                          ),
-                          onSubmitted: (_) => unawaited(_searchDanmaku(drawer)),
+                        child: ValueListenableBuilder<TextEditingValue>(
+                          valueListenable: _danmakuSearchController,
+                          builder: (context, value, _) {
+                            final hasText = value.text.trim().isNotEmpty;
+                            return TextField(
+                              controller: _danmakuSearchController,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                              ),
+                              textInputAction: TextInputAction.search,
+                              decoration: InputDecoration(
+                                hintText: '可自动带入当前内容，也可以改词重搜',
+                                hintStyle: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.35),
+                                  fontSize: 14,
+                                ),
+                                isDense: true,
+                                border: InputBorder.none,
+                                suffixIcon: hasText
+                                    ? IconButton(
+                                        tooltip: '清空',
+                                        splashRadius: 18,
+                                        onPressed: () {
+                                          _danmakuSearchController.clear();
+                                          _updatePlayerState(() {
+                                            _danmakuSearchResults =
+                                                const <DanDanPlayEpisodeSearchItem>[];
+                                            _danmakuSearchLastCompletedContextKey =
+                                                '';
+                                          });
+                                          drawer.refresh();
+                                        },
+                                        icon: Icon(
+                                          Icons.close_rounded,
+                                          color: Colors.white.withValues(
+                                            alpha: 0.6,
+                                          ),
+                                          size: 18,
+                                        ),
+                                      )
+                                    : null,
+                              ),
+                              onSubmitted: (_) =>
+                                  unawaited(_searchDanmaku(drawer)),
+                            );
+                          },
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -542,3 +807,4 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
     );
   }
 }
+

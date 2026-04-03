@@ -5,6 +5,68 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
     return !quality.isServerSession;
   }
 
+  void _toggleSpeedDialOverlay() {
+    if (_playerUiLocked) return;
+    if (_speedDialVisible) {
+      _hideSpeedDialOverlay();
+      return;
+    }
+    _showSpeedDialOverlay();
+  }
+
+  void _showSpeedDialOverlay() {
+    if (_playerUiLocked) return;
+    if (_speedDialVisible || !mounted) return;
+    _overlayState.cancelAutoHide();
+    final restoreControls = _controlsVisible || _controlsAnimatingOut;
+    _updatePlayerState(() {
+      _speedDialVisible = true;
+      _speedDialRestoreControlsVisible = restoreControls;
+    });
+    if (restoreControls) {
+      _hideControlsImmediately();
+    }
+  }
+
+  void _hideSpeedDialOverlay({bool restoreAutoHide = true}) {
+    if (!_speedDialVisible) return;
+    final restoreControls = _speedDialRestoreControlsVisible;
+    if (mounted) {
+      _updatePlayerState(() {
+        _speedDialVisible = false;
+        _speedDialRestoreControlsVisible = false;
+      });
+    } else {
+      _speedDialVisible = false;
+      _speedDialRestoreControlsVisible = false;
+    }
+    if (!restoreAutoHide) return;
+    if (restoreControls) {
+      _showControls();
+      return;
+    }
+    _scheduleControlsAutoHide();
+  }
+
+  void _applyPlaybackSpeed(double speed, {bool triggerHaptics = false}) {
+    final normalized = PlayerSpeedDialScale.normalizeSpeed(speed);
+    if ((normalized - _playbackSpeed).abs() < 0.001) return;
+    if (triggerHaptics) {
+      if (PlayerSpeedDialScale.isKeySpeed(normalized)) {
+        unawaited(HapticFeedback.mediumImpact());
+      } else {
+        unawaited(HapticFeedback.selectionClick());
+      }
+    }
+    _updatePlayerState(() => _playbackSpeed = normalized);
+    unawaited(_controller.setSpeed(normalized));
+    if (_speedDialVisible) {
+      _overlayState.cancelAutoHide();
+      return;
+    }
+    _showControls();
+  }
+
   Future<String?> _showPlayerOptionSheet({
     required String title,
     required List<PlayerOptionSheetItem> items,
@@ -15,6 +77,8 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
     bool centeredTitle = false,
     bool useCardStyle = false,
   }) async {
+    if (_playerUiLocked) return null;
+    _hideSpeedDialOverlay(restoreAutoHide: false);
     _overlayState.cancelAutoHide();
     final restoreControls = _controlsVisible;
     if (restoreControls) {
@@ -42,28 +106,8 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
     return result;
   }
 
-  Future<void> _showSpeedSheet() async {
-    const speeds = <double>[0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
-    final result = await _showPlayerOptionSheet(
-      title: '倍速',
-      sectionLabel: '播放速度',
-      items: speeds
-          .map(
-            (speed) => PlayerOptionSheetItem(
-              id: speed.toStringAsFixed(2),
-              title: _speedLabel(speed),
-              subtitle: _speedDescription(speed),
-            ),
-          )
-          .toList(),
-      selectedId: _playbackSpeed.toStringAsFixed(2),
-    );
-    if (!mounted || result == null) return;
-    final speed = double.tryParse(result);
-    if (speed == null || (speed - _playbackSpeed).abs() < 0.001) return;
-    _updatePlayerState(() => _playbackSpeed = speed);
-    await _controller.setSpeed(speed);
-    _showControls();
+  void _handleSpeedDialSpeedChanged(double speed) {
+    _applyPlaybackSpeed(speed, triggerHaptics: true);
   }
 
   Future<void> _showAudioSheet() async {
@@ -123,7 +167,7 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
       _subtitleFailureNoticeShownGuids.remove(normalized);
       _serverFallbackSubtitleGuids.remove(normalized);
     });
-    _showSubtitleSwitchMessage(_subtitleSwitchMessageForTrack(selected));
+    _showSubtitleSwitchMessage(_subtitleSwitchPromptForTrack(selected));
     try {
       await _applySubtitleSelection();
       _showControls();
@@ -136,7 +180,7 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
   }
 
   Future<void> _showQualitySheet() async {
-    final visibleQualities = _visibleQualityOptionsForCurrentMode();
+    final visibleQualities = _displayQualityOptionsForCurrentMode();
     if (visibleQualities.isEmpty) {
       _showTransientMessage('当前没有可切换清晰度');
       return;
@@ -150,9 +194,7 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
               id: _qualityId(quality),
               title: _qualityLabel(quality),
               badgeText: _qualityOptionBadge(quality),
-              subtitle: quality.bitrate > 0
-                  ? '${(quality.bitrate / 1000000).toStringAsFixed(1)} Mbps'
-                  : '',
+              subtitle: _qualityOptionSubtitle(quality),
             ),
           )
           .toList(),
@@ -183,18 +225,27 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
 
     final currentPosition = _displayPosition(_controller.value.value);
     final pausedAfterReload = _controller.value.value.paused;
-    _updatePlayerState(() => _uiController.qualitySwitchLoading = true);
+    _updatePlayerState(() {
+      _uiController.qualitySwitchLoading = true;
+      _uiController.subtitleSwitchMessage =
+          loadingMessage ?? _qualitySwitchPromptFor(quality);
+    });
     _uiController.pendingLoadingTransition = true;
     _markAwaitingVisualPlaybackStart(
       currentPosition,
       targetPaused: pausedAfterReload,
     );
-    _showSubtitleSwitchMessage(
-      loadingMessage ?? PlayerSourceController.qualitySwitchMessageFor(quality),
-    );
     var reloadStarted = false;
     try {
-      if (_isDirectPlaybackQuality(quality)) {
+      final localDownloadRecord = _downloadedRecordForQuality(quality);
+      if (_currentSourceIsDownloadedFile && localDownloadRecord != null) {
+        await _reloadDownloadedLocalQuality(
+          localDownloadRecord,
+          quality: quality,
+          startPosition: currentPosition,
+          pausedAfterReload: pausedAfterReload,
+        );
+      } else if (_isDirectPlaybackQuality(quality)) {
         await _reloadDirectPlayback(
           quality: quality,
           startPosition: currentPosition,
@@ -210,7 +261,7 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
       reloadStarted = true;
       _showControls();
     } catch (error) {
-      _showTransientMessage('获取字幕切换提示失败: $error');
+      _showTransientMessage('切换清晰度失败: $error');
     } finally {
       if (!reloadStarted) {
         _cancelPendingLoadingTransition();
@@ -218,11 +269,184 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
     }
   }
 
+  String _qualityOptionSubtitle(PlaybackQualityOption quality) {
+    final parts = <String>[];
+    if (_downloadedRecordForQuality(quality) != null) {
+      parts.add('\u5df2\u4e0b\u8f7d');
+    }
+    if (quality.bitrate > 0) {
+      parts.add('${(quality.bitrate / 1000000).toStringAsFixed(1)} Mbps');
+    }
+    return parts.join(' \u00b7 ');
+  }
+
+  DownloadTaskRecord? _downloadedRecordForQuality(
+    PlaybackQualityOption quality,
+  ) {
+    return DownloadTaskService.instance.downloadedRecordForItem(
+      _currentItemGuid,
+      resolution: _qualityLabel(quality),
+    );
+  }
+
+  Future<void> _reloadDownloadedLocalQuality(
+    DownloadTaskRecord record, {
+    required PlaybackQualityOption quality,
+    Duration? startPosition,
+    bool? pausedAfterReload,
+  }) async {
+    _invalidateNextEpisodePreload();
+    final path = record.filePath.trim();
+    if (path.isEmpty || !File(path).existsSync()) {
+      throw Exception('local downloaded file missing');
+    }
+    final api = FeiniuApi(context.read<NasProvider>());
+    final currentPosition =
+        startPosition ?? _displayPosition(_controller.value.value);
+    PlayInfoData? playInfo;
+    StreamTrackData? trackData;
+    try {
+      playInfo = await api.getPlayInfo(_currentItemGuid);
+    } catch (_) {}
+    try {
+      trackData = await api.getStreamTrackData(_currentItemGuid);
+    } catch (_) {}
+    final resolvedMediaGuid = record.mediaGuid.trim().isNotEmpty
+        ? record.mediaGuid.trim()
+        : (quality.mediaGuid.trim().isNotEmpty
+              ? quality.mediaGuid.trim()
+              : _currentMediaGuid);
+    final videoInfo = resolvedMediaGuid.isEmpty
+        ? null
+        : trackData?.videoForMedia(resolvedMediaGuid);
+    final audioTracks = resolvedMediaGuid.isEmpty
+        ? _audioTracks
+        : (trackData?.audiosForMedia(resolvedMediaGuid).isNotEmpty == true
+              ? trackData!.audiosForMedia(resolvedMediaGuid)
+              : _audioTracks);
+    final selectedAudio = PlayDetailTrackSelector.selectedOrFirstAudio(
+      selectedAudioGuid: _normalizedAudioGuid(),
+      audioTracks: audioTracks,
+    );
+    final durationSeconds = playInfo?.item.duration ?? _durationSeconds;
+    final localSource = MpvMediaSource.localFile(
+      filePath: path,
+      itemGuid: _currentItemGuid,
+      seasonGuid: (playInfo?.parentGuid ?? _currentSeasonGuid).trim(),
+      posterPath: _currentPosterPath.trim().isNotEmpty
+          ? _currentPosterPath.trim()
+          : widget.source.posterPath.trim(),
+      mediaGuid: resolvedMediaGuid,
+      mediaType: playInfo?.item.type ?? _currentMediaType,
+      ancestorName: playInfo?.item.ancestorName ?? _currentAncestorName,
+      videoGuid: videoInfo?.guid.trim().isNotEmpty == true
+          ? videoInfo!.guid.trim()
+          : (quality.videoGuid.trim().isNotEmpty
+                ? quality.videoGuid.trim()
+                : _currentVideoGuid),
+      title: playInfo == null
+          ? _currentTitle
+          : formatPlayerTitleFromPlayItem(
+              playInfo.item,
+              fallbackTitle: _currentTitle,
+            ),
+      seriesTitle: (playInfo?.item.tvTitle ?? widget.source.seriesTitle).trim(),
+      seasonNumber: playInfo?.item.seasonNumber ?? widget.source.seasonNumber,
+      tmdbId: playInfo?.item.trimId ?? widget.source.tmdbId,
+      episodeNumber: playInfo?.item.episodeNumber ?? _currentEpisodeNumber,
+      startPosition: currentPosition,
+      audioTrackGuid: selectedAudio?.guid,
+      subtitleTrackGuid: _normalizedSubtitleGuid(),
+      resolution: record.resolution.trim().isNotEmpty
+          ? record.resolution.trim()
+          : _qualityLabel(quality),
+      bitrate: quality.bitrate,
+      durationSeconds: durationSeconds,
+      videoWidth: videoInfo?.width ?? _currentVideoWidth,
+      videoHeight: videoInfo?.height ?? _currentVideoHeight,
+      videoCodecName: videoInfo?.codecName ?? _currentVideoCodecName,
+      videoProfile: videoInfo?.profile ?? _currentVideoProfile,
+      colorSpace: videoInfo?.colorSpace ?? _currentColorSpace,
+      colorTransfer: videoInfo?.colorTransfer ?? _currentColorTransfer,
+      colorPrimaries: videoInfo?.colorPrimaries ?? _currentColorPrimaries,
+      bitDepth: videoInfo?.bitDepth ?? _currentBitDepth,
+      audioTracks: audioTracks,
+      subtitleTracks: const <SubtitleTrackOption>[],
+      qualities: mergePlaybackQualitiesWithStreamTrackData(
+        _qualities,
+        trackData,
+      ),
+      playbackSpeed: _playbackSpeed,
+    );
+    final oldSessionId = _activeProxySessionId;
+    final oldSubtitleSessionId = _activeSubtitleProxySessionId;
+    _updatePlayerState(() {
+      _activeProxySessionId = null;
+      _activeSubtitleProxySessionId = null;
+      _currentPlayLink = null;
+      _currentServerSessionHlsTimeSeconds = 0;
+      _currentUrl = localSource.url;
+      _currentHeaders = const <String, String>{};
+      _currentReliableSeek = true;
+      _currentSeekProbeSummary = 'local-download';
+      _currentMediaGuid = localSource.mediaGuid;
+      _subtitleSourceMediaGuid = localSource.mediaGuid;
+      _currentVideoGuid = localSource.videoGuid;
+      _currentDirectLinkQualityIndex = null;
+      _currentAudioGuid = localSource.audioTrackGuid ?? selectedAudio?.guid;
+      _currentSubtitleGuid = localSource.subtitleTrackGuid;
+      _currentSeasonGuid = localSource.seasonGuid;
+      _currentMediaType = localSource.mediaType;
+      _currentAncestorName = localSource.ancestorName;
+      _currentTitle = localSource.title;
+      _currentEpisodeNumber = localSource.episodeNumber;
+      _currentPosterPath = localSource.posterPath;
+      _audioTracks = localSource.audioTracks;
+      _subtitleTracks = localSource.subtitleTracks;
+      _qualities = localSource.qualities;
+      _currentVideoWidth = localSource.videoWidth;
+      _currentVideoHeight = localSource.videoHeight;
+      _currentResolution = localSource.resolution;
+      _currentBitrate = localSource.bitrate;
+      _currentVideoCodecName = localSource.videoCodecName;
+      _currentVideoProfile = localSource.videoProfile;
+      _currentColorSpace = localSource.colorSpace;
+      _currentColorTransfer = localSource.colorTransfer;
+      _currentColorPrimaries = localSource.colorPrimaries;
+      _currentBitDepth = localSource.bitDepth;
+      _durationSeconds = localSource.durationSeconds;
+      _subtitleExplicitlyDisabled = false;
+      _pendingExternalSubtitlePath = null;
+      _serverFallbackSubtitleGuids.clear();
+      _pendingSubtitleSelectionRefresh = true;
+      _pendingReloadAutoplayRefresh = true;
+      _playbackMode = PlayerPlaybackMode.originalQuality;
+    });
+    _gestureController.resetSeekTracking();
+    if (oldSessionId != null && oldSessionId.isNotEmpty) {
+      _scheduleProxySessionRelease(oldSessionId);
+    }
+    if (oldSubtitleSessionId != null && oldSubtitleSessionId.isNotEmpty) {
+      _scheduleProxySessionRelease(oldSubtitleSessionId);
+    }
+    final source = localSource.copyWith(loadNonce: _issueNextLoadNonce());
+    _markAwaitingVisualPlaybackStart(
+      source.startPosition,
+      targetPaused: pausedAfterReload ?? _controller.value.value.paused,
+    );
+    _controller.prepareForSourceLoad(
+      source,
+      paused: pausedAfterReload ?? _controller.value.value.paused,
+    );
+    await _controller.reload(source);
+  }
+
   Future<void> _reloadDirectPlayback({
     required PlaybackQualityOption quality,
     Duration? startPosition,
     bool? pausedAfterReload,
   }) async {
+    _invalidateNextEpisodePreload();
     final api = FeiniuApi(context.read<NasProvider>());
     final currentPosition =
         startPosition ?? _displayPosition(_controller.value.value);
@@ -301,6 +525,7 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
       _activeProxySessionId = playableSource.proxySessionId;
       _activeSubtitleProxySessionId = null;
       _currentPlayLink = null;
+      _currentServerSessionHlsTimeSeconds = 0;
       _currentUrl = playableSource.url;
       _currentHeaders = playableSource.headers;
       _currentReliableSeek = playableSource.reliableSeek;
@@ -386,7 +611,9 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
     PlaybackQualityOption? quality,
     Duration? startPosition,
     bool? pausedAfterReload,
+    String? pendingExternalSubtitlePath,
   }) async {
+    _invalidateNextEpisodePreload();
     final api = FeiniuApi(context.read<NasProvider>());
     final currentPosition =
         startPosition ?? _displayPosition(_controller.value.value);
@@ -401,10 +628,16 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
       ),
     );
     _cancelScheduledProxyRelease(result.activeProxySessionId);
+    final normalizedPendingExternalSubtitlePath =
+        pendingExternalSubtitlePath?.trim().isNotEmpty == true
+        ? pendingExternalSubtitlePath!.trim()
+        : null;
     _updatePlayerState(() {
       _activeProxySessionId = result.activeProxySessionId;
       _activeSubtitleProxySessionId = result.activeSubtitleProxySessionId;
       _currentPlayLink = result.currentPlayLink;
+      _currentServerSessionHlsTimeSeconds =
+          result.currentServerSessionHlsTimeSeconds;
       _currentUrl = result.currentUrl;
       _currentHeaders = result.currentHeaders;
       _currentReliableSeek = result.reliableSeek;
@@ -432,10 +665,10 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
       _currentColorTransfer = result.currentColorTransfer;
       _currentColorPrimaries = result.currentColorPrimaries;
       _currentBitDepth = result.currentBitDepth;
-      _pendingExternalSubtitlePath = null;
+      _pendingExternalSubtitlePath = normalizedPendingExternalSubtitlePath;
       _pendingSubtitleSelectionRefresh =
           result.pendingSubtitleSelectionRefresh ||
-          (result.currentSubtitleGuid?.trim().isNotEmpty == true);
+          normalizedPendingExternalSubtitlePath != null;
       _pendingReloadAutoplayRefresh = true;
       _playbackMode = result.playbackMode;
     });
@@ -475,16 +708,36 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
   SubtitleTrackOption? _syncCurrentSubtitleTrackSelection() {
     final normalized = (_currentSubtitleGuid ?? '').trim();
     if (normalized.isEmpty) return null;
+    final localRuntimeSource = _isLocalRuntimeTrackSource();
+    bool isAllowedLocalRuntimeGuid(String guid) {
+      return guid.startsWith('mpv-subtitle:') || guid.startsWith('local:');
+    }
+
     final selected = _findSubtitleTrack(normalized);
-    if (selected != null) return selected;
+    if (selected != null &&
+        (!localRuntimeSource ||
+            isAllowedLocalRuntimeGuid(selected.guid.trim()))) {
+      return selected;
+    }
     SubtitleTrackOption? fallback;
     for (final track in _subtitleTracks) {
+      if (localRuntimeSource && !isAllowedLocalRuntimeGuid(track.guid.trim())) {
+        continue;
+      }
       if (track.isDefaultOption) {
         fallback = track;
         break;
       }
     }
-    fallback ??= _subtitleTracks.isNotEmpty ? _subtitleTracks.first : null;
+    if (fallback == null) {
+      for (final track in _subtitleTracks) {
+        if (!localRuntimeSource ||
+            isAllowedLocalRuntimeGuid(track.guid.trim())) {
+          fallback = track;
+          break;
+        }
+      }
+    }
     if (fallback != null && mounted) {
       _updatePlayerState(() => _currentSubtitleGuid = fallback!.guid);
     }
@@ -512,6 +765,28 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
     _subtitleSwitchOverlayTimer?.cancel();
     if (!mounted) return;
     _updatePlayerState(() => _uiController.subtitleSwitchMessage = message);
+  }
+
+  String _subtitleSwitchPromptForTrack(SubtitleTrackOption? track) {
+    if (track == null) {
+      return '正在为您关闭字幕，请稍等...';
+    }
+    final title = _subtitleTitle(track);
+    final format = (track.format.isNotEmpty ? track.format : track.codecName)
+        .trim()
+        .toLowerCase();
+    final suffix = format.isEmpty ? '' : '($format)';
+    return '正在为您切换至 $title$suffix 字幕，请稍等...';
+  }
+
+  String _qualitySwitchPromptFor(PlaybackQualityOption quality) {
+    final title = quality.resolution.trim().isNotEmpty
+        ? quality.resolution.trim()
+        : (quality.isDefault == 1 ? '原画' : '清晰度');
+    final bitrate = quality.bitrate > 0
+        ? ' ${(quality.bitrate / 1000000).toStringAsFixed(0)} Mbps'
+        : '';
+    return '正在为您切换至 $title$bitrate 画质，请稍等...';
   }
 
   void _hideSubtitleSwitchMessage({Duration? delay}) {
@@ -563,11 +838,31 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
   }
 
   Future<bool> _applySubtitleSelection() async {
-    final normalizedGuid = (_currentSubtitleGuid ?? '').trim();
+    _invalidateNextEpisodePreload();
+    final localRuntimeSource = _isLocalRuntimeTrackSource();
+    final serverManagedRuntimeSource =
+        _playbackMode.isServerManaged && !localRuntimeSource;
+    var normalizedGuid = (_currentSubtitleGuid ?? '').trim();
+    if (normalizedGuid.isEmpty &&
+        localRuntimeSource &&
+        !_subtitleExplicitlyDisabled) {
+      final fallback = _preferredRuntimeSubtitleTrack();
+      if (fallback == null) {
+        return false;
+      }
+      normalizedGuid = fallback.guid.trim();
+      if (normalizedGuid.isNotEmpty && mounted) {
+        _updatePlayerState(() => _currentSubtitleGuid = normalizedGuid);
+      }
+    }
     var selected = _syncCurrentSubtitleTrackSelection();
     if (normalizedGuid.isEmpty) {
       _pendingExternalSubtitlePath = null;
       _releaseSubtitleProxySession();
+      if (serverManagedRuntimeSource) {
+        await _reloadServerPlaySession(subtitleGuid: '');
+        return true;
+      }
       await _controller.setSubtitleTrack(trackIndex: null, trackGuid: null);
       return true;
     }
@@ -579,7 +874,7 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
       final subtitleForFile = selected;
       var path = await _ensureSubtitleFile(subtitleForFile);
       if (!mounted) return false;
-      if (path == null) {
+      if (path == null && !localRuntimeSource) {
         final refreshed = await _refreshSubtitleTracksFromSource(
           preferredGuid: selected.guid,
         );
@@ -595,6 +890,12 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
       if (path == null) {
         _serverFallbackSubtitleGuids.add(selected.guid);
         final fallbackTrackId = _mpvSubtitleTrackId(selected);
+        if (serverManagedRuntimeSource) {
+          _pendingExternalSubtitlePath = null;
+          _releaseSubtitleProxySession();
+          await _reloadServerPlaySession(subtitleGuid: selected.guid);
+          return true;
+        }
         if (fallbackTrackId != null) {
           await _controller.setSubtitleTrack(
             trackIndex: fallbackTrackId,
@@ -605,9 +906,33 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
       }
       _serverFallbackSubtitleGuids.remove(subtitleForFile.guid);
       _subtitleFailureNoticeShownGuids.remove(subtitleForFile.guid);
-      _pendingExternalSubtitlePath = path;
       _releaseSubtitleProxySession();
+      if (serverManagedRuntimeSource) {
+        await _reloadServerPlaySession(
+          subtitleGuid: selected.guid,
+          pendingExternalSubtitlePath: path,
+        );
+        return true;
+      }
+      _pendingExternalSubtitlePath = path;
       _handlePlayerValueChanged();
+      return true;
+    }
+    if (serverManagedRuntimeSource) {
+      _serverFallbackSubtitleGuids.remove(selected.guid);
+      _pendingExternalSubtitlePath = null;
+      _releaseSubtitleProxySession();
+      await _reloadServerPlaySession(subtitleGuid: selected.guid);
+      return true;
+    }
+    if (_subtitleShouldPreferEmbeddedTrack(selected)) {
+      _serverFallbackSubtitleGuids.remove(selected.guid);
+      _pendingExternalSubtitlePath = null;
+      _releaseSubtitleProxySession();
+      await _controller.setSubtitleTrack(
+        trackIndex: _mpvSubtitleTrackId(selected),
+        trackGuid: selected.guid,
+      );
       return true;
     }
     _pendingExternalSubtitlePath = null;
@@ -619,9 +944,36 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
     return true;
   }
 
+  SubtitleTrackOption? _preferredRuntimeSubtitleTrack() {
+    SubtitleTrackOption? firstAllowedTrack;
+    for (final track in _subtitleTracks) {
+      final guid = track.guid.trim();
+      final allowed =
+          guid.startsWith('local:') || guid.startsWith('mpv-subtitle:');
+      if (!allowed) {
+        continue;
+      }
+      firstAllowedTrack ??= track;
+      if (guid.startsWith('local:') && track.isDefaultOption) {
+        return track;
+      }
+    }
+    if (firstAllowedTrack != null) {
+      return firstAllowedTrack;
+    }
+    for (final track in _subtitleTracks) {
+      if (track.isDefaultOption) {
+        return track;
+      }
+    }
+    return _subtitleTracks.isEmpty ? null : _subtitleTracks.first;
+  }
+
   Future<String?> _ensureSubtitleFile(SubtitleTrackOption subtitle) async {
     final existing = _subtitleFileByGuid[subtitle.guid];
     if (existing != null && File(existing).existsSync()) return existing;
+    if (_isLocalRuntimeTrackSource()) return null;
+    if (_subtitleShouldPreferEmbeddedTrack(subtitle)) return null;
     if (_subtitleLoading) return existing;
 
     _subtitleLoading = true;

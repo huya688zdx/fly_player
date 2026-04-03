@@ -6,6 +6,15 @@ class MainActivity : FlutterHostActivity() {
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
         ParallelWindowCoordinator.attachMainHost(this)
+        ParallelWindowCoordinator.attachBrowseHost(this)
+        window.decorView.postDelayed({
+            ParallelFlutterEngineRegistry.warmIfEligible(applicationContext)
+        }, 1500L)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        ParallelWindowCoordinator.attachBrowseHost(this)
     }
 
     override fun hostSurface(): String = "home"
@@ -27,6 +36,7 @@ class MainActivity : FlutterHostActivity() {
     override fun onDestroy() {
         if (isFinishing) {
             ParallelWindowCoordinator.detachMainHost(this)
+            ParallelWindowCoordinator.detachBrowseHost(this)
         }
         NativeMpvProxyServer.clearAllCaches()
         super.onDestroy()

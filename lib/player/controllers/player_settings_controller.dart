@@ -1,6 +1,7 @@
 import '../models/player_runtime_preferences.dart';
 
 class PlayerSettingsController {
+  static const double defaultSubtitlePositionFactor = 0.08;
   PlayerSettingsController({
     required Map<String, String> defaultMpvSettings,
     required Map<String, double> defaultVideoAdjustments,
@@ -8,6 +9,7 @@ class PlayerSettingsController {
        videoAdjustments = Map<String, double>.from(defaultVideoAdjustments);
 
   bool autoPlayEnabled = true;
+  bool nextEpisodePreloadEnabled = false;
   bool autoRotateEnabled = true;
   bool extremePlaybackEnabled = false;
   bool performanceOverlayEnabled = false;
@@ -38,11 +40,12 @@ class PlayerSettingsController {
 
   double audioDelaySeconds = 0;
   double subtitleDelaySeconds = 0;
-  double subtitlePositionFactor = 0;
+  double subtitlePositionFactor = defaultSubtitlePositionFactor;
   double subtitleScaleFactor = 0;
 
   void applyRuntimePreferences(PlayerRuntimePreferences preferences) {
     autoPlayEnabled = preferences.autoPlayEnabled;
+    nextEpisodePreloadEnabled = preferences.nextEpisodePreloadEnabled;
     autoRotateEnabled = preferences.autoRotateEnabled;
     extremePlaybackEnabled = preferences.extremePlaybackEnabled;
     performanceOverlayEnabled = preferences.performanceOverlayEnabled;
@@ -60,16 +63,10 @@ class PlayerSettingsController {
   }
 
   String playbackMonitorStatusLabel() {
-    if (performanceOverlayEnabled && fpsOverlayEnabled) {
-      return '全部开启';
-    }
-    if (performanceOverlayEnabled || fpsOverlayEnabled) {
-      return '部分开启';
-    }
-    return '已关闭';
+    return performanceOverlayEnabled ? '部分开启' : '已关闭';
   }
 
   String decoderSwitchMessage(String modeLabel) {
-    return '正在切换为$modeLabel，请稍等...';
+    return '正在切换为 $modeLabel，请稍等...';
   }
 }

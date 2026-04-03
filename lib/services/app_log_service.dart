@@ -13,9 +13,9 @@ enum AppLogLevel { error, warning, info }
 
 extension AppLogLevelX on AppLogLevel {
   String get label => switch (this) {
-    AppLogLevel.error => '错误',
-    AppLogLevel.warning => '警告',
-    AppLogLevel.info => '信息',
+    AppLogLevel.error => 'Error',
+    AppLogLevel.warning => 'Warning',
+    AppLogLevel.info => 'Info',
   };
 }
 
@@ -87,6 +87,11 @@ class AppLogService extends ChangeNotifier {
 
   static const String _prefsKey = 'app_error_logs_v1';
   static const int _maxEntries = 200;
+  static const int _maxCrashJournalBytes = 256 * 1024;
+  static const String _runtimeCrashJournalFileName =
+      'fly_player_runtime_crash.log';
+  static const String _nativeCrashJournalFileName =
+      'fly_player_native_crash.log';
 
   final List<AppLogEntry> _entries = <AppLogEntry>[];
   bool _initialized = false;
@@ -140,6 +145,8 @@ class AppLogService extends ChangeNotifier {
     await initialize();
     _entries.clear();
     notifyListeners();
+    _deleteCrashJournalSync(_runtimeCrashJournalFile());
+    _deleteCrashJournalSync(_nativeCrashJournalFile());
     await _persist();
   }
 
@@ -181,45 +188,47 @@ class AppLogService extends ChangeNotifier {
     String? details,
   }) async {
     await initialize();
-    final resolvedMessage = error is AppException ? error.message : '$error';
-    final resolvedDetails = <String>[
-      if (error is AppException && error.action.trim().isNotEmpty)
-        'action=${error.action}',
-      if (error is AppException && error.code != null) 'code=${error.code}',
-      if (error is AppException && error.httpStatus != null)
-        'http=${error.httpStatus}',
-      if (details != null && details.trim().isNotEmpty) details.trim(),
-    ].join(' | ');
-    _append(
-      AppLogEntry(
-        id: _buildId(),
-        timestamp: DateTime.now(),
-        level: level,
-        source: source,
-        message: resolvedMessage,
-        details: resolvedDetails.isEmpty ? null : resolvedDetails,
-        stackTraceText:
-            (error is AppException
-                    ? error.stackTrace ?? stackTrace
-                    : stackTrace)
-                ?.toString(),
-      ),
+    final entry = _buildEntry(
+      level: level,
+      error: error,
+      stackTrace: stackTrace,
+      source: source,
+      details: details,
     );
+    _append(entry);
+    if (level == AppLogLevel.error) {
+      _appendCrashJournalSync(entry);
+    }
   }
 
   Future<void> recordFlutterError(FlutterErrorDetails details) async {
     await initialize();
-    _append(
-      AppLogEntry(
-        id: _buildId(),
-        timestamp: DateTime.now(),
-        level: AppLogLevel.error,
-        source: 'flutter',
-        message: details.exceptionAsString(),
-        details: details.context?.toDescription(),
-        stackTraceText: details.stack?.toString(),
-      ),
+    final entry = _buildFlutterErrorEntry(details);
+    _append(entry);
+    _appendCrashJournalSync(entry);
+  }
+
+  void recordErrorSync({
+    required Object error,
+    StackTrace? stackTrace,
+    required String source,
+    String? details,
+  }) {
+    final entry = _buildEntry(
+      level: AppLogLevel.error,
+      error: error,
+      stackTrace: stackTrace,
+      source: source,
+      details: details,
     );
+    _append(entry);
+    _appendCrashJournalSync(entry);
+  }
+
+  void recordFlutterErrorSync(FlutterErrorDetails details) {
+    final entry = _buildFlutterErrorEntry(details);
+    _append(entry);
+    _appendCrashJournalSync(entry);
   }
 
   Future<AppLogExportResult> exportToTxt() async {
@@ -288,32 +297,155 @@ class AppLogService extends ChangeNotifier {
 
   String _buildExportText() {
     final buffer = StringBuffer()
-      ..writeln('Fly Player 日志导出')
-      ..writeln('生成时间: ${_formatTimestamp(DateTime.now())}')
-      ..writeln('日志数量: ${_entries.length}')
+      ..writeln('Fly Player Log Export')
+      ..writeln('Generated At: ${_formatTimestamp(DateTime.now())}')
+      ..writeln('Entry Count: ${_entries.length}')
       ..writeln('');
 
     if (_entries.isEmpty) {
-      buffer.writeln('当前没有已记录的错误日志。');
-      return buffer.toString();
+      buffer.writeln('No in-app log entries recorded.');
+    } else {
+      for (final entry in _entries) {
+        buffer.writeln(
+          '[${entry.level.label}] ${_formatTimestamp(entry.timestamp)} ${entry.source}',
+        );
+        buffer.writeln(entry.message);
+        if (entry.details != null && entry.details!.trim().isNotEmpty) {
+          buffer.writeln('Details: ${entry.details!.trim()}');
+        }
+        if (entry.stackTraceText != null &&
+            entry.stackTraceText!.trim().isNotEmpty) {
+          buffer.writeln('StackTrace:');
+          buffer.writeln(entry.stackTraceText!.trim());
+        }
+        buffer.writeln('');
+      }
     }
 
-    for (final entry in _entries) {
-      buffer.writeln(
-        '[${entry.level.label}] ${_formatTimestamp(entry.timestamp)} ${entry.source}',
-      );
-      buffer.writeln(entry.message);
-      if (entry.details != null && entry.details!.trim().isNotEmpty) {
-        buffer.writeln('详情: ${entry.details!.trim()}');
-      }
-      if (entry.stackTraceText != null &&
-          entry.stackTraceText!.trim().isNotEmpty) {
-        buffer.writeln('堆栈:');
-        buffer.writeln(entry.stackTraceText!.trim());
-      }
-      buffer.writeln('');
-    }
+    _appendCrashJournalSection(
+      buffer: buffer,
+      title: 'Runtime Crash Journal',
+      file: _runtimeCrashJournalFile(),
+    );
+    _appendCrashJournalSection(
+      buffer: buffer,
+      title: 'Native Crash Journal',
+      file: _nativeCrashJournalFile(),
+    );
     return buffer.toString().trimRight();
+  }
+
+  AppLogEntry _buildEntry({
+    required AppLogLevel level,
+    required Object error,
+    StackTrace? stackTrace,
+    required String source,
+    String? details,
+  }) {
+    final resolvedMessage = error is AppException ? error.message : '$error';
+    final resolvedDetails = <String>[
+      if (error is AppException && error.action.trim().isNotEmpty)
+        'action=${error.action}',
+      if (error is AppException && error.code != null) 'code=${error.code}',
+      if (error is AppException && error.httpStatus != null)
+        'http=${error.httpStatus}',
+      if (details != null && details.trim().isNotEmpty) details.trim(),
+    ].join(' | ');
+    return AppLogEntry(
+      id: _buildId(),
+      timestamp: DateTime.now(),
+      level: level,
+      source: source,
+      message: resolvedMessage,
+      details: resolvedDetails.isEmpty ? null : resolvedDetails,
+      stackTraceText:
+          (error is AppException ? error.stackTrace ?? stackTrace : stackTrace)
+              ?.toString(),
+    );
+  }
+
+  AppLogEntry _buildFlutterErrorEntry(FlutterErrorDetails details) {
+    return AppLogEntry(
+      id: _buildId(),
+      timestamp: DateTime.now(),
+      level: AppLogLevel.error,
+      source: 'flutter',
+      message: details.exceptionAsString(),
+      details: details.context?.toDescription(),
+      stackTraceText: details.stack?.toString(),
+    );
+  }
+
+  void _appendCrashJournalSync(AppLogEntry entry) {
+    try {
+      final file = _runtimeCrashJournalFile();
+      file.parent.createSync(recursive: true);
+      if (file.existsSync() && file.lengthSync() > _maxCrashJournalBytes) {
+        file.writeAsStringSync('', flush: true);
+      }
+      file.writeAsStringSync(
+        _formatCrashJournalEntry(entry),
+        mode: FileMode.append,
+        flush: true,
+      );
+    } catch (_) {}
+  }
+
+  String _formatCrashJournalEntry(AppLogEntry entry) {
+    final buffer = StringBuffer()
+      ..writeln(
+        '[${entry.level.name}] ${_formatTimestamp(entry.timestamp)} ${entry.source}',
+      )
+      ..writeln(entry.message);
+    if (entry.details != null && entry.details!.trim().isNotEmpty) {
+      buffer.writeln('details: ${entry.details!.trim()}');
+    }
+    if (entry.stackTraceText != null &&
+        entry.stackTraceText!.trim().isNotEmpty) {
+      buffer.writeln('stackTrace:');
+      buffer.writeln(entry.stackTraceText!.trim());
+    }
+    buffer.writeln('');
+    return buffer.toString();
+  }
+
+  void _appendCrashJournalSection({
+    required StringBuffer buffer,
+    required String title,
+    required File file,
+  }) {
+    final content = _readCrashJournalSync(file);
+    if (content == null) return;
+    buffer
+      ..writeln('')
+      ..writeln('===== $title =====')
+      ..writeln(content.trimRight());
+  }
+
+  String? _readCrashJournalSync(File file) {
+    try {
+      if (!file.existsSync()) return null;
+      final content = file.readAsStringSync();
+      return content.trim().isEmpty ? null : content;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void _deleteCrashJournalSync(File file) {
+    try {
+      if (file.existsSync()) {
+        file.deleteSync();
+      }
+    } catch (_) {}
+  }
+
+  File _runtimeCrashJournalFile() {
+    return File('${Directory.systemTemp.path}/$_runtimeCrashJournalFileName');
+  }
+
+  File _nativeCrashJournalFile() {
+    return File('${Directory.systemTemp.path}/$_nativeCrashJournalFileName');
   }
 
   String _buildId() {

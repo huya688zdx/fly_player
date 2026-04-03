@@ -14,6 +14,8 @@ class PlayerCompletionController extends ChangeNotifier {
   bool _completionActionInFlight = false;
   bool _completionHasNextEpisode = false;
   bool _suppressPlaybackCompletionUntilReady = false;
+  bool _autoPlayPromptSuppressed = false;
+  bool _autoPlayCountdownPaused = false;
   late int _autoPlayCountdownSeconds;
 
   PlayerCompletionController({
@@ -28,6 +30,8 @@ class PlayerCompletionController extends ChangeNotifier {
   bool get completionHasNextEpisode => _completionHasNextEpisode;
   bool get suppressPlaybackCompletionUntilReady =>
       _suppressPlaybackCompletionUntilReady;
+  bool get autoPlayPromptSuppressed => _autoPlayPromptSuppressed;
+  Duration get autoPlayPromptWindow => autoPlayCountdownDuration;
   int get autoPlayCountdownSeconds => _autoPlayCountdownSeconds;
 
   bool isProgressFullyWatched({
@@ -61,7 +65,7 @@ class PlayerCompletionController extends ChangeNotifier {
     if (effectiveDuration <= Duration.zero) return false;
 
     final remaining = effectiveDuration - displayPosition;
-    if (remaining <= const Duration(milliseconds: 120)) {
+    if (remaining <= const Duration(seconds: 1)) {
       return true;
     }
 
@@ -95,6 +99,7 @@ class PlayerCompletionController extends ChangeNotifier {
     final changed = _autoPlayPromptVisible || _pauseAfterReadyForAutoPlayPrompt;
     _autoPlayPromptVisible = false;
     _pauseAfterReadyForAutoPlayPrompt = false;
+    _autoPlayCountdownPaused = false;
     _autoPlayCountdownSeconds = autoPlayCountdownDuration.inSeconds;
     if (notify && changed) {
       notifyListeners();
@@ -109,7 +114,9 @@ class PlayerCompletionController extends ChangeNotifier {
     _playbackCompleted = false;
     _completionActionInFlight = false;
     _completionHasNextEpisode = hasNextEpisode;
+    _autoPlayPromptSuppressed = false;
     _autoPlayPromptVisible = true;
+    _autoPlayCountdownPaused = false;
     _autoPlayCountdownSeconds = autoPlayCountdownDuration.inSeconds;
     notifyListeners();
 
@@ -120,6 +127,9 @@ class PlayerCompletionController extends ChangeNotifier {
         timer.cancel();
         return;
       }
+      if (_autoPlayCountdownPaused) {
+        return;
+      }
       if (_autoPlayCountdownSeconds <= 1) {
         timer.cancel();
         onTimeout();
@@ -128,6 +138,10 @@ class PlayerCompletionController extends ChangeNotifier {
       _autoPlayCountdownSeconds -= 1;
       notifyListeners();
     });
+  }
+
+  void setAutoPlayCountdownPaused(bool paused) {
+    _autoPlayCountdownPaused = paused;
   }
 
   void markTransitionInFlight({required bool hasNextEpisode}) {
@@ -178,6 +192,23 @@ class PlayerCompletionController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void suppressAutoPlayPromptForCurrentItem() {
+    _autoPlayCountdownTimer?.cancel();
+    _autoPlayCountdownTimer = null;
+    final changed =
+        _autoPlayPromptVisible ||
+        _pauseAfterReadyForAutoPlayPrompt ||
+        !_autoPlayPromptSuppressed;
+    _autoPlayPromptVisible = false;
+    _pauseAfterReadyForAutoPlayPrompt = false;
+    _autoPlayPromptSuppressed = true;
+    _autoPlayCountdownPaused = false;
+    _autoPlayCountdownSeconds = autoPlayCountdownDuration.inSeconds;
+    if (changed) {
+      notifyListeners();
+    }
+  }
+
   void clear() {
     _autoPlayCountdownTimer?.cancel();
     _autoPlayCountdownTimer = null;
@@ -187,6 +218,7 @@ class PlayerCompletionController extends ChangeNotifier {
         _playbackCompleted ||
         _completionActionInFlight ||
         _completionHasNextEpisode ||
+        _autoPlayPromptSuppressed ||
         _autoPlayCountdownSeconds != autoPlayCountdownDuration.inSeconds;
     _autoPlayPromptVisible = false;
     _pauseAfterReadyForAutoPlayPrompt = false;
@@ -194,6 +226,8 @@ class PlayerCompletionController extends ChangeNotifier {
     _completionActionInFlight = false;
     _completionHasNextEpisode = false;
     _suppressPlaybackCompletionUntilReady = false;
+    _autoPlayPromptSuppressed = false;
+    _autoPlayCountdownPaused = false;
     _autoPlayCountdownSeconds = autoPlayCountdownDuration.inSeconds;
     if (changed) {
       notifyListeners();

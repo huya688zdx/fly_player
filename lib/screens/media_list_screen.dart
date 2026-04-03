@@ -12,6 +12,7 @@ import '../models/media_item.dart';
 import '../models/media_library_item.dart';
 import '../providers/app_theme_provider.dart';
 import '../providers/nas_provider.dart';
+import '../services/download_task_service.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../services/parallel_browse_snapshot.dart';
 import '../theme/app_theme.dart';
@@ -22,6 +23,7 @@ import '../ui/media_poster_card.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/app_confirm_dialog.dart';
 import '../utils/app_exception.dart';
+import '../utils/app_top_tip.dart';
 import '../utils/media_locale_store.dart';
 import '../utils/media_locale_text.dart';
 import '../widgets/common/app_action_sheet.dart';
@@ -44,7 +46,9 @@ enum _ContinueWatchingAction {
 }
 
 class MediaListScreen extends StatefulWidget {
-  const MediaListScreen({super.key});
+  final bool secondaryHost;
+
+  const MediaListScreen({super.key, this.secondaryHost = false});
 
   @override
   State<MediaListScreen> createState() => _MediaListScreenState();
@@ -52,6 +56,9 @@ class MediaListScreen extends StatefulWidget {
 
 class _MediaListScreenState extends State<MediaListScreen> {
   static const int _fallbackContinueLimit = 12;
+  static const int _secondaryContinueLimit = 4;
+  static const int _defaultCategoryPreviewLimit = 30;
+  static const int _secondaryCategoryPreviewLimit = 8;
 
   List<MediaItem> _categories = <MediaItem>[];
   Map<String, List<MediaLibraryItem>> _itemsByCategory =
@@ -64,9 +71,24 @@ class _MediaListScreenState extends State<MediaListScreen> {
   bool _isLoading = false;
   AppException? _error;
 
+  int get _continueLimit =>
+      widget.secondaryHost ? _secondaryContinueLimit : _fallbackContinueLimit;
+
+  int get _categoryPreviewLimit => widget.secondaryHost
+      ? _secondaryCategoryPreviewLimit
+      : _defaultCategoryPreviewLimit;
+
+  double get _scrollCacheExtent => widget.secondaryHost ? 160 : 420;
+
+  double _rowCacheExtent(double itemExtent) {
+    final multiplier = widget.secondaryHost ? 1.2 : 2.4;
+    return itemExtent * multiplier;
+  }
+
   @override
   void initState() {
     super.initState();
+    unawaited(DownloadTaskService.instance.initialize());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(
         EmbeddedDetailLauncher.reportBrowseSnapshot(
@@ -80,8 +102,19 @@ class _MediaListScreenState extends State<MediaListScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final provider = context.read<NasProvider>();
+    if (!provider.isConfigured) {
+      _lastLoadKey = '';
+      _categories = <MediaItem>[];
+      _itemsByCategory = <String, List<MediaLibraryItem>>{};
+      _continueWatching = <MediaLibraryItem>[];
+      _mediaSummary = <String, dynamic>{};
+      _localeMap = <String, dynamic>{};
+      _error = null;
+      _isLoading = false;
+      return;
+    }
     final loadKey = '${provider.baseUrl}|${provider.token}';
-    if (provider.isConfigured && loadKey != _lastLoadKey) {
+    if (loadKey != _lastLoadKey) {
       _lastLoadKey = loadKey;
       _fetchHomeData();
     }
@@ -110,7 +143,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
           final items = await api.getItemsByCategoryGuid(
             category.id,
             page: 1,
-            limit: 30,
+            limit: _categoryPreviewLimit,
           );
           itemsByCategory[category.id] = items;
           allItems.addAll(items);
@@ -121,7 +154,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
       }
 
       final continueWatching = playList.isNotEmpty
-          ? playList.take(_fallbackContinueLimit).toList()
+          ? playList.take(_continueLimit).toList()
           : _pickContinueWatching(allItems);
 
       if (!mounted) return;
@@ -153,10 +186,10 @@ class _MediaListScreenState extends State<MediaListScreen> {
 
     try {
       final api = FeiniuApi(provider);
-      final playList = await api.getPlayList();
+      final playList = await api.getPlayList(forceRefresh: true);
       if (!mounted) return;
       setState(() {
-        _continueWatching = playList.take(_fallbackContinueLimit).toList();
+        _continueWatching = playList.take(_continueLimit).toList();
       });
     } catch (error) {
       debugPrint('[UI][HOME] continue watching refresh failed $error');
@@ -165,15 +198,11 @@ class _MediaListScreenState extends State<MediaListScreen> {
 
   void _showHomeSnackBar(String message, {Color? backgroundColor}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor: backgroundColor ?? const Color(0xFF1E2834),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+    AppTopTip().show(
+      context,
+      message: message,
+      color: backgroundColor ?? context.appColors.success,
+    );
   }
 
   void _replaceItemLocally(
@@ -211,9 +240,9 @@ class _MediaListScreenState extends State<MediaListScreen> {
           ..sort((a, b) => b.watchedTs.compareTo(a.watchedTs));
 
     if (watched.isNotEmpty) {
-      return watched.take(_fallbackContinueLimit).toList();
+      return watched.take(_continueLimit).toList();
     }
-    return items.take(_fallbackContinueLimit).toList();
+    return items.take(_continueLimit).toList();
   }
 
   int _summaryInt(String key, int fallback) {
@@ -302,6 +331,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
     List<String>? initialTypeTags,
   }) async {
     if (await EmbeddedDetailLauncher.openCategory(
+      context: context,
       category: category,
       initialTypeTags: initialTypeTags,
     )) {
@@ -319,7 +349,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
   }
 
   Future<void> _openFavoritesAsync() async {
-    if (await EmbeddedDetailLauncher.openFavorites()) {
+    if (await EmbeddedDetailLauncher.openFavorites(context: context)) {
       return;
     }
     if (!mounted) return;
@@ -329,7 +359,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
   }
 
   Future<void> _openSearchAsync() async {
-    if (await EmbeddedDetailLauncher.openSearch()) {
+    if (await EmbeddedDetailLauncher.openSearch(context: context)) {
       return;
     }
     if (!mounted) return;
@@ -342,6 +372,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
     if (item.guid.trim().isEmpty) return;
     if (_isPersonItem(item)) {
       if (await EmbeddedDetailLauncher.openPersonDetail(
+        context: context,
         personGuid: item.guid,
         initialName: item.displayTitle,
       )) {
@@ -362,7 +393,10 @@ class _MediaListScreenState extends State<MediaListScreen> {
 
     final navigator = Navigator.of(context);
     final provider = context.read<NasProvider>();
-    if (await EmbeddedDetailLauncher.openItemDetail(item.guid)) {
+    if (await EmbeddedDetailLauncher.openItemDetail(
+      item.guid,
+      context: context,
+    )) {
       return;
     }
     if (!mounted) return;
@@ -372,8 +406,8 @@ class _MediaListScreenState extends State<MediaListScreen> {
       width: 560,
     );
     if (warmupUrls.isNotEmpty) {
-      try {
-        await precacheImage(
+      unawaited(
+        precacheImage(
           NetworkImage(
             warmupUrls.first,
             headers: <String, String>{
@@ -382,29 +416,21 @@ class _MediaListScreenState extends State<MediaListScreen> {
             },
           ),
           navigator.context,
-        ).timeout(const Duration(milliseconds: 140));
-      } catch (error) {
-        debugPrint(
-          '[IMG][PRECACHE][HOME] failed url=${warmupUrls.first} error=$error',
-        );
-      }
+        ).timeout(const Duration(milliseconds: 140)).catchError((
+          Object error,
+          StackTrace stackTrace,
+        ) {
+          debugPrint(
+            '[IMG][PRECACHE][HOME] failed url=${warmupUrls.first} error=$error',
+          );
+        }),
+      );
     }
-
-    Map<String, dynamic>? initialDetail;
-    try {
-      initialDetail = await FeiniuApi(
-        provider,
-      ).getItemDetail(item.guid).timeout(const Duration(milliseconds: 240));
-    } catch (_) {}
 
     if (!mounted) return;
     await navigator.push(
       AppTransitions.leftToRightPageTurnRoute(
-        PlayDetailScreen(
-          itemGuid: item.guid,
-          heroTag: heroTag,
-          initialItemDetail: initialDetail,
-        ),
+        PlayDetailScreen(itemGuid: item.guid, heroTag: heroTag),
       ),
     );
     if (!mounted) return;

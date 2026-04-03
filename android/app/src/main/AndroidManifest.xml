@@ -1,5 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission
@@ -9,7 +10,7 @@
 
     <application
         android:label="fly_player"
-        android:name="${applicationName}"
+        android:name=".FlyPlayerApplication"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true"
         android:networkSecurityConfig="@xml/network_security_config">
@@ -19,6 +20,9 @@
         <meta-data
             android:name="android.supports_size_changes"
             android:value="true" />
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="false" />
         <meta-data
             android:name="embedded"
             android:value="true" />
@@ -44,27 +48,27 @@
             android:name=".DetailActivity"
             android:exported="false"
             android:taskAffinity="com.geqian.flyplayer.fly_player"
-            android:theme="@style/LaunchTheme"
+            android:theme="@style/ParallelPaneLaunchTheme"
             android:resizeableActivity="true"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
-                android:resource="@style/NormalTheme" />
+                android:resource="@style/ParallelPaneNormalTheme" />
         </activity>
         <activity
             android:name=".PlaceholderActivity"
             android:exported="false"
             android:taskAffinity="com.geqian.flyplayer.fly_player"
-            android:theme="@style/LaunchTheme"
+            android:theme="@style/ParallelPaneLaunchTheme"
             android:resizeableActivity="true"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
-                android:resource="@style/NormalTheme" />
+                android:resource="@style/ParallelPaneNormalTheme" />
         </activity>
         <activity
             android:name=".HomePaneActivity"
@@ -84,17 +88,31 @@
             android:exported="false"
             android:launchMode="singleTop"
             android:taskAffinity="com.geqian.flyplayer.fly_player"
-            android:theme="@style/LaunchTheme"
+            android:theme="@style/PlayerLaunchTheme"
+            android:supportsPictureInPicture="true"
             android:resizeableActivity="true"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
-                android:resource="@style/NormalTheme" />
+                android:resource="@style/PlayerNormalTheme" />
         </activity>
         <activity
             android:name=".FullscreenPlayerActivity"
+            android:exported="false"
+            android:taskAffinity="com.geqian.flyplayer.fly_player"
+            android:theme="@style/PlayerLaunchTheme"
+            android:resizeableActivity="true"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <meta-data
+                android:name="io.flutter.embedding.android.NormalTheme"
+                android:resource="@style/PlayerNormalTheme" />
+        </activity>
+        <activity
+            android:name=".FullscreenScreenshotActivity"
             android:exported="false"
             android:taskAffinity="com.geqian.flyplayer.fly_player"
             android:theme="@style/LaunchTheme"
@@ -141,6 +159,11 @@
             android:exported="false"
             android:foregroundServiceType="mediaPlayback"
             android:stopWithTask="false" />
+
+        <receiver
+            android:name=".PlaybackCommandReceiver"
+            android:enabled="true"
+            android:exported="false" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

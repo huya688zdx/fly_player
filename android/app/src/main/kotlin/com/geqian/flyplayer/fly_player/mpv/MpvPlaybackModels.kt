@@ -12,11 +12,19 @@ private val RESOLUTION_DIGIT_PATTERN = Regex("(\\d{3,4})")
 data class MpvSource(
     val loadNonce: Int,
     val itemGuid: String,
+    val seasonGuid: String,
+    val posterPath: String,
     val mediaGuid: String,
+    val mediaType: String,
+    val ancestorName: String,
     val videoGuid: String,
     val url: String,
     val headers: Map<String, String>,
     val title: String,
+    val seriesTitle: String,
+    val seasonNumber: Int,
+    val tmdbId: String,
+    val episodeNumber: Int,
     val startPositionMs: Long,
     val audioTrackIndex: Int?,
     val subtitleTrackIndex: Int?,
@@ -39,6 +47,7 @@ data class MpvSource(
     val reliableSeek: Boolean,
     val seekProbeSummary: String?,
     val playbackSpeed: Double,
+    val listenVideoModeEnabled: Boolean,
 ) {
     companion object {
         fun fromMap(map: Map<String, Any?>): MpvSource {
@@ -47,12 +56,20 @@ data class MpvSource(
             return MpvSource(
                 loadNonce = map["loadNonce"].toIntValue() ?: 0,
                 itemGuid = map["itemGuid"]?.toString().orEmpty(),
+                seasonGuid = map["seasonGuid"]?.toString().orEmpty(),
+                posterPath = map["posterPath"]?.toString().orEmpty(),
                 mediaGuid = map["mediaGuid"]?.toString().orEmpty(),
+                mediaType = map["mediaType"]?.toString().orEmpty(),
+                ancestorName = map["ancestorName"]?.toString().orEmpty(),
                 videoGuid = map["videoGuid"]?.toString().orEmpty(),
                 url = map["url"]?.toString().orEmpty(),
                 headers = rawHeaders.mapValues { it.value?.toString().orEmpty() }
                     .filterValues { it.isNotEmpty() },
                 title = map["title"]?.toString().orEmpty(),
+                seriesTitle = map["seriesTitle"]?.toString().orEmpty(),
+                seasonNumber = map["seasonNumber"].toIntValue() ?: 0,
+                tmdbId = map["tmdbId"]?.toString().orEmpty(),
+                episodeNumber = map["episodeNumber"].toIntValue() ?: 0,
                 startPositionMs = map["startPositionMs"].toLongValue(),
                 audioTrackIndex = map["audioTrackIndex"].toIntValue(),
                 subtitleTrackIndex = map["subtitleTrackIndex"].toIntValue(),
@@ -75,6 +92,7 @@ data class MpvSource(
                 reliableSeek = map["reliableSeek"] as? Boolean ?: true,
                 seekProbeSummary = map["seekProbeSummary"]?.toString(),
                 playbackSpeed = map["playbackSpeed"].toDoubleValue() ?: 1.0,
+                listenVideoModeEnabled = map["listenVideoModeEnabled"] as? Boolean ?: false,
             )
         }
     }
@@ -175,24 +193,32 @@ data class MpvPlayerState(
     val loadNonce: Int = 0,
     val ready: Boolean = false,
     val nativeLibLoaded: Boolean = false,
+    val visualPlaybackReady: Boolean = false,
     val paused: Boolean = true,
     val positionMs: Long = 0L,
     val bufferedPositionMs: Long = 0L,
     val durationMs: Long = 0L,
+    val listenVideoModeEnabled: Boolean = false,
     val statusText: String = "Preparing player",
     val error: String? = null,
+    val nativeProxySessionId: String? = null,
+    val cacheResourceKey: String? = null,
 ) {
     fun toMap(): Map<String, Any?> {
         return mapOf(
             "loadNonce" to loadNonce,
             "ready" to ready,
             "nativeLibLoaded" to nativeLibLoaded,
+            "visualPlaybackReady" to visualPlaybackReady,
             "paused" to paused,
             "positionMs" to positionMs,
             "bufferedPositionMs" to bufferedPositionMs,
             "durationMs" to durationMs,
+            "listenVideoModeEnabled" to listenVideoModeEnabled,
             "statusText" to statusText,
             "error" to error,
+            "nativeProxySessionId" to nativeProxySessionId,
+            "cacheResourceKey" to cacheResourceKey,
         )
     }
 }
