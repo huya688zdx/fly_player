@@ -30,6 +30,16 @@ private const val FILTER_FALLBACK_MISTIMED_THRESHOLD = 12L
 private const val SURFACE_TRANSITION_GRACE_MS = 2500L
 private const val ENABLE_MPV_VERBOSE_LOGS = false
 private const val DEFAULT_SUBTITLE_POSITION = 92
+private val VISUAL_PLAYBACK_RESET_STATUSES =
+    setOf(
+        "waiting for playback source",
+        "waiting for video surface",
+        "preparing video renderer",
+        "source loaded",
+        "playback started",
+        "proxy stream open failed",
+        "playback ended",
+    )
 
 class MpvPlaybackController(
     private val context: Context,
@@ -1383,8 +1393,19 @@ class MpvPlaybackController(
     }
 
     private fun updateState(next: MpvPlayerState) {
+        val normalizedStatus = next.statusText.trim().lowercase()
+        val clearVisualPlaybackReady =
+            !next.ready ||
+                next.error != null ||
+                VISUAL_PLAYBACK_RESET_STATUSES.contains(normalizedStatus)
         val enriched =
             next.copy(
+                visualPlaybackReady =
+                    if (clearVisualPlaybackReady) {
+                        false
+                    } else {
+                        next.visualPlaybackReady
+                    },
                 nativeProxySessionId = sourceResolver.activeProxySessionId,
                 cacheResourceKey = sourceResolver.activeCacheResourceKey,
             )
@@ -2048,6 +2069,7 @@ class MpvPlaybackController(
             maybeTriggerHdrHwdecFallback(lowerMessage)
             maybeTriggerAutomaticSoftwareDecoderFallback(lowerMessage)
             applyRecoveryDecision(lowerMessage)
+            maybeMarkVisualPlaybackReady(lowerMessage)
             if (
                 lowerMessage.contains("font") ||
                 lowerMessage.contains("fallback") ||
@@ -2065,6 +2087,23 @@ class MpvPlaybackController(
                 )
             }
         }
+    }
+
+    private fun maybeMarkVisualPlaybackReady(lowerMessage: String) {
+        if (state.visualPlaybackReady) return
+        val visualReady =
+            lowerMessage.contains("playback restart complete") &&
+                lowerMessage.contains("video=playing") &&
+                (lowerMessage.contains("audio=playing") ||
+                    lowerMessage.contains("audio=disabled") ||
+                    lowerMessage.contains("audio=none"))
+        if (!visualReady) return
+        updateState(
+            state.copy(
+                visualPlaybackReady = true,
+                error = null,
+            ),
+        )
     }
 
     private fun applyRecoveryDecision(lowerMessage: String) {

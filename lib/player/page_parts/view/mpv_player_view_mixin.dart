@@ -59,29 +59,9 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
         fit: StackFit.expand,
         clipBehavior: Clip.hardEdge,
         children: [
-          AnimatedBuilder(
-            animation: _controller.value,
-            builder: (context, _) {
-              return RepaintBoundary(
-                child: Center(
-                  child: AspectRatio(
-                    aspectRatio: _videoAspectRatio(),
-                    child: ClipRect(
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          Positioned.fill(child: _buildPlayerSurface()),
-                          if (!widget.pictureInPictureActive &&
-                              !listenVideoActive)
-                            _buildDanmakuLayer(),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
+          RepaintBoundary(child: _buildVideoViewportLayer(_buildPlayerSurface())),
+          if (!widget.pictureInPictureActive && !listenVideoActive)
+            RepaintBoundary(child: _buildVideoViewportLayer(_buildDanmakuLayer())),
           if (!widget.pictureInPictureActive && listenVideoActive)
             Positioned.fill(
               child: _buildListenVideoPresentationLayer(
@@ -150,6 +130,15 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
     );
   }
 
+  Widget _buildVideoViewportLayer(Widget child) {
+    return Center(
+      child: AspectRatio(
+        aspectRatio: _videoAspectRatio(),
+        child: ClipRect(child: child),
+      ),
+    );
+  }
+
   Widget _buildListenVideoPresentationLayer(
     BuildContext context, {
     required bool compactUi,
@@ -197,10 +186,14 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
   }
 
   Widget _buildDanmakuLayer() {
+    if (_useNativeDanmakuRenderer) {
+      return const SizedBox.shrink();
+    }
     return AnimatedBuilder(
       animation: Listenable.merge(<Listenable>[
         _controller.value,
         _controller.danmakuOcclusionState,
+        _gestureController.speedBoostListenable,
       ]),
       builder: (context, _) {
         final value = _controller.value.value;
@@ -210,7 +203,6 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
             ? duration
             : value.position;
         return DanmakuOverlay(
-          key: ValueKey<int>(value.loadNonce),
           controller: _danmakuController,
           position: rawPlaybackPosition,
           paused: value.paused,
@@ -275,7 +267,7 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
     required double timeFontSize,
   }) {
     return AnimatedBuilder(
-      animation: _gestureController,
+      animation: _gestureController.seekListenable,
       builder: (context, _) {
         final overlaySuppressed =
             _playbackSettingsDrawerVisible ||
@@ -344,22 +336,31 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
                   showStatusCard: false,
                   topBar: topBar,
                 ),
-                PlayerGestureOverlay(
-                  adjustment: _gestureOverlayData,
-                  speedBoostActive: _speedBoostActive,
-                  statusMessage:
-                      !_uiController.backgroundLoadingTransition &&
-                          (_uiController.subtitleSwitchMessage
-                                  ?.trim()
-                                  .isNotEmpty ??
-                              false)
-                      ? _uiController.subtitleSwitchMessage
-                      : _uiController.statusMessage,
-                  statusLoading:
-                      !_uiController.backgroundLoadingTransition &&
-                      (_uiController.qualitySwitchLoading ||
-                          _uiController.pendingLoadingTransition ||
-                          _uiController.awaitingVisualPlaybackStart),
+                AnimatedBuilder(
+                  animation: _gestureController.overlayListenable,
+                  builder: (context, _) {
+                    return PlayerGestureOverlay(
+                      adjustment: _gestureOverlayData,
+                      speedBoostActive: _speedBoostActive,
+                      statusMessage:
+                          !_uiController.backgroundLoadingTransition &&
+                              !_uiController.videoLoadingOverlayVisible &&
+                              !(_uiController.qualitySwitchLoading ||
+                                  _uiController.pendingLoadingTransition ||
+                                  _uiController.awaitingVisualPlaybackStart) &&
+                              (_uiController.subtitleSwitchMessage
+                                      ?.trim()
+                                      .isNotEmpty ??
+                                  false)
+                          ? _uiController.subtitleSwitchMessage
+                          : _uiController.statusMessage,
+                      statusLoading:
+                          !_uiController.backgroundLoadingTransition &&
+                          (_uiController.qualitySwitchLoading ||
+                              _uiController.pendingLoadingTransition ||
+                              _uiController.awaitingVisualPlaybackStart),
+                    );
+                  },
                 ),
               ],
             );
@@ -773,6 +774,7 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
       width: viewportSize.width,
       height: viewportSize.height,
     );
+    unawaited(_syncDanmakuDynamicOcclusionConfig());
   }
 
   void _handleGestureVerticalUpdate(
@@ -787,10 +789,12 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
 
   void _handleGestureVerticalEnd(DragEndDetails details) {
     _gestureController.handleVerticalEnd();
+    unawaited(_syncDanmakuDynamicOcclusionConfig());
   }
 
   void _handleGestureVerticalCancel() {
     _gestureController.cancelVerticalAdjustment();
+    unawaited(_syncDanmakuDynamicOcclusionConfig());
   }
 
   void _handleGestureLongPressStart(LongPressStartDetails details) {

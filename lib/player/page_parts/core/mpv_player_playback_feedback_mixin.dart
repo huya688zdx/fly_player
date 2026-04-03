@@ -7,25 +7,22 @@ const Set<String> _loadingStatusTexts = <String>{
   'waiting for video surface',
   'waiting for playback source',
 };
-const Set<String> _visualPlaybackPendingStatusTexts = <String>{
-  'preparing player',
-  'preparing playback',
-  'preparing video renderer',
-  'waiting for video surface',
-  'waiting for playback source',
-  'source loaded',
-  'playback started',
-};
 const Duration _videoLoadingOverlayShowDelay = Duration(milliseconds: 260);
 
 extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
   void _finishPendingLoadingTransition({
     Duration hideDelay = const Duration(milliseconds: 900),
   }) {
-    if (!_uiController.pendingLoadingTransition) {
+    final hadTransitionState =
+        _uiController.pendingLoadingTransition ||
+        _uiController.awaitingVisualPlaybackStart ||
+        _uiController.qualitySwitchLoading ||
+        _uiController.backgroundLoadingTransition;
+    if (!hadTransitionState) {
       return;
     }
     _uiController.pendingLoadingTransition = false;
+    _uiController.awaitingVisualPlaybackStart = false;
     _uiController.backgroundLoadingTransition = false;
     _uiController.pendingTransitionTargetPaused = false;
     if (mounted) {
@@ -33,6 +30,7 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
     } else {
       _uiController.qualitySwitchLoading = false;
     }
+    _completionController.clearPlaybackCompletionSuppression();
     _hideSubtitleSwitchMessage(delay: hideDelay);
   }
 
@@ -50,6 +48,7 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
     required bool targetPaused,
     bool background = false,
   }) {
+    _completionController.beginPlaybackCompletionSuppression();
     _uiController.markAwaitingVisualPlaybackStart(
       anchorPosition,
       targetPaused: targetPaused,
@@ -89,22 +88,12 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
       _finishPendingLoadingTransition();
       return;
     }
-    if (value.ready &&
-        value.nativeLibLoaded &&
-        !value.paused &&
-        status == 'playback started') {
+    if (value.visualPlaybackReady && value.ready && value.nativeLibLoaded) {
       _uiController.awaitingVisualPlaybackStart = false;
       _finishPendingLoadingTransition(
         hideDelay: const Duration(milliseconds: 220),
       );
       return;
-    }
-    if (value.ready &&
-        value.nativeLibLoaded &&
-        !value.paused &&
-        !_visualPlaybackPendingStatusTexts.contains(status)) {
-      _uiController.awaitingVisualPlaybackStart = false;
-      _finishPendingLoadingTransition();
     }
   }
 

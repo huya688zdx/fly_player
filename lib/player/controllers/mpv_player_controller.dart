@@ -659,6 +659,7 @@ class MpvPlayerValue {
   final int loadNonce;
   final bool ready;
   final bool nativeLibLoaded;
+  final bool visualPlaybackReady;
   final bool paused;
   final Duration position;
   final Duration bufferedPosition;
@@ -673,6 +674,7 @@ class MpvPlayerValue {
     required this.loadNonce,
     required this.ready,
     required this.nativeLibLoaded,
+    required this.visualPlaybackReady,
     required this.paused,
     required this.position,
     required this.bufferedPosition,
@@ -688,6 +690,7 @@ class MpvPlayerValue {
     : loadNonce = 0,
       ready = false,
       nativeLibLoaded = false,
+      visualPlaybackReady = false,
       paused = true,
       position = Duration.zero,
       bufferedPosition = Duration.zero,
@@ -702,6 +705,7 @@ class MpvPlayerValue {
     int? loadNonce,
     bool? ready,
     bool? nativeLibLoaded,
+    bool? visualPlaybackReady,
     bool? paused,
     Duration? position,
     Duration? bufferedPosition,
@@ -719,6 +723,7 @@ class MpvPlayerValue {
       loadNonce: loadNonce ?? this.loadNonce,
       ready: ready ?? this.ready,
       nativeLibLoaded: nativeLibLoaded ?? this.nativeLibLoaded,
+      visualPlaybackReady: visualPlaybackReady ?? this.visualPlaybackReady,
       paused: paused ?? this.paused,
       position: position ?? this.position,
       bufferedPosition: bufferedPosition ?? this.bufferedPosition,
@@ -751,6 +756,7 @@ class MpvPlayerValue {
           : int.tryParse('${event['loadNonce']}'),
       ready: event['ready'] as bool?,
       nativeLibLoaded: event['nativeLibLoaded'] as bool?,
+      visualPlaybackReady: event['visualPlaybackReady'] as bool?,
       paused: event['paused'] as bool?,
       position: durationFrom(event['positionMs']),
       bufferedPosition: durationFrom(event['bufferedPositionMs']),
@@ -1026,6 +1032,7 @@ class MpvPlayerController {
       loadNonce: source.loadNonce,
       ready: false,
       nativeLibLoaded: false,
+      visualPlaybackReady: false,
       paused: paused ?? value.value.paused,
       position: source.startPosition,
       bufferedPosition: source.startPosition,
@@ -1296,6 +1303,14 @@ class MpvPlayerController {
     return _invoke('setDanmakuOcclusionConfig', config);
   }
 
+  Future<void> setNativeDanmakuPayload(Map<String, Object?> payload) {
+    return _invoke('setNativeDanmakuPayload', payload);
+  }
+
+  Future<void> clearNativeDanmaku() {
+    return _invoke('clearNativeDanmaku');
+  }
+
   List<MpvChapterItem> _filterZeroTimeChapters(List<MpvChapterItem> chapters) {
     if (chapters.isEmpty) return chapters;
     bool seenZero = false;
@@ -1419,6 +1434,7 @@ class MpvPlayerController {
   bool _shouldPublishValue(MpvPlayerValue previous, MpvPlayerValue next) {
     if (previous.ready != next.ready ||
         previous.nativeLibLoaded != next.nativeLibLoaded ||
+        previous.visualPlaybackReady != next.visualPlaybackReady ||
         previous.paused != next.paused ||
         previous.listenVideoModeEnabled != next.listenVideoModeEnabled ||
         previous.duration != next.duration ||

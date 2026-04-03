@@ -14,6 +14,7 @@ extension _MpvPlayerDanmakuMixin on _MpvPlayerPageState {
   static const String _danmakuAutoBlockFailed = 'failed';
 
   bool get _danmakuEnabled => _danmakuController.settings.enabled;
+  bool get _useNativeDanmakuRenderer => Platform.isAndroid && _platformViewAttached;
 
   DanDanPlayResolver get _danDanPlayResolver => DanDanPlayResolver(
     DanDanPlayApi(
@@ -26,6 +27,20 @@ extension _MpvPlayerDanmakuMixin on _MpvPlayerPageState {
       ? 'assets/icons/player_danmaku_on.svg'
       : 'assets/icons/player_danmaku_off.svg';
 
+  void _handleDanmakuControllerChanged() {
+    if (!_useNativeDanmakuRenderer) {
+      return;
+    }
+    debugPrint(
+      '[DANMAKU][NATIVE] controller_changed '
+      'ready=${_danmakuController.ready} '
+      'enabled=${_danmakuController.settings.enabled} '
+      'comments=${_danmakuController.comments.length} '
+      'platformAttached=$_platformViewAttached',
+    );
+    unawaited(_syncNativeDanmakuRenderer());
+  }
+
   Future<void> _loadDanmakuPreferences() async {
     await DanDanPlayConfig.ensureLoaded();
     await _danmakuController.initialize();
@@ -33,8 +48,65 @@ extension _MpvPlayerDanmakuMixin on _MpvPlayerPageState {
     await _loadSavedLocalDanmakuSources();
     await _tryLoadPreferredDanmakuSource();
     await _syncDanmakuDynamicOcclusionConfig();
+    await _syncNativeDanmakuRenderer();
     if (!mounted) return;
     _updatePlayerState(() {});
+  }
+
+  Future<void> _syncNativeDanmakuRenderer() async {
+    if (!_useNativeDanmakuRenderer) {
+      return;
+    }
+    if (!_danmakuController.ready) {
+      debugPrint('[DANMAKU][NATIVE] clear reason=controller_not_ready');
+      await _controller.clearNativeDanmaku();
+      return;
+    }
+    final settings = _danmakuController.settings;
+    final comments = _danmakuController.comments;
+    if (!settings.enabled || comments.isEmpty) {
+      debugPrint(
+        '[DANMAKU][NATIVE] clear reason=empty '
+        'enabled=${settings.enabled} comments=${comments.length}',
+      );
+      await _controller.clearNativeDanmaku();
+      return;
+    }
+    final payload = <String, Object?>{
+      'enabled': settings.enabled,
+      'opacity': settings.opacity,
+      'density': settings.density,
+      'fontScale': settings.fontScale,
+      'speed': settings.speed,
+      'displayAreaRatio': settings.displayAreaRatio,
+      'scrollEnabled': settings.scrollEnabled,
+      'topEnabled': settings.topEnabled,
+      'bottomEnabled': settings.bottomEnabled,
+      'colorEnabled': settings.colorEnabled,
+      'hideDuplicate': settings.hideDuplicate,
+      'avoidSubtitleArea': settings.avoidSubtitleArea,
+      'avoidCenterArea': settings.avoidCenterArea,
+      'playbackSpeed': _speedBoostActive ? 2.0 : _playbackSpeed,
+      'sourceKey': _currentDanmakuMediaKey(),
+      'comments': comments
+          .map(
+            (comment) => <String, Object?>{
+              'id': comment.id,
+              'timeMs': comment.timeMs,
+              'text': comment.text,
+              'type': comment.type.name,
+              'color': comment.color.toARGB32(),
+            },
+          )
+          .toList(growable: false),
+    };
+    debugPrint(
+      '[DANMAKU][NATIVE] sync '
+      'source=${_currentDanmakuMediaKey()} '
+      'comments=${comments.length} '
+      'speed=${payload['playbackSpeed']}',
+    );
+    await _controller.setNativeDanmakuPayload(payload);
   }
 
   void _syncDanmakuMediaContext({bool triggerAutoLoad = false}) {
@@ -166,6 +238,9 @@ extension _MpvPlayerDanmakuMixin on _MpvPlayerPageState {
             : DanmakuLoadedSourceType.local,
         comments: result.comments,
       );
+      if (_useNativeDanmakuRenderer) {
+        await _syncNativeDanmakuRenderer();
+      }
       _activeDanmakuSourceKey = source.sourceKey;
       await _danmakuSavedSourceStore.setActiveSourceKey(
         mediaKey: mediaKey,
