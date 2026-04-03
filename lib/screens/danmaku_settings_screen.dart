@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 import '../danmaku/models/danmaku_saved_source.dart';
 import '../danmaku/models/danmaku_settings.dart';
@@ -66,9 +66,23 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
     return '正常';
   }
 
-  String _areaLabel(double ratio) => '${(ratio * 100).round()}%';
+  String _areaLabel(double ratio) {
+    if (ratio <= 0.10) return '1/10屏';
+    if (ratio <= 0.25) return '1/4屏';
+    if (ratio <= 0.5) return '半屏';
+    if (ratio <= 0.75) return '3/4屏';
+    return '全屏';
+  }
 
   String _percentLabel(double value) => '${(value * 100).round()}%';
+
+  String _fontScaleLabel(double value) {
+    if (value < 0.8) return '较小';
+    if (value < 0.95) return '偏小';
+    if (value <= 1.05) return '标准';
+    if (value < 1.2) return '偏大';
+    return '较大';
+  }
 
   Future<void> _openDanmakuManager() async {
     await Navigator.of(context).push(
@@ -200,9 +214,9 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                             title: '显示区域',
                             valueLabel: _areaLabel(_settings.displayAreaRatio),
                             value: _settings.displayAreaRatio,
-                            min: 0.25,
+                            min: 0.1,
                             max: 1.0,
-                            divisions: 3,
+                            divisions: 4,
                             onChanged: (value) {
                               setState(() {
                                 _settings = _settings.copyWith(
@@ -235,8 +249,25 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                           ),
                           const _DanmakuDivider(),
                           _DanmakuSliderTile(
+                            title: '弹幕密度',
+                            valueLabel: _percentLabel(_settings.density),
+                            value: _settings.density,
+                            min: 0.2,
+                            max: 1.0,
+                            divisions: 8,
+                            onChanged: (value) {
+                              setState(() {
+                                _settings = _settings.copyWith(density: value);
+                              });
+                            },
+                            onChangeEnd: (value) {
+                              _save(_settings.copyWith(density: value));
+                            },
+                          ),
+                          const _DanmakuDivider(),
+                          _DanmakuSliderTile(
                             title: '字体大小',
-                            valueLabel: _percentLabel(_settings.fontScale),
+                            valueLabel: _fontScaleLabel(_settings.fontScale),
                             value: _settings.fontScale,
                             min: 0.6,
                             max: 1.4,
@@ -345,7 +376,7 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                         children: <Widget>[
                           _DanmakuSwitchTile(
                             title: '隐藏重复弹幕',
-                            subtitle: '减少同屏高频重复内容。',
+                            subtitle: '合并高频重复内容，减少同屏密集刷屏。',
                             value: _settings.hideDuplicate,
                             onChanged: (value) {
                               _save(_settings.copyWith(hideDuplicate: value));
@@ -353,8 +384,8 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                           ),
                           const _DanmakuDivider(),
                           _DanmakuSwitchTile(
-                            title: '避开字幕区域',
-                            subtitle: '尽量避免弹幕压住底部字幕。',
+                            title: '底部字幕区域防遮挡',
+                            subtitle: '优先避开字幕所在区域，减少弹幕压住字幕。',
                             value: _settings.avoidSubtitleArea,
                             onChanged: (value) {
                               _save(
@@ -364,8 +395,8 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                           ),
                           const _DanmakuDivider(),
                           _DanmakuSwitchTile(
-                            title: '避开画面中央',
-                            subtitle: '优先保留主体区域的观看空间。',
+                            title: '主体穿透遮挡',
+                            subtitle: '优先使用动态蒙版扣除人物区域内的弹幕，不可用时会恢复普通弹幕。',
                             value: _settings.avoidCenterArea,
                             onChanged: (value) {
                               _save(_settings.copyWith(avoidCenterArea: value));
@@ -427,11 +458,12 @@ class _DanmakuCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    return DecoratedBox(
-      decoration: BoxDecoration(
+    return Material(
+      color: colors.surfaceSubtle,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(24),
-        color: colors.surfaceSubtle,
-        border: Border.all(color: colors.borderSubtle),
+        side: BorderSide(color: colors.borderSubtle),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),

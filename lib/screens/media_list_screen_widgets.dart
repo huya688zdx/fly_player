@@ -11,17 +11,19 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
           themeProvider.dynamicThemeEnabled &&
           themeProvider.runtimeDynamicThemeSeed != null,
     );
+    final topSurfaceColor = hasRuntimeDynamicTheme
+        ? Color.alphaBlend(
+            colors.accentSoft.withValues(alpha: 0.16),
+            colors.backgroundElevated,
+          )
+        : colors.backgroundBase;
 
     final body = _buildBody(baseUrl, token);
 
     return Scaffold(
-      backgroundColor: hasRuntimeDynamicTheme
-          ? Colors.transparent
-          : colors.backgroundBase,
+      backgroundColor: topSurfaceColor,
       appBar: AppBar(
-        backgroundColor: hasRuntimeDynamicTheme
-            ? Colors.transparent
-            : colors.backgroundBase,
+        backgroundColor: topSurfaceColor,
         surfaceTintColor: Colors.transparent,
         foregroundColor: colors.textPrimary,
         iconTheme: IconThemeData(color: colors.textPrimary),
@@ -33,7 +35,9 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: _confirmLogout,
+          onPressed: widget.secondaryHost
+              ? () => EmbeddedDetailLauncher.closeHostOrPop(context)
+              : _confirmLogout,
         ),
         title: Text(_t('layout.sidebar.home', '首页')),
         actions: <Widget>[
@@ -118,7 +122,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     return RefreshIndicator(
       onRefresh: _fetchHomeData,
       child: CustomScrollView(
-        cacheExtent: 1200,
+        cacheExtent: _scrollCacheExtent,
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: <Widget>[
           SliverPadding(
@@ -209,7 +213,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
             child: ListView.separated(
               padding: EdgeInsets.zero,
               scrollDirection: Axis.horizontal,
-              cacheExtent: layout.continueCardWidth * 5,
+              cacheExtent: _rowCacheExtent(layout.continueCardWidth),
               itemCount: _continueWatching.length,
               separatorBuilder: (_, __) => SizedBox(width: layout.itemGap),
               itemBuilder: (context, index) {
@@ -281,13 +285,13 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     String token,
     MediaLayoutProfile layout,
   ) {
-    final count = min(_categories.length, 10);
+    final count = min(_categories.length, widget.secondaryHost ? 6 : 10);
     return SizedBox(
       height: layout.categoryStripHeight,
       child: ListView.separated(
         padding: EdgeInsets.zero,
         scrollDirection: Axis.horizontal,
-        cacheExtent: layout.categoryCardWidth * 6,
+        cacheExtent: _rowCacheExtent(layout.categoryCardWidth),
         itemCount: count,
         separatorBuilder: (_, __) => SizedBox(width: layout.itemGap),
         itemBuilder: (context, index) {
@@ -310,6 +314,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
                 )
                 .toList(),
             token: token,
+            lightweight: widget.secondaryHost,
             cardWidth: layout.categoryCardWidth,
             miniPosterWidth: layout.categoryMiniPosterWidth,
             miniPosterHeight: layout.categoryMiniPosterHeight,
@@ -362,12 +367,18 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
                       _PosterImage(
                         urls: urls,
                         token: token,
+                        lightweight: widget.secondaryHost,
                         fallback: Center(
                           child: Icon(
                             Icons.movie,
                             color: colors.textMuted.withValues(alpha: 0.5),
                           ),
                         ),
+                      ),
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: _ContinueDownloadBadge(itemGuid: item.guid),
                       ),
                       if (progress > 0)
                         Positioned(
@@ -514,7 +525,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
       child: ListView.separated(
         padding: EdgeInsets.zero,
         scrollDirection: Axis.horizontal,
-        cacheExtent: layout.homePosterCardWidth * 6,
+        cacheExtent: _rowCacheExtent(layout.homePosterCardWidth),
         itemCount: maxCount,
         separatorBuilder: (_, __) => SizedBox(width: layout.itemGap),
         itemBuilder: (context, index) {
@@ -562,6 +573,7 @@ class _CategoryPosterCard extends StatelessWidget {
   final String title;
   final List<List<String>> posterUrls;
   final String token;
+  final bool lightweight;
   final double cardWidth;
   final double miniPosterWidth;
   final double miniPosterHeight;
@@ -571,6 +583,7 @@ class _CategoryPosterCard extends StatelessWidget {
     required this.title,
     required this.posterUrls,
     required this.token,
+    this.lightweight = false,
     required this.cardWidth,
     required this.miniPosterWidth,
     required this.miniPosterHeight,
@@ -620,6 +633,7 @@ class _CategoryPosterCard extends StatelessWidget {
                                 child: _PosterImage(
                                   urls: normalized[index],
                                   token: token,
+                                  lightweight: lightweight,
                                   fallback: Container(
                                     color: colors.surfaceStrong,
                                   ),
@@ -688,14 +702,58 @@ class _CategoryPosterCard extends StatelessWidget {
   }
 }
 
+class _ContinueDownloadBadge extends StatelessWidget {
+  final String itemGuid;
+
+  const _ContinueDownloadBadge({required this.itemGuid});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return ListenableBuilder(
+      listenable: DownloadTaskService.instance,
+      builder: (context, child) {
+        final downloaded = DownloadTaskService.instance
+            .actionStateForItem(itemGuid)
+            .downloaded;
+        if (!downloaded) {
+          return const SizedBox.shrink();
+        }
+        return child!;
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.58),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: colors.accent.withValues(alpha: 0.7),
+            width: 0.8,
+          ),
+        ),
+        child: Text(
+          '\u5df2\u4e0b\u8f7d',
+          style: TextStyle(
+            color: colors.textPrimary,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _PosterImage extends StatefulWidget {
   final List<String> urls;
   final String token;
+  final bool lightweight;
   final Widget fallback;
 
   const _PosterImage({
     required this.urls,
     required this.token,
+    this.lightweight = false,
     required this.fallback,
   });
 
@@ -748,6 +806,9 @@ class _PosterImageState extends State<_PosterImage> {
           cacheHeight: cacheHeight,
           frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
             final loaded = wasSynchronouslyLoaded || frame != null;
+            if (widget.lightweight) {
+              return loaded ? child : widget.fallback;
+            }
             return Stack(
               fit: StackFit.expand,
               children: <Widget>[

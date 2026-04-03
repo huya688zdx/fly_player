@@ -6,6 +6,7 @@ import '../models/player_runtime_preferences.dart';
 
 class PlayerRuntimePreferencesStore {
   final String autoPlayPrefKey;
+  final String nextEpisodePreloadPrefKey;
   final String autoRotatePrefKey;
   final String extremePlaybackPrefKey;
   final String performanceOverlayPrefKey;
@@ -37,6 +38,7 @@ class PlayerRuntimePreferencesStore {
 
   const PlayerRuntimePreferencesStore({
     required this.autoPlayPrefKey,
+    required this.nextEpisodePreloadPrefKey,
     required this.autoRotatePrefKey,
     required this.extremePlaybackPrefKey,
     required this.performanceOverlayPrefKey,
@@ -87,6 +89,8 @@ class PlayerRuntimePreferencesStore {
     }
     return PlayerRuntimePreferences(
       autoPlayEnabled: prefs.getBool(autoPlayPrefKey) ?? true,
+      nextEpisodePreloadEnabled:
+          prefs.getBool(nextEpisodePreloadPrefKey) ?? false,
       autoRotateEnabled: prefs.getBool(autoRotatePrefKey) ?? true,
       extremePlaybackEnabled: prefs.getBool(extremePlaybackPrefKey) ?? false,
       performanceOverlayEnabled:

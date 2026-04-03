@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 
 import '../theme/app_theme.dart';
 
 class AppTopTip {
-  OverlayEntry? _entry;
+  static OverlayEntry? _entry;
+  static Timer? _dismissTimer;
+  static int _showToken = 0;
 
   void dispose() {
-    _entry?.remove();
-    _entry = null;
+    _dismissTimer?.cancel();
+    _dismissTimer = null;
+    _removeEntry();
   }
 
   void show(
@@ -15,13 +19,18 @@ class AppTopTip {
     required String message,
     required Color color,
   }) {
-    _entry?.remove();
-    _entry = null;
+    if (!context.mounted) return;
+    _dismissTimer?.cancel();
+    _dismissTimer = null;
+    _removeEntry();
+    _showToken += 1;
+    final token = _showToken;
 
     final overlay = Overlay.of(context, rootOverlay: true);
-    final top = MediaQuery.of(context).padding.top + 54;
-    final colors = context.appColors;
-    _entry = OverlayEntry(
+    final overlayContext = overlay.context;
+    final top = MediaQuery.of(overlayContext).padding.top + 54;
+    final colors = overlayContext.appColors;
+    final entry = OverlayEntry(
       builder: (_) => Positioned(
         top: top,
         left: 24,
@@ -56,12 +65,29 @@ class AppTopTip {
         ),
       ),
     );
-    overlay.insert(_entry!);
-    Future<void>.delayed(const Duration(milliseconds: 1300)).then((_) {
-      if (_entry != null) {
-        _entry!.remove();
-        _entry = null;
-      }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (token != _showToken) return;
+      if (!overlay.mounted) return;
+      _entry = entry;
+      overlay.insert(entry);
     });
+    _dismissTimer = Timer(const Duration(milliseconds: 1300), () {
+      if (token != _showToken) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (token != _showToken) return;
+        dispose();
+      });
+    });
+  }
+
+  static void _removeEntry() {
+    final entry = _entry;
+    if (entry == null) return;
+    _entry = null;
+    try {
+      entry.remove();
+    } catch (_) {
+      // Ignore already removed or deactivated overlay states.
+    }
   }
 }

@@ -66,6 +66,7 @@ class MpvPlaybackStateReporter(
         if (
             previous.ready != next.ready ||
                 previous.nativeLibLoaded != next.nativeLibLoaded ||
+                previous.visualPlaybackReady != next.visualPlaybackReady ||
                 previous.paused != next.paused ||
                 previous.bufferedPositionMs != next.bufferedPositionMs ||
                 previous.durationMs != next.durationMs ||
@@ -86,6 +87,7 @@ class MpvPlaybackStateReporter(
         val playback = linkedMapOf<String, Any?>(
             "ready" to snapshot.state.ready,
             "nativeLibLoaded" to snapshot.state.nativeLibLoaded,
+            "visualPlaybackReady" to snapshot.state.visualPlaybackReady,
             "paused" to snapshot.state.paused,
             "positionMs" to snapshot.state.positionMs,
             "bufferedPositionMs" to snapshot.state.bufferedPositionMs,

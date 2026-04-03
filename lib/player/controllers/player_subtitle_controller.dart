@@ -36,6 +36,7 @@ class PlayerSubtitleDeletionResult {
 }
 
 class PlayerSubtitleController {
+  static const double defaultSubtitlePositionFactor = 0.08;
   final Map<String, String> subtitleFileByGuid = <String, String>{};
   final Set<String> serverFallbackSubtitleGuids = <String>{};
   final Set<String> subtitleFailureNoticeShownGuids = <String>{};
@@ -46,7 +47,7 @@ class PlayerSubtitleController {
   bool pendingSubtitleSelectionRefresh = false;
 
   double subtitleDelaySeconds = 0;
-  double subtitlePositionFactor = 0;
+  double subtitlePositionFactor = defaultSubtitlePositionFactor;
   double subtitleScaleFactor = 0;
 
   DateTime? subtitleStatusTipSuppressedUntil;
@@ -84,9 +85,13 @@ class PlayerSubtitleController {
   bool selectionRequiresDirectFile({
     required bool serverManagedPlayback,
     required String nextGuid,
+    required bool requiresExternalFile,
     required bool hasDirectFile,
   }) {
-    return serverManagedPlayback && nextGuid.isNotEmpty && !hasDirectFile;
+    return serverManagedPlayback &&
+        nextGuid.isNotEmpty &&
+        requiresExternalFile &&
+        !hasDirectFile;
   }
 
   void beginSelectionChange(String nextGuid) {
@@ -101,6 +106,7 @@ class PlayerSubtitleController {
     required String guid,
     required String? currentGuid,
     required bool serverManagedPlayback,
+    required bool requiresExternalFile,
     required bool hasDirectFile,
   }) {
     final normalizedGuid = normalizeSelectionGuid(guid);
@@ -118,6 +124,7 @@ class PlayerSubtitleController {
     if (selectionRequiresDirectFile(
       serverManagedPlayback: serverManagedPlayback,
       nextGuid: normalizedGuid,
+      requiresExternalFile: requiresExternalFile,
       hasDirectFile: hasDirectFile,
     )) {
       return PlayerSubtitleSelectionPlan(
@@ -239,7 +246,7 @@ class PlayerSubtitleController {
     required double maxScale,
   }) {
     subtitleDelaySeconds = 0;
-    subtitlePositionFactor = 0;
+    subtitlePositionFactor = defaultSubtitlePositionFactor;
     subtitleScaleFactor = (1.0 - minScale) / (maxScale - minScale);
   }
 

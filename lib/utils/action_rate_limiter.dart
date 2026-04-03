@@ -4,12 +4,20 @@ class ActionRateLimiter {
   final Duration cooldown;
   DateTime _lastAcceptedAt = DateTime.fromMillisecondsSinceEpoch(0);
 
-  bool shouldBlock([DateTime? now]) {
+  Duration remaining([DateTime? now]) {
     final current = now ?? DateTime.now();
-    if (current.difference(_lastAcceptedAt) < cooldown) {
+    final elapsed = current.difference(_lastAcceptedAt);
+    if (elapsed >= cooldown) {
+      return Duration.zero;
+    }
+    return cooldown - elapsed;
+  }
+
+  bool shouldBlock([DateTime? now]) {
+    if (remaining(now) > Duration.zero) {
       return true;
     }
-    _lastAcceptedAt = current;
+    _lastAcceptedAt = now ?? DateTime.now();
     return false;
   }
 

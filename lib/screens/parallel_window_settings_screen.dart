@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../providers/parallel_window_settings_provider.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
+import '../ui/secondary_host_navigation.dart';
 
 class ParallelWindowSettingsScreen extends StatelessWidget {
   const ParallelWindowSettingsScreen({super.key});
@@ -16,7 +17,8 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: AppBar(
+      appBar: buildSecondaryHostAppBar(
+        context,
         title: Text(
           '平行窗口设置',
           style: TextStyle(
@@ -42,7 +44,7 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
               const _DetailHeroCard(
                 icon: Icons.splitscreen_outlined,
                 title: '平行窗口',
-                subtitle: '控制主副屏位置、分屏比例，以及播放默认是直接全屏还是优先进入分屏播放。',
+                subtitle: '控制主副屏位置、分屏比例，以及播放时默认优先全屏还是优先进入分屏播放。',
               ),
               const SizedBox(height: 18),
               _SettingsBlock(
@@ -82,7 +84,8 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
                           title: '左侧主屏',
                           subtitle: '默认首页在左，右侧展开详情或设置。',
                           onTap: settings.isReady
-                              ? () => settings.setPreferredPrimaryPaneSide('left')
+                              ? () =>
+                                    settings.setPreferredPrimaryPaneSide('left')
                               : null,
                         ),
                         _OptionChip(
@@ -91,7 +94,9 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
                           title: '右侧主屏',
                           subtitle: '为后续需要右主左副的布局预留。',
                           onTap: settings.isReady
-                              ? () => settings.setPreferredPrimaryPaneSide('right')
+                              ? () => settings.setPreferredPrimaryPaneSide(
+                                  'right',
+                                )
                               : null,
                         ),
                       ],
@@ -110,7 +115,8 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
                           title: '左侧为播放主屏',
                           subtitle: '进入分屏播放后，左边保持播放器，右边放详情或首页。',
                           onTap: settings.isReady
-                              ? () => settings.setPreferredPlaybackPrimaryPaneSide('left')
+                              ? () => settings
+                                    .setPreferredPlaybackPrimaryPaneSide('left')
                               : null,
                         ),
                         _OptionChip(
@@ -120,7 +126,10 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
                           title: '右侧为播放主屏',
                           subtitle: '进入分屏播放后，右边保持播放器，左边放详情或首页。',
                           onTap: settings.isReady
-                              ? () => settings.setPreferredPlaybackPrimaryPaneSide('right')
+                              ? () => settings
+                                    .setPreferredPlaybackPrimaryPaneSide(
+                                      'right',
+                                    )
                               : null,
                         ),
                       ],
@@ -153,7 +162,8 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
                           title: '35 / 65',
                           subtitle: '副屏更宽，适合详情和播放信息更重的场景。',
                           onTap: settings.isReady
-                              ? () => settings.setSplitRatioPreset('focus_detail')
+                              ? () =>
+                                    settings.setSplitRatioPreset('focus_detail')
                               : null,
                         ),
                         _OptionChip(
@@ -172,7 +182,7 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
                       value: settings.defaultPlaybackFullscreen,
                       onChanged: settings.isReady
                           ? (value) =>
-                              settings.setDefaultPlaybackFullscreen(value)
+                                settings.setDefaultPlaybackFullscreen(value)
                           : null,
                       title: Text(
                         '默认播放全屏',

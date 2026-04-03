@@ -6,19 +6,13 @@ import 'theme_settings_helpers.dart';
 
 class ThemeSettingsPreviewCard extends StatelessWidget {
   final String themeTitle;
-  final String backgroundTitle;
-  final String actionTitle;
-  final String selectionTitle;
-  final String linkTitle;
+  final String themeSubtitle;
   final AppThemeColors colors;
 
   const ThemeSettingsPreviewCard({
     super.key,
     required this.themeTitle,
-    required this.backgroundTitle,
-    required this.actionTitle,
-    required this.selectionTitle,
-    required this.linkTitle,
+    required this.themeSubtitle,
     required this.colors,
   });
 
@@ -48,7 +42,7 @@ class ThemeSettingsPreviewCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            '$themeTitle · 背景 $backgroundTitle · 按钮 $actionTitle · 选中 $selectionTitle · 链接 $linkTitle',
+            '$themeTitle · $themeSubtitle',
             style: TextStyle(
               color: colors.textSecondary,
               fontSize: AdaptiveText.roleSize(14),

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 class MpvSettingOption {
@@ -63,12 +65,175 @@ class MpvSettingPreset {
   final String label;
   final String description;
   final Map<String, String> settings;
+  final Map<String, double> videoAdjustments;
 
   const MpvSettingPreset({
     required this.id,
     required this.label,
     required this.description,
     required this.settings,
+    this.videoAdjustments = const <String, double>{},
+  });
+}
+
+class MpvScenePreset {
+  final String id;
+  final String label;
+  final String description;
+  final String picturePresetId;
+  final String audioPresetId;
+
+  const MpvScenePreset({
+    required this.id,
+    required this.label,
+    required this.description,
+    required this.picturePresetId,
+    required this.audioPresetId,
+  });
+}
+
+class MpvScenePresetRecommendation {
+  final MpvScenePreset preset;
+  final String title;
+  final String reason;
+
+  const MpvScenePresetRecommendation({
+    required this.preset,
+    required this.title,
+    required this.reason,
+  });
+}
+
+enum SavedMpvPresetKind { picture, audio }
+
+extension SavedMpvPresetKindX on SavedMpvPresetKind {
+  String get storageValue => switch (this) {
+    SavedMpvPresetKind.picture => 'picture',
+    SavedMpvPresetKind.audio => 'audio',
+  };
+
+  String get label => switch (this) {
+    SavedMpvPresetKind.picture => '画质',
+    SavedMpvPresetKind.audio => '音频',
+  };
+
+  static SavedMpvPresetKind fromStorageValue(String? value) {
+    return SavedMpvPresetKind.values.firstWhere(
+      (kind) => kind.storageValue == value,
+      orElse: () => SavedMpvPresetKind.picture,
+    );
+  }
+}
+
+class SavedMpvPreset {
+  final String id;
+  final SavedMpvPresetKind kind;
+  final String name;
+  final String description;
+  final DateTime createdAt;
+  final Map<String, String> settingsSnapshot;
+  final Map<String, double> videoAdjustmentsSnapshot;
+
+  const SavedMpvPreset({
+    required this.id,
+    required this.kind,
+    required this.name,
+    required this.description,
+    required this.createdAt,
+    required this.settingsSnapshot,
+    this.videoAdjustmentsSnapshot = const <String, double>{},
+  });
+
+  SavedMpvPreset copyWith({
+    String? id,
+    SavedMpvPresetKind? kind,
+    String? name,
+    String? description,
+    DateTime? createdAt,
+    Map<String, String>? settingsSnapshot,
+    Map<String, double>? videoAdjustmentsSnapshot,
+  }) {
+    return SavedMpvPreset(
+      id: id ?? this.id,
+      kind: kind ?? this.kind,
+      name: name ?? this.name,
+      description: description ?? this.description,
+      createdAt: createdAt ?? this.createdAt,
+      settingsSnapshot: settingsSnapshot ?? this.settingsSnapshot,
+      videoAdjustmentsSnapshot:
+          videoAdjustmentsSnapshot ?? this.videoAdjustmentsSnapshot,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return <String, dynamic>{
+      'id': id,
+      'kind': kind.storageValue,
+      'name': name,
+      'description': description,
+      'createdAt': createdAt.toIso8601String(),
+      'settingsSnapshot': settingsSnapshot,
+      'videoAdjustmentsSnapshot': videoAdjustmentsSnapshot.map(
+        (key, value) => MapEntry(key, value),
+      ),
+    };
+  }
+
+  static SavedMpvPreset? fromMap(Map<String, dynamic> map) {
+    final id = (map['id'] ?? '').toString().trim();
+    final name = (map['name'] ?? '').toString().trim();
+    if (id.isEmpty || name.isEmpty) return null;
+    final rawSettings = map['settingsSnapshot'];
+    if (rawSettings is! Map) return null;
+    final rawVideoAdjustments = map['videoAdjustmentsSnapshot'];
+    final videoAdjustments = <String, double>{};
+    if (rawVideoAdjustments is Map) {
+      for (final entry in rawVideoAdjustments.entries) {
+        final parsed = double.tryParse('${entry.value}');
+        if (parsed == null) continue;
+        videoAdjustments['${entry.key}'.trim()] = parsed;
+      }
+    }
+    final settings = <String, String>{};
+    for (final entry in rawSettings.entries) {
+      final key = '${entry.key}'.trim();
+      final value = '${entry.value}'.trim();
+      if (key.isEmpty || value.isEmpty) continue;
+      settings[key] = value;
+    }
+    return SavedMpvPreset(
+      id: id,
+      kind: SavedMpvPresetKindX.fromStorageValue(
+        (map['kind'] ?? '').toString().trim(),
+      ),
+      name: name,
+      description: (map['description'] ?? '').toString().trim(),
+      createdAt:
+          DateTime.tryParse((map['createdAt'] ?? '').toString())?.toLocal() ??
+          DateTime.now(),
+      settingsSnapshot: settings,
+      videoAdjustmentsSnapshot: videoAdjustments,
+    );
+  }
+}
+
+class MpvSettingsBundle {
+  final Map<String, String> settings;
+  final Map<String, double> videoAdjustments;
+
+  const MpvSettingsBundle({
+    required this.settings,
+    required this.videoAdjustments,
+  });
+}
+
+class MpvPerformanceImpactWarning {
+  final String title;
+  final String message;
+
+  const MpvPerformanceImpactWarning({
+    required this.title,
+    required this.message,
   });
 }
 
@@ -86,6 +251,11 @@ class MpvAudioEqBand {
 
 class MpvSettingsCatalog {
   static const String prefPrefix = 'player_mpv_setting_';
+  static const String videoAdjustPrefPrefix = 'player_mpv_video_adjust_';
+  static const String savedPicturePresetsKey =
+      'player_mpv_saved_picture_presets_v1';
+  static const String savedAudioPresetsKey =
+      'player_mpv_saved_audio_presets_v1';
 
   static const String debandKey = 'deband';
   static const String sharpenKey = 'sharpen';
@@ -111,6 +281,11 @@ class MpvSettingsCatalog {
   static const String audioEqBand6000Key = 'audio_eq_band_6000';
   static const String channelMixKey = 'channel_mix';
   static const String compatibilityKey = 'compatibility_profile';
+  static const String brightnessKey = 'brightness';
+  static const String contrastKey = 'contrast';
+  static const String saturationKey = 'saturation';
+  static const String gammaKey = 'gamma';
+  static const String hueKey = 'hue';
 
   static const String videoFiltersCategoryId = 'video_filters';
   static const String pictureRenderingCategoryId = 'picture_rendering';
@@ -164,46 +339,218 @@ class MpvSettingsCatalog {
     compatibilityKey: 'default',
   };
 
-  static const List<MpvSettingPreset> presets = <MpvSettingPreset>[
+  static const Map<String, double> videoAdjustmentDefaults = <String, double>{
+    brightnessKey: 0,
+    contrastKey: 0,
+    saturationKey: 0,
+    gammaKey: 0,
+    hueKey: 0,
+  };
+
+  static const List<String> picturePresetKeys = <String>[
+    debandKey,
+    sharpenKey,
+    denoiseKey,
+    deinterlaceKey,
+    scaleProfileKey,
+    hdrModeKey,
+    frameInterpolationKey,
+    videoSyncKey,
+    cacheProfileKey,
+    cacheSizeMbKey,
+    compatibilityKey,
+  ];
+
+  static const List<String> audioPresetKeys = <String>[
+    volumeGainKey,
+    audioHighFidelityKey,
+    dynamicRangeKey,
+    audioEqKey,
+    audioLimiterKey,
+    audioBassBoostKey,
+    audioVoiceEnhanceKey,
+    audioEqBand60Key,
+    audioEqBand170Key,
+    audioEqBand310Key,
+    audioEqBand1000Key,
+    audioEqBand6000Key,
+    channelMixKey,
+  ];
+
+  static const List<MpvSettingPreset> builtInPicturePresets =
+      <MpvSettingPreset>[
+        MpvSettingPreset(
+          id: 'off',
+          label: '默认',
+          description: '关闭额外画质增强，优先保证兼容性和稳定性。',
+          settings: <String, String>{},
+        ),
+        MpvSettingPreset(
+          id: 'anime',
+          label: '动画清晰',
+          description: '通过轻微对比度和饱和度调整突出线条感，不再默认带入重滤镜。',
+          settings: <String, String>{},
+          videoAdjustments: <String, double>{contrastKey: 4, saturationKey: 6},
+        ),
+        MpvSettingPreset(
+          id: 'cinema',
+          label: '影院柔和',
+          description: '用较轻的亮暗和饱和调整偏向影院观感，避免额外画面计算。',
+          settings: <String, String>{},
+          videoAdjustments: <String, double>{
+            contrastKey: -4,
+            gammaKey: 6,
+            saturationKey: -3,
+          },
+        ),
+        MpvSettingPreset(
+          id: 'smooth',
+          label: '流畅优先',
+          description: '偏向稳定和响应的轻量流畅方案，不再默认带入插帧。',
+          settings: <String, String>{
+            scaleProfileKey: 'fast',
+            cacheProfileKey: 'stable',
+            compatibilityKey: 'conservative',
+          },
+        ),
+      ];
+
+  static const List<MpvSettingPreset> builtInAudioPresets = <MpvSettingPreset>[
     MpvSettingPreset(
       id: 'off',
-      label: '关闭增强',
-      description: '关闭大部分画质增强项，优先保证兼容性和稳定性。',
+      label: '默认',
+      description: '关闭额外音频增强，保留基础播放参数。',
       settings: <String, String>{},
     ),
     MpvSettingPreset(
-      id: 'anime',
-      label: '动画清晰',
-      description: '提升线条和边缘观感，适合动画和较干净的片源。',
+      id: 'hi_fi',
+      label: '原声保真',
+      description: '打开高保真，旁路 EQ 和增强，适合耳机和高质量片源。',
       settings: <String, String>{
-        debandKey: 'medium',
-        sharpenKey: 'low',
-        scaleProfileKey: 'quality',
-        hdrModeKey: 'enhanced',
+        audioHighFidelityKey: 'on',
+        volumeGainKey: '100',
       },
     ),
     MpvSettingPreset(
-      id: 'cinema',
-      label: '影院柔和',
-      description: '偏保守的去噪和动态范围压缩，适合老片和暗场。',
+      id: 'balanced',
+      label: '通用增强',
+      description: '轻度提亮人声和低频，适合大多数普通剧集、综艺和日常看片。',
       settings: <String, String>{
-        debandKey: 'low',
-        denoiseKey: 'low',
-        hdrModeKey: 'conservative',
+        volumeGainKey: '125',
+        audioEqKey: 'soft',
+        audioLimiterKey: 'light',
+        audioBassBoostKey: 'low',
+        audioVoiceEnhanceKey: 'low',
+        channelMixKey: 'stereo',
+      },
+    ),
+    MpvSettingPreset(
+      id: 'dialogue',
+      label: '人声清晰',
+      description: '抬前对白和中高频细节，适合台词偏轻的片源。',
+      settings: <String, String>{
+        volumeGainKey: '140',
         dynamicRangeKey: 'low',
+        audioEqKey: 'clarity',
+        audioLimiterKey: 'light',
+        audioVoiceEnhanceKey: 'medium',
+        channelMixKey: 'stereo',
       },
     ),
     MpvSettingPreset(
-      id: 'smooth',
-      label: '极速模式',
-      description: '打包同步、缓存和兼容参数，优先拖动响应和播放稳定性。',
+      id: 'speaker_clear',
+      label: '外放清晰',
+      description: '针对手机和平板外放，压住爆点、把对白往前推，减少糊成一团。',
       settings: <String, String>{
-        scaleProfileKey: 'fast',
-        frameInterpolationKey: 'auto',
-        videoSyncKey: 'smooth',
-        cacheProfileKey: 'stable',
-        compatibilityKey: 'conservative',
+        volumeGainKey: '160',
+        dynamicRangeKey: 'medium',
+        audioEqKey: 'clarity',
+        audioLimiterKey: 'strong',
+        audioVoiceEnhanceKey: 'medium',
+        channelMixKey: 'stereo',
       },
+    ),
+    MpvSettingPreset(
+      id: 'cinema_bass',
+      label: '影院低频',
+      description: '增强低频氛围和厚度，适合动作片、配乐片和外放。',
+      settings: <String, String>{
+        volumeGainKey: '135',
+        audioEqKey: 'cinema',
+        audioLimiterKey: 'light',
+        audioBassBoostKey: 'medium',
+        channelMixKey: 'auto',
+      },
+    ),
+    MpvSettingPreset(
+      id: 'headphone_immersive',
+      label: '耳机沉浸',
+      description: '保留动态感，补一点氛围和厚度，适合耳机听电影和演唱会现场。',
+      settings: <String, String>{
+        volumeGainKey: '120',
+        audioEqKey: 'cinema',
+        audioLimiterKey: 'light',
+        audioBassBoostKey: 'low',
+        channelMixKey: 'stereo',
+      },
+    ),
+    MpvSettingPreset(
+      id: 'night',
+      label: '夜间均衡',
+      description: '压低爆点、抬前对白，适合深夜外放和追剧。',
+      settings: <String, String>{
+        volumeGainKey: '140',
+        dynamicRangeKey: 'medium',
+        audioEqKey: 'soft',
+        audioLimiterKey: 'strong',
+        audioVoiceEnhanceKey: 'low',
+        channelMixKey: 'stereo',
+      },
+    ),
+  ];
+
+  static const List<MpvScenePreset> builtInScenePresets = <MpvScenePreset>[
+    MpvScenePreset(
+      id: 'stable_clear',
+      label: '省电稳定',
+      description: '优先照顾解码稳定和系统流畅度，适合 4K、HDR、HEVC 和高码率片源。',
+      picturePresetId: 'smooth',
+      audioPresetId: 'balanced',
+    ),
+    MpvScenePreset(
+      id: 'balanced_movie',
+      label: '通用观影',
+      description: '用轻量画质和通用增强音频组成的日常观影片方案，适合大多数普通片源。',
+      picturePresetId: 'cinema',
+      audioPresetId: 'balanced',
+    ),
+    MpvScenePreset(
+      id: 'anime_dialogue',
+      label: '追番对白',
+      description: '保留动画线条感并把对白往前提，适合动画、综艺和日常追番。',
+      picturePresetId: 'anime',
+      audioPresetId: 'dialogue',
+    ),
+    MpvScenePreset(
+      id: 'speaker_clear',
+      label: '外放清晰',
+      description: '优先照顾手机和平板外放，把爆点压住并把对白往前推。',
+      picturePresetId: 'smooth',
+      audioPresetId: 'speaker_clear',
+    ),
+    MpvScenePreset(
+      id: 'night_binge',
+      label: '夜间追剧',
+      description: '偏向稳定和夜间聆听，压低爆点并减少长时间观看的刺耳感。',
+      picturePresetId: 'smooth',
+      audioPresetId: 'night',
+    ),
+    MpvScenePreset(
+      id: 'headphone_immersive',
+      label: '耳机沉浸',
+      description: '画面保持轻柔层次，耳机下保留氛围感和低频厚度。',
+      picturePresetId: 'cinema',
+      audioPresetId: 'headphone_immersive',
     ),
   ];
 
@@ -628,6 +975,76 @@ class MpvSettingsCatalog {
     ),
   ];
 
+  static MpvPerformanceImpactWarning? performanceWarningForSelection(
+    String key,
+    String value,
+  ) {
+    if (key == debandKey && value == 'medium') {
+      return const MpvPerformanceImpactWarning(
+        title: '性能提醒',
+        message: '中档去色带会增加额外画面处理开销，部分设备可能出现掉帧、发热或系统卡顿。',
+      );
+    }
+    if (key == sharpenKey && value != 'off') {
+      return const MpvPerformanceImpactWarning(
+        title: '性能提醒',
+        message: '锐化会增加滤镜计算量，片源较重或设备较弱时可能导致播放掉帧和界面不流畅。',
+      );
+    }
+    if (key == denoiseKey && value != 'off') {
+      return const MpvPerformanceImpactWarning(
+        title: '性能提醒',
+        message: '降噪属于较重的视频滤镜，移动设备上很容易带来明显掉帧、发热甚至系统卡顿。',
+      );
+    }
+    if (key == deinterlaceKey && value == 'force') {
+      return const MpvPerformanceImpactWarning(
+        title: '性能提醒',
+        message: '强制反交错会让所有片源都走额外处理链路，普通逐行片源通常没有必要，且可能拖慢播放。',
+      );
+    }
+    if (key == scaleProfileKey && value == 'quality') {
+      return const MpvPerformanceImpactWarning(
+        title: '性能提醒',
+        message: '高质量缩放会增加 GPU 和渲染压力，高分辨率或高码率片源上更容易出现掉帧。',
+      );
+    }
+    if (key == hdrModeKey && (value == 'conservative' || value == 'enhanced')) {
+      return const MpvPerformanceImpactWarning(
+        title: '性能提醒',
+        message: '这个 HDR 模式会增加色调映射压力，HDR、10-bit 或高分辨率片源上可能导致明显卡顿。',
+      );
+    }
+    if (key == frameInterpolationKey && (value == 'auto' || value == 'on')) {
+      return const MpvPerformanceImpactWarning(
+        title: '性能提醒',
+        message: '插帧是最容易拖慢播放和系统流畅度的选项之一，开启后可能出现视频掉帧、UI 掉帧和系统卡顿。',
+      );
+    }
+    if (key == videoSyncKey && value == 'smooth') {
+      return const MpvPerformanceImpactWarning(
+        title: '性能提醒',
+        message: '平滑同步会更积极地贴合屏幕刷新率，部分设备上会增加合成与同步压力。',
+      );
+    }
+    if (key == cacheProfileKey && value == 'network') {
+      return const MpvPerformanceImpactWarning(
+        title: '性能提醒',
+        message: '网络重缓存会占用更多内存，并让拖动回填更重，只建议在高码率远程片源上使用。',
+      );
+    }
+    if (key == cacheSizeMbKey) {
+      final parsed = int.tryParse(value);
+      if (parsed != null && parsed >= cacheSizeExtremeMinimumMb) {
+        return const MpvPerformanceImpactWarning(
+          title: '性能提醒',
+          message: '较大的缓冲会占用更多内存，并让起播、拖动后的回填更重；低内存设备上可能影响系统流畅度。',
+        );
+      }
+    }
+    return null;
+  }
+
   static const List<MpvSettingCategory> categories = <MpvSettingCategory>[
     MpvSettingCategory(
       id: videoFiltersCategoryId,
@@ -791,18 +1208,306 @@ class MpvSettingsCatalog {
     return null;
   }
 
+  static Map<String, String> snapshotForKind(
+    SavedMpvPresetKind kind,
+    Map<String, String> settings,
+  ) {
+    final normalized = normalizeSettings(settings);
+    final keys = kind == SavedMpvPresetKind.picture
+        ? picturePresetKeys
+        : audioPresetKeys;
+    final snapshot = <String, String>{};
+    for (final key in keys) {
+      snapshot[key] = normalized[key] ?? defaults[key] ?? '';
+    }
+    return snapshot;
+  }
+
+  static Map<String, double> normalizeVideoAdjustments(
+    Map<String, double> raw,
+  ) {
+    final resolved = <String, double>{};
+    for (final entry in videoAdjustmentDefaults.entries) {
+      final value = raw[entry.key] ?? entry.value;
+      resolved[entry.key] = _normalizeVideoAdjustmentValue(value);
+    }
+    return resolved;
+  }
+
+  static Map<String, double> pictureVideoAdjustmentSnapshot(
+    Map<String, double> values,
+  ) {
+    return normalizeVideoAdjustments(values);
+  }
+
+  static MpvSettingPreset? builtInPicturePresetById(String id) {
+    for (final preset in builtInPicturePresets) {
+      if (preset.id == id) return preset;
+    }
+    return null;
+  }
+
+  static MpvSettingPreset? builtInAudioPresetById(String id) {
+    for (final preset in builtInAudioPresets) {
+      if (preset.id == id) return preset;
+    }
+    return null;
+  }
+
+  static MpvScenePreset? builtInScenePresetById(String id) {
+    for (final preset in builtInScenePresets) {
+      if (preset.id == id) return preset;
+    }
+    return null;
+  }
+
+  static MpvScenePresetRecommendation? recommendScenePreset({
+    required int videoWidth,
+    required int videoHeight,
+    required String resolution,
+    required int bitrate,
+    required String videoCodecName,
+    required String videoProfile,
+    required String colorSpace,
+    required String colorTransfer,
+    required String colorPrimaries,
+    required int bitDepth,
+    required bool isRemoteSource,
+    required int audioChannels,
+    required int audioBitrate,
+    required int audioSampleRate,
+  }) {
+    final codec = videoCodecName.trim().toLowerCase();
+    final profile = videoProfile.trim().toLowerCase();
+    final transfer = colorTransfer.trim().toLowerCase();
+    final space = colorSpace.trim().toLowerCase();
+    final primaries = colorPrimaries.trim().toLowerCase();
+    final resolutionText = resolution.trim().toLowerCase();
+    final hdrTransfer =
+        transfer.contains('pq') ||
+        transfer.contains('2084') ||
+        transfer.contains('hlg') ||
+        transfer.contains('arib-std-b67');
+    final hdrGamut =
+        space.contains('2020') ||
+        space.contains('2100') ||
+        primaries.contains('2020') ||
+        primaries.contains('2100');
+    final isDolbyVision =
+        codec.contains('dovi') ||
+        codec.contains('dvhe') ||
+        codec.contains('dvh1') ||
+        profile.contains('dolby vision') ||
+        profile.contains('dolbyvision');
+    final isHdr =
+        isDolbyVision || ((hdrTransfer || hdrGamut) && bitDepth >= 10);
+    final isHevcLike =
+        codec.contains('hevc') ||
+        codec.contains('h265') ||
+        codec.contains('hev1') ||
+        codec.contains('hvc1') ||
+        codec.contains('x265');
+    final isUltraHighResolution =
+        videoWidth >= 3840 ||
+        videoHeight >= 2160 ||
+        resolutionText.contains('2160');
+    final isHeavySource =
+        isHdr ||
+        bitDepth >= 10 ||
+        isUltraHighResolution ||
+        videoWidth > 1920 ||
+        videoHeight > 1080 ||
+        bitrate >= 12000000 ||
+        (isHevcLike && bitrate >= 8000000) ||
+        isRemoteSource;
+    if (isHeavySource) {
+      final preset = builtInScenePresetById('stable_clear');
+      if (preset == null) return null;
+      final reasons = <String>[];
+      if (isUltraHighResolution) reasons.add('分辨率偏高');
+      if (isHdr) reasons.add('HDR/高动态范围');
+      if (bitDepth >= 10) reasons.add('10-bit 片源');
+      if (isHevcLike && bitrate >= 8000000) reasons.add('HEVC 高码率');
+      if (isRemoteSource) reasons.add('远程网络片源');
+      return MpvScenePresetRecommendation(
+        preset: preset,
+        title: '推荐稳定优先',
+        reason: reasons.isEmpty
+            ? '当前片源负载偏高，先用更稳的轻量场景，避免播放器和系统一起掉帧。'
+            : '检测到${reasons.join('、')}，建议先用更稳的轻量场景，避免播放器和系统一起掉帧。',
+      );
+    }
+    if (audioChannels >= 6) {
+      final preset = builtInScenePresetById('headphone_immersive');
+      if (preset == null) return null;
+      return MpvScenePresetRecommendation(
+        preset: preset,
+        title: '推荐电影沉浸',
+        reason: '当前音轨是多声道，适合保留氛围感和低频厚度的电影向组合。',
+      );
+    }
+    if (audioChannels > 0 &&
+        audioChannels <= 2 &&
+        audioBitrate > 0 &&
+        audioBitrate <= 192000 &&
+        audioSampleRate > 0 &&
+        audioSampleRate <= 48000) {
+      final preset = builtInScenePresetById('speaker_clear');
+      if (preset == null) return null;
+      return MpvScenePresetRecommendation(
+        preset: preset,
+        title: '推荐清晰外放',
+        reason: '当前音轨偏轻，优先把对白和主体声推前，普通剧集和外放更省心。',
+      );
+    }
+    final preset = builtInScenePresetById('balanced_movie');
+    if (preset == null) return null;
+    return MpvScenePresetRecommendation(
+      preset: preset,
+      title: '推荐通用观影',
+      reason: '当前片源负载正常，先用平衡一些的画质和音频组合最稳妥。',
+    );
+  }
+
+  static int videoAdjustmentChangedCount(Map<String, double> values) {
+    final normalized = normalizeVideoAdjustments(values);
+    var count = 0;
+    for (final entry in videoAdjustmentDefaults.entries) {
+      if ((normalized[entry.key] ?? entry.value) != entry.value) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  static MpvSettingPreset? activeBuiltInPicturePreset(
+    Map<String, String> settings,
+    Map<String, double> videoAdjustments,
+  ) {
+    final settingsSnapshot = snapshotForKind(
+      SavedMpvPresetKind.picture,
+      settings,
+    );
+    final videoSnapshot = pictureVideoAdjustmentSnapshot(videoAdjustments);
+    for (final preset in builtInPicturePresets) {
+      if (_matchesBuiltInPicturePreset(
+        settingsSnapshot,
+        videoSnapshot,
+        preset,
+      )) {
+        return preset;
+      }
+    }
+    return null;
+  }
+
+  static MpvSettingPreset? activeBuiltInAudioPreset(
+    Map<String, String> settings,
+  ) {
+    final settingsSnapshot = snapshotForKind(
+      SavedMpvPresetKind.audio,
+      settings,
+    );
+    for (final preset in builtInAudioPresets) {
+      if (_matchesSettingsSnapshot(
+        settingsSnapshot,
+        preset.settings,
+        audioPresetKeys,
+      )) {
+        return preset;
+      }
+    }
+    return null;
+  }
+
+  static MpvScenePreset? activeBuiltInScenePreset(
+    Map<String, String> settings,
+    Map<String, double> videoAdjustments,
+  ) {
+    final picturePreset = activeBuiltInPicturePreset(
+      settings,
+      videoAdjustments,
+    );
+    final audioPreset = activeBuiltInAudioPreset(settings);
+    if (picturePreset == null || audioPreset == null) return null;
+    for (final preset in builtInScenePresets) {
+      if (preset.picturePresetId == picturePreset.id &&
+          preset.audioPresetId == audioPreset.id) {
+        return preset;
+      }
+    }
+    return null;
+  }
+
+  static SavedMpvPreset? activeSavedPreset(
+    SavedMpvPresetKind kind,
+    List<SavedMpvPreset> presets, {
+    required Map<String, String> settings,
+    required Map<String, double> videoAdjustments,
+  }) {
+    final settingsSnapshot = snapshotForKind(kind, settings);
+    final videoSnapshot = kind == SavedMpvPresetKind.picture
+        ? pictureVideoAdjustmentSnapshot(videoAdjustments)
+        : const <String, double>{};
+    for (final preset in presets) {
+      if (preset.kind != kind) continue;
+      if (_matchesSavedPresetSnapshot(
+        kind,
+        settingsSnapshot,
+        videoSnapshot,
+        preset,
+      )) {
+        return preset;
+      }
+    }
+    return null;
+  }
+
+  static bool isVideoAdjustmentKey(String key) {
+    return videoAdjustmentDefaults.containsKey(key);
+  }
+
+  static String videoAdjustmentTitle(String key) {
+    return switch (key) {
+      brightnessKey => '亮度',
+      contrastKey => '对比度',
+      saturationKey => '饱和度',
+      gammaKey => 'Gamma',
+      hueKey => '色相',
+      _ => '画面参数',
+    };
+  }
+
+  static String videoAdjustmentSubtitle(String key) {
+    return switch (key) {
+      brightnessKey => '提亮暗场或压暗过曝画面。',
+      contrastKey => '拉开明暗层次，数值过高会更硬。',
+      saturationKey => '控制整体颜色浓度。',
+      gammaKey => '偏向中间调修正，适合微调灰雾感。',
+      hueKey => '整体色调偏移，建议小幅修正偏色片源。',
+      _ => '',
+    };
+  }
+
+  static String formatVideoAdjustmentValue(double value) {
+    final normalized = _normalizeVideoAdjustmentValue(value).round();
+    if (normalized > 0) return '+$normalized';
+    return '$normalized';
+  }
+
+  static double _normalizeVideoAdjustmentValue(double value) {
+    return value.clamp(-100.0, 100.0).toDouble();
+  }
+
   static MpvSettingPreset? activePreset(Map<String, String> settings) {
     final normalized = normalizeSettings(settings);
-    for (final preset in presets) {
+    for (final preset in builtInPicturePresets) {
       var matched = true;
-      for (final entry in defaults.entries) {
-        if (!_shouldCompareKey(entry.key, normalized)) continue;
-        final expected = preset.settings[entry.key] ?? entry.value;
-        if (normalized[entry.key] != expected) {
-          matched = false;
-          break;
-        }
-      }
+      matched = _matchesSettingsSnapshot(
+        normalized,
+        preset.settings,
+        picturePresetKeys,
+      );
       if (matched) return preset;
     }
     return null;
@@ -949,10 +1654,85 @@ class MpvSettingsCatalog {
     if (parsed == null) return value;
     return formatCachePercentLabel(mbToCachePercent(parsed));
   }
+
+  static bool _matchesSettingsSnapshot(
+    Map<String, String> snapshot,
+    Map<String, String> presetSettings,
+    List<String> keys,
+  ) {
+    for (final key in keys) {
+      if (!_shouldCompareKey(key, snapshot)) continue;
+      final expected = presetSettings[key] ?? defaults[key] ?? '';
+      if ((snapshot[key] ?? defaults[key] ?? '') != expected) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  static bool _matchesBuiltInPicturePreset(
+    Map<String, String> settingsSnapshot,
+    Map<String, double> videoSnapshot,
+    MpvSettingPreset preset,
+  ) {
+    if (!_matchesSettingsSnapshot(
+      settingsSnapshot,
+      preset.settings,
+      picturePresetKeys,
+    )) {
+      return false;
+    }
+    final expectedVideo = normalizeVideoAdjustments(preset.videoAdjustments);
+    for (final entry in videoAdjustmentDefaults.entries) {
+      final expected = expectedVideo[entry.key] ?? entry.value;
+      if ((videoSnapshot[entry.key] ?? entry.value) != expected) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  static bool _matchesSavedPresetSnapshot(
+    SavedMpvPresetKind kind,
+    Map<String, String> settingsSnapshot,
+    Map<String, double> videoSnapshot,
+    SavedMpvPreset preset,
+  ) {
+    final keys = kind == SavedMpvPresetKind.picture
+        ? picturePresetKeys
+        : audioPresetKeys;
+    if (!_matchesSettingsSnapshot(
+      settingsSnapshot,
+      preset.settingsSnapshot,
+      keys,
+    )) {
+      return false;
+    }
+    if (kind != SavedMpvPresetKind.picture) return true;
+    final expectedVideo = normalizeVideoAdjustments(
+      preset.videoAdjustmentsSnapshot,
+    );
+    for (final entry in videoAdjustmentDefaults.entries) {
+      final expected = expectedVideo[entry.key] ?? entry.value;
+      if ((videoSnapshot[entry.key] ?? entry.value) != expected) {
+        return false;
+      }
+    }
+    return true;
+  }
 }
 
 class MpvSettingsStore {
   const MpvSettingsStore();
+
+  Future<MpvSettingsBundle> loadBundle() async {
+    final settings = await load();
+    final videoAdjustments = await loadVideoAdjustments();
+    return MpvSettingsBundle(
+      settings: settings,
+      videoAdjustments: videoAdjustments,
+    );
+  }
 
   Future<Map<String, String>> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -966,12 +1746,48 @@ class MpvSettingsStore {
     return resolved;
   }
 
+  Future<Map<String, double>> loadVideoAdjustments() async {
+    final prefs = await SharedPreferences.getInstance();
+    final resolved = Map<String, double>.from(
+      MpvSettingsCatalog.videoAdjustmentDefaults,
+    );
+    for (final key in resolved.keys) {
+      final stored = prefs.getDouble(
+        '${MpvSettingsCatalog.videoAdjustPrefPrefix}$key',
+      );
+      if (stored != null) {
+        resolved[key] = stored;
+        continue;
+      }
+      final asString = prefs.getString(
+        '${MpvSettingsCatalog.videoAdjustPrefPrefix}$key',
+      );
+      final parsed = double.tryParse(asString ?? '');
+      if (parsed != null) {
+        resolved[key] = parsed;
+      }
+    }
+    return MpvSettingsCatalog.normalizeVideoAdjustments(resolved);
+  }
+
   Future<void> saveSetting(String key, String value) async {
     if (!MpvSettingsCatalog.defaults.containsKey(key)) return;
     final normalized = value.trim();
     if (normalized.isEmpty) return;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('${MpvSettingsCatalog.prefPrefix}$key', normalized);
+  }
+
+  Future<void> saveVideoAdjustment(String key, double value) async {
+    if (!MpvSettingsCatalog.isVideoAdjustmentKey(key)) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(
+      '${MpvSettingsCatalog.videoAdjustPrefPrefix}$key',
+      MpvSettingsCatalog.normalizeVideoAdjustments(<String, double>{
+            key: value,
+          })[key] ??
+          0,
+    );
   }
 
   Future<Map<String, String>> savePatch(Map<String, String> patch) async {
@@ -998,13 +1814,319 @@ class MpvSettingsStore {
     return normalized;
   }
 
+  Future<Map<String, double>> saveVideoAdjustments(
+    Map<String, double> values,
+  ) async {
+    final normalized = MpvSettingsCatalog.normalizeVideoAdjustments(values);
+    final prefs = await SharedPreferences.getInstance();
+    for (final entry in normalized.entries) {
+      await prefs.setDouble(
+        '${MpvSettingsCatalog.videoAdjustPrefPrefix}${entry.key}',
+        entry.value,
+      );
+    }
+    return normalized;
+  }
+
+  Future<MpvSettingsBundle> saveBundle({
+    required Map<String, String> settings,
+    required Map<String, double> videoAdjustments,
+  }) async {
+    final savedSettings = await saveAll(settings);
+    final savedVideoAdjustments = await saveVideoAdjustments(videoAdjustments);
+    return MpvSettingsBundle(
+      settings: savedSettings,
+      videoAdjustments: savedVideoAdjustments,
+    );
+  }
+
   Future<Map<String, String>> applyPreset(MpvSettingPreset preset) {
     final next = Map<String, String>.from(MpvSettingsCatalog.defaults)
       ..addAll(preset.settings);
     return saveAll(next);
   }
 
+  Future<MpvSettingsBundle> applyBuiltInPreset(
+    SavedMpvPresetKind kind,
+    MpvSettingPreset preset, {
+    Map<String, String>? currentSettings,
+    Map<String, double>? currentVideoAdjustments,
+  }) async {
+    final bundle = await loadBundle();
+    final nextSettings = Map<String, String>.from(
+      currentSettings ?? bundle.settings,
+    );
+    final nextVideoAdjustments = Map<String, double>.from(
+      currentVideoAdjustments ?? bundle.videoAdjustments,
+    );
+    if (kind == SavedMpvPresetKind.picture) {
+      for (final key in MpvSettingsCatalog.picturePresetKeys) {
+        nextSettings[key] = MpvSettingsCatalog.defaults[key] ?? '';
+      }
+      nextVideoAdjustments
+        ..clear()
+        ..addAll(MpvSettingsCatalog.videoAdjustmentDefaults)
+        ..addAll(
+          MpvSettingsCatalog.normalizeVideoAdjustments(preset.videoAdjustments),
+        );
+    } else {
+      for (final key in MpvSettingsCatalog.audioPresetKeys) {
+        nextSettings[key] = MpvSettingsCatalog.defaults[key] ?? '';
+      }
+    }
+    nextSettings.addAll(preset.settings);
+    return saveBundle(
+      settings: nextSettings,
+      videoAdjustments: nextVideoAdjustments,
+    );
+  }
+
+  Future<MpvSettingsBundle> applyScenePreset(
+    MpvScenePreset preset, {
+    Map<String, String>? currentSettings,
+    Map<String, double>? currentVideoAdjustments,
+  }) async {
+    final picturePreset = MpvSettingsCatalog.builtInPicturePresetById(
+      preset.picturePresetId,
+    );
+    final audioPreset = MpvSettingsCatalog.builtInAudioPresetById(
+      preset.audioPresetId,
+    );
+    if (picturePreset == null || audioPreset == null) {
+      throw StateError('Scene preset references a missing built-in preset.');
+    }
+    final bundle = await loadBundle();
+    final nextSettings = Map<String, String>.from(
+      currentSettings ?? bundle.settings,
+    );
+    final nextVideoAdjustments = Map<String, double>.from(
+      currentVideoAdjustments ?? bundle.videoAdjustments,
+    );
+    for (final key in MpvSettingsCatalog.picturePresetKeys) {
+      nextSettings[key] = MpvSettingsCatalog.defaults[key] ?? '';
+    }
+    for (final key in MpvSettingsCatalog.audioPresetKeys) {
+      nextSettings[key] = MpvSettingsCatalog.defaults[key] ?? '';
+    }
+    nextVideoAdjustments
+      ..clear()
+      ..addAll(MpvSettingsCatalog.videoAdjustmentDefaults)
+      ..addAll(
+        MpvSettingsCatalog.normalizeVideoAdjustments(
+          picturePreset.videoAdjustments,
+        ),
+      );
+    nextSettings
+      ..addAll(picturePreset.settings)
+      ..addAll(audioPreset.settings);
+    return saveBundle(
+      settings: nextSettings,
+      videoAdjustments: nextVideoAdjustments,
+    );
+  }
+
+  Future<List<SavedMpvPreset>> loadSavedPresets(SavedMpvPresetKind kind) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_storageKeyForKind(kind));
+    if (raw == null || raw.trim().isEmpty) return const <SavedMpvPreset>[];
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return const <SavedMpvPreset>[];
+      final result = <SavedMpvPreset>[];
+      for (final item in decoded) {
+        if (item is! Map) continue;
+        final preset = SavedMpvPreset.fromMap(item.cast<String, dynamic>());
+        if (preset == null || preset.kind != kind) continue;
+        result.add(preset);
+      }
+      return result;
+    } catch (_) {
+      return const <SavedMpvPreset>[];
+    }
+  }
+
+  Future<bool> isSavedPresetNameAvailable(
+    SavedMpvPresetKind kind,
+    String name, {
+    String? excludingId,
+  }) async {
+    final normalizedName = name.trim();
+    if (normalizedName.isEmpty) return false;
+    final presets = await loadSavedPresets(kind);
+    for (final preset in presets) {
+      if (preset.id == excludingId) continue;
+      if (preset.name.trim().toLowerCase() == normalizedName.toLowerCase()) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  Future<String> nextSavedPresetName(SavedMpvPresetKind kind) async {
+    return nextSavedPresetNameFromBase(kind, '${kind.label}预设');
+  }
+
+  Future<String> nextSavedPresetNameFromBase(
+    SavedMpvPresetKind kind,
+    String baseName,
+  ) async {
+    final normalizedBase = baseName.trim().isEmpty
+        ? '${kind.label}预设'
+        : baseName.trim();
+    var index = 1;
+    while (true) {
+      final candidate = '$normalizedBase$index';
+      if (await isSavedPresetNameAvailable(kind, candidate)) {
+        return candidate;
+      }
+      index += 1;
+    }
+  }
+
+  Future<SavedMpvPreset> savePresetSnapshot({
+    required SavedMpvPresetKind kind,
+    required String name,
+    String description = '',
+    Map<String, String>? settings,
+    Map<String, double>? videoAdjustments,
+  }) async {
+    final normalizedName = name.trim();
+    if (normalizedName.isEmpty) {
+      throw ArgumentError('Preset name must not be empty.');
+    }
+    if (!await isSavedPresetNameAvailable(kind, normalizedName)) {
+      throw StateError('Preset name already exists.');
+    }
+    final bundle = await loadBundle();
+    final preset = SavedMpvPreset(
+      id: 'saved_mpv_preset_${DateTime.now().microsecondsSinceEpoch}',
+      kind: kind,
+      name: normalizedName,
+      description: description.trim(),
+      createdAt: DateTime.now(),
+      settingsSnapshot: MpvSettingsCatalog.snapshotForKind(
+        kind,
+        settings ?? bundle.settings,
+      ),
+      videoAdjustmentsSnapshot: kind == SavedMpvPresetKind.picture
+          ? MpvSettingsCatalog.pictureVideoAdjustmentSnapshot(
+              videoAdjustments ?? bundle.videoAdjustments,
+            )
+          : const <String, double>{},
+    );
+    final current = await loadSavedPresets(kind);
+    final next = <SavedMpvPreset>[...current, preset];
+    await _persistSavedPresets(kind, next);
+    return preset;
+  }
+
+  Future<void> renameSavedPreset(
+    SavedMpvPresetKind kind,
+    String id, {
+    required String name,
+    String description = '',
+  }) async {
+    final normalizedName = name.trim();
+    if (normalizedName.isEmpty) {
+      throw ArgumentError('Preset name must not be empty.');
+    }
+    if (!await isSavedPresetNameAvailable(
+      kind,
+      normalizedName,
+      excludingId: id,
+    )) {
+      throw StateError('Preset name already exists.');
+    }
+    final presets = await loadSavedPresets(kind);
+    final next = <SavedMpvPreset>[];
+    var updated = false;
+    for (final preset in presets) {
+      if (preset.id == id) {
+        next.add(
+          preset.copyWith(
+            name: normalizedName,
+            description: description.trim(),
+          ),
+        );
+        updated = true;
+      } else {
+        next.add(preset);
+      }
+    }
+    if (!updated) return;
+    await _persistSavedPresets(kind, next);
+  }
+
+  Future<void> deleteSavedPreset(SavedMpvPresetKind kind, String id) async {
+    final presets = await loadSavedPresets(kind);
+    final next = presets
+        .where((preset) => preset.id != id)
+        .toList(growable: false);
+    if (next.length == presets.length) return;
+    await _persistSavedPresets(kind, next);
+  }
+
+  Future<MpvSettingsBundle> applySavedPreset(
+    SavedMpvPreset preset, {
+    Map<String, String>? currentSettings,
+    Map<String, double>? currentVideoAdjustments,
+  }) async {
+    final bundle = await loadBundle();
+    final nextSettings = Map<String, String>.from(
+      currentSettings ?? bundle.settings,
+    );
+    final nextVideoAdjustments = Map<String, double>.from(
+      currentVideoAdjustments ?? bundle.videoAdjustments,
+    );
+    if (preset.kind == SavedMpvPresetKind.picture) {
+      for (final key in MpvSettingsCatalog.picturePresetKeys) {
+        nextSettings[key] = MpvSettingsCatalog.defaults[key] ?? '';
+      }
+      nextVideoAdjustments
+        ..clear()
+        ..addAll(MpvSettingsCatalog.videoAdjustmentDefaults)
+        ..addAll(
+          MpvSettingsCatalog.pictureVideoAdjustmentSnapshot(
+            preset.videoAdjustmentsSnapshot,
+          ),
+        );
+    } else {
+      for (final key in MpvSettingsCatalog.audioPresetKeys) {
+        nextSettings[key] = MpvSettingsCatalog.defaults[key] ?? '';
+      }
+    }
+    nextSettings.addAll(preset.settingsSnapshot);
+    return saveBundle(
+      settings: nextSettings,
+      videoAdjustments: nextVideoAdjustments,
+    );
+  }
+
+  Future<MpvSettingsBundle> resetAll() {
+    return saveBundle(
+      settings: MpvSettingsCatalog.defaults,
+      videoAdjustments: MpvSettingsCatalog.videoAdjustmentDefaults,
+    );
+  }
+
   Future<Map<String, String>> reset() {
     return saveAll(MpvSettingsCatalog.defaults);
+  }
+
+  String _storageKeyForKind(SavedMpvPresetKind kind) {
+    return kind == SavedMpvPresetKind.picture
+        ? MpvSettingsCatalog.savedPicturePresetsKey
+        : MpvSettingsCatalog.savedAudioPresetsKey;
+  }
+
+  Future<void> _persistSavedPresets(
+    SavedMpvPresetKind kind,
+    List<SavedMpvPreset> presets,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final payload = jsonEncode(
+      presets.map((preset) => preset.toMap()).toList(growable: false),
+    );
+    await prefs.setString(_storageKeyForKind(kind), payload);
   }
 }

@@ -12,11 +12,14 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
   dio: ^5.4.0
+  path: ^1.9.0
   shared_preferences: ^2.2.2
+  sqflite: ^2.3.3+2
   provider: ^6.1.1
   crypto: ^3.0.3
   file_picker: ^10.3.2
   flutter_svg: ^2.0.10+1
+  fl_chart: ^0.70.2
   url_launcher: ^6.3.1
   palette_generator: ^0.3.3+6
   webview_flutter: ^4.13.1
