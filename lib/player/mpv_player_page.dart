@@ -3,6 +3,7 @@ library mpv_player_page;
 import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math' as math;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -855,6 +856,7 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
       unawaited(_loadDanmakuPreferences());
     });
     widget.onBackActionHandlerChanged?.call(_hostBackActionHandler);
+    _danmakuController.addListener(_handleDanmakuControllerChanged);
     _controller.value.addListener(_handlePlayerValueChanged);
     _completionController.addListener(_handleOverlayControllersChanged);
     _overlayState.addListener(_handleOverlayControllersChanged);
@@ -977,6 +979,7 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
     _performanceOverlayTimer?.cancel();
     _chapterRetryTimer?.cancel();
     _centerPopupTimer?.cancel();
+    _danmakuController.removeListener(_handleDanmakuControllerChanged);
     _controller.value.removeListener(_handlePlayerValueChanged);
     _completionController.removeListener(_handleOverlayControllersChanged);
     _overlayState.removeListener(_handleOverlayControllersChanged);

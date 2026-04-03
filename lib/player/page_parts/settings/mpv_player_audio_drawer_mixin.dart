@@ -229,6 +229,7 @@ extension _MpvPlayerAudioDrawerMixin on _MpvPlayerPageState {
       var reloadStarted = false;
       _updatePlayerState(() {
         _uiController.qualitySwitchLoading = true;
+        _uiController.subtitleSwitchMessage = '姝ｅ湪鍒囨崲闊抽锛岃绋嶇瓑...';
         _currentAudioGuid = selected.guid;
       });
       _uiController.pendingLoadingTransition = true;

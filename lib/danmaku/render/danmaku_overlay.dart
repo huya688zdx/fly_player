@@ -77,8 +77,11 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   String _lastVisibleWindowSignature = '';
   String _lastViewportSignature = '';
   String _lastTrackLayoutSignature = '';
+  String _lastVisualStateSignature = '';
+  String _lastTrackMetricsSignature = '';
   Size _viewportSize = Size.zero;
   double _devicePixelRatio = 1.0;
+  double? _cachedTrackHeightValue;
   ui.Image? _maskImage;
   String? _maskImageKey;
   int _maskLoadGeneration = 0;
@@ -92,6 +95,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   void initState() {
     super.initState();
     widget.controller.addListener(_handleControllerChanged);
+    _lastVisualStateSignature = _buildVisualStateSignature();
     debugPrint(
       '[DANMAKU][OVERLAY] init overlay=${identityHashCode(this)} '
       'maskKey=${_maskStateKey(widget.occlusionState).isEmpty ? '-' : _maskStateKey(widget.occlusionState)}',
@@ -175,13 +179,20 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
 
   void _handleControllerChanged() {
     if (!mounted) return;
+    final visualStateSignature = _buildVisualStateSignature();
     if (!widget.controller.ready || !widget.controller.settings.enabled) {
       _detachEngineState();
-      setState(() {});
+      if (visualStateSignature != _lastVisualStateSignature) {
+        _lastVisualStateSignature = visualStateSignature;
+        setState(() {});
+      }
       return;
     }
     _syncEngineState();
-    setState(() {});
+    if (visualStateSignature != _lastVisualStateSignature) {
+      _lastVisualStateSignature = visualStateSignature;
+      setState(() {});
+    }
   }
 
   @override
@@ -266,7 +277,6 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _syncEngineState(forceSourceReset: true);
-      setState(() {});
     });
   }
 
@@ -987,6 +997,11 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   }
 
   double _trackHeight(DanmakuSettings settings) {
+    final signature = _buildTrackMetricsSignature(settings);
+    if (_cachedTrackHeightValue != null &&
+        signature == _lastTrackMetricsSignature) {
+      return _cachedTrackHeightValue!;
+    }
     final textPainter = TextPainter(
       text: TextSpan(
         text: '弹幕',
@@ -994,7 +1009,10 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
       ),
       textDirection: TextDirection.ltr,
     )..layout();
-    return textPainter.height + (_textVerticalPadding(settings) * 2.0);
+    _lastTrackMetricsSignature = signature;
+    _cachedTrackHeightValue =
+        textPainter.height + (_textVerticalPadding(settings) * 2.0);
+    return _cachedTrackHeightValue!;
   }
 
   double _textVerticalPadding(DanmakuSettings settings) {
@@ -1042,6 +1060,25 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
       _trackHeight(settings).toStringAsFixed(2),
       _effectiveAreaRatio(settings).toStringAsFixed(3),
       settings.avoidSubtitleArea,
+    ].join('|');
+  }
+
+  String _buildTrackMetricsSignature(DanmakuSettings settings) {
+    return <Object>[
+      _fontSize(settings).toStringAsFixed(2),
+      _strokeWidth.toStringAsFixed(2),
+      _lineHeight.toStringAsFixed(2),
+    ].join('|');
+  }
+
+  String _buildVisualStateSignature() {
+    final settings = widget.controller.settings;
+    return <Object>[
+      widget.controller.ready,
+      settings.enabled,
+      settings.opacity.toStringAsFixed(3),
+      settings.avoidCenterArea,
+      settings.displayAreaRatio.toStringAsFixed(3),
     ].join('|');
   }
 

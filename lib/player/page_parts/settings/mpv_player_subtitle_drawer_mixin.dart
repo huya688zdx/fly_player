@@ -476,10 +476,12 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
     _invalidateNextEpisodePreload();
     _updatePlayerState(() {
       _uiController.qualitySwitchLoading = true;
+      _uiController.subtitleSwitchMessage = _subtitleDrawerSwitchMessageForTrack(
+        selected,
+      );
       _currentSubtitleGuid = plan.normalizedGuid;
       _subtitleExplicitlyDisabled = plan.subtitleExplicitlyDisabled;
     });
-    _showSubtitleSwitchMessage(_subtitleDrawerSwitchMessageForTrack(selected));
     try {
       _subtitleStatusTipSuppressedUntil = plan.subtitleStatusTipSuppressedUntil;
       await _applySubtitleSelection();
@@ -488,10 +490,15 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
         drawer.close();
       }
     } finally {
-      if (mounted) {
-        _updatePlayerState(() => _uiController.qualitySwitchLoading = false);
+      final transitionStillActive =
+          _uiController.pendingLoadingTransition ||
+          _uiController.awaitingVisualPlaybackStart;
+      if (!transitionStillActive) {
+        if (mounted) {
+          _updatePlayerState(() => _uiController.qualitySwitchLoading = false);
+        }
+        _hideSubtitleSwitchMessage(delay: const Duration(milliseconds: 900));
       }
-      _hideSubtitleSwitchMessage(delay: const Duration(milliseconds: 900));
     }
   }
 

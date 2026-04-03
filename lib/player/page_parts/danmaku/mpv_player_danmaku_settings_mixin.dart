@@ -4,6 +4,8 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
   static const List<String> _danmakuAiBackendOrder = <String>[
     'paddle',
   ];
+  static const int _runtimeDanmakuAiMinSampleIntervalMs = 650;
+  static const int _runtimeDanmakuAiMaxInputWidth = 224;
   static const List<String> _danmakuAiPrecisionPresets = <String>[
     DanmakuAiPrecisionPreset.performance,
     DanmakuAiPrecisionPreset.balanced,
@@ -196,16 +198,35 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
       return;
     }
     final settings = _danmakuController.settings;
+    final interactionBusy =
+        _gestureController.adjustmentActive ||
+        _gestureSeekActive ||
+        _speedBoostActive ||
+        _uiController.pendingLoadingTransition ||
+        _uiController.awaitingVisualPlaybackStart ||
+        _uiController.qualitySwitchLoading;
     final enabled =
         settings.enabled &&
         settings.avoidCenterArea &&
+        !_useNativeDanmakuRenderer &&
+        !interactionBusy &&
         !widget.pictureInPictureActive;
+    final sampleIntervalMs = math.max(
+      settings.aiSampleIntervalMs,
+      _runtimeDanmakuAiMinSampleIntervalMs,
+    );
+    final inputWidth = math.min(
+      settings.aiInputWidth,
+      _runtimeDanmakuAiMaxInputWidth,
+    );
     await _controller.setDanmakuOcclusionConfig(<String, Object?>{
       'enabled': enabled,
-      'sampleIntervalMs': settings.aiSampleIntervalMs,
+      'sampleIntervalMs': sampleIntervalMs,
       'preferredBackendOrder': _danmakuAiBackendOrder,
-      'inputWidth': settings.aiInputWidth,
-      'inputHeight': settings.aiInputHeight,
+      'inputWidth': inputWidth,
+      'inputHeight': DanmakuSettings.defaults
+          .copyWith(aiInputWidth: inputWidth)
+          .aiInputHeight,
       'sampleAreaRatio': settings.displayAreaRatio,
     });
   }

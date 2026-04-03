@@ -225,14 +225,15 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
 
     final currentPosition = _displayPosition(_controller.value.value);
     final pausedAfterReload = _controller.value.value.paused;
-    _updatePlayerState(() => _uiController.qualitySwitchLoading = true);
+    _updatePlayerState(() {
+      _uiController.qualitySwitchLoading = true;
+      _uiController.subtitleSwitchMessage =
+          loadingMessage ?? _qualitySwitchPromptFor(quality);
+    });
     _uiController.pendingLoadingTransition = true;
     _markAwaitingVisualPlaybackStart(
       currentPosition,
       targetPaused: pausedAfterReload,
-    );
-    _showSubtitleSwitchMessage(
-      loadingMessage ?? _qualitySwitchPromptFor(quality),
     );
     var reloadStarted = false;
     try {
