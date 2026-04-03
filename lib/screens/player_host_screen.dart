@@ -508,7 +508,12 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
       controller: this,
       child: PopScope(
         canPop: false,
-        onPopInvokedWithResult: (_, __) => unawaited(_handleSystemBack()),
+        onPopInvokedWithResult: (didPop, __) {
+          if (didPop || _exitInProgress) {
+            return;
+          }
+          unawaited(_handleSystemBack());
+        },
         child: FadeTransition(
           opacity: _exitTransition,
           child: SlideTransition(

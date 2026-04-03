@@ -16,7 +16,7 @@ class PlayerHorizontalSeekResult {
 }
 
 class PlayerGestureController extends ChangeNotifier {
-  static const Duration _adjustmentCommitInterval = Duration(milliseconds: 48);
+  static const Duration _adjustmentCommitInterval = Duration(milliseconds: 96);
   static const double _adjustmentUiStep = 0.02;
 
   final PlayerSystemController _systemController;
@@ -45,18 +45,24 @@ class PlayerGestureController extends ChangeNotifier {
   double? _pendingAdjustmentValue;
   int _adjustmentSessionId = 0;
   double? _speedBoostRestoreSpeed;
+  final ValueNotifier<int> _overlayRevision = ValueNotifier<int>(0);
+  final ValueNotifier<int> _seekRevision = ValueNotifier<int>(0);
+  final ValueNotifier<int> _speedBoostRevision = ValueNotifier<int>(0);
 
   PlayerAdjustmentOverlayData? get gestureOverlayData => _gestureOverlayData;
   bool get gestureSeekActive => _gestureSeekActive;
   bool get isSeekDragging => _draggingPosition != null;
   bool get speedBoostActive => _speedBoostActive;
   Duration? get pendingSeekPosition => _pendingSeekPosition;
+  bool get adjustmentActive => _activeAdjustmentType != null;
+  Listenable get overlayListenable => _overlayRevision;
+  Listenable get seekListenable => _seekRevision;
+  Listenable get speedBoostListenable => _speedBoostRevision;
 
   Future<void> primeSystemSnapshot() async {
     final snapshot = await _systemController.readSnapshot();
     _brightnessLevel = snapshot.brightness;
     _volumeLevel = snapshot.volume;
-    notifyListeners();
   }
 
   Duration displayPosition(Duration position) {
@@ -69,46 +75,58 @@ class PlayerGestureController extends ChangeNotifier {
     if ((position - pendingSeekPosition).inMilliseconds.abs() > 900) return;
     _pendingSeekTimer?.cancel();
     _pendingSeekPosition = null;
-    notifyListeners();
+    _notifySeekChanged();
   }
 
   void resetSeekTracking() {
     _draggingPosition = null;
     _setPendingSeekPosition(null);
-    notifyListeners();
+    _notifySeekChanged();
   }
 
   void beginSliderDrag(Duration position) {
     _draggingPosition = position;
     _setPendingSeekPosition(null);
-    notifyListeners();
+    _notifySeekChanged();
   }
 
   void updateSliderDrag(Duration position) {
     _draggingPosition = position;
-    notifyListeners();
+    _notifySeekChanged();
   }
 
   void completeSliderDrag(Duration position) {
     _draggingPosition = null;
     _setPendingSeekPosition(position);
-    notifyListeners();
+    _notifySeekChanged();
   }
 
   void clearTransientVisuals() {
     _gestureOverlayTimer?.cancel();
+    final overlayChanged = _gestureOverlayData != null || _speedBoostActive;
+    final seekChanged =
+        _gestureSeekActive ||
+        _gestureSeekRestoreControlsVisible ||
+        _draggingPosition != null ||
+        _pendingSeekPosition != null;
     _gestureSeekActive = false;
     _gestureSeekRestoreControlsVisible = false;
     _activeAdjustmentType = null;
     _gestureOverlayData = null;
-    notifyListeners();
+    if (overlayChanged) {
+      _notifyOverlayChanged();
+      _notifySpeedBoostChanged();
+    }
+    if (seekChanged) {
+      _notifySeekChanged();
+    }
   }
 
   void hideOverlay() {
     _gestureOverlayTimer?.cancel();
     if (_gestureOverlayData == null) return;
     _gestureOverlayData = null;
-    notifyListeners();
+    _notifyOverlayChanged();
   }
 
   void handleVerticalStart({
@@ -175,7 +193,8 @@ class PlayerGestureController extends ChangeNotifier {
     _gestureSeekBasePosition = currentPosition;
     _draggingPosition = currentPosition;
     _gestureOverlayData = null;
-    notifyListeners();
+    _notifySeekChanged();
+    _notifyOverlayChanged();
   }
 
   void handleHorizontalUpdate({
@@ -204,7 +223,7 @@ class PlayerGestureController extends ChangeNotifier {
           duration.inMilliseconds,
         );
     _draggingPosition = Duration(milliseconds: nextMilliseconds);
-    notifyListeners();
+    _notifySeekChanged();
   }
 
   PlayerHorizontalSeekResult? completeHorizontalSeek() {
@@ -217,7 +236,7 @@ class PlayerGestureController extends ChangeNotifier {
     _gestureSeekRestoreControlsVisible = false;
     _draggingPosition = null;
     _setPendingSeekPosition(result.target);
-    notifyListeners();
+    _notifySeekChanged();
     return result;
   }
 
@@ -226,7 +245,7 @@ class PlayerGestureController extends ChangeNotifier {
     _gestureSeekActive = false;
     _gestureSeekRestoreControlsVisible = false;
     _draggingPosition = null;
-    notifyListeners();
+    _notifySeekChanged();
   }
 
   bool beginSpeedBoost(double playbackSpeed) {
@@ -235,7 +254,8 @@ class PlayerGestureController extends ChangeNotifier {
     _speedBoostRestoreSpeed = playbackSpeed;
     _speedBoostActive = true;
     _gestureOverlayData = null;
-    notifyListeners();
+    _notifyOverlayChanged();
+    _notifySpeedBoostChanged();
     return true;
   }
 
@@ -244,7 +264,8 @@ class PlayerGestureController extends ChangeNotifier {
     _speedBoostRestoreSpeed = null;
     if (_speedBoostActive) {
       _speedBoostActive = false;
-      notifyListeners();
+      _notifyOverlayChanged();
+      _notifySpeedBoostChanged();
     }
     return restoreSpeed;
   }
@@ -283,7 +304,7 @@ class PlayerGestureController extends ChangeNotifier {
         type: type,
         value: baseline,
       );
-      notifyListeners();
+      _notifyOverlayChanged();
       return;
     }
     _applySystemAdjustment(type, nextValue);
@@ -292,25 +313,29 @@ class PlayerGestureController extends ChangeNotifier {
   void _showAdjustmentOverlay(PlayerAdjustmentType type, double value) {
     _gestureOverlayTimer?.cancel();
     _gestureOverlayData = PlayerAdjustmentOverlayData(type: type, value: value);
-    notifyListeners();
+    _notifyOverlayChanged();
   }
 
   void _scheduleGestureOverlayHide() {
     _gestureOverlayTimer?.cancel();
     _gestureOverlayTimer = Timer(const Duration(milliseconds: 700), () {
       _gestureOverlayData = null;
-      notifyListeners();
+      _notifyOverlayChanged();
     });
   }
 
   void _setPendingSeekPosition(Duration? position) {
     _pendingSeekTimer?.cancel();
+    final changed = _pendingSeekPosition != position;
     _pendingSeekPosition = position;
+    if (changed) {
+      _notifySeekChanged();
+    }
     if (position == null) return;
     _pendingSeekTimer = Timer(const Duration(milliseconds: 1800), () {
       if (_pendingSeekPosition != position) return;
       _pendingSeekPosition = null;
-      notifyListeners();
+      _notifySeekChanged();
     });
   }
 
@@ -342,8 +367,20 @@ class PlayerGestureController extends ChangeNotifier {
     }
     _scheduleSystemAdjustment(type, normalized);
     if (shouldNotify) {
-      notifyListeners();
+      _notifyOverlayChanged();
     }
+  }
+
+  void _notifyOverlayChanged() {
+    _overlayRevision.value += 1;
+  }
+
+  void _notifySeekChanged() {
+    _seekRevision.value += 1;
+  }
+
+  void _notifySpeedBoostChanged() {
+    _speedBoostRevision.value += 1;
   }
 
   double _quantizeAdjustmentValue(double value) {
@@ -381,6 +418,9 @@ class PlayerGestureController extends ChangeNotifier {
     _gestureOverlayTimer?.cancel();
     _pendingSeekTimer?.cancel();
     _systemAdjustmentTimer?.cancel();
+    _overlayRevision.dispose();
+    _seekRevision.dispose();
+    _speedBoostRevision.dispose();
     super.dispose();
   }
 }

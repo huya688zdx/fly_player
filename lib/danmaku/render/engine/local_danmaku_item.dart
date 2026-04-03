@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -9,6 +10,168 @@ class DanmakuImageDisposer {
   static void deferDispose(ui.Image? image) {
     if (image == null) return;
     Future<void>.delayed(_disposeDelay, image.dispose);
+  }
+}
+
+class _DanmakuRasterCacheEntry {
+  _DanmakuRasterCacheEntry({
+    required this.image,
+    required this.width,
+    required this.height,
+  });
+
+  final ui.Image image;
+  final double width;
+  final double height;
+  int refs = 0;
+}
+
+class DanmakuRasterizedAsset {
+  const DanmakuRasterizedAsset({
+    required this.image,
+    required this.width,
+    required this.height,
+    required this.cacheKey,
+  });
+
+  final ui.Image image;
+  final double width;
+  final double height;
+  final String cacheKey;
+}
+
+class DanmakuRasterCache {
+  static const int _maxEntries = 180;
+  static final LinkedHashMap<String, _DanmakuRasterCacheEntry> _entries =
+      LinkedHashMap<String, _DanmakuRasterCacheEntry>();
+
+  static DanmakuRasterizedAsset resolve({
+    required String text,
+    required Color color,
+    required double fontSize,
+    required int fontWeight,
+    required double strokeWidth,
+    required double lineHeight,
+    required double devicePixelRatio,
+  }) {
+    final cacheKey = _buildCacheKey(
+      text: text,
+      color: color,
+      fontSize: fontSize,
+      fontWeight: fontWeight,
+      strokeWidth: strokeWidth,
+      lineHeight: lineHeight,
+      devicePixelRatio: devicePixelRatio,
+    );
+    final existingEntry = _entries.remove(cacheKey);
+    if (existingEntry != null) {
+      existingEntry.refs += 1;
+      _entries[cacheKey] = existingEntry;
+      return DanmakuRasterizedAsset(
+        image: existingEntry.image,
+        width: existingEntry.width,
+        height: existingEntry.height,
+        cacheKey: cacheKey,
+      );
+    }
+
+    final paragraph = LocalDanmakuItem._buildParagraph(
+      text: text,
+      color: color,
+      fontSize: fontSize,
+      fontWeight: fontWeight,
+      lineHeight: lineHeight,
+    );
+    final horizontalPadding = LocalDanmakuItem._horizontalRasterPadding(
+      fontSize,
+      strokeWidth,
+    );
+    final verticalPadding = LocalDanmakuItem._verticalRasterPadding(
+      fontSize,
+      strokeWidth,
+    );
+    final width = paragraph.maxIntrinsicWidth + (horizontalPadding * 2.0);
+    final height = paragraph.height + (verticalPadding * 2.0);
+    final image = LocalDanmakuItem._recordImage(
+      paragraph: paragraph,
+      text: text,
+      color: color,
+      fontSize: fontSize,
+      fontWeight: fontWeight,
+      lineHeight: lineHeight,
+      strokeWidth: strokeWidth,
+      devicePixelRatio: devicePixelRatio,
+      horizontalPadding: horizontalPadding,
+      verticalPadding: verticalPadding,
+    );
+    paragraph.dispose();
+
+    final nextEntry = _DanmakuRasterCacheEntry(
+      image: image,
+      width: width,
+      height: height,
+    )..refs = 1;
+    _entries[cacheKey] = nextEntry;
+    _trim();
+    return DanmakuRasterizedAsset(
+      image: image,
+      width: width,
+      height: height,
+      cacheKey: cacheKey,
+    );
+  }
+
+  static void release(String cacheKey, ui.Image image) {
+    final entry = _entries[cacheKey];
+    if (entry == null || !identical(entry.image, image)) {
+      DanmakuImageDisposer.deferDispose(image);
+      return;
+    }
+    if (entry.refs > 0) {
+      entry.refs -= 1;
+    }
+    _trim();
+  }
+
+  static String _buildCacheKey({
+    required String text,
+    required Color color,
+    required double fontSize,
+    required int fontWeight,
+    required double strokeWidth,
+    required double lineHeight,
+    required double devicePixelRatio,
+  }) {
+    return <Object>[
+      text,
+      color.toARGB32(),
+      fontSize.toStringAsFixed(2),
+      fontWeight,
+      strokeWidth.toStringAsFixed(2),
+      lineHeight.toStringAsFixed(2),
+      devicePixelRatio.toStringAsFixed(2),
+    ].join('|');
+  }
+
+  static void _trim() {
+    if (_entries.length <= _maxEntries) {
+      return;
+    }
+    final staleKeys = <String>[];
+    for (final entry in _entries.entries) {
+      if (entry.value.refs == 0) {
+        staleKeys.add(entry.key);
+      }
+      if (_entries.length - staleKeys.length <= _maxEntries) {
+        break;
+      }
+    }
+    for (final key in staleKeys) {
+      final removed = _entries.remove(key);
+      if (removed != null) {
+        DanmakuImageDisposer.deferDispose(removed.image);
+      }
+    }
   }
 }
 
@@ -36,6 +199,7 @@ class LocalDanmakuItem<T> {
   final int startMs;
   final int durationMs;
   final ui.Image image;
+  final String? rasterCacheKey;
 
   LocalDanmakuItem({
     required this.content,
@@ -45,6 +209,7 @@ class LocalDanmakuItem<T> {
     required this.startMs,
     required this.durationMs,
     required this.image,
+    this.rasterCacheKey,
   });
 
   bool get isScroll => content.type == LocalDanmakuItemType.scroll;
@@ -77,6 +242,11 @@ class LocalDanmakuItem<T> {
   }
 
   void dispose() {
+    final cacheKey = rasterCacheKey;
+    if (cacheKey != null) {
+      DanmakuRasterCache.release(cacheKey, image);
+      return;
+    }
     DanmakuImageDisposer.deferDispose(image);
   }
 
@@ -91,19 +261,7 @@ class LocalDanmakuItem<T> {
     required double lineHeight,
     required double devicePixelRatio,
   }) {
-    final paragraph = _buildParagraph(
-      text: content.text,
-      color: content.color,
-      fontSize: fontSize,
-      fontWeight: fontWeight,
-      lineHeight: lineHeight,
-    );
-    final horizontalPadding = _horizontalRasterPadding(fontSize, strokeWidth);
-    final verticalPadding = _verticalRasterPadding(fontSize, strokeWidth);
-    final width = paragraph.maxIntrinsicWidth + (horizontalPadding * 2.0);
-    final height = paragraph.height + (verticalPadding * 2.0);
-    final image = _recordImage(
-      paragraph: paragraph,
+    final rasterAsset = DanmakuRasterCache.resolve(
       text: content.text,
       color: content.color,
       fontSize: fontSize,
@@ -111,18 +269,16 @@ class LocalDanmakuItem<T> {
       lineHeight: lineHeight,
       strokeWidth: strokeWidth,
       devicePixelRatio: devicePixelRatio,
-      horizontalPadding: horizontalPadding,
-      verticalPadding: verticalPadding,
     );
-    paragraph.dispose();
     return LocalDanmakuItem<T>(
       content: content,
-      width: width,
-      height: height,
+      width: rasterAsset.width,
+      height: rasterAsset.height,
       trackPosition: trackPosition,
       startMs: startMs,
       durationMs: durationMs,
-      image: image,
+      image: rasterAsset.image,
+      rasterCacheKey: rasterAsset.cacheKey,
     );
   }
 

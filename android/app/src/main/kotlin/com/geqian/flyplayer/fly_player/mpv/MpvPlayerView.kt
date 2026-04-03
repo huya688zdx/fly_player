@@ -22,6 +22,7 @@ class MpvPlayerView(
     private val mpv: MpvFacade = DefaultMpvFacade
     private val rootView = FrameLayout(context)
     private val videoOutputTarget: VideoOutputTarget = TextureViewVideoOutputTarget(context)
+    private val nativeDanmakuOverlayView = NativeDanmakuOverlayView(context)
     private val methodChannel = MethodChannel(messenger, "fly_player/mpv_view_$viewId/methods")
     private val eventChannel = EventChannel(messenger, "fly_player/mpv_view_$viewId/events")
     private val danmakuAiEventChannel =
@@ -45,6 +46,7 @@ class MpvPlayerView(
         creationParams = creationParams,
         stateListener = MpvPlaybackStateListener { state, overlayText ->
             latestState = state
+            nativeDanmakuOverlayView.updatePlaybackState(state)
             eventSink?.success(state.toMap())
         },
         danmakuOcclusionStateListener = { state ->
@@ -57,6 +59,13 @@ class MpvPlayerView(
         videoOutputTarget.setListener(this)
         rootView.addView(
             videoOutputTarget.view,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ),
+        )
+        rootView.addView(
+            nativeDanmakuOverlayView,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -208,6 +217,14 @@ class MpvPlayerView(
             }
             "setDanmakuOcclusionConfig" -> {
                 controller.setDanmakuOcclusionConfig(methodArgumentsMap(call))
+                result.success(null)
+            }
+            "setNativeDanmakuPayload" -> {
+                nativeDanmakuOverlayView.setPayload(methodArgumentsMap(call))
+                result.success(null)
+            }
+            "clearNativeDanmaku" -> {
+                nativeDanmakuOverlayView.clear()
                 result.success(null)
             }
             else -> result.notImplemented()

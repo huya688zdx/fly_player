@@ -1693,6 +1693,7 @@ extension _MpvPlayerEpisodeMixin on _MpvPlayerPageState {
       _resumeStartPosition = source.startPosition;
       _uiController.lastRecordedSecond = -1;
     });
+    _syncDanmakuMediaContext(triggerAutoLoad: _danmakuController.ready);
     unawaited(_loadIntroOutroConfigForItem(source.itemGuid));
     if (shouldPromptForAutoPlay) {
       _completionController.requestPauseAfterReadyForAutoPlayPrompt();

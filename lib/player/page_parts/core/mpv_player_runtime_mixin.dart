@@ -1025,10 +1025,11 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
   }
 
   void _handlePlatformViewCreated(int viewId) {
-    _platformViewAttached = true;
+    _updatePlayerState(() => _platformViewAttached = true);
     _controller.attach(viewId);
     _syncPerformanceOverlayPolling();
     unawaited(_syncDanmakuDynamicOcclusionConfig());
+    unawaited(_syncNativeDanmakuRenderer());
     _tryStartInitialSourceLoad();
   }
 
@@ -1169,6 +1170,10 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     final displayPosition = _displayPosition(value);
     final completionDuration = _completionReferenceDuration(value);
     final statusText = value.statusText.trim().toLowerCase();
+    final transitionPlaybackState =
+        _uiController.pendingLoadingTransition ||
+        _uiController.qualitySwitchLoading ||
+        _uiController.awaitingVisualPlaybackStart;
     _completionController.setAutoPlayCountdownPaused(
       value.paused && statusText != 'playback ended',
     );
@@ -1183,13 +1188,19 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
         !_completionController.autoPlayPromptSuppressed &&
         !_playbackCompleted &&
         !_completionActionInFlight &&
+        !transitionPlaybackState &&
+        !_completionController.suppressPlaybackCompletionUntilReady &&
         _hasPlayedLongEnoughForAutoPlay(displayPosition) &&
         completionDuration > Duration.zero &&
         remaining > Duration.zero &&
         remaining <= _completionController.autoPlayPromptWindow) {
       unawaited(_maybeStartAutoPlayPromptNearEnd());
     }
-    if (_completionController.consumePauseAfterReady(value)) {
+    if (transitionPlaybackState ||
+        _completionController.suppressPlaybackCompletionUntilReady) {
+      // A reload emits transient end-file/playback-ended states for the old source.
+      // Ignore completion UI until the new source is visually stable again.
+    } else if (_completionController.consumePauseAfterReady(value)) {
       unawaited(_pauseForAutoPlayPromptIfNeeded());
     } else if (!_completionController.autoPlayPromptVisible &&
         !_playbackCompleted &&
@@ -1203,10 +1214,6 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     }
     final pausedChanged = value.paused != _uiController.wasPaused;
     _uiController.wasPaused = value.paused;
-    final transitionPlaybackState =
-        _uiController.pendingLoadingTransition ||
-        _uiController.qualitySwitchLoading ||
-        _uiController.awaitingVisualPlaybackStart;
     if (transitionPlaybackState) {
       if (!value.paused && _uiController.draggingPosition == null) {
         _scheduleControlsAutoHide();
