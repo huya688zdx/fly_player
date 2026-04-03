@@ -13,8 +13,10 @@ import '../utils/api_url_helper.dart';
 import '../utils/app_error_reporter.dart';
 import '../utils/app_exception.dart';
 import '../utils/detail_top_tip.dart';
+import '../utils/login_error_resolver.dart';
 import '../utils/media_locale_store.dart';
 import '../services/login_history_store.dart';
+import 'download_list_screen.dart';
 import 'fn_connect_web_login_page.dart';
 
 class ConnectionScreen extends StatefulWidget {
@@ -101,7 +103,28 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     _topTip.show(context, message: message, color: color);
   }
 
+  Future<void> _reportAndShowLoginError(
+    Object error, {
+    StackTrace? stackTrace,
+    String? details,
+  }) async {
+    await AppErrorReporter.report(
+      error,
+      action: 'login',
+      source: 'connection_screen',
+      stackTrace: stackTrace,
+      fallbackKind: AppExceptionKind.unauthorized,
+      details: details,
+    );
+    if (!mounted) return;
+    _showTopTip(LoginErrorResolver.resolve(error), context.appColors.danger);
+  }
+
   Future<void> _submit() async {
+    await _submitWithUnifiedErrors();
+  }
+
+  Future<void> _submitWithUnifiedErrors() async {
     FocusScope.of(context).unfocus();
 
     if (_isSubmitting || _submitLimiter.shouldBlock()) {
@@ -172,23 +195,18 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           loginResult: fallbackResult!.loginResult!,
         );
       } else if (fallbackResult?.errorMessage?.trim().isNotEmpty == true) {
-        _showTopTip(
+        await _reportAndShowLoginError(
           fallbackResult!.errorMessage!.trim(),
-          context.appColors.danger,
+          details: 'fn_connect_web_fallback',
         );
       } else {
-        _showTopTip(_resolveLoginError(error), context.appColors.danger);
+        await _reportAndShowLoginError(error, details: 'fn_connect_direct');
       }
     } catch (error, stackTrace) {
-      if (!mounted) return;
-      await AppErrorReporter.showTopTip(
-        context,
-        _topTip,
-        error: error,
-        action: 'login',
-        source: 'connection_screen',
+      await _reportAndShowLoginError(
+        error,
         stackTrace: stackTrace,
-        fallbackKind: AppExceptionKind.unauthorized,
+        details: 'direct_login',
       );
     } finally {
       if (mounted) {
@@ -272,6 +290,15 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     });
   }
 
+  Future<void> _openDownloadedData() async {
+    await Navigator.of(context).push(
+      AppTransitions.leftToRightPageTurnRoute<void>(
+        const DownloadListScreen(),
+        fullscreenDialog: true,
+      ),
+    );
+  }
+
   Future<FnConnectWebLoginPageResult?> _tryFnConnectWebFallback({
     required String baseUrl,
     required String userName,
@@ -319,6 +346,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     return hasAttempts && hasReachabilityFailure;
   }
 
+  // ignore: unused_element
   String _resolveLoginError(Object error) {
     final raw = error is FnConnectLoginException
         ? error.error.message.trim()
@@ -595,6 +623,26 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                                 : Text(
                                     _t(_localeMap, 'auth.login.login', '登录'),
                                   ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Center(
+                          child: TextButton(
+                            onPressed: _openDownloadedData,
+                            style: TextButton.styleFrom(
+                              foregroundColor: const Color(0xFF8FA6C7),
+                              minimumSize: Size.zero,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 6,
+                              ),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              textStyle: theme.textTheme.bodySmall?.copyWith(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            child: const Text('查看已下载数据'),
                           ),
                         ),
                       ],

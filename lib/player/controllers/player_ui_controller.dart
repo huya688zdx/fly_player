@@ -24,6 +24,7 @@ class PlayerUiController {
   bool orientationTransitionMaskVisible = false;
   bool qualitySwitchLoading = false;
   bool pendingLoadingTransition = false;
+  bool backgroundLoadingTransition = false;
   bool videoLoadingOverlayVisible = false;
   bool awaitingVisualPlaybackStart = false;
   bool pendingTransitionTargetPaused = false;
@@ -50,6 +51,7 @@ class PlayerUiController {
 
   void resetSourceLoadTransitionState() {
     pendingLoadingTransition = false;
+    backgroundLoadingTransition = false;
     pendingTransitionTargetPaused = false;
     qualitySwitchLoading = false;
     awaitingVisualPlaybackStart = false;
@@ -70,8 +72,10 @@ class PlayerUiController {
   void markAwaitingVisualPlaybackStart(
     Duration anchorPosition, {
     required bool targetPaused,
+    bool background = false,
   }) {
     awaitingVisualPlaybackStart = true;
+    backgroundLoadingTransition = background;
     pendingTransitionTargetPaused = targetPaused;
     visualPlaybackStartAnchorPosition = anchorPosition.isNegative
         ? Duration.zero

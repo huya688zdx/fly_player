@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
@@ -32,6 +33,43 @@ void _apiVerboseLog(String message) {
   if (_verboseApiLogsEnabled) {
     debugPrint(message);
   }
+}
+
+Future<T> _parseOffMainIsolate<S, T>(S payload, T Function(S payload) parser) {
+  if (kIsWeb) {
+    return Future<T>.value(parser(payload));
+  }
+  return Isolate.run<T>(() => parser(payload));
+}
+
+List<MediaLibraryItem> _parseMediaLibraryItems(List<dynamic> data) {
+  return data
+      .whereType<Map>()
+      .map(
+        (entry) => MediaLibraryItem.fromJson(Map<String, dynamic>.from(entry)),
+      )
+      .toList(growable: false);
+}
+
+PlayInfoData _parsePlayInfoData(Map<String, dynamic> data) {
+  return PlayInfoData.fromJson(Map<String, dynamic>.from(data));
+}
+
+StreamTrackData _parseStreamTrackData(Map<String, dynamic> data) {
+  return StreamTrackData.fromApiData(Map<String, dynamic>.from(data));
+}
+
+List<PersonCredit> _parsePersonCredits(Map<String, dynamic> data) {
+  final list = (data['list'] as List?) ?? const <dynamic>[];
+  final people =
+      list
+          .whereType<Map>()
+          .map(
+            (entry) => PersonCredit.fromJson(Map<String, dynamic>.from(entry)),
+          )
+          .toList()
+        ..sort((a, b) => a.order.compareTo(b.order));
+  return List<PersonCredit>.unmodifiable(people);
 }
 
 class LoginWithBaseUrlResult {
@@ -228,6 +266,23 @@ bool _isIpv6Host(String host) {
   return address?.type == InternetAddressType.IPv6;
 }
 
+class DownloadTaskProgressInfo {
+  final int status;
+  final int percents;
+
+  const DownloadTaskProgressInfo({
+    required this.status,
+    required this.percents,
+  });
+
+  factory DownloadTaskProgressInfo.fromJson(Map<String, dynamic> json) {
+    return DownloadTaskProgressInfo(
+      status: json['status'] is num ? (json['status'] as num).toInt() : 0,
+      percents: json['percents'] is num ? (json['percents'] as num).toInt() : 0,
+    );
+  }
+}
+
 /// Centralized Feiniu backend client.
 ///
 /// Keeps request signing, common headers and response parsing in one place so
@@ -260,10 +315,16 @@ class FeiniuApi {
   static const String _playSetConfigByItemPath =
       '$_apiPrefix/play/setConfigByItem';
   static const String _playPlayPath = '$_apiPrefix/play/play';
+  static const String _playMediaBridgePath = '$_apiPrefix/media/p';
   static const String _streamPath = '$_apiPrefix/stream';
   static const String _playRecordPath = '$_apiPrefix/play/record';
   static const String _favoritePath = '$_apiPrefix/item/favorite';
   static const String _watchedPath = '$_apiPrefix/item/watched';
+  static const String _downloadResolutionPathPrefix =
+      '$_apiPrefix/download/resolution';
+  static const String _downloadTaskPath = '$_apiPrefix/download/task';
+  static const String _downloadTaskProgressPath =
+      '$_apiPrefix/download/taskProgress';
   static const String _subtitleDownloadPathPrefix = '$_apiPrefix/subtitle/dl';
   static const String _subtitleSearchPath = '$_apiPrefix/subtitle/search';
   static const String _subtitleDownloadPath = '$_apiPrefix/subtitle/download';
@@ -281,10 +342,19 @@ class FeiniuApi {
   static const String _fnConnectServiceBaseUrl = 'https://fnos.net';
   static const String _fnConnectServicePath = '/api/v1/fn/con';
   static const String _publicAuthxKey = 'NDzZTVxnRKP8Z0jXg1VAMonaG8akvh';
-  static const String _publicAuthxSecret = '16CCEB3D-AB42-077D-36A1-F355324E4237';
+  static const String _publicAuthxSecret =
+      '16CCEB3D-AB42-077D-36A1-F355324E4237';
   static const String _fnConnectApiKey = 'zIGtkc3dqZnJpd29qZXJqa2w7c';
   static const String _fnConnectAuthxPrefix = _publicAuthxKey;
   static final RegExp _fnConnectIdPattern = RegExp(r'^[a-z][a-z0-9-]{5,31}$');
+  static final Map<String, Object?> _sharedResourceCache = <String, Object?>{};
+  static final Map<String, Future<Object?>> _sharedResourceInflight =
+      <String, Future<Object?>>{};
+  static final Map<String, DateTime> _sharedResourceCacheTimes =
+      <String, DateTime>{};
+  static const Duration _homeReadCacheTtl = Duration(seconds: 8);
+  static const Duration _playListCacheTtl = Duration(seconds: 2);
+  static const Duration _detailReadCacheTtl = Duration(seconds: 4);
 
   final NasProvider nasProvider;
   final Dio _dio = Dio();
@@ -505,7 +575,9 @@ class FeiniuApi {
         throw AppException.api(
           action: 'fn connect oauth config',
           message:
-              (payload['msg'] ?? payload['message'] ?? 'Failed to load system config')
+              (payload['msg'] ??
+                      payload['message'] ??
+                      'Failed to load system config')
                   .toString(),
           code: _jsonInt(payload['code'], fallback: -1),
         );
@@ -532,10 +604,9 @@ class FeiniuApi {
         );
       }
       final oauthUrl = oauth['url']?.toString().trim() ?? '';
-      final targetBaseUrl =
-          oauthUrl.isNotEmpty && oauthUrl != '://'
-              ? ApiUrlHelper.normalizeBaseUrl(oauthUrl)
-              : ApiUrlHelper.originFromBaseUrl(normalizedBaseUrl);
+      final targetBaseUrl = oauthUrl.isNotEmpty && oauthUrl != '://'
+          ? ApiUrlHelper.normalizeBaseUrl(oauthUrl)
+          : ApiUrlHelper.originFromBaseUrl(normalizedBaseUrl);
       return FnConnectOauthConfig(baseUrl: targetBaseUrl, appId: appId);
     } on DioException catch (e) {
       throw AppException.fromDio(e, action: 'fn connect oauth config');
@@ -583,7 +654,8 @@ class FeiniuApi {
       }
       throw AppException.api(
         action: 'fn connect oauth auth',
-        message: _backendMessageOf(payload) ?? 'Failed to exchange FN Connect token',
+        message:
+            _backendMessageOf(payload) ?? 'Failed to exchange FN Connect token',
         code: payload is Map<String, dynamic>
             ? _toInt(payload['code'], fallback: 0)
             : null,
@@ -882,10 +954,7 @@ class FeiniuApi {
     return dio;
   }
 
-  static String _buildPublicAuthxHeader({
-    required String path,
-    dynamic body,
-  }) {
+  static String _buildPublicAuthxHeader({required String path, dynamic body}) {
     final nonce = (Random().nextInt(900000) + 100000).toString();
     final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
     final payload = body == null ? '' : jsonEncode(body);
@@ -932,34 +1001,46 @@ class FeiniuApi {
 
   // Media library
   Future<List<MediaItem>> getMediaList() async {
-    try {
-      final response = await _dio.get(_mediaListPath);
-      final items = _extractDataList(
-        response.data,
-        'media list',
-      ).map(MediaItem.fromJson).toList();
-      debugPrint('[API][LIST] items=${items.length}');
-      return items;
-    } catch (e) {
-      throw AppException.from(
-        e,
-        action: 'media list',
-        fallbackKind: AppExceptionKind.transient,
-      );
-    }
+    return _getOrLoadSharedResource<List<MediaItem>>(
+      cacheKey: _sharedResourceKey('home_media_list'),
+      maxAge: _homeReadCacheTtl,
+      loader: () async {
+        try {
+          final response = await _dio.get(_mediaListPath);
+          final items = _extractDataList(
+            response.data,
+            'media list',
+          ).map(MediaItem.fromJson).toList();
+          debugPrint('[API][LIST] items=${items.length}');
+          return items;
+        } catch (e) {
+          throw AppException.from(
+            e,
+            action: 'media list',
+            fallbackKind: AppExceptionKind.transient,
+          );
+        }
+      },
+    );
   }
 
   Future<Map<String, dynamic>> getMediaSummary() async {
-    try {
-      final response = await _dio.get(_mediaSummaryPath);
-      return _extractDataMap(response.data, 'media summary');
-    } catch (e) {
-      throw AppException.from(
-        e,
-        action: 'media summary',
-        fallbackKind: AppExceptionKind.transient,
-      );
-    }
+    return _getOrLoadSharedResource<Map<String, dynamic>>(
+      cacheKey: _sharedResourceKey('home_media_summary'),
+      maxAge: _homeReadCacheTtl,
+      loader: () async {
+        try {
+          final response = await _dio.get(_mediaSummaryPath);
+          return _extractDataMap(response.data, 'media summary');
+        } catch (e) {
+          throw AppException.from(
+            e,
+            action: 'media summary',
+            fallbackKind: AppExceptionKind.transient,
+          );
+        }
+      },
+    );
   }
 
   Future<Map<String, dynamic>> getMediaLocaleMap({
@@ -1167,21 +1248,26 @@ class FeiniuApi {
   }
 
   Future<List<AuthorizedDirEntry>> getAppAuthorizedDirs() async {
-    try {
-      final response = await _dio.get(_serverAuthorizedDirPath);
-      final data = _extractDataMap(response.data, 'authorized dirs');
-      final list = (data['authDirList'] as List?) ?? const <dynamic>[];
-      return list
-          .whereType<Map<String, dynamic>>()
-          .map(AuthorizedDirEntry.fromJson)
-          .toList();
-    } catch (e) {
-      throw AppException.from(
-        e,
-        action: 'authorized dirs',
-        fallbackKind: AppExceptionKind.transient,
-      );
-    }
+    return _getOrLoadSharedResource<List<AuthorizedDirEntry>>(
+      cacheKey: _sharedResourceKey('authorized_dirs'),
+      loader: () async {
+        try {
+          final response = await _dio.get(_serverAuthorizedDirPath);
+          final data = _extractDataMap(response.data, 'authorized dirs');
+          final list = (data['authDirList'] as List?) ?? const <dynamic>[];
+          return list
+              .whereType<Map<String, dynamic>>()
+              .map(AuthorizedDirEntry.fromJson)
+              .toList(growable: false);
+        } catch (e) {
+          throw AppException.from(
+            e,
+            action: 'authorized dirs',
+            fallbackKind: AppExceptionKind.transient,
+          );
+        }
+      },
+    );
   }
 
   Future<List<MediaLibraryItem>> getItemsByCategoryGuid(
@@ -1473,82 +1559,118 @@ class FeiniuApi {
   }
 
   Future<Map<int, String>> getTagGenresMap({String lan = 'zh-CN'}) async {
-    final response = await _dio.get(
-      _tagGenresPath,
-      queryParameters: {'lan': lan},
-    );
-    final data = _tryExtractDataList(response.data);
-    if (data == null) return const {};
-    final map = <int, String>{};
-    for (final entry in data) {
-      if (entry is Map<String, dynamic>) {
-        final id = int.tryParse('${entry['id']}');
-        final value = entry['value']?.toString();
-        if (id != null && value != null && value.isNotEmpty) {
-          map[id] = value;
+    final normalizedLan = lan.trim();
+    return _getOrLoadSharedResource<Map<int, String>>(
+      cacheKey: _sharedResourceKey('tag_genres|$normalizedLan'),
+      loader: () async {
+        final response = await _dio.get(
+          _tagGenresPath,
+          queryParameters: {'lan': normalizedLan},
+        );
+        final data = _tryExtractDataList(response.data);
+        if (data == null) return const <int, String>{};
+        final map = <int, String>{};
+        for (final entry in data) {
+          if (entry is Map<String, dynamic>) {
+            final id = int.tryParse('${entry['id']}');
+            final value = entry['value']?.toString();
+            if (id != null && value != null && value.isNotEmpty) {
+              map[id] = value;
+            }
+          }
         }
-      }
-    }
-    return map;
+        return Map<int, String>.unmodifiable(map);
+      },
+    );
   }
 
   Future<Map<String, String>> getTagIso3166Map({String lan = 'zh-CN'}) async {
-    final response = await _dio.get(
-      _tagIso3166Path,
-      queryParameters: {'lan': lan},
-    );
-    final data = _tryExtractDataList(response.data);
-    if (data == null) return const <String, String>{};
-    final map = <String, String>{};
-    for (final entry in data) {
-      if (entry is Map<String, dynamic>) {
-        final key = (entry['key'] ?? '').toString().trim().toUpperCase();
-        final value = _fixMojibake((entry['value'] ?? '').toString().trim());
-        if (key.isNotEmpty && value.isNotEmpty) {
-          map[key] = value;
+    final normalizedLan = lan.trim();
+    return _getOrLoadSharedResource<Map<String, String>>(
+      cacheKey: _sharedResourceKey('tag_iso3166|$normalizedLan'),
+      loader: () async {
+        final response = await _dio.get(
+          _tagIso3166Path,
+          queryParameters: {'lan': normalizedLan},
+        );
+        final data = _tryExtractDataList(response.data);
+        if (data == null) return const <String, String>{};
+        final map = <String, String>{};
+        for (final entry in data) {
+          if (entry is Map<String, dynamic>) {
+            final key = (entry['key'] ?? '').toString().trim().toUpperCase();
+            final value = _fixMojibake(
+              (entry['value'] ?? '').toString().trim(),
+            );
+            if (key.isNotEmpty && value.isNotEmpty) {
+              map[key] = value;
+            }
+          }
         }
-      }
-    }
-    return map;
+        return Map<String, String>.unmodifiable(map);
+      },
+    );
   }
 
   Future<Map<String, String>> getTagIso6392Map({String lan = 'zh-CN'}) async {
-    final response = await _dio.get(
-      _tagIso6392Path,
-      queryParameters: {'lan': lan},
-    );
-    final data = _tryExtractDataList(response.data);
-    if (data == null) return const <String, String>{};
-    final map = <String, String>{};
-    for (final entry in data) {
-      if (entry is Map<String, dynamic>) {
-        final key = (entry['key'] ?? '').toString().trim().toLowerCase();
-        final value = _fixMojibake((entry['value'] ?? '').toString().trim());
-        if (key.isNotEmpty && value.isNotEmpty) {
-          map[key] = value;
+    final normalizedLan = lan.trim();
+    return _getOrLoadSharedResource<Map<String, String>>(
+      cacheKey: _sharedResourceKey('tag_iso6392|$normalizedLan'),
+      loader: () async {
+        final response = await _dio.get(
+          _tagIso6392Path,
+          queryParameters: {'lan': normalizedLan},
+        );
+        final data = _tryExtractDataList(response.data);
+        if (data == null) return const <String, String>{};
+        final map = <String, String>{};
+        for (final entry in data) {
+          if (entry is Map<String, dynamic>) {
+            final key = (entry['key'] ?? '').toString().trim().toLowerCase();
+            final value = _fixMojibake(
+              (entry['value'] ?? '').toString().trim(),
+            );
+            if (key.isNotEmpty && value.isNotEmpty) {
+              map[key] = value;
+            }
+          }
         }
-      }
-    }
-    return map;
+        return Map<String, String>.unmodifiable(map);
+      },
+    );
   }
 
   // Playback / item actions
-  Future<List<MediaLibraryItem>> getPlayList() async {
-    try {
-      final response = await _dio.get(_playListPath);
-      final items = _extractDataList(
-        response.data,
-        'play list',
-      ).map(MediaLibraryItem.fromJson).toList();
-      debugPrint('[API][PLAY_LIST] items=${items.length}');
-      return items;
-    } catch (e) {
-      throw AppException.from(
-        e,
-        action: 'play list',
-        fallbackKind: AppExceptionKind.transient,
-      );
+  Future<List<MediaLibraryItem>> getPlayList({
+    bool forceRefresh = false,
+  }) async {
+    Future<List<MediaLibraryItem>> load() async {
+      try {
+        final response = await _dio.get(_playListPath);
+        final data = _extractDataList(response.data, 'play list');
+        final items = await _parseOffMainIsolate(data, _parseMediaLibraryItems);
+        debugPrint('[API][PLAY_LIST] items=${items.length}');
+        return items;
+      } catch (e) {
+        throw AppException.from(
+          e,
+          action: 'play list',
+          fallbackKind: AppExceptionKind.transient,
+        );
+      }
     }
+
+    if (forceRefresh) {
+      _sharedResourceCache.remove(_sharedResourceKey('home_play_list'));
+      _sharedResourceCacheTimes.remove(_sharedResourceKey('home_play_list'));
+      return load();
+    }
+
+    return _getOrLoadSharedResource<List<MediaLibraryItem>>(
+      cacheKey: _sharedResourceKey('home_play_list'),
+      maxAge: _playListCacheTtl,
+      loader: load,
+    );
   }
 
   Future<PlayInfoData> getPlayInfo(String itemGuid) async {
@@ -1558,7 +1680,7 @@ class FeiniuApi {
         data: {'item_guid': itemGuid},
       );
       final data = _extractDataMap(response.data, 'play info');
-      return PlayInfoData.fromJson(data);
+      return await _parseOffMainIsolate(data, _parsePlayInfoData);
     } catch (e) {
       throw AppException.from(
         e,
@@ -1790,6 +1912,37 @@ class FeiniuApi {
     }
   }
 
+  Future<bool?> checkPlayLinkExpired(String? playLink) async {
+    final normalizedPlayLink = (playLink ?? '').trim();
+    if (normalizedPlayLink.isEmpty) {
+      return null;
+    }
+    try {
+      final clientId = await _ensurePlaybackClientId();
+      final response = await _dio.post(
+        _playMediaBridgePath,
+        data: <String, dynamic>{
+          'playLink': normalizedPlayLink,
+          'req': 'media.checkPlayLink',
+          'reqid': clientId
+              .substring(0, min(16, clientId.length))
+              .toUpperCase(),
+        },
+      );
+      final errno = _extractMediaBridgeErrno(response.data);
+      if (errno == null) {
+        return false;
+      }
+      return errno == 4100;
+    } catch (e) {
+      throw AppException.from(
+        e,
+        action: 'check play link',
+        fallbackKind: AppExceptionKind.transient,
+      );
+    }
+  }
+
   Future<void> resetPlaybackRecord({
     required String itemGuid,
     required String mediaGuid,
@@ -1879,6 +2032,51 @@ class FeiniuApi {
     );
   }
 
+  String _sharedResourceKey(String suffix) {
+    final baseUrl = ApiUrlHelper.normalizeBaseUrl(nasProvider.baseUrl);
+    return '$baseUrl|${nasProvider.token}|$suffix';
+  }
+
+  Future<T> _getOrLoadSharedResource<T>({
+    required String cacheKey,
+    Duration? maxAge,
+    required Future<T> Function() loader,
+  }) async {
+    final cached = _sharedResourceCache[cacheKey];
+    final cachedAt = _sharedResourceCacheTimes[cacheKey];
+    final cacheValid =
+        maxAge == null ||
+        (cachedAt != null && DateTime.now().difference(cachedAt) <= maxAge);
+    if (cached is T && cacheValid) {
+      return cached;
+    }
+    if (cached != null && !cacheValid) {
+      _sharedResourceCache.remove(cacheKey);
+      _sharedResourceCacheTimes.remove(cacheKey);
+    }
+
+    final pending = _sharedResourceInflight[cacheKey];
+    if (pending != null) {
+      return (await pending) as T;
+    }
+
+    final future = loader().then<Object?>(
+      (value) {
+        _sharedResourceCache[cacheKey] = value;
+        _sharedResourceCacheTimes[cacheKey] = DateTime.now();
+        _sharedResourceInflight.remove(cacheKey);
+        return value;
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        _sharedResourceInflight.remove(cacheKey);
+        throw error;
+      },
+    );
+
+    _sharedResourceInflight[cacheKey] = future;
+    return (await future) as T;
+  }
+
   Future<bool> setFavorite(String itemGuid, {required bool favorite}) async {
     try {
       dynamic payload;
@@ -1956,6 +2154,123 @@ class FeiniuApi {
     }
   }
 
+  Future<List<String>> getDownloadResolutionOptions(
+    String playItemGuid, {
+    String lan = 'zh-CN',
+  }) async {
+    final guid = playItemGuid.trim();
+    if (guid.isEmpty) return const <String>[];
+    try {
+      final response = await _dio.get(
+        '$_downloadResolutionPathPrefix/$guid',
+        queryParameters: <String, dynamic>{'guid': guid, 'lan': lan.trim()},
+      );
+      final success = _requireSuccessPayload(
+        response.data,
+        'download resolution',
+      );
+      final data = success['data'];
+      if (data is! List) {
+        throw AppException.api(
+          action: 'download resolution',
+          message: 'Invalid download resolution payload',
+        );
+      }
+      return data
+          .map((entry) => entry.toString().trim())
+          .where((entry) => entry.isNotEmpty)
+          .toList(growable: false);
+    } catch (e) {
+      throw AppException.from(
+        e,
+        action: 'download resolution',
+        fallbackKind: AppExceptionKind.transient,
+      );
+    }
+  }
+
+  Future<String> createDownloadTask({
+    required String mediaGuid,
+    required String itemGuid,
+    required String resolution,
+    int type = 1,
+    String lan = 'zh-CN',
+  }) async {
+    final normalizedMediaGuid = mediaGuid.trim();
+    final normalizedItemGuid = itemGuid.trim();
+    final normalizedResolution = resolution.trim();
+    if (normalizedMediaGuid.isEmpty ||
+        normalizedItemGuid.isEmpty ||
+        normalizedResolution.isEmpty) {
+      throw AppException.api(
+        action: 'download task',
+        message: 'Missing download task parameters',
+      );
+    }
+    final body = <String, dynamic>{
+      'media_guid': normalizedMediaGuid,
+      'item_guid': normalizedItemGuid,
+      'resolution': normalizedResolution,
+      'type': type,
+      'lan': lan.trim(),
+    };
+    try {
+      final response = await _dio.put(_downloadTaskPath, data: body);
+      final payload = _requireSuccessPayload(response.data, 'download task');
+      final taskId = (payload['data'] ?? '').toString().trim();
+      if (taskId.isEmpty) {
+        throw AppException.api(
+          action: 'download task',
+          message: 'Empty download task id',
+        );
+      }
+      return taskId;
+    } catch (e) {
+      throw AppException.from(
+        e,
+        action: 'download task',
+        fallbackKind: AppExceptionKind.transient,
+      );
+    }
+  }
+
+  Future<DownloadTaskProgressInfo?> getDownloadTaskProgress(
+    String taskId, {
+    String lan = 'zh-CN',
+  }) async {
+    final normalizedTaskId = taskId.trim();
+    if (normalizedTaskId.isEmpty) return null;
+    try {
+      final response = await _dio.get(
+        _downloadTaskProgressPath,
+        queryParameters: <String, dynamic>{
+          'guid': normalizedTaskId,
+          'lan': lan.trim(),
+        },
+      );
+      final payload = _requireSuccessPayload(
+        response.data,
+        'download task progress',
+      );
+      final data = payload['data'];
+      if (data is! Map<String, dynamic>) return null;
+      return DownloadTaskProgressInfo.fromJson(data);
+    } catch (e) {
+      throw AppException.from(
+        e,
+        action: 'download task progress',
+        fallbackKind: AppExceptionKind.transient,
+      );
+    }
+  }
+
+  String buildDownloadTaskUrl(String taskId) {
+    final normalizedTaskId = taskId.trim();
+    if (normalizedTaskId.isEmpty) return '';
+    final base = ApiUrlHelper.normalizeBaseUrl(nasProvider.baseUrl);
+    return '$base$_downloadTaskPath/$normalizedTaskId';
+  }
+
   Future<List<MediaLibraryItem>> getSeasonList(String itemGuid) async {
     try {
       final response = await _dio.get('$_seasonListPathPrefix/$itemGuid');
@@ -1994,21 +2309,33 @@ class FeiniuApi {
   }
 
   Future<StreamTrackData> getStreamTrackData(String itemGuid) async {
-    try {
-      final response = await _dio.get('$_streamListPathPrefix/$itemGuid');
-      final data = _extractDataMap(response.data, 'stream list');
-      final trackData = StreamTrackData.fromApiData(data);
-      debugPrint(
-        '[API][STREAM_LIST] item=$itemGuid options=${trackData.options.length}',
-      );
-      return trackData;
-    } catch (e) {
-      throw AppException.from(
-        e,
-        action: 'stream list',
-        fallbackKind: AppExceptionKind.transient,
-      );
-    }
+    final normalizedItemGuid = itemGuid.trim();
+    return _getOrLoadSharedResource<StreamTrackData>(
+      cacheKey: _sharedResourceKey('stream_track|$normalizedItemGuid'),
+      maxAge: _detailReadCacheTtl,
+      loader: () async {
+        try {
+          final response = await _dio.get(
+            '$_streamListPathPrefix/$normalizedItemGuid',
+          );
+          final data = _extractDataMap(response.data, 'stream list');
+          final trackData = await _parseOffMainIsolate(
+            data,
+            _parseStreamTrackData,
+          );
+          debugPrint(
+            '[API][STREAM_LIST] item=$normalizedItemGuid options=${trackData.options.length}',
+          );
+          return trackData;
+        } catch (e) {
+          throw AppException.from(
+            e,
+            action: 'stream list',
+            fallbackKind: AppExceptionKind.transient,
+          );
+        }
+      },
+    );
   }
 
   // People
@@ -2016,28 +2343,35 @@ class FeiniuApi {
     String itemGuid, {
     PersonListRequest request = const PersonListRequest(),
   }) async {
-    try {
-      final response = await _dio.post(
-        '$_personListPathPrefix/$itemGuid',
-        data: request.toJson(),
-      );
-      final data = _extractDataMap(response.data, 'person list');
-      final list = (data['list'] as List?) ?? const <dynamic>[];
-      final people =
-          list
-              .whereType<Map<String, dynamic>>()
-              .map(PersonCredit.fromJson)
-              .toList()
-            ..sort((a, b) => a.order.compareTo(b.order));
-      debugPrint('[API][PERSON_LIST] item=$itemGuid count=${people.length}');
-      return people;
-    } catch (e) {
-      throw AppException.from(
-        e,
-        action: 'person list',
-        fallbackKind: AppExceptionKind.transient,
-      );
-    }
+    final normalizedItemGuid = itemGuid.trim();
+    final requestPayload = request.toJson();
+    final requestKey = jsonEncode(requestPayload);
+    return _getOrLoadSharedResource<List<PersonCredit>>(
+      cacheKey: _sharedResourceKey(
+        'person_list|$normalizedItemGuid|$requestKey',
+      ),
+      maxAge: _detailReadCacheTtl,
+      loader: () async {
+        try {
+          final response = await _dio.post(
+            '$_personListPathPrefix/$normalizedItemGuid',
+            data: requestPayload,
+          );
+          final data = _extractDataMap(response.data, 'person list');
+          final people = await _parseOffMainIsolate(data, _parsePersonCredits);
+          debugPrint(
+            '[API][PERSON_LIST] item=$normalizedItemGuid count=${people.length}',
+          );
+          return people;
+        } catch (e) {
+          throw AppException.from(
+            e,
+            action: 'person list',
+            fallbackKind: AppExceptionKind.transient,
+          );
+        }
+      },
+    );
   }
 
   Future<PersonDetailProfile> getPersonDetail(String personGuid) async {
@@ -2191,7 +2525,9 @@ class FeiniuApi {
     if (targetHost.isEmpty) {
       return true;
     }
-    final baseUri = Uri.tryParse(ApiUrlHelper.normalizeBaseUrl(nasProvider.baseUrl));
+    final baseUri = Uri.tryParse(
+      ApiUrlHelper.normalizeBaseUrl(nasProvider.baseUrl),
+    );
     final baseHost = baseUri?.host.trim().toLowerCase() ?? '';
     if (baseHost.isEmpty) {
       return true;
@@ -2199,15 +2535,11 @@ class FeiniuApi {
     if (targetHost != baseHost) {
       return false;
     }
-    final targetPort = uri.hasPort
-        ? uri.port
-        : (scheme == 'https' ? 443 : 80);
+    final targetPort = uri.hasPort ? uri.port : (scheme == 'https' ? 443 : 80);
     final baseScheme = (baseUri?.scheme ?? '').toLowerCase();
     final basePort = baseUri == null
         ? targetPort
-        : (baseUri.hasPort
-              ? baseUri.port
-              : (baseScheme == 'https' ? 443 : 80));
+        : (baseUri.hasPort ? baseUri.port : (baseScheme == 'https' ? 443 : 80));
     return targetPort == basePort;
   }
 
@@ -2279,6 +2611,23 @@ class FeiniuApi {
         .join();
     await prefs.setString('playback_client_id', value);
     return value;
+  }
+
+  int? _extractMediaBridgeErrno(dynamic payload) {
+    if (payload is Map<String, dynamic>) {
+      final directErrno = payload['errno'];
+      if (directErrno is num) {
+        return directErrno.toInt();
+      }
+      final data = payload['data'];
+      if (data is Map<String, dynamic>) {
+        final nestedErrno = data['errno'];
+        if (nestedErrno is num) {
+          return nestedErrno.toInt();
+        }
+      }
+    }
+    return null;
   }
 }
 

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Bundle
 import android.os.Build
 import android.os.Handler
@@ -17,9 +18,9 @@ import android.util.Log
 import android.util.LruCache
 import androidx.core.app.NotificationCompat
 import androidx.media.app.NotificationCompat.MediaStyle
-import androidx.media.session.MediaButtonReceiver
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -90,38 +91,29 @@ class PlaybackSessionManager(
 
     fun buildNotification(): android.app.Notification {
         val payload = lastPayload ?: error("Playback payload is not available")
+        val actions = mutableListOf<NotificationCompat.Action>()
+        val compactViewIndexes = mutableListOf<Int>()
         val playPauseAction =
             if (payload.isPlaying) {
                 NotificationCompat.Action(
                     android.R.drawable.ic_media_pause,
                     "Pause",
-                    MediaButtonReceiver.buildMediaButtonPendingIntent(
-                        context,
-                        PlaybackStateCompat.ACTION_PAUSE,
-                    ),
+                    buildCommandPendingIntent(PlaybackCommandReceiver.ACTION_PAUSE),
                 )
             } else {
                 NotificationCompat.Action(
                     android.R.drawable.ic_media_play,
                     "Play",
-                    MediaButtonReceiver.buildMediaButtonPendingIntent(
-                        context,
-                        PlaybackStateCompat.ACTION_PLAY,
-                    ),
+                    buildCommandPendingIntent(PlaybackCommandReceiver.ACTION_PLAY),
                 )
             }
-        val actions = mutableListOf<NotificationCompat.Action>()
-        val compactViewIndexes = mutableListOf<Int>()
         if (payload.canSkipToPrevious) {
             compactViewIndexes += actions.size
             actions +=
                 NotificationCompat.Action(
                     android.R.drawable.ic_media_previous,
                     "Previous",
-                    MediaButtonReceiver.buildMediaButtonPendingIntent(
-                        context,
-                        PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS,
-                    ),
+                    buildCommandPendingIntent(PlaybackCommandReceiver.ACTION_SKIP_TO_PREVIOUS),
                 )
         }
         compactViewIndexes += actions.size
@@ -132,10 +124,7 @@ class PlaybackSessionManager(
                 NotificationCompat.Action(
                     android.R.drawable.ic_media_next,
                     "Next",
-                    MediaButtonReceiver.buildMediaButtonPendingIntent(
-                        context,
-                        PlaybackStateCompat.ACTION_SKIP_TO_NEXT,
-                    ),
+                    buildCommandPendingIntent(PlaybackCommandReceiver.ACTION_SKIP_TO_NEXT),
                 )
         }
 
@@ -155,11 +144,7 @@ class PlaybackSessionManager(
                 .setOngoing(payload.isPlaying)
                 .setShowWhen(false)
                 .setLargeIcon(artworkBitmap)
-                .setStyle(
-                    MediaStyle()
-                        .setMediaSession(mediaSession.sessionToken)
-                        .setShowActionsInCompactView(*compactViewIndexes.toIntArray()),
-                )
+                .setStyle(buildMediaStyle(compactViewIndexes))
         actions.forEach(builder::addAction)
         return builder.build()
     }
@@ -271,14 +256,40 @@ class PlaybackSessionManager(
             .build()
     }
 
+    private fun buildMediaStyle(compactViewIndexes: List<Int>): MediaStyle {
+        val style = MediaStyle().setMediaSession(mediaSession.sessionToken)
+        if (compactViewIndexes.isNotEmpty()) {
+            style.setShowActionsInCompactView(*compactViewIndexes.toIntArray())
+        }
+        return style
+    }
+
     private fun buildContentIntent(): PendingIntent? {
+        val payload = lastPayload
         val launchIntent =
-            context.packageManager
-                .getLaunchIntentForPackage(context.packageName)
-                ?.apply {
+            payload
+                ?.launchSource
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { source ->
+                    PlayerActivity.createResumeIntent(
+                        context = context,
+                        title = payload.launchTitle.ifBlank { payload.title },
+                        source = HashMap(source),
+                        fromParallelHost = payload.launchFromParallelHost,
+                        layoutMode = payload.launchLayoutMode,
+                        initialRightPaneRoute = payload.launchInitialRightPaneRoute,
+                    )
+                }?.apply {
                     addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
                     addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                 }
+                ?: context.packageManager
+                    .getLaunchIntentForPackage(context.packageName)
+                    ?.apply {
+                        addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    }
                 ?: return null
         val flags =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -287,6 +298,29 @@ class PlaybackSessionManager(
                 PendingIntent.FLAG_UPDATE_CURRENT
             }
         return PendingIntent.getActivity(context, 0, launchIntent, flags)
+    }
+
+    private fun buildCommandPendingIntent(action: String): PendingIntent {
+        val intent =
+            Intent(context, PlaybackCommandReceiver::class.java).apply {
+                this.action = action
+                `package` = context.packageName
+            }
+        val requestCode =
+            when (action) {
+                PlaybackCommandReceiver.ACTION_PLAY -> 11
+                PlaybackCommandReceiver.ACTION_PAUSE -> 12
+                PlaybackCommandReceiver.ACTION_SKIP_TO_PREVIOUS -> 13
+                PlaybackCommandReceiver.ACTION_SKIP_TO_NEXT -> 14
+                else -> action.hashCode()
+            }
+        val flags =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
+        return PendingIntent.getBroadcast(context, requestCode, intent, flags)
     }
 
     private fun buildSessionExtras(payload: PlaybackSessionPayload): Bundle =
@@ -386,6 +420,11 @@ class PlaybackSessionManager(
         headers: Map<String, String>,
     ): Pair<String, Bitmap>? {
         for (url in urls) {
+            val localBitmap = loadArtworkBitmapFromLocalSource(url)
+            if (localBitmap != null) {
+                Log.d(logTag, "Artwork loaded from local source: $url ${localBitmap.width}x${localBitmap.height}")
+                return url to localBitmap
+            }
             val bitmap =
                 runCatching {
                     Log.d(logTag, "Artwork request: $url")
@@ -427,6 +466,45 @@ class PlaybackSessionManager(
             }
         }
         return null
+    }
+
+    private fun loadArtworkBitmapFromLocalSource(url: String): Bitmap? {
+        val trimmed = url.trim()
+        if (trimmed.isEmpty()) {
+            return null
+        }
+        return runCatching {
+            val uri = Uri.parse(trimmed)
+            when {
+                uri.scheme.equals("file", ignoreCase = true) -> {
+                    val path = uri.path?.trim().orEmpty()
+                    if (path.isEmpty()) {
+                        null
+                    } else {
+                        loadArtworkBitmapFromFile(File(path))
+                    }
+                }
+                uri.scheme.equals("content", ignoreCase = true) -> {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        decodeArtworkBitmap(input.readBytes())
+                    }
+                }
+                uri.scheme.isNullOrBlank() && trimmed.startsWith("/") -> {
+                    loadArtworkBitmapFromFile(File(trimmed))
+                }
+                else -> null
+            }
+        }.getOrElse { error ->
+            Log.w(logTag, "Artwork local read failed for $trimmed: ${error.message}")
+            null
+        }
+    }
+
+    private fun loadArtworkBitmapFromFile(file: File): Bitmap? {
+        if (!file.isFile || file.length() <= 0L) {
+            return null
+        }
+        return decodeArtworkBitmap(file.readBytes())
     }
 
     private fun decodeArtworkBitmap(bytes: ByteArray): Bitmap? {

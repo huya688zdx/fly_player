@@ -7,63 +7,7 @@ extension _MpvPlayerVideoAdjustMixin on _MpvPlayerPageState {
   Widget _buildPlaybackSettingsMpvOverviewPage(
     BuildContext context,
     PlayerNestedSheetController<void> drawer,
-  ) {
-    return PlayerNestedSheetScaffold(
-      header: PlayerNestedSheetHeader(
-        title: 'MPV 播放器设置',
-        onBack: drawer.popPage,
-      ),
-      child: ListView(
-        padding: EdgeInsets.zero,
-        children: [
-          PlaybackSettingsStatusCard(
-            title: '当前方案',
-            value: _mpvOverviewStatusLabel(),
-            description: _mpvOverviewSummaryText(),
-          ),
-          const SizedBox(height: 12),
-          PlaybackSettingsMenuTile(
-            title: '快速模式',
-            subtitle: '一键预设与高保真模式',
-            trailingLabel: _mpvQuickModeSummaryLabel(),
-            onTap: () => drawer.push(_playerSettingsMpvPresetPageId),
-          ),
-          const SizedBox(height: 12),
-          PlaybackSettingsMenuTile(
-            title: '画面调节',
-            subtitle: '即时调节、视频滤镜、HDR 与插帧',
-            trailingLabel: _mpvCategorySummaryLabel(
-              _mpvPictureRenderingCategory,
-            ),
-            onTap: () => drawer.push(_playerSettingsMpvPictureRenderingPageId),
-          ),
-          const SizedBox(height: 12),
-          PlaybackSettingsMenuTile(
-            title: '音频调节',
-            subtitle: '高保真、EQ、限幅、低音、人声与声道混合',
-            trailingLabel: _mpvCategorySummaryLabel(
-              _mpvAudioProcessingCategory,
-            ),
-            onTap: () => drawer.push(_playerSettingsMpvAudioProcessingPageId),
-          ),
-          const SizedBox(height: 12),
-          PlaybackSettingsMenuTile(
-            title: '播放与缓存',
-            subtitle: '同步模式、缓存策略与缓冲大小',
-            trailingLabel: _mpvCategorySummaryLabel(_mpvPlaybackSyncCategory),
-            onTap: () => drawer.push(_playerSettingsMpvPlaybackSyncPageId),
-          ),
-          const SizedBox(height: 12),
-          PlaybackSettingsMenuTile(
-            title: '兼容与诊断',
-            subtitle: '兼容模式与播放诊断信息',
-            trailingLabel: _mpvCategorySummaryLabel(_mpvCompatibilityCategory),
-            onTap: () => drawer.push(_playerSettingsMpvCompatibilityPageId),
-          ),
-        ],
-      ),
-    );
-  }
+  ) => _buildPlaybackSettingsMpvHubPage(context, drawer);
 
   Widget _buildMpvQuickAdjustPage(
     BuildContext context,
@@ -169,7 +113,7 @@ extension _MpvPlayerVideoAdjustMixin on _MpvPlayerPageState {
         _VideoAdjustmentDefinition(
           key: _MpvPlayerPageState._videoAdjustContrast,
           title: '瀵规瘮搴?',
-                  subtitle: '拉开明暗层次，数值过高会让高光和阴影更硬。',
+          subtitle: '拉开明暗层次，数值过高会让高光和阴影更硬。',
         ),
         _VideoAdjustmentDefinition(
           key: _MpvPlayerPageState._videoAdjustSaturation,
@@ -179,12 +123,12 @@ extension _MpvPlayerVideoAdjustMixin on _MpvPlayerPageState {
         _VideoAdjustmentDefinition(
           key: _MpvPlayerPageState._videoAdjustGamma,
           title: 'Gamma',
-                  subtitle: '偏向中间调修正，适合微调灰雾感和暗部层次。',
+          subtitle: '偏向中间调修正，适合微调灰雾感和暗部层次。',
         ),
         _VideoAdjustmentDefinition(
           key: _MpvPlayerPageState._videoAdjustHue,
           title: '鑹茬浉',
-                  subtitle: '整体色调偏移，建议小幅调整，用来修正偏色片源。',
+          subtitle: '整体色调偏移，建议小幅调整，用来修正偏色片源。',
         ),
       ];
 
@@ -193,6 +137,7 @@ extension _MpvPlayerVideoAdjustMixin on _MpvPlayerPageState {
     PlayerNestedSheetController<void>? drawer,
   }) async {
     final normalized = _normalizeVideoAdjustments(values);
+    await _mpvSettingsStore.saveVideoAdjustments(normalized);
     _updatePlayerState(() => _videoAdjustments = normalized);
     drawer?.refresh();
     await _controller.setVideoAdjustments(normalized);
@@ -257,7 +202,7 @@ extension _MpvPlayerVideoAdjustMixin on _MpvPlayerPageState {
   String _videoAdjustmentSummaryText() {
     final changed = _videoAdjustmentChangedCount();
     if (changed == 0) {
-    return '亮度、对比度、饱和度、Gamma 和色相都保持在默认值。';
+      return '亮度、对比度、饱和度、Gamma 和色相都保持在默认值。';
     }
     final labels = <String>[];
     for (final definition in _videoAdjustmentDefinitions) {
@@ -279,57 +224,16 @@ extension _MpvPlayerVideoAdjustMixin on _MpvPlayerPageState {
 
   String _mpvOverviewStatusLabel() {
     if (_videoAdjustmentChangedCount() > 0) return '已自定义';
-    final preset = _activeMpvPreset();
-    if (preset != null) return preset.label;
-    if (_mpvChangedSettingCount() == 0) return '默认';
-    return '已自定义';
+    return _mpvSettingsStatusLabel();
   }
 
-  String _mpvQuickModeSummaryLabel() {
-    if (_mpvSettingValue(_MpvPlayerPageState._mpvSettingAudioHighFidelity) == 'on') {
-      return '高保真';
-    }
-    final preset = _activeMpvPreset();
-    if (preset != null) return preset.label;
-    if (_mpvChangedSettingCount() == 0 && _videoAdjustmentChangedCount() == 0) {
-      return '默认';
-    }
-    return '快速模式';
-  }
+  String _mpvQuickModeSummaryLabel() => _mpvVideoQuickPresetSummaryLabel();
 
   String _mpvOverviewSummaryText() {
-    final videoAdjusted = _videoAdjustmentChangedCount();
-    final advancedAdjusted = _mpvChangedSettingCount();
-    final preset = _activeMpvPreset();
-    if (preset != null && videoAdjusted == 0) {
-      return preset.description;
-    }
-    if (videoAdjusted == 0 && advancedAdjusted == 0) {
-      return '当前使用默认 MPV 参数。';
-    }
-    if (videoAdjusted > 0 && advancedAdjusted == 0) {
+    if (_videoAdjustmentChangedCount() > 0 && _mpvChangedSettingCount() == 0) {
       return _videoAdjustmentSummaryText();
     }
-    final labels = <String>[];
-    for (final definition in _videoAdjustmentDefinitions) {
-      final current =
-          _videoAdjustments[definition.key] ??
-          _MpvPlayerPageState._defaultVideoAdjustments[definition.key]!;
-      if (_normalizeVideoAdjustmentValue(current) == 0) continue;
-      labels.add('${definition.title} ${_videoAdjustmentValueLabel(current)}');
-      if (labels.length == 3) break;
-    }
-    for (final definition in _mpvChoiceDefinitions) {
-      final current = _mpvSettingValue(definition.key);
-      final fallback = _MpvPlayerPageState._defaultMpvSettings[definition.key];
-      if (current == fallback) continue;
-      labels.add(
-        '${definition.shortTitle} ${_mpvSettingLabel(definition.key)}',
-      );
-      if (labels.length == 3) break;
-    }
-    final changed = videoAdjusted + advancedAdjusted;
-    return '当前书签数量: $changed 条，章节: ${labels.join(' / ')}';
+    return _mpvSettingsSummaryText();
   }
 }
 

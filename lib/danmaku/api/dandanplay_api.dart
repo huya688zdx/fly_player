@@ -1,68 +1,432 @@
 import 'dart:convert';
 
-import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 
+enum DanDanPlayApiErrorCode {
+  notConfigured,
+  businessError,
+  missingAuthenticationHeaders,
+  invalidTimestamp,
+  invalidAppId,
+  invalidSignature,
+  invalidAppSecret,
+  unauthorized,
+  forbidden,
+  rateLimited,
+  serverError,
+  network,
+  invalidResponse,
+  temporarilyBlocked,
+  unknown,
+}
+
+class DanDanPlayApiException implements Exception {
+  final DanDanPlayApiErrorCode code;
+  final String message;
+  final int? statusCode;
+  final String? serverMessage;
+  final Duration? retryAfter;
+
+  const DanDanPlayApiException({
+    required this.code,
+    required this.message,
+    this.statusCode,
+    this.serverMessage,
+    this.retryAfter,
+  });
+
+  bool get shouldTemporarilyBlockRequests => switch (code) {
+    DanDanPlayApiErrorCode.rateLimited => true,
+    DanDanPlayApiErrorCode.serverError => true,
+    DanDanPlayApiErrorCode.temporarilyBlocked => true,
+    _ => false,
+  };
+
+  @override
+  String toString() => message;
+}
+
 class DanDanPlayApi {
+  static DateTime? _blockedUntil;
+  static DanDanPlayApiException? _blockedException;
+
   final Dio _dio;
   final String appId;
-  final String appSecret;
+  final List<String> appSecrets;
 
   DanDanPlayApi({
     Dio? dio,
     required this.appId,
-    required this.appSecret,
-  }) : _dio = dio ?? Dio(BaseOptions(baseUrl: 'https://api.dandanplay.net'));
+    String? appSecret,
+    List<String> appSecrets = const <String>[],
+  }) : appSecrets = <String>[
+         ...appSecrets,
+         if ((appSecret ?? '').trim().isNotEmpty) appSecret!.trim(),
+       ].map((item) => item.trim()).where((item) => item.isNotEmpty).toSet().toList(growable: false),
+       _dio = dio ??
+           Dio(
+             BaseOptions(
+               baseUrl: 'https://api.dandanplay.net',
+               connectTimeout: const Duration(seconds: 10),
+               receiveTimeout: const Duration(seconds: 20),
+               sendTimeout: const Duration(seconds: 10),
+             ),
+           );
 
-  bool get ready => appId.trim().isNotEmpty && appSecret.trim().isNotEmpty;
+  bool get ready => appId.trim().isNotEmpty && appSecrets.isNotEmpty;
 
   Future<Response<Map<String, dynamic>>> searchEpisodes({
     String anime = '',
     int? episode,
     int? tmdbId,
-  }) {
+  }) async {
     const path = '/api/v2/search/episodes';
-    return _dio.get<Map<String, dynamic>>(
-      path,
-      queryParameters: <String, dynamic>{
-        if (anime.trim().isNotEmpty) 'anime': anime.trim(),
-        if (episode != null) 'episode': episode,
-        if (tmdbId != null) 'tmdbId': tmdbId,
-      },
-      options: Options(headers: _buildHeaders(path)),
+    final response = await _runWithSecretFallback<Map<String, dynamic>>(
+      path: path,
+      request: (secret) => _dio.get<Map<String, dynamic>>(
+        path,
+        queryParameters: <String, dynamic>{
+          if (anime.trim().isNotEmpty) 'anime': anime.trim(),
+          if (episode != null) 'episode': episode,
+          if (tmdbId != null) 'tmdbId': tmdbId,
+        },
+        options: Options(headers: _buildHeaders(secret)),
+      ),
     );
+    _throwIfBusinessError(response.data);
+    return response;
   }
 
   Future<Response<String>> fetchComments(
     int episodeId, {
     bool withRelated = true,
-  }) {
+  }) async {
     final path = '/api/v2/comment/$episodeId';
-    return _dio.get<String>(
-      path,
-      queryParameters: <String, dynamic>{
-        if (withRelated) 'withRelated': 'true',
-      },
-      options: Options(
-        headers: _buildHeaders(path),
-        responseType: ResponseType.plain,
+    final response = await _runWithSecretFallback<String>(
+      path: path,
+      request: (secret) => _dio.get<String>(
+        path,
+        queryParameters: <String, dynamic>{
+          if (withRelated) 'withRelated': 'true',
+        },
+        options: Options(
+          headers: _buildHeaders(secret),
+          responseType: ResponseType.plain,
+        ),
       ),
+    );
+    _throwIfCommentPayloadError(response.data);
+    return response;
+  }
+
+  Future<Response<T>> _runWithSecretFallback<T>({
+    required String path,
+    required Future<Response<T>> Function(String secret) request,
+  }) async {
+    if (!ready) {
+      throw const DanDanPlayApiException(
+        code: DanDanPlayApiErrorCode.notConfigured,
+        message: 'DanDanPlay AppId / AppSecret 未配置。',
+      );
+    }
+    _throwIfTemporarilyBlocked();
+
+    Object? lastError;
+    for (var index = 0; index < appSecrets.length; index += 1) {
+      final secret = appSecrets[index];
+      try {
+        return await request(secret);
+      } on DioException catch (error) {
+        final mapped = _mapDioException(error);
+        lastError = mapped;
+        if (mapped.shouldTemporarilyBlockRequests) {
+          _blockRequests(mapped.retryAfter ?? const Duration(minutes: 10), mapped);
+        }
+        final canRetry =
+            index + 1 < appSecrets.length && _canRetryWithNextSecret(mapped);
+        if (!canRetry) {
+          throw mapped;
+        }
+      } on DanDanPlayApiException catch (error) {
+        lastError = error;
+        rethrow;
+      } catch (error) {
+        lastError = error;
+        rethrow;
+      }
+    }
+    throw lastError ??
+        const DanDanPlayApiException(
+          code: DanDanPlayApiErrorCode.unknown,
+          message: 'DanDanPlay 请求失败，但没有返回具体错误。',
+        );
+  }
+
+  Map<String, String> _buildHeaders(String secret) {
+    final normalizedAppId = appId.trim();
+    final normalizedSecret = secret.trim();
+    if (normalizedAppId.isEmpty || normalizedSecret.isEmpty) {
+      throw const DanDanPlayApiException(
+        code: DanDanPlayApiErrorCode.notConfigured,
+        message: 'DanDanPlay AppId / AppSecret 未配置。',
+      );
+    }
+    return <String, String>{
+      'X-AppId': normalizedAppId,
+      'X-AppSecret': normalizedSecret,
+    };
+  }
+
+  void _throwIfBusinessError(Map<String, dynamic>? payload) {
+    if (payload == null || payload.isEmpty) return;
+    final success = payload['success'];
+    if (success is bool && success) return;
+    if (success == null && payload['errorCode'] == null && payload['errorMessage'] == null) {
+      return;
+    }
+    final serverMessage = _readServerMessage(payload);
+    throw DanDanPlayApiException(
+      code: DanDanPlayApiErrorCode.businessError,
+      message: serverMessage.isEmpty ? 'DanDanPlay 返回了业务错误。' : serverMessage,
+      serverMessage: serverMessage.isEmpty ? null : serverMessage,
     );
   }
 
-  Map<String, String> _buildHeaders(String path) {
-    final normalizedAppId = appId.trim();
-    final normalizedSecret = appSecret.trim();
-    if (normalizedAppId.isEmpty || normalizedSecret.isEmpty) {
-      throw StateError('DanDanPlay AppId / AppSecret 未配置');
+  void _throwIfCommentPayloadError(String? content) {
+    final trimmed = content?.trim() ?? '';
+    if (trimmed.isEmpty || !trimmed.startsWith('{')) {
+      return;
     }
-    final timestamp = DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
-    final raw = '$normalizedAppId$timestamp$path$normalizedSecret';
-    final signature = base64Encode(sha256.convert(utf8.encode(raw)).bytes);
-    return <String, String>{
-      'X-AppId': normalizedAppId,
-      'X-Timestamp': '$timestamp',
-      'X-Signature': signature,
+    try {
+      final decoded = jsonDecode(trimmed);
+      if (decoded is! Map) return;
+      final payload = Map<String, dynamic>.from(decoded);
+      _throwIfBusinessError(payload);
+    } catch (_) {
+      return;
+    }
+  }
+
+  bool _canRetryWithNextSecret(DanDanPlayApiException error) {
+    return switch (error.code) {
+      DanDanPlayApiErrorCode.invalidAppSecret => true,
+      DanDanPlayApiErrorCode.unauthorized => true,
+      DanDanPlayApiErrorCode.forbidden => true,
+      _ => false,
     };
+  }
+
+  DanDanPlayApiException _mapDioException(DioException error) {
+    if (error.type == DioExceptionType.connectionTimeout ||
+        error.type == DioExceptionType.sendTimeout ||
+        error.type == DioExceptionType.receiveTimeout) {
+      return const DanDanPlayApiException(
+        code: DanDanPlayApiErrorCode.network,
+        message: 'DanDanPlay 请求超时，请稍后重试。',
+      );
+    }
+    if (error.type == DioExceptionType.connectionError ||
+        error.type == DioExceptionType.unknown) {
+      return const DanDanPlayApiException(
+        code: DanDanPlayApiErrorCode.network,
+        message: 'DanDanPlay 网络连接失败，请检查网络后重试。',
+      );
+    }
+
+    final response = error.response;
+    final statusCode = response?.statusCode;
+    final serverMessage =
+        response?.headers.value('X-Error-Message')?.trim().isNotEmpty == true
+        ? response!.headers.value('X-Error-Message')!.trim()
+        : _extractBodyMessage(response?.data);
+    final retryAfter = _parseRetryAfter(response?.headers.value('Retry-After'));
+
+    if (statusCode == 401) {
+      return DanDanPlayApiException(
+        code: DanDanPlayApiErrorCode.unauthorized,
+        statusCode: statusCode,
+        serverMessage: serverMessage,
+        message: 'DanDanPlay 认证失败，请检查 AppId / AppSecret 是否有效。',
+      );
+    }
+
+    if (statusCode == 403) {
+      return _mapForbidden(serverMessage, statusCode: statusCode ?? 403);
+    }
+
+    if (statusCode == 429) {
+      return DanDanPlayApiException(
+        code: DanDanPlayApiErrorCode.rateLimited,
+        statusCode: statusCode,
+        serverMessage: serverMessage,
+        retryAfter: retryAfter ?? const Duration(minutes: 30),
+        message: 'DanDanPlay 请求过于频繁，已被服务器限流，请稍后再试。',
+      );
+    }
+
+    if (statusCode != null && statusCode >= 500) {
+      return DanDanPlayApiException(
+        code: DanDanPlayApiErrorCode.serverError,
+        statusCode: statusCode,
+        serverMessage: serverMessage,
+        retryAfter: const Duration(minutes: 10),
+        message: 'DanDanPlay 服务器暂时不可用，请稍后再试。',
+      );
+    }
+
+    if (statusCode != null) {
+      return DanDanPlayApiException(
+        code: DanDanPlayApiErrorCode.unknown,
+        statusCode: statusCode,
+        serverMessage: serverMessage,
+        message: serverMessage?.isNotEmpty == true
+            ? 'DanDanPlay 请求失败: $serverMessage'
+            : 'DanDanPlay 请求失败，状态码 $statusCode。',
+      );
+    }
+
+    return DanDanPlayApiException(
+      code: DanDanPlayApiErrorCode.unknown,
+      serverMessage: serverMessage,
+      message: serverMessage?.isNotEmpty == true
+          ? 'DanDanPlay 请求失败: $serverMessage'
+          : 'DanDanPlay 请求失败，请稍后重试。',
+    );
+  }
+
+  DanDanPlayApiException _mapForbidden(
+    String? serverMessage, {
+    required int statusCode,
+  }) {
+    final normalized = (serverMessage ?? '').trim().toLowerCase();
+    if (normalized.contains('missing authentication headers')) {
+      return DanDanPlayApiException(
+        code: DanDanPlayApiErrorCode.missingAuthenticationHeaders,
+        statusCode: statusCode,
+        serverMessage: serverMessage,
+        message: 'DanDanPlay 请求头缺失认证信息。',
+      );
+    }
+    if (normalized.contains('invalid timestamp')) {
+      return DanDanPlayApiException(
+        code: DanDanPlayApiErrorCode.invalidTimestamp,
+        statusCode: statusCode,
+        serverMessage: serverMessage,
+        message: 'DanDanPlay 请求时间戳无效，请检查设备时间。',
+      );
+    }
+    if (normalized.contains('invalid appid')) {
+      return DanDanPlayApiException(
+        code: DanDanPlayApiErrorCode.invalidAppId,
+        statusCode: statusCode,
+        serverMessage: serverMessage,
+        message: 'DanDanPlay AppId 无效，请检查配置。',
+      );
+    }
+    if (normalized.contains('invalid signature')) {
+      return DanDanPlayApiException(
+        code: DanDanPlayApiErrorCode.invalidSignature,
+        statusCode: statusCode,
+        serverMessage: serverMessage,
+        message: 'DanDanPlay 请求签名无效。',
+      );
+    }
+    if (normalized.contains('invalid appsecret')) {
+      return DanDanPlayApiException(
+        code: DanDanPlayApiErrorCode.invalidAppSecret,
+        statusCode: statusCode,
+        serverMessage: serverMessage,
+        message: 'DanDanPlay AppSecret 无效，请检查配置。',
+      );
+    }
+    if (normalized.contains('too many') ||
+        normalized.contains('frequent') ||
+        normalized.contains('blocked') ||
+        normalized.contains('forbidden')) {
+      return DanDanPlayApiException(
+        code: DanDanPlayApiErrorCode.temporarilyBlocked,
+        statusCode: statusCode,
+        serverMessage: serverMessage,
+        retryAfter: const Duration(minutes: 30),
+        message: 'DanDanPlay 当前拒绝本次请求，可能触发了频率限制，请稍后再试。',
+      );
+    }
+    return DanDanPlayApiException(
+      code: DanDanPlayApiErrorCode.forbidden,
+      statusCode: statusCode,
+      serverMessage: serverMessage,
+      message: serverMessage?.isNotEmpty == true
+          ? 'DanDanPlay 拒绝了请求: $serverMessage'
+          : 'DanDanPlay 拒绝了请求，请检查接口权限和配置。',
+    );
+  }
+
+  String _readServerMessage(Map<String, dynamic> payload) {
+    for (final key in const <String>[
+      'errorMessage',
+      'message',
+      'error',
+      'msg',
+    ]) {
+      final value = payload[key]?.toString().trim() ?? '';
+      if (value.isNotEmpty) return value;
+    }
+    return '';
+  }
+
+  String? _extractBodyMessage(dynamic data) {
+    if (data == null) return null;
+    if (data is String) {
+      final trimmed = data.trim();
+      if (trimmed.isEmpty) return null;
+      try {
+        final decoded = jsonDecode(trimmed);
+        if (decoded is Map) {
+          final message = _readServerMessage(Map<String, dynamic>.from(decoded));
+          if (message.isNotEmpty) return message;
+        }
+      } catch (_) {
+        return trimmed.length > 160 ? trimmed.substring(0, 160) : trimmed;
+      }
+      return trimmed.length > 160 ? trimmed.substring(0, 160) : trimmed;
+    }
+    if (data is Map) {
+      final message = _readServerMessage(Map<String, dynamic>.from(data));
+      return message.isEmpty ? null : message;
+    }
+    return data.toString().trim().isEmpty ? null : data.toString().trim();
+  }
+
+  Duration? _parseRetryAfter(String? rawValue) {
+    final trimmed = rawValue?.trim() ?? '';
+    if (trimmed.isEmpty) return null;
+    final seconds = int.tryParse(trimmed);
+    if (seconds == null || seconds <= 0) return null;
+    return Duration(seconds: seconds);
+  }
+
+  void _throwIfTemporarilyBlocked() {
+    final until = _blockedUntil;
+    final error = _blockedException;
+    if (until == null || error == null) return;
+    final remaining = until.difference(DateTime.now());
+    if (remaining <= Duration.zero) {
+      _blockedUntil = null;
+      _blockedException = null;
+      return;
+    }
+    throw DanDanPlayApiException(
+      code: DanDanPlayApiErrorCode.temporarilyBlocked,
+      message:
+          '${error.message} 当前已在本地暂停请求 ${remaining.inMinutes + 1} 分钟。',
+      retryAfter: remaining,
+      statusCode: error.statusCode,
+      serverMessage: error.serverMessage,
+    );
+  }
+
+  void _blockRequests(Duration duration, DanDanPlayApiException error) {
+    _blockedUntil = DateTime.now().add(duration);
+    _blockedException = error;
   }
 }

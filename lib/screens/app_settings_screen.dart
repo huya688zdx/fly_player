@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -8,35 +10,41 @@ import '../services/embedded_detail_launcher.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
 import '../ui/app_transitions.dart';
-import 'app_log_screen.dart';
-import 'bookmark_manager_screen.dart';
-import 'danmaku_settings_screen.dart';
 import 'mpv_player_settings_screen.dart';
-import 'parallel_window_settings_screen.dart';
 import 'screenshot_settings_screen.dart';
 import 'settings_search_screen.dart';
-import 'theme_settings_screen.dart';
+import 'settings_destination_routes.dart';
 
 class AppSettingsScreen extends StatelessWidget {
   final bool secondaryHost;
 
   const AppSettingsScreen({super.key, this.secondaryHost = false});
 
-  void _pushPage(BuildContext context, Widget page) {
-    Navigator.of(
-      context,
-    ).push(AppTransitions.leftToRightPageTurnRoute<void>(page));
+  Future<void> _openSettingsDestination(
+    BuildContext context,
+    String routeName,
+  ) async {
+    await EmbeddedDetailLauncher.openSettings(
+      context: context,
+      destinationRoute: routeName,
+    );
   }
 
   Future<void> _openSettingsSearch(
     BuildContext context,
     AppThemeProvider themeProvider,
     String parallelSummary,
+    bool parallelWindowSupported,
   ) {
     return Navigator.of(context).push(
       AppTransitions.leftToRightPageTurnRoute<void>(
         SettingsSearchScreen(
-          entries: _buildSearchEntries(context, themeProvider, parallelSummary),
+          entries: _buildSearchEntries(
+            context,
+            themeProvider,
+            parallelSummary,
+            parallelWindowSupported,
+          ),
         ),
       ),
     );
@@ -46,17 +54,38 @@ class AppSettingsScreen extends StatelessWidget {
     BuildContext context,
     AppThemeProvider themeProvider,
     String parallelSummary,
+    bool parallelWindowSupported,
   ) {
     final entries = <SettingsSearchEntry>[
       SettingsSearchEntry(
         id: 'theme_settings',
         title: '主题设置',
         subtitle:
-            '${themeProvider.preset.title} · ${themeProvider.accentTone.title}',
+            '${themeProvider.currentThemeTitle} · ${themeProvider.currentThemeSubtitle}',
         location: '设置',
         keywords: const <String>['主题', '配色', '颜色', '外观'],
-        destinationBuilder: () => const ThemeSettingsScreen(),
-        onSelect: () => _pushPage(context, const ThemeSettingsScreen()),
+        onSelect: () =>
+            _openSettingsDestination(context, SettingsDestinationRoutes.theme),
+      ),
+      SettingsSearchEntry(
+        id: 'theme_custom_saved',
+        title: '自定义主题',
+        subtitle: '查看已保存主题，并支持应用、重命名和删除',
+        location: '设置 > 主题设置',
+        keywords: const <String>['自定义主题', '保存主题', '主题管理'],
+        onSelect: () =>
+            _openSettingsDestination(context, SettingsDestinationRoutes.theme),
+      ),
+      SettingsSearchEntry(
+        id: 'theme_custom_recipe',
+        title: '颜色分类控制',
+        subtitle: '继续编辑当前自定义配方',
+        location: '设置 > 主题设置 > 当前自定义',
+        keywords: const <String>['颜色分类', '当前自定义', '调色'],
+        onSelect: () => _openSettingsDestination(
+          context,
+          SettingsDestinationRoutes.themeCustomRecipe,
+        ),
       ),
       SettingsSearchEntry(
         id: 'mpv_settings',
@@ -64,18 +93,53 @@ class AppSettingsScreen extends StatelessWidget {
         subtitle: '外部播放器调整入口',
         location: '设置',
         keywords: const <String>['mpv', '播放器', '外部播放'],
-        destinationBuilder: () => const MpvPlayerSettingsScreen(),
-        onSelect: () => _pushPage(context, const MpvPlayerSettingsScreen()),
+        onSelect: () =>
+            _openSettingsDestination(context, SettingsDestinationRoutes.mpv),
+      ),
+      if (parallelWindowSupported)
+        SettingsSearchEntry(
+          id: 'parallel_window_settings',
+          title: '并行窗口设置',
+          subtitle: parallelSummary,
+          location: '设置',
+          keywords: const <String>['并行窗口', '双屏', '分屏'],
+          onSelect: () => _openSettingsDestination(
+            context,
+            SettingsDestinationRoutes.parallelWindow,
+          ),
+        ),
+      SettingsSearchEntry(
+        id: 'download_management',
+        title: '下载管理',
+        subtitle: '查看已下载和下载中的影片，支持播放、删除和管理',
+        location: '设置',
+        keywords: const <String>['下载', '下载管理', '已下载', '下载中', '离线视频'],
+        onSelect: () => _openSettingsDestination(
+          context,
+          SettingsDestinationRoutes.downloads,
+        ),
       ),
       SettingsSearchEntry(
-        id: 'parallel_window_settings',
-        title: '并行窗口设置',
-        subtitle: parallelSummary,
+        id: 'storage_management',
+        title: '储存管理',
+        subtitle: '查看缓存、截图、日志和应用数据占用，并支持清理',
         location: '设置',
-        keywords: const <String>['并行窗口', '双屏', '分屏'],
-        destinationBuilder: () => const ParallelWindowSettingsScreen(),
-        onSelect: () =>
-            _pushPage(context, const ParallelWindowSettingsScreen()),
+        keywords: const <String>['储存管理', '缓存', '播放缓存', '截图文件', '应用数据', '清理缓存'],
+        onSelect: () => _openSettingsDestination(
+          context,
+          SettingsDestinationRoutes.storage,
+        ),
+      ),
+      SettingsSearchEntry(
+        id: 'play_stats',
+        title: '全局播放数据统计',
+        subtitle: '查看本地播放器统计与播放历史',
+        location: '设置',
+        keywords: const <String>['播放统计', '播放历史', '本地统计', 'sqlite'],
+        onSelect: () => _openSettingsDestination(
+          context,
+          SettingsDestinationRoutes.playStats,
+        ),
       ),
       SettingsSearchEntry(
         id: 'other_settings',
@@ -83,8 +147,8 @@ class AppSettingsScreen extends StatelessWidget {
         subtitle: '书签、弹幕、截图等辅助设置',
         location: '设置',
         keywords: const <String>['其他', '辅助设置'],
-        destinationBuilder: () => const OtherSettingsScreen(),
-        onSelect: () => _pushPage(context, const OtherSettingsScreen()),
+        onSelect: () =>
+            _openSettingsDestination(context, SettingsDestinationRoutes.other),
       ),
       SettingsSearchEntry(
         id: 'app_log',
@@ -92,8 +156,8 @@ class AppSettingsScreen extends StatelessWidget {
         subtitle: '查看应用报错日志，并支持导出 TXT',
         location: '设置',
         keywords: const <String>['日志', '报错', 'txt', '导出'],
-        destinationBuilder: () => const AppLogScreen(),
-        onSelect: () => _pushPage(context, const AppLogScreen()),
+        onSelect: () =>
+            _openSettingsDestination(context, SettingsDestinationRoutes.logs),
       ),
       SettingsSearchEntry(
         id: 'bookmark_manager',
@@ -101,8 +165,10 @@ class AppSettingsScreen extends StatelessWidget {
         subtitle: '查看、编辑和跳转书签',
         location: '设置 > 其他',
         keywords: const <String>['书签', 'bookmark'],
-        destinationBuilder: () => const BookmarkManagerScreen(),
-        onSelect: () => _pushPage(context, const BookmarkManagerScreen()),
+        onSelect: () => _openSettingsDestination(
+          context,
+          SettingsDestinationRoutes.bookmarks,
+        ),
       ),
       SettingsSearchEntry(
         id: 'danmaku_settings',
@@ -110,8 +176,10 @@ class AppSettingsScreen extends StatelessWidget {
         subtitle: '调整默认弹幕样式和来源偏好',
         location: '设置 > 其他',
         keywords: const <String>['弹幕', 'danmaku'],
-        destinationBuilder: () => const DanmakuSettingsScreen(),
-        onSelect: () => _pushPage(context, const DanmakuSettingsScreen()),
+        onSelect: () => _openSettingsDestination(
+          context,
+          SettingsDestinationRoutes.danmaku,
+        ),
       ),
       SettingsSearchEntry(
         id: 'screenshot_settings',
@@ -119,8 +187,10 @@ class AppSettingsScreen extends StatelessWidget {
         subtitle: '字幕携带和保存路径',
         location: '设置 > 其他',
         keywords: const <String>['截图', '相册目录', '保存路径'],
-        destinationBuilder: () => const ScreenshotSettingsScreen(),
-        onSelect: () => _pushPage(context, const ScreenshotSettingsScreen()),
+        onSelect: () => _openSettingsDestination(
+          context,
+          SettingsDestinationRoutes.screenshot,
+        ),
       ),
       SettingsSearchEntry(
         id: 'screenshot_include_subtitles',
@@ -128,13 +198,10 @@ class AppSettingsScreen extends StatelessWidget {
         subtitle: '直接进入字幕携带设置',
         location: '设置 > 其他 > 截图设置',
         keywords: const <String>['截图', '字幕', '携带字幕'],
-        destinationBuilder: () => const ScreenshotSettingsDestinationScreen(
-          target: ScreenshotSettingsScreen.targetIncludeSubtitles,
-        ),
-        onSelect: () => _pushPage(
+        onSelect: () => _openSettingsDestination(
           context,
-          const ScreenshotSettingsScreen(
-            initialTarget: ScreenshotSettingsScreen.targetIncludeSubtitles,
+          SettingsDestinationRoutes.screenshotRoute(
+            target: ScreenshotSettingsScreen.targetIncludeSubtitles,
           ),
         ),
       ),
@@ -144,13 +211,36 @@ class AppSettingsScreen extends StatelessWidget {
         subtitle: '直接进入截图保存路径设置',
         location: '设置 > 其他 > 截图设置',
         keywords: const <String>['截图', '保存路径', '相册目录'],
-        destinationBuilder: () => const ScreenshotSettingsDestinationScreen(
-          target: ScreenshotSettingsScreen.targetSavePath,
-        ),
-        onSelect: () => _pushPage(
+        onSelect: () => _openSettingsDestination(
           context,
-          const ScreenshotSettingsScreen(
-            initialTarget: ScreenshotSettingsScreen.targetSavePath,
+          SettingsDestinationRoutes.screenshotRoute(
+            target: ScreenshotSettingsScreen.targetSavePath,
+          ),
+        ),
+      ),
+      SettingsSearchEntry(
+        id: 'screenshot_custom_directory',
+        title: '截图自定义目录',
+        subtitle: '选择、替换和清理截图自定义目录',
+        location: '设置 > 其他 > 截图设置',
+        keywords: const <String>['截图', '自定义目录', '文件夹'],
+        onSelect: () => _openSettingsDestination(
+          context,
+          SettingsDestinationRoutes.screenshotRoute(
+            target: ScreenshotSettingsScreen.targetCustomDirectory,
+          ),
+        ),
+      ),
+      SettingsSearchEntry(
+        id: 'screenshot_preview',
+        title: '截图预览',
+        subtitle: '查看、管理和删除已保存的截图',
+        location: '设置 > 其他 > 截图设置',
+        keywords: const <String>['截图', '预览', '删除截图', '管理截图'],
+        onSelect: () => _openSettingsDestination(
+          context,
+          SettingsDestinationRoutes.screenshotRoute(
+            target: ScreenshotSettingsScreen.targetPreview,
           ),
         ),
       ),
@@ -160,8 +250,8 @@ class AppSettingsScreen extends StatelessWidget {
         subtitle: '快速模式、高保真模式和一键预设',
         location: '设置 > MPV播放器设置',
         keywords: const <String>['mpv', '快速模式', '高保真', '极速模式'],
-        destinationBuilder: () => const MpvPlayerSettingsScreen(),
-        onSelect: () => _pushPage(context, const MpvPlayerSettingsScreen()),
+        onSelect: () =>
+            _openSettingsDestination(context, SettingsDestinationRoutes.mpv),
       ),
       SettingsSearchEntry(
         id: 'mpv_picture',
@@ -169,13 +259,10 @@ class AppSettingsScreen extends StatelessWidget {
         subtitle: '滤镜、HDR、插帧和即时调节',
         location: '设置 > MPV播放器设置',
         keywords: const <String>['mpv', '画面', 'hdr', '插帧', '滤镜'],
-        destinationBuilder: () => const MpvPlayerSettingsDestinationScreen(
-          section: MpvPlayerSettingsScreen.sectionPicture,
-        ),
-        onSelect: () => _pushPage(
+        onSelect: () => _openSettingsDestination(
           context,
-          const MpvPlayerSettingsScreen(
-            initialSection: MpvPlayerSettingsScreen.sectionPicture,
+          SettingsDestinationRoutes.mpvRoute(
+            section: MpvPlayerSettingsScreen.sectionPicture,
           ),
         ),
       ),
@@ -185,13 +272,10 @@ class AppSettingsScreen extends StatelessWidget {
         subtitle: 'EQ、限幅、低音增强和人声增强',
         location: '设置 > MPV播放器设置',
         keywords: const <String>['mpv', '音频', 'eq', '高保真', '限幅'],
-        destinationBuilder: () => const MpvPlayerSettingsDestinationScreen(
-          section: MpvPlayerSettingsScreen.sectionAudio,
-        ),
-        onSelect: () => _pushPage(
+        onSelect: () => _openSettingsDestination(
           context,
-          const MpvPlayerSettingsScreen(
-            initialSection: MpvPlayerSettingsScreen.sectionAudio,
+          SettingsDestinationRoutes.mpvRoute(
+            section: MpvPlayerSettingsScreen.sectionAudio,
           ),
         ),
       ),
@@ -201,13 +285,10 @@ class AppSettingsScreen extends StatelessWidget {
         subtitle: '同步模式、缓存策略和缓存大小',
         location: '设置 > MPV播放器设置',
         keywords: const <String>['mpv', '缓存', '缓冲', '同步'],
-        destinationBuilder: () => const MpvPlayerSettingsDestinationScreen(
-          section: MpvPlayerSettingsScreen.sectionPlayback,
-        ),
-        onSelect: () => _pushPage(
+        onSelect: () => _openSettingsDestination(
           context,
-          const MpvPlayerSettingsScreen(
-            initialSection: MpvPlayerSettingsScreen.sectionPlayback,
+          SettingsDestinationRoutes.mpvRoute(
+            section: MpvPlayerSettingsScreen.sectionPlayback,
           ),
         ),
       ),
@@ -217,13 +298,10 @@ class AppSettingsScreen extends StatelessWidget {
         subtitle: '兼容模式和播放器诊断信息',
         location: '设置 > MPV播放器设置',
         keywords: const <String>['mpv', '兼容', '诊断', '播放信息'],
-        destinationBuilder: () => const MpvPlayerSettingsDestinationScreen(
-          section: MpvPlayerSettingsScreen.sectionCompatibility,
-        ),
-        onSelect: () => _pushPage(
+        onSelect: () => _openSettingsDestination(
           context,
-          const MpvPlayerSettingsScreen(
-            initialSection: MpvPlayerSettingsScreen.sectionCompatibility,
+          SettingsDestinationRoutes.mpvRoute(
+            section: MpvPlayerSettingsScreen.sectionCompatibility,
           ),
         ),
       ),
@@ -242,11 +320,9 @@ class AppSettingsScreen extends StatelessWidget {
             definition.key,
             _mpvLocationLabel(definition.key),
           ],
-          destinationBuilder: () =>
-              MpvPlayerSettingsDestinationScreen(settingKey: definition.key),
-          onSelect: () => _pushPage(
+          onSelect: () => _openSettingsDestination(
             context,
-            MpvPlayerSettingsScreen(initialSettingKey: definition.key),
+            SettingsDestinationRoutes.mpvRoute(settingKey: definition.key),
           ),
         ),
       );
@@ -299,143 +375,222 @@ class AppSettingsScreen extends StatelessWidget {
       role: AdaptiveFontRole.title,
     );
 
-    final parallelSummary = parallelSettings.enabled
-        ? '已开启 · ${parallelSettings.primaryOnLeft ? '左侧主屏' : '右侧主屏'}'
-        : '已关闭 · 当前使用单屏模式';
+    return FutureBuilder<bool>(
+      future: EmbeddedDetailLauncher.isParallelWindowSupported(),
+      builder: (context, snapshot) {
+        final parallelWindowSupported = snapshot.data ?? false;
+        final parallelSummary = parallelSettings.enabled
+            ? '已开启 · ${parallelSettings.primaryOnLeft ? '左侧主屏' : '右侧主屏'}'
+            : '已关闭 · 当前使用单屏模式';
 
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      appBar: AppBar(
-        leading: secondaryHost
-            ? IconButton(
-                onPressed: () {
-                  EmbeddedDetailLauncher.closeHostOrPop(context);
-                },
-                icon: const Icon(Icons.arrow_back_ios_new_rounded),
-              )
-            : null,
-        title: Text(
-          '设置',
-          style: TextStyle(
-            color: colors.textPrimary,
-            fontSize: titleSize,
-            fontWeight: FontWeight.w700,
+        return Scaffold(
+          backgroundColor: colors.backgroundBase,
+          appBar: AppBar(
+            leading: secondaryHost
+                ? IconButton(
+                    onPressed: () {
+                      EmbeddedDetailLauncher.closeHostOrPop(context);
+                    },
+                    icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                  )
+                : null,
+            title: Text(
+              '设置',
+              style: TextStyle(
+                color: colors.textPrimary,
+                fontSize: titleSize,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            actions: <Widget>[
+              IconButton(
+                onPressed: () => _openSettingsSearch(
+                  context,
+                  themeProvider,
+                  parallelSummary,
+                  parallelWindowSupported,
+                ),
+                icon: const Icon(Icons.search_rounded),
+                tooltip: '搜索设置项',
+              ),
+            ],
           ),
-        ),
-        actions: <Widget>[
-          IconButton(
-            onPressed: () =>
-                _openSettingsSearch(context, themeProvider, parallelSummary),
-            icon: const Icon(Icons.search_rounded),
-            tooltip: '搜索设置项',
-          ),
-        ],
-      ),
-      body: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: <Color>[colors.backgroundElevated, colors.backgroundBase],
-          ),
-        ),
-        child: SafeArea(
-          top: false,
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final maxContentWidth = constraints.maxWidth >= 1080
-                  ? 960.0
-                  : 760.0;
-              return Align(
-                alignment: Alignment.topCenter,
-                child: SingleChildScrollView(
-                  padding: EdgeInsets.fromLTRB(
-                    compact ? 16 : 24,
-                    10,
-                    compact ? 16 : 24,
-                    compact ? 24 : 32,
-                  ),
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(maxWidth: maxContentWidth),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        _SettingsHero(
-                          compact: compact,
-                          themeTitle: themeProvider.preset.title,
-                          accentTitle: themeProvider.accentTone.title,
-                          parallelSummary: parallelSummary,
-                        ),
-                        const SizedBox(height: 18),
-                        _SettingsGroupCard(
+          body: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: <Color>[
+                  colors.backgroundElevated,
+                  colors.backgroundBase,
+                ],
+              ),
+            ),
+            child: SafeArea(
+              top: false,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final maxContentWidth = constraints.maxWidth >= 1080
+                      ? 960.0
+                      : 760.0;
+                  return Align(
+                    alignment: Alignment.topCenter,
+                    child: SingleChildScrollView(
+                      padding: EdgeInsets.fromLTRB(
+                        compact ? 16 : 24,
+                        10,
+                        compact ? 16 : 24,
+                        compact ? 24 : 32,
+                      ),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: maxContentWidth),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: <Widget>[
-                            _SettingsEntryTile(
-                              icon: Icons.palette_outlined,
-                              title: '主题设置',
-                              subtitle:
-                                  '${themeProvider.preset.title} · ${themeProvider.accentTone.title}',
-                              onTap: () {
-                                _pushPage(context, const ThemeSettingsScreen());
-                              },
+                            _SettingsHero(
+                              compact: compact,
+                              themeTitle: themeProvider.currentThemeTitle,
+                              accentTitle: themeProvider.currentThemeSubtitle,
+                              parallelSummary: parallelSummary,
+                              showParallelSummary: parallelWindowSupported,
                             ),
-                            const _SettingsGroupDivider(),
-                            _SettingsEntryTile(
-                              icon: Icons.video_settings_rounded,
-                              title: 'MPV播放器设置',
-                              subtitle: '外部播放器调整入口，具体参数下沉到三级页',
-                              onTap: () {
-                                _pushPage(
-                                  context,
-                                  const MpvPlayerSettingsScreen(),
-                                );
-                              },
+                            const SizedBox(height: 18),
+                            _SettingsGroupCard(
+                              children: <Widget>[
+                                _SettingsEntryTile(
+                                  icon: Icons.palette_outlined,
+                                  title: '主题设置',
+                                  subtitle:
+                                      '${themeProvider.currentThemeTitle} · ${themeProvider.currentThemeSubtitle}',
+                                  onTap: () {
+                                    unawaited(
+                                      _openSettingsDestination(
+                                        context,
+                                        SettingsDestinationRoutes.theme,
+                                      ),
+                                    );
+                                  },
+                                ),
+                                const _SettingsGroupDivider(),
+                                _SettingsEntryTile(
+                                  icon: Icons.video_settings_rounded,
+                                  title: 'MPV播放器设置',
+                                  subtitle: '外部播放器调整入口，具体参数下沉到三级页',
+                                  onTap: () {
+                                    unawaited(
+                                      _openSettingsDestination(
+                                        context,
+                                        SettingsDestinationRoutes.mpv,
+                                      ),
+                                    );
+                                  },
+                                ),
+                                if (parallelWindowSupported) ...<Widget>[
+                                  const _SettingsGroupDivider(),
+                                  _SettingsEntryTile(
+                                    icon: Icons.splitscreen_outlined,
+                                    title: '并行窗口设置',
+                                    subtitle: parallelSummary,
+                                    onTap: () {
+                                      unawaited(
+                                        _openSettingsDestination(
+                                          context,
+                                          SettingsDestinationRoutes
+                                              .parallelWindow,
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ],
+                                const _SettingsGroupDivider(),
+                                _SettingsEntryTile(
+                                  icon: Icons.storage_rounded,
+                                  title: '储存管理',
+                                  subtitle: '查看缓存、截图、日志和应用数据占用',
+                                  onTap: () {
+                                    unawaited(
+                                      _openSettingsDestination(
+                                        context,
+                                        SettingsDestinationRoutes.storage,
+                                      ),
+                                    );
+                                  },
+                                ),
+                                const _SettingsGroupDivider(),
+                                _SettingsEntryTile(
+                                  icon: Icons.download_rounded,
+                                  title: '下载管理',
+                                  subtitle: '查看已下载和下载中的影片，支持播放、删除和管理',
+                                  onTap: () {
+                                    unawaited(
+                                      _openSettingsDestination(
+                                        context,
+                                        SettingsDestinationRoutes.downloads,
+                                      ),
+                                    );
+                                  },
+                                ),
+                                const _SettingsGroupDivider(),
+                                _SettingsEntryTile(
+                                  icon: Icons.bar_chart_rounded,
+                                  title: '全局播放数据统计',
+                                  subtitle: '查看本地播放器统计与播放历史',
+                                  onTap: () {
+                                    unawaited(
+                                      _openSettingsDestination(
+                                        context,
+                                        SettingsDestinationRoutes.playStats,
+                                      ),
+                                    );
+                                  },
+                                ),
+                                const _SettingsGroupDivider(),
+                                _SettingsEntryTile(
+                                  icon: Icons.more_horiz_rounded,
+                                  title: '其他',
+                                  subtitle: '收纳截图、弹幕、书签等辅助设置',
+                                  onTap: () {
+                                    unawaited(
+                                      _openSettingsDestination(
+                                        context,
+                                        SettingsDestinationRoutes.other,
+                                      ),
+                                    );
+                                  },
+                                ),
+                                const _SettingsGroupDivider(),
+                                _SettingsEntryTile(
+                                  icon: Icons.receipt_long_outlined,
+                                  title: '日志信息',
+                                  subtitle: '查看应用报错日志，并支持导出 TXT',
+                                  onTap: () {
+                                    unawaited(
+                                      _openSettingsDestination(
+                                        context,
+                                        SettingsDestinationRoutes.logs,
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ],
                             ),
-                            const _SettingsGroupDivider(),
-                            _SettingsEntryTile(
-                              icon: Icons.splitscreen_outlined,
-                              title: '并行窗口设置',
-                              subtitle: parallelSummary,
-                              onTap: () {
-                                _pushPage(
-                                  context,
-                                  const ParallelWindowSettingsScreen(),
-                                );
-                              },
-                            ),
-                            const _SettingsGroupDivider(),
-                            _SettingsEntryTile(
-                              icon: Icons.more_horiz_rounded,
-                              title: '其他',
-                              subtitle: '收纳截图、弹幕、书签等辅助设置',
-                              onTap: () {
-                                _pushPage(context, const OtherSettingsScreen());
-                              },
-                            ),
-                            const _SettingsGroupDivider(),
-                            _SettingsEntryTile(
-                              icon: Icons.receipt_long_outlined,
-                              title: '日志信息',
-                              subtitle: '查看应用报错日志，并支持导出 TXT',
-                              onTap: () {
-                                _pushPage(context, const AppLogScreen());
-                              },
+                            const SizedBox(height: 18),
+                            const _SettingsHintCard(
+                              title: '说明',
+                              content:
+                                  '二级页只保留总入口，具体配置下沉到三级页面。后续继续加设置项时，也按这个层级扩展。',
                             ),
                           ],
                         ),
-                        const SizedBox(height: 18),
-                        const _SettingsHintCard(
-                          title: '说明',
-                          content: '二级页只保留总入口，具体配置下沉到三级页面。后续继续加设置项时，也按这个层级扩展。',
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
-                ),
-              );
-            },
+                  );
+                },
+              ),
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -445,12 +600,14 @@ class _SettingsHero extends StatelessWidget {
   final String themeTitle;
   final String accentTitle;
   final String parallelSummary;
+  final bool showParallelSummary;
 
   const _SettingsHero({
     required this.compact,
     required this.themeTitle,
     required this.accentTitle,
     required this.parallelSummary,
+    required this.showParallelSummary,
   });
 
   @override
@@ -528,10 +685,11 @@ class _SettingsHero extends StatelessWidget {
                 icon: Icons.color_lens_outlined,
                 text: '$themeTitle · $accentTitle',
               ),
-              _HeroBadge(
-                icon: Icons.splitscreen_outlined,
-                text: parallelSummary,
-              ),
+              if (showParallelSummary)
+                _HeroBadge(
+                  icon: Icons.splitscreen_outlined,
+                  text: parallelSummary,
+                ),
             ],
           ),
         ],
@@ -561,12 +719,16 @@ class _HeroBadge extends StatelessWidget {
         children: <Widget>[
           Icon(icon, color: colors.accentStrong, size: 18),
           const SizedBox(width: 8),
-          Text(
-            text,
-            style: TextStyle(
-              color: colors.textSecondary,
-              fontSize: AdaptiveText.roleSize(13),
-              fontWeight: FontWeight.w600,
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: colors.textSecondary,
+                fontSize: AdaptiveText.roleSize(13),
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],

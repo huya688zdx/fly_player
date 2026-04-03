@@ -16,24 +16,31 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
     final compactUi = screenWidth < 900;
     final titleFontSize = compactUi ? 14.0 : 15.5;
     final timeFontSize = compactUi ? 11.5 : 13.0;
-    return WillPopScope(
-      onWillPop: () async {
-        await _closePlayer();
-        return false;
-      },
-      child: Scaffold(
-        backgroundColor: colors.backgroundBase,
-        resizeToAvoidBottomInset: false,
-        body: _buildAndroidPlayerBody(
-          context,
-          colors: colors,
-          media: media,
-          compactUi: compactUi,
-          isLandscape: isLandscape,
-          titleFontSize: titleFontSize,
-          timeFontSize: timeFontSize,
-        ),
+    final scaffold = Scaffold(
+      backgroundColor: colors.backgroundBase,
+      resizeToAvoidBottomInset: false,
+      body: _buildAndroidPlayerBody(
+        context,
+        colors: colors,
+        media: media,
+        compactUi: compactUi,
+        isLandscape: isLandscape,
+        titleFontSize: titleFontSize,
+        timeFontSize: timeFontSize,
       ),
+    );
+    if (!widget.interceptSystemBack) {
+      return scaffold;
+    }
+    return PopScope<Object?>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) {
+          return;
+        }
+        unawaited(_handleBackAction());
+      },
+      child: scaffold,
     );
   }
 
@@ -46,78 +53,161 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
     required double titleFontSize,
     required double timeFontSize,
   }) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        RepaintBoundary(
-          child: Center(
-            child: AspectRatio(
-              aspectRatio: _videoAspectRatio(),
-              child: ClipRect(child: _buildPlayerSurface()),
+    final listenVideoActive = _listenVideoModeEnabled;
+    return ClipRect(
+      child: Stack(
+        fit: StackFit.expand,
+        clipBehavior: Clip.hardEdge,
+        children: [
+          RepaintBoundary(child: _buildVideoViewportLayer(_buildPlayerSurface())),
+          if (!widget.pictureInPictureActive && !listenVideoActive)
+            RepaintBoundary(child: _buildVideoViewportLayer(_buildDanmakuLayer())),
+          if (!widget.pictureInPictureActive && listenVideoActive)
+            Positioned.fill(
+              child: _buildListenVideoPresentationLayer(
+                context,
+                compactUi: compactUi,
+              ),
             ),
-          ),
-        ),
-        _buildDanmakuLayer(),
-        _buildVideoLoadingOverlayLayer(colors),
-        IgnorePointer(
-          ignoring: !_uiController.orientationTransitionMaskVisible,
-          child: AnimatedOpacity(
-            opacity: _uiController.orientationTransitionMaskVisible ? 1 : 0,
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
-            child: ColoredBox(color: colors.backgroundBase),
-          ),
-        ),
-        _buildInteractiveChromeLayer(
-          context,
-          compactUi: compactUi,
-          isLandscape: isLandscape,
-          titleFontSize: titleFontSize,
-          timeFontSize: timeFontSize,
-        ),
-        if (_shouldShowPerformanceOverlay())
-          _buildPerformanceOverlay(
-            compactUi: compactUi,
-            viewportSize: media.size,
-          ),
-        Positioned.fill(
-          child: PlayerSkipPromptOverlay(
-            visible:
-                _supportsIntroOutroUi &&
-                _uiController.activeChapterSkipPrompt != null,
-            label: _uiController.activeChapterSkipPrompt == null
-                ? ''
-                : (_uiController.activeChapterSkipPrompt!.isIntro
-                      ? 'Intro'
-                      : 'Outro'),
-            countdownSeconds: _skipPromptCountdownSeconds,
-            onClose: _dismissCurrentChapterSkipPrompt,
-          ),
-        ),
-        Positioned.fill(
-          child: PlayerCenterMessageOverlay(
-            message: _uiController.centerPopupMessage,
-          ),
-        ),
-      ],
+          if (!widget.pictureInPictureActive) ...[
+            _buildVideoLoadingOverlayLayer(colors),
+            IgnorePointer(
+              ignoring: !_uiController.orientationTransitionMaskVisible,
+              child: AnimatedOpacity(
+                opacity: _uiController.orientationTransitionMaskVisible ? 1 : 0,
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
+                child: ColoredBox(color: colors.backgroundBase),
+              ),
+            ),
+            _buildInteractiveChromeLayer(
+              context,
+              compactUi: compactUi,
+              isLandscape: isLandscape,
+              titleFontSize: titleFontSize,
+              timeFontSize: timeFontSize,
+            ),
+            _buildFloatingLockButton(
+              media: media,
+              compactUi: compactUi,
+              isLandscape: isLandscape,
+            ),
+            _buildPlaybackCompletedOverlay(compactUi: compactUi),
+            if (_shouldShowPerformanceOverlay())
+              _buildPerformanceOverlay(
+                compactUi: compactUi,
+                viewportSize: media.size,
+              ),
+            Positioned.fill(
+              child: PlayerSkipPromptOverlay(
+                visible:
+                    _supportsIntroOutroUi &&
+                    _uiController.activeChapterSkipPrompt != null,
+                label: _uiController.activeChapterSkipPrompt == null
+                    ? ''
+                    : (_uiController.activeChapterSkipPrompt!.isIntro
+                          ? 'Intro'
+                          : 'Outro'),
+                countdownSeconds: _skipPromptCountdownSeconds,
+                onClose: _dismissCurrentChapterSkipPrompt,
+              ),
+            ),
+            Positioned.fill(
+              child: PlayerSpeedDialOverlay(
+                visible:
+                    _speedDialVisible &&
+                    !_playbackSettingsDrawerVisible &&
+                    !_playbackCompleted,
+                speed: _playbackSpeed,
+                onSpeedChanged: _handleSpeedDialSpeedChanged,
+                onDismiss: _hideSpeedDialOverlay,
+                labelBuilder: _speedLabel,
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
+  Widget _buildVideoViewportLayer(Widget child) {
+    return Center(
+      child: AspectRatio(
+        aspectRatio: _videoAspectRatio(),
+        child: ClipRect(child: child),
+      ),
+    );
+  }
+
+  Widget _buildListenVideoPresentationLayer(
+    BuildContext context, {
+    required bool compactUi,
+  }) {
+    final nasProvider = _nasProvider ?? context.read<NasProvider>();
+    return PlayerListenVideoPresentation(
+      artworkUrls: _resolveSystemPlaybackArtworkUrls(),
+      token: nasProvider.token.trim(),
+      title: _currentTitle.trim().isEmpty ? widget.title : _currentTitle.trim(),
+      subtitle: _listenVideoPresentationSubtitle(),
+      compactUi: compactUi,
+    );
+  }
+
+  String _listenVideoPresentationSubtitle() {
+    final parts = <String>[];
+    final seriesTitle = _currentSeriesTitle.trim();
+    final ancestorName = _currentAncestorName.trim();
+    if (seriesTitle.isNotEmpty) {
+      parts.add(seriesTitle);
+    } else if (ancestorName.isNotEmpty) {
+      parts.add(ancestorName);
+    }
+
+    if (_currentSeasonNumber > 0) {
+      parts.add('第$_currentSeasonNumber季');
+    }
+    if (_currentEpisodeNumber > 0) {
+      parts.add('第$_currentEpisodeNumber集');
+    }
+
+    if (parts.isEmpty) {
+      final mediaType = _currentMediaType.trim();
+      if (mediaType.isNotEmpty) {
+        parts.add(mediaType);
+      }
+    } else {
+      final mediaType = _currentMediaType.trim();
+      if (mediaType.isNotEmpty && !parts.contains(mediaType)) {
+        parts.add(mediaType);
+      }
+    }
+
+    return parts.join(' · ');
+  }
+
   Widget _buildDanmakuLayer() {
-    return ValueListenableBuilder<MpvPlayerValue>(
-      valueListenable: _controller.value,
-      builder: (context, value, _) {
+    if (_useNativeDanmakuRenderer) {
+      return const SizedBox.shrink();
+    }
+    return AnimatedBuilder(
+      animation: Listenable.merge(<Listenable>[
+        _controller.value,
+        _controller.danmakuOcclusionState,
+        _gestureController.speedBoostListenable,
+      ]),
+      builder: (context, _) {
+        final value = _controller.value.value;
         final duration = _effectiveDuration();
         final rawPlaybackPosition =
             duration > Duration.zero && value.position > duration
             ? duration
             : value.position;
-        return Positioned.fill(
-          child: DanmakuOverlay(
-            controller: _danmakuController,
-            position: rawPlaybackPosition,
-            paused: value.paused,
-          ),
+        return DanmakuOverlay(
+          controller: _danmakuController,
+          position: rawPlaybackPosition,
+          paused: value.paused,
+          playbackSpeedFactor: _speedBoostActive ? 2.0 : 1.0,
+          occlusionState: _controller.danmakuOcclusionState.value,
         );
       },
     );
@@ -143,6 +233,32 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
     );
   }
 
+  Widget _buildFloatingLockButton({
+    required MediaQueryData media,
+    required bool compactUi,
+    required bool isLandscape,
+  }) {
+    final topInset = media.padding.top + (compactUi ? 12.0 : 16.0);
+    final bottomInset = media.padding.bottom + (compactUi ? 20.0 : 26.0);
+    final baseRight = compactUi ? 14.0 : 18.0;
+    final bottomReserve = isLandscape ? 92.0 : 132.0;
+    return Positioned(
+      right: baseRight,
+      top: topInset,
+      bottom: bottomInset + bottomReserve,
+      child: Align(
+        alignment: Alignment.center,
+        child: PlayerFloatingLockButton(
+          visible: _controlsVisible || _controlsAnimatingOut,
+          compact: compactUi,
+          locked: _playerUiLocked,
+          onPressed: () =>
+              unawaited(_playerUiLocked ? _unlockPlayerUi() : _lockPlayerUi()),
+        ),
+      ),
+    );
+  }
+
   Widget _buildInteractiveChromeLayer(
     BuildContext context, {
     required bool compactUi,
@@ -151,9 +267,12 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
     required double timeFontSize,
   }) {
     return AnimatedBuilder(
-      animation: _gestureController,
+      animation: _gestureController.seekListenable,
       builder: (context, _) {
-        final overlaySuppressed = _playbackSettingsDrawerVisible;
+        final overlaySuppressed =
+            _playbackSettingsDrawerVisible ||
+            _speedDialVisible ||
+            _playerUiLocked;
         final minimalSeekMode =
             _gestureSeekActive ||
             (!_controlsVisible &&
@@ -217,18 +336,31 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
                   showStatusCard: false,
                   topBar: topBar,
                 ),
-                PlayerGestureOverlay(
-                  adjustment: _gestureOverlayData,
-                  speedBoostActive: _speedBoostActive,
-                  statusMessage:
-                      (_uiController.subtitleSwitchMessage?.trim().isNotEmpty ??
-                          false)
-                      ? _uiController.subtitleSwitchMessage
-                      : _uiController.statusMessage,
-                  statusLoading:
-                      _uiController.qualitySwitchLoading ||
-                      _uiController.pendingLoadingTransition ||
-                      _uiController.awaitingVisualPlaybackStart,
+                AnimatedBuilder(
+                  animation: _gestureController.overlayListenable,
+                  builder: (context, _) {
+                    return PlayerGestureOverlay(
+                      adjustment: _gestureOverlayData,
+                      speedBoostActive: _speedBoostActive,
+                      statusMessage:
+                          !_uiController.backgroundLoadingTransition &&
+                              !_uiController.videoLoadingOverlayVisible &&
+                              !(_uiController.qualitySwitchLoading ||
+                                  _uiController.pendingLoadingTransition ||
+                                  _uiController.awaitingVisualPlaybackStart) &&
+                              (_uiController.subtitleSwitchMessage
+                                      ?.trim()
+                                      .isNotEmpty ??
+                                  false)
+                          ? _uiController.subtitleSwitchMessage
+                          : _uiController.statusMessage,
+                      statusLoading:
+                          !_uiController.backgroundLoadingTransition &&
+                          (_uiController.qualitySwitchLoading ||
+                              _uiController.pendingLoadingTransition ||
+                              _uiController.awaitingVisualPlaybackStart),
+                    );
+                  },
                 ),
               ],
             );
@@ -239,17 +371,20 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
   }
 
   Widget _buildPlayerSurface() {
+    final initialSource = _initialSourceLoadStarted
+        ? _buildCurrentSource()
+        : widget.source;
     return AndroidView(
       viewType: 'fly_player/mpv_view',
       layoutDirection: TextDirection.ltr,
-      creationParams: _buildCurrentSource().toMap(),
+      creationParams: initialSource.toMap(),
       creationParamsCodec: const StandardMessageCodec(),
       onPlatformViewCreated: _handlePlatformViewCreated,
     );
   }
 
   bool _shouldShowPerformanceOverlay() {
-    if (!_performanceOverlayEnabled && !_fpsOverlayEnabled) return false;
+    if (!_performanceOverlayEnabled) return false;
     return !_exitInProgress;
   }
 
@@ -267,20 +402,15 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
         final rows = <String>[];
         if (_performanceOverlayEnabled) {
           final cpu = _formatOverlayPercent(stats.cpuUsagePercent) ?? '--';
-          final gpu = _formatOverlayPercent(stats.gpuUsagePercent) ?? '--';
-          rows.add('CPU $cpu  GPU $gpu');
-        }
-        if (_fpsOverlayEnabled) {
-          final fps = _overlayFpsValue(stats);
-          rows.add(
-            fps == null
-                ? 'FPS --'
-                : 'FPS ${fps.toStringAsFixed(fps >= 100 ? 0 : 1)}',
+          final memory = _formatOverlayMemory(
+            usedBytes: stats.appMemoryUsedBytes,
+            totalBytes: stats.systemMemoryTotalBytes,
           );
+          rows.add('CPU $cpu  MEM $memory');
         }
         final fontSize = compactUi ? 10.5 : 11.5;
-        final overlayWidth = compactUi ? 148.0 : 172.0;
-        final overlayHeight = rows.length > 1 ? 42.0 : 28.0;
+        final overlayWidth = compactUi ? 190.0 : 220.0;
+        const overlayHeight = 28.0;
         final offset = _clampedPerformanceOverlayOffset(
           viewportSize: viewportSize,
           overlayWidth: overlayWidth,
@@ -371,18 +501,33 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
     return '${value.clamp(0, 100).round()}%';
   }
 
-  double? _overlayFpsValue(MpvPerformanceOverlayStats stats) {
-    return stats.estimatedVfFps ?? stats.containerFps ?? stats.displayFps;
+  String _formatOverlayMemory({
+    required int? usedBytes,
+    required int? totalBytes,
+  }) {
+    final used = _formatMemoryUnit(usedBytes);
+    final total = _formatMemoryUnit(totalBytes);
+    return '$used/$total';
+  }
+
+  String _formatMemoryUnit(int? bytes) {
+    if (bytes == null || bytes <= 0) return '--';
+    const kb = 1024.0;
+    const mb = kb * 1024.0;
+    const gb = mb * 1024.0;
+    final value = bytes.toDouble();
+    if (value >= gb) {
+      return '${(value / gb).toStringAsFixed(1)}G';
+    }
+    return '${(value / mb).toStringAsFixed(value >= mb * 100 ? 0 : 1)}M';
   }
 
   bool _isPointInsidePerformanceOverlay(Offset position) {
     if (!_shouldShowPerformanceOverlay()) return false;
     final media = MediaQuery.of(context);
     final compactUi = media.size.width < 900;
-    final overlayWidth = compactUi ? 148.0 : 172.0;
-    final rowCount =
-        (_performanceOverlayEnabled ? 1 : 0) + (_fpsOverlayEnabled ? 1 : 0);
-    final overlayHeight = rowCount > 1 ? 42.0 : 28.0;
+    final overlayWidth = compactUi ? 190.0 : 220.0;
+    const overlayHeight = 28.0;
     final offset = _clampedPerformanceOverlayOffset(
       viewportSize: media.size,
       overlayWidth: overlayWidth,
@@ -414,98 +559,164 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
     required bool showStatusCard,
     required Widget topBar,
   }) {
-    return IgnorePointer(
-      ignoring: !overlayVisible,
-      child: Opacity(
-        opacity: overlayVisible ? 1 : 0,
-        child: PlayerGestureLayer(
-          onTap: _controlsVisible ? _hideControlsAnimated : _toggleControls,
-          onDoubleTap: _togglePlayback,
-          onLongPressStart: _handleGestureLongPressStart,
-          onLongPressEnd: _handleGestureLongPressEnd,
-          onHorizontalDragStart: (details) =>
-              _handleGestureHorizontalStart(details, duration),
-          onHorizontalDragUpdate: (details) =>
-              _handleGestureHorizontalUpdate(details, duration),
-          onHorizontalDragEnd: _handleGestureHorizontalEnd,
-          onHorizontalDragCancel: _handleGestureHorizontalCancel,
-          onVerticalDragStart: _handleGestureVerticalStart,
-          onVerticalDragUpdate: _handleGestureVerticalUpdate,
-          onVerticalDragEnd: _handleGestureVerticalEnd,
-          onVerticalDragCancel: _handleGestureVerticalCancel,
-          child: DecoratedBox(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: <Color>[
-                  Color(0x90000000),
-                  Color(0x24000000),
-                  Color(0x10000000),
-                  Color(0xB8000000),
-                ],
-                stops: <double>[0.0, 0.18, 0.56, 1.0],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final viewportSize = constraints.biggest;
+        return IgnorePointer(
+          ignoring: !overlayVisible,
+          child: Opacity(
+            opacity: overlayVisible ? 1 : 0,
+            child: PlayerGestureLayer(
+              onTap: _handleGestureTap,
+              onDoubleTap: _handleGestureDoubleTap,
+              onLongPressStart: _handleGestureLongPressStart,
+              onLongPressEnd: _handleGestureLongPressEnd,
+              onLongPressCancel: _handleGestureLongPressCancel,
+              onHorizontalDragStart: (details) => _handleGestureHorizontalStart(
+                details,
+                duration,
+                viewportSize,
               ),
-            ),
-            child: SafeArea(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(
-                  20,
-                  compactUi ? 2 : 4,
-                  20,
-                  compactUi ? 8 : 10,
+              onHorizontalDragUpdate: (details) =>
+                  _handleGestureHorizontalUpdate(
+                    details,
+                    duration,
+                    viewportSize,
+                  ),
+              onHorizontalDragEnd: _handleGestureHorizontalEnd,
+              onHorizontalDragCancel: _handleGestureHorizontalCancel,
+              onVerticalDragStart: (details) =>
+                  _handleGestureVerticalStart(details, viewportSize),
+              onVerticalDragUpdate: (details) =>
+                  _handleGestureVerticalUpdate(details, viewportSize),
+              onVerticalDragEnd: _handleGestureVerticalEnd,
+              onVerticalDragCancel: _handleGestureVerticalCancel,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: _listenVideoModeEnabled
+                        ? const <Color>[
+                            Color(0x00000000),
+                            Color(0x08000000),
+                            Color(0x0A13202F),
+                            Color(0x4413202F),
+                          ]
+                        : const <Color>[
+                            Color(0x90000000),
+                            Color(0x24000000),
+                            Color(0x10000000),
+                            Color(0xB8000000),
+                          ],
+                    stops: const <double>[0.0, 0.18, 0.56, 1.0],
+                  ),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    topBar,
-                    const Spacer(),
-                    _buildBottomPanel(
-                      value: value,
-                      compactUi: compactUi,
-                      isLandscape: isLandscape,
-                      timeFontSize: timeFontSize,
-                      duration: duration,
-                      clampedPosition: clampedPosition,
-                      bufferedPosition: bufferedPosition,
-                      visibleChapters: visibleChapters,
-                      activeChapterIndex: activeChapterIndex,
-                      minimalSeekMode: minimalSeekMode,
-                      showStatusCard: showStatusCard,
+                child: SafeArea(
+                  child: Padding(
+                    // Gesture-nav devices often report a larger bottom gesture
+                    // exclusion area than the regular safe padding.
+                    padding: (() {
+                      final media = MediaQuery.of(context);
+                      final gestureInset =
+                          media.systemGestureInsets.bottom >
+                              media.padding.bottom
+                          ? media.systemGestureInsets.bottom -
+                                media.padding.bottom
+                          : 0.0;
+                      return EdgeInsets.fromLTRB(
+                        20,
+                        compactUi ? 2 : 4,
+                        20,
+                        (compactUi ? 8 : 10) + gestureInset,
+                      );
+                    })(),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        topBar,
+                        const Spacer(),
+                        _buildBottomPanel(
+                          value: value,
+                          compactUi: compactUi,
+                          isLandscape: isLandscape,
+                          timeFontSize: timeFontSize,
+                          duration: duration,
+                          clampedPosition: clampedPosition,
+                          bufferedPosition: bufferedPosition,
+                          visibleChapters: visibleChapters,
+                          activeChapterIndex: activeChapterIndex,
+                          minimalSeekMode: minimalSeekMode,
+                          showStatusCard: showStatusCard,
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
   Widget _buildGestureLayer({required Duration duration}) {
-    return PlayerGestureLayer(
-      onTap: _toggleControls,
-      onDoubleTap: _togglePlayback,
-      onLongPressStart: _handleGestureLongPressStart,
-      onLongPressEnd: _handleGestureLongPressEnd,
-      onHorizontalDragStart: (details) =>
-          _handleGestureHorizontalStart(details, duration),
-      onHorizontalDragUpdate: (details) =>
-          _handleGestureHorizontalUpdate(details, duration),
-      onHorizontalDragEnd: _handleGestureHorizontalEnd,
-      onHorizontalDragCancel: _handleGestureHorizontalCancel,
-      onVerticalDragStart: _handleGestureVerticalStart,
-      onVerticalDragUpdate: _handleGestureVerticalUpdate,
-      onVerticalDragEnd: _handleGestureVerticalEnd,
-      onVerticalDragCancel: _handleGestureVerticalCancel,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final viewportSize = constraints.biggest;
+        final gesturesEnabled = !_playerUiLocked;
+        return PlayerGestureLayer(
+          onTap: _handleGestureTap,
+          onDoubleTap: gesturesEnabled ? _handleGestureDoubleTap : null,
+          onLongPressStart: gesturesEnabled
+              ? _handleGestureLongPressStart
+              : null,
+          onLongPressEnd: gesturesEnabled ? _handleGestureLongPressEnd : null,
+          onLongPressCancel: gesturesEnabled
+              ? _handleGestureLongPressCancel
+              : null,
+          onHorizontalDragStart: gesturesEnabled
+              ? (details) => _handleGestureHorizontalStart(
+                  details,
+                  duration,
+                  viewportSize,
+                )
+              : null,
+          onHorizontalDragUpdate: gesturesEnabled
+              ? (details) => _handleGestureHorizontalUpdate(
+                  details,
+                  duration,
+                  viewportSize,
+                )
+              : null,
+          onHorizontalDragEnd: gesturesEnabled
+              ? _handleGestureHorizontalEnd
+              : null,
+          onHorizontalDragCancel: gesturesEnabled
+              ? _handleGestureHorizontalCancel
+              : null,
+          onVerticalDragStart: gesturesEnabled
+              ? (details) => _handleGestureVerticalStart(details, viewportSize)
+              : null,
+          onVerticalDragUpdate: gesturesEnabled
+              ? (details) => _handleGestureVerticalUpdate(details, viewportSize)
+              : null,
+          onVerticalDragEnd: gesturesEnabled ? _handleGestureVerticalEnd : null,
+          onVerticalDragCancel: gesturesEnabled
+              ? _handleGestureVerticalCancel
+              : null,
+        );
+      },
     );
   }
 
   void _handleGestureHorizontalStart(
     DragStartDetails details,
     Duration duration,
+    Size viewportSize,
   ) {
+    _restoreSpeedBoostIfNeeded();
     if (duration <= Duration.zero) return;
     if (_uiController.timelineInteractionActive) return;
     if (_isPointInsidePerformanceOverlay(details.localPosition)) return;
@@ -513,19 +724,20 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
       details: details,
       currentPosition: _displayPosition(_controller.value.value),
       restoreControlsVisible: _controlsVisible,
+      width: viewportSize.width,
     );
   }
 
   void _handleGestureHorizontalUpdate(
     DragUpdateDetails details,
     Duration duration,
+    Size viewportSize,
   ) {
     if (duration <= Duration.zero) return;
     if (_uiController.timelineInteractionActive) return;
-    final width = MediaQuery.sizeOf(context).width;
     _gestureController.handleHorizontalUpdate(
       details: details,
-      width: width,
+      width: viewportSize.width,
       duration: duration,
     );
   }
@@ -534,19 +746,23 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
     if (_uiController.timelineInteractionActive) return;
     final result = _gestureController.completeHorizontalSeek();
     if (result == null) return;
-    unawaited(_controller.seek(result.target));
+    unawaited(_seekWithStats(result.target, userInitiated: true));
     if (result.restoreControlsVisible) {
       _showControls();
     }
   }
 
   void _handleGestureHorizontalCancel() {
+    _restoreSpeedBoostIfNeeded();
     if (_uiController.timelineInteractionActive) return;
     _gestureController.cancelHorizontalSeek();
   }
 
-  void _handleGestureVerticalStart(DragStartDetails details) {
-    final size = MediaQuery.sizeOf(context);
+  void _handleGestureVerticalStart(
+    DragStartDetails details,
+    Size viewportSize,
+  ) {
+    _restoreSpeedBoostIfNeeded();
     if (_isPointInsidePerformanceOverlay(details.localPosition)) return;
     final topInset = MediaQuery.viewPaddingOf(context).top;
     final guardHeight = (topInset + 56).clamp(64.0, 120.0);
@@ -555,34 +771,117 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
     }
     _gestureController.handleVerticalStart(
       details: details,
-      width: size.width,
-      height: size.height,
+      width: viewportSize.width,
+      height: viewportSize.height,
     );
+    unawaited(_syncDanmakuDynamicOcclusionConfig());
   }
 
-  void _handleGestureVerticalUpdate(DragUpdateDetails details) {
-    final height = MediaQuery.sizeOf(context).height;
-    _gestureController.handleVerticalUpdate(details: details, height: height);
+  void _handleGestureVerticalUpdate(
+    DragUpdateDetails details,
+    Size viewportSize,
+  ) {
+    _gestureController.handleVerticalUpdate(
+      details: details,
+      height: viewportSize.height,
+    );
   }
 
   void _handleGestureVerticalEnd(DragEndDetails details) {
     _gestureController.handleVerticalEnd();
+    unawaited(_syncDanmakuDynamicOcclusionConfig());
   }
 
   void _handleGestureVerticalCancel() {
     _gestureController.cancelVerticalAdjustment();
+    unawaited(_syncDanmakuDynamicOcclusionConfig());
   }
 
   void _handleGestureLongPressStart(LongPressStartDetails details) {
     if (_isPointInsidePerformanceOverlay(details.localPosition)) return;
     final started = _gestureController.beginSpeedBoost(_playbackSpeed);
     if (!started) return;
+    unawaited(HapticFeedback.lightImpact());
     unawaited(_controller.setSpeed(2.0));
   }
 
   void _handleGestureLongPressEnd(LongPressEndDetails details) {
-    final restoreSpeed = _gestureController.endSpeedBoost(_playbackSpeed);
+    _restoreSpeedBoostIfNeeded();
+  }
+
+  void _handleGestureLongPressCancel() {
+    _restoreSpeedBoostIfNeeded();
+  }
+
+  void _handleGestureTap() {
+    _restoreSpeedBoostIfNeeded();
+    if (_controlsVisible) {
+      _hideControlsAnimated();
+      return;
+    }
+    _toggleControls();
+  }
+
+  void _handleGestureDoubleTap() {
+    _restoreSpeedBoostIfNeeded();
+    _togglePlayback();
+  }
+
+  void _restoreSpeedBoostIfNeeded() {
+    final restoreSpeed = _gestureController.cancelSpeedBoost(_playbackSpeed);
+    if (restoreSpeed == null) return;
+    unawaited(HapticFeedback.selectionClick());
     unawaited(_controller.setSpeed(restoreSpeed));
+  }
+
+  // ignore: unused_element
+  Future<void> _showAudioOutputPicker() async {
+    return;
+    /*
+    _overlayState.cancelAutoHide();
+    final devices = await _playerSystemController.listAudioOutputDevices();
+    if (!mounted) return;
+    if (devices.isEmpty) {
+      final opened = await _playerSystemController.openAudioOutputSettings();
+      if (!mounted) return;
+      _showTopTip(
+        opened ? '未检测到可用输出，已打开系统音频设置' : '当前未检测到可用音频输出',
+        opened ? context.appColors.warning : context.appColors.danger,
+      );
+      if (_controlsVisible) {
+        _scheduleControlsAutoHide();
+      }
+      return;
+    }
+    final selected = await PlayerAudioOutputPicker.show(
+      context,
+      devices: devices,
+    );
+    if (!mounted) return;
+    if (selected == null) {
+      if (_controlsVisible) {
+        _scheduleControlsAutoHide();
+      }
+      return;
+    }
+    final result = await _playerSystemController.selectAudioOutputDevice(
+      selected.id,
+    );
+    if (!mounted) return;
+    final deviceName = result.deviceName.isNotEmpty
+        ? result.deviceName
+        : (selected.name.isNotEmpty ? selected.name : '当前设备');
+    if (result.switched) {
+      _showTopTip('已切换到 $deviceName', context.appColors.success);
+    } else if (result.systemFallback) {
+      _showTopTip('当前设备需在系统中完成切换', context.appColors.warning);
+    } else {
+      _showTopTip('切换音频输出失败', context.appColors.danger);
+    }
+    if (_controlsVisible) {
+      _scheduleControlsAutoHide();
+    }
+    */
   }
 
   Widget _buildTopBar(
@@ -591,15 +890,43 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
     required double titleFontSize,
     required bool visible,
   }) {
+    final media = MediaQuery.of(context);
+    final listenVideoActive = _listenVideoModeEnabled;
+    final showDownloadedBadge = _currentSourceIsDownloadedFile;
+    final showCacheDownloadAction =
+        media.orientation == Orientation.landscape &&
+        !showDownloadedBadge &&
+        _cacheDownloadAvailable &&
+        !listenVideoActive;
     return PlayerControlsTopBar(
       visible: visible,
       compactUi: compactUi,
+      showSystemStatus: media.orientation == Orientation.landscape,
       titleFontSize: titleFontSize,
       title: _currentTitle,
-      danmakuEnabled: _danmakuEnabled,
-      onBack: () => unawaited(_closePlayer()),
+      systemTimeLabel: _playerSystemTimeLabel,
+      systemNetworkType: _playerSystemNetworkType,
+      systemBatteryLevel: _playerSystemBatteryLevel,
+      systemBatteryCharging: _playerSystemCharging,
+      showDownloadedBadge: showDownloadedBadge,
+      danmakuEnabled: _danmakuEnabled && !listenVideoActive,
+      collapseActionsToSubtitleAndMore:
+          media.orientation == Orientation.portrait,
+      showPictureInPictureAction:
+          !listenVideoActive && _shouldShowPictureInPictureButton(),
+      showListenVideoAction: _shouldShowListenVideoAction(),
+      listenVideoActive: _listenVideoModeEnabled,
+      onBack: () => unawaited(_handleBackAction()),
+      onPictureInPicture: () => unawaited(_enterPictureInPictureMode()),
+      onToggleListenVideo: () => unawaited(_toggleListenVideoMode()),
+      showFitModeAction: !listenVideoActive,
       captureFrameBusy: _captureFrameInFlight,
-      onCaptureFrame: () => unawaited(_captureCurrentFrame()),
+      onCaptureFrame: listenVideoActive
+          ? null
+          : () => unawaited(_captureCurrentFrame()),
+      showCacheDownloadAction: showCacheDownloadAction,
+      cacheDownloadBusy: _cacheDownloadImportInFlight,
+      onCacheDownload: () => unawaited(_importCurrentPlaybackCacheToDownload()),
       abLoopLabel: _abLoopButtonLabel,
       abLoopActive: _abLoopButtonActive,
       onAbLoop: () => unawaited(_handleAbLoopButtonPressed()),
@@ -632,7 +959,7 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
             SizedBox(width: compactUi ? 8 : 10),
             PlayerTopIconButton(
               icon: Icons.fit_screen_outlined,
-              onPressed: () => _showTransientMessage('Display mode pending'),
+              onPressed: () => _showTransientMessage('画面模式暂未接入'),
             ),
             if (_danmakuEnabled) ...[
               SizedBox(width: compactUi ? 6 : 8),
@@ -650,6 +977,36 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
     ); */
   }
 
+  bool _shouldShowListenVideoAction() {
+    if (!_currentSourceHasVideoTrack()) {
+      return false;
+    }
+    return !widget.pictureInPictureActive;
+  }
+
+  Future<void> _toggleListenVideoMode() async {
+    _overlayState.cancelAutoHide();
+    final targetEnabled = !_listenVideoModeEnabled;
+    final result = await _controller.setListenVideoMode(targetEnabled);
+    if (!mounted) return;
+    if (result.success) {
+      _updatePlayerState(() => _listenVideoModeEnabled = result.enabled);
+      _showTopTip(
+        result.enabled ? '已开启听视频模式' : '已恢复视频画面',
+        context.appColors.success,
+        revealControls: true,
+      );
+      if (_controlsVisible) {
+        _scheduleControlsAutoHide();
+      }
+      return;
+    }
+    final message = result.message?.trim().isNotEmpty == true
+        ? result.message!.trim()
+        : (targetEnabled ? '听视频模式切换失败' : '视频画面恢复失败');
+    _showTopTip(message, context.appColors.danger, revealControls: true);
+  }
+
   Future<void> _captureCurrentFrame() async {
     if (_captureFrameInFlight) return;
     _updatePlayerState(() => _captureFrameInFlight = true);
@@ -661,10 +1018,13 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
       );
       if (!mounted) return;
       final success = result['success'] == true;
+      final code = result['code']?.toString().trim() ?? '';
       final rawMessage = result['message']?.toString().trim() ?? '';
-      final message = rawMessage.isNotEmpty
-          ? rawMessage
-          : (success ? '截图已保存' : '截图失败');
+      final message = _captureResultMessage(
+        success: success,
+        code: code,
+        rawMessage: rawMessage,
+      );
       _showTopTip(
         message,
         success ? context.appColors.success : context.appColors.warning,
@@ -682,6 +1042,77 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
         _captureFrameInFlight = false;
       }
     }
+  }
+
+  String _captureResultMessage({
+    required bool success,
+    required String code,
+    required String rawMessage,
+  }) {
+    if (success) {
+      return '截图已保存';
+    }
+    switch (code) {
+      case 'custom_directory_required':
+        return '请先在截图设置里选择自定义目录';
+      case 'custom_directory_unavailable':
+        return '自定义目录不可用，请重新选择';
+    }
+    switch (rawMessage) {
+      case 'capture unavailable':
+        return '当前还不能截图';
+      case 'capture failed':
+        return '截图失败';
+      case 'capture save failed':
+        return '截图保存失败';
+      case 'capture saved':
+        return '截图已保存';
+      case 'Please choose a custom screenshot directory first':
+        return '请先在截图设置里选择自定义目录';
+      case 'Custom screenshot directory is unavailable':
+        return '自定义目录不可用，请重新选择';
+      default:
+        return rawMessage.isNotEmpty ? rawMessage : '截图失败';
+    }
+  }
+
+  bool _shouldShowPictureInPictureButton() {
+    if (!_pictureInPictureSupported) {
+      return false;
+    }
+    if (widget.pictureInPictureActive) {
+      return false;
+    }
+    if (widget.parallelLayoutMode != 'fullscreen') {
+      return false;
+    }
+    if (_parallelWindowSupported && _parallelWindowEnabled) {
+      return false;
+    }
+    return true;
+  }
+
+  Future<void> _handlePictureInPictureActivated() async {
+    _controlsTimer?.cancel();
+    _hideSpeedDialOverlay(restoreAutoHide: false);
+    for (var index = 0; index < 4; index++) {
+      final dismissed = await _dismissActiveTransientUi();
+      if (!dismissed) break;
+    }
+    if (!mounted) return;
+    _hideControlsImmediately();
+  }
+
+  Future<void> _enterPictureInPictureMode() async {
+    if (!_shouldShowPictureInPictureButton()) {
+      return;
+    }
+    await _handlePictureInPictureActivated();
+    final entered = await PlayerHostBridge.enterPictureInPicture();
+    if (!mounted || entered) {
+      return;
+    }
+    _showTopTip('当前无法进入小窗播放', context.appColors.warning);
   }
 
   Widget _buildBottomPanel({
@@ -719,6 +1150,8 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
       progressHighlight: _abLoopProgressHighlight(duration),
       value: value,
       statusCard: _buildStatusCard(value),
+      resumePrompt: _buildResumePromptData(duration),
+      autoPlayPrompt: _buildAutoPlayPromptData(),
       bottomControls: _buildBottomControls(
         value: value,
         compactUi: compactUi,
@@ -767,10 +1200,10 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
                 _uiController.draggingPosition = null;
                 _uiController.timelineInteractionActive = false;
               });
-              await _controller.seek(target);
+              await _seekWithStats(target, userInitiated: true);
               _showControls();
             },
-      onToggleOrientation: !minimalSeekMode ? _togglePlayerOrientation : null,
+      onToggleOrientation: _togglePlayerOrientation,
       formatDuration: _formatDuration,
     );
   }
@@ -810,12 +1243,133 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
     );
   }
 
+  PlayerResumePromptData? _buildResumePromptData(Duration duration) {
+    if (!_overlayState.resumePromptVisible) {
+      return null;
+    }
+    if (!_shouldShowResumePrompt(
+      startPosition: _resumeStartPosition,
+      durationSeconds: duration.inSeconds,
+    )) {
+      return null;
+    }
+    final resumeLabel = _formatDuration(_resumeStartPosition);
+    return PlayerResumePromptData(
+      message: _t(
+        'player.play.resumePrompt',
+        '继续播放到 {position}',
+        params: <String, Object?>{'position': resumeLabel},
+      ),
+      restartLabel: _t('player.play.restartFromBeginning', '从头播放'),
+      onRestart: () {
+        unawaited(_restartFromBeginningFromResumePrompt());
+      },
+      onDismiss: () {
+        _setResumePromptVisibility(false);
+        _scheduleControlsAutoHide();
+      },
+    );
+  }
+
+  PlayerAutoPlayPromptData? _buildAutoPlayPromptData() {
+    if (!_completionController.autoPlayPromptVisible ||
+        !_completionController.completionHasNextEpisode) {
+      return null;
+    }
+    final seconds = _completionController.autoPlayCountdownSeconds.clamp(1, 99);
+    return PlayerAutoPlayPromptData(
+      message: _t(
+        'player.play.autoPlayPrompt',
+        '{seconds} 秒后自动连播下一集',
+        params: <String, Object?>{'seconds': seconds},
+      ),
+      onSkip: () {
+        _cancelAutoPlayPrompt();
+      },
+      onReplay: () {
+        unawaited(_replayCurrentEpisodeFromPrompt());
+      },
+    );
+  }
+
+  Widget _buildPlaybackCompletedOverlay({required bool compactUi}) {
+    final data = _buildPlaybackCompletedData();
+    if (data == null) {
+      return const SizedBox.shrink();
+    }
+    return Positioned.fill(
+      child: ColoredBox(
+        color: Colors.black.withValues(alpha: 0.38),
+        child: SafeArea(
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: compactUi ? 20 : 28,
+              vertical: compactUi ? 20 : 28,
+            ),
+            child: PlayerPlaybackCompletedPanel(compact: compactUi, data: data),
+          ),
+        ),
+      ),
+    );
+  }
+
+  PlayerPlaybackCompletedData? _buildPlaybackCompletedData() {
+    if (!_playbackCompleted) {
+      return null;
+    }
+    final nasProvider = _nasProvider ?? context.read<NasProvider>();
+    final token = nasProvider.token.trim();
+    final posterUrls = _resolveSystemPlaybackArtworkUrls();
+    final duration = _effectiveDuration();
+    return PlayerPlaybackCompletedData(
+      title: _currentTitle.trim().isEmpty ? '当前视频' : _currentTitle.trim(),
+      durationLabel: _formatDuration(duration),
+      posterUrls: posterUrls,
+      token: token,
+      onReplay: () {
+        unawaited(_replayCompletedItem());
+      },
+      onBack: () {
+        unawaited(_closePlayer());
+      },
+    );
+  }
+
+  void _cancelAutoPlayPrompt() {
+    _completionController.suppressAutoPlayPromptForCurrentItem();
+    _invalidateNextEpisodePreload();
+    _overlayState.showControls();
+    _overlayState.cancelAutoHide();
+  }
+
+  Future<void> _restartFromBeginningFromResumePrompt() async {
+    _setResumePromptVisibility(false);
+    _resumeStartPosition = Duration.zero;
+    _gestureController.resetSeekTracking();
+    await _seekWithStats(Duration.zero, userInitiated: false);
+    if (!mounted) {
+      return;
+    }
+    if (_controller.value.value.paused) {
+      await _controller.play();
+      if (!mounted) {
+        return;
+      }
+    }
+    _showControls();
+    _scheduleControlsAutoHide();
+  }
+
   Widget _buildBottomControls({
     required MpvPlayerValue value,
     required bool compactUi,
     required bool isLandscape,
   }) {
+    final listenVideoActive = _listenVideoModeEnabled;
     final portraitTightControls = !isLandscape;
+    final portraitBottomPadding = portraitTightControls
+        ? (compactUi ? 6.0 : 8.0)
+        : 0.0;
     final playControlScale = portraitTightControls ? 0.66 : 1.0;
     final sideControlScale = portraitTightControls ? 0.72 : 1.0;
     final portraitPlayMinSize = portraitTightControls ? 28.0 : null;
@@ -826,7 +1380,7 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
       PlayerActionTextButton(label: '选集', onPressed: _showEpisodeSheet),
       PlayerActionTextButton(
         label: _speedLabel(_playbackSpeed),
-        onPressed: _showSpeedSheet,
+        onPressed: _toggleSpeedDialOverlay,
       ),
       PlayerActionTextButton(label: '音轨', onPressed: _showAudioSheet),
       PlayerActionTextButton(
@@ -843,6 +1397,14 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
           onPressed: () => unawaited(_showCloudDriveModeSheet()),
         ),
     ];
+    if (listenVideoActive) {
+      if (actionButtons.length > 5) {
+        actionButtons.removeAt(5);
+      }
+      if (actionButtons.length > 4) {
+        actionButtons.removeAt(4);
+      }
+    }
     if (!_shouldShowEpisodeEntry() && actionButtons.length > 1) {
       actionButtons.removeAt(1);
     }
@@ -853,9 +1415,10 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
         PlayerBottomControlButton(
           icon: value.paused ? Icons.play_arrow_rounded : Icons.pause_rounded,
           loading:
-              _uiController.pendingLoadingTransition ||
-              _uiController.qualitySwitchLoading ||
-              _uiController.awaitingVisualPlaybackStart,
+              !_uiController.backgroundLoadingTransition &&
+              (_uiController.pendingLoadingTransition ||
+                  _uiController.qualitySwitchLoading ||
+                  _uiController.awaitingVisualPlaybackStart),
           compact: compactUi,
           emphasis: true,
           scale: playControlScale,
@@ -872,15 +1435,17 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
           paddingOverride: portraitControlPadding,
           onPressed: _showNextEpisode,
         ),
-        SizedBox(width: portraitTightControls ? 1 : (compactUi ? 2 : 4)),
-        PlayerBottomAssetControlButton(
-          assetName: _danmakuToggleAsset,
-          compact: compactUi,
-          scale: sideControlScale,
-          minSizeOverride: portraitSideMinSize,
-          paddingOverride: portraitControlPadding,
-          onPressed: () => unawaited(_toggleDanmakuEnabled()),
-        ),
+        if (!listenVideoActive) ...[
+          SizedBox(width: portraitTightControls ? 1 : (compactUi ? 2 : 4)),
+          PlayerBottomAssetControlButton(
+            assetName: _danmakuToggleAsset,
+            compact: compactUi,
+            scale: sideControlScale,
+            minSizeOverride: portraitSideMinSize,
+            paddingOverride: portraitControlPadding,
+            onPressed: () => unawaited(_toggleDanmakuEnabled()),
+          ),
+        ],
       ],
     );
 
@@ -891,12 +1456,43 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
       children: actionButtons,
     );
 
+    if (portraitTightControls) {
+      return Padding(
+        padding: EdgeInsets.only(bottom: portraitBottomPadding),
+        child: Row(
+          children: [
+            leadingControls,
+            const SizedBox(width: 6),
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  reverse: true,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (var i = 0; i < actionButtons.length; i++) ...[
+                        actionButtons[i],
+                        if (i != actionButtons.length - 1)
+                          const SizedBox(width: 8),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Transform.translate(
-      offset: Offset(0, isLandscape ? -1 : 0),
+      offset: const Offset(0, -1),
       child: Row(
         children: [
           leadingControls,
-          SizedBox(width: portraitTightControls ? 2 : (compactUi ? 6 : 12)),
+          SizedBox(width: compactUi ? 6 : 12),
           Expanded(
             child: Align(alignment: Alignment.centerRight, child: actionGroup),
           ),
@@ -906,6 +1502,7 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
   }
 
   Future<void> _showCloudDriveModeSheet() async {
+    _hideSpeedDialOverlay(restoreAutoHide: false);
     _overlayState.cancelAutoHide();
     final restoreControls = _controlsVisible;
     if (restoreControls) {
@@ -1030,11 +1627,7 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
         ? _cloudDriveDirectQualityOption()
         : _cloudDriveProxyQualityOption();
     if (quality == null) {
-      _showTransientMessage(
-        direct
-            ? 'No direct cloud-drive stream is available'
-            : 'No NAS proxy stream is available',
-      );
+      _showTransientMessage(direct ? '当前没有可用的网盘直链播放源' : '当前没有可用的 NAS 代理播放源');
       return;
     }
     final alreadySelected = direct

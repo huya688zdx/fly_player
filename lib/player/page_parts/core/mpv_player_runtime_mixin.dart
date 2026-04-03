@@ -1,4 +1,7 @@
-﻿part of mpv_player_page;
+part of mpv_player_page;
+
+const Duration _serverManagedPlayLinkCheckCooldown = Duration(seconds: 12);
+const Duration _serverSessionRecoveryCooldown = Duration(seconds: 8);
 
 class _ChapterSkipSegment extends PlayerChapterSkipSegment {
   const _ChapterSkipSegment({
@@ -17,7 +20,282 @@ class _ChapterSkipSegment extends PlayerChapterSkipSegment {
 }
 
 extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
+  double _effectiveSubtitlePositionFactor() {
+    return _subtitlePositionFactor.clamp(0.0, 1.0).toDouble();
+  }
+
+  int _effectiveSubtitleMpvPosition() {
+    return ((1 - _effectiveSubtitlePositionFactor()) * 100)
+        .round()
+        .clamp(0, 100)
+        .toInt();
+  }
+
+  Future<void> _syncEffectiveSubtitlePosition({bool force = false}) async {
+    final nextPosition = _effectiveSubtitleMpvPosition();
+    if (!force && _lastAppliedEffectiveSubtitlePosition == nextPosition) {
+      return;
+    }
+    _lastAppliedEffectiveSubtitlePosition = nextPosition;
+    await _controller.setSubtitlePosition(nextPosition);
+  }
+
+  PlayInfoData? _playStatsInitialInfoForSource(MpvMediaSource source) {
+    final info = widget.initialPlayInfo;
+    if (info == null) return null;
+    final sourceItemGuid = source.itemGuid.trim();
+    final infoItemGuid = info.item.guid.trim();
+    if (sourceItemGuid.isEmpty || infoItemGuid.isEmpty) {
+      return null;
+    }
+    return sourceItemGuid == infoItemGuid ? info : null;
+  }
+
+  PlayStatsAnimeIdentity _playStatsAnimeIdentity({
+    required PlayInfoData? info,
+    required MpvMediaSource source,
+    required String fallbackTitle,
+  }) {
+    final item = info?.item;
+    return PlayStatsIdentityResolver.resolveAnimeIdentity(
+      seriesGuid: source.seriesGuid.trim(),
+      grandGuid: info?.grandGuid.trim() ?? '',
+      trimId: item?.trimId ?? source.tmdbId,
+      tvTitle: item?.tvTitle ?? '',
+      seriesTitle: source.seriesTitle,
+      fallbackTitle: fallbackTitle,
+    );
+  }
+
+  String _playStatsSeasonTitle({
+    required PlayInfoData? info,
+    required MpvMediaSource source,
+    required String animeTitle,
+  }) {
+    final item = info?.item;
+    if (item?.parentTitle.trim().isNotEmpty == true) {
+      return item!.parentTitle.trim();
+    }
+    final seasonNumber = item?.seasonNumber ?? source.seasonNumber;
+    if (seasonNumber > 0) {
+      return '第${seasonNumber}季';
+    }
+    if ((item?.episodeNumber ?? source.episodeNumber) > 0) {
+      return '特别篇';
+    }
+    return animeTitle;
+  }
+
+  int _playStatsYearFromItem(PlayItem? item) {
+    final rawValue = <String>[
+      item?.releaseDate ?? '',
+      item?.airDate ?? '',
+    ].firstWhere((value) => value.trim().isNotEmpty, orElse: () => '');
+    final match = RegExp(r'(\d{4})').firstMatch(rawValue);
+    return int.tryParse(match?.group(1) ?? '') ?? 0;
+  }
+
+  List<String> _playStatsCountryCodesFromItem(PlayItem? item) {
+    if (item == null || item.productionCountries.isEmpty) {
+      return const <String>[];
+    }
+    return item.productionCountries
+        .map((value) => value.trim().toUpperCase())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+  }
+
+  List<int> _playStatsGenreIdsFromItem(PlayItem? item) {
+    if (item == null || item.genres.isEmpty) {
+      return const <int>[];
+    }
+    return item.genres
+        .where((value) => value > 0)
+        .toSet()
+        .toList(growable: false);
+  }
+
+  bool _playStatsCountsTowardCompletion(
+    PlayInfoData? info,
+    MpvMediaSource source,
+  ) {
+    final type =
+        (info?.type.isNotEmpty == true
+                ? info!.type
+                : (info?.item.type.isNotEmpty == true
+                      ? info!.item.type
+                      : (_currentMediaType.trim().isNotEmpty
+                            ? _currentMediaType
+                            : source.mediaType)))
+            .trim()
+            .toLowerCase();
+    final episodeNumber = info?.item.episodeNumber ?? _currentEpisodeNumber;
+    return type == 'episode' && episodeNumber > 0;
+  }
+
+  PlayStatsVideoMeta _buildPlayStatsVideoMeta({
+    required MpvMediaSource source,
+    PlayInfoData? info,
+    int? mediaDurationMs,
+  }) {
+    final currentInfo = info ?? _playStatsCurrentInfo;
+    final item = currentInfo?.item;
+    final videoId =
+        (_currentItemGuid.trim().isNotEmpty
+                ? _currentItemGuid.trim()
+                : source.itemGuid.trim())
+            .trim();
+    final title = _currentTitle.trim().isNotEmpty
+        ? _currentTitle.trim()
+        : source.title.trim();
+    final animeIdentity = _playStatsAnimeIdentity(
+      info: currentInfo,
+      source: source,
+      fallbackTitle: title,
+    );
+    final seasonTitle = _playStatsSeasonTitle(
+      info: currentInfo,
+      source: source,
+      animeTitle: animeIdentity.animeTitle,
+    );
+    final effectiveDurationMs =
+        mediaDurationMs ??
+        (() {
+          final effectiveDuration = _effectiveDuration().inMilliseconds;
+          if (effectiveDuration > 0) return effectiveDuration;
+          if (_durationSeconds > 0) return _durationSeconds * 1000;
+          return source.durationSeconds > 0 ? source.durationSeconds * 1000 : 0;
+        })();
+    final countryCodes = _playStatsCountryCodesFromItem(item);
+    final country = countryCodes.isEmpty ? '' : countryCodes.first;
+    return PlayStatsVideoMeta(
+      videoId: videoId,
+      animeId: animeIdentity.animeId,
+      seasonId: currentInfo?.parentGuid.trim().isNotEmpty == true
+          ? currentInfo!.parentGuid.trim()
+          : (_currentSeasonGuid.trim().isNotEmpty
+                ? _currentSeasonGuid.trim()
+                : source.seasonGuid.trim()),
+      title: title,
+      animeTitle: animeIdentity.animeTitle,
+      seasonTitle: seasonTitle,
+      videoKind:
+          (currentInfo?.type.isNotEmpty == true
+                  ? currentInfo!.type
+                  : (item?.type.isNotEmpty == true
+                        ? item!.type
+                        : (_currentMediaType.trim().isNotEmpty
+                              ? _currentMediaType
+                              : source.mediaType)))
+              .trim(),
+      countsTowardCompletion: _playStatsCountsTowardCompletion(
+        currentInfo,
+        source,
+      ),
+      country: country,
+      countryCodes: countryCodes,
+      genreIds: _playStatsGenreIdsFromItem(item),
+      year: _playStatsYearFromItem(item),
+      mediaDurationMs: effectiveDurationMs,
+      credits: const <PlayStatsCredit>[],
+    );
+  }
+
+  Future<void> _startPlayStatsSession({
+    required PlayStartSource startSource,
+    PlayInfoData? info,
+    MpvMediaSource? source,
+    int? startPositionMs,
+  }) async {
+    final effectiveSource = source ?? widget.source;
+    final existingInfo = _playStatsCurrentInfo;
+    final currentInfo =
+        info ??
+        (existingInfo != null &&
+                existingInfo.item.guid.trim() == effectiveSource.itemGuid.trim()
+            ? existingInfo
+            : null);
+    final meta = _buildPlayStatsVideoMeta(
+      source: effectiveSource,
+      info: currentInfo,
+    );
+    if (meta.videoId.isEmpty) return;
+    if (_playStatsCurrentVideoId == meta.videoId) {
+      return;
+    }
+    _playStatsCurrentInfo = currentInfo;
+    _playStatsCurrentVideoId = meta.videoId;
+    await _playStatsSessionController.startPlayback(
+      PlayStatsStartContext(
+        startSource: startSource,
+        meta: meta,
+        startPositionMs:
+            (startPositionMs ?? effectiveSource.startPosition.inMilliseconds)
+                .clamp(0, 1 << 31),
+        startedAtMs: DateTime.now().millisecondsSinceEpoch,
+      ),
+    );
+  }
+
+  Future<void> _finishPlayStatsSession(String reason) async {
+    final videoId = _playStatsCurrentVideoId;
+    _playStatsCurrentVideoId = '';
+    if (videoId.isEmpty) return;
+    await _playStatsSessionController.finishPlayback(reason: reason);
+    final provider =
+        _nasProvider ?? (mounted ? context.read<NasProvider>() : null);
+    if (provider != null) {
+      PlayStatsService.instance.metadataBackfillService.schedule(
+        provider: provider,
+        preferredVideoIds: <String>[videoId],
+      );
+    }
+  }
+
+  Future<void> _seekWithStats(
+    Duration target, {
+    required bool userInitiated,
+  }) async {
+    final fromMs =
+        (_uiController.draggingPosition ?? _controller.value.value.position)
+            .inMilliseconds;
+    final toMs = target.inMilliseconds.clamp(0, 1 << 31);
+    _playStatsSessionController.recordSeek(
+      fromMs: fromMs < 0 ? 0 : fromMs,
+      toMs: toMs,
+      userInitiated: userInitiated,
+    );
+    await _controller.seek(Duration(milliseconds: toMs));
+  }
+
+  OpEdSegment? _playStatsSegmentFromChapter(PlayerChapterSkipSegment? segment) {
+    if (segment == null) return null;
+    return OpEdSegment(
+      isIntro: segment.isIntro,
+      startMs: segment.start.inMilliseconds,
+      endMs: segment.end.inMilliseconds,
+    );
+  }
+
+  void _syncPlayStatsOpEdSegments() {
+    _playStatsSessionController.markOpEdDetected(
+      intro: _playStatsSegmentFromChapter(_inferredIntroSkip),
+      outro: _playStatsSegmentFromChapter(_inferredOutroSkip),
+    );
+  }
+
   void _hydrateFromSource(MpvMediaSource source) {
+    final previousSeriesGuid = _currentSeriesGuid.trim();
+    final previousSourceWasDownloaded = _currentSourceIsDownloadedFile;
+    final nextSeriesGuid = source.seriesGuid.trim();
+    final nextSourceIsDownloaded =
+        source.isDownloadedFile ||
+        source.url.trim().toLowerCase().startsWith('file:');
+    if (previousSeriesGuid != nextSeriesGuid ||
+        previousSourceWasDownloaded != nextSourceIsDownloaded) {
+      _invalidateEpisodePickerSeasonCache(clearCurrentItems: true);
+    }
     _chapterRetryTimer?.cancel();
     _centerPopupTimer?.cancel();
     _uiController.resetForSourceChange();
@@ -31,6 +309,12 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     _subtitleController.resetForSourceChange(
       pendingSelectionRefresh: (_currentSubtitleGuid ?? '').trim().isNotEmpty,
     );
+    for (final entry in source.localSubtitleFiles.entries) {
+      _subtitleController.cacheLocalSubtitleFile(
+        guid: entry.key,
+        path: entry.value,
+      );
+    }
     _currentResolution = source.resolution;
     _currentBitrate = source.bitrate;
     _durationSeconds = source.durationSeconds;
@@ -45,6 +329,8 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     _outroChapterIndex = null;
     _officialIntroDurationSeconds = 0;
     _officialOutroDurationSeconds = 0;
+    _primeIntroOutroConfigFromInitialPlayInfo(source);
+    _playStatsCurrentInfo = _playStatsInitialInfoForSource(source);
     _inferredIntroSkip = null;
     _inferredOutroSkip = null;
     _uiController.activeChapterSkipPrompt = null;
@@ -58,16 +344,96 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     _prefetchedReturnDetailAudioGuid = null;
     _prefetchedReturnDetailSubtitleGuid = null;
     _returnDetailPrefetchGeneration = 0;
-    _overlayState.setResumePromptVisible(
+    _setResumePromptVisibility(
       _shouldShowResumePrompt(
         startPosition: _resumeStartPosition,
         durationSeconds: source.durationSeconds,
       ),
     );
-    _syncDanmakuMediaContext();
+    _syncDanmakuMediaContext(triggerAutoLoad: _danmakuController.ready);
+    _runtimeTrackSnapshotInFlight = false;
+    _runtimeTrackSnapshotLoaded = false;
+    _runtimeTrackSnapshotLoadNonce = 0;
+    _runtimeTrackSnapshotStatus = '';
+    _cacheDownloadAvailable = false;
+    _cacheDownloadCheckInFlight = false;
+    _cacheDownloadImportInFlight = false;
+    _cacheCompletionTipShown = false;
+    _cacheDownloadConsumedForSource = false;
+    _cacheDownloadCheckToken = 0;
     unawaited(
       _startOrUpdateSystemPlaybackSession(forceStart: true, force: true),
     );
+  }
+
+  void _primeIntroOutroConfigFromInitialPlayInfo(MpvMediaSource source) {
+    final initialPlayInfo = widget.initialPlayInfo;
+    if (initialPlayInfo == null) return;
+    final sourceItemGuid = source.itemGuid.trim();
+    final initialItemGuid = initialPlayInfo.item.guid.trim();
+    if (sourceItemGuid.isEmpty ||
+        initialItemGuid.isEmpty ||
+        sourceItemGuid != initialItemGuid) {
+      return;
+    }
+    final config = initialPlayInfo.playConfig;
+    _introOutroConfigGuid = _resolveIntroOutroConfigGuid(initialPlayInfo);
+    _officialIntroDurationSeconds =
+        _normalizedIntroOutroSkipValue(config?.skipOpening) ?? 0;
+    _officialOutroDurationSeconds =
+        _normalizedIntroOutroSkipValue(config?.skipEnding) ?? 0;
+    _introOutroConfigLoaded = true;
+  }
+
+  bool _isLocalRuntimeTrackSource() {
+    return _localRuntimeTrackController.isLocalPlaybackUrl(_currentUrl);
+  }
+
+  bool _shouldRefreshRuntimeTracks(MpvPlayerValue value, {bool force = false}) {
+    return _localRuntimeTrackController.shouldRefresh(
+      isLocalPlayback: _isLocalRuntimeTrackSource(),
+      value: value,
+      currentSubtitleGuid: _currentSubtitleGuid,
+      pendingSubtitleSelectionRefresh: _pendingSubtitleSelectionRefresh,
+      pendingExternalSubtitlePath: _pendingExternalSubtitlePath,
+      lastSnapshotLoadNonce: _runtimeTrackSnapshotLoadNonce,
+      lastSnapshotStatus: _runtimeTrackSnapshotStatus,
+      force: force,
+    );
+  }
+
+  Future<bool> _refreshRuntimeTracks({bool force = false}) async {
+    final value = _controller.value.value;
+    if (!_shouldRefreshRuntimeTracks(value, force: force)) {
+      return _runtimeTrackSnapshotLoaded;
+    }
+    if (_runtimeTrackSnapshotInFlight) {
+      return _runtimeTrackSnapshotLoaded;
+    }
+    _runtimeTrackSnapshotInFlight = true;
+    try {
+      final snapshot = await _controller.getTrackSnapshot();
+      if (!mounted) return false;
+      final result = _localRuntimeTrackController.applySnapshot(
+        snapshot: snapshot,
+        currentAudioTracks: _audioTracks,
+        currentSubtitleTracks: _subtitleTracks,
+        currentAudioGuid: _currentAudioGuid,
+        currentSubtitleGuid: _currentSubtitleGuid,
+      );
+      _updatePlayerState(() {
+        _audioTracks = result.audioTracks;
+        _subtitleTracks = result.subtitleTracks;
+        _currentAudioGuid = result.selectedAudioGuid;
+        _currentSubtitleGuid = result.selectedSubtitleGuid;
+        _runtimeTrackSnapshotLoaded = true;
+        _runtimeTrackSnapshotLoadNonce = value.loadNonce;
+        _runtimeTrackSnapshotStatus = value.statusText.trim().toLowerCase();
+      });
+      return true;
+    } finally {
+      _runtimeTrackSnapshotInFlight = false;
+    }
   }
 
   Future<void> _deleteTempFile(String path) async {
@@ -110,6 +476,43 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     return value.duration;
   }
 
+  bool _shouldApplyPendingExternalSubtitlePath(String pendingPath) {
+    final normalizedPath = pendingPath.trim();
+    if (normalizedPath.isEmpty) return false;
+    final selectedGuid = (_currentSubtitleGuid ?? '').trim();
+    if (selectedGuid.isEmpty) return false;
+    final selectedTrack = _findSubtitleTrack(selectedGuid);
+    if (!_subtitleShouldUseExternalFile(selectedTrack)) {
+      return false;
+    }
+    final expectedPath = _subtitleFileByGuid[selectedGuid]?.trim() ?? '';
+    if (expectedPath.isEmpty) {
+      return true;
+    }
+    return expectedPath == normalizedPath;
+  }
+
+  Duration _completionReferenceDuration(MpvPlayerValue value) {
+    final runtimeDuration = value.duration;
+    final metadataDuration = _durationSeconds > 0
+        ? Duration(seconds: _durationSeconds)
+        : Duration.zero;
+    if (runtimeDuration > Duration.zero) {
+      return runtimeDuration >= metadataDuration
+          ? runtimeDuration
+          : metadataDuration;
+    }
+    if (_currentSourceIsDownloadedFile) {
+      return Duration.zero;
+    }
+    return metadataDuration;
+  }
+
+  bool _hasPlayedLongEnoughForAutoPlay(Duration displayPosition) {
+    return displayPosition >=
+        _MpvPlayerPageState._autoPlayPromptMinimumProgress;
+  }
+
   String _t(
     String path,
     String fallback, {
@@ -125,22 +528,117 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
 
   Future<void> _loadInitialPlayerPreferences() async {
     final preferences = await _runtimePreferencesStore.load();
+    final mpvBundle = await _mpvSettingsStore.loadBundle();
+    final savedPicturePresets = await _mpvSettingsStore.loadSavedPresets(
+      SavedMpvPresetKind.picture,
+    );
+    final savedAudioPresets = await _mpvSettingsStore.loadSavedPresets(
+      SavedMpvPresetKind.audio,
+    );
+    final pictureInPictureSupported =
+        await PlayerHostBridge.isPictureInPictureSupported();
+    final parallelWindowSupported =
+        await EmbeddedDetailLauncher.canOpenEmbeddedDetail();
+    final parallelWindowSettings = parallelWindowSupported
+        ? await ParallelWindowSettingsBridge.load()
+        : null;
     if (!mounted) {
       _settingsController.applyRuntimePreferences(preferences);
+      _mpvSettings = mpvBundle.settings;
+      _videoAdjustments = mpvBundle.videoAdjustments;
+      _savedMpvPicturePresets = savedPicturePresets;
+      _savedMpvAudioPresets = savedAudioPresets;
+      _pictureInPictureSupported = pictureInPictureSupported;
+      _parallelWindowSupported = parallelWindowSupported;
+      _parallelWindowEnabled =
+          parallelWindowSupported && (parallelWindowSettings?.enabled ?? false);
       _performanceOverlayOffsetNotifier.value =
           preferences.performanceOverlayOffset;
+      _initialPlayerPreferencesLoaded = true;
       return;
     }
     _updatePlayerState(() {
       _settingsController.applyRuntimePreferences(preferences);
+      _mpvSettings = mpvBundle.settings;
+      _videoAdjustments = mpvBundle.videoAdjustments;
+      _savedMpvPicturePresets = savedPicturePresets;
+      _savedMpvAudioPresets = savedAudioPresets;
+      _pictureInPictureSupported = pictureInPictureSupported;
+      _parallelWindowSupported = parallelWindowSupported;
+      _parallelWindowEnabled =
+          parallelWindowSupported && (parallelWindowSettings?.enabled ?? false);
       _performanceOverlayOffsetNotifier.value =
           preferences.performanceOverlayOffset;
     });
     _syncPerformanceOverlayPolling();
     _recomputeChapterSkipSegments();
+    await _controller.setDecoderMode(_decoderMode);
+    await _controller.setDisplayAspectRatioMode(_displayAspectRatioMode);
+    await _controller.setVideoAdjustments(_videoAdjustments);
     await _controller.setMpvAdvancedSettings(
-      _effectiveMpvSettings(preferences.mpvSettings),
+      _effectiveMpvSettings(mpvBundle.settings),
     );
+    _initialPlayerPreferencesLoaded = true;
+    _tryStartInitialSourceLoad();
+  }
+
+  Future<void> _refreshSavedMpvPresets() async {
+    final savedPicturePresets = await _mpvSettingsStore.loadSavedPresets(
+      SavedMpvPresetKind.picture,
+    );
+    final savedAudioPresets = await _mpvSettingsStore.loadSavedPresets(
+      SavedMpvPresetKind.audio,
+    );
+    if (!mounted) {
+      _savedMpvPicturePresets = savedPicturePresets;
+      _savedMpvAudioPresets = savedAudioPresets;
+      return;
+    }
+    _updatePlayerState(() {
+      _savedMpvPicturePresets = savedPicturePresets;
+      _savedMpvAudioPresets = savedAudioPresets;
+    });
+  }
+
+  Future<void> _syncMpvPresetStateFromStore() async {
+    final bundle = await _mpvSettingsStore.loadBundle();
+    final savedPicturePresets = await _mpvSettingsStore.loadSavedPresets(
+      SavedMpvPresetKind.picture,
+    );
+    final savedAudioPresets = await _mpvSettingsStore.loadSavedPresets(
+      SavedMpvPresetKind.audio,
+    );
+    if (!mounted) {
+      _mpvSettings = bundle.settings;
+      _videoAdjustments = bundle.videoAdjustments;
+      _savedMpvPicturePresets = savedPicturePresets;
+      _savedMpvAudioPresets = savedAudioPresets;
+      return;
+    }
+    _updatePlayerState(() {
+      _mpvSettings = bundle.settings;
+      _videoAdjustments = bundle.videoAdjustments;
+      _savedMpvPicturePresets = savedPicturePresets;
+      _savedMpvAudioPresets = savedAudioPresets;
+    });
+  }
+
+  Future<void> _applyStoredMpvBundle(MpvSettingsBundle bundle) async {
+    if (!mounted) {
+      _mpvSettings = bundle.settings;
+      _videoAdjustments = bundle.videoAdjustments;
+      return;
+    }
+    _updatePlayerState(() {
+      _mpvSettings = bundle.settings;
+      _videoAdjustments = bundle.videoAdjustments;
+    });
+    await _controller.setVideoAdjustments(bundle.videoAdjustments);
+    _prepareSubtitleSelectionForPlayerReconfigure();
+    await _controller.setMpvAdvancedSettings(
+      _effectiveMpvSettings(bundle.settings),
+    );
+    _scheduleDeferredSubtitleSelectionRefresh();
   }
 
   Future<void> _setAutoPlayEnabled(bool enabled) async {
@@ -150,6 +648,24 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     );
     if (!mounted) return;
     _updatePlayerState(() => _autoPlayEnabled = enabled);
+    if (!enabled) {
+      _invalidateNextEpisodePreload();
+    }
+  }
+
+  Future<void> _setNextEpisodePreloadEnabled(bool enabled) async {
+    await _runtimePreferencesStore.setBool(
+      _MpvPlayerPageState._nextEpisodePreloadPrefKey,
+      enabled,
+    );
+    if (!mounted) {
+      _nextEpisodePreloadEnabled = enabled;
+      return;
+    }
+    _updatePlayerState(() => _nextEpisodePreloadEnabled = enabled);
+    if (!enabled) {
+      _invalidateNextEpisodePreload();
+    }
   }
 
   Future<void> _setAutoRotateEnabled(bool enabled) async {
@@ -218,7 +734,6 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
       return;
     }
     _updatePlayerState(() => _fpsOverlayEnabled = enabled);
-    _syncPerformanceOverlayPolling();
   }
 
   Future<void> _persistPerformanceOverlayOffset(Offset offset) async {
@@ -510,17 +1025,30 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
   }
 
   void _handlePlatformViewCreated(int viewId) {
+    _updatePlayerState(() => _platformViewAttached = true);
     _controller.attach(viewId);
-    unawaited(_controller.setDecoderMode(_decoderMode));
-    unawaited(_controller.setDisplayAspectRatioMode(_displayAspectRatioMode));
-    unawaited(_controller.setMpvAdvancedSettings(_effectiveMpvSettings()));
     _syncPerformanceOverlayPolling();
+    unawaited(_syncDanmakuDynamicOcclusionConfig());
+    unawaited(_syncNativeDanmakuRenderer());
+    _tryStartInitialSourceLoad();
+  }
+
+  void _tryStartInitialSourceLoad() {
+    if (!mounted) return;
+    if (!_platformViewAttached ||
+        !_initialPlayerPreferencesLoaded ||
+        !_initialFrameReady) {
+      return;
+    }
+    if (_initialSourceLoadStarted) return;
+    _initialSourceLoadStarted = true;
     _replacePlayerSource(widget.source);
   }
 
   void _resetSourceLoadTransitionState() {
     _videoLoadingOverlayTimer?.cancel();
     _videoLoadingOverlayTimer = null;
+    _lastAppliedEffectiveSubtitlePosition = null;
     _uiController.resetSourceLoadTransitionState();
   }
 
@@ -548,22 +1076,32 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     final source = incomingSource.loadNonce > 0
         ? incomingSource
         : incomingSource.copyWith(loadNonce: _issueNextLoadNonce());
+    _invalidateNextEpisodePreload();
+    _speedDialVisible = false;
+    _speedDialRestoreControlsVisible = false;
     _resetSourceLoadTransitionState();
     _hydrateFromSource(source);
+    unawaited(
+      _startPlayStatsSession(
+        startSource: widget.startSource,
+        info: _playStatsInitialInfoForSource(source),
+        source: source,
+        startPositionMs: source.startPosition.inMilliseconds,
+      ),
+    );
     _clearPlaybackCompletionState();
     _pendingReloadAutoplayRefresh = true;
-    _overlayState.setResumePromptVisible(false);
     unawaited(
       _prepareAndReloadSource(
         source,
         paused: false,
         visualStartPosition: source.startPosition,
         targetPaused: false,
-        statusText: 'Preparing playback',
+        statusText: '正在准备播放',
       ),
     );
     unawaited(_refreshPlayerStateAfterSourceReplace());
-    if (_subtitleShouldUseExternalFile(_currentSubtitleTrack())) {
+    if ((_currentSubtitleGuid ?? '').trim().isNotEmpty) {
       unawaited(_applySubtitleSelection());
     }
   }
@@ -579,6 +1117,12 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
 
   void _handlePlayerValueChanged() {
     final value = _controller.value.value;
+    final now = DateTime.now();
+    _activeProxySessionId = value.nativeProxySessionId;
+    _activeCacheResourceKey = value.cacheResourceKey;
+    final listenModeChanged =
+        _listenVideoModeEnabled != value.listenVideoModeEnabled;
+    _listenVideoModeEnabled = value.listenVideoModeEnabled;
     final currentStatusText = value.statusText.trim();
     final statusReaction = _runtimeController.consumeStatusText(
       currentStatusText: currentStatusText,
@@ -588,9 +1132,21 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
           _MpvPlayerPageState._autoFilterFallbackStatusText,
     );
     _gestureController.acknowledgeSeekPosition(value.position);
+    _playStatsSessionController.updateProgress(
+      positionMs: value.position.inMilliseconds,
+      mediaDurationMs: _effectiveDuration().inMilliseconds,
+      paused: value.paused,
+      now: now,
+      playbackCompleted:
+          _playbackCompleted ||
+          value.statusText.trim().toLowerCase() == 'playback ended',
+    );
     _syncVisualPlaybackStartState(value);
     _refreshAutoplayAfterReloadIfNeeded(value);
     _syncVideoLoadingOverlayVisibility(value);
+    if (value.nativeLibLoaded && value.ready) {
+      unawaited(_syncEffectiveSubtitlePosition());
+    }
     if (statusReaction.showAutoFilterFallbackTip) {
       _showStatusMessage(
         '\u68c0\u6d4b\u5230\u5e27\u7387\u4e0d\u7a33\u5b9a\uff0c\u5df2\u81ea\u52a8\u5173\u95ed\u6ee4\u955c',
@@ -605,13 +1161,59 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     }
     _syncPerformanceOverlayPolling();
     _handleAbLoopRuntime(value);
+    if (_isLocalRuntimeTrackSource()) {
+      unawaited(_refreshRuntimeTracks());
+    }
     unawaited(_startOrUpdateSystemPlaybackSession());
-    final pausedChanged = value.paused != _uiController.wasPaused;
-    _uiController.wasPaused = value.paused;
+    final effectiveDuration = _effectiveDuration();
+    _syncCacheDownloadability(value, effectiveDuration);
+    final displayPosition = _displayPosition(value);
+    final completionDuration = _completionReferenceDuration(value);
+    final statusText = value.statusText.trim().toLowerCase();
     final transitionPlaybackState =
         _uiController.pendingLoadingTransition ||
         _uiController.qualitySwitchLoading ||
         _uiController.awaitingVisualPlaybackStart;
+    _completionController.setAutoPlayCountdownPaused(
+      value.paused && statusText != 'playback ended',
+    );
+    _completionController.settlePlaybackCompletionSuppression(
+      value: value,
+      effectiveDuration: completionDuration,
+      displayPosition: displayPosition,
+    );
+    final remaining = completionDuration - displayPosition;
+    if (_autoPlayEnabled &&
+        !_completionController.autoPlayPromptVisible &&
+        !_completionController.autoPlayPromptSuppressed &&
+        !_playbackCompleted &&
+        !_completionActionInFlight &&
+        !transitionPlaybackState &&
+        !_completionController.suppressPlaybackCompletionUntilReady &&
+        _hasPlayedLongEnoughForAutoPlay(displayPosition) &&
+        completionDuration > Duration.zero &&
+        remaining > Duration.zero &&
+        remaining <= _completionController.autoPlayPromptWindow) {
+      unawaited(_maybeStartAutoPlayPromptNearEnd());
+    }
+    if (transitionPlaybackState ||
+        _completionController.suppressPlaybackCompletionUntilReady) {
+      // A reload emits transient end-file/playback-ended states for the old source.
+      // Ignore completion UI until the new source is visually stable again.
+    } else if (_completionController.consumePauseAfterReady(value)) {
+      unawaited(_pauseForAutoPlayPromptIfNeeded());
+    } else if (!_completionController.autoPlayPromptVisible &&
+        !_playbackCompleted &&
+        !_completionActionInFlight &&
+        _completionController.isPlaybackCompleted(
+          value: value,
+          effectiveDuration: completionDuration,
+          displayPosition: displayPosition,
+        )) {
+      unawaited(_handlePlaybackCompleted());
+    }
+    final pausedChanged = value.paused != _uiController.wasPaused;
+    _uiController.wasPaused = value.paused;
     if (transitionPlaybackState) {
       if (!value.paused && _uiController.draggingPosition == null) {
         _scheduleControlsAutoHide();
@@ -624,6 +1226,9 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
       }
     } else if (!value.paused && _uiController.draggingPosition == null) {
       _scheduleControlsAutoHide();
+    }
+    if (listenModeChanged && mounted) {
+      _updatePlayerState(() {});
     }
     final pendingPath = _pendingExternalSubtitlePath;
     _loadChaptersIfNeeded(value);
@@ -638,7 +1243,164 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
       return;
     }
     _pendingExternalSubtitlePath = null;
+    if (!_shouldApplyPendingExternalSubtitlePath(pendingPath)) {
+      return;
+    }
     unawaited(_controller.setExternalSubtitleFile(pendingPath));
+  }
+
+  void _handleOverlayControllersChanged() {
+    if (!mounted) return;
+    _updatePlayerState(() {});
+  }
+
+  bool _shouldCheckServerManagedPlayLink(MpvPlayerValue value) {
+    if (_exitInProgress ||
+        _playbackCompleted ||
+        _completionActionInFlight ||
+        _serverSessionRecoveryInFlight ||
+        _serverManagedPlayLinkCheckInFlight) {
+      return false;
+    }
+    if (!_playbackMode.isServerManaged) return false;
+    if ((_currentPlayLink ?? '').trim().isEmpty) return false;
+    if (!value.ready || !value.nativeLibLoaded || value.paused) {
+      return false;
+    }
+    if (_uiController.pendingLoadingTransition ||
+        _uiController.qualitySwitchLoading ||
+        _uiController.awaitingVisualPlaybackStart) {
+      return false;
+    }
+    final remaining =
+        _completionReferenceDuration(value) - _displayPosition(value);
+    if (remaining > Duration.zero && remaining <= const Duration(seconds: 20)) {
+      return false;
+    }
+    final lastCheckAt = _lastServerManagedPlayLinkCheckAt;
+    if (lastCheckAt != null &&
+        DateTime.now().difference(lastCheckAt) <
+            _serverManagedPlayLinkCheckCooldown) {
+      return false;
+    }
+    return value.statusText.trim().toLowerCase() != 'playback ended';
+  }
+
+  Future<bool> _checkServerSessionExpired([FeiniuApi? api]) async {
+    if (!_playbackMode.isServerManaged || !mounted || _exitInProgress) {
+      return false;
+    }
+    final playLink = (_currentPlayLink ?? '').trim();
+    if (playLink.isEmpty) return false;
+    try {
+      final effectiveApi = api ?? FeiniuApi(context.read<NasProvider>());
+      return await effectiveApi.checkPlayLinkExpired(playLink) == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _checkServerManagedPlayLinkIfNeeded({
+    required MpvPlayerValue value,
+    FeiniuApi? api,
+  }) async {
+    if (!_shouldCheckServerManagedPlayLink(value)) {
+      return;
+    }
+    _serverManagedPlayLinkCheckInFlight = true;
+    _lastServerManagedPlayLinkCheckAt = DateTime.now();
+    try {
+      if (!await _checkServerSessionExpired(api)) {
+        return;
+      }
+      if (!mounted || _exitInProgress) return;
+      final latestValue = _controller.value.value;
+      await _refreshServerManagedSession(
+        startPosition: _displayPosition(latestValue),
+        pausedAfterReload: latestValue.paused,
+        background: !latestValue.paused,
+      );
+    } finally {
+      _serverManagedPlayLinkCheckInFlight = false;
+    }
+  }
+
+  Future<bool> _ensureServerSessionPlaybackReadyBeforeResume() async {
+    if (!_playbackMode.isServerManaged) return false;
+    if (_serverSessionRecoveryInFlight || _serverManagedPlayLinkCheckInFlight) {
+      return true;
+    }
+    final api = FeiniuApi(context.read<NasProvider>());
+    if (await _checkServerSessionExpired(api)) {
+      final value = _controller.value.value;
+      await _refreshServerManagedSession(
+        startPosition: _displayPosition(value),
+        pausedAfterReload: false,
+        background: false,
+      );
+      return true;
+    }
+    return false;
+  }
+
+  Future<void> _refreshServerManagedSession({
+    required Duration startPosition,
+    required bool pausedAfterReload,
+    required bool background,
+  }) async {
+    if (!mounted || _exitInProgress || !_playbackMode.isServerManaged) return;
+    final playLink = (_currentPlayLink ?? '').trim();
+    if (playLink.isEmpty || _serverSessionRecoveryInFlight) return;
+    final now = DateTime.now();
+    final lastRecoveryAt = _lastServerSessionRecoveryAt;
+    if (lastRecoveryAt != null &&
+        now.difference(lastRecoveryAt) < _serverSessionRecoveryCooldown) {
+      return;
+    }
+
+    _serverSessionRecoveryInFlight = true;
+    _lastServerSessionRecoveryAt = now;
+    final currentPosition = startPosition;
+    final proactive = background;
+
+    final recoveryMessage = proactive ? '正在刷新播放会话...' : '播放会话已过期，正在恢复播放...';
+    final failureMessagePrefix = proactive ? '刷新播放会话失败' : '恢复播放会话失败';
+
+    _uiController.pendingLoadingTransition = true;
+    _showSubtitleSwitchMessage(recoveryMessage);
+    _showSubtitleSwitchMessage('播放会话已过期，正在恢复播放...');
+    _showSubtitleSwitchMessage(recoveryMessage);
+    _markAwaitingVisualPlaybackStart(
+      currentPosition,
+      targetPaused: pausedAfterReload,
+      background: background,
+    );
+
+    try {
+      await _reloadServerPlaySession(
+        startPosition: currentPosition,
+        pausedAfterReload: pausedAfterReload,
+      );
+    } catch (error) {
+      _cancelPendingLoadingTransition();
+      _showTransientMessage('$failureMessagePrefix: $error');
+      _showTransientMessage('恢复播放会话失败: $error');
+    } finally {
+      _serverSessionRecoveryInFlight = false;
+    }
+  }
+
+  void _setResumePromptVisibility(bool visible) {
+    _overlayState.setResumePromptVisible(visible);
+    if (!mounted) return;
+    if (visible) {
+      _showControls();
+      _overlayState.cancelAutoHide();
+      return;
+    }
+    if (!_completionController.autoPlayPromptVisible && !_playbackCompleted) {
+      _scheduleControlsAutoHide();
+    }
   }
 
   void _refreshAutoplayAfterReloadIfNeeded(MpvPlayerValue value) {
@@ -750,6 +1512,7 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     if (_chapters.isEmpty || duration <= Duration.zero) {
       _inferredIntroSkip = null;
       _inferredOutroSkip = null;
+      _syncPlayStatsOpEdSegments();
       _uiController.activeChapterSkipPrompt = null;
       _skipPromptCountdownSeconds = 0;
       return;
@@ -773,6 +1536,7 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     }
     _inferredIntroSkip = intro;
     _inferredOutroSkip = outro;
+    _syncPlayStatsOpEdSegments();
     final active = _uiController.activeChapterSkipPrompt;
     if (active != null &&
         intro?.key != active.key &&
@@ -1068,10 +1832,11 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     try {
       _completedChapterSkipKeys.add(segment.key);
       final target = segment.end > Duration.zero ? segment.end : segment.start;
-      await _controller.seek(target);
+      _playStatsSessionController.recordOpEdSkip(intro: segment.isIntro);
+      await _seekWithStats(target, userInitiated: false);
       if (mounted) {
-        _showCenterPopupMessage(
-          segment.isIntro ? 'Skipped intro' : 'Skipped outro',
+        _showStatusMessage(
+          segment.isIntro ? '已跳过片头' : '已跳过片尾',
           hideAfter: const Duration(milliseconds: 1500),
         );
       }
@@ -1083,11 +1848,10 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
   void _dismissCurrentChapterSkipPrompt() {
     final prompt = _uiController.activeChapterSkipPrompt;
     if (prompt == null) return;
+    _playStatsSessionController.recordOpEdDismiss(intro: prompt.isIntro);
     _dismissedChapterSkipKeys.add(prompt.key);
     _clearActiveChapterSkipPrompt();
-    _showCenterPopupMessage(
-      'Skip prompt dismissed for this playback. Disable OP/ED skip in settings if needed.',
-    );
+    _showStatusMessage('本次播放已忽略跳过提示，如需关闭可在设置中禁用片头片尾跳过。');
   }
 
   void _clearActiveChapterSkipPrompt() {
@@ -1104,16 +1868,192 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
 
   void _showCenterPopupMessage(String message, {Duration? hideAfter}) {
     _centerPopupTimer?.cancel();
-    final duration = hideAfter ?? const Duration(seconds: 2);
     if (!mounted) {
-      _uiController.centerPopupMessage = message;
+      _uiController.centerPopupMessage = null;
+      _uiController.statusMessage = message;
       return;
     }
-    setState(() => _uiController.centerPopupMessage = message);
-    _centerPopupTimer = Timer(duration, () {
+    setState(() => _uiController.centerPopupMessage = null);
+    _showStatusMessage(
+      message,
+      hideAfter: hideAfter ?? const Duration(seconds: 2),
+    );
+  }
+
+  void _syncCacheDownloadability(
+    MpvPlayerValue value,
+    Duration effectiveDuration,
+  ) {
+    if (!_canImportCurrentPlaybackCache()) {
+      if (_cacheDownloadAvailable || _cacheCompletionTipShown) {
+        _updatePlayerState(() {
+          _cacheDownloadAvailable = false;
+          _cacheCompletionTipShown = false;
+        });
+      }
+      return;
+    }
+    if (_cacheDownloadAvailable || _cacheDownloadCheckInFlight) {
+      return;
+    }
+    if (!value.ready ||
+        !value.nativeLibLoaded ||
+        effectiveDuration <= Duration.zero) {
+      return;
+    }
+    final bufferedPosition = value.bufferedPosition;
+    if (bufferedPosition <= Duration.zero) return;
+    if (bufferedPosition + const Duration(seconds: 2) < effectiveDuration) {
+      return;
+    }
+    unawaited(_refreshCacheDownloadability(showCompletionTipWhenReady: true));
+  }
+
+  bool _canImportCurrentPlaybackCache() {
+    if (_cacheDownloadConsumedForSource) return false;
+    if (_currentSourceIsDownloadedFile) return false;
+    final normalizedUrl = _currentUrl.trim().toLowerCase();
+    if (normalizedUrl.startsWith('file:')) return false;
+    return _currentItemGuid.trim().isNotEmpty &&
+        _currentMediaGuid.trim().isNotEmpty &&
+        _currentVideoGuid.trim().isNotEmpty;
+  }
+
+  Future<void> _refreshCacheDownloadability({
+    bool showCompletionTipWhenReady = false,
+    bool force = false,
+  }) async {
+    if (!_canImportCurrentPlaybackCache()) {
+      if (_cacheDownloadAvailable || _cacheCompletionTipShown) {
+        _updatePlayerState(() {
+          _cacheDownloadAvailable = false;
+          _cacheCompletionTipShown = false;
+        });
+      }
+      return;
+    }
+    if (_cacheDownloadCheckInFlight && !force) return;
+    final checkToken = ++_cacheDownloadCheckToken;
+    _cacheDownloadCheckInFlight = true;
+    final identity = CachedMediaSourceIdentity(
+      itemGuid: _currentItemGuid.trim(),
+      mediaGuid: _currentMediaGuid.trim(),
+      videoGuid: _currentVideoGuid.trim(),
+      resourceKey: (_activeCacheResourceKey ?? '').trim(),
+    );
+    try {
+      final result = await StorageManagementService.instance
+          .canPromoteCachedMedia(identity);
+      if (!mounted || checkToken != _cacheDownloadCheckToken) return;
+      final available = result.found && result.downloadable;
+      _updatePlayerState(() {
+        _cacheDownloadAvailable = available;
+        if (!available) {
+          _cacheCompletionTipShown = false;
+        } else if (showCompletionTipWhenReady && !_cacheCompletionTipShown) {
+          _cacheCompletionTipShown = true;
+        }
+      });
+      if (available && showCompletionTipWhenReady && _cacheCompletionTipShown) {
+        _showCenterPopupMessage('当前视频已全部缓存');
+      }
+    } catch (_) {
+      if (!mounted || checkToken != _cacheDownloadCheckToken) return;
+      _updatePlayerState(() => _cacheDownloadAvailable = false);
+    } finally {
+      if (mounted && checkToken == _cacheDownloadCheckToken) {
+        _updatePlayerState(() => _cacheDownloadCheckInFlight = false);
+      } else {
+        _cacheDownloadCheckInFlight = false;
+      }
+    }
+  }
+
+  Future<void> _importCurrentPlaybackCacheToDownload() async {
+    if (_cacheDownloadImportInFlight) return;
+    await _refreshCacheDownloadability(force: true);
+    if (!mounted) return;
+    if (!_cacheDownloadAvailable) {
+      _showTopTip('当前缓存尚未完整，暂时不能转为下载', context.appColors.warning);
+      return;
+    }
+    _updatePlayerState(() => _cacheDownloadImportInFlight = true);
+    try {
+      final nasProvider = context.read<NasProvider>();
+      final provider = nasProvider.isConfigured ? nasProvider : null;
+      final result = await DownloadTaskService.instance.importCachedMedia(
+        provider: provider,
+        identity: CachedMediaSourceIdentity(
+          itemGuid: _currentItemGuid.trim(),
+          mediaGuid: _currentMediaGuid.trim(),
+          videoGuid: _currentVideoGuid.trim(),
+          resourceKey: (_activeCacheResourceKey ?? '').trim(),
+        ),
+        resolution: _currentResolution.trim(),
+        title: _currentTitle.trim().isNotEmpty ? _currentTitle.trim() : '当前视频',
+        groupId: _currentDownloadGroupId(),
+        groupTitle: _currentDownloadGroupTitle(),
+        durationText: _formatDuration(_effectiveDuration()),
+        posterUrls: _resolveSystemPlaybackArtworkUrls(),
+        groupPosterUrls: _resolveSystemPlaybackArtworkUrls(),
+        subtitleTrack: _currentSubtitleTrack(),
+        subtitleFilePath:
+            _subtitleFileByGuid[_currentSubtitleTrack()?.guid.trim() ?? ''],
+      );
       if (!mounted) return;
-      setState(() => _uiController.centerPopupMessage = null);
-    });
+      if (result == null) {
+        _showTopTip('缓存转下载失败', context.appColors.warning);
+        return;
+      }
+      switch (result.state) {
+        case DownloadStartState.importedFromCache:
+          _updatePlayerState(() {
+            _cacheDownloadAvailable = false;
+            _cacheDownloadConsumedForSource = true;
+          });
+          _showTopTip('已转为下载', context.appColors.success);
+          break;
+        case DownloadStartState.downloaded:
+          _updatePlayerState(() {
+            _cacheDownloadAvailable = false;
+            _cacheDownloadConsumedForSource = true;
+          });
+          _showTopTip('已在下载列表中', context.appColors.success);
+          break;
+        case DownloadStartState.downloading:
+        case DownloadStartState.started:
+          _showTopTip('正在加入下载列表', context.appColors.accent);
+          break;
+      }
+    } catch (_) {
+      if (!mounted) return;
+      _showTopTip('缓存转下载失败', context.appColors.warning);
+    } finally {
+      if (mounted) {
+        _updatePlayerState(() => _cacheDownloadImportInFlight = false);
+      } else {
+        _cacheDownloadImportInFlight = false;
+      }
+    }
+  }
+
+  String _currentDownloadGroupId() {
+    final seasonGuid = _currentSeasonGuid.trim();
+    if (seasonGuid.isNotEmpty) return seasonGuid;
+    final itemGuid = _currentItemGuid.trim();
+    if (itemGuid.isNotEmpty) return itemGuid;
+    return _currentMediaGuid.trim();
+  }
+
+  String _currentDownloadGroupTitle() {
+    final seriesTitle = _currentSeriesTitle.trim();
+    if (seriesTitle.isNotEmpty && _currentSeasonNumber > 0) {
+      return '$seriesTitle 第$_currentSeasonNumber季';
+    }
+    if (seriesTitle.isNotEmpty) return seriesTitle;
+    final title = _currentTitle.trim();
+    if (title.isNotEmpty) return title;
+    return '当前视频';
   }
 
   void _showStatusMessage(String message, {Duration? hideAfter}) {
@@ -1142,7 +2082,7 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
       '正在跳转到第 ${_chapterLabel(chapter)} 章...',
       hideAfter: const Duration(milliseconds: 900),
     );
-    await _controller.seek(target);
+    await _seekWithStats(target, userInitiated: true);
     if (!mounted) return;
     _showControls();
   }
@@ -1154,6 +2094,7 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     if (changed) {
       setState(() {});
     }
+    unawaited(_syncEffectiveSubtitlePosition());
     unawaited(
       _applySystemUiForOrientation(
         _isLandscapeViewport(),
@@ -1164,10 +2105,6 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
   }
 
   bool _isLandscapeViewport() {
-    final media = MediaQuery.maybeOf(context);
-    if (media != null) {
-      return media.orientation == Orientation.landscape;
-    }
     final views = WidgetsBinding.instance.platformDispatcher.views;
     if (views.isEmpty) return false;
     final view = views.first;
@@ -1177,10 +2114,23 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
   Future<void> _applySystemUiForOrientation(
     bool landscape, {
     bool? controlsVisible,
-  }) {
-    final showSystemBars = controlsVisible ?? _controlsVisible;
+  }) async {
+    if (widget.parallelLayoutMode == 'split') {
+      await _setPlayerImmersiveMode(false);
+      final immersiveStatusBar = context
+          .read<ParallelWindowSettingsProvider>()
+          .immersiveStatusBar;
+      return _setSystemUiModeIfNeeded(
+        immersiveStatusBar
+            ? SystemUiMode.immersiveSticky
+            : SystemUiMode.edgeToEdge,
+        force: immersiveStatusBar && landscape,
+      );
+    }
+    await _setPlayerImmersiveMode(landscape);
     return _setSystemUiModeIfNeeded(
-      showSystemBars ? SystemUiMode.edgeToEdge : SystemUiMode.immersiveSticky,
+      SystemUiMode.immersiveSticky,
+      force: landscape,
     );
   }
 
@@ -1211,8 +2161,20 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     } catch (_) {}
   }
 
+  Future<void> _setPlayerImmersiveMode(bool enabled) async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _MpvPlayerPageState._systemChannel.invokeMethod<void>(
+        'setPlayerImmersiveMode',
+        <String, bool>{'enabled': enabled},
+      );
+    } catch (_) {}
+  }
+
   Future<void> _togglePlayerOrientation() async {
-    if (widget.parallelLayoutToggleEnabled) {
+    final systemMultiWindowActive =
+        await PlayerHostBridge.isSystemMultiWindowActive();
+    if (widget.parallelLayoutToggleEnabled && !systemMultiWindowActive) {
       final currentPosition =
           _uiController.draggingPosition ?? _controller.value.value.position;
       final source = _buildCurrentSource(
@@ -1225,6 +2187,8 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
       final switched = await PlayerHostBridge.switchPlayerLayoutMode(
         title: _currentTitle,
         source: source.toMap(),
+        initialPlayInfo: widget.initialPlayInfo,
+        startSource: widget.startSource,
         targetMode: targetMode,
         result: _buildPlayerReturnData(),
       );
@@ -1232,7 +2196,7 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
         widget.onParallelLayoutModeChanged?.call(targetMode);
         return;
       }
-      _showCenterPopupMessage('Failed to switch playback layout');
+      _showCenterPopupMessage('切换播放布局失败');
       return;
     }
     final switchToLandscape = !_isLandscapeViewport();
@@ -1244,6 +2208,96 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     await _applySystemUiForOrientation(switchToLandscape);
     if (!mounted) return;
     _showControls();
+  }
+
+  Future<void> _lockPlayerUi() async {
+    if (_playerUiLocked) return;
+    _hideSpeedDialOverlay(restoreAutoHide: false);
+    for (var index = 0; index < 6; index += 1) {
+      final dismissed = await _dismissActiveTransientUi();
+      if (!dismissed) {
+        break;
+      }
+    }
+    if (!mounted) {
+      _playerUiLocked = true;
+      return;
+    }
+    _updatePlayerState(() {
+      _playerUiLocked = true;
+    });
+    _showControls();
+    _showCenterPopupMessage('界面已锁定', hideAfter: const Duration(seconds: 1));
+  }
+
+  Future<void> _unlockPlayerUi() async {
+    if (!_playerUiLocked) return;
+    if (!mounted) {
+      _playerUiLocked = false;
+      return;
+    }
+    _updatePlayerState(() {
+      _playerUiLocked = false;
+    });
+    _showCenterPopupMessage('界面已解锁', hideAfter: const Duration(seconds: 1));
+    _showControls();
+  }
+
+  void _startPlayerSystemStatusTicker() {
+    _playerSystemStatusTimer?.cancel();
+    unawaited(_refreshPlayerSystemStatus());
+    _playerSystemStatusTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => unawaited(_refreshPlayerSystemStatus()),
+    );
+  }
+
+  String _formatPlayerSystemClock(DateTime now) {
+    final hour = now.hour.toString().padLeft(2, '0');
+    final minute = now.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
+
+  Future<void> _refreshPlayerSystemStatus() async {
+    final nextTimeLabel = _formatPlayerSystemClock(DateTime.now());
+    var nextNetworkType = _playerSystemNetworkType;
+    var nextBatteryLevel = _playerSystemBatteryLevel;
+    var nextCharging = _playerSystemCharging;
+    if (Platform.isAndroid) {
+      try {
+        final raw = await _MpvPlayerPageState._systemChannel
+            .invokeMapMethod<String, dynamic>('getPlayerStatusSnapshot');
+        if (raw != null) {
+          nextNetworkType = (raw['networkType'] ?? 'unknown').toString().trim();
+          final rawBatteryLevel = raw['batteryLevel'];
+          nextBatteryLevel = switch (rawBatteryLevel) {
+            int value => value,
+            num value => value.toInt(),
+            _ => int.tryParse('$rawBatteryLevel'),
+          };
+          nextCharging = raw['charging'] == true;
+        }
+      } catch (_) {}
+    }
+    if (!mounted) {
+      _playerSystemTimeLabel = nextTimeLabel;
+      _playerSystemNetworkType = nextNetworkType;
+      _playerSystemBatteryLevel = nextBatteryLevel;
+      _playerSystemCharging = nextCharging;
+      return;
+    }
+    final changed =
+        _playerSystemTimeLabel != nextTimeLabel ||
+        _playerSystemNetworkType != nextNetworkType ||
+        _playerSystemBatteryLevel != nextBatteryLevel ||
+        _playerSystemCharging != nextCharging;
+    if (!changed) return;
+    _updatePlayerState(() {
+      _playerSystemTimeLabel = nextTimeLabel;
+      _playerSystemNetworkType = nextNetworkType;
+      _playerSystemBatteryLevel = nextBatteryLevel;
+      _playerSystemCharging = nextCharging;
+    });
   }
 
   void _updatePlayerState(VoidCallback update) {
@@ -1266,6 +2320,7 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     final hadVisibleControls = _controlsVisible || _controlsAnimatingOut;
     if (!hadVisibleControls) return;
     _overlayState.hideImmediately();
+    unawaited(_syncEffectiveSubtitlePosition(force: true));
     unawaited(
       _applySystemUiForOrientation(
         _isLandscapeViewport(),
@@ -1280,6 +2335,7 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     final hadVisibleControls = _controlsVisible || _controlsAnimatingOut;
     if (!hadVisibleControls) return;
     _overlayState.hideImmediately();
+    unawaited(_syncEffectiveSubtitlePosition(force: true));
     setState(() {});
   }
 
@@ -1287,6 +2343,13 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     _controlsTimer?.cancel();
     final value = _controller.value.value;
     if (!value.ready) return;
+    if (_completionController.autoPlayPromptVisible ||
+        _playbackCompleted ||
+        _overlayState.resumePromptVisible ||
+        _speedDialVisible) {
+      _overlayState.cancelAutoHide();
+      return;
+    }
     _overlayState.scheduleAutoHide(
       ready: value.ready,
       gestureSeekActive: _gestureSeekActive,
@@ -1327,7 +2390,11 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
         bitrate: _currentBitrate,
         ts: ts.clamp(0, duration),
         duration: duration,
+        playLink: _currentPlayLink,
       );
+      if (!force) {
+        await _checkServerManagedPlayLinkIfNeeded(value: value, api: api);
+      }
     } catch (error, stackTrace) {
       debugPrint('[MPV][RECORD] report failed error=$error');
       unawaited(
@@ -1347,8 +2414,11 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
   Future<void> _togglePlayback() async {
     _showControls();
     final value = _controller.value.value;
+    if (value.paused && await _ensureServerSessionPlaybackReadyBeforeResume()) {
+      return;
+    }
     if (value.paused && _shouldReloadSourceBeforeResume()) {
-      _showSubtitleSwitchMessage('褰撳墠鎾斁闇€瑕侀噸鏂板姞杞斤紝姝ｅ湪涓烘偍鎭㈠鎾斁锛岃绋嶅€?..');
+      _showSubtitleSwitchMessage('当前播放需要重新加载，正在为您恢复播放，请稍候...');
       _uiController.pendingLoadingTransition = true;
       _markAwaitingVisualPlaybackStart(
         _displayPosition(value),
@@ -1384,19 +2454,34 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
 
   void _showTransientMessage(String message) {
     if (!mounted) return;
-    _showControls();
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    if (messenger == null) return;
-    messenger
-      ..hideCurrentSnackBar()
-      ..clearSnackBars()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(message),
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 2),
-        ),
-      );
+    _showTopTip(message, _transientMessageColor(message));
+  }
+
+  Color _transientMessageColor(String message) {
+    final normalized = message.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return context.appColors.warning;
+    }
+    const dangerHints = <String>[
+      'failed',
+      'failure',
+      'error',
+      'unsupported',
+      'missing',
+      '失败',
+      '错误',
+      '不可',
+      '缺少',
+      '暂无',
+      '未加载',
+      '未提取',
+    ];
+    for (final hint in dangerHints) {
+      if (normalized.contains(hint)) {
+        return context.appColors.danger;
+      }
+    }
+    return context.appColors.warning;
   }
 
   void _showTopTip(String message, Color color, {bool revealControls = false}) {
@@ -1431,8 +2516,10 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     } else {
       _exitInProgress = true;
     }
+    await _finishPlayStatsSession('close');
+    await _stopSystemPlaybackSession();
+    await _flushPlaybackRecordOnExit();
     final returnData = _buildPlayerReturnData();
-    unawaited(_flushPlaybackRecordOnExit());
     if (!mounted) return;
     final closeRequested = widget.onCloseRequested;
     if (closeRequested != null) {
@@ -1529,7 +2616,6 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
   void _syncPerformanceOverlayPolling() {
     final wantsPolling = _runtimeController.wantsPerformanceOverlayPolling(
       performanceOverlayEnabled: _performanceOverlayEnabled,
-      fpsOverlayEnabled: _fpsOverlayEnabled,
       playerReady: _controller.value.value.nativeLibLoaded,
     );
     if (!wantsPolling) {
@@ -1538,10 +2624,8 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
       final currentStats = _performanceOverlayStatsNotifier.value;
       final hasStats =
           currentStats.cpuUsagePercent != null ||
-          currentStats.gpuUsagePercent != null ||
-          currentStats.estimatedVfFps != null ||
-          currentStats.containerFps != null ||
-          currentStats.displayFps != null;
+          currentStats.appMemoryUsedBytes != null ||
+          currentStats.systemMemoryTotalBytes != null;
       if (hasStats) {
         _performanceOverlayStatsNotifier.value =
             MpvPerformanceOverlayStats.empty;
@@ -1562,7 +2646,6 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     if (!mounted) return;
     if (!_runtimeController.wantsPerformanceOverlayPolling(
       performanceOverlayEnabled: _performanceOverlayEnabled,
-      fpsOverlayEnabled: _fpsOverlayEnabled,
       playerReady: _controller.value.value.nativeLibLoaded,
     )) {
       return;

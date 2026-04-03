@@ -1,12 +1,23 @@
 part of mpv_player_page;
 
 extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
+  static const List<String> _danmakuAiBackendOrder = <String>[
+    'paddle',
+  ];
+  static const int _runtimeDanmakuAiMinSampleIntervalMs = 650;
+  static const int _runtimeDanmakuAiMaxInputWidth = 224;
+  static const List<String> _danmakuAiPrecisionPresets = <String>[
+    DanmakuAiPrecisionPreset.performance,
+    DanmakuAiPrecisionPreset.balanced,
+    DanmakuAiPrecisionPreset.quality,
+  ];
+
   String _danmakuStatusLabel() => _danmakuController.statusLabel;
 
   String _danmakuSummaryText() => _danmakuController.summaryText;
 
   String _danmakuSourcePriorityLabel() {
-    return _danmakuController.settings.preferLocalSource ? '鏈湴浼樺厛' : '缃戠粶浼樺厛';
+    return _danmakuController.settings.preferLocalSource ? '本地优先' : '网络优先';
   }
 
   String _danmakuOpacityLabel() {
@@ -14,37 +25,64 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
     return '$percent%';
   }
 
-  String _danmakuFontScaleLabel() {
-    final percent = (_danmakuController.settings.fontScale * 100).round();
+  String _danmakuDensityLabel() {
+    final percent = (_danmakuController.settings.density * 100).round();
     return '$percent%';
   }
 
+  String _danmakuFontScaleLabel() {
+    final scale = _danmakuController.settings.fontScale;
+    if (scale < 0.8) return '较小';
+    if (scale < 0.95) return '偏小';
+    if (scale <= 1.05) return '标准';
+    if (scale < 1.2) return '偏大';
+    return '较大';
+  }
+
   String _danmakuAreaLabel() {
-    final percent =
-        (_nearestDanmakuAreaPreset(
-                  _danmakuController.settings.displayAreaRatio,
-                ) *
-                100)
-            .round();
-    return '$percent%';
+    final ratio = _nearestDanmakuAreaPreset(
+      _danmakuController.settings.displayAreaRatio,
+    );
+    if (ratio <= 0.10) return '1/10屏';
+    if (ratio <= 0.25) return '1/4屏';
+    if (ratio <= 0.5) return '半屏';
+    if (ratio <= 0.75) return '3/4屏';
+    return '全屏';
   }
 
   String _danmakuSpeedLabel() {
     final speed = _danmakuController.settings.speed;
-    if (speed <= 0.85) return '鎱?';
-    if (speed >= 1.55) return '蹇?';
-    if (speed >= 1.25) return '杈冨揩';
-    return '姝ｅ父';
+    if (speed <= 0.85) return '慢速';
+    if (speed >= 1.55) return '极速';
+    if (speed >= 1.25) return '较快';
+    return '标准';
+  }
+
+  String _danmakuAiSampleIntervalLabel() {
+    return '${_danmakuController.settings.aiSampleIntervalMs}ms';
+  }
+
+  String _danmakuAiPrecisionLabel() {
+    return switch (_danmakuController.settings.aiPrecisionPreset) {
+      DanmakuAiPrecisionPreset.performance => '低',
+      DanmakuAiPrecisionPreset.quality => '高',
+      _ => '标准',
+    };
+  }
+
+  String _danmakuAiInputSizeLabel() {
+    final settings = _danmakuController.settings;
+    return '${settings.aiInputWidth}x${settings.aiInputHeight}';
   }
 
   Future<void> _updateDanmakuSettings(
     DanmakuSettings Function(DanmakuSettings current) transformer,
-  ) {
+  ) async {
     final next = transformer(_danmakuController.settings);
-    return _danmakuController.updateSettings(next).then((_) {
-      if (!mounted) return;
-      _updatePlayerState(() {});
-    });
+    await _danmakuController.updateSettings(next);
+    await _syncDanmakuDynamicOcclusionConfig();
+    if (!mounted) return;
+    _updatePlayerState(() {});
   }
 
   Future<void> _toggleDanmakuEnabled() async {
@@ -56,10 +94,14 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
       await _tryLoadPreferredDanmakuSource();
     }
     if (!mounted) return;
-    _showTransientMessage(nextEnabled ? '弹幕已开启' : '弹幕已关闭');
+    _showStatusMessage(
+      nextEnabled ? '弹幕已开启' : '弹幕已关闭',
+      hideAfter: const Duration(milliseconds: 1400),
+    );
   }
 
   Future<void> _openDanmakuSettings() {
+    if (_playerUiLocked) return Future<void>.value();
     return _showPlaybackSettingsDrawer(
       initialPageId: _playerSettingsDanmakuPageId,
     );
@@ -85,6 +127,12 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
     );
   }
 
+  Future<void> _setDanmakuDensity(double value) {
+    return _updateDanmakuSettings(
+      (current) => current.copyWith(density: value.clamp(0.2, 1.0)),
+    );
+  }
+
   Future<void> _setDanmakuFontScale(double value) {
     return _updateDanmakuSettings(
       (current) => current.copyWith(fontScale: value.clamp(0.6, 1.4)),
@@ -94,6 +142,35 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
   Future<void> _setDanmakuSpeed(double value) {
     return _updateDanmakuSettings(
       (current) => current.copyWith(speed: value.clamp(0.7, 1.8)),
+    );
+  }
+
+  Future<void> _setDanmakuAiSampleInterval(int value) {
+    final normalized = value.clamp(
+      DanmakuSettings.minAiSampleIntervalMs,
+      DanmakuSettings.maxAiSampleIntervalMs,
+    );
+    return _updateDanmakuSettings(
+      (current) => current.copyWith(aiSampleIntervalMs: normalized),
+    );
+  }
+
+  Future<void> _setDanmakuAiInputWidth(int value) {
+    final normalized = value.clamp(
+      DanmakuSettings.minAiInputWidth,
+      DanmakuSettings.maxAiInputWidth,
+    );
+    return _updateDanmakuSettings(
+      (current) => current.copyWith(aiInputWidth: normalized),
+    );
+  }
+
+  Future<void> _setDanmakuAiPrecisionPreset(String value) {
+    final normalized = _danmakuAiPrecisionPresets.contains(value)
+        ? value
+        : DanmakuAiPrecisionPreset.balanced;
+    return _updateDanmakuSettings(
+      (current) => current.copyWith(aiPrecisionPreset: normalized),
     );
   }
 
@@ -110,6 +187,47 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
     );
     await _tryLoadPreferredDanmakuSource();
     if (!mounted) return;
-    _showTransientMessage(preferLocalSource ? '宸插垏鎹负鏈湴浼樺厛' : '宸插垏鎹负缃戠粶浼樺厛');
+    _showTopTip(
+      preferLocalSource ? '已切换为本地优先' : '已切换为网络优先',
+      context.appColors.success,
+    );
+  }
+
+  Future<void> _syncDanmakuDynamicOcclusionConfig() async {
+    if (!Platform.isAndroid || !_platformViewAttached) {
+      return;
+    }
+    final settings = _danmakuController.settings;
+    final interactionBusy =
+        _gestureController.adjustmentActive ||
+        _gestureSeekActive ||
+        _speedBoostActive ||
+        _uiController.pendingLoadingTransition ||
+        _uiController.awaitingVisualPlaybackStart ||
+        _uiController.qualitySwitchLoading;
+    final enabled =
+        settings.enabled &&
+        settings.avoidCenterArea &&
+        !_useNativeDanmakuRenderer &&
+        !interactionBusy &&
+        !widget.pictureInPictureActive;
+    final sampleIntervalMs = math.max(
+      settings.aiSampleIntervalMs,
+      _runtimeDanmakuAiMinSampleIntervalMs,
+    );
+    final inputWidth = math.min(
+      settings.aiInputWidth,
+      _runtimeDanmakuAiMaxInputWidth,
+    );
+    await _controller.setDanmakuOcclusionConfig(<String, Object?>{
+      'enabled': enabled,
+      'sampleIntervalMs': sampleIntervalMs,
+      'preferredBackendOrder': _danmakuAiBackendOrder,
+      'inputWidth': inputWidth,
+      'inputHeight': DanmakuSettings.defaults
+          .copyWith(aiInputWidth: inputWidth)
+          .aiInputHeight,
+      'sampleAreaRatio': settings.displayAreaRatio,
+    });
   }
 }

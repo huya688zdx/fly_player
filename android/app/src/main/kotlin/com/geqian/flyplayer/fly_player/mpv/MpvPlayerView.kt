@@ -1,8 +1,7 @@
 package com.geqian.flyplayer.fly_player.mpv
 
 import android.graphics.Color
-import android.view.SurfaceHolder
-import android.view.SurfaceView
+import android.view.Surface
 import android.view.View
 import android.widget.FrameLayout
 import io.flutter.plugin.common.BinaryMessenger
@@ -19,13 +18,17 @@ class MpvPlayerView(
 ) : PlatformView,
     MethodChannel.MethodCallHandler,
     EventChannel.StreamHandler,
-    SurfaceHolder.Callback {
+    VideoOutputTarget.Listener {
     private val mpv: MpvFacade = DefaultMpvFacade
     private val rootView = FrameLayout(context)
-    private val surfaceView = SurfaceView(context)
+    private val videoOutputTarget: VideoOutputTarget = TextureViewVideoOutputTarget(context)
+    private val nativeDanmakuOverlayView = NativeDanmakuOverlayView(context)
     private val methodChannel = MethodChannel(messenger, "fly_player/mpv_view_$viewId/methods")
     private val eventChannel = EventChannel(messenger, "fly_player/mpv_view_$viewId/events")
+    private val danmakuAiEventChannel =
+        EventChannel(messenger, "fly_player/mpv_view_$viewId/danmaku_ai_events")
     private var eventSink: EventChannel.EventSink? = null
+    private var danmakuAiEventSink: EventChannel.EventSink? = null
     @Volatile
     private var disposed = false
     private var latestState = MpvPlayerState(
@@ -39,19 +42,30 @@ class MpvPlayerView(
     )
     private val controller = MpvPlaybackController(
         context = context,
-        surfaceView = surfaceView,
+        videoOutputTarget = videoOutputTarget,
         creationParams = creationParams,
         stateListener = MpvPlaybackStateListener { state, overlayText ->
             latestState = state
+            nativeDanmakuOverlayView.updatePlaybackState(state)
             eventSink?.success(state.toMap())
+        },
+        danmakuOcclusionStateListener = { state ->
+            danmakuAiEventSink?.success(state.toMap())
         },
     )
 
     init {
         rootView.setBackgroundColor(Color.BLACK)
-        surfaceView.holder.addCallback(this)
+        videoOutputTarget.setListener(this)
         rootView.addView(
-            surfaceView,
+            videoOutputTarget.view,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ),
+        )
+        rootView.addView(
+            nativeDanmakuOverlayView,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -59,6 +73,19 @@ class MpvPlayerView(
         )
         methodChannel.setMethodCallHandler(this)
         eventChannel.setStreamHandler(this)
+        danmakuAiEventChannel.setStreamHandler(
+            object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
+                    if (disposed) return
+                    danmakuAiEventSink = events
+                    danmakuAiEventSink?.success(controller.getDanmakuOcclusionStateMap())
+                }
+
+                override fun onCancel(arguments: Any?) {
+                    danmakuAiEventSink = null
+                }
+            },
+        )
     }
 
     override fun getView(): View = rootView
@@ -68,9 +95,12 @@ class MpvPlayerView(
         disposed = true
         methodChannel.setMethodCallHandler(null)
         eventChannel.setStreamHandler(null)
-        surfaceView.holder.removeCallback(this)
+        danmakuAiEventChannel.setStreamHandler(null)
         eventSink = null
+        danmakuAiEventSink = null
+        videoOutputTarget.setListener(null)
         controller.dispose()
+        videoOutputTarget.release()
     }
 
     override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
@@ -90,9 +120,11 @@ class MpvPlayerView(
         }
         when (call.method) {
             "getState" -> result.success(latestState.toMap())
+            "getTrackSnapshot" -> result.success(controller.getTrackSnapshotMap())
             "getPlaybackDiagnostics" -> result.success(controller.getPlaybackDiagnosticsMap())
             "getPerformanceOverlayStats" -> result.success(controller.getPerformanceOverlayStatsMap())
             "getChapters" -> result.success(controller.getChapters())
+            "getDanmakuOcclusionState" -> result.success(controller.getDanmakuOcclusionStateMap())
             "captureFrame" -> result.success(controller.captureFrame(methodArgumentsMap(call)))
             "load" -> {
                 controller.load(methodArgumentsMap(call))
@@ -113,12 +145,18 @@ class MpvPlayerView(
             }
             "setAudioTrack" -> {
                 val args = methodArgumentsMap(call)
-                controller.setAudioTrack(args["trackIndex"].toIntValue())
+                controller.setAudioTrack(
+                    trackIndex = args["trackIndex"].toIntValue(),
+                    trackGuid = args["trackGuid"]?.toString(),
+                )
                 result.success(null)
             }
             "setSubtitleTrack" -> {
                 val args = methodArgumentsMap(call)
-                controller.setSubtitleTrack(args["trackIndex"].toIntValue())
+                controller.setSubtitleTrack(
+                    trackIndex = args["trackIndex"].toIntValue(),
+                    trackGuid = args["trackGuid"]?.toString(),
+                )
                 result.success(null)
             }
             "setExternalSubtitleFile" -> {
@@ -173,23 +211,59 @@ class MpvPlayerView(
                 controller.setMpvAdvancedSettings(methodArgumentsMap(call))
                 result.success(null)
             }
+            "setListenVideoMode" -> {
+                val args = methodArgumentsMap(call)
+                result.success(controller.setListenVideoMode(args["enabled"] == true))
+            }
+            "setDanmakuOcclusionConfig" -> {
+                controller.setDanmakuOcclusionConfig(methodArgumentsMap(call))
+                result.success(null)
+            }
+            "setNativeDanmakuPayload" -> {
+                nativeDanmakuOverlayView.setPayload(methodArgumentsMap(call))
+                result.success(null)
+            }
+            "clearNativeDanmaku" -> {
+                nativeDanmakuOverlayView.clear()
+                result.success(null)
+            }
             else -> result.notImplemented()
         }
     }
 
-    override fun surfaceCreated(holder: SurfaceHolder) {
+    override fun onSurfaceAvailable(
+        surface: Surface,
+        generation: Long,
+        width: Int,
+        height: Int,
+    ) {
         if (disposed) return
-        controller.surfaceCreated(holder)
+        controller.onVideoOutputSurfaceAvailable(
+            surface = surface,
+            generation = generation,
+            width = width,
+            height = height,
+        )
     }
 
-    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+    override fun onSurfaceSizeChanged(
+        surface: Surface,
+        generation: Long,
+        width: Int,
+        height: Int,
+    ) {
         if (disposed) return
-        controller.surfaceChanged(holder, format, width, height)
+        controller.onVideoOutputSurfaceSizeChanged(
+            surface = surface,
+            generation = generation,
+            width = width,
+            height = height,
+        )
     }
 
-    override fun surfaceDestroyed(holder: SurfaceHolder) {
+    override fun onSurfaceDestroyed(generation: Long) {
         if (disposed) return
-        controller.surfaceDestroyed(holder)
+        controller.onVideoOutputSurfaceDestroyed(generation)
     }
 
     @Suppress("UNCHECKED_CAST")

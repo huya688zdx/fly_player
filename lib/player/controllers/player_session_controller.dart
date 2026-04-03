@@ -9,6 +9,7 @@ class PlayerSessionController {
   String currentMediaType = '';
   String currentAncestorName = '';
   String currentTitle = '';
+  String currentSeriesGuid = '';
   String currentSeriesTitle = '';
   String currentSeasonGuid = '';
   int currentSeasonNumber = 0;
@@ -28,7 +29,9 @@ class PlayerSessionController {
   int currentBitDepth = 0;
   String? activeProxySessionId;
   String? activeSubtitleProxySessionId;
+  String? activeCacheResourceKey;
   String? currentPlayLink;
+  int currentServerSessionHlsTimeSeconds = 0;
   String currentUrl = '';
   Map<String, String> currentHeaders = <String, String>{};
   bool currentReliableSeek = true;
@@ -39,6 +42,7 @@ class PlayerSessionController {
   int currentBitrate = 0;
   int durationSeconds = 0;
   double playbackSpeed = 1.0;
+  bool listenVideoModeEnabled = false;
   Duration resumeStartPosition = Duration.zero;
   PlayerPlaybackMode playbackMode = PlayerPlaybackMode.originalQuality;
   List<AudioTrackOption> audioTracks = const <AudioTrackOption>[];
@@ -54,6 +58,7 @@ class PlayerSessionController {
     currentMediaType = source.mediaType;
     currentAncestorName = source.ancestorName;
     currentTitle = source.title;
+    currentSeriesGuid = source.seriesGuid;
     currentSeriesTitle = source.seriesTitle;
     currentSeasonGuid = source.seasonGuid;
     currentSeasonNumber = source.seasonNumber;
@@ -73,7 +78,9 @@ class PlayerSessionController {
     currentBitDepth = source.bitDepth;
     activeProxySessionId = source.proxySessionId;
     activeSubtitleProxySessionId = null;
+    activeCacheResourceKey = null;
     currentPlayLink = source.playLink;
+    currentServerSessionHlsTimeSeconds = source.serverSessionHlsTimeSeconds;
     currentUrl = source.url;
     currentHeaders = Map<String, String>.from(source.headers);
     currentReliableSeek = source.reliableSeek;
@@ -83,6 +90,7 @@ class PlayerSessionController {
     currentResolution = source.resolution;
     currentBitrate = source.bitrate;
     durationSeconds = source.durationSeconds;
+    listenVideoModeEnabled = source.listenVideoModeEnabled;
     playbackMode = source.playbackMode;
     resumeStartPosition = completionController.normalizedStartPosition(
       startPosition: source.startPosition,

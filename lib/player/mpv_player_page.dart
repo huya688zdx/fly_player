@@ -3,6 +3,7 @@ library mpv_player_page;
 import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math' as math;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -15,6 +16,7 @@ import '../danmaku/api/dandanplay_config.dart';
 import '../danmaku/api/dandanplay_resolver.dart';
 import '../danmaku/controller/danmaku_controller.dart';
 import '../danmaku/models/dandanplay_episode_search_item.dart';
+import '../danmaku/models/danmaku_dynamic_occlusion.dart';
 import '../danmaku/models/danmaku_import_result.dart';
 import '../danmaku/models/danmaku_saved_source.dart';
 import '../danmaku/parser/danmaku_import_parser.dart';
@@ -23,27 +25,39 @@ import '../danmaku/render/danmaku_overlay.dart';
 import '../danmaku/settings/danmaku_saved_source_store.dart';
 import '../danmaku/settings/danmaku_settings_store.dart';
 import '../controllers/play_detail_data_loader.dart';
+import '../models/download_task_record.dart';
 import '../models/media_library_item.dart';
 import '../models/play_info.dart';
 import '../models/playback_stream.dart';
 import '../models/remote_subtitle.dart';
 import '../models/stream_track_data.dart';
+import '../models/tv_episode_picker_mode.dart';
 import '../providers/nas_provider.dart';
+import '../providers/parallel_window_settings_provider.dart';
 import '../services/app_log_service.dart';
+import '../services/download_task_service.dart';
+import '../services/embedded_detail_launcher.dart';
+import '../services/parallel_window_settings_bridge.dart';
 import '../services/player_host_bridge.dart';
+import '../services/storage_access_service.dart';
+import '../services/storage_management_service.dart';
 import '../services/player_system_session_bridge.dart';
+import '../services/play_stats/play_stats.dart';
 import '../theme/app_theme.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/app_error_reporter.dart';
 import '../utils/app_exception.dart';
+import '../utils/back_dismiss_manager.dart';
 import '../utils/media_language_mapper.dart';
 import '../utils/media_locale_store.dart';
 import '../utils/player_title_formatter.dart';
 import '../utils/play_detail_track_selector.dart';
 import '../utils/app_top_tip.dart';
+import '../utils/action_rate_limiter.dart';
 import '../ui/bookmark_note_dialog.dart';
 import '../ui/bookmark_note_preview.dart';
 import '../ui/mpv_audio_eq_advanced_panel.dart';
+import '../widgets/common/named_preset_save_dialog.dart';
 import '../widgets/common/local_file_browser_sheet.dart';
 import 'stores/bookmark_store.dart';
 import 'controllers/episode_picker_presenter.dart';
@@ -52,6 +66,8 @@ import 'stores/mpv_settings_store.dart';
 import 'controllers/mpv_player_controller.dart';
 import 'controllers/player_runtime_controller.dart';
 import 'controllers/player_session_controller.dart';
+import 'controllers/play_stats_session_controller.dart';
+import 'controllers/local_runtime_track_controller.dart';
 import 'stores/screenshot_settings_store.dart';
 import 'services/mpv_proxy_server.dart';
 import 'services/player_runtime_preferences_store.dart';
@@ -64,11 +80,13 @@ import 'widgets/player_gesture_overlay.dart';
 import 'widgets/player_nested_sheet.dart';
 import 'widgets/player_option_sheet.dart';
 import 'widgets/player_overlay_sections.dart';
+import 'widgets/player_speed_dial_overlay.dart';
 import 'controllers/player_settings_controller.dart';
 import 'controllers/player_overlay_state.dart';
 import 'controllers/player_source_controller.dart';
 import 'controllers/player_subtitle_controller.dart';
 import 'controllers/player_ui_controller.dart';
+import 'widgets/player_listen_video_presentation.dart';
 import 'widgets/player_system_controls.dart';
 
 part 'page_parts/core/mpv_player_episode_mixin.dart';
@@ -125,20 +143,32 @@ const AppThemeColors _playerFixedThemeColors = AppThemeColors(
 class MpvPlayerPage extends StatefulWidget {
   final String title;
   final MpvMediaSource source;
+  final PlayInfoData? initialPlayInfo;
+  final PlayStartSource startSource;
   final bool parallelLayoutToggleEnabled;
   final String parallelLayoutMode;
   final ValueChanged<String>? onParallelLayoutModeChanged;
+  final bool interceptSystemBack;
+  final bool pictureInPictureActive;
+  final ValueChanged<Future<bool> Function()?>? onBackActionHandlerChanged;
   final Future<void> Function(PlayDetailPlayerReturnData result)?
   onCloseRequested;
+  final BackDismissManager? backDismissManager;
 
   const MpvPlayerPage({
     super.key,
     required this.title,
     required this.source,
+    this.initialPlayInfo,
+    this.startSource = PlayStartSource.manual,
     this.parallelLayoutToggleEnabled = false,
     this.parallelLayoutMode = 'fullscreen',
     this.onParallelLayoutModeChanged,
+    this.interceptSystemBack = true,
+    this.pictureInPictureActive = false,
+    this.onBackActionHandlerChanged,
     this.onCloseRequested,
+    this.backDismissManager,
   });
 
   @override
@@ -169,7 +199,17 @@ Future<String> _writeSubtitleBytesToTempFile({
 
 class _MpvPlayerPageState extends State<MpvPlayerPage>
     with WidgetsBindingObserver {
+  static const String _backDismissUiLockId = 'player_ui_lock';
+  static const String _backDismissSpeedDialId = 'player_speed_dial';
+  static const String _backDismissRouteOverlayId = 'player_route_overlay';
+  static const String _backDismissChapterSkipId = 'player_chapter_skip';
+  static const String _backDismissAutoPlayPromptId = 'player_auto_play_prompt';
+  static const String _backDismissPlaybackCompletedId =
+      'player_playback_completed';
+  static const String _backDismissResumePromptId = 'player_resume_prompt';
   static const String _autoPlayPrefKey = 'player_auto_play_enabled';
+  static const String _nextEpisodePreloadPrefKey =
+      'player_next_episode_preload_enabled';
   static const String _autoRotatePrefKey = 'player_auto_rotate_enabled';
   static const String _extremePlaybackPrefKey =
       'player_extreme_playback_enabled';
@@ -186,6 +226,7 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   static const Duration _videoLoadingPlaybackStartTolerance = Duration(
     milliseconds: 450,
   );
+  static const Duration _autoPlayPromptMinimumProgress = Duration(seconds: 5);
   static const String _introOutroEnabledPrefKey = 'player_intro_outro_enabled';
   static const String _introOutroSourceModePrefKey =
       'player_intro_outro_source_mode';
@@ -292,7 +333,12 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   final PlayerCompletionController _completionController =
       PlayerCompletionController();
   final PlayerRuntimeController _runtimeController = PlayerRuntimeController();
+  final LocalRuntimeTrackController _localRuntimeTrackController =
+      const LocalRuntimeTrackController();
+  final MpvSettingsStore _mpvSettingsStore = const MpvSettingsStore();
   final PlayerSessionController _sessionController = PlayerSessionController();
+  final PlayStatsSessionController _playStatsSessionController =
+      PlayStatsService.instance.sessionController;
   final PlayerUiController _uiController = PlayerUiController();
   final PlayerSourceController _sourceController =
       const PlayerSourceController();
@@ -310,9 +356,12 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
             (1.0 - _subtitleScaleMin) / (_subtitleScaleMax - _subtitleScaleMin);
   final PlayerSubtitleController _subtitleController =
       PlayerSubtitleController();
+  List<SavedMpvPreset> _savedMpvPicturePresets = const <SavedMpvPreset>[];
+  List<SavedMpvPreset> _savedMpvAudioPresets = const <SavedMpvPreset>[];
   final PlayerRuntimePreferencesStore _runtimePreferencesStore =
       const PlayerRuntimePreferencesStore(
         autoPlayPrefKey: _autoPlayPrefKey,
+        nextEpisodePreloadPrefKey: _nextEpisodePreloadPrefKey,
         autoRotatePrefKey: _autoRotatePrefKey,
         extremePlaybackPrefKey: _extremePlaybackPrefKey,
         performanceOverlayPrefKey: _performanceOverlayPrefKey,
@@ -364,12 +413,16 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   final AppTopTip _topTip = AppTopTip();
   final TextEditingController _danmakuSearchController =
       TextEditingController();
+  final ActionRateLimiter _danmakuSearchRateLimiter = ActionRateLimiter(
+    cooldown: const Duration(seconds: 8),
+  );
   final Map<String, Timer> _proxyReleaseTimers = <String, Timer>{};
   final Set<String> _dismissedChapterSkipKeys = <String>{};
   final Set<String> _completedChapterSkipKeys = <String>{};
 
   Timer? _recordTimer;
   Timer? _controlsTimer;
+  Timer? _playerSystemStatusTimer;
   Timer? _statusMessageTimer;
   Timer? _subtitleSwitchOverlayTimer;
   Timer? _deferredSubtitleSelectionTimer;
@@ -377,6 +430,7 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   Timer? _performanceOverlayTimer;
   Timer? _chapterRetryTimer;
   Timer? _centerPopupTimer;
+  int? _lastAppliedEffectiveSubtitlePosition;
   NasProvider? _nasProvider;
   bool _abLoopSeekPending = false;
   bool _resumeAfterLifecyclePause = false;
@@ -385,23 +439,60 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   bool _exitPlaybackRecordQueued = false;
   bool _danmakuSearchLoading = false;
   bool _playbackSettingsDrawerVisible = false;
+  bool _speedDialVisible = false;
+  bool _speedDialRestoreControlsVisible = false;
+  bool _playerUiLocked = false;
+  String _playerSystemTimeLabel = '';
+  String _playerSystemNetworkType = 'unknown';
+  int? _playerSystemBatteryLevel;
+  bool _playerSystemCharging = false;
+  bool _initialPlayerPreferencesLoaded = false;
+  bool _platformViewAttached = false;
+  bool _initialSourceLoadStarted = false;
+  bool _initialFrameReady = false;
+  bool _runtimeTrackSnapshotInFlight = false;
+  bool _runtimeTrackSnapshotLoaded = false;
+  bool _serverManagedPlayLinkCheckInFlight = false;
+  bool _serverSessionRecoveryInFlight = false;
+  bool _cacheDownloadAvailable = false;
+  bool _cacheDownloadCheckInFlight = false;
+  bool _cacheDownloadImportInFlight = false;
+  bool _cacheCompletionTipShown = false;
+  bool _cacheDownloadConsumedForSource = false;
+  bool _pictureInPictureSupported = false;
+  bool _parallelWindowSupported = false;
+  bool _parallelWindowEnabled = false;
+  int _cacheDownloadCheckToken = 0;
   int _loadNonceSeed = 0;
+  int _runtimeTrackSnapshotLoadNonce = 0;
   _ChapterSkipSegment? _inferredIntroSkip;
   _ChapterSkipSegment? _inferredOutroSkip;
   Duration? _abLoopStart;
   Duration? _abLoopEnd;
   String? _activeDanmakuSourceKey;
+  int _danmakuContextToken = 0;
   int? _danmakuImportingEpisodeId;
   String? _danmakuImportingLocalPath;
   String? _danmakuDeletingLocalPath;
+  String _danmakuSearchPreparedContextKey = '';
+  String _danmakuSearchLastCompletedContextKey = '';
   String _currentPosterPath = '';
   String _chapterMediaGuid = '';
+  String _runtimeTrackSnapshotStatus = '';
   PlayDetailRefreshData? _prefetchedReturnDetailData;
   String _prefetchedReturnDetailItemGuid = '';
   String _prefetchedReturnDetailMediaGuid = '';
   String? _prefetchedReturnDetailAudioGuid;
   String? _prefetchedReturnDetailSubtitleGuid;
   int _returnDetailPrefetchGeneration = 0;
+  _PreparedEpisodeSwitchResult? _prefetchedNextEpisodeSwitchResult;
+  bool _nextEpisodePreloadInFlight = false;
+  int _nextEpisodePreloadGeneration = 0;
+  List<MediaLibraryItem>? _episodeSeasonItems;
+  final Map<String, List<MediaLibraryItem>> _episodeItemsBySeasonGuid =
+      <String, List<MediaLibraryItem>>{};
+  final Map<String, Future<List<MediaLibraryItem>>>
+  _episodeItemsInflightBySeason = <String, Future<List<MediaLibraryItem>>>{};
   final ValueNotifier<MpvPerformanceOverlayStats>
   _performanceOverlayStatsNotifier = ValueNotifier<MpvPerformanceOverlayStats>(
     MpvPerformanceOverlayStats.empty,
@@ -409,6 +500,7 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   final ValueNotifier<Offset> _performanceOverlayOffsetNotifier =
       ValueNotifier<Offset>(const Offset(12, 56));
   List<MediaLibraryItem> _episodeItems = const <MediaLibraryItem>[];
+  TvEpisodePickerMode _episodePickerMode = TvEpisodePickerMode.list;
   List<MpvChapterItem> _chapters = const <MpvChapterItem>[];
   List<DanDanPlayEpisodeSearchItem> _danmakuSearchResults =
       const <DanDanPlayEpisodeSearchItem>[];
@@ -419,8 +511,13 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
       const <PlayerBookmarkEntry>[];
   bool _captureFrameInFlight = false;
   bool _systemPlaybackSessionStarted = false;
+  bool _autoPlayPromptRequestInFlight = false;
   Map<String, Object?>? _lastSystemPlaybackSessionPayload;
   SystemUiMode? _lastAppliedSystemUiMode;
+  PlayInfoData? _playStatsCurrentInfo;
+  String _playStatsCurrentVideoId = '';
+  DateTime? _lastServerManagedPlayLinkCheckAt;
+  DateTime? _lastServerSessionRecoveryAt;
 
   bool get _gestureSeekActive => _gestureController.gestureSeekActive;
   bool get _speedBoostActive => _gestureController.speedBoostActive;
@@ -482,6 +579,10 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   bool get _autoPlayEnabled => _settingsController.autoPlayEnabled;
   set _autoPlayEnabled(bool value) =>
       _settingsController.autoPlayEnabled = value;
+  bool get _nextEpisodePreloadEnabled =>
+      _settingsController.nextEpisodePreloadEnabled;
+  set _nextEpisodePreloadEnabled(bool value) =>
+      _settingsController.nextEpisodePreloadEnabled = value;
   bool get _autoRotateEnabled => _settingsController.autoRotateEnabled;
   set _autoRotateEnabled(bool value) =>
       _settingsController.autoRotateEnabled = value;
@@ -591,6 +692,9 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
       _sessionController.currentAncestorName = value;
   String get _currentTitle => _sessionController.currentTitle;
   set _currentTitle(String value) => _sessionController.currentTitle = value;
+  String get _currentSeriesGuid => _sessionController.currentSeriesGuid;
+  set _currentSeriesGuid(String value) =>
+      _sessionController.currentSeriesGuid = value;
   String get _currentSeriesTitle => _sessionController.currentSeriesTitle;
   set _currentSeriesTitle(String value) =>
       _sessionController.currentSeriesTitle = value;
@@ -649,11 +753,26 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
       _sessionController.activeSubtitleProxySessionId;
   set _activeSubtitleProxySessionId(String? value) =>
       _sessionController.activeSubtitleProxySessionId = value;
+  String? get _activeCacheResourceKey =>
+      _sessionController.activeCacheResourceKey;
+  set _activeCacheResourceKey(String? value) =>
+      _sessionController.activeCacheResourceKey = value;
   String? get _currentPlayLink => _sessionController.currentPlayLink;
   set _currentPlayLink(String? value) =>
       _sessionController.currentPlayLink = value;
+  int get _currentServerSessionHlsTimeSeconds =>
+      _sessionController.currentServerSessionHlsTimeSeconds;
+  set _currentServerSessionHlsTimeSeconds(int value) =>
+      _sessionController.currentServerSessionHlsTimeSeconds = value;
   String get _currentUrl => _sessionController.currentUrl;
   set _currentUrl(String value) => _sessionController.currentUrl = value;
+  bool get _currentSourceIsDownloadedFile {
+    final normalizedUrl = _currentUrl.trim().toLowerCase();
+    if (normalizedUrl.startsWith('file:')) return true;
+    if (normalizedUrl.isNotEmpty) return false;
+    return widget.source.isDownloadedFile;
+  }
+
   Map<String, String> get _currentHeaders => _sessionController.currentHeaders;
   set _currentHeaders(Map<String, String> value) =>
       _sessionController.currentHeaders = value;
@@ -679,6 +798,9 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   set _durationSeconds(int value) => _sessionController.durationSeconds = value;
   double get _playbackSpeed => _sessionController.playbackSpeed;
   set _playbackSpeed(double value) => _sessionController.playbackSpeed = value;
+  bool get _listenVideoModeEnabled => _sessionController.listenVideoModeEnabled;
+  set _listenVideoModeEnabled(bool value) =>
+      _sessionController.listenVideoModeEnabled = value;
   Duration get _resumeStartPosition => _sessionController.resumeStartPosition;
   set _resumeStartPosition(Duration value) =>
       _sessionController.resumeStartPosition = value;
@@ -705,9 +827,16 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
     return _qualities.any((quality) => quality.isDirectLink);
   }
 
+  Future<bool> _hostBackActionHandler() async {
+    await _handleBackAction();
+    return true;
+  }
+
   @override
   void initState() {
     super.initState();
+    unawaited(PlayStatsService.instance.database.open());
+    _registerBackDismissHandlers(widget.backDismissManager);
     WidgetsBinding.instance.addObserver(this);
     unawaited(
       PlayerSystemSessionBridge.registerCommandHandler(
@@ -717,17 +846,29 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
     );
     _hydrateFromSource(widget.source);
     unawaited(_gestureController.primeSystemSnapshot());
+    _playerSystemTimeLabel = _formatPlayerSystemClock(DateTime.now());
+    _startPlayerSystemStatusTicker();
     unawaited(_loadInitialPlayerPreferences());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      _initialFrameReady = true;
+      _tryStartInitialSourceLoad();
       unawaited(_loadDanmakuPreferences());
     });
+    widget.onBackActionHandlerChanged?.call(_hostBackActionHandler);
+    _danmakuController.addListener(_handleDanmakuControllerChanged);
     _controller.value.addListener(_handlePlayerValueChanged);
+    _completionController.addListener(_handleOverlayControllersChanged);
+    _overlayState.addListener(_handleOverlayControllersChanged);
     _recordTimer = Timer.periodic(
       const Duration(seconds: 15),
       (_) => unawaited(_submitPlaybackRecord()),
     );
     _scheduleControlsAutoHide();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_syncParallelLayoutOrientationLock());
+    });
   }
 
   @override
@@ -743,15 +884,55 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   @override
   void didUpdateWidget(covariant MpvPlayerPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.onBackActionHandlerChanged !=
+        widget.onBackActionHandlerChanged) {
+      oldWidget.onBackActionHandlerChanged?.call(null);
+      widget.onBackActionHandlerChanged?.call(_hostBackActionHandler);
+    }
+    if (oldWidget.backDismissManager != widget.backDismissManager) {
+      _unregisterBackDismissHandlers(oldWidget.backDismissManager);
+      _registerBackDismissHandlers(widget.backDismissManager);
+    }
+    final layoutModeChanged =
+        oldWidget.parallelLayoutMode != widget.parallelLayoutMode;
     final sourceChanged =
         oldWidget.source.loadNonce != widget.source.loadNonce ||
         oldWidget.source.url != widget.source.url ||
         oldWidget.source.itemGuid != widget.source.itemGuid ||
         oldWidget.source.mediaGuid != widget.source.mediaGuid ||
         oldWidget.source.videoGuid != widget.source.videoGuid ||
+        oldWidget.source.audioTrackGuid != widget.source.audioTrackGuid ||
+        oldWidget.source.subtitleTrackGuid != widget.source.subtitleTrackGuid ||
+        oldWidget.source.audioTrackIndex != widget.source.audioTrackIndex ||
+        oldWidget.source.subtitleTrackIndex !=
+            widget.source.subtitleTrackIndex ||
+        oldWidget.source.preferExternalSubtitle !=
+            widget.source.preferExternalSubtitle ||
         oldWidget.source.startPosition != widget.source.startPosition;
+    if (layoutModeChanged) {
+      unawaited(_syncParallelLayoutOrientationLock());
+      unawaited(
+        _applySystemUiForOrientation(
+          _isLandscapeViewport(),
+          controlsVisible: _controlsVisible,
+        ),
+      );
+    }
+    if (oldWidget.pictureInPictureActive != widget.pictureInPictureActive) {
+      unawaited(_syncDanmakuDynamicOcclusionConfig());
+      if (widget.pictureInPictureActive) {
+        unawaited(_handlePictureInPictureActivated());
+      } else {
+        _scheduleControlsAutoHide();
+      }
+    }
     if (sourceChanged) {
-      _replacePlayerSource(widget.source);
+      if (!_initialSourceLoadStarted &&
+          (!_initialPlayerPreferencesLoaded || !_platformViewAttached)) {
+        _hydrateFromSource(widget.source);
+      } else {
+        _replacePlayerSource(widget.source);
+      }
     }
   }
 
@@ -759,17 +940,23 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   void didChangeMetrics() {
     if (!mounted) return;
     final isLandscape = _isLandscapeViewport();
+    if (widget.parallelLayoutMode == 'split') {
+      unawaited(() async {
+        final systemMultiWindowActive =
+            await PlayerHostBridge.isSystemMultiWindowActive();
+        if (!mounted) return;
+        if (systemMultiWindowActive) {
+          widget.onParallelLayoutModeChanged?.call('fullscreen');
+          return;
+        }
+        if (!_isLandscapeViewport()) {
+          await _setPlayerOrientationMode('landscape');
+        }
+      }());
+    }
     unawaited(_applySystemUiForOrientation(isLandscape));
     if (_uiController.orientationChangeInProgress) {
-      Future<void>.delayed(const Duration(milliseconds: 450), () {
-        if (!mounted) return;
-        unawaited(_controller.refreshState());
-        _showControls();
-        Future<void>.delayed(const Duration(milliseconds: 120), () {
-          if (!mounted) return;
-          setState(_uiController.finishOrientationChange);
-        });
-      });
+      _completeOrientationTransitionAfterMetrics();
       return;
     }
     unawaited(_controller.refreshState());
@@ -777,9 +964,14 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
 
   @override
   void dispose() {
+    _invalidateNextEpisodePreload();
+    _invalidateEpisodePickerSeasonCache(clearCurrentItems: true);
+    widget.onBackActionHandlerChanged?.call(null);
+    _unregisterBackDismissHandlers(widget.backDismissManager);
     WidgetsBinding.instance.removeObserver(this);
     _recordTimer?.cancel();
     _controlsTimer?.cancel();
+    _playerSystemStatusTimer?.cancel();
     _statusMessageTimer?.cancel();
     _subtitleSwitchOverlayTimer?.cancel();
     _deferredSubtitleSelectionTimer?.cancel();
@@ -787,11 +979,21 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
     _performanceOverlayTimer?.cancel();
     _chapterRetryTimer?.cancel();
     _centerPopupTimer?.cancel();
+    _danmakuController.removeListener(_handleDanmakuControllerChanged);
     _controller.value.removeListener(_handlePlayerValueChanged);
+    _completionController.removeListener(_handleOverlayControllersChanged);
+    _overlayState.removeListener(_handleOverlayControllersChanged);
+    if (_playStatsCurrentVideoId.isNotEmpty) {
+      _playStatsCurrentVideoId = '';
+      unawaited(_playStatsSessionController.finishPlayback(reason: 'dispose'));
+    }
     unawaited(_stopSystemPlaybackSession());
     unawaited(PlayerSystemSessionBridge.unregisterCommandHandler(this));
     unawaited(_flushPlaybackRecordOnExit());
+    final tempRoot = Directory.systemTemp.path.replaceAll('\\', '/');
     for (final path in _subtitleFileByGuid.values.toSet()) {
+      final normalizedPath = path.replaceAll('\\', '/');
+      if (!normalizedPath.startsWith(tempRoot)) continue;
       unawaited(_deleteTempFile(path));
     }
     final proxySessionId = _activeProxySessionId;
@@ -803,6 +1005,7 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
       MpvProxyServer.instance.unregister(subtitleProxySessionId);
     }
     unawaited(_setPlayerOrientationMode('system'));
+    unawaited(_setPlayerImmersiveMode(false));
     unawaited(_setSystemUiModeIfNeeded(SystemUiMode.edgeToEdge, force: true));
     _completionController.dispose();
     _gestureController.dispose();
@@ -828,6 +1031,7 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
     switch (state) {
       case AppLifecycleState.resumed:
         unawaited(_controller.refreshState());
+        unawaited(_refreshPlayerSystemStatus());
         if (_resumeAfterLifecyclePause) {
           _resumeAfterLifecyclePause = false;
           unawaited(_controller.play());
@@ -837,6 +1041,11 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
         return;
       case AppLifecycleState.hidden:
       case AppLifecycleState.paused:
+        if (_shouldKeepPlaybackAliveInBackground()) {
+          _resumeAfterLifecyclePause = false;
+          unawaited(_startOrUpdateSystemPlaybackSession(force: true));
+          return;
+        }
         final playing = !_controller.value.value.paused;
         _resumeAfterLifecyclePause = playing;
         if (playing) {
@@ -845,6 +1054,151 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
       case AppLifecycleState.detached:
         _resumeAfterLifecyclePause = false;
     }
+  }
+
+  bool _shouldKeepPlaybackAliveInBackground() {
+    if (!Platform.isAndroid) {
+      return false;
+    }
+    return _systemPlaybackSessionStarted && !_exitInProgress;
+  }
+
+  Future<void> _syncParallelLayoutOrientationLock() async {
+    if (!Platform.isAndroid) return;
+    await _setPlayerOrientationMode(
+      widget.parallelLayoutMode == 'split' ? 'landscape' : 'system',
+    );
+  }
+
+  void _registerBackDismissHandlers(BackDismissManager? manager) {
+    if (manager == null) return;
+    manager.register(
+      id: _backDismissUiLockId,
+      priority: 130,
+      handler: _dismissUiLockIfNeeded,
+    );
+    manager.register(
+      id: _backDismissSpeedDialId,
+      priority: 100,
+      handler: _dismissSpeedDialOverlayIfNeeded,
+    );
+    manager.register(
+      id: _backDismissChapterSkipId,
+      priority: 90,
+      handler: _dismissChapterSkipPromptIfNeeded,
+    );
+    manager.register(
+      id: _backDismissAutoPlayPromptId,
+      priority: 80,
+      handler: _dismissAutoPlayPromptIfNeeded,
+    );
+    manager.register(
+      id: _backDismissPlaybackCompletedId,
+      priority: 70,
+      handler: _dismissPlaybackCompletedOverlayIfNeeded,
+    );
+    manager.register(
+      id: _backDismissResumePromptId,
+      priority: 60,
+      handler: _dismissResumePromptIfNeeded,
+    );
+    manager.register(
+      id: _backDismissRouteOverlayId,
+      priority: 10,
+      handler: _dismissOverlayRouteIfNeeded,
+    );
+  }
+
+  void _unregisterBackDismissHandlers(BackDismissManager? manager) {
+    if (manager == null) return;
+    manager.unregister(_backDismissUiLockId);
+    manager.unregister(_backDismissSpeedDialId);
+    manager.unregister(_backDismissChapterSkipId);
+    manager.unregister(_backDismissAutoPlayPromptId);
+    manager.unregister(_backDismissPlaybackCompletedId);
+    manager.unregister(_backDismissResumePromptId);
+    manager.unregister(_backDismissRouteOverlayId);
+  }
+
+  Future<bool> _dismissSpeedDialOverlayIfNeeded() async {
+    if (!_speedDialVisible) return false;
+    _hideSpeedDialOverlay();
+    return true;
+  }
+
+  Future<bool> _dismissUiLockIfNeeded() async {
+    if (!_playerUiLocked) return false;
+    await _unlockPlayerUi();
+    return true;
+  }
+
+  Future<bool> _dismissChapterSkipPromptIfNeeded() async {
+    if (_uiController.activeChapterSkipPrompt == null) return false;
+    _dismissCurrentChapterSkipPrompt();
+    return true;
+  }
+
+  Future<bool> _dismissAutoPlayPromptIfNeeded() async {
+    if (!_completionController.autoPlayPromptVisible) return false;
+    _cancelAutoPlayPrompt();
+    return true;
+  }
+
+  Future<bool> _dismissPlaybackCompletedOverlayIfNeeded() async {
+    if (!_playbackCompleted) return false;
+    _clearPlaybackCompletionState();
+    _overlayState.showControls();
+    _overlayState.cancelAutoHide();
+    return true;
+  }
+
+  Future<bool> _dismissResumePromptIfNeeded() async {
+    if (!_overlayState.resumePromptVisible) return false;
+    _setResumePromptVisibility(false);
+    _scheduleControlsAutoHide();
+    return true;
+  }
+
+  Future<bool> _dismissOverlayRouteIfNeeded() async {
+    if (!mounted) return false;
+    final route = ModalRoute.of(context);
+    if (route?.isCurrent == true) return false;
+    return Navigator.of(context).maybePop();
+  }
+
+  Future<bool> _dismissActiveTransientUi() async {
+    final manager = widget.backDismissManager;
+    if (manager != null) {
+      return manager.dismissActive();
+    }
+    if (await _dismissSpeedDialOverlayIfNeeded()) return true;
+    if (await _dismissChapterSkipPromptIfNeeded()) return true;
+    if (await _dismissAutoPlayPromptIfNeeded()) return true;
+    if (await _dismissPlaybackCompletedOverlayIfNeeded()) return true;
+    if (await _dismissResumePromptIfNeeded()) return true;
+    return _dismissOverlayRouteIfNeeded();
+  }
+
+  Future<void> _handleBackAction() async {
+    if (await _dismissUiLockIfNeeded()) {
+      return;
+    }
+    if (await _dismissActiveTransientUi()) {
+      return;
+    }
+    await _closePlayer();
+  }
+
+  void _completeOrientationTransitionAfterMetrics() {
+    Future<void>.delayed(const Duration(milliseconds: 450), () {
+      if (!mounted) return;
+      unawaited(_controller.refreshState());
+      _showControls();
+      Future<void>.delayed(const Duration(milliseconds: 120), () {
+        if (!mounted) return;
+        setState(_uiController.finishOrientationChange);
+      });
+    });
   }
 
   @override

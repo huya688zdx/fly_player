@@ -6,6 +6,68 @@ import 'dynamic_theme_seed_extractor.dart';
 class DynamicThemeMapper {
   const DynamicThemeMapper._();
 
+  static AppThemeColors mapSubtle({
+    required AppThemeColors baseColors,
+    required DynamicThemeSeed seed,
+  }) {
+    final brightness = _brightnessFor(seed);
+    final scheme = ColorScheme.fromSeed(
+      seedColor: seed.accentSeed,
+      brightness: brightness,
+      dynamicSchemeVariant: DynamicSchemeVariant.tonalSpot,
+      contrastLevel: -0.15,
+    );
+    final isLight = brightness == Brightness.light;
+    return baseColors.copyWith(
+      surfaceStrong: _toneSurface(
+        baseColors.surfaceStrong,
+        tint: scheme.primaryContainer,
+        alpha: isLight ? 0.08 : 0.12,
+      ),
+      borderSubtle: _toneSurface(
+        baseColors.borderSubtle,
+        tint: scheme.outlineVariant,
+        alpha: isLight ? 0.18 : 0.24,
+      ),
+      borderStrong: _toneSurface(
+        baseColors.borderStrong,
+        tint: scheme.outline,
+        alpha: isLight ? 0.22 : 0.30,
+      ),
+      accent: scheme.primary,
+      accentSoft: _toneSurface(
+        baseColors.accentSoft,
+        tint: scheme.primaryContainer,
+        alpha: isLight ? 0.16 : 0.20,
+      ),
+      accentStrong: scheme.primary,
+      selection: scheme.secondary,
+      selectionSoft: _toneSurface(
+        baseColors.selectionSoft,
+        tint: scheme.secondaryContainer,
+        alpha: isLight ? 0.14 : 0.18,
+      ),
+      selectionStrong: scheme.secondary,
+      link: scheme.tertiary,
+      chipBackground: _toneSurface(
+        baseColors.chipBackground,
+        tint: scheme.tertiaryContainer,
+        alpha: isLight ? 0.14 : 0.18,
+      ),
+      chipBorder: _toneSurface(
+        baseColors.chipBorder,
+        tint: scheme.outlineVariant,
+        alpha: isLight ? 0.18 : 0.22,
+      ),
+      chipText: isLight ? scheme.onTertiaryContainer : baseColors.chipText,
+      overlayScrim: _toneSurface(
+        baseColors.overlayScrim,
+        tint: scheme.scrim,
+        alpha: isLight ? 0.06 : 0.10,
+      ),
+    );
+  }
+
   static AppThemeColors map({
     required AppThemeColors baseColors,
     required DynamicThemeSeed seed,

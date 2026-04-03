@@ -7,31 +7,30 @@ const Set<String> _loadingStatusTexts = <String>{
   'waiting for video surface',
   'waiting for playback source',
 };
-const Set<String> _visualPlaybackPendingStatusTexts = <String>{
-  'preparing player',
-  'preparing playback',
-  'preparing video renderer',
-  'waiting for video surface',
-  'waiting for playback source',
-  'source loaded',
-  'playback started',
-};
 const Duration _videoLoadingOverlayShowDelay = Duration(milliseconds: 260);
 
 extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
   void _finishPendingLoadingTransition({
     Duration hideDelay = const Duration(milliseconds: 900),
   }) {
-    if (!_uiController.pendingLoadingTransition) {
+    final hadTransitionState =
+        _uiController.pendingLoadingTransition ||
+        _uiController.awaitingVisualPlaybackStart ||
+        _uiController.qualitySwitchLoading ||
+        _uiController.backgroundLoadingTransition;
+    if (!hadTransitionState) {
       return;
     }
     _uiController.pendingLoadingTransition = false;
+    _uiController.awaitingVisualPlaybackStart = false;
+    _uiController.backgroundLoadingTransition = false;
     _uiController.pendingTransitionTargetPaused = false;
     if (mounted) {
       _updatePlayerState(() => _uiController.qualitySwitchLoading = false);
     } else {
       _uiController.qualitySwitchLoading = false;
     }
+    _completionController.clearPlaybackCompletionSuppression();
     _hideSubtitleSwitchMessage(delay: hideDelay);
   }
 
@@ -39,6 +38,7 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
     Duration hideDelay = const Duration(milliseconds: 900),
   }) {
     _uiController.awaitingVisualPlaybackStart = false;
+    _uiController.backgroundLoadingTransition = false;
     _uiController.pendingTransitionTargetPaused = false;
     _finishPendingLoadingTransition(hideDelay: hideDelay);
   }
@@ -46,10 +46,13 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
   void _markAwaitingVisualPlaybackStart(
     Duration anchorPosition, {
     required bool targetPaused,
+    bool background = false,
   }) {
+    _completionController.beginPlaybackCompletionSuppression();
     _uiController.markAwaitingVisualPlaybackStart(
       anchorPosition,
       targetPaused: targetPaused,
+      background: background,
     );
     _syncVideoLoadingOverlayVisibility();
   }
@@ -85,22 +88,12 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
       _finishPendingLoadingTransition();
       return;
     }
-    if (value.ready &&
-        value.nativeLibLoaded &&
-        !value.paused &&
-        status == 'playback started') {
+    if (value.visualPlaybackReady && value.ready && value.nativeLibLoaded) {
       _uiController.awaitingVisualPlaybackStart = false;
       _finishPendingLoadingTransition(
         hideDelay: const Duration(milliseconds: 220),
       );
       return;
-    }
-    if (value.ready &&
-        value.nativeLibLoaded &&
-        !value.paused &&
-        !_visualPlaybackPendingStatusTexts.contains(status)) {
-      _uiController.awaitingVisualPlaybackStart = false;
-      _finishPendingLoadingTransition();
     }
   }
 
@@ -148,6 +141,46 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
         unawaited(_skipToNextEpisodeFromPrompt());
       },
     );
+    unawaited(_preloadNextEpisodeIfNeeded(nextEpisode));
+    final value = _controller.value.value;
+    final statusText = value.statusText.trim().toLowerCase();
+    _completionController.setAutoPlayCountdownPaused(
+      value.paused && statusText != 'playback ended',
+    );
+  }
+
+  Future<void> _maybeStartAutoPlayPromptNearEnd() async {
+    if (_autoPlayPromptRequestInFlight ||
+        _completionController.autoPlayPromptVisible ||
+        _completionController.autoPlayPromptSuppressed ||
+        _playbackCompleted ||
+        _completionActionInFlight) {
+      return;
+    }
+    _autoPlayPromptRequestInFlight = true;
+    try {
+      final nextEpisode = await _nextEpisodeOrNull();
+      if (!mounted || nextEpisode == null) {
+        return;
+      }
+      _overlayState.showControls();
+      _overlayState.cancelAutoHide();
+      _completionController.beginAutoPlayPrompt(
+        hasNextEpisode: true,
+        onTimeout: () {
+          if (!mounted) return;
+          unawaited(_skipToNextEpisodeFromPrompt());
+        },
+      );
+      unawaited(_preloadNextEpisodeIfNeeded(nextEpisode));
+      final value = _controller.value.value;
+      final statusText = value.statusText.trim().toLowerCase();
+      _completionController.setAutoPlayCountdownPaused(
+        value.paused && statusText != 'playback ended',
+      );
+    } finally {
+      _autoPlayPromptRequestInFlight = false;
+    }
   }
 
   Future<void> _skipToNextEpisodeFromPrompt() async {
@@ -167,12 +200,6 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
   }
 
   Future<void> _pauseForAutoPlayPromptIfNeeded() async {
-    if (_controller.value.value.paused) {
-      await _showAutoPlayPrompt();
-      return;
-    }
-    await _controller.pause();
-    if (!mounted) return;
     await _showAutoPlayPrompt();
   }
 
@@ -187,25 +214,22 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
     final nextEpisode = await _nextEpisodeOrNull();
     if (!mounted) return;
     final hasNextEpisode = nextEpisode != null;
+    final hasPlayedLongEnoughForAutoPlay = _hasPlayedLongEnoughForAutoPlay(
+      _displayPosition(_controller.value.value),
+    );
 
-    if (_autoPlayEnabled && nextEpisode != null) {
-      _completionController.markTransitionInFlight(
-        hasNextEpisode: hasNextEpisode,
-      );
-      _completionController.beginPlaybackCompletionSuppression();
-      try {
-        await _switchToEpisode(nextEpisode, fromAutoPlay: true);
-        if (_currentItemGuid != nextEpisode.guid) {
-          _completionController.clearPlaybackCompletionSuppression();
-        }
-      } finally {
-        if (mounted) {
-          _completionController.finishTransitionInFlight();
-        }
-      }
+    if (_autoPlayEnabled &&
+        nextEpisode != null &&
+        hasPlayedLongEnoughForAutoPlay &&
+        !_completionController.autoPlayPromptSuppressed) {
+      await _pauseForAutoPlayPromptIfNeeded();
       return;
     }
 
+    if (!_controller.value.value.paused) {
+      await _controller.pause();
+      if (!mounted) return;
+    }
     _overlayState.showControls();
     _overlayState.cancelAutoHide();
     _completionController.markPlaybackCompleted(hasNextEpisode: hasNextEpisode);
@@ -214,9 +238,19 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
   Future<void> _replayCompletedItem() async {
     _clearPlaybackCompletionState();
     _overlayState.showControls();
-    _overlayState.setResumePromptVisible(false);
+    _setResumePromptVisibility(false);
     _gestureController.resetSeekTracking();
-    await _controller.seek(Duration.zero);
+    await _finishPlayStatsSession('replay_restart');
+    await _startPlayStatsSession(
+      startSource: PlayStartSource.replay,
+      info: _playStatsCurrentInfo,
+      source: _buildCurrentSource(
+        startPosition: Duration.zero,
+        loadNonce: _issueNextLoadNonce(),
+      ),
+      startPositionMs: 0,
+    );
+    await _seekWithStats(Duration.zero, userInitiated: false);
     await _controller.play();
     if (!mounted) return;
     _scheduleControlsAutoHide();
@@ -234,6 +268,12 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
 
   bool _wantsVideoLoadingOverlay(MpvPlayerValue value) {
     if (_exitInProgress || _playbackCompleted || _completionActionInFlight) {
+      return false;
+    }
+    if (_uiController.backgroundLoadingTransition &&
+        (_uiController.pendingLoadingTransition ||
+            _uiController.awaitingVisualPlaybackStart ||
+            _uiController.qualitySwitchLoading)) {
       return false;
     }
     if (_uiController.qualitySwitchLoading) {

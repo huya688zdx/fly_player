@@ -2,6 +2,7 @@ package `is`.xyz.mpv
 
 import android.content.Context
 import android.view.Surface
+import androidx.annotation.Keep
 import java.util.concurrent.CopyOnWriteArrayList
 
 object MPVLib {
@@ -82,6 +83,7 @@ object MPVLib {
         logObservers -= observer
     }
 
+    @Keep
     @JvmStatic
     fun eventProperty(property: String) {
         for (observer in observers) {
@@ -89,6 +91,7 @@ object MPVLib {
         }
     }
 
+    @Keep
     @JvmStatic
     fun eventProperty(property: String, value: Long) {
         for (observer in observers) {
@@ -96,6 +99,7 @@ object MPVLib {
         }
     }
 
+    @Keep
     @JvmStatic
     fun eventProperty(property: String, value: Boolean) {
         for (observer in observers) {
@@ -103,6 +107,7 @@ object MPVLib {
         }
     }
 
+    @Keep
     @JvmStatic
     fun eventProperty(property: String, value: String) {
         for (observer in observers) {
@@ -110,6 +115,7 @@ object MPVLib {
         }
     }
 
+    @Keep
     @JvmStatic
     fun eventProperty(property: String, value: Double) {
         for (observer in observers) {
@@ -117,6 +123,7 @@ object MPVLib {
         }
     }
 
+    @Keep
     @JvmStatic
     fun event(eventId: Int) {
         for (observer in observers) {
@@ -124,6 +131,7 @@ object MPVLib {
         }
     }
 
+    @Keep
     @JvmStatic
     fun logMessage(prefix: String, level: Int, text: String) {
         for (observer in logObservers) {
@@ -131,10 +139,13 @@ object MPVLib {
         }
     }
 
+    @Keep
     fun onFileLoaded(): Int = EVENT_FILE_LOADED
 
+    @Keep
     fun onEndFile(): Int = EVENT_END_FILE
 
+    @Keep
     fun propertyEvent(): Int = EVENT_PROPERTY
 
     external fun create(context: Context)

@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import '../services/settings_search_store.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
-import '../ui/app_transitions.dart';
 
 class SettingsSearchEntry {
   final String id;
@@ -13,8 +12,7 @@ class SettingsSearchEntry {
   final String subtitle;
   final String location;
   final List<String> keywords;
-  final Widget Function()? destinationBuilder;
-  final VoidCallback onSelect;
+  final Future<void> Function() onSelect;
 
   const SettingsSearchEntry({
     required this.id,
@@ -22,7 +20,6 @@ class SettingsSearchEntry {
     required this.subtitle,
     required this.location,
     required this.keywords,
-    this.destinationBuilder,
     required this.onSelect,
   });
 
@@ -85,15 +82,8 @@ class _SettingsSearchScreenState extends State<SettingsSearchScreen> {
   Future<void> _handleSelect(SettingsSearchEntry entry) async {
     unawaited(_store.recordUse(entry.id));
     if (!mounted) return;
-    final destinationBuilder = entry.destinationBuilder;
-    if (destinationBuilder != null) {
-      await Navigator.of(context).push(
-        AppTransitions.leftToRightPageTurnRoute<void>(destinationBuilder()),
-      );
-      return;
-    }
     Navigator.of(context).pop();
-    entry.onSelect();
+    await entry.onSelect();
   }
 
   List<SettingsSearchEntry> get _visibleEntries {
