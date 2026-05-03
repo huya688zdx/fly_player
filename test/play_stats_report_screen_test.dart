@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
+import 'package:fly_player/l10n/generated/app_localizations_zh.dart';
 import 'package:fly_player/providers/nas_provider.dart';
 import 'package:fly_player/screens/play_stats_report/play_stats_report_formatters.dart';
 import 'package:fly_player/screens/play_stats_report/play_stats_report_widgets.dart';
@@ -62,7 +63,8 @@ void main() {
       tester.view.resetDevicePixelRatio();
     });
 
-    const formatters = PlayStatsReportFormatters(
+    final formatters = PlayStatsReportFormatters(
+      l10n: AppLocalizationsZh(),
       genreMap: <int, String>{},
       countryMap: <String, String>{},
     );
@@ -131,16 +133,17 @@ void main() {
   testWidgets('hero metrics show reusable info popover copy', (
     WidgetTester tester,
   ) async {
-    const formatters = PlayStatsReportFormatters(
+    final formatters = PlayStatsReportFormatters(
+      l10n: AppLocalizationsZh(),
       genreMap: <int, String>{},
       countryMap: <String, String>{},
     );
 
     await tester.pumpWidget(
-      const MaterialApp(
+      MaterialApp(
         home: Scaffold(
           body: PlayStatsHeroCard(
-            overview: PlayStatsOverview(
+            overview: const PlayStatsOverview(
               totalPlayedMs: 583000,
               totalClickCount: 19,
               totalViewCount: 7,
@@ -179,16 +182,17 @@ void main() {
       tester.view.resetDevicePixelRatio();
     });
 
-    const formatters = PlayStatsReportFormatters(
+    final formatters = PlayStatsReportFormatters(
+      l10n: AppLocalizationsZh(),
       genreMap: <int, String>{},
       countryMap: <String, String>{},
     );
 
     await tester.pumpWidget(
-      const MaterialApp(
+      MaterialApp(
         home: Scaffold(
           body: PlayStatsHeroCard(
-            overview: PlayStatsOverview(
+            overview: const PlayStatsOverview(
               totalPlayedMs: 583000,
               totalClickCount: 19,
               totalViewCount: 7,
