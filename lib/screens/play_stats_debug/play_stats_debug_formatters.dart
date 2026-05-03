@@ -1,16 +1,19 @@
 import '../../services/play_stats/play_stats.dart';
 import '../../utils/play_detail_formatters.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 class PlayStatsDebugFormatters {
+  final AppLocalizations l10n;
   final Map<int, String> genreMap;
   final Map<String, String> countryMap;
 
   const PlayStatsDebugFormatters({
+    required this.l10n,
     required this.genreMap,
     required this.countryMap,
   });
 
-  String yesNo(bool value) => value ? '是' : '否';
+  String yesNo(bool value) => value ? l10n.playStatsYes : l10n.playStatsNo;
 
   String empty(String value) => value.trim().isEmpty ? '-' : value.trim();
 
@@ -25,12 +28,12 @@ class PlayStatsDebugFormatters {
     final minutes = duration.inMinutes.remainder(60);
     final seconds = duration.inSeconds.remainder(60);
     if (hours > 0) {
-      return '$hours 小时 $minutes 分钟 $seconds 秒';
+      return l10n.playStatsDurationHours(hours, minutes, seconds);
     }
     if (minutes > 0) {
-      return '$minutes 分钟 $seconds 秒';
+      return l10n.playStatsDurationMinutes(minutes, seconds);
     }
-    return '$seconds 秒';
+    return l10n.playStatsDurationSeconds(seconds);
   }
 
   String dateTime(int ms) {
@@ -77,11 +80,11 @@ class PlayStatsDebugFormatters {
 
   String startSource(PlayStartSource source) {
     return switch (source) {
-      PlayStartSource.manual => '手动打开',
-      PlayStartSource.manualSwitch => '手动换集',
-      PlayStartSource.autoNext => '自动连播',
-      PlayStartSource.replay => '重播',
-      PlayStartSource.systemResume => '系统恢复',
+      PlayStartSource.manual => l10n.playStatsStartSourceManual,
+      PlayStartSource.manualSwitch => l10n.playStatsStartSourceManualSwitch,
+      PlayStartSource.autoNext => l10n.playStatsStartSourceAutoNext,
+      PlayStartSource.replay => l10n.playStatsStartSourceReplay,
+      PlayStartSource.systemResume => l10n.playStatsStartSourceSystemResume,
     };
   }
 }

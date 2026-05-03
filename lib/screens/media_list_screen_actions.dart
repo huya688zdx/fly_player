@@ -19,6 +19,7 @@ extension _MediaListScreenActions on _MediaListScreenState {
   }
 
   String _continueActionTitleV2(MediaLibraryItem item) {
+    final l10n = AppLocalizations.of(context);
     final type = item.type.trim().toLowerCase();
     if (type == 'movie') return item.displayTitle;
     if (type != 'episode') return item.displayTitle;
@@ -26,8 +27,10 @@ extension _MediaListScreenActions on _MediaListScreenState {
         ? item.tvTitle.trim()
         : item.displayTitle;
     final seasonText = item.seasonNumber == 0
-        ? '特别篇'
-        : '第${item.seasonNumber > 0 ? item.seasonNumber : 1}季';
+        ? l10n.detailSeasonSpecial
+        : l10n.detailSeasonNumber(
+            item.seasonNumber > 0 ? item.seasonNumber : 1,
+          );
     return '《$seriesTitle》 $seasonText';
   }
 
@@ -63,87 +66,109 @@ extension _MediaListScreenActions on _MediaListScreenState {
     MediaLibraryItem item, {
     required String heroTag,
   }) async {
-    final flags = await _loadContinueItemFlags(item);
-    if (!mounted) return;
+    await AsyncActionGuard.run<void>(
+      'continue_watch_sheet:${item.guid.trim()}',
+      settleDuration: const Duration(milliseconds: 450),
+      action: () async {
+        final flags = await _loadContinueItemFlags(item);
+        if (!mounted) return;
+        final l10n = AppLocalizations.of(context);
 
-    final action = await showAppActionSheet<_ContinueWatchingAction>(
-      context,
-      title: _continueActionTitleV2(item),
-      options: <AppActionSheetOption<_ContinueWatchingAction>>[
-        const AppActionSheetOption(
-          value: _ContinueWatchingAction.viewDetail,
-          label: '查看影片详情',
-        ),
-        AppActionSheetOption(
-          value: _ContinueWatchingAction.markWatched,
-          label: flags.watched ? '标记为未观看' : '标记为已观看',
-        ),
-        AppActionSheetOption(
-          value: _ContinueWatchingAction.favorite,
-          label: flags.favorite ? '取消收藏' : '收藏',
-        ),
-        const AppActionSheetOption(
-          value: _ContinueWatchingAction.restart,
-          label: '从头开始播放',
-        ),
-        const AppActionSheetOption(
-          value: _ContinueWatchingAction.remove,
-          label: '从“继续观看”中移除',
-          destructive: true,
-        ),
-      ],
-    );
-    if (!mounted || action == null) return;
-
-    final api = FeiniuApi(context.read<NasProvider>());
-    try {
-      switch (action) {
-        case _ContinueWatchingAction.viewDetail:
-          await _openItemDetail(item, heroTag: heroTag);
-          break;
-        case _ContinueWatchingAction.markWatched:
-          final nextWatched = !flags.watched;
-          await api.setWatched(item.guid, watched: nextWatched);
-          _replaceItemLocally(
-            item.guid,
-            (current) => current.copyWith(
-              watched: nextWatched ? 1 : 0,
-              watchedTs: nextWatched ? current.duration : 0,
+        final action = await showAppActionSheet<_ContinueWatchingAction>(
+          context,
+          title: _continueActionTitleV2(item),
+          options: <AppActionSheetOption<_ContinueWatchingAction>>[
+            AppActionSheetOption(
+              value: _ContinueWatchingAction.viewDetail,
+              label: l10n.homeActionViewDetail,
             ),
+            AppActionSheetOption(
+              value: _ContinueWatchingAction.markWatched,
+              label: flags.watched
+                  ? l10n.actionMarkAsUnwatched
+                  : l10n.actionMarkAsWatched,
+            ),
+            AppActionSheetOption(
+              value: _ContinueWatchingAction.favorite,
+              label: flags.favorite
+                  ? l10n.actionFavoriteRemove
+                  : l10n.actionFavoriteAdd,
+            ),
+            AppActionSheetOption(
+              value: _ContinueWatchingAction.restart,
+              label: l10n.homeActionRestartPlayback,
+            ),
+            AppActionSheetOption(
+              value: _ContinueWatchingAction.remove,
+              label: l10n.homeActionRemoveFromContinue,
+              destructive: true,
+            ),
+          ],
+        );
+        if (!mounted || action == null) return;
+
+        final api = FeiniuApi(context.read<NasProvider>());
+        try {
+          switch (action) {
+            case _ContinueWatchingAction.viewDetail:
+              await _openItemDetail(item, heroTag: heroTag);
+              break;
+            case _ContinueWatchingAction.markWatched:
+              final nextWatched = !flags.watched;
+              await api.setWatched(item.guid, watched: nextWatched);
+              _replaceItemLocally(
+                item.guid,
+                (current) => current.copyWith(
+                  watched: nextWatched ? 1 : 0,
+                  watchedTs: nextWatched ? current.duration : 0,
+                ),
+              );
+              unawaited(_refreshContinueWatching());
+              _showHomeSnackBar(
+                nextWatched
+                    ? l10n.actionMarkedAsWatched
+                    : l10n.actionMarkedAsUnwatched,
+              );
+              break;
+            case _ContinueWatchingAction.favorite:
+              final nextFavorite = !flags.favorite;
+              await api.setFavorite(item.guid, favorite: nextFavorite);
+              _showHomeSnackBar(
+                nextFavorite
+                    ? l10n.actionFavoriteAdded
+                    : l10n.actionFavoriteRemoved,
+              );
+              break;
+            case _ContinueWatchingAction.restart:
+              await const ItemPlaybackLauncher().open(
+                context,
+                itemGuid: item.guid,
+                fallbackTitle: item.displayTitle,
+                startFromBeginning: true,
+              );
+              if (!mounted) return;
+              unawaited(_refreshContinueWatching());
+              break;
+            case _ContinueWatchingAction.remove:
+              await api.deletePlaybackRecord(itemGuid: item.guid);
+              if (!mounted) return;
+              _applyState(() {
+                _continueWatching = _continueWatching
+                    .where((entry) => entry.guid != item.guid)
+                    .toList(growable: false);
+              });
+              unawaited(_refreshContinueWatching());
+              _showHomeSnackBar(l10n.homeRemovedFromContinue);
+              break;
+          }
+        } catch (error) {
+          debugPrint('[UI][HOME] continue action failed ${item.guid}: $error');
+          _showHomeSnackBar(
+            l10n.commonOperationFailedRetryLater,
+            backgroundColor: const Color(0xFF7A1F28),
           );
-          unawaited(_refreshContinueWatching());
-          _showHomeSnackBar(nextWatched ? '已标记为已观看' : '已标记为未观看');
-          break;
-        case _ContinueWatchingAction.favorite:
-          final nextFavorite = !flags.favorite;
-          await api.setFavorite(item.guid, favorite: nextFavorite);
-          _showHomeSnackBar(nextFavorite ? '已加入收藏' : '已取消收藏');
-          break;
-        case _ContinueWatchingAction.restart:
-          await const ItemPlaybackLauncher().open(
-            context,
-            itemGuid: item.guid,
-            fallbackTitle: item.displayTitle,
-            startFromBeginning: true,
-          );
-          if (!mounted) return;
-          unawaited(_refreshContinueWatching());
-          break;
-        case _ContinueWatchingAction.remove:
-          await api.deletePlaybackRecord(itemGuid: item.guid);
-          if (!mounted) return;
-          _applyState(() {
-            _continueWatching = _continueWatching
-                .where((entry) => entry.guid != item.guid)
-                .toList(growable: false);
-          });
-          unawaited(_refreshContinueWatching());
-          _showHomeSnackBar('已从继续观看中移除');
-          break;
-      }
-    } catch (error) {
-      debugPrint('[UI][HOME] continue action failed ${item.guid}: $error');
-      _showHomeSnackBar('操作失败，请稍后重试', backgroundColor: const Color(0xFF7A1F28));
-    }
+        }
+      },
+    );
   }
 }

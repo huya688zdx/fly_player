@@ -3,13 +3,15 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import 'l10n/generated/app_localizations.dart';
 import 'models/media_item.dart';
 import 'models/media_library_item.dart';
-import 'pages/tv_season_detail_page.dart';
+import 'providers/app_locale_provider.dart';
 import 'providers/app_theme_provider.dart';
 import 'providers/nas_provider.dart';
 import 'providers/parallel_window_settings_provider.dart';
@@ -17,19 +19,22 @@ import 'screens/app_settings_screen.dart';
 import 'screens/category_items_screen.dart';
 import 'screens/connection_screen.dart';
 import 'screens/detail_host_screen.dart';
+import 'screens/detail_route_bodies.dart';
 import 'screens/download_list_screen.dart';
 import 'screens/favorite_items_screen.dart';
 import 'screens/media_list_screen.dart';
 import 'screens/parallel_placeholder_screen.dart';
 import 'screens/person_detail_screen.dart';
-import 'screens/play_detail_screen.dart';
 import 'screens/player_host_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/screenshot_preview_screen.dart';
 import 'services/app_log_service.dart';
+import 'services/detail_route_payload_store.dart';
 import 'services/main_host_bridge.dart';
 import 'screens/settings_destination_routes.dart';
 import 'theme/app_theme.dart';
+import 'theme/dynamic_theme_runtime_controller.dart';
+import 'theme/dynamic_theme_seed_extractor.dart';
 import 'ui/adaptive_text.dart';
 import 'ui/app_transitions.dart';
 import 'utils/private_network_http_overrides.dart';
@@ -39,6 +44,7 @@ void main() {
     () async {
       WidgetsFlutterBinding.ensureInitialized();
       await AppLogService.instance.initialize();
+      _FrameTimingLogger.install();
       FlutterError.onError = (details) {
         FlutterError.presentError(details);
         debugPrint('[APP][FLUTTER_ERROR] ${details.exceptionAsString()}');
@@ -54,6 +60,8 @@ void main() {
         return true;
       };
       HttpOverrides.global = PrivateNetworkHttpOverrides();
+      await DynamicThemeSeedExtractor.warmUpPersistentCache();
+      await DynamicThemeRuntimeController.instance.warmUpPersistentCache();
       ErrorWidget.builder = (_) {
         return Material(
           color: AppThemePalette.fallback.backgroundBase,
@@ -73,6 +81,93 @@ void main() {
   );
 }
 
+class _FrameTimingLogger {
+  _FrameTimingLogger._();
+
+  static const int _summaryFrameCount = 120;
+  static const int _slowFrameMicros = 16667;
+  static const int _jankyFrameMicros = 33333;
+  static bool _installed = false;
+  static int _frames = 0;
+  static int _slowFrames = 0;
+  static int _jankyFrames = 0;
+  static int _buildMicros = 0;
+  static int _rasterMicros = 0;
+  static int _totalMicros = 0;
+  static int _maxTotalMicros = 0;
+  static int _maxBuildMicros = 0;
+  static int _maxRasterMicros = 0;
+
+  static void install() {
+    if (_installed || kReleaseMode) {
+      return;
+    }
+    _installed = true;
+    WidgetsBinding.instance.addTimingsCallback(_handleTimings);
+    debugPrint('[PERF][FRAME] timings enabled');
+  }
+
+  static void _handleTimings(List<FrameTiming> timings) {
+    for (final timing in timings) {
+      final buildMicros = timing.buildDuration.inMicroseconds;
+      final rasterMicros = timing.rasterDuration.inMicroseconds;
+      final totalMicros = timing.totalSpan.inMicroseconds;
+      _frames++;
+      _buildMicros += buildMicros;
+      _rasterMicros += rasterMicros;
+      _totalMicros += totalMicros;
+      if (totalMicros > _maxTotalMicros) {
+        _maxTotalMicros = totalMicros;
+      }
+      if (buildMicros > _maxBuildMicros) {
+        _maxBuildMicros = buildMicros;
+      }
+      if (rasterMicros > _maxRasterMicros) {
+        _maxRasterMicros = rasterMicros;
+      }
+      if (totalMicros > _slowFrameMicros) {
+        _slowFrames++;
+      }
+      if (totalMicros > _jankyFrameMicros) {
+        _jankyFrames++;
+        debugPrint(
+          '[PERF][FRAME] jank total=${_ms(totalMicros)} build=${_ms(buildMicros)} raster=${_ms(rasterMicros)}',
+        );
+      }
+      if (_frames >= _summaryFrameCount) {
+        _flushSummary();
+      }
+    }
+  }
+
+  static void _flushSummary() {
+    if (_frames == 0) {
+      return;
+    }
+    final avgBuild = _buildMicros / _frames;
+    final avgRaster = _rasterMicros / _frames;
+    final avgTotal = _totalMicros / _frames;
+    final estimatedFps = avgTotal <= 0 ? 0 : 1000000 / avgTotal;
+    debugPrint(
+      '[PERF][FRAME] summary frames=$_frames slow60=$_slowFrames jank30=$_jankyFrames '
+      'avgBuild=${_ms(avgBuild)} avgRaster=${_ms(avgRaster)} avgTotal=${_ms(avgTotal)} '
+      'estFps=${estimatedFps.toStringAsFixed(1)} maxTotal=${_ms(_maxTotalMicros)} '
+      'maxBuild=${_ms(_maxBuildMicros)} maxRaster=${_ms(_maxRasterMicros)}',
+    );
+    _frames = 0;
+    _slowFrames = 0;
+    _jankyFrames = 0;
+    _buildMicros = 0;
+    _rasterMicros = 0;
+    _totalMicros = 0;
+    _maxTotalMicros = 0;
+    _maxBuildMicros = 0;
+    _maxRasterMicros = 0;
+  }
+
+  static String _ms(num micros) => '${(micros / 1000).toStringAsFixed(1)}ms';
+}
+
 class _GlobalErrorFallback extends StatelessWidget {
   const _GlobalErrorFallback();
 
@@ -88,7 +183,8 @@ class _GlobalErrorFallback extends StatelessWidget {
             Icon(Icons.error_outline_rounded, color: colors.danger, size: 52),
             const SizedBox(height: 16),
             Text(
-              '加载失败',
+              _maybeAppLocalizations(context)?.globalLoadFailed ??
+                  'Load failed',
               style: TextStyle(
                 color: colors.textPrimary,
                 fontSize: 18,
@@ -112,25 +208,42 @@ class FlyPlayerApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => NasProvider()),
         ChangeNotifierProvider(create: (_) => ParallelWindowSettingsProvider()),
         ChangeNotifierProvider(create: (_) => AppThemeProvider()),
+        ChangeNotifierProvider(create: (_) => AppLocaleProvider()),
       ],
-      child: Consumer<AppThemeProvider>(
-        builder: (context, themeProvider, _) {
-          final effectiveColors = themeProvider.effectiveThemeColors;
-          return MaterialApp(
-            title: 'Fly Player',
-            theme: AppThemeBuilder.buildFromColors(effectiveColors),
-            builder: (context, child) {
-              if (child == null) return const SizedBox.shrink();
-              final media = MediaQuery.of(context);
-              final scale = AdaptiveText.globalScale(media);
-              return MediaQuery(
-                data: media.copyWith(textScaler: TextScaler.linear(scale)),
-                child: child,
+      child: Selector<AppThemeProvider, String>(
+        selector: (_, themeProvider) => themeProvider.materialThemeSignature,
+        builder: (context, _, __) {
+          final themeProvider = context.read<AppThemeProvider>();
+          final materialThemeColors = themeProvider.selectedThemeBaseColors;
+          return Consumer<AppLocaleProvider>(
+            builder: (context, localeProvider, _) {
+              return MaterialApp(
+                title: 'Fly Player',
+                onGenerateTitle: (context) =>
+                    AppLocalizations.of(context).appTitle,
+                locale: localeProvider.locale,
+                localizationsDelegates: AppLocalizations.localizationsDelegates,
+                supportedLocales: AppLocalizations.supportedLocales,
+                theme: AppThemeBuilder.buildFromColors(materialThemeColors),
+                builder: (context, child) {
+                  if (child == null) return const SizedBox.shrink();
+                  final media = MediaQuery.of(context);
+                  final scale = AdaptiveText.globalScale(media);
+                  return AppRuntimeColorScope(
+                    controller: AppRuntimeColorController.instance,
+                    child: MediaQuery(
+                      data: media.copyWith(
+                        textScaler: TextScaler.linear(scale),
+                      ),
+                      child: child,
+                    ),
+                  );
+                },
+                initialRoute: _initialRouteName(),
+                onGenerateInitialRoutes: _buildInitialRoutes,
+                onGenerateRoute: _buildRoute,
               );
             },
-            initialRoute: _initialRouteName(),
-            onGenerateInitialRoutes: _buildInitialRoutes,
-            onGenerateRoute: _buildRoute,
           );
         },
       ),
@@ -150,7 +263,10 @@ Route<dynamic> _buildRoute(RouteSettings settings) {
   final uri = Uri.tryParse(routeName);
 
   if (uri != null && uri.path == '/detail/item') {
-    final rawInitialItemDetail = uri.queryParameters['initialItemDetail'] ?? '';
+    final payloadToken = DetailRoutePayloadStore.payloadTokenFromUri(uri);
+    final rawInitialItemDetail = payloadToken == null
+        ? (uri.queryParameters['initialItemDetail'] ?? '')
+        : '';
     final decodedInitialItemDetail = rawInitialItemDetail.isEmpty
         ? null
         : (jsonDecode(rawInitialItemDetail) as Map).cast<String, dynamic>();
@@ -159,6 +275,7 @@ Route<dynamic> _buildRoute(RouteSettings settings) {
         itemGuid: uri.queryParameters['itemGuid'] ?? '',
         seriesGuid: uri.queryParameters['seriesGuid'] ?? '',
         initialItemDetail: decodedInitialItemDetail,
+        payloadToken: payloadToken,
       ),
       settings: settings,
     );
@@ -170,7 +287,10 @@ Route<dynamic> _buildRoute(RouteSettings settings) {
     );
   }
   if (uri != null && uri.path == '/detail/season') {
-    final rawSeasonItem = uri.queryParameters['seasonItem'] ?? '';
+    final payloadToken = DetailRoutePayloadStore.payloadTokenFromUri(uri);
+    final rawSeasonItem = payloadToken == null
+        ? (uri.queryParameters['seasonItem'] ?? '')
+        : '';
     final decodedSeasonItem = rawSeasonItem.isEmpty
         ? const <String, dynamic>{}
         : (jsonDecode(rawSeasonItem) as Map).cast<String, dynamic>();
@@ -179,7 +299,11 @@ Route<dynamic> _buildRoute(RouteSettings settings) {
         parentGuid: uri.queryParameters['parentGuid'] ?? '',
         seriesTitle: uri.queryParameters['seriesTitle'] ?? '',
         backdropPath: uri.queryParameters['backdropPath'] ?? '',
-        seasonItem: MediaLibraryItem.fromJson(decodedSeasonItem),
+        seasonItem: decodedSeasonItem.isEmpty
+            ? null
+            : MediaLibraryItem.fromJson(decodedSeasonItem),
+        seasonGuid: uri.queryParameters['seasonGuid'] ?? '',
+        payloadToken: payloadToken,
       ),
       settings: settings,
     );
@@ -361,24 +485,27 @@ class DetailItemRoute extends StatelessWidget {
   final String itemGuid;
   final String seriesGuid;
   final Map<String, dynamic>? initialItemDetail;
+  final String? payloadToken;
 
   const DetailItemRoute({
     super.key,
     required this.itemGuid,
     this.seriesGuid = '',
     this.initialItemDetail,
+    this.payloadToken,
   });
 
   @override
   Widget build(BuildContext context) {
     if (itemGuid.trim().isEmpty) {
-      return const _RouteErrorScreen(message: '缺少详情参数');
+      return const _RouteErrorScreen(kind: _RouteErrorKind.missingDetail);
     }
     return _ProviderGate(
-      child: PlayDetailScreen(
+      child: DetailItemRouteBody(
         itemGuid: itemGuid,
         seriesGuid: seriesGuid,
         initialItemDetail: initialItemDetail,
+        payloadToken: payloadToken,
       ),
     );
   }
@@ -401,27 +528,35 @@ class DetailSeasonRoute extends StatelessWidget {
   final String parentGuid;
   final String seriesTitle;
   final String backdropPath;
-  final MediaLibraryItem seasonItem;
+  final MediaLibraryItem? seasonItem;
+  final String? seasonGuid;
+  final String? payloadToken;
 
   const DetailSeasonRoute({
     super.key,
     required this.parentGuid,
     required this.seriesTitle,
     required this.backdropPath,
-    required this.seasonItem,
+    this.seasonItem,
+    this.seasonGuid,
+    this.payloadToken,
   });
 
   @override
   Widget build(BuildContext context) {
-    if (parentGuid.trim().isEmpty || seasonItem.guid.trim().isEmpty) {
-      return const _RouteErrorScreen(message: '缺少季详情参数');
+    if (parentGuid.trim().isEmpty ||
+        (((seasonItem?.guid ?? '').trim().isEmpty) &&
+            (seasonGuid?.trim().isNotEmpty != true))) {
+      return const _RouteErrorScreen(kind: _RouteErrorKind.missingSeason);
     }
     return _ProviderGate(
-      child: TvSeasonDetailPage(
+      child: DetailSeasonRouteBody(
         parentGuid: parentGuid,
         seriesTitle: seriesTitle,
         backdropPath: backdropPath,
         seasonItem: seasonItem,
+        seasonGuid: seasonGuid,
+        payloadToken: payloadToken,
       ),
     );
   }
@@ -440,7 +575,7 @@ class DetailPersonRoute extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (personGuid.trim().isEmpty) {
-      return const _RouteErrorScreen(message: '缺少人物详情参数');
+      return const _RouteErrorScreen(kind: _RouteErrorKind.missingPerson);
     }
     return _ProviderGate(
       child: PersonDetailScreen(
@@ -499,7 +634,7 @@ class DownloadGroupDetailRoute extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (groupId.trim().isEmpty) {
-      return const _RouteErrorScreen(message: '缺少下载详情参数');
+      return const _RouteErrorScreen(kind: _RouteErrorKind.missingDownload);
     }
     return _ProviderGate(
       requireConfigured: false,
@@ -565,14 +700,26 @@ class PlayerActivityRoute extends StatelessWidget {
   }
 }
 
-class _RouteErrorScreen extends StatelessWidget {
-  final String message;
+enum _RouteErrorKind {
+  missingDetail,
+  missingSeason,
+  missingPerson,
+  missingDownload,
+}
 
-  const _RouteErrorScreen({required this.message});
+AppLocalizations? _maybeAppLocalizations(BuildContext context) {
+  return Localizations.of<AppLocalizations>(context, AppLocalizations);
+}
+
+class _RouteErrorScreen extends StatelessWidget {
+  final _RouteErrorKind kind;
+
+  const _RouteErrorScreen({required this.kind});
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final message = _message(context);
     return Scaffold(
       backgroundColor: colors.backgroundBase,
       body: Center(
@@ -582,6 +729,20 @@ class _RouteErrorScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String _message(BuildContext context) {
+    final l10n = _maybeAppLocalizations(context);
+    return switch (kind) {
+      _RouteErrorKind.missingDetail =>
+        l10n?.routeErrorMissingDetail ?? 'Missing detail parameters',
+      _RouteErrorKind.missingSeason =>
+        l10n?.routeErrorMissingSeason ?? 'Missing season detail parameters',
+      _RouteErrorKind.missingPerson =>
+        l10n?.routeErrorMissingPerson ?? 'Missing person detail parameters',
+      _RouteErrorKind.missingDownload =>
+        l10n?.routeErrorMissingDownload ?? 'Missing download detail parameters',
+    };
   }
 }
 
@@ -650,20 +811,26 @@ class _MainNavigationState extends State<MainNavigation> {
   Widget build(BuildContext context) {
     const pages = <Widget>[MediaListScreen(), AppSettingsScreen()];
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
 
     return Scaffold(
       body: IndexedStack(index: _selectedTab.tabIndex, children: pages),
       bottomNavigationBar: BottomNavigationBar(
         backgroundColor: colors.navBarBackground,
+        selectedItemColor: colors.selectionStrong,
+        unselectedItemColor: colors.textMuted,
         currentIndex: _selectedTab.tabIndex,
         onTap: (index) {
           unawaited(_handleNavigationTap(index));
         },
-        items: const <BottomNavigationBarItem>[
-          BottomNavigationBarItem(icon: Icon(Icons.movie), label: '影视'),
+        items: <BottomNavigationBarItem>[
           BottomNavigationBarItem(
-            icon: Icon(Icons.settings_rounded),
-            label: '设置',
+            icon: const Icon(Icons.movie),
+            label: l10n.navMovies,
+          ),
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.settings_rounded),
+            label: l10n.navSettings,
           ),
         ],
       ),

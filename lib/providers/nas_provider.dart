@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -5,7 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/detail_runtime_cache.dart';
 import '../services/play_stats/play_stats.dart';
 import '../services/session_exit_bridge.dart';
-import '../utils/media_locale_store.dart';
+import '../theme/dynamic_theme_seed_extractor.dart';
 
 class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
   static const MethodChannel _sessionStateChannel = MethodChannel(
@@ -59,7 +61,13 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _loadSettings();
+      unawaited(_loadSettings());
+      return;
+    }
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      unawaited(DynamicThemeSeedExtractor.flushPendingWrites());
     }
   }
 
@@ -147,7 +155,6 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     await prefs.remove('resolved_base_url');
     await _syncPlayStatsOwner(prefs);
     DetailRuntimeCache.instance.clearAll();
-    MediaLocaleStore.clear();
     _cacheBootstrapSnapshot();
     if (notify) {
       notifyListeners();

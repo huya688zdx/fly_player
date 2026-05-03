@@ -46,30 +46,23 @@ void main() {
       final controller = PlayerRuntimeController();
       const left = MpvPerformanceOverlayStats(
         cpuUsagePercent: 12,
-        gpuUsagePercent: 34,
-        estimatedVfFps: 24,
-        containerFps: 24,
-        displayFps: 60,
+        appMemoryUsedBytes: 128 * 1024 * 1024,
+        systemMemoryTotalBytes: 8 * 1024 * 1024 * 1024,
       );
       const right = MpvPerformanceOverlayStats(
         cpuUsagePercent: 12,
-        gpuUsagePercent: 34,
-        estimatedVfFps: 24,
-        containerFps: 24,
-        displayFps: 60,
+        appMemoryUsedBytes: 128 * 1024 * 1024,
+        systemMemoryTotalBytes: 8 * 1024 * 1024 * 1024,
       );
       const different = MpvPerformanceOverlayStats(
         cpuUsagePercent: 12,
-        gpuUsagePercent: 35,
-        estimatedVfFps: 24,
-        containerFps: 24,
-        displayFps: 60,
+        appMemoryUsedBytes: 96 * 1024 * 1024,
+        systemMemoryTotalBytes: 8 * 1024 * 1024 * 1024,
       );
 
       expect(
         controller.wantsPerformanceOverlayPolling(
           performanceOverlayEnabled: true,
-          fpsOverlayEnabled: false,
           playerReady: true,
         ),
         isTrue,
@@ -77,7 +70,13 @@ void main() {
       expect(
         controller.wantsPerformanceOverlayPolling(
           performanceOverlayEnabled: false,
-          fpsOverlayEnabled: true,
+          playerReady: true,
+        ),
+        isFalse,
+      );
+      expect(
+        controller.wantsPerformanceOverlayPolling(
+          performanceOverlayEnabled: true,
           playerReady: false,
         ),
         isFalse,

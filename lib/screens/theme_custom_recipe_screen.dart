@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../providers/app_theme_provider.dart';
 import '../theme/app_theme.dart';
+import '../theme/app_theme_l10n.dart';
 import '../ui/secondary_host_navigation.dart';
 import '../utils/app_top_tip.dart';
 import '../widgets/detail/detail_more_actions_sheet.dart';
@@ -19,19 +21,22 @@ class ThemeCustomRecipeScreen extends StatelessWidget {
     final colors = context.appColors;
     final provider = context.watch<AppThemeProvider>();
     final themeColors = provider.themeColors;
+    final l10n = AppLocalizations.of(context);
 
     return Scaffold(
       backgroundColor: colors.backgroundBase,
       appBar: buildSecondaryHostAppBar(
         context,
-        title: const Text('颜色分类控制'),
+        title: Text(l10n.settingsCustomRecipeTitle),
         actions: <Widget>[
           TextButton(
             onPressed: () async {
               final result = await showSaveThemeDialog(
                 context,
                 initialName: provider.nextSavedThemeName(),
-                suggestedName: provider.nextSavedThemeNameFromBase('自定义主题'),
+                suggestedName: provider.nextSavedThemeNameFromBase(
+                  l10n.themeCustomBaseName,
+                ),
               );
               if (!context.mounted || result == null) {
                 return;
@@ -47,11 +52,11 @@ class ThemeCustomRecipeScreen extends StatelessWidget {
               }
               AppTopTip().show(
                 context,
-                message: '已保存主题：${result.name}',
+                message: l10n.detailThemeSaved(result.name),
                 color: context.appColors.success,
               );
             },
-            child: const Text('保存主题'),
+            child: Text(l10n.detailSaveCurrentTheme),
           ),
         ],
       ),
@@ -68,17 +73,20 @@ class ThemeCustomRecipeScreen extends StatelessWidget {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
             children: <Widget>[
-              const ThemeSettingsSectionTitle(
-                title: '颜色分类控制',
-                subtitle: '这里保存的是当前自定义配方。你可以继续逐项微调，然后把喜欢的结果另存为新的自定义主题。',
+              ThemeSettingsSectionTitle(
+                title: l10n.settingsCustomRecipeTitle,
+                subtitle: l10n.themeCustomRecipePageSubtitle,
               ),
               const SizedBox(height: 12),
               ThemeSettingsControlPanel(
-                title: '背景主色',
-                subtitle: '控制页面底色、卡片层级、导航栏和整体氛围基调。',
+                title: l10n.themeBackgroundControlTitle,
+                subtitle: l10n.themeBackgroundControlSubtitle,
                 currentToneTitle: provider.usesCustomBackgroundColor
-                    ? '自定义'
-                    : provider.backgroundTone.title,
+                    ? l10n.themeCustomLabel
+                    : AppThemeL10n.backgroundToneTitle(
+                        l10n,
+                        provider.backgroundTone,
+                      ),
                 currentColor: provider.backgroundPreviewColor,
                 currentHex: themeSettingsColorHex(
                   provider.backgroundPreviewColor,
@@ -87,7 +95,7 @@ class ThemeCustomRecipeScreen extends StatelessWidget {
                 sample: ThemeSettingsBackgroundSample(colors: themeColors),
                 onOpenCustomPicker: () => _pickCustomColor(
                   context,
-                  title: '自定义背景色',
+                  title: l10n.themeCustomBackgroundPickerTitle,
                   initialColor:
                       provider.customBackgroundColor ??
                       provider.backgroundPreviewColor,
@@ -99,7 +107,7 @@ class ThemeCustomRecipeScreen extends StatelessWidget {
                 options: AppBackgroundTone.values
                     .map(
                       (tone) => ThemeSettingsColorOptionChip(
-                        label: tone.title,
+                        label: AppThemeL10n.backgroundToneTitle(l10n, tone),
                         swatchColor: tone.tint,
                         selected:
                             !provider.usesCustomBackgroundColor &&
@@ -111,18 +119,21 @@ class ThemeCustomRecipeScreen extends StatelessWidget {
               ),
               const SizedBox(height: 14),
               ThemeSettingsControlPanel(
-                title: '主操作色',
-                subtitle: '控制主按钮、进度条、确认动作和主要强调元素。',
+                title: l10n.themeAccentControlTitle,
+                subtitle: l10n.themeAccentControlSubtitle,
                 currentToneTitle: provider.usesCustomAccentColor
-                    ? '自定义'
-                    : provider.accentTone.title,
+                    ? l10n.themeCustomLabel
+                    : AppThemeL10n.accentToneTitle(
+                        l10n,
+                        provider.accentTone,
+                      ),
                 currentColor: provider.accentPreviewColor,
                 currentHex: themeSettingsColorHex(provider.accentPreviewColor),
                 usesCustomColor: provider.usesCustomAccentColor,
                 sample: ThemeSettingsActionSample(colors: themeColors),
                 onOpenCustomPicker: () => _pickCustomColor(
                   context,
-                  title: '自定义主操作色',
+                  title: l10n.themeCustomAccentPickerTitle,
                   initialColor:
                       provider.customAccentColor ?? provider.accentPreviewColor,
                   quickColors: AppAccentTone.values
@@ -133,7 +144,7 @@ class ThemeCustomRecipeScreen extends StatelessWidget {
                 options: AppAccentTone.values
                     .map(
                       (tone) => ThemeSettingsColorOptionChip(
-                        label: tone.title,
+                        label: AppThemeL10n.accentToneTitle(l10n, tone),
                         swatchColor: tone.color,
                         selected:
                             !provider.usesCustomAccentColor &&
@@ -145,11 +156,14 @@ class ThemeCustomRecipeScreen extends StatelessWidget {
               ),
               const SizedBox(height: 14),
               ThemeSettingsControlPanel(
-                title: '选中色',
-                subtitle: '控制选中态、边框高亮和标签状态。',
+                title: l10n.themeSelectionControlTitle,
+                subtitle: l10n.themeSelectionControlSubtitle,
                 currentToneTitle: provider.usesCustomSelectionColor
-                    ? '自定义'
-                    : provider.selectionTone.title,
+                    ? l10n.themeCustomLabel
+                    : AppThemeL10n.accentToneTitle(
+                        l10n,
+                        provider.selectionTone,
+                      ),
                 currentColor: provider.selectionPreviewColor,
                 currentHex: themeSettingsColorHex(
                   provider.selectionPreviewColor,
@@ -158,7 +172,7 @@ class ThemeCustomRecipeScreen extends StatelessWidget {
                 sample: ThemeSettingsSelectionSample(colors: themeColors),
                 onOpenCustomPicker: () => _pickCustomColor(
                   context,
-                  title: '自定义选中色',
+                  title: l10n.themeCustomSelectionPickerTitle,
                   initialColor:
                       provider.customSelectionColor ??
                       provider.selectionPreviewColor,
@@ -170,7 +184,7 @@ class ThemeCustomRecipeScreen extends StatelessWidget {
                 options: AppAccentTone.values
                     .map(
                       (tone) => ThemeSettingsColorOptionChip(
-                        label: tone.title,
+                        label: AppThemeL10n.accentToneTitle(l10n, tone),
                         swatchColor: tone.color,
                         selected:
                             !provider.usesCustomSelectionColor &&
@@ -182,18 +196,18 @@ class ThemeCustomRecipeScreen extends StatelessWidget {
               ),
               const SizedBox(height: 14),
               ThemeSettingsControlPanel(
-                title: '链接高亮色',
-                subtitle: '控制“更多”、跳转文本和轻量提示的强调色。',
+                title: l10n.themeLinkControlTitle,
+                subtitle: l10n.themeLinkControlSubtitle,
                 currentToneTitle: provider.usesCustomLinkColor
-                    ? '自定义'
-                    : provider.linkTone.title,
+                    ? l10n.themeCustomLabel
+                    : AppThemeL10n.accentToneTitle(l10n, provider.linkTone),
                 currentColor: provider.linkPreviewColor,
                 currentHex: themeSettingsColorHex(provider.linkPreviewColor),
                 usesCustomColor: provider.usesCustomLinkColor,
                 sample: ThemeSettingsLinkSample(colors: themeColors),
                 onOpenCustomPicker: () => _pickCustomColor(
                   context,
-                  title: '自定义链接色',
+                  title: l10n.themeCustomLinkPickerTitle,
                   initialColor:
                       provider.customLinkColor ?? provider.linkPreviewColor,
                   quickColors: AppAccentTone.values
@@ -204,7 +218,7 @@ class ThemeCustomRecipeScreen extends StatelessWidget {
                 options: AppAccentTone.values
                     .map(
                       (tone) => ThemeSettingsColorOptionChip(
-                        label: tone.title,
+                        label: AppThemeL10n.accentToneTitle(l10n, tone),
                         swatchColor: tone.strongColor,
                         selected:
                             !provider.usesCustomLinkColor &&

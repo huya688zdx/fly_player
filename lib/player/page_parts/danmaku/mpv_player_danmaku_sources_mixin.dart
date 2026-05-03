@@ -1,4 +1,4 @@
-part of mpv_player_page;
+part of '../../mpv_player_page.dart';
 
 extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
   Future<bool> _ensureDanDanPlayConfigured() async {
@@ -21,48 +21,23 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
     return raw.isEmpty ? fallback : '$fallback: $raw';
   }
 
-  Future<bool> _ensureStorageAccessForDanmakuImport() async {
-    var hasAccess = await StorageAccessService.hasFileAccess();
-    if (hasAccess) {
-      return true;
-    }
-    final granted = await StorageAccessService.requestFileAccess();
-    if (granted) {
-      return true;
-    }
-    hasAccess = await StorageAccessService.hasFileAccess();
-    if (hasAccess) {
-      return true;
-    }
-    final openedSettings = await StorageAccessService.openFileAccessSettings();
-    if (!mounted) {
-      return false;
-    }
-    _showTopTip(
-      openedSettings ? '已跳转系统设置，请开启文件访问权限后返回重试' : '请先授予文件访问权限',
-      context.appColors.danger,
-    );
-    return false;
-  }
-
-  Future<void> _openDanmakuImportPage(
-    PlayerNestedSheetController<void> drawer,
-  ) async {
-    drawer.push(_playerSettingsDanmakuImportPageId);
-  }
-
   Future<void> _searchDanmaku(
     PlayerNestedSheetController<void> drawer, {
     bool userInitiated = true,
   }) async {
+    if (!userInitiated && !_danmakuAutoSearchAllowed) {
+      return;
+    }
     if (!await _ensureDanDanPlayConfigured()) {
       return;
     }
+    if (!mounted) return;
+    final colors = context.appColors;
     final keyword = _danmakuSearchController.text.trim();
     final hasTmdbSearchContext =
         DanDanPlayResolver.normalizeTmdbId(_currentTmdbId) != null;
     if (keyword.isEmpty && !hasTmdbSearchContext) {
-      _showTopTip('请先输入要搜索的番剧名称', context.appColors.danger);
+      _showTopTip('请先输入要搜索的番剧名称', colors.danger);
       return;
     }
     final remaining = _danmakuSearchRateLimiter.remaining();
@@ -71,7 +46,7 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
         final seconds =
             remaining.inSeconds +
             (remaining.inMilliseconds % 1000 == 0 ? 0 : 1);
-        _showTopTip('搜索过于频繁，请 $seconds 秒后再试。', context.appColors.warning);
+        _showTopTip('搜索过于频繁，请 $seconds 秒后再试。', colors.warning);
       }
       return;
     }

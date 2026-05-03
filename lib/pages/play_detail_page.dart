@@ -9,6 +9,7 @@ import '../controllers/play_detail_data_loader.dart';
 import '../controllers/play_detail_download_sheet_controller.dart';
 import '../controllers/play_detail_item_actions.dart';
 import '../controllers/play_detail_sheet_controller.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../models/authorized_dir_entry.dart';
 import '../models/download_task_record.dart';
 import '../models/playback_stream.dart';
@@ -34,14 +35,15 @@ import '../ui/capability_badge_mapper.dart';
 import '../ui/detail_presentation.dart';
 import '../ui/player_pane_host_scope.dart';
 import '../utils/api_url_helper.dart';
+import '../utils/async_action_guard.dart';
 import '../utils/app_error_reporter.dart';
 import '../utils/app_exception.dart';
 import '../utils/detail_layout_solver.dart';
 import '../utils/detail_top_tip.dart';
 import '../utils/imdb_launcher.dart';
 import '../utils/media_language_mapper.dart';
-import '../utils/media_locale_store.dart';
 import '../utils/player_artwork_path_resolver.dart';
+import '../utils/playback_resume_position_resolver.dart';
 import '../utils/player_title_formatter.dart';
 import '../utils/play_detail_formatters.dart';
 import '../utils/play_detail_track_selector.dart';
@@ -50,6 +52,7 @@ import '../widgets/detail/credits_section.dart';
 import '../widgets/detail/detail_description_section.dart';
 import '../widgets/detail/detail_header.dart';
 import '../widgets/detail/detail_hero_overlay.dart';
+import '../widgets/detail/detail_loading_skeleton.dart';
 import '../widgets/detail/detail_more_actions_sheet.dart';
 import '../widgets/detail/detail_meta_lines.dart';
 import '../widgets/detail/detail_selector_row.dart';
@@ -87,7 +90,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   static const Duration _headerFadeDuration = Duration(milliseconds: 360);
   static const Duration _actionsPopDuration = Duration(milliseconds: 300);
   static const Duration _descriptionPopDuration = Duration(milliseconds: 320);
-  static const Duration _asyncContentFadeDuration = Duration(milliseconds: 220);
+  static const Duration _asyncContentFadeDuration = Duration(milliseconds: 120);
   static const Duration _phase2Delay = Duration(milliseconds: 420);
   static const Duration _deferredSectionStartDelay = Duration(
     milliseconds: 560,
@@ -123,7 +126,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   bool _watchedUpdating = false;
   DateTime _lastWatchedTapAt = DateTime.fromMillisecondsSinceEpoch(0);
   final DetailTopTip _topTip = DetailTopTip();
-  Map<String, dynamic> _localeMap = const <String, dynamic>{};
+  final Map<String, dynamic> _localeMap = const <String, dynamic>{};
   Map<int, String> _genresMapZhCn = const <int, String>{};
   Map<String, String> _locateMapZhCn = const <String, String>{};
   List<AuthorizedDirEntry> _authorizedDirs = const <AuthorizedDirEntry>[];
@@ -137,7 +140,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   bool _audioSelectorExpanded = false;
   bool _deferredSectionLoadStarted = false;
   bool _playerRouteActive = false;
-  ImageProvider<Object>? _warmedHeroImageProvider;
   Timer? _entryActionTimer;
   Timer? _deferredSectionTimer;
   late final AnimationController _headerFadeController;
@@ -250,19 +252,17 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     );
     _actionsOpacity = CurvedAnimation(
       parent: _actionsPopController,
-      curve: const Interval(0.0, 1.0, curve: Curves.linear),
+      curve: const Interval(0.0, 1.0, curve: Curves.easeOutCubic),
     );
-    _actionsScale = Tween<double>(
-      begin: 0.96,
-      end: 1.0,
-    ).animate(_actionsPopController);
-    _actionsTranslateY = Tween<double>(
-      begin: 10,
-      end: 0,
-    ).animate(_actionsPopController);
+    final actionsCurve = CurvedAnimation(
+      parent: _actionsPopController,
+      curve: Curves.easeOutCubic,
+    );
+    _actionsScale = Tween<double>(begin: 0.96, end: 1.0).animate(actionsCurve);
+    _actionsTranslateY = Tween<double>(begin: 10, end: 0).animate(actionsCurve);
     _resolutionOpacity = CurvedAnimation(
       parent: _actionsPopController,
-      curve: const Interval(0.25, 1.0, curve: Curves.linear),
+      curve: const Interval(0.25, 1.0, curve: Curves.easeOutCubic),
     );
     _resolutionScale = Tween<double>(begin: 0.97, end: 1.0).animate(
       CurvedAnimation(
@@ -303,11 +303,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     _topTip.dispose();
     _entryActionTimer?.cancel();
     _deferredSectionTimer?.cancel();
-    final warmedProvider = _warmedHeroImageProvider;
-    if (warmedProvider != null) {
-      unawaited(warmedProvider.evict());
-      _warmedHeroImageProvider = null;
-    }
     _headerFadeController.dispose();
     _actionsPopController.dispose();
     _descriptionPopController.dispose();
@@ -366,26 +361,74 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     String fallback, {
     Map<String, Object?> params = const <String, Object?>{},
   }) {
-    return MediaLocaleStore.text(
-      _localeMap,
-      path,
-      fallback: fallback,
-      params: params,
-    );
+    final l10n = AppLocalizations.of(context);
+    return switch (path) {
+      'layout.subheading.season.special' => l10n.detailSeasonSpecial,
+      'layout.subheading.season.number' => l10n.detailSeasonNumber(
+        _paramInt(params, 'number'),
+      ),
+      'layout.subheading.episode.number' => l10n.detailEpisodeNumber(
+        _paramInt(params, 'number'),
+      ),
+      'layout.details.castAndCrew.imdb' => l10n.detailImdbEmpty,
+      'layout.details.castAndCrew.imdbOpenFailed' => l10n.detailImdbOpenFailed,
+      'layout.globalError.clickToRetry' => l10n.commonClickTooFastRetryLater,
+      'common.actions.favorite.unfavoriteFailed' => l10n.detailUnfavoriteFailed,
+      'common.actions.favorite.favoriteFailed' => l10n.detailFavoriteFailed,
+      'common.actions.watched.markedAsUnwatchedFailed' =>
+        l10n.detailMarkUnwatchedFailed,
+      'common.actions.watched.markedAsWatchedFailed' =>
+        l10n.detailMarkWatchedFailed,
+      'common.actions.download.unavailable' => l10n.detailDownloadUnavailable,
+      'player.play.replay' => l10n.playerReplayAction,
+      'player.play.continuePlay' => l10n.detailContinuePlay,
+      'player.play.play' => l10n.detailPlay,
+      'layout.details.overview.overview' => l10n.detailOverviewTitle,
+      'layout.details.castAndCrew.title' => l10n.detailCastCrewTitle,
+      'layout.details.fileInfo.title' => l10n.detailFileInfoTitle,
+      'layout.details.fileInfo.location' => l10n.detailFileLocation,
+      'layout.details.fileInfo.size' => l10n.detailFileSize,
+      'layout.details.fileInfo.createdAt' => l10n.detailFileCreatedAt,
+      'layout.details.fileInfo.addedAt' => l10n.detailFileAddedAt,
+      'layout.details.fileInfo.convert' => l10n.detailFileConvert,
+      'player.playbackError.playError' => l10n.detailPlaybackError(
+        '${params['error'] ?? ''}',
+      ),
+      'player.playInfoFailedWithError' => l10n.detailPlayInfoFailedWithError(
+        '${params['error'] ?? ''}',
+      ),
+      _ => _replaceParams(fallback, params),
+    };
+  }
+
+  int _paramInt(Map<String, Object?> params, String key) {
+    final value = params[key];
+    if (value is int) return value;
+    return int.tryParse('${value ?? ''}') ?? 0;
+  }
+
+  String _replaceParams(String fallback, Map<String, Object?> params) {
+    var resolved = fallback;
+    for (final entry in params.entries) {
+      resolved = resolved.replaceAll('{${entry.key}}', '${entry.value ?? ''}');
+    }
+    return resolved;
   }
 
   int _asInt(dynamic value) => int.tryParse('$value') ?? 0;
 
   String _heroPathForItemMap(Map<String, dynamic> item) {
     final type = (item['type'] ?? '').toString().trim().toLowerCase();
-    final backdrops = (item['backdrops'] ?? '').toString().trim();
-    final posters = (item['posters'] ?? '').toString().trim();
+    final backdrops = (item['backdrops'] ?? item['backdrop'] ?? '')
+        .toString()
+        .trim();
+    final posters = (item['posters'] ?? item['poster'] ?? '').toString().trim();
     final stillPath = (item['still_path'] ?? '').toString().trim();
 
     if (type == 'episode') {
+      if (posters.isNotEmpty) return posters;
       if (stillPath.isNotEmpty) return stillPath;
-      if (backdrops.isNotEmpty) return backdrops;
-      return posters;
+      return backdrops;
     }
     if (backdrops.isNotEmpty) return backdrops;
     if (stillPath.isNotEmpty) return stillPath;
@@ -393,15 +436,29 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   }
 
   String _heroPathForPlayItem(PlayItem item) {
+    return resolvePlayerArtworkPathForPlayItem(item);
+  }
+
+  String _paneEpisodeThemeBackdropFallback() {
+    final initial = widget.initialItemDetail;
+    if (initial == null) {
+      return '';
+    }
+    final rawItem = initial['item'];
+    final item = rawItem is Map<String, dynamic> ? rawItem : initial;
+    return (item['backdrops'] ?? item['backdrop'] ?? '').toString().trim();
+  }
+
+  String _dynamicThemePathForPlayItem(PlayItem item) {
     final type = item.type.trim().toLowerCase();
-    if (type == 'episode') {
-      if (item.stillPath.isNotEmpty) return item.stillPath;
+    if (_isPane && type == 'episode') {
       if (item.backdrops.isNotEmpty) return item.backdrops;
+      final fallbackBackdrop = _paneEpisodeThemeBackdropFallback();
+      if (fallbackBackdrop.isNotEmpty) return fallbackBackdrop;
+      if (item.stillPath.isNotEmpty) return item.stillPath;
       return item.posters;
     }
-    if (item.backdrops.isNotEmpty) return item.backdrops;
-    if (item.stillPath.isNotEmpty) return item.stillPath;
-    return item.posters;
+    return _heroPathForPlayItem(item);
   }
 
   String _episodeHeroSubtitle(PlayItem item) {
@@ -415,12 +472,12 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     }
 
     if (item.seasonNumber == 0) {
-      parts.add(_t('layout.subheading.season.special', '特别篇'));
+      parts.add(_t('layout.subheading.season.special', 'Special'));
     } else if (item.seasonNumber > 0) {
       parts.add(
         _t(
           'layout.subheading.season.number',
-          '第 {number} 季',
+          'Season {number}',
           params: {'number': item.seasonNumber},
         ),
       );
@@ -432,7 +489,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       parts.add(
         _t(
           'layout.subheading.episode.number',
-          '第 {number} 集',
+          'Episode {number}',
           params: {'number': item.episodeNumber},
         ),
       );
@@ -450,6 +507,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                 ? item.parentTitle.trim()
                 : detailTitle);
       return buildThemeSaveNameBase(
+        l10n: AppLocalizations.of(context),
         title: detailTitle,
         seriesTitle: seriesTitle,
         seasonNumber: item.seasonNumber,
@@ -457,26 +515,17 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         isEpisode: true,
       );
     }
-    return buildThemeSaveNameBase(title: detailTitle);
-  }
-
-  Future<void> _ensureLocaleMapLoaded() async {
-    if (_localeMap.isNotEmpty) return;
-    final provider = context.read<NasProvider>();
-    final localeMap = await MediaLocaleStore.load(provider);
-    if (!mounted || localeMap.isEmpty) return;
-    setState(() {
-      _localeMap = localeMap;
-    });
+    return buildThemeSaveNameBase(
+      l10n: AppLocalizations.of(context),
+      title: detailTitle,
+    );
   }
 
   Future<void> _load() async {
-    unawaited(_ensureLocaleMapLoaded());
     _entryActionTimer?.cancel();
     _deferredSectionTimer?.cancel();
     _headerFadeController.reset();
     _actionsPopController.reset();
-    _actionsPopController.value = 1.0;
     _descriptionPopController.reset();
     setState(() {
       _loading = true;
@@ -517,7 +566,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         _trimId = _extractInitialTrimId();
         _loading = false;
       });
-      _warmupHeroImage(info);
       _startEntryAnimations();
 
       // Phase 2: load track-related data while header fade is running.
@@ -549,7 +597,8 @@ class _PlayDetailPageState extends State<PlayDetailPage>
 
   void _startEntryAnimations() {
     if (_playerRouteActive) return;
-    _headerFadeController.value = 1.0;
+    _headerFadeController.forward(from: 0);
+    _actionsPopController.forward(from: 0);
     _entryActionTimer?.cancel();
     _deferredSectionTimer?.cancel();
     _deferredSectionTimer = Timer(_deferredSectionStartDelay, () {
@@ -715,43 +764,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     } catch (_) {}
   }
 
-  void _warmupHeroImage(PlayInfoData info) {
-    final provider = context.read<NasProvider>();
-    final item = info.item;
-    final heroPath = item.backdrops.isNotEmpty
-        ? item.backdrops
-        : (item.stillPath.isNotEmpty ? item.stillPath : item.posters);
-    final urls = ApiUrlHelper.imageCandidates(
-      provider.baseUrl,
-      heroPath,
-      width: 960,
-    );
-    if (urls.isEmpty) return;
-    final media = MediaQuery.of(context);
-    final dpr = media.devicePixelRatio.clamp(1.0, 2.0);
-    final cacheWidth = (media.size.width * dpr)
-        .round()
-        .clamp(720, 1280)
-        .toInt();
-    final imageProvider = ResizeImage.resizeIfNeeded(
-      cacheWidth,
-      null,
-      NetworkImage(
-        urls.first,
-        headers: {
-          'Authorization': provider.token,
-          'Trim-MC-token': provider.token,
-        },
-      ),
-    );
-    _warmedHeroImageProvider = imageProvider;
-    precacheImage(imageProvider, context).catchError((error, stackTrace) {
-      debugPrint(
-        '[IMG][PRECACHE][DETAIL] failed url=${urls.first} error=$error',
-      );
-    });
-  }
-
   Future<PlayInfoData> _loadPlayInfo(FeiniuApi api, String itemGuid) {
     if (!_useRuntimeCache) {
       return api.getPlayInfo(itemGuid);
@@ -898,217 +910,260 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   }
 
   Future<void> _openPlayer() async {
-    final data = _data;
-    if (data == null) return;
-
-    final localRecord = _downloadedRecordForCurrentItem();
-    if (localRecord != null) {
-      await _openLocalPlayer(localRecord);
-      return;
-    }
-
-    final provider = context.read<NasProvider>();
-    final api = FeiniuApi(provider);
-    final selectedOption = _currentStreamOption();
-    final mediaGuid = selectedOption?.mediaGuid ?? data.mediaGuid;
-    if (mediaGuid.trim().isEmpty) {
+    final actionKey = 'play_detail_player:${_currentItemGuid.trim()}';
+    if (_playerRouteActive || AsyncActionGuard.isRunning(actionKey)) {
       _showTopTip(
-        _t(
-          'player.playbackError.playError',
-          '播放异常: {error}',
-          params: {'error': 'missing media guid'},
-        ),
-        context.appColors.danger,
+        AppLocalizations.of(context).detailPreparingPlayback,
+        context.appColors.warning,
       );
       return;
     }
 
-    final streamUrl = api.getStreamUrl(mediaGuid);
-    if (streamUrl.trim().isEmpty) {
-      _showTopTip(
-        _t(
-          'player.playbackError.playError',
-          '播放异常: {error}',
-          params: {'error': 'missing stream url'},
-        ),
-        context.appColors.danger,
-      );
-      return;
-    }
+    await AsyncActionGuard.run<void>(
+      actionKey,
+      settleDuration: const Duration(milliseconds: 500),
+      action: () async {
+        final data = _data;
+        if (data == null) return;
 
-    late final PlaybackStreamData playbackStream;
-    try {
-      playbackStream = await api.getPlaybackStream(mediaGuid);
-    } catch (error) {
-      _showTopTip(
-        _t(
-          'player.playbackError.playError',
-          '获取播放流失败: {error}',
-          params: {'error': '$error'},
-        ),
-        context.appColors.danger,
-      );
-      return;
-    }
+        final localRecord = _downloadedRecordForCurrentItem();
+        if (localRecord != null) {
+          await _openLocalPlayer(localRecord);
+          return;
+        }
 
-    final effectiveDuration =
-        (selectedOption != null && selectedOption.duration > 0)
-        ? selectedOption.duration
-        : data.item.duration;
-    final sourceTs = data.ts > 0 ? data.ts : data.item.watchedTs;
-    final effectiveTs = sourceTs.clamp(0, effectiveDuration);
-    final playbackCompleted =
-        effectiveDuration > 0 &&
-        ((effectiveDuration - effectiveTs) <= 0 ||
-            _watched ||
-            data.item.isWatched == 1);
-    final item = data.item;
-    final title = formatPlayerTitleFromPlayItem(
-      item,
-      fallbackTitle: item.displayTitle,
-    );
+        final provider = context.read<NasProvider>();
+        final api = FeiniuApi(provider);
+        final selectedOption = _currentStreamOption();
+        final mediaGuid = selectedOption?.mediaGuid ?? data.mediaGuid;
+        if (mediaGuid.trim().isEmpty) {
+          _showTopTip(
+            _t(
+              'player.playbackError.playError',
+              'Playback error: {error}',
+              params: {'error': 'missing media guid'},
+            ),
+            context.appColors.danger,
+          );
+          return;
+        }
 
-    final selectedAudio = PlayDetailTrackSelector.selectedOrFirstAudio(
-      selectedAudioGuid: _selectedAudioGuid?.trim().isNotEmpty == true
-          ? _selectedAudioGuid
-          : data.audioGuid,
-      audioTracks: playbackStream.audioStreams,
-    );
-    final playerSubtitleTracks = PlayDetailTrackSelector.mergeSubtitleTracks(
-      primaryTracks: playbackStream.subtitleStreams,
-      extraTracks: _currentSubtitleTracks(),
-    );
-    final selectedSubtitle = PlayDetailTrackSelector.selectedOrFirstSubtitle(
-      selectedSubtitleGuid: _selectedSubtitleGuid?.trim().isNotEmpty == true
-          ? _selectedSubtitleGuid
-          : data.subtitleGuid,
-      subtitleTracks: playerSubtitleTracks,
-    );
-    final playbackVideoGuid =
-        playbackStream.videoStream?.guid.trim().isNotEmpty == true
-        ? playbackStream.videoStream!.guid.trim()
-        : data.videoGuid.trim();
-    final playbackResolution =
-        playbackStream.videoStream?.resolutionType.trim().isNotEmpty == true
-        ? playbackStream.videoStream!.resolutionType.trim()
-        : selectedOption?.resolutionType ?? '';
-    final playbackBitrate = playbackStream.videoStream?.bps ?? 0;
-    final preferExternalSubtitle =
-        selectedSubtitle != null &&
-        (selectedSubtitle.isExternal == 1 ||
-            selectedSubtitle.extraFile == 1 ||
-            selectedSubtitle.guid.startsWith('local:'));
-    final embeddedSubtitleTrackIndex =
-        selectedSubtitle == null || preferExternalSubtitle
-        ? null
-        : (() {
-            final embeddedTracks = playerSubtitleTracks
-                .where((track) {
-                  if (track.guid.trim().isEmpty) return false;
-                  if (track.guid.startsWith('local:')) return false;
-                  return track.isExternal != 1 && track.extraFile != 1;
-                })
-                .toList(growable: false);
-            final ordinal = embeddedTracks.indexWhere(
-              (track) => track.guid == selectedSubtitle.guid,
-            );
-            if (ordinal < 0) return null;
-            return ordinal + 1;
-          })();
-    final mergedQualities = mergePlaybackQualitiesWithStreamTrackData(
-      playbackStream.qualities,
-      _streamTrackData,
-    );
-    final selectedQuality = PlayerSourceController.preferredInitialQuality(
-      mergedQualities,
-    );
-    final initialPlaybackVideoGuid =
-        selectedQuality?.videoGuid.trim().isNotEmpty == true
-        ? selectedQuality!.videoGuid.trim()
-        : playbackVideoGuid;
-    final initialPlaybackResolution =
-        selectedQuality?.isDirectLink == true &&
-            selectedQuality!.resolution.trim().isNotEmpty
-        ? selectedQuality.resolution.trim()
-        : playbackResolution;
-    final initialPlaybackBitrate = selectedQuality?.isDirectLink == true
-        ? selectedQuality!.bitrate
-        : playbackBitrate;
-    final initialPlayback = await const PlayerSourceController()
-        .buildInitialPlaybackResult(
-          api: api,
-          directUrl: streamUrl,
-          mediaGuid: mediaGuid,
-          videoGuid: initialPlaybackVideoGuid,
-          playbackStream: playbackStream,
-          quality: selectedQuality,
-          selectedAudio: selectedAudio,
-          selectedSubtitle: selectedSubtitle,
-          startPosition: Duration(seconds: effectiveTs),
+        final streamUrl = api.getStreamUrl(mediaGuid);
+        if (streamUrl.trim().isEmpty) {
+          _showTopTip(
+            _t(
+              'player.playbackError.playError',
+              'Playback error: {error}',
+              params: {'error': 'missing stream url'},
+            ),
+            context.appColors.danger,
+          );
+          return;
+        }
+
+        late final PlaybackStreamData playbackStream;
+        try {
+          playbackStream = await api.getPlaybackStream(mediaGuid);
+        } catch (error) {
+          if (!mounted) return;
+          _showTopTip(
+            _t(
+              'player.playbackError.playError',
+              'Failed to get playback stream: {error}',
+              params: {'error': '$error'},
+            ),
+            context.appColors.danger,
+          );
+          return;
+        }
+
+        final effectiveDuration =
+            (selectedOption != null && selectedOption.duration > 0)
+            ? selectedOption.duration
+            : data.item.duration;
+        final sourceTs = data.ts > 0 ? data.ts : data.item.watchedTs;
+        final playbackCompleted =
+            effectiveDuration > 0 &&
+            ((effectiveDuration - sourceTs) <= 0 ||
+                _watched ||
+                data.item.isWatched == 1);
+        final resume = await PlaybackResumePositionResolver.resolve(
+          videoIds: <String>[data.item.guid, _currentItemGuid],
+          durationSeconds: effectiveDuration,
+          networkPositionSeconds: sourceTs,
+          networkPositionAvailable: true,
+          networkCompleted: playbackCompleted,
         );
-    final playableSource = initialPlayback.playableSource;
-    final resolvedStartPosition =
-        !playableSource.reliableSeek && effectiveTs > 0
-        ? Duration.zero
-        : (playbackCompleted ? Duration.zero : Duration(seconds: effectiveTs));
+        final effectiveTs = resume.position.inSeconds;
+        final item = data.item;
+        final title = formatPlayerTitleFromPlayItem(
+          item,
+          fallbackTitle: item.displayTitle,
+        );
 
-    final source = MpvMediaSource(
-      loadNonce: createMpvLoadNonce(),
-      itemGuid: _currentItemGuid,
-      seasonGuid: (widget.initialItemDetail?['parent_guid'] ?? '').toString(),
-      posterPath: resolvePlayerArtworkPathForPlayItem(item),
-      mediaGuid: initialPlayback.mediaGuid,
-      mediaType: item.type,
-      ancestorName: item.ancestorName,
-      videoGuid: initialPlayback.videoGuid,
-      directLinkQualityIndex: selectedQuality?.isDirectLink == true
-          ? selectedQuality!.directLinkQualityIndex
-          : null,
-      videoWidth: playbackStream.videoStream?.width ?? 0,
-      videoHeight: playbackStream.videoStream?.height ?? 0,
-      proxySessionId: playableSource.proxySessionId,
-      playLink: initialPlayback.playLink,
-      serverSessionHlsTimeSeconds: initialPlayback.serverSessionHlsTimeSeconds,
-      url: playableSource.url,
-      headers: playableSource.headers,
-      title: title,
-      seriesTitle: item.tvTitle.trim().isNotEmpty ? item.tvTitle.trim() : title,
-      seasonNumber: item.seasonNumber,
-      tmdbId: item.trimId,
-      episodeNumber: item.episodeNumber,
-      startPosition: resolvedStartPosition,
-      audioTrackIndex: selectedAudio?.index,
-      subtitleTrackIndex: embeddedSubtitleTrackIndex,
-      audioTrackGuid: selectedAudio?.guid ?? data.audioGuid,
-      subtitleTrackGuid: selectedSubtitle?.guid ?? data.subtitleGuid,
-      resolution: initialPlaybackResolution,
-      bitrate: initialPlaybackBitrate,
-      durationSeconds: effectiveDuration,
-      videoCodecName: playbackStream.videoStream?.codecName ?? '',
-      videoProfile: playbackStream.videoStream?.profile ?? '',
-      colorSpace: playbackStream.videoStream?.colorSpace ?? '',
-      colorTransfer: playbackStream.videoStream?.colorTransfer ?? '',
-      colorPrimaries: playbackStream.videoStream?.colorPrimaries ?? '',
-      bitDepth: playbackStream.videoStream?.bitDepth ?? 0,
-      preferExternalSubtitle: preferExternalSubtitle,
-      forceNativeProxy: playableSource.forceNativeProxy,
-      reliableSeek: playableSource.reliableSeek,
-      seekProbeSummary: playableSource.seekProbeSummary,
-      playbackMode: initialPlayback.playbackMode,
-      playbackSpeed: 1.0,
-      audioTracks: playbackStream.audioStreams,
-      subtitleTracks: playerSubtitleTracks,
-      qualities: mergedQualities,
+        final selectedAudio = PlayDetailTrackSelector.selectedOrFirstAudio(
+          selectedAudioGuid: _selectedAudioGuid?.trim().isNotEmpty == true
+              ? _selectedAudioGuid
+              : data.audioGuid,
+          audioTracks: playbackStream.audioStreams,
+        );
+        final playerSubtitleTracks =
+            PlayDetailTrackSelector.mergeSubtitleTracks(
+              primaryTracks: playbackStream.subtitleStreams,
+              extraTracks: _currentSubtitleTracks(),
+            );
+        final selectedSubtitle =
+            PlayDetailTrackSelector.selectedOrFirstSubtitle(
+              selectedSubtitleGuid:
+                  _selectedSubtitleGuid?.trim().isNotEmpty == true
+                  ? _selectedSubtitleGuid
+                  : data.subtitleGuid,
+              subtitleTracks: playerSubtitleTracks,
+            );
+        final playbackVideoGuid =
+            playbackStream.videoStream?.guid.trim().isNotEmpty == true
+            ? playbackStream.videoStream!.guid.trim()
+            : data.videoGuid.trim();
+        final playbackResolution =
+            playbackStream.videoStream?.resolutionType.trim().isNotEmpty == true
+            ? playbackStream.videoStream!.resolutionType.trim()
+            : selectedOption?.resolutionType ?? '';
+        final playbackBitrate = playbackStream.videoStream?.bps ?? 0;
+        final preferExternalSubtitle =
+            selectedSubtitle != null &&
+            (selectedSubtitle.isExternal == 1 ||
+                selectedSubtitle.extraFile == 1 ||
+                selectedSubtitle.guid.startsWith('local:'));
+        final embeddedSubtitleTrackIndex =
+            selectedSubtitle == null || preferExternalSubtitle
+            ? null
+            : (() {
+                final embeddedTracks = playerSubtitleTracks
+                    .where((track) {
+                      if (track.guid.trim().isEmpty) return false;
+                      if (track.guid.startsWith('local:')) return false;
+                      return track.isExternal != 1 && track.extraFile != 1;
+                    })
+                    .toList(growable: false);
+                final ordinal = embeddedTracks.indexWhere(
+                  (track) => track.guid == selectedSubtitle.guid,
+                );
+                if (ordinal < 0) return null;
+                return ordinal + 1;
+              })();
+        final mergedQualities = mergePlaybackQualitiesWithStreamTrackData(
+          playbackStream.qualities,
+          _streamTrackData,
+        );
+        final selectedQuality = PlayerSourceController.preferredInitialQuality(
+          mergedQualities,
+        );
+        final initialPlaybackVideoGuid =
+            selectedQuality?.videoGuid.trim().isNotEmpty == true
+            ? selectedQuality!.videoGuid.trim()
+            : playbackVideoGuid;
+        final initialPlaybackResolution =
+            selectedQuality?.isDirectLink == true &&
+                selectedQuality!.resolution.trim().isNotEmpty
+            ? selectedQuality.resolution.trim()
+            : playbackResolution;
+        final initialPlaybackBitrate = selectedQuality?.isDirectLink == true
+            ? selectedQuality!.bitrate
+            : playbackBitrate;
+        final initialPlayback = await const PlayerSourceController()
+            .buildInitialPlaybackResult(
+              api: api,
+              directUrl: streamUrl,
+              mediaGuid: mediaGuid,
+              videoGuid: initialPlaybackVideoGuid,
+              playbackStream: playbackStream,
+              quality: selectedQuality,
+              selectedAudio: selectedAudio,
+              selectedSubtitle: selectedSubtitle,
+              startPosition: Duration(seconds: effectiveTs),
+            );
+        final playableSource = initialPlayback.playableSource;
+        final resolvedStartPosition =
+            !playableSource.reliableSeek && effectiveTs > 0
+            ? Duration.zero
+            : resume.position;
+
+        final source = MpvMediaSource(
+          loadNonce: createMpvLoadNonce(),
+          itemGuid: _currentItemGuid,
+          seriesGuid: widget.seriesGuid.trim().isNotEmpty
+              ? widget.seriesGuid.trim()
+              : data.grandGuid.trim(),
+          seasonGuid: data.parentGuid.trim().isNotEmpty
+              ? data.parentGuid.trim()
+              : (widget.initialItemDetail?['parent_guid'] ?? '')
+                    .toString()
+                    .trim(),
+          posterPath: resolvePlayerArtworkPathForPlayItem(item),
+          mediaGuid: initialPlayback.mediaGuid,
+          mediaType: item.type,
+          ancestorName: item.ancestorName,
+          videoGuid: initialPlayback.videoGuid,
+          directLinkQualityIndex: selectedQuality?.isDirectLink == true
+              ? selectedQuality!.directLinkQualityIndex
+              : null,
+          videoWidth: playbackStream.videoStream?.width ?? 0,
+          videoHeight: playbackStream.videoStream?.height ?? 0,
+          proxySessionId: playableSource.proxySessionId,
+          playLink: initialPlayback.playLink,
+          serverSessionHlsTimeSeconds:
+              initialPlayback.serverSessionHlsTimeSeconds,
+          url: playableSource.url,
+          headers: playableSource.headers,
+          title: title,
+          seriesTitle: item.tvTitle.trim().isNotEmpty
+              ? item.tvTitle.trim()
+              : title,
+          seasonNumber: item.seasonNumber,
+          tmdbId: item.trimId,
+          episodeNumber: item.episodeNumber,
+          startPosition: resolvedStartPosition,
+          audioTrackIndex: selectedAudio?.index,
+          subtitleTrackIndex: embeddedSubtitleTrackIndex,
+          audioTrackGuid: selectedAudio?.guid ?? data.audioGuid,
+          subtitleTrackGuid: selectedSubtitle?.guid ?? data.subtitleGuid,
+          resolution: initialPlaybackResolution,
+          bitrate: initialPlaybackBitrate,
+          durationSeconds: effectiveDuration,
+          videoCodecName: playbackStream.videoStream?.codecName ?? '',
+          videoProfile: playbackStream.videoStream?.profile ?? '',
+          colorSpace: playbackStream.videoStream?.colorSpace ?? '',
+          colorTransfer: playbackStream.videoStream?.colorTransfer ?? '',
+          colorPrimaries: playbackStream.videoStream?.colorPrimaries ?? '',
+          bitDepth: playbackStream.videoStream?.bitDepth ?? 0,
+          preferExternalSubtitle: preferExternalSubtitle,
+          forceNativeProxy: playableSource.forceNativeProxy,
+          reliableSeek: playableSource.reliableSeek,
+          seekProbeSummary: playableSource.seekProbeSummary,
+          playbackMode: initialPlayback.playbackMode,
+          playbackSpeed: 1.0,
+          audioTracks: playbackStream.audioStreams,
+          subtitleTracks: playerSubtitleTracks,
+          qualities: mergedQualities,
+        );
+
+        await _launchPlayer(
+          title: title,
+          source: source,
+          initialPlayInfo: data,
+        );
+      },
     );
-
-    await _launchPlayer(title: title, source: source, initialPlayInfo: data);
   }
 
   Future<void> _openLocalPlayer(DownloadTaskRecord record) async {
     final data = _data;
     if (data == null) return;
     if (record.filePath.trim().isEmpty) {
-      _showTopTip('本地视频文件无效', context.appColors.warning);
+      _showTopTip(
+        AppLocalizations.of(context).detailLocalVideoInvalid,
+        context.appColors.warning,
+      );
       return;
     }
 
@@ -1118,15 +1173,19 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         ? selectedOption.duration
         : data.item.duration;
     final sourceTs = data.ts > 0 ? data.ts : data.item.watchedTs;
-    final effectiveTs = sourceTs.clamp(0, effectiveDuration);
     final playbackCompleted =
         effectiveDuration > 0 &&
-        ((effectiveDuration - effectiveTs) <= 0 ||
+        ((effectiveDuration - sourceTs) <= 0 ||
             _watched ||
             data.item.isWatched == 1);
-    final startPosition = playbackCompleted
-        ? Duration.zero
-        : Duration(seconds: effectiveTs);
+    final resume = await PlaybackResumePositionResolver.resolve(
+      videoIds: <String>[data.item.guid, _currentItemGuid, record.itemGuid],
+      durationSeconds: effectiveDuration,
+      networkPositionSeconds: sourceTs,
+      networkPositionAvailable: true,
+      networkCompleted: playbackCompleted,
+    );
+    final startPosition = resume.position;
     final item = data.item;
     final title = formatPlayerTitleFromPlayItem(
       item,
@@ -1139,13 +1198,29 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     final resolvedMediaGuid = record.mediaGuid.trim().isEmpty
         ? data.mediaGuid
         : record.mediaGuid;
-    final localAudioTracks = _currentAudioTracks();
+    final localAudioTracks = _currentAudioTracks().isNotEmpty
+        ? _currentAudioTracks()
+        : record.audioTracks;
     final selectedAudio = PlayDetailTrackSelector.selectedOrFirstAudio(
       selectedAudioGuid: _selectedAudioGuid?.trim().isNotEmpty == true
           ? _selectedAudioGuid
           : data.audioGuid,
       audioTracks: localAudioTracks,
     );
+    final localSubtitleTracks = _currentSubtitleTracks().isNotEmpty
+        ? _currentSubtitleTracks()
+        : record.subtitleTracks;
+    final selectedSubtitle = PlayDetailTrackSelector.selectedOrFirstSubtitle(
+      selectedSubtitleGuid: _selectedSubtitleGuid?.trim().isNotEmpty == true
+          ? _selectedSubtitleGuid
+          : data.subtitleGuid,
+      subtitleTracks: localSubtitleTracks,
+    );
+    final embeddedSubtitleTrackIndex =
+        PlayDetailTrackSelector.embeddedSubtitleTrackIndex(
+          selectedSubtitle: selectedSubtitle,
+          subtitleTracks: localSubtitleTracks,
+        );
     final mergedQualities = mergePlaybackQualitiesWithStreamTrackData(
       const <PlaybackQualityOption>[],
       _streamTrackData,
@@ -1153,7 +1228,12 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     final source = MpvMediaSource.localFile(
       filePath: record.filePath,
       itemGuid: _currentItemGuid,
-      seasonGuid: (widget.initialItemDetail?['parent_guid'] ?? '').toString(),
+      seriesGuid: widget.seriesGuid.trim().isNotEmpty
+          ? widget.seriesGuid.trim()
+          : data.grandGuid.trim(),
+      seasonGuid: data.parentGuid.trim().isNotEmpty
+          ? data.parentGuid.trim()
+          : (widget.initialItemDetail?['parent_guid'] ?? '').toString().trim(),
       posterPath: resolvePlayerArtworkPathForPlayItem(item),
       mediaGuid: resolvedMediaGuid,
       mediaType: item.type,
@@ -1168,6 +1248,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       episodeNumber: item.episodeNumber,
       startPosition: startPosition,
       audioTrackGuid: selectedAudio?.guid ?? data.audioGuid,
+      subtitleTrackIndex: embeddedSubtitleTrackIndex,
       subtitleTrackGuid: _selectedSubtitleGuid?.trim().isNotEmpty == true
           ? _selectedSubtitleGuid
           : data.subtitleGuid,
@@ -1183,7 +1264,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       colorPrimaries: localVideo?.colorPrimaries ?? '',
       bitDepth: localVideo?.bitDepth ?? 0,
       audioTracks: localAudioTracks,
-      subtitleTracks: const <SubtitleTrackOption>[],
+      subtitleTracks: localSubtitleTracks,
       qualities: mergedQualities,
       playbackSpeed: 1.0,
     );
@@ -1196,58 +1277,86 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     required MpvMediaSource source,
     PlayInfoData? initialPlayInfo,
   }) async {
-    if (!mounted) return;
-    final navigator = Navigator.of(context);
-    _playerRouteActive = true;
-    _deferredSectionTimer?.cancel();
-    final embeddedResult = await EmbeddedDetailLauncher.openFullscreenPlayer(
-      context: context,
-      title: title,
-      source: source,
-    );
-    final result = embeddedResult.handled
-        ? embeddedResult.data
-        : await navigator.push(
-            AppTransitions.playerRoute(
-              MpvPlayerPage(
-                title: title,
-                source: source,
-                initialPlayInfo: initialPlayInfo,
-              ),
-            ),
-          );
-    if (!mounted) return;
-    _playerRouteActive = false;
-    _restoreContentVisibilityAfterPlayerExit();
-    if (!_deferredSectionLoadStarted &&
-        (_personCredits.isEmpty ||
-            _authorizedDirs.isEmpty ||
-            (!_linkVisible && (_imdbId.isEmpty || _trimId.isEmpty)))) {
-      unawaited(_loadDeferredSections());
-    }
-    final playerReturn = result is PlayDetailPlayerReturnData ? result : null;
-    final nextItemGuid = switch (playerReturn) {
-      PlayDetailPlayerReturnData(itemGuid: final String itemGuid)
-          when itemGuid.trim().isNotEmpty =>
-        itemGuid.trim(),
-      _ => _currentItemGuid,
-    };
-    if (nextItemGuid != _currentItemGuid) {
-      setState(() {
-        _currentItemGuid = nextItemGuid;
-      });
-    }
-    if (playerReturn?.refreshData != null) {
-      _applyRefreshedDetailData(
-        playerReturn!.refreshData!,
-        currentTsSeconds: playerReturn.currentTsSeconds,
+    final actionKey = <String>[
+      'play_detail_launch',
+      source.itemGuid.trim(),
+      source.mediaGuid.trim(),
+      source.videoGuid.trim(),
+      source.url.trim(),
+    ].where((value) => value.isNotEmpty).join(':');
+    if (_playerRouteActive || AsyncActionGuard.isRunning(actionKey)) {
+      _showTopTip(
+        AppLocalizations.of(context).detailPreparingPlayback,
+        context.appColors.warning,
       );
       return;
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      unawaited(_refreshAfterPlayerExit());
-    });
+
+    await AsyncActionGuard.run<void>(
+      actionKey,
+      settleDuration: const Duration(milliseconds: 500),
+      action: () async {
+        if (!mounted) return;
+        final navigator = Navigator.of(context);
+        _playerRouteActive = true;
+        _deferredSectionTimer?.cancel();
+        try {
+          final embeddedResult =
+              await EmbeddedDetailLauncher.openFullscreenPlayer(
+                context: context,
+                title: title,
+                source: source,
+                initialPlayInfo: initialPlayInfo,
+              );
+          final result = embeddedResult.handled
+              ? embeddedResult.data
+              : await navigator.push(
+                  AppTransitions.playerRoute(
+                    MpvPlayerPage(
+                      title: title,
+                      source: source,
+                      initialPlayInfo: initialPlayInfo,
+                    ),
+                  ),
+                );
+          if (!mounted) return;
+          _restoreContentVisibilityAfterPlayerExit();
+          if (!_deferredSectionLoadStarted &&
+              (_personCredits.isEmpty ||
+                  _authorizedDirs.isEmpty ||
+                  (!_linkVisible && (_imdbId.isEmpty || _trimId.isEmpty)))) {
+            unawaited(_loadDeferredSections());
+          }
+          final playerReturn = result is PlayDetailPlayerReturnData
+              ? result
+              : null;
+          final nextItemGuid = switch (playerReturn) {
+            PlayDetailPlayerReturnData(itemGuid: final String itemGuid)
+                when itemGuid.trim().isNotEmpty =>
+              itemGuid.trim(),
+            _ => _currentItemGuid,
+          };
+          if (nextItemGuid != _currentItemGuid) {
+            setState(() {
+              _currentItemGuid = nextItemGuid;
+            });
+          }
+          if (playerReturn?.refreshData != null) {
+            _applyRefreshedDetailData(
+              playerReturn!.refreshData!,
+              currentTsSeconds: playerReturn.currentTsSeconds,
+            );
+            return;
+          }
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            unawaited(_refreshAfterPlayerExit());
+          });
+        } finally {
+          _playerRouteActive = false;
+        }
+      },
+    );
   }
 
   Future<void> _refreshAfterPlayerExit() async {
@@ -1314,17 +1423,21 @@ class _PlayDetailPageState extends State<PlayDetailPage>
 
   Future<void> _openImdb() async {
     final result = await ImdbLauncher.openExternal(_imdbId);
+    if (!mounted) return;
     switch (result) {
       case ImdbLaunchResult.success:
         return;
       case ImdbLaunchResult.empty:
         _showTopTip(
-          _t('layout.details.castAndCrew.imdb', '暂无 IMDB 链接'),
+          _t('layout.details.castAndCrew.imdb', 'No IMDB link'),
           context.appColors.warning,
         );
       case ImdbLaunchResult.failed:
         _showTopTip(
-          _t('layout.details.castAndCrew.imdbOpenFailed', '无法打开 IMDB 链接'),
+          _t(
+            'layout.details.castAndCrew.imdbOpenFailed',
+            'Unable to open IMDB link',
+          ),
           context.appColors.danger,
         );
     }
@@ -1332,13 +1445,20 @@ class _PlayDetailPageState extends State<PlayDetailPage>
 
   Future<void> _openTmdb() async {
     final result = await ImdbLauncher.openTmdbExternal(_trimId);
+    if (!mounted) return;
     switch (result) {
       case ImdbLaunchResult.success:
         return;
       case ImdbLaunchResult.empty:
-        _showTopTip('暂无 TMDB 链接', context.appColors.warning);
+        _showTopTip(
+          AppLocalizations.of(context).detailTmdbEmpty,
+          context.appColors.warning,
+        );
       case ImdbLaunchResult.failed:
-        _showTopTip('无法打开 TMDB 链接', context.appColors.danger);
+        _showTopTip(
+          AppLocalizations.of(context).detailTmdbOpenFailed,
+          context.appColors.danger,
+        );
     }
   }
 
@@ -1366,7 +1486,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     if (_favoriteUpdating ||
         now.difference(_lastFavoriteTapAt) < _favoriteTapCooldown) {
       _showTopTip(
-        _t('layout.globalError.clickToRetry', '点击过快，请稍后再试'),
+        _t(
+          'layout.globalError.clickToRetry',
+          'Too many taps, please try again later',
+        ),
         context.appColors.warning,
       );
       return;
@@ -1377,7 +1500,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       final api = FeiniuApi(context.read<NasProvider>());
       final result = await PlayDetailItemActions(
         api,
-        localeMap: _localeMap,
+        l10n: AppLocalizations.of(context),
       ).toggleFavorite(itemGuid: _currentItemGuid, currentLiked: _liked);
       if (!mounted) return;
       setState(() => _liked = result.state);
@@ -1398,8 +1521,14 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       );
       _showTopTip(
         _liked
-            ? _t('common.actions.favorite.unfavoriteFailed', '取消收藏失败')
-            : _t('common.actions.favorite.favoriteFailed', '收藏失败'),
+            ? _t(
+                'common.actions.favorite.unfavoriteFailed',
+                'Failed to remove favorite',
+              )
+            : _t(
+                'common.actions.favorite.favoriteFailed',
+                'Failed to favorite',
+              ),
         context.appColors.danger,
       );
     } finally {
@@ -1412,7 +1541,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     if (_watchedUpdating ||
         now.difference(_lastWatchedTapAt) < _watchedTapCooldown) {
       _showTopTip(
-        _t('layout.globalError.clickToRetry', '点击过快，请稍后再试'),
+        _t(
+          'layout.globalError.clickToRetry',
+          'Too many taps, please try again later',
+        ),
         context.appColors.warning,
       );
       return;
@@ -1423,7 +1555,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       final api = FeiniuApi(context.read<NasProvider>());
       final result = await PlayDetailItemActions(
         api,
-        localeMap: _localeMap,
+        l10n: AppLocalizations.of(context),
       ).toggleWatched(itemGuid: _currentItemGuid, currentWatched: _watched);
       if (!mounted) return;
       setState(() => _watched = result.state);
@@ -1445,10 +1577,17 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           details: 'itemGuid=$_currentItemGuid',
         ),
       );
+      if (!mounted) return;
       _showTopTip(
         _watched
-            ? _t('common.actions.watched.markedAsUnwatchedFailed', '标记为未观看失败')
-            : _t('common.actions.watched.markedAsWatchedFailed', '标记为已观看失败'),
+            ? _t(
+                'common.actions.watched.markedAsUnwatchedFailed',
+                'Failed to mark as unwatched',
+              )
+            : _t(
+                'common.actions.watched.markedAsWatchedFailed',
+                'Failed to mark as watched',
+              ),
         context.appColors.danger,
       );
     } finally {
@@ -1461,7 +1600,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     final itemGuid = _currentItemGuid.trim();
     if (item == null || itemGuid.isEmpty) {
       _showTopTip(
-        _t('common.actions.download.unavailable', '暂无可下载资源'),
+        _t('common.actions.download.unavailable', 'No downloadable resources'),
         context.appColors.warning,
       );
       return;
@@ -1498,58 +1637,84 @@ class _PlayDetailPageState extends State<PlayDetailPage>
 
   @override
   Widget build(BuildContext context) {
-    final themeProvider = context.watch<AppThemeProvider>();
+    final (
+      dynamicThemeEnabled: dynamicThemeEnabled,
+      dynamicThemeIntensity: dynamicThemeIntensity,
+    ) = context
+        .select<
+          AppThemeProvider,
+          ({
+            bool dynamicThemeEnabled,
+            AppDynamicThemeIntensity dynamicThemeIntensity,
+          })
+        >(
+          (themeProvider) => (
+            dynamicThemeEnabled: themeProvider.dynamicThemeEnabled,
+            dynamicThemeIntensity: themeProvider.dynamicThemeIntensity,
+          ),
+        );
     final nasProvider = context.read<NasProvider>();
     final inPlayerPaneHost = PlayerPaneHostScope.maybeOf(context) != null;
+    final deferHeroArtwork = _loading || _data == null;
+    final deferAuxiliaryArtwork = _loading || !_heroAsyncSectionsResolved;
     var dynamicThemeKey = _currentItemGuid.trim().isNotEmpty
         ? _currentItemGuid
         : widget.itemGuid;
     var dynamicThemeImageUrl = '';
-    if (_loading) {
-      final initial = widget.initialItemDetail;
-      if (initial != null) {
-        final rawItem = initial['item'];
-        final item = rawItem is Map<String, dynamic> ? rawItem : initial;
-        final urls = ApiUrlHelper.imageCandidates(
-          nasProvider.baseUrl,
-          _heroPathForItemMap(item),
-          width: 360,
-        );
-        if (urls.isNotEmpty) {
-          dynamicThemeImageUrl = urls.first;
-        }
-      }
-    } else if (_data != null) {
+    if (_data != null) {
+      final item = _data!.item;
       final urls = ApiUrlHelper.imageCandidates(
         nasProvider.baseUrl,
-        _heroPathForPlayItem(_data!.item),
+        _dynamicThemePathForPlayItem(item),
+        width: 360,
+      );
+      if (urls.isNotEmpty) {
+        dynamicThemeImageUrl = urls.first;
+      }
+    } else if (widget.initialItemDetail != null) {
+      final initialRawItem = widget.initialItemDetail!['item'];
+      final initialItemMap = initialRawItem is Map<String, dynamic>
+          ? initialRawItem
+          : widget.initialItemDetail!;
+      final initialItem = PlayItem.fromJson(initialItemMap);
+      final urls = ApiUrlHelper.imageCandidates(
+        nasProvider.baseUrl,
+        _dynamicThemePathForPlayItem(initialItem),
         width: 360,
       );
       if (urls.isNotEmpty) {
         dynamicThemeImageUrl = urls.first;
       }
     }
-
-    final dynamicThemeIntensity = themeProvider.dynamicThemeIntensity;
+    final allowRuntimeThemeSync = dynamicThemeIntensity
+        .allowsGlobalRuntimeThemeSync(
+          inPlayerPaneHost: inPlayerPaneHost,
+          isPane: _isPane,
+        );
+    final dynamicThemeScopeEnabled = dynamicThemeEnabled;
+    final syncGlobalTheme = dynamicThemeScopeEnabled && allowRuntimeThemeSync;
+    final detailItemType = (_data?.item.type ?? '').trim().toLowerCase();
+    assert(() {
+      debugPrint(
+        '[THEME][PLAY_DETAIL] page=$dynamicThemeKey type=$detailItemType enabled=$dynamicThemeScopeEnabled syncGlobal=$syncGlobalTheme live=${!deferHeroArtwork && dynamicThemeImageUrl.isNotEmpty} hasImage=${dynamicThemeImageUrl.isNotEmpty}',
+      );
+      return true;
+    }());
     return DynamicPageThemeScope(
       pageKey: dynamicThemeKey,
       imageUrl: dynamicThemeImageUrl,
       token: nasProvider.token,
-      enabled: themeProvider.dynamicThemeEnabled,
-      syncGlobalTheme: dynamicThemeIntensity.allowsGlobalRuntimeThemeSync(
-        inPlayerPaneHost: inPlayerPaneHost,
-        isPane: _isPane,
-      ),
+      enabled: dynamicThemeScopeEnabled,
+      allowLiveResolve: !deferHeroArtwork && dynamicThemeImageUrl.isNotEmpty,
+      syncGlobalTheme: syncGlobalTheme,
+      deferLocalThemeApplyUntilGlobalSync: _isPane && allowRuntimeThemeSync,
       intensity: dynamicThemeIntensity,
       builder: (context, ambientTint) {
         final colors = context.appColors;
         if (_loading) {
           final initial = widget.initialItemDetail;
           if (initial == null) {
-            return Scaffold(
-              backgroundColor: colors.backgroundBase,
-              body: const SizedBox.shrink(),
-            );
+            return DetailLoadingSkeleton(presentation: widget.presentation);
           }
           final provider = context.read<NasProvider>();
           final media = MediaQuery.of(context);
@@ -1565,13 +1730,18 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                   .round();
           final rawItem = initial['item'];
           final item = rawItem is Map<String, dynamic> ? rawItem : initial;
-          final heroPath = _heroPathForItemMap(item);
-          final heroUrls = ApiUrlHelper.imageCandidates(
-            provider.baseUrl,
-            heroPath,
-            width: backdropRequestWidth,
-          );
-          final title = formatPlayerTitle(
+          final heroUrls = deferHeroArtwork
+              ? const <String>[]
+              : ApiUrlHelper.imageCandidates(
+                  provider.baseUrl,
+                  _heroPathForItemMap(item),
+                  width: backdropRequestWidth,
+                );
+          final initialItemType = (item['type'] ?? '')
+              .toString()
+              .trim()
+              .toLowerCase();
+          final fallbackTitle = formatPlayerTitle(
             seriesTitle: (item['tv_title'] ?? '').toString().trim().isNotEmpty
                 ? (item['tv_title'] ?? '').toString()
                 : (item['display_title'] ?? item['title'] ?? '').toString(),
@@ -1581,11 +1751,22 @@ class _PlayDetailPageState extends State<PlayDetailPage>
             fallbackTitle: (item['display_title'] ?? item['title'] ?? '')
                 .toString(),
           );
-          final logoUrls = ApiUrlHelper.imageCandidates(
-            provider.baseUrl,
-            (item['logos'] ?? '').toString(),
-            width: logoRequestWidth,
-          );
+          final initialEpisodeTitle = (item['title'] ?? '').toString().trim();
+          final initialDisplayTitle =
+              (item['display_title'] ?? item['title'] ?? '').toString().trim();
+          final title =
+              initialItemType == 'episode' && initialEpisodeTitle.isNotEmpty
+              ? initialEpisodeTitle
+              : (initialDisplayTitle.isNotEmpty
+                    ? initialDisplayTitle
+                    : fallbackTitle);
+          final logoUrls = deferAuxiliaryArtwork
+              ? const <String>[]
+              : ApiUrlHelper.imageCandidates(
+                  provider.baseUrl,
+                  (item['logos'] ?? '').toString(),
+                  width: logoRequestWidth,
+                );
           final episodeHeroSubtitle =
               ((item['type'] ?? '').toString().trim().toLowerCase() ==
                   'episode')
@@ -1593,21 +1774,37 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                   if ((item['tv_title'] ?? '').toString().trim().isNotEmpty)
                     (item['tv_title'] ?? '').toString().trim(),
                   if (_asInt(item['season_number']) == 0)
-                    _t('layout.subheading.season.special', '特别篇')
+                    _t('layout.subheading.season.special', 'Special')
                   else if (_asInt(item['season_number']) > 0)
                     _t(
                       'layout.subheading.season.number',
-                      '第 {number} 季',
+                      'Season {number}',
                       params: {'number': _asInt(item['season_number'])},
                     ),
                   if (_asInt(item['episode_number']) > 0)
                     _t(
                       'layout.subheading.episode.number',
-                      '第 {number} 集',
+                      'Episode {number}',
                       params: {'number': _asInt(item['episode_number'])},
                     ),
                 ].join(' · ')
               : '';
+          final initialHeroTitleChild = initialItemType != 'episode'
+              ? (deferAuxiliaryArtwork
+                    ? const SizedBox.shrink()
+                    : (logoUrls.isNotEmpty
+                          ? DetailHeroLogoTitle(
+                              urls: logoUrls,
+                              token: provider.token,
+                              fallbackTitle: title,
+                              maxHeight: 112,
+                              maxWidth:
+                                  media.size.width -
+                                  (DetailTokens.screenHorizontalPadding * 2),
+                              fallbackFontSize: 28,
+                            )
+                          : null))
+              : null;
           final posterHeight = _backdropHeroHeight(media.size);
           final imageAlignment = _backdropImageAlignment(media.size);
           final imageScale = _backdropImageScale(media.size);
@@ -1617,7 +1814,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
             posterHeight: posterHeight,
           );
           return Scaffold(
-            backgroundColor: DetailTokens.pageBackground,
+            backgroundColor: colors.backgroundBase,
             body: Stack(
               fit: StackFit.expand,
               children: [
@@ -1641,27 +1838,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                         height: layout.infoStart,
                         title: title,
                         subtitle: episodeHeroSubtitle,
-                        titleFontSize: 28,
-                        bottomInset: 20,
+                        titleFontSize: initialItemType == 'episode' ? 28 : null,
+                        bottomInset: initialItemType == 'episode' ? 20 : 36,
                         useSoftGradient: true,
-                        titleChild:
-                            logoUrls.isNotEmpty &&
-                                (item['type'] ?? '')
-                                        .toString()
-                                        .trim()
-                                        .toLowerCase() !=
-                                    'episode'
-                            ? DetailHeroLogoTitle(
-                                urls: logoUrls,
-                                token: provider.token,
-                                fallbackTitle: title,
-                                maxHeight: 112,
-                                maxWidth:
-                                    media.size.width -
-                                    (DetailTokens.screenHorizontalPadding * 2),
-                                fallbackFontSize: 28,
-                              )
-                            : null,
+                        titleChild: initialHeroTitleChild,
                       ),
                     ),
                   ],
@@ -1713,12 +1893,13 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               1.0,
               layout.infoStart,
             );
-        final heroPath = _heroPathForPlayItem(item);
-        final heroUrls = ApiUrlHelper.imageCandidates(
-          provider.baseUrl,
-          heroPath,
-          width: backdropRequestWidth,
-        );
+        final heroUrls = deferHeroArtwork
+            ? const <String>[]
+            : ApiUrlHelper.imageCandidates(
+                provider.baseUrl,
+                _heroPathForPlayItem(item),
+                width: backdropRequestWidth,
+              );
 
         final selectedOption =
             (_selectedStreamIndex != null &&
@@ -1743,10 +1924,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         final showProgress = effectiveTs > 0 && remainSeconds > 0;
 
         final resolvedPlayText = playbackCompleted
-            ? _t('player.play.replay', '重新播放')
+            ? _t('player.play.replay', 'Replay')
             : effectiveTs > 0
-            ? _t('player.play.continuePlay', '继续播放')
-            : _t('player.play.play', '播放');
+            ? _t('player.play.continuePlay', 'Continue playing')
+            : _t('player.play.play', 'Play');
         final metaLineA = PlayDetailFormatters.metaLineA(
           item,
           genreMap: _genresMapZhCn,
@@ -1772,12 +1953,30 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           screenSize,
           canPlay: item.canPlay == 1,
         );
-        final reserveHeroInfoBlockHeight = !_heroAsyncSectionsResolved;
-        final logoUrls = ApiUrlHelper.imageCandidates(
-          provider.baseUrl,
-          item.logos,
-          width: logoRequestWidth,
-        );
+        final reserveHeroInfoBlockHeight =
+            _isPane || !_heroAsyncSectionsResolved;
+        final logoUrls = deferAuxiliaryArtwork
+            ? const <String>[]
+            : ApiUrlHelper.imageCandidates(
+                provider.baseUrl,
+                item.logos,
+                width: logoRequestWidth,
+              );
+        final heroTitleChild = itemType != 'episode'
+            ? (deferAuxiliaryArtwork
+                  ? const SizedBox.shrink()
+                  : (logoUrls.isNotEmpty
+                        ? DetailHeroLogoTitle(
+                            urls: logoUrls,
+                            token: provider.token,
+                            fallbackTitle: detailTitle,
+                            maxHeight: 112,
+                            maxWidth:
+                                screenSize.width -
+                                (DetailTokens.screenHorizontalPadding * 2),
+                          )
+                        : null))
+            : null;
         final episodeHeroSubtitle = _episodeHeroSubtitle(item);
 
         String? selectedKey;
@@ -1817,13 +2016,13 @@ class _PlayDetailPageState extends State<PlayDetailPage>
             PlayDetailTrackSelector.subtitleLabelForCurrentMedia(
               selectedSubtitleGuid: _selectedSubtitleGuid,
               subtitleTracks: subtitleTracks,
-              localeMap: _localeMap,
+              l10n: AppLocalizations.of(context),
             );
         final audioLabel = PlayDetailTrackSelector.audioLabelForCurrentMedia(
           selectedAudioGuid: _selectedAudioGuid,
           audioTracks: audioTracks,
           selectedOption: selectedOption,
-          localeMap: _localeMap,
+          l10n: AppLocalizations.of(context),
         );
 
         final currentMediaGuid = _currentStreamOption()?.mediaGuid ?? '';
@@ -1853,11 +2052,13 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                 personGuid: e.personGuid,
                 name: e.displayName,
                 subtitle: e.displaySubTitle,
-                imageUrls: ApiUrlHelper.personImageCandidates(
-                  provider.baseUrl,
-                  e.profilePath,
-                  width: 320,
-                ),
+                imageUrls: deferAuxiliaryArtwork
+                    ? const <String>[]
+                    : ApiUrlHelper.personImageCandidates(
+                        provider.baseUrl,
+                        e.profilePath,
+                        width: 180,
+                      ),
               ),
             )
             .toList();
@@ -1900,17 +2101,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                         titleFontSize: itemType == 'episode' ? 28 : null,
                         bottomInset: itemType == 'episode' ? 20 : 36,
                         useSoftGradient: true,
-                        titleChild: itemType != 'episode' && logoUrls.isNotEmpty
-                            ? DetailHeroLogoTitle(
-                                urls: logoUrls,
-                                token: provider.token,
-                                fallbackTitle: detailTitle,
-                                maxHeight: 112,
-                                maxWidth:
-                                    screenSize.width -
-                                    (DetailTokens.screenHorizontalPadding * 2),
-                              )
-                            : null,
+                        titleChild: heroTitleChild,
                       ),
                     ),
                   ),
@@ -2065,7 +2256,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                                 Text(
                                   _t(
                                     'player.playbackError.playError',
-                                    '播放异常: {error}',
+                                    'Playback error: {error}',
                                     params: {'error': item.playError},
                                   ),
                                   style: const TextStyle(
@@ -2120,7 +2311,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                               title: detailTitle,
                               sectionTitle: _t(
                                 'layout.details.overview.overview',
-                                '简介',
+                                'Overview',
                               ),
                               content: item.overview,
                             );
@@ -2140,7 +2331,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                           20,
                         ),
                         child: CreditsSection(
-                          title: _t('layout.details.castAndCrew.title', '演职人员'),
+                          title: _t(
+                            'layout.details.castAndCrew.title',
+                            'Cast and crew',
+                          ),
                           items: creditItems,
                           token: provider.token,
                           onTap: _openCreditPerson,
@@ -2160,23 +2354,29 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                         child: FileInfoSection(
                           file: currentFile,
                           authorizedDirs: _authorizedDirs,
-                          title: _t('layout.details.fileInfo.title', '文件信息'),
+                          title: _t(
+                            'layout.details.fileInfo.title',
+                            'File info',
+                          ),
                           locationLabel: _t(
                             'layout.details.fileInfo.location',
-                            '文件位置',
+                            'File location',
                           ),
-                          sizeLabel: _t('layout.details.fileInfo.size', '文件大小'),
+                          sizeLabel: _t(
+                            'layout.details.fileInfo.size',
+                            'File size',
+                          ),
                           createdAtLabel: _t(
                             'layout.details.fileInfo.createdAt',
-                            '文件创建日期',
+                            'File created at',
                           ),
                           addedAtLabel: _t(
                             'layout.details.fileInfo.addedAt',
-                            '添加日期',
+                            'Added at',
                           ),
                           toggleToFriendlyLabel: _t(
                             'layout.details.fileInfo.convert',
-                            '转换',
+                            'Convert',
                           ),
                           toggleToRawLabel: '/vol',
                         ),
@@ -2248,7 +2448,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                     ),
                     title: detailTitle,
                     titleOpacity: centerTitleOpacity,
-                    showBack: !_isPane,
+                    showBack: true,
                   );
                 },
               ),

@@ -11,33 +11,51 @@ import android.os.HandlerThread
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
-import android.view.TextureView
 import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.exp
+import kotlin.math.ln
 import kotlin.math.max
+import kotlin.math.pow
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 private const val DANMAKU_AI_TAG = "FlyPlayerDanmakuAI"
 private const val DANMAKU_AI_PADDLE_MODEL_ASSET_DIR = "models/pp_humansegv2_lite"
-private const val DANMAKU_AI_DEFAULT_SAMPLE_INTERVAL_MS = 500L
+private const val DANMAKU_AI_PADDLE_DETECTION_MODEL_ASSET_DIR = "models/picodet_s_320_coco_lcnet"
+private const val DANMAKU_AI_DEFAULT_SAMPLE_INTERVAL_MS = 800L
+private const val DANMAKU_AI_MIN_SAMPLE_INTERVAL_MS = 500L
+private const val DANMAKU_AI_MAX_SAMPLE_INTERVAL_MS = 1200L
 private const val DANMAKU_AI_DEFAULT_INPUT_WIDTH = 256
 private const val DANMAKU_AI_DEFAULT_INPUT_HEIGHT = 144
 private const val DANMAKU_AI_DEFAULT_SAMPLE_AREA_RATIO = 1.0f
 private const val DANMAKU_AI_MASK_THRESHOLD = 0.18f
 private const val DANMAKU_AI_RECT_HELPER_THRESHOLD = 0.30f
 private const val DANMAKU_AI_MASK_SOFT_EDGE_START = 0.08f
-private const val DANMAKU_AI_MASK_SOLID_CORE_START = 0.42f
-private const val DANMAKU_AI_OUTPUT_MASK_HARD_THRESHOLD = 0.58f
-private const val DANMAKU_AI_OUTPUT_MASK_KEEP_THRESHOLD = 0.44f
+private const val DANMAKU_AI_MASK_SOLID_CORE_START = 0.44f
+private const val DANMAKU_AI_OUTPUT_MASK_HARD_THRESHOLD = 0.56f
+private const val DANMAKU_AI_OUTPUT_MASK_KEEP_THRESHOLD = 0.34f
+private const val DANMAKU_AI_MULTI_SECONDARY_OUTPUT_MASK_HARD_THRESHOLD = 0.52f
+private const val DANMAKU_AI_MULTI_SECONDARY_OUTPUT_MASK_KEEP_THRESHOLD = 0.30f
 private const val DANMAKU_AI_OUTPUT_MASK_DILATION_RADIUS = 1
+private const val DANMAKU_AI_RENDER_MASK_EXPAND_RADIUS = 1
+private const val DANMAKU_AI_RENDER_MASK_MIN_VISIBLE_ALPHA = 0.12f
+private const val DANMAKU_AI_RENDER_MASK_SUPPORT_THRESHOLD = 0.22f
+private const val DANMAKU_AI_RENDER_MASK_ALPHA_GAMMA = 0.72f
+private const val DANMAKU_AI_RENDER_MASK_CLOSING_RADIUS = 1
+private const val DANMAKU_AI_RENDER_MASK_MAX_AREA_MULTIPLIER = 1.22f
+private const val DANMAKU_AI_RENDER_MASK_MIN_COMPONENT_AREA_RATIO = 0.08f
 private const val DANMAKU_AI_MIN_FOREGROUND_RATIO = 0.010f
 private const val DANMAKU_AI_SUBJECT_MIN_FILL_RATIO = 0.18f
 private const val DANMAKU_AI_SUBJECT_MIN_ASPECT_RATIO = 0.22f
 private const val DANMAKU_AI_SUBJECT_MAX_SPARSE_AREA_RATIO = 0.55f
 private const val DANMAKU_AI_SUBJECT_MAX_SPARSE_HEIGHT_RATIO = 0.72f
+private const val DANMAKU_AI_SUBJECT_MAX_AREA_RATIO = 0.34f
+private const val DANMAKU_AI_SUBJECT_MAX_WIDTH_RATIO = 0.78f
+private const val DANMAKU_AI_SUBJECT_MAX_HEIGHT_RATIO = 0.82f
 private const val DANMAKU_AI_MASK_SHAPE_MIN_CORE_FILL_RATIO = 0.24f
 private const val DANMAKU_AI_MASK_SHAPE_MIN_ERODED_RATIO = 0.30f
 private const val DANMAKU_AI_MASK_SHAPE_EROSION_RADIUS = 1
@@ -46,16 +64,21 @@ private const val DANMAKU_AI_MASK_SHAPE_MIN_THIN_TOWER_HEIGHT_RATIO = 0.52f
 private const val DANMAKU_AI_MASK_SHAPE_MIN_THIN_TOWER_ASPECT_RATIO = 2.35f
 private const val DANMAKU_AI_MASK_SHAPE_MAX_THIN_TOWER_AREA_RATIO = 0.12f
 private const val DANMAKU_AI_MASK_SHAPE_MAX_TAPERED_SIDE_RATIO = 0.42f
+private const val DANMAKU_AI_MASK_SHAPE_MAX_OVERALL_AREA_RATIO = 0.36f
+private const val DANMAKU_AI_MASK_SHAPE_MAX_BOUNDING_WIDTH_RATIO = 0.80f
+private const val DANMAKU_AI_MASK_SHAPE_MAX_BOUNDING_HEIGHT_RATIO = 0.84f
+private const val DANMAKU_AI_MASK_SHAPE_MAX_HOLE_AREA_RATIO = 0.10f
+private const val DANMAKU_AI_MASK_SHAPE_MAX_HOLE_COUNT = 2
 private const val DANMAKU_AI_AMBIGUOUS_COMPONENT_MIN_PIXELS = 96
-private const val DANMAKU_AI_AMBIGUOUS_SECOND_COMPONENT_RATIO = 0.42f
-private const val DANMAKU_AI_AMBIGUOUS_MULTI_COMPONENT_COUNT = 3
-private const val DANMAKU_AI_AMBIGUOUS_LARGEST_FOREGROUND_SHARE = 0.68f
-private const val DANMAKU_AI_MAX_EMPTY_FRAMES = 1
-private const val DANMAKU_AI_EMPTY_RESULT_HOLD_FRAMES = 1
+private const val DANMAKU_AI_AMBIGUOUS_SECOND_COMPONENT_RATIO = 0.60f
+private const val DANMAKU_AI_AMBIGUOUS_MULTI_COMPONENT_COUNT = 4
+private const val DANMAKU_AI_AMBIGUOUS_LARGEST_FOREGROUND_SHARE = 0.52f
+private const val DANMAKU_AI_MAX_EMPTY_FRAMES = 4
+private const val DANMAKU_AI_EMPTY_RESULT_GRACE_MS = 180L
 private const val DANMAKU_AI_OVER_BUDGET_LIMIT = 3
-private const val DANMAKU_AI_MASK_SMOOTHING_ALPHA = 0.55f
+private const val DANMAKU_AI_MASK_SMOOTHING_ALPHA = 0.72f
 private const val DANMAKU_AI_RECT_SMOOTHING_ALPHA = 0.38f
-private const val DANMAKU_AI_TEMPORAL_SMOOTHING_MIN_IOU = 0.18f
+private const val DANMAKU_AI_TEMPORAL_SMOOTHING_MIN_IOU = 0.28f
 private const val DANMAKU_AI_SCENE_CUT_SAMPLE_WIDTH = 32
 private const val DANMAKU_AI_SCENE_CUT_SAMPLE_HEIGHT = 18
 private const val DANMAKU_AI_SCENE_CUT_AVERAGE_DELTA_THRESHOLD = 22.0
@@ -64,25 +87,39 @@ private const val DANMAKU_AI_SCENE_CUT_CHANGED_RATIO_THRESHOLD = 0.32
 private const val DANMAKU_AI_SCENE_CUT_BURST_INTERVAL_MS = 180L
 private const val DANMAKU_AI_SCENE_CUT_BURST_SAMPLE_COUNT = 3
 private const val DANMAKU_AI_SCENE_CUT_STABLE_MASK_FRAMES = 2
-private const val DANMAKU_AI_MOTION_SAMPLE_WIDTH = 48
-private const val DANMAKU_AI_MOTION_SAMPLE_HEIGHT = 27
+private const val DANMAKU_AI_MOTION_BURST_INTERVAL_MS = 220L
+private const val DANMAKU_AI_MOTION_BURST_SAMPLE_COUNT = 3
+private const val DANMAKU_AI_MOTION_BURST_MAX_DEGRADATION_STAGE = 1
+private const val DANMAKU_AI_MOTION_BURST_LATENCY_MULTIPLIER = 2.4
+private const val DANMAKU_AI_MOTION_BURST_HEADROOM_MS = 60L
+private const val DANMAKU_AI_MOTION_SAMPLE_WIDTH = 64
+private const val DANMAKU_AI_MOTION_SAMPLE_HEIGHT = 36
 private const val DANMAKU_AI_MOTION_ROI_EXPAND_HORIZONTAL_RATIO = 0.45f
 private const val DANMAKU_AI_MOTION_ROI_EXPAND_VERTICAL_RATIO = 0.40f
 private const val DANMAKU_AI_MOTION_FALLBACK_CENTER_WIDTH_RATIO = 0.34f
 private const val DANMAKU_AI_MOTION_FALLBACK_CENTER_HEIGHT_RATIO = 0.34f
 private const val DANMAKU_AI_MOTION_MIN_RECT_AREA = 0.018f
-private const val DANMAKU_AI_MOTION_SEARCH_RADIUS_PX = 4
-private const val DANMAKU_AI_MOTION_MAX_TRANSLATION_RATIO = 0.22f
-private const val DANMAKU_AI_MOTION_MAX_AVERAGE_DELTA = 22.0
+private const val DANMAKU_AI_MOTION_SEARCH_RADIUS_PX = 8
+private const val DANMAKU_AI_MOTION_MAX_TRANSLATION_RATIO = 0.30f
+private const val DANMAKU_AI_MOTION_MAX_AVERAGE_DELTA = 24.0
 private const val DANMAKU_AI_MOTION_MIN_OVERLAP_SAMPLES = 48
 private const val DANMAKU_AI_MOTION_MAX_FAILURES = 3
-private const val DANMAKU_AI_MOTION_GATE_MIN_IOU = 0.45f
-private const val DANMAKU_AI_MOTION_GATE_MAX_DX_NORMALIZED = 0.06f
-private const val DANMAKU_AI_MOTION_GATE_MAX_DY_NORMALIZED = 0.04f
-private const val DANMAKU_AI_MOTION_GATE_MIN_AREA_RATIO = 0.85f
-private const val DANMAKU_AI_MOTION_GATE_MAX_AREA_RATIO = 1.15f
-private const val DANMAKU_AI_MOTION_GATE_MAX_AVERAGE_DELTA = 18.0
-private const val DANMAKU_AI_MOTION_MAX_CONSECUTIVE_COMPENSATED_FRAMES = 2
+private const val DANMAKU_AI_MOTION_GATE_MIN_IOU = 0.32f
+private const val DANMAKU_AI_MOTION_GATE_MAX_DX_NORMALIZED = 0.14f
+private const val DANMAKU_AI_MOTION_GATE_MAX_DY_NORMALIZED = 0.12f
+private const val DANMAKU_AI_MOTION_GATE_MIN_AREA_RATIO = 0.72f
+private const val DANMAKU_AI_MOTION_GATE_MAX_AREA_RATIO = 1.30f
+private const val DANMAKU_AI_MOTION_GATE_MAX_AVERAGE_DELTA = 21.5
+private const val DANMAKU_AI_MOTION_MAX_CONSECUTIVE_COMPENSATED_FRAMES = 6
+private const val DANMAKU_AI_MOTION_MISS_TEMPORAL_FALLBACK_MIN_IOU = 0.34f
+private const val DANMAKU_AI_MOTION_PREDICTION_MAX_GAP_MS = 2200L
+private const val DANMAKU_AI_MOTION_PREDICTION_DAMPING = 0.82f
+private const val DANMAKU_AI_MOTION_PREDICTION_MAX_DX_NORMALIZED = 0.18f
+private const val DANMAKU_AI_MOTION_PREDICTION_MAX_DY_NORMALIZED = 0.16f
+private const val DANMAKU_AI_MOTION_PREDICTION_MIN_SCALE = 0.88f
+private const val DANMAKU_AI_MOTION_PREDICTION_MAX_SCALE = 1.16f
+private const val DANMAKU_AI_TRACKED_ROI_MIN_AREA_RATIO = 0.65f
+private const val DANMAKU_AI_TRACKED_ROI_MAX_AREA_RATIO = 1.45f
 private const val DANMAKU_AI_CACHE_DIR_NAME = "danmaku_ai_cache"
 private const val DANMAKU_AI_CACHE_VERSION = 5
 private const val DANMAKU_AI_CACHE_STATE_FILE_NAME = "state.json"
@@ -90,9 +127,153 @@ private const val DANMAKU_AI_CACHE_FRAME_FILE_NAME = "frame.webp"
 private const val DANMAKU_AI_CACHE_MASK_FILE_NAME = "mask.webp"
 private const val DANMAKU_AI_CACHE_FRAME_WRITE_INTERVAL_MS = 4000L
 private const val DANMAKU_AI_CACHE_WARM_START_DELAY_MS = 2500L
+private const val DANMAKU_AI_PLAYBACK_WARM_START_DELAY_MS = 1800L
+private const val DANMAKU_AI_HIGH_REFRESH_SAMPLE_INTERVAL_72HZ_MS = 650L
+private const val DANMAKU_AI_HIGH_REFRESH_SAMPLE_INTERVAL_90HZ_MS = 780L
+private const val DANMAKU_AI_HIGH_REFRESH_SAMPLE_INTERVAL_120HZ_MS = 900L
 private const val DANMAKU_AI_CAPTURE_SLOW_LOG_THRESHOLD_MS = 24L
 private const val DANMAKU_AI_INFERENCE_SLOW_LOG_THRESHOLD_MS = 90L
 private const val DANMAKU_AI_TOTAL_SLOW_LOG_THRESHOLD_MS = 120L
+private const val DANMAKU_AI_SAMPLE_INTERVAL_BACKOFF_HEADROOM_MS = 120L
+private const val DANMAKU_AI_SAMPLE_INTERVAL_LATENCY_MULTIPLIER = 6.0
+private const val DANMAKU_AI_UNAVAILABLE_REASON_CAPTURE_UNSUPPORTED = "capture_unsupported"
+private const val DANMAKU_AI_UNAVAILABLE_REASON_CAPTURE_BUDGET_UNSUPPORTED = "capture_budget_unsupported"
+private const val DANMAKU_AI_DETECTION_SCORE_THRESHOLD = 0.30f
+private const val DANMAKU_AI_MULTI_DETECTION_SCORE_THRESHOLD = 0.22f
+private const val DANMAKU_AI_DETECTION_MIN_AREA_RATIO = 0.012f
+private const val DANMAKU_AI_DETECTION_EXPAND_HORIZONTAL_RATIO = 0.10f
+private const val DANMAKU_AI_DETECTION_EXPAND_VERTICAL_RATIO = 0.08f
+private const val DANMAKU_AI_TRACKED_ROI_EXPAND_HORIZONTAL_RATIO = 0.04f
+private const val DANMAKU_AI_TRACKED_ROI_EXPAND_VERTICAL_RATIO = 0.06f
+private const val DANMAKU_AI_COARSE_DETECTION_AREA_RATIO = 0.72f
+private const val DANMAKU_AI_COARSE_DETECTION_WIDTH_RATIO = 0.84f
+private const val DANMAKU_AI_COARSE_DETECTION_HEIGHT_RATIO = 0.84f
+private const val DANMAKU_AI_COARSE_DETECTION_EDGE_THRESHOLD = 0.03f
+private const val DANMAKU_AI_DETECTION_STABILIZE_MAX_CENTER_DISTANCE = 0.28f
+private const val DANMAKU_AI_DETECTION_STABILIZE_BLEND_ALPHA = 0.26f
+private const val DANMAKU_AI_DETECTION_STABILIZE_MAX_GROWTH = 1.32f
+private const val DANMAKU_AI_TRACKING_RECT_STABILIZE_BLEND_ALPHA = 0.22f
+private const val DANMAKU_AI_TRACKING_RECT_MAX_GROWTH = 1.18f
+private const val DANMAKU_AI_TRACKING_RECT_MAX_CENTER_DISTANCE = 0.32f
+private const val DANMAKU_AI_SEGMENTATION_TARGET_ASPECT_RATIO = 16f / 9f
+private const val DANMAKU_AI_TRACKING_MIN_IOU = 0.18f
+private const val DANMAKU_AI_LARGE_MOTION_CANCEL_MAX_DX_NORMALIZED = 0.10f
+private const val DANMAKU_AI_LARGE_MOTION_CANCEL_MAX_DY_NORMALIZED = 0.09f
+private const val DANMAKU_AI_LARGE_MOTION_CANCEL_SCALE_DELTA = 0.10f
+private const val DANMAKU_AI_LARGE_MOTION_CANCEL_MIN_AREA_RATIO = 0.58f
+private const val DANMAKU_AI_LARGE_MOTION_CANCEL_MAX_AREA_RATIO = 1.72f
+private const val DANMAKU_AI_LARGE_MOTION_CANCEL_MIN_IOU = 0.10f
+private const val DANMAKU_AI_LARGE_MOTION_CANCEL_CENTER_DISTANCE = 0.16f
+private const val DANMAKU_AI_LARGE_MOTION_CANCEL_DETECTION_AREA_RATIO = 0.80f
+private const val DANMAKU_AI_LARGE_MOTION_CANCEL_DETECTION_WIDTH_RATIO = 0.88f
+private const val DANMAKU_AI_LARGE_MOTION_CANCEL_DETECTION_HEIGHT_RATIO = 0.90f
+private const val DANMAKU_AI_TARGET_CENTER_X = 0.5f
+private const val DANMAKU_AI_TARGET_CENTER_Y = 0.42f
+private const val DANMAKU_AI_DETECTION_WEIGHT_AREA = 0.35f
+private const val DANMAKU_AI_DETECTION_WEIGHT_DISTANCE = 0.22f
+private const val DANMAKU_AI_DETECTION_WEIGHT_SCORE = 0.65f
+private const val DANMAKU_AI_REFINE_MIN_WIDTH = 256
+private const val DANMAKU_AI_REFINE_MAX_WIDTH = 320
+private const val DANMAKU_AI_REFINE_MIN_FOREGROUND_RATIO = 0.010f
+private const val DANMAKU_AI_REFINE_MIN_BOX_COVERAGE = 0.10f
+private const val DANMAKU_AI_REFINE_MIN_BOX_IOU = 0.08f
+private const val DANMAKU_AI_MULTI_SECONDARY_REFINE_MIN_FOREGROUND_RATIO = 0.007f
+private const val DANMAKU_AI_MULTI_SECONDARY_REFINE_MIN_BOX_COVERAGE = 0.06f
+private const val DANMAKU_AI_MULTI_SECONDARY_REFINE_MIN_BOX_IOU = 0.04f
+private const val DANMAKU_AI_CAPTURE_WIDTH = 320
+private const val DANMAKU_AI_CAPTURE_HEIGHT = 320
+private const val DANMAKU_AI_BASE_INPUT_WIDTH_60HZ = 288
+private const val DANMAKU_AI_BASE_INPUT_WIDTH_90HZ = 256
+private const val DANMAKU_AI_BASE_INPUT_WIDTH_120HZ = 224
+private const val DANMAKU_AI_BASE_INPUT_WIDTH_60HZ_QUALITY = 320
+private const val DANMAKU_AI_BASE_INPUT_WIDTH_90HZ_QUALITY = 288
+private const val DANMAKU_AI_BASE_INPUT_WIDTH_120HZ_QUALITY = 256
+private const val DANMAKU_AI_DEGRADED_INPUT_WIDTH = 160
+private const val DANMAKU_AI_REDUCED_INPUT_WIDTH = 192
+private const val DANMAKU_AI_HIGH_QUALITY_INPUT_WIDTH_THRESHOLD = 288
+private const val DANMAKU_AI_MASK_SCALE_APPLY_THRESHOLD = 0.02f
+private const val DANMAKU_AI_SCALE_RESCUE_EXPAND_RATIO = 0.12f
+private const val DANMAKU_AI_SCALE_RESCUE_MIN_DELTA = 0.06f
+private const val DANMAKU_AI_SCALE_RESCUE_LATENCY_HEADROOM_RATIO = 0.72
+private const val DANMAKU_AI_DEGRADATION_INTERVAL_BACKOFF_MS = 180L
+private const val DANMAKU_AI_DEGRADATION_RECOVERY_SAMPLES = 3
+private const val DANMAKU_AI_DEGRADATION_RECOVERY_LATENCY_RATIO = 0.48
+private const val DANMAKU_AI_TRACKED_DETECTION_REFRESH_INTERVAL_90HZ_MS = 1400L
+private const val DANMAKU_AI_TRACKED_DETECTION_REFRESH_INTERVAL_120HZ_MS = 1700L
+private const val DANMAKU_AI_TRACKED_DETECTION_REFRESH_INTERVAL_DEGRADED_MS = 2200L
+private const val DANMAKU_AI_TRACKED_DETECTION_REFRESH_INTERVAL_STABLE_90HZ_MS = 1900L
+private const val DANMAKU_AI_TRACKED_DETECTION_REFRESH_INTERVAL_STABLE_120HZ_MS = 2200L
+private const val DANMAKU_AI_TRACKED_DETECTION_REFRESH_INTERVAL_WEAK_MS = 1200L
+private const val DANMAKU_AI_TRACKED_DETECTION_MAX_CONSECUTIVE_SAMPLES = 1
+private const val DANMAKU_AI_TRACKED_DETECTION_MAX_CONSECUTIVE_SAMPLES_DEGRADED = 2
+private const val DANMAKU_AI_TRACKED_DETECTION_MAX_CONSECUTIVE_SAMPLES_STABLE = 3
+private const val DANMAKU_AI_TRACKED_DETECTION_MAX_CONSECUTIVE_SAMPLES_WEAK = 1
+private const val DANMAKU_AI_TRACKER_REUSE_MIN_CONFIDENCE = 0.72f
+private const val DANMAKU_AI_TRACKER_REUSE_MAX_CENTER_DELTA = 0.18f
+private const val DANMAKU_AI_TRACKER_REUSE_MAX_AREA_RATIO = 1.42f
+private const val DANMAKU_AI_TRACKER_REUSE_MIN_AREA_RATIO = 0.70f
+private const val DANMAKU_AI_TRACKER_WARMUP_STREAK = 2
+private const val DANMAKU_AI_TRACKER_WEAK_STREAK = 2
+private const val DANMAKU_AI_TRACKER_RECOVER_STREAK = 2
+private const val DANMAKU_AI_TRACKER_LOST_STREAK = 2
+private const val DANMAKU_AI_TRACKER_STABLE_MIN_CONFIDENCE = 0.79f
+private const val DANMAKU_AI_TRACKER_WEAK_CONFIDENCE = 0.74f
+private const val DANMAKU_AI_TRACKER_GEOMETRY_WEAK_PENALTY = 0.26f
+private const val DANMAKU_AI_TRACKER_GEOMETRY_LOST_PENALTY = 0.44f
+private const val DANMAKU_AI_TRACKER_DETECTION_MISMATCH_IOU = 0.22f
+private const val DANMAKU_AI_TRACKER_DETECTION_MISMATCH_CENTER_DISTANCE = 0.18f
+private const val DANMAKU_AI_PRIMARY_TARGET_CONTINUITY_MIN_IOU = 0.28f
+private const val DANMAKU_AI_PRIMARY_TARGET_CONTINUITY_MAX_CENTER_DISTANCE = 0.16f
+private const val DANMAKU_AI_PRIMARY_TARGET_CONTINUITY_MIN_SIZE_RATIO = 0.62f
+private const val DANMAKU_AI_PRIMARY_TARGET_CONTINUITY_MAX_SIZE_RATIO = 1.62f
+private const val DANMAKU_AI_PRIMARY_TARGET_SWITCH_CONFIRM_SAMPLES = 2
+private const val DANMAKU_AI_PRIMARY_TARGET_SWITCH_COOLDOWN_SAMPLES = 2
+private const val DANMAKU_AI_PRIMARY_TARGET_SWITCH_SCORE_MARGIN = 0.18f
+private const val DANMAKU_AI_MASK_ADJUST_MIN_RECT_AREA = 0.020f
+private const val DANMAKU_AI_MASK_ADJUST_EDGE_SAMPLE_STEP = 3
+private const val DANMAKU_AI_MASK_ADJUST_EDGE_WEIGHT_THRESHOLD = 18f
+private const val DANMAKU_AI_MASK_ADJUST_MAX_DX_RATIO = 0.08f
+private const val DANMAKU_AI_MASK_ADJUST_MAX_DY_RATIO = 0.10f
+private const val DANMAKU_AI_MASK_ADJUST_MAX_SCALE_DELTA = 0.08f
+private const val DANMAKU_AI_MASK_ADJUST_MIN_EDGE_WEIGHT = 420f
+private const val DANMAKU_AI_SMALL_MULTI_MODE_LATENCY_HEADROOM_RATIO = 0.60
+private const val DANMAKU_AI_SMALL_MULTI_MODE_LATENCY_HOLD_RATIO = 0.76
+private const val DANMAKU_AI_SMALL_MULTI_MAX_PEOPLE = 2
+private const val DANMAKU_AI_SMALL_MULTI_MIN_SCORE = 0.28f
+private const val DANMAKU_AI_SMALL_MULTI_MIN_AREA_RATIO = 0.006f
+private const val DANMAKU_AI_SMALL_MULTI_MAX_AREA_RATIO = 0.14f
+private const val DANMAKU_AI_SMALL_MULTI_MAX_WIDTH_RATIO = 0.55f
+private const val DANMAKU_AI_SMALL_MULTI_MAX_HEIGHT_RATIO = 0.55f
+private const val DANMAKU_AI_SMALL_MULTI_MAX_IOU = 0.20f
+private const val DANMAKU_AI_SMALL_MULTI_SINGLE_MASK_MAX_AREA_RATIO = 0.18f
+private const val DANMAKU_AI_SMALL_MULTI_UNION_MAX_AREA_RATIO = 0.45f
+private const val DANMAKU_AI_SMALL_MULTI_BASE_SHORT_SIDE_DP = 411f
+private const val DANMAKU_AI_SMALL_MULTI_MIN_DIMENSION_SCALE = 0.92f
+private const val DANMAKU_AI_SMALL_MULTI_MAX_DIMENSION_SCALE = 1.14f
+private const val DANMAKU_AI_SMALL_MULTI_MIN_AREA_SCALE = 0.85f
+private const val DANMAKU_AI_SMALL_MULTI_MAX_AREA_SCALE = 1.30f
+private const val DANMAKU_AI_SMALL_MULTI_STICKY_SAMPLES = 2
+private const val DANMAKU_AI_SMALL_MULTI_INPUT_WIDTH_REDUCTION = 32
+private const val DANMAKU_AI_SMALL_MULTI_RELAXED_MAX_AREA_MULTIPLIER = 1.24f
+private const val DANMAKU_AI_SMALL_MULTI_RELAXED_MAX_WIDTH_MULTIPLIER = 1.10f
+private const val DANMAKU_AI_SMALL_MULTI_RELAXED_MAX_HEIGHT_MULTIPLIER = 1.10f
+private const val DANMAKU_AI_SMALL_MULTI_WEAK_MIN_SCORE = 0.20f
+private const val DANMAKU_AI_SMALL_MULTI_WEAK_MAX_AREA_MULTIPLIER = 1.34f
+private const val DANMAKU_AI_SMALL_MULTI_WEAK_MAX_WIDTH_MULTIPLIER = 1.18f
+private const val DANMAKU_AI_SMALL_MULTI_WEAK_MAX_HEIGHT_MULTIPLIER = 1.18f
+private const val DANMAKU_AI_SMALL_MULTI_SECONDARY_MASK_MAX_AREA_MULTIPLIER = 1.08f
+private const val DANMAKU_AI_SMALL_MULTI_TRACK_MAX_COUNT = 2
+private const val DANMAKU_AI_SMALL_MULTI_TRACK_MAX_MISS_SAMPLES = 2
+private const val DANMAKU_AI_SMALL_MULTI_TRACK_MAX_MISS_SAMPLES_WEAK = 3
+private const val DANMAKU_AI_SMALL_MULTI_TRACK_MIN_HIT_SAMPLES = 2
+private const val DANMAKU_AI_SMALL_MULTI_TRACK_ASSOCIATION_MIN_IOU = 0.02f
+private const val DANMAKU_AI_SMALL_MULTI_TRACK_ASSOCIATION_MAX_CENTER_DISTANCE = 0.24f
+private const val DANMAKU_AI_SMALL_MULTI_TRACK_ASSOCIATION_MIN_AREA_RATIO = 0.45f
+private const val DANMAKU_AI_SMALL_MULTI_TRACK_ASSOCIATION_MAX_AREA_RATIO = 2.20f
+private const val DANMAKU_AI_SMALL_MULTI_COARSE_ONLY_CLEAR_SAMPLES = 3
+private const val DANMAKU_AI_SMALL_MULTI_COARSE_SPLIT_MIN_REMAINDER_WIDTH = 0.08f
+private const val DANMAKU_AI_SMALL_MULTI_COARSE_SPLIT_MIN_REMAINDER_HEIGHT = 0.12f
+private const val DANMAKU_AI_SMALL_MULTI_COARSE_SPLIT_MIN_REMAINDER_AREA = 0.008f
 
 enum class DanmakuAiBackend(val wireValue: String) {
     PADDLE("paddle"),
@@ -126,6 +307,12 @@ data class DanmakuNormalizedRect(
 
     val bottom: Float
         get() = (y + height).coerceIn(0f, 1f)
+
+    val centerX: Float
+        get() = (x + (width / 2f)).coerceIn(0f, 1f)
+
+    val centerY: Float
+        get() = (y + (height / 2f)).coerceIn(0f, 1f)
 
     fun area(): Float = width.coerceAtLeast(0f) * height.coerceAtLeast(0f)
 
@@ -186,26 +373,42 @@ data class DanmakuDynamicOcclusionState(
     val enabled: Boolean,
     val available: Boolean,
     val backend: String,
+    val occlusionMode: String = DanmakuOcclusionMode.DISABLED.wireValue,
     val updatedAtMs: Long,
     val maskPath: String?,
+    val maskSignature: String?,
     val maskWidth: Int,
     val maskHeight: Int,
     val framePath: String?,
     val cacheHit: Boolean,
+    val captureAreaRatio: Float,
     val normalizedRect: DanmakuNormalizedRect?,
+    val unavailableReason: String?,
+    val captureBackend: String,
+    val degradationLevel: String,
+    val effectiveSampleIntervalMs: Long,
+    val effectiveInputWidth: Int,
 ) {
     fun toMap(): Map<String, Any?> {
         return mapOf(
             "enabled" to enabled,
             "available" to available,
             "backend" to backend,
+            "occlusionMode" to occlusionMode,
             "updatedAtMs" to updatedAtMs,
             "maskPath" to maskPath,
+            "maskSignature" to maskSignature,
             "maskWidth" to maskWidth,
             "maskHeight" to maskHeight,
             "framePath" to framePath,
             "cacheHit" to cacheHit,
+            "captureAreaRatio" to captureAreaRatio.toDouble(),
             "normalizedRect" to normalizedRect?.toMap(),
+            "unavailableReason" to unavailableReason,
+            "captureBackend" to captureBackend,
+            "degradationLevel" to degradationLevel,
+            "effectiveSampleIntervalMs" to effectiveSampleIntervalMs,
+            "effectiveInputWidth" to effectiveInputWidth,
         )
     }
 
@@ -215,24 +418,55 @@ data class DanmakuDynamicOcclusionState(
                 enabled = false,
                 available = false,
                 backend = DanmakuAiBackend.DISABLED.wireValue,
+                occlusionMode = DanmakuOcclusionMode.DISABLED.wireValue,
                 updatedAtMs = 0L,
                 maskPath = null,
+                maskSignature = null,
                 maskWidth = 0,
                 maskHeight = 0,
                 framePath = null,
                 cacheHit = false,
+                captureAreaRatio = 1.0f,
                 normalizedRect = null,
+                unavailableReason = null,
+                captureBackend = "none",
+                degradationLevel = DanmakuOcclusionDegradationLevel.NONE.wireValue,
+                effectiveSampleIntervalMs = DANMAKU_AI_DEFAULT_SAMPLE_INTERVAL_MS,
+                effectiveInputWidth = DANMAKU_AI_DEFAULT_INPUT_WIDTH,
             )
         }
     }
 }
 
+enum class DanmakuOcclusionMode(val wireValue: String) {
+    DISABLED("disabled"),
+    BBOX("bbox"),
+    MASK("mask"),
+    ;
+}
+
+private enum class DanmakuOcclusionDegradationLevel(val wireValue: String) {
+    NONE("none"),
+    INTERVAL("interval"),
+    REDUCED_INPUT("reduced_input"),
+    DISABLED("disabled"),
+}
+
+private enum class TrackerLifecycleState(val wireValue: String) {
+    WARMUP("warmup"),
+    STABLE("stable"),
+    WEAK("weak"),
+    LOST("lost"),
+}
+
 data class DanmakuDynamicOcclusionConfig(
     val enabled: Boolean,
     val sampleIntervalMs: Long,
+    val renderTargetFrameRateHz: Int,
     val preferredBackendOrder: List<DanmakuAiBackend>,
     val inputWidth: Int,
     val inputHeight: Int,
+    val displayAreaRatio: Float,
     val sampleAreaRatio: Float,
 ) {
     companion object {
@@ -240,12 +474,14 @@ data class DanmakuDynamicOcclusionConfig(
             DanmakuDynamicOcclusionConfig(
                 enabled = false,
                 sampleIntervalMs = DANMAKU_AI_DEFAULT_SAMPLE_INTERVAL_MS,
+                renderTargetFrameRateHz = 60,
                 preferredBackendOrder =
                     listOf(
                         DanmakuAiBackend.PADDLE,
                     ),
                 inputWidth = DANMAKU_AI_DEFAULT_INPUT_WIDTH,
                 inputHeight = DANMAKU_AI_DEFAULT_INPUT_HEIGHT,
+                displayAreaRatio = 1.0f,
                 sampleAreaRatio = DANMAKU_AI_DEFAULT_SAMPLE_AREA_RATIO,
             )
 
@@ -261,12 +497,23 @@ data class DanmakuDynamicOcclusionConfig(
                 enabled = raw["enabled"] == true,
                 sampleIntervalMs =
                     (raw["sampleIntervalMs"]?.toLongValue() ?: defaults.sampleIntervalMs)
-                        .coerceIn(200L, 500L),
+                        .coerceIn(
+                            DANMAKU_AI_MIN_SAMPLE_INTERVAL_MS,
+                            DANMAKU_AI_MAX_SAMPLE_INTERVAL_MS,
+                        ),
+                renderTargetFrameRateHz =
+                    (raw["renderTargetFrameRateHz"]?.toIntValue()
+                        ?: defaults.renderTargetFrameRateHz)
+                        .coerceIn(24, 120),
                 preferredBackendOrder = preferredBackendOrder,
                 inputWidth =
                     (raw["inputWidth"]?.toIntValue() ?: defaults.inputWidth).coerceIn(64, 512),
                 inputHeight =
                     (raw["inputHeight"]?.toIntValue() ?: defaults.inputHeight).coerceIn(64, 512),
+                displayAreaRatio =
+                    ((raw["displayAreaRatio"]?.toDoubleValue()?.toFloat())
+                        ?: defaults.displayAreaRatio)
+                        .coerceIn(0.1f, 1.0f),
                 sampleAreaRatio =
                     ((raw["sampleAreaRatio"]?.toDoubleValue()?.toFloat())
                         ?: defaults.sampleAreaRatio)
@@ -276,11 +523,130 @@ data class DanmakuDynamicOcclusionConfig(
     }
 }
 
+private data class DanmakuPrimaryDetection(
+    val rect: DanmakuNormalizedRect,
+    val score: Float,
+)
+
+private data class DanmakuSmallMultiTrack(
+    val trackId: Int,
+    val rect: DanmakuNormalizedRect,
+    val score: Float,
+    val age: Int,
+    val missCount: Int,
+    val hitCount: Int,
+    val lastMatchedSampleId: Long,
+    val lastMaskAreaRatio: Float,
+)
+
+private data class DanmakuSmallMultiTrackTarget(
+    val trackId: Int,
+    val rect: DanmakuNormalizedRect,
+    val score: Float,
+    val missCount: Int,
+    val hitCount: Int,
+    val source: String,
+    val association: String,
+)
+
+private data class DanmakuSmallMultiMatchedCandidate(
+    val candidate: DanmakuPrimaryDetection,
+    val candidateIndex: Int,
+    val association: String,
+)
+
+private data class DanmakuSmallMultiSelection(
+    val targets: List<DanmakuSmallMultiTrackTarget>,
+    val candidateCount: Int,
+    val thresholdScale: Float,
+    val viewportShortSideDp: Float,
+    val dropReason: String? = null,
+    val trackState: List<DanmakuSmallMultiTrack> = emptyList(),
+    val trackCount: Int = 0,
+    val trackHits: String? = null,
+    val trackMisses: String? = null,
+    val trackSource: String? = null,
+    val association: String? = null,
+    val coarseOnlySamples: Int = 0,
+)
+
+private data class DanmakuSmallMultiThresholds(
+    val thresholdScale: Float,
+    val viewportShortSideDp: Float,
+    val maxAreaRatio: Float,
+    val maxWidthRatio: Float,
+    val maxHeightRatio: Float,
+    val singleMaskMaxAreaRatio: Float,
+    val unionMaxAreaRatio: Float,
+)
+
+private data class DanmakuSegmentationRoi(
+    val bitmap: Bitmap,
+    val rect: DanmakuNormalizedRect,
+    val contentRect: DanmakuNormalizedRect,
+    val mode: String,
+    val inputWidth: Int,
+    val inputHeight: Int,
+)
+
+private enum class DanmakuSegmentationRoiMode(val wireValue: String) {
+    TRACKED("tracked"),
+    DETECT("detect"),
+}
+
+private data class DanmakuSegmentationAttempt(
+    val extraction: DanmakuMaskExtraction?,
+    val latencyMs: Long,
+    val roiRect: DanmakuNormalizedRect,
+    val roiMode: DanmakuSegmentationRoiMode,
+    val inputWidth: Int,
+    val inputHeight: Int,
+    val rejectReason: String?,
+    val scaleRescueApplied: Boolean,
+)
+
+private data class DanmakuSegmentationPassResult(
+    val extraction: DanmakuMaskExtraction?,
+    val rejectReason: String?,
+    val roiRect: DanmakuNormalizedRect,
+    val inputWidth: Int,
+    val inputHeight: Int,
+    val latencyMs: Long,
+)
+
+private data class DanmakuMaskPlane(
+    val values: FloatArray,
+    val width: Int,
+    val height: Int,
+)
+
 private data class DanmakuMaskResult(
     val maskValues: FloatArray,
     val maskWidth: Int,
     val maskHeight: Int,
     val normalizedRect: DanmakuNormalizedRect?,
+    val occlusionMode: DanmakuOcclusionMode = DanmakuOcclusionMode.MASK,
+)
+
+private data class DanmakuSmallMultiMaskCandidate(
+    val trackId: Int,
+    val rect: DanmakuNormalizedRect,
+    val attempt: DanmakuSegmentationAttempt,
+    val maskResult: DanmakuMaskResult,
+    val priorityScore: Float,
+    val areaRatio: Float,
+)
+
+private data class DanmakuSmallMultiSegmentationResult(
+    val maskResult: DanmakuMaskResult?,
+    val latencyMs: Long,
+    val keptCount: Int,
+    val unionAreaRatio: Float,
+    val dropReason: String?,
+    val roiRect: DanmakuNormalizedRect?,
+    val inputWidth: Int,
+    val inputHeight: Int,
+    val maskAreaByTrackId: Map<Int, Float> = emptyMap(),
 )
 
 private data class DanmakuFrameContinuity(
@@ -319,8 +685,56 @@ private data class DanmakuMotionCompensation(
     val dyMaskPx: Int,
     val dxNormalized: Float,
     val dyNormalized: Float,
+    val scale: Float,
     val score: Double,
 )
+
+private data class DanmakuPredictedTransform(
+    val dxNormalized: Float,
+    val dyNormalized: Float,
+    val dxSamplePx: Int,
+    val dySamplePx: Int,
+    val scale: Float,
+    val predictedAreaRatio: Float,
+)
+
+private data class DanmakuTrackedRectCandidate(
+    val rect: DanmakuNormalizedRect,
+    val source: String,
+    val predictedScale: Float,
+    val predictedAreaRatio: Float,
+    val confidence: Float? = null,
+)
+
+private data class PrimaryTargetMemory(
+    val rect: DanmakuNormalizedRect,
+    val score: Float,
+    val ageSamples: Int,
+    val cooldownSamples: Int,
+)
+
+private data class PrimaryTargetSelection(
+    val detection: DanmakuPrimaryDetection?,
+    val stable: Boolean,
+    val switched: Boolean,
+    val switchReason: String?,
+    val continuityScore: Float,
+)
+
+private data class MaskGeometryStats(
+    val boundingRect: DanmakuNormalizedRect,
+    val centroidX: Float,
+    val centroidY: Float,
+)
+
+private data class MaskReuseAdjustment(
+    val dxPx: Int,
+    val dyPx: Int,
+    val scale: Float,
+    val source: String,
+) {
+    fun deltaSummary(): String = "dx=$dxPx,dy=$dyPx,scale=${"%.3f".format(Locale.US, scale)}"
+}
 
 private data class InferenceOutcome(
     val maskResult: DanmakuMaskResult?,
@@ -329,16 +743,73 @@ private data class InferenceOutcome(
     val motionSampleHeight: Int,
     val motionCompensation: DanmakuMotionCompensation?,
     val motionCompensationAttempted: Boolean,
-)
-
-private data class DanmakuCapturedFrame(
-    val bitmap: Bitmap,
-    val sampleAreaRatio: Float,
+    val detectLatencyMs: Long,
+    val refineLatencyMs: Long,
+    val occlusionMode: DanmakuOcclusionMode,
+    val detectionPerformed: Boolean,
+    val trackedRectReused: Boolean,
+    val primaryRect: DanmakuNormalizedRect?,
+    val segmentationRoiMode: String?,
+    val segmentationRoiRect: DanmakuNormalizedRect?,
+    val segmentationInputWidth: Int,
+    val segmentationInputHeight: Int,
+    val predictedScale: Float,
+    val predictedAreaRatio: Float,
+    val trackedRectSource: String?,
+    val maskScaleApplied: Boolean,
+    val maskScaleValue: Float,
+    val scaleRescueApplied: Boolean,
+    val trackingStateEligible: Boolean = true,
+    val multiSmallMode: Boolean = false,
+    val multiCandidateCount: Int = 0,
+    val multiKeptCount: Int = 0,
+    val multiUnionAreaRatio: Float = 0f,
+    val multiViewportScale: Float = 1f,
+    val multiDropReason: String? = null,
+    val multiTrackCount: Int = 0,
+    val multiTrackHits: String? = null,
+    val multiTrackMisses: String? = null,
+    val multiTrackSource: String? = null,
+    val multiAssociation: String? = null,
+    val nextSmallMultiTracks: List<DanmakuSmallMultiTrack>? = null,
+    val nextSmallMultiCoarseOnlySamples: Int? = null,
+    val suppressMaskGrace: Boolean = false,
+    val suppressionReason: String? = null,
+    val trackerUsed: Boolean = false,
+    val trackerSuccessful: Boolean = false,
+    val trackerSource: String? = null,
+    val trackerMaskReused: Boolean = false,
+    val trackerConfidence: Float? = null,
+    val trackerLatencyMs: Long = 0L,
+    val trackerFallbackReason: String? = null,
+    val trackerState: String? = null,
+    val trackerStateReason: String? = null,
+    val primaryTargetStable: Boolean = false,
+    val primaryTargetSwitched: Boolean = false,
+    val primaryTargetSwitchReason: String? = null,
+    val detectionSkippedByStableTracker: Boolean = false,
+    val segmentationSkippedByStableTracker: Boolean = false,
+    val maskAdjustmentUsed: Boolean = false,
+    val maskAdjustmentSource: String? = null,
+    val maskAdjustmentDelta: String? = null,
 )
 
 private data class DanmakuMaskExtraction(
     val maskResult: DanmakuMaskResult,
     val appliedMotionCompensation: DanmakuMotionCompensation?,
+    val maskScaleApplied: Boolean,
+    val maskScaleValue: Float,
+)
+
+private data class DanmakuMaskExtractionResult(
+    val extraction: DanmakuMaskExtraction?,
+    val rejectReason: String?,
+)
+
+private data class RoiMaskValidationMetrics(
+    val coverage: Float,
+    val iou: Float,
+    val foregroundRatio: Float,
 )
 
 private data class DanmakuPrimaryComponent(
@@ -359,10 +830,17 @@ private data class DanmakuForegroundComplexity(
     val totalForegroundPixels: Int,
 )
 
+private data class MaskHoleStats(
+    val holeCount: Int,
+    val largestHolePixels: Int,
+    val totalHolePixels: Int,
+)
+
 private data class DanmakuOcclusionCacheEntry(
     val backend: String,
     val updatedAtMs: Long,
     val maskPath: String,
+    val maskSignature: String?,
     val maskWidth: Int,
     val maskHeight: Int,
     val framePath: String?,
@@ -403,6 +881,7 @@ private class DanmakuOcclusionCacheStore(
                 backend = json.optString("backend", DanmakuAiBackend.PADDLE.wireValue),
                 updatedAtMs = json.optLong("updatedAtMs", 0L),
                 maskPath = maskFile.absolutePath,
+                maskSignature = json.optString("maskSignature").takeIf { it.isNotBlank() },
                 maskWidth = json.optInt("maskWidth", 0),
                 maskHeight = json.optInt("maskHeight", 0),
                 framePath = frameFile.takeIf { it.isFile && it.length() > 0L }?.absolutePath,
@@ -415,6 +894,7 @@ private class DanmakuOcclusionCacheStore(
         source: MpvSource,
         backend: String,
         updatedAtMs: Long,
+        maskSignature: String?,
         normalizedRect: DanmakuNormalizedRect?,
         frameBitmap: Bitmap?,
         maskWidth: Int,
@@ -446,6 +926,7 @@ private class DanmakuOcclusionCacheStore(
                     .put("cacheVersion", DANMAKU_AI_CACHE_VERSION)
                     .put("backend", backend)
                     .put("updatedAtMs", updatedAtMs)
+                    .put("maskSignature", maskSignature)
                     .put("maskWidth", maskWidth)
                     .put("maskHeight", maskHeight)
             if (normalizedRect != null) {
@@ -461,6 +942,7 @@ private class DanmakuOcclusionCacheStore(
                 backend = backend,
                 updatedAtMs = updatedAtMs,
                 maskPath = maskFile.absolutePath,
+                maskSignature = maskSignature,
                 maskWidth = maskWidth,
                 maskHeight = maskHeight,
                 framePath = frameFile.takeIf { it.isFile && it.length() > 0L }?.absolutePath,
@@ -511,7 +993,7 @@ private inline fun <T : Bitmap?, R> T.use(block: (T) -> R): R {
 class DanmakuDynamicOcclusionController(
     private val context: Context,
     private val videoOutputTarget: VideoOutputTarget,
-    private val stateListener: (DanmakuDynamicOcclusionState) -> Unit,
+    private val stateListener: (DanmakuDynamicOcclusionState, Bitmap?) -> Unit,
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val inferenceThread = HandlerThread("FlyPlayerDanmakuOcclusion").apply { start() }
@@ -521,6 +1003,11 @@ class DanmakuDynamicOcclusionController(
         DanmakuSegmentationRuntimeFactory(
             context = context,
             paddleModelAssetDir = DANMAKU_AI_PADDLE_MODEL_ASSET_DIR,
+        )
+    private val detectionRuntimeFactory =
+        DanmakuDetectionRuntimeFactory(
+            context = context,
+            paddleModelAssetDir = DANMAKU_AI_PADDLE_DETECTION_MODEL_ASSET_DIR,
         )
 
     @Volatile
@@ -548,6 +1035,9 @@ class DanmakuDynamicOcclusionController(
     private var capturePending = false
 
     @Volatile
+    private var captureInFlight = false
+
+    @Volatile
     private var samplingScheduled = false
 
     @Volatile
@@ -555,28 +1045,76 @@ class DanmakuDynamicOcclusionController(
 
     private var latestState = DanmakuDynamicOcclusionState.disabled()
     private var latestRect: DanmakuNormalizedRect? = null
+    private var latestTrackingRect: DanmakuNormalizedRect? = null
     private var latestMaskValues: FloatArray? = null
     private var latestMaskWidth = 0
     private var latestMaskHeight = 0
     private var latestMaskPath: String? = null
+    private var latestMaskSignature: String? = null
     private var latestFramePath: String? = null
     private var latestMaskTimestampMs = 0L
+    private var latestMaskAppliedAtUptimeMs = 0L
+    private var latestRuntimeMaskBitmap: Bitmap? = null
     private var currentSource: MpvSource? = null
     private var consecutiveEmptyFrames = 0
     private var activeBackendIndex = 0
     private var activeRuntime: DanmakuSegmentationRuntime? = null
+    private var activeDetectionRuntime: DanmakuDetectionRuntime? = null
+    private var personTrackerRuntime: PersonTrackerRuntime? = null
     private var averageLatencyMs = 0.0
     private var overBudgetCount = 0
-    private var reusableBitmap: Bitmap? = null
-    private var reusableFocusedBitmap: Bitmap? = null
+    private var activeCaptureRequestId: Long? = null
+    private var lastCaptureBackend = "none"
+    private var degradationStage = 0
+    private var stableRecoverySamples = 0
+    private val runtimeLock = Any()
     private var previousFrameLumaSignature: IntArray? = null
     private var lastFrameCacheWriteAtMs = 0L
     private var sampleSequence = 0L
     private var cacheRestoreEligible = true
+    private var latestRectTrackingEligible = false
     private var latestMotionReferenceFrame: DanmakuMotionReferenceFrame? = null
+    private var previousMotionReferenceFrame: DanmakuMotionReferenceFrame? = null
     private var lastMotionCompensation: DanmakuMotionCompensation? = null
     private var consecutiveMotionCompensationFailures = 0
     private var consecutiveCompensatedFrames = 0
+    private var nextEligibleSampleUptimeMs = 0L
+    private var lastSuccessfulDetectionUptimeMs = 0L
+    private var consecutiveTrackedReuseSamples = 0
+    private var smallMultiStickySamplesRemaining = 0
+    private var smallMultiTracks = emptyList<DanmakuSmallMultiTrack>()
+    private var smallMultiNextTrackId = 1
+    private var smallMultiCoarseOnlySamples = 0
+    private var pendingMaskGraceBackend: DanmakuAiBackend? = null
+    private var pendingMaskGraceClearAtUptimeMs = 0L
+    private var lastTrackerReuseFallbackReason: String? = null
+    private var trackerLifecycleState = TrackerLifecycleState.LOST
+    private var trackerLifecycleReason = "uninitialized"
+    private var trackerSuccessStreak = 0
+    private var trackerFailureStreak = 0
+    private var trackerWeakStreak = 0
+    private var trackerStableSinceUptimeMs = 0L
+    private var lastTrackerConfidence = 0f
+    private var lastTrackerGeometryPenalty = 1f
+    private var primaryTargetMemory: PrimaryTargetMemory? = null
+    private var primaryTargetCandidateRect: DanmakuNormalizedRect? = null
+    private var primaryTargetCandidateWins = 0
+    private var primaryTargetSwitchCooldownSamples = 0
+    private var lastAcceptedTargetSource = "none"
+
+    private val maskGraceExpireRunnable =
+        Runnable {
+            val backend = pendingMaskGraceBackend ?: return@Runnable
+            pendingMaskGraceBackend = null
+            pendingMaskGraceClearAtUptimeMs = 0L
+            if (disposed) {
+                return@Runnable
+            }
+            if (consecutiveEmptyFrames >= DANMAKU_AI_MAX_EMPTY_FRAMES) {
+                clearRuntimeMaskState()
+            }
+            emitUnavailableState(backend = backend, keepEnabled = true)
+        }
 
     @Volatile
     private var sceneCutRecoveryActive = false
@@ -587,19 +1125,26 @@ class DanmakuDynamicOcclusionController(
     @Volatile
     private var stableMaskFramesSinceSceneCut = 0
 
+    @Volatile
+    private var motionBurstSamplesRemaining = 0
+
+    @Volatile
+    private var motionBurstReason: String? = null
+
+    @Volatile
+    private var pendingMotionBurstReason: String? = null
+
     private val sampleRunnable =
         Runnable {
             samplingScheduled = false
             if (disposed || !shouldSample()) {
                 return@Runnable
             }
-            if (processing) {
+            if (processing || captureInFlight) {
                 capturePending = true
-                scheduleNextSample()
                 return@Runnable
             }
             captureFrameAndInfer()
-            scheduleNextSample()
         }
 
     fun updateConfig(raw: Map<String, Any?>) {
@@ -616,12 +1161,26 @@ class DanmakuDynamicOcclusionController(
             emitState(DanmakuDynamicOcclusionState.disabled())
             return
         }
+        val captureUnavailableReason = captureUnavailableReason()
+        if (captureUnavailableReason != null) {
+            stopSampling(clearPending = true)
+            releaseRuntime()
+            clearRuntimeMaskState()
+            emitUnavailableState(
+                backend = currentBackendOrFallback(),
+                keepEnabled = true,
+                backendWireValue = videoOutputTarget.backend.wireValue,
+                unavailableReason = captureUnavailableReason,
+            )
+            return
+        }
         if (backendOrderChanged || inputSizeChanged) {
             activeBackendIndex = 0
             averageLatencyMs = 0.0
             overBudgetCount = 0
+            degradationStage = 0
+            stableRecoverySamples = 0
             releaseRuntime()
-            clearReusableBitmap()
         }
         evaluateSamplingState(resetStaleMask = false)
     }
@@ -633,10 +1192,15 @@ class DanmakuDynamicOcclusionController(
         videoOutputReady: Boolean,
     ) {
         if (disposed) return
+        val wasSamplingEligible = shouldSample()
         this.paused = paused
         this.sourceLoaded = sourceLoaded
         this.surfaceReady = surfaceReady
         this.videoOutputReady = videoOutputReady
+        val samplingJustBecameEligible = !wasSamplingEligible && shouldSample()
+        if (samplingJustBecameEligible) {
+            armWarmStartDelay(DANMAKU_AI_PLAYBACK_WARM_START_DELAY_MS)
+        }
         evaluateSamplingState(resetStaleMask = !sourceLoaded || !surfaceReady)
     }
 
@@ -646,10 +1210,19 @@ class DanmakuDynamicOcclusionController(
         cacheRestoreEligible = true
         clearRuntimeMaskState()
         capturePending = false
+        captureInFlight = false
         activeBackendIndex = 0
         averageLatencyMs = 0.0
         overBudgetCount = 0
+        degradationStage = 0
+        stableRecoverySamples = 0
+        warmStartDelayUntilUptimeMs = 0L
         lastFrameCacheWriteAtMs = 0L
+        nextEligibleSampleUptimeMs = 0L
+        lastSuccessfulDetectionUptimeMs = 0L
+        consecutiveTrackedReuseSamples = 0
+        resetTrackerLifecycle(reason = "source_changed")
+        resetPrimaryTargetMemory()
         restoreCachedState()
         if (latestMaskPath == null) {
             emitUnavailableState(backend = currentBackendOrFallback(), keepEnabled = config.enabled)
@@ -664,32 +1237,185 @@ class DanmakuDynamicOcclusionController(
         stopSampling(clearPending = true)
         mainHandler.removeCallbacksAndMessages(null)
         inferenceHandler.removeCallbacksAndMessages(null)
+        replaceRuntimeMaskBitmap(null)
         releaseRuntime()
-        clearReusableBitmap()
         inferenceThread.quitSafely()
     }
 
     private fun clearRuntimeMaskState() {
+        cancelPendingMaskGrace()
         latestRect = null
+        latestTrackingRect = null
+        latestRectTrackingEligible = false
         latestMaskValues = null
         latestMaskWidth = 0
         latestMaskHeight = 0
         latestMaskPath = null
+        latestMaskSignature = null
         latestFramePath = null
         latestMaskTimestampMs = 0L
+        latestMaskAppliedAtUptimeMs = 0L
+        replaceRuntimeMaskBitmap(null)
         consecutiveEmptyFrames = 0
         previousFrameLumaSignature = null
         sceneCutRecoveryActive = false
         sceneCutBurstSamplesRemaining = 0
         stableMaskFramesSinceSceneCut = 0
+        clearMotionBurst()
         latestMotionReferenceFrame = null
+        previousMotionReferenceFrame = null
         lastMotionCompensation = null
         consecutiveMotionCompensationFailures = 0
         consecutiveCompensatedFrames = 0
+        stableRecoverySamples = 0
+        lastSuccessfulDetectionUptimeMs = 0L
+        consecutiveTrackedReuseSamples = 0
+        smallMultiStickySamplesRemaining = 0
+        lastTrackerReuseFallbackReason = null
+        resetPersonTracker()
+        resetTrackerLifecycle(reason = "clear_state")
+        resetPrimaryTargetMemory()
+        clearSmallMultiTracks()
+    }
+
+    private fun clearSmallMultiTracks() {
+        smallMultiTracks = emptyList()
+        smallMultiNextTrackId = 1
+        smallMultiCoarseOnlySamples = 0
+    }
+
+    private fun resetTrackerLifecycle(reason: String = "reset") {
+        trackerLifecycleState = TrackerLifecycleState.LOST
+        trackerLifecycleReason = reason
+        trackerSuccessStreak = 0
+        trackerFailureStreak = 0
+        trackerWeakStreak = 0
+        trackerStableSinceUptimeMs = 0L
+        lastTrackerConfidence = 0f
+        lastTrackerGeometryPenalty = 1f
+    }
+
+    private fun resetPrimaryTargetMemory() {
+        primaryTargetMemory = null
+        primaryTargetCandidateRect = null
+        primaryTargetCandidateWins = 0
+        primaryTargetSwitchCooldownSamples = 0
+        lastAcceptedTargetSource = "none"
+    }
+
+    private fun clearMotionBurst() {
+        motionBurstSamplesRemaining = 0
+        motionBurstReason = null
+        pendingMotionBurstReason = null
+    }
+
+    private fun consumeMotionBurstSample() {
+        if (motionBurstSamplesRemaining <= 0) {
+            return
+        }
+        motionBurstSamplesRemaining -= 1
+        if (motionBurstSamplesRemaining <= 0) {
+            Log.d(
+                DANMAKU_AI_TAG,
+                "motion_burst end reason=${motionBurstReason ?: "complete"}",
+            )
+            motionBurstReason = null
+        }
+    }
+
+    private fun markMotionBurstRequested(reason: String?) {
+        val sanitizedReason = reason?.takeIf { it.isNotBlank() } ?: return
+        pendingMotionBurstReason = sanitizedReason
+    }
+
+    private fun clearPendingMotionBurstRequest() {
+        pendingMotionBurstReason = null
+    }
+
+    private fun consumePendingMotionBurstRequest(): String? {
+        val reason = pendingMotionBurstReason
+        pendingMotionBurstReason = null
+        return reason
+    }
+
+    private fun shouldAllowMotionBurst(): Boolean {
+        return !sceneCutRecoveryActive &&
+            config.renderTargetFrameRateHz >= 90 &&
+            degradationStage <= DANMAKU_AI_MOTION_BURST_MAX_DEGRADATION_STAGE
+    }
+
+    private fun currentMotionBurstIntervalMs(): Long {
+        val floorInterval =
+            max(
+                DANMAKU_AI_MOTION_BURST_INTERVAL_MS,
+                recommendedSamplingFloorMs() / 3L,
+            )
+        if (averageLatencyMs <= 0.0) {
+            return floorInterval
+        }
+        val latencyBound =
+            max(
+                floorInterval,
+                max(
+                    averageLatencyMs.roundToInt().toLong() + DANMAKU_AI_MOTION_BURST_HEADROOM_MS,
+                    (averageLatencyMs * DANMAKU_AI_MOTION_BURST_LATENCY_MULTIPLIER)
+                        .roundToInt()
+                        .toLong(),
+                ),
+            )
+        return latencyBound.coerceIn(
+            DANMAKU_AI_MOTION_BURST_INTERVAL_MS,
+            preferredSampleIntervalMs(),
+        )
+    }
+
+    private fun requestMotionBurst(reason: String) {
+        if (!shouldAllowMotionBurst()) {
+            return
+        }
+        val intervalMs = currentMotionBurstIntervalMs()
+        val previousRemaining = motionBurstSamplesRemaining
+        val nextRemaining = max(motionBurstSamplesRemaining, DANMAKU_AI_MOTION_BURST_SAMPLE_COUNT)
+        val nextEligibleAt = SystemClock.uptimeMillis() + intervalMs
+        val reasonChanged = motionBurstReason != reason
+        motionBurstSamplesRemaining = nextRemaining
+        motionBurstReason = reason
+        nextEligibleSampleUptimeMs =
+            if (nextEligibleSampleUptimeMs > 0L) {
+                minOf(nextEligibleSampleUptimeMs, nextEligibleAt)
+            } else {
+                nextEligibleAt
+            }
+        if (reasonChanged || previousRemaining <= 0) {
+            Log.d(
+                DANMAKU_AI_TAG,
+                "motion_burst start reason=$reason remaining=$nextRemaining intervalMs=$intervalMs trackerState=${trackerLifecycleState.wireValue}",
+            )
+        }
+    }
+
+    private fun cancelPendingMaskGrace() {
+        pendingMaskGraceBackend = null
+        pendingMaskGraceClearAtUptimeMs = 0L
+        mainHandler.removeCallbacks(maskGraceExpireRunnable)
     }
 
     private fun evaluateSamplingState(resetStaleMask: Boolean) {
         if (!config.enabled) {
+            return
+        }
+        val captureUnavailableReason = captureUnavailableReason()
+        if (captureUnavailableReason != null) {
+            stopSampling(clearPending = true)
+            if (resetStaleMask) {
+                clearRuntimeMaskState()
+            }
+            emitUnavailableState(
+                backend = currentBackendOrFallback(),
+                keepEnabled = true,
+                backendWireValue = videoOutputTarget.backend.wireValue,
+                unavailableReason = captureUnavailableReason,
+            )
             return
         }
         if (!sourceLoaded || !surfaceReady || !videoOutputReady) {
@@ -705,60 +1431,1038 @@ class DanmakuDynamicOcclusionController(
             emitLatestMaskStateIfAvailable()
             return
         }
-        if (!samplingScheduled) {
-            samplingScheduled = true
-            val delayMs = (warmStartDelayUntilUptimeMs - SystemClock.uptimeMillis()).coerceAtLeast(0L)
-            if (delayMs > 0L) {
-                mainHandler.postDelayed(sampleRunnable, delayMs)
+        val delayMs = (warmStartDelayUntilUptimeMs - SystemClock.uptimeMillis()).coerceAtLeast(0L)
+        if (delayMs > 0L) {
+            scheduleNextSample(delayMs = delayMs)
+            return
+        }
+        maybeWarmupRuntime()
+        if (samplingScheduled || processing || captureInFlight) {
+            capturePending = true
+            return
+        }
+        scheduleImmediateSample()
+    }
+
+    private fun armWarmStartDelay(delayMs: Long) {
+        if (delayMs <= 0L) {
+            return
+        }
+        val targetUptimeMs = SystemClock.uptimeMillis() + delayMs
+        if (targetUptimeMs > warmStartDelayUntilUptimeMs) {
+            warmStartDelayUntilUptimeMs = targetUptimeMs
+        }
+    }
+
+    private fun captureUnavailableReason(): String? {
+        if (videoOutputTarget.supportsAsyncBitmapCapture) {
+            return null
+        }
+        if (videoOutputTarget.supportsBitmapCapture) {
+            return if (config.renderTargetFrameRateHz > 60) {
+                DANMAKU_AI_UNAVAILABLE_REASON_CAPTURE_BUDGET_UNSUPPORTED
             } else {
-                mainHandler.post(sampleRunnable)
+                null
             }
         }
+        return DANMAKU_AI_UNAVAILABLE_REASON_CAPTURE_UNSUPPORTED
+    }
+
+    private fun maybeWarmupRuntime() {
+        inferenceHandler.post {
+            if (disposed || !config.enabled) {
+                return@post
+            }
+            ensureDetectionRuntime()
+            if (allowMaskRefinement()) {
+                ensureRuntime()
+            }
+        }
+    }
+
+    private fun finishSamplingCycle() {
+        if (disposed || !shouldSample()) {
+            return
+        }
+        if (capturePending) {
+            capturePending = false
+            scheduleImmediateSample()
+            return
+        }
+        scheduleNextSample()
     }
 
     private fun shouldSample(): Boolean {
         return config.enabled && sourceLoaded && surfaceReady && videoOutputReady && !paused
     }
 
+    private fun allowMaskRefinement(): Boolean {
+        if (degradationStage < 3) {
+            return true
+        }
+        return sampleSequence % DANMAKU_AI_DEGRADATION_RECOVERY_SAMPLES.toLong() == 0L
+    }
+
+    private fun currentDegradationLevel(): DanmakuOcclusionDegradationLevel {
+        return when (degradationStage) {
+            1 -> DanmakuOcclusionDegradationLevel.INTERVAL
+            2 -> DanmakuOcclusionDegradationLevel.REDUCED_INPUT
+            3 -> DanmakuOcclusionDegradationLevel.DISABLED
+            else -> DanmakuOcclusionDegradationLevel.NONE
+        }
+    }
+
+    private fun preferredInputWidthForFrameRate(): Int {
+        val userPreferredWidth =
+            config.inputWidth.coerceIn(
+                DANMAKU_AI_DEGRADED_INPUT_WIDTH,
+                DANMAKU_AI_REFINE_MAX_WIDTH,
+            )
+        val prefersHighQuality = userPreferredWidth >= DANMAKU_AI_HIGH_QUALITY_INPUT_WIDTH_THRESHOLD
+        return when {
+            config.renderTargetFrameRateHz >= 110 && prefersHighQuality ->
+                DANMAKU_AI_BASE_INPUT_WIDTH_120HZ_QUALITY
+            config.renderTargetFrameRateHz >= 110 ->
+                DANMAKU_AI_BASE_INPUT_WIDTH_120HZ
+            config.renderTargetFrameRateHz >= 90 && prefersHighQuality ->
+                DANMAKU_AI_BASE_INPUT_WIDTH_90HZ_QUALITY
+            config.renderTargetFrameRateHz >= 90 ->
+                DANMAKU_AI_BASE_INPUT_WIDTH_90HZ
+            prefersHighQuality ->
+                DANMAKU_AI_BASE_INPUT_WIDTH_60HZ_QUALITY
+            else ->
+                DANMAKU_AI_BASE_INPUT_WIDTH_60HZ
+        }
+    }
+
+    private fun effectiveInputWidth(): Int {
+        val userPreferredWidth =
+            config.inputWidth.coerceIn(
+                DANMAKU_AI_DEGRADED_INPUT_WIDTH,
+                DANMAKU_AI_REFINE_MAX_WIDTH,
+            )
+        val baselineWidth =
+            minOf(
+                userPreferredWidth,
+                preferredInputWidthForFrameRate(),
+            )
+        return when {
+            degradationStage >= 2 -> minOf(baselineWidth, DANMAKU_AI_REDUCED_INPUT_WIDTH)
+            else -> baselineWidth
+        }.coerceIn(DANMAKU_AI_DEGRADED_INPUT_WIDTH, DANMAKU_AI_REFINE_MAX_WIDTH)
+    }
+
+    private fun preferredSampleIntervalMs(): Long {
+        var interval =
+            max(
+                config.sampleIntervalMs.coerceIn(
+                    DANMAKU_AI_MIN_SAMPLE_INTERVAL_MS,
+                    DANMAKU_AI_MAX_SAMPLE_INTERVAL_MS,
+                ),
+                recommendedSamplingFloorMs(),
+            )
+        if (degradationStage >= 1) {
+            interval += DANMAKU_AI_DEGRADATION_INTERVAL_BACKOFF_MS
+        }
+        if (degradationStage >= 2) {
+            interval += DANMAKU_AI_DEGRADATION_INTERVAL_BACKOFF_MS
+        }
+        if (degradationStage >= 3) {
+            interval += DANMAKU_AI_DEGRADATION_INTERVAL_BACKOFF_MS
+        }
+        return interval.coerceIn(
+            DANMAKU_AI_MIN_SAMPLE_INTERVAL_MS,
+            DANMAKU_AI_MAX_SAMPLE_INTERVAL_MS,
+        )
+    }
+
+    private fun trackedDetectionRefreshIntervalMs(): Long {
+        return when {
+            trackerLifecycleState == TrackerLifecycleState.WEAK ->
+                DANMAKU_AI_TRACKED_DETECTION_REFRESH_INTERVAL_WEAK_MS
+            trackerLifecycleState == TrackerLifecycleState.STABLE &&
+                config.renderTargetFrameRateHz >= 110 &&
+                degradationStage <= 0 ->
+                DANMAKU_AI_TRACKED_DETECTION_REFRESH_INTERVAL_STABLE_120HZ_MS
+            trackerLifecycleState == TrackerLifecycleState.STABLE &&
+                config.renderTargetFrameRateHz >= 90 &&
+                degradationStage <= 0 ->
+                DANMAKU_AI_TRACKED_DETECTION_REFRESH_INTERVAL_STABLE_90HZ_MS
+            config.renderTargetFrameRateHz >= 110 && degradationStage >= 2 ->
+                DANMAKU_AI_TRACKED_DETECTION_REFRESH_INTERVAL_DEGRADED_MS
+            config.renderTargetFrameRateHz >= 110 ->
+                DANMAKU_AI_TRACKED_DETECTION_REFRESH_INTERVAL_120HZ_MS
+            config.renderTargetFrameRateHz >= 90 && degradationStage >= 2 ->
+                DANMAKU_AI_TRACKED_DETECTION_REFRESH_INTERVAL_DEGRADED_MS
+            config.renderTargetFrameRateHz >= 90 ->
+                DANMAKU_AI_TRACKED_DETECTION_REFRESH_INTERVAL_90HZ_MS
+            else -> 0L
+        }
+    }
+
+    private fun trackedDetectionMaxConsecutiveSamples(): Int {
+        return when {
+            config.renderTargetFrameRateHz < 90 -> 0
+            trackerLifecycleState == TrackerLifecycleState.STABLE && degradationStage <= 0 ->
+                DANMAKU_AI_TRACKED_DETECTION_MAX_CONSECUTIVE_SAMPLES_STABLE
+            trackerLifecycleState == TrackerLifecycleState.WEAK ->
+                DANMAKU_AI_TRACKED_DETECTION_MAX_CONSECUTIVE_SAMPLES_WEAK
+            degradationStage >= 2 -> DANMAKU_AI_TRACKED_DETECTION_MAX_CONSECUTIVE_SAMPLES_DEGRADED
+            else -> DANMAKU_AI_TRACKED_DETECTION_MAX_CONSECUTIVE_SAMPLES
+        }
+    }
+
+    private fun resolveTrackedRectCandidate(
+        trackerCandidate: DanmakuTrackedRectCandidate?,
+        motionCompensation: DanmakuMotionCompensation?,
+    ): DanmakuTrackedRectCandidate? {
+        trackerCandidate?.let { candidate ->
+            if (candidate.rect.area() >= DANMAKU_AI_DETECTION_MIN_AREA_RATIO) {
+                return candidate
+            }
+        }
+        val predictedTransform =
+            predictTrackedTransform(
+                sampleWidth = DANMAKU_AI_MOTION_SAMPLE_WIDTH,
+                sampleHeight = DANMAKU_AI_MOTION_SAMPLE_HEIGHT,
+            )
+        val predictedRect = buildPredictedTrackedRect(predictedTransform)
+        val compensatedRect = buildCompensatedPreviousRect(motionCompensation)
+        val candidateRect =
+            when {
+                predictedRect != null && compensatedRect != null ->
+                    blendTrackedRectCandidate(predictedRect, compensatedRect)
+                compensatedRect != null ->
+                    compensatedRect
+                predictedRect != null ->
+                    predictedRect
+                else ->
+                    trackingRectOrDisplayRect()
+            } ?: return null
+        if (candidateRect.area() < DANMAKU_AI_DETECTION_MIN_AREA_RATIO) {
+            return null
+        }
+        val previousArea = trackingRectOrDisplayRect()?.area()?.takeIf { it > 0f }
+        val predictedAreaRatio =
+            predictedTransform?.predictedAreaRatio
+                ?: previousArea?.let { (candidateRect.area() / it).coerceAtLeast(0f) }
+                ?: 1f
+        return DanmakuTrackedRectCandidate(
+            rect = candidateRect,
+            source =
+                when {
+                    predictedRect != null && compensatedRect != null -> "predicted+motion"
+                    compensatedRect != null -> "motion"
+                    predictedRect != null -> "predicted"
+                    else -> "latest"
+                },
+            predictedScale = predictedTransform?.scale ?: 1f,
+            predictedAreaRatio = predictedAreaRatio,
+        )
+    }
+
+    private fun shouldAttemptTrackedRoi(
+        frameContinuity: DanmakuFrameContinuity,
+        trackedCandidate: DanmakuTrackedRectCandidate?,
+    ): Boolean {
+        if (frameContinuity.sceneCut || sceneCutRecoveryActive) {
+            return false
+        }
+        if (trackerLifecycleState == TrackerLifecycleState.LOST) {
+            return false
+        }
+        val trackedRect = trackedCandidate?.rect
+        if (trackedRect == null || consecutiveEmptyFrames > 1) {
+            return false
+        }
+        val previousArea = trackingRectOrDisplayRect()?.area()
+        if (previousArea != null && previousArea > 0f) {
+            val candidateAreaRatio = trackedRect.area() / previousArea
+            if (
+                candidateAreaRatio < DANMAKU_AI_TRACKED_ROI_MIN_AREA_RATIO ||
+                    candidateAreaRatio > DANMAKU_AI_TRACKED_ROI_MAX_AREA_RATIO
+            ) {
+                return false
+            }
+        }
+        val refreshIntervalMs = trackedDetectionRefreshIntervalMs()
+        if (refreshIntervalMs <= 0L || lastSuccessfulDetectionUptimeMs <= 0L) {
+            return false
+        }
+        if (consecutiveTrackedReuseSamples >= trackedDetectionMaxConsecutiveSamples()) {
+            return false
+        }
+        return SystemClock.uptimeMillis() - lastSuccessfulDetectionUptimeMs < refreshIntervalMs
+    }
+
+    private fun centerDistanceBetweenRects(
+        first: DanmakuNormalizedRect,
+        second: DanmakuNormalizedRect,
+    ): Float {
+        return sqrt(
+            ((first.centerX - second.centerX).pow(2)) +
+                ((first.centerY - second.centerY).pow(2)),
+        )
+    }
+
+    private fun shouldCancelMaskForLargeMotion(
+        trackedCandidate: DanmakuTrackedRectCandidate?,
+        motionCompensation: DanmakuMotionCompensation?,
+        detectionRect: DanmakuNormalizedRect? = null,
+        relaxDetectionPositionJump: Boolean = false,
+    ): String? {
+        val previousRect = trackingRectOrDisplayRect() ?: return null
+        val previousArea = previousRect.area().takeIf { it > 0f } ?: return null
+        motionCompensation?.let { compensation ->
+            if (
+                abs(compensation.dxNormalized) >= DANMAKU_AI_LARGE_MOTION_CANCEL_MAX_DX_NORMALIZED ||
+                    abs(compensation.dyNormalized) >= DANMAKU_AI_LARGE_MOTION_CANCEL_MAX_DY_NORMALIZED
+            ) {
+                return "motion_translation"
+            }
+            if (abs(compensation.scale - 1f) >= DANMAKU_AI_LARGE_MOTION_CANCEL_SCALE_DELTA) {
+                return "motion_scale"
+            }
+        }
+        trackedCandidate?.let { candidate ->
+            val trackedAreaRatio = (candidate.rect.area() / previousArea).coerceAtLeast(0f)
+            if (
+                trackedAreaRatio < DANMAKU_AI_LARGE_MOTION_CANCEL_MIN_AREA_RATIO ||
+                    trackedAreaRatio > DANMAKU_AI_LARGE_MOTION_CANCEL_MAX_AREA_RATIO
+            ) {
+                return "tracked_area_jump"
+            }
+            val trackedIou = candidate.rect.iou(previousRect)
+            val trackedCenterDistance = centerDistanceBetweenRects(candidate.rect, previousRect)
+            if (
+                trackedIou < DANMAKU_AI_LARGE_MOTION_CANCEL_MIN_IOU &&
+                    trackedCenterDistance >= DANMAKU_AI_LARGE_MOTION_CANCEL_CENTER_DISTANCE
+            ) {
+                return "tracked_position_jump"
+            }
+        }
+        detectionRect?.let { rect ->
+            val detectionAreaRatio = (rect.area() / previousArea).coerceAtLeast(0f)
+            if (
+                detectionAreaRatio < DANMAKU_AI_LARGE_MOTION_CANCEL_MIN_AREA_RATIO ||
+                    detectionAreaRatio > DANMAKU_AI_LARGE_MOTION_CANCEL_MAX_AREA_RATIO
+            ) {
+                return "detect_area_jump"
+            }
+            val detectionIou = rect.iou(previousRect)
+            val detectionCenterDistance = centerDistanceBetweenRects(rect, previousRect)
+            val fullScreenLikeDetection =
+                rect.area() >= DANMAKU_AI_LARGE_MOTION_CANCEL_DETECTION_AREA_RATIO ||
+                    rect.width >= DANMAKU_AI_LARGE_MOTION_CANCEL_DETECTION_WIDTH_RATIO ||
+                    rect.height >= DANMAKU_AI_LARGE_MOTION_CANCEL_DETECTION_HEIGHT_RATIO
+            if (
+                fullScreenLikeDetection &&
+                    (detectionIou < DANMAKU_AI_LARGE_MOTION_CANCEL_MIN_IOU ||
+                        detectionAreaRatio > DANMAKU_AI_LARGE_MOTION_CANCEL_MAX_AREA_RATIO)
+            ) {
+                return "detect_fullscreen_jump"
+            }
+            if (
+                detectionIou < DANMAKU_AI_LARGE_MOTION_CANCEL_MIN_IOU &&
+                    detectionCenterDistance >= DANMAKU_AI_LARGE_MOTION_CANCEL_CENTER_DISTANCE &&
+                    !relaxDetectionPositionJump
+            ) {
+                return "detect_position_jump"
+            }
+        }
+        return null
+    }
+
+    private fun updateTrackingCadenceAfterInference(result: InferenceOutcome) {
+        if (!shouldAllowMotionBurst() && motionBurstSamplesRemaining > 0) {
+            clearMotionBurst()
+        }
+        when {
+            result.detectionPerformed && result.primaryRect != null && result.maskResult != null -> {
+                lastSuccessfulDetectionUptimeMs = SystemClock.uptimeMillis()
+                consecutiveTrackedReuseSamples = 0
+            }
+            result.trackedRectReused && result.maskResult != null -> {
+                consecutiveTrackedReuseSamples += 1
+            }
+            else -> {
+                consecutiveTrackedReuseSamples = 0
+            }
+        }
+        if (result.multiSmallMode && result.maskResult != null) {
+            smallMultiStickySamplesRemaining = DANMAKU_AI_SMALL_MULTI_STICKY_SAMPLES
+        } else if (smallMultiStickySamplesRemaining > 0) {
+            smallMultiStickySamplesRemaining -= 1
+        }
+        consumePendingMotionBurstRequest()?.let(::requestMotionBurst)
+    }
+
+    private fun applySmallMultiTrackUpdate(result: InferenceOutcome) {
+        result.nextSmallMultiTracks?.let { nextTracks ->
+            smallMultiTracks = nextTracks
+        }
+        result.nextSmallMultiCoarseOnlySamples?.let { nextValue ->
+            smallMultiCoarseOnlySamples = nextValue
+        }
+    }
+
+    private fun ensurePersonTrackerRuntime(): PersonTrackerRuntime {
+        synchronized(runtimeLock) {
+            val existing = personTrackerRuntime
+            if (existing != null) {
+                return existing
+            }
+            return LumaTemplatePersonTrackerRuntime().also { personTrackerRuntime = it }
+        }
+    }
+
+    private fun resetPersonTracker() {
+        synchronized(runtimeLock) {
+            personTrackerRuntime?.reset()
+        }
+        resetTrackerLifecycle(reason = "tracker_reset")
+    }
+
+    private fun initializePersonTracker(
+        bitmap: Bitmap,
+        rect: DanmakuNormalizedRect?,
+    ): Boolean {
+        val safeRect = rect ?: return false
+        if (safeRect.area() < DANMAKU_AI_DETECTION_MIN_AREA_RATIO) {
+            resetPersonTracker()
+            return false
+        }
+        val initialized =
+            runCatching {
+            synchronized(runtimeLock) {
+                ensurePersonTrackerRuntime().init(bitmap, safeRect)
+            }
+        }.getOrDefault(false)
+        if (initialized) {
+            trackerLifecycleState = TrackerLifecycleState.WARMUP
+            trackerLifecycleReason = "init"
+            trackerSuccessStreak = 0
+            trackerFailureStreak = 0
+            trackerWeakStreak = 0
+            trackerStableSinceUptimeMs = 0L
+            lastTrackerGeometryPenalty = 0f
+        } else {
+            resetTrackerLifecycle(reason = "init_failed")
+        }
+        return initialized
+    }
+
+    private fun updatePersonTracker(
+        bitmap: Bitmap,
+        frameContinuity: DanmakuFrameContinuity,
+    ): PersonTrackingResult? {
+        if (
+            frameContinuity.sceneCut ||
+                sceneCutRecoveryActive ||
+                latestMaskValues == null ||
+                trackingRectOrDisplayRect() == null ||
+                latestMaskWidth <= 0 ||
+                latestMaskHeight <= 0
+        ) {
+            return null
+        }
+        val tracker =
+            synchronized(runtimeLock) {
+                personTrackerRuntime
+            } ?: return null
+        return runCatching { tracker.update(bitmap) }.getOrElse {
+            synchronized(runtimeLock) {
+                tracker.reset()
+            }
+            resetTrackerLifecycle(reason = "update_exception")
+            null
+        }
+    }
+
+    private fun computeTrackerGeometryPenalty(
+        trackedRect: DanmakuNormalizedRect?,
+        referenceRect: DanmakuNormalizedRect?,
+    ): Float {
+        val nextRect = trackedRect ?: return 1f
+        val previousRect = referenceRect ?: return 0f
+        val areaRatio =
+            (nextRect.area() / previousRect.area().coerceAtLeast(1e-4f))
+                .coerceAtLeast(0.01f)
+        val areaPenalty = abs(1f - areaRatio).coerceAtMost(1f)
+        val centerPenalty =
+            (centerDistanceBetweenRects(nextRect, previousRect) /
+                DANMAKU_AI_TRACKER_REUSE_MAX_CENTER_DELTA).coerceIn(0f, 1.5f)
+        val iouPenalty = 1f - nextRect.iou(previousRect).coerceIn(0f, 1f)
+        return ((areaPenalty * 0.30f) + (centerPenalty * 0.35f) + (iouPenalty * 0.35f))
+            .coerceIn(0f, 1f)
+    }
+
+    private fun updateTrackerLifecycleAfterUpdate(
+        trackingResult: PersonTrackingResult?,
+        trackedCandidate: DanmakuTrackedRectCandidate?,
+    ) {
+        val previousRect = trackingRectOrDisplayRect()
+        val geometryPenalty = computeTrackerGeometryPenalty(trackedCandidate?.rect, previousRect)
+        lastTrackerGeometryPenalty = geometryPenalty
+        lastTrackerConfidence = trackingResult?.confidence ?: 0f
+        val success = trackingResult?.success == true && trackedCandidate != null
+        if (!success) {
+            trackerSuccessStreak = 0
+            trackerWeakStreak = 0
+            trackerFailureStreak += 1
+            if (trackerFailureStreak >= DANMAKU_AI_TRACKER_LOST_STREAK) {
+                trackerLifecycleState = TrackerLifecycleState.LOST
+                trackerLifecycleReason = trackingResult?.source ?: "tracker_lost"
+                markMotionBurstRequested(trackerLifecycleReason)
+            } else if (trackerLifecycleState != TrackerLifecycleState.LOST) {
+                trackerLifecycleState = TrackerLifecycleState.WEAK
+                trackerLifecycleReason = trackingResult?.source ?: "tracker_failed"
+                markMotionBurstRequested(trackerLifecycleReason)
+            }
+            return
+        }
+        trackerFailureStreak = 0
+        trackerSuccessStreak += 1
+        val confidence = trackingResult?.confidence ?: 0f
+        val weakSignal =
+            confidence < DANMAKU_AI_TRACKER_WEAK_CONFIDENCE ||
+                geometryPenalty >= DANMAKU_AI_TRACKER_GEOMETRY_WEAK_PENALTY
+        when (trackerLifecycleState) {
+            TrackerLifecycleState.LOST -> {
+                trackerLifecycleState = TrackerLifecycleState.WARMUP
+                trackerLifecycleReason = "recover_from_lost"
+                trackerSuccessStreak = 1
+            }
+            TrackerLifecycleState.WARMUP -> {
+                if (!weakSignal &&
+                    trackerSuccessStreak >= DANMAKU_AI_TRACKER_WARMUP_STREAK &&
+                    confidence >= DANMAKU_AI_TRACKER_STABLE_MIN_CONFIDENCE
+                ) {
+                    trackerLifecycleState = TrackerLifecycleState.STABLE
+                    trackerLifecycleReason = "warmup_complete"
+                    trackerStableSinceUptimeMs = SystemClock.uptimeMillis()
+                    trackerWeakStreak = 0
+                } else {
+                    trackerLifecycleReason = if (weakSignal) "warmup_weak" else "warming"
+                }
+            }
+            TrackerLifecycleState.STABLE -> {
+                if (weakSignal) {
+                    trackerWeakStreak += 1
+                    if (trackerWeakStreak >= DANMAKU_AI_TRACKER_WEAK_STREAK) {
+                        trackerLifecycleState = TrackerLifecycleState.WEAK
+                        trackerLifecycleReason = "stable_weakened"
+                        markMotionBurstRequested(trackerLifecycleReason)
+                    }
+                } else {
+                    trackerWeakStreak = 0
+                    trackerLifecycleReason = "stable"
+                }
+            }
+            TrackerLifecycleState.WEAK -> {
+                if (geometryPenalty >= DANMAKU_AI_TRACKER_GEOMETRY_LOST_PENALTY) {
+                    trackerLifecycleState = TrackerLifecycleState.LOST
+                    trackerLifecycleReason = "geometry_lost"
+                    trackerFailureStreak = DANMAKU_AI_TRACKER_LOST_STREAK
+                    markMotionBurstRequested(trackerLifecycleReason)
+                } else if (!weakSignal) {
+                    trackerWeakStreak += 1
+                    if (trackerWeakStreak >= DANMAKU_AI_TRACKER_RECOVER_STREAK) {
+                        trackerLifecycleState = TrackerLifecycleState.STABLE
+                        trackerLifecycleReason = "weak_recovered"
+                        trackerStableSinceUptimeMs = SystemClock.uptimeMillis()
+                        trackerWeakStreak = 0
+                    }
+                } else {
+                    trackerWeakStreak = 0
+                    trackerLifecycleReason = "weak_tracking"
+                }
+            }
+        }
+    }
+
+    private fun updateTrackerLifecycleAfterDetection(
+        trackedCandidate: DanmakuTrackedRectCandidate?,
+        detectionRect: DanmakuNormalizedRect?,
+    ) {
+        val trackerRect = trackedCandidate?.rect ?: return
+        val targetRect = detectionRect ?: return
+        val mismatch =
+            trackerRect.iou(targetRect) < DANMAKU_AI_TRACKER_DETECTION_MISMATCH_IOU &&
+                centerDistanceBetweenRects(trackerRect, targetRect) >=
+                DANMAKU_AI_TRACKER_DETECTION_MISMATCH_CENTER_DISTANCE
+        if (!mismatch) {
+            return
+        }
+        trackerWeakStreak += 1
+        if (trackerWeakStreak >= DANMAKU_AI_TRACKER_WEAK_STREAK) {
+            trackerLifecycleState = TrackerLifecycleState.WEAK
+            trackerLifecycleReason = "detect_mismatch"
+            markMotionBurstRequested(trackerLifecycleReason)
+        }
+    }
+
+    private fun buildTrackerRectCandidate(
+        trackingResult: PersonTrackingResult?,
+    ): DanmakuTrackedRectCandidate? {
+        if (trackingResult?.success != true) {
+            return null
+        }
+        val rect = trackingResult.rect ?: return null
+        if (rect.area() < DANMAKU_AI_DETECTION_MIN_AREA_RATIO) {
+            return null
+        }
+        val previousArea = trackingRectOrDisplayRect()?.area()?.takeIf { it > 0f }
+        val predictedAreaRatio =
+            previousArea?.let { (rect.area() / it).coerceAtLeast(0f) } ?: 1f
+        val previousRect = trackingRectOrDisplayRect()
+        val predictedScale =
+            if (previousRect != null && previousRect.area() > 0f) {
+                sqrt((rect.area() / previousRect.area()).coerceAtLeast(0.01f))
+            } else {
+                1f
+            }
+        return DanmakuTrackedRectCandidate(
+            rect = rect,
+            source = trackingResult.source,
+            predictedScale = predictedScale,
+            predictedAreaRatio = predictedAreaRatio,
+            confidence = trackingResult.confidence,
+        )
+    }
+
+    private fun shouldAttemptTrackerMaskReuse(
+        frameContinuity: DanmakuFrameContinuity,
+        trackedCandidate: DanmakuTrackedRectCandidate?,
+    ): String? {
+        if (frameContinuity.sceneCut || sceneCutRecoveryActive) {
+            return "scene_cut"
+        }
+        if (motionBurstSamplesRemaining > 0) {
+            return "motion_burst_reacquire"
+        }
+        if (trackerLifecycleState == TrackerLifecycleState.LOST) {
+            return "tracker_lost"
+        }
+        val candidate = trackedCandidate ?: return "tracker_missing"
+        if (!candidate.source.startsWith("tracker")) {
+            return "tracker_unavailable"
+        }
+        if (
+            trackerLifecycleState == TrackerLifecycleState.WARMUP &&
+                consecutiveTrackedReuseSamples >= 1
+        ) {
+            return "tracker_warmup"
+        }
+        val confidence = candidate.confidence ?: return "tracker_unscored"
+        if (confidence < DANMAKU_AI_TRACKER_REUSE_MIN_CONFIDENCE) {
+            return "tracker_low_confidence"
+        }
+        if (!shouldAttemptTrackedRoi(frameContinuity, candidate)) {
+            return "refresh_due"
+        }
+        val previousRect = trackingRectOrDisplayRect() ?: return "previous_rect_missing"
+        val centerDistance = centerDistanceBetweenRects(candidate.rect, previousRect)
+        if (centerDistance > DANMAKU_AI_TRACKER_REUSE_MAX_CENTER_DELTA) {
+            return "tracker_center_jump"
+        }
+        val areaRatio =
+            (candidate.rect.area() / previousRect.area().coerceAtLeast(1e-4f))
+                .coerceAtLeast(0f)
+        if (
+            areaRatio < DANMAKU_AI_TRACKER_REUSE_MIN_AREA_RATIO ||
+                areaRatio > DANMAKU_AI_TRACKER_REUSE_MAX_AREA_RATIO
+        ) {
+            return "tracker_area_jump"
+        }
+        return null
+    }
+
+    private fun computeMaskGeometryStats(
+        values: FloatArray,
+        width: Int,
+        height: Int,
+    ): MaskGeometryStats? {
+        var left = width
+        var top = height
+        var right = -1
+        var bottom = -1
+        var totalWeight = 0f
+        var weightedX = 0f
+        var weightedY = 0f
+        for (y in 0 until height) {
+            val row = y * width
+            for (x in 0 until width) {
+                val value = values[row + x]
+                if (value < DANMAKU_AI_RENDER_MASK_SUPPORT_THRESHOLD) {
+                    continue
+                }
+                left = minOf(left, x)
+                top = minOf(top, y)
+                right = maxOf(right, x)
+                bottom = maxOf(bottom, y)
+                totalWeight += value
+                weightedX += x.toFloat() * value
+                weightedY += y.toFloat() * value
+            }
+        }
+        if (right <= left || bottom <= top || totalWeight <= 0f) {
+            return null
+        }
+        return MaskGeometryStats(
+            boundingRect =
+                DanmakuNormalizedRect(
+                    x = left.toFloat() / width.toFloat(),
+                    y = top.toFloat() / height.toFloat(),
+                    width = (right - left + 1).toFloat() / width.toFloat(),
+                    height = (bottom - top + 1).toFloat() / height.toFloat(),
+                ),
+            centroidX = (weightedX / totalWeight) / width.toFloat(),
+            centroidY = (weightedY / totalWeight) / height.toFloat(),
+        )
+    }
+
+    private fun estimateMaskReuseAdjustment(
+        bitmap: Bitmap,
+        previousRect: DanmakuNormalizedRect,
+        trackedRect: DanmakuNormalizedRect,
+        width: Int,
+        height: Int,
+        previousMaskStats: MaskGeometryStats,
+    ): MaskReuseAdjustment? {
+        if (trackedRect.area() < DANMAKU_AI_MASK_ADJUST_MIN_RECT_AREA) {
+            return null
+        }
+        if (degradationStage > 0 || trackerLifecycleState == TrackerLifecycleState.LOST) {
+            return null
+        }
+        if (trackerLifecycleState != TrackerLifecycleState.STABLE &&
+            trackerLifecycleState != TrackerLifecycleState.WEAK
+        ) {
+            return null
+        }
+        val leftPx = (trackedRect.left * bitmap.width.toFloat()).roundToInt().coerceIn(0, bitmap.width - 1)
+        val topPx = (trackedRect.top * bitmap.height.toFloat()).roundToInt().coerceIn(0, bitmap.height - 1)
+        val rightPx = (trackedRect.right * bitmap.width.toFloat()).roundToInt().coerceIn(leftPx, bitmap.width - 1)
+        val bottomPx = (trackedRect.bottom * bitmap.height.toFloat()).roundToInt().coerceIn(topPx, bitmap.height - 1)
+        val roiWidth = rightPx - leftPx + 1
+        val roiHeight = bottomPx - topPx + 1
+        if (roiWidth < 8 || roiHeight < 8) {
+            return null
+        }
+        val step = DANMAKU_AI_MASK_ADJUST_EDGE_SAMPLE_STEP
+        var totalWeight = 0f
+        var weightedX = 0f
+        var weightedY = 0f
+        var minSampleX = Int.MAX_VALUE
+        var minSampleY = Int.MAX_VALUE
+        var maxSampleX = Int.MIN_VALUE
+        var maxSampleY = Int.MIN_VALUE
+        var y = topPx
+        while (y <= bottomPx) {
+            var x = leftPx
+            while (x <= rightPx) {
+                val current = bitmap.getPixel(x, y)
+                val right = bitmap.getPixel(minOf(x + step, rightPx), y)
+                val bottom = bitmap.getPixel(x, minOf(y + step, bottomPx))
+                val currentLuma = ((Color.red(current) * 77) + (Color.green(current) * 150) + (Color.blue(current) * 29)) shr 8
+                val rightLuma = ((Color.red(right) * 77) + (Color.green(right) * 150) + (Color.blue(right) * 29)) shr 8
+                val bottomLuma = ((Color.red(bottom) * 77) + (Color.green(bottom) * 150) + (Color.blue(bottom) * 29)) shr 8
+                val edgeWeight =
+                    (abs(currentLuma - rightLuma) + abs(currentLuma - bottomLuma)).toFloat()
+                if (edgeWeight >= DANMAKU_AI_MASK_ADJUST_EDGE_WEIGHT_THRESHOLD) {
+                    totalWeight += edgeWeight
+                    weightedX += (x - leftPx).toFloat() * edgeWeight
+                    weightedY += (y - topPx).toFloat() * edgeWeight
+                    minSampleX = minOf(minSampleX, x - leftPx)
+                    minSampleY = minOf(minSampleY, y - topPx)
+                    maxSampleX = maxOf(maxSampleX, x - leftPx)
+                    maxSampleY = maxOf(maxSampleY, y - topPx)
+                }
+                x += step
+            }
+            y += step
+        }
+        if (totalWeight < DANMAKU_AI_MASK_ADJUST_MIN_EDGE_WEIGHT || minSampleX >= maxSampleX || minSampleY >= maxSampleY) {
+            return null
+        }
+        val roiCentroidX = (weightedX / totalWeight) / roiWidth.toFloat()
+        val roiCentroidY = (weightedY / totalWeight) / roiHeight.toFloat()
+        val maskCentroidLocalX =
+            ((previousMaskStats.centroidX - previousRect.left) / previousRect.width.coerceAtLeast(1e-4f))
+                .coerceIn(0f, 1f)
+        val maskCentroidLocalY =
+            ((previousMaskStats.centroidY - previousRect.top) / previousRect.height.coerceAtLeast(1e-4f))
+                .coerceIn(0f, 1f)
+        val dxPx =
+            (((roiCentroidX - maskCentroidLocalX) * trackedRect.width * width.toFloat())
+                .roundToInt())
+                .coerceIn(
+                    (-(trackedRect.width * width.toFloat() * DANMAKU_AI_MASK_ADJUST_MAX_DX_RATIO).roundToInt()),
+                    (trackedRect.width * width.toFloat() * DANMAKU_AI_MASK_ADJUST_MAX_DX_RATIO).roundToInt(),
+                )
+        val dyPx =
+            (((roiCentroidY - maskCentroidLocalY) * trackedRect.height * height.toFloat())
+                .roundToInt())
+                .coerceIn(
+                    (-(trackedRect.height * height.toFloat() * DANMAKU_AI_MASK_ADJUST_MAX_DY_RATIO).roundToInt()),
+                    (trackedRect.height * height.toFloat() * DANMAKU_AI_MASK_ADJUST_MAX_DY_RATIO).roundToInt(),
+                )
+        val edgeWidthRatio = (maxSampleX - minSampleX + step).toFloat() / roiWidth.toFloat()
+        val edgeHeightRatio = (maxSampleY - minSampleY + step).toFloat() / roiHeight.toFloat()
+        val previousMaskWidthRatio =
+            (previousMaskStats.boundingRect.width / previousRect.width.coerceAtLeast(1e-4f)).coerceIn(0.2f, 1.4f)
+        val previousMaskHeightRatio =
+            (previousMaskStats.boundingRect.height / previousRect.height.coerceAtLeast(1e-4f)).coerceIn(0.2f, 1.4f)
+        val spanScale =
+            (((edgeWidthRatio / previousMaskWidthRatio) + (edgeHeightRatio / previousMaskHeightRatio)) * 0.5f)
+                .coerceIn(1f - DANMAKU_AI_MASK_ADJUST_MAX_SCALE_DELTA, 1f + DANMAKU_AI_MASK_ADJUST_MAX_SCALE_DELTA)
+        if (dxPx == 0 && dyPx == 0 && abs(spanScale - 1f) < 0.01f) {
+            return null
+        }
+        return MaskReuseAdjustment(
+            dxPx = dxPx,
+            dyPx = dyPx,
+            scale = spanScale,
+            source = "roi_edge_envelope",
+        )
+    }
+
+    private fun buildTrackerMaskReuseResult(
+        bitmap: Bitmap,
+        trackedRect: DanmakuNormalizedRect,
+    ): Pair<DanmakuMaskResult, MaskReuseAdjustment?>? {
+        val previousMask = latestMaskValues ?: return null
+        val width = latestMaskWidth.takeIf { it > 0 } ?: return null
+        val height = latestMaskHeight.takeIf { it > 0 } ?: return null
+        val previousRect = trackingRectOrDisplayRect() ?: return null
+        val baseDxPx =
+            ((trackedRect.centerX - previousRect.centerX) * width.toFloat()).roundToInt()
+        val baseDyPx =
+            ((trackedRect.centerY - previousRect.centerY) * height.toFloat()).roundToInt()
+        val baseScale =
+            sqrt(
+                (trackedRect.area() / previousRect.area().coerceAtLeast(1e-4f))
+                    .coerceAtLeast(0.01f),
+            )
+        val previousMaskStats = computeMaskGeometryStats(previousMask, width, height)
+        val adjustment =
+            previousMaskStats?.let {
+                estimateMaskReuseAdjustment(
+                    bitmap = bitmap,
+                    previousRect = previousRect,
+                    trackedRect = trackedRect,
+                    width = width,
+                    height = height,
+                    previousMaskStats = it,
+                )
+            }
+        val dxPx = baseDxPx + (adjustment?.dxPx ?: 0)
+        val dyPx = baseDyPx + (adjustment?.dyPx ?: 0)
+        val scale =
+            (baseScale * (adjustment?.scale ?: 1f))
+                .coerceIn(
+                    DANMAKU_AI_MOTION_PREDICTION_MIN_SCALE,
+                    DANMAKU_AI_MOTION_PREDICTION_MAX_SCALE,
+                )
+        val anchorCenterX = previousRect.centerX * width.toFloat()
+        val anchorCenterY = previousRect.centerY * height.toFloat()
+        val maskValues =
+            transformMaskValues(
+                values = previousMask,
+                width = width,
+                height = height,
+                dxPx = dxPx,
+                dyPx = dyPx,
+                scale = scale,
+                anchorCenterX = anchorCenterX,
+                anchorCenterY = anchorCenterY,
+            )
+        return DanmakuMaskResult(
+            maskValues = maskValues,
+            maskWidth = width,
+            maskHeight = height,
+            normalizedRect = trackedRect,
+        ) to adjustment
+    }
+
+    private fun replaceRuntimeMaskBitmap(nextBitmap: Bitmap?) {
+        if (latestRuntimeMaskBitmap === nextBitmap) {
+            return
+        }
+        latestRuntimeMaskBitmap?.takeIf { it !== nextBitmap && !it.isRecycled }?.recycle()
+        latestRuntimeMaskBitmap = nextBitmap
+    }
+
+    private fun createRuntimeMaskBitmap(
+        width: Int,
+        height: Int,
+        maskValues: FloatArray,
+    ): Bitmap {
+        val pixels = IntArray(width * height)
+        for (index in pixels.indices) {
+            val alpha = (maskValues[index].coerceIn(0f, 1f) * 255f).toInt().coerceIn(0, 255)
+            pixels[index] = Color.argb(alpha, 255, 255, 255)
+        }
+        return Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
+    }
+
+    private fun updateDegradationAfterSample(
+        latencyMs: Long,
+        occlusionMode: DanmakuOcclusionMode,
+    ) {
+        val budgetThresholdMs = preferredSampleIntervalMs()
+        if (latencyMs > budgetThresholdMs) {
+            overBudgetCount += 1
+            stableRecoverySamples = 0
+            if (overBudgetCount >= DANMAKU_AI_OVER_BUDGET_LIMIT && degradationStage < 3) {
+                degradationStage += 1
+                overBudgetCount = 0
+                Log.d(
+                    DANMAKU_AI_TAG,
+                    "degrade stage=$degradationStage reason=latency latencyMs=$latencyMs budgetMs=$budgetThresholdMs",
+                )
+            }
+            return
+        }
+        overBudgetCount = max(0, overBudgetCount - 1)
+        if (occlusionMode != DanmakuOcclusionMode.MASK || averageLatencyMs <= 0.0) {
+            stableRecoverySamples = 0
+            return
+        }
+        val recoveryThresholdMs = budgetThresholdMs.toDouble() * DANMAKU_AI_DEGRADATION_RECOVERY_LATENCY_RATIO
+        if (averageLatencyMs <= recoveryThresholdMs) {
+            stableRecoverySamples += 1
+            if (stableRecoverySamples >= DANMAKU_AI_DEGRADATION_RECOVERY_SAMPLES && degradationStage > 0) {
+                degradationStage -= 1
+                stableRecoverySamples = 0
+                Log.d(
+                    DANMAKU_AI_TAG,
+                    "recover stage=$degradationStage avgLatencyMs=${"%.1f".format(Locale.US, averageLatencyMs)} budgetMs=$budgetThresholdMs",
+                )
+            }
+        } else {
+            stableRecoverySamples = 0
+        }
+    }
+
     private fun scheduleNextSample() {
+        scheduleNextSample(delayMs = currentSampleIntervalMs())
+    }
+
+    private fun scheduleNextSample(delayMs: Long) {
         if (disposed || !shouldSample() || samplingScheduled) {
             return
         }
+        val nowUptimeMs = SystemClock.uptimeMillis()
+        val clampedDelayMs =
+            max(
+                delayMs.coerceAtLeast(0L),
+                (nextEligibleSampleUptimeMs - nowUptimeMs).coerceAtLeast(0L),
+            )
         samplingScheduled = true
-        mainHandler.postDelayed(sampleRunnable, currentSampleIntervalMs())
+        mainHandler.postDelayed(sampleRunnable, clampedDelayMs)
+    }
+
+    private fun scheduleImmediateSample() {
+        scheduleNextSample(delayMs = 0L)
     }
 
     private fun stopSampling(clearPending: Boolean) {
         mainHandler.removeCallbacks(sampleRunnable)
         samplingScheduled = false
+        activeCaptureRequestId?.let(videoOutputTarget::cancelBitmapCapture)
+        activeCaptureRequestId = null
+        captureInFlight = false
+        nextEligibleSampleUptimeMs = 0L
         if (clearPending) {
             capturePending = false
         }
     }
 
     private fun captureFrameAndInfer() {
-        val textureView = videoOutputTarget.view as? TextureView
-        if (textureView == null || !textureView.isAvailable) {
-            emitUnavailableState(backend = currentBackendOrFallback(), keepEnabled = config.enabled)
+        val captureUnavailableReason = captureUnavailableReason()
+        if (captureUnavailableReason != null) {
+            stopSampling(clearPending = true)
+            emitUnavailableState(
+                backend = currentBackendOrFallback(),
+                keepEnabled = config.enabled,
+                backendWireValue = videoOutputTarget.backend.wireValue,
+                unavailableReason = captureUnavailableReason,
+            )
             return
         }
-        val runtime =
-            ensureRuntime()
-                ?: run {
-                    stopSampling(clearPending = true)
-                    emitUnavailableState(
-                        backend = DanmakuAiBackend.DISABLED,
-                        keepEnabled = config.enabled,
-                    )
-                    return
-                }
         val sampleId = ++sampleSequence
+        nextEligibleSampleUptimeMs =
+            max(
+                nextEligibleSampleUptimeMs,
+                SystemClock.uptimeMillis() + currentSampleIntervalMs(),
+            )
         val captureStartedAt = SystemClock.elapsedRealtime()
+        if (videoOutputTarget.supportsAsyncBitmapCapture) {
+            captureInFlight = true
+            val requestId =
+                videoOutputTarget.requestBitmapCapture(
+                    width = DANMAKU_AI_CAPTURE_WIDTH,
+                    height = DANMAKU_AI_CAPTURE_HEIGHT,
+                    sampleAreaRatio = config.sampleAreaRatio,
+                ) { capturedFrame ->
+                    activeCaptureRequestId = null
+                    captureInFlight = false
+                    if (disposed) {
+                        capturedFrame?.bitmap?.takeIf { !it.isRecycled }?.recycle()
+                        return@requestBitmapCapture
+                    }
+                    val captureLatencyMs = SystemClock.elapsedRealtime() - captureStartedAt
+                    val bitmap = capturedFrame?.bitmap
+                    if (bitmap == null) {
+                        Log.w(
+                            DANMAKU_AI_TAG,
+                            "sample=$sampleId backend=${currentBackendOrFallback().wireValue} async capture failed size=${DANMAKU_AI_CAPTURE_WIDTH}x${DANMAKU_AI_CAPTURE_HEIGHT}",
+                        )
+                        emitUnavailableState(
+                            backend = currentBackendOrFallback(),
+                            keepEnabled = config.enabled,
+                        )
+                        finishSamplingCycle()
+                        return@requestBitmapCapture
+                    }
+                    lastCaptureBackend = capturedFrame.captureBackend
+                    maybeLogSamplingSlowPath(
+                        sampleId = sampleId,
+                        backend = currentBackendOrFallback(),
+                        captureLatencyMs = captureLatencyMs,
+                        inferenceLatencyMs = null,
+                        totalLatencyMs = captureLatencyMs,
+                        reason = "capture",
+                    )
+                    processing = true
+                    inferenceHandler.post {
+                        runInference(
+                            bitmap = bitmap,
+                            sampleId = sampleId,
+                            captureLatencyMs = captureLatencyMs,
+                            sampleAreaRatio = capturedFrame.sampleAreaRatio,
+                        )
+                    }
+                }
+            if (requestId == null) {
+                captureInFlight = false
+                emitUnavailableState(
+                    backend = currentBackendOrFallback(),
+                    keepEnabled = config.enabled,
+                    unavailableReason = DANMAKU_AI_UNAVAILABLE_REASON_CAPTURE_UNSUPPORTED,
+                )
+                finishSamplingCycle()
+                return
+            }
+            activeCaptureRequestId = requestId
+            return
+        }
         val capturedFrame =
-            captureBitmap(
-                textureView = textureView,
-                width = runtime.inputWidth,
-                height = runtime.inputHeight,
+            videoOutputTarget.captureBitmap(
+                width = DANMAKU_AI_CAPTURE_WIDTH,
+                height = DANMAKU_AI_CAPTURE_HEIGHT,
                 sampleAreaRatio = config.sampleAreaRatio,
             )
         val captureLatencyMs = SystemClock.elapsedRealtime() - captureStartedAt
@@ -766,14 +2470,16 @@ class DanmakuDynamicOcclusionController(
         if (bitmap == null) {
             Log.w(
                 DANMAKU_AI_TAG,
-                "sample=$sampleId backend=${runtime.backend.wireValue} capture failed size=${runtime.inputWidth}x${runtime.inputHeight}",
+                "sample=$sampleId backend=${currentBackendOrFallback().wireValue} capture failed size=${DANMAKU_AI_CAPTURE_WIDTH}x${DANMAKU_AI_CAPTURE_HEIGHT}",
             )
-            emitUnavailableState(backend = runtime.backend, keepEnabled = config.enabled)
+            emitUnavailableState(backend = currentBackendOrFallback(), keepEnabled = config.enabled)
+            finishSamplingCycle()
             return
         }
+        lastCaptureBackend = capturedFrame.captureBackend
         maybeLogSamplingSlowPath(
             sampleId = sampleId,
-            backend = runtime.backend,
+            backend = currentBackendOrFallback(),
             captureLatencyMs = captureLatencyMs,
             inferenceLatencyMs = null,
             totalLatencyMs = captureLatencyMs,
@@ -782,7 +2488,6 @@ class DanmakuDynamicOcclusionController(
         processing = true
         inferenceHandler.post {
             runInference(
-                runtime = runtime,
                 bitmap = bitmap,
                 sampleId = sampleId,
                 captureLatencyMs = captureLatencyMs,
@@ -791,67 +2496,30 @@ class DanmakuDynamicOcclusionController(
         }
     }
 
-    private fun captureBitmap(
-        textureView: TextureView,
-        width: Int,
-        height: Int,
-        sampleAreaRatio: Float,
-    ): DanmakuCapturedFrame? {
-        val current = reusableBitmap
-        val reusable =
-            if (
-                current != null &&
-                    current.width == width &&
-                    current.height == height &&
-                    !current.isRecycled
-            ) {
-                current
-            } else {
-                current?.recycle()
-                Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
-                    reusableBitmap = it
-                }
-            }
-        val captured = runCatching { textureView.getBitmap(reusable) }.getOrNull() ?: return null
-        val clampedRatio = sampleAreaRatio.coerceIn(0.1f, 1.0f)
-        if (clampedRatio >= 0.999f) {
-            return DanmakuCapturedFrame(bitmap = captured, sampleAreaRatio = 1.0f)
-        }
-        val focusedCurrent = reusableFocusedBitmap
-        val focused =
-            if (
-                focusedCurrent != null &&
-                    focusedCurrent.width == width &&
-                    focusedCurrent.height == height &&
-                    !focusedCurrent.isRecycled
-            ) {
-                focusedCurrent
-            } else {
-                focusedCurrent?.recycle()
-                Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
-                    reusableFocusedBitmap = it
-                }
-            }
-        val sourceHeight = max(1, (height.toFloat() * clampedRatio).roundToInt()).coerceAtMost(height)
-        val canvas = Canvas(focused)
-        canvas.drawColor(Color.BLACK)
-        canvas.drawBitmap(
-            captured,
-            Rect(0, 0, width, sourceHeight),
-            Rect(0, 0, width, height),
-            Paint(Paint.FILTER_BITMAP_FLAG),
-        )
-        return DanmakuCapturedFrame(bitmap = focused, sampleAreaRatio = clampedRatio)
-    }
-
     private fun runInference(
-        runtime: DanmakuSegmentationRuntime,
         bitmap: Bitmap,
         sampleId: Long,
         captureLatencyMs: Long,
         sampleAreaRatio: Float,
     ) {
         val startedAt = SystemClock.elapsedRealtime()
+        val detectionRuntime =
+            ensureDetectionRuntime()
+                ?: run {
+                    mainHandler.post {
+                        processing = false
+                        if (!disposed) {
+                            stopSampling(clearPending = true)
+                            emitUnavailableState(
+                                backend = DanmakuAiBackend.DISABLED,
+                                keepEnabled = config.enabled,
+                            )
+                        }
+                    }
+                    return
+                }
+        val runtime = ensureRuntime()
+        val inferenceBackend = runtime?.backend ?: detectionRuntime.backend
         val result =
             runCatching {
                 val frameContinuity = analyzeFrameContinuity(bitmap)
@@ -863,10 +2531,11 @@ class DanmakuDynamicOcclusionController(
                 val motionLumaSamples =
                     sampleBitmapLuma(bitmap, motionSampleWidth, motionSampleHeight)
                 val motionCompensationAttempted =
-                    !frameContinuity.sceneCut &&
+                    runtime != null &&
+                        !frameContinuity.sceneCut &&
                         !sceneCutRecoveryActive &&
                         latestMotionReferenceFrame != null &&
-                        latestRect != null &&
+                        trackingRectOrDisplayRect() != null &&
                         latestMaskValues != null
                 val motionCompensation =
                     if (motionCompensationAttempted) {
@@ -874,103 +2543,2986 @@ class DanmakuDynamicOcclusionController(
                             currentLumaSamples = motionLumaSamples,
                             sampleWidth = motionSampleWidth,
                             sampleHeight = motionSampleHeight,
-                            maskWidth = runtime.outputWidth,
-                            maskHeight = runtime.outputHeight,
+                            maskWidth = latestMaskWidth.takeIf { it > 0 } ?: runtime.outputWidth,
+                            maskHeight = latestMaskHeight.takeIf { it > 0 } ?: runtime.outputHeight,
                         )
                     } else {
                         null
                     }
+                val trackerStartedAt = SystemClock.elapsedRealtime()
+                val trackerUpdate = updatePersonTracker(bitmap, frameContinuity)
+                val trackerLatencyMs = SystemClock.elapsedRealtime() - trackerStartedAt
+                val trackerCandidate = buildTrackerRectCandidate(trackerUpdate)
+                updateTrackerLifecycleAfterUpdate(trackerUpdate, trackerCandidate)
                 if (frameContinuity.sceneCut && !sceneCutRecoveryActive) {
                     mainHandler.post {
-                        if (!disposed && activeRuntime?.backend == runtime.backend) {
-                            beginSceneCutRecovery(runtime.backend)
+                        if (!disposed &&
+                            (runtime == null || activeRuntime?.backend == runtime.backend) &&
+                            activeDetectionRuntime?.backend == detectionRuntime.backend
+                        ) {
+                            beginSceneCutRecovery(inferenceBackend)
                         }
                     }
                 }
-                val outputValues = runtime.run(bitmap)
-                extractMaskResult(
-                    outputValues = outputValues,
-                    outputWidth = runtime.outputWidth,
-                    outputHeight = runtime.outputHeight,
-                    allowTemporalSmoothing =
-                        !frameContinuity.sceneCut && !sceneCutRecoveryActive,
-                    motionCompensation = motionCompensation,
-                    motionCompensationAttempted = motionCompensationAttempted,
-                )?.let { extraction ->
-                    if (sampleAreaRatio < 0.999f) {
-                        remapMaskResultToFullFrame(extraction.maskResult, sampleAreaRatio)
-                    } else {
-                        extraction.maskResult
-                    }
-                        .let { mappedResult ->
-                            InferenceOutcome(
-                                maskResult = mappedResult,
+                val trackedCandidate =
+                    resolveTrackedRectCandidate(
+                        trackerCandidate = trackerCandidate,
+                        motionCompensation = motionCompensation,
+                    )
+                val trackedRect = trackedCandidate?.rect
+                val relaxSmallMultiDetectionPositionJump =
+                    smallMultiTracks.count {
+                        it.hitCount >= 1 && it.missCount < DANMAKU_AI_SMALL_MULTI_TRACK_MAX_MISS_SAMPLES_WEAK
+                    } >= DANMAKU_AI_SMALL_MULTI_MAX_PEOPLE
+                val largeMotionSuppressionReason =
+                    shouldCancelMaskForLargeMotion(
+                        trackedCandidate = trackedCandidate,
+                        motionCompensation = motionCompensation,
+                        relaxDetectionPositionJump = relaxSmallMultiDetectionPositionJump,
+                    )
+                val forceMotionReacquire = largeMotionSuppressionReason != null
+                if (forceMotionReacquire) {
+                    markMotionBurstRequested(largeMotionSuppressionReason)
+                    lastTrackerReuseFallbackReason = "motion_burst_reacquire"
+                }
+                var trackedScaleRescueApplied = false
+                if (!forceMotionReacquire &&
+                    shouldAttemptTrackedRoi(frameContinuity, trackedCandidate) &&
+                    trackedRect != null
+                ) {
+                    val trackerReuseFallbackReason =
+                        shouldAttemptTrackerMaskReuse(
+                            frameContinuity = frameContinuity,
+                            trackedCandidate = trackedCandidate,
+                        )
+                    if (trackerReuseFallbackReason == null) {
+                        val reusedMask = buildTrackerMaskReuseResult(bitmap, trackedRect)
+                        if (reusedMask != null) {
+                            val reusedMaskResult = reusedMask.first
+                            val maskAdjustment = reusedMask.second
+                            lastTrackerReuseFallbackReason = null
+                            return@runCatching InferenceOutcome(
+                                maskResult = reusedMaskResult,
                                 motionLumaSamples = motionLumaSamples,
                                 motionSampleWidth = motionSampleWidth,
                                 motionSampleHeight = motionSampleHeight,
-                                motionCompensation = extraction.appliedMotionCompensation,
+                                motionCompensation = motionCompensation,
                                 motionCompensationAttempted = motionCompensationAttempted,
+                                detectLatencyMs = 0L,
+                                refineLatencyMs = 0L,
+                                occlusionMode = reusedMaskResult.occlusionMode,
+                                detectionPerformed = false,
+                                trackedRectReused = true,
+                                primaryRect = trackedRect,
+                                segmentationRoiMode = "tracker_reuse",
+                                segmentationRoiRect = trackedRect,
+                                segmentationInputWidth = latestMaskWidth,
+                                segmentationInputHeight = latestMaskHeight,
+                                predictedScale = trackedCandidate.predictedScale,
+                                predictedAreaRatio = trackedCandidate.predictedAreaRatio,
+                                trackedRectSource = trackedCandidate.source,
+                                maskScaleApplied = shouldApplyMaskScaleCompensation(trackedCandidate.predictedScale),
+                                maskScaleValue = trackedCandidate.predictedScale,
+                                scaleRescueApplied = false,
+                                trackerUsed = true,
+                                trackerSuccessful = true,
+                                trackerSource = trackerUpdate?.source ?: trackedCandidate.source,
+                                trackerMaskReused = true,
+                                trackerConfidence = trackerUpdate?.confidence ?: trackedCandidate.confidence,
+                                trackerLatencyMs = trackerLatencyMs,
+                                trackerState = trackerLifecycleState.wireValue,
+                                trackerStateReason = trackerLifecycleReason,
+                                detectionSkippedByStableTracker =
+                                    trackerLifecycleState == TrackerLifecycleState.STABLE,
+                                maskAdjustmentUsed = maskAdjustment != null,
+                                maskAdjustmentSource = maskAdjustment?.source,
+                                maskAdjustmentDelta = maskAdjustment?.deltaSummary(),
                             )
                         }
-                }.let { mappedOutcome ->
-                    mappedOutcome
+                    } else {
+                        lastTrackerReuseFallbackReason = trackerReuseFallbackReason
+                        if (
+                            trackerReuseFallbackReason == "tracker_center_jump" ||
+                                trackerReuseFallbackReason == "tracker_area_jump"
+                        ) {
+                            markMotionBurstRequested(trackerReuseFallbackReason)
+                        }
+                    }
+                    val segmentationSkippedByStableTracker =
+                        trackerLifecycleState == TrackerLifecycleState.STABLE &&
+                            trackerReuseFallbackReason in setOf(
+                                "refresh_due",
+                                "tracker_warmup",
+                                "tracker_center_jump",
+                                "tracker_area_jump",
+                            )
+                    if (segmentationSkippedByStableTracker) {
+                        lastTrackerReuseFallbackReason = trackerReuseFallbackReason
+                    }
+                    if (segmentationSkippedByStableTracker || !allowMaskRefinement() || runtime == null) {
+                        return@runCatching InferenceOutcome(
+                            maskResult = null,
+                            motionLumaSamples = motionLumaSamples,
+                            motionSampleWidth = motionSampleWidth,
+                            motionSampleHeight = motionSampleHeight,
+                            motionCompensation = motionCompensation,
+                            motionCompensationAttempted = motionCompensationAttempted,
+                            detectLatencyMs = 0L,
+                            refineLatencyMs = 0L,
+                            occlusionMode = DanmakuOcclusionMode.DISABLED,
+                            detectionPerformed = false,
+                            trackedRectReused = false,
+                            primaryRect = trackedRect,
+                            segmentationRoiMode = null,
+                            segmentationRoiRect = null,
+                            segmentationInputWidth = 0,
+                            segmentationInputHeight = 0,
+                            predictedScale = trackedCandidate.predictedScale,
+                            predictedAreaRatio = trackedCandidate.predictedAreaRatio,
+                            trackedRectSource = trackedCandidate.source,
+                            maskScaleApplied = false,
+                            maskScaleValue = 1f,
+                            scaleRescueApplied = false,
+                            trackerUsed = trackerUpdate != null,
+                            trackerSuccessful = trackerUpdate?.success == true,
+                            trackerSource = trackerUpdate?.source,
+                            trackerConfidence = trackerUpdate?.confidence,
+                            trackerLatencyMs = trackerLatencyMs,
+                            trackerFallbackReason = lastTrackerReuseFallbackReason,
+                            trackerState = trackerLifecycleState.wireValue,
+                            trackerStateReason = trackerLifecycleReason,
+                            detectionSkippedByStableTracker = segmentationSkippedByStableTracker,
+                            segmentationSkippedByStableTracker = segmentationSkippedByStableTracker,
+                        )
+                    }
+                    val trackedSegmentation =
+                        runSegmentationForRect(
+                            bitmap = bitmap,
+                            sampleId = sampleId,
+                            runtime = runtime,
+                            targetRect = trackedRect,
+                            roiMode = DanmakuSegmentationRoiMode.TRACKED,
+                            sampleAreaRatio = sampleAreaRatio,
+                            allowTemporalSmoothing =
+                                !frameContinuity.sceneCut && !sceneCutRecoveryActive,
+                            motionCompensation = motionCompensation,
+                            motionCompensationAttempted = motionCompensationAttempted,
+                            predictedScale = trackedCandidate.predictedScale,
+                        )
+                    trackedScaleRescueApplied = trackedSegmentation.scaleRescueApplied
+                    if (trackedSegmentation.extraction != null) {
+                        initializePersonTracker(
+                            bitmap = bitmap,
+                            rect = trackedSegmentation.extraction.maskResult.normalizedRect ?: trackedRect,
+                        )
+                        lastTrackerReuseFallbackReason = null
+                        return@runCatching InferenceOutcome(
+                            maskResult = trackedSegmentation.extraction.maskResult,
+                            motionLumaSamples = motionLumaSamples,
+                            motionSampleWidth = motionSampleWidth,
+                            motionSampleHeight = motionSampleHeight,
+                            motionCompensation =
+                                trackedSegmentation.extraction.appliedMotionCompensation ?: motionCompensation,
+                            motionCompensationAttempted = motionCompensationAttempted,
+                            detectLatencyMs = 0L,
+                            refineLatencyMs = trackedSegmentation.latencyMs,
+                            occlusionMode = trackedSegmentation.extraction.maskResult.occlusionMode,
+                            detectionPerformed = false,
+                            trackedRectReused = true,
+                            primaryRect = trackedRect,
+                            segmentationRoiMode = trackedSegmentation.roiMode.wireValue,
+                            segmentationRoiRect = trackedSegmentation.roiRect,
+                            segmentationInputWidth = trackedSegmentation.inputWidth,
+                            segmentationInputHeight = trackedSegmentation.inputHeight,
+                            predictedScale = trackedCandidate.predictedScale,
+                            predictedAreaRatio = trackedCandidate.predictedAreaRatio,
+                            trackedRectSource = trackedCandidate.source,
+                            maskScaleApplied = trackedSegmentation.extraction.maskScaleApplied,
+                            maskScaleValue = trackedSegmentation.extraction.maskScaleValue,
+                            scaleRescueApplied = trackedSegmentation.scaleRescueApplied,
+                            trackerUsed = trackerUpdate != null,
+                            trackerSuccessful = trackerUpdate?.success == true,
+                            trackerSource = trackerUpdate?.source,
+                            trackerConfidence = trackerUpdate?.confidence,
+                            trackerLatencyMs = trackerLatencyMs,
+                            trackerFallbackReason = lastTrackerReuseFallbackReason,
+                            trackerState = trackerLifecycleState.wireValue,
+                            trackerStateReason = trackerLifecycleReason,
+                        )
+                    }
                 }
+                val detectStartedAt = SystemClock.elapsedRealtime()
+                val detections =
+                    synchronized(runtimeLock) {
+                        if (
+                            disposed ||
+                                activeDetectionRuntime !== detectionRuntime ||
+                                (runtime != null && activeRuntime !== runtime)
+                        ) {
+                            return@runCatching null
+                        }
+                        detectionRuntime.run(bitmap, DANMAKU_AI_MULTI_DETECTION_SCORE_THRESHOLD)
+                    } ?: return@runCatching null
+                val detectLatencyMs = SystemClock.elapsedRealtime() - detectStartedAt
+                val smallMultiSelection = selectSmallMultiDetections(detections)
+                val primarySelection = selectPrimaryDetection(detections, trackingRectOrDisplayRect())
+                val primaryDetection = primarySelection.detection
+                updatePrimaryTargetMemory(primarySelection)
+                val multiPrimaryRect = smallMultiSelection.targets.firstOrNull()?.rect ?: primaryDetection?.rect
+                updateTrackerLifecycleAfterDetection(trackedCandidate, multiPrimaryRect)
+                val stableSingleTargetPreferred =
+                    trackerLifecycleState == TrackerLifecycleState.STABLE ||
+                        (trackerLifecycleState == TrackerLifecycleState.WARMUP && primarySelection.stable) ||
+                        primarySelection.stable
+                val detectionSuppressionReason =
+                    multiPrimaryRect?.let {
+                        shouldCancelMaskForLargeMotion(
+                            trackedCandidate = trackedCandidate,
+                            motionCompensation = motionCompensation,
+                            detectionRect = it,
+                            relaxDetectionPositionJump =
+                                forceMotionReacquire ||
+                                smallMultiSelection.trackState.count {
+                                    track ->
+                                    track.hitCount >= 1 &&
+                                        track.missCount < DANMAKU_AI_SMALL_MULTI_TRACK_MAX_MISS_SAMPLES_WEAK
+                                } >= DANMAKU_AI_SMALL_MULTI_MAX_PEOPLE,
+                        )
+                    }
+                val multiDropReason =
+                    resolveSmallMultiDropReason(
+                        selection = smallMultiSelection,
+                        suppressed = detectionSuppressionReason != null,
+                        stableSingleTargetPreferred = stableSingleTargetPreferred,
+                    )
+                val preferSmallMultiMode =
+                    shouldPreferSmallMultiMode(
+                        selection = smallMultiSelection,
+                        dropReason = multiDropReason,
+                    )
+                val preserveSmallMultiTracks =
+                    sceneCutRecoveryActive || degradationStage > 0
+                val nextSmallMultiTracks =
+                    if (detectionSuppressionReason != null) {
+                        emptyList()
+                    } else if (preserveSmallMultiTracks) {
+                        smallMultiTracks
+                    } else {
+                        smallMultiSelection.trackState
+                    }
+                val nextSmallMultiCoarseOnlySamples =
+                    if (nextSmallMultiTracks.isEmpty()) {
+                        0
+                    } else {
+                        smallMultiSelection.coarseOnlySamples
+                    }
+                if (primaryDetection == null && !preferSmallMultiMode) {
+                    resetPersonTracker()
+                    return@runCatching InferenceOutcome(
+                        maskResult = null,
+                        motionLumaSamples = motionLumaSamples,
+                        motionSampleWidth = motionSampleWidth,
+                        motionSampleHeight = motionSampleHeight,
+                        motionCompensation = motionCompensation,
+                        motionCompensationAttempted = motionCompensationAttempted,
+                        detectLatencyMs = detectLatencyMs,
+                        refineLatencyMs = 0L,
+                        occlusionMode = DanmakuOcclusionMode.DISABLED,
+                        detectionPerformed = true,
+                        trackedRectReused = false,
+                        primaryRect = null,
+                        segmentationRoiMode = null,
+                        segmentationRoiRect = null,
+                        segmentationInputWidth = 0,
+                        segmentationInputHeight = 0,
+                        predictedScale = trackedCandidate?.predictedScale ?: 1f,
+                        predictedAreaRatio = trackedCandidate?.predictedAreaRatio ?: 1f,
+                        trackedRectSource = trackedCandidate?.source,
+                        maskScaleApplied = false,
+                        maskScaleValue = 1f,
+                        scaleRescueApplied = trackedScaleRescueApplied,
+                        multiCandidateCount = smallMultiSelection.candidateCount,
+                        multiViewportScale = smallMultiSelection.thresholdScale,
+                        multiDropReason = smallMultiSelection.dropReason,
+                        multiTrackCount = smallMultiSelection.trackCount,
+                        multiTrackHits = smallMultiSelection.trackHits,
+                        multiTrackMisses = smallMultiSelection.trackMisses,
+                        multiTrackSource = smallMultiSelection.trackSource,
+                        multiAssociation = smallMultiSelection.association,
+                        nextSmallMultiTracks = nextSmallMultiTracks,
+                        nextSmallMultiCoarseOnlySamples = nextSmallMultiCoarseOnlySamples,
+                        trackerState = trackerLifecycleState.wireValue,
+                        trackerStateReason = trackerLifecycleReason,
+                        primaryTargetStable = primarySelection.stable,
+                        primaryTargetSwitched = primarySelection.switched,
+                        primaryTargetSwitchReason = primarySelection.switchReason,
+                    )
+                }
+                if (detectionSuppressionReason != null) {
+                    resetPersonTracker()
+                    if (trackerLifecycleState == TrackerLifecycleState.LOST) {
+                        resetPrimaryTargetMemory()
+                    }
+                    return@runCatching InferenceOutcome(
+                        maskResult = null,
+                        motionLumaSamples = motionLumaSamples,
+                        motionSampleWidth = motionSampleWidth,
+                        motionSampleHeight = motionSampleHeight,
+                        motionCompensation = motionCompensation,
+                        motionCompensationAttempted = motionCompensationAttempted,
+                        detectLatencyMs = detectLatencyMs,
+                        refineLatencyMs = 0L,
+                        occlusionMode = DanmakuOcclusionMode.DISABLED,
+                        detectionPerformed = true,
+                        trackedRectReused = false,
+                        primaryRect = multiPrimaryRect,
+                        segmentationRoiMode = null,
+                        segmentationRoiRect = null,
+                        segmentationInputWidth = 0,
+                        segmentationInputHeight = 0,
+                        predictedScale = trackedCandidate?.predictedScale ?: 1f,
+                        predictedAreaRatio = trackedCandidate?.predictedAreaRatio ?: 1f,
+                        trackedRectSource = trackedCandidate?.source,
+                        maskScaleApplied = false,
+                        maskScaleValue = 1f,
+                        scaleRescueApplied = trackedScaleRescueApplied,
+                        multiCandidateCount = smallMultiSelection.candidateCount,
+                        multiViewportScale = smallMultiSelection.thresholdScale,
+                        multiDropReason = multiDropReason,
+                        multiTrackCount = smallMultiSelection.trackCount,
+                        multiTrackHits = smallMultiSelection.trackHits,
+                        multiTrackMisses = smallMultiSelection.trackMisses,
+                        multiTrackSource = smallMultiSelection.trackSource,
+                        multiAssociation = smallMultiSelection.association,
+                        nextSmallMultiTracks = emptyList(),
+                        nextSmallMultiCoarseOnlySamples = 0,
+                        suppressMaskGrace = true,
+                        suppressionReason = detectionSuppressionReason,
+                        trackerState = trackerLifecycleState.wireValue,
+                        trackerStateReason = trackerLifecycleReason,
+                        primaryTargetStable = primarySelection.stable,
+                        primaryTargetSwitched = primarySelection.switched,
+                        primaryTargetSwitchReason = primarySelection.switchReason,
+                    )
+                }
+                if (!allowMaskRefinement() || runtime == null) {
+                    return@runCatching InferenceOutcome(
+                        maskResult = null,
+                        motionLumaSamples = motionLumaSamples,
+                        motionSampleWidth = motionSampleWidth,
+                        motionSampleHeight = motionSampleHeight,
+                        motionCompensation = motionCompensation,
+                        motionCompensationAttempted = motionCompensationAttempted,
+                        detectLatencyMs = detectLatencyMs,
+                        refineLatencyMs = 0L,
+                        occlusionMode = DanmakuOcclusionMode.DISABLED,
+                        detectionPerformed = true,
+                        trackedRectReused = false,
+                        primaryRect = multiPrimaryRect,
+                        segmentationRoiMode = null,
+                        segmentationRoiRect = null,
+                        segmentationInputWidth = 0,
+                        segmentationInputHeight = 0,
+                        predictedScale = trackedCandidate?.predictedScale ?: 1f,
+                        predictedAreaRatio = trackedCandidate?.predictedAreaRatio ?: 1f,
+                        trackedRectSource = trackedCandidate?.source,
+                        maskScaleApplied = false,
+                        maskScaleValue = 1f,
+                        scaleRescueApplied = trackedScaleRescueApplied,
+                        multiCandidateCount = smallMultiSelection.candidateCount,
+                        multiViewportScale = smallMultiSelection.thresholdScale,
+                        multiDropReason = multiDropReason,
+                        multiTrackCount = smallMultiSelection.trackCount,
+                        multiTrackHits = smallMultiSelection.trackHits,
+                        multiTrackMisses = smallMultiSelection.trackMisses,
+                        multiTrackSource = smallMultiSelection.trackSource,
+                        multiAssociation = smallMultiSelection.association,
+                        nextSmallMultiTracks = nextSmallMultiTracks,
+                        nextSmallMultiCoarseOnlySamples = nextSmallMultiCoarseOnlySamples,
+                        trackerState = trackerLifecycleState.wireValue,
+                        trackerStateReason = trackerLifecycleReason,
+                        primaryTargetStable = primarySelection.stable,
+                        primaryTargetSwitched = primarySelection.switched,
+                        primaryTargetSwitchReason = primarySelection.switchReason,
+                    )
+                }
+                if (preferSmallMultiMode) {
+                    resetPersonTracker()
+                    resetPrimaryTargetMemory()
+                    val multiSegmentation =
+                        runSmallMultiSegmentation(
+                            bitmap = bitmap,
+                            sampleId = sampleId,
+                            runtime = runtime,
+                            targets = smallMultiSelection.targets,
+                            sampleAreaRatio = sampleAreaRatio,
+                            thresholds = currentSmallMultiThresholds(),
+                        )
+                    val mergedMultiDropReason =
+                        mergeDropReasons(
+                            smallMultiSelection.dropReason,
+                            multiSegmentation.dropReason,
+                        )
+                    val updatedSmallMultiTracks =
+                        applySmallMultiMaskAreas(
+                            tracks = nextSmallMultiTracks,
+                            maskAreaByTrackId = multiSegmentation.maskAreaByTrackId,
+                        )
+                    return@runCatching InferenceOutcome(
+                        maskResult = multiSegmentation.maskResult,
+                        motionLumaSamples = motionLumaSamples,
+                        motionSampleWidth = motionSampleWidth,
+                        motionSampleHeight = motionSampleHeight,
+                        motionCompensation = null,
+                        motionCompensationAttempted = false,
+                        detectLatencyMs = detectLatencyMs,
+                        refineLatencyMs = multiSegmentation.latencyMs,
+                        occlusionMode = multiSegmentation.maskResult?.occlusionMode ?: DanmakuOcclusionMode.DISABLED,
+                        detectionPerformed = true,
+                        trackedRectReused = false,
+                        primaryRect = multiPrimaryRect,
+                        segmentationRoiMode = "detect_multi",
+                        segmentationRoiRect = multiSegmentation.roiRect,
+                        segmentationInputWidth = multiSegmentation.inputWidth,
+                        segmentationInputHeight = multiSegmentation.inputHeight,
+                        predictedScale = trackedCandidate?.predictedScale ?: 1f,
+                        predictedAreaRatio = trackedCandidate?.predictedAreaRatio ?: 1f,
+                        trackedRectSource = null,
+                        maskScaleApplied = false,
+                        maskScaleValue = 1f,
+                        scaleRescueApplied = trackedScaleRescueApplied,
+                        trackingStateEligible = false,
+                        multiSmallMode = true,
+                        multiCandidateCount = smallMultiSelection.candidateCount,
+                        multiKeptCount = multiSegmentation.keptCount,
+                        multiUnionAreaRatio = multiSegmentation.unionAreaRatio,
+                        multiViewportScale = smallMultiSelection.thresholdScale,
+                        multiDropReason = mergedMultiDropReason,
+                        multiTrackCount = smallMultiSelection.trackCount,
+                        multiTrackHits = smallMultiSelection.trackHits,
+                        multiTrackMisses = smallMultiSelection.trackMisses,
+                        multiTrackSource = smallMultiSelection.trackSource,
+                        multiAssociation = smallMultiSelection.association,
+                        nextSmallMultiTracks = updatedSmallMultiTracks,
+                        nextSmallMultiCoarseOnlySamples = nextSmallMultiCoarseOnlySamples,
+                        trackerState = trackerLifecycleState.wireValue,
+                        trackerStateReason = trackerLifecycleReason,
+                    )
+                }
+                val safePrimaryDetection =
+                    primaryDetection ?: run {
+                        resetPersonTracker()
+                        if (trackerLifecycleState == TrackerLifecycleState.LOST) {
+                            resetPrimaryTargetMemory()
+                        }
+                        return@runCatching InferenceOutcome(
+                            maskResult = null,
+                            motionLumaSamples = motionLumaSamples,
+                            motionSampleWidth = motionSampleWidth,
+                            motionSampleHeight = motionSampleHeight,
+                            motionCompensation = motionCompensation,
+                            motionCompensationAttempted = motionCompensationAttempted,
+                            detectLatencyMs = detectLatencyMs,
+                            refineLatencyMs = 0L,
+                            occlusionMode = DanmakuOcclusionMode.DISABLED,
+                            detectionPerformed = true,
+                            trackedRectReused = false,
+                            primaryRect = multiPrimaryRect,
+                            segmentationRoiMode = null,
+                            segmentationRoiRect = null,
+                            segmentationInputWidth = 0,
+                            segmentationInputHeight = 0,
+                            predictedScale = trackedCandidate?.predictedScale ?: 1f,
+                            predictedAreaRatio = trackedCandidate?.predictedAreaRatio ?: 1f,
+                            trackedRectSource = trackedCandidate?.source,
+                            maskScaleApplied = false,
+                            maskScaleValue = 1f,
+                            scaleRescueApplied = trackedScaleRescueApplied,
+                            multiCandidateCount = smallMultiSelection.candidateCount,
+                            multiViewportScale = smallMultiSelection.thresholdScale,
+                            multiDropReason = multiDropReason,
+                            multiTrackCount = smallMultiSelection.trackCount,
+                            multiTrackHits = smallMultiSelection.trackHits,
+                            multiTrackMisses = smallMultiSelection.trackMisses,
+                            multiTrackSource = smallMultiSelection.trackSource,
+                            multiAssociation = smallMultiSelection.association,
+                            nextSmallMultiTracks = nextSmallMultiTracks,
+                            nextSmallMultiCoarseOnlySamples = nextSmallMultiCoarseOnlySamples,
+                            trackerState = trackerLifecycleState.wireValue,
+                            trackerStateReason = trackerLifecycleReason,
+                            primaryTargetStable = primarySelection.stable,
+                            primaryTargetSwitched = primarySelection.switched,
+                            primaryTargetSwitchReason = primarySelection.switchReason,
+                        )
+                    }
+                val segmentationAttempt =
+                    runSegmentationForRect(
+                        bitmap = bitmap,
+                        sampleId = sampleId,
+                        runtime = runtime,
+                        targetRect = safePrimaryDetection.rect,
+                        roiMode = DanmakuSegmentationRoiMode.DETECT,
+                        sampleAreaRatio = sampleAreaRatio,
+                        allowTemporalSmoothing =
+                            !frameContinuity.sceneCut && !sceneCutRecoveryActive,
+                        motionCompensation = motionCompensation,
+                        motionCompensationAttempted = motionCompensationAttempted,
+                        predictedScale = trackedCandidate?.predictedScale,
+                    )
+                val nextMaskResult = segmentationAttempt.extraction?.maskResult
+                if (nextMaskResult != null) {
+                    initializePersonTracker(
+                        bitmap = bitmap,
+                        rect = nextMaskResult.normalizedRect ?: safePrimaryDetection.rect,
+                    )
+                    lastTrackerReuseFallbackReason = null
+                } else {
+                    resetPersonTracker()
+                }
+                InferenceOutcome(
+                    maskResult = nextMaskResult,
+                    motionLumaSamples = motionLumaSamples,
+                    motionSampleWidth = motionSampleWidth,
+                    motionSampleHeight = motionSampleHeight,
+                    motionCompensation =
+                        segmentationAttempt.extraction?.appliedMotionCompensation ?: motionCompensation,
+                    motionCompensationAttempted = motionCompensationAttempted,
+                    detectLatencyMs = detectLatencyMs,
+                    refineLatencyMs = segmentationAttempt.latencyMs,
+                    occlusionMode = nextMaskResult?.occlusionMode ?: DanmakuOcclusionMode.DISABLED,
+                    detectionPerformed = true,
+                    trackedRectReused = false,
+                    primaryRect = safePrimaryDetection.rect,
+                    segmentationRoiMode = segmentationAttempt.roiMode.wireValue,
+                    segmentationRoiRect = segmentationAttempt.roiRect,
+                    segmentationInputWidth = segmentationAttempt.inputWidth,
+                    segmentationInputHeight = segmentationAttempt.inputHeight,
+                    predictedScale = trackedCandidate?.predictedScale ?: 1f,
+                    predictedAreaRatio = trackedCandidate?.predictedAreaRatio ?: 1f,
+                    trackedRectSource = trackedCandidate?.source,
+                    maskScaleApplied = segmentationAttempt.extraction?.maskScaleApplied == true,
+                    maskScaleValue = segmentationAttempt.extraction?.maskScaleValue ?: 1f,
+                    scaleRescueApplied = trackedScaleRescueApplied || segmentationAttempt.scaleRescueApplied,
+                    multiCandidateCount = smallMultiSelection.candidateCount,
+                    multiViewportScale = smallMultiSelection.thresholdScale,
+                    multiDropReason = multiDropReason,
+                    multiTrackCount = smallMultiSelection.trackCount,
+                    multiTrackHits = smallMultiSelection.trackHits,
+                    multiTrackMisses = smallMultiSelection.trackMisses,
+                    multiTrackSource = smallMultiSelection.trackSource,
+                    multiAssociation = smallMultiSelection.association,
+                    nextSmallMultiTracks = nextSmallMultiTracks,
+                    nextSmallMultiCoarseOnlySamples = nextSmallMultiCoarseOnlySamples,
+                    trackerUsed = trackerUpdate != null,
+                    trackerSuccessful = trackerUpdate?.success == true,
+                    trackerSource = trackerUpdate?.source,
+                    trackerConfidence = trackerUpdate?.confidence,
+                    trackerLatencyMs = trackerLatencyMs,
+                    trackerFallbackReason = lastTrackerReuseFallbackReason,
+                    trackerState = trackerLifecycleState.wireValue,
+                    trackerStateReason = trackerLifecycleReason,
+                    primaryTargetStable = primarySelection.stable,
+                    primaryTargetSwitched = primarySelection.switched,
+                    primaryTargetSwitchReason = primarySelection.switchReason,
+                )
             }.getOrElse { error ->
-                Log.w(DANMAKU_AI_TAG, "backend=${runtime.backend.wireValue} inference failed", error)
-                handleBackendFailure(runtime.backend)
+                Log.w(DANMAKU_AI_TAG, "backend=${inferenceBackend.wireValue} inference failed", error)
+                handleBackendFailure(inferenceBackend)
                 null
             }
         val inferenceLatencyMs = SystemClock.elapsedRealtime() - startedAt
-        val cacheEntry =
-            if (result?.maskResult != null) {
-                persistMaskCache(
-                    source = currentSource,
-                    backend = runtime.backend,
-                    result = result.maskResult,
-                    frameBitmap = bitmap,
-                    updatedAtMs = System.currentTimeMillis(),
-                )
-            } else {
-                null
-            }
         val totalLatencyMs = captureLatencyMs + inferenceLatencyMs
         maybeLogSamplingSlowPath(
             sampleId = sampleId,
-            backend = runtime.backend,
+            backend = inferenceBackend,
             captureLatencyMs = captureLatencyMs,
             inferenceLatencyMs = inferenceLatencyMs,
             totalLatencyMs = totalLatencyMs,
-            reason = if (result?.maskResult == null) "empty" else "ok",
+            reason =
+                if (result?.maskResult == null) {
+                    "empty"
+                } else {
+                    result.occlusionMode.wireValue
+                },
         )
+        if (result != null) {
+            Log.d(
+                DANMAKU_AI_TAG,
+                buildString {
+                    append("sample=")
+                    append(sampleId)
+                    append(" detectMs=")
+                    append(result.detectLatencyMs)
+                    append(" refineMs=")
+                    append(result.refineLatencyMs)
+                    append(" totalMs=")
+                    append(totalLatencyMs)
+                    append(" mode=")
+                    append(result.occlusionMode.wireValue)
+                    result.segmentationRoiMode?.let {
+                        append(" seg_roi_mode=")
+                        append(it)
+                    }
+                    result.segmentationRoiRect?.let {
+                        append(" seg_roi_rect=")
+                        append(it)
+                    }
+                    if (result.segmentationInputWidth > 0 && result.segmentationInputHeight > 0) {
+                        append(" seg_input_size=")
+                        append(result.segmentationInputWidth)
+                        append('x')
+                        append(result.segmentationInputHeight)
+                    }
+                    result.trackedRectSource?.let {
+                        append(" tracked_rect_source=")
+                        append(it)
+                        append(" pred_scale=")
+                        append("%.3f".format(Locale.US, result.predictedScale))
+                        append(" pred_area_ratio=")
+                        append("%.3f".format(Locale.US, result.predictedAreaRatio))
+                    }
+                    append(" mask_scale_applied=")
+                    append(result.maskScaleApplied)
+                    append(" mask_scale_value=")
+                    append("%.3f".format(Locale.US, result.maskScaleValue))
+                    append(" scale_rescue_applied=")
+                    append(result.scaleRescueApplied)
+                    if (result.trackerUsed || result.trackerFallbackReason != null) {
+                        append(" tracker_used=")
+                        append(result.trackerUsed)
+                        append(" tracker_success=")
+                        append(result.trackerSuccessful)
+                        append(" tracker_mask_reused=")
+                        append(result.trackerMaskReused)
+                        append(" tracker_latency_ms=")
+                        append(result.trackerLatencyMs)
+                        result.trackerSource?.let {
+                            append(" tracker_source=")
+                            append(it)
+                        }
+                        result.trackerConfidence?.let {
+                            append(" tracker_confidence=")
+                            append("%.3f".format(Locale.US, it))
+                        }
+                        result.trackerFallbackReason?.let {
+                            append(" tracker_fallback=")
+                            append(it)
+                        }
+                        result.trackerState?.let {
+                            append(" tracker_state=")
+                            append(it)
+                        }
+                        result.trackerStateReason?.let {
+                            append(" tracker_state_reason=")
+                            append(it)
+                        }
+                    }
+                    append(" detect_skipped_by_stable_tracker=")
+                    append(result.detectionSkippedByStableTracker)
+                    append(" seg_skipped_by_stable_tracker=")
+                    append(result.segmentationSkippedByStableTracker)
+                    append(" primary_target_stable=")
+                    append(result.primaryTargetStable)
+                    append(" primary_target_switched=")
+                    append(result.primaryTargetSwitched)
+                    result.primaryTargetSwitchReason?.let {
+                        append(" primary_target_switch_reason=")
+                        append(it)
+                    }
+                    append(" mask_adjustment_used=")
+                    append(result.maskAdjustmentUsed)
+                    result.maskAdjustmentSource?.let {
+                        append(" mask_adjustment_source=")
+                        append(it)
+                    }
+                    result.maskAdjustmentDelta?.let {
+                        append(" mask_adjustment_delta=")
+                        append(it)
+                    }
+                    if (result.multiSmallMode || result.multiCandidateCount > 0 || result.multiDropReason != null) {
+                        append(" multi_small_mode=")
+                        append(result.multiSmallMode)
+                        append(" multi_candidate_count=")
+                        append(result.multiCandidateCount)
+                        append(" multi_kept_count=")
+                        append(result.multiKeptCount)
+                        append(" multi_union_area_ratio=")
+                        append("%.4f".format(Locale.US, result.multiUnionAreaRatio))
+                        append(" multi_viewport_scale=")
+                        append("%.3f".format(Locale.US, result.multiViewportScale))
+                        append(" multi_track_count=")
+                        append(result.multiTrackCount)
+                        result.multiTrackHits?.let {
+                            append(" multi_track_hits=")
+                            append(it)
+                        }
+                        result.multiTrackMisses?.let {
+                            append(" multi_track_misses=")
+                            append(it)
+                        }
+                        result.multiTrackSource?.let {
+                            append(" multi_track_source=")
+                            append(it)
+                        }
+                        result.multiAssociation?.let {
+                            append(" multi_association=")
+                            append(it)
+                        }
+                        result.multiDropReason?.let {
+                            append(" multi_drop_reason=")
+                            append(it)
+                        }
+                    }
+                    result.suppressionReason?.let {
+                        append(" suppression_reason=")
+                        append(it)
+                    }
+                    append(" motion_burst_active=")
+                    append(motionBurstSamplesRemaining > 0 || pendingMotionBurstReason != null)
+                    motionBurstReason?.let {
+                        append(" motion_burst_reason=")
+                        append(it)
+                    }
+                    pendingMotionBurstReason?.let {
+                        if (it != motionBurstReason) {
+                            append(" motion_burst_pending=")
+                            append(it)
+                        }
+                    }
+                },
+            )
+        }
         mainHandler.post {
             processing = false
             if (disposed) {
+                clearPendingMotionBurstRequest()
+                if (bitmap !== latestRuntimeMaskBitmap &&
+                    videoOutputTarget.supportsAsyncBitmapCapture &&
+                    !bitmap.isRecycled
+                ) {
+                    bitmap.recycle()
+                }
                 return@post
             }
+            if (result != null) {
+                updateTrackingCadenceAfterInference(result)
+            } else {
+                clearPendingMotionBurstRequest()
+            }
+            result?.let(::applySmallMultiTrackUpdate)
             if (result?.maskResult != null) {
                 applyMaskResult(
-                    backend = runtime.backend,
+                    backend = inferenceBackend,
                     result = result.maskResult,
-                    cacheEntry = cacheEntry,
+                    trackingRect =
+                        if (result.trackingStateEligible) {
+                            result.maskResult.normalizedRect
+                        } else {
+                            null
+                        },
+                    frameBitmap = bitmap,
                     latencyMs = totalLatencyMs,
                     motionLumaSamples = result.motionLumaSamples,
                     motionSampleWidth = result.motionSampleWidth,
                     motionSampleHeight = result.motionSampleHeight,
                     motionCompensation = result.motionCompensation,
+                    updateTrackingState = result.trackingStateEligible,
                 )
-            } else if (activeRuntime?.backend == runtime.backend) {
+            } else if (
+                (runtime != null && activeRuntime?.backend == runtime.backend) ||
+                    (runtime == null && activeDetectionRuntime?.backend == detectionRuntime.backend)
+            ) {
                 applyEmptyResult(
-                    backend = runtime.backend,
+                    sampleId = sampleId,
+                    backend = inferenceBackend,
                     motionCompensationAttempted = result?.motionCompensationAttempted == true,
+                    allowMaskGrace = result?.suppressMaskGrace != true,
                 )
             }
-            if (capturePending && shouldSample()) {
-                capturePending = false
-                mainHandler.removeCallbacks(sampleRunnable)
-                samplingScheduled = false
-                mainHandler.post(sampleRunnable)
+            finishSamplingCycle()
+        }
+    }
+
+    private fun buildPrimaryDetectionCandidates(
+        detections: List<DanmakuDetectionCandidate>,
+        minScore: Float = DANMAKU_AI_DETECTION_SCORE_THRESHOLD,
+        minAreaRatio: Float = DANMAKU_AI_DETECTION_MIN_AREA_RATIO,
+    ): List<DanmakuPrimaryDetection> =
+        detections.mapNotNull { candidate ->
+            val rect = candidate.rect
+            if (candidate.score < minScore || rect.area() < minAreaRatio) {
+                return@mapNotNull null
+            }
+            DanmakuPrimaryDetection(
+                rect = rect,
+                score = candidate.score,
+            )
+        }
+
+    private fun continuityScoreForRect(
+        rect: DanmakuNormalizedRect,
+        memoryRect: DanmakuNormalizedRect?,
+    ): Float {
+        val baseline = memoryRect ?: return 0f
+        val iouScore = rect.iou(baseline)
+        val centerDistance =
+            centerDistanceBetweenRects(rect, baseline) /
+                DANMAKU_AI_PRIMARY_TARGET_CONTINUITY_MAX_CENTER_DISTANCE
+        val centerScore = (1f - centerDistance).coerceIn(0f, 1f)
+        val sizeRatio =
+            (rect.area() / baseline.area().coerceAtLeast(1e-4f))
+                .coerceAtLeast(0.01f)
+        val sizeScore =
+            when {
+                sizeRatio < DANMAKU_AI_PRIMARY_TARGET_CONTINUITY_MIN_SIZE_RATIO -> 0f
+                sizeRatio > DANMAKU_AI_PRIMARY_TARGET_CONTINUITY_MAX_SIZE_RATIO -> 0f
+                else -> 1f - abs(1f - sizeRatio).coerceIn(0f, 1f)
+            }
+        return ((iouScore * 0.55f) + (centerScore * 0.30f) + (sizeScore * 0.15f)).coerceIn(0f, 1f)
+    }
+
+    private fun isContinuousPrimaryTarget(
+        rect: DanmakuNormalizedRect,
+        memoryRect: DanmakuNormalizedRect?,
+    ): Boolean {
+        val baseline = memoryRect ?: return false
+        val iou = rect.iou(baseline)
+        if (iou >= DANMAKU_AI_PRIMARY_TARGET_CONTINUITY_MIN_IOU) {
+            return true
+        }
+        val centerDistance = centerDistanceBetweenRects(rect, baseline)
+        val sizeRatio =
+            (rect.area() / baseline.area().coerceAtLeast(1e-4f))
+                .coerceAtLeast(0.01f)
+        return centerDistance <= DANMAKU_AI_PRIMARY_TARGET_CONTINUITY_MAX_CENTER_DISTANCE &&
+            sizeRatio in DANMAKU_AI_PRIMARY_TARGET_CONTINUITY_MIN_SIZE_RATIO..DANMAKU_AI_PRIMARY_TARGET_CONTINUITY_MAX_SIZE_RATIO
+    }
+
+    private fun updatePrimaryTargetMemory(
+        selection: PrimaryTargetSelection,
+    ) {
+        val detection = selection.detection
+        if (detection == null) {
+            primaryTargetMemory =
+                primaryTargetMemory?.copy(
+                    ageSamples = (primaryTargetMemory?.ageSamples ?: 0) + 1,
+                    cooldownSamples = max(0, (primaryTargetMemory?.cooldownSamples ?: 0) - 1),
+                )
+            return
+        }
+        primaryTargetMemory =
+            PrimaryTargetMemory(
+                rect = detection.rect,
+                score = selection.continuityScore,
+                ageSamples = 0,
+                cooldownSamples =
+                    if (selection.switched) {
+                        DANMAKU_AI_PRIMARY_TARGET_SWITCH_COOLDOWN_SAMPLES
+                    } else {
+                        max(0, primaryTargetSwitchCooldownSamples - 1)
+                    },
+            )
+        primaryTargetSwitchCooldownSamples = primaryTargetMemory?.cooldownSamples ?: 0
+        if (selection.switched) {
+            primaryTargetCandidateRect = null
+            primaryTargetCandidateWins = 0
+        }
+        lastAcceptedTargetSource =
+            if (selection.stable) {
+                "memory"
+            } else {
+                "detector"
+            }
+    }
+
+    private fun selectPrimaryDetection(
+        detections: List<DanmakuDetectionCandidate>,
+        previousRect: DanmakuNormalizedRect?,
+    ): PrimaryTargetSelection {
+        val candidates =
+            buildPrimaryDetectionCandidates(
+                detections = detections,
+                minScore = DANMAKU_AI_DETECTION_SCORE_THRESHOLD,
+                minAreaRatio = DANMAKU_AI_DETECTION_MIN_AREA_RATIO,
+            ).takeIf { it.isNotEmpty() }
+                ?: return PrimaryTargetSelection(
+                    detection = null,
+                    stable = false,
+                    switched = false,
+                    switchReason = "no_detection",
+                    continuityScore = 0f,
+                )
+        if (previousRect != null) {
+            val tracked =
+                candidates.maxByOrNull { it.rect.iou(previousRect) }
+                    ?.takeIf { it.rect.iou(previousRect) >= DANMAKU_AI_TRACKING_MIN_IOU }
+            if (tracked != null) {
+                val continuity = continuityScoreForRect(tracked.rect, primaryTargetMemory?.rect)
+                return PrimaryTargetSelection(
+                    detection = tracked,
+                    stable = true,
+                    switched = false,
+                    switchReason = "tracked_iou",
+                    continuityScore = continuity,
+                )
             }
         }
+        val memoryRect = primaryTargetMemory?.rect
+        val ranked =
+            candidates
+                .map { candidate ->
+                    candidate to (
+                        scorePrimaryDetection(candidate) +
+                            (continuityScoreForRect(candidate.rect, memoryRect) * 0.52f)
+                        )
+                }.sortedByDescending { it.second }
+        val top = ranked.firstOrNull()?.first
+        val topScore = ranked.firstOrNull()?.second ?: 0f
+        val memoryCandidate =
+            candidates.firstOrNull { candidate ->
+                isContinuousPrimaryTarget(candidate.rect, memoryRect)
+            }
+        if (memoryCandidate != null) {
+            primaryTargetCandidateRect = null
+            primaryTargetCandidateWins = 0
+            primaryTargetSwitchCooldownSamples = max(0, primaryTargetSwitchCooldownSamples - 1)
+            return PrimaryTargetSelection(
+                detection = memoryCandidate,
+                stable = true,
+                switched = false,
+                switchReason = "memory_continuity",
+                continuityScore = continuityScoreForRect(memoryCandidate.rect, memoryRect),
+            )
+        }
+        val currentMemoryCandidate =
+            memoryRect?.let { rememberedRect ->
+                candidates.maxByOrNull { continuityScoreForRect(it.rect, rememberedRect) }
+            }
+        val currentMemoryScore =
+            currentMemoryCandidate?.let {
+                scorePrimaryDetection(it) + (continuityScoreForRect(it.rect, memoryRect) * 0.52f)
+            } ?: Float.NEGATIVE_INFINITY
+        val margin = topScore - currentMemoryScore
+        val cooldownActive = primaryTargetSwitchCooldownSamples > 0
+        val shouldHoldMemory =
+            currentMemoryCandidate != null &&
+                (cooldownActive || margin < DANMAKU_AI_PRIMARY_TARGET_SWITCH_SCORE_MARGIN)
+        if (shouldHoldMemory) {
+            primaryTargetCandidateRect = null
+            primaryTargetCandidateWins = 0
+            primaryTargetSwitchCooldownSamples = max(0, primaryTargetSwitchCooldownSamples - 1)
+            return PrimaryTargetSelection(
+                detection = currentMemoryCandidate,
+                stable = true,
+                switched = false,
+                switchReason = if (cooldownActive) "switch_cooldown" else "memory_hold",
+                continuityScore = continuityScoreForRect(currentMemoryCandidate.rect, memoryRect),
+            )
+        }
+        val topCandidate = top
+        if (topCandidate == null) {
+            return PrimaryTargetSelection(
+                detection = null,
+                stable = false,
+                switched = false,
+                switchReason = "no_ranked_candidate",
+                continuityScore = 0f,
+            )
+        }
+        if (memoryRect == null) {
+            primaryTargetCandidateRect = null
+            primaryTargetCandidateWins = 0
+            return PrimaryTargetSelection(
+                detection = topCandidate,
+                stable = false,
+                switched = false,
+                switchReason = "initial_target",
+                continuityScore = 0f,
+            )
+        }
+        if (primaryTargetCandidateRect != null && topCandidate.rect.iou(primaryTargetCandidateRect!!) > 0.82f) {
+            primaryTargetCandidateWins += 1
+        } else {
+            primaryTargetCandidateRect = topCandidate.rect
+            primaryTargetCandidateWins = 1
+        }
+        val switched =
+            primaryTargetCandidateWins >= DANMAKU_AI_PRIMARY_TARGET_SWITCH_CONFIRM_SAMPLES
+        if (switched) {
+            primaryTargetSwitchCooldownSamples = DANMAKU_AI_PRIMARY_TARGET_SWITCH_COOLDOWN_SAMPLES
+            primaryTargetCandidateRect = null
+            primaryTargetCandidateWins = 0
+        }
+        return PrimaryTargetSelection(
+            detection = if (switched) topCandidate else currentMemoryCandidate ?: topCandidate,
+            stable = false,
+            switched = switched,
+            switchReason =
+                if (switched) {
+                    "switch_confirmed"
+                } else {
+                    "switch_pending"
+                },
+            continuityScore = continuityScoreForRect(topCandidate.rect, memoryRect),
+        )
+    }
+
+    private fun scorePrimaryDetection(candidate: DanmakuPrimaryDetection): Float {
+        val rect = candidate.rect
+        val centerX = rect.x + (rect.width / 2f)
+        val centerY = rect.y + (rect.height / 2f)
+        val dx = centerX - DANMAKU_AI_TARGET_CENTER_X
+        val dy = centerY - DANMAKU_AI_TARGET_CENTER_Y
+        val distancePenalty = (dx * dx) + (dy * dy)
+        return (candidate.score * DANMAKU_AI_DETECTION_WEIGHT_SCORE) +
+            (rect.area() * DANMAKU_AI_DETECTION_WEIGHT_AREA) -
+            (distancePenalty * DANMAKU_AI_DETECTION_WEIGHT_DISTANCE)
+    }
+
+    private fun currentSmallMultiThresholds(): DanmakuSmallMultiThresholds {
+        val resources = context.resources
+        val density = resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
+        val viewWidthPx = videoOutputTarget.view.width
+        val viewHeightPx = videoOutputTarget.view.height
+        val configuredShortSideDp =
+            resources.configuration.smallestScreenWidthDp
+                .takeIf { it > 0 }
+                ?.toFloat()
+                ?: minOf(
+                    resources.configuration.screenWidthDp.takeIf { it > 0 } ?: DANMAKU_AI_SMALL_MULTI_BASE_SHORT_SIDE_DP.toInt(),
+                    resources.configuration.screenHeightDp.takeIf { it > 0 } ?: DANMAKU_AI_SMALL_MULTI_BASE_SHORT_SIDE_DP.toInt(),
+                ).toFloat()
+        val viewportShortSideDp =
+            if (viewWidthPx > 0 && viewHeightPx > 0) {
+                minOf(viewWidthPx, viewHeightPx).toFloat() / density
+            } else {
+                configuredShortSideDp
+            }.coerceAtLeast(240f)
+        val shortSideRatio = viewportShortSideDp / DANMAKU_AI_SMALL_MULTI_BASE_SHORT_SIDE_DP
+        val dimensionScale =
+            sqrt(shortSideRatio)
+                .coerceIn(
+                    DANMAKU_AI_SMALL_MULTI_MIN_DIMENSION_SCALE,
+                    DANMAKU_AI_SMALL_MULTI_MAX_DIMENSION_SCALE,
+                )
+        val areaScale =
+            (dimensionScale * dimensionScale)
+                .coerceIn(
+                    DANMAKU_AI_SMALL_MULTI_MIN_AREA_SCALE,
+                    DANMAKU_AI_SMALL_MULTI_MAX_AREA_SCALE,
+                )
+        return DanmakuSmallMultiThresholds(
+            thresholdScale = areaScale,
+            viewportShortSideDp = viewportShortSideDp,
+            maxAreaRatio = DANMAKU_AI_SMALL_MULTI_MAX_AREA_RATIO * areaScale,
+            maxWidthRatio = DANMAKU_AI_SMALL_MULTI_MAX_WIDTH_RATIO * dimensionScale,
+            maxHeightRatio = DANMAKU_AI_SMALL_MULTI_MAX_HEIGHT_RATIO * dimensionScale,
+            singleMaskMaxAreaRatio = DANMAKU_AI_SMALL_MULTI_SINGLE_MASK_MAX_AREA_RATIO * areaScale,
+            unionMaxAreaRatio = DANMAKU_AI_SMALL_MULTI_UNION_MAX_AREA_RATIO * areaScale,
+        )
+    }
+
+    private fun isSmallMultiDetection(
+        candidate: DanmakuPrimaryDetection,
+        thresholds: DanmakuSmallMultiThresholds,
+    ): Boolean {
+        val rect = candidate.rect
+        return candidate.score >= DANMAKU_AI_SMALL_MULTI_MIN_SCORE &&
+            rect.area() in DANMAKU_AI_SMALL_MULTI_MIN_AREA_RATIO..thresholds.maxAreaRatio &&
+            rect.width <= thresholds.maxWidthRatio &&
+            rect.height <= thresholds.maxHeightRatio &&
+            !isCoarseDetectionRect(rect)
+    }
+
+    private fun isRelaxedSmallMultiDetection(
+        candidate: DanmakuPrimaryDetection,
+        thresholds: DanmakuSmallMultiThresholds,
+    ): Boolean {
+        val rect = candidate.rect
+        return candidate.score >= DANMAKU_AI_MULTI_DETECTION_SCORE_THRESHOLD &&
+            rect.area() in DANMAKU_AI_SMALL_MULTI_MIN_AREA_RATIO..(thresholds.maxAreaRatio * DANMAKU_AI_SMALL_MULTI_RELAXED_MAX_AREA_MULTIPLIER) &&
+            rect.width <= (thresholds.maxWidthRatio * DANMAKU_AI_SMALL_MULTI_RELAXED_MAX_WIDTH_MULTIPLIER) &&
+            rect.height <= (thresholds.maxHeightRatio * DANMAKU_AI_SMALL_MULTI_RELAXED_MAX_HEIGHT_MULTIPLIER) &&
+            !isCoarseDetectionRect(rect)
+    }
+
+    private fun isWeakSmallMultiDetection(
+        candidate: DanmakuPrimaryDetection,
+        thresholds: DanmakuSmallMultiThresholds,
+    ): Boolean {
+        val rect = candidate.rect
+        return candidate.score >= DANMAKU_AI_SMALL_MULTI_WEAK_MIN_SCORE &&
+            rect.area() in DANMAKU_AI_SMALL_MULTI_MIN_AREA_RATIO..(thresholds.maxAreaRatio * DANMAKU_AI_SMALL_MULTI_WEAK_MAX_AREA_MULTIPLIER) &&
+            rect.width <= (thresholds.maxWidthRatio * DANMAKU_AI_SMALL_MULTI_WEAK_MAX_WIDTH_MULTIPLIER) &&
+            rect.height <= (thresholds.maxHeightRatio * DANMAKU_AI_SMALL_MULTI_WEAK_MAX_HEIGHT_MULTIPLIER) &&
+            !isCoarseDetectionRect(rect)
+    }
+
+    private fun pickDistinctSmallMultiDetections(
+        candidates: List<DanmakuPrimaryDetection>,
+        initial: List<DanmakuPrimaryDetection> = emptyList(),
+    ): List<DanmakuPrimaryDetection> {
+        val selected = initial.toMutableList()
+        for (candidate in candidates) {
+            if (selected.any { existing ->
+                    candidate.rect.iou(existing.rect) > DANMAKU_AI_SMALL_MULTI_MAX_IOU
+                }
+            ) {
+                continue
+            }
+            selected += candidate
+            if (selected.size >= DANMAKU_AI_SMALL_MULTI_MAX_PEOPLE) {
+                break
+            }
+        }
+        return selected
+    }
+
+    private fun scoreSmallMultiTrackAssociation(
+        track: DanmakuSmallMultiTrack,
+        candidate: DanmakuPrimaryDetection,
+    ): Float? {
+        val iou = track.rect.iou(candidate.rect)
+        val centerDistance =
+            sqrt(
+                ((track.rect.centerX - candidate.rect.centerX).pow(2)) +
+                    ((track.rect.centerY - candidate.rect.centerY).pow(2)),
+            )
+        val trackArea = track.rect.area().coerceAtLeast(1e-4f)
+        val candidateArea = candidate.rect.area().coerceAtLeast(1e-4f)
+        val areaRatio = candidateArea / trackArea
+        if (areaRatio !in DANMAKU_AI_SMALL_MULTI_TRACK_ASSOCIATION_MIN_AREA_RATIO..DANMAKU_AI_SMALL_MULTI_TRACK_ASSOCIATION_MAX_AREA_RATIO) {
+            return null
+        }
+        if (iou < DANMAKU_AI_SMALL_MULTI_TRACK_ASSOCIATION_MIN_IOU &&
+            centerDistance > DANMAKU_AI_SMALL_MULTI_TRACK_ASSOCIATION_MAX_CENTER_DISTANCE
+        ) {
+            return null
+        }
+        val areaPenalty = abs(areaRatio - 1f)
+        return (iou * 2.8f) +
+            (candidate.score * 0.8f) -
+            (centerDistance * 1.35f) -
+            (areaPenalty * 0.55f)
+    }
+
+    private fun matchSmallMultiTrackWithCandidates(
+        track: DanmakuSmallMultiTrack,
+        candidates: List<DanmakuPrimaryDetection>,
+        usedIndices: Set<Int>,
+        association: String,
+    ): DanmakuSmallMultiMatchedCandidate? {
+        var bestMatch: DanmakuSmallMultiMatchedCandidate? = null
+        var bestScore = Float.NEGATIVE_INFINITY
+        for ((index, candidate) in candidates.withIndex()) {
+            if (index in usedIndices) {
+                continue
+            }
+            val associationScore = scoreSmallMultiTrackAssociation(track, candidate) ?: continue
+            if (associationScore <= bestScore) {
+                continue
+            }
+            bestScore = associationScore
+            bestMatch =
+                DanmakuSmallMultiMatchedCandidate(
+                    candidate = candidate,
+                    candidateIndex = index,
+                    association = association,
+                )
+        }
+        return bestMatch
+    }
+
+    private fun splitCoarseDetectionForSecondaryTarget(
+        coarseCandidate: DanmakuPrimaryDetection,
+        anchorRect: DanmakuNormalizedRect,
+    ): DanmakuPrimaryDetection? {
+        val coarseRect = coarseCandidate.rect
+        if (coarseRect.iou(anchorRect) <= 0f) {
+            return null
+        }
+        val coarseLeft = coarseRect.left
+        val coarseTop = coarseRect.top
+        val coarseRight = coarseRect.right
+        val coarseBottom = coarseRect.bottom
+        val anchorLeft = anchorRect.left.coerceIn(coarseLeft, coarseRight)
+        val anchorRight = anchorRect.right.coerceIn(coarseLeft, coarseRight)
+        val anchorTop = anchorRect.top.coerceIn(coarseTop, coarseBottom)
+        val anchorBottom = anchorRect.bottom.coerceIn(coarseTop, coarseBottom)
+
+        val horizontalRemainders =
+            listOf(
+                DanmakuNormalizedRect(
+                    x = coarseLeft,
+                    y = coarseTop,
+                    width = (anchorLeft - coarseLeft).coerceAtLeast(0f),
+                    height = coarseRect.height,
+                ),
+                DanmakuNormalizedRect(
+                    x = anchorRight,
+                    y = coarseTop,
+                    width = (coarseRight - anchorRight).coerceAtLeast(0f),
+                    height = coarseRect.height,
+                ),
+            )
+        val verticalRemainders =
+            listOf(
+                DanmakuNormalizedRect(
+                    x = coarseLeft,
+                    y = coarseTop,
+                    width = coarseRect.width,
+                    height = (anchorTop - coarseTop).coerceAtLeast(0f),
+                ),
+                DanmakuNormalizedRect(
+                    x = coarseLeft,
+                    y = anchorBottom,
+                    width = coarseRect.width,
+                    height = (coarseBottom - anchorBottom).coerceAtLeast(0f),
+                ),
+            )
+        val candidateRect =
+            (horizontalRemainders + verticalRemainders)
+                .filter {
+                    it.width >= DANMAKU_AI_SMALL_MULTI_COARSE_SPLIT_MIN_REMAINDER_WIDTH &&
+                        it.height >= DANMAKU_AI_SMALL_MULTI_COARSE_SPLIT_MIN_REMAINDER_HEIGHT &&
+                        it.area() >= DANMAKU_AI_SMALL_MULTI_COARSE_SPLIT_MIN_REMAINDER_AREA
+                }.maxByOrNull { it.area() }
+                ?: return null
+        return DanmakuPrimaryDetection(
+            rect = candidateRect,
+            score = (coarseCandidate.score * 0.92f).coerceAtLeast(DANMAKU_AI_SMALL_MULTI_WEAK_MIN_SCORE),
+        )
+    }
+
+    private fun summarizeTrackMetric(
+        tracks: List<DanmakuSmallMultiTrack>,
+        metric: (DanmakuSmallMultiTrack) -> Int,
+    ): String? =
+        tracks
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString("|") { metric(it).toString() }
+
+    private fun summarizeTrackTargets(
+        targets: List<DanmakuSmallMultiTrackTarget>,
+        metric: (DanmakuSmallMultiTrackTarget) -> String,
+    ): String? =
+        targets
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString("|") { metric(it) }
+
+    private fun sortSmallMultiTrackTargets(
+        targets: List<DanmakuSmallMultiTrackTarget>,
+    ): List<DanmakuSmallMultiTrackTarget> =
+        targets.sortedWith(
+            compareByDescending<DanmakuSmallMultiTrackTarget> { it.hitCount }
+                .thenBy { it.missCount }
+                .thenByDescending { it.score },
+        )
+
+    private fun nextSmallMultiTrackId(): Int {
+        val nextId = smallMultiNextTrackId
+        smallMultiNextTrackId += 1
+        return nextId
+    }
+
+    private fun selectSmallMultiDetections(
+        detections: List<DanmakuDetectionCandidate>,
+    ): DanmakuSmallMultiSelection {
+        val thresholds = currentSmallMultiThresholds()
+        val rankedCandidates =
+            buildPrimaryDetectionCandidates(
+                detections = detections,
+                minScore = DANMAKU_AI_MULTI_DETECTION_SCORE_THRESHOLD,
+                minAreaRatio = DANMAKU_AI_SMALL_MULTI_MIN_AREA_RATIO,
+            )
+                .sortedByDescending(::scorePrimaryDetection)
+        if (rankedCandidates.isEmpty()) {
+            return DanmakuSmallMultiSelection(
+                targets = emptyList(),
+                candidateCount = 0,
+                thresholdScale = thresholds.thresholdScale,
+                viewportShortSideDp = thresholds.viewportShortSideDp,
+                trackState = emptyList(),
+                trackCount = 0,
+                coarseOnlySamples = 0,
+            )
+        }
+        val smallCandidates = rankedCandidates.filter { isSmallMultiDetection(it, thresholds) }
+        val dominantCoarseCount = rankedCandidates.count { isCoarseDetectionRect(it.rect) }
+        val relaxedCandidates =
+            rankedCandidates.filter { candidate ->
+                candidate !in smallCandidates && isRelaxedSmallMultiDetection(candidate, thresholds)
+            }
+        val weakCandidates =
+            rankedCandidates.filter { candidate ->
+                candidate !in smallCandidates &&
+                    candidate !in relaxedCandidates &&
+                    isWeakSmallMultiDetection(candidate, thresholds)
+            }
+        val coarseCandidates = rankedCandidates.filter { isCoarseDetectionRect(it.rect) }
+        val existingTracks =
+            smallMultiTracks
+                .sortedWith(
+                    compareByDescending<DanmakuSmallMultiTrack> { it.hitCount }
+                        .thenBy { it.missCount }
+                        .thenByDescending { it.score },
+                ).take(DANMAKU_AI_SMALL_MULTI_TRACK_MAX_COUNT)
+        val hasStableExistingTrack =
+            existingTracks.any { it.hitCount >= DANMAKU_AI_SMALL_MULTI_TRACK_MIN_HIT_SAMPLES }
+        val stableAnchorTrack =
+            existingTracks
+                .filter { it.hitCount >= 1 }
+                .maxWithOrNull(
+                    compareByDescending<DanmakuSmallMultiTrack> { it.hitCount }
+                        .thenBy { it.missCount }
+                        .thenByDescending { it.score },
+                )
+        val hasReusableExistingTracks =
+            existingTracks.count { it.hitCount >= 1 && it.missCount < DANMAKU_AI_SMALL_MULTI_TRACK_MAX_MISS_SAMPLES_WEAK } >=
+                DANMAKU_AI_SMALL_MULTI_MAX_PEOPLE
+        val coarseSplitCandidate =
+            if (!hasReusableExistingTracks && stableAnchorTrack != null) {
+                coarseCandidates
+                    .asSequence()
+                    .mapNotNull { splitCoarseDetectionForSecondaryTarget(it, stableAnchorTrack.rect) }
+                    .filter { it.rect.iou(stableAnchorTrack.rect) <= DANMAKU_AI_SMALL_MULTI_MAX_IOU }
+                    .maxByOrNull { it.rect.area() * it.score }
+            } else {
+                null
+            }
+        val newCoarseOnlySamples =
+            if (smallCandidates.isEmpty() && relaxedCandidates.isEmpty() && dominantCoarseCount > 0) {
+                (smallMultiCoarseOnlySamples + 1).coerceAtMost(DANMAKU_AI_SMALL_MULTI_COARSE_ONLY_CLEAR_SAMPLES)
+            } else {
+                0
+            }
+        if (newCoarseOnlySamples >= DANMAKU_AI_SMALL_MULTI_COARSE_ONLY_CLEAR_SAMPLES &&
+            !hasStableExistingTrack &&
+            !hasReusableExistingTracks &&
+            smallMultiStickySamplesRemaining <= 0
+        ) {
+            return DanmakuSmallMultiSelection(
+                targets = emptyList(),
+                candidateCount = rankedCandidates.size,
+                thresholdScale = thresholds.thresholdScale,
+                viewportShortSideDp = thresholds.viewportShortSideDp,
+                dropReason = "coarse_ignored,insufficient_small_candidates",
+                trackState = emptyList(),
+                trackCount = 0,
+                coarseOnlySamples = newCoarseOnlySamples,
+            )
+        }
+        val strictSelected = pickDistinctSmallMultiDetections(smallCandidates)
+        val usedHighIndices = mutableSetOf<Int>()
+        val usedLowIndices = mutableSetOf<Int>()
+        val nextTracks = mutableListOf<DanmakuSmallMultiTrack>()
+        val matureTrackTargets = mutableListOf<DanmakuSmallMultiTrackTarget>()
+        val freshTrackTargets = mutableListOf<DanmakuSmallMultiTrackTarget>()
+        for (track in existingTracks) {
+            val highMatch =
+                matchSmallMultiTrackWithCandidates(
+                    track = track,
+                    candidates = smallCandidates,
+                    usedIndices = usedHighIndices,
+                    association = "high",
+                )
+            val lowMatch =
+                if (highMatch == null) {
+                    matchSmallMultiTrackWithCandidates(
+                        track = track,
+                        candidates = relaxedCandidates,
+                        usedIndices = usedLowIndices,
+                        association = "low",
+                    )
+                } else {
+                    null
+                }
+            val matched = highMatch ?: lowMatch
+            if (matched != null) {
+                if (matched.association == "high") {
+                    usedHighIndices += matched.candidateIndex
+                } else {
+                    usedLowIndices += matched.candidateIndex
+                }
+                val updatedTrack =
+                    track.copy(
+                        rect = matched.candidate.rect,
+                        score = matched.candidate.score,
+                        age = track.age + 1,
+                        missCount = 0,
+                        hitCount = track.hitCount + 1,
+                        lastMatchedSampleId = sampleSequence + 1L,
+                    )
+                nextTracks += updatedTrack
+                if (updatedTrack.hitCount >= DANMAKU_AI_SMALL_MULTI_TRACK_MIN_HIT_SAMPLES) {
+                    matureTrackTargets +=
+                        DanmakuSmallMultiTrackTarget(
+                            trackId = updatedTrack.trackId,
+                            rect = updatedTrack.rect,
+                            score = updatedTrack.score,
+                            missCount = 0,
+                            hitCount = updatedTrack.hitCount,
+                            source = "detected",
+                            association = matched.association,
+                        )
+                }
+                continue
+            }
+            val missedTrack =
+                track.copy(
+                    age = track.age + 1,
+                    missCount = track.missCount + 1,
+                    score = (track.score * 0.96f).coerceAtLeast(0f),
+                )
+            val allowedMissSamples =
+                if (track.hitCount >= 1) {
+                    DANMAKU_AI_SMALL_MULTI_TRACK_MAX_MISS_SAMPLES_WEAK
+                } else {
+                    DANMAKU_AI_SMALL_MULTI_TRACK_MAX_MISS_SAMPLES
+                }
+            if (missedTrack.missCount > allowedMissSamples) {
+                continue
+            }
+            nextTracks += missedTrack
+            if (missedTrack.hitCount >= DANMAKU_AI_SMALL_MULTI_TRACK_MIN_HIT_SAMPLES &&
+                missedTrack.missCount < allowedMissSamples
+            ) {
+                matureTrackTargets +=
+                    DanmakuSmallMultiTrackTarget(
+                        trackId = missedTrack.trackId,
+                        rect = missedTrack.rect,
+                        score = missedTrack.score,
+                        missCount = missedTrack.missCount,
+                        hitCount = missedTrack.hitCount,
+                        source = "recovered",
+                        association = "unmatched",
+                    )
+            }
+        }
+        val remainingHighCandidates =
+            smallCandidates.filterIndexed { index, _ -> index !in usedHighIndices }
+        for (candidate in remainingHighCandidates) {
+            if (nextTracks.size >= DANMAKU_AI_SMALL_MULTI_TRACK_MAX_COUNT) {
+                break
+            }
+            if (nextTracks.any { it.rect.iou(candidate.rect) > DANMAKU_AI_SMALL_MULTI_MAX_IOU }) {
+                continue
+            }
+            nextTracks +=
+                DanmakuSmallMultiTrack(
+                    trackId = nextSmallMultiTrackId(),
+                    rect = candidate.rect,
+                    score = candidate.score,
+                    age = 1,
+                    missCount = 0,
+                    hitCount = 1,
+                    lastMatchedSampleId = sampleSequence + 1L,
+                    lastMaskAreaRatio = 0f,
+                )
+            val newTrack = nextTracks.last()
+            freshTrackTargets +=
+                DanmakuSmallMultiTrackTarget(
+                    trackId = newTrack.trackId,
+                    rect = newTrack.rect,
+                    score = newTrack.score,
+                    missCount = 0,
+                    hitCount = 1,
+                    source = "detected",
+                    association = "high",
+                )
+        }
+        if ((hasStableExistingTrack ||
+                hasReusableExistingTracks ||
+                matureTrackTargets.isNotEmpty() ||
+                compactTrackTargetsWouldBenefitFromRelaxedPartner(
+                    matureTrackTargets = matureTrackTargets,
+                    freshTrackTargets = freshTrackTargets,
+                ) ||
+                smallMultiStickySamplesRemaining > 0) &&
+            nextTracks.size < DANMAKU_AI_SMALL_MULTI_TRACK_MAX_COUNT
+        ) {
+            val remainingRelaxedCandidates =
+                relaxedCandidates.filterIndexed { index, _ -> index !in usedLowIndices }
+            for (candidate in remainingRelaxedCandidates) {
+                if (nextTracks.size >= DANMAKU_AI_SMALL_MULTI_TRACK_MAX_COUNT) {
+                    break
+                }
+                if (nextTracks.any { it.rect.iou(candidate.rect) > DANMAKU_AI_SMALL_MULTI_MAX_IOU }) {
+                    continue
+                }
+                nextTracks +=
+                    DanmakuSmallMultiTrack(
+                        trackId = nextSmallMultiTrackId(),
+                        rect = candidate.rect,
+                        score = candidate.score,
+                        age = 1,
+                        missCount = 0,
+                        hitCount = 1,
+                        lastMatchedSampleId = sampleSequence + 1L,
+                        lastMaskAreaRatio = 0f,
+                    )
+                val newTrack = nextTracks.last()
+                freshTrackTargets +=
+                    DanmakuSmallMultiTrackTarget(
+                        trackId = newTrack.trackId,
+                        rect = newTrack.rect,
+                        score = newTrack.score,
+                        missCount = 0,
+                        hitCount = 1,
+                        source = "detected",
+                        association = "low",
+                    )
+                usedLowIndices += remainingRelaxedCandidates.indexOf(candidate)
+            }
+        }
+        if ((hasStableExistingTrack || matureTrackTargets.isNotEmpty() || compactFreshTrackTargetsWouldBenefitFromWeakPartner(freshTrackTargets)) &&
+            nextTracks.size < DANMAKU_AI_SMALL_MULTI_TRACK_MAX_COUNT
+        ) {
+            val weakCandidatePool =
+                buildList {
+                    addAll(weakCandidates)
+                    coarseSplitCandidate?.let { add(it) }
+                }
+            for (candidate in weakCandidatePool) {
+                if (nextTracks.size >= DANMAKU_AI_SMALL_MULTI_TRACK_MAX_COUNT) {
+                    break
+                }
+                if (nextTracks.any { it.rect.iou(candidate.rect) > DANMAKU_AI_SMALL_MULTI_MAX_IOU }) {
+                    continue
+                }
+                nextTracks +=
+                    DanmakuSmallMultiTrack(
+                        trackId = nextSmallMultiTrackId(),
+                        rect = candidate.rect,
+                        score = candidate.score,
+                        age = 1,
+                        missCount = 0,
+                        hitCount = 1,
+                        lastMatchedSampleId = sampleSequence + 1L,
+                        lastMaskAreaRatio = 0f,
+                    )
+                val newTrack = nextTracks.last()
+                freshTrackTargets +=
+                    DanmakuSmallMultiTrackTarget(
+                        trackId = newTrack.trackId,
+                        rect = newTrack.rect,
+                        score = newTrack.score,
+                        missCount = 0,
+                        hitCount = 1,
+                        source = "detected",
+                        association = if (candidate == coarseSplitCandidate) "split" else "weak",
+                    )
+            }
+        }
+        val compactTracks =
+            nextTracks
+                .sortedWith(
+                    compareByDescending<DanmakuSmallMultiTrack> { it.hitCount }
+                        .thenBy { it.missCount }
+                        .thenByDescending { it.score },
+                ).take(DANMAKU_AI_SMALL_MULTI_TRACK_MAX_COUNT)
+        val compactMatureTrackTargets =
+            sortSmallMultiTrackTargets(
+                matureTrackTargets.filter { target -> compactTracks.any { it.trackId == target.trackId } },
+            )
+        val compactFreshTrackTargets =
+            sortSmallMultiTrackTargets(
+                freshTrackTargets.filter { target -> compactTracks.any { it.trackId == target.trackId } },
+            )
+        val compactAllTrackTargets =
+            sortSmallMultiTrackTargets(compactMatureTrackTargets + compactFreshTrackTargets)
+        val compactTrackTargets =
+            when {
+                compactMatureTrackTargets.size >= DANMAKU_AI_SMALL_MULTI_MAX_PEOPLE ->
+                    compactMatureTrackTargets.take(DANMAKU_AI_SMALL_MULTI_MAX_PEOPLE)
+                compactMatureTrackTargets.size == 1 -> {
+                    val stableTarget = compactMatureTrackTargets.first()
+                    val partner =
+                        compactAllTrackTargets.firstOrNull { it.trackId != stableTarget.trackId }
+                    if (partner != null) {
+                        listOf(stableTarget, partner)
+                    } else {
+                        emptyList()
+                    }
+                }
+                compactFreshTrackTargets.size >= DANMAKU_AI_SMALL_MULTI_MAX_PEOPLE ->
+                    compactFreshTrackTargets.take(DANMAKU_AI_SMALL_MULTI_MAX_PEOPLE)
+                else -> emptyList()
+            }
+        val dropReasons = mutableListOf<String>()
+        if (dominantCoarseCount > 0 && (smallCandidates.isNotEmpty() || relaxedCandidates.isNotEmpty())) {
+            dropReasons += "coarse_ignored"
+        }
+        if (strictSelected.size in 1 until DANMAKU_AI_SMALL_MULTI_MAX_PEOPLE) {
+            dropReasons += "insufficient_small_candidates"
+        }
+        if (compactTrackTargets.any { it.association == "low" }) {
+            dropReasons += "relaxed"
+        }
+        if (compactTrackTargets.any { it.association == "weak" }) {
+            dropReasons += "weak"
+        }
+        if (compactTrackTargets.any { it.association == "split" }) {
+            dropReasons += "split"
+        }
+        return DanmakuSmallMultiSelection(
+            targets =
+                if (compactTrackTargets.size >= DANMAKU_AI_SMALL_MULTI_MAX_PEOPLE) {
+                    compactTrackTargets
+                } else {
+                    emptyList()
+                },
+            candidateCount = rankedCandidates.size,
+            thresholdScale = thresholds.thresholdScale,
+            viewportShortSideDp = thresholds.viewportShortSideDp,
+            dropReason = dropReasons.distinct().joinToString(",").takeIf { it.isNotEmpty() },
+            trackState = compactTracks,
+            trackCount = compactTracks.size,
+            trackHits = summarizeTrackMetric(compactTracks, DanmakuSmallMultiTrack::hitCount),
+            trackMisses = summarizeTrackMetric(compactTracks, DanmakuSmallMultiTrack::missCount),
+            trackSource = summarizeTrackTargets(compactTrackTargets, DanmakuSmallMultiTrackTarget::source),
+            association = summarizeTrackTargets(compactTrackTargets, DanmakuSmallMultiTrackTarget::association),
+            coarseOnlySamples = newCoarseOnlySamples,
+        )
+    }
+
+    private fun resolveSmallMultiDropReason(
+        selection: DanmakuSmallMultiSelection,
+        suppressed: Boolean,
+        stableSingleTargetPreferred: Boolean,
+    ): String? {
+        if (selection.targets.size < DANMAKU_AI_SMALL_MULTI_MAX_PEOPLE) {
+            return selection.dropReason
+        }
+        val dropReasonTokens =
+            selection.dropReason
+                ?.split(',')
+                ?.map { it.trim() }
+                ?.filter { it.isNotEmpty() }
+                ?.toSet()
+                ?: emptySet()
+        val hasReusableTracks =
+            selection.trackState.count {
+                it.hitCount >= 1 && it.missCount < DANMAKU_AI_SMALL_MULTI_TRACK_MAX_MISS_SAMPLES_WEAK
+            } >= DANMAKU_AI_SMALL_MULTI_MAX_PEOPLE
+        val usesRelaxedOrWeakPartner =
+            dropReasonTokens.any { it == "relaxed" || it == "weak" || it == "split" }
+        if (
+            "insufficient_small_candidates" in dropReasonTokens &&
+                (!hasReusableTracks || usesRelaxedOrWeakPartner || stableSingleTargetPreferred)
+        ) {
+            return mergeDropReasons(
+                selection.dropReason,
+                if (stableSingleTargetPreferred) "single_target_priority" else null,
+            )
+        }
+        if (stableSingleTargetPreferred && usesRelaxedOrWeakPartner) {
+            return mergeDropReasons(selection.dropReason, "single_target_priority")
+        }
+        if (suppressed) {
+            return "suppressed"
+        }
+        if (sceneCutRecoveryActive || degradationStage > 0) {
+            return "latency"
+        }
+        val latencyRatio =
+            if (hasReusableTracks || smallMultiStickySamplesRemaining > 0) {
+                DANMAKU_AI_SMALL_MULTI_MODE_LATENCY_HOLD_RATIO
+            } else {
+                DANMAKU_AI_SMALL_MULTI_MODE_LATENCY_HEADROOM_RATIO
+            }
+        val budgetThresholdMs = preferredSampleIntervalMs().toDouble() * latencyRatio
+        if (averageLatencyMs > 0.0 && averageLatencyMs > budgetThresholdMs) {
+            return "latency"
+        }
+        return null
+    }
+
+    private fun shouldPreferSmallMultiMode(
+        selection: DanmakuSmallMultiSelection,
+        dropReason: String?,
+    ): Boolean {
+        if (selection.targets.size < DANMAKU_AI_SMALL_MULTI_MAX_PEOPLE) {
+            return false
+        }
+        if (dropReason == null) {
+            return true
+        }
+        if (dropReason.contains("single_target_priority")) {
+            return false
+        }
+        val hasReusableTracks =
+            selection.trackState.count {
+                it.hitCount >= 1 && it.missCount < DANMAKU_AI_SMALL_MULTI_TRACK_MAX_MISS_SAMPLES_WEAK
+            } >= DANMAKU_AI_SMALL_MULTI_MAX_PEOPLE
+        return dropReason == "latency" && (smallMultiStickySamplesRemaining > 0 || hasReusableTracks)
+    }
+
+    private fun compactTrackTargetsWouldBenefitFromRelaxedPartner(
+        matureTrackTargets: List<DanmakuSmallMultiTrackTarget>,
+        freshTrackTargets: List<DanmakuSmallMultiTrackTarget>,
+    ): Boolean = matureTrackTargets.size == 1 || freshTrackTargets.isNotEmpty()
+
+    private fun compactFreshTrackTargetsWouldBenefitFromWeakPartner(
+        freshTrackTargets: List<DanmakuSmallMultiTrackTarget>,
+    ): Boolean = freshTrackTargets.size == 1
+
+    private fun effectiveSmallMultiInputWidth(): Int =
+        max(
+            DANMAKU_AI_REDUCED_INPUT_WIDTH,
+            effectiveInputWidth() - DANMAKU_AI_SMALL_MULTI_INPUT_WIDTH_REDUCTION,
+        ).coerceAtMost(effectiveInputWidth())
+
+    private fun segmentationTargetAspectRatio(): Float {
+        val configuredAspectRatio =
+            if (config.inputHeight > 0) {
+                config.inputWidth.toFloat() / config.inputHeight.toFloat()
+            } else {
+                DANMAKU_AI_SEGMENTATION_TARGET_ASPECT_RATIO
+            }
+        return configuredAspectRatio
+            .takeIf { it.isFinite() && it > 0f }
+            ?.coerceIn(1.2f, 2.4f)
+            ?: DANMAKU_AI_SEGMENTATION_TARGET_ASPECT_RATIO
+    }
+
+    private fun expandRectForSegmentation(
+        rect: DanmakuNormalizedRect,
+        roiMode: DanmakuSegmentationRoiMode,
+    ): DanmakuNormalizedRect {
+        val horizontalRatio =
+            if (roiMode == DanmakuSegmentationRoiMode.TRACKED) {
+                DANMAKU_AI_TRACKED_ROI_EXPAND_HORIZONTAL_RATIO
+            } else {
+                DANMAKU_AI_DETECTION_EXPAND_HORIZONTAL_RATIO
+            }
+        val verticalRatio =
+            if (roiMode == DanmakuSegmentationRoiMode.TRACKED) {
+                DANMAKU_AI_TRACKED_ROI_EXPAND_VERTICAL_RATIO
+            } else {
+                DANMAKU_AI_DETECTION_EXPAND_VERTICAL_RATIO
+            }
+        return rect.expanded(
+            horizontalRatio = horizontalRatio,
+            verticalRatio = verticalRatio,
+        )
+    }
+
+    private fun createSegmentationRoi(
+        bitmap: Bitmap,
+        detectionRect: DanmakuNormalizedRect,
+        roiMode: DanmakuSegmentationRoiMode,
+        inputWidthOverride: Int? = null,
+    ): DanmakuSegmentationRoi {
+        val focusRect = resolveSegmentationFocusRect(detectionRect, roiMode)
+        val sourceRect = expandRectForSegmentation(focusRect, roiMode)
+        val left = (sourceRect.x * bitmap.width).toInt().coerceIn(0, bitmap.width - 1)
+        val top = (sourceRect.y * bitmap.height).toInt().coerceIn(0, bitmap.height - 1)
+        val right =
+            ((sourceRect.x + sourceRect.width) * bitmap.width)
+                .roundToInt()
+                .coerceIn(left + 1, bitmap.width)
+        val bottom =
+            ((sourceRect.y + sourceRect.height) * bitmap.height)
+                .roundToInt()
+                .coerceIn(top + 1, bitmap.height)
+        val cropWidth = (right - left).coerceAtLeast(1)
+        val cropHeight = (bottom - top).coerceAtLeast(1)
+        val rawCrop = Bitmap.createBitmap(bitmap, left, top, cropWidth, cropHeight)
+        val targetWidth =
+            (inputWidthOverride ?: effectiveInputWidth()).coerceIn(
+                DANMAKU_AI_DEGRADED_INPUT_WIDTH,
+                DANMAKU_AI_REFINE_MAX_WIDTH,
+            )
+        val targetHeight =
+            (targetWidth.toFloat() / segmentationTargetAspectRatio())
+                .roundToInt()
+                .coerceIn(96, 512)
+        val targetBitmap: Bitmap
+        val contentRect: DanmakuNormalizedRect
+        if (rawCrop.width == targetWidth && rawCrop.height == targetHeight) {
+            targetBitmap = rawCrop
+            contentRect =
+                DanmakuNormalizedRect(
+                    x = 0f,
+                    y = 0f,
+                    width = 1f,
+                    height = 1f,
+                )
+        } else {
+            val cropAspectRatio = rawCrop.width.toFloat() / rawCrop.height.toFloat()
+            val targetAspectRatio = targetWidth.toFloat() / targetHeight.toFloat()
+            val contentWidth: Int
+            val contentHeight: Int
+            val offsetX: Int
+            val offsetY: Int
+            if (cropAspectRatio >= targetAspectRatio) {
+                contentWidth = targetWidth
+                contentHeight =
+                    (targetWidth.toFloat() / cropAspectRatio)
+                        .roundToInt()
+                        .coerceIn(1, targetHeight)
+                offsetX = 0
+                offsetY = ((targetHeight - contentHeight) / 2).coerceAtLeast(0)
+            } else {
+                contentHeight = targetHeight
+                contentWidth =
+                    (targetHeight.toFloat() * cropAspectRatio)
+                        .roundToInt()
+                        .coerceIn(1, targetWidth)
+                offsetX = ((targetWidth - contentWidth) / 2).coerceAtLeast(0)
+                offsetY = 0
+            }
+            targetBitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+            targetBitmap.eraseColor(Color.BLACK)
+            Canvas(targetBitmap).drawBitmap(
+                rawCrop,
+                null,
+                Rect(offsetX, offsetY, offsetX + contentWidth, offsetY + contentHeight),
+                Paint(Paint.FILTER_BITMAP_FLAG),
+            )
+            if (!rawCrop.isRecycled) {
+                rawCrop.recycle()
+            }
+            contentRect =
+                DanmakuNormalizedRect(
+                    x = offsetX.toFloat() / targetWidth.toFloat(),
+                    y = offsetY.toFloat() / targetHeight.toFloat(),
+                    width = contentWidth.toFloat() / targetWidth.toFloat(),
+                    height = contentHeight.toFloat() / targetHeight.toFloat(),
+                )
+        }
+        return DanmakuSegmentationRoi(
+            bitmap = targetBitmap,
+            rect =
+                DanmakuNormalizedRect(
+                    x = left.toFloat() / bitmap.width.toFloat(),
+                    y = top.toFloat() / bitmap.height.toFloat(),
+                    width = cropWidth.toFloat() / bitmap.width.toFloat(),
+                    height = cropHeight.toFloat() / bitmap.height.toFloat(),
+                ),
+            contentRect = contentRect,
+            mode = roiMode.wireValue,
+            inputWidth = targetWidth,
+            inputHeight = targetHeight,
+        )
+    }
+
+    private fun resolveSegmentationFocusRect(
+        rect: DanmakuNormalizedRect,
+        roiMode: DanmakuSegmentationRoiMode,
+    ): DanmakuNormalizedRect {
+        if (roiMode != DanmakuSegmentationRoiMode.DETECT || sceneCutRecoveryActive) {
+            return rect
+        }
+        val previousRect = trackingRectOrDisplayRect() ?: return rect
+        if (!isCoarseDetectionRect(rect)) {
+            return rect
+        }
+        if (previousRect.area() < DANMAKU_AI_DETECTION_MIN_AREA_RATIO) {
+            return rect
+        }
+        val centerDistance =
+            sqrt(
+                ((rect.centerX - previousRect.centerX).pow(2)) +
+                    ((rect.centerY - previousRect.centerY).pow(2)),
+            )
+        if (rect.iou(previousRect) < 0.02f && centerDistance > DANMAKU_AI_DETECTION_STABILIZE_MAX_CENTER_DISTANCE) {
+            return rect
+        }
+        return rectFromCenter(
+            centerX =
+                previousRect.centerX +
+                    ((rect.centerX - previousRect.centerX) * DANMAKU_AI_DETECTION_STABILIZE_BLEND_ALPHA),
+            centerY =
+                previousRect.centerY +
+                    ((rect.centerY - previousRect.centerY) * DANMAKU_AI_DETECTION_STABILIZE_BLEND_ALPHA),
+            width = minOf(rect.width, previousRect.width * DANMAKU_AI_DETECTION_STABILIZE_MAX_GROWTH),
+            height = minOf(rect.height, previousRect.height * DANMAKU_AI_DETECTION_STABILIZE_MAX_GROWTH),
+        )
+    }
+
+    private fun isCoarseDetectionRect(rect: DanmakuNormalizedRect): Boolean {
+        if (rect.area() >= DANMAKU_AI_COARSE_DETECTION_AREA_RATIO) {
+            return true
+        }
+        if (
+            rect.width >= DANMAKU_AI_COARSE_DETECTION_WIDTH_RATIO &&
+                rect.height >= DANMAKU_AI_COARSE_DETECTION_HEIGHT_RATIO
+        ) {
+            return true
+        }
+        val hugsHorizontalEdges =
+            rect.left <= DANMAKU_AI_COARSE_DETECTION_EDGE_THRESHOLD &&
+                rect.right >= (1f - DANMAKU_AI_COARSE_DETECTION_EDGE_THRESHOLD)
+        val hugsVerticalEdges =
+            rect.top <= DANMAKU_AI_COARSE_DETECTION_EDGE_THRESHOLD &&
+                rect.bottom >= (1f - DANMAKU_AI_COARSE_DETECTION_EDGE_THRESHOLD)
+        return hugsHorizontalEdges || hugsVerticalEdges
+    }
+
+    private fun trackingRectOrDisplayRect(): DanmakuNormalizedRect? =
+        latestTrackingRect ?: latestRect?.takeIf { latestRectTrackingEligible }
+
+    private fun sanitizeTrackingRect(candidate: DanmakuNormalizedRect?): DanmakuNormalizedRect? {
+        candidate ?: return null
+        val previousRect = latestTrackingRect ?: return candidate
+        val requiresStabilization =
+            isCoarseDetectionRect(candidate) ||
+                candidate.width > previousRect.width * DANMAKU_AI_TRACKING_RECT_MAX_GROWTH ||
+                candidate.height > previousRect.height * DANMAKU_AI_TRACKING_RECT_MAX_GROWTH
+        if (!requiresStabilization) {
+            return candidate
+        }
+        val centerDistance =
+            sqrt(
+                ((candidate.centerX - previousRect.centerX).pow(2)) +
+                    ((candidate.centerY - previousRect.centerY).pow(2)),
+            )
+        if (candidate.iou(previousRect) < 0.02f &&
+            centerDistance > DANMAKU_AI_TRACKING_RECT_MAX_CENTER_DISTANCE
+        ) {
+            return previousRect
+        }
+        return rectFromCenter(
+            centerX =
+                previousRect.centerX +
+                    ((candidate.centerX - previousRect.centerX) * DANMAKU_AI_TRACKING_RECT_STABILIZE_BLEND_ALPHA),
+            centerY =
+                previousRect.centerY +
+                    ((candidate.centerY - previousRect.centerY) * DANMAKU_AI_TRACKING_RECT_STABILIZE_BLEND_ALPHA),
+            width =
+                if (candidate.width > previousRect.width) {
+                    minOf(candidate.width, previousRect.width * DANMAKU_AI_TRACKING_RECT_MAX_GROWTH)
+                } else {
+                    candidate.width
+                },
+            height =
+                if (candidate.height > previousRect.height) {
+                    minOf(candidate.height, previousRect.height * DANMAKU_AI_TRACKING_RECT_MAX_GROWTH)
+                } else {
+                    candidate.height
+                },
+        )
+    }
+
+    private fun shouldAttemptScaleRescue(
+        predictedScale: Float?,
+        rejectReason: String?,
+    ): Boolean {
+        if (degradationStage > 1) {
+            return false
+        }
+        if (rejectReason != "primary_component_empty" && rejectReason != "coverage_too_low") {
+            return false
+        }
+        val scale = predictedScale ?: return false
+        if (abs(scale - 1f) < DANMAKU_AI_SCALE_RESCUE_MIN_DELTA) {
+            return false
+        }
+        val budgetThresholdMs = preferredSampleIntervalMs().toDouble()
+        return averageLatencyMs <= 0.0 ||
+            averageLatencyMs <= (budgetThresholdMs * DANMAKU_AI_SCALE_RESCUE_LATENCY_HEADROOM_RATIO)
+    }
+
+    private fun buildScaleRescueTargetRect(targetRect: DanmakuNormalizedRect): DanmakuNormalizedRect =
+        rectFromCenter(
+            centerX = targetRect.centerX,
+            centerY = targetRect.centerY,
+            width = targetRect.width * (1f + DANMAKU_AI_SCALE_RESCUE_EXPAND_RATIO),
+            height = targetRect.height * (1f + DANMAKU_AI_SCALE_RESCUE_EXPAND_RATIO),
+        )
+
+    private fun runSegmentationForRect(
+        bitmap: Bitmap,
+        sampleId: Long,
+        runtime: DanmakuSegmentationRuntime,
+        targetRect: DanmakuNormalizedRect,
+        roiMode: DanmakuSegmentationRoiMode,
+        sampleAreaRatio: Float,
+        allowTemporalSmoothing: Boolean,
+        motionCompensation: DanmakuMotionCompensation?,
+        motionCompensationAttempted: Boolean,
+        predictedScale: Float? = null,
+        inputWidthOverride: Int? = null,
+        relaxValidationForSecondaryMultiTarget: Boolean = false,
+        rejectLogContext: String? = null,
+    ): DanmakuSegmentationAttempt {
+        val primaryPass =
+            runSegmentationPass(
+                bitmap = bitmap,
+                sampleId = sampleId,
+                runtime = runtime,
+                targetRect = targetRect,
+                roiMode = roiMode,
+                allowTemporalSmoothing = allowTemporalSmoothing,
+                motionCompensation = motionCompensation,
+                motionCompensationAttempted = motionCompensationAttempted,
+                inputWidthOverride = inputWidthOverride,
+                relaxValidationForSecondaryMultiTarget = relaxValidationForSecondaryMultiTarget,
+                rejectLogContext = rejectLogContext,
+            )
+        var totalLatencyMs = primaryPass.latencyMs
+        var selectedPass = primaryPass
+        var scaleRescueApplied = false
+        if (roiMode == DanmakuSegmentationRoiMode.TRACKED &&
+            shouldAttemptScaleRescue(
+                predictedScale = predictedScale,
+                rejectReason = primaryPass.rejectReason,
+            )
+        ) {
+            val rescuePass =
+                runSegmentationPass(
+                    bitmap = bitmap,
+                    sampleId = sampleId,
+                    runtime = runtime,
+                    targetRect = buildScaleRescueTargetRect(targetRect),
+                    roiMode = roiMode,
+                    allowTemporalSmoothing = allowTemporalSmoothing,
+                    motionCompensation = motionCompensation,
+                    motionCompensationAttempted = motionCompensationAttempted,
+                    inputWidthOverride = inputWidthOverride,
+                    relaxValidationForSecondaryMultiTarget = relaxValidationForSecondaryMultiTarget,
+                    rejectLogContext = rejectLogContext,
+                )
+            totalLatencyMs += rescuePass.latencyMs
+            selectedPass = rescuePass
+            scaleRescueApplied = true
+        }
+        val mappedExtraction =
+            selectedPass.extraction?.let { rawExtraction ->
+                val mappedResult =
+                    if (sampleAreaRatio < 0.999f) {
+                        remapMaskResultToFullFrame(rawExtraction.maskResult, sampleAreaRatio)
+                    } else {
+                        rawExtraction.maskResult
+                    }
+                DanmakuMaskExtraction(
+                    maskResult = mappedResult,
+                    appliedMotionCompensation = rawExtraction.appliedMotionCompensation,
+                    maskScaleApplied = rawExtraction.maskScaleApplied,
+                    maskScaleValue = rawExtraction.maskScaleValue,
+                )
+            }
+        return DanmakuSegmentationAttempt(
+            extraction = mappedExtraction,
+            latencyMs = totalLatencyMs,
+            roiRect = selectedPass.roiRect,
+            roiMode = roiMode,
+            inputWidth = selectedPass.inputWidth,
+            inputHeight = selectedPass.inputHeight,
+            rejectReason = selectedPass.rejectReason,
+            scaleRescueApplied = scaleRescueApplied,
+        )
+    }
+
+    private fun runSegmentationPass(
+        bitmap: Bitmap,
+        sampleId: Long,
+        runtime: DanmakuSegmentationRuntime,
+        targetRect: DanmakuNormalizedRect,
+        roiMode: DanmakuSegmentationRoiMode,
+        allowTemporalSmoothing: Boolean,
+        motionCompensation: DanmakuMotionCompensation?,
+        motionCompensationAttempted: Boolean,
+        inputWidthOverride: Int? = null,
+        relaxValidationForSecondaryMultiTarget: Boolean = false,
+        rejectLogContext: String? = null,
+    ): DanmakuSegmentationPassResult {
+        val refineStartedAt = SystemClock.elapsedRealtime()
+        val roi = createSegmentationRoi(bitmap, targetRect, roiMode, inputWidthOverride)
+        val extractionResult =
+            run {
+                try {
+                    val roiOutput =
+                        synchronized(runtimeLock) {
+                            if (disposed || activeRuntime !== runtime) {
+                                null
+                            } else {
+                                runtime.run(roi.bitmap)
+                            }
+                        } ?: return@run DanmakuMaskExtractionResult(extraction = null, rejectReason = null)
+                    extractMaskResultFromDetectedRoi(
+                        sampleId = sampleId,
+                        outputValues = roiOutput.maskValues,
+                        outputWidth = roiOutput.width,
+                        outputHeight = roiOutput.height,
+                        fullWidth = bitmap.width,
+                        fullHeight = bitmap.height,
+                        detectionRect = targetRect,
+                        roiRect = roi.rect,
+                        roiContentRect = roi.contentRect,
+                        allowTemporalSmoothing = allowTemporalSmoothing,
+                        motionCompensation = motionCompensation,
+                        motionCompensationAttempted = motionCompensationAttempted,
+                        relaxValidationForSecondaryMultiTarget = relaxValidationForSecondaryMultiTarget,
+                        rejectLogContext = rejectLogContext,
+                    )
+                } catch (error: Throwable) {
+                    Log.w(
+                        DANMAKU_AI_TAG,
+                        "sample=$sampleId roi extraction failed detection=$targetRect roi=${roi.rect}",
+                        error,
+                    )
+                    DanmakuMaskExtractionResult(extraction = null, rejectReason = null)
+                } finally {
+                    if (!roi.bitmap.isRecycled) {
+                        roi.bitmap.recycle()
+                    }
+                }
+            }
+        val refineLatencyMs = SystemClock.elapsedRealtime() - refineStartedAt
+        return DanmakuSegmentationPassResult(
+            extraction = extractionResult.extraction,
+            rejectReason = extractionResult.rejectReason,
+            roiRect = roi.rect,
+            inputWidth = roi.inputWidth,
+            inputHeight = roi.inputHeight,
+            latencyMs = refineLatencyMs,
+        )
+    }
+
+    private fun extractMaskResultFromDetectedRoi(
+        sampleId: Long,
+        outputValues: FloatArray,
+        outputWidth: Int,
+        outputHeight: Int,
+        fullWidth: Int,
+        fullHeight: Int,
+        detectionRect: DanmakuNormalizedRect,
+        roiRect: DanmakuNormalizedRect,
+        roiContentRect: DanmakuNormalizedRect,
+        allowTemporalSmoothing: Boolean,
+        motionCompensation: DanmakuMotionCompensation?,
+        motionCompensationAttempted: Boolean,
+        relaxValidationForSecondaryMultiTarget: Boolean = false,
+        rejectLogContext: String? = null,
+    ): DanmakuMaskExtractionResult {
+        val hardThreshold =
+            if (relaxValidationForSecondaryMultiTarget) {
+                DANMAKU_AI_MULTI_SECONDARY_OUTPUT_MASK_HARD_THRESHOLD
+            } else {
+                DANMAKU_AI_OUTPUT_MASK_HARD_THRESHOLD
+            }
+        val keepThreshold =
+            if (relaxValidationForSecondaryMultiTarget) {
+                DANMAKU_AI_MULTI_SECONDARY_OUTPUT_MASK_KEEP_THRESHOLD
+            } else {
+                DANMAKU_AI_OUTPUT_MASK_KEEP_THRESHOLD
+            }
+        val minForegroundRatio =
+            if (relaxValidationForSecondaryMultiTarget) {
+                DANMAKU_AI_MULTI_SECONDARY_REFINE_MIN_FOREGROUND_RATIO
+            } else {
+                DANMAKU_AI_REFINE_MIN_FOREGROUND_RATIO
+            }
+        val minBoxCoverage =
+            if (relaxValidationForSecondaryMultiTarget) {
+                DANMAKU_AI_MULTI_SECONDARY_REFINE_MIN_BOX_COVERAGE
+            } else {
+                DANMAKU_AI_REFINE_MIN_BOX_COVERAGE
+            }
+        val minBoxIou =
+            if (relaxValidationForSecondaryMultiTarget) {
+                DANMAKU_AI_MULTI_SECONDARY_REFINE_MIN_BOX_IOU
+            } else {
+                DANMAKU_AI_REFINE_MIN_BOX_IOU
+            }
+        fun rejected(
+            reason: String,
+            mappedRect: DanmakuNormalizedRect? = null,
+            coverage: Float? = null,
+            iou: Float? = null,
+            foregroundRatio: Float? = null,
+        ): DanmakuMaskExtractionResult {
+            logRoiMaskReject(
+                sampleId = sampleId,
+                reason = reason,
+                detectionRect = detectionRect,
+                roiRect = roiRect,
+                mappedRect = mappedRect,
+                coverage = coverage,
+                iou = iou,
+                foregroundRatio = foregroundRatio,
+                context = rejectLogContext,
+            )
+            return DanmakuMaskExtractionResult(
+                extraction = null,
+                rejectReason = reason,
+            )
+        }
+        val roiMaskPlane = cropMaskToContentRect(outputValues, outputWidth, outputHeight, roiContentRect)
+        val roiMaskValues = roiMaskPlane.values
+        val roiMaskWidth = roiMaskPlane.width
+        val roiMaskHeight = roiMaskPlane.height
+        val blurred = FloatArray(roiMaskValues.size)
+        blurMask(roiMaskValues, blurred, roiMaskWidth, roiMaskHeight)
+        val normalized = normalizeMask(blurred)
+        val refined = refineMaskAlpha(normalized)
+        val coreMask =
+            buildThresholdMask(
+                values = refined,
+                threshold = hardThreshold,
+            )
+        val primaryCoreComponent =
+            retainPrimaryMaskComponent(coreMask, roiMaskWidth, roiMaskHeight)
+                ?: return rejected(reason = "primary_component_empty")
+        val softCandidateMask =
+            buildThresholdMask(
+                values = refined,
+                threshold = keepThreshold,
+            )
+        val grownMask =
+            growMaskFromSeedWithinCandidate(
+                seedMask = primaryCoreComponent.maskValues,
+                candidateMask = softCandidateMask,
+                width = roiMaskWidth,
+                height = roiMaskHeight,
+            )
+        val primaryMaskComponent =
+            retainPrimaryMaskComponent(grownMask, roiMaskWidth, roiMaskHeight) ?: primaryCoreComponent
+        val maskedForegroundRatio =
+            foregroundRatio(
+                applyPrimaryMask(refined, primaryMaskComponent.maskValues),
+                keepThreshold,
+            )
+        val maskedRefined =
+            applyPrimaryMask(refined, primaryMaskComponent.maskValues).takeIf {
+                maskedForegroundRatio >= minForegroundRatio
+            } ?: return rejected(
+                reason = "masked_foreground_ratio_too_low",
+                foregroundRatio = maskedForegroundRatio,
+            )
+        val mappedRect = mapRectFromRoiToFullFrame(primaryMaskComponent.component.rect, roiRect)
+        val validationMetrics =
+            evaluateRoiMaskReasonableness(
+                detectionRect = detectionRect,
+                mappedRect = mappedRect,
+                maskValues = primaryMaskComponent.maskValues,
+            )
+        if (validationMetrics.coverage < minBoxCoverage) {
+            return rejected(
+                reason = "coverage_too_low",
+                mappedRect = mappedRect,
+                coverage = validationMetrics.coverage,
+                iou = validationMetrics.iou,
+                foregroundRatio = validationMetrics.foregroundRatio,
+            )
+        }
+        if (validationMetrics.iou < minBoxIou) {
+            return rejected(
+                reason = "iou_too_low",
+                mappedRect = mappedRect,
+                coverage = validationMetrics.coverage,
+                iou = validationMetrics.iou,
+                foregroundRatio = validationMetrics.foregroundRatio,
+            )
+        }
+        if (validationMetrics.foregroundRatio < minForegroundRatio) {
+            return rejected(
+                reason = "final_foreground_ratio_too_low",
+                mappedRect = mappedRect,
+                coverage = validationMetrics.coverage,
+                iou = validationMetrics.iou,
+                foregroundRatio = validationMetrics.foregroundRatio,
+            )
+        }
+        val fullMask =
+            embedRoiMaskInFullFrame(
+                maskedRefined,
+                roiMaskWidth,
+                roiMaskHeight,
+                fullWidth,
+                fullHeight,
+                roiRect,
+            )
+        val appliedMotionCompensation =
+            motionCompensation?.takeIf {
+                shouldApplyMotionCompensation(
+                    nextRect = mappedRect,
+                    motionCompensation = it,
+                )
+            }
+        val compensatedPreviousMask =
+            buildCompensatedPreviousMask(appliedMotionCompensation, fullWidth, fullHeight)
+        val compensatedPreviousRect = buildCompensatedPreviousRect(appliedMotionCompensation)
+        val temporalSmoothingMinIou =
+            if (motionCompensationAttempted && appliedMotionCompensation == null) {
+                DANMAKU_AI_MOTION_MISS_TEMPORAL_FALLBACK_MIN_IOU
+            } else {
+                DANMAKU_AI_TEMPORAL_SMOOTHING_MIN_IOU
+            }
+        val shouldSmoothTemporally =
+            allowTemporalSmoothing &&
+                shouldUseTemporalSmoothing(
+                    nextRect = mappedRect,
+                    previousRectOverride = compensatedPreviousRect,
+                    minIou = temporalSmoothingMinIou,
+                )
+        val finalMask =
+            if (shouldSmoothTemporally) {
+                smoothMaskOverTime(
+                    nextMask = fullMask,
+                    width = fullWidth,
+                    height = fullHeight,
+                    previousMaskOverride = compensatedPreviousMask,
+                )
+            } else {
+                fullMask
+            }
+        val finalRect =
+            if (shouldSmoothTemporally) {
+                smoothRectOverTime(
+                    nextRect = mappedRect,
+                    previousRectOverride = compensatedPreviousRect,
+                )
+            } else {
+                mappedRect
+            }
+        val constrainedMask =
+            constrainMaskForOcclusionRender(
+                maskValues = finalMask,
+                width = fullWidth,
+                height = fullHeight,
+                detectionRect = detectionRect,
+                previousRect = compensatedPreviousRect ?: trackingRectOrDisplayRect(),
+            )
+        val renderReadyMask = prepareMaskForOcclusionRender(constrainedMask, fullWidth, fullHeight)
+        val renderReadyRect = extractPrimaryRect(renderReadyMask, fullWidth, fullHeight) ?: finalRect
+        val maskScaleApplied = appliedMotionCompensation?.let { shouldApplyMaskScaleCompensation(it.scale) } == true
+        val maskScaleValue = if (maskScaleApplied) appliedMotionCompensation?.scale ?: 1f else 1f
+        return DanmakuMaskExtractionResult(
+            extraction =
+                DanmakuMaskExtraction(
+                    maskResult =
+                        DanmakuMaskResult(
+                            maskValues = renderReadyMask,
+                            maskWidth = fullWidth,
+                            maskHeight = fullHeight,
+                            normalizedRect = finalRect,
+                            occlusionMode = DanmakuOcclusionMode.MASK,
+                        ),
+                    appliedMotionCompensation = appliedMotionCompensation,
+                    maskScaleApplied = maskScaleApplied,
+                    maskScaleValue = maskScaleValue,
+                ),
+            rejectReason = null,
+        )
+    }
+
+    private fun constrainMaskForOcclusionRender(
+        maskValues: FloatArray,
+        width: Int,
+        height: Int,
+        detectionRect: DanmakuNormalizedRect,
+        previousRect: DanmakuNormalizedRect?,
+    ): FloatArray {
+        val supportMask = FloatArray(maskValues.size)
+        for (index in maskValues.indices) {
+            supportMask[index] =
+                if (maskValues[index] >= DANMAKU_AI_RENDER_MASK_SUPPORT_THRESHOLD) {
+                    1f
+                } else {
+                    0f
+                }
+        }
+        val closed =
+            if (DANMAKU_AI_RENDER_MASK_CLOSING_RADIUS > 0) {
+                FloatArray(supportMask.size).also { output ->
+                    closeBinaryMask(
+                        input = supportMask,
+                        output = output,
+                        width = width,
+                        height = height,
+                        radius = DANMAKU_AI_RENDER_MASK_CLOSING_RADIUS,
+                    )
+                }
+            } else {
+                supportMask
+            }
+        val filteredBinary =
+            keepDetectionAlignedComponents(
+                maskValues = closed,
+                width = width,
+                height = height,
+                detectionRect = detectionRect,
+                previousRect = previousRect,
+            )
+        return FloatArray(maskValues.size).also { output ->
+            for (index in maskValues.indices) {
+                output[index] =
+                    if (filteredBinary[index] > 0.5f) {
+                        max(maskValues[index], DANMAKU_AI_RENDER_MASK_SUPPORT_THRESHOLD)
+                    } else {
+                        0f
+                    }
+            }
+        }
+    }
+
+    private fun prepareMaskForOcclusionRender(
+        maskValues: FloatArray,
+        width: Int,
+        height: Int,
+    ): FloatArray {
+        val expanded =
+            if (DANMAKU_AI_RENDER_MASK_EXPAND_RADIUS > 0) {
+                FloatArray(maskValues.size).also { output ->
+                    expandSoftMask(
+                        input = maskValues,
+                        output = output,
+                        width = width,
+                        height = height,
+                        radius = DANMAKU_AI_RENDER_MASK_EXPAND_RADIUS,
+                    )
+                }
+            } else {
+                maskValues.copyOf()
+            }
+        val softened =
+            FloatArray(expanded.size).also { output ->
+                blurMask(expanded, output, width, height)
+            }
+        return FloatArray(softened.size).also { output ->
+            for (index in softened.indices) {
+                val value = softened[index].coerceIn(0f, 1f)
+                if (value <= DANMAKU_AI_RENDER_MASK_MIN_VISIBLE_ALPHA) {
+                    output[index] = 0f
+                    continue
+                }
+                val boosted =
+                    value
+                        .toDouble()
+                        .pow(DANMAKU_AI_RENDER_MASK_ALPHA_GAMMA.toDouble())
+                        .toFloat()
+                        .coerceIn(0f, 1f)
+                output[index] =
+                    ((boosted - DANMAKU_AI_RENDER_MASK_MIN_VISIBLE_ALPHA) /
+                        (1f - DANMAKU_AI_RENDER_MASK_MIN_VISIBLE_ALPHA))
+                        .coerceIn(0f, 1f)
+            }
+        }
+    }
+
+    private fun buildThresholdMask(
+        values: FloatArray,
+        threshold: Float,
+    ): FloatArray {
+        val output = FloatArray(values.size)
+        for (index in values.indices) {
+            output[index] =
+                if (values[index] >= threshold) {
+                    1f
+                } else {
+                    0f
+                }
+        }
+        return output
+    }
+
+    private fun growMaskFromSeedWithinCandidate(
+        seedMask: FloatArray,
+        candidateMask: FloatArray,
+        width: Int,
+        height: Int,
+    ): FloatArray {
+        val totalPixels = width * height
+        val output = FloatArray(totalPixels)
+        val visited = BooleanArray(totalPixels)
+        val queue = IntArray(totalPixels)
+        var head = 0
+        var tail = 0
+        for (index in 0 until totalPixels) {
+            if (seedMask[index] <= 0.5f || candidateMask[index] <= 0.5f) {
+                continue
+            }
+            visited[index] = true
+            output[index] = 1f
+            queue[tail++] = index
+        }
+        while (head < tail) {
+            val current = queue[head++]
+            val x = current % width
+            val y = current / width
+            val neighbors =
+                intArrayOf(
+                    if (x > 0) current - 1 else -1,
+                    if (x < width - 1) current + 1 else -1,
+                    if (y > 0) current - width else -1,
+                    if (y < height - 1) current + width else -1,
+                    if (x > 0 && y > 0) current - width - 1 else -1,
+                    if (x < width - 1 && y > 0) current - width + 1 else -1,
+                    if (x > 0 && y < height - 1) current + width - 1 else -1,
+                    if (x < width - 1 && y < height - 1) current + width + 1 else -1,
+                )
+            for (neighbor in neighbors) {
+                if (neighbor < 0 || visited[neighbor] || candidateMask[neighbor] <= 0.5f) {
+                    continue
+                }
+                visited[neighbor] = true
+                output[neighbor] = 1f
+                queue[tail++] = neighbor
+            }
+        }
+        return output
+    }
+
+    private fun applyPrimaryMask(
+        refinedMask: FloatArray,
+        componentMask: FloatArray,
+    ): FloatArray {
+        val output = FloatArray(refinedMask.size)
+        for (index in refinedMask.indices) {
+            output[index] =
+                if (componentMask[index] > 0f) {
+                    refinedMask[index]
+                } else {
+                    0f
+                }
+        }
+        return output
+    }
+
+    private fun foregroundRatio(
+        values: FloatArray,
+        threshold: Float,
+    ): Float {
+        if (values.isEmpty()) {
+            return 0f
+        }
+        var count = 0
+        for (value in values) {
+            if (value >= threshold) {
+                count += 1
+            }
+        }
+        return count.toFloat() / values.size.toFloat()
+    }
+
+    private fun effectiveDanmakuMaskCoverageRatio(
+        width: Int,
+        height: Int,
+    ): Float {
+        val displayArea = config.displayAreaRatio.coerceIn(0.1f, 1.0f)
+        val captureArea = config.sampleAreaRatio.coerceIn(0.1f, 1.0f)
+        return minOf(displayArea, captureArea).coerceIn(0.1f, 1.0f)
+    }
+
+    private fun renderMaskAreaRatio(
+        maskValues: FloatArray,
+        width: Int,
+        height: Int,
+        coverageRatio: Float = effectiveDanmakuMaskCoverageRatio(width, height),
+    ): Float {
+        if (maskValues.isEmpty() || width <= 0 || height <= 0) {
+            return 0f
+        }
+        val effectiveHeight =
+            max(1, (height.toFloat() * coverageRatio.coerceIn(0.1f, 1.0f)).roundToInt())
+                .coerceAtMost(height)
+        var count = 0
+        for (y in 0 until effectiveHeight) {
+            val row = y * width
+            for (x in 0 until width) {
+                if (maskValues[row + x] >= DANMAKU_AI_RENDER_MASK_SUPPORT_THRESHOLD) {
+                    count += 1
+                }
+            }
+        }
+        return count.toFloat() / (width * height).toFloat()
+    }
+
+    private fun mergeDropReasons(vararg reasons: String?): String? {
+        val tokens = linkedSetOf<String>()
+        for (reason in reasons) {
+            reason
+                ?.split(',')
+                ?.map { it.trim() }
+                ?.filter { it.isNotEmpty() }
+                ?.forEach(tokens::add)
+        }
+        return tokens.joinToString(",").takeIf { tokens.isNotEmpty() }
+    }
+
+    private fun normalizeDropReasonToken(reason: String?): String =
+        reason
+            ?.lowercase(Locale.US)
+            ?.map { character ->
+                if (character.isLetterOrDigit()) {
+                    character
+                } else {
+                    '_'
+                }
+            }?.joinToString("")
+            ?.trim('_')
+            ?.takeIf { it.isNotEmpty() }
+            ?: "unknown"
+
+    private fun buildSmallMultiShapeDropReason(
+        targetIndex: Int,
+        reason: String?,
+    ): String {
+        val targetLabel =
+            if (targetIndex <= 0) {
+                "primary"
+            } else {
+                "secondary"
+            }
+        return "shape_${targetLabel}_${normalizeDropReasonToken(reason)}"
+    }
+
+    private fun unionNormalizedRects(rects: List<DanmakuNormalizedRect>): DanmakuNormalizedRect? {
+        if (rects.isEmpty()) {
+            return null
+        }
+        val left = rects.minOf { it.left }
+        val top = rects.minOf { it.top }
+        val right = rects.maxOf { it.right }
+        val bottom = rects.maxOf { it.bottom }
+        return DanmakuNormalizedRect(
+            x = left.coerceIn(0f, 1f),
+            y = top.coerceIn(0f, 1f),
+            width = (right - left).coerceIn(0f, 1f),
+            height = (bottom - top).coerceIn(0f, 1f),
+        )
+    }
+
+    private fun mergeSmallMultiMaskCandidates(
+        keptCandidates: List<DanmakuSmallMultiMaskCandidate>,
+    ): DanmakuSmallMultiSegmentationResult {
+        if (keptCandidates.isEmpty()) {
+            return DanmakuSmallMultiSegmentationResult(
+                maskResult = null,
+                latencyMs = 0L,
+                keptCount = 0,
+                unionAreaRatio = 0f,
+                dropReason = null,
+                roiRect = null,
+                inputWidth = 0,
+                inputHeight = 0,
+                maskAreaByTrackId = emptyMap(),
+            )
+        }
+        val keptMaskResults = keptCandidates.map { it.maskResult }
+        val baseMask = keptMaskResults.first()
+        val mergedMaskValues = FloatArray(baseMask.maskValues.size)
+        for (candidate in keptMaskResults) {
+            val values = candidate.maskValues
+            for (index in mergedMaskValues.indices) {
+                mergedMaskValues[index] = maxOf(mergedMaskValues[index], values[index])
+            }
+        }
+        val unionAreaRatio =
+            renderMaskAreaRatio(
+                maskValues = mergedMaskValues,
+                width = baseMask.maskWidth,
+                height = baseMask.maskHeight,
+            )
+        return DanmakuSmallMultiSegmentationResult(
+            maskResult =
+                DanmakuMaskResult(
+                    maskValues = mergedMaskValues,
+                    maskWidth = baseMask.maskWidth,
+                    maskHeight = baseMask.maskHeight,
+                    normalizedRect = unionNormalizedRects(keptMaskResults.mapNotNull { it.normalizedRect }),
+                    occlusionMode = DanmakuOcclusionMode.MASK,
+                ),
+            latencyMs = keptCandidates.sumOf { it.attempt.latencyMs },
+            keptCount = keptCandidates.size,
+            unionAreaRatio = unionAreaRatio,
+            dropReason = null,
+            roiRect = unionNormalizedRects(keptCandidates.map { it.attempt.roiRect }),
+            inputWidth = keptCandidates.first().attempt.inputWidth,
+            inputHeight = keptCandidates.first().attempt.inputHeight,
+            maskAreaByTrackId = keptCandidates.associate { it.trackId to it.areaRatio },
+        )
+    }
+
+    private fun runSmallMultiSegmentation(
+        bitmap: Bitmap,
+        sampleId: Long,
+        runtime: DanmakuSegmentationRuntime,
+        targets: List<DanmakuSmallMultiTrackTarget>,
+        sampleAreaRatio: Float,
+        thresholds: DanmakuSmallMultiThresholds = currentSmallMultiThresholds(),
+    ): DanmakuSmallMultiSegmentationResult {
+        val segmentedCandidates = mutableListOf<DanmakuSmallMultiMaskCandidate>()
+        val droppedReasons = linkedSetOf<String>()
+        var totalLatencyMs = 0L
+        val multiInputWidth = effectiveSmallMultiInputWidth()
+        for ((targetIndex, target) in targets.take(DANMAKU_AI_SMALL_MULTI_MAX_PEOPLE).withIndex()) {
+            val relaxValidationForSecondary = targetIndex > 0
+            val attempt =
+                runSegmentationForRect(
+                    bitmap = bitmap,
+                    sampleId = sampleId,
+                    runtime = runtime,
+                    targetRect = target.rect,
+                    roiMode = DanmakuSegmentationRoiMode.DETECT,
+                    sampleAreaRatio = sampleAreaRatio,
+                    allowTemporalSmoothing = false,
+                    motionCompensation = null,
+                    motionCompensationAttempted = false,
+                    inputWidthOverride = multiInputWidth,
+                    relaxValidationForSecondaryMultiTarget = relaxValidationForSecondary,
+                    rejectLogContext =
+                        if (relaxValidationForSecondary) {
+                            "multi_secondary_${targetIndex + 1}"
+                        } else {
+                            "multi_primary_${targetIndex + 1}"
+                        },
+                )
+            totalLatencyMs += attempt.latencyMs
+            val maskResult = attempt.extraction?.maskResult
+            if (maskResult == null) {
+                droppedReasons += buildSmallMultiShapeDropReason(targetIndex, attempt.rejectReason)
+                continue
+            }
+            val areaRatio =
+                renderMaskAreaRatio(
+                    maskValues = maskResult.maskValues,
+                    width = maskResult.maskWidth,
+                    height = maskResult.maskHeight,
+                )
+            val maxMaskAreaRatio =
+                if (relaxValidationForSecondary) {
+                    thresholds.singleMaskMaxAreaRatio * DANMAKU_AI_SMALL_MULTI_SECONDARY_MASK_MAX_AREA_MULTIPLIER
+                } else {
+                    thresholds.singleMaskMaxAreaRatio
+                }
+            if (areaRatio > maxMaskAreaRatio) {
+                droppedReasons += buildSmallMultiShapeDropReason(targetIndex, "area_limit")
+                continue
+            }
+            segmentedCandidates +=
+                DanmakuSmallMultiMaskCandidate(
+                    trackId = target.trackId,
+                    rect = target.rect,
+                    attempt = attempt,
+                    maskResult = maskResult,
+                    priorityScore =
+                        scorePrimaryDetection(
+                            DanmakuPrimaryDetection(
+                                rect = target.rect,
+                                score = target.score,
+                            ),
+                        ),
+                    areaRatio = areaRatio,
+                )
+        }
+        if (segmentedCandidates.isEmpty()) {
+            return DanmakuSmallMultiSegmentationResult(
+                maskResult = null,
+                latencyMs = totalLatencyMs,
+                keptCount = 0,
+                unionAreaRatio = 0f,
+                dropReason = mergeDropReasons(droppedReasons.joinToString(",")),
+                roiRect = null,
+                inputWidth = 0,
+                inputHeight = 0,
+                maskAreaByTrackId = emptyMap(),
+            )
+        }
+        val keptCandidates =
+            segmentedCandidates
+                .sortedByDescending { it.priorityScore }
+                .toMutableList()
+        var merged = mergeSmallMultiMaskCandidates(keptCandidates)
+        while (keptCandidates.isNotEmpty() && merged.unionAreaRatio > thresholds.unionMaxAreaRatio) {
+            droppedReasons += "area_budget"
+            keptCandidates.removeLast()
+            merged = mergeSmallMultiMaskCandidates(keptCandidates)
+        }
+        if (keptCandidates.isEmpty() || merged.maskResult == null) {
+            return DanmakuSmallMultiSegmentationResult(
+                maskResult = null,
+                latencyMs = totalLatencyMs,
+                keptCount = 0,
+                unionAreaRatio = 0f,
+                dropReason = mergeDropReasons(droppedReasons.joinToString(",")),
+                roiRect = null,
+                inputWidth = 0,
+                inputHeight = 0,
+                maskAreaByTrackId = emptyMap(),
+            )
+        }
+        return merged.copy(
+            latencyMs = totalLatencyMs,
+            dropReason = mergeDropReasons(droppedReasons.joinToString(",")),
+        )
+    }
+
+    private fun applySmallMultiMaskAreas(
+        tracks: List<DanmakuSmallMultiTrack>,
+        maskAreaByTrackId: Map<Int, Float>,
+    ): List<DanmakuSmallMultiTrack> {
+        if (tracks.isEmpty() || maskAreaByTrackId.isEmpty()) {
+            return tracks
+        }
+        return tracks.map { track ->
+            track.copy(
+                lastMaskAreaRatio = maskAreaByTrackId[track.trackId] ?: track.lastMaskAreaRatio,
+            )
+        }
+    }
+
+    private fun mapRectFromRoiToFullFrame(
+        rectInRoi: DanmakuNormalizedRect,
+        roiRect: DanmakuNormalizedRect,
+    ): DanmakuNormalizedRect {
+        return DanmakuNormalizedRect(
+            x = (roiRect.x + (rectInRoi.x * roiRect.width)).coerceIn(0f, 1f),
+            y = (roiRect.y + (rectInRoi.y * roiRect.height)).coerceIn(0f, 1f),
+            width = (rectInRoi.width * roiRect.width).coerceIn(0f, 1f),
+            height = (rectInRoi.height * roiRect.height).coerceIn(0f, 1f),
+        )
+    }
+
+    private fun cropMaskToContentRect(
+        maskValues: FloatArray,
+        maskWidth: Int,
+        maskHeight: Int,
+        contentRect: DanmakuNormalizedRect,
+    ): DanmakuMaskPlane {
+        val left = (contentRect.x * maskWidth).roundToInt().coerceIn(0, maskWidth - 1)
+        val top = (contentRect.y * maskHeight).roundToInt().coerceIn(0, maskHeight - 1)
+        val right =
+            ((contentRect.x + contentRect.width) * maskWidth)
+                .roundToInt()
+                .coerceIn(left + 1, maskWidth)
+        val bottom =
+            ((contentRect.y + contentRect.height) * maskHeight)
+                .roundToInt()
+                .coerceIn(top + 1, maskHeight)
+        val croppedWidth = (right - left).coerceAtLeast(1)
+        val croppedHeight = (bottom - top).coerceAtLeast(1)
+        if (left == 0 && top == 0 && croppedWidth == maskWidth && croppedHeight == maskHeight) {
+            return DanmakuMaskPlane(
+                values = maskValues,
+                width = maskWidth,
+                height = maskHeight,
+            )
+        }
+        val croppedValues = FloatArray(croppedWidth * croppedHeight)
+        for (y in 0 until croppedHeight) {
+            System.arraycopy(
+                maskValues,
+                ((top + y) * maskWidth) + left,
+                croppedValues,
+                y * croppedWidth,
+                croppedWidth,
+            )
+        }
+        return DanmakuMaskPlane(
+            values = croppedValues,
+            width = croppedWidth,
+            height = croppedHeight,
+        )
+    }
+
+    private fun evaluateRoiMaskReasonableness(
+        detectionRect: DanmakuNormalizedRect,
+        mappedRect: DanmakuNormalizedRect,
+        maskValues: FloatArray,
+    ): RoiMaskValidationMetrics {
+        val coverage =
+            if (detectionRect.area() > 0f) {
+                mappedRect.area() / detectionRect.area()
+            } else {
+                0f
+            }
+        val iou = mappedRect.iou(detectionRect)
+        val finalForegroundRatio = foregroundRatio(maskValues, 1f)
+        return RoiMaskValidationMetrics(
+            coverage = coverage,
+            iou = iou,
+            foregroundRatio = finalForegroundRatio,
+        )
+    }
+
+    private fun logRoiMaskReject(
+        sampleId: Long,
+        reason: String,
+        detectionRect: DanmakuNormalizedRect,
+        roiRect: DanmakuNormalizedRect,
+        mappedRect: DanmakuNormalizedRect? = null,
+        coverage: Float? = null,
+        iou: Float? = null,
+        foregroundRatio: Float? = null,
+        context: String? = null,
+    ) {
+        val metrics =
+            buildList {
+                coverage?.let { add("coverage=${"%.3f".format(Locale.US, it)}") }
+                iou?.let { add("iou=${"%.3f".format(Locale.US, it)}") }
+                foregroundRatio?.let { add("fg=${"%.4f".format(Locale.US, it)}") }
+            }.joinToString(" ")
+        Log.d(
+            DANMAKU_AI_TAG,
+            buildString {
+                append("sample=")
+                append(sampleId)
+                context?.let {
+                    append(" context=")
+                    append(it)
+                }
+                append(" roi_reject=")
+                append(reason)
+                append(" detection=")
+                append(detectionRect)
+                append(" roi=")
+                append(roiRect)
+                mappedRect?.let {
+                    append(" mapped=")
+                    append(it)
+                }
+                if (metrics.isNotEmpty()) {
+                    append(' ')
+                    append(metrics)
+                }
+            },
+        )
+    }
+
+    private fun embedRoiMaskInFullFrame(
+        roiMaskValues: FloatArray,
+        roiMaskWidth: Int,
+        roiMaskHeight: Int,
+        fullWidth: Int,
+        fullHeight: Int,
+        roiRect: DanmakuNormalizedRect,
+    ): FloatArray {
+        val fullMask = FloatArray(fullWidth * fullHeight)
+        val left = (roiRect.x * fullWidth).toInt().coerceIn(0, fullWidth - 1)
+        val top = (roiRect.y * fullHeight).toInt().coerceIn(0, fullHeight - 1)
+        val right =
+            ((roiRect.x + roiRect.width) * fullWidth)
+                .roundToInt()
+                .coerceIn(left + 1, fullWidth)
+        val bottom =
+            ((roiRect.y + roiRect.height) * fullHeight)
+                .roundToInt()
+                .coerceIn(top + 1, fullHeight)
+        val targetWidth = (right - left).coerceAtLeast(1)
+        val targetHeight = (bottom - top).coerceAtLeast(1)
+        for (y in 0 until targetHeight) {
+            val targetRow = (top + y) * fullWidth
+            for (x in 0 until targetWidth) {
+                val sourceX =
+                    (((x + 0.5f) * roiMaskWidth.toFloat()) / targetWidth.toFloat()) - 0.5f
+                val sourceY =
+                    (((y + 0.5f) * roiMaskHeight.toFloat()) / targetHeight.toFloat()) - 0.5f
+                fullMask[targetRow + left + x] =
+                    bilinearSampleMask(
+                        values = roiMaskValues,
+                        width = roiMaskWidth,
+                        height = roiMaskHeight,
+                        x = sourceX,
+                        y = sourceY,
+                    )
+            }
+        }
+        return fullMask
     }
 
     private fun extractMaskResult(
@@ -1005,14 +5557,18 @@ class DanmakuDynamicOcclusionController(
         val compensatedPreviousMask =
             buildCompensatedPreviousMask(appliedMotionCompensation, width, height)
         val compensatedPreviousRect = buildCompensatedPreviousRect(appliedMotionCompensation)
-        val bypassTemporalSmoothing =
-            motionCompensationAttempted && appliedMotionCompensation == null
+        val temporalSmoothingMinIou =
+            if (motionCompensationAttempted && appliedMotionCompensation == null) {
+                DANMAKU_AI_MOTION_MISS_TEMPORAL_FALLBACK_MIN_IOU
+            } else {
+                DANMAKU_AI_TEMPORAL_SMOOTHING_MIN_IOU
+            }
         val shouldSmoothTemporally =
             allowTemporalSmoothing &&
-                !bypassTemporalSmoothing &&
                 shouldUseTemporalSmoothing(
                     nextRect = baseRect,
                     previousRectOverride = compensatedPreviousRect,
+                    minIou = temporalSmoothingMinIou,
                 )
         val smoothed =
             if (shouldSmoothTemporally) {
@@ -1054,6 +5610,8 @@ class DanmakuDynamicOcclusionController(
             } else {
                 helperRect
             }
+        val maskScaleApplied = appliedMotionCompensation?.let { shouldApplyMaskScaleCompensation(it.scale) } == true
+        val maskScaleValue = if (maskScaleApplied) appliedMotionCompensation?.scale ?: 1f else 1f
         return DanmakuMaskExtraction(
             maskResult =
                 DanmakuMaskResult(
@@ -1063,6 +5621,8 @@ class DanmakuDynamicOcclusionController(
                     normalizedRect = finalRect,
                 ),
             appliedMotionCompensation = appliedMotionCompensation,
+            maskScaleApplied = maskScaleApplied,
+            maskScaleValue = maskScaleValue,
         )
     }
 
@@ -1158,16 +5718,17 @@ class DanmakuDynamicOcclusionController(
     private fun shouldUseTemporalSmoothing(
         nextRect: DanmakuNormalizedRect,
         previousRectOverride: DanmakuNormalizedRect? = null,
+        minIou: Float = DANMAKU_AI_TEMPORAL_SMOOTHING_MIN_IOU,
     ): Boolean {
-        val previousRect = previousRectOverride ?: latestRect ?: return false
-        return previousRect.iou(nextRect) >= DANMAKU_AI_TEMPORAL_SMOOTHING_MIN_IOU
+        val previousRect = previousRectOverride ?: trackingRectOrDisplayRect() ?: return false
+        return previousRect.iou(nextRect) >= minIou
     }
 
     private fun smoothRectOverTime(
         nextRect: DanmakuNormalizedRect,
         previousRectOverride: DanmakuNormalizedRect? = null,
     ): DanmakuNormalizedRect {
-        val previousRect = previousRectOverride ?: latestRect ?: return nextRect
+        val previousRect = previousRectOverride ?: trackingRectOrDisplayRect() ?: return nextRect
         return if (previousRect.iou(nextRect) >= DANMAKU_AI_TEMPORAL_SMOOTHING_MIN_IOU) {
             previousRect.lerp(nextRect, DANMAKU_AI_RECT_SMOOTHING_ALPHA)
         } else {
@@ -1227,6 +5788,88 @@ class DanmakuDynamicOcclusionController(
         return signature
     }
 
+    private fun predictTrackedTransform(
+        sampleWidth: Int,
+        sampleHeight: Int,
+    ): DanmakuPredictedTransform? {
+        if (sceneCutRecoveryActive || consecutiveEmptyFrames > 0) {
+            return null
+        }
+        val latest = latestMotionReferenceFrame ?: return null
+        val previous = previousMotionReferenceFrame ?: return null
+        val latestArea = latest.normalizedRect.area()
+        val previousArea = previous.normalizedRect.area()
+        if (
+            latestArea < DANMAKU_AI_MOTION_MIN_RECT_AREA ||
+                previousArea < DANMAKU_AI_MOTION_MIN_RECT_AREA
+        ) {
+            return null
+        }
+        val deltaMs = (latest.timestampMs - previous.timestampMs).coerceAtLeast(1L)
+        if (deltaMs > DANMAKU_AI_MOTION_PREDICTION_MAX_GAP_MS) {
+            return null
+        }
+        val elapsedSinceLatestMs =
+            (SystemClock.uptimeMillis() - latest.timestampMs)
+                .coerceAtLeast(0L)
+                .coerceAtMost(max(currentSampleIntervalMs(), deltaMs))
+        if (elapsedSinceLatestMs <= 0L) {
+            return null
+        }
+        val rawDxNormalized =
+            ((latest.normalizedRect.centerX - previous.normalizedRect.centerX) / deltaMs.toFloat()) *
+                elapsedSinceLatestMs.toFloat() * DANMAKU_AI_MOTION_PREDICTION_DAMPING
+        val rawDyNormalized =
+            ((latest.normalizedRect.centerY - previous.normalizedRect.centerY) / deltaMs.toFloat()) *
+                elapsedSinceLatestMs.toFloat() * DANMAKU_AI_MOTION_PREDICTION_DAMPING
+        val dxNormalized =
+            rawDxNormalized.coerceIn(
+                -DANMAKU_AI_MOTION_PREDICTION_MAX_DX_NORMALIZED,
+                DANMAKU_AI_MOTION_PREDICTION_MAX_DX_NORMALIZED,
+            )
+        val dyNormalized =
+            rawDyNormalized.coerceIn(
+                -DANMAKU_AI_MOTION_PREDICTION_MAX_DY_NORMALIZED,
+                DANMAKU_AI_MOTION_PREDICTION_MAX_DY_NORMALIZED,
+            )
+        val dxSamplePx = (dxNormalized * sampleWidth.toFloat()).roundToInt()
+        val dySamplePx = (dyNormalized * sampleHeight.toFloat()).roundToInt()
+        val areaRatio = (latestArea / previousArea).coerceAtLeast(0.01f)
+        val predictedLogAreaRatio =
+            ((ln(areaRatio.toDouble()) / deltaMs.toDouble()) *
+                elapsedSinceLatestMs.toDouble() *
+                DANMAKU_AI_MOTION_PREDICTION_DAMPING.toDouble())
+        val scale =
+            exp(predictedLogAreaRatio / 2.0)
+                .toFloat()
+                .coerceIn(
+                    DANMAKU_AI_MOTION_PREDICTION_MIN_SCALE,
+                    DANMAKU_AI_MOTION_PREDICTION_MAX_SCALE,
+                )
+        val predictedAreaRatio = (scale * scale).coerceAtLeast(0f)
+        return DanmakuPredictedTransform(
+            dxNormalized = dxNormalized,
+            dyNormalized = dyNormalized,
+            dxSamplePx = dxSamplePx,
+            dySamplePx = dySamplePx,
+            scale = scale,
+            predictedAreaRatio = predictedAreaRatio,
+        )
+    }
+
+    private fun buildPredictedTrackedRect(
+        predictedTransform: DanmakuPredictedTransform?,
+    ): DanmakuNormalizedRect? {
+        val previousRect = trackingRectOrDisplayRect() ?: return null
+        val transform = predictedTransform ?: return null
+        return transformRect(
+            rect = previousRect,
+            dxNormalized = transform.dxNormalized,
+            dyNormalized = transform.dyNormalized,
+            scale = transform.scale,
+        )
+    }
+
     private fun estimateMotionCompensation(
         currentLumaSamples: IntArray,
         sampleWidth: Int,
@@ -1238,7 +5881,7 @@ class DanmakuDynamicOcclusionController(
             return null
         }
         val reference = latestMotionReferenceFrame ?: return null
-        val previousRect = latestRect ?: return null
+        val previousRect = trackingRectOrDisplayRect() ?: return null
         val previousMask = latestMaskValues ?: return null
         if (previousMask.isEmpty() || previousRect.area() < DANMAKU_AI_MOTION_MIN_RECT_AREA) {
             return null
@@ -1251,22 +5894,33 @@ class DanmakuDynamicOcclusionController(
         ) {
             return null
         }
+        val predictedTransform = predictTrackedTransform(sampleWidth, sampleHeight)
         val roi = resolveMotionRoi(reference.normalizedRect, sampleWidth, sampleHeight) ?: return null
+        val searchCenterDx = predictedTransform?.dxSamplePx ?: 0
+        val searchCenterDy = predictedTransform?.dySamplePx ?: 0
+        val maxTotalShiftX =
+            max(1, (sampleWidth * DANMAKU_AI_MOTION_MAX_TRANSLATION_RATIO).roundToInt())
+        val maxTotalShiftY =
+            max(1, (sampleHeight * DANMAKU_AI_MOTION_MAX_TRANSLATION_RATIO).roundToInt())
         val maxShiftX =
             minOf(
                 DANMAKU_AI_MOTION_SEARCH_RADIUS_PX,
-                max(1, (sampleWidth * DANMAKU_AI_MOTION_MAX_TRANSLATION_RATIO).roundToInt()),
+                maxTotalShiftX,
             )
         val maxShiftY =
             minOf(
                 DANMAKU_AI_MOTION_SEARCH_RADIUS_PX,
-                max(1, (sampleHeight * DANMAKU_AI_MOTION_MAX_TRANSLATION_RATIO).roundToInt()),
+                maxTotalShiftY,
             )
         var bestDx = 0
         var bestDy = 0
         var bestScore = Double.MAX_VALUE
-        for (dy in -maxShiftY..maxShiftY) {
-            for (dx in -maxShiftX..maxShiftX) {
+        val searchStartDy = max(-maxTotalShiftY, searchCenterDy - maxShiftY)
+        val searchEndDy = minOf(maxTotalShiftY, searchCenterDy + maxShiftY)
+        val searchStartDx = max(-maxTotalShiftX, searchCenterDx - maxShiftX)
+        val searchEndDx = minOf(maxTotalShiftX, searchCenterDx + maxShiftX)
+        for (dy in searchStartDy..searchEndDy) {
+            for (dx in searchStartDx..searchEndDx) {
                 var totalDelta = 0L
                 var overlapSamples = 0
                 for (y in roi.top..roi.bottom) {
@@ -1311,6 +5965,7 @@ class DanmakuDynamicOcclusionController(
             dyMaskPx = dyMaskPx,
             dxNormalized = dxMaskPx.toFloat() / maskWidth.toFloat(),
             dyNormalized = dyMaskPx.toFloat() / maskHeight.toFloat(),
+            scale = predictedTransform?.scale ?: 1f,
             score = bestScore,
         )
     }
@@ -1325,7 +5980,7 @@ class DanmakuDynamicOcclusionController(
         if (consecutiveCompensatedFrames >= DANMAKU_AI_MOTION_MAX_CONSECUTIVE_COMPENSATED_FRAMES) {
             return false
         }
-        val previousRect = latestRect ?: return false
+        val previousRect = trackingRectOrDisplayRect() ?: return false
         val previousArea = previousRect.area()
         val nextArea = nextRect.area()
         if (previousArea <= 0f || nextArea <= 0f) {
@@ -1413,12 +6068,29 @@ class DanmakuDynamicOcclusionController(
             return null
         }
         val compensation = motionCompensation ?: return previousMask
-        return shiftMaskValues(
+        if (!shouldApplyMaskScaleCompensation(compensation.scale)) {
+            return shiftMaskValues(
+                values = previousMask,
+                width = width,
+                height = height,
+                dxPx = compensation.dxMaskPx,
+                dyPx = compensation.dyMaskPx,
+            )
+        }
+        val previousRect = trackingRectOrDisplayRect()
+        val anchorCenterX =
+            previousRect?.centerX?.times(width.toFloat()) ?: (width.toFloat() / 2f)
+        val anchorCenterY =
+            previousRect?.centerY?.times(height.toFloat()) ?: (height.toFloat() / 2f)
+        return transformMaskValues(
             values = previousMask,
             width = width,
             height = height,
             dxPx = compensation.dxMaskPx,
             dyPx = compensation.dyMaskPx,
+            scale = compensation.scale,
+            anchorCenterX = anchorCenterX,
+            anchorCenterY = anchorCenterY,
         )
     }
 
@@ -1454,12 +6126,13 @@ class DanmakuDynamicOcclusionController(
     private fun buildCompensatedPreviousRect(
         motionCompensation: DanmakuMotionCompensation?,
     ): DanmakuNormalizedRect? {
-        val previousRect = latestRect ?: return null
+        val previousRect = trackingRectOrDisplayRect() ?: return null
         val compensation = motionCompensation ?: return previousRect
-        return translateRect(
+        return transformRect(
             rect = previousRect,
             dxNormalized = compensation.dxNormalized,
             dyNormalized = compensation.dyNormalized,
+            scale = compensation.scale,
         )
     }
 
@@ -1468,16 +6141,132 @@ class DanmakuDynamicOcclusionController(
         dxNormalized: Float,
         dyNormalized: Float,
     ): DanmakuNormalizedRect {
-        val safeWidth = rect.width.coerceIn(0f, 1f)
-        val safeHeight = rect.height.coerceIn(0f, 1f)
+        return transformRect(
+            rect = rect,
+            dxNormalized = dxNormalized,
+            dyNormalized = dyNormalized,
+            scale = 1f,
+        )
+    }
+
+    private fun blendTrackedRectCandidate(
+        predictedRect: DanmakuNormalizedRect,
+        compensatedRect: DanmakuNormalizedRect,
+    ): DanmakuNormalizedRect =
+        rectFromCenter(
+            centerX =
+                predictedRect.centerX +
+                    ((compensatedRect.centerX - predictedRect.centerX) * 0.68f),
+            centerY =
+                predictedRect.centerY +
+                    ((compensatedRect.centerY - predictedRect.centerY) * 0.68f),
+            width = predictedRect.width,
+            height = predictedRect.height,
+        )
+
+    private fun transformRect(
+        rect: DanmakuNormalizedRect,
+        dxNormalized: Float,
+        dyNormalized: Float,
+        scale: Float,
+    ): DanmakuNormalizedRect {
+        val safeScale =
+            if (scale.isFinite()) {
+                scale.coerceIn(0.05f, 4f)
+            } else {
+                1f
+            }
+        return rectFromCenter(
+            centerX = rect.centerX + dxNormalized,
+            centerY = rect.centerY + dyNormalized,
+            width = rect.width * safeScale,
+            height = rect.height * safeScale,
+        )
+    }
+
+    private fun rectFromCenter(
+        centerX: Float,
+        centerY: Float,
+        width: Float,
+        height: Float,
+    ): DanmakuNormalizedRect {
+        val safeWidth = width.coerceIn(0f, 1f)
+        val safeHeight = height.coerceIn(0f, 1f)
         val maxLeft = (1f - safeWidth).coerceAtLeast(0f)
         val maxTop = (1f - safeHeight).coerceAtLeast(0f)
         return DanmakuNormalizedRect(
-            x = (rect.x + dxNormalized).coerceIn(0f, maxLeft),
-            y = (rect.y + dyNormalized).coerceIn(0f, maxTop),
+            x = (centerX - (safeWidth / 2f)).coerceIn(0f, maxLeft),
+            y = (centerY - (safeHeight / 2f)).coerceIn(0f, maxTop),
             width = safeWidth,
             height = safeHeight,
         )
+    }
+
+    private fun shouldApplyMaskScaleCompensation(scale: Float): Boolean =
+        abs(scale - 1f) >= DANMAKU_AI_MASK_SCALE_APPLY_THRESHOLD
+
+    private fun transformMaskValues(
+        values: FloatArray,
+        width: Int,
+        height: Int,
+        dxPx: Int,
+        dyPx: Int,
+        scale: Float,
+        anchorCenterX: Float,
+        anchorCenterY: Float,
+    ): FloatArray {
+        if (dxPx == 0 && dyPx == 0 && !shouldApplyMaskScaleCompensation(scale)) {
+            return values.copyOf()
+        }
+        val safeScale =
+            if (scale.isFinite()) {
+                scale.coerceIn(
+                    DANMAKU_AI_MOTION_PREDICTION_MIN_SCALE,
+                    DANMAKU_AI_MOTION_PREDICTION_MAX_SCALE,
+                )
+            } else {
+                1f
+            }
+        val output = FloatArray(values.size)
+        for (y in 0 until height) {
+            val translatedY = y.toFloat() - dyPx.toFloat()
+            val sourceY = ((translatedY - anchorCenterY) / safeScale) + anchorCenterY
+            if (sourceY < 0f || sourceY > (height - 1).toFloat()) {
+                continue
+            }
+            val targetRow = y * width
+            for (x in 0 until width) {
+                val translatedX = x.toFloat() - dxPx.toFloat()
+                val sourceX = ((translatedX - anchorCenterX) / safeScale) + anchorCenterX
+                if (sourceX < 0f || sourceX > (width - 1).toFloat()) {
+                    continue
+                }
+                output[targetRow + x] = bilinearSampleMask(values, width, height, sourceX, sourceY)
+            }
+        }
+        return output
+    }
+
+    private fun bilinearSampleMask(
+        values: FloatArray,
+        width: Int,
+        height: Int,
+        x: Float,
+        y: Float,
+    ): Float {
+        val x0 = x.toInt().coerceIn(0, width - 1)
+        val y0 = y.toInt().coerceIn(0, height - 1)
+        val x1 = minOf(x0 + 1, width - 1)
+        val y1 = minOf(y0 + 1, height - 1)
+        val fx = (x - x0.toFloat()).coerceIn(0f, 1f)
+        val fy = (y - y0.toFloat()).coerceIn(0f, 1f)
+        val topLeft = values[y0 * width + x0]
+        val topRight = values[y0 * width + x1]
+        val bottomLeft = values[y1 * width + x0]
+        val bottomRight = values[y1 * width + x1]
+        val top = topLeft + ((topRight - topLeft) * fx)
+        val bottom = bottomLeft + ((bottomRight - bottomLeft) * fx)
+        return (top + ((bottom - top) * fy)).coerceIn(0f, 1f)
     }
 
     private fun remapMaskResultToFullFrame(
@@ -1488,6 +6277,23 @@ class DanmakuDynamicOcclusionController(
         if (clampedRatio >= 0.999f) {
             return result
         }
+        val remappedMaskValues = FloatArray(result.maskValues.size)
+        val targetHeight =
+            max(1, (result.maskHeight.toFloat() * clampedRatio).roundToInt())
+                .coerceAtMost(result.maskHeight)
+        if (targetHeight > 0) {
+            for (targetY in 0 until targetHeight) {
+                val sourceY =
+                    ((targetY + 0.5f) * result.maskHeight.toFloat() / targetHeight.toFloat())
+                        .toInt()
+                        .coerceIn(0, result.maskHeight - 1)
+                val sourceRow = sourceY * result.maskWidth
+                val targetRow = targetY * result.maskWidth
+                for (x in 0 until result.maskWidth) {
+                    remappedMaskValues[targetRow + x] = result.maskValues[sourceRow + x]
+                }
+            }
+        }
         val rect =
             result.normalizedRect?.let {
                 DanmakuNormalizedRect(
@@ -1496,9 +6302,9 @@ class DanmakuDynamicOcclusionController(
                     width = it.width,
                     height = (it.height * clampedRatio).coerceIn(0f, 1f),
                 )
-            }
+        }
         return DanmakuMaskResult(
-            maskValues = result.maskValues,
+            maskValues = remappedMaskValues,
             maskWidth = result.maskWidth,
             maskHeight = result.maskHeight,
             normalizedRect = rect,
@@ -1599,6 +6405,36 @@ class DanmakuDynamicOcclusionController(
         }
     }
 
+    private fun closeBinaryMask(
+        input: FloatArray,
+        output: FloatArray,
+        width: Int,
+        height: Int,
+        radius: Int,
+    ) {
+        val dilated = FloatArray(input.size)
+        dilateBinaryMask(
+            input = input,
+            output = dilated,
+            width = width,
+            height = height,
+            radius = radius,
+        )
+        erodeBinaryMask(
+            input = dilated,
+            output = output,
+            width = width,
+            height = height,
+            radius = radius,
+        )
+        fillEnclosedBinaryMaskHoles(
+            input = output.copyOf(),
+            output = output,
+            width = width,
+            height = height,
+        )
+    }
+
     private fun fillEnclosedBinaryMaskHoles(
         input: FloatArray,
         output: FloatArray,
@@ -1686,6 +6522,10 @@ class DanmakuDynamicOcclusionController(
                 val rightIndex = if (x < width - 1) current + 1 else -1
                 val topIndex = if (y > 0) current - width else -1
                 val bottomIndex = if (y < height - 1) current + width else -1
+                val topLeftIndex = if (x > 0 && y > 0) current - width - 1 else -1
+                val topRightIndex = if (x < width - 1 && y > 0) current - width + 1 else -1
+                val bottomLeftIndex = if (x > 0 && y < height - 1) current + width - 1 else -1
+                val bottomRightIndex = if (x < width - 1 && y < height - 1) current + width + 1 else -1
                 if (leftIndex >= 0 && !visited[leftIndex] && maskValues[leftIndex] > 0.5f) {
                     visited[leftIndex] = true
                     queue[tail++] = leftIndex
@@ -1701,6 +6541,22 @@ class DanmakuDynamicOcclusionController(
                 if (bottomIndex >= 0 && !visited[bottomIndex] && maskValues[bottomIndex] > 0.5f) {
                     visited[bottomIndex] = true
                     queue[tail++] = bottomIndex
+                }
+                if (topLeftIndex >= 0 && !visited[topLeftIndex] && maskValues[topLeftIndex] > 0.5f) {
+                    visited[topLeftIndex] = true
+                    queue[tail++] = topLeftIndex
+                }
+                if (topRightIndex >= 0 && !visited[topRightIndex] && maskValues[topRightIndex] > 0.5f) {
+                    visited[topRightIndex] = true
+                    queue[tail++] = topRightIndex
+                }
+                if (bottomLeftIndex >= 0 && !visited[bottomLeftIndex] && maskValues[bottomLeftIndex] > 0.5f) {
+                    visited[bottomLeftIndex] = true
+                    queue[tail++] = bottomLeftIndex
+                }
+                if (bottomRightIndex >= 0 && !visited[bottomRightIndex] && maskValues[bottomRightIndex] > 0.5f) {
+                    visited[bottomRightIndex] = true
+                    queue[tail++] = bottomRightIndex
                 }
             }
             if (count > bestCount) {
@@ -1787,6 +6643,10 @@ class DanmakuDynamicOcclusionController(
                 val rightIndex = if (x < width - 1) current + 1 else -1
                 val topIndex = if (y > 0) current - width else -1
                 val bottomIndex = if (y < height - 1) current + width else -1
+                val topLeftIndex = if (x > 0 && y > 0) current - width - 1 else -1
+                val topRightIndex = if (x < width - 1 && y > 0) current - width + 1 else -1
+                val bottomLeftIndex = if (x > 0 && y < height - 1) current + width - 1 else -1
+                val bottomRightIndex = if (x < width - 1 && y < height - 1) current + width + 1 else -1
                 if (leftIndex >= 0 && !visited[leftIndex] && maskValues[leftIndex] >= DANMAKU_AI_RECT_HELPER_THRESHOLD) {
                     visited[leftIndex] = true
                     queue[tail++] = leftIndex
@@ -1802,6 +6662,22 @@ class DanmakuDynamicOcclusionController(
                 if (bottomIndex >= 0 && !visited[bottomIndex] && maskValues[bottomIndex] >= DANMAKU_AI_RECT_HELPER_THRESHOLD) {
                     visited[bottomIndex] = true
                     queue[tail++] = bottomIndex
+                }
+                if (topLeftIndex >= 0 && !visited[topLeftIndex] && maskValues[topLeftIndex] >= DANMAKU_AI_RECT_HELPER_THRESHOLD) {
+                    visited[topLeftIndex] = true
+                    queue[tail++] = topLeftIndex
+                }
+                if (topRightIndex >= 0 && !visited[topRightIndex] && maskValues[topRightIndex] >= DANMAKU_AI_RECT_HELPER_THRESHOLD) {
+                    visited[topRightIndex] = true
+                    queue[tail++] = topRightIndex
+                }
+                if (bottomLeftIndex >= 0 && !visited[bottomLeftIndex] && maskValues[bottomLeftIndex] >= DANMAKU_AI_RECT_HELPER_THRESHOLD) {
+                    visited[bottomLeftIndex] = true
+                    queue[tail++] = bottomLeftIndex
+                }
+                if (bottomRightIndex >= 0 && !visited[bottomRightIndex] && maskValues[bottomRightIndex] >= DANMAKU_AI_RECT_HELPER_THRESHOLD) {
+                    visited[bottomRightIndex] = true
+                    queue[tail++] = bottomRightIndex
                 }
             }
             if (count < DANMAKU_AI_AMBIGUOUS_COMPONENT_MIN_PIXELS) {
@@ -1876,6 +6752,24 @@ class DanmakuDynamicOcclusionController(
             boxAspectRatio >= DANMAKU_AI_MASK_SHAPE_MIN_THIN_TOWER_ASPECT_RATIO &&
             overallAreaRatio <= DANMAKU_AI_MASK_SHAPE_MAX_THIN_TOWER_AREA_RATIO
         ) {
+            return true
+        }
+        if (overallAreaRatio > DANMAKU_AI_MASK_SHAPE_MAX_OVERALL_AREA_RATIO) {
+            return true
+        }
+        if (boxWidthRatio > DANMAKU_AI_MASK_SHAPE_MAX_BOUNDING_WIDTH_RATIO) {
+            return true
+        }
+        if (boxHeightRatio > DANMAKU_AI_MASK_SHAPE_MAX_BOUNDING_HEIGHT_RATIO) {
+            return true
+        }
+        val holeStats = analyzeMaskHoles(maskValues, width, height, bounds)
+        val boundingArea = (boxWidth * boxHeight).coerceAtLeast(1)
+        val holeAreaRatio = holeStats.totalHolePixels.toFloat() / boundingArea.toFloat()
+        if (holeStats.holeCount > DANMAKU_AI_MASK_SHAPE_MAX_HOLE_COUNT) {
+            return true
+        }
+        if (holeAreaRatio > DANMAKU_AI_MASK_SHAPE_MAX_HOLE_AREA_RATIO) {
             return true
         }
         val topBandWidth =
@@ -1988,6 +6882,91 @@ class DanmakuDynamicOcclusionController(
         return bandRight - bandLeft + 1
     }
 
+    private fun analyzeMaskHoles(
+        maskValues: FloatArray,
+        width: Int,
+        height: Int,
+        bounds: MaskBounds,
+    ): MaskHoleStats {
+        val boxWidth = bounds.right - bounds.left + 1
+        val boxHeight = bounds.bottom - bounds.top + 1
+        val total = (boxWidth * boxHeight).coerceAtLeast(1)
+        val visited = BooleanArray(total)
+        val queue = IntArray(total)
+        var holeCount = 0
+        var largestHolePixels = 0
+        var totalHolePixels = 0
+
+        fun localIndex(localX: Int, localY: Int): Int = (localY * boxWidth) + localX
+
+        for (localY in 0 until boxHeight) {
+            for (localX in 0 until boxWidth) {
+                val index = localIndex(localX, localY)
+                if (visited[index]) {
+                    continue
+                }
+                val globalX = bounds.left + localX
+                val globalY = bounds.top + localY
+                if (maskValues[(globalY * width) + globalX] > 0.5f) {
+                    visited[index] = true
+                    continue
+                }
+                var head = 0
+                var tail = 0
+                var backgroundPixels = 0
+                var touchesBoundary = false
+                visited[index] = true
+                queue[tail++] = index
+                while (head < tail) {
+                    val current = queue[head++]
+                    val currentLocalX = current % boxWidth
+                    val currentLocalY = current / boxWidth
+                    backgroundPixels += 1
+                    if (
+                        currentLocalX == 0 ||
+                        currentLocalX == boxWidth - 1 ||
+                        currentLocalY == 0 ||
+                        currentLocalY == boxHeight - 1
+                    ) {
+                        touchesBoundary = true
+                    }
+                    val leftIndex = if (currentLocalX > 0) current - 1 else -1
+                    val rightIndex = if (currentLocalX < boxWidth - 1) current + 1 else -1
+                    val topIndex = if (currentLocalY > 0) current - boxWidth else -1
+                    val bottomIndex = if (currentLocalY < boxHeight - 1) current + boxWidth else -1
+                    val neighborIndexes = intArrayOf(leftIndex, rightIndex, topIndex, bottomIndex)
+                    for (neighbor in neighborIndexes) {
+                        if (neighbor < 0 || visited[neighbor]) {
+                            continue
+                        }
+                        val neighborLocalX = neighbor % boxWidth
+                        val neighborLocalY = neighbor / boxWidth
+                        val neighborGlobalX = bounds.left + neighborLocalX
+                        val neighborGlobalY = bounds.top + neighborLocalY
+                        if (maskValues[(neighborGlobalY * width) + neighborGlobalX] > 0.5f) {
+                            visited[neighbor] = true
+                            continue
+                        }
+                        visited[neighbor] = true
+                        queue[tail++] = neighbor
+                    }
+                }
+                if (!touchesBoundary) {
+                    holeCount += 1
+                    totalHolePixels += backgroundPixels
+                    if (backgroundPixels > largestHolePixels) {
+                        largestHolePixels = backgroundPixels
+                    }
+                }
+            }
+        }
+        return MaskHoleStats(
+            holeCount = holeCount,
+            largestHolePixels = largestHolePixels,
+            totalHolePixels = totalHolePixels,
+        )
+    }
+
     private fun erodeBinaryMask(
         input: FloatArray,
         output: FloatArray,
@@ -2056,6 +7035,10 @@ class DanmakuDynamicOcclusionController(
                 val rightIndex = if (x < width - 1) current + 1 else -1
                 val topIndex = if (y > 0) current - width else -1
                 val bottomIndex = if (y < height - 1) current + width else -1
+                val topLeftIndex = if (x > 0 && y > 0) current - width - 1 else -1
+                val topRightIndex = if (x < width - 1 && y > 0) current - width + 1 else -1
+                val bottomLeftIndex = if (x > 0 && y < height - 1) current + width - 1 else -1
+                val bottomRightIndex = if (x < width - 1 && y < height - 1) current + width + 1 else -1
                 if (leftIndex >= 0 && !visited[leftIndex] && maskValues[leftIndex] >= DANMAKU_AI_RECT_HELPER_THRESHOLD) {
                     visited[leftIndex] = true
                     queue[tail++] = leftIndex
@@ -2071,6 +7054,22 @@ class DanmakuDynamicOcclusionController(
                 if (bottomIndex >= 0 && !visited[bottomIndex] && maskValues[bottomIndex] >= DANMAKU_AI_RECT_HELPER_THRESHOLD) {
                     visited[bottomIndex] = true
                     queue[tail++] = bottomIndex
+                }
+                if (topLeftIndex >= 0 && !visited[topLeftIndex] && maskValues[topLeftIndex] >= DANMAKU_AI_RECT_HELPER_THRESHOLD) {
+                    visited[topLeftIndex] = true
+                    queue[tail++] = topLeftIndex
+                }
+                if (topRightIndex >= 0 && !visited[topRightIndex] && maskValues[topRightIndex] >= DANMAKU_AI_RECT_HELPER_THRESHOLD) {
+                    visited[topRightIndex] = true
+                    queue[tail++] = topRightIndex
+                }
+                if (bottomLeftIndex >= 0 && !visited[bottomLeftIndex] && maskValues[bottomLeftIndex] >= DANMAKU_AI_RECT_HELPER_THRESHOLD) {
+                    visited[bottomLeftIndex] = true
+                    queue[tail++] = bottomLeftIndex
+                }
+                if (bottomRightIndex >= 0 && !visited[bottomRightIndex] && maskValues[bottomRightIndex] >= DANMAKU_AI_RECT_HELPER_THRESHOLD) {
+                    visited[bottomRightIndex] = true
+                    queue[tail++] = bottomRightIndex
                 }
             }
             if (count > largestCount) {
@@ -2106,6 +7105,93 @@ class DanmakuDynamicOcclusionController(
         )
     }
 
+    private fun keepDetectionAlignedComponents(
+        maskValues: FloatArray,
+        width: Int,
+        height: Int,
+        detectionRect: DanmakuNormalizedRect,
+        previousRect: DanmakuNormalizedRect?,
+    ): FloatArray {
+        val totalPixels = width * height
+        val visited = BooleanArray(totalPixels)
+        val queue = IntArray(totalPixels)
+        val componentPixels = IntArray(totalPixels)
+        val kept = FloatArray(totalPixels)
+        val detectionArea = detectionRect.area().coerceAtLeast(0.0001f)
+        val minComponentArea = detectionArea * DANMAKU_AI_RENDER_MASK_MIN_COMPONENT_AREA_RATIO
+        val maxAllowedArea = detectionArea * DANMAKU_AI_RENDER_MASK_MAX_AREA_MULTIPLIER
+
+        for (index in 0 until totalPixels) {
+            if (visited[index] || maskValues[index] <= 0.5f) {
+                continue
+            }
+            var count = 0
+            var left = index % width
+            var right = left
+            var top = index / width
+            var bottom = top
+            var head = 0
+            var tail = 0
+            visited[index] = true
+            queue[tail++] = index
+            while (head < tail) {
+                val current = queue[head++]
+                componentPixels[count++] = current
+                val x = current % width
+                val y = current / width
+                if (x < left) left = x
+                if (x > right) right = x
+                if (y < top) top = y
+                if (y > bottom) bottom = y
+                val leftIndex = if (x > 0) current - 1 else -1
+                val rightIndex = if (x < width - 1) current + 1 else -1
+                val topIndex = if (y > 0) current - width else -1
+                val bottomIndex = if (y < height - 1) current + width else -1
+                val topLeftIndex = if (x > 0 && y > 0) current - width - 1 else -1
+                val topRightIndex = if (x < width - 1 && y > 0) current - width + 1 else -1
+                val bottomLeftIndex = if (x > 0 && y < height - 1) current + width - 1 else -1
+                val bottomRightIndex = if (x < width - 1 && y < height - 1) current + width + 1 else -1
+                val neighbors =
+                    intArrayOf(
+                        leftIndex,
+                        rightIndex,
+                        topIndex,
+                        bottomIndex,
+                        topLeftIndex,
+                        topRightIndex,
+                        bottomLeftIndex,
+                        bottomRightIndex,
+                    )
+                for (neighbor in neighbors) {
+                    if (neighbor < 0 || visited[neighbor] || maskValues[neighbor] <= 0.5f) {
+                        continue
+                    }
+                    visited[neighbor] = true
+                    queue[tail++] = neighbor
+                }
+            }
+
+            val componentRect =
+                DanmakuNormalizedRect(
+                    x = left.toFloat() / width.toFloat(),
+                    y = top.toFloat() / height.toFloat(),
+                    width = (right - left + 1).toFloat() / width.toFloat(),
+                    height = (bottom - top + 1).toFloat() / height.toFloat(),
+                )
+            val componentArea = componentRect.area()
+            val overlapsDetection = componentRect.iou(detectionRect) >= 0.02f
+            val overlapsPrevious = previousRect?.let { componentRect.iou(it) >= 0.02f } == true
+            val areaValid = componentArea in minComponentArea..maxAllowedArea
+            if ((!overlapsDetection && !overlapsPrevious) || !areaValid) {
+                continue
+            }
+            for (i in 0 until count) {
+                kept[componentPixels[i]] = 1f
+            }
+        }
+        return kept
+    }
+
     private fun extractPrimaryRect(
         maskValues: FloatArray,
         width: Int,
@@ -2116,6 +7202,7 @@ class DanmakuDynamicOcclusionController(
 
     private fun isLikelyForegroundSubject(component: DanmakuPrimaryComponent): Boolean {
         val rect = component.rect
+        val areaRatio = rect.area()
         val aspectRatio =
             if (rect.height > 0f) {
                 rect.width / rect.height
@@ -2125,8 +7212,17 @@ class DanmakuDynamicOcclusionController(
         if (component.fillRatio < DANMAKU_AI_SUBJECT_MIN_FILL_RATIO) {
             return false
         }
+        if (areaRatio > DANMAKU_AI_SUBJECT_MAX_AREA_RATIO) {
+            return false
+        }
+        if (rect.width > DANMAKU_AI_SUBJECT_MAX_WIDTH_RATIO) {
+            return false
+        }
+        if (rect.height > DANMAKU_AI_SUBJECT_MAX_HEIGHT_RATIO) {
+            return false
+        }
         if (aspectRatio < DANMAKU_AI_SUBJECT_MIN_ASPECT_RATIO &&
-            rect.area() >= DANMAKU_AI_SUBJECT_MAX_SPARSE_AREA_RATIO &&
+            areaRatio >= DANMAKU_AI_SUBJECT_MAX_SPARSE_AREA_RATIO &&
             rect.height >= DANMAKU_AI_SUBJECT_MAX_SPARSE_HEIGHT_RATIO
         ) {
             return false
@@ -2137,20 +7233,93 @@ class DanmakuDynamicOcclusionController(
     private fun applyMaskResult(
         backend: DanmakuAiBackend,
         result: DanmakuMaskResult,
-        cacheEntry: DanmakuOcclusionCacheEntry?,
+        trackingRect: DanmakuNormalizedRect?,
+        frameBitmap: Bitmap,
         latencyMs: Long,
         motionLumaSamples: IntArray,
         motionSampleWidth: Int,
         motionSampleHeight: Int,
         motionCompensation: DanmakuMotionCompensation?,
+        updateTrackingState: Boolean = true,
     ) {
+        cancelPendingMaskGrace()
+        val nextMaskSignature =
+            if (result.occlusionMode == DanmakuOcclusionMode.MASK) {
+                buildMaskSignature(result)
+            } else {
+                null
+            }
+        val normalizedRectChanged =
+            result.occlusionMode == DanmakuOcclusionMode.MASK &&
+                result.normalizedRect != latestRect
+        val maskChanged =
+            result.occlusionMode == DanmakuOcclusionMode.MASK &&
+                (latestMaskSignature != nextMaskSignature ||
+                    latestMaskPath == null ||
+                    normalizedRectChanged)
+        val runtimeMaskBitmap =
+            if (result.occlusionMode == DanmakuOcclusionMode.MASK) {
+                if (
+                    latestRuntimeMaskBitmap == null ||
+                        latestRuntimeMaskBitmap?.isRecycled == true ||
+                        maskChanged ||
+                        latestMaskWidth != result.maskWidth ||
+                        latestMaskHeight != result.maskHeight
+                ) {
+                    createRuntimeMaskBitmap(result.maskWidth, result.maskHeight, result.maskValues)
+                } else {
+                    latestRuntimeMaskBitmap
+                }
+            } else {
+                null
+            }
+        val cacheEntry =
+            if (result.occlusionMode == DanmakuOcclusionMode.MASK && maskChanged) {
+                persistMaskCache(
+                    source = currentSource,
+                    backend = backend,
+                    result = result,
+                    frameBitmap = frameBitmap,
+                    updatedAtMs = System.currentTimeMillis(),
+                    maskSignature = nextMaskSignature,
+                )
+            } else if (result.occlusionMode == DanmakuOcclusionMode.MASK) {
+                latestMaskPath?.let { currentPath ->
+                    DanmakuOcclusionCacheEntry(
+                        backend = backend.wireValue,
+                        updatedAtMs = latestMaskTimestampMs,
+                        maskPath = currentPath,
+                        maskSignature = latestMaskSignature,
+                        maskWidth = latestMaskWidth.takeIf { it > 0 } ?: result.maskWidth,
+                        maskHeight = latestMaskHeight.takeIf { it > 0 } ?: result.maskHeight,
+                        framePath = latestFramePath,
+                        normalizedRect = result.normalizedRect,
+                    )
+                }
+            } else {
+                null
+            }
         warmStartDelayUntilUptimeMs = 0L
-        val now = cacheEntry?.updatedAtMs ?: System.currentTimeMillis()
+        val now =
+            if (result.occlusionMode == DanmakuOcclusionMode.MASK && maskChanged) {
+                cacheEntry?.updatedAtMs ?: System.currentTimeMillis()
+            } else {
+                latestMaskTimestampMs.takeIf { it > 0L } ?: System.currentTimeMillis()
+            }
         latestRect = result.normalizedRect
+        latestRectTrackingEligible = updateTrackingState && result.normalizedRect != null
+        latestTrackingRect =
+            if (updateTrackingState) {
+                sanitizeTrackingRect(trackingRect ?: result.normalizedRect)
+            } else {
+                null
+            }
         latestMaskValues = result.maskValues.copyOf()
         latestMaskWidth = result.maskWidth
         latestMaskHeight = result.maskHeight
+        latestMaskSignature = nextMaskSignature
         latestMaskTimestampMs = now
+        latestMaskAppliedAtUptimeMs = SystemClock.uptimeMillis()
         consecutiveEmptyFrames = 0
         averageLatencyMs =
             if (averageLatencyMs <= 0.0) {
@@ -2158,12 +7327,10 @@ class DanmakuDynamicOcclusionController(
             } else {
                 (averageLatencyMs * 0.72) + (latencyMs.toDouble() * 0.28)
             }
-        overBudgetCount =
-            if (latencyMs > config.sampleIntervalMs) {
-                overBudgetCount + 1
-            } else {
-                max(0, overBudgetCount - 1)
-            }
+        updateDegradationAfterSample(
+            latencyMs = latencyMs,
+            occlusionMode = result.occlusionMode,
+        )
         if (sceneCutRecoveryActive) {
             stableMaskFramesSinceSceneCut += 1
             if (sceneCutBurstSamplesRemaining > 0) {
@@ -2175,55 +7342,93 @@ class DanmakuDynamicOcclusionController(
                 stableMaskFramesSinceSceneCut = 0
             }
         }
+        consumeMotionBurstSample()
         latestMaskPath = cacheEntry?.maskPath
         latestFramePath = cacheEntry?.framePath
-        latestMotionReferenceFrame =
-            result.normalizedRect?.let { rect ->
-                DanmakuMotionReferenceFrame(
-                    lumaSamples = motionLumaSamples.copyOf(),
-                    sampleWidth = motionSampleWidth,
-                    sampleHeight = motionSampleHeight,
-                    normalizedRect = rect,
-                    timestampMs = now,
-                )
-            }
-        lastMotionCompensation = motionCompensation
-        consecutiveMotionCompensationFailures = 0
-        consecutiveCompensatedFrames =
-            if (motionCompensation != null) {
-                consecutiveCompensatedFrames + 1
-            } else {
-                0
-            }
+        replaceRuntimeMaskBitmap(
+            runtimeMaskBitmap?.takeIf { result.occlusionMode == DanmakuOcclusionMode.MASK },
+        )
+        if (updateTrackingState) {
+            previousMotionReferenceFrame = latestMotionReferenceFrame
+            latestMotionReferenceFrame =
+                latestTrackingRect?.let { rect ->
+                    DanmakuMotionReferenceFrame(
+                        lumaSamples = motionLumaSamples.copyOf(),
+                        sampleWidth = motionSampleWidth,
+                        sampleHeight = motionSampleHeight,
+                        normalizedRect = rect,
+                        timestampMs = SystemClock.uptimeMillis(),
+                    )
+                }
+            lastMotionCompensation = motionCompensation
+            consecutiveMotionCompensationFailures = 0
+            consecutiveCompensatedFrames =
+                if (motionCompensation != null) {
+                    consecutiveCompensatedFrames + 1
+                } else {
+                    0
+                }
+        } else {
+            previousMotionReferenceFrame = null
+            latestMotionReferenceFrame = null
+            lastMotionCompensation = null
+            consecutiveMotionCompensationFailures = 0
+            consecutiveCompensatedFrames = 0
+        }
         emitState(
             DanmakuDynamicOcclusionState(
                 enabled = true,
-                available = cacheEntry != null,
+                available =
+                    if (result.occlusionMode == DanmakuOcclusionMode.MASK) {
+                        cacheEntry != null
+                    } else {
+                        true
+                    },
                 backend = backend.wireValue,
+                occlusionMode = result.occlusionMode.wireValue,
                 updatedAtMs = now,
                 maskPath = cacheEntry?.maskPath,
-                maskWidth = cacheEntry?.maskWidth ?: result.maskWidth,
-                maskHeight = cacheEntry?.maskHeight ?: result.maskHeight,
+                maskSignature = nextMaskSignature,
+                maskWidth =
+                    if (result.occlusionMode == DanmakuOcclusionMode.MASK) {
+                        cacheEntry?.maskWidth ?: result.maskWidth
+                    } else {
+                        0
+                    },
+                maskHeight =
+                    if (result.occlusionMode == DanmakuOcclusionMode.MASK) {
+                        cacheEntry?.maskHeight ?: result.maskHeight
+                    } else {
+                        0
+                    },
                 framePath = cacheEntry?.framePath,
                 cacheHit = false,
+                captureAreaRatio = config.sampleAreaRatio,
                 normalizedRect = result.normalizedRect,
+                unavailableReason = null,
+                captureBackend = lastCaptureBackend,
+                degradationLevel = currentDegradationLevel().wireValue,
+                effectiveSampleIntervalMs = currentSampleIntervalMs(),
+                effectiveInputWidth = effectiveInputWidth(),
             ),
+            runtimeMaskBitmap?.takeIf { result.occlusionMode == DanmakuOcclusionMode.MASK },
         )
-        if (overBudgetCount >= DANMAKU_AI_OVER_BUDGET_LIMIT) {
-            handleBackendFailure(backend)
-        }
     }
 
     private fun applyEmptyResult(
+        sampleId: Long,
         backend: DanmakuAiBackend,
         motionCompensationAttempted: Boolean,
+        allowMaskGrace: Boolean = true,
     ) {
         consecutiveEmptyFrames += 1
+        val nowUptimeMs = SystemClock.uptimeMillis()
         if (motionCompensationAttempted) {
             lastMotionCompensation = null
             consecutiveMotionCompensationFailures += 1
             if (consecutiveMotionCompensationFailures >= DANMAKU_AI_MOTION_MAX_FAILURES) {
                 latestMotionReferenceFrame = null
+                previousMotionReferenceFrame = null
                 consecutiveMotionCompensationFailures = 0
             }
         } else {
@@ -2236,30 +7441,69 @@ class DanmakuDynamicOcclusionController(
                 sceneCutBurstSamplesRemaining -= 1
             }
         }
-        if (shouldHoldPreviousMaskAfterEmptyResult()) {
+        consumeMotionBurstSample()
+        if (allowMaskGrace && tryHoldPreviousMaskAfterEmptyResult(sampleId, backend, nowUptimeMs)) {
             return
         }
-        if (consecutiveEmptyFrames >= DANMAKU_AI_MAX_EMPTY_FRAMES) {
+        cancelPendingMaskGrace()
+        if (!allowMaskGrace || consecutiveEmptyFrames >= DANMAKU_AI_MAX_EMPTY_FRAMES) {
             clearRuntimeMaskState()
         }
         emitUnavailableState(backend = backend, keepEnabled = true)
     }
 
-    private fun shouldHoldPreviousMaskAfterEmptyResult(): Boolean {
+    private fun tryHoldPreviousMaskAfterEmptyResult(
+        sampleId: Long,
+        backend: DanmakuAiBackend,
+        nowUptimeMs: Long,
+    ): Boolean {
+        val maskAgeMs =
+            if (latestMaskAppliedAtUptimeMs > 0L) {
+                (nowUptimeMs - latestMaskAppliedAtUptimeMs).coerceAtLeast(0L)
+            } else {
+                -1L
+            }
         if (sceneCutRecoveryActive) {
+            Log.d(
+                DANMAKU_AI_TAG,
+                "sample=$sampleId mask_grace_applied=false mask_grace_age_ms=$maskAgeMs",
+            )
             return false
         }
-        if (consecutiveEmptyFrames > DANMAKU_AI_EMPTY_RESULT_HOLD_FRAMES) {
+        if (latestState.occlusionMode != DanmakuOcclusionMode.MASK.wireValue) {
+            Log.d(
+                DANMAKU_AI_TAG,
+                "sample=$sampleId mask_grace_applied=false mask_grace_age_ms=$maskAgeMs",
+            )
             return false
         }
-        if (latestMaskValues == null || latestMaskWidth <= 0 || latestMaskHeight <= 0) {
+        if (!latestState.enabled || !latestState.available) {
+            Log.d(
+                DANMAKU_AI_TAG,
+                "sample=$sampleId mask_grace_applied=false mask_grace_age_ms=$maskAgeMs",
+            )
             return false
         }
-        return latestState.enabled && latestState.available
+        cancelPendingMaskGrace()
+        pendingMaskGraceBackend = backend
+        pendingMaskGraceClearAtUptimeMs = nowUptimeMs + DANMAKU_AI_EMPTY_RESULT_GRACE_MS
+        mainHandler.postAtTime(maskGraceExpireRunnable, pendingMaskGraceClearAtUptimeMs)
+        Log.d(
+            DANMAKU_AI_TAG,
+            "sample=$sampleId mask_grace_applied=true mask_grace_age_ms=$maskAgeMs",
+        )
+        return true
+    }
+
+    private fun clearMaskGraceByVisibilityChange() {
+        if (pendingMaskGraceBackend == null && pendingMaskGraceClearAtUptimeMs <= 0L) {
+            return
+        }
+        cancelPendingMaskGrace()
     }
 
     private fun handleBackendFailure(backend: DanmakuAiBackend) {
-        if (activeRuntime?.backend == backend) {
+        if (activeRuntime?.backend == backend || activeDetectionRuntime?.backend == backend) {
             releaseRuntime()
         }
         overBudgetCount = 0
@@ -2280,26 +7524,42 @@ class DanmakuDynamicOcclusionController(
     private fun emitUnavailableState(
         backend: DanmakuAiBackend,
         keepEnabled: Boolean,
+        backendWireValue: String? = null,
+        unavailableReason: String? = null,
     ) {
+        clearMaskGraceByVisibilityChange()
         emitState(
             DanmakuDynamicOcclusionState(
                 enabled = keepEnabled,
                 available = false,
-                backend = backend.wireValue,
+                backend = backendWireValue ?: backend.wireValue,
+                occlusionMode = DanmakuOcclusionMode.DISABLED.wireValue,
                 updatedAtMs = latestMaskTimestampMs,
                 maskPath = null,
+                maskSignature = null,
                 maskWidth = 0,
                 maskHeight = 0,
                 framePath = null,
                 cacheHit = false,
+                captureAreaRatio = config.sampleAreaRatio,
                 normalizedRect = latestRect,
+                unavailableReason = unavailableReason,
+                captureBackend = lastCaptureBackend,
+                degradationLevel =
+                    if (unavailableReason == DANMAKU_AI_UNAVAILABLE_REASON_CAPTURE_BUDGET_UNSUPPORTED) {
+                        DanmakuOcclusionDegradationLevel.DISABLED.wireValue
+                    } else {
+                        currentDegradationLevel().wireValue
+                    },
+                effectiveSampleIntervalMs = currentSampleIntervalMs(),
+                effectiveInputWidth = effectiveInputWidth(),
             ),
+            null,
         )
     }
 
     private fun emitLatestMaskStateIfAvailable() {
-        val maskPath = latestMaskPath ?: return
-        if (latestMaskWidth <= 0 || latestMaskHeight <= 0) {
+        if (!latestState.available) {
             return
         }
         val backendWireValue =
@@ -2309,18 +7569,30 @@ class DanmakuDynamicOcclusionController(
                 enabled = config.enabled,
                 available = true,
                 backend = backendWireValue,
+                occlusionMode = latestState.occlusionMode,
                 updatedAtMs = latestMaskTimestampMs,
-                maskPath = maskPath,
-                maskWidth = latestMaskWidth,
-                maskHeight = latestMaskHeight,
+                maskPath = latestMaskPath,
+                maskSignature = latestMaskSignature,
+                maskWidth = if (latestState.occlusionMode == DanmakuOcclusionMode.MASK.wireValue) latestMaskWidth else 0,
+                maskHeight = if (latestState.occlusionMode == DanmakuOcclusionMode.MASK.wireValue) latestMaskHeight else 0,
                 framePath = latestFramePath,
                 cacheHit = latestState.cacheHit,
+                captureAreaRatio = config.sampleAreaRatio,
                 normalizedRect = latestRect,
+                unavailableReason = null,
+                captureBackend = lastCaptureBackend,
+                degradationLevel = currentDegradationLevel().wireValue,
+                effectiveSampleIntervalMs = currentSampleIntervalMs(),
+                effectiveInputWidth = effectiveInputWidth(),
             ),
+            latestRuntimeMaskBitmap,
         )
     }
 
-    private fun emitState(next: DanmakuDynamicOcclusionState) {
+    private fun emitState(
+        next: DanmakuDynamicOcclusionState,
+        runtimeMaskBitmap: Bitmap? = latestRuntimeMaskBitmap,
+    ) {
         if (disposed) {
             return
         }
@@ -2328,42 +7600,106 @@ class DanmakuDynamicOcclusionController(
             return
         }
         latestState = next
-        stateListener(next)
+        stateListener(next, runtimeMaskBitmap?.takeIf { !it.isRecycled })
     }
 
     private fun ensureRuntime(): DanmakuSegmentationRuntime? {
-        activeRuntime?.let { return it }
-        while (activeBackendIndex < config.preferredBackendOrder.size) {
-            val backend = config.preferredBackendOrder[activeBackendIndex]
-            if (!runtimeFactory.shouldAttempt(backend)) {
-                Log.d(
-                    DANMAKU_AI_TAG,
-                    "backend=${backend.wireValue} skipped device=${runtimeFactory.deviceSummary()}",
-                )
-                activeBackendIndex += 1
-                continue
-            }
-            val runtime =
-                runCatching { runtimeFactory.create(backend, config) }.getOrElse { error ->
-                    Log.w(DANMAKU_AI_TAG, "backend=${backend.wireValue} init failed", error)
+        synchronized(runtimeLock) {
+            activeRuntime?.let { return it }
+            while (activeBackendIndex < config.preferredBackendOrder.size) {
+                val backend = config.preferredBackendOrder[activeBackendIndex]
+                if (!runtimeFactory.shouldAttempt(backend)) {
+                    Log.d(
+                        DANMAKU_AI_TAG,
+                        "backend=${backend.wireValue} skipped device=${runtimeFactory.deviceSummary()}",
+                    )
                     activeBackendIndex += 1
-                    null
+                    continue
                 }
-            if (runtime != null) {
-                activeRuntime = runtime
-                Log.d(
-                    DANMAKU_AI_TAG,
-                    "backend=${backend.wireValue} init success device=${runtimeFactory.deviceSummary()}",
-                )
-                return runtime
+                val runtime =
+                    runCatching { runtimeFactory.create(backend, config) }.getOrElse { error ->
+                        Log.w(DANMAKU_AI_TAG, "backend=${backend.wireValue} init failed", error)
+                        activeBackendIndex += 1
+                        null
+                    }
+                if (runtime != null) {
+                    activeRuntime = runtime
+                    Log.d(
+                        DANMAKU_AI_TAG,
+                        "backend=${backend.wireValue} init success device=${runtimeFactory.deviceSummary()}",
+                    )
+                    return runtime
+                }
             }
         }
         return null
     }
 
+    private fun ensureDetectionRuntime(): DanmakuDetectionRuntime? {
+        synchronized(runtimeLock) {
+            activeDetectionRuntime?.let { return it }
+            if (!detectionRuntimeFactory.shouldAttempt(DanmakuAiBackend.PADDLE)) {
+                Log.d(
+                    DANMAKU_AI_TAG,
+                    "backend=paddle detector skipped device=${detectionRuntimeFactory.deviceSummary()}",
+                )
+                return null
+            }
+            val runtime =
+                runCatching {
+                    detectionRuntimeFactory.create(DanmakuAiBackend.PADDLE)
+                }.getOrElse { error ->
+                    Log.w(DANMAKU_AI_TAG, "backend=paddle detector init failed", error)
+                    null
+                }
+            if (runtime != null) {
+                activeDetectionRuntime = runtime
+                Log.d(
+                    DANMAKU_AI_TAG,
+                    "backend=paddle detector init success device=${detectionRuntimeFactory.deviceSummary()}",
+                )
+            }
+            return runtime
+        }
+    }
+
+    private fun expandSoftMask(
+        input: FloatArray,
+        output: FloatArray,
+        width: Int,
+        height: Int,
+        radius: Int,
+    ) {
+        for (y in 0 until height) {
+            val minY = max(0, y - radius)
+            val maxY = minOf(height - 1, y + radius)
+            for (x in 0 until width) {
+                val minX = max(0, x - radius)
+                val maxX = minOf(width - 1, x + radius)
+                var maxValue = 0f
+                for (sampleY in minY..maxY) {
+                    val rowOffset = sampleY * width
+                    for (sampleX in minX..maxX) {
+                        val value = input[rowOffset + sampleX]
+                        if (value > maxValue) {
+                            maxValue = value
+                        }
+                    }
+                }
+                output[(y * width) + x] = maxValue
+            }
+        }
+    }
+
     private fun releaseRuntime() {
-        activeRuntime?.close()
-        activeRuntime = null
+        synchronized(runtimeLock) {
+            activeRuntime?.close()
+            activeRuntime = null
+            activeDetectionRuntime?.close()
+            activeDetectionRuntime = null
+            personTrackerRuntime?.close()
+            personTrackerRuntime = null
+        }
     }
 
     private fun restoreCachedState() {
@@ -2374,26 +7710,39 @@ class DanmakuDynamicOcclusionController(
             return
         }
         latestRect = cached.normalizedRect
+        latestRectTrackingEligible = cached.normalizedRect != null
+        latestTrackingRect = sanitizeTrackingRect(cached.normalizedRect)
         latestMaskValues = null
         latestMaskWidth = cached.maskWidth
         latestMaskHeight = cached.maskHeight
         latestMaskPath = cached.maskPath
+        latestMaskSignature = cached.maskSignature
         latestFramePath = cached.framePath
         latestMaskTimestampMs = cached.updatedAtMs
+        latestMaskAppliedAtUptimeMs = SystemClock.uptimeMillis()
         warmStartDelayUntilUptimeMs = SystemClock.uptimeMillis() + DANMAKU_AI_CACHE_WARM_START_DELAY_MS
         emitState(
             DanmakuDynamicOcclusionState(
                 enabled = true,
                 available = true,
                 backend = cached.backend,
+                occlusionMode = DanmakuOcclusionMode.MASK.wireValue,
                 updatedAtMs = cached.updatedAtMs,
                 maskPath = cached.maskPath,
+                maskSignature = cached.maskSignature,
                 maskWidth = cached.maskWidth,
                 maskHeight = cached.maskHeight,
                 framePath = cached.framePath,
                 cacheHit = true,
+                captureAreaRatio = config.sampleAreaRatio,
                 normalizedRect = cached.normalizedRect,
+                unavailableReason = null,
+                captureBackend = lastCaptureBackend,
+                degradationLevel = currentDegradationLevel().wireValue,
+                effectiveSampleIntervalMs = currentSampleIntervalMs(),
+                effectiveInputWidth = effectiveInputWidth(),
             ),
+            null,
         )
     }
 
@@ -2403,6 +7752,7 @@ class DanmakuDynamicOcclusionController(
         result: DanmakuMaskResult,
         frameBitmap: Bitmap,
         updatedAtMs: Long,
+        maskSignature: String?,
     ): DanmakuOcclusionCacheEntry? {
         val safeSource = source ?: return null
         val includeFrameBitmap =
@@ -2415,6 +7765,7 @@ class DanmakuDynamicOcclusionController(
                 source = safeSource,
                 backend = backend.wireValue,
                 updatedAtMs = updatedAtMs,
+                maskSignature = maskSignature,
                 normalizedRect = result.normalizedRect,
                 frameBitmap = if (includeFrameBitmap) frameBitmap else null,
                 maskWidth = result.maskWidth,
@@ -2427,11 +7778,24 @@ class DanmakuDynamicOcclusionController(
         }
     }
 
-    private fun clearReusableBitmap() {
-        reusableBitmap?.recycle()
-        reusableBitmap = null
-        reusableFocusedBitmap?.recycle()
-        reusableFocusedBitmap = null
+    private fun buildMaskSignature(result: DanmakuMaskResult): String {
+        var hash = 17
+        val step = max(1, result.maskValues.size / 160)
+        var index = 0
+        while (index < result.maskValues.size) {
+            val quantized = (result.maskValues[index].coerceIn(0f, 1f) * 15f).roundToInt()
+            hash = (hash * 31) + quantized
+            index += step
+        }
+        val rectSignature =
+            result.normalizedRect?.let { rect ->
+                val x = (rect.x.coerceIn(0f, 1f) * 10_000f).roundToInt()
+                val y = (rect.y.coerceIn(0f, 1f) * 10_000f).roundToInt()
+                val width = (rect.width.coerceIn(0f, 1f) * 10_000f).roundToInt()
+                val height = (rect.height.coerceIn(0f, 1f) * 10_000f).roundToInt()
+                "$x,$y,$width,$height"
+            } ?: "no_rect"
+        return "${result.maskWidth}x${result.maskHeight}|${hash.toUInt().toString(16)}|$rectSignature"
     }
 
     private fun maybeLogSamplingSlowPath(
@@ -2453,21 +7817,58 @@ class DanmakuDynamicOcclusionController(
         }
         Log.d(
             DANMAKU_AI_TAG,
-            "sample=$sampleId backend=${backend.wireValue} captureMs=$captureLatencyMs inferenceMs=$inferenceMs totalMs=$totalLatencyMs intervalMs=${config.sampleIntervalMs} reason=$reason",
+            "sample=$sampleId backend=${backend.wireValue} captureMs=$captureLatencyMs inferenceMs=$inferenceMs totalMs=$totalLatencyMs intervalMs=${currentSampleIntervalMs()} reason=$reason",
         )
     }
 
     private fun currentBackendOrFallback(): DanmakuAiBackend {
         return activeRuntime?.backend
+            ?: activeDetectionRuntime?.backend
             ?: config.preferredBackendOrder.getOrNull(activeBackendIndex)
             ?: DanmakuAiBackend.DISABLED
     }
 
     private fun currentSampleIntervalMs(): Long {
-        return if (sceneCutRecoveryActive && sceneCutBurstSamplesRemaining > 0) {
-            DANMAKU_AI_SCENE_CUT_BURST_INTERVAL_MS
-        } else {
-            config.sampleIntervalMs
+        if (sceneCutRecoveryActive && sceneCutBurstSamplesRemaining > 0) {
+            return max(
+                DANMAKU_AI_SCENE_CUT_BURST_INTERVAL_MS,
+                recommendedSamplingFloorMs() / 3L,
+            )
+        }
+        if (motionBurstSamplesRemaining > 0 && shouldAllowMotionBurst()) {
+            return currentMotionBurstIntervalMs()
+        }
+        val runtimeFloorInterval = preferredSampleIntervalMs()
+        if (averageLatencyMs <= 0.0) {
+            return runtimeFloorInterval
+        }
+        val latencyBackoff =
+            max(
+                averageLatencyMs
+                    .roundToInt()
+                    .toLong() + DANMAKU_AI_SAMPLE_INTERVAL_BACKOFF_HEADROOM_MS,
+                (averageLatencyMs * DANMAKU_AI_SAMPLE_INTERVAL_LATENCY_MULTIPLIER)
+                    .roundToInt()
+                    .toLong(),
+            )
+        val targetInterval =
+            max(
+                runtimeFloorInterval,
+                latencyBackoff.coerceIn(
+                    DANMAKU_AI_MIN_SAMPLE_INTERVAL_MS,
+                    DANMAKU_AI_MAX_SAMPLE_INTERVAL_MS,
+                ),
+            )
+        return targetInterval
+    }
+
+    private fun recommendedSamplingFloorMs(): Long {
+        val targetFrameRateHz = config.renderTargetFrameRateHz
+        return when {
+            targetFrameRateHz >= 110 -> DANMAKU_AI_HIGH_REFRESH_SAMPLE_INTERVAL_120HZ_MS
+            targetFrameRateHz >= 90 -> DANMAKU_AI_HIGH_REFRESH_SAMPLE_INTERVAL_90HZ_MS
+            targetFrameRateHz >= 72 -> DANMAKU_AI_HIGH_REFRESH_SAMPLE_INTERVAL_72HZ_MS
+            else -> DANMAKU_AI_MIN_SAMPLE_INTERVAL_MS
         }
     }
 
@@ -2476,22 +7877,33 @@ class DanmakuDynamicOcclusionController(
         sceneCutBurstSamplesRemaining =
             max(sceneCutBurstSamplesRemaining, DANMAKU_AI_SCENE_CUT_BURST_SAMPLE_COUNT)
         stableMaskFramesSinceSceneCut = 0
+        clearMotionBurst()
         latestRect = null
+        latestTrackingRect = null
+        latestRectTrackingEligible = false
         latestMaskValues = null
         latestMaskWidth = 0
         latestMaskHeight = 0
         latestMaskPath = null
+        latestMaskSignature = null
         latestFramePath = null
         latestMaskTimestampMs = 0L
+        replaceRuntimeMaskBitmap(null)
         consecutiveEmptyFrames = 0
         latestMotionReferenceFrame = null
+        previousMotionReferenceFrame = null
         lastMotionCompensation = null
         consecutiveMotionCompensationFailures = 0
         consecutiveCompensatedFrames = 0
+        smallMultiStickySamplesRemaining = 0
+        resetTrackerLifecycle(reason = "scene_cut")
+        resetPrimaryTargetMemory()
+        clearSmallMultiTracks()
         emitUnavailableState(backend = backend, keepEnabled = true)
         if (shouldSample()) {
             mainHandler.removeCallbacks(sampleRunnable)
             samplingScheduled = false
+            nextEligibleSampleUptimeMs = SystemClock.uptimeMillis() + currentSampleIntervalMs()
             scheduleNextSample()
         }
     }

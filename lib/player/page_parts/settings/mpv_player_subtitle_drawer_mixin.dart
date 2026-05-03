@@ -1,4 +1,4 @@
-part of mpv_player_page;
+part of '../../mpv_player_page.dart';
 
 const String _subtitleMainPageId = 'subtitle_main';
 const String _subtitleAdjustPageId = 'subtitle_adjust';
@@ -19,35 +19,17 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
     if (restoreControls) {
       _hideControlsImmediately();
     }
-    if (!_isLocalRuntimeTrackSource()) {
-      final nasProvider = context.read<NasProvider>();
-      try {
-        final languageMap = await FeiniuApi(
-          nasProvider,
-        ).getTagIso6392Map(lan: 'zh-CN');
-        if (languageMap.isNotEmpty) {
-          MediaLanguageMapper.mergeLanguageMap(languageMap);
-        }
-      } catch (error, trace) {
-        unawaited(
-          AppErrorReporter.report(
-            error,
-            action: 'load subtitle language map',
-            source: 'mpv_player_subtitle',
-            stackTrace: trace,
-            fallbackKind: AppExceptionKind.noData,
-            level: AppLogLevel.warning,
-          ),
-        );
-      }
-    }
-
-    if (!mounted) return;
-    if (_isLocalRuntimeTrackSource()) {
-      await _refreshRuntimeTracks(force: true);
-      if (!mounted) return;
-    }
+    final shouldWarmupLocalTracks = _isLocalRuntimeTrackSource();
     try {
+      if (mounted && !_subtitleDrawerVisible) {
+        _subtitleDrawerVisible = true;
+        unawaited(_syncDanmakuDynamicOcclusionConfig());
+      }
+      unawaited(
+        _warmupSubtitleDrawerData(
+          refreshRuntimeTracks: shouldWarmupLocalTracks,
+        ),
+      );
       await PlayerNestedSheet.show<void>(
         context,
         initialPageId: _subtitleMainPageId,
@@ -76,11 +58,47 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
         ],
       );
     } finally {
-      if (mounted) {
-        if (restoreControls) {
-          _showControls();
-        }
+      _activeSubtitleDrawerController = null;
+      if (mounted && _subtitleDrawerVisible) {
+        _subtitleDrawerVisible = false;
+        unawaited(_syncDanmakuDynamicOcclusionConfig());
+        unawaited(_startOrUpdateSystemPlaybackSession(force: true));
       }
+      if (mounted && !restoreControls) {
+        _scheduleControlsAutoHide();
+      }
+    }
+  }
+
+  Future<void> _warmupSubtitleDrawerData({
+    required bool refreshRuntimeTracks,
+  }) async {
+    try {
+      final nasProvider = context.read<NasProvider>();
+      try {
+        final languageMap = await FeiniuApi(
+          nasProvider,
+        ).getTagIso6392Map(lan: 'zh-CN');
+        if (languageMap.isNotEmpty) {
+          MediaLanguageMapper.mergeLanguageMap(languageMap);
+        }
+      } catch (error, trace) {
+        unawaited(
+          AppErrorReporter.report(
+            error,
+            action: 'load subtitle language map',
+            source: 'mpv_player_subtitle',
+            stackTrace: trace,
+            fallbackKind: AppExceptionKind.noData,
+            level: AppLogLevel.warning,
+          ),
+        );
+      }
+      if (refreshRuntimeTracks) {
+        await _refreshRuntimeTracks(force: true);
+      }
+    } finally {
+      _activeSubtitleDrawerController?.refresh();
     }
   }
 
@@ -88,10 +106,12 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
     BuildContext context,
     PlayerNestedSheetController<void> drawer,
   ) {
+    _activeSubtitleDrawerController = drawer;
+    final selectedSubtitleGuid = _normalizedSubtitleGuid() ?? '';
     final items = <_SubtitleDrawerTileData>[
       _SubtitleDrawerTileData(
         title: '\u5173\u95ed',
-        selected: (_currentSubtitleGuid ?? '').trim().isEmpty,
+        selected: selectedSubtitleGuid.isEmpty,
         onTap: () => unawaited(_selectSubtitleFromDrawer('', drawer)),
       ),
       ..._subtitleTracks.map(
@@ -103,7 +123,7 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
           onDelete: _subtitleCanDelete(track)
               ? () => unawaited(_deleteSubtitleFromDrawer(track, drawer))
               : null,
-          selected: track.guid == (_currentSubtitleGuid ?? '').trim(),
+          selected: track.guid == selectedSubtitleGuid,
           onTap: () => unawaited(_selectSubtitleFromDrawer(track.guid, drawer)),
         ),
       ),
@@ -358,7 +378,7 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
                   ),
                 ),
                 const SizedBox(width: 10),
-                Expanded(child: _SubtitleValueCapsule(label: '\u79d2')),
+                const Expanded(child: _SubtitleValueCapsule(label: '\u79d2')),
                 const SizedBox(width: 10),
                 Expanded(
                   child: _SubtitleActionCapsule(
@@ -476,9 +496,8 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
     _invalidateNextEpisodePreload();
     _updatePlayerState(() {
       _uiController.qualitySwitchLoading = true;
-      _uiController.subtitleSwitchMessage = _subtitleDrawerSwitchMessageForTrack(
-        selected,
-      );
+      _uiController.subtitleSwitchMessage =
+          _subtitleDrawerSwitchMessageForTrack(selected);
       _currentSubtitleGuid = plan.normalizedGuid;
       _subtitleExplicitlyDisabled = plan.subtitleExplicitlyDisabled;
     });
@@ -505,6 +524,7 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
   Future<void> _loadRemoteSubtitleSearch(
     PlayerNestedSheetController<void> drawer,
   ) async {
+    if (_externalLocalSource) return;
     final mediaGuid = _subtitleSourceMediaGuid.trim().isNotEmpty
         ? _subtitleSourceMediaGuid.trim()
         : _currentMediaGuid;
@@ -553,6 +573,10 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
     String language,
     PlayerNestedSheetController<void> drawer,
   ) async {
+    if (_externalLocalSource) {
+      drawer.popPage();
+      return;
+    }
     if (!_subtitleController.updateSearchLanguage(language)) {
       drawer.popPage();
       return;
@@ -566,6 +590,7 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
     required RemoteSubtitleSearchItem item,
     required PlayerNestedSheetController<void> drawer,
   }) async {
+    if (_externalLocalSource) return;
     final mediaGuid = _subtitleSourceMediaGuid.trim().isNotEmpty
         ? _subtitleSourceMediaGuid.trim()
         : _currentMediaGuid;
@@ -673,79 +698,6 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
     }
   }
 
-  Future<bool> _ensureStorageAccessForLocalSubtitleImport() async {
-    var hasAccess = await StorageAccessService.hasFileAccess();
-    if (hasAccess) return true;
-    final granted = await StorageAccessService.requestFileAccess();
-    if (granted) return true;
-    hasAccess = await StorageAccessService.hasFileAccess();
-    if (hasAccess) return true;
-    final openedSettings = await StorageAccessService.openFileAccessSettings();
-    if (mounted) {
-      _showTopTip(
-        openedSettings
-            ? '\u5df2\u8df3\u8f6c\u7cfb\u7edf\u8bbe\u7f6e\uff0c\u8bf7\u5f00\u542f\u6587\u4ef6\u8bbf\u95ee\u6743\u9650\u540e\u8fd4\u56de\u91cd\u8bd5'
-            : '\u8bf7\u5148\u6388\u4e88\u6587\u4ef6\u8bbf\u95ee\u6743\u9650',
-        context.appColors.danger,
-      );
-    }
-    return false;
-  }
-
-  Future<void> _pickAndAttachLocalSubtitle(
-    PlayerNestedSheetController<void> drawer,
-  ) async {
-    try {
-      final hasAccess = await _ensureStorageAccessForLocalSubtitleImport();
-      if (!mounted || !hasAccess) return;
-      final result = await FilePicker.platform.pickFiles(
-        allowMultiple: false,
-        withData: true,
-        type: FileType.custom,
-        allowedExtensions: const <String>[
-          'ass',
-          'ssa',
-          'srt',
-          'vtt',
-          'sub',
-          'txt',
-        ],
-      );
-      if (!mounted || result == null || result.files.isEmpty) return;
-      final file = result.files.first;
-      final path = await _subtitleService.materializePickedSubtitle(
-        file: file,
-        formatResolver: _subtitleFormatFromFileName,
-        writeBytesToTempFile: _writeSubtitleBytesToTempFile,
-      );
-      if (!mounted || path == null || path.isEmpty) return;
-      final guid = 'local:${DateTime.now().microsecondsSinceEpoch}';
-      final format = _subtitleFormatFromFileName(file.name, path);
-      final title = file.name.trim().isNotEmpty
-          ? file.name.trim()
-          : path.split(Platform.pathSeparator).last;
-      _subtitleController.cacheLocalSubtitleFile(guid: guid, path: path);
-      _upsertSubtitleTrack(
-        _subtitleController.buildLocalSubtitleTrack(
-          mediaGuid: _subtitleSourceMediaGuid.trim().isNotEmpty
-              ? _subtitleSourceMediaGuid.trim()
-              : _currentMediaGuid,
-          guid: guid,
-          title: title,
-          format: format,
-        ),
-        insertAtFront: true,
-      );
-      await _selectSubtitleFromDrawer(guid, drawer);
-    } catch (error) {
-      if (mounted) {
-        _showTransientMessage(
-          '\u6dfb\u52a0\u672c\u5730\u5b57\u5e55\u5931\u8d25: $error',
-        );
-      }
-    }
-  }
-
   void _upsertSubtitleTrack(
     SubtitleTrackOption track, {
     bool insertAtFront = false,
@@ -816,7 +768,11 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
       value,
     );
     drawer.refresh();
-    await _controller.setSubtitleDelay(_subtitleDelaySeconds);
+    await _runtimePreferencesStore.setDouble(
+      _MpvPlayerPageState._subtitleDelayPrefKey,
+      _subtitleDelaySeconds,
+    );
+    await _syncEffectiveSubtitleDelay(force: true);
   }
 
   Future<void> _setSubtitlePositionFactor(
@@ -826,6 +782,10 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
     _subtitleController.updateSubtitlePositionFactor(value);
     _subtitlePositionFactor = _subtitleController.subtitlePositionFactor;
     drawer.refresh();
+    await _runtimePreferencesStore.setDouble(
+      _MpvPlayerPageState._subtitlePositionFactorPrefKey,
+      _subtitlePositionFactor,
+    );
     await _syncEffectiveSubtitlePosition(force: true);
   }
 
@@ -833,14 +793,18 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
     double value, {
     required PlayerNestedSheetController<void> drawer,
   }) async {
-    final scale = _subtitleController.updateSubtitleScaleFactor(
+    _subtitleController.updateSubtitleScaleFactor(
       value,
       minScale: _subtitleScaleMin,
       maxScale: _subtitleScaleMax,
     );
     _subtitleScaleFactor = _subtitleController.subtitleScaleFactor;
     drawer.refresh();
-    await _controller.setSubtitleScale(scale);
+    await _runtimePreferencesStore.setDouble(
+      _MpvPlayerPageState._subtitleScaleFactorPrefKey,
+      _subtitleScaleFactor,
+    );
+    await _syncEffectiveSubtitleScale(force: true);
   }
 
   Future<void> _resetSubtitleStyle(
@@ -854,13 +818,32 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
     _subtitlePositionFactor = _subtitleController.subtitlePositionFactor;
     _subtitleScaleFactor = _subtitleController.subtitleScaleFactor;
     drawer.refresh();
+    await _runtimePreferencesStore.setDouble(
+      _MpvPlayerPageState._subtitleDelayPrefKey,
+      _subtitleDelaySeconds,
+    );
+    await _runtimePreferencesStore.setDouble(
+      _MpvPlayerPageState._subtitlePositionFactorPrefKey,
+      _subtitlePositionFactor,
+    );
+    await _runtimePreferencesStore.setDouble(
+      _MpvPlayerPageState._subtitleScaleFactorPrefKey,
+      _subtitleScaleFactor,
+    );
     await _controller.resetSubtitleStyle();
-    _lastAppliedEffectiveSubtitlePosition = null;
-    await _syncEffectiveSubtitlePosition(force: true);
+    _invalidateAppliedSubtitleStyle();
+    await _syncEffectiveSubtitleStyle(force: true);
   }
 
   String _subtitleSearchLanguageLabel(String language) {
-    return _subtitleController.subtitleSearchLanguageLabel(language);
+    final l10n = AppLocalizations.of(context);
+    switch (language) {
+      case 'en':
+        return l10n.playerSubtitleLanguageEnglish;
+      case 'zh-CN':
+      default:
+        return l10n.playerSubtitleLanguageChinese;
+    }
   }
 
   String _subtitleFormatFromFileName(String fileName, String fallbackPath) {
@@ -878,10 +861,16 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
   }
 
   String _subtitleDrawerSwitchMessageForTrack(SubtitleTrackOption? track) {
-    return _subtitleController.subtitleDrawerSwitchMessageForTrack(
-      track,
-      titleBuilder: _subtitleTitle,
-    );
+    final l10n = AppLocalizations.of(context);
+    if (track == null) {
+      return l10n.playerSubtitleClosing;
+    }
+    final title = _subtitleTitle(track);
+    final format = (track.format.isNotEmpty ? track.format : track.codecName)
+        .trim()
+        .toLowerCase();
+    final suffix = format.isEmpty ? '' : ' ($format)';
+    return l10n.playerSubtitleSwitching(title, suffix);
   }
 }
 

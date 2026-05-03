@@ -4,6 +4,7 @@ import 'mpv_player_controller.dart';
 import 'player_completion_controller.dart';
 import 'player_source_controller.dart';
 
+/// 持有播放器当前媒体会话的核心状态。
 class PlayerSessionController {
   String currentItemGuid = '';
   String currentMediaType = '';
@@ -49,6 +50,7 @@ class PlayerSessionController {
   List<SubtitleTrackOption> subtitleTracks = const <SubtitleTrackOption>[];
   List<PlaybackQualityOption> qualities = const <PlaybackQualityOption>[];
 
+  /// 使用新的媒体源填充当前会话状态，并返回更新后的载入序号。
   int hydrateFromSource({
     required MpvMediaSource source,
     required PlayerCompletionController completionController,
@@ -105,6 +107,7 @@ class PlayerSessionController {
         : currentLoadNonceSeed;
   }
 
+  /// 基于当前会话状态构造播放源快照。
   PlayerSourceSnapshot buildSourceSnapshot({
     required Set<String> serverFallbackSubtitleGuids,
   }) {

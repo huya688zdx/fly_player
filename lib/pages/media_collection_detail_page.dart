@@ -7,6 +7,7 @@ import '../api/feiniu_api.dart';
 import '../api/item_list_request.dart';
 import '../controllers/item_playback_launcher.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../models/media_collection_view_type.dart';
 import '../models/media_library_item.dart';
 import '../models/play_info.dart';
@@ -23,6 +24,7 @@ import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
 import '../utils/detail_top_tip.dart';
 import '../widgets/common/app_error_state.dart';
+import '../widgets/detail/detail_loading_skeleton.dart';
 import '../widgets/detail/dynamic_page_theme_scope.dart';
 import '../widgets/detail/detail_more_actions_sheet.dart';
 import '../widgets/detail/play_control_row.dart';
@@ -374,6 +376,8 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
 
   int _intValue(dynamic value) => int.tryParse('$value') ?? 0;
 
+  AppLocalizations get _l10n => AppLocalizations.of(context);
+
   String _crumbText() {
     final ancestor = (_detail['ancestor_name'] ?? '').toString().trim();
     if (ancestor.isNotEmpty) {
@@ -385,11 +389,11 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
   String _secondaryLine() {
     final type = _detailType(_detail);
     if (type == 'directory') {
-      return '目录';
+      return _l10n.resourceTypeDirectory;
     }
     if (type == 'mediadb') {
       final category = (_detail['ancestor_category'] ?? '').toString().trim();
-      return category.isNotEmpty ? category : '媒体库';
+      return category.isNotEmpty ? category : _l10n.mediaLibraryFallbackName;
     }
     return '';
   }
@@ -418,9 +422,11 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
   String _primaryText() {
     final item = _primaryPlayableItem();
     if (item == null) {
-      return '播放';
+      return _l10n.detailPlay;
     }
-    return item.ts > 0 || item.watchedTs > 0 ? '继续播放' : '播放';
+    return item.ts > 0 || item.watchedTs > 0
+        ? _l10n.detailContinuePlay
+        : _l10n.detailPlay;
   }
 
   Future<void> _playPrimary() async {
@@ -466,7 +472,7 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
       });
       _topTip.show(
         context,
-        message: next ? '已加入收藏' : '已取消收藏',
+        message: next ? _l10n.actionFavoriteAdded : _l10n.actionFavoriteRemoved,
         color: const Color(0xFF166534),
       );
     } catch (e) {
@@ -502,7 +508,9 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
       });
       _topTip.show(
         context,
-        message: next ? '已标记为已观看' : '已标记为未观看',
+        message: next
+            ? _l10n.actionMarkedAsWatched
+            : _l10n.actionMarkedAsUnwatched,
         color: const Color(0xFF166534),
       );
     } catch (e) {
@@ -572,6 +580,7 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
       ),
       builder: (context) {
         final colors = context.appColors;
+        final l10n = AppLocalizations.of(context);
         return SafeArea(
           top: false,
           child: Padding(
@@ -580,7 +589,7 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  '排序',
+                  l10n.listSortTitle,
                   style: TextStyle(
                     color: colors.textPrimary,
                     fontSize: 24,
@@ -602,7 +611,9 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
                     ),
                     trailing: column == _sortColumn
                         ? Text(
-                            _sortType == 'ASC' ? '升序' : '降序',
+                            _sortType == 'ASC'
+                                ? l10n.listSortAsc
+                                : l10n.listSortDesc,
                             style: TextStyle(color: colors.textMuted),
                           )
                         : null,
@@ -622,14 +633,14 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
   String _sortLabelFor(String column) {
     switch (column) {
       case 'release_date':
-        return '按发行年份';
+        return _l10n.listSortReleaseDate;
       case 'title':
-        return '按标题';
+        return _l10n.listSortTitleField;
       case 'vote_average':
-        return '按评分';
+        return _l10n.listSortVoteAverage;
       case 'create_time':
       default:
-        return '按添加日期';
+        return _l10n.listSortCreateTime;
     }
   }
 
@@ -723,6 +734,7 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
         return StatefulBuilder(
           builder: (context, setModal) {
             final colors = context.appColors;
+            final l10n = AppLocalizations.of(context);
             Widget chip({
               required String label,
               required bool selected,
@@ -774,7 +786,7 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
                   children: [
                     Center(
                       child: Text(
-                        '筛选',
+                        l10n.listFilterButton,
                         style: TextStyle(
                           color: colors.textPrimary,
                           fontSize: 22,
@@ -784,7 +796,7 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
                     ),
                     const SizedBox(height: 18),
                     Text(
-                      '分辨率',
+                      l10n.listFilterResolution,
                       style: TextStyle(
                         color: colors.textPrimary,
                         fontSize: 15,
@@ -795,7 +807,7 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
                     Wrap(
                       children: [
                         chip(
-                          label: '全部',
+                          label: l10n.listFilterAll,
                           selected: tempResolution == null,
                           onTap: () => setModal(() => tempResolution = null),
                         ),
@@ -809,7 +821,7 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '观看状态',
+                      l10n.listFilterWatched,
                       style: TextStyle(
                         color: colors.textPrimary,
                         fontSize: 15,
@@ -820,17 +832,17 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
                     Wrap(
                       children: [
                         chip(
-                          label: '全部',
+                          label: l10n.listFilterAll,
                           selected: tempWatched == null,
                           onTap: () => setModal(() => tempWatched = null),
                         ),
                         chip(
-                          label: '已观看',
+                          label: l10n.listWatched,
                           selected: tempWatched == 1,
                           onTap: () => setModal(() => tempWatched = 1),
                         ),
                         chip(
-                          label: '未观看',
+                          label: l10n.listUnwatched,
                           selected: tempWatched == 0,
                           onTap: () => setModal(() => tempWatched = 0),
                         ),
@@ -852,9 +864,11 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
                               foregroundColor: colors.textSecondary,
                               minimumSize: const Size.fromHeight(44),
                             ),
-                            child: const Text(
-                              '重置',
-                              style: TextStyle(fontWeight: FontWeight.w700),
+                            child: Text(
+                              l10n.listFilterResetButton,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
                         ),
@@ -872,9 +886,11 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
                             style: FilledButton.styleFrom(
                               minimumSize: const Size.fromHeight(44),
                             ),
-                            child: const Text(
-                              '确定',
-                              style: TextStyle(fontWeight: FontWeight.w700),
+                            child: Text(
+                              l10n.commonConfirm,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
                         ),
@@ -946,15 +962,34 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    final themeProvider = context.watch<AppThemeProvider>();
+    final (
+      dynamicThemeEnabled: dynamicThemeEnabled,
+      dynamicThemeIntensity: dynamicThemeIntensity,
+    ) = context
+        .select<
+          AppThemeProvider,
+          ({
+            bool dynamicThemeEnabled,
+            AppDynamicThemeIntensity dynamicThemeIntensity,
+          })
+        >(
+          (themeProvider) => (
+            dynamicThemeEnabled: themeProvider.dynamicThemeEnabled,
+            dynamicThemeIntensity: themeProvider.dynamicThemeIntensity,
+          ),
+        );
     final provider = context.read<NasProvider>();
     final inPlayerPaneHost = PlayerPaneHostScope.maybeOf(context) != null;
     String dynamicPosterPath = '';
-    for (final item in _items.isNotEmpty ? _items : _allItems) {
-      final candidate = item.poster.trim().isNotEmpty ? item.poster.trim() : '';
-      if (candidate.isNotEmpty) {
-        dynamicPosterPath = candidate;
-        break;
+    if (!_loading) {
+      for (final item in _items.isNotEmpty ? _items : _allItems) {
+        final candidate = item.poster.trim().isNotEmpty
+            ? item.poster.trim()
+            : '';
+        if (candidate.isNotEmpty) {
+          dynamicPosterPath = candidate;
+          break;
+        }
       }
     }
     final dynamicThemeUrls = dynamicPosterPath.isEmpty
@@ -967,25 +1002,23 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
     final dynamicThemeImageUrl = dynamicThemeUrls.isNotEmpty
         ? dynamicThemeUrls.first
         : '';
+    final syncGlobalTheme = dynamicThemeIntensity.allowsGlobalRuntimeThemeSync(
+      inPlayerPaneHost: inPlayerPaneHost,
+      isPane: _isPane,
+    );
 
-    final dynamicThemeIntensity = themeProvider.dynamicThemeIntensity;
     return DynamicPageThemeScope(
       pageKey: widget.itemGuid,
       imageUrl: dynamicThemeImageUrl,
       token: provider.token,
-      enabled: themeProvider.dynamicThemeEnabled,
-      syncGlobalTheme: dynamicThemeIntensity.allowsGlobalRuntimeThemeSync(
-        inPlayerPaneHost: inPlayerPaneHost,
-        isPane: _isPane,
-      ),
+      enabled: dynamicThemeEnabled,
+      syncGlobalTheme: syncGlobalTheme,
+      deferLocalThemeApplyUntilGlobalSync: _isPane && syncGlobalTheme,
       intensity: dynamicThemeIntensity,
       builder: (context, _) {
         final colors = context.appColors;
         if (_loading) {
-          return Scaffold(
-            backgroundColor: colors.backgroundBase,
-            body: const SizedBox.shrink(),
-          );
+          return DetailLoadingSkeleton(presentation: widget.presentation);
         }
         if (_error != null) {
           return Scaffold(
@@ -1018,7 +1051,7 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
                     DetailTokens.screenHorizontalPadding,
                     8,
                     DetailTokens.screenHorizontalPadding,
-                    24,
+                    0,
                   ),
                   sliver: SliverToBoxAdapter(
                     child: Column(
@@ -1026,16 +1059,12 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
                       children: [
                         Row(
                           children: [
-                            _isPane
-                                ? const SizedBox(width: 40, height: 40)
-                                : _TopBarIconButton(
-                                    icon: Icons.arrow_back_ios_new_rounded,
-                                    onTap: () => unawaited(
-                                      EmbeddedDetailLauncher.closeHostOrPop(
-                                        context,
-                                      ),
-                                    ),
-                                  ),
+                            _TopBarIconButton(
+                              icon: Icons.arrow_back_ios_new_rounded,
+                              onTap: () => unawaited(
+                                EmbeddedDetailLauncher.closeHostOrPop(context),
+                              ),
+                            ),
                             const Spacer(),
                             _TopBarIconButton(
                               icon: Icons.more_horiz_rounded,
@@ -1047,15 +1076,18 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
                                   suggestedThemeName: context
                                       .read<AppThemeProvider>()
                                       .nextSavedThemeNameFromBase(
-                                        buildThemeSaveNameBase(title: title),
+                                        buildThemeSaveNameBase(
+                                          l10n: AppLocalizations.of(context),
+                                          title: title,
+                                        ),
                                       ),
                                   clearRuntimeBroadcastToMain:
                                       !inPlayerPaneHost,
                                   extraActions: <DetailMoreActionItem>[
                                     DetailMoreActionItem(
                                       icon: Icons.grid_view_rounded,
-                                      title: '布局方式',
-                                      subtitle: '切换合集详情中的列表布局',
+                                      title: _l10n.collectionLayoutTitle,
+                                      subtitle: _l10n.collectionLayoutSubtitle,
                                       onTap: (context) => _openLayoutSheet(),
                                     ),
                                   ],
@@ -1201,17 +1233,25 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
                           ],
                         ),
                         const SizedBox(height: 10),
-                        MediaCollectionBrowser(
-                          items: _items,
-                          baseUrl: provider.baseUrl,
-                          token: provider.token,
-                          viewType: _viewType,
-                          onItemTap: _openItemDetail,
-                          onItemLongPress: _showItemActions,
-                          onItemMoreTap: _showItemActions,
-                        ),
                       ],
                     ),
+                  ),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(
+                    DetailTokens.screenHorizontalPadding,
+                    0,
+                    DetailTokens.screenHorizontalPadding,
+                    24,
+                  ),
+                  sliver: MediaCollectionBrowserSliver(
+                    items: _items,
+                    baseUrl: provider.baseUrl,
+                    token: provider.token,
+                    viewType: _viewType,
+                    onItemTap: _openItemDetail,
+                    onItemLongPress: _showItemActions,
+                    onItemMoreTap: _showItemActions,
                   ),
                 ),
               ],
@@ -1259,9 +1299,15 @@ class _CollectionToolButton extends StatelessWidget {
     required this.onTap,
   });
 
+  static const Color _activeBackground = Color(0x332F8CFF);
+  static const Color _activeBorder = Color(0xFF3A82F7);
+  static const Color _activeIcon = Color(0xFFE5F0FF);
+  static const Color _inactiveBackground = Color(0xFF101A27);
+  static const Color _inactiveBorder = Color(0xFF26364A);
+  static const Color _inactiveIcon = Color(0xFFB7C6D8);
+
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
@@ -1269,15 +1315,13 @@ class _CollectionToolButton extends StatelessWidget {
         width: 40,
         height: 40,
         decoration: BoxDecoration(
-          color: active ? colors.selectionSoft : colors.surfaceStrong,
+          color: active ? _activeBackground : _inactiveBackground,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: active ? colors.selection : colors.borderSubtle,
-          ),
+          border: Border.all(color: active ? _activeBorder : _inactiveBorder),
         ),
         child: Icon(
           icon,
-          color: active ? colors.selectionStrong : colors.textSecondary,
+          color: active ? _activeIcon : _inactiveIcon,
           size: 21,
         ),
       ),

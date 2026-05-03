@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../models/stream_track_data.dart';
-import '../providers/nas_provider.dart';
 import '../theme/app_theme.dart';
 import '../ui/app_sheet_transitions.dart';
 import '../utils/media_language_mapper.dart';
-import '../utils/media_locale_store.dart';
 
 class MediaDetailVariant {
   final String mediaGuid;
@@ -28,14 +26,12 @@ class MediaDetailOverlayPage extends StatefulWidget {
   final List<MediaDetailVariant> variants;
   final int initialIndex;
   final ValueChanged<int>? onVariantChanged;
-  final Map<String, dynamic> localeMap;
 
   const MediaDetailOverlayPage({
     super.key,
     required this.variants,
     required this.initialIndex,
     this.onVariantChanged,
-    this.localeMap = const <String, dynamic>{},
   });
 
   static Future<void> show(
@@ -44,20 +40,17 @@ class MediaDetailOverlayPage extends StatefulWidget {
     int initialIndex = 0,
     ValueChanged<int>? onVariantChanged,
   }) async {
-    final provider = context.read<NasProvider>();
-    final localeMap = await MediaLocaleStore.load(provider);
-    if (!context.mounted) return;
     final media = MediaQuery.of(context);
     final isLandscape = media.size.width > media.size.height;
     final page = MediaDetailOverlayPage(
       variants: variants,
       initialIndex: initialIndex,
       onVariantChanged: onVariantChanged,
-      localeMap: localeMap,
     );
     if (isLandscape) {
       return showDialog<void>(
         context: context,
+        useRootNavigator: false,
         barrierDismissible: true,
         barrierColor: const Color(0xBF020812),
         builder: (_) => page,
@@ -109,22 +102,10 @@ class _MediaDetailOverlayPageState extends State<MediaDetailOverlayPage> {
     return logical;
   }
 
-  String _t(
-    String path,
-    String fallback, {
-    Map<String, Object?> params = const <String, Object?>{},
-  }) {
-    return MediaLocaleStore.text(
-      widget.localeMap,
-      path,
-      fallback: fallback,
-      params: params,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     if (widget.variants.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -157,7 +138,7 @@ class _MediaDetailOverlayPageState extends State<MediaDetailOverlayPage> {
                 children: [
                   const Spacer(),
                   Text(
-                    _t('player.videoDetails.title', '文件媒体信息'),
+                    l10n.mediaDetailsTitle,
                     style: TextStyle(
                       color: colors.textPrimary,
                       fontSize: 18,
@@ -166,10 +147,15 @@ class _MediaDetailOverlayPageState extends State<MediaDetailOverlayPage> {
                   ),
                   const Spacer(),
                   InkWell(
-                    onTap: () => Navigator.of(context).maybePop(),
+                    onTap: () {
+                      if (AppSheetTransitions.maybeClose<void>(context)) {
+                        return;
+                      }
+                      Navigator.of(context).maybePop();
+                    },
                     borderRadius: BorderRadius.circular(14),
                     child: Padding(
-                      padding: EdgeInsets.all(4),
+                      padding: const EdgeInsets.all(4),
                       child: Icon(
                         Icons.close,
                         color: colors.textSecondary,
@@ -219,38 +205,29 @@ class _MediaDetailOverlayPageState extends State<MediaDetailOverlayPage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             if (variant.video != null) ...[
-                              _SectionTitle(_t('stream.video.name', '视频')),
+                              _SectionTitle(l10n.mediaDetailsVideoSection),
                               const SizedBox(height: 8),
-                              _VideoCard(
-                                video: variant.video!,
-                                localeMap: widget.localeMap,
-                              ),
+                              _VideoCard(video: variant.video!),
                               const SizedBox(height: 14),
                             ],
                             if (variant.audios.isNotEmpty) ...[
-                              _SectionTitle(_t('stream.audio.name', '音频')),
+                              _SectionTitle(l10n.mediaDetailsAudioSection),
                               const SizedBox(height: 8),
                               ...variant.audios.map(
                                 (item) => Padding(
                                   padding: const EdgeInsets.only(bottom: 10),
-                                  child: _AudioCard(
-                                    audio: item,
-                                    localeMap: widget.localeMap,
-                                  ),
+                                  child: _AudioCard(audio: item),
                                 ),
                               ),
                             ],
                             if (variant.subtitles.isNotEmpty) ...[
                               const SizedBox(height: 4),
-                              _SectionTitle(_t('stream.subtitle.name', '字幕')),
+                              _SectionTitle(l10n.mediaDetailsSubtitleSection),
                               const SizedBox(height: 8),
                               ...variant.subtitles.map(
                                 (item) => Padding(
                                   padding: const EdgeInsets.only(bottom: 10),
-                                  child: _SubtitleCard(
-                                    subtitle: item,
-                                    localeMap: widget.localeMap,
-                                  ),
+                                  child: _SubtitleCard(subtitle: item),
                                 ),
                               ),
                             ],
@@ -369,25 +346,12 @@ class _InfoCard extends StatelessWidget {
 
 class _VideoCard extends StatelessWidget {
   final VideoStreamInfo video;
-  final Map<String, dynamic> localeMap;
 
-  const _VideoCard({required this.video, required this.localeMap});
-
-  String _t(
-    String path,
-    String fallback, {
-    Map<String, Object?> params = const <String, Object?>{},
-  }) {
-    return MediaLocaleStore.text(
-      localeMap,
-      path,
-      fallback: fallback,
-      params: params,
-    );
-  }
+  const _VideoCard({required this.video});
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final headerParts = <String>[
       if (video.resolutionType.trim().isNotEmpty) video.resolutionType,
       if (video.codecName.trim().isNotEmpty) video.codecName.toUpperCase(),
@@ -396,63 +360,42 @@ class _VideoCard extends StatelessWidget {
     return _InfoCard(
       header: headerParts.join(' '),
       rows: [
+        MapEntry(l10n.mediaDetailsFieldEncoder, _safe(video.codecName)),
+        MapEntry(l10n.mediaDetailsFieldProfile, _safe(video.profile)),
+        MapEntry(l10n.mediaDetailsFieldLevel, _safe(video.level)),
         MapEntry(
-          _t('stream.details.fields.encoder', '编码器'),
-          _safe(video.codecName),
-        ),
-        MapEntry(
-          _t('stream.details.fields.profile', '配置'),
-          _safe(video.profile),
-        ),
-        MapEntry(_t('stream.details.fields.level', '等级'), _safe(video.level)),
-        MapEntry(
-          _t('stream.details.fields.resolution', '分辨率'),
+          l10n.mediaDetailsFieldResolution,
           _safe(_resolution(video.width, video.height)),
         ),
         MapEntry(
-          _t('stream.details.fields.aspectRatio', '宽高比'),
+          l10n.mediaDetailsFieldAspectRatio,
           _safe(video.displayAspectRatio),
         ),
         const MapEntry('__divider__', ''),
         MapEntry(
-          _t('stream.details.fields.interlaced', '隔行扫描'),
-          _boolText(video.progressive == 1, localeMap),
+          l10n.mediaDetailsFieldInterlaced,
+          _boolText(l10n, video.progressive == 1),
         ),
+        MapEntry(l10n.mediaDetailsFieldFrameRate, _safe(video.rFrameRate)),
+        MapEntry(l10n.mediaDetailsFieldBitrate, _safe(_kbps(video.bps))),
+        MapEntry(l10n.mediaDetailsFieldRange, _safe(video.colorRangeType)),
         MapEntry(
-          _t('stream.details.fields.frameRate', '帧率'),
-          _safe(video.rFrameRate),
-        ),
-        MapEntry(
-          _t('stream.details.fields.bitrate', '码率'),
-          _safe(_kbps(video.bps)),
-        ),
-        MapEntry(
-          _t('stream.details.fields.range', '视频动态范围'),
-          _safe(video.colorRangeType),
-        ),
-        MapEntry(
-          _t('stream.details.fields.colorPrimaries', '色彩原色'),
+          l10n.mediaDetailsFieldColorPrimaries,
           _safe(video.colorPrimaries),
         ),
         const MapEntry('__divider__', ''),
+        MapEntry(l10n.mediaDetailsFieldColorSpace, _safe(video.colorSpace)),
         MapEntry(
-          _t('stream.details.fields.colorSpace', '色彩空间'),
-          _safe(video.colorSpace),
-        ),
-        MapEntry(
-          _t('stream.details.fields.colorTransfer', '色彩转换'),
+          l10n.mediaDetailsFieldColorTransfer,
           _safe(video.colorTransfer),
         ),
         MapEntry(
-          _t('stream.details.fields.bitDepth', '位深度'),
+          l10n.mediaDetailsFieldBitDepth,
           _safe(video.bitDepth > 0 ? '${video.bitDepth} bit' : ''),
         ),
+        MapEntry(l10n.mediaDetailsFieldPixelFormat, _safe(video.pixFmt)),
         MapEntry(
-          _t('stream.details.fields.pixelFormat', '像素格式'),
-          _safe(video.pixFmt),
-        ),
-        MapEntry(
-          _t('stream.details.fields.refs', '参考帧'),
+          l10n.mediaDetailsFieldRefs,
           _safe(video.refs > 0 ? '${video.refs}' : ''),
         ),
       ],
@@ -462,28 +405,15 @@ class _VideoCard extends StatelessWidget {
 
 class _AudioCard extends StatelessWidget {
   final AudioTrackOption audio;
-  final Map<String, dynamic> localeMap;
 
-  const _AudioCard({required this.audio, required this.localeMap});
-
-  String _t(
-    String path,
-    String fallback, {
-    Map<String, Object?> params = const <String, Object?>{},
-  }) {
-    return MediaLocaleStore.text(
-      localeMap,
-      path,
-      fallback: fallback,
-      params: params,
-    );
-  }
+  const _AudioCard({required this.audio});
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final lan = MediaLanguageMapper.languageName(audio.language);
     final headerParts = <String>[
-      if (lan != '未知') lan,
+      if (lan != _unknownLanguageName) lan,
       if (audio.codecName.trim().isNotEmpty) audio.codecName,
       if (audio.channelLayout.trim().isNotEmpty) audio.channelLayout,
     ];
@@ -491,38 +421,26 @@ class _AudioCard extends StatelessWidget {
       header: headerParts.join(' '),
       rows: [
         MapEntry(
-          _t('stream.details.fields.language', '语言'),
-          _safe(lan == '未知' ? '' : lan),
+          l10n.mediaDetailsFieldLanguage,
+          _safe(lan == _unknownLanguageName ? '' : lan),
         ),
-        MapEntry(
-          _t('stream.details.fields.encoder', '编码器'),
-          _safe(audio.codecName),
-        ),
-        MapEntry(
-          _t('stream.details.fields.profile', '配置'),
-          _safe(audio.profile),
-        ),
+        MapEntry(l10n.mediaDetailsFieldEncoder, _safe(audio.codecName)),
+        MapEntry(l10n.mediaDetailsFieldProfile, _safe(audio.profile)),
         const MapEntry('__divider__', ''),
         MapEntry(
-          _t('stream.details.fields.channels', '声道'),
+          l10n.mediaDetailsFieldChannels,
           _safe(_channelText(audio.channels)),
         ),
         MapEntry(
-          _t('stream.details.fields.sampleRate', '采样率'),
+          l10n.mediaDetailsFieldSampleRate,
           _safe(audio.sampleRate > 0 ? '${audio.sampleRate} Hz' : ''),
         ),
-        MapEntry(
-          _t('stream.details.fields.bitrate', '码率'),
-          _safe(_kbps(audio.bps)),
-        ),
+        MapEntry(l10n.mediaDetailsFieldBitrate, _safe(_kbps(audio.bps))),
         const MapEntry('__divider__', ''),
+        MapEntry(l10n.mediaDetailsFieldLayout, _safe(audio.channelLayout)),
         MapEntry(
-          _t('stream.details.fields.layout', '布局'),
-          _safe(audio.channelLayout),
-        ),
-        MapEntry(
-          _t('stream.details.fields.default', '默认'),
-          _boolText(audio.isDefault == 1, localeMap),
+          l10n.mediaDetailsFieldDefault,
+          _boolText(l10n, audio.isDefault == 1),
         ),
       ],
     );
@@ -531,56 +449,40 @@ class _AudioCard extends StatelessWidget {
 
 class _SubtitleCard extends StatelessWidget {
   final SubtitleTrackOption subtitle;
-  final Map<String, dynamic> localeMap;
 
-  const _SubtitleCard({required this.subtitle, required this.localeMap});
-
-  String _t(
-    String path,
-    String fallback, {
-    Map<String, Object?> params = const <String, Object?>{},
-  }) {
-    return MediaLocaleStore.text(
-      localeMap,
-      path,
-      fallback: fallback,
-      params: params,
-    );
-  }
+  const _SubtitleCard({required this.subtitle});
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final lan = MediaLanguageMapper.languageName(subtitle.language);
     final fmt =
         (subtitle.format.isNotEmpty ? subtitle.format : subtitle.codecName)
             .trim()
             .toUpperCase();
     final header =
-        '${lan == '未知' ? _t('stream.subtitle.subtitle', '字幕') : lan} ($fmt)';
+        '${lan == _unknownLanguageName ? l10n.mediaDetailsSubtitleSection : lan} ($fmt)';
     return _InfoCard(
       header: header,
       rows: [
         MapEntry(
-          _t('stream.details.fields.language', '语言'),
-          _safe(lan == '未知' ? '' : lan),
+          l10n.mediaDetailsFieldLanguage,
+          _safe(lan == _unknownLanguageName ? '' : lan),
+        ),
+        MapEntry(l10n.mediaDetailsFieldEncoder, _safe(fmt.toLowerCase())),
+        const MapEntry('__divider__', ''),
+        MapEntry(
+          l10n.mediaDetailsFieldDefault,
+          _boolText(l10n, subtitle.isDefault == 1),
         ),
         MapEntry(
-          _t('stream.details.fields.encoder', '编码器'),
-          _safe(fmt.toLowerCase()),
+          l10n.mediaDetailsFieldForced,
+          _boolText(l10n, subtitle.forced == 1),
         ),
         const MapEntry('__divider__', ''),
         MapEntry(
-          _t('stream.details.fields.default', '默认'),
-          _boolText(subtitle.isDefault == 1, localeMap),
-        ),
-        MapEntry(
-          _t('stream.details.fields.forced', '强制'),
-          _boolText(subtitle.forced == 1, localeMap),
-        ),
-        const MapEntry('__divider__', ''),
-        MapEntry(
-          _t('stream.details.fields.external', '外部'),
-          _boolText(subtitle.isExternal == 1, localeMap),
+          l10n.mediaDetailsFieldExternal,
+          _boolText(l10n, subtitle.isExternal == 1),
         ),
       ],
     );
@@ -591,6 +493,8 @@ bool _isDividerRow(MapEntry<String, String> entry) =>
     entry.key == '__divider__';
 
 String _safe(String value) => value.trim().isEmpty ? '-' : value.trim();
+
+const String _unknownLanguageName = '\u672a\u77e5';
 
 String _resolution(int w, int h) {
   if (w <= 0 || h <= 0) return '';
@@ -610,9 +514,5 @@ String _channelText(int channels) {
   return '$channels ch';
 }
 
-String _boolText(bool v, Map<String, dynamic> localeMap) =>
-    MediaLocaleStore.text(
-      localeMap,
-      v ? 'common.yes' : 'common.no',
-      fallback: v ? '是' : '否',
-    );
+String _boolText(AppLocalizations l10n, bool v) =>
+    v ? l10n.commonYes : l10n.commonNo;

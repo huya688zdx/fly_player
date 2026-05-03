@@ -1,9 +1,10 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import '../danmaku/models/danmaku_saved_source.dart';
 import '../danmaku/models/danmaku_settings.dart';
 import '../danmaku/settings/danmaku_saved_source_store.dart';
 import '../danmaku/settings/danmaku_settings_store.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
 import '../ui/app_transitions.dart';
@@ -60,28 +61,38 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
   }
 
   String _speedLabel(double speed) {
-    if (speed <= 0.85) return '慢';
-    if (speed >= 1.55) return '快';
-    if (speed >= 1.25) return '较快';
-    return '正常';
+    final l10n = AppLocalizations.of(context);
+    final preset = nearestDanmakuSpeedPreset(speed);
+    if (preset <= danmakuSpeedPresets.first + 0.0001) {
+      return l10n.danmakuSpeedSlow;
+    }
+    if (preset >= danmakuSpeedPresets.last - 0.0001) {
+      return l10n.danmakuSpeedFast;
+    }
+    if (preset >= danmakuSpeedPresets[3] - 0.0001) {
+      return l10n.danmakuSpeedFaster;
+    }
+    return l10n.danmakuSpeedNormal;
   }
 
   String _areaLabel(double ratio) {
-    if (ratio <= 0.10) return '1/10屏';
-    if (ratio <= 0.25) return '1/4屏';
-    if (ratio <= 0.5) return '半屏';
-    if (ratio <= 0.75) return '3/4屏';
-    return '全屏';
+    final l10n = AppLocalizations.of(context);
+    if (ratio <= 0.10) return l10n.danmakuAreaOneTenth;
+    if (ratio <= 0.25) return l10n.danmakuAreaOneQuarter;
+    if (ratio <= 0.5) return l10n.danmakuAreaHalf;
+    if (ratio <= 0.75) return l10n.danmakuAreaThreeQuarters;
+    return l10n.danmakuAreaFull;
   }
 
   String _percentLabel(double value) => '${(value * 100).round()}%';
 
   String _fontScaleLabel(double value) {
-    if (value < 0.8) return '较小';
-    if (value < 0.95) return '偏小';
-    if (value <= 1.05) return '标准';
-    if (value < 1.2) return '偏大';
-    return '较大';
+    final l10n = AppLocalizations.of(context);
+    if (value < 0.8) return l10n.danmakuFontSmall;
+    if (value < 0.95) return l10n.danmakuFontSlightlySmall;
+    if (value <= 1.05) return l10n.danmakuFontStandard;
+    if (value < 1.2) return l10n.danmakuFontSlightlyLarge;
+    return l10n.danmakuFontLarge;
   }
 
   Future<void> _openDanmakuManager() async {
@@ -96,11 +107,12 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
       backgroundColor: colors.backgroundBase,
       appBar: AppBar(
         title: Text(
-          '弹幕设置',
+          l10n.danmakuSettingsTitle,
           style: TextStyle(
             color: colors.textPrimary,
             fontSize: AdaptiveText.roleSize(20, role: AdaptiveFontRole.title),
@@ -123,32 +135,32 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
               : ListView(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
                   children: <Widget>[
-                    const _DanmakuSectionTitle(
-                      title: '来源管理',
-                      subtitle: '统一管理网络弹幕和本地导入弹幕，支持按来源层级查看与手动删除。',
+                    _DanmakuSectionTitle(
+                      title: l10n.danmakuSourceManagementTitle,
+                      subtitle: l10n.danmakuSourceManagementSubtitle,
                     ),
                     const SizedBox(height: 10),
                     _DanmakuCard(
                       child: _DanmakuMenuTile(
-                        title: '弹幕管理',
+                        title: l10n.danmakuManagementTitle,
                         subtitle: _savedSourceCount <= 0
-                            ? '还没有已保存弹幕来源'
-                            : '当前已保存 $_savedSourceCount 个弹幕来源',
+                            ? l10n.danmakuNoSavedSources
+                            : l10n.danmakuSavedSourceCount(_savedSourceCount),
                         onTap: _openDanmakuManager,
                       ),
                     ),
                     const SizedBox(height: 18),
-                    const _DanmakuSectionTitle(
-                      title: '基础',
-                      subtitle: '这些是全局默认值，不依赖当前播放页面。',
+                    _DanmakuSectionTitle(
+                      title: l10n.danmakuBasicSectionTitle,
+                      subtitle: l10n.danmakuBasicSectionSubtitle,
                     ),
                     const SizedBox(height: 10),
                     _DanmakuCard(
                       child: Column(
                         children: <Widget>[
                           _DanmakuSwitchTile(
-                            title: '默认开启弹幕',
-                            subtitle: '进入播放器时默认带着弹幕设置启动。',
+                            title: l10n.danmakuDefaultEnabledTitle,
+                            subtitle: l10n.danmakuDefaultEnabledSubtitle,
                             value: _settings.enabled,
                             onChanged: (value) {
                               _save(_settings.copyWith(enabled: value));
@@ -156,8 +168,8 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                           ),
                           const _DanmakuDivider(),
                           _DanmakuSwitchTile(
-                            title: '详情页预览弹幕',
-                            subtitle: '在非播放页展示弹幕预览时使用这项默认值。',
+                            title: l10n.danmakuPreviewEnabledTitle,
+                            subtitle: l10n.danmakuPreviewEnabledSubtitle,
                             value: _settings.previewEnabled,
                             onChanged: (value) {
                               _save(_settings.copyWith(previewEnabled: value));
@@ -167,9 +179,9 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                       ),
                     ),
                     const SizedBox(height: 18),
-                    const _DanmakuSectionTitle(
-                      title: '来源优先',
-                      subtitle: '控制本地弹幕和网络弹幕同时可用时的默认选择。',
+                    _DanmakuSectionTitle(
+                      title: l10n.danmakuSourcePriorityTitle,
+                      subtitle: l10n.danmakuSourcePrioritySubtitle,
                     ),
                     const SizedBox(height: 10),
                     _DanmakuCard(
@@ -177,7 +189,7 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                         children: <Widget>[
                           Expanded(
                             child: _DanmakuChoiceButton(
-                              label: '本地优先',
+                              label: l10n.danmakuPreferLocal,
                               selected: _settings.preferLocalSource,
                               onTap: () {
                                 _save(
@@ -189,7 +201,7 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                           const SizedBox(width: 10),
                           Expanded(
                             child: _DanmakuChoiceButton(
-                              label: '网络优先',
+                              label: l10n.danmakuPreferNetwork,
                               selected: !_settings.preferLocalSource,
                               onTap: () {
                                 _save(
@@ -202,16 +214,16 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                       ),
                     ),
                     const SizedBox(height: 18),
-                    const _DanmakuSectionTitle(
-                      title: '显示样式',
-                      subtitle: '这些设置适合在非播放页提前调好，进播放器后直接沿用。',
+                    _DanmakuSectionTitle(
+                      title: l10n.danmakuDisplayStyleTitle,
+                      subtitle: l10n.danmakuDisplayStyleSubtitle,
                     ),
                     const SizedBox(height: 10),
                     _DanmakuCard(
                       child: Column(
                         children: <Widget>[
                           _DanmakuSliderTile(
-                            title: '显示区域',
+                            title: l10n.danmakuDisplayAreaTitle,
                             valueLabel: _areaLabel(_settings.displayAreaRatio),
                             value: _settings.displayAreaRatio,
                             min: 0.1,
@@ -232,7 +244,7 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                           ),
                           const _DanmakuDivider(),
                           _DanmakuSliderTile(
-                            title: '不透明度',
+                            title: l10n.danmakuOpacityTitle,
                             valueLabel: _percentLabel(_settings.opacity),
                             value: _settings.opacity,
                             min: 0.2,
@@ -249,7 +261,7 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                           ),
                           const _DanmakuDivider(),
                           _DanmakuSliderTile(
-                            title: '弹幕密度',
+                            title: l10n.danmakuDensityTitle,
                             valueLabel: _percentLabel(_settings.density),
                             value: _settings.density,
                             min: 0.2,
@@ -266,7 +278,7 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                           ),
                           const _DanmakuDivider(),
                           _DanmakuSliderTile(
-                            title: '字体大小',
+                            title: l10n.danmakuFontSizeTitle,
                             valueLabel: _fontScaleLabel(_settings.fontScale),
                             value: _settings.fontScale,
                             min: 0.6,
@@ -285,12 +297,12 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                           ),
                           const _DanmakuDivider(),
                           _DanmakuSliderTile(
-                            title: '弹幕速度',
+                            title: l10n.danmakuSpeedTitle,
                             valueLabel: _speedLabel(_settings.speed),
                             value: _settings.speed,
-                            min: 0.7,
-                            max: 1.55,
-                            divisions: 4,
+                            min: danmakuSpeedMin,
+                            max: danmakuSpeedMax,
+                            divisions: danmakuSpeedDivisions,
                             onChanged: (value) {
                               setState(() {
                                 _settings = _settings.copyWith(speed: value);
@@ -304,9 +316,9 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                       ),
                     ),
                     const SizedBox(height: 18),
-                    const _DanmakuSectionTitle(
-                      title: '类型过滤',
-                      subtitle: '控制默认显示哪些弹幕类型。',
+                    _DanmakuSectionTitle(
+                      title: l10n.danmakuTypeFilterTitle,
+                      subtitle: l10n.danmakuTypeFilterSubtitle,
                     ),
                     const SizedBox(height: 10),
                     _DanmakuCard(
@@ -315,7 +327,7 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                         runSpacing: 12,
                         children: <Widget>[
                           _DanmakuTypeChip(
-                            label: '固定',
+                            label: l10n.danmakuTypeFixed,
                             icon: Icons.vertical_align_top_rounded,
                             selected: _settings.topEnabled,
                             onTap: () {
@@ -327,7 +339,7 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                             },
                           ),
                           _DanmakuTypeChip(
-                            label: '滚动',
+                            label: l10n.danmakuTypeScroll,
                             icon: Icons.swap_horiz_rounded,
                             selected: _settings.scrollEnabled,
                             onTap: () {
@@ -339,7 +351,7 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                             },
                           ),
                           _DanmakuTypeChip(
-                            label: '底部',
+                            label: l10n.danmakuTypeBottom,
                             icon: Icons.vertical_align_bottom_rounded,
                             selected: _settings.bottomEnabled,
                             onTap: () {
@@ -351,7 +363,7 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                             },
                           ),
                           _DanmakuTypeChip(
-                            label: '彩色',
+                            label: l10n.danmakuTypeColor,
                             icon: Icons.palette_outlined,
                             selected: _settings.colorEnabled,
                             onTap: () {
@@ -366,17 +378,17 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                       ),
                     ),
                     const SizedBox(height: 18),
-                    const _DanmakuSectionTitle(
-                      title: '防遮挡',
-                      subtitle: '这些默认规则更适合全局预先设定。',
+                    _DanmakuSectionTitle(
+                      title: l10n.danmakuAvoidanceTitle,
+                      subtitle: l10n.danmakuAvoidanceSubtitle,
                     ),
                     const SizedBox(height: 10),
                     _DanmakuCard(
                       child: Column(
                         children: <Widget>[
                           _DanmakuSwitchTile(
-                            title: '隐藏重复弹幕',
-                            subtitle: '合并高频重复内容，减少同屏密集刷屏。',
+                            title: l10n.danmakuHideDuplicateTitle,
+                            subtitle: l10n.danmakuHideDuplicateSubtitle,
                             value: _settings.hideDuplicate,
                             onChanged: (value) {
                               _save(_settings.copyWith(hideDuplicate: value));
@@ -384,8 +396,8 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                           ),
                           const _DanmakuDivider(),
                           _DanmakuSwitchTile(
-                            title: '底部字幕区域防遮挡',
-                            subtitle: '优先避开字幕所在区域，减少弹幕压住字幕。',
+                            title: l10n.danmakuAvoidSubtitleTitle,
+                            subtitle: l10n.danmakuAvoidSubtitleSubtitle,
                             value: _settings.avoidSubtitleArea,
                             onChanged: (value) {
                               _save(
@@ -395,8 +407,8 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
                           ),
                           const _DanmakuDivider(),
                           _DanmakuSwitchTile(
-                            title: '主体穿透遮挡',
-                            subtitle: '优先使用动态蒙版扣除人物区域内的弹幕，不可用时会恢复普通弹幕。',
+                            title: l10n.danmakuAvoidCenterTitle,
+                            subtitle: l10n.danmakuAvoidCenterSubtitle,
                             value: _settings.avoidCenterArea,
                             onChanged: (value) {
                               _save(_settings.copyWith(avoidCenterArea: value));

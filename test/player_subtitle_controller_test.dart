@@ -69,7 +69,11 @@ void main() {
       expect(controller.subtitlePositionFactor, 0.25);
       expect(scale, 1.4);
       expect(controller.subtitleScaleFactor, 0.5);
-      expect(controller.subtitleSearchLanguageLabel('en'), '英文');
+      expect(controller.subtitleSearchLanguageLabel('en'), isNotEmpty);
+      expect(
+        controller.subtitleSearchLanguageLabel('en'),
+        isNot(controller.subtitleSearchLanguageLabel('zh-CN')),
+      );
       expect(
         controller.subtitleFormatFromFileName('movie.SRT', '/tmp/fallback.ass'),
         'srt',
@@ -81,17 +85,19 @@ void main() {
         controller.subtitleStreamTitle(track, subtitleLabel: 'ASS'),
         'subtitle.ass',
       );
-      expect(
-        controller.subtitleDrawerSwitchMessageForTrack(
-          track,
-          titleBuilder: (item) => item.title.trim(),
-        ),
-        '正在切换到subtitle.ass (ass) 字幕...',
+      final switchMessage = controller.subtitleDrawerSwitchMessageForTrack(
+        track,
+        titleBuilder: (item) => item.title.trim(),
       );
+      expect(switchMessage, contains('subtitle.ass'));
+      expect(switchMessage, contains('(ass)'));
 
       controller.resetSubtitleStyle(minScale: 0.8, maxScale: 2.0);
       expect(controller.subtitleDelaySeconds, 0);
-      expect(controller.subtitlePositionFactor, 0);
+      expect(
+        controller.subtitlePositionFactor,
+        PlayerSubtitleController.defaultSubtitlePositionFactor,
+      );
       expect(controller.subtitleScaleFactor, closeTo(1 / 6, 1e-9));
       expect(controller.removeSubtitleTrack(upserted, 'local:1'), isEmpty);
     });
@@ -113,6 +119,7 @@ void main() {
         controller.selectionRequiresDirectFile(
           serverManagedPlayback: true,
           nextGuid: 'sub-guid',
+          requiresExternalFile: true,
           hasDirectFile: false,
         ),
         isTrue,
@@ -182,18 +189,17 @@ void main() {
         guid: ' local:1 ',
         currentGuid: 'local:1',
         serverManagedPlayback: false,
+        requiresExternalFile: true,
         hasDirectFile: true,
       );
-      expect(
-        unchangedPlan.action,
-        PlayerSubtitleSelectionAction.closeDrawer,
-      );
+      expect(unchangedPlan.action, PlayerSubtitleSelectionAction.closeDrawer);
       expect(unchangedPlan.normalizedGuid, 'local:1');
 
       final blockedPlan = controller.planSelectionChange(
         guid: 'server:1',
         currentGuid: 'local:1',
         serverManagedPlayback: true,
+        requiresExternalFile: true,
         hasDirectFile: false,
       );
       expect(
@@ -205,6 +211,7 @@ void main() {
         guid: '',
         currentGuid: 'local:1',
         serverManagedPlayback: false,
+        requiresExternalFile: false,
         hasDirectFile: true,
       );
       expect(applyPlan.action, PlayerSubtitleSelectionAction.apply);

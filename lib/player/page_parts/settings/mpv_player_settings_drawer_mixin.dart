@@ -1,4 +1,4 @@
-part of mpv_player_page;
+part of '../../mpv_player_page.dart';
 
 const String _playerSettingsMainPageId = 'player_settings_main';
 const String _playerSettingsAdvancedPageId = 'player_settings_advanced';
@@ -89,9 +89,9 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
 
     if (!mounted) return;
     try {
-      await _syncMpvPresetStateFromStore();
-      if (!mounted) return;
-      setState(() => _playbackSettingsDrawerVisible = true);
+      _playbackSettingsDrawerVisible = true;
+      unawaited(_syncDanmakuDynamicOcclusionConfig());
+      unawaited(_warmupPlaybackSettingsDrawerState());
       await PlayerNestedSheet.show<void>(
         context,
         initialPageId: initialPageId,
@@ -139,7 +139,7 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
             id: _playerSettingsIntroChapterPageId,
             builder: (context, drawer) => _buildPlaybackSettingsChapterPage(
               drawer,
-              title: '选择片头章节',
+              title: AppLocalizations.of(context).playerSelectIntroChapterTitle,
               selectedIndex: _introChapterIndex,
               onSelected: (index) {
                 _setIntroOutroChapter(intro: true, chapterIndex: index);
@@ -151,7 +151,7 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
             id: _playerSettingsOutroChapterPageId,
             builder: (context, drawer) => _buildPlaybackSettingsChapterPage(
               drawer,
-              title: '选择片尾章节',
+              title: AppLocalizations.of(context).playerSelectOutroChapterTitle,
               selectedIndex: _outroChapterIndex,
               onSelected: (index) {
                 _setIntroOutroChapter(intro: false, chapterIndex: index);
@@ -270,25 +270,34 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
       );
     } finally {
       if (mounted) {
-        setState(() => _playbackSettingsDrawerVisible = false);
-        if (restoreControls) {
-          _showControls();
+        _activePlaybackSettingsDrawerController = null;
+        _playbackSettingsDrawerVisible = false;
+        unawaited(_syncDanmakuDynamicOcclusionConfig());
+        unawaited(_startOrUpdateSystemPlaybackSession(force: true));
+        if (!restoreControls) {
+          _scheduleControlsAutoHide();
         }
       }
     }
+  }
+
+  Future<void> _warmupPlaybackSettingsDrawerState() async {
+    await _syncMpvPresetStateFromStore();
   }
 
   Widget _buildPlaybackSettingsMainPage(
     BuildContext context,
     PlayerNestedSheetController<void> drawer,
   ) {
+    _activePlaybackSettingsDrawerController = drawer;
+    final l10n = AppLocalizations.of(context);
     return PlayerNestedSheetScaffold(
       header: PlayerNestedSheetHeader(
-        title: '设置',
+        title: l10n.playerSettingsTitle,
         actions: <Widget>[
           PlaybackSettingsHeaderAction(
             icon: Icons.settings_rounded,
-            label: '高级设置',
+            label: l10n.playerAdvancedSettingsTitle,
             onTap: () => drawer.push(_playerSettingsAdvancedPageId),
           ),
         ],
@@ -297,8 +306,10 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
         padding: EdgeInsets.zero,
         children: [
           PlaybackSettingsSwitchTile(
-            title: '自动旋转',
-            subtitle: _autoRotateEnabled ? '跟随系统方向自动切换' : '锁定当前播放方向',
+            title: l10n.playerAutoRotateTitle,
+            subtitle: _autoRotateEnabled
+                ? l10n.playerAutoRotateSystemSubtitle
+                : l10n.playerAutoRotateLockedSubtitle,
             value: _autoRotateEnabled,
             onChanged: (value) {
               unawaited(_setAutoRotateEnabled(value));
@@ -307,8 +318,10 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
           ),
           const SizedBox(height: 12),
           PlaybackSettingsSwitchTile(
-            title: '自动连播',
-            subtitle: _autoPlayEnabled ? '当前集播放完成后自动播放下一集' : '关闭后播放完成停留当前集',
+            title: l10n.playerAutoPlayTitle,
+            subtitle: _autoPlayEnabled
+                ? l10n.playerAutoPlayEnabledSubtitle
+                : l10n.playerAutoPlayDisabledSubtitle,
             value: _autoPlayEnabled,
             onChanged: (value) {
               unawaited(_setAutoPlayEnabled(value));
@@ -317,12 +330,12 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
           ),
           const SizedBox(height: 12),
           PlaybackSettingsSwitchTile(
-            title: '下一级预加载',
+            title: l10n.playerNextEpisodePreloadTitle,
             subtitle: _autoPlayEnabled
                 ? (_nextEpisodePreloadEnabled
-                      ? '片尾倒计时开始时预加载下一集，尽量减少黑屏和等待'
-                      : '关闭后保持原本的自动连播切集方式')
-                : '需先开启自动连播',
+                      ? l10n.playerNextEpisodePreloadEnabledSubtitle
+                      : l10n.playerNextEpisodePreloadDisabledSubtitle)
+                : l10n.playerNextEpisodePreloadRequiresAutoPlay,
             value: _nextEpisodePreloadEnabled,
             enabled: _autoPlayEnabled,
             onChanged: (value) {
@@ -333,7 +346,7 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
           const SizedBox(height: 12),
           PlaybackSettingsAspectRatioTile(
             value: _displayAspectRatioMode,
-            subtitle: '当前：${_displayAspectRatioLabel()}',
+            subtitle: l10n.playerCurrentValue(_displayAspectRatioLabel()),
             onChanged: (value) {
               unawaited(_setDisplayAspectRatioMode(value));
               drawer.refresh();
@@ -342,21 +355,21 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
           const SizedBox(height: 12),
           if (_supportsIntroOutroUi)
             PlaybackSettingsMenuTile(
-              title: '片头片尾设置',
+              title: l10n.playerIntroOutroSettingsTitle,
               subtitle: _introOutroDisplaySummaryTextV3(),
               trailingLabel: _introOutroDisplayStatusLabelV3(),
               onTap: () => drawer.push(_playerSettingsIntroOutroPageId),
             ),
           if (_supportsIntroOutroUi) const SizedBox(height: 12),
           PlaybackSettingsMenuTile(
-            title: '书签',
-            subtitle: '记录当前片段关键时间点并快速跳转',
+            title: l10n.playerBookmarkTitle,
+            subtitle: l10n.playerBookmarkSettingsSubtitle,
             trailingLabel: _bookmarkSummaryLabel(),
             onTap: () => drawer.push(_playerSettingsBookmarkPageId),
           ),
           const SizedBox(height: 12),
           PlaybackSettingsMenuTile(
-            title: 'MPV 播放器设置',
+            title: l10n.settingsMpvTitle,
             subtitle: _mpvSettingsSummaryText(),
             trailingLabel: _mpvSettingsStatusLabel(),
             onTap: () => drawer.push(_playerSettingsMpvPageId),
@@ -370,21 +383,25 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
     BuildContext context,
     PlayerNestedSheetController<void> drawer,
   ) {
+    final l10n = AppLocalizations.of(context);
     return PlayerNestedSheetScaffold(
-      header: PlayerNestedSheetHeader(title: '高级设置', onBack: drawer.popPage),
+      header: PlayerNestedSheetHeader(
+        title: l10n.playerAdvancedSettingsTitle,
+        onBack: drawer.popPage,
+      ),
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
           PlaybackSettingsMenuTile(
-            title: '解码方式',
-            subtitle: '切换当前播放器使用的解码方式',
+            title: l10n.playerDecoderTitle,
+            subtitle: l10n.playerDecoderSubtitle,
             trailingLabel: _decoderModeLabel(),
             onTap: () => drawer.push(_playerSettingsDecoderPageId),
           ),
           const SizedBox(height: 12),
           PlaybackSettingsMenuTile(
-            title: '缓存设置',
-            subtitle: '直接按百分比调节播放器缓存策略强度。',
+            title: l10n.playerCacheSettingsTitle,
+            subtitle: l10n.playerCacheSettingsSubtitle,
             trailingLabel: _mpvSettingLabel(
               _MpvPlayerPageState._mpvSettingCacheSizeMb,
             ),
@@ -392,17 +409,17 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
           ),
           const SizedBox(height: 12),
           PlaybackSettingsMenuTile(
-            title: '播放监测',
-            subtitle: '设置左上角悬浮信息显示的性能占用和实时帧率',
+            title: l10n.playerMonitorTitle,
+            subtitle: l10n.playerMonitorSubtitle,
             trailingLabel: _playbackMonitorStatusLabel(),
             onTap: () => drawer.push(_playerSettingsMonitorPageId),
           ),
           const SizedBox(height: 12),
           PlaybackSettingsSwitchTile(
-            title: '极限播放',
+            title: l10n.playerExtremePlaybackTitle,
             subtitle: _extremePlaybackEnabled
-                ? '边下边播已开启，退出播放器后会清理本次播放缓存。切换时会重新加载当前播放源。'
-                : '边下边播开启后，退出播放器会自动删除已下载缓存，但会增加内存和存储空间消耗。',
+                ? l10n.playerExtremePlaybackEnabledSubtitle
+                : l10n.playerExtremePlaybackDisabledSubtitle,
             value: _extremePlaybackEnabled,
             onChanged: (value) async {
               await _setExtremePlaybackEnabled(
@@ -416,8 +433,8 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
           ),
           const SizedBox(height: 12),
           PlaybackSettingsMenuTile(
-            title: '视频信息',
-            subtitle: '查看当前播放链路、渲染输出和片源信息',
+            title: l10n.playerVideoInfoTitle,
+            subtitle: l10n.playerVideoInfoSubtitle,
             onTap: () => drawer.push(_playerSettingsVideoInfoPageId),
           ),
         ],
@@ -429,20 +446,24 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
     BuildContext context,
     PlayerNestedSheetController<void> drawer,
   ) {
+    final l10n = AppLocalizations.of(context);
     return PlayerNestedSheetScaffold(
-      header: PlayerNestedSheetHeader(title: '播放监测', onBack: drawer.popPage),
+      header: PlayerNestedSheetHeader(
+        title: l10n.playerMonitorTitle,
+        onBack: drawer.popPage,
+      ),
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
           PlaybackSettingsStatusCard(
-            title: '播放监控',
+            title: l10n.playerMonitorStatusTitle,
             value: _playbackMonitorStatusLabel(),
-            description: '显示在左上角，可拖动并记住位置。GPU 占用取决于设备是否开放系统节点。',
+            description: l10n.playerMonitorStatusDescription,
           ),
           const SizedBox(height: 12),
           PlaybackSettingsSwitchTile(
-            title: '性能监控',
-            subtitle: '显示 CPU / GPU 占用百分比',
+            title: l10n.playerPerformanceMonitorTitle,
+            subtitle: l10n.playerPerformanceMonitorSubtitle,
             value: _performanceOverlayEnabled,
             onChanged: (value) {
               unawaited(_setPerformanceOverlayEnabled(value));
@@ -451,8 +472,8 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
           ),
           const SizedBox(height: 12),
           PlaybackSettingsSwitchTile(
-            title: '实时帧率',
-            subtitle: '显示当前视频输出 FPS，默认关闭',
+            title: l10n.playerFpsMonitorTitle,
+            subtitle: l10n.playerFpsMonitorSubtitle,
             value: _fpsOverlayEnabled,
             onChanged: (value) {
               unawaited(_setFpsOverlayEnabled(value));
@@ -468,14 +489,18 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
     BuildContext context,
     PlayerNestedSheetController<void> drawer,
   ) {
+    final l10n = AppLocalizations.of(context);
     return PlayerNestedSheetScaffold(
-      header: PlayerNestedSheetHeader(title: '解码方式', onBack: drawer.popPage),
+      header: PlayerNestedSheetHeader(
+        title: l10n.playerDecoderTitle,
+        onBack: drawer.popPage,
+      ),
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
           PlaybackSettingsChoiceTile(
-            title: '硬解码',
-            subtitle: '性能高，优先选择',
+            title: l10n.playerHardwareDecoderTitle,
+            subtitle: l10n.playerHardwareDecoderSubtitle,
             selected: _decoderMode == _MpvPlayerPageState._decoderModeHardware,
             onTap: () => unawaited(
               _switchDecoderModeFromDrawer(
@@ -486,8 +511,8 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
           ),
           const SizedBox(height: 12),
           PlaybackSettingsChoiceTile(
-            title: '软解码',
-            subtitle: '兼容性更高，适合硬解异常时切换',
+            title: l10n.playerSoftwareDecoderTitle,
+            subtitle: l10n.playerSoftwareDecoderSubtitle,
             selected: _decoderMode == _MpvPlayerPageState._decoderModeSoftware,
             onTap: () => unawaited(
               _switchDecoderModeFromDrawer(
@@ -512,8 +537,9 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
     final currentPosition = _displayPosition(_controller.value.value);
     _updatePlayerState(() {
       _uiController.qualitySwitchLoading = true;
-      _uiController.subtitleSwitchMessage = _settingsController
-          .decoderSwitchMessage(_decoderModeLabel(mode));
+      _uiController.subtitleSwitchMessage = AppLocalizations.of(
+        context,
+      ).playerDecoderSwitching(_decoderModeLabel(mode));
     });
     _uiController.pendingLoadingTransition = true;
     _markAwaitingVisualPlaybackStart(
@@ -535,6 +561,9 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
   }
 
   String _playbackMonitorStatusLabel() {
-    return _settingsController.playbackMonitorStatusLabel();
+    final l10n = AppLocalizations.of(context);
+    return _performanceOverlayEnabled
+        ? l10n.playerMonitorPartiallyEnabled
+        : l10n.playerMonitorOff;
   }
 }

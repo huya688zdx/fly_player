@@ -1,16 +1,20 @@
+/// 表示从播放详情中解析出的番剧身份信息。
 class PlayStatsAnimeIdentity {
   final String animeId;
   final String animeTitle;
 
+  /// 根据番剧标识与标题构造对象。
   const PlayStatsAnimeIdentity({
     required this.animeId,
     required this.animeTitle,
   });
 }
 
+/// 提供播放统计所需的身份解析辅助逻辑。
 class PlayStatsIdentityResolver {
   const PlayStatsIdentityResolver._();
 
+  /// 从详情页字段中推导番剧维度的身份信息。
   static PlayStatsAnimeIdentity resolveAnimeIdentity({
     String seriesGuid = '',
     String grandGuid = '',
@@ -26,6 +30,7 @@ class PlayStatsIdentityResolver {
     );
   }
 
+  /// 判断给定番剧标识是否属于派生标识。
   static bool isDerivedAnimeId(String value) {
     final normalized = value.trim().toLowerCase();
     return normalized.startsWith('tmdb:') || normalized.startsWith('title:');

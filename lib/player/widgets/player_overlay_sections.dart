@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/generated/app_localizations.dart';
 import '../../theme/app_theme.dart';
 import 'mpv_player_widgets.dart';
 
@@ -588,6 +589,7 @@ class PlayerPlaybackCompletedPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final posterWidth = compact ? 220.0 : 280.0;
     final posterHeight = compact ? 124.0 : 158.0;
     return Center(
@@ -627,7 +629,7 @@ class PlayerPlaybackCompletedPanel extends StatelessWidget {
               children: [
                 Expanded(
                   child: _PlayerCompletionButton(
-                    label: '重新播放',
+                    label: l10n.playerReplayAction,
                     icon: Icons.replay_rounded,
                     filled: false,
                     compact: compact,
@@ -637,7 +639,7 @@ class PlayerPlaybackCompletedPanel extends StatelessWidget {
                 SizedBox(width: compact ? 10 : 14),
                 Expanded(
                   child: _PlayerCompletionButton(
-                    label: '\u8fd4\u56de',
+                    label: l10n.playerBackAction,
                     icon: Icons.home_outlined,
                     filled: true,
                     compact: compact,
@@ -660,6 +662,7 @@ class PlayerCloudDriveSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return LayoutBuilder(
       builder: (context, constraints) {
         final compact = constraints.maxWidth < 360;
@@ -700,7 +703,7 @@ class PlayerCloudDriveSheet extends StatelessWidget {
                   SizedBox(width: compact ? 12 : 14),
                   Expanded(
                     child: Text(
-                      '正在播放网盘文件',
+                      l10n.playerCloudDrivePlayingFile,
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: compact ? 17 : 19,
@@ -714,7 +717,7 @@ class PlayerCloudDriveSheet extends StatelessWidget {
             ),
             SizedBox(height: compact ? 16 : 18),
             Text(
-              '播放速度、画质等能力取决于网盘侧规则。如遇播放异常，可尝试切换播放方式。',
+              l10n.playerCloudDriveModeDescription,
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.84),
                 fontSize: compact ? 13.5 : 14.5,
@@ -723,8 +726,8 @@ class PlayerCloudDriveSheet extends StatelessWidget {
             ),
             SizedBox(height: compact ? 18 : 20),
             _CloudDriveModeCard(
-              title: '网盘直连播放',
-              subtitle: '速度较快，省流',
+              title: l10n.playerCloudDriveDirectTitle,
+              subtitle: l10n.playerCloudDriveDirectSubtitle,
               selected: data.directPlaySelected,
               recommended: true,
               enabled: data.directPlayEnabled,
@@ -732,8 +735,8 @@ class PlayerCloudDriveSheet extends StatelessWidget {
             ),
             SizedBox(height: compact ? 12 : 14),
             _CloudDriveModeCard(
-              title: 'NAS 代理播放',
-              subtitle: '色调或音频异常时可尝试切换',
+              title: l10n.playerCloudDriveProxyTitle,
+              subtitle: l10n.playerCloudDriveProxySubtitle,
               selected: data.proxyPlaySelected,
               recommended: false,
               enabled: data.proxyPlayEnabled,
@@ -844,9 +847,11 @@ class _CloudDriveModeCard extends StatelessWidget {
                               color: Colors.white.withValues(alpha: 0.14),
                               borderRadius: BorderRadius.circular(8),
                             ),
-                            child: const Text(
-                              '推荐',
-                              style: TextStyle(
+                            child: Text(
+                              AppLocalizations.of(
+                                context,
+                              ).playerRecommendedBadge,
+                              style: const TextStyle(
                                 color: Color(0xFFBAC5D4),
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,

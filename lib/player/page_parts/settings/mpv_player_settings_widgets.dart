@@ -1,4 +1,4 @@
-part of mpv_player_page;
+part of '../../mpv_player_page.dart';
 
 class PlaybackSettingsHeaderAction extends StatelessWidget {
   final IconData icon;
@@ -145,9 +145,10 @@ class PlaybackSettingsAspectRatioTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const options = <(String, String)>[
-      (_MpvPlayerPageState._displayAspectRatioFit, '适应'),
-      (_MpvPlayerPageState._displayAspectRatioFill, '填充'),
+    final l10n = AppLocalizations.of(context);
+    final options = <(String, String)>[
+      (_MpvPlayerPageState._displayAspectRatioFit, l10n.playerAspectFit),
+      (_MpvPlayerPageState._displayAspectRatioFill, l10n.playerAspectFill),
       (_MpvPlayerPageState._displayAspectRatio4x3, '4:3'),
       (_MpvPlayerPageState._displayAspectRatio16x9, '16:9'),
       (_MpvPlayerPageState._displayAspectRatio21x9, '21:9'),
@@ -160,7 +161,10 @@ class PlaybackSettingsAspectRatioTile extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _SettingsTextBlock(title: '画面比例', subtitle: subtitle),
+            _SettingsTextBlock(
+              title: l10n.playerAspectRatioTitle,
+              subtitle: subtitle,
+            ),
             const SizedBox(height: 14),
             DecoratedBox(
               decoration: BoxDecoration(
@@ -350,6 +354,7 @@ class PlaybackSettingsIntroOutroView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return FutureBuilder<List<MpvChapterItem>>(
       future: chapterLoader(),
       builder: (context, snapshot) {
@@ -357,126 +362,36 @@ class PlaybackSettingsIntroOutroView extends StatelessWidget {
           padding: EdgeInsets.zero,
           children: [
             PlaybackSettingsStatusCard(
-              title: 'OP/ED 跳过',
-              value: enabled ? '已开启' : '已关闭',
+              title: l10n.playerIntroOutroStatusTitle,
+              value: enabled
+                  ? l10n.playerEnabled
+                  : l10n.playerIntroOutroSourceOffLabel,
               description: summaryBuilder(const <MpvChapterItem>[]),
             ),
             const SizedBox(height: 12),
             PlaybackSettingsSwitchTile(
-              title: '启用自动跳过',
-              subtitle: '开启后按官方配置跳过片头片尾',
+              title: l10n.playerIntroOutroAutoSkipToggleTitle,
+              subtitle: l10n.playerIntroOutroAutoSkipToggleSubtitle,
               value: enabled,
               onChanged: onEnabledChanged,
             ),
             if (enabled) ...[
               const SizedBox(height: 18),
-              const PlaybackSettingsSectionLabel(label: '高级调整'),
+              PlaybackSettingsSectionLabel(
+                label: l10n.playerAdvancedAdjustmentLabel,
+              ),
               const SizedBox(height: 10),
               PlaybackSettingsStepperTile(
-                title: '片头时长',
-                subtitle: '默认 1-2 分钟，必要时再微调',
+                title: l10n.playerIntroDurationTitle,
+                subtitle: l10n.playerIntroOutroDefaultDurationHint,
                 valueLabel: _formatSecondsLabel(introDurationSeconds),
                 onDecrease: () => onAdjustIntroDuration(-5),
                 onIncrease: () => onAdjustIntroDuration(5),
               ),
               const SizedBox(height: 10),
               PlaybackSettingsStepperTile(
-                title: '片尾时长',
-                subtitle: '默认 1-2 分钟，必要时再微调',
-                valueLabel: _formatSecondsLabel(outroDurationSeconds),
-                onDecrease: () => onAdjustOutroDuration(-5),
-                onIncrease: () => onAdjustOutroDuration(5),
-              ),
-            ],
-          ],
-        );
-        final chapters = snapshot.data ?? const <MpvChapterItem>[];
-        final showChapterControls =
-            enabled &&
-            (mode == _MpvPlayerPageState._introOutroModeAuto ||
-                mode == _MpvPlayerPageState._introOutroModeChapter);
-        final showManualControls =
-            enabled &&
-            (mode == _MpvPlayerPageState._introOutroModeAuto ||
-                mode == _MpvPlayerPageState._introOutroModeManual);
-        return ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            PlaybackSettingsStatusCard(
-              title: '跳过功能',
-              value: enabled ? '开启' : '关闭',
-              description: summaryBuilder(chapters),
-            ),
-            const SizedBox(height: 12),
-            PlaybackSettingsSwitchTile(
-              title: '开启',
-              subtitle: '总开关',
-              value: enabled,
-              onChanged: onEnabledChanged,
-            ),
-            const SizedBox(height: 18),
-            const PlaybackSettingsSectionLabel(label: '模式选择'),
-            const SizedBox(height: 10),
-            PlaybackSettingsChoiceTile(
-              title: '自动模式',
-              subtitle: '优先章节，无则使用手动时长',
-              selected: mode == _MpvPlayerPageState._introOutroModeAuto,
-              onTap: () =>
-                  onModeChanged(_MpvPlayerPageState._introOutroModeAuto),
-            ),
-            const SizedBox(height: 10),
-            PlaybackSettingsChoiceTile(
-              title: '章节模式',
-              subtitle: '通过 mpv 章节自动识别',
-              selected: mode == _MpvPlayerPageState._introOutroModeChapter,
-              onTap: () =>
-                  onModeChanged(_MpvPlayerPageState._introOutroModeChapter),
-            ),
-            const SizedBox(height: 10),
-            PlaybackSettingsChoiceTile(
-              title: '手动模式',
-              subtitle: '手动指定片头片尾长度',
-              selected: mode == _MpvPlayerPageState._introOutroModeManual,
-              onTap: () =>
-                  onModeChanged(_MpvPlayerPageState._introOutroModeManual),
-            ),
-            if (showChapterControls) ...[
-              const SizedBox(height: 18),
-              const PlaybackSettingsSectionLabel(label: '章节识别'),
-              const SizedBox(height: 10),
-              PlaybackSettingsMenuTile(
-                title: '片头章节',
-                subtitle: chapters.isEmpty ? '当前未读取到可用章节' : '使用 mpv 章节名进行定位',
-                trailingLabel: introChapterLabelBuilder(chapters),
-                onTap: onPickIntroChapter,
-              ),
-              const SizedBox(height: 10),
-              PlaybackSettingsMenuTile(
-                title: '片尾章节',
-                subtitle: chapters.isEmpty ? '当前未读取到可用章节' : '使用 mpv 章节名进行定位',
-                trailingLabel: outroChapterLabelBuilder(chapters),
-                onTap: onPickOutroChapter,
-              ),
-            ],
-            if (showManualControls) ...[
-              const SizedBox(height: 18),
-              const PlaybackSettingsSectionLabel(label: '手动时长'),
-              const SizedBox(height: 10),
-              PlaybackSettingsStepperTile(
-                title: '片头时长',
-                subtitle: mode == _MpvPlayerPageState._introOutroModeAuto
-                    ? '章节缺失时使用'
-                    : '手动指定片头跳过时长',
-                valueLabel: _formatSecondsLabel(introDurationSeconds),
-                onDecrease: () => onAdjustIntroDuration(-5),
-                onIncrease: () => onAdjustIntroDuration(5),
-              ),
-              const SizedBox(height: 10),
-              PlaybackSettingsStepperTile(
-                title: '片尾时长',
-                subtitle: mode == _MpvPlayerPageState._introOutroModeAuto
-                    ? '章节缺失时使用'
-                    : '手动指定片尾跳过时长',
+                title: l10n.playerOutroDurationTitle,
+                subtitle: l10n.playerIntroOutroDefaultDurationHint,
                 valueLabel: _formatSecondsLabel(outroDurationSeconds),
                 onDecrease: () => onAdjustOutroDuration(-5),
                 onIncrease: () => onAdjustOutroDuration(5),
@@ -520,6 +435,7 @@ class _PlaybackSettingsChapterPickerState
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return FutureBuilder<List<MpvChapterItem>>(
       future: _future,
       builder: (context, snapshot) {
@@ -540,7 +456,7 @@ class _PlaybackSettingsChapterPickerState
             child: Padding(
               padding: const EdgeInsets.all(24),
               child: Text(
-                '读取章节失败: ${snapshot.error}',
+                l10n.playerChapterLoadFailed('${snapshot.error}'),
                 style: TextStyle(color: context.appColors.textPrimary),
               ),
             ),
@@ -550,7 +466,7 @@ class _PlaybackSettingsChapterPickerState
         if (chapters.isEmpty) {
           return Center(
             child: Text(
-              '当前视频没有可用章节',
+              l10n.playerNoAvailableChapters,
               style: TextStyle(
                 color: context.appColors.textSecondary,
                 fontSize: 14,
@@ -565,7 +481,7 @@ class _PlaybackSettingsChapterPickerState
           itemBuilder: (context, index) {
             if (index == 0) {
               return PlaybackSettingsChapterTile(
-                title: '不使用章节',
+                title: l10n.playerNoChapter,
                 trailingLabel: '',
                 selected: widget.selectedIndex == null,
                 onTap: () => widget.onSelected(null),
@@ -574,7 +490,7 @@ class _PlaybackSettingsChapterPickerState
             final chapter = chapters[index - 1];
             final title = chapter.title.trim().isNotEmpty
                 ? chapter.title.trim()
-                : '第 ${chapter.index + 1} 章';
+                : l10n.playerChapterNumber(chapter.index + 1);
             return PlaybackSettingsChapterTile(
               title: title,
               trailingLabel: _formatChapterTime(chapter.time),
@@ -1116,12 +1032,15 @@ class _SelectionIndicator extends StatelessWidget {
 
 BoxDecoration _settingsCardDecoration(
   BuildContext context, {
-  double alpha = 0.03,
+  double alpha = 0.0,
 }) {
   final colors = context.appColors;
   return BoxDecoration(
     borderRadius: BorderRadius.circular(16),
     border: Border.all(color: colors.borderSubtle),
-    color: colors.surface.withValues(alpha: (0.72 + alpha).clamp(0.0, 1.0)),
+    color: Color.alphaBlend(
+      colors.surfaceStrong.withValues(alpha: (0.94 + alpha).clamp(0.0, 1.0)),
+      colors.surface,
+    ),
   );
 }

@@ -8,9 +8,9 @@ import 'package:provider/provider.dart';
 import '../api/feiniu_api.dart';
 import '../controllers/item_playback_launcher.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../models/media_item.dart';
 import '../models/media_library_item.dart';
-import '../providers/app_theme_provider.dart';
 import '../providers/nas_provider.dart';
 import '../services/download_task_service.dart';
 import '../services/embedded_detail_launcher.dart';
@@ -21,11 +21,11 @@ import '../ui/app_transitions.dart';
 import '../ui/layout_adaptive.dart';
 import '../ui/media_poster_card.dart';
 import '../utils/api_url_helper.dart';
+import '../utils/app_localization_lookup.dart';
+import '../utils/async_action_guard.dart';
 import '../utils/app_confirm_dialog.dart';
 import '../utils/app_exception.dart';
 import '../utils/app_top_tip.dart';
-import '../utils/media_locale_store.dart';
-import '../utils/media_locale_text.dart';
 import '../widgets/common/app_action_sheet.dart';
 import '../widgets/common/app_error_state.dart';
 import 'category_items_screen.dart';
@@ -57,7 +57,7 @@ class MediaListScreen extends StatefulWidget {
 class _MediaListScreenState extends State<MediaListScreen> {
   static const int _fallbackContinueLimit = 12;
   static const int _secondaryContinueLimit = 4;
-  static const int _defaultCategoryPreviewLimit = 30;
+  static const int _defaultCategoryPreviewLimit = 12;
   static const int _secondaryCategoryPreviewLimit = 8;
 
   List<MediaItem> _categories = <MediaItem>[];
@@ -78,10 +78,10 @@ class _MediaListScreenState extends State<MediaListScreen> {
       ? _secondaryCategoryPreviewLimit
       : _defaultCategoryPreviewLimit;
 
-  double get _scrollCacheExtent => widget.secondaryHost ? 160 : 420;
+  double get _scrollCacheExtent => widget.secondaryHost ? 80 : 160;
 
   double _rowCacheExtent(double itemExtent) {
-    final multiplier = widget.secondaryHost ? 1.2 : 2.4;
+    final multiplier = widget.secondaryHost ? 0.45 : 0.75;
     return itemExtent * multiplier;
   }
 
@@ -96,6 +96,11 @@ class _MediaListScreenState extends State<MediaListScreen> {
         ),
       );
     });
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
   }
 
   @override
@@ -133,7 +138,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
       final categories = await api.getMediaList();
       final summary = await api.getMediaSummary();
       final playList = await api.getPlayList();
-      final localeMap = await MediaLocaleStore.load(provider);
+      const localeMap = <String, dynamic>{};
 
       final itemsByCategory = <String, List<MediaLibraryItem>>{};
       final allItems = <MediaLibraryItem>[];
@@ -257,8 +262,8 @@ class _MediaListScreenState extends State<MediaListScreen> {
     String fallback, {
     Map<String, Object?> params = const <String, Object?>{},
   }) {
-    return MediaLocaleText.text(
-      _localeMap,
+    return AppLocalizationLookup.text(
+      AppLocalizations.of(context),
       path,
       fallback: fallback,
       params: params,
@@ -268,10 +273,10 @@ class _MediaListScreenState extends State<MediaListScreen> {
   Future<void> _confirmLogout() async {
     final confirmed = await showAppConfirmDialog(
       context,
-      title: _t('auth.exit.title', '退出登录'),
-      content: _t('auth.exit.content', '确认退出当前帐号？'),
-      cancelText: _t('common.actions.default.cancel', '取消'),
-      confirmText: _t('common.actions.default.default', '确认'),
+      title: _t('auth.exit.title', 'Log out'),
+      content: _t('auth.exit.content', 'Log out of the current account?'),
+      cancelText: _t('common.actions.default.cancel', 'Cancel'),
+      confirmText: _t('common.actions.default.default', 'Confirm'),
     );
     if (!mounted || !confirmed) return;
     await context.read<NasProvider>().logout();
@@ -284,16 +289,17 @@ class _MediaListScreenState extends State<MediaListScreen> {
   void _openAllItems() {
     unawaited(
       _openCategoryAsync(
-        MediaItem(id: '', name: _t('layout.sidebar.allList', '全部影视')),
+        MediaItem(id: '', name: _t('layout.sidebar.allList', 'All media')),
       ),
     );
     return;
+    // ignore: dead_code
     Navigator.of(context).push(
       AppTransitions.fadeSlideRoute(
         CategoryItemsScreen(
           category: MediaItem(
             id: '',
-            name: _t('layout.sidebar.allList', '全部影视'),
+            name: _t('layout.sidebar.allList', 'All media'),
           ),
         ),
       ),
@@ -308,6 +314,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
       ),
     );
     return;
+    // ignore: dead_code
     Navigator.of(context).push(
       AppTransitions.fadeSlideRoute(
         CategoryItemsScreen(
@@ -321,6 +328,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
   void _openFavorites() {
     unawaited(_openFavoritesAsync());
     return;
+    // ignore: dead_code
     Navigator.of(
       context,
     ).push(AppTransitions.fadeSlideRoute(const FavoriteItemsScreen()));
@@ -370,71 +378,83 @@ class _MediaListScreenState extends State<MediaListScreen> {
 
   Future<void> _openItemDetail(MediaLibraryItem item, {String? heroTag}) async {
     if (item.guid.trim().isEmpty) return;
-    if (_isPersonItem(item)) {
-      if (await EmbeddedDetailLauncher.openPersonDetail(
-        context: context,
-        personGuid: item.guid,
-        initialName: item.displayTitle,
-      )) {
-        return;
-      }
-      if (!mounted) return;
-      Navigator.of(context).push(
-        AppTransitions.leftToRightPageTurnRoute(
-          PersonDetailScreen(
+    await AsyncActionGuard.run<void>(
+      'media_list_detail:${item.type.trim().toLowerCase()}:${item.guid.trim()}',
+      settleDuration: const Duration(milliseconds: 450),
+      action: () async {
+        if (_isPersonItem(item)) {
+          if (await EmbeddedDetailLauncher.openPersonDetail(
+            context: context,
             personGuid: item.guid,
             initialName: item.displayTitle,
-            initialLocaleMap: _localeMap,
-          ),
-        ),
-      );
-      return;
-    }
-
-    final navigator = Navigator.of(context);
-    final provider = context.read<NasProvider>();
-    if (await EmbeddedDetailLauncher.openItemDetail(
-      item.guid,
-      context: context,
-    )) {
-      return;
-    }
-    if (!mounted) return;
-    final warmupUrls = _posterCandidates(
-      provider.baseUrl,
-      item.poster.trim(),
-      width: 560,
-    );
-    if (warmupUrls.isNotEmpty) {
-      unawaited(
-        precacheImage(
-          NetworkImage(
-            warmupUrls.first,
-            headers: <String, String>{
-              'Authorization': provider.token,
-              'Trim-MC-token': provider.token,
-            },
-          ),
-          navigator.context,
-        ).timeout(const Duration(milliseconds: 140)).catchError((
-          Object error,
-          StackTrace stackTrace,
-        ) {
-          debugPrint(
-            '[IMG][PRECACHE][HOME] failed url=${warmupUrls.first} error=$error',
+          )) {
+            return;
+          }
+          if (!mounted) return;
+          await Navigator.of(context).push(
+            AppTransitions.leftToRightPageTurnRoute(
+              PersonDetailScreen(
+                personGuid: item.guid,
+                initialName: item.displayTitle,
+                initialLocaleMap: _localeMap,
+              ),
+            ),
           );
-        }),
-      );
-    }
+          return;
+        }
 
-    if (!mounted) return;
-    await navigator.push(
-      AppTransitions.leftToRightPageTurnRoute(
-        PlayDetailScreen(itemGuid: item.guid, heroTag: heroTag),
-      ),
+        final navigator = Navigator.of(context);
+        final provider = context.read<NasProvider>();
+        final initialItemDetail = item.toJson();
+        if (await EmbeddedDetailLauncher.openItemDetail(
+          item.guid,
+          context: context,
+          initialItemDetail: initialItemDetail,
+        )) {
+          return;
+        }
+        if (!mounted) return;
+        final warmupUrls = _posterCandidates(
+          provider.baseUrl,
+          item.poster.trim(),
+          width: 560,
+        );
+        if (warmupUrls.isNotEmpty) {
+          unawaited(
+            precacheImage(
+              NetworkImage(
+                warmupUrls.first,
+                headers: <String, String>{
+                  'Authorization': provider.token,
+                  'Trim-MC-token': provider.token,
+                },
+              ),
+              navigator.context,
+            ).timeout(const Duration(milliseconds: 140)).catchError((
+              Object error,
+              StackTrace stackTrace,
+            ) {
+              debugPrint(
+                '[IMG][PRECACHE][HOME] failed url=${warmupUrls.first} error=$error',
+              );
+            }),
+          );
+        }
+
+        if (!mounted) return;
+        await navigator.push(
+          AppTransitions.leftToRightPageTurnRoute(
+            PlayDetailScreen(
+              itemGuid: item.guid,
+              heroTag: heroTag,
+              initialItemDetail: initialItemDetail,
+            ),
+          ),
+        );
+        if (!mounted) return;
+        unawaited(_refreshContinueWatching());
+      },
     );
-    if (!mounted) return;
-    unawaited(_refreshContinueWatching());
   }
 
   bool _isEpisodeItem(MediaLibraryItem item) {
@@ -480,7 +500,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
       if (episodes > 0) {
         final episodeText = _t(
           'layout.subheading.tv.episodes',
-          '共 {count} 集',
+          '{count} episodes',
           params: <String, Object?>{'count': episodes},
         );
         if (period.isEmpty) return episodeText;
@@ -490,7 +510,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
     if (seasonCount > 0) {
       final seasonText = _t(
         'layout.subheading.tv.seasons',
-        '共 {count} 季',
+        '{count} seasons',
         params: <String, Object?>{'count': seasonCount},
       );
       if (period.isEmpty) return seasonText;
@@ -514,12 +534,12 @@ class _MediaListScreenState extends State<MediaListScreen> {
     final episode = item.episodeNumber > 0 ? item.episodeNumber : 1;
     final seasonText = _t(
       'layout.subheading.season.number',
-      '第 {number} 季',
+      'Season {number}',
       params: <String, Object?>{'number': season},
     );
     final episodeText = _t(
       'layout.subheading.episode.number',
-      '第 {number} 集',
+      'Episode {number}',
       params: <String, Object?>{'number': episode},
     );
     return '$seasonText · $episodeText';
@@ -528,10 +548,10 @@ class _MediaListScreenState extends State<MediaListScreen> {
   String _continueEpisodeText(MediaLibraryItem item) {
     final episode = item.episodeNumber > 0 ? item.episodeNumber : 1;
     if (item.seasonNumber == 0) {
-      final specialText = _t('layout.subheading.season.special', '特别篇');
+      final specialText = _t('layout.subheading.season.special', 'Special');
       final episodeText = _t(
         'layout.subheading.episode.number',
-        '第 {number} 集',
+        'Episode {number}',
         params: <String, Object?>{'number': episode},
       );
       return '$specialText · $episodeText';

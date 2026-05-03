@@ -1,9 +1,14 @@
 package com.geqian.flyplayer.fly_player.mpv
 
 import android.graphics.Color
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
 import android.view.Surface
 import android.view.View
 import android.widget.FrameLayout
+import com.geqian.flyplayer.fly_player.ViewFrameRateProbe
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
@@ -19,16 +24,54 @@ class MpvPlayerView(
     MethodChannel.MethodCallHandler,
     EventChannel.StreamHandler,
     VideoOutputTarget.Listener {
+    private companion object {
+        const val TAG = "FlyPlayerMpvView"
+        const val DEFAULT_NATIVE_DANMAKU_TARGET_FPS = 60
+        const val MIN_NATIVE_DANMAKU_TARGET_FPS = 24
+        const val MAX_NATIVE_DANMAKU_TARGET_FPS = 120
+    }
+
     private val mpv: MpvFacade = DefaultMpvFacade
     private val rootView = FrameLayout(context)
-    private val videoOutputTarget: VideoOutputTarget = TextureViewVideoOutputTarget(context)
-    private val nativeDanmakuOverlayView = NativeDanmakuOverlayView(context)
+    private val nativeDanmakuEnabled = creationParams["enableNativeDanmakuRenderer"] == true
+    private val resolvedVideoOutputBackend =
+        VideoOutputBackend.fromValue(creationParams["videoOutputBackend"]?.toString())
+    private val videoOutputTarget: VideoOutputTarget =
+        when (resolvedVideoOutputBackend) {
+            VideoOutputBackend.SURFACE -> SurfaceViewVideoOutputTarget(context)
+            VideoOutputBackend.TEXTURE -> TextureViewVideoOutputTarget(context)
+        }
+    private val nativeDanmakuOverlayView =
+        if (nativeDanmakuEnabled) {
+            NativeDanmakuOverlayView(context)
+        } else {
+            null
+        }
+    private val rootViewFrameRateProbe =
+        if (nativeDanmakuEnabled) {
+            ViewFrameRateProbe(
+                logTag = TAG,
+                label = "player_root_view",
+                viewProvider = { rootView },
+            )
+        } else {
+            null
+        }
+    private val videoTargetFrameRateProbe =
+        if (nativeDanmakuEnabled) {
+            ViewFrameRateProbe(
+                logTag = TAG,
+                label = "player_video_target",
+                viewProvider = { videoOutputTarget.view },
+            )
+        } else {
+            null
+        }
     private val methodChannel = MethodChannel(messenger, "fly_player/mpv_view_$viewId/methods")
     private val eventChannel = EventChannel(messenger, "fly_player/mpv_view_$viewId/events")
-    private val danmakuAiEventChannel =
-        EventChannel(messenger, "fly_player/mpv_view_$viewId/danmaku_ai_events")
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var eventSink: EventChannel.EventSink? = null
-    private var danmakuAiEventSink: EventChannel.EventSink? = null
+    private var unregisterEventHandlerRunnable: Runnable? = null
     @Volatile
     private var disposed = false
     private var latestState = MpvPlayerState(
@@ -40,19 +83,23 @@ class MpvPlayerView(
         },
         error = mpv.loadErrorMessage(),
     )
+    private var latestDanmakuOcclusionState = DanmakuDynamicOcclusionState.disabled()
     private val controller = MpvPlaybackController(
         context = context,
         videoOutputTarget = videoOutputTarget,
         creationParams = creationParams,
         stateListener = MpvPlaybackStateListener { state, overlayText ->
             latestState = state
-            nativeDanmakuOverlayView.updatePlaybackState(state)
-            eventSink?.success(state.toMap())
+            nativeDanmakuOverlayView?.updatePlaybackState(state)
+            emitPlayerStateEvent(state)
         },
-        danmakuOcclusionStateListener = { state ->
-            danmakuAiEventSink?.success(state.toMap())
+        danmakuOcclusionStateListener = { next, runtimeMaskBitmap ->
+            latestDanmakuOcclusionState = next
+            nativeDanmakuOverlayView?.setOcclusionState(next, runtimeMaskBitmap)
+            emitDanmakuOcclusionStateEvent(next)
         },
     )
+    private var requestedNativeDanmakuFrameRateHz = DEFAULT_NATIVE_DANMAKU_TARGET_FPS
 
     init {
         rootView.setBackgroundColor(Color.BLACK)
@@ -64,27 +111,24 @@ class MpvPlayerView(
                 FrameLayout.LayoutParams.MATCH_PARENT,
             ),
         )
-        rootView.addView(
-            nativeDanmakuOverlayView,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT,
-            ),
-        )
+        nativeDanmakuOverlayView?.let { overlayView ->
+            rootView.addView(
+                overlayView,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                ),
+            )
+        }
         methodChannel.setMethodCallHandler(this)
+        unregisterEventHandlerRunnable?.let(mainHandler::removeCallbacks)
+        unregisterEventHandlerRunnable = null
         eventChannel.setStreamHandler(this)
-        danmakuAiEventChannel.setStreamHandler(
-            object : EventChannel.StreamHandler {
-                override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
-                    if (disposed) return
-                    danmakuAiEventSink = events
-                    danmakuAiEventSink?.success(controller.getDanmakuOcclusionStateMap())
-                }
-
-                override fun onCancel(arguments: Any?) {
-                    danmakuAiEventSink = null
-                }
-            },
+        rootViewFrameRateProbe?.start()
+        videoTargetFrameRateProbe?.start()
+        applyNativeDanmakuFrameRateVote(
+            targetFrameRateHz = requestedNativeDanmakuFrameRateHz,
+            reason = "init",
         )
     }
 
@@ -94,23 +138,38 @@ class MpvPlayerView(
         if (disposed) return
         disposed = true
         methodChannel.setMethodCallHandler(null)
-        eventChannel.setStreamHandler(null)
-        danmakuAiEventChannel.setStreamHandler(null)
+        runCatching { eventSink?.endOfStream() }
         eventSink = null
-        danmakuAiEventSink = null
+        scheduleEventHandlerUnregister()
+        rootViewFrameRateProbe?.stop(reason = "dispose")
+        videoTargetFrameRateProbe?.stop(reason = "dispose")
         videoOutputTarget.setListener(null)
+        // Avoid blocking PlatformView teardown on the UI thread during back navigation.
         controller.dispose()
+        nativeDanmakuOverlayView?.release()
         videoOutputTarget.release()
     }
 
     override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
         if (disposed) return
         eventSink = events
-        eventSink?.success(latestState.toMap())
+        emitPlayerStateEvent(latestState)
+        emitDanmakuOcclusionStateEvent(latestDanmakuOcclusionState)
     }
 
     override fun onCancel(arguments: Any?) {
         eventSink = null
+    }
+
+    private fun scheduleEventHandlerUnregister() {
+        unregisterEventHandlerRunnable?.let(mainHandler::removeCallbacks)
+        val cleanup =
+            Runnable {
+                eventChannel.setStreamHandler(null)
+                unregisterEventHandlerRunnable = null
+            }
+        unregisterEventHandlerRunnable = cleanup
+        mainHandler.postDelayed(cleanup, 5_000L)
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -120,11 +179,11 @@ class MpvPlayerView(
         }
         when (call.method) {
             "getState" -> result.success(latestState.toMap())
+            "getDanmakuOcclusionState" -> result.success(controller.getDanmakuOcclusionStateMap())
             "getTrackSnapshot" -> result.success(controller.getTrackSnapshotMap())
             "getPlaybackDiagnostics" -> result.success(controller.getPlaybackDiagnosticsMap())
             "getPerformanceOverlayStats" -> result.success(controller.getPerformanceOverlayStatsMap())
             "getChapters" -> result.success(controller.getChapters())
-            "getDanmakuOcclusionState" -> result.success(controller.getDanmakuOcclusionStateMap())
             "captureFrame" -> result.success(controller.captureFrame(methodArgumentsMap(call)))
             "load" -> {
                 controller.load(methodArgumentsMap(call))
@@ -216,15 +275,29 @@ class MpvPlayerView(
                 result.success(controller.setListenVideoMode(args["enabled"] == true))
             }
             "setDanmakuOcclusionConfig" -> {
-                controller.setDanmakuOcclusionConfig(methodArgumentsMap(call))
-                result.success(null)
+                result.success(controller.setDanmakuOcclusionConfig(methodArgumentsMap(call)))
             }
+            "setDanmakuPayload",
             "setNativeDanmakuPayload" -> {
-                nativeDanmakuOverlayView.setPayload(methodArgumentsMap(call))
+                val args = methodArgumentsMap(call)
+                applyNativeDanmakuFrameRateVote(
+                    targetFrameRateHz = parseNativeDanmakuTargetFrameRateHz(args),
+                    reason = "payload",
+                )
+                nativeDanmakuOverlayView?.setPayload(args)
                 result.success(null)
             }
+            "setNativeDanmakuOcclusion" -> {
+                nativeDanmakuOverlayView?.setOcclusionState(methodArgumentsMap(call))
+                result.success(null)
+            }
+            "clearDanmaku",
             "clearNativeDanmaku" -> {
-                nativeDanmakuOverlayView.clear()
+                applyNativeDanmakuFrameRateVote(
+                    targetFrameRateHz = DEFAULT_NATIVE_DANMAKU_TARGET_FPS,
+                    reason = "clear",
+                )
+                nativeDanmakuOverlayView?.clear()
                 result.success(null)
             }
             else -> result.notImplemented()
@@ -238,6 +311,10 @@ class MpvPlayerView(
         height: Int,
     ) {
         if (disposed) return
+        applyNativeDanmakuFrameRateVote(
+            targetFrameRateHz = requestedNativeDanmakuFrameRateHz,
+            reason = "surfaceAvailable",
+        )
         controller.onVideoOutputSurfaceAvailable(
             surface = surface,
             generation = generation,
@@ -253,6 +330,10 @@ class MpvPlayerView(
         height: Int,
     ) {
         if (disposed) return
+        applyNativeDanmakuFrameRateVote(
+            targetFrameRateHz = requestedNativeDanmakuFrameRateHz,
+            reason = "surfaceSizeChanged",
+        )
         controller.onVideoOutputSurfaceSizeChanged(
             surface = surface,
             generation = generation,
@@ -266,8 +347,65 @@ class MpvPlayerView(
         controller.onVideoOutputSurfaceDestroyed(generation)
     }
 
+    private fun emitPlayerStateEvent(state: MpvPlayerState) {
+        eventSink?.success(
+            mapOf(
+                "eventType" to "playerState",
+                "state" to state.toMap(),
+            ),
+        )
+    }
+
+    private fun emitDanmakuOcclusionStateEvent(state: DanmakuDynamicOcclusionState) {
+        eventSink?.success(
+            mapOf(
+                "eventType" to "danmakuOcclusionState",
+                "state" to state.toMap(),
+            ),
+        )
+    }
+
     @Suppress("UNCHECKED_CAST")
     private fun methodArgumentsMap(call: MethodCall): Map<String, Any?> {
         return call.arguments as? Map<String, Any?> ?: emptyMap()
+    }
+
+    private fun parseNativeDanmakuTargetFrameRateHz(payload: Map<String, Any?>): Int {
+        return (payload["targetFrameRateHz"].toIntValue() ?: DEFAULT_NATIVE_DANMAKU_TARGET_FPS)
+            .coerceIn(MIN_NATIVE_DANMAKU_TARGET_FPS, MAX_NATIVE_DANMAKU_TARGET_FPS)
+    }
+
+    private fun applyNativeDanmakuFrameRateVote(targetFrameRateHz: Int, reason: String) {
+        if (!nativeDanmakuEnabled) {
+            return
+        }
+        val clampedTarget =
+            targetFrameRateHz.coerceIn(
+                MIN_NATIVE_DANMAKU_TARGET_FPS,
+                MAX_NATIVE_DANMAKU_TARGET_FPS,
+            )
+        requestedNativeDanmakuFrameRateHz = clampedTarget
+        if (Build.VERSION.SDK_INT >= 35) {
+            val requestedRate = clampedTarget.toFloat()
+            rootView.setRequestedFrameRate(requestedRate)
+            videoOutputTarget.view.setRequestedFrameRate(requestedRate)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            videoOutputTarget.currentSurface()
+                ?.takeIf { it.isValid }
+                ?.setFrameRate(
+                    clampedTarget.toFloat(),
+                    Surface.FRAME_RATE_COMPATIBILITY_DEFAULT,
+                    Surface.CHANGE_FRAME_RATE_ONLY_IF_SEAMLESS,
+                )
+        }
+        val displayHz = rootView.display?.refreshRate ?: 0f
+        Log.d(
+            TAG,
+            "[DANMAKU][NATIVE] host_frame_rate_vote " +
+                "reason=$reason target=${clampedTarget}fps " +
+                "displayHz=${"%.1f".format(displayHz)} " +
+                "surfaceReady=${videoOutputTarget.isSurfaceReady} api=${Build.VERSION.SDK_INT}",
+        )
     }
 }

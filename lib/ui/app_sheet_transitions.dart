@@ -13,10 +13,10 @@ class AppSheetTransitions {
     Color barrierColor = Colors.transparent,
     bool useRootNavigator = false,
   }) {
+    var closed = false;
     final effectiveBarrierLabel = barrierLabel.trim().isNotEmpty
         ? barrierLabel
         : MaterialLocalizations.of(context).modalBarrierDismissLabel;
-
     return showGeneralDialog<T>(
       context: context,
       useRootNavigator: useRootNavigator,
@@ -24,11 +24,39 @@ class AppSheetTransitions {
       barrierLabel: effectiveBarrierLabel,
       barrierColor: barrierColor,
       transitionDuration: AppMotion.sheetTransition,
-      pageBuilder: (dialogContext, _, __) => builder(dialogContext),
-      transitionBuilder: (dialogContext, animation, _, child) {
-        return buildAdaptiveSheetTransition(dialogContext, animation, child);
+      pageBuilder: (dialogContext, _, __) {
+        void closeWithResult(Object? result) {
+          if (closed) return;
+          closed = true;
+          Navigator.of(dialogContext).pop(result as T?);
+        }
+
+        return _AdaptiveSheetScope(
+          closeWithResult: closeWithResult,
+          child: RepaintBoundary(child: Builder(builder: builder)),
+        );
       },
-    );
+      transitionBuilder: (context, animation, _, child) {
+        return buildAdaptiveSheetTransition(context, animation, child);
+      },
+    ).whenComplete(() {
+      closed = true;
+    });
+  }
+
+  static void close<T>(BuildContext context, [T? result]) {
+    maybeClose<T>(context, result);
+  }
+
+  static bool maybeClose<T>(BuildContext context, [T? result]) {
+    final scope =
+        context
+                .getElementForInheritedWidgetOfExactType<_AdaptiveSheetScope>()
+                ?.widget
+            as _AdaptiveSheetScope?;
+    if (scope == null) return false;
+    scope.closeWithResult(result);
+    return true;
   }
 
   static Future<T?> showBottomSurface<T>(
@@ -54,7 +82,7 @@ class AppSheetTransitions {
                 Positioned.fill(
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
-                    onTap: () => Navigator.of(dialogContext).maybePop(),
+                    onTap: () => close(dialogContext),
                     child: const SizedBox.expand(),
                   ),
                 ),
@@ -119,4 +147,16 @@ class AppSheetTransitions {
       ),
     );
   }
+}
+
+class _AdaptiveSheetScope extends InheritedWidget {
+  final void Function(Object? result) closeWithResult;
+
+  const _AdaptiveSheetScope({
+    required this.closeWithResult,
+    required super.child,
+  });
+
+  @override
+  bool updateShouldNotify(_AdaptiveSheetScope oldWidget) => false;
 }

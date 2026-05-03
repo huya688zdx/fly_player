@@ -14,7 +14,7 @@ class DanDanPlayEpisodeSearchItem {
   String get displayTitle {
     final title = episodeTitle.trim();
     if (title.isEmpty) {
-      return episodeNumber > 0 ? '第$episodeNumber集' : animeTitle;
+      return episodeNumber > 0 ? 'Episode $episodeNumber' : animeTitle;
     }
     return title;
   }
@@ -22,10 +22,10 @@ class DanDanPlayEpisodeSearchItem {
   String get displaySubtitle {
     final anime = animeTitle.trim();
     if (episodeNumber > 0 && anime.isNotEmpty) {
-      return '$anime · 第$episodeNumber集';
+      return '$anime · Episode $episodeNumber';
     }
     if (anime.isNotEmpty) return anime;
-    if (episodeNumber > 0) return '第$episodeNumber集';
-    return '弹弹play';
+    if (episodeNumber > 0) return 'Episode $episodeNumber';
+    return 'DanDanPlay';
   }
 }

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../controllers/item_playback_launcher.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../player/stores/bookmark_store.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
@@ -16,30 +17,35 @@ bool _bookmarkIsTv(PlayerBookmarkEntry entry) {
   return type == 'episode' || type == 'tv';
 }
 
-String _bookmarkAncestorLabel(PlayerBookmarkEntry entry) {
+String _bookmarkAncestorLabel(
+  PlayerBookmarkEntry entry,
+  AppLocalizations l10n,
+) {
   final label = entry.ancestorName.trim();
   if (label.isNotEmpty) return label;
-  return '旧书签';
+  return l10n.bookmarkManagerLegacyBookmark;
 }
 
-String _bookmarkSeriesLabel(PlayerBookmarkEntry entry) {
+String _bookmarkSeriesLabel(PlayerBookmarkEntry entry, AppLocalizations l10n) {
   final seriesTitle = entry.seriesTitle.trim();
   if (seriesTitle.isNotEmpty) return seriesTitle;
   final title = entry.title.trim();
   if (title.isNotEmpty) return title;
-  return '未命名作品';
+  return l10n.bookmarkManagerUnnamedWork;
 }
 
-String _bookmarkSeasonLabel(PlayerBookmarkEntry entry) {
-  if (entry.seasonNumber <= 0) return '特别篇';
-  return '第${entry.seasonNumber}季';
+String _bookmarkSeasonLabel(PlayerBookmarkEntry entry, AppLocalizations l10n) {
+  if (entry.seasonNumber <= 0) return l10n.bookmarkManagerSpecialSeason;
+  return l10n.bookmarkManagerSeasonLabel(entry.seasonNumber);
 }
 
-String _bookmarkEpisodeLabel(PlayerBookmarkEntry entry) {
-  if (entry.episodeNumber > 0) return '第${entry.episodeNumber}集';
+String _bookmarkEpisodeLabel(PlayerBookmarkEntry entry, AppLocalizations l10n) {
+  if (entry.episodeNumber > 0) {
+    return l10n.bookmarkManagerEpisodeLabel(entry.episodeNumber);
+  }
   final title = entry.title.trim();
   if (title.isNotEmpty) return title;
-  return '未命名剧集';
+  return l10n.bookmarkManagerUnnamedEpisode;
 }
 
 int _bookmarkSeasonOrder(PlayerBookmarkEntry entry) {
@@ -109,9 +115,10 @@ class _BookmarkManagerScreenState extends State<BookmarkManagerScreen> {
   }
 
   List<_AncestorGroup> _ancestorGroups() {
+    final l10n = AppLocalizations.of(context);
     final buckets = <String, List<PlayerBookmarkEntry>>{};
     for (final entry in _bookmarks) {
-      final key = _bookmarkAncestorLabel(entry);
+      final key = _bookmarkAncestorLabel(entry, l10n);
       buckets.putIfAbsent(key, () => <PlayerBookmarkEntry>[]).add(entry);
     }
     final groups =
@@ -151,13 +158,14 @@ class _BookmarkManagerScreenState extends State<BookmarkManagerScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final groups = _ancestorGroups();
     return Scaffold(
       backgroundColor: colors.backgroundBase,
       appBar: buildSecondaryHostAppBar(
         context,
         title: Text(
-          '书签管理',
+          l10n.settingsBookmarkManagerTitle,
           style: TextStyle(
             color: colors.textPrimary,
             fontSize: AdaptiveText.roleSize(20, role: AdaptiveFontRole.title),
@@ -166,7 +174,7 @@ class _BookmarkManagerScreenState extends State<BookmarkManagerScreen> {
         ),
         actions: <Widget>[
           if (_bookmarks.isNotEmpty)
-            TextButton(onPressed: _clearAll, child: const Text('清空')),
+            TextButton(onPressed: _clearAll, child: Text(l10n.commonClear)),
         ],
       ),
       body: DecoratedBox(
@@ -184,7 +192,7 @@ class _BookmarkManagerScreenState extends State<BookmarkManagerScreen> {
               : groups.isEmpty
               ? Center(
                   child: Text(
-                    '还没有书签',
+                    l10n.settingsBookmarkEmptySummary,
                     style: TextStyle(
                       color: colors.textSecondary,
                       fontSize: AdaptiveText.roleSize(
@@ -203,7 +211,9 @@ class _BookmarkManagerScreenState extends State<BookmarkManagerScreen> {
                     return _BookmarkFolderTile(
                       icon: Icons.folder_copy_outlined,
                       title: group.label,
-                      subtitle: '共 ${group.entries.length} 个书签',
+                      subtitle: l10n.settingsBookmarkCountSummary(
+                        group.entries.length,
+                      ),
                       onTap: () => _openAncestor(group),
                     );
                   },
@@ -253,13 +263,14 @@ class _BookmarkSeriesListScreenState extends State<_BookmarkSeriesListScreen> {
   Future<void> _reload() async {
     final all = await _store.loadAll();
     if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
     setState(() {
       _entries =
           all
               .where(
                 (entry) =>
                     _bookmarkIsTv(entry) &&
-                    _bookmarkAncestorLabel(entry) == widget.ancestorLabel,
+                    _bookmarkAncestorLabel(entry, l10n) == widget.ancestorLabel,
               )
               .toList(growable: false)
             ..sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
@@ -267,9 +278,10 @@ class _BookmarkSeriesListScreenState extends State<_BookmarkSeriesListScreen> {
   }
 
   List<_SeriesGroup> _seriesGroups() {
+    final l10n = AppLocalizations.of(context);
     final buckets = <String, List<PlayerBookmarkEntry>>{};
     for (final entry in _entries) {
-      final key = _bookmarkSeriesLabel(entry);
+      final key = _bookmarkSeriesLabel(entry, l10n);
       buckets.putIfAbsent(key, () => <PlayerBookmarkEntry>[]).add(entry);
     }
     final groups =
@@ -304,6 +316,7 @@ class _BookmarkSeriesListScreenState extends State<_BookmarkSeriesListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final groups = _seriesGroups();
     return Scaffold(
       backgroundColor: context.appColors.backgroundBase,
@@ -322,7 +335,9 @@ class _BookmarkSeriesListScreenState extends State<_BookmarkSeriesListScreen> {
                 return _BookmarkFolderTile(
                   icon: Icons.tv_outlined,
                   title: group.label,
-                  subtitle: '共 ${group.entries.length} 个书签',
+                  subtitle: l10n.settingsBookmarkCountSummary(
+                    group.entries.length,
+                  ),
                   onTap: () => _openSeries(group),
                 );
               },
@@ -372,14 +387,16 @@ class _BookmarkSeasonListScreenState extends State<_BookmarkSeasonListScreen> {
   Future<void> _reload() async {
     final all = await _store.loadAll();
     if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
     setState(() {
       _entries =
           all
               .where(
                 (entry) =>
                     _bookmarkIsTv(entry) &&
-                    _bookmarkAncestorLabel(entry) == widget.ancestorLabel &&
-                    _bookmarkSeriesLabel(entry) == widget.seriesLabel,
+                    _bookmarkAncestorLabel(entry, l10n) ==
+                        widget.ancestorLabel &&
+                    _bookmarkSeriesLabel(entry, l10n) == widget.seriesLabel,
               )
               .toList(growable: false)
             ..sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
@@ -387,10 +404,11 @@ class _BookmarkSeasonListScreenState extends State<_BookmarkSeasonListScreen> {
   }
 
   List<_SeasonGroup> _seasonGroups() {
+    final l10n = AppLocalizations.of(context);
     final buckets = <String, List<PlayerBookmarkEntry>>{};
     final orders = <String, int>{};
     for (final entry in _entries) {
-      final key = _bookmarkSeasonLabel(entry);
+      final key = _bookmarkSeasonLabel(entry, l10n);
       buckets.putIfAbsent(key, () => <PlayerBookmarkEntry>[]).add(entry);
       orders[key] = _bookmarkSeasonOrder(entry);
     }
@@ -424,6 +442,7 @@ class _BookmarkSeasonListScreenState extends State<_BookmarkSeasonListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final groups = _seasonGroups();
     return Scaffold(
       backgroundColor: context.appColors.backgroundBase,
@@ -442,7 +461,9 @@ class _BookmarkSeasonListScreenState extends State<_BookmarkSeasonListScreen> {
                 return _BookmarkFolderTile(
                   icon: Icons.video_library_outlined,
                   title: group.label,
-                  subtitle: '共 ${group.entries.length} 个书签',
+                  subtitle: l10n.settingsBookmarkCountSummary(
+                    group.entries.length,
+                  ),
                   onTap: () => _openSeason(group),
                 );
               },
@@ -495,15 +516,17 @@ class _BookmarkEpisodeListScreenState
   Future<void> _reload() async {
     final all = await _store.loadAll();
     if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
     setState(() {
       _entries =
           all
               .where(
                 (entry) =>
                     _bookmarkIsTv(entry) &&
-                    _bookmarkAncestorLabel(entry) == widget.ancestorLabel &&
-                    _bookmarkSeriesLabel(entry) == widget.seriesLabel &&
-                    _bookmarkSeasonLabel(entry) == widget.seasonLabel,
+                    _bookmarkAncestorLabel(entry, l10n) ==
+                        widget.ancestorLabel &&
+                    _bookmarkSeriesLabel(entry, l10n) == widget.seriesLabel &&
+                    _bookmarkSeasonLabel(entry, l10n) == widget.seasonLabel,
               )
               .toList(growable: false)
             ..sort((a, b) => a.positionMs.compareTo(b.positionMs));
@@ -511,10 +534,11 @@ class _BookmarkEpisodeListScreenState
   }
 
   List<_EpisodeGroup> _episodeGroups() {
+    final l10n = AppLocalizations.of(context);
     final buckets = <String, List<PlayerBookmarkEntry>>{};
     final orders = <String, int>{};
     for (final entry in _entries) {
-      final key = _bookmarkEpisodeLabel(entry);
+      final key = _bookmarkEpisodeLabel(entry, l10n);
       buckets.putIfAbsent(key, () => <PlayerBookmarkEntry>[]).add(entry);
       orders[key] = _bookmarkEpisodeOrder(entry);
     }
@@ -549,6 +573,7 @@ class _BookmarkEpisodeListScreenState
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final groups = _episodeGroups();
     return Scaffold(
       backgroundColor: context.appColors.backgroundBase,
@@ -567,7 +592,9 @@ class _BookmarkEpisodeListScreenState
                 return _BookmarkFolderTile(
                   icon: Icons.movie_filter_outlined,
                   title: group.label,
-                  subtitle: '共 ${group.bookmarks.length} 个书签',
+                  subtitle: l10n.settingsBookmarkCountSummary(
+                    group.bookmarks.length,
+                  ),
                   onTap: () => _openEpisode(group),
                 );
               },
@@ -623,16 +650,18 @@ class _BookmarkEpisodeBookmarksScreenState
   Future<void> _reload() async {
     final all = await _store.loadAll();
     if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
     setState(() {
       _entries =
           all
               .where(
                 (entry) =>
                     _bookmarkIsTv(entry) &&
-                    _bookmarkAncestorLabel(entry) == widget.ancestorLabel &&
-                    _bookmarkSeriesLabel(entry) == widget.seriesLabel &&
-                    _bookmarkSeasonLabel(entry) == widget.seasonLabel &&
-                    _bookmarkEpisodeLabel(entry) == widget.episodeLabel,
+                    _bookmarkAncestorLabel(entry, l10n) ==
+                        widget.ancestorLabel &&
+                    _bookmarkSeriesLabel(entry, l10n) == widget.seriesLabel &&
+                    _bookmarkSeasonLabel(entry, l10n) == widget.seasonLabel &&
+                    _bookmarkEpisodeLabel(entry, l10n) == widget.episodeLabel,
               )
               .toList(growable: false)
             ..sort((a, b) => a.positionMs.compareTo(b.positionMs));
@@ -646,7 +675,7 @@ class _BookmarkEpisodeBookmarksScreenState
   Future<void> _editBookmarkNote(PlayerBookmarkEntry entry) async {
     final note = await showBookmarkNoteDialog(
       context,
-      title: '编辑书签备注',
+      title: AppLocalizations.of(context).bookmarkManagerEditNoteTitle,
       initialValue: entry.note,
     );
     if (note == null) return;
@@ -656,10 +685,11 @@ class _BookmarkEpisodeBookmarksScreenState
   Future<void> _openBookmark(PlayerBookmarkEntry entry) async {
     final itemGuid = entry.itemGuid.trim();
     if (itemGuid.isEmpty) return;
+    final l10n = AppLocalizations.of(context);
     await _launcher.open(
       context,
       itemGuid: itemGuid,
-      fallbackTitle: _bookmarkSeriesLabel(entry),
+      fallbackTitle: _bookmarkSeriesLabel(entry, l10n),
       resumePosition: entry.position,
     );
   }
@@ -667,6 +697,7 @@ class _BookmarkEpisodeBookmarksScreenState
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
       backgroundColor: colors.backgroundBase,
       appBar: buildSecondaryHostAppBar(
@@ -676,7 +707,7 @@ class _BookmarkEpisodeBookmarksScreenState
       body: _entries.isEmpty
           ? Center(
               child: Text(
-                '该集下已经没有书签',
+                l10n.bookmarkManagerNoEpisodeBookmarks,
                 style: TextStyle(
                   color: colors.textSecondary,
                   fontSize: AdaptiveText.roleSize(
@@ -695,7 +726,9 @@ class _BookmarkEpisodeBookmarksScreenState
                 return _RichBookmarkEntryCard(
                   note: entry.note,
                   title: _formatBookmarkTime(entry.position),
-                  subtitle: '创建于 ${_formatBookmarkCreatedAt(entry.createdAt)}',
+                  subtitle: l10n.playerBookmarkCreatedAt(
+                    _formatBookmarkCreatedAt(entry.createdAt),
+                  ),
                   onTap: () => _openBookmark(entry),
                   onEdit: () => _editBookmarkNote(entry),
                   onDelete: () => _deleteBookmark(entry),
@@ -747,13 +780,14 @@ class _BookmarkDirectEntryScreenState
   Future<void> _reload() async {
     final all = await _store.loadAll();
     if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
     setState(() {
       _entries =
           all
               .where(
                 (entry) =>
                     !_bookmarkIsTv(entry) &&
-                    _bookmarkAncestorLabel(entry) == widget.ancestorLabel,
+                    _bookmarkAncestorLabel(entry, l10n) == widget.ancestorLabel,
               )
               .toList(growable: false)
             ..sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
@@ -767,7 +801,7 @@ class _BookmarkDirectEntryScreenState
   Future<void> _editBookmarkNote(PlayerBookmarkEntry entry) async {
     final note = await showBookmarkNoteDialog(
       context,
-      title: '编辑书签备注',
+      title: AppLocalizations.of(context).bookmarkManagerEditNoteTitle,
       initialValue: entry.note,
     );
     if (note == null) return;
@@ -777,18 +811,20 @@ class _BookmarkDirectEntryScreenState
   Future<void> _openBookmark(PlayerBookmarkEntry entry) async {
     final itemGuid = entry.itemGuid.trim();
     if (itemGuid.isEmpty) return;
+    final l10n = AppLocalizations.of(context);
     await _launcher.open(
       context,
       itemGuid: itemGuid,
-      fallbackTitle: _bookmarkSeriesLabel(entry),
+      fallbackTitle: _bookmarkSeriesLabel(entry, l10n),
       resumePosition: entry.position,
     );
   }
 
   List<_DirectEntryGroup> _groups() {
+    final l10n = AppLocalizations.of(context);
     final buckets = <String, List<PlayerBookmarkEntry>>{};
     for (final entry in _entries) {
-      final key = _bookmarkSeriesLabel(entry);
+      final key = _bookmarkSeriesLabel(entry, l10n);
       buckets.putIfAbsent(key, () => <PlayerBookmarkEntry>[]).add(entry);
     }
     final groups =
@@ -975,6 +1011,7 @@ class _RichBookmarkEntryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1029,8 +1066,14 @@ class _RichBookmarkEntryCard extends StatelessWidget {
                 Column(
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
-                    TextButton(onPressed: onEdit, child: const Text('备注')),
-                    TextButton(onPressed: onDelete, child: const Text('删除')),
+                    TextButton(
+                      onPressed: onEdit,
+                      child: Text(l10n.bookmarkManagerNoteAction),
+                    ),
+                    TextButton(
+                      onPressed: onDelete,
+                      child: Text(l10n.commonDelete),
+                    ),
                   ],
                 ),
               ],
@@ -1058,6 +1101,7 @@ class _RichBookmarkEntryRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(14),
@@ -1081,7 +1125,10 @@ class _RichBookmarkEntryRow extends StatelessWidget {
                     ),
                   ),
                 ),
-                TextButton(onPressed: onEdit, child: const Text('备注')),
+                TextButton(
+                  onPressed: onEdit,
+                  child: Text(l10n.bookmarkManagerNoteAction),
+                ),
                 IconButton(
                   onPressed: onDelete,
                   icon: Icon(

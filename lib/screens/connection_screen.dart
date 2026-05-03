@@ -1,10 +1,8 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../api/feiniu_api.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../providers/nas_provider.dart';
 import '../theme/app_theme.dart';
 import '../ui/app_transitions.dart';
@@ -14,7 +12,6 @@ import '../utils/app_error_reporter.dart';
 import '../utils/app_exception.dart';
 import '../utils/detail_top_tip.dart';
 import '../utils/login_error_resolver.dart';
-import '../utils/media_locale_store.dart';
 import '../services/login_history_store.dart';
 import 'download_list_screen.dart';
 import 'fn_connect_web_login_page.dart';
@@ -39,7 +36,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   bool _useHttps = false;
   bool _obscurePassword = true;
   bool _isSubmitting = false;
-  Map<String, dynamic> _localeMap = const <String, dynamic>{};
   List<LoginHistoryEntry> _historyEntries = const <LoginHistoryEntry>[];
 
   @override
@@ -51,7 +47,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     _passwordController.text = provider.password;
     _rememberPassword = provider.rememberPassword;
     _useHttps = _looksLikeHttps(provider.sourceBaseUrl);
-    _loadLocaleMap();
     _loadLoginHistory();
   }
 
@@ -62,32 +57,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     _userNameController.dispose();
     _passwordController.dispose();
     super.dispose();
-  }
-
-  static String _t(
-    Map<String, dynamic> localeMap,
-    String path,
-    String fallback, {
-    Map<String, Object?> params = const <String, Object?>{},
-  }) {
-    return MediaLocaleStore.text(
-      localeMap,
-      path,
-      fallback: fallback,
-      params: params,
-    );
-  }
-
-  Future<void> _loadLocaleMap() async {
-    try {
-      final data = await rootBundle.load('list2.json');
-      final text = utf8.decode(data.buffer.asUint8List(), allowMalformed: true);
-      final decoded = jsonDecode(text);
-      if (!mounted || decoded is! Map<String, dynamic>) return;
-      setState(() {
-        _localeMap = decoded;
-      });
-    } catch (_) {}
   }
 
   Future<void> _loadLoginHistory() async {
@@ -129,7 +98,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
     if (_isSubmitting || _submitLimiter.shouldBlock()) {
       _showTopTip(
-        _t(_localeMap, 'common.actions.default.failed', '操作失败，请稍后重试'),
+        AppLocalizations.of(context).connectionOperationFailedRetryLater,
         const Color(0xFFB8860B),
       );
       return;
@@ -141,21 +110,21 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
     if (baseUrl.isEmpty) {
       _showTopTip(
-        _t(_localeMap, 'layout.editMetadata.validation.required', '请输入服务器地址'),
+        AppLocalizations.of(context).connectionServerRequired,
         context.appColors.danger,
       );
       return;
     }
     if (userName.isEmpty) {
       _showTopTip(
-        _t(_localeMap, 'common.validation.userName.empty', '请输入用户名'),
+        AppLocalizations.of(context).connectionUserNameRequired,
         context.appColors.danger,
       );
       return;
     }
     if (password.isEmpty) {
       _showTopTip(
-        _t(_localeMap, 'common.validation.password.empty', '请输入密码'),
+        AppLocalizations.of(context).connectionPasswordRequired,
         context.appColors.danger,
       );
       return;
@@ -362,7 +331,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         message.contains('forbidden') ||
         message.contains('unauthorized') ||
         message.contains('401')) {
-      return _t(_localeMap, 'auth.login.usernameOrPasswordError', '用户名或密码错误');
+      return AppLocalizations.of(context).connectionInvalidCredential;
     }
 
     if (message.contains('socketexception') ||
@@ -370,13 +339,13 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         message.contains('failed host lookup') ||
         message.contains('connection refused') ||
         message.contains('network is unreachable')) {
-      return _t(_localeMap, 'layout.globalError.message', '网络异常，请检查后重试');
+      return AppLocalizations.of(context).connectionNetworkError;
     }
 
     if (message.contains('format') ||
         message.contains('invalid uri') ||
         message.contains('invalid argument')) {
-      return _t(_localeMap, 'auth.login.validationFailed', '验证失败');
+      return AppLocalizations.of(context).connectionValidationFailed;
     }
 
     if (message.contains('fn connect') ||
@@ -389,7 +358,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       return raw;
     }
 
-    return _t(_localeMap, 'common.actions.default.failed', '操作失败，请重试');
+    return AppLocalizations.of(context).connectionOperationFailedRetry;
   }
 
   bool _containsChinese(String value) {
@@ -451,6 +420,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
       backgroundColor: const Color(0xFF08111A),
       body: GestureDetector(
@@ -469,7 +439,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         const SizedBox(height: 12),
-                        const _LogoHeader(),
+                        _LogoHeader(title: l10n.connectionAppName),
                         const SizedBox(height: 36),
                         _GlassField(
                           controller: _baseUrlController,
@@ -490,18 +460,14 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                         const SizedBox(height: 14),
                         _GlassField(
                           controller: _userNameController,
-                          hintText: _t(_localeMap, 'server.username', '用户名'),
+                          hintText: l10n.connectionUserNameHint,
                           textInputAction: TextInputAction.next,
                           autofillHints: const <String>[AutofillHints.username],
                         ),
                         const SizedBox(height: 14),
                         _GlassField(
                           controller: _passwordController,
-                          hintText: _t(
-                            _localeMap,
-                            'common.validation.password.label',
-                            '密码',
-                          ),
+                          hintText: l10n.connectionPasswordHint,
                           obscureText: _obscurePassword,
                           textInputAction: TextInputAction.done,
                           autofillHints: const <String>[AutofillHints.password],
@@ -558,11 +524,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                                   ),
                                   const SizedBox(width: 6),
                                   Text(
-                                    _t(
-                                      _localeMap,
-                                      'auth.login.remember',
-                                      '保持登录',
-                                    ),
+                                    l10n.connectionRememberLogin,
                                     style: theme.textTheme.bodyMedium?.copyWith(
                                       color: const Color(0xFFB3C0D4),
                                     ),
@@ -575,8 +537,10 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                         const SizedBox(height: 22),
                         Row(
                           children: [
-                            const Expanded(
-                              child: _SettingRow(label: 'HTTPS 安全访问'),
+                            Expanded(
+                              child: _SettingRow(
+                                label: l10n.connectionHttpsAccess,
+                              ),
                             ),
                             Switch(
                               value: _useHttps,
@@ -621,7 +585,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                                     ),
                                   )
                                 : Text(
-                                    _t(_localeMap, 'auth.login.login', '登录'),
+                                    l10n.connectionLogin,
                                   ),
                           ),
                         ),
@@ -642,7 +606,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
-                            child: const Text('查看已下载数据'),
+                            child: Text(l10n.connectionOpenDownloads),
                           ),
                         ),
                       ],
@@ -659,14 +623,16 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 }
 
 class _LogoHeader extends StatelessWidget {
-  const _LogoHeader();
+  final String title;
+
+  const _LogoHeader({required this.title});
 
   @override
   Widget build(BuildContext context) {
-    return const Text(
-      '飞牛播放器',
+    return Text(
+      title,
       textAlign: TextAlign.center,
-      style: TextStyle(
+      style: const TextStyle(
         color: Colors.white,
         fontSize: 24,
         fontWeight: FontWeight.w800,
@@ -757,6 +723,7 @@ class _LoginHistorySheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return SafeArea(
       top: false,
       child: ConstrainedBox(
@@ -779,9 +746,9 @@ class _LoginHistorySheet extends StatelessWidget {
               const SizedBox(height: 14),
               Row(
                 children: [
-                  const Text(
-                    '登录历史',
-                    style: TextStyle(
+                  Text(
+                    l10n.connectionLoginHistory,
+                    style: const TextStyle(
                       color: Colors.white,
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
@@ -791,20 +758,20 @@ class _LoginHistorySheet extends StatelessWidget {
                   if (entries.isNotEmpty)
                     TextButton(
                       onPressed: () => onClear(),
-                      child: const Text(
-                        '清空',
-                        style: TextStyle(color: Color(0xFF8FB7FF)),
+                      child: Text(
+                        l10n.connectionClear,
+                        style: const TextStyle(color: Color(0xFF8FB7FF)),
                       ),
                     ),
                 ],
               ),
               const SizedBox(height: 8),
               if (entries.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(0, 18, 0, 8),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(0, 18, 0, 8),
                   child: Text(
-                    '暂无登录历史',
-                    style: TextStyle(
+                    l10n.connectionNoLoginHistory,
+                    style: const TextStyle(
                       color: Color(0xFF9EADBE),
                       fontSize: 15,
                       fontWeight: FontWeight.w500,

@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../api/feiniu_api.dart';
 import '../api/item_list_request.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../models/media_collection_view_type.dart';
 import '../models/media_item.dart';
 import '../models/media_library_item.dart';
@@ -18,9 +19,8 @@ import '../ui/detail_presentation.dart';
 import '../ui/layout_adaptive.dart';
 import '../ui/media_poster_card.dart';
 import '../utils/api_url_helper.dart';
+import '../utils/app_localization_lookup.dart';
 import '../utils/app_exception.dart';
-import '../utils/media_locale_store.dart';
-import '../utils/media_locale_text.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/library/media_collection_layout_sheet.dart';
 import '../widgets/library/media_library_list_tile.dart';
@@ -84,6 +84,11 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   DetailPresentation get _detailPresentation =>
       widget.secondaryHost ? DetailPresentation.pane : DetailPresentation.page;
 
+  double _viewportCacheExtent(BuildContext context) {
+    final factor = widget.secondaryHost ? 0.7 : 1.0;
+    return min(MediaQuery.of(context).size.height * factor, 900.0);
+  }
+
   bool get _typeLocked =>
       widget.initialTypeTags != null && widget.initialTypeTags!.isNotEmpty;
 
@@ -116,8 +121,8 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     String fallback, {
     Map<String, Object?> params = const {},
   }) {
-    return MediaLocaleText.text(
-      _localeMap,
+    return AppLocalizationLookup.text(
+      AppLocalizations.of(context),
       path,
       fallback: fallback,
       params: params,
@@ -144,7 +149,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     } catch (_) {}
     final genresMap = await api.getTagGenresMap(lan: 'zh-CN');
     final locateMap = await api.getTagIso3166Map(lan: 'zh-CN');
-    final localeMap = await MediaLocaleStore.load(provider);
+    const localeMap = <String, dynamic>{};
 
     if (!mounted) return;
     setState(() {
@@ -401,12 +406,16 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
               : item.episodeNumber);
 
     if (seasonCount == 1 && episodeCount > 0) {
-      if (period.isEmpty) return '共$episodeCount集';
-      return '共$episodeCount集 · $period';
+      final episodeText = AppLocalizations.of(
+        context,
+      ).mediaEpisodeCount(episodeCount);
+      return period.isEmpty ? episodeText : '$episodeText / $period';
     }
     if (seasonCount > 0) {
-      if (period.isEmpty) return '共$seasonCount季';
-      return '共$seasonCount季 · $period';
+      final seasonText = AppLocalizations.of(
+        context,
+      ).mediaSeasonCount(seasonCount);
+      return period.isEmpty ? seasonText : '$seasonText / $period';
     }
     return period;
   }
@@ -419,7 +428,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     ).firstMatch(text);
     if (match != null) return match.group(1) ?? text;
     if (text == 'Others') {
-      return _t('stream.video.videoResolution.others', '其他');
+      return _t('stream.video.videoResolution.others', 'Other');
     }
     return text;
   }
@@ -454,7 +463,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
       parts.add(_typeLabel(_selectedType.first));
     }
     if (parts.isEmpty) {
-      return _t('layout.list.filter.filterButton', '筛选');
+      return _t('layout.list.filter.filterButton', 'Filter');
     }
     return parts.join(' / ');
   }
@@ -475,15 +484,15 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     final raw = value.toString();
     switch (raw) {
       case 'DolbySurround':
-        return _t('stream.audio.audioSpecs.dolbySurround', '杜比环绕');
+        return _t('stream.audio.audioSpecs.dolbySurround', 'Dolby Surround');
       case 'DolbyAtmos':
-        return _t('stream.audio.audioSpecs.dolbyAtmos', '杜比全景声');
+        return _t('stream.audio.audioSpecs.dolbyAtmos', 'Dolby Atmos');
       case 'DTS':
         return _t('stream.audio.audioSpecs.dts', 'DTS');
       case 'Stereo':
-        return _t('stream.audio.audioSpecs.stereo', '立体声');
+        return _t('stream.audio.audioSpecs.stereo', 'Stereo');
       case 'Others':
-        return _t('stream.audio.audioSpecs.others', '其他');
+        return _t('stream.audio.audioSpecs.others', 'Other');
       default:
         return raw;
     }
@@ -492,7 +501,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   String _decadeLabel(dynamic value) {
     final raw = value.toString();
     if (raw == 'Recent') {
-      return _t('layout.list.filter.decade.Recent', '今年');
+      return _t('layout.list.filter.decade.Recent', 'This year');
     }
     return raw;
   }
@@ -500,13 +509,13 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   String _typeLabel(String value) {
     switch (value) {
       case 'Movie':
-        return _t('layout.list.filter.type.movie', '电影');
+        return _t('layout.list.filter.type.movie', 'Movies');
       case 'TV':
-        return _t('layout.list.filter.type.tv', '电视剧');
+        return _t('layout.list.filter.type.tv', 'TV');
       case 'Directory':
-        return _t('common.resourceType.directory', '目录');
+        return _t('common.resourceType.directory', 'Directory');
       case 'Video':
-        return _t('common.resourceType.video', '视频');
+        return _t('common.resourceType.video', 'Video');
       default:
         return value;
     }
@@ -515,21 +524,21 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   String _recognitionStatusLabel(dynamic value) {
     final code = int.tryParse(value.toString()) ?? 0;
     if (code == 1) {
-      return _t('layout.list.filter.recognitionStatus.1', '未匹配');
+      return _t('layout.list.filter.recognitionStatus.1', 'Unmatched');
     }
     if (code == 2) {
-      return _t('layout.list.filter.recognitionStatus.2', '已匹配');
+      return _t('layout.list.filter.recognitionStatus.2', 'Matched');
     }
     if (code == 3) {
-      return _t('layout.list.filter.recognitionStatus.3', 'NFO匹配');
+      return _t('layout.list.filter.recognitionStatus.3', 'NFO matched');
     }
     return value.toString();
   }
 
   String _watchedLabel(dynamic value) {
     final code = int.tryParse(value.toString()) ?? -1;
-    if (code == 1) return _t('layout.list.filter.watched.1', '已观看');
-    if (code == 0) return _t('layout.list.filter.watched.0', '未观看');
+    if (code == 1) return _t('layout.list.filter.watched.1', 'Watched');
+    if (code == 0) return _t('layout.list.filter.watched.0', 'Unwatched');
     return value.toString();
   }
 
@@ -540,15 +549,15 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   String _sortLabelFor(String column) {
     switch (column) {
       case 'create_time':
-        return _t('layout.list.sort.sortField.createTime', '按添加日期');
+        return _t('layout.list.sort.sortField.createTime', 'By added date');
       case 'release_date':
-        return _t('layout.list.sort.sortField.releaseDate', '按发行年份');
+        return _t('layout.list.sort.sortField.releaseDate', 'By release year');
       case 'title':
-        return _t('layout.list.sort.sortField.title', '按标题');
+        return _t('layout.list.sort.sortField.title', 'By title');
       case 'vote_average':
-        return _t('layout.list.sort.sortField.voteAverage', '按评分');
+        return _t('layout.list.sort.sortField.voteAverage', 'By rating');
       default:
-        return _t('layout.list.sort.sortField.createTime', '按添加日期');
+        return _t('layout.list.sort.sortField.createTime', 'By added date');
     }
   }
 
@@ -608,7 +617,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  _t('layout.list.sort.title', '排序'),
+                  _t('layout.list.sort.title', 'Sort'),
                   style: TextStyle(
                     color: colors.textPrimary,
                     fontSize: 36,
@@ -637,8 +646,8 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                             children: [
                               Text(
                                 _sortType == 'ASC'
-                                    ? '${_t('layout.list.sort.sortType.asc', '升序')} ↑'
-                                    : '${_t('layout.list.sort.sortType.desc', '降序')} ↓',
+                                    ? '${_t('layout.list.sort.sortType.asc', 'Ascending')} ^'
+                                    : '${_t('layout.list.sort.sortType.desc', 'Descending')} v',
                                 style: TextStyle(
                                   color: colors.textSecondary,
                                   fontWeight: FontWeight.w700,
@@ -744,7 +753,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                   Wrap(
                     children: [
                       chip(
-                        _t('layout.list.filter.all', '全部'),
+                        _t('layout.list.filter.all', 'All'),
                         selected.isEmpty,
                         () => setModal(() => selected.clear()),
                       ),
@@ -781,7 +790,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                         children: [
                           const Spacer(),
                           Text(
-                            _t('layout.list.filter.filterButton', '筛选'),
+                            _t('layout.list.filter.filterButton', 'Filter'),
                             style: TextStyle(
                               color: colors.textPrimary,
                               fontSize: 24,
@@ -803,33 +812,48 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                           children: [
                             if (!_typeLocked)
                               section(
-                                _t('layout.list.filter.tagMap.type', '影视分类'),
+                                _t(
+                                  'layout.list.filter.tagMap.type',
+                                  'Media type',
+                                ),
                                 const ['Movie', 'TV'],
                                 tempType,
                                 (v) => v == 'Movie'
-                                    ? _t('layout.list.filter.type.movie', '电影')
-                                    : _t('layout.list.filter.type.tv', '电视剧'),
+                                    ? _t(
+                                        'layout.list.filter.type.movie',
+                                        'Movies',
+                                      )
+                                    : _t('layout.list.filter.type.tv', 'TV'),
                               ),
                             section(
-                              _t('layout.list.filter.tagMap.genres', '类型'),
+                              _t('layout.list.filter.tagMap.genres', 'Genre'),
                               _tagOptions['genres'] ?? const [],
                               tempGenres,
                               _genreLabel,
                             ),
                             section(
-                              _t('layout.list.filter.tagMap.locate', '国家和地区'),
+                              _t(
+                                'layout.list.filter.tagMap.locate',
+                                'Country and region',
+                              ),
                               _tagOptions['locate'] ?? const [],
                               tempLocate,
                               _locateLabel,
                             ),
                             section(
-                              _t('layout.list.filter.tagMap.decade', '发行年份'),
+                              _t(
+                                'layout.list.filter.tagMap.decade',
+                                'Release year',
+                              ),
                               _tagOptions['decades'] ?? const [],
                               tempDecades,
                               _decadeLabel,
                             ),
                             section(
-                              _t('layout.list.filter.tagMap.resolution', '分辨率'),
+                              _t(
+                                'layout.list.filter.tagMap.resolution',
+                                'Resolution',
+                              ),
                               _tagOptions['resolutions'] ?? const [],
                               tempResolutions,
                               (v) => _resolutionLabel('$v'),
@@ -837,7 +861,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                             section(
                               _t(
                                 'layout.list.filter.tagMap.color_range',
-                                '视频动态范围',
+                                'Video range',
                               ),
                               _tagOptions['color_range'] ?? const [],
                               tempColorRange,
@@ -846,7 +870,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                             section(
                               _t(
                                 'layout.list.filter.tagMap.audio_type',
-                                '音频规格',
+                                'Audio spec',
                               ),
                               _tagOptions['audio_type'] ?? const [],
                               tempAudioType,
@@ -855,14 +879,17 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                             section(
                               _t(
                                 'layout.list.filter.tagMap.recognition_status',
-                                '匹配状态',
+                                'Match status',
                               ),
                               _tagOptions['recognition_status'] ?? const [],
                               tempRecognition,
                               _recognitionStatusLabel,
                             ),
                             section(
-                              _t('layout.list.filter.tagMap.watched', '是否观看'),
+                              _t(
+                                'layout.list.filter.tagMap.watched',
+                                'Watched status',
+                              ),
                               const [1, 0],
                               tempWatched,
                               _watchedLabel,
@@ -895,7 +922,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                                 minimumSize: const Size.fromHeight(44),
                               ),
                               child: Text(
-                                _t('layout.list.filter.resetButton', '重置'),
+                                _t('layout.list.filter.resetButton', 'Reset'),
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -926,7 +953,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                                 minimumSize: const Size.fromHeight(44),
                               ),
                               child: Text(
-                                _t('common.actions.default.default', '确定'),
+                                _t('common.actions.default.default', 'Confirm'),
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -1070,7 +1097,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
               if (_viewType == MediaCollectionViewType.list)
                 ListView.separated(
                   controller: _scrollController,
-                  cacheExtent: MediaQuery.of(context).size.height * 2,
+                  cacheExtent: _viewportCacheExtent(context),
                   padding: EdgeInsets.fromLTRB(
                     layout.pageHorizontalPadding,
                     0,
@@ -1114,7 +1141,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
 
                     return GridView.builder(
                       controller: _scrollController,
-                      cacheExtent: MediaQuery.of(context).size.height * 2,
+                      cacheExtent: _viewportCacheExtent(context),
                       padding: EdgeInsets.fromLTRB(
                         layout.pageHorizontalPadding,
                         0,
@@ -1175,7 +1202,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
               else
                 GridView.builder(
                   controller: _scrollController,
-                  cacheExtent: MediaQuery.of(context).size.height * 2,
+                  cacheExtent: _viewportCacheExtent(context),
                   padding: EdgeInsets.fromLTRB(
                     layout.pageHorizontalPadding,
                     0,
@@ -1250,7 +1277,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                     child: TextButton.icon(
                       onPressed: _fetchMore,
                       icon: const Icon(Icons.refresh, size: 16),
-                      label: Text(_t('layout.globalError.refresh', '刷新重试')),
+                      label: Text(_t('layout.globalError.refresh', 'Retry')),
                     ),
                   ),
                 ),

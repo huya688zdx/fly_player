@@ -3,6 +3,10 @@ package com.geqian.flyplayer.fly_player
 import android.content.Context
 import java.lang.ref.WeakReference
 
+/**
+ * 统一维护分屏浏览、详情页和播放器之间共享的界面状态。
+ * 这里既保存用户的并行窗口偏好，也缓存最近一次可恢复的详情页定位信息。
+ */
 object ParallelWindowCoordinator {
     private const val PREFS_NAME = "parallel_window_settings"
     private const val KEY_ENABLED = "parallel_window_enabled"
@@ -21,6 +25,7 @@ object ParallelWindowCoordinator {
     @Volatile
     private var currentDetailRoute: String = ""
 
+    // 右侧详情页关闭后，仍保留最近一次有效目标，便于恢复或重建宿主。
     @Volatile
     private var rememberedDetailItemGuid: String = ""
 
@@ -53,6 +58,7 @@ object ParallelWindowCoordinator {
     @Volatile
     private var immersiveStatusBar: Boolean = true
 
+    // 只保留 Activity 的弱引用，避免 coordinator 把界面实例意外长时间持有住。
     @Volatile
     private var detailHostRef: WeakReference<DetailActivity>? = null
 
@@ -203,79 +209,61 @@ object ParallelWindowCoordinator {
     }
 
     fun attachDetailHost(activity: DetailActivity) {
-        detailHostRef = WeakReference(activity)
+        detailHostRef = attachHostReference(activity)
     }
 
     fun detachDetailHost(activity: DetailActivity) {
-        val current = detailHostRef?.get()
-        if (current === activity) {
-            detailHostRef = null
-        }
+        detailHostRef = detachHostReference(detailHostRef, activity)
     }
 
     fun currentDetailHost(): DetailActivity? = detailHostRef?.get()
 
     fun attachPlaceholderHost(activity: PlaceholderActivity) {
-        placeholderHostRef = WeakReference(activity)
+        placeholderHostRef = attachHostReference(activity)
     }
 
     fun detachPlaceholderHost(activity: PlaceholderActivity) {
-        val current = placeholderHostRef?.get()
-        if (current === activity) {
-            placeholderHostRef = null
-        }
+        placeholderHostRef = detachHostReference(placeholderHostRef, activity)
     }
 
     fun currentPlaceholderHost(): PlaceholderActivity? = placeholderHostRef?.get()
 
     fun attachPlayerHost(activity: PlayerActivity) {
-        playerHostRef = WeakReference(activity)
+        playerHostRef = attachHostReference(activity)
     }
 
     fun detachPlayerHost(activity: PlayerActivity) {
-        val current = playerHostRef?.get()
-        if (current === activity) {
-            playerHostRef = null
-        }
+        playerHostRef = detachHostReference(playerHostRef, activity)
     }
 
     fun currentPlayerHost(): PlayerActivity? = playerHostRef?.get()
 
     fun attachMainHost(activity: MainActivity) {
-        mainHostRef = WeakReference(activity)
+        mainHostRef = attachHostReference(activity)
     }
 
     fun detachMainHost(activity: MainActivity) {
-        val current = mainHostRef?.get()
-        if (current === activity) {
-            mainHostRef = null
-        }
+        mainHostRef = detachHostReference(mainHostRef, activity)
     }
 
     fun currentMainHost(): MainActivity? = mainHostRef?.get()
 
     fun attachHomePaneHost(activity: HomePaneActivity) {
-        homePaneHostRef = WeakReference(activity)
+        homePaneHostRef = attachHostReference(activity)
     }
 
     fun detachHomePaneHost(activity: HomePaneActivity) {
-        val current = homePaneHostRef?.get()
-        if (current === activity) {
-            homePaneHostRef = null
-        }
+        homePaneHostRef = detachHostReference(homePaneHostRef, activity)
     }
 
     fun currentHomePaneHost(): HomePaneActivity? = homePaneHostRef?.get()
 
     fun attachBrowseHost(activity: FlutterHostActivity) {
-        browseHostRef = WeakReference(activity)
+        browseHostRef = attachHostReference(activity)
     }
 
     fun detachBrowseHost(activity: FlutterHostActivity) {
-        val current = browseHostRef?.get()
-        if (current === activity) {
-            browseHostRef = null
-        }
+        browseHostRef = detachHostReference(browseHostRef, activity)
     }
 
     fun currentBrowseHost(): FlutterHostActivity? =
@@ -387,5 +375,19 @@ object ParallelWindowCoordinator {
     @Synchronized
     private fun pruneRightPaneHostsLocked() {
         rightPaneHostRefs.removeAll { reference -> reference.get() == null }
+    }
+
+    private fun <T : Any> attachHostReference(activity: T): WeakReference<T> = WeakReference(activity)
+
+    private fun <T : Any> detachHostReference(
+        currentRef: WeakReference<T>?,
+        activity: T,
+    ): WeakReference<T>? {
+        val current = currentRef?.get()
+        return if (current === activity) {
+            null
+        } else {
+            currentRef
+        }
     }
 }

@@ -17,7 +17,10 @@ import '../models/download_task_record.dart';
 import 'play_stats/play_stats_database.dart';
 import 'download_task_service.dart';
 import '../theme/app_theme.dart';
+import '../theme/dynamic_theme_runtime_controller.dart';
+import '../theme/dynamic_theme_seed_extractor.dart';
 
+/// 定义存储概览中展示的存储分类。
 enum StorageItemKind {
   playbackCache,
   downloads,
@@ -28,6 +31,7 @@ enum StorageItemKind {
   otherCache,
 }
 
+/// 定义设置页允许执行的存储清理动作。
 enum StorageClearAction {
   clearPlaybackCache,
   clearDownloads,
@@ -42,6 +46,7 @@ enum StorageClearAction {
   resetSettings,
 }
 
+/// 表示存储概览中的单项统计结果。
 class StorageBreakdownItem {
   final StorageItemKind kind;
   final String title;
@@ -53,6 +58,7 @@ class StorageBreakdownItem {
   final StorageClearAction? clearAction;
   final String? note;
 
+  /// 根据分类统计信息构造概览条目。
   const StorageBreakdownItem({
     required this.kind,
     required this.title,
@@ -66,24 +72,30 @@ class StorageBreakdownItem {
   });
 }
 
+/// 汇总设置页存储管理所需的统计快照。
 class StorageOverview {
   final int totalBytes;
   final DateTime updatedAt;
   final List<StorageBreakdownItem> items;
   final int bookmarksBytes;
   final int savedThemesBytes;
+  final int dynamicThemeCacheBytes;
+  final int dynamicThemeCacheEntries;
   final int danmakuSourcesBytes;
   final int danmakuCacheBytes;
   final int loginHistoryBytes;
   final int playStatsBytes;
   final int otherSettingsBytes;
 
+  /// 根据各分类统计结果构造概览对象。
   const StorageOverview({
     required this.totalBytes,
     required this.updatedAt,
     required this.items,
     required this.bookmarksBytes,
     required this.savedThemesBytes,
+    required this.dynamicThemeCacheBytes,
+    required this.dynamicThemeCacheEntries,
     required this.danmakuSourcesBytes,
     required this.danmakuCacheBytes,
     required this.loginHistoryBytes,
@@ -92,11 +104,13 @@ class StorageOverview {
   });
 }
 
+/// 表示一次存储清理动作的执行结果。
 class StorageActionResult {
   final bool success;
   final String code;
   final bool restricted;
 
+  /// 根据执行状态与结果代码构造对象。
   const StorageActionResult({
     required this.success,
     this.code = '',
@@ -104,6 +118,7 @@ class StorageActionResult {
   });
 }
 
+/// 表示一条可管理的播放缓存记录。
 class PlaybackCacheEntry {
   final String resourceKey;
   final String itemGuid;
@@ -121,6 +136,7 @@ class PlaybackCacheEntry {
   final String mimeType;
   final DateTime lastAccessAt;
 
+  /// 根据播放缓存元数据构造对象。
   const PlaybackCacheEntry({
     required this.resourceKey,
     required this.itemGuid,
@@ -139,6 +155,7 @@ class PlaybackCacheEntry {
     required this.lastAccessAt,
   });
 
+  /// 从平台层映射恢复播放缓存记录。
   factory PlaybackCacheEntry.fromMap(Map<String, dynamic> raw) {
     final lastAccessMs = raw['lastAccessAtMs'] is num
         ? (raw['lastAccessAtMs'] as num).toInt()
@@ -169,12 +186,14 @@ class PlaybackCacheEntry {
   }
 }
 
+/// 标识一份可提升为下载文件的缓存媒体来源。
 class CachedMediaSourceIdentity {
   final String itemGuid;
   final String mediaGuid;
   final String videoGuid;
   final String resourceKey;
 
+  /// 根据缓存媒体标识字段构造对象。
   const CachedMediaSourceIdentity({
     required this.itemGuid,
     required this.mediaGuid,
@@ -182,6 +201,7 @@ class CachedMediaSourceIdentity {
     this.resourceKey = '',
   });
 
+  /// 转换为平台层调用所需的映射结构。
   Map<String, Object?> toMap() {
     return <String, Object?>{
       'itemGuid': itemGuid.trim(),
@@ -192,6 +212,7 @@ class CachedMediaSourceIdentity {
   }
 }
 
+/// 描述缓存媒体是否允许提升为离线下载文件。
 class CachedMediaDownloadability {
   final bool found;
   final bool downloadable;
@@ -203,6 +224,7 @@ class CachedMediaDownloadability {
   final String suggestedFileName;
   final String title;
 
+  /// 根据缓存可提升性结果构造对象。
   const CachedMediaDownloadability({
     required this.found,
     required this.downloadable,
@@ -215,6 +237,7 @@ class CachedMediaDownloadability {
     required this.title,
   });
 
+  /// 从平台层映射恢复缓存可提升性结果。
   factory CachedMediaDownloadability.fromMap(Map<String, dynamic> raw) {
     return CachedMediaDownloadability(
       found: raw['found'] == true,
@@ -232,12 +255,14 @@ class CachedMediaDownloadability {
   }
 }
 
+/// 表示缓存媒体提升到目标目录后的执行结果。
 class CachedMediaPromoteResult {
   final bool success;
   final String code;
   final String path;
   final String fileName;
 
+  /// 根据缓存提升结果构造对象。
   const CachedMediaPromoteResult({
     required this.success,
     required this.code,
@@ -245,6 +270,7 @@ class CachedMediaPromoteResult {
     required this.fileName,
   });
 
+  /// 从平台层映射恢复缓存提升结果。
   factory CachedMediaPromoteResult.fromMap(Map<String, dynamic> raw) {
     return CachedMediaPromoteResult(
       success: raw['success'] == true,
@@ -255,6 +281,7 @@ class CachedMediaPromoteResult {
   }
 }
 
+/// 提供设置页存储统计、清理与缓存提升能力。
 class StorageManagementService {
   StorageManagementService._();
 
@@ -336,6 +363,7 @@ class StorageManagementService {
     _settingsSearchUsageKey,
   };
 
+  /// 加载当前应用可展示的存储概览统计。
   Future<StorageOverview> loadOverview() async {
     final nativeRaw =
         await _channel.invokeMapMethod<Object?, Object?>(
@@ -367,6 +395,16 @@ class StorageManagementService {
       _danmakuSourcesKey,
       danmakuSourcesValue,
     );
+    final dynamicThemeCacheBytes =
+        DynamicThemeSeedExtractor.estimatePersistentCacheBytes(prefs) +
+        DynamicThemeRuntimeController.instance.estimatePersistentCacheBytes(
+          prefs,
+        );
+    final dynamicThemeCacheEntries =
+        DynamicThemeSeedExtractor.countPersistentCacheEntries(prefs) +
+        DynamicThemeRuntimeController.instance.countPersistentCacheEntries(
+          prefs,
+        );
     final danmakuCacheBytes = await _estimateDanmakuCacheBytes();
     final loginHistoryBytes = _estimatePrefEntryBytes(
       _loginHistoryKey,
@@ -381,6 +419,7 @@ class StorageManagementService {
     final appDataBytes =
         bookmarksBytes +
         savedThemesBytes +
+        dynamicThemeCacheBytes +
         danmakuSourcesBytes +
         danmakuCacheBytes +
         loginHistoryBytes +
@@ -467,6 +506,8 @@ class StorageManagementService {
       items: items,
       bookmarksBytes: bookmarksBytes,
       savedThemesBytes: savedThemesBytes,
+      dynamicThemeCacheBytes: dynamicThemeCacheBytes,
+      dynamicThemeCacheEntries: dynamicThemeCacheEntries,
       danmakuSourcesBytes: danmakuSourcesBytes,
       danmakuCacheBytes: danmakuCacheBytes,
       loginHistoryBytes: loginHistoryBytes,
@@ -475,6 +516,7 @@ class StorageManagementService {
     );
   }
 
+  /// 执行依赖平台层支持的存储清理动作。
   Future<StorageActionResult> clearSystemAction(
     StorageClearAction action,
   ) async {
@@ -517,8 +559,10 @@ class StorageManagementService {
     );
   }
 
+  /// 清空播放器书签数据。
   Future<void> clearBookmarks() => const BookmarkStore().clearAll();
 
+  /// 清空已保存主题并刷新主题提供者状态。
   Future<void> clearSavedThemes(AppThemeProvider themeProvider) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_savedThemesKey);
@@ -533,13 +577,23 @@ class StorageManagementService {
     await themeProvider.load();
   }
 
+  /// 清空动态主题种子缓存。
+  Future<void> clearDynamicThemeSeedCache() async {
+    final prefs = await SharedPreferences.getInstance();
+    await DynamicThemeRuntimeController.instance.clearCachedSeeds(prefs: prefs);
+    await DynamicThemeSeedExtractor.clearCache(prefs: prefs);
+  }
+
+  /// 清空已保存弹幕来源及其评论缓存。
   Future<void> clearDanmakuSources() async {
     await const DanmakuSavedSourceStore().clearAll();
     await const DanDanPlayCommentCacheStore().clearAll();
   }
 
+  /// 清空登录历史记录。
   Future<void> clearLoginHistory() => LoginHistoryStore.clear();
 
+  /// 将可重置的播放器与主题设置恢复为默认值。
   Future<void> resetSettings({
     required AppThemeProvider themeProvider,
     required ParallelWindowSettingsProvider parallelWindowSettingsProvider,
@@ -557,6 +611,8 @@ class StorageManagementService {
         await prefs.remove(key);
       }
     }
+    await DynamicThemeRuntimeController.instance.clearCachedSeeds(prefs: prefs);
+    await DynamicThemeSeedExtractor.clearCache(prefs: prefs);
     await _channel.invokeMethod<Object?>(
       'clearStorageAction',
       const <String, Object?>{'action': 'clearParallelWindowSettings'},
@@ -569,8 +625,10 @@ class StorageManagementService {
     await parallelWindowSettingsProvider.load();
   }
 
+  /// 清空应用日志与崩溃日志。
   Future<void> clearLogs() => AppLogService.instance.clear();
 
+  /// 列出当前可管理的播放缓存记录。
   Future<List<PlaybackCacheEntry>> loadPlaybackCacheEntries() async {
     final raw =
         await _channel.invokeListMethod<Object?>('listPlaybackCacheEntries') ??
@@ -580,6 +638,7 @@ class StorageManagementService {
         .toList(growable: false);
   }
 
+  /// 按资源键批量清理播放缓存记录。
   Future<StorageActionResult> clearPlaybackCacheEntries(
     List<String> resourceKeys,
   ) async {
@@ -604,12 +663,14 @@ class StorageManagementService {
     );
   }
 
+  /// 列出当前已下载完成的离线任务记录。
   Future<List<DownloadTaskRecord>> loadDownloadEntries() async {
     final service = DownloadTaskService.instance;
     await service.initialize();
     return service.downloadedRecords;
   }
 
+  /// 按记录标识批量删除已下载离线文件。
   Future<StorageActionResult> clearDownloadEntries(
     List<String> recordIds,
   ) async {
@@ -629,6 +690,7 @@ class StorageManagementService {
     );
   }
 
+  /// 查询一份缓存媒体是否允许提升到外部目录。
   Future<CachedMediaDownloadability> canPromoteCachedMedia(
     CachedMediaSourceIdentity identity,
   ) async {
@@ -641,6 +703,7 @@ class StorageManagementService {
     return CachedMediaDownloadability.fromMap(_normalizeMap(raw));
   }
 
+  /// 将缓存媒体提升到目标存储位置。
   Future<CachedMediaPromoteResult> promoteCachedMedia(
     CachedMediaSourceIdentity identity, {
     String targetMode = 'appExternalMovies',
@@ -661,6 +724,7 @@ class StorageManagementService {
     return CachedMediaPromoteResult.fromMap(_normalizeMap(raw));
   }
 
+  /// 将字节数格式化为适合界面展示的字符串。
   String formatBytes(int bytes) {
     if (bytes <= 0) return '0 B';
     const units = <String>['B', 'KB', 'MB', 'GB', 'TB'];

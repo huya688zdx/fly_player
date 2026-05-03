@@ -1,7 +1,7 @@
+import '../l10n/generated/app_localizations.dart';
 import '../models/stream_list_option.dart';
 import '../models/stream_track_data.dart';
 import 'media_language_mapper.dart';
-import 'media_locale_store.dart';
 
 class TrackSelectionSyncResult {
   final String? subtitleGuid;
@@ -126,28 +126,20 @@ class PlayDetailTrackSelector {
   static String subtitleLabelForCurrentMedia({
     required String? selectedSubtitleGuid,
     required List<SubtitleTrackOption> subtitleTracks,
-    Map<String, dynamic> localeMap = const <String, dynamic>{},
+    required AppLocalizations l10n,
   }) {
-    final offLabel = MediaLocaleStore.text(
-      localeMap,
-      'stream.subtitle.hiddenSubtitle',
-      fallback: '关闭字幕',
-    );
-    final fallbackLabel = MediaLocaleStore.text(
-      localeMap,
-      'stream.subtitle.noSubtitleTips',
-      fallback: '无字幕',
-    );
+    final offLabel = l10n.trackSubtitleOff;
+    final fallbackLabel = l10n.trackSubtitleNone;
     if (selectedSubtitleGuid == null || selectedSubtitleGuid.isEmpty) {
       return offLabel;
     }
     for (final track in subtitleTracks) {
       if (track.guid == selectedSubtitleGuid) {
-        return subtitleOptionTitle(track, localeMap: localeMap);
+        return subtitleOptionTitle(track, l10n: l10n);
       }
     }
     if (subtitleTracks.isNotEmpty) {
-      return subtitleOptionTitle(subtitleTracks.first, localeMap: localeMap);
+      return subtitleOptionTitle(subtitleTracks.first, l10n: l10n);
     }
     return fallbackLabel;
   }
@@ -156,13 +148,9 @@ class PlayDetailTrackSelector {
     required String? selectedAudioGuid,
     required List<AudioTrackOption> audioTracks,
     required StreamListOption? selectedOption,
-    Map<String, dynamic> localeMap = const <String, dynamic>{},
+    required AppLocalizations l10n,
   }) {
-    final fallbackLabel = MediaLocaleStore.text(
-      localeMap,
-      'stream.audio.noAudioTips',
-      fallback: '无音频',
-    );
+    final fallbackLabel = l10n.trackAudioNone;
     for (final track in audioTracks) {
       if (track.guid == selectedAudioGuid) return track.displayLabel;
     }
@@ -173,51 +161,37 @@ class PlayDetailTrackSelector {
 
   static String subtitleDisplayLabel(
     SubtitleTrackOption track, {
-    Map<String, dynamic> localeMap = const <String, dynamic>{},
+    required AppLocalizations l10n,
   }) {
-    return subtitleOptionTitle(track, localeMap: localeMap);
+    return subtitleOptionTitle(track, l10n: l10n);
   }
 
   static String subtitleDetailLabel(
     SubtitleTrackOption track, {
-    Map<String, dynamic> localeMap = const <String, dynamic>{},
+    required AppLocalizations l10n,
   }) {
-    return subtitleOptionSubtitle(track, localeMap: localeMap);
+    return subtitleOptionSubtitle(track, l10n: l10n);
   }
 
   static String subtitleOptionTitle(
     SubtitleTrackOption track, {
-    Map<String, dynamic> localeMap = const <String, dynamic>{},
+    required AppLocalizations l10n,
   }) {
     final language = MediaLanguageMapper.subtitleLabel(track.language).trim();
-    final unknownSubtitle = MediaLocaleStore.text(
-      localeMap,
-      'stream.subtitle.unknownName',
-      fallback: '未知语言',
-    );
+    final unknownSubtitle = l10n.trackSubtitleUnknownLanguage;
     final normalized =
         (language.isEmpty || language == '字幕' || language == '未知')
         ? unknownSubtitle
         : language;
     final suffix = track.isDefaultOption
-        ? MediaLocaleStore.text(
-            localeMap,
-            'stream.subtitle.defaultSuffix',
-            fallback: '默认',
-          )
-        : (track.isExternal == 1
-              ? MediaLocaleStore.text(
-                  localeMap,
-                  'stream.subtitle.externalSuffix',
-                  fallback: '外挂',
-                )
-              : '');
+        ? l10n.trackSubtitleDefaultSuffix
+        : (track.isExternal == 1 ? l10n.trackSubtitleExternalSuffix : '');
     return suffix.isEmpty ? normalized : '$normalized-$suffix';
   }
 
   static String subtitleOptionSubtitle(
     SubtitleTrackOption track, {
-    Map<String, dynamic> localeMap = const <String, dynamic>{},
+    required AppLocalizations l10n,
   }) {
     final fmt = (track.format.isNotEmpty ? track.format : track.codecName)
         .trim()
@@ -228,11 +202,7 @@ class PlayDetailTrackSelector {
       if (title.isNotEmpty) title,
     ];
     if (parts.isNotEmpty) return parts.join('  ');
-    return MediaLocaleStore.text(
-      localeMap,
-      'stream.subtitle.name',
-      fallback: '字幕',
-    );
+    return l10n.trackSubtitleName;
   }
 
   static AudioTrackOption? selectedOrFirstAudio({
@@ -259,6 +229,35 @@ class PlayDetailTrackSelector {
       }
     }
     return subtitleTracks.isNotEmpty ? subtitleTracks.first : null;
+  }
+
+  static bool subtitlePrefersExternalFile(SubtitleTrackOption? track) {
+    return track != null &&
+        (track.isExternal == 1 ||
+            track.extraFile == 1 ||
+            track.guid.startsWith('local:'));
+  }
+
+  static int? embeddedSubtitleTrackIndex({
+    required SubtitleTrackOption? selectedSubtitle,
+    required List<SubtitleTrackOption> subtitleTracks,
+  }) {
+    if (selectedSubtitle == null ||
+        subtitlePrefersExternalFile(selectedSubtitle)) {
+      return null;
+    }
+    final embeddedTracks = subtitleTracks
+        .where((track) {
+          if (track.guid.trim().isEmpty) return false;
+          if (track.guid.startsWith('local:')) return false;
+          return track.isExternal != 1 && track.extraFile != 1;
+        })
+        .toList(growable: false);
+    final ordinal = embeddedTracks.indexWhere(
+      (track) => track.guid == selectedSubtitle.guid,
+    );
+    if (ordinal < 0) return null;
+    return ordinal + 1;
   }
 
   static String? pickInitialSubtitleGuid({

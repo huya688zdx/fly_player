@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import '../../l10n/generated/app_localizations.dart';
 import 'player_backdrop_image.dart';
 
 class PlayerListenVideoPresentation extends StatelessWidget {
@@ -44,18 +45,18 @@ class PlayerListenVideoPresentation extends StatelessWidget {
                 ),
               ),
             ),
-            Positioned.fill(
+            const Positioned.fill(
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: <Color>[
-                      const Color(0x52060A12),
-                      const Color(0x82111B2C),
-                      const Color(0xAA17263A),
+                      Color(0x52060A12),
+                      Color(0x82111B2C),
+                      Color(0xAA17263A),
                     ],
-                    stops: const <double>[0, 0.46, 1],
+                    stops: <double>[0, 0.46, 1],
                   ),
                 ),
               ),
@@ -138,11 +139,13 @@ class PlayerListenVideoPresentation extends StatelessWidget {
                         ),
                         child: useSideBySideLayout
                             ? _buildLandscapeContent(
+                                context: context,
                                 posterSize: landscapePosterSize,
                                 titleStyle: titleStyle,
                                 subtitleStyle: subtitleStyle,
                               )
                             : _buildPortraitContent(
+                                context: context,
                                 posterSize: portraitPosterSize,
                                 titleStyle: titleStyle,
                                 subtitleStyle: subtitleStyle,
@@ -160,6 +163,7 @@ class PlayerListenVideoPresentation extends StatelessWidget {
   }
 
   Widget _buildPortraitContent({
+    required BuildContext context,
     required double posterSize,
     required TextStyle? titleStyle,
     required TextStyle? subtitleStyle,
@@ -172,6 +176,7 @@ class PlayerListenVideoPresentation extends StatelessWidget {
           _buildArtworkCard(posterSize),
           SizedBox(height: compactUi ? 22 : 28),
           _buildTitleBlock(
+            context: context,
             center: true,
             titleStyle: titleStyle,
             subtitleStyle: subtitleStyle,
@@ -182,6 +187,7 @@ class PlayerListenVideoPresentation extends StatelessWidget {
   }
 
   Widget _buildLandscapeContent({
+    required BuildContext context,
     required double posterSize,
     required TextStyle? titleStyle,
     required TextStyle? subtitleStyle,
@@ -193,6 +199,7 @@ class PlayerListenVideoPresentation extends StatelessWidget {
         SizedBox(width: compactUi ? 24 : 34),
         Flexible(
           child: _buildTitleBlock(
+            context: context,
             center: false,
             titleStyle: titleStyle?.copyWith(fontSize: compactUi ? 24 : 28),
             subtitleStyle: subtitleStyle?.copyWith(
@@ -256,6 +263,7 @@ class PlayerListenVideoPresentation extends StatelessWidget {
   }
 
   Widget _buildTitleBlock({
+    required BuildContext context,
     required bool center,
     required TextStyle? titleStyle,
     required TextStyle? subtitleStyle,
@@ -267,7 +275,9 @@ class PlayerListenVideoPresentation extends StatelessWidget {
           : CrossAxisAlignment.start,
       children: [
         Text(
-          title.trim().isEmpty ? '当前视频' : title.trim(),
+          title.trim().isEmpty
+              ? AppLocalizations.of(context).playerCurrentVideo
+              : title.trim(),
           key: const Key('playerListenVideoTitle'),
           textAlign: center ? TextAlign.center : TextAlign.left,
           maxLines: 2,

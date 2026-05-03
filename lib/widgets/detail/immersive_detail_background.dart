@@ -426,20 +426,33 @@ class _BackgroundImage extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final media = MediaQuery.of(context);
-        final dpr = media.devicePixelRatio.clamp(1.0, 2.2);
+        final isAndroid =
+            !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+        final dpr = media.devicePixelRatio.clamp(1.0, 1.6);
         final targetWidth = constraints.hasBoundedWidth
             ? constraints.maxWidth
             : media.size.width;
-        final cacheWidth = (targetWidth * dpr).round().clamp(720, 2048);
+        final cacheWidth = (targetWidth * dpr).round().clamp(560, 1440);
 
         return Image.network(
           currentUrl,
           fit: fit,
           alignment: alignment,
-          filterQuality: FilterQuality.medium,
+          filterQuality: isAndroid ? FilterQuality.low : FilterQuality.medium,
           gaplessPlayback: true,
           cacheWidth: cacheWidth,
           headers: {'Authorization': token, 'Trim-MC-token': token},
+          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+            if (wasSynchronouslyLoaded || isAndroid) {
+              return child;
+            }
+            return AnimatedOpacity(
+              opacity: frame == null ? 0 : 1,
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              child: child,
+            );
+          },
           errorBuilder: (_, error, ___) {
             final nextUrl = index + 1 < urls.length ? urls[index + 1] : null;
             debugPrint(

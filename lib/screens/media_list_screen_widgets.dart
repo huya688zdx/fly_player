@@ -6,11 +6,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     final baseUrl = provider.baseUrl;
     final token = provider.token;
     final colors = context.appColors;
-    final hasRuntimeDynamicTheme = context.select<AppThemeProvider, bool>(
-      (themeProvider) =>
-          themeProvider.dynamicThemeEnabled &&
-          themeProvider.runtimeDynamicThemeSeed != null,
-    );
+    final hasRuntimeDynamicTheme = context.hasRuntimeAppColors;
     final topSurfaceColor = hasRuntimeDynamicTheme
         ? Color.alphaBlend(
             colors.accentSoft.withValues(alpha: 0.16),
@@ -18,7 +14,11 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
           )
         : colors.backgroundBase;
 
-    final body = _buildBody(baseUrl, token);
+    final body = _buildBody(
+      baseUrl,
+      token,
+      hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
+    );
 
     return Scaffold(
       backgroundColor: topSurfaceColor,
@@ -39,7 +39,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
               ? () => EmbeddedDetailLauncher.closeHostOrPop(context)
               : _confirmLogout,
         ),
-        title: Text(_t('layout.sidebar.home', '首页')),
+        title: Text(_t('layout.sidebar.home', 'Home')),
         actions: <Widget>[
           IconButton(
             icon: const Icon(Icons.search),
@@ -75,16 +75,21 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     );
   }
 
-  Widget _buildBody(String baseUrl, String token) {
+  Widget _buildBody(
+    String baseUrl,
+    String token, {
+    required bool hasRuntimeDynamicTheme,
+  }) {
     final layout = MediaLayoutProfile.of(context);
     final isConfigured = context.watch<NasProvider>().isConfigured;
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     if (!isConfigured) {
       return Center(
         child: Padding(
-          padding: EdgeInsets.all(20),
+          padding: const EdgeInsets.all(20),
           child: Text(
-            '请先到“设置”页登录 NAS，再返回影视页加载内容。',
+            l10n.homeLoginRequired,
             textAlign: TextAlign.center,
             style: TextStyle(color: colors.textSecondary, fontSize: 15),
           ),
@@ -107,7 +112,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     if (_categories.isEmpty) {
       return Center(
         child: Text(
-          _t('common.other.empty', '没有内容'),
+          _t('common.other.empty', 'No content'),
           style: TextStyle(color: colors.textSecondary),
         ),
       );
@@ -143,6 +148,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
                   movie: movie,
                   tv: tv,
                   other: other,
+                  hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
                 ),
               ),
             ),
@@ -191,6 +197,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     required int movie,
     required int tv,
     required int other,
+    required bool hasRuntimeDynamicTheme,
   }) {
     final colors = context.appColors;
     return Column(
@@ -200,7 +207,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
         const SizedBox(height: 10),
         if (_continueWatching.isNotEmpty) ...<Widget>[
           Text(
-            _t('layout.list.continueWatching', '继续观看'),
+            _t('layout.list.continueWatching', 'Continue watching'),
             style: TextStyle(
               color: colors.textPrimary,
               fontSize: 22,
@@ -228,26 +235,29 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
           children: <Widget>[
             Expanded(
               child: _buildStatCard(
-                _t('common.actions.favorite.favorite', '收藏'),
+                _t('common.actions.favorite.favorite', 'Favorites'),
                 favorite,
+                hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
                 onTap: _openFavorites,
               ),
             ),
             const SizedBox(width: 6),
             Expanded(
               child: _buildStatCard(
-                _t('layout.sidebar.allList', '全部影视'),
+                _t('layout.sidebar.allList', 'All media'),
                 total,
+                hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
                 onTap: _openAllItems,
               ),
             ),
             const SizedBox(width: 6),
             Expanded(
               child: _buildStatCard(
-                _t('layout.sidebar.movieList', '电影'),
+                _t('layout.sidebar.movieList', 'Movies'),
                 movie,
+                hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
                 onTap: () => _openAllItemsByType(
-                  _t('layout.sidebar.movieList', '电影'),
+                  _t('layout.sidebar.movieList', 'Movies'),
                   const <String>['Movie'],
                 ),
               ),
@@ -255,10 +265,11 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
             const SizedBox(width: 6),
             Expanded(
               child: _buildStatCard(
-                _t('layout.sidebar.tvList', '电视剧'),
+                _t('layout.sidebar.tvList', 'TV'),
                 tv,
+                hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
                 onTap: () => _openAllItemsByType(
-                  _t('layout.sidebar.tvList', '电视剧'),
+                  _t('layout.sidebar.tvList', 'TV'),
                   const <String>['TV'],
                 ),
               ),
@@ -266,10 +277,11 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
             const SizedBox(width: 6),
             Expanded(
               child: _buildStatCard(
-                _t('layout.sidebar.otherList', '其他'),
+                _t('layout.sidebar.otherList', 'Other'),
                 other,
+                hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
                 onTap: () => _openAllItemsByType(
-                  _t('layout.sidebar.otherList', '其他'),
+                  _t('layout.sidebar.otherList', 'Other'),
                   const <String>['Directory', 'Video'],
                 ),
               ),
@@ -301,7 +313,8 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
               : (category.path?.isNotEmpty ?? false)
               ? <String>[category.path!]
               : const <String>[];
-          final posters = source.take(3).toList();
+          final posterLimit = widget.secondaryHost ? 1 : 2;
+          final posters = source.take(posterLimit).toList();
           return _CategoryPosterCard(
             title: category.name,
             posterUrls: posters
@@ -421,7 +434,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
               const SizedBox(height: 1),
               Text(
                 item.type.trim().toLowerCase() == 'movie'
-                    ? _t('layout.list.filter.type.movie', '电影')
+                    ? _t('layout.list.filter.type.movie', 'Movies')
                     : _continueEpisodeText(item),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -434,13 +447,13 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     );
   }
 
-  Widget _buildStatCard(String label, int value, {VoidCallback? onTap}) {
+  Widget _buildStatCard(
+    String label,
+    int value, {
+    required bool hasRuntimeDynamicTheme,
+    VoidCallback? onTap,
+  }) {
     final colors = context.appColors;
-    final hasRuntimeDynamicTheme = context.select<AppThemeProvider, bool>(
-      (themeProvider) =>
-          themeProvider.dynamicThemeEnabled &&
-          themeProvider.runtimeDynamicThemeSeed != null,
-    );
     final child = Container(
       height: 58,
       decoration: BoxDecoration(
@@ -512,7 +525,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
         height: 220,
         child: Center(
           child: Text(
-            _t('common.other.empty', '没有内容'),
+            _t('common.other.empty', 'No content'),
             style: TextStyle(color: colors.textMuted),
           ),
         ),
@@ -683,7 +696,7 @@ class _CategoryPosterCard extends StatelessWidget {
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                       height: 1.05,
-                      shadows: <Shadow>[
+                      shadows: const <Shadow>[
                         Shadow(
                           color: Color(0xB0000000),
                           blurRadius: 6,
@@ -707,9 +720,12 @@ class _ContinueDownloadBadge extends StatelessWidget {
 
   const _ContinueDownloadBadge({required this.itemGuid});
 
+  static const Color _backgroundColor = Color(0x94000000);
+  static const Color _borderColor = Color(0xB33A82F7);
+  static const Color _textColor = Color(0xFFF3F8FF);
+
   @override
   Widget build(BuildContext context) {
-    final colors = context.appColors;
     return ListenableBuilder(
       listenable: DownloadTaskService.instance,
       builder: (context, child) {
@@ -724,17 +740,14 @@ class _ContinueDownloadBadge extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.58),
+          color: _backgroundColor,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: colors.accent.withValues(alpha: 0.7),
-            width: 0.8,
-          ),
+          border: Border.all(color: _borderColor, width: 0.8),
         ),
-        child: Text(
+        child: const Text(
           '\u5df2\u4e0b\u8f7d',
           style: TextStyle(
-            color: colors.textPrimary,
+            color: _textColor,
             fontSize: 12,
             fontWeight: FontWeight.w700,
           ),
@@ -763,12 +776,24 @@ class _PosterImage extends StatefulWidget {
 
 class _PosterImageState extends State<_PosterImage> {
   int _index = 0;
+  bool _fallbackScheduled = false;
+  late Map<String, String> _headers;
+
+  @override
+  void initState() {
+    super.initState();
+    _headers = _imageHeaders(widget.token);
+  }
 
   @override
   void didUpdateWidget(covariant _PosterImage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!listEquals(oldWidget.urls, widget.urls)) {
       _index = 0;
+      _fallbackScheduled = false;
+    }
+    if (oldWidget.token != widget.token) {
+      _headers = _imageHeaders(widget.token);
     }
   }
 
@@ -781,11 +806,6 @@ class _PosterImageState extends State<_PosterImage> {
     }
 
     final current = widget.urls[_index];
-    final headers = <String, String>{
-      'Authorization': widget.token,
-      'Trim-MC-token': widget.token,
-    };
-
     return LayoutBuilder(
       builder: (context, constraints) {
         final dpr = MediaQuery.of(context).devicePixelRatio;
@@ -799,28 +819,14 @@ class _PosterImageState extends State<_PosterImage> {
         return Image.network(
           current,
           fit: BoxFit.cover,
-          headers: headers,
+          headers: _headers,
           filterQuality: FilterQuality.none,
           gaplessPlayback: true,
           cacheWidth: cacheWidth,
           cacheHeight: cacheHeight,
           frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
             final loaded = wasSynchronouslyLoaded || frame != null;
-            if (widget.lightweight) {
-              return loaded ? child : widget.fallback;
-            }
-            return Stack(
-              fit: StackFit.expand,
-              children: <Widget>[
-                widget.fallback,
-                AnimatedOpacity(
-                  opacity: loaded ? 1 : 0,
-                  duration: const Duration(milliseconds: 240),
-                  curve: Curves.linear,
-                  child: child,
-                ),
-              ],
-            );
+            return _buildImageFrame(child, loaded);
           },
           errorBuilder: (context, error, stackTrace) {
             if (_index < widget.urls.length - 1) {
@@ -828,11 +834,7 @@ class _PosterImageState extends State<_PosterImage> {
               debugPrint(
                 '[IMG][MEDIA_LIST] failed url=$current error=$error -> fallback=$nextUrl',
               );
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) {
-                  setState(() => _index++);
-                }
-              });
+              _scheduleFallback();
               return widget.fallback;
             }
             debugPrint(
@@ -844,4 +846,29 @@ class _PosterImageState extends State<_PosterImage> {
       },
     );
   }
+
+  Widget _buildImageFrame(Widget child, bool loaded) {
+    if (loaded) return child;
+    return widget.fallback;
+  }
+
+  void _scheduleFallback() {
+    if (_fallbackScheduled) return;
+    _fallbackScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_index >= widget.urls.length - 1) {
+        _fallbackScheduled = false;
+        return;
+      }
+      setState(() {
+        _fallbackScheduled = false;
+        _index += 1;
+      });
+    });
+  }
+}
+
+Map<String, String> _imageHeaders(String token) {
+  return <String, String>{'Authorization': token, 'Trim-MC-token': token};
 }

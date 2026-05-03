@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// 表示一次登录记录的持久化内容。
 class LoginHistoryEntry {
   final String baseUrl;
   final String userName;
@@ -9,6 +10,7 @@ class LoginHistoryEntry {
   final bool rememberPassword;
   final int updatedAtMillis;
 
+  /// 根据登录信息构造历史记录对象。
   const LoginHistoryEntry({
     required this.baseUrl,
     required this.userName,
@@ -17,6 +19,7 @@ class LoginHistoryEntry {
     required this.updatedAtMillis,
   });
 
+  /// 从持久化映射恢复登录记录。
   factory LoginHistoryEntry.fromJson(Map<String, dynamic> json) {
     return LoginHistoryEntry(
       baseUrl: (json['baseUrl'] ?? '').toString(),
@@ -27,6 +30,7 @@ class LoginHistoryEntry {
     );
   }
 
+  /// 将登录记录序列化为可持久化映射。
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
       'baseUrl': baseUrl,
@@ -40,12 +44,14 @@ class LoginHistoryEntry {
   String get dedupeKey => '${baseUrl.trim()}::${userName.trim()}';
 }
 
+/// 管理登录历史记录的读取与写入。
 class LoginHistoryStore {
   static const String _historyKey = 'login_history_v1';
   static const int _maxHistoryCount = 10;
 
   const LoginHistoryStore._();
 
+  /// 读取并按最近更新时间排序返回登录历史。
   static Future<List<LoginHistoryEntry>> load() async {
     final prefs = await SharedPreferences.getInstance();
     final rawEntries = prefs.getStringList(_historyKey) ?? const <String>[];
@@ -68,6 +74,7 @@ class LoginHistoryStore {
     return entries;
   }
 
+  /// 保存一条登录历史，并按去重规则返回最新列表。
   static Future<List<LoginHistoryEntry>> save(LoginHistoryEntry entry) async {
     final prefs = await SharedPreferences.getInstance();
     final current = await load();
@@ -85,6 +92,7 @@ class LoginHistoryStore {
     return next;
   }
 
+  /// 删除指定登录历史，并返回更新后的列表。
   static Future<List<LoginHistoryEntry>> remove(LoginHistoryEntry entry) async {
     final prefs = await SharedPreferences.getInstance();
     final current = await load();
@@ -98,6 +106,7 @@ class LoginHistoryStore {
     return next;
   }
 
+  /// 清空全部登录历史记录。
   static Future<void> clear() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_historyKey);

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../providers/parallel_window_settings_provider.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
@@ -13,6 +14,7 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final settings = context.watch<ParallelWindowSettingsProvider>();
+    final l10n = AppLocalizations.of(context);
     final bodySize = AdaptiveText.roleSize(14.5);
 
     return Scaffold(
@@ -20,7 +22,7 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
       appBar: buildSecondaryHostAppBar(
         context,
         title: Text(
-          '平行窗口设置',
+          l10n.parallelWindowTitle,
           style: TextStyle(
             color: colors.textPrimary,
             fontSize: AdaptiveText.roleSize(20, role: AdaptiveFontRole.title),
@@ -41,12 +43,6 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
             children: <Widget>[
-              const _DetailHeroCard(
-                icon: Icons.splitscreen_outlined,
-                title: '平行窗口',
-                subtitle: '控制主副屏位置、分屏比例，以及播放时默认优先全屏还是优先进入分屏播放。',
-              ),
-              const SizedBox(height: 18),
               _SettingsBlock(
                 child: Column(
                   children: <Widget>[
@@ -57,7 +53,7 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
                           ? (value) => settings.setEnabled(value)
                           : null,
                       title: Text(
-                        '启用平行窗口',
+                        l10n.parallelWindowEnableTitle,
                         style: TextStyle(
                           color: colors.textPrimary,
                           fontSize: AdaptiveText.roleSize(16),
@@ -65,7 +61,7 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
                         ),
                       ),
                       subtitle: Text(
-                        '开启后，大屏设备的二级页面优先在副屏展开；关闭后恢复普通单屏跳转。',
+                        l10n.parallelWindowEnableSubtitle,
                         style: TextStyle(
                           color: colors.textSecondary,
                           fontSize: bodySize,
@@ -73,7 +69,7 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 18),
-                    const _SectionTitle(title: '主屏位置'),
+                    _SectionTitle(title: l10n.parallelWindowPrimarySideTitle),
                     const SizedBox(height: 12),
                     Wrap(
                       spacing: 10,
@@ -81,8 +77,8 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
                       children: <Widget>[
                         _OptionChip(
                           selected: settings.preferredPrimaryPaneSide == 'left',
-                          title: '左侧主屏',
-                          subtitle: '默认首页在左，右侧展开详情或设置。',
+                          title: l10n.parallelWindowPrimaryLeftTitle,
+                          subtitle: l10n.parallelWindowPrimaryLeftSubtitle,
                           onTap: settings.isReady
                               ? () =>
                                     settings.setPreferredPrimaryPaneSide('left')
@@ -91,8 +87,8 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
                         _OptionChip(
                           selected:
                               settings.preferredPrimaryPaneSide == 'right',
-                          title: '右侧主屏',
-                          subtitle: '为后续需要右主左副的布局预留。',
+                          title: l10n.parallelWindowPrimaryRightTitle,
+                          subtitle: l10n.parallelWindowPrimaryRightSubtitle,
                           onTap: settings.isReady
                               ? () => settings.setPreferredPrimaryPaneSide(
                                   'right',
@@ -102,7 +98,7 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 18),
-                    const _SectionTitle(title: '播放主屏位置'),
+                    _SectionTitle(title: l10n.parallelWindowPlaybackSideTitle),
                     const SizedBox(height: 12),
                     Wrap(
                       spacing: 10,
@@ -112,8 +108,8 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
                           selected:
                               settings.preferredPlaybackPrimaryPaneSide ==
                               'left',
-                          title: '左侧为播放主屏',
-                          subtitle: '进入分屏播放后，左边保持播放器，右边放详情或首页。',
+                          title: l10n.parallelWindowPlaybackLeftTitle,
+                          subtitle: l10n.parallelWindowPlaybackLeftSubtitle,
                           onTap: settings.isReady
                               ? () => settings
                                     .setPreferredPlaybackPrimaryPaneSide('left')
@@ -123,8 +119,8 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
                           selected:
                               settings.preferredPlaybackPrimaryPaneSide ==
                               'right',
-                          title: '右侧为播放主屏',
-                          subtitle: '进入分屏播放后，右边保持播放器，左边放详情或首页。',
+                          title: l10n.parallelWindowPlaybackRightTitle,
+                          subtitle: l10n.parallelWindowPlaybackRightSubtitle,
                           onTap: settings.isReady
                               ? () => settings
                                     .setPreferredPlaybackPrimaryPaneSide(
@@ -135,7 +131,7 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 18),
-                    const _SectionTitle(title: '分屏比例'),
+                    _SectionTitle(title: l10n.parallelWindowSplitRatioTitle),
                     const SizedBox(height: 12),
                     Wrap(
                       spacing: 10,
@@ -144,7 +140,7 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
                         _OptionChip(
                           selected: settings.splitRatioPreset == 'balanced',
                           title: '42 / 58',
-                          subtitle: '默认，兼顾列表浏览和右侧详情。',
+                          subtitle: l10n.parallelWindowSplitBalancedSubtitle,
                           onTap: settings.isReady
                               ? () => settings.setSplitRatioPreset('balanced')
                               : null,
@@ -152,7 +148,7 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
                         _OptionChip(
                           selected: settings.splitRatioPreset == 'equal',
                           title: '50 / 50',
-                          subtitle: '左右均衡，适合需要同时操作两侧。',
+                          subtitle: l10n.parallelWindowSplitEqualSubtitle,
                           onTap: settings.isReady
                               ? () => settings.setSplitRatioPreset('equal')
                               : null,
@@ -160,7 +156,8 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
                         _OptionChip(
                           selected: settings.splitRatioPreset == 'focus_detail',
                           title: '35 / 65',
-                          subtitle: '副屏更宽，适合详情和播放信息更重的场景。',
+                          subtitle:
+                              l10n.parallelWindowSplitFocusDetailSubtitle,
                           onTap: settings.isReady
                               ? () =>
                                     settings.setSplitRatioPreset('focus_detail')
@@ -169,7 +166,7 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
                         _OptionChip(
                           selected: settings.splitRatioPreset == 'focus_home',
                           title: '45 / 55',
-                          subtitle: '主屏稍宽，适合首页或列表操作更多的场景。',
+                          subtitle: l10n.parallelWindowSplitFocusHomeSubtitle,
                           onTap: settings.isReady
                               ? () => settings.setSplitRatioPreset('focus_home')
                               : null,
@@ -185,7 +182,7 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
                                 settings.setDefaultPlaybackFullscreen(value)
                           : null,
                       title: Text(
-                        '默认播放全屏',
+                        l10n.parallelWindowDefaultFullscreenTitle,
                         style: TextStyle(
                           color: colors.textPrimary,
                           fontSize: AdaptiveText.roleSize(16),
@@ -194,8 +191,8 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
                       ),
                       subtitle: Text(
                         settings.defaultPlaybackFullscreen
-                            ? '点击播放后先进入全屏播放器，再由按钮切到分屏。'
-                            : '点击播放后优先保持平行窗口分屏，不先放大全屏。',
+                            ? l10n.parallelWindowDefaultFullscreenOnSubtitle
+                            : l10n.parallelWindowDefaultFullscreenOffSubtitle,
                         style: TextStyle(
                           color: colors.textSecondary,
                           fontSize: bodySize,
@@ -210,7 +207,7 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
                           ? (value) => settings.setImmersiveStatusBar(value)
                           : null,
                       title: Text(
-                        '平行窗口沉浸模式',
+                        l10n.parallelWindowImmersiveTitle,
                         style: TextStyle(
                           color: colors.textPrimary,
                           fontSize: AdaptiveText.roleSize(16),
@@ -219,8 +216,8 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
                       ),
                       subtitle: Text(
                         settings.immersiveStatusBar
-                            ? '进入平行窗口后隐藏状态栏，内容直接顶到屏幕顶部。'
-                            : '保留状态栏，使用常规分屏显示。',
+                            ? l10n.parallelWindowImmersiveOnSubtitle
+                            : l10n.parallelWindowImmersiveOffSubtitle,
                         style: TextStyle(
                           color: colors.textSecondary,
                           fontSize: bodySize,
@@ -233,77 +230,6 @@ class ParallelWindowSettingsScreen extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _DetailHeroCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-
-  const _DetailHeroCard({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: <Color>[colors.surfaceSubtle, colors.backgroundElevated],
-        ),
-        border: Border.all(color: colors.borderSubtle),
-      ),
-      child: Row(
-        children: <Widget>[
-          Container(
-            width: 54,
-            height: 54,
-            decoration: BoxDecoration(
-              color: colors.surfaceStrong,
-              borderRadius: BorderRadius.circular(18),
-            ),
-            alignment: Alignment.center,
-            child: Icon(icon, color: colors.textPrimary, size: 28),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  title,
-                  style: TextStyle(
-                    color: colors.textPrimary,
-                    fontSize: AdaptiveText.roleSize(
-                      18,
-                      role: AdaptiveFontRole.title,
-                    ),
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    color: colors.textSecondary,
-                    fontSize: AdaptiveText.roleSize(14),
-                    height: 1.4,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }

@@ -3,11 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../l10n/generated/app_localizations.dart';
 import '../../providers/app_theme_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/app_top_tip.dart';
 import '../common/named_preset_save_dialog.dart';
-import 'dynamic_page_theme_scope.dart';
 
 class DetailMoreActionItem {
   final IconData icon;
@@ -38,6 +38,7 @@ Future<void> showDetailMoreActionsSheet(
   final colors = context.appColors;
   final dynamicReady = snapshot?.hasDynamicTheme == true;
   final dynamicColors = snapshot?.effectiveColors ?? colors;
+  final l10n = AppLocalizations.of(context);
 
   final actions = <_DetailMoreSheetResult>[
     const _DetailMoreSheetResult(
@@ -60,6 +61,7 @@ Future<void> showDetailMoreActionsSheet(
     ),
     builder: (sheetContext) {
       final sheetColors = sheetContext.appColors;
+      final sheetL10n = AppLocalizations.of(sheetContext);
       return SafeArea(
         top: false,
         child: Padding(
@@ -80,7 +82,7 @@ Future<void> showDetailMoreActionsSheet(
               ),
               const SizedBox(height: 14),
               Text(
-                '更多操作',
+                sheetL10n.detailMoreActionsTitle,
                 style: TextStyle(
                   color: sheetColors.textPrimary,
                   fontSize: 20,
@@ -89,7 +91,9 @@ Future<void> showDetailMoreActionsSheet(
               ),
               const SizedBox(height: 6),
               Text(
-                pageTitle.trim().isEmpty ? '当前详情页' : pageTitle,
+                pageTitle.trim().isEmpty
+                    ? sheetL10n.detailCurrentPage
+                    : pageTitle,
                 style: TextStyle(
                   color: sheetColors.textSecondary,
                   fontSize: 13.5,
@@ -99,10 +103,10 @@ Future<void> showDetailMoreActionsSheet(
               const SizedBox(height: 14),
               _DetailMoreActionTile(
                 icon: Icons.bookmark_add_outlined,
-                title: '保存当前主题',
+                title: sheetL10n.detailSaveCurrentTheme,
                 subtitle: dynamicReady
-                    ? '把当前取色保存成一套可复用的自定义主题'
-                    : '当前页面还没有可保存的动态取色结果',
+                    ? sheetL10n.detailSaveCurrentThemeSubtitle
+                    : sheetL10n.detailSaveCurrentThemeUnavailable,
                 enabled: dynamicReady,
                 onTap: dynamicReady
                     ? () => Navigator.of(sheetContext).pop(actions.first)
@@ -150,7 +154,7 @@ Future<void> showDetailMoreActionsSheet(
     }
     AppTopTip().show(
       context,
-      message: '已保存主题：${input.name}',
+      message: l10n.detailThemeSaved(input.name),
       color: context.appColors.success,
     );
     return;
@@ -176,18 +180,18 @@ Future<SaveThemeDialogResult?> showSaveThemeDialog(
   final provider = context.read<AppThemeProvider>();
   return showNamedPresetSaveDialog(
     context,
-    title: '保存当前主题',
+    title: AppLocalizations.of(context).detailSaveCurrentTheme,
     initialName: initialName,
     suggestedName: suggestedName,
     initialDescription: initialDescription,
-    nameLabel: '主题名称',
-    descriptionLabel: '说明（可选）',
+    nameLabel: AppLocalizations.of(context).detailThemeNameLabel,
+    descriptionLabel: AppLocalizations.of(context).detailThemeDescriptionLabel,
     validateName: (name) {
       if (!provider.isSavedThemeNameAvailable(
         name,
         excludingId: existingThemeId,
       )) {
-        return '主题名称不能重复';
+        return AppLocalizations.of(context).detailThemeNameDuplicate;
       }
       return null;
     },

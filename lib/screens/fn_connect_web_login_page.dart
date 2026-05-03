@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../api/feiniu_api.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../utils/login_error_resolver.dart';
 
 class FnConnectWebLoginPageResult {
@@ -473,7 +474,7 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
     if (_isExchangingCode || _isClosing) return;
     final baseUrl = _resolvedBaseUrl;
     if (baseUrl.isEmpty) {
-      _completeFailure('FN Connect 登录失败，未能解析 NAS 地址');
+      _completeFailure(AppLocalizations.of(context).fnConnectNasAddressFailed);
       return;
     }
 

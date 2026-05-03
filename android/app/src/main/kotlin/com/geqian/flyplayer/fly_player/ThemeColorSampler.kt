@@ -1,5 +1,6 @@
 package com.geqian.flyplayer.fly_player
 
+import android.net.Uri
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Handler
@@ -9,19 +10,52 @@ import androidx.palette.graphics.Palette
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.Executors
+import java.util.LinkedHashMap
 import kotlin.math.max
 import kotlin.math.min
 
 object ThemeColorSampler {
+    private const val MAX_CACHE_ENTRIES = 72
     private val client = OkHttpClient()
     private val executor = Executors.newFixedThreadPool(2)
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val lock = Any()
+    private val seedCache =
+        LinkedHashMap<String, Map<String, Any>?>(MAX_CACHE_ENTRIES, 0.75f, true)
+    private val inflight =
+        mutableMapOf<String, MutableList<(Map<String, Any>?) -> Unit>>()
 
     fun sample(
         imageUrl: String,
         token: String,
         callback: (Map<String, Any>?) -> Unit,
     ) {
+        val normalizedImageKey = normalizeImageIdentity(imageUrl)
+        var cachedResult: Map<String, Any>? = null
+        var hasCachedResult = false
+        var joinedInflight = false
+        if (normalizedImageKey.isNotEmpty()) {
+            synchronized(lock) {
+                if (seedCache.containsKey(normalizedImageKey)) {
+                    cachedResult = seedCache[normalizedImageKey]
+                    hasCachedResult = true
+                } else {
+                    inflight[normalizedImageKey]?.let { callbacks ->
+                        callbacks.add(callback)
+                        joinedInflight = true
+                    } ?: run {
+                        inflight[normalizedImageKey] = mutableListOf(callback)
+                    }
+                }
+            }
+        }
+        if (hasCachedResult) {
+            mainHandler.post { callback(cachedResult) }
+            return
+        }
+        if (joinedInflight) {
+            return
+        }
         executor.execute {
             val result =
                 runCatching {
@@ -30,7 +64,21 @@ object ThemeColorSampler {
                         token = token,
                     )
                 }.getOrNull()
-            mainHandler.post { callback(result) }
+            val callbacks =
+                if (normalizedImageKey.isEmpty()) {
+                    listOf(callback)
+                } else {
+                    synchronized(lock) {
+                        seedCache[normalizedImageKey] = result
+                        trimSeedCacheLocked()
+                        inflight.remove(normalizedImageKey)?.toList() ?: listOf(callback)
+                    }
+                }
+            mainHandler.post {
+                callbacks.forEach { queuedCallback ->
+                    queuedCallback(result)
+                }
+            }
         }
     }
 
@@ -72,6 +120,37 @@ object ThemeColorSampler {
                 inPreferredConfig = Bitmap.Config.ARGB_8888
             }
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+    }
+
+    private fun trimSeedCacheLocked() {
+        while (seedCache.size > MAX_CACHE_ENTRIES) {
+            val eldestKey = seedCache.entries.firstOrNull()?.key ?: return
+            seedCache.remove(eldestKey)
+        }
+    }
+
+    private fun normalizeImageIdentity(imageUrl: String): String {
+        val trimmed = imageUrl.trim()
+        if (trimmed.isEmpty()) {
+            return ""
+        }
+        return runCatching {
+            val uri = Uri.parse(trimmed)
+            if (uri.scheme.isNullOrEmpty() || uri.host.isNullOrEmpty()) {
+                return@runCatching trimmed
+            }
+            val builder = uri.buildUpon().clearQuery().fragment(null)
+            uri.queryParameterNames
+                .sorted()
+                .filter { it != "w" }
+                .forEach { name ->
+                    val value = uri.getQueryParameter(name)?.trim().orEmpty()
+                    if (value.isNotEmpty()) {
+                        builder.appendQueryParameter(name, value)
+                    }
+                }
+            builder.build().toString()
+        }.getOrElse { trimmed }
     }
 
     private fun calculateInSampleSize(

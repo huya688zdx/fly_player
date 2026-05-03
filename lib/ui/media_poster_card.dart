@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -272,12 +273,24 @@ class _PosterImage extends StatefulWidget {
 
 class _PosterImageState extends State<_PosterImage> {
   int _index = 0;
+  bool _fallbackScheduled = false;
+  late Map<String, String> _headers;
+
+  @override
+  void initState() {
+    super.initState();
+    _headers = _imageHeaders(widget.token);
+  }
 
   @override
   void didUpdateWidget(covariant _PosterImage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.urls != widget.urls) {
+    if (!listEquals(oldWidget.urls, widget.urls)) {
       _index = 0;
+      _fallbackScheduled = false;
+    }
+    if (oldWidget.token != widget.token) {
+      _headers = _imageHeaders(widget.token);
     }
   }
 
@@ -296,10 +309,9 @@ class _PosterImageState extends State<_PosterImage> {
         final cacheW = constraints.maxWidth.isFinite
             ? (constraints.maxWidth * dpr).round().clamp(120, 1200)
             : null;
-        final headers = <String, String>{
-          'Authorization': widget.token,
-          'Trim-MC-token': widget.token,
-        };
+        final cacheH = constraints.maxHeight.isFinite
+            ? (constraints.maxHeight * dpr).round().clamp(120, 1200)
+            : null;
         return Image.network(
           url,
           fit: widget.fit,
@@ -307,22 +319,12 @@ class _PosterImageState extends State<_PosterImage> {
           filterQuality: FilterQuality.none,
           gaplessPlayback: true,
           cacheWidth: cacheW,
-          headers: headers,
+          cacheHeight: cacheH,
+          headers: _headers,
           frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
             final loaded = wasSynchronouslyLoaded || frame != null;
             if (loaded) return child;
-            return Stack(
-              fit: StackFit.expand,
-              children: [
-                widget.fallback,
-                AnimatedOpacity(
-                  opacity: 0,
-                  duration: const Duration(milliseconds: 280),
-                  curve: Curves.easeOutCubic,
-                  child: child,
-                ),
-              ],
-            );
+            return widget.fallback;
           },
           errorBuilder: (context, error, stackTrace) {
             if (_index + 1 < widget.urls.length) {
@@ -330,13 +332,7 @@ class _PosterImageState extends State<_PosterImage> {
               debugPrint(
                 '[IMG][POSTER] failed url=$url error=$error -> fallback=$nextUrl',
               );
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) {
-                  setState(() {
-                    _index += 1;
-                  });
-                }
-              });
+              _scheduleFallback();
               return widget.fallback;
             }
             debugPrint(
@@ -348,4 +344,24 @@ class _PosterImageState extends State<_PosterImage> {
       },
     );
   }
+
+  void _scheduleFallback() {
+    if (_fallbackScheduled) return;
+    _fallbackScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_index + 1 >= widget.urls.length) {
+        _fallbackScheduled = false;
+        return;
+      }
+      setState(() {
+        _fallbackScheduled = false;
+        _index += 1;
+      });
+    });
+  }
+}
+
+Map<String, String> _imageHeaders(String token) {
+  return <String, String>{'Authorization': token, 'Trim-MC-token': token};
 }

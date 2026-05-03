@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../theme/app_theme.dart';
 import 'app_transitions.dart';
 
@@ -412,7 +413,8 @@ class DetailOverview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final value = text.trim().isEmpty ? '暂无简介' : text;
+    final l10n = AppLocalizations.of(context);
+    final value = text.trim().isEmpty ? l10n.detailOverviewEmpty : text;
     return GestureDetector(
       onTap: onToggle,
       child: Text(

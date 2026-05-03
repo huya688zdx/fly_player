@@ -1,0 +1,2781 @@
+{
+  "@@locale": "zh",
+  "appTitle": "Fly Player",
+  "globalLoadFailed": "加载失败",
+  "navMovies": "影视",
+  "navSettings": "设置",
+  "settingsTitle": "设置",
+  "settingsSearchTooltip": "搜索设置项",
+  "settingsLanguageTitle": "应用语言",
+  "settingsLanguageSubtitleSystem": "跟随系统",
+  "settingsLanguageSubtitleZhCN": "简体中文",
+  "languageSheetTitle": "应用语言",
+  "languageSystem": "跟随系统",
+  "languageSystemSubtitle": "使用系统语言偏好",
+  "languageZhCN": "简体中文",
+  "languageZhCNSubtitle": "固定使用简体中文",
+  "commonCancel": "取消",
+  "commonConfirm": "确认",
+  "commonSave": "保存",
+  "commonRefreshRetry": "刷新重试",
+  "commonNone": "无",
+  "commonEmpty": "没有内容",
+  "commonNoData": "暂无数据",
+  "commonNoAccessLibrary": "没有可访问的媒体库，请联系管理员",
+  "authExitTitle": "退出登录",
+  "authExitContent": "确认退出当前帐号？",
+  "mediaAllItemsTitle": "全部影视",
+  "mediaLibraryFallbackName": "媒体库",
+  "collectionLayoutTitle": "布局方式",
+  "collectionLayoutSubtitle": "切换合集详情中的列表布局",
+  "collectionLayoutViewSection": "视图",
+  "collectionLayoutPosterWall": "海报墙",
+  "collectionLayoutList": "列表",
+  "collectionLayoutPosterSection": "海报",
+  "collectionLayoutHorizontalPoster": "横幅",
+  "collectionLayoutVerticalPoster": "竖幅",
+  "collectionItemCount": "共 {count} 项",
+  "@collectionItemCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "localFileAuthorizeFirst": "请先授权一个文件夹，然后在应用内选择本地文件",
+  "localFileNoAuthorizedFolder": "还没有授权本地文件夹，先授权一个目录后才能在应用内浏览",
+  "localFileAuthorizationCanceled": "没有完成文件夹授权，无法读取本地文件",
+  "localFileAuthorizedFolderUnavailable": "已授权的目录当前不可访问，请重新授权文件夹",
+  "localFileReadDirectoryFailedRetry": "读取目录失败，请重新授权后重试",
+  "localFileReadDirectoryFailed": "读取目录失败: {error}",
+  "@localFileReadDirectoryFailed": {
+    "placeholders": {
+      "error": {}
+    }
+  },
+  "localFileAuthorizeFolder": "授权文件夹",
+  "localFileChangeFolder": "更换文件夹",
+  "localFileParentDirectory": "返回上一级",
+  "localFileFolder": "文件夹",
+  "detailMoreActionsTitle": "更多操作",
+  "detailCurrentPage": "当前详情页",
+  "detailSaveCurrentTheme": "保存当前主题",
+  "detailSaveCurrentThemeSubtitle": "把当前取色保存成一套可复用的自定义主题",
+  "detailSaveCurrentThemeUnavailable": "当前页面还没有可保存的动态取色结果",
+  "detailThemeSaved": "已保存主题：{name}",
+  "@detailThemeSaved": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "detailThemeNameLabel": "主题名称",
+  "detailThemeDescriptionLabel": "说明（可选）",
+  "detailThemeNameDuplicate": "主题名称不能重复",
+  "presetNameLabel": "名称",
+  "presetDescriptionLabel": "描述",
+  "presetNameRequired": "请输入名称",
+  "presetAutoFill": "自动填入",
+  "presetDescriptionHint": "可选，简单写一下这个预设的用途",
+  "audioSpecDolbySurround": "杜比环绕",
+  "audioSpecDolbyAtmos": "杜比全景声",
+  "audioSpecDts": "DTS",
+  "audioSpecStereo": "立体声",
+  "resourceTypeDirectory": "目录",
+  "resourceTypeVideo": "视频",
+  "listFilterButton": "筛选",
+  "listFilterAll": "全部",
+  "listFilterResetButton": "重置",
+  "listFilterDecadeRecent": "今年",
+  "listTypeMovie": "电影",
+  "listTypeTv": "电视剧",
+  "listRecognitionUnmatched": "未匹配",
+  "listRecognitionMatched": "已匹配",
+  "listRecognitionNfo": "NFO匹配",
+  "listWatched": "已观看",
+  "listUnwatched": "未观看",
+  "listFilterType": "影视分类",
+  "listFilterGenres": "类型",
+  "listFilterLocate": "国家和地区",
+  "listFilterDecade": "发行年份",
+  "listFilterResolution": "分辨率",
+  "listFilterColorRange": "视频动态范围",
+  "listFilterAudioType": "音频规格",
+  "listFilterRecognitionStatus": "匹配状态",
+  "listFilterWatched": "是否观看",
+  "listSortTitle": "排序",
+  "listSortCreateTime": "按添加日期",
+  "listSortReleaseDate": "按发行年份",
+  "listSortTitleField": "按标题",
+  "listSortVoteAverage": "按评分",
+  "listSortAsc": "升序",
+  "listSortDesc": "降序",
+  "searchHistory": "搜索历史",
+  "searchResultCount": "{count}个搜索结果",
+  "@searchResultCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "searchPlaceholder": "搜索",
+  "personItemCount": "共 {count} 个作品",
+  "@personItemCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "personJobActor": "演员",
+  "personJobDirector": "导演",
+  "personJobScreenplay": "编剧",
+  "personJobWriter": "编剧",
+  "personJobProducer": "制片人",
+  "personAsJob": "作为{job}",
+  "@personAsJob": {
+    "placeholders": {
+      "job": {}
+    }
+  },
+  "personBiographyTitle": "演员简介",
+  "routeErrorMissingDetail": "缺少详情参数",
+  "routeErrorMissingSeason": "缺少季详情参数",
+  "routeErrorMissingPerson": "缺少人物详情参数",
+  "routeErrorMissingDownload": "缺少下载详情参数",
+  "connectionAppName": "飞牛播放器",
+  "connectionUserNameHint": "用户名",
+  "connectionPasswordHint": "密码",
+  "connectionRememberLogin": "保持登录",
+  "connectionHttpsAccess": "HTTPS 安全访问",
+  "connectionLogin": "登录",
+  "connectionOpenDownloads": "查看已下载数据",
+  "connectionLoginHistory": "登录历史",
+  "connectionClear": "清空",
+  "connectionNoLoginHistory": "暂无登录历史",
+  "connectionOperationFailedRetryLater": "操作失败，请稍后重试",
+  "connectionOperationFailedRetry": "操作失败，请重试",
+  "connectionServerRequired": "请输入服务器地址",
+  "connectionUserNameRequired": "请输入用户名",
+  "connectionPasswordRequired": "请输入密码",
+  "connectionInvalidCredential": "用户名或密码错误",
+  "connectionNetworkError": "网络异常，请检查后重试",
+  "connectionValidationFailed": "验证失败",
+  "settingsThemeTitle": "主题设置",
+  "settingsThemeSubtitle": "{title} · {subtitle}",
+  "@settingsThemeSubtitle": {
+    "placeholders": {
+      "title": {},
+      "subtitle": {}
+    }
+  },
+  "settingsThemeKeywords": "主题|配色|颜色|外观",
+  "settingsCustomThemeTitle": "自定义主题",
+  "settingsCustomThemeSubtitle": "已保存主题管理",
+  "settingsCustomThemeKeywords": "自定义主题|保存主题|主题管理",
+  "settingsCustomRecipeTitle": "颜色分类控制",
+  "settingsCustomRecipeSubtitle": "自定义主题配色编辑",
+  "settingsCustomRecipeLocation": "设置 > 主题设置 > 当前自定义",
+  "settingsCustomRecipeKeywords": "颜色分类|当前自定义|调色",
+  "settingsMpvTitle": "MPV播放器设置",
+  "settingsMpvSubtitle": "播放器参数设置",
+  "settingsMpvKeywords": "mpv|播放器|外部播放",
+  "settingsParallelWindowTitle": "并行窗口设置",
+  "settingsParallelWindowKeywords": "并行窗口|双屏|分屏",
+  "settingsParallelSummaryEnabledLeft": "已开启 · 左侧主屏",
+  "settingsParallelSummaryEnabledRight": "已开启 · 右侧主屏",
+  "settingsParallelSummaryDisabled": "已关闭 · 当前使用单屏模式",
+  "settingsDownloadTitle": "下载管理",
+  "settingsDownloadSubtitle": "已下载与下载中内容管理",
+  "settingsDownloadKeywords": "下载|下载管理|已下载|下载中|离线视频",
+  "settingsStorageTitle": "储存管理",
+  "settingsStorageSubtitle": "缓存、截图、日志与应用数据",
+  "settingsStorageKeywords": "储存管理|缓存|播放缓存|截图文件|应用数据|清理缓存",
+  "settingsPlayStatsTitle": "全局播放数据统计",
+  "settingsPlayStatsSubtitle": "本地播放统计与历史记录",
+  "settingsPlayStatsKeywords": "播放统计|播放历史|本地统计|sqlite",
+  "settingsOtherTitle": "其他",
+  "settingsOtherSubtitle": "书签、弹幕与截图设置",
+  "settingsOtherKeywords": "其他|辅助设置",
+  "settingsLogTitle": "日志信息",
+  "settingsLogSubtitle": "应用日志与导出",
+  "settingsLogKeywords": "日志|报错|txt|导出",
+  "settingsBookmarkTitle": "书签管理",
+  "settingsBookmarkSubtitle": "书签列表与定位",
+  "settingsBookmarkKeywords": "书签|bookmark",
+  "settingsDanmakuTitle": "弹幕设置",
+  "settingsDanmakuSubtitle": "默认样式与来源策略",
+  "settingsDanmakuKeywords": "弹幕|danmaku",
+  "settingsScreenshotTitle": "截图设置",
+  "settingsScreenshotSubtitle": "字幕携带和保存路径",
+  "settingsScreenshotKeywords": "截图|相册目录|保存路径",
+  "settingsScreenshotIncludeSubtitlesTitle": "截图是否携带字幕",
+  "settingsScreenshotIncludeSubtitlesSubtitle": "字幕携带选项",
+  "settingsScreenshotIncludeSubtitlesKeywords": "截图|字幕|携带字幕",
+  "settingsScreenshotSavePathTitle": "截图保存路径设置",
+  "settingsScreenshotSavePathSubtitle": "保存路径选项",
+  "settingsScreenshotSavePathKeywords": "截图|保存路径|相册目录",
+  "settingsScreenshotCustomDirectoryTitle": "截图自定义目录",
+  "settingsScreenshotCustomDirectorySubtitle": "自定义目录管理",
+  "settingsScreenshotCustomDirectoryKeywords": "截图|自定义目录|文件夹",
+  "settingsScreenshotPreviewTitle": "截图预览",
+  "settingsScreenshotPreviewSubtitle": "已保存截图管理",
+  "settingsScreenshotPreviewKeywords": "截图|预览|删除截图|管理截图",
+  "settingsMpvQuickModeTitle": "MPV 快速模式",
+  "settingsMpvQuickModeSubtitle": "快捷预设与模式切换",
+  "settingsMpvQuickModeKeywords": "mpv|快速模式|高保真|极速模式",
+  "settingsMpvPictureTitle": "MPV 画面调节",
+  "settingsMpvPictureSubtitle": "滤镜、HDR、插帧与即时调节",
+  "settingsMpvPictureKeywords": "mpv|画面|hdr|插帧|滤镜",
+  "settingsMpvAudioTitle": "MPV 音频调节",
+  "settingsMpvAudioSubtitle": "EQ、限幅、低音增强与人声增强",
+  "settingsMpvAudioKeywords": "mpv|音频|eq|高保真|限幅",
+  "settingsMpvPlaybackTitle": "MPV 播放与缓存",
+  "settingsMpvPlaybackSubtitle": "同步模式、缓存策略与缓存大小",
+  "settingsMpvPlaybackKeywords": "mpv|缓存|缓冲|同步",
+  "settingsMpvCompatibilityTitle": "MPV 兼容与诊断",
+  "settingsMpvCompatibilitySubtitle": "兼容模式和播放器诊断信息",
+  "settingsMpvCompatibilityKeywords": "mpv|兼容|诊断|播放信息",
+  "settingsLocationRoot": "设置",
+  "settingsLocationTheme": "设置 > 主题设置",
+  "settingsLocationOther": "设置 > 其他",
+  "settingsLocationScreenshot": "设置 > 其他 > 截图设置",
+  "settingsLocationMpv": "设置 > MPV播放器设置",
+  "settingsLocationMpvWithSection": "设置 > MPV播放器设置 > {section}",
+  "@settingsLocationMpvWithSection": {
+    "placeholders": {
+      "section": {}
+    }
+  },
+  "settingsMpvPictureSection": "画面调节",
+  "settingsMpvAudioSection": "音频调节",
+  "settingsMpvPlaybackSection": "播放与缓存",
+  "settingsMpvCompatibilitySection": "兼容与诊断",
+  "settingsSearchResults": "搜索结果",
+  "settingsSearchFrequent": "常用入口",
+  "settingsSearchHint": "搜索设置项",
+  "settingsSearchEmptyResults": "没有找到相关设置项。",
+  "settingsSearchEmptyPrompt": "先输入关键字，或从常用入口开始。",
+  "mpvContinueEnable": "继续开启",
+  "mpvGenericSettingTitle": "调节项",
+  "mpvPictureCategorySubtitle": "滤镜、渲染、HDR 与插帧",
+  "mpvPictureCategoryDescription": "围绕画面观感的细项调节，适合按片源逐步细调。",
+  "mpvAudioCategorySubtitle": "音量、EQ、增强与声道混合",
+  "mpvAudioCategoryDescription": "音频处理、高保真模式与声道输出设置。",
+  "mpvPlaybackCategorySubtitle": "同步模式、缓存策略与缓存大小",
+  "mpvPlaybackCategoryDescription": "主要影响拖动响应、缓存强度和播放稳定性。",
+  "mpvCompatibilityCategorySubtitle": "兼容模式与诊断",
+  "mpvCompatibilityCategoryDescription": "兼容性回退与播放诊断。",
+  "mpvSettingDebandTitle": "去色带",
+  "mpvSettingDebandSubtitle": "处理渐变断层和暗部条带。",
+  "mpvSettingSharpenTitle": "锐化",
+  "mpvSettingSharpenSubtitle": "提升线条和边缘清晰度。",
+  "mpvSettingDenoiseTitle": "降噪",
+  "mpvSettingDenoiseSubtitle": "压制噪点和颗粒感。",
+  "mpvSettingDeinterlaceTitle": "反交错",
+  "mpvSettingDeinterlaceSubtitle": "适配隔行扫描片源。",
+  "mpvSettingScaleProfileTitle": "缩放算法",
+  "mpvSettingScaleProfileSubtitle": "控制放大和缩小时的取向。",
+  "mpvSettingHdrModeTitle": "HDR 处理",
+  "mpvSettingHdrModeSubtitle": "调整 HDR 映射和整体亮度取向。",
+  "mpvSettingFrameInterpolationTitle": "插帧",
+  "mpvSettingFrameInterpolationSubtitle": "提升运动流畅度，性能开销更高。",
+  "mpvSettingVideoSyncTitle": "同步模式",
+  "mpvSettingVideoSyncSubtitle": "控制音画同步与刷新率优先级。",
+  "mpvSettingCacheProfileTitle": "缓存策略",
+  "mpvSettingCacheProfileSubtitle": "按片源和网络环境切换缓存风格。",
+  "mpvSettingCacheSizeTitle": "缓存大小",
+  "mpvSettingCacheSizeSubtitle": "单独调整最大预读缓存上限。",
+  "mpvSettingVolumeGainTitle": "音量放大",
+  "mpvSettingVolumeGainSubtitle": "提高偏小声音源的输出上限。",
+  "mpvSettingAudioHighFidelityTitle": "高保真模式",
+  "mpvSettingAudioHighFidelitySubtitle": "优先保持干净解码输出，旁路大部分后处理。",
+  "mpvSettingDynamicRangeTitle": "动态范围压缩",
+  "mpvSettingDynamicRangeSubtitle": "让对白更靠前，夜间播放更稳。",
+  "mpvSettingAudioEqTitle": "EQ 均衡器",
+  "mpvSettingAudioEqSubtitle": "调整低频、中频和高频的听感平衡。",
+  "mpvSettingAudioLimiterTitle": "峰值限幅",
+  "mpvSettingAudioLimiterSubtitle": "抑制突发峰值，避免爆音。",
+  "mpvSettingAudioBassBoostTitle": "低音增强",
+  "mpvSettingAudioBassBoostSubtitle": "增强低频氛围和下潜感。",
+  "mpvSettingAudioVoiceEnhanceTitle": "人声增强",
+  "mpvSettingAudioVoiceEnhanceSubtitle": "提升对白和人声清晰度。",
+  "mpvSettingChannelMixTitle": "声道混合",
+  "mpvSettingChannelMixSubtitle": "控制多声道输出的下混方式。",
+  "mpvSettingCompatibilityTitle": "兼容模式",
+  "mpvSettingCompatibilitySubtitle": "遇到异常时优先回退到更稳妥方案。",
+  "mpvCurrentSchemeTitle": "当前方案",
+  "mpvSmartRecommendationTitle": "智能推荐",
+  "mpvSmartRecommendationSubtitle": "根据当前片源的分辨率、码率、HDR 和音轨信息推荐更合适的场景预设",
+  "mpvNoRecommendationTitle": "当前没有推荐",
+  "mpvNoRecommendationDescription": "当前片源信息还不完整，先保留手动选择。",
+  "mpvPictureQuickPresetTitle": "画质快速预设",
+  "mpvPictureQuickPresetSubtitle": "快速套用动画、影院、流畅等画质方案",
+  "mpvPictureQuickPresetDescription": "这里只放画面相关方案，音频增强已经拆到独立的音频快速预设。",
+  "mpvAudioQuickPresetTitle": "音频快速预设",
+  "mpvAudioQuickPresetSubtitle": "高保真、EQ、低音增强、人声增强一键切换",
+  "mpvAudioQuickPresetDescription": "一键切换高保真、对白增强、低频氛围和夜间压缩，不再和画质预设混在一起。",
+  "mpvCustomManagementTitle": "自定义管理",
+  "mpvCustomManagementSubtitle": "把画质自定义、音频自定义和即时调节统一收进三级页面管理",
+  "mpvCustomManagementDescription": "首页只保留快速预设；即时调节、分类细调和保存当前预设都统一收进这里。",
+  "mpvPictureCustomTitle": "画质自定义",
+  "mpvPictureCustomSubtitle": "即时调节、滤镜、渲染、HDR、插帧、同步、缓存和兼容项",
+  "mpvPictureCustomDescription": "即时调节和所有画质相关细项都统一放在这里管理，保存后会生成独立画质预设。",
+  "mpvAudioCustomTitle": "音频自定义",
+  "mpvAudioCustomSubtitle": "高保真、音量增强、EQ、限幅、低音增强、人声增强和声道混合",
+  "mpvAudioCustomDescription": "把高保真、EQ、音量增强和所有音频后处理统一放在这里管理，保存后会生成独立音频预设。",
+  "mpvSaveCurrentPictureTitle": "保存当前画质",
+  "mpvSaveCurrentPictureSubtitle": "把当前即时调节和画质增强另存为独立预设",
+  "mpvSaveCurrentAudioTitle": "保存当前音频",
+  "mpvSaveCurrentAudioSubtitle": "把当前音频增强和 EQ 另存为独立预设",
+  "mpvInstantAdjustTitle": "即时调节",
+  "mpvInstantAdjustSubtitle": "亮度、对比度、饱和度、Gamma、色相",
+  "mpvSavedPicturePreset": "已保存画质预设",
+  "mpvSavedAudioPreset": "已保存音频预设",
+  "mpvCurrentCustom": "当前自定义",
+  "mpvNotUsed": "未使用",
+  "mpvDefault": "默认",
+  "mpvAllDefault": "全部默认",
+  "mpvChangedCount": "已调整 {count} 项",
+  "@mpvChangedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "mpvSavedPresetKindPicture": "画质",
+  "mpvSavedPresetKindAudio": "音频",
+  "mpvPresetNameLabel": "{kind}预设名称",
+  "@mpvPresetNameLabel": {
+    "placeholders": {
+      "kind": {}
+    }
+  },
+  "mpvPresetDuplicateName": "{kind}预设名称不能重复",
+  "@mpvPresetDuplicateName": {
+    "placeholders": {
+      "kind": {}
+    }
+  },
+  "mpvPresetSavedMessage": "已保存{kind}预设：{name}",
+  "@mpvPresetSavedMessage": {
+    "placeholders": {
+      "kind": {},
+      "name": {}
+    }
+  },
+  "mpvPresetDefaultBaseName": "{kind}预设",
+  "@mpvPresetDefaultBaseName": {
+    "placeholders": {
+      "kind": {}
+    }
+  },
+  "mpvPresetRenameTitle": "重命名{kind}预设",
+  "@mpvPresetRenameTitle": {
+    "placeholders": {
+      "kind": {}
+    }
+  },
+  "commonRemarkOptional": "备注（可选）",
+  "commonDescriptionOptional": "说明（可选）",
+  "mpvPicturePresetOffLabel": "默认",
+  "mpvPicturePresetOffDescription": "关闭额外画质增强，优先保证兼容性和稳定性。",
+  "mpvPicturePresetAnimeLabel": "动画清晰",
+  "mpvPicturePresetAnimeDescription": "通过轻微对比度和饱和度调整突出线条感，不再默认带入重滤镜。",
+  "mpvPicturePresetCinemaLabel": "影院柔和",
+  "mpvPicturePresetCinemaDescription": "用较轻的亮暗和饱和调整偏向影院观感，避免额外画面计算。",
+  "mpvPicturePresetSmoothLabel": "流畅优先",
+  "mpvPicturePresetSmoothDescription": "偏向稳定和响应的轻量流畅方案，不再默认带入插帧。",
+  "mpvAudioPresetOffLabel": "默认",
+  "mpvAudioPresetOffDescription": "关闭额外音频增强，保留基础播放参数。",
+  "mpvAudioPresetHiFiLabel": "原声保真",
+  "mpvAudioPresetHiFiDescription": "打开高保真，旁路 EQ 和增强，适合耳机和高质量片源。",
+  "mpvAudioPresetBalancedLabel": "通用增强",
+  "mpvAudioPresetBalancedDescription": "轻度提亮人声和低频，适合大多数普通剧集、综艺和日常看片。",
+  "mpvAudioPresetDialogueLabel": "人声清晰",
+  "mpvAudioPresetDialogueDescription": "抬前对白和中高频细节，适合台词偏轻的片源。",
+  "mpvAudioPresetSpeakerClearLabel": "外放清晰",
+  "mpvAudioPresetSpeakerClearDescription": "针对手机和平板外放，压住爆点、把对白往前推，减少糊成一团。",
+  "mpvAudioPresetCinemaBassLabel": "影院低频",
+  "mpvAudioPresetCinemaBassDescription": "增强低频氛围和厚度，适合动作片、配乐片和外放。",
+  "mpvAudioPresetHeadphoneImmersiveLabel": "耳机沉浸",
+  "mpvAudioPresetHeadphoneImmersiveDescription": "保留动态感，补一点氛围和厚度，适合耳机听电影和演唱会现场。",
+  "mpvAudioPresetNightLabel": "夜间均衡",
+  "mpvAudioPresetNightDescription": "压低爆点、抬前对白，适合深夜外放和追剧。",
+  "mpvScenePresetStableClearLabel": "省电稳定",
+  "mpvScenePresetStableClearDescription": "优先照顾解码稳定和系统流畅度，适合 4K、HDR、HEVC 和高码率片源。",
+  "mpvScenePresetBalancedMovieLabel": "通用观影",
+  "mpvScenePresetBalancedMovieDescription": "用轻量画质和通用增强音频组成的日常观影片方案，适合大多数普通片源。",
+  "mpvScenePresetAnimeDialogueLabel": "追番对白",
+  "mpvScenePresetAnimeDialogueDescription": "保留动画线条感并把对白往前提，适合动画、综艺和日常追番。",
+  "mpvScenePresetSpeakerClearLabel": "外放清晰",
+  "mpvScenePresetSpeakerClearDescription": "优先照顾手机和平板外放，把爆点压住并把对白往前推。",
+  "mpvScenePresetNightBingeLabel": "夜间追剧",
+  "mpvScenePresetNightBingeDescription": "偏向稳定和夜间聆听，压低爆点并减少长时间观看的刺耳感。",
+  "mpvScenePresetHeadphoneImmersiveLabel": "耳机沉浸",
+  "mpvScenePresetHeadphoneImmersiveDescription": "画面保持轻柔层次，耳机下保留氛围感和低频厚度。",
+  "mpvSceneRecommendationStableTitle": "推荐稳定优先",
+  "mpvSceneRecommendationStableReason": "当前片源负载偏高，建议先用更稳的轻量场景，避免播放器和系统一起掉帧。",
+  "mpvSceneRecommendationImmersiveTitle": "推荐电影沉浸",
+  "mpvSceneRecommendationImmersiveReason": "当前音轨更适合保留氛围感和低频厚度的电影向组合。",
+  "mpvSceneRecommendationSpeakerTitle": "推荐清晰外放",
+  "mpvSceneRecommendationSpeakerReason": "当前音轨偏轻，优先把对白和主体声推前，普通剧集和外放更省心。",
+  "mpvSceneRecommendationBalancedTitle": "推荐通用观影",
+  "mpvSceneRecommendationBalancedReason": "当前片源负载正常，先用平衡一些的画质和音频组合最稳妥。",
+  "mpvVideoAdjustGenericTitle": "画面参数",
+  "mpvVideoAdjustBrightnessTitle": "亮度",
+  "mpvVideoAdjustBrightnessSubtitle": "提亮暗场或压暗过曝画面。",
+  "mpvVideoAdjustContrastTitle": "对比度",
+  "mpvVideoAdjustContrastSubtitle": "拉开明暗层次，数值过高会让高光和阴影更硬。",
+  "mpvVideoAdjustSaturationTitle": "饱和度",
+  "mpvVideoAdjustSaturationSubtitle": "控制整体颜色浓度。",
+  "mpvVideoAdjustGammaTitle": "Gamma",
+  "mpvVideoAdjustGammaSubtitle": "偏向中间调修正，适合微调灰雾感和暗部层次。",
+  "mpvVideoAdjustHueTitle": "色相",
+  "mpvVideoAdjustHueSubtitle": "整体色调偏移，建议小幅调整，用来修正偏色片源。",
+  "mpvVideoAdjustStatusTitle": "画面参数",
+  "mpvVideoAdjustDescription": "这些值会直接写入 mpv 的亮度、对比度、饱和度、Gamma 和色相参数，并会一起保存到画质预设中。",
+  "mpvVideoAdjustDrawerDescription": "这些参数直接对应 mpv 原生视频均衡项，适合播放中微调，不会像 HDR 或插帧那样频繁触发重载。",
+  "mpvVideoAdjustAllDefaultSummary": "亮度、对比度、饱和度、Gamma 和色相都保持在默认值。",
+  "mpvOptionOff": "关闭",
+  "mpvOptionOn": "开启",
+  "mpvOptionAuto": "自动",
+  "mpvOptionLow": "轻度",
+  "mpvOptionMedium": "标准",
+  "mpvOptionStrong": "标准",
+  "mpvOptionFast": "快速",
+  "mpvOptionBalanced": "标准",
+  "mpvOptionQuality": "高质量",
+  "mpvOptionForce": "强制开启",
+  "mpvOptionSdrMap": "SDR 映射",
+  "mpvOptionConservative": "保守映射",
+  "mpvOptionEnhanced": "增强映射",
+  "mpvOptionAudio": "音频优先",
+  "mpvOptionDisplay": "显示优先",
+  "mpvOptionSmooth": "平滑同步",
+  "mpvOptionDefault": "智能分配",
+  "mpvOptionLowLatency": "极速响应",
+  "mpvOptionStable": "稳定缓冲",
+  "mpvOptionNetwork": "网盘 / STRM / NAS",
+  "mpvOptionLight": "轻度",
+  "mpvOptionSoft": "柔和",
+  "mpvOptionClarity": "清晰",
+  "mpvOptionCinema": "影院",
+  "mpvOptionCustom": "高级自定义",
+  "mpvOptionStereo": "立体声优先",
+  "mpvOptionSurround": "环绕优先",
+  "mpvOptionSoftwareFallback": "软件优先",
+  "commonOk": "知道了",
+  "commonEnter": "进入",
+  "commonView": "查看",
+  "commonRename": "重命名",
+  "commonDelete": "删除",
+  "commonClear": "清空",
+  "commonJump": "跳转",
+  "playerAbLoopPoint": "A点",
+  "playerAbLoopUnavailable": "当前时长不足，无法设置 A-B 循环",
+  "playerAbLoopPointSet": "A 点已设置到 {position}",
+  "@playerAbLoopPointSet": {
+    "placeholders": {
+      "position": {}
+    }
+  },
+  "playerAbLoopMinimumSpan": "A-B 间隔至少需要 0.8 秒",
+  "playerAbLoopSet": "A-B 循环已设置 {start} - {end}",
+  "@playerAbLoopSet": {
+    "placeholders": {
+      "start": {},
+      "end": {}
+    }
+  },
+  "playerAbLoopCleared": "A-B 循环已清除",
+  "playerBookmarkNone": "无书签",
+  "playerBookmarkCount": "{count} 个",
+  "@playerBookmarkCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "playerBookmarkEmptySummary": "为当前片段记录关键时间点，之后可以快速跳回。",
+  "playerBookmarkRecentSummary": "最近书签 {position}，共 {count} 个。",
+  "@playerBookmarkRecentSummary": {
+    "placeholders": {
+      "position": {},
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "playerBookmarkNoteDialogTitle": "添加书签备注",
+  "playerBookmarkAdded": "已添加书签 {position}",
+  "@playerBookmarkAdded": {
+    "placeholders": {
+      "position": {}
+    }
+  },
+  "playerBookmarkDeleted": "已删除书签",
+  "playerBookmarkCleared": "当前片段书签已清空",
+  "playerBookmarkJumped": "已跳转到 {position}",
+  "@playerBookmarkJumped": {
+    "placeholders": {
+      "position": {}
+    }
+  },
+  "playerBookmarkTitle": "书签",
+  "playerBookmarkAddCurrent": "添加当前",
+  "playerBookmarkCurrentSegment": "当前片段",
+  "playerBookmarkEmptyPrompt": "还没有书签，点击右上角“添加当前”即可记录当前时间点。",
+  "playerBookmarkCreatedAt": "创建于 {time}",
+  "@playerBookmarkCreatedAt": {
+    "placeholders": {
+      "time": {}
+    }
+  },
+  "playerEpisodeList": "剧集列表",
+  "playerEpisodeSpecialSeason": "特别篇",
+  "playerEpisodeSeasonTemplate": "第{season}季",
+  "@playerEpisodeSeasonTemplate": {
+    "placeholders": {
+      "season": {}
+    }
+  },
+  "playerEpisodePlaying": "播放中..",
+  "playerEpisodeWatched": "已观看",
+  "playerEpisodeWatchedPercent": "已观看{percent}%",
+  "@playerEpisodeWatchedPercent": {
+    "placeholders": {
+      "percent": {}
+    }
+  },
+  "playerEpisodeUnwatched": "未观看",
+  "playerEpisodePickerTitle": "选集",
+  "playerEpisodeLast": "已经是最后一集了",
+  "playerEpisodeFirst": "已经是第一集了",
+  "playerEpisodeViewSaveFailed": "选集视图保存失败",
+  "playerEpisodeNoAvailableList": "当前片源没有可用选集列表",
+  "playerEpisodeLoadListFailed": "加载选集列表失败: {error}",
+  "@playerEpisodeLoadListFailed": {
+    "placeholders": {
+      "error": {}
+    }
+  },
+  "playerEpisodeLoadSeasonFailed": "加载该季选集失败: {error}",
+  "@playerEpisodeLoadSeasonFailed": {
+    "placeholders": {
+      "error": {}
+    }
+  },
+  "playerEpisodeNumberLabel": "第 {episode} 集",
+  "@playerEpisodeNumberLabel": {
+    "placeholders": {
+      "episode": {
+        "type": "int"
+      }
+    }
+  },
+  "playerEpisodePreparingPlayback": "正在准备播放...",
+  "playerEpisodeSwitchingTo": "正在切换到 {episode}...",
+  "@playerEpisodeSwitchingTo": {
+    "placeholders": {
+      "episode": {}
+    }
+  },
+  "playerSubtitleLanguageEnglish": "英文",
+  "playerSubtitleLanguageChinese": "中文",
+  "playerSubtitleClosing": "正在关闭字幕...",
+  "playerSubtitleSwitching": "正在切换到{title}{suffix} 字幕...",
+  "@playerSubtitleSwitching": {
+    "placeholders": {
+      "title": {},
+      "suffix": {}
+    }
+  },
+  "playerSubtitleClosingPleaseWait": "正在为您关闭字幕，请稍等...",
+  "playerSubtitleSwitchingPleaseWait": "正在为您切换至{title}{suffix} 字幕，请稍等...",
+  "@playerSubtitleSwitchingPleaseWait": {
+    "placeholders": {
+      "title": {},
+      "suffix": {}
+    }
+  },
+  "playerSubtitleUnknownTrack": "未知字幕",
+  "playerSubtitleExternal": "外挂",
+  "playerSubtitleFileFallbackApplied": "当前字幕文件不可直接获取，已切换兼容方案",
+  "playerSubtitleLoadFailed": "字幕加载失败: {error}",
+  "@playerSubtitleLoadFailed": {
+    "placeholders": {
+      "error": {}
+    }
+  },
+  "playerAudioUnknownTrack": "未知音轨",
+  "playerQualityOriginal": "原画",
+  "playerQualityGeneric": "清晰度",
+  "playerLoadingPreparingEnvironment": "正在准备播放环境...",
+  "playerLoadingInitializingPlayer": "正在初始化播放器...",
+  "playerLoadingPreparingSource": "正在准备播放源...",
+  "playerLoadingBuffering": "视频缓冲中...",
+  "playerLoadingSeeking": "正在定位播放进度...",
+  "playerLoadingOpeningSource": "正在打开播放源...",
+  "playerLoadingPreparingVideo": "正在准备画面...",
+  "playerLoadingVideo": "视频加载中...",
+  "mpvNoSavedPicturePresetTitle": "暂无已保存画质预设",
+  "mpvNoSavedPicturePresetContent": "可在“画质自定义”中保存预设。",
+  "mpvNoSavedAudioPresetTitle": "暂无已保存音频预设",
+  "mpvNoSavedAudioPresetContent": "可在“音频自定义”中保存预设。",
+  "mpvPresetManagementStatus": "预设管理",
+  "mpvPresetManagementSummary": "画质自定义、音频自定义与已保存预设管理。",
+  "mpvSavedPresetDefaultDescription": "已保存的独立预设，可随时再次应用。",
+  "mpvPresetApplied": "当前已应用",
+  "mpvTapToApply": "点按应用",
+  "mpvVideoFiltersCategoryTitle": "视频滤镜",
+  "mpvVideoFiltersCategorySubtitle": "去色带、锐化、降噪、反交错、缩放算法",
+  "mpvVideoFiltersCategoryDescription": "主要针对画面净化、边缘锐度和缩放观感。",
+  "mpvPlayerDiagnosticsTitle": "播放器诊断信息",
+  "mpvPlayerDiagnosticsSubtitle": "查看当前 codec、输出、色彩和源信息",
+  "mpvCacheSettingStatusTitle": "缓存设定",
+  "mpvCacheSettingAutoDescription": "当前由缓存策略自动分配上限。关闭自动后，可直接拖动滑杆控制缓存百分比。",
+  "mpvCacheSettingManualDescription": "缓存百分比越高，越有利于高码率和不稳定网络，但也会占用更多内存和存储。",
+  "mpvCacheAutoSwitchTitle": "自动缓存",
+  "mpvCacheAutoSwitchAutoSubtitle": "当前由缓存策略自动分配缓冲上限",
+  "mpvCacheAutoSwitchManualSubtitle": "关闭后可手动指定缓存百分比",
+  "mpvCacheSliderTitle": "滑动设定",
+  "mpvCacheSliderSubtitle": "拖动滑杆调整缓存百分比，修改后会立即应用到当前播放器。",
+  "mpvCachePercentSettingLabel": "缓存设定：{value}",
+  "@mpvCachePercentSettingLabel": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "mpvCacheHelpDefaultContent": "自动档。播放器会根据片源类型决定更合适的缓冲强度，本地文件更偏常规，较重的网络片源会自动偏向更稳的缓冲。",
+  "mpvCacheHelpLowLatencyContent": "预读最轻，拖动、切换和回填最快，但抗抖动最弱。更适合本地视频，或者局域网很稳时追求跟手感。",
+  "mpvCacheHelpStableContent": "中等偏重缓冲，优先减少抖动导致的卡顿。拖动响应会比极速慢一点，但更适合大多数 NAS、网盘和 STRM 观看。",
+  "mpvCacheHelpNetworkContent": "最重的一档，给高码率网盘、STRM 和 NAS 片源更多预读空间。起播和拖动后的回填更重，但最抗波动。",
+  "mpvCacheHelpGenericContent": "当前选项用于控制预读力度和缓冲风格。",
+  "mpvCacheHelpDefaultExtra": "适合：不想自己判断时直接用。",
+  "mpvCacheHelpLowLatencyExtra": "适合：本地硬盘视频、局域网很稳时的 NAS。",
+  "mpvCacheHelpStableExtra": "适合：大多数 NAS、网盘和普通 STRM。",
+  "mpvCacheHelpNetworkExtra": "适合：高码率、大体积、跨网络访问的片源。",
+  "mpvPerformanceWarningTitle": "性能提醒",
+  "mpvPerformanceWarningDebandMedium": "中档去色带会增加额外画面处理开销，部分设备可能出现掉帧、发热或系统卡顿。",
+  "mpvPerformanceWarningSharpen": "锐化会增加滤镜计算量，片源较重或设备较弱时可能导致播放掉帧和界面不流畅。",
+  "mpvPerformanceWarningDenoise": "降噪属于较重的视频滤镜，移动设备上很容易带来明显掉帧、发热甚至系统卡顿。",
+  "mpvPerformanceWarningDeinterlaceForce": "强制反交错会让所有片源都走额外处理链路，普通逐行片源通常没有必要，且可能拖慢播放。",
+  "mpvPerformanceWarningScaleQuality": "高质量缩放会增加 GPU 和渲染压力，高分辨率或高码率片源上更容易出现掉帧。",
+  "mpvPerformanceWarningHdr": "这个 HDR 模式会增加色调映射压力，HDR、10-bit 或高分辨率片源上可能导致明显卡顿。",
+  "mpvPerformanceWarningFrameInterpolation": "插帧是最容易拖慢播放和系统流畅度的选项之一，开启后可能出现视频掉帧、UI 掉帧和系统卡顿。",
+  "mpvPerformanceWarningVideoSyncSmooth": "平滑同步会更积极地贴合屏幕刷新率，部分设备上会增加合成与同步压力。",
+  "mpvPerformanceWarningCacheNetwork": "网络重缓存会占用更多内存，并让拖动回填更重，只建议在高码率远程片源上使用。",
+  "mpvPerformanceWarningCacheSize": "较大的缓冲会占用更多内存，并让起播、拖动后的回填更重；低内存设备上可能影响系统流畅度。",
+  "mpvPerformanceWarningGeneric": "当前选项可能增加播放器负载，请根据设备性能谨慎开启。",
+  "mpvAudioEqAdvancedTitle": "高级频段调整",
+  "mpvAudioEqAdvancedSubtitle": "进入上下滑动频谱页，自定义每个频段并保存多套预设。",
+  "mpvAudioEqAdvancedHeader": "高级均衡",
+  "mpvCurrentlyUsed": "当前使用",
+  "commonReset": "重置",
+  "commonRestoreDefault": "恢复默认",
+  "commonSave": "保存",
+  "playerQualitySwitching": "正在为您切换至 {quality}{suffix} 画质，请稍等...",
+  "@playerQualitySwitching": {
+    "placeholders": {
+      "quality": {},
+      "suffix": {}
+    }
+  },
+  "playerQualitySwitchFailed": "切换清晰度失败: {error}",
+  "@playerQualitySwitchFailed": {
+    "placeholders": {
+      "error": {}
+    }
+  },
+  "playerQualityNoAvailableOptions": "当前没有可切换清晰度",
+  "playerQualitySheetTitle": "清晰度",
+  "playerQualitySheetSection": "清晰度列表",
+  "playerQualityRecommendedExpired": "推荐清晰度已失效",
+  "playerQualityDownloaded": "已下载",
+  "playerWeakNetworkSuggestionTitle": "网络较慢，建议切换到 {quality}",
+  "@playerWeakNetworkSuggestionTitle": {
+    "placeholders": {
+      "quality": {}
+    }
+  },
+  "playerWeakNetworkSwitching": "网络较慢，正在切换到 {quality}，请稍候...",
+  "@playerWeakNetworkSwitching": {
+    "placeholders": {
+      "quality": {}
+    }
+  },
+  "playerAutoFilterFallbackApplied": "检测到帧率不稳定，已自动关闭滤镜",
+  "playerAdvancedSettingsTitle": "高级设置",
+  "playerDecoderTitle": "解码方式",
+  "playerDecoderSubtitle": "切换当前播放器使用的解码方式",
+  "playerCacheSettingsTitle": "缓存设置",
+  "playerCacheSettingsSubtitle": "直接按百分比调节播放器缓存策略强度。",
+  "playerMonitorTitle": "播放监测",
+  "playerMonitorSubtitle": "设置左上角悬浮信息显示的性能占用和实时帧率",
+  "playerExtremePlaybackTitle": "极限播放",
+  "playerExtremePlaybackEnabledSubtitle": "边下边播已开启，退出播放器后会清理本次播放缓存。切换时会重新加载当前播放源。",
+  "playerExtremePlaybackDisabledSubtitle": "边下边播开启后，退出播放器会自动删除已下载缓存，但会增加内存和存储空间消耗。",
+  "playerVideoInfoTitle": "视频信息",
+  "playerVideoInfoSubtitle": "查看当前播放链路、渲染输出和片源信息",
+  "playerMonitorStatusTitle": "播放监控",
+  "playerMonitorStatusDescription": "显示在左上角，可拖动并记住位置。GPU 占用取决于设备是否开放系统节点。",
+  "playerPerformanceMonitorTitle": "性能监控",
+  "playerPerformanceMonitorSubtitle": "显示 CPU / GPU 占用百分比",
+  "playerFpsMonitorTitle": "实时帧率",
+  "playerFpsMonitorSubtitle": "显示当前视频输出 FPS，默认关闭",
+  "playerHardwareDecoderTitle": "硬件解码",
+  "playerHardwareDecoderSubtitle": "性能高，优先选择",
+  "playerSoftwareDecoderTitle": "软件解码",
+  "playerSoftwareDecoderSubtitle": "兼容性更高，适合硬解异常时切换",
+  "playerDecoderSwitching": "正在切换为 {mode}，请稍等...",
+  "@playerDecoderSwitching": {
+    "placeholders": {
+      "mode": {}
+    }
+  },
+  "playerMonitorPartiallyEnabled": "部分开启",
+  "playerMonitorOff": "已关闭",
+  "playerAspectFit": "适应",
+  "playerAspectFill": "填充",
+  "playerAspectRatioTitle": "画面比例",
+  "playerPreparingPlayback": "正在准备播放",
+  "playerRefreshingPlaybackSession": "正在刷新播放会话...",
+  "playerPlaybackSessionExpiredRecovering": "播放会话已过期，正在恢复播放...",
+  "playerRefreshPlaybackSessionFailed": "刷新播放会话失败",
+  "playerRecoverPlaybackSessionFailed": "恢复播放会话失败",
+  "playerGenericError": "{title}: {error}",
+  "@playerGenericError": {
+    "placeholders": {
+      "title": {},
+      "error": {}
+    }
+  },
+  "playerIntroSkipped": "已跳过片头",
+  "playerOutroSkipped": "已跳过片尾",
+  "playerChapterSkipPromptDismissed": "本次播放已忽略跳过提示，如需关闭可在设置中禁用片头片尾跳过。",
+  "playerCacheFullyAvailable": "当前视频已全部缓存",
+  "playerCacheNotReadyForDownload": "当前缓存尚未完整，暂时不能转为下载",
+  "playerCurrentVideo": "当前视频",
+  "playerCacheImportFailed": "缓存转下载失败",
+  "playerCacheImportedToDownload": "已转为下载",
+  "playerAlreadyInDownloadList": "已在下载列表中",
+  "playerAddingToDownloadList": "正在加入下载列表",
+  "playerLayoutSwitchFailed": "切换播放布局失败",
+  "playerUiLocked": "界面已锁定",
+  "playerUiUnlocked": "界面已解锁",
+  "playerReloadRequiredRecovering": "当前播放需要重新加载，正在为您恢复播放，请稍候...",
+  "playerErrorHintFailed": "失败",
+  "playerErrorHintError": "错误",
+  "playerErrorHintUnavailable": "不可",
+  "playerErrorHintMissing": "缺少",
+  "playerErrorHintNone": "暂无",
+  "playerErrorHintNotLoaded": "未加载",
+  "playerErrorHintNotExtracted": "未提取",
+  "playerSettingsTitle": "设置",
+  "playerAutoRotateTitle": "自动旋转",
+  "playerAutoRotateSystemSubtitle": "跟随系统方向自动切换",
+  "playerAutoRotateLockedSubtitle": "锁定当前播放方向",
+  "playerAutoPlayTitle": "自动连播",
+  "playerAutoPlayEnabledSubtitle": "当前集播放完成后自动播放下一集",
+  "playerAutoPlayDisabledSubtitle": "关闭后播放完成停留当前集",
+  "playerNextEpisodePreloadTitle": "下一级预加载",
+  "playerNextEpisodePreloadEnabledSubtitle": "片尾倒计时开始时预加载下一集，尽量减少黑屏和等待",
+  "playerNextEpisodePreloadDisabledSubtitle": "关闭后保持原本的自动连播切集方式",
+  "playerNextEpisodePreloadRequiresAutoPlay": "需先开启自动连播",
+  "playerCurrentValue": "当前：{value}",
+  "@playerCurrentValue": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "playerIntroOutroSettingsTitle": "片头片尾设置",
+  "playerBookmarkSettingsSubtitle": "记录当前片段关键时间点并快速跳转",
+  "playerSelectIntroChapterTitle": "选择片头章节",
+  "playerSelectOutroChapterTitle": "选择片尾章节",
+  "playerIntroOutroStatusTitle": "OP/ED 跳过",
+  "playerEnabled": "已开启",
+  "playerIntroOutroAutoSkipToggleTitle": "启用自动跳过",
+  "playerIntroOutroAutoSkipToggleSubtitle": "开启后按官方配置跳过片头片尾",
+  "playerAdvancedAdjustmentLabel": "高级调整",
+  "playerIntroOutroDefaultDurationHint": "默认 1-2 分钟，必要时再微调",
+  "playerIntroOutroOffTitle": "关闭",
+  "playerIntroOutroOffSubtitle": "不自动跳过片头片尾",
+  "playerIntroOutroOfficialTitle": "自动跳过官方片头片尾",
+  "playerIntroOutroOfficialSubtitle": "使用飞牛官方片头片尾时长配置",
+  "playerIntroOutroOfficialSettingsTitle": "飞牛官方设置",
+  "playerIntroOutroOfficialSettingsSubtitle": "设置官方片头片尾跳过时长",
+  "playerIntroOutroChapterModeTitle": "章节判断跳过",
+  "playerIntroOutroChapterModeSubtitle": "根据章节自动判断，或手动选择章节作为 OP/ED",
+  "playerIntroOutroChapterSettingsTitle": "章节跳过设置",
+  "playerSkipIntroTitle": "跳过片头",
+  "playerSkipOutroTitle": "跳过片尾",
+  "playerIntroDurationTitle": "片头时长",
+  "playerOutroDurationTitle": "片尾时长",
+  "playerOfficialIntroDescription": "设置官方片头跳过时长",
+  "playerOfficialOutroDescription": "设置官方片尾跳过时长",
+  "playerCurrentPlaybackTime": "当前播放时间",
+  "playerSetAsIntro": "设为片头",
+  "playerSetAsOutro": "设为片尾",
+  "playerCustomDurationTitle": "自定义",
+  "playerCustomDurationSubtitle": "距离片头/片尾多少秒时开始跳过",
+  "playerResetToZeroSeconds": "恢复为 0 秒",
+  "playerIntroOutroAutoModeTitle": "自动判断",
+  "playerIntroOutroAutoModeSubtitle": "根据章节位置和短章节时长自动识别 OP/ED",
+  "playerIntroOutroManualModeTitle": "手动选择章节",
+  "playerIntroOutroManualModeSubtitle": "手动指定章节作为片头片尾",
+  "playerIntroOutroAutoRangeLabel": "自动判断范围",
+  "playerIntroMaxChapterDurationTitle": "片头最大章节时长",
+  "playerIntroMaxChapterDurationSubtitle": "前段短章节小于该时长时，优先判定为片头",
+  "playerOutroMaxChapterDurationTitle": "片尾最大章节时长",
+  "playerOutroMaxChapterDurationSubtitle": "尾段短章节小于该时长时，优先判定为片尾",
+  "playerIntroChapterTitle": "片头章节",
+  "playerIntroChapterSubtitle": "手动指定片头章节",
+  "playerOutroChapterTitle": "片尾章节",
+  "playerOutroChapterSubtitle": "手动指定片尾章节",
+  "playerUnset": "未设置",
+  "playerChapterNumber": "第 {chapter} 章",
+  "@playerChapterNumber": {
+    "placeholders": {
+      "chapter": {
+        "type": "int"
+      }
+    }
+  },
+  "playerChapterLoadFailed": "读取章节失败: {error}",
+  "@playerChapterLoadFailed": {
+    "placeholders": {
+      "error": {}
+    }
+  },
+  "playerNoAvailableChapters": "当前视频没有可用章节",
+  "playerNoChapter": "不使用章节",
+  "playerIntroOutroSourceChapterLabel": "章节判断",
+  "playerIntroOutroSourceOffLabel": "已关闭",
+  "playerIntroOutroManualLabel": "手动选择",
+  "playerIntroOutroAutoLabel": "自动判断",
+  "playerIntroOutroManualSummary": "片头：{intro}，片尾：{outro}",
+  "@playerIntroOutroManualSummary": {
+    "placeholders": {
+      "intro": {},
+      "outro": {}
+    }
+  },
+  "playerUnrecognized": "未识别",
+  "playerIntroOutroAutoSummary": "自动判断结果，片头：{intro}，片尾：{outro}",
+  "@playerIntroOutroAutoSummary": {
+    "placeholders": {
+      "intro": {},
+      "outro": {}
+    }
+  },
+  "playerIntroOutroOffSummary": "关闭后不会自动跳过片头片尾",
+  "playerIntroOutroOfficialSummary": "官方片头 {intro}，片尾 {outro}",
+  "@playerIntroOutroOfficialSummary": {
+    "placeholders": {
+      "intro": {},
+      "outro": {}
+    }
+  },
+  "playerEpisodeSwitchFailed": "切换剧集失败: {error}",
+  "@playerEpisodeSwitchFailed": {
+    "placeholders": {
+      "error": {}
+    }
+  },
+  "playerNotReady": "播放器未就绪",
+  "playerListenVideoEnabled": "已开启听视频模式",
+  "playerListenVideoRestored": "已恢复视频画面",
+  "playerListenVideoSwitchFailed": "听视频模式切换失败",
+  "playerVideoRestoreFailed": "视频画面恢复失败",
+  "playerScreenshotModuleMissing": "截图模块未加载，请重启应用",
+  "playerScreenshotFailed": "截图失败",
+  "playerScreenshotSaved": "截图已保存",
+  "playerScreenshotCustomDirectoryRequired": "请先在截图设置里选择自定义目录",
+  "playerScreenshotCustomDirectoryUnavailable": "自定义目录不可用，请重新选择",
+  "playerScreenshotUnavailable": "当前还不能截图",
+  "playerScreenshotSaveFailed": "截图保存失败",
+  "playerDiagnosticsTitle": "播放诊断",
+  "playerDiagnosticsLoadFailed": "读取播放诊断失败：{error}",
+  "@playerDiagnosticsLoadFailed": {
+    "placeholders": {
+      "error": {}
+    }
+  },
+  "playerDiagnosticsEmpty": "暂时没有可显示的播放信息",
+  "playerDiagnosticsPlaybackSection": "播放信息",
+  "playerDiagnosticsStatus": "状态",
+  "playerDiagnosticsPosition": "当前位置",
+  "playerDiagnosticsDuration": "总时长",
+  "playerDiagnosticsSpeed": "播放速度",
+  "playerDiagnosticsPaused": "已暂停",
+  "playerDiagnosticsError": "错误",
+  "playerDiagnosticsVideoSection": "视频",
+  "playerDiagnosticsVideoCodec": "视频编码",
+  "playerDiagnosticsDolbyVision": "杜比视界",
+  "playerDiagnosticsResolution": "分辨率",
+  "playerDiagnosticsVideoOutput": "视频输出",
+  "playerDiagnosticsDecoder": "解码方式",
+  "playerDiagnosticsAudioSection": "音频",
+  "playerDiagnosticsCurrentAudioTrack": "当前音轨",
+  "playerDiagnosticsAudioCodec": "音频编码",
+  "playerDiagnosticsAudioChain": "音频链路",
+  "playerDiagnosticsOutputParams": "输出参数",
+  "playerDiagnosticsOutputDevice": "输出设备",
+  "playerDiagnosticsExternalAudio": "已接入外接音频",
+  "playerDiagnosticsUsbAudio": "USB / 小尾巴",
+  "playerDiagnosticsSystemDefaultOutput": "系统默认输出",
+  "playerDiagnosticsCurrentSubtitle": "当前字幕",
+  "playerDiagnosticsOutputDisplaySection": "输出与显示",
+  "playerDiagnosticsHdrDolbyPipeline": "HDR / 杜比链路",
+  "playerDiagnosticsColorMode": "色彩模式",
+  "playerDiagnosticsDeviceInfo": "设备信息",
+  "playerDiagnosticsSourceSection": "片源",
+  "playerDiagnosticsTitleLabel": "标题",
+  "playerDiagnosticsMediaId": "媒体标识",
+  "playerDiagnosticsVideoStream": "视频流",
+  "playerDiagnosticsAudioStream": "音频流",
+  "playerDiagnosticsSubtitleStream": "字幕流",
+  "commonYes": "是",
+  "commonNo": "否",
+  "playerDolbyVisionSource": "杜比视界片源",
+  "playerHdrSource": "HDR片源",
+  "playerSdrSource": "SDR片源",
+  "playerHdrDirect": "HDR直出",
+  "playerSdrTonemap": "SDR映射",
+  "playerSdrPipeline": "SDR链路",
+  "playerAudioPassthrough": "直通输出",
+  "playerAudioDecodedNonPassthrough": "解码播放（非直通）",
+  "playerAudioDecoded": "解码播放",
+  "playerRecognized": "已识别",
+  "playerConnected": "已接入",
+  "playerNotDetected": "未检测到",
+  "danmakuSettingsTitle": "弹幕设置",
+  "danmakuDisplaySection": "显示调节",
+  "danmakuDisplayArea": "显示区域",
+  "danmakuOpacity": "不透明度",
+  "danmakuDensity": "弹幕密度",
+  "danmakuFontSize": "字体大小",
+  "danmakuFontWeight": "字体粗细",
+  "danmakuSpeed": "弹幕速度",
+  "danmakuFrameRate": "弹幕帧率",
+  "danmakuTypeFilterSection": "按弹幕类型屏蔽",
+  "danmakuTypeFixed": "固定",
+  "danmakuTypeScroll": "滚动",
+  "danmakuTypeColor": "彩色",
+  "danmakuTypeBottom": "底部",
+  "danmakuOcclusionSection": "画面防遮挡",
+  "danmakuHideDuplicateTitle": "重复弹幕隐藏",
+  "danmakuHideDuplicateSubtitle": "合并高频重复内容，减少同屏密集刷屏。",
+  "danmakuAvoidSubtitleTitle": "底部字幕区域防遮挡",
+  "danmakuAvoidSubtitleSubtitle": "优先避开字幕所在区域，减少弹幕压住字幕。",
+  "danmakuAvoidCenterTitle": "主体穿透遮挡",
+  "danmakuAvoidCenterSubtitle": "优先使用动态蒙版扣除人物区域内的弹幕，不可用时会恢复普通弹幕。",
+  "danmakuAiSampleInterval": "AI 采样间隔",
+  "danmakuAiSampleSize": "AI 采样大小",
+  "danmakuSourceSection": "弹幕来源",
+  "danmakuLayerEnabledTitle": "启用弹幕层",
+  "danmakuLayerEnabledSubtitle": "关闭后右上角设置入口会隐藏，仅保留左下角开关。",
+  "danmakuCurrentStatus": "当前状态：{status}  ·  {summary}",
+  "@danmakuCurrentStatus": {
+    "placeholders": {
+      "status": {},
+      "summary": {}
+    }
+  },
+  "danmakuSourcePriority": "来源优先级",
+  "danmakuSourcePriorityDescription": "当本地弹幕和网络弹幕都可用时，优先自动载入 {priority}。",
+  "@danmakuSourcePriorityDescription": {
+    "placeholders": {
+      "priority": {}
+    }
+  },
+  "danmakuLocalFirst": "本地优先",
+  "danmakuNetworkFirst": "网络优先",
+  "danmakuSavedTitle": "已保存弹幕",
+  "danmakuSavedEmptySubtitle": "统一管理本地弹幕和弹弹play缓存。",
+  "danmakuSavedCountSubtitle": "当前已保存 {count} 个弹幕来源。",
+  "@danmakuSavedCountSubtitle": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "danmakuSearchTitle": "搜索弹幕",
+  "danmakuDanDanPlay": "弹弹play",
+  "danmakuSearchAnimeSubtitle": "通过弹弹play搜索当前番剧和剧集，直接导入网络弹幕。",
+  "danmakuSearchSourceSubtitle": "通过弹弹play搜索当前片源相关结果，直接导入网络弹幕。",
+  "danmakuManualImportTitle": "手动导入弹幕",
+  "danmakuManualImportSubtitle": "支持本地 XML / JSON 弹幕文件，导入后会替换当前已载入弹幕。",
+  "danmakuLocalFile": "本地文件",
+  "danmakuLocalImport": "本地导入",
+  "danmakuNoSavedSources": "还没有保存的弹幕来源",
+  "danmakuLocalSource": "本地弹幕",
+  "danmakuSearchHint": "可自动带入当前内容，也可以改词重搜",
+  "danmakuCurrentMatch": "当前匹配：{context}",
+  "@danmakuCurrentMatch": {
+    "placeholders": {
+      "context": {}
+    }
+  },
+  "danmakuNoSearchResults": "没有搜索到可用结果",
+  "danmakuConfigRequired": "请先在配置中填入弹弹play AppId / AppSecret",
+  "danmakuSizeSmall": "较小",
+  "danmakuSizeSlightlySmall": "偏小",
+  "danmakuSizeStandard": "标准",
+  "danmakuSizeSlightlyLarge": "偏大",
+  "danmakuSizeLarge": "较大",
+  "danmakuWeightThin": "较细",
+  "danmakuWeightThick": "较粗",
+  "danmakuWeightVeryThick": "很粗",
+  "danmakuAreaQuarter": "1/4 屏",
+  "danmakuAreaHalf": "半屏",
+  "danmakuAreaThreeQuarter": "3/4 屏",
+  "danmakuAreaFull": "全屏",
+  "danmakuSpeedSlow": "偏慢",
+  "danmakuSpeedFast": "较快",
+  "danmakuSpeedVeryFast": "极快",
+  "danmakuOcclusionDisabledTitle": "主体遮挡已关闭",
+  "danmakuOcclusionMaskTitle": "精细遮罩中",
+  "danmakuOcclusionBboxTitle": "人物框兜底中",
+  "danmakuOcclusionEnabledTitle": "主体遮挡已启用",
+  "danmakuOcclusionUnavailableTitle": "主体遮挡暂不可用",
+  "danmakuOcclusionDisabledSubtitle": "关闭后会恢复普通弹幕显示。",
+  "danmakuOcclusionMaskCached": "已复用精细遮罩缓存",
+  "danmakuOcclusionMaskRealtime": "正在使用实时精细遮罩",
+  "danmakuOcclusionBboxFallback": "正在使用人物框兜底",
+  "danmakuOcclusionNormal": "遮挡状态正常",
+  "danmakuOcclusionBackendStatus": "当前后端：{backend}，{status}。",
+  "@danmakuOcclusionBackendStatus": {
+    "placeholders": {
+      "backend": {},
+      "status": {}
+    }
+  },
+  "danmakuOcclusionBackendWithReason": "当前后端：{backend}，{reason}",
+  "@danmakuOcclusionBackendWithReason": {
+    "placeholders": {
+      "backend": {},
+      "reason": {}
+    }
+  },
+  "danmakuOcclusionBackendOnly": "当前后端：{backend}",
+  "@danmakuOcclusionBackendOnly": {
+    "placeholders": {
+      "backend": {}
+    }
+  },
+  "danmakuOcclusionCaptureUnsupported": "当前视频输出后端不支持 AI 采样",
+  "danmakuOcclusionCaptureBudgetUnsupported": "当前链路在高刷新率下已禁用实时 AI 采样",
+  "danmakuEnabled": "弹幕已开启",
+  "danmakuDisabled": "弹幕已关闭",
+  "danmakuNeedSearchKeyword": "请先输入要搜索的番剧名称",
+  "danmakuSearchRateLimited": "搜索过于频繁，请 {seconds} 秒后再试。",
+  "@danmakuSearchRateLimited": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "danmakuSearchFailed": "搜索弹幕失败",
+  "danmakuNoAvailableData": "没有获取到可用弹幕数据",
+  "danmakuImportFailed": "导入弹幕失败",
+  "danmakuImportFailedWithError": "导入弹幕失败: {error}",
+  "@danmakuImportFailedWithError": {
+    "placeholders": {
+      "error": {}
+    }
+  },
+  "danmakuReadSelectedFileFailed": "无法读取已选择的弹幕文件",
+  "danmakuImportedCount": "已导入 {count} 条弹幕",
+  "@danmakuImportedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "danmakuLoadedCount": "已载入 {count} 条弹幕",
+  "@danmakuLoadedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "danmakuSavedFileInvalidRemoved": "弹幕文件已失效，已从列表移除",
+  "danmakuSavedSourceDeleted": "已删除保存的弹幕来源",
+  "danmakuReadSavedFileFailed": "无法读取已保存的弹幕文件",
+  "danmakuAutoMatchNoResultBlocked": "当前片源自动匹配弹幕无结果，后续不再自动请求，可手动搜索。",
+  "danmakuAutoMatchFailed": "当前片源自动匹配弹幕失败",
+  "danmakuAutoMatchBlockedWithReason": "{reason}，后续不再自动请求，可手动搜索。",
+  "@danmakuAutoMatchBlockedWithReason": {
+    "placeholders": {
+      "reason": {}
+    }
+  },
+  "danmakuSwitchedLocalFirst": "已切换为本地优先",
+  "danmakuSwitchedNetworkFirst": "已切换为网络优先",
+  "danmakuLayerDisabledSummary": "弹幕层已关闭，开启后会按当前优先级自动载入弹幕。",
+  "danmakuLoadedLocalSummary": "当前已加载本地弹幕",
+  "danmakuLoadedNetworkSummary": "当前已加载弹弹play弹幕",
+  "danmakuLoadedGenericSummary": "当前已加载弹幕",
+  "danmakuLoadedWithLabelSummary": "{prefix}：{label}，共 {count} 条。",
+  "@danmakuLoadedWithLabelSummary": {
+    "placeholders": {
+      "prefix": {},
+      "label": {},
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "danmakuLoadedCountSummary": "{prefix}，共 {count} 条。",
+  "@danmakuLoadedCountSummary": {
+    "placeholders": {
+      "prefix": {},
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "danmakuStatusLocal": "本地",
+  "danmakuStatusNetwork": "弹弹play",
+  "danmakuStatusNotLoaded": "未载入",
+  "danmakuNoLoadedSearchOrImportSummary": "当前还没有载入弹幕，可搜索弹弹play弹幕或手动导入本地弹幕。",
+  "danmakuNoLoadedManualImportWithTitleSummary": "{title} 暂未载入弹幕，可手动导入本地弹幕。",
+  "@danmakuNoLoadedManualImportWithTitleSummary": {
+    "placeholders": {
+      "title": {}
+    }
+  },
+  "danmakuNoLoadedManualImportSummary": "当前片源暂未载入弹幕，可手动导入本地弹幕。",
+  "danmakuSearchButton": "搜索",
+  "danmakuSavedSourceLocalLabel": "本地",
+  "danmakuSavedSourceSubtitleWithCount": "{type} · {count} 条 · {detail}",
+  "@danmakuSavedSourceSubtitleWithCount": {
+    "placeholders": {
+      "type": {},
+      "count": {
+        "type": "int"
+      },
+      "detail": {}
+    }
+  },
+  "danmakuSavedSourceSubtitle": "{type} · {detail}",
+  "@danmakuSavedSourceSubtitle": {
+    "placeholders": {
+      "type": {},
+      "detail": {}
+    }
+  },
+  "danmakuCurrent": "当前",
+  "playerFitModeUnavailable": "画面模式暂未接入",
+  "playerPictureInPictureUnavailable": "当前无法进入小窗播放",
+  "playerResumePrompt": "继续播放到 {position}",
+  "@playerResumePrompt": {
+    "placeholders": {
+      "position": {}
+    }
+  },
+  "playerRestartFromBeginning": "从头播放",
+  "playerAutoPlayNextPrompt": "{seconds} 秒后自动连播下一集",
+  "@playerAutoPlayNextPrompt": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "playerReloadAction": "重载",
+  "playerEpisodeAction": "选集",
+  "playerAudioTrackAction": "音轨",
+  "playerSubtitleOffAction": "字幕关",
+  "playerSubtitleAction": "字幕",
+  "playerCloudDriveModeTitle": "网盘播放方式",
+  "playerCloudDriveAccountName": "网盘",
+  "playerCloudDriveDirectUnavailable": "当前没有可用的网盘直链播放源",
+  "playerCloudDriveProxyUnavailable": "当前没有可用的 NAS 代理播放源",
+  "playerCloudDriveSwitchingDirect": "正在为您切换至网盘直连播放，请稍候...",
+  "playerCloudDriveSwitchingProxy": "正在为您切换至 NAS 代理播放，请稍候...",
+  "playerSeasonCountLabel": "{count}季",
+  "@playerSeasonCountLabel": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "playerNoEpisodes": "暂无选集",
+  "playerDownloadedBadge": "已下载",
+  "playerNetworkOffline": "离线",
+  "playerNetworkOnline": "网络",
+  "playerSkipPromptCountdown": "{seconds} 秒后跳过{label}",
+  "@playerSkipPromptCountdown": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      },
+      "label": {}
+    }
+  },
+  "playerSkipPromptSoon": "即将跳过{label}",
+  "@playerSkipPromptSoon": {
+    "placeholders": {
+      "label": {}
+    }
+  },
+  "playerSkipPromptDismissSubtitle": "点击关闭后，本次不会自动跳过",
+  "playerReplayAction": "重新播放",
+  "playerBackAction": "返回",
+  "playerCloudDrivePlayingFile": "正在播放网盘文件",
+  "playerCloudDriveModeDescription": "播放速度、画质等能力取决于网盘侧规则。如遇播放异常，可尝试切换播放方式。",
+  "playerCloudDriveDirectTitle": "网盘直连播放",
+  "playerCloudDriveDirectSubtitle": "速度较快，省流",
+  "playerCloudDriveProxyTitle": "NAS 代理播放",
+  "playerCloudDriveProxySubtitle": "色调或音频异常时可尝试切换",
+  "playerRecommendedBadge": "推荐",
+  "settingsOtherTitle": "其他",
+  "settingsBookmarkManagerTitle": "书签管理",
+  "settingsBookmarkEmptySummary": "还没有书签",
+  "settingsBookmarkCountSummary": "共 {count} 个书签",
+  "@settingsBookmarkCountSummary": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsDanmakuDefaultEnabled": "默认开启",
+  "settingsDanmakuDefaultDisabled": "默认关闭",
+  "settingsDanmakuLocalFirst": "本地优先",
+  "settingsDanmakuNetworkFirst": "网络优先",
+  "settingsScreenshotCustomDirectoryNotReady": "自定义目录未就绪",
+  "settingsScreenshotWithSubtitles": "携带字幕",
+  "settingsScreenshotImageOnly": "仅画面",
+  "settingsScreenshotWithSubtitleLayer": "携带字幕层",
+  "settingsScreenshotImageOnlySummary": "仅保存画面",
+  "settingsScreenshotImageOnlyDescription": "不携带字幕层。",
+  "settingsScreenshotWithSubtitlesDescription": "保存当前字幕层。",
+  "settingsScreenshotCustomDirectoryUnsetSummary": "自定义目录未设置。",
+  "settingsScreenshotCustomDirectoryInvalidSummary": "已记录自定义目录“{name}”，但授权失效，需要重新选择。",
+  "@settingsScreenshotCustomDirectoryInvalidSummary": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "settingsScreenshotCustomDirectoryActiveSummary": "当前保存到自定义目录“{name}”。",
+  "@settingsScreenshotCustomDirectoryActiveSummary": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "settingsScreenshotDirectoryUnset": "未设置",
+  "settingsScreenshotDirectoryInvalid": "授权失效",
+  "settingsScreenshotSavePathPicturesTitle": "系统相册",
+  "settingsScreenshotSavePathPicturesDescription": "保存到 Pictures/FlyPlayer，适合普通截图查看。",
+  "settingsScreenshotSavePathDcimTitle": "相机目录",
+  "settingsScreenshotSavePathDcimDescription": "保存到 DCIM/FlyPlayer，更容易被系统相册归类展示。",
+  "settingsScreenshotSavePathAppPicturesTitle": "应用目录",
+  "settingsScreenshotSavePathAppPicturesDescription": "保存到应用专属图片目录，更干净，但部分图库不会直接扫描。",
+  "settingsScreenshotSavePathCustomTitle": "自定义目录",
+  "settingsScreenshotSavePathCustomDescription": "保存到用户自己选择的文件夹，适合集中管理截图。",
+  "settingsScreenshotSelectCustomDirectoryFirst": "请先选择截图自定义目录",
+  "settingsScreenshotCustomDirectoryInvalidRetry": "自定义目录已失效，请重新选择",
+  "settingsScreenshotReadingCustomDirectory": "正在读取当前自定义目录状态...",
+  "settingsScreenshotDirectoryUnsetSentence": "未设置目录。",
+  "settingsScreenshotDirectoryInvalidWithName": "已记录目录“{name}”，但当前授权失效，需要重新选择。",
+  "@settingsScreenshotDirectoryInvalidWithName": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "settingsScreenshotCurrentDirectory": "当前目录：{name}",
+  "@settingsScreenshotCurrentDirectory": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "settingsScreenshotCustomDirectoryManagement": "自定义目录管理",
+  "settingsScreenshotDirectoryAvailable": "目录可用",
+  "settingsScreenshotDirectoryNeedsReselect": "需重选",
+  "settingsScreenshotDirectoryActiveDetail": "截图保存目录：“{name}”。",
+  "@settingsScreenshotDirectoryActiveDetail": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "settingsScreenshotDirectorySetupHint": "先选择一个文件夹，再切换到“自定义目录”模式。",
+  "settingsScreenshotDirectoryInvalidDetail": "原来的目录“{name}”不可用了，请重新选择。",
+  "@settingsScreenshotDirectoryInvalidDetail": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "settingsScreenshotChooseDirectory": "选择目录",
+  "settingsScreenshotChangeDirectory": "更换目录",
+  "settingsScreenshotSetAsCurrentDirectory": "设为当前保存目录",
+  "settingsScreenshotNoDirectorySelected": "未选择目录",
+  "settingsScreenshotCustomDirectoryUpdated": "已更新截图自定义目录",
+  "settingsScreenshotCustomDirectoryRecordedUnavailable": "目录已记录，但当前不可用",
+  "settingsScreenshotClearCustomDirectoryTitle": "清除截图自定义目录",
+  "settingsScreenshotClearCustomDirectoryContent": "这不会删除已经保存的截图，只会移除当前目录授权。",
+  "settingsScreenshotCustomDirectoryCleared": "已清除截图自定义目录",
+  "settingsScreenshotCustomDirectoryActivated": "截图保存目录已切换为自定义目录",
+  "settingsScreenshotNoDirectoryChosen": "还没有选择目录",
+  "settingsScreenshotDirectoryWritable": "可写入",
+  "settingsScreenshotDirectoryExpired": "已失效",
+  "settingsScreenshotDirectoryWriteHint": "新截图将写入该目录。",
+  "settingsScreenshotDirectoryPickHint": "选择文件夹后可作为截图保存目录。",
+  "settingsScreenshotDirectoryExpiredHint": "目录授权已经失效，需要重新选择后才能继续保存截图。",
+  "settingsScreenshotClearAuthorization": "清除授权",
+  "settingsScreenshotCurrentStatus": "当前状态",
+  "settingsScreenshotCustomDirectoryEnabledStatus": "当前截图已经使用自定义目录保存。更换目录后，新截图会进入新目录，旧截图不会迁移。",
+  "settingsScreenshotCustomDirectoryDisabledStatus": "当前未启用自定义目录。",
+  "detailOverviewEmpty": "暂无简介",
+  "mediaDetailsTitle": "文件媒体信息",
+  "mediaDetailsVideoSection": "视频",
+  "mediaDetailsAudioSection": "音频",
+  "mediaDetailsSubtitleSection": "字幕",
+  "mediaDetailsFieldEncoder": "编码器",
+  "mediaDetailsFieldProfile": "配置",
+  "mediaDetailsFieldLevel": "等级",
+  "mediaDetailsFieldResolution": "分辨率",
+  "mediaDetailsFieldAspectRatio": "宽高比",
+  "mediaDetailsFieldInterlaced": "隔行扫描",
+  "mediaDetailsFieldFrameRate": "帧率",
+  "mediaDetailsFieldBitrate": "码率",
+  "mediaDetailsFieldRange": "视频动态范围",
+  "mediaDetailsFieldColorPrimaries": "色彩原色",
+  "mediaDetailsFieldColorSpace": "色彩空间",
+  "mediaDetailsFieldColorTransfer": "色彩转换",
+  "mediaDetailsFieldBitDepth": "位深度",
+  "mediaDetailsFieldPixelFormat": "像素格式",
+  "mediaDetailsFieldRefs": "参考帧",
+  "mediaDetailsFieldLanguage": "语言",
+  "mediaDetailsFieldChannels": "声道",
+  "mediaDetailsFieldSampleRate": "采样率",
+  "mediaDetailsFieldLayout": "布局",
+  "mediaDetailsFieldDefault": "默认",
+  "mediaDetailsFieldForced": "强制",
+  "mediaDetailsFieldExternal": "外部",
+  "detailSeasonSpecial": "特别篇",
+  "detailSeasonNumber": "第 {number} 季",
+  "@detailSeasonNumber": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "detailEpisodeNumber": "第 {number} 集",
+  "@detailEpisodeNumber": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "detailSeasonEpisodeNumber": "第 {season} 季 第 {episode} 集",
+  "@detailSeasonEpisodeNumber": {
+    "placeholders": {
+      "season": {
+        "type": "int"
+      },
+      "episode": {
+        "type": "int"
+      }
+    }
+  },
+  "detailSpecialEpisodeNumber": "特别篇 第 {episode} 集",
+  "@detailSpecialEpisodeNumber": {
+    "placeholders": {
+      "episode": {
+        "type": "int"
+      }
+    }
+  },
+  "detailNamedEpisodeNumber": "{title} 第 {episode} 集",
+  "@detailNamedEpisodeNumber": {
+    "placeholders": {
+      "title": {},
+      "episode": {
+        "type": "int"
+      }
+    }
+  },
+  "detailSeasonDefault": "季",
+  "detailSeasonInfoDefault": "季信息",
+  "detailTvSeasonCount": "共 {count} 季",
+  "@detailTvSeasonCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "detailSeasonEmpty": "暂无季列表",
+  "detailEpisodeTitle": "选集",
+  "detailEpisodeEmpty": "暂无剧集信息",
+  "detailEpisodeUnknown": "未知集数",
+  "detailEpisodeTotal": "共 {count} 集",
+  "@detailEpisodeTotal": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "commonDetails": "详情",
+  "commonLoading": "加载中",
+  "detailImdbEmpty": "暂无 IMDB 链接",
+  "detailImdbOpenFailed": "无法打开 IMDB 链接",
+  "detailRatingScore": "{score} 分",
+  "@detailRatingScore": {
+    "placeholders": {
+      "score": {}
+    }
+  },
+  "commonClickTooFastRetryLater": "点击过快，请稍后再试",
+  "commonOperationFailedRetryLater": "操作失败，请稍后重试",
+  "actionFavoriteAdd": "收藏",
+  "actionFavoriteRemove": "取消收藏",
+  "actionFavoriteAdded": "已加入收藏",
+  "actionFavoriteRemoved": "已取消收藏",
+  "actionMarkAsWatched": "标记为已观看",
+  "actionMarkAsUnwatched": "标记为未观看",
+  "actionMarkedAsWatched": "已标记为已观看",
+  "actionMarkedAsUnwatched": "已标记为未观看",
+  "detailFavoriteFailed": "收藏失败",
+  "detailUnfavoriteFailed": "取消收藏失败",
+  "detailMarkWatchedFailed": "标记为已观看失败",
+  "detailMarkUnwatchedFailed": "标记为未观看失败",
+  "detailDownloadUnavailable": "暂无可下载资源",
+  "detailContinuePlay": "继续播放",
+  "detailPlay": "播放",
+  "detailOverviewTitle": "简介",
+  "detailCastCrewTitle": "演职人员",
+  "detailFileInfoTitle": "文件信息",
+  "detailFileLocation": "文件位置",
+  "detailFileSize": "文件大小",
+  "detailFileCreatedAt": "文件创建日期",
+  "detailFileAddedAt": "添加日期",
+  "detailFileConvert": "转换",
+  "detailPlaybackError": "播放异常: {error}",
+  "@detailPlaybackError": {
+    "placeholders": {
+      "error": {}
+    }
+  },
+  "detailPlayInfoFailedWithError": "获取播放流失败: {error}",
+  "@detailPlayInfoFailedWithError": {
+    "placeholders": {
+      "error": {}
+    }
+  },
+  "detailPreparingPlayback": "正在准备播放，请稍候",
+  "detailPlayPlaceholder": "播放接口已预留",
+  "detailPlayInfoFailed": "获取播放信息失败",
+  "detailDownloadPlaceholder": "下载接口已预留",
+  "detailLocalVideoInvalid": "本地视频文件无效",
+  "detailTmdbEmpty": "暂无 TMDB 链接",
+  "detailTmdbOpenFailed": "无法打开 TMDB 链接",
+  "commonOther": "其他",
+  "commonDurationHoursMinutes": "{hours} 小时 {minutes} 分钟",
+  "@commonDurationHoursMinutes": {
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      },
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "commonDurationMinutesSeconds": "{minutes} 分钟 {seconds} 秒",
+  "@commonDurationMinutesSeconds": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "commonDurationMinutes": "{minutes} 分钟",
+  "@commonDurationMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "commonDurationSeconds": "{seconds} 秒",
+  "@commonDurationSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "downloadLoadingInfo": "正在获取下载信息，请稍候",
+  "downloadNoResources": "暂无可下载资源",
+  "downloadNoQuality": "暂无可下载清晰度",
+  "downloadSelectItem": "选择下载条目",
+  "downloadQuality": "下载清晰度",
+  "downloadSelectQuality": "选择下载清晰度",
+  "downloadDownload": "下载",
+  "downloadOpenList": "打开下载列表",
+  "downloadLoadFailed": "获取下载信息失败，请稍后重试",
+  "downloadSourceQuality": "原画",
+  "downloadDownloaded": "已下载",
+  "downloadStartedWithQuality": "已开始下载 {quality}",
+  "@downloadStartedWithQuality": {
+    "placeholders": {
+      "quality": {}
+    }
+  },
+  "downloadImportedFromCacheWithQuality": "已从缓存加入下载 {quality}",
+  "@downloadImportedFromCacheWithQuality": {
+    "placeholders": {
+      "quality": {}
+    }
+  },
+  "downloadItemDownloading": "该条目正在下载",
+  "downloadItemDownloaded": "该条目已下载",
+  "downloadFailedWithError": "下载失败：{error}",
+  "@downloadFailedWithError": {
+    "placeholders": {
+      "error": {}
+    }
+  },
+  "downloadListTitle": "下载列表",
+  "trackSubtitleOff": "关闭字幕",
+  "trackSubtitleNone": "无字幕",
+  "trackAudioNone": "无音频",
+  "trackSubtitleUnknownLanguage": "未知语言",
+  "trackSubtitleDefaultSuffix": "默认",
+  "trackSubtitleExternalSuffix": "外挂",
+  "trackSubtitleName": "字幕",
+  "playerSubtitleSelectTitle": "选择字幕",
+  "playerAudioSelectTitle": "选择音频",
+  "logNoExportableLogs": "当前没有可导出的日志",
+  "logTxtExported": "TXT 已导出到 {path}",
+  "@logTxtExported": {
+    "placeholders": {
+      "path": {}
+    }
+  },
+  "logExternalUnavailableExported": "外部存储不可用，已导出到临时目录 {path}",
+  "@logExternalUnavailableExported": {
+    "placeholders": {
+      "path": {}
+    }
+  },
+  "logExportFailed": "导出失败：{error}",
+  "@logExportFailed": {
+    "placeholders": {
+      "error": {}
+    }
+  },
+  "logClearTitle": "清空日志",
+  "logClearContent": "会移除当前已记录的报错日志，这个操作不能恢复。",
+  "logClearConfirm": "清空",
+  "logCleared": "日志已清空",
+  "logInfoTitle": "日志信息",
+  "logErrorLogTitle": "报错日志",
+  "logErrorLogDescription": "全局异常记录，支持导出为 TXT。",
+  "logTotal": "总数",
+  "logErrors": "错误",
+  "logLatest": "最近",
+  "logNone": "暂无",
+  "logExporting": "导出中...",
+  "logExportTxt": "导出 TXT",
+  "logClearing": "清空中...",
+  "logClearAction": "清空日志",
+  "logEmptyTitle": "暂无报错日志",
+  "logEmptySubtitle": "发生全局异常后将自动生成记录。",
+  "logCollapseStack": "收起堆栈",
+  "logExpandStack": "展开堆栈",
+  "downloadEmptyDownloaded": "没有已下载的影片",
+  "downloadEmptyDownloading": "没有下载中的影片",
+  "downloadImportedLocalVideos": "已导入 {count} 个本地下载视频",
+  "@downloadImportedLocalVideos": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "downloadNoImportableVideos": "没有发现需要导入的视频",
+  "downloadNoRecoverableFiles": "没有找到可恢复的下载文件",
+  "downloadRefreshFilesFailed": "刷新下载文件失败",
+  "downloadRefreshFilesTooltip": "刷新下载文件",
+  "commonEdit": "编辑",
+  "commonSelectAll": "全选",
+  "commonDeselectAll": "取消全选",
+  "downloadDeleteFilesTitle": "删除视频文件",
+  "downloadDeleteFilesContent": "确认删除所选视频文件？删除后将不可恢复。",
+  "downloadPreparingPlayback": "正在准备播放，请稍候",
+  "downloadLocalFileMissing": "本地视频文件不存在",
+  "downloadDetailTitle": "下载详情",
+  "downloadSelectedCount": "已选择 {count} 项",
+  "@downloadSelectedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "downloadVideoCount": "视频 {count}",
+  "@downloadVideoCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "downloadTranscodingPercent": "转码中 {percent}%",
+  "@downloadTranscodingPercent": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "downloadCalculating": "计算中",
+  "downloadWaiting": "等待中",
+  "downloadPendingGenerate": "待生成",
+  "downloadTranscoding": "转码中",
+  "downloadDownloading": "下载中",
+  "downloadCurrentStage": "当前阶段",
+  "downloadSpeed": "下载速度",
+  "downloadCloudTranscoding": "云端转码",
+  "downloadEstimatedFile": "预计文件",
+  "downloadTransferredTotal": "已下 / 总计",
+  "downloadDownloadedTab": "已下载",
+  "downloadDownloadingTab": "下载中",
+  "storageTitle": "储存管理",
+  "storageRefreshTooltip": "刷新",
+  "storageAppDataDangerTitle": "应用数据与危险操作",
+  "storageAppDataTitle": "应用数据",
+  "storageAppDataDescription": "这些内容通常是用户记录和个性化配置，不会和普通缓存一起清理。",
+  "storageTotalUsage": "总占用",
+  "storageLastRefreshed": "上次刷新 {time}",
+  "@storageLastRefreshed": {
+    "placeholders": {
+      "time": {}
+    }
+  },
+  "storageClearSelectedCacheTitle": "清理选中缓存",
+  "storageClearSelectedCacheMessage": "将删除选中的播放缓存文件，删除后需要重新缓存。是否继续？",
+  "storageClearSelectedDownloadsTitle": "清理已下载文件",
+  "storageClearSelectedDownloadsMessage": "将删除选中的本地下载文件，删除后需要重新下载。是否继续？",
+  "storagePlaybackActiveMessage": "播放中不可清理播放缓存",
+  "storageClearFailedMessage": "清理失败，请稍后重试",
+  "storageEmptyPlaybackSelection": "请先勾选要清理的缓存",
+  "storageEmptyDownloadSelection": "请先勾选要清理的下载文件",
+  "storageSelectedPlaybackCleared": "已清理选中的播放缓存",
+  "storageSelectedDownloadsCleared": "已清理选中的下载文件",
+  "storageCacheResolutionFallback": "缓存",
+  "storageCacheVideoFallback": "缓存视频",
+  "storageSeasonGroupTitle": "{seriesTitle} 第{season}季",
+  "@storageSeasonGroupTitle": {
+    "placeholders": {
+      "seriesTitle": {},
+      "season": {
+        "type": "int"
+      }
+    }
+  },
+  "storageSpecialGroupTitle": "{seriesTitle} 特别篇",
+  "@storageSpecialGroupTitle": {
+    "placeholders": {
+      "seriesTitle": {}
+    }
+  },
+  "storagePromoteConverted": "已转为下载 {count} 项",
+  "@storagePromoteConverted": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "storagePromoteExisting": "已有下载 {count} 项",
+  "@storagePromoteExisting": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "storagePromoteUnavailable": "不可转换 {count} 项",
+  "@storagePromoteUnavailable": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "storageNoConvertibleCache": "当前没有可转换的完整缓存",
+  "storageClearItemTitle": "清理{title}",
+  "@storageClearItemTitle": {
+    "placeholders": {
+      "title": {}
+    }
+  },
+  "storageClearItemMessage": "将清理{title}，对应文件会被删除。是否继续？",
+  "@storageClearItemMessage": {
+    "placeholders": {
+      "title": {}
+    }
+  },
+  "storageClearItemSuccess": "{title}已清理",
+  "@storageClearItemSuccess": {
+    "placeholders": {
+      "title": {}
+    }
+  },
+  "storageClearItemRestricted": "{title}已部分清理，公共目录未授权",
+  "@storageClearItemRestricted": {
+    "placeholders": {
+      "title": {}
+    }
+  },
+  "storageActionCompleted": "{title}已完成",
+  "@storageActionCompleted": {
+    "placeholders": {
+      "title": {}
+    }
+  },
+  "storageActionFailed": "{title}失败，请稍后重试",
+  "@storageActionFailed": {
+    "placeholders": {
+      "title": {}
+    }
+  },
+  "storageClearBookmarksTitle": "清空书签",
+  "storageClearBookmarksSubtitle": "仅删除播放书签记录",
+  "storageClearBookmarksMessage": "将删除全部播放书签，此操作不可恢复。",
+  "storageClearSavedThemesTitle": "清空已保存主题",
+  "storageClearSavedThemesSubtitle": "保留当前自定义配置",
+  "storageClearSavedThemesMessage": "将删除已保存主题，但不会影响当前自定义配置。",
+  "storageClearDynamicThemeTitle": "清空动态取色缓存",
+  "storageClearDynamicThemeSubtitle": "下次进入详情页会重新为图片取色",
+  "storageClearDynamicThemeMessage": "将删除本地保存的动态取色结果，之后再次进入详情页时会重新采样取色。",
+  "storageClearDanmakuSourcesTitle": "清空弹幕来源",
+  "storageClearDanmakuSourcesSubtitle": "删除已保存的弹幕来源记录",
+  "storageClearDanmakuSourcesMessage": "将删除已保存的弹幕来源记录。",
+  "storageClearLoginHistoryTitle": "清空登录历史",
+  "storageClearLoginHistorySubtitle": "不会退出当前会话",
+  "storageClearLoginHistoryMessage": "将删除历史登录记录，不会退出当前登录。",
+  "storageResetSettingsTitle": "重置设置",
+  "storageResetSettingsSubtitle": "主题、播放器、截图、弹幕与平行窗口设置",
+  "storageResetSettingsMessage": "将重置主题、播放器、截图、弹幕和平行窗口设置，不会清理缓存和用户文件。",
+  "storageTotal": "总计",
+  "storageNoUsageData": "暂无占用数据",
+  "storageUsageCategory": "占用分类",
+  "storageCategoryDetails": "分类详情",
+  "storagePlaybackFiles": "播放缓存",
+  "storageDownloadFiles": "下载文件",
+  "storagePromoteSelected": "转为下载 ({count})",
+  "@storagePromoteSelected": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "storageClearSelected": "清理选中 ({count})",
+  "@storageClearSelected": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "storageNoPlaybackCache": "当前没有可清理的播放缓存。",
+  "storageNoDownloadFiles": "当前没有可查看的本地下载文件。",
+  "storageCompleteCache": "完整缓存",
+  "storageIncompleteCache": "未完整缓存",
+  "storageCompletedCache": "已完整缓存",
+  "storageEnterManagement": "进入管理",
+  "storageEstimated": "估算",
+  "storageRestricted": "权限受限",
+  "commonApply": "应用",
+  "commonAll": "全部",
+  "commonAscending": "升序",
+  "commonDescending": "降序",
+  "screenshotGalleryTitle": "截图图库",
+  "screenshotSelectedCount": "已选中 {count} 张",
+  "@screenshotSelectedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "screenshotUnknownResolution": "未知分辨率",
+  "screenshotDeleteTitle": "删除截图",
+  "screenshotDeleteContent": "将删除选中的 {count} 张截图，删除后无法恢复。",
+  "@screenshotDeleteContent": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "screenshotDeletedCount": "已删除 {count} 张截图",
+  "@screenshotDeletedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "screenshotDeleteNone": "没有删除任何截图",
+  "screenshotSourcePictures": "系统相册",
+  "screenshotSourceDcim": "相机目录",
+  "screenshotSourceApp": "应用目录",
+  "screenshotSourceCustom": "自定义目录",
+  "screenshotSearchTitle": "搜索截图",
+  "screenshotSearchHint": "输入截图名、目录或来源",
+  "screenshotClearSearch": "清空搜索",
+  "screenshotFilterSortTitle": "筛选与排序",
+  "screenshotSourceFilter": "来源筛选",
+  "screenshotSortStandard": "排序标准",
+  "screenshotCurrentSortGroup": "当前按 {field}{direction}分组",
+  "@screenshotCurrentSortGroup": {
+    "placeholders": {
+      "field": {},
+      "direction": {}
+    }
+  },
+  "screenshotSortDescription": "支持多级排序，排在最上面的规则优先级最高，页面分组也按它展示。",
+  "screenshotAddSort": "添加排序",
+  "screenshotApplySort": "应用排序",
+  "screenshotMoveUpPriority": "上移优先级",
+  "screenshotMoveDownPriority": "下移优先级",
+  "screenshotDeleteRule": "删除规则",
+  "screenshotSearchEmpty": "没有找到和“{query}”相关的截图。",
+  "@screenshotSearchEmpty": {
+    "placeholders": {
+      "query": {}
+    }
+  },
+  "screenshotEmptyPictures": "系统相册里还没有截图。",
+  "screenshotEmptyDcim": "相机目录里还没有截图。",
+  "screenshotEmptyApp": "应用目录里还没有截图。",
+  "screenshotEmptyCustom": "自定义目录里还没有截图。",
+  "screenshotEmptyDefault": "当前没有可预览的截图。",
+  "screenshotRefreshHint": "下拉刷新后会重新扫描可访问目录。",
+  "screenshotAuthorizePublicDirectories": "授权公共目录",
+  "screenshotInfoCategory": "分类",
+  "screenshotInfoFormat": "格式",
+  "screenshotInfoSourceDirectory": "来源目录",
+  "screenshotInfoTakenAt": "拍摄时间",
+  "screenshotInfoFileSize": "文件大小",
+  "screenshotInfoStorageType": "存储类型",
+  "screenshotInfoResolution": "分辨率",
+  "screenshotManagedDirectory": "受管目录",
+  "screenshotLocalFile": "本地文件",
+  "screenshotLoading": "读取中",
+  "screenshotUltraHdrNotice": "该文件为 Ultra HDR JPEG，应用内预览可能只显示 SDR 基底，相册中可按系统能力显示 HDR。",
+  "screenshotFormatImage": "图片",
+  "screenshotSortDate": "日期",
+  "screenshotSortFileName": "文件名",
+  "screenshotSortSize": "大小",
+  "screenshotSortResolution": "分辨率",
+  "screenshotSortDirectory": "目录",
+  "screenshotSortSource": "来源",
+  "screenshotDateToday": "今天",
+  "screenshotDateYesterday": "昨天",
+  "screenshotDateBeforeYesterday": "前天",
+  "screenshotMonthDay": "{month}月{day}日",
+  "@screenshotMonthDay": {
+    "placeholders": {
+      "month": {
+        "type": "int"
+      },
+      "day": {
+        "type": "int"
+      }
+    }
+  },
+  "screenshotSizeOver10Mb": "10 MB 以上",
+  "screenshotSizeUnder100Kb": "100 KB 以下"
+  ,
+  "bookmarkNoteDialogTitle": "书签备注",
+  "bookmarkNoteDialogHint": "记录这个书签的作用，比如名场面、关键转折、复习点",
+  "bookmarkNoteCollapse": "收起",
+  "bookmarkNoteExpand": "更多",
+  "mpvEqEditorTitle": "高级均衡",
+  "mpvEqEditorSubtitle": "上下拖动每个频段，细微调整整体音色。",
+  "mpvEqReset": "归零",
+  "themePresetMidnightSubtitle": "深夜影院感，层次稳重",
+  "themePresetOceanSubtitle": "冷海风格，信息感更强",
+  "themePresetForestSubtitle": "自然绿调，观感更柔和",
+  "themePresetGraphiteSubtitle": "中性石墨，适合长期使用",
+  "themePresetSunsetSubtitle": "暖调落日，氛围更明显",
+  "themePresetAuroraSubtitle": "清亮极光，更偏轻快科技感",
+  "themePresetLatteSubtitle": "奶白纸感，适合亮背景偏好",
+  "themeAccentBlue": "星蓝",
+  "themeAccentCyan": "冰青",
+  "themeAccentGreen": "松绿",
+  "themeAccentAmber": "琥珀",
+  "themeAccentRose": "赤霓",
+  "themeAccentCoral": "珊瑚",
+  "themeAccentIndigo": "靛青",
+  "themeAccentMint": "薄荷",
+  "themeBackgroundNight": "夜幕",
+  "themeBackgroundSlate": "石墨",
+  "themeBackgroundOcean": "深海",
+  "themeBackgroundMoss": "苔绿",
+  "themeBackgroundEmber": "余烬",
+  "themeBackgroundPearl": "珠雾",
+  "themeBackgroundLinen": "亚麻",
+  "themeBackgroundIvory": "奶白",
+  "themeDynamicModeOff": "关闭",
+  "themeDynamicModeDetailsAndPeople": "详情页和人物页",
+  "themeDynamicIntensitySubtle": "轻柔",
+  "themeDynamicIntensityMedium": "中度",
+  "themeDynamicIntensityVivid": "鲜明",
+  "themeDynamicIntensityAdvanced": "高级",
+  "themeDynamicBehaviorSubtle": "当前页轻量取色，按钮和边框会跟随变化",
+  "themeDynamicBehaviorMedium": "当前页完整取色，推荐",
+  "themeDynamicBehaviorVivid": "高级取色，普通页面流可联动主屏",
+  "themeCurrentCustomTitle": "当前自定义",
+  "themeCurrentCustomSubtitle": "手动调整后的当前配方",
+  "themeSavedDefaultSubtitle": "已保存主题",
+  "themeColorHue": "色相",
+  "themeColorSaturation": "饱和度",
+  "themeColorValue": "明度",
+  "themeQuickColors": "快速颜色",
+  "themePreviewCurrentAppearance": "当前外观",
+  "themePreviewPrimaryButton": "主按钮",
+  "themePreviewSelectedTab": "选中标签",
+  "themePreviewMore": "更多",
+  "themeSamplePage": "页面",
+  "themeSampleCard": "卡片",
+  "themeSampleBottomBar": "底栏",
+  "themeSampleContinuePlay": "继续播放",
+  "themeSampleSecondaryAction": "次要操作",
+  "themeSampleSelected": "已选中",
+  "themeSampleUnselected": "未选中",
+  "themeSampleViewDetails": "查看详情",
+  "themeFixedSectionTitle": "固定主题",
+  "themeFixedSectionSubtitle": "官方预设，切换后立即作为全局主题生效。",
+  "themeCustomSectionSubtitle": "自定义配色与已保存主题管理。",
+  "themeCurrentCustomCardSubtitle": "编辑颜色分类与当前配方。",
+  "themeNoSavedThemesTitle": "还没有已保存主题",
+  "themeNoSavedThemesSubtitle": "可在详情页更多菜单中保存当前主题。",
+  "themeCustomBaseName": "自定义主题",
+  "themeCustomRecipePageSubtitle": "当前自定义配方，可按颜色分类编辑并另存为自定义主题。",
+  "themeCustomLabel": "自定义",
+  "themePaletteButton": "调色盘",
+  "themeBackgroundControlTitle": "背景主色",
+  "themeBackgroundControlSubtitle": "控制页面底色、卡片层级、导航栏和整体氛围基调。",
+  "themeCustomBackgroundPickerTitle": "自定义背景色",
+  "themeAccentControlTitle": "主操作色",
+  "themeAccentControlSubtitle": "控制主按钮、进度条、确认动作和主要强调元素。",
+  "themeCustomAccentPickerTitle": "自定义主操作色",
+  "themeSelectionControlTitle": "选中色",
+  "themeSelectionControlSubtitle": "控制选中态、边框高亮和标签状态。",
+  "themeCustomSelectionPickerTitle": "自定义选中色",
+  "themeLinkControlTitle": "链接高亮色",
+  "themeLinkControlSubtitle": "控制“更多”、跳转文本和轻量提示的强调色。",
+  "themeCustomLinkPickerTitle": "自定义链接色",
+  "themeRecipePresetLabel": "预设",
+  "themeRecipeBackgroundLabel": "背景",
+  "themeRecipeAccentLabel": "主操作",
+  "themeRecipeSelectionLabel": "选中色",
+  "themeRecipeLinkLabel": "链接色",
+  "themeRecipeCurrentTitle": "当前配方",
+  "themeDynamicTitle": "动态取色主题",
+  "themeDynamicSubtitle": "详情页和人物页可基于海报临时取色，退出后恢复当前主题。",
+  "themeDynamicScopeDetailsAndPeople": "当前范围: 详情页和人物页",
+  "themeDynamicScopeOff": "当前范围: 已关闭",
+  "themeDynamicDescription": "控制背景主色、面板层级、桥接渐变与环境色；按钮和链接保持固定颜色。",
+  "themeDynamicDisabled": "详情页取色已关闭",
+  "themeDynamicPlayerNote": "播放态不覆盖主屏主题；高级强度会联动普通页面。",
+  "mpvEqAllBandsReset": "已归零所有 EQ 频段",
+  "mpvEqPresetApplied": "已套用预设: {name}",
+  "@mpvEqPresetApplied": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "mpvEqPresetSaved": "已保存 EQ 预设",
+  "mpvEqPresetDeleted": "已删除预设: {name}",
+  "@mpvEqPresetDeleted": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "mpvEqSavePresetTitle": "保存 EQ 预设",
+  "mpvEqSavePresetHint": "例如: 夜间对白 / 动漫人声",
+  "mpvEqMyPresetsTitle": "我的预设",
+  "mpvEqMyPresetsSubtitle": "把当前频段组合保存成多套预设，后面一键套用。",
+  "mpvEqSaveCurrent": "保存当前",
+  "mpvEqEmptyPresets": "还没有自定义 EQ 预设，调好以后可以直接保存。",
+  "mpvEqSummaryNeutral": "全部频段保持 0 dB。",
+  "mpvEqApply": "套用",
+  "homeTitle": "首页",
+  "homeContinueWatching": "继续观看",
+  "favoriteTabEpisodes": "剧集",
+  "favoriteTabPeople": "人物",
+  "homeActionViewDetail": "查看影片详情",
+  "homeActionRestartPlayback": "从头开始播放",
+  "homeActionRemoveFromContinue": "从“继续观看”中移除",
+  "homeRemovedFromContinue": "已从继续观看中移除",
+  "homeLoginRequired": "请先到“设置”页登录 NAS，再返回影视页加载内容。",
+  "detailOverviewEmpty": "暂无简介",
+  "parallelWindowTitle": "平行窗口设置",
+  "parallelWindowEnableTitle": "启用平行窗口",
+  "parallelWindowEnableSubtitle": "开启后，大屏设备的二级页面优先在副屏展开；关闭后使用单屏导航。",
+  "parallelWindowPrimarySideTitle": "主屏位置",
+  "parallelWindowPrimaryLeftTitle": "左侧主屏",
+  "parallelWindowPrimaryLeftSubtitle": "默认首页在左，右侧展开详情或设置。",
+  "parallelWindowPrimaryRightTitle": "右侧主屏",
+  "parallelWindowPrimaryRightSubtitle": "右侧为主屏，左侧展开详情或设置。",
+  "parallelWindowPlaybackSideTitle": "播放主屏位置",
+  "parallelWindowPlaybackLeftTitle": "左侧为播放主屏",
+  "parallelWindowPlaybackLeftSubtitle": "进入分屏播放后，左边保持播放器，右边放详情或首页。",
+  "parallelWindowPlaybackRightTitle": "右侧为播放主屏",
+  "parallelWindowPlaybackRightSubtitle": "进入分屏播放后，右边保持播放器，左边放详情或首页。",
+  "parallelWindowSplitRatioTitle": "分屏比例",
+  "parallelWindowSplitBalancedSubtitle": "默认，兼顾列表浏览和右侧详情。",
+  "parallelWindowSplitEqualSubtitle": "左右均衡，适合双侧并行操作。",
+  "parallelWindowSplitFocusDetailSubtitle": "副屏更宽，适合详情和播放信息。",
+  "parallelWindowSplitFocusHomeSubtitle": "主屏稍宽，适合首页或列表操作。",
+  "parallelWindowDefaultFullscreenTitle": "默认播放全屏",
+  "parallelWindowDefaultFullscreenOnSubtitle": "点击播放后先进入全屏播放器，再由按钮切到分屏。",
+  "parallelWindowDefaultFullscreenOffSubtitle": "点击播放后优先保持平行窗口分屏，不先放大全屏。",
+  "parallelWindowImmersiveTitle": "平行窗口沉浸模式",
+  "parallelWindowImmersiveOnSubtitle": "进入平行窗口后隐藏状态栏，内容直接顶到屏幕顶部。",
+  "parallelWindowImmersiveOffSubtitle": "保留状态栏，使用常规分屏显示。",
+  "danmakuSettingsTitle": "弹幕设置",
+  "danmakuSpeedSlow": "慢",
+  "danmakuSpeedNormal": "正常",
+  "danmakuSpeedFaster": "较快",
+  "danmakuSpeedFast": "快",
+  "danmakuAreaOneTenth": "1/10屏",
+  "danmakuAreaOneQuarter": "1/4屏",
+  "danmakuAreaHalf": "半屏",
+  "danmakuAreaThreeQuarters": "3/4屏",
+  "danmakuAreaFull": "全屏",
+  "danmakuFontSmall": "较小",
+  "danmakuFontSlightlySmall": "偏小",
+  "danmakuFontStandard": "标准",
+  "danmakuFontSlightlyLarge": "偏大",
+  "danmakuFontLarge": "较大",
+  "danmakuSourceManagementTitle": "来源管理",
+  "danmakuSourceManagementSubtitle": "统一管理网络弹幕和本地导入弹幕，支持按来源层级查看与手动删除。",
+  "danmakuManagementTitle": "弹幕管理",
+  "danmakuNoSavedSources": "还没有已保存弹幕来源",
+  "danmakuSavedSourceCount": "当前已保存 {count} 个弹幕来源",
+  "@danmakuSavedSourceCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "danmakuBasicSectionTitle": "基础",
+  "danmakuBasicSectionSubtitle": "这些是全局默认值，不依赖当前播放页面。",
+  "danmakuDefaultEnabledTitle": "默认开启弹幕",
+  "danmakuDefaultEnabledSubtitle": "进入播放器时默认带着弹幕设置启动。",
+  "danmakuPreviewEnabledTitle": "详情页预览弹幕",
+  "danmakuPreviewEnabledSubtitle": "在非播放页展示弹幕预览时使用这项默认值。",
+  "danmakuSourcePriorityTitle": "来源优先",
+  "danmakuSourcePrioritySubtitle": "控制本地弹幕和网络弹幕同时可用时的默认选择。",
+  "danmakuPreferLocal": "本地优先",
+  "danmakuPreferNetwork": "网络优先",
+  "danmakuDisplayStyleTitle": "显示样式",
+  "danmakuDisplayStyleSubtitle": "这些设置适合在非播放页提前调好，进播放器后直接沿用。",
+  "danmakuDisplayAreaTitle": "显示区域",
+  "danmakuOpacityTitle": "不透明度",
+  "danmakuDensityTitle": "弹幕密度",
+  "danmakuFontSizeTitle": "字体大小",
+  "danmakuSpeedTitle": "弹幕速度",
+  "danmakuTypeFilterTitle": "类型过滤",
+  "danmakuTypeFilterSubtitle": "控制默认显示哪些弹幕类型。",
+  "danmakuTypeFixed": "固定",
+  "danmakuTypeScroll": "滚动",
+  "danmakuTypeBottom": "底部",
+  "danmakuTypeColor": "彩色",
+  "danmakuAvoidanceTitle": "防遮挡",
+  "danmakuAvoidanceSubtitle": "这些默认规则更适合全局预先设定。",
+  "danmakuHideDuplicateTitle": "隐藏重复弹幕",
+  "danmakuHideDuplicateSubtitle": "合并高频重复内容，减少同屏密集刷屏。",
+  "danmakuAvoidSubtitleTitle": "底部字幕区域防遮挡",
+  "danmakuAvoidSubtitleSubtitle": "优先避开字幕所在区域，减少弹幕压住字幕。",
+  "danmakuAvoidCenterTitle": "主体穿透遮挡",
+  "danmakuAvoidCenterSubtitle": "优先使用动态蒙版扣除人物区域内的弹幕，不可用时会恢复普通弹幕。",
+  "commonRefresh": "刷新",
+  "playStatsTitle": "播放统计",
+  "playStatsClearTitle": "清空播放统计",
+  "playStatsClearContent": "这会删除本地播放历史和所有聚合统计数据。",
+  "playStatsClearTooltip": "清空统计",
+  "playStatsLoadFailed": "加载播放统计失败：{error}",
+  "@playStatsLoadFailed": {
+    "placeholders": {
+      "error": {}
+    }
+  },
+  "playStatsOverview": "总览",
+  "playStatsTotalPlayedDuration": "总播放时长",
+  "playStatsTotalClicks": "总点击数",
+  "playStatsTotalViews": "总观看数",
+  "playStatsTotalCompletedVideos": "总完播视频数",
+  "playStatsTotalCompletedSeasons": "总完播季数",
+  "playStatsBackfillTitle": "后台补全",
+  "playStatsBackfillRunning": "正在后台补全年份、国家、类型和演职人员。",
+  "playStatsAnimeList": "番剧列表",
+  "playStatsNoAnimeStats": "还没有番剧播放统计。",
+  "playStatsUnnamedAnime": "未命名番剧",
+  "playStatsAnimeSubtitle": "季度 {seasonCount} / 未分组视频 {ungroupedCount}",
+  "@playStatsAnimeSubtitle": {
+    "placeholders": {
+      "seasonCount": {
+        "type": "int"
+      },
+      "ungroupedCount": {
+        "type": "int"
+      }
+    }
+  },
+  "playStatsMovieList": "电影列表",
+  "playStatsMovieSubtitle": "电影 / 历史 {historyCount} 条 / 观看数 {viewCount}",
+  "@playStatsMovieSubtitle": {
+    "placeholders": {
+      "historyCount": {
+        "type": "int"
+      },
+      "viewCount": {
+        "type": "int"
+      }
+    }
+  },
+  "playStatsOrphanVideos": "异常未归类视频",
+  "playStatsOrphanSubtitle": "未匹配番剧或季度 / 历史 {historyCount} 条",
+  "@playStatsOrphanSubtitle": {
+    "placeholders": {
+      "historyCount": {
+        "type": "int"
+      }
+    }
+  },
+  "playStatsUnlinkedHistory": "未关联历史",
+  "playStatsCountItems": "共 {count} 条",
+  "@playStatsCountItems": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "playStatsYes": "是",
+  "playStatsNo": "否",
+  "playStatsDurationHours": "{hours} 小时 {minutes} 分钟 {seconds} 秒",
+  "@playStatsDurationHours": {
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      },
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "playStatsDurationMinutes": "{minutes} 分钟 {seconds} 秒",
+  "@playStatsDurationMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "playStatsDurationSeconds": "{seconds} 秒",
+  "@playStatsDurationSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "playStatsStartSourceManual": "手动打开",
+  "playStatsStartSourceManualSwitch": "手动换集",
+  "playStatsStartSourceAutoNext": "自动连播",
+  "playStatsStartSourceReplay": "重播",
+  "playStatsStartSourceSystemResume": "系统恢复",
+  "playStatsAnimeDetail": "番剧详情",
+  "playStatsAnimeFields": "番剧字段",
+  "playStatsAnimeMetadata": "番剧元数据",
+  "playStatsSeasonList": "季度列表",
+  "playStatsNoSeasonData": "没有季度数据。",
+  "playStatsUnnamedSeason": "未命名季度",
+  "playStatsSeasonSubtitle": "剧集 {episodeCount} / 已完播 {completedCount}",
+  "@playStatsSeasonSubtitle": {
+    "placeholders": {
+      "episodeCount": {
+        "type": "int"
+      },
+      "completedCount": {
+        "type": "int"
+      }
+    }
+  },
+  "playStatsUngroupedVideos": "未归属到季度的视频",
+  "playStatsSeasonDetail": "季度详情",
+  "playStatsSeasonFields": "季度字段",
+  "playStatsCredits": "演职人员",
+  "playStatsEpisodeList": "剧集列表",
+  "playStatsNoEpisodeData": "没有剧集数据。",
+  "playStatsVideoDetail": "视频详情",
+  "playStatsMovieFields": "电影字段",
+  "playStatsEpisodeFields": "剧集字段",
+  "playStatsPlaybackHistory": "播放历史",
+  "playStatsNoPlaybackHistory": "没有播放历史。",
+  "playStatsHistoryDetail": "播放历史详情",
+  "playStatsHistoryFields": "历史字段",
+  "playStatsUnnamedVideo": "未命名视频",
+  "playStatsVideoSubtitle": "历史 {historyCount} 条 / 观看数 {viewCount}",
+  "@playStatsVideoSubtitle": {
+    "placeholders": {
+      "historyCount": {
+        "type": "int"
+      },
+      "viewCount": {
+        "type": "int"
+      }
+    }
+  },
+  "playStatsHistoryEntrySubtitle": "{startedAt} / 观看 {watchedDuration} / 完播 {completed}",
+  "@playStatsHistoryEntrySubtitle": {
+    "placeholders": {
+      "startedAt": {},
+      "watchedDuration": {},
+      "completed": {}
+    }
+  },
+  "playStatsNoCreditSnapshot": "当前没有记录到演职人员快照。",
+  "playStatsPageIndicator": "第 {currentPage} 页 / 共 {pageCount} 页",
+  "@playStatsPageIndicator": {
+    "placeholders": {
+      "currentPage": {
+        "type": "int"
+      },
+      "pageCount": {
+        "type": "int"
+      }
+    }
+  },
+  "playStatsPreviousPage": "上一页",
+  "playStatsNextPage": "下一页",
+  "playStatsFieldAnimeId": "番剧 ID",
+  "playStatsFieldTitle": "标题",
+  "playStatsFieldClickCount": "点击数",
+  "playStatsFieldViewCount": "观看数",
+  "playStatsFieldTotalPlayedDuration": "累计播放时长",
+  "playStatsFieldForwardSeekCount": "快进次数",
+  "playStatsFieldBackwardSeekCount": "回退次数",
+  "playStatsFieldWatchedEpisodeCount": "已观看正片集数",
+  "playStatsFieldCompletedEpisodeCount": "已完播正片集数",
+  "playStatsFieldCompletedSeasonCount": "已完播季数",
+  "playStatsFieldLastPlayedAt": "上次播放时间",
+  "playStatsFieldYear": "年份",
+  "playStatsFieldCountryFirstValue": "国家首值",
+  "playStatsFieldCountryCodes": "国家地区代码",
+  "playStatsFieldCountryNames": "国家地区中文",
+  "playStatsFieldGenreIds": "类型 ID",
+  "playStatsFieldGenreNames": "类型中文",
+  "playStatsFieldSeasonId": "季度 ID",
+  "playStatsFieldTotalEpisodeCount": "总正片集数",
+  "playStatsFieldWatchedEpisodeCountShort": "已观看集数",
+  "playStatsFieldCompletedEpisodeCountShort": "已完播集数",
+  "playStatsFieldIsSeasonCompleted": "是否季完播",
+  "playStatsFieldVideoId": "视频 ID",
+  "playStatsFieldAnimeTitle": "番剧标题",
+  "playStatsFieldSeasonTitle": "季度标题",
+  "playStatsFieldVideoKind": "视频种类",
+  "playStatsFieldCountsTowardCompletion": "是否计入季完播",
+  "playStatsFieldMediaDuration": "媒体总时长",
+  "playStatsFieldAutoPlayCount": "自动连播次数",
+  "playStatsFieldMaxProgress": "最大播放进度",
+  "playStatsFieldLastProgress": "最后播放进度",
+  "playStatsFieldLastPosition": "最后播放位置",
+  "playStatsFieldCompleted": "是否完播",
+  "playStatsFieldMetadataEnriched": "元数据已补全",
+  "playStatsFieldHistoryId": "历史 ID",
+  "playStatsFieldStartSource": "开始来源",
+  "playStatsFieldStartedAt": "开始时间",
+  "playStatsFieldEndedAt": "结束时间",
+  "playStatsFieldWatchedDuration": "观看时长",
+  "playStatsFieldMaxPosition": "最大播放位置",
+  "playStatsFieldCountedAsView": "是否计入观看",
+  "playStatsFieldCountedAsCompleted": "是否计入完播",
+  "playStatsFieldOpDetected": "已识别 OP",
+  "playStatsFieldEdDetected": "已识别 ED",
+  "playStatsFieldOpSkipped": "已跳过 OP",
+  "playStatsFieldEdSkipped": "已跳过 ED",
+  "playStatsFieldOpNotSkipped": "未跳过 OP",
+  "playStatsFieldEdNotSkipped": "未跳过 ED",
+  "playStatsFieldOpPlayedDuration": "OP 播放时长",
+  "playStatsFieldEdPlayedDuration": "ED 播放时长",
+  "playStatsFieldPersonId": "人员 ID",
+  "playStatsFieldName": "姓名",
+  "playStatsFieldRole": "角色",
+  "playStatsFieldJob": "工种",
+  "playStatsFieldOrder": "排序",
+  "commonRetry": "重试",
+  "playStatsReportDetailData": "详细数据",
+  "playStatsReportRangeTitle": "观影战报时间范围",
+  "playStatsReportSwitching": "切换中",
+  "playStatsReportBackfillingMetadata": "正在补全类型、国家地区、年份和演职人员数据",
+  "playStatsReportLoadFailedTitle": "加载播放统计失败",
+  "playStatsReportUnknownError": "未知错误",
+  "playStatsReportErrorMessage": "错误信息：{error}",
+  "@playStatsReportErrorMessage": {
+    "placeholders": {
+      "error": {}
+    }
+  },
+  "playStatsReportActivityTitle": "活跃趋势",
+  "playStatsReportActivitySubtitle": "按天观察播放时长变化，看看这段时间里哪几天看得最久。",
+  "playStatsReportDailyDurationTitle": "每日播放时长",
+  "playStatsReportDailyDurationSubtitle": "看最近一段时间里，哪几天看得最久。",
+  "playStatsReportContentTitle": "内容偏好",
+  "playStatsReportContentSubtitle": "用播放时长加权，看看你最近更偏好的内容类型与人物。",
+  "playStatsReportContentShare": "内容占比",
+  "playStatsReportAffinityTitle": "演职人员亲和榜",
+  "playStatsReportBehaviorTitle": "观看行为",
+  "playStatsReportBehaviorSubtitle": "统计来源、完播率、快进回退以及 OP/ED 的观看习惯。",
+  "playStatsReportStartSource": "播放来源",
+  "playStatsReportCountTimes": "{count} 次",
+  "@playStatsReportCountTimes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "playStatsReportCompletionRate": "完播率",
+  "playStatsReportSessionRatio": "{completed}/{total} 次会话",
+  "@playStatsReportSessionRatio": {
+    "placeholders": {
+      "completed": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "playStatsReportTotalActions": "总操作数",
+  "playStatsReportSeekSummary": "快进 {forwardCount} · 回退 {backwardCount}",
+  "@playStatsReportSeekSummary": {
+    "placeholders": {
+      "forwardCount": {
+        "type": "int"
+      },
+      "backwardCount": {
+        "type": "int"
+      }
+    }
+  },
+  "playStatsReportIntroOp": "片头 OP",
+  "playStatsReportOutroEd": "片尾 ED",
+  "playStatsReportRankingTitle": "排行与回看",
+  "playStatsReportRankingSubtitle": "保留最近活跃内容、继续观看线索和当前最常看的内容。",
+  "playStatsReportAnimeRankingTitle": "剧集榜",
+  "playStatsReportAnimeRankingSubtitle": "按剧集聚合后的总观看时长排行",
+  "playStatsReportVideoRankingTitle": "单集 / 视频榜",
+  "playStatsReportVideoRankingSubtitle": "按具体视频或单集聚合的观看时长排行",
+  "playStatsReportRecentHistoryTitle": "最近观看",
+  "playStatsReportRecentHistorySubtitle": "最近发生的播放记录时间线",
+  "playStatsReportDurationHoursMinutes": "{hours} 小时 {minutes} 分钟",
+  "@playStatsReportDurationHoursMinutes": {
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      },
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "playStatsReportDurationHours": "{hours} 小时",
+  "@playStatsReportDurationHours": {
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
+  "playStatsReportDurationMinutes": "{minutes} 分钟",
+  "@playStatsReportDurationMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "playStatsReportWeekdayMon": "一",
+  "playStatsReportWeekdayTue": "二",
+  "playStatsReportWeekdayWed": "三",
+  "playStatsReportWeekdayThu": "四",
+  "playStatsReportWeekdayFri": "五",
+  "playStatsReportWeekdaySat": "六",
+  "playStatsReportWeekdaySun": "日",
+  "playStatsReportStartSourceManual": "手动播放",
+  "playStatsReportStartSourceManualSwitch": "手动切换",
+  "playStatsReportStartSourceReplay": "重新播放",
+  "playStatsReportHistorySubtitle": "{startedAt} · 观看 {watchedDuration}",
+  "@playStatsReportHistorySubtitle": {
+    "placeholders": {
+      "startedAt": {},
+      "watchedDuration": {}
+    }
+  },
+  "playStatsReportHistoryMeta": "{source} · 观看 {watchedDuration} · {startedAt}",
+  "@playStatsReportHistoryMeta": {
+    "placeholders": {
+      "source": {},
+      "watchedDuration": {},
+      "startedAt": {}
+    }
+  },
+  "playStatsReportMovieWatchedSubtitle": "电影 · 观看 {watchedDuration}",
+  "@playStatsReportMovieWatchedSubtitle": {
+    "placeholders": {
+      "watchedDuration": {}
+    }
+  },
+  "playStatsReportWatchedDuration": "观看 {watchedDuration}",
+  "@playStatsReportWatchedDuration": {
+    "placeholders": {
+      "watchedDuration": {}
+    }
+  },
+  "playStatsReportFrequentPerson": "常看人物",
+  "playStatsReportProgress": "进度 {progress}",
+  "@playStatsReportProgress": {
+    "placeholders": {
+      "progress": {}
+    }
+  },
+  "playStatsReportOccupationDirector": "导演",
+  "playStatsReportOccupationProducer": "制片",
+  "playStatsReportOccupationExecutiveProducer": "监制",
+  "playStatsReportOccupationWriter": "编剧",
+  "playStatsReportOccupationOriginal": "原作",
+  "playStatsReportOccupationComposer": "作曲",
+  "playStatsReportOccupationMusic": "音乐",
+  "playStatsReportOccupationEditor": "剪辑",
+  "playStatsReportOccupationCinematography": "摄影",
+  "playStatsReportOccupationVoice": "配音",
+  "playStatsReportOccupationActor": "演员",
+  "playStatsReportOccupationCrew": "幕后",
+  "playStatsReportOccupationSound": "音效",
+  "playStatsReportOccupationArt": "美术",
+  "playStatsReportOccupationVisualEffects": "特效",
+  "playStatsReportHeroTitle": "{range}观影战报",
+  "@playStatsReportHeroTitle": {
+    "placeholders": {
+      "range": {}
+    }
+  },
+  "playStatsReportActiveDays": "活跃天数",
+  "playStatsReportTotalDuration": "累计 {duration}",
+  "@playStatsReportTotalDuration": {
+    "placeholders": {
+      "duration": {}
+    }
+  },
+  "playStatsReportClickCount": "播放次数",
+  "playStatsReportClickCountDescription": "统计这段时间里，你主动点开播放或手动切换内容的次数。",
+  "playStatsReportClickCountDetail": "更接近你发起了多少次播放，不包含自动连播或系统恢复。",
+  "playStatsReportViewCount": "观看次数",
+  "playStatsReportViewCountDescription": "只统计达到有效观看门槛的播放记录，用来看你真正进入观看状态了多少次。",
+  "playStatsReportViewCountDetail": "剧集需看满 20%，电影需看满 10%。",
+  "playStatsReportCompletedVideos": "完播视频",
+  "playStatsReportCompletedVideosDescription": "统计被判定为完整看完的具体视频条目数，更接近你真正看完了多少集或多少部片。",
+  "playStatsReportCompletedVideosDetail": "通常需要看满约 80%，并且结尾不是一拖而过，才会记入完播。",
+  "playStatsReportCompletedSeasons": "完播季度",
+  "playStatsReportCompletedSeasonsDescription": "统计在当前时间范围内，被判定为整季看完的季度数量。",
+  "playStatsReportCompletedSeasonsDetail": "只有计入季完播的正片都完成后，这一季才会记作 1 个完播季度。",
+  "playStatsReportMetadataCoverage": "元数据覆盖",
+  "playStatsReportMetadataCoverageDescription": "反映这批内容里，类型、国家地区、年份和演职人员等信息补全得有多完整。",
+  "playStatsReportMetadataCoverageDetail": "覆盖越高，下面的偏好分析和亲和榜越完整、越可靠。",
+  "playStatsReportNoTrendData": "暂无播放趋势数据",
+  "playStatsReportNoViewCountData": "暂无观看次数数据",
+  "playStatsReportBarTooltip": "{month}/{day}\n{count} 次",
+  "@playStatsReportBarTooltip": {
+    "placeholders": {
+      "month": {
+        "type": "int"
+      },
+      "day": {
+        "type": "int"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "playStatsReportNoHeatmapData": "暂无活跃时段数据",
+  "playStatsReportHeatmapTooltip": "周{weekday} {hour}:00\n{count} 次 / {duration}",
+  "@playStatsReportHeatmapTooltip": {
+    "placeholders": {
+      "weekday": {},
+      "hour": {},
+      "count": {
+        "type": "int"
+      },
+      "duration": {}
+    }
+  },
+  "playStatsReportHeatmapLow": "少",
+  "playStatsReportHeatmapHigh": "多",
+  "playStatsReportNoSeekActions": "本时间段几乎没有快进或回退操作",
+  "playStatsReportNoDetectionRecord": "{label} 暂无检测记录",
+  "@playStatsReportNoDetectionRecord": {
+    "placeholders": {
+      "label": {}
+    }
+  },
+  "playStatsReportOpEdDetectedSkipped": "检测 {detectedCount} 次 · 跳过 {skippedCount} 次",
+  "@playStatsReportOpEdDetectedSkipped": {
+    "placeholders": {
+      "detectedCount": {
+        "type": "int"
+      },
+      "skippedCount": {
+        "type": "int"
+      }
+    }
+  },
+  "playStatsReportSkipped": "跳过",
+  "playStatsReportWatchedCompletely": "完整观看",
+  "playStatsReportNoDistributionData": "暂无分布数据",
+  "playStatsReportMetadataBackfilling": "相关元数据还在补全中",
+  "playStatsReportNoRankingData": "当前没有足够的排行数据",
+  "playStatsReportNoRecentHistory": "最近还没有新的观看记录",
+  "playStatsReportJumpPageTitle": "跳转页码",
+  "playStatsReportJumpPageDescription": "输入 1 到 {pageCount} 之间的页码",
+  "@playStatsReportJumpPageDescription": {
+    "placeholders": {
+      "pageCount": {
+        "type": "int"
+      }
+    }
+  },
+  "playStatsReportPageNumberLabel": "页码",
+  "playStatsReportPageNumberHint": "例如 {page}",
+  "@playStatsReportPageNumberHint": {
+    "placeholders": {
+      "page": {
+        "type": "int"
+      }
+    }
+  },
+  "playStatsReportJumpPageAction": "跳转",
+  "playStatsReportPageIndicator": "第 {currentPage} / {pageCount} 页",
+  "@playStatsReportPageIndicator": {
+    "placeholders": {
+      "currentPage": {
+        "type": "int"
+      },
+      "pageCount": {
+        "type": "int"
+      }
+    }
+  },
+  "playStatsReportJumpPage": "跳页",
+  "playStatsReportFirstPage": "第一页",
+  "playStatsReportLastPage": "最后页",
+  "playStatsReportNoContinueWatching": "目前没有适合继续观看的内容",
+  "playStatsReportLastWatchedAt": "上次观看 {time}",
+  "@playStatsReportLastWatchedAt": {
+    "placeholders": {
+      "time": {}
+    }
+  },
+  "playStatsReportEmptyTitle": "还没有可展示的观影战报",
+  "playStatsReportEmptySubtitle": "开始播放内容后，这里会自动生成趋势、偏好、行为和回看报表。",
+  "playStatsReportUnnamedEpisode": "未命名剧集",
+  "playStatsReportAnimeRankSubtitle": "观看 {sessionCount} 次 · 完整观看 {viewCount} 次",
+  "@playStatsReportAnimeRankSubtitle": {
+    "placeholders": {
+      "sessionCount": {
+        "type": "int"
+      },
+      "viewCount": {
+        "type": "int"
+      }
+    }
+  },
+  "playStatsReportUnknownPerson": "未知人物",
+  "bookmarkManagerLegacyBookmark": "旧书签",
+  "bookmarkManagerUnnamedWork": "未命名作品",
+  "bookmarkManagerSpecialSeason": "特别篇",
+  "bookmarkManagerSeasonLabel": "第{season}季",
+  "@bookmarkManagerSeasonLabel": {
+    "placeholders": {
+      "season": {
+        "type": "int"
+      }
+    }
+  },
+  "bookmarkManagerEpisodeLabel": "第{episode}集",
+  "@bookmarkManagerEpisodeLabel": {
+    "placeholders": {
+      "episode": {
+        "type": "int"
+      }
+    }
+  },
+  "bookmarkManagerUnnamedEpisode": "未命名剧集",
+  "bookmarkManagerEditNoteTitle": "编辑书签备注",
+  "bookmarkManagerNoEpisodeBookmarks": "该集下已经没有书签",
+  "bookmarkManagerNoteAction": "备注",
+  "danmakuManagerLegacySource": "旧来源",
+  "danmakuManagerUnnamedItem": "未命名条目",
+  "danmakuManagerSourceCount": "共 {count} 个来源",
+  "@danmakuManagerSourceCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "danmakuManagerNetworkDanmaku": "网络弹幕",
+  "danmakuManagerLocalImport": "本地导入",
+  "danmakuManagerCommentCount": "{count} 条",
+  "@danmakuManagerCommentCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "danmakuManagerUnnamedSource": "未命名弹幕来源",
+  "mediaEpisodeCount": "共{count}集",
+  "@mediaEpisodeCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "mediaSeasonCount": "共{count}季",
+  "@mediaSeasonCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "mediaWorkCount": "共{count} 个作品",
+  "@mediaWorkCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "fileInfoLocationLabel": "文件位置",
+  "fileInfoSizeLabel": "文件大小",
+  "fileInfoCreatedAtLabel": "文件创建日期",
+  "fileInfoAddedAtLabel": "添加日期",
+  "fileInfoToggleToFriendly": "转换",
+  "fileInfoStorageSpace": "存储空间{volumeNo}",
+  "@fileInfoStorageSpace": {
+    "placeholders": {
+      "volumeNo": {}
+    }
+  },
+  "fileInfoStorageSpaceFile": "存储空间{volumeNo}/{name} 的文件",
+  "@fileInfoStorageSpaceFile": {
+    "placeholders": {
+      "volumeNo": {},
+      "name": {}
+    }
+  },
+  "fnConnectNasAddressFailed": "FN Connect 登录失败，未能解析 NAS 地址",
+  "playerHostInvalidArgs": "当前播放器参数错误",
+  "themeSaveDefaultBase": "自定义主题",
+  "themeSaveName": "{base}主题色",
+  "@themeSaveName": {
+    "placeholders": {
+      "base": {}
+    }
+  },
+  "storageSeriesGroupSubtitle": "{seasonCount} 季 · {entryCount} 集 · {size} · 最近 {time}",
+  "@storageSeriesGroupSubtitle": {
+    "placeholders": {
+      "seasonCount": {
+        "type": "int"
+      },
+      "entryCount": {
+        "type": "int"
+      },
+      "size": {},
+      "time": {}
+    }
+  },
+  "storageSeasonGroupSubtitle": "{entryCount} 集 · {size} · 最近 {time}",
+  "@storageSeasonGroupSubtitle": {
+    "placeholders": {
+      "entryCount": {
+        "type": "int"
+      },
+      "size": {},
+      "time": {}
+    }
+  },
+  "storageGroupedPageSummary": "{totalCount} 个作品 · 每页 {pageSize} 个",
+  "@storageGroupedPageSummary": {
+    "placeholders": {
+      "totalCount": {
+        "type": "int"
+      },
+      "pageSize": {
+        "type": "int"
+      }
+    }
+  },
+  "storageUnknownWork": "未知作品",
+  "storageUngroupedSeason": "未分季",
+  "storageSeasonNumberSpaced": "第 {season} 季",
+  "@storageSeasonNumberSpaced": {
+    "placeholders": {
+      "season": {
+        "type": "int"
+      }
+    }
+  },
+  "storageEpisodeTitleWithNumber": "第 {episode} 集 {title}",
+  "@storageEpisodeTitleWithNumber": {
+    "placeholders": {
+      "episode": {
+        "type": "int"
+      },
+      "title": {}
+    }
+  },
+  "storageUnknownEpisode": "未知集数"
+}

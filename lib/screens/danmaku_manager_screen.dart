@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../danmaku/models/danmaku_saved_source.dart';
 import '../danmaku/settings/danmaku_saved_source_store.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
 import '../ui/app_transitions.dart';
@@ -16,25 +17,25 @@ bool _sourceIsTv(DanmakuSavedSource source) {
   return source.seriesTitle.trim().isNotEmpty || source.seasonNumber > 0;
 }
 
-String _sourceAncestorLabel(DanmakuSavedSource source) {
+String _sourceAncestorLabel(DanmakuSavedSource source, AppLocalizations l10n) {
   final label = source.ancestorName.trim();
   if (label.isNotEmpty) return label;
-  return '旧来源';
+  return l10n.danmakuManagerLegacySource;
 }
 
-String _sourceSeriesLabel(DanmakuSavedSource source) {
+String _sourceSeriesLabel(DanmakuSavedSource source, AppLocalizations l10n) {
   final label = source.seriesTitle.trim();
   if (label.isNotEmpty) return label;
   final itemTitle = source.itemTitle.trim();
   if (itemTitle.isNotEmpty) return itemTitle;
   final fallback = source.label.trim();
   if (fallback.isNotEmpty) return fallback;
-  return '未命名条目';
+  return l10n.danmakuManagerUnnamedItem;
 }
 
-String _sourceSeasonLabel(DanmakuSavedSource source) {
-  if (source.seasonNumber <= 0) return '特别篇';
-  return '第${source.seasonNumber}季';
+String _sourceSeasonLabel(DanmakuSavedSource source, AppLocalizations l10n) {
+  if (source.seasonNumber <= 0) return l10n.bookmarkManagerSpecialSeason;
+  return l10n.bookmarkManagerSeasonLabel(source.seasonNumber);
 }
 
 String _formatSourceTime(int updatedAtMs) {
@@ -87,9 +88,10 @@ class _DanmakuManagerScreenState extends State<DanmakuManagerScreen> {
   }
 
   List<_DanmakuAncestorGroup> _ancestorGroups() {
+    final l10n = AppLocalizations.of(context);
     final buckets = <String, List<DanmakuSavedSource>>{};
     for (final source in _sources) {
-      final key = _sourceAncestorLabel(source);
+      final key = _sourceAncestorLabel(source, l10n);
       buckets.putIfAbsent(key, () => <DanmakuSavedSource>[]).add(source);
     }
     final groups =
@@ -129,13 +131,14 @@ class _DanmakuManagerScreenState extends State<DanmakuManagerScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final groups = _ancestorGroups();
     return Scaffold(
       backgroundColor: colors.backgroundBase,
       appBar: buildSecondaryHostAppBar(
         context,
         title: Text(
-          '弹幕管理',
+          l10n.danmakuManagementTitle,
           style: TextStyle(
             color: colors.textPrimary,
             fontSize: AdaptiveText.roleSize(20, role: AdaptiveFontRole.title),
@@ -158,7 +161,7 @@ class _DanmakuManagerScreenState extends State<DanmakuManagerScreen> {
               : groups.isEmpty
               ? Center(
                   child: Text(
-                    '还没有已保存的弹幕来源',
+                    l10n.danmakuNoSavedSources,
                     style: TextStyle(
                       color: colors.textSecondary,
                       fontSize: AdaptiveText.roleSize(
@@ -177,7 +180,9 @@ class _DanmakuManagerScreenState extends State<DanmakuManagerScreen> {
                     return _DanmakuFolderTile(
                       icon: Icons.folder_copy_outlined,
                       title: group.label,
-                      subtitle: '共 ${group.sources.length} 个来源',
+                      subtitle: l10n.danmakuManagerSourceCount(
+                        group.sources.length,
+                      ),
                       onTap: () => _openAncestor(group),
                     );
                   },
@@ -227,13 +232,14 @@ class _DanmakuSeriesListScreenState extends State<_DanmakuSeriesListScreen> {
   Future<void> _reload() async {
     final all = await _store.loadAll();
     if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
     setState(() {
       _sources =
           all
               .where(
                 (source) =>
                     _sourceIsTv(source) &&
-                    _sourceAncestorLabel(source) == widget.ancestorLabel,
+                    _sourceAncestorLabel(source, l10n) == widget.ancestorLabel,
               )
               .toList(growable: false)
             ..sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
@@ -241,9 +247,10 @@ class _DanmakuSeriesListScreenState extends State<_DanmakuSeriesListScreen> {
   }
 
   List<_DanmakuSeriesGroup> _seriesGroups() {
+    final l10n = AppLocalizations.of(context);
     final buckets = <String, List<DanmakuSavedSource>>{};
     for (final source in _sources) {
-      final key = _sourceSeriesLabel(source);
+      final key = _sourceSeriesLabel(source, l10n);
       buckets.putIfAbsent(key, () => <DanmakuSavedSource>[]).add(source);
     }
     final groups =
@@ -278,6 +285,7 @@ class _DanmakuSeriesListScreenState extends State<_DanmakuSeriesListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final groups = _seriesGroups();
     return Scaffold(
       backgroundColor: context.appColors.backgroundBase,
@@ -296,7 +304,9 @@ class _DanmakuSeriesListScreenState extends State<_DanmakuSeriesListScreen> {
                 return _DanmakuFolderTile(
                   icon: Icons.tv_outlined,
                   title: group.label,
-                  subtitle: '共 ${group.sources.length} 个来源',
+                  subtitle: l10n.danmakuManagerSourceCount(
+                    group.sources.length,
+                  ),
                   onTap: () => _openSeries(group),
                 );
               },
@@ -346,14 +356,16 @@ class _DanmakuSeasonListScreenState extends State<_DanmakuSeasonListScreen> {
   Future<void> _reload() async {
     final all = await _store.loadAll();
     if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
     setState(() {
       _sources =
           all
               .where(
                 (source) =>
                     _sourceIsTv(source) &&
-                    _sourceAncestorLabel(source) == widget.ancestorLabel &&
-                    _sourceSeriesLabel(source) == widget.seriesLabel,
+                    _sourceAncestorLabel(source, l10n) ==
+                        widget.ancestorLabel &&
+                    _sourceSeriesLabel(source, l10n) == widget.seriesLabel,
               )
               .toList(growable: false)
             ..sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
@@ -361,10 +373,11 @@ class _DanmakuSeasonListScreenState extends State<_DanmakuSeasonListScreen> {
   }
 
   List<_DanmakuSeasonGroup> _seasonGroups() {
+    final l10n = AppLocalizations.of(context);
     final buckets = <String, List<DanmakuSavedSource>>{};
     final orders = <String, int>{};
     for (final source in _sources) {
-      final key = _sourceSeasonLabel(source);
+      final key = _sourceSeasonLabel(source, l10n);
       buckets.putIfAbsent(key, () => <DanmakuSavedSource>[]).add(source);
       orders[key] = source.seasonNumber <= 0 ? 0 : source.seasonNumber;
     }
@@ -398,6 +411,7 @@ class _DanmakuSeasonListScreenState extends State<_DanmakuSeasonListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final groups = _seasonGroups();
     return Scaffold(
       backgroundColor: context.appColors.backgroundBase,
@@ -416,7 +430,9 @@ class _DanmakuSeasonListScreenState extends State<_DanmakuSeasonListScreen> {
                 return _DanmakuFolderTile(
                   icon: Icons.video_library_outlined,
                   title: group.label,
-                  subtitle: '共 ${group.sources.length} 个来源',
+                  subtitle: l10n.danmakuManagerSourceCount(
+                    group.sources.length,
+                  ),
                   onTap: () => _openSeason(group),
                 );
               },
@@ -469,15 +485,17 @@ class _DanmakuSeasonDetailScreenState
   Future<void> _reload() async {
     final all = await _store.loadAll();
     if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
     setState(() {
       _sources =
           all
               .where(
                 (source) =>
                     _sourceIsTv(source) &&
-                    _sourceAncestorLabel(source) == widget.ancestorLabel &&
-                    _sourceSeriesLabel(source) == widget.seriesLabel &&
-                    _sourceSeasonLabel(source) == widget.seasonLabel,
+                    _sourceAncestorLabel(source, l10n) ==
+                        widget.ancestorLabel &&
+                    _sourceSeriesLabel(source, l10n) == widget.seriesLabel &&
+                    _sourceSeasonLabel(source, l10n) == widget.seasonLabel,
               )
               .toList(growable: false)
             ..sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
@@ -493,6 +511,7 @@ class _DanmakuSeasonDetailScreenState
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final localSources = _sources
         .where((source) => source.isLocalFile)
         .toList(growable: false);
@@ -509,7 +528,7 @@ class _DanmakuSeasonDetailScreenState
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
         children: <Widget>[
           if (networkSources.isNotEmpty) ...<Widget>[
-            const _DanmakuSectionHeader(title: '网络弹幕'),
+            _DanmakuSectionHeader(title: l10n.danmakuManagerNetworkDanmaku),
             const SizedBox(height: 10),
             _DanmakuSourceGroupCard(
               sources: networkSources,
@@ -518,7 +537,7 @@ class _DanmakuSeasonDetailScreenState
             const SizedBox(height: 16),
           ],
           if (localSources.isNotEmpty) ...<Widget>[
-            const _DanmakuSectionHeader(title: '本地导入'),
+            _DanmakuSectionHeader(title: l10n.danmakuManagerLocalImport),
             const SizedBox(height: 10),
             _DanmakuSourceGroupCard(
               sources: localSources,
@@ -570,13 +589,14 @@ class _DanmakuDirectEntryScreenState extends State<_DanmakuDirectEntryScreen> {
   Future<void> _reload() async {
     final all = await _store.loadAll();
     if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
     setState(() {
       _sources =
           all
               .where(
                 (source) =>
                     !_sourceIsTv(source) &&
-                    _sourceAncestorLabel(source) == widget.ancestorLabel,
+                    _sourceAncestorLabel(source, l10n) == widget.ancestorLabel,
               )
               .toList(growable: false)
             ..sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
@@ -591,9 +611,10 @@ class _DanmakuDirectEntryScreenState extends State<_DanmakuDirectEntryScreen> {
   }
 
   List<_DanmakuDirectGroup> _groups() {
+    final l10n = AppLocalizations.of(context);
     final buckets = <String, List<DanmakuSavedSource>>{};
     for (final source in _sources) {
-      final key = _sourceSeriesLabel(source);
+      final key = _sourceSeriesLabel(source, l10n);
       buckets.putIfAbsent(key, () => <DanmakuSavedSource>[]).add(source);
     }
     final groups =
@@ -617,6 +638,7 @@ class _DanmakuDirectEntryScreenState extends State<_DanmakuDirectEntryScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final groups = _groups();
     return Scaffold(
       backgroundColor: colors.backgroundBase,
@@ -660,7 +682,9 @@ class _DanmakuDirectEntryScreenState extends State<_DanmakuDirectEntryScreen> {
                   ),
                   if (networkSources.isNotEmpty) ...<Widget>[
                     const SizedBox(height: 12),
-                    const _DanmakuSectionHeader(title: '网络弹幕'),
+                    _DanmakuSectionHeader(
+                      title: l10n.danmakuManagerNetworkDanmaku,
+                    ),
                     const SizedBox(height: 8),
                     _DanmakuSourceGroupCard(
                       sources: networkSources,
@@ -669,7 +693,9 @@ class _DanmakuDirectEntryScreenState extends State<_DanmakuDirectEntryScreen> {
                   ],
                   if (localSources.isNotEmpty) ...<Widget>[
                     const SizedBox(height: 12),
-                    const _DanmakuSectionHeader(title: '本地导入'),
+                    _DanmakuSectionHeader(
+                      title: l10n.danmakuManagerLocalImport,
+                    ),
                     const SizedBox(height: 8),
                     _DanmakuSourceGroupCard(
                       sources: localSources,
@@ -732,8 +758,10 @@ class _DanmakuSourceRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final meta = <String>[
-      if (source.commentCount > 0) '${source.commentCount} 条',
+      if (source.commentCount > 0)
+        l10n.danmakuManagerCommentCount(source.commentCount),
       if (_formatSourceTime(source.updatedAtMs).isNotEmpty)
         _formatSourceTime(source.updatedAtMs),
     ].join('  ·  ');
@@ -747,7 +775,9 @@ class _DanmakuSourceRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  source.label.trim().isEmpty ? '未命名弹幕来源' : source.label.trim(),
+                  source.label.trim().isEmpty
+                      ? l10n.danmakuManagerUnnamedSource
+                      : source.label.trim(),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -791,7 +821,7 @@ class _DanmakuSourceRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          TextButton(onPressed: onDelete, child: const Text('删除')),
+          TextButton(onPressed: onDelete, child: Text(l10n.commonDelete)),
         ],
       ),
     );

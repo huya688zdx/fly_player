@@ -1,4 +1,4 @@
-part of mpv_player_page;
+part of '../../mpv_player_page.dart';
 
 const String _playerSettingsBookmarkPageId = 'player_settings_bookmarks';
 
@@ -58,17 +58,22 @@ extension _MpvPlayerBookmarkMixin on _MpvPlayerPageState {
   }
 
   String _bookmarkSummaryLabel() {
+    final l10n = AppLocalizations.of(context);
     final count = _bookmarksForCurrentMedia.length;
-    if (count <= 0) return '无书签';
-    return '$count 个';
+    if (count <= 0) return l10n.playerBookmarkNone;
+    return l10n.playerBookmarkCount(count);
   }
 
   String _bookmarkSummaryText() {
+    final l10n = AppLocalizations.of(context);
     if (_bookmarksForCurrentMedia.isEmpty) {
-      return '为当前片段记录关键时间点，之后可以快速跳回。';
+      return l10n.playerBookmarkEmptySummary;
     }
     final first = _bookmarksForCurrentMedia.first;
-    return '最近书签 ${_formatDuration(first.position)}，共 ${_bookmarksForCurrentMedia.length} 个。';
+    return l10n.playerBookmarkRecentSummary(
+      _formatDuration(first.position),
+      _bookmarksForCurrentMedia.length,
+    );
   }
 
   Future<_BookmarkMetadata> _fetchBookmarkMetadata() async {
@@ -81,6 +86,7 @@ extension _MpvPlayerBookmarkMixin on _MpvPlayerPageState {
       episodeNumber: _currentEpisodeNumber,
     );
     final itemGuid = _currentItemGuid.trim();
+    if (_externalLocalSource) return fallback;
     if (itemGuid.isEmpty) return fallback;
     try {
       final playInfo = await FeiniuApi(
@@ -111,7 +117,11 @@ extension _MpvPlayerBookmarkMixin on _MpvPlayerPageState {
   Future<void> _addBookmarkAtCurrentPosition({
     PlayerNestedSheetController<void>? drawer,
   }) async {
-    final note = await showBookmarkNoteDialog(context, title: '添加书签备注');
+    final l10n = AppLocalizations.of(context);
+    final note = await showBookmarkNoteDialog(
+      context,
+      title: l10n.playerBookmarkNoteDialogTitle,
+    );
     if (note == null) return;
     final position = _displayPosition(_controller.value.value);
     final durationSeconds = _durationSeconds;
@@ -133,7 +143,7 @@ extension _MpvPlayerBookmarkMixin on _MpvPlayerPageState {
     if (!mounted) return;
     drawer?.refresh();
     _showTopTip(
-      '已添加书签 ${_formatDuration(entry.position)}',
+      l10n.playerBookmarkAdded(_formatDuration(entry.position)),
       context.appColors.success,
       revealControls: false,
     );
@@ -147,7 +157,11 @@ extension _MpvPlayerBookmarkMixin on _MpvPlayerPageState {
     await _loadBookmarksForCurrentMedia();
     if (!mounted) return;
     drawer?.refresh();
-    _showTopTip('已删除书签', context.appColors.warning, revealControls: false);
+    _showTopTip(
+      AppLocalizations.of(context).playerBookmarkDeleted,
+      context.appColors.warning,
+      revealControls: false,
+    );
   }
 
   Future<void> _clearBookmarksForCurrentMedia(
@@ -160,7 +174,11 @@ extension _MpvPlayerBookmarkMixin on _MpvPlayerPageState {
     await _loadBookmarksForCurrentMedia();
     if (!mounted) return;
     drawer.refresh();
-    _showTopTip('当前片段书签已清空', context.appColors.warning, revealControls: false);
+    _showTopTip(
+      AppLocalizations.of(context).playerBookmarkCleared,
+      context.appColors.warning,
+      revealControls: false,
+    );
   }
 
   Future<void> _seekToBookmark(
@@ -171,7 +189,9 @@ extension _MpvPlayerBookmarkMixin on _MpvPlayerPageState {
     await _seekWithStats(entry.position, userInitiated: true);
     if (!mounted) return;
     _showTopTip(
-      '已跳转到 ${_formatDuration(entry.position)}',
+      AppLocalizations.of(
+        context,
+      ).playerBookmarkJumped(_formatDuration(entry.position)),
       context.appColors.accent,
     );
   }
@@ -202,21 +222,22 @@ extension _MpvPlayerBookmarkMixin on _MpvPlayerPageState {
     BuildContext context,
     PlayerNestedSheetController<void> drawer,
   ) {
+    final l10n = AppLocalizations.of(context);
     return PlayerNestedSheetScaffold(
       header: PlayerNestedSheetHeader(
-        title: '书签',
+        title: l10n.playerBookmarkTitle,
         onBack: drawer.popPage,
         actions: <Widget>[
           PlaybackSettingsHeaderAction(
             icon: Icons.add_rounded,
-            label: '添加当前',
+            label: l10n.playerBookmarkAddCurrent,
             onTap: () =>
                 unawaited(_addBookmarkAtCurrentPosition(drawer: drawer)),
           ),
           if (_bookmarksForCurrentMedia.isNotEmpty)
             PlaybackSettingsHeaderAction(
               icon: Icons.delete_sweep_rounded,
-              label: '清空',
+              label: l10n.commonClear,
               onTap: () => unawaited(_clearBookmarksForCurrentMedia(drawer)),
             ),
         ],
@@ -225,7 +246,9 @@ extension _MpvPlayerBookmarkMixin on _MpvPlayerPageState {
         padding: EdgeInsets.zero,
         children: <Widget>[
           PlaybackSettingsStatusCard(
-            title: _currentTitle.trim().isEmpty ? '当前片段' : _currentTitle,
+            title: _currentTitle.trim().isEmpty
+                ? l10n.playerBookmarkCurrentSegment
+                : _currentTitle,
             value: _bookmarkSummaryLabel(),
             description: _bookmarkSummaryText(),
           ),
@@ -236,7 +259,7 @@ extension _MpvPlayerBookmarkMixin on _MpvPlayerPageState {
               child: Padding(
                 padding: const EdgeInsets.all(18),
                 child: Text(
-                  '还没有书签，点击右上角“添加当前”即可记录当前时间点。',
+                  l10n.playerBookmarkEmptyPrompt,
                   style: TextStyle(
                     color: context.appColors.textSecondary,
                     fontSize: 14,
@@ -250,8 +273,9 @@ extension _MpvPlayerBookmarkMixin on _MpvPlayerPageState {
               yield _PlaybackBookmarkTile(
                 note: entry.value.note,
                 timeLabel: _formatDuration(entry.value.position),
-                subtitle:
-                    '创建于 ${_formatBookmarkCreatedAt(entry.value.createdAt)}',
+                subtitle: l10n.playerBookmarkCreatedAt(
+                  _formatBookmarkCreatedAt(entry.value.createdAt),
+                ),
                 onJump: () => unawaited(_seekToBookmark(entry.value, drawer)),
                 onDelete: () =>
                     unawaited(_removeBookmark(entry.value, drawer: drawer)),
@@ -327,9 +351,15 @@ class _PlaybackBookmarkTile extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 12),
-            TextButton(onPressed: onJump, child: const Text('跳转')),
+            TextButton(
+              onPressed: onJump,
+              child: Text(AppLocalizations.of(context).commonJump),
+            ),
             const SizedBox(width: 4),
-            TextButton(onPressed: onDelete, child: const Text('删除')),
+            TextButton(
+              onPressed: onDelete,
+              child: Text(AppLocalizations.of(context).commonDelete),
+            ),
           ],
         ),
       ),

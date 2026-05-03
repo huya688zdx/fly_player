@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -42,6 +43,7 @@ class AppThemeProvider extends ChangeNotifier {
       'app_theme_runtime_dynamic_session_id';
   static const String _themeRevisionKey = 'app_theme_revision';
   static const Duration _syncInterval = Duration(milliseconds: 700);
+  static const Duration _runtimeMainClearGrace = Duration(milliseconds: 600);
   static _AppThemeBootstrapSnapshot? _bootstrapSnapshot;
 
   AppThemePreset _preset = AppThemePreset.midnight;
@@ -67,9 +69,18 @@ class AppThemeProvider extends ChangeNotifier {
   bool _isReady = false;
   SharedPreferences? _prefs;
   Timer? _syncTimer;
+  Timer? _runtimeMainClearTimer;
+  Timer? _runtimeTopThemeRemovalTimer;
   int _themeRevision = 0;
   bool _syncInProgress = false;
   String _runtimeSessionId = '';
+  String _cachedEffectiveThemeSignature = '';
+  AppThemeColors? _cachedEffectiveThemeColors;
+  String _pendingRuntimeMainClearPageKey = '';
+  String _pendingRuntimeTopRemovalPageKey = '';
+  int _runtimeMainClearHoldCount = 0;
+  int _runtimeThemeApplyToken = 0;
+  bool _disposed = false;
 
   AppThemeProvider() {
     final bootstrap = _bootstrapSnapshot;
@@ -118,18 +129,21 @@ class AppThemeProvider extends ChangeNotifier {
     return themeColors;
   }
 
+  String get materialThemeSignature => _baseThemeSignature();
+
   String get currentThemeTitle => switch (_themeSourceType) {
     AppThemeSourceType.preset => _preset.title,
-    AppThemeSourceType.currentCustom => '当前自定义',
-    AppThemeSourceType.savedCustomTheme => activeSavedTheme?.name ?? '当前自定义',
+    AppThemeSourceType.currentCustom => 'Current custom',
+    AppThemeSourceType.savedCustomTheme =>
+      activeSavedTheme?.name ?? 'Current custom',
   };
   String get currentThemeSubtitle => switch (_themeSourceType) {
-    AppThemeSourceType.preset => '固定主题',
-    AppThemeSourceType.currentCustom => '手动配方',
+    AppThemeSourceType.preset => 'Preset theme',
+    AppThemeSourceType.currentCustom => 'Manual recipe',
     AppThemeSourceType.savedCustomTheme =>
       activeSavedTheme?.description.trim().isNotEmpty == true
           ? activeSavedTheme!.description
-          : '已保存主题',
+          : 'Saved theme',
   };
 
   bool get usesCustomBackgroundColor => _customBackgroundColor != null;
@@ -148,7 +162,8 @@ class AppThemeProvider extends ChangeNotifier {
         _linkTone != defaults.linkTone;
   }
 
-  String get effectiveThemeTitle => isPresetCustomized ? '自定义' : _preset.title;
+  String get effectiveThemeTitle =>
+      isPresetCustomized ? 'Custom' : _preset.title;
 
   AppThemeColors get themeColors => AppThemePalette.colorsFor(
     _preset,
@@ -163,17 +178,29 @@ class AppThemeProvider extends ChangeNotifier {
   );
 
   AppThemeColors get effectiveThemeColors {
+    final signature = _effectiveThemeSignature();
+    final cachedColors = _cachedEffectiveThemeColors;
+    if (cachedColors != null && _cachedEffectiveThemeSignature == signature) {
+      return cachedColors;
+    }
     final baseColors = selectedThemeBaseColors;
     final runtimeSeed = _runtimeDynamicThemeSeed;
     if (!dynamicThemeEnabled || runtimeSeed == null) {
+      _cachedEffectiveThemeSignature = signature;
+      _cachedEffectiveThemeColors = baseColors;
       return baseColors;
     }
-    return DynamicThemeMapper.map(
+    final mappedColors = DynamicThemeMapper.map(
       baseColors: baseColors,
       seed: runtimeSeed,
       intensity: _dynamicThemeIntensity,
     );
+    _cachedEffectiveThemeSignature = signature;
+    _cachedEffectiveThemeColors = mappedColors;
+    return mappedColors;
   }
+
+  String get effectiveThemeSignature => _effectiveThemeSignature();
 
   Color get backgroundPreviewColor =>
       _customBackgroundColor ?? _backgroundTone.tint;
@@ -224,7 +251,7 @@ class AppThemeProvider extends ChangeNotifier {
   String nextSavedThemeName() {
     var index = 1;
     while (true) {
-      final candidate = '自定义主题$index';
+      final candidate = 'Custom theme $index';
       if (_isThemeNameAvailable(candidate)) {
         return candidate;
       }
@@ -356,6 +383,7 @@ class AppThemeProvider extends ChangeNotifier {
     _themeRevision = prefs.getInt(_themeRevisionKey) ?? _themeRevision;
     _isReady = true;
     _cacheBootstrapSnapshot();
+    _publishRuntimeDynamicThemeToScope();
     notifyListeners();
   }
 
@@ -504,13 +532,20 @@ class AppThemeProvider extends ChangeNotifier {
     required String pageKey,
     required DynamicThemeSeed seed,
     bool broadcastToMain = true,
+    Duration? localNotifyDelayAfterBroadcast,
   }) async {
     final normalizedPageKey = pageKey.trim();
     if (normalizedPageKey.isEmpty) return;
     await _ensureRuntimeSessionLoaded();
-    debugPrint(
-      '[THEME][RUNTIME] set page=$normalizedPageKey broadcast=$broadcastToMain session=$_runtimeSessionId',
-    );
+    _cancelPendingRuntimeMainClear();
+    final deferredRemovalPageKey = _pendingRuntimeTopRemovalPageKey;
+    _cancelPendingRuntimeTopRemoval();
+    final applyToken = ++_runtimeThemeApplyToken;
+    if (kDebugMode) {
+      debugPrint(
+        '[THEME][RUNTIME] set page=$normalizedPageKey broadcast=$broadcastToMain session=$_runtimeSessionId',
+      );
+    }
     final previousVisualSignature = _effectiveThemeSignature();
     final cachedSeed = _runtimeDynamicThemeCache[normalizedPageKey];
     final seedUnchanged = _sameRuntimeSeed(cachedSeed, seed);
@@ -525,16 +560,22 @@ class AppThemeProvider extends ChangeNotifier {
     _runtimeDynamicThemeOrder.add(normalizedPageKey);
     _syncRuntimeThemeFromCache();
     final visualChanged = previousVisualSignature != _effectiveThemeSignature();
+    final shouldDeferLocalNotify =
+        visualChanged &&
+        broadcastToMain &&
+        localNotifyDelayAfterBroadcast != null &&
+        localNotifyDelayAfterBroadcast > Duration.zero;
     if (!visualChanged && !broadcastToMain) {
       return;
     }
-    if (visualChanged) {
+    if (visualChanged && !shouldDeferLocalNotify) {
       _isReady = true;
-      notifyListeners();
+      _publishRuntimeDynamicThemeToScope();
     }
-    await _persist(_persistCurrentRuntimeDynamicTheme, false);
     if (broadcastToMain) {
-      debugPrint('[THEME][RUNTIME] push_to_main page=$normalizedPageKey');
+      if (kDebugMode) {
+        debugPrint('[THEME][RUNTIME] push_to_main page=$normalizedPageKey');
+      }
       await RuntimeThemeSyncBridge.instance.pushRuntimeThemeToMain(
         pageKey: normalizedPageKey,
         backgroundSeed: seed.backgroundSeed.toARGB32(),
@@ -544,21 +585,81 @@ class AppThemeProvider extends ChangeNotifier {
         preferLightSurface: seed.preferLightSurface,
       );
     }
+    if (deferredRemovalPageKey.isNotEmpty &&
+        deferredRemovalPageKey != normalizedPageKey) {
+      unawaited(
+        _performRuntimeDynamicThemeClear(
+          deferredRemovalPageKey,
+          broadcastToMain: broadcastToMain,
+          allowTopDeferral: false,
+          restoreFallbackOnMain: false,
+        ),
+      );
+    }
+    if (!shouldDeferLocalNotify || _disposed) {
+      return;
+    }
+    if (applyToken != _runtimeThemeApplyToken) {
+      return;
+    }
+    await Future<void>.delayed(localNotifyDelayAfterBroadcast);
+    if (_disposed || applyToken != _runtimeThemeApplyToken) {
+      return;
+    }
+    _isReady = true;
+    _publishRuntimeDynamicThemeToScope();
   }
 
   Future<void> clearRuntimeDynamicTheme(
     String pageKey, {
     bool broadcastToMain = true,
+    bool restoreFallbackOnMain = true,
   }) async {
     final normalizedPageKey = pageKey.trim();
     if (normalizedPageKey.isEmpty) {
       return;
     }
     await _ensureRuntimeSessionLoaded();
-    debugPrint(
-      '[THEME][RUNTIME] clear page=$normalizedPageKey broadcast=$broadcastToMain session=$_runtimeSessionId',
+    await _performRuntimeDynamicThemeClear(
+      normalizedPageKey,
+      broadcastToMain: broadcastToMain,
+      allowTopDeferral: true,
+      restoreFallbackOnMain: restoreFallbackOnMain,
     );
+  }
+
+  Future<void> _performRuntimeDynamicThemeClear(
+    String pageKey, {
+    required bool broadcastToMain,
+    required bool allowTopDeferral,
+    bool restoreFallbackOnMain = true,
+  }) async {
+    final normalizedPageKey = pageKey.trim();
+    if (normalizedPageKey.isEmpty) {
+      return;
+    }
+    _runtimeThemeApplyToken++;
+    if (kDebugMode) {
+      debugPrint(
+        '[THEME][RUNTIME] clear page=$normalizedPageKey broadcast=$broadcastToMain session=$_runtimeSessionId',
+      );
+    }
+    final isCurrentTop =
+        _runtimeDynamicThemeOrder.isNotEmpty &&
+        _runtimeDynamicThemeOrder.last == normalizedPageKey;
+    final hasFallbackTheme = _runtimeDynamicThemeOrder.length > 1;
+    if (allowTopDeferral &&
+        broadcastToMain &&
+        isCurrentTop &&
+        !hasFallbackTheme) {
+      if (kDebugMode) {
+        debugPrint('[THEME][RUNTIME] defer_top_clear page=$normalizedPageKey');
+      }
+      _scheduleRuntimeTopRemoval(normalizedPageKey);
+      return;
+    }
     final previousVisualSignature = _effectiveThemeSignature();
+    final removedWasTop = isCurrentTop;
     final removedFromOrder = _runtimeDynamicThemeOrder.remove(
       normalizedPageKey,
     );
@@ -571,15 +672,70 @@ class AppThemeProvider extends ChangeNotifier {
     }
     if (visualChanged) {
       _isReady = true;
-      notifyListeners();
+      _publishRuntimeDynamicThemeToScope();
     }
-    await _persist(_persistCurrentRuntimeDynamicTheme, false);
     if (broadcastToMain) {
-      debugPrint('[THEME][RUNTIME] clear_on_main page=$normalizedPageKey');
-      await RuntimeThemeSyncBridge.instance.clearRuntimeThemeOnMain(
-        normalizedPageKey,
-      );
+      if (removedWasTop &&
+          _runtimeDynamicThemeSeed != null &&
+          restoreFallbackOnMain) {
+        final fallbackPageKey = _runtimeDynamicThemePage;
+        final fallbackSeed = _runtimeDynamicThemeSeed!;
+        if (kDebugMode) {
+          debugPrint(
+            '[THEME][RUNTIME] restore_on_main page=$fallbackPageKey after_clear=$normalizedPageKey',
+          );
+        }
+        await RuntimeThemeSyncBridge.instance.pushRuntimeThemeToMain(
+          pageKey: fallbackPageKey,
+          backgroundSeed: fallbackSeed.backgroundSeed.toARGB32(),
+          accentSeed: fallbackSeed.accentSeed.toARGB32(),
+          selectionSeed: fallbackSeed.selectionSeed.toARGB32(),
+          linkSeed: fallbackSeed.linkSeed.toARGB32(),
+          preferLightSurface: fallbackSeed.preferLightSurface,
+        );
+        await RuntimeThemeSyncBridge.instance.clearRuntimeThemeOnMain(
+          normalizedPageKey,
+        );
+      } else {
+        if (kDebugMode) {
+          debugPrint(
+            '[THEME][RUNTIME] schedule_clear_on_main page=$normalizedPageKey',
+          );
+        }
+        _scheduleRuntimeMainClear(normalizedPageKey);
+      }
     }
+  }
+
+  void _scheduleRuntimeTopRemoval(String pageKey) {
+    _pendingRuntimeTopRemovalPageKey = pageKey.trim();
+    _runtimeTopThemeRemovalTimer?.cancel();
+    _runtimeTopThemeRemovalTimer = Timer(_runtimeMainClearGrace, () {
+      final pendingPageKey = _pendingRuntimeTopRemovalPageKey;
+      _pendingRuntimeTopRemovalPageKey = '';
+      _runtimeTopThemeRemovalTimer = null;
+      if (pendingPageKey.isEmpty) {
+        return;
+      }
+      if (_runtimeMainClearHoldCount > 0) {
+        _scheduleRuntimeTopRemoval(pendingPageKey);
+        return;
+      }
+      unawaited(
+        _performRuntimeDynamicThemeClear(
+          pendingPageKey,
+          broadcastToMain: true,
+          allowTopDeferral: false,
+          restoreFallbackOnMain: true,
+        ),
+      );
+    });
+  }
+
+  void _cancelPendingRuntimeTopRemoval() {
+    _runtimeTopThemeRemovalTimer?.cancel();
+    _runtimeTopThemeRemovalTimer = null;
+    _pendingRuntimeTopRemovalPageKey = '';
   }
 
   Future<void> _persist(
@@ -588,6 +744,7 @@ class AppThemeProvider extends ChangeNotifier {
   ]) async {
     _isReady = true;
     _cacheBootstrapSnapshot();
+    _publishRuntimeDynamicThemeToScope();
     if (notify) {
       notifyListeners();
     }
@@ -598,6 +755,74 @@ class AppThemeProvider extends ChangeNotifier {
     await prefs.setInt(_themeRevisionKey, revision);
     _themeRevision = revision;
     _cacheBootstrapSnapshot();
+  }
+
+  void acquireRuntimeMainClearHold() {
+    _runtimeMainClearHoldCount++;
+    if (kDebugMode) {
+      debugPrint(
+        '[THEME][RUNTIME] hold_acquire count=$_runtimeMainClearHoldCount pending=$_pendingRuntimeMainClearPageKey',
+      );
+    }
+  }
+
+  void releaseRuntimeMainClearHold() {
+    if (_runtimeMainClearHoldCount <= 0) {
+      return;
+    }
+    _runtimeMainClearHoldCount--;
+    if (kDebugMode) {
+      debugPrint(
+        '[THEME][RUNTIME] hold_release count=$_runtimeMainClearHoldCount pending=$_pendingRuntimeMainClearPageKey',
+      );
+    }
+    if (_runtimeMainClearHoldCount == 0 &&
+        _pendingRuntimeMainClearPageKey.isNotEmpty &&
+        _runtimeMainClearTimer == null) {
+      _scheduleRuntimeMainClear(
+        _pendingRuntimeMainClearPageKey,
+        delay: Duration.zero,
+      );
+    }
+  }
+
+  void _scheduleRuntimeMainClear(String pageKey, {Duration? delay}) {
+    final normalizedPageKey = pageKey.trim();
+    if (normalizedPageKey.isEmpty) {
+      return;
+    }
+    _pendingRuntimeMainClearPageKey = normalizedPageKey;
+    _runtimeMainClearTimer?.cancel();
+    _runtimeMainClearTimer = Timer(delay ?? _runtimeMainClearGrace, () {
+      final pendingPageKey = _pendingRuntimeMainClearPageKey;
+      _pendingRuntimeMainClearPageKey = '';
+      _runtimeMainClearTimer = null;
+      if (_runtimeMainClearHoldCount > 0) {
+        if (pendingPageKey.isNotEmpty) {
+          if (kDebugMode) {
+            debugPrint(
+              '[THEME][RUNTIME] defer_clear_on_main page=$pendingPageKey hold=$_runtimeMainClearHoldCount',
+            );
+          }
+          _scheduleRuntimeMainClear(pendingPageKey);
+        }
+        return;
+      }
+      if (pendingPageKey.isEmpty ||
+          _runtimeDynamicThemePage == pendingPageKey ||
+          _runtimeDynamicThemeCache.containsKey(pendingPageKey)) {
+        return;
+      }
+      unawaited(
+        RuntimeThemeSyncBridge.instance.clearRuntimeThemeOnMain(pendingPageKey),
+      );
+    });
+  }
+
+  void _cancelPendingRuntimeMainClear() {
+    _runtimeMainClearTimer?.cancel();
+    _runtimeMainClearTimer = null;
+    _pendingRuntimeMainClearPageKey = '';
   }
 
   static Color? _readColor(SharedPreferences prefs, String key) {
@@ -726,9 +951,26 @@ class AppThemeProvider extends ChangeNotifier {
       if (nextRevision == _themeRevision) return;
       final previousVisualSignature = _effectiveThemeSignature();
       _themeRevision = nextRevision;
+      final runtimePage = _runtimeDynamicThemePage;
+      final runtimeSeed = _runtimeDynamicThemeSeed;
+      final runtimeCache = Map<String, DynamicThemeSeed>.from(
+        _runtimeDynamicThemeCache,
+      );
+      final runtimeOrder = List<String>.from(_runtimeDynamicThemeOrder);
       _applyStoredValues(prefs);
+      if (runtimeSeed != null && runtimePage.isNotEmpty) {
+        _runtimeDynamicThemePage = runtimePage;
+        _runtimeDynamicThemeSeed = runtimeSeed;
+        _runtimeDynamicThemeCache
+          ..clear()
+          ..addAll(runtimeCache);
+        _runtimeDynamicThemeOrder
+          ..clear()
+          ..addAll(runtimeOrder);
+      }
       _isReady = true;
       _cacheBootstrapSnapshot();
+      _publishRuntimeDynamicThemeToScope();
       if (previousVisualSignature != _effectiveThemeSignature()) {
         notifyListeners();
       }
@@ -767,6 +1009,36 @@ class AppThemeProvider extends ChangeNotifier {
     return parts.join('|');
   }
 
+  String _baseThemeSignature() {
+    return selectedThemeBaseColors.toMap().values.join('|');
+  }
+
+  AppThemeColors? _runtimeDynamicThemeColors() {
+    final runtimeSeed = _runtimeDynamicThemeSeed;
+    if (!dynamicThemeEnabled ||
+        runtimeSeed == null ||
+        _runtimeDynamicThemePage.trim().isEmpty) {
+      return null;
+    }
+    return DynamicThemeMapper.map(
+      baseColors: selectedThemeBaseColors,
+      seed: runtimeSeed,
+      intensity: _dynamicThemeIntensity,
+    );
+  }
+
+  void _publishRuntimeDynamicThemeToScope() {
+    final colors = _runtimeDynamicThemeColors();
+    if (colors == null) {
+      AppRuntimeColorController.instance.clearRuntimeColors();
+      return;
+    }
+    AppRuntimeColorController.instance.setRuntimeColors(
+      pageKey: _runtimeDynamicThemePage,
+      colors: colors,
+    );
+  }
+
   Future<SharedPreferences> _obtainPrefs({bool refresh = false}) async {
     final prefs = _prefs ?? await SharedPreferences.getInstance();
     _prefs = prefs;
@@ -794,7 +1066,7 @@ class AppThemeProvider extends ChangeNotifier {
         (prefs.getString(_runtimeDynamicThemePageKey)?.trim().isNotEmpty ??
             false) &&
         prefs.getInt(_runtimeDynamicBackgroundSeedKey) != null;
-    if ((storedSessionId.isEmpty && hasPersistedRuntimeTheme) ||
+    if (hasPersistedRuntimeTheme ||
         (storedSessionId.isNotEmpty && storedSessionId != _runtimeSessionId)) {
       await _clearPersistedRuntimeDynamicTheme(prefs);
     }
@@ -938,41 +1210,6 @@ class AppThemeProvider extends ChangeNotifier {
     _runtimeDynamicThemeSeed = _runtimeDynamicThemeCache[currentPage];
   }
 
-  Future<void> _persistCurrentRuntimeDynamicTheme(
-    SharedPreferences prefs,
-  ) async {
-    final seed = _runtimeDynamicThemeSeed;
-    if (_runtimeDynamicThemePage.isEmpty || seed == null) {
-      await _clearPersistedRuntimeDynamicTheme(prefs);
-      return;
-    }
-    await _ensureRuntimeSessionLoaded();
-    if (_runtimeSessionId.isNotEmpty) {
-      await prefs.setString(_runtimeDynamicSessionIdKey, _runtimeSessionId);
-    }
-    await prefs.setString(
-      _runtimeDynamicThemePageKey,
-      _runtimeDynamicThemePage,
-    );
-    await prefs.setInt(
-      _runtimeDynamicBackgroundSeedKey,
-      seed.backgroundSeed.toARGB32(),
-    );
-    await prefs.setInt(
-      _runtimeDynamicAccentSeedKey,
-      seed.accentSeed.toARGB32(),
-    );
-    await prefs.setInt(
-      _runtimeDynamicSelectionSeedKey,
-      seed.selectionSeed.toARGB32(),
-    );
-    await prefs.setInt(_runtimeDynamicLinkSeedKey, seed.linkSeed.toARGB32());
-    await prefs.setBool(
-      _runtimeDynamicPreferLightSurfaceKey,
-      seed.preferLightSurface,
-    );
-  }
-
   Future<void> _clearPersistedRuntimeDynamicTheme(
     SharedPreferences prefs,
   ) async {
@@ -1002,30 +1239,18 @@ class AppThemeProvider extends ChangeNotifier {
               (call.arguments as Map?)?.cast<dynamic, dynamic>() ??
               const <dynamic, dynamic>{};
           final pageKey = (args['pageKey'] ?? '').toString().trim();
-          final backgroundSeed = args['backgroundSeed'];
-          final accentSeed = args['accentSeed'];
-          final selectionSeed = args['selectionSeed'];
-          final linkSeed = args['linkSeed'];
-          if (pageKey.isEmpty ||
-              backgroundSeed is! int ||
-              accentSeed is! int ||
-              selectionSeed is! int ||
-              linkSeed is! int) {
+          final seed = _runtimeSeedFromArgs(args);
+          if (pageKey.isEmpty || seed == null) {
             return;
           }
           await setRuntimeDynamicTheme(
             pageKey: pageKey,
-            seed: DynamicThemeSeed(
-              backgroundSeed: Color(backgroundSeed),
-              accentSeed: Color(accentSeed),
-              selectionSeed: Color(selectionSeed),
-              linkSeed: Color(linkSeed),
-              preferLightSurface:
-                  (args['preferLightSurface'] as bool?) ?? false,
-            ),
+            seed: seed,
             broadcastToMain: false,
           );
-          debugPrint('[THEME][RUNTIME] applied_from_main page=$pageKey');
+          if (kDebugMode) {
+            debugPrint('[THEME][RUNTIME] applied_from_main page=$pageKey');
+          }
           return;
         case 'clearRuntimeDynamicTheme':
           final args =
@@ -1036,15 +1261,55 @@ class AppThemeProvider extends ChangeNotifier {
             return;
           }
           await clearRuntimeDynamicTheme(pageKey, broadcastToMain: false);
-          debugPrint('[THEME][RUNTIME] cleared_from_main page=$pageKey');
+          if (kDebugMode) {
+            debugPrint('[THEME][RUNTIME] cleared_from_main page=$pageKey');
+          }
           return;
       }
     });
+    final active = await RuntimeThemeSyncBridge.instance
+        .activeRuntimeThemeSnapshot();
+    if (active != null) {
+      final pageKey = (active['pageKey'] ?? '').toString().trim();
+      final seed = _runtimeSeedFromArgs(active);
+      if (pageKey.isNotEmpty && seed != null) {
+        await setRuntimeDynamicTheme(
+          pageKey: pageKey,
+          seed: seed,
+          broadcastToMain: false,
+        );
+      }
+    }
+  }
+
+  DynamicThemeSeed? _runtimeSeedFromArgs(Map<dynamic, dynamic> args) {
+    final backgroundSeed = args['backgroundSeed'];
+    final accentSeed = args['accentSeed'];
+    final selectionSeed = args['selectionSeed'];
+    final linkSeed = args['linkSeed'];
+    if (backgroundSeed is! int ||
+        accentSeed is! int ||
+        selectionSeed is! int ||
+        linkSeed is! int) {
+      return null;
+    }
+    return DynamicThemeSeed(
+      backgroundSeed: Color(backgroundSeed),
+      accentSeed: Color(accentSeed),
+      selectionSeed: Color(selectionSeed),
+      linkSeed: Color(linkSeed),
+      preferLightSurface: (args['preferLightSurface'] as bool?) ?? false,
+    );
   }
 
   @override
   void dispose() {
+    _disposed = true;
+    _runtimeThemeApplyToken++;
     _syncTimer?.cancel();
+    _runtimeMainClearTimer?.cancel();
+    _runtimeTopThemeRemovalTimer?.cancel();
+    AppRuntimeColorController.instance.clearRuntimeColors();
     unawaited(RuntimeThemeSyncBridge.instance.unregisterHandler(this));
     super.dispose();
   }

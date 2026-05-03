@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../theme/app_theme.dart';
@@ -62,6 +62,7 @@ class CreditsSection extends StatelessWidget {
           height: sectionHeight,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
+            cacheExtent: (cardWidth + itemGap) * 2,
             itemCount: items.length,
             padding: EdgeInsets.zero,
             separatorBuilder: (_, __) => SizedBox(width: itemGap),
@@ -197,10 +198,10 @@ class _CreditAvatarState extends State<_CreditAvatar> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final dpr = MediaQuery.of(context).devicePixelRatio;
+        final dpr = MediaQuery.of(context).devicePixelRatio.clamp(1.0, 1.8);
         final cacheW = constraints.maxWidth.isFinite
-            ? (constraints.maxWidth * dpr).round().clamp(128, 768)
-            : 320;
+            ? (constraints.maxWidth * dpr).round().clamp(96, 180)
+            : 144;
         return Image.network(
           widget.urls[_index],
           fit: BoxFit.cover,

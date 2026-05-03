@@ -6,6 +6,7 @@ import 'package:fly_player/player/services/player_runtime_preferences_store.dart
 PlayerRuntimePreferencesStore _buildStore() {
   return const PlayerRuntimePreferencesStore(
     autoPlayPrefKey: 'player_auto_play_enabled',
+    nextEpisodePreloadPrefKey: 'player_next_episode_preload_enabled',
     autoRotatePrefKey: 'player_auto_rotate_enabled',
     extremePlaybackPrefKey: 'player_extreme_playback_enabled',
     performanceOverlayPrefKey: 'player_performance_overlay_enabled',
@@ -19,6 +20,9 @@ PlayerRuntimePreferencesStore _buildStore() {
     introOutroChapterModePrefKey: 'player_intro_outro_chapter_mode',
     introOutroIntroMaxPrefKey: 'player_intro_outro_intro_max_seconds',
     introOutroOutroMaxPrefKey: 'player_intro_outro_outro_max_seconds',
+    subtitleDelayPrefKey: 'player_subtitle_delay_seconds',
+    subtitlePositionFactorPrefKey: 'player_subtitle_position_factor',
+    subtitleScaleFactorPrefKey: 'player_subtitle_scale_factor',
     mpvSettingPrefPrefix: 'player_mpv_setting_',
     decoderModeHardware: 'hardware',
     decoderModeSoftware: 'software',
@@ -39,6 +43,11 @@ PlayerRuntimePreferencesStore _buildStore() {
       'cache_profile': 'default',
     },
     defaultPerformanceOverlayOffset: Offset(12, 56),
+    defaultSubtitleDelaySeconds: 0,
+    defaultSubtitlePositionFactor: 0.08,
+    defaultSubtitleScaleFactor: 1 / 6,
+    subtitleDelayMinSeconds: -10,
+    subtitleDelayMaxSeconds: 10,
     introDurationMinSeconds: 60,
     introDurationMaxSeconds: 240,
     outroDurationMinSeconds: 60,
@@ -62,6 +71,9 @@ void main() {
         'player_intro_outro_chapter_mode': 'invalid',
         'player_intro_outro_intro_max_seconds': 999,
         'player_intro_outro_outro_max_seconds': 10,
+        'player_subtitle_delay_seconds': 12.34,
+        'player_subtitle_position_factor': 1.5,
+        'player_subtitle_scale_factor': -1.0,
         'player_mpv_setting_deband': 'on',
         'player_performance_overlay_offset_x': 24.0,
         'player_performance_overlay_offset_y': 72.0,
@@ -81,6 +93,9 @@ void main() {
       expect(preferences.chapterSkipMode, 'auto');
       expect(preferences.introDurationSeconds, 240);
       expect(preferences.outroDurationSeconds, 60);
+      expect(preferences.subtitleDelaySeconds, 10.0);
+      expect(preferences.subtitlePositionFactor, 1.0);
+      expect(preferences.subtitleScaleFactor, 0.0);
       expect(preferences.mpvSettings['deband'], 'on');
       expect(preferences.mpvSettings['cache_profile'], 'default');
       expect(preferences.performanceOverlayOffset, const Offset(24, 72));
@@ -100,6 +115,9 @@ void main() {
       expect(preferences.displayAspectRatioMode, 'fit');
       expect(preferences.introOutroEnabled, isFalse);
       expect(preferences.introOutroSourceMode, 'off');
+      expect(preferences.subtitleDelaySeconds, 0);
+      expect(preferences.subtitlePositionFactor, 0.08);
+      expect(preferences.subtitleScaleFactor, closeTo(1 / 6, 1e-9));
       expect(preferences.performanceOverlayOffset, const Offset(12, 56));
     });
   });

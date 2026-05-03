@@ -19,6 +19,20 @@ class PlayerChapterSkipSegment {
   bool get isIntro => kind == 'intro';
 }
 
+class PlayerWeakNetworkSuggestion {
+  final String suppressionKey;
+  final String targetQualityId;
+  final String title;
+  final String subtitle;
+
+  const PlayerWeakNetworkSuggestion({
+    required this.suppressionKey,
+    required this.targetQualityId,
+    required this.title,
+    required this.subtitle,
+  });
+}
+
 class PlayerUiController {
   bool orientationChangeInProgress = false;
   bool orientationTransitionMaskVisible = false;
@@ -27,8 +41,10 @@ class PlayerUiController {
   bool backgroundLoadingTransition = false;
   bool videoLoadingOverlayVisible = false;
   bool awaitingVisualPlaybackStart = false;
+  bool allowPlaybackProgressTransitionCompletion = false;
   bool pendingTransitionTargetPaused = false;
   bool wasPaused = true;
+  bool suppressControlsRevealOnNextPause = false;
   bool chapterLoading = false;
   int chapterRetryAttempt = 0;
   int lastRecordedSecond = -1;
@@ -38,6 +54,8 @@ class PlayerUiController {
   String? centerPopupMessage;
   String? statusMessage;
   String? subtitleSwitchMessage;
+  PlayerWeakNetworkSuggestion? weakNetworkSuggestion;
+  String? weakNetworkSuggestionSuppressionKey;
   Duration visualPlaybackStartAnchorPosition = Duration.zero;
 
   void resetForSourceChange() {
@@ -45,17 +63,23 @@ class PlayerUiController {
     timelineInteractionActive = false;
     chapterLoading = false;
     chapterRetryAttempt = 0;
+    suppressControlsRevealOnNextPause = false;
     activeChapterSkipPrompt = null;
     centerPopupMessage = null;
+    weakNetworkSuggestion = null;
+    weakNetworkSuggestionSuppressionKey = null;
   }
 
   void resetSourceLoadTransitionState() {
     pendingLoadingTransition = false;
     backgroundLoadingTransition = false;
     pendingTransitionTargetPaused = false;
+    suppressControlsRevealOnNextPause = false;
     qualitySwitchLoading = false;
     awaitingVisualPlaybackStart = false;
+    allowPlaybackProgressTransitionCompletion = false;
     videoLoadingOverlayVisible = false;
+    weakNetworkSuggestion = null;
     visualPlaybackStartAnchorPosition = Duration.zero;
   }
 
@@ -75,10 +99,35 @@ class PlayerUiController {
     bool background = false,
   }) {
     awaitingVisualPlaybackStart = true;
+    allowPlaybackProgressTransitionCompletion = false;
     backgroundLoadingTransition = background;
+    if (!background) {
+      pendingLoadingTransition = true;
+    }
     pendingTransitionTargetPaused = targetPaused;
     visualPlaybackStartAnchorPosition = anchorPosition.isNegative
         ? Duration.zero
         : anchorPosition;
+  }
+
+  void showWeakNetworkSuggestion(PlayerWeakNetworkSuggestion suggestion) {
+    weakNetworkSuggestion = suggestion;
+  }
+
+  void clearWeakNetworkSuggestion() {
+    weakNetworkSuggestion = null;
+  }
+
+  void suppressWeakNetworkSuggestion(String suppressionKey) {
+    weakNetworkSuggestion = null;
+    weakNetworkSuggestionSuppressionKey = suppressionKey;
+  }
+
+  void clearWeakNetworkSuggestionSuppression() {
+    weakNetworkSuggestionSuppressionKey = null;
+  }
+
+  bool isWeakNetworkSuggestionSuppressed(String suppressionKey) {
+    return weakNetworkSuggestionSuppressionKey == suppressionKey;
   }
 }
