@@ -1,11 +1,14 @@
 import '../../services/play_stats/play_stats.dart';
 import '../../utils/play_detail_formatters.dart';
+import '../../l10n/generated/app_localizations.dart';
 
 class PlayStatsReportFormatters {
+  final AppLocalizations l10n;
   final Map<int, String> genreMap;
   final Map<String, String> countryMap;
 
   const PlayStatsReportFormatters({
+    required this.l10n,
     required this.genreMap,
     required this.countryMap,
   });
@@ -28,15 +31,17 @@ class PlayStatsReportFormatters {
       return '${value.inSeconds}s';
     }
     if (hours > 0) {
-      return minutes > 0 ? '$hours 小时 $minutes 分钟' : '$hours 小时';
+      return minutes > 0
+          ? l10n.playStatsReportDurationHoursMinutes(hours, minutes)
+          : l10n.playStatsReportDurationHours(hours);
     }
     if (value.inMinutes > 0) {
       final seconds = value.inSeconds.remainder(60);
       return seconds > 0
-          ? '${value.inMinutes} 分钟 $seconds 秒'
-          : '${value.inMinutes} 分钟';
+          ? l10n.playStatsDurationMinutes(value.inMinutes, seconds)
+          : l10n.playStatsReportDurationMinutes(value.inMinutes);
     }
-    return '${value.inSeconds} 秒';
+    return l10n.playStatsDurationSeconds(value.inSeconds);
   }
 
   String percent(double value, {int fractionDigits = 0}) {
@@ -64,14 +69,14 @@ class PlayStatsReportFormatters {
     return '${value.year}-$month-$day $hour:$minute';
   }
 
-  String weekday(int weekday) => const <String>[
-    '一',
-    '二',
-    '三',
-    '四',
-    '五',
-    '六',
-    '日',
+  String weekday(int weekday) => <String>[
+    l10n.playStatsReportWeekdayMon,
+    l10n.playStatsReportWeekdayTue,
+    l10n.playStatsReportWeekdayWed,
+    l10n.playStatsReportWeekdayThu,
+    l10n.playStatsReportWeekdayFri,
+    l10n.playStatsReportWeekdaySat,
+    l10n.playStatsReportWeekdaySun,
   ][weekday.clamp(1, 7) - 1];
 
   String hourLabel(int hour) => hour.toString().padLeft(2, '0');
@@ -90,21 +95,27 @@ class PlayStatsReportFormatters {
   }
 
   String mediaLabel(String raw) {
-    return raw.trim().toLowerCase() == 'movie' ? '电影' : '剧集';
+    return raw.trim().toLowerCase() == 'movie'
+        ? l10n.playStatsMovieList
+        : l10n.playStatsEpisodeList;
   }
 
   String startSourceLabel(PlayStartSource source) {
     return switch (source) {
-      PlayStartSource.manual => '手动播放',
-      PlayStartSource.manualSwitch => '手动切换',
-      PlayStartSource.autoNext => '自动连播',
-      PlayStartSource.replay => '重新播放',
-      PlayStartSource.systemResume => '系统恢复',
+      PlayStartSource.manual => l10n.playStatsReportStartSourceManual,
+      PlayStartSource.manualSwitch =>
+        l10n.playStatsReportStartSourceManualSwitch,
+      PlayStartSource.autoNext => l10n.playStatsStartSourceAutoNext,
+      PlayStartSource.replay => l10n.playStatsReportStartSourceReplay,
+      PlayStartSource.systemResume => l10n.playStatsStartSourceSystemResume,
     };
   }
 
   String historySubtitle(PlayHistoryRecord item) {
-    return '${dateTime(item.startedAtMs)} · 观看 ${duration(item.watchedMs, compact: true)}';
+    return l10n.playStatsReportHistorySubtitle(
+      dateTime(item.startedAtMs),
+      duration(item.watchedMs, compact: true),
+    );
   }
 
   String historyContext(PlayHistoryRecord item) {
@@ -123,7 +134,11 @@ class PlayStatsReportFormatters {
   }
 
   String historyMeta(PlayHistoryRecord item) {
-    return '${startSourceLabel(item.startSource)} · 观看 ${duration(item.watchedMs, compact: true)} · ${dateTime(item.startedAtMs)}';
+    return l10n.playStatsReportHistoryMeta(
+      startSourceLabel(item.startSource),
+      duration(item.watchedMs, compact: true),
+      dateTime(item.startedAtMs),
+    );
   }
 
   String topVideoSubtitle(PlayStatsTopVideo item) {
@@ -132,7 +147,9 @@ class PlayStatsReportFormatters {
     final seasonTitle = item.seasonTitle.trim();
     final isMovie = item.videoKind.trim().toLowerCase() == 'movie';
     if (isMovie) {
-      return '电影 · 观看 ${duration(item.playedMs, compact: true)}';
+      return l10n.playStatsReportMovieWatchedSubtitle(
+        duration(item.playedMs, compact: true),
+      );
     }
     final parts = <String>[
       if (seasonTitle.isNotEmpty && !_containsNormalized(title, seasonTitle))
@@ -141,14 +158,18 @@ class PlayStatsReportFormatters {
           !_containsNormalized(title, animeTitle) &&
           !_sameNormalized(animeTitle, seasonTitle))
         animeTitle,
-      '观看 ${duration(item.playedMs, compact: true)}',
+      l10n.playStatsReportWatchedDuration(
+        duration(item.playedMs, compact: true),
+      ),
     ];
     return parts.join(' · ');
   }
 
   String affinitySubtitle(PlayStatsAffinityPerson item) {
     final occupation = _occupationLabel(item.role, item.job);
-    final lead = occupation.isEmpty ? '常看人物' : occupation;
+    final lead = occupation.isEmpty
+        ? l10n.playStatsReportFrequentPerson
+        : occupation;
     return '$lead · ${duration(item.watchedMs, compact: true)}';
   }
 
@@ -163,7 +184,7 @@ class PlayStatsReportFormatters {
           !_containsNormalized(title, animeTitle) &&
           !_sameNormalized(seasonTitle, animeTitle))
         animeTitle,
-      '进度 ${percent(item.progress, fractionDigits: 0)}',
+      l10n.playStatsReportProgress(percent(item.progress, fractionDigits: 0)),
     ];
     return parts.join(' · ');
   }
@@ -209,41 +230,41 @@ class PlayStatsReportFormatters {
     final normalizedRole = _normalizedText(role);
     final normalizedJob = _normalizedText(job);
 
-    const roleMap = <String, String>{
-      'director': '导演',
-      'producer': '制片',
-      'executiveproducer': '监制',
-      'writer': '编剧',
-      'screenplay': '编剧',
-      'story': '原作',
-      'originalmusiccomposer': '作曲',
-      'composer': '作曲',
-      'music': '音乐',
-      'editor': '剪辑',
-      'cinematography': '摄影',
-      'voice': '配音',
-      'voiceactor': '配音',
-      'actor': '演员',
-      'actress': '演员',
+    final roleMap = <String, String>{
+      'director': l10n.playStatsReportOccupationDirector,
+      'producer': l10n.playStatsReportOccupationProducer,
+      'executiveproducer': l10n.playStatsReportOccupationExecutiveProducer,
+      'writer': l10n.playStatsReportOccupationWriter,
+      'screenplay': l10n.playStatsReportOccupationWriter,
+      'story': l10n.playStatsReportOccupationOriginal,
+      'originalmusiccomposer': l10n.playStatsReportOccupationComposer,
+      'composer': l10n.playStatsReportOccupationComposer,
+      'music': l10n.playStatsReportOccupationMusic,
+      'editor': l10n.playStatsReportOccupationEditor,
+      'cinematography': l10n.playStatsReportOccupationCinematography,
+      'voice': l10n.playStatsReportOccupationVoice,
+      'voiceactor': l10n.playStatsReportOccupationVoice,
+      'actor': l10n.playStatsReportOccupationActor,
+      'actress': l10n.playStatsReportOccupationActor,
     };
 
-    const jobMap = <String, String>{
-      'cast': '演员',
-      'acting': '演员',
-      'actor': '演员',
-      'actress': '演员',
-      'voice': '配音',
-      'crew': '幕后',
-      'directing': '导演',
-      'director': '导演',
-      'writing': '编剧',
-      'writer': '编剧',
-      'production': '制片',
-      'editing': '剪辑',
-      'sound': '音效',
-      'camera': '摄影',
-      'art': '美术',
-      'visualeffects': '特效',
+    final jobMap = <String, String>{
+      'cast': l10n.playStatsReportOccupationActor,
+      'acting': l10n.playStatsReportOccupationActor,
+      'actor': l10n.playStatsReportOccupationActor,
+      'actress': l10n.playStatsReportOccupationActor,
+      'voice': l10n.playStatsReportOccupationVoice,
+      'crew': l10n.playStatsReportOccupationCrew,
+      'directing': l10n.playStatsReportOccupationDirector,
+      'director': l10n.playStatsReportOccupationDirector,
+      'writing': l10n.playStatsReportOccupationWriter,
+      'writer': l10n.playStatsReportOccupationWriter,
+      'production': l10n.playStatsReportOccupationProducer,
+      'editing': l10n.playStatsReportOccupationEditor,
+      'sound': l10n.playStatsReportOccupationSound,
+      'camera': l10n.playStatsReportOccupationCinematography,
+      'art': l10n.playStatsReportOccupationArt,
+      'visualeffects': l10n.playStatsReportOccupationVisualEffects,
     };
 
     final roleLabel = roleMap[normalizedRole];

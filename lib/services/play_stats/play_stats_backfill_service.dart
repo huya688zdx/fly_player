@@ -13,6 +13,7 @@ import 'play_stats_mappers.dart';
 import 'play_stats_models.dart';
 import 'play_stats_repositories.dart';
 
+/// 负责为统计记录补全番剧、季度与演职员元数据。
 class PlayStatsMetadataBackfillService {
   static const PersonListRequest _creditsRequest = PersonListRequest(
     page: 1,
@@ -27,6 +28,7 @@ class PlayStatsMetadataBackfillService {
   final Set<String> _preferredVideoIds = <String>{};
   Future<void>? _activeRun;
 
+  /// 根据数据库与仓储依赖构造回填服务。
   PlayStatsMetadataBackfillService({
     required PlayStatsDatabase database,
     required VideoStatsRepository videoStatsRepository,
@@ -35,6 +37,7 @@ class PlayStatsMetadataBackfillService {
        _videoStatsRepository = videoStatsRepository,
        _videoCreditStatsRepository = videoCreditStatsRepository;
 
+  /// 以延迟执行的方式安排一次元数据回填任务。
   void schedule({
     required NasProvider provider,
     Iterable<String> preferredVideoIds = const <String>[],
@@ -63,6 +66,7 @@ class PlayStatsMetadataBackfillService {
     );
   }
 
+  /// 立即执行一次元数据回填任务。
   Future<void> backfillNow({
     required NasProvider provider,
     Iterable<String> preferredVideoIds = const <String>[],

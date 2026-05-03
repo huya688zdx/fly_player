@@ -24,13 +24,13 @@ extension AppThemePresetX on AppThemePreset {
   };
 
   String get subtitle => switch (this) {
-    AppThemePreset.midnight => '深夜影院感，层次稳重',
-    AppThemePreset.ocean => '冷海风格，信息感更强',
-    AppThemePreset.forest => '自然绿调，观感更柔和',
-    AppThemePreset.graphite => '中性石墨，适合长期使用',
-    AppThemePreset.sunset => '暖调落日，氛围更明显',
-    AppThemePreset.aurora => '清亮极光，更偏轻快科技感',
-    AppThemePreset.latte => '奶白纸感，适合亮背景偏好',
+    AppThemePreset.midnight => 'Cinema-inspired dark palette',
+    AppThemePreset.ocean => 'Cool ocean palette',
+    AppThemePreset.forest => 'Soft natural green palette',
+    AppThemePreset.graphite => 'Neutral graphite palette',
+    AppThemePreset.sunset => 'Warm sunset palette',
+    AppThemePreset.aurora => 'Bright aurora palette',
+    AppThemePreset.latte => 'Light latte palette',
   };
 
   bool get isLight => this == AppThemePreset.latte;
@@ -58,14 +58,14 @@ extension AppAccentToneX on AppAccentTone {
   };
 
   String get title => switch (this) {
-    AppAccentTone.blue => '星蓝',
-    AppAccentTone.cyan => '冰青',
-    AppAccentTone.green => '松绿',
-    AppAccentTone.amber => '琥珀',
-    AppAccentTone.rose => '赤霓',
-    AppAccentTone.coral => '珊瑚',
-    AppAccentTone.indigo => '靛青',
-    AppAccentTone.mint => '薄荷',
+    AppAccentTone.blue => 'Blue',
+    AppAccentTone.cyan => 'Cyan',
+    AppAccentTone.green => 'Green',
+    AppAccentTone.amber => 'Amber',
+    AppAccentTone.rose => 'Rose',
+    AppAccentTone.coral => 'Coral',
+    AppAccentTone.indigo => 'Indigo',
+    AppAccentTone.mint => 'Mint',
   };
 
   Color get color => switch (this) {
@@ -121,14 +121,14 @@ extension AppBackgroundToneX on AppBackgroundTone {
   };
 
   String get title => switch (this) {
-    AppBackgroundTone.night => '夜幕',
-    AppBackgroundTone.slate => '石墨',
-    AppBackgroundTone.ocean => '深海',
-    AppBackgroundTone.moss => '苔绿',
-    AppBackgroundTone.ember => '余烬',
-    AppBackgroundTone.pearl => '珠雾',
-    AppBackgroundTone.linen => '亚麻',
-    AppBackgroundTone.ivory => '奶白',
+    AppBackgroundTone.night => 'Night',
+    AppBackgroundTone.slate => 'Slate',
+    AppBackgroundTone.ocean => 'Ocean',
+    AppBackgroundTone.moss => 'Moss',
+    AppBackgroundTone.ember => 'Ember',
+    AppBackgroundTone.pearl => 'Pearl',
+    AppBackgroundTone.linen => 'Linen',
+    AppBackgroundTone.ivory => 'Ivory',
   };
 
   bool get isLight => switch (this) {
@@ -166,8 +166,8 @@ extension AppDynamicThemeModeX on AppDynamicThemeMode {
   };
 
   String get title => switch (this) {
-    AppDynamicThemeMode.off => '关闭',
-    AppDynamicThemeMode.detailsAndPeople => '详情页和人物页',
+    AppDynamicThemeMode.off => 'Off',
+    AppDynamicThemeMode.detailsAndPeople => 'Details and people',
   };
 
   static AppDynamicThemeMode fromStorageValue(String? value) {
@@ -188,15 +188,15 @@ extension AppDynamicThemeIntensityX on AppDynamicThemeIntensity {
   };
 
   String get title => switch (this) {
-    AppDynamicThemeIntensity.subtle => '轻柔',
-    AppDynamicThemeIntensity.medium => '中度',
-    AppDynamicThemeIntensity.vivid => '鲜明',
+    AppDynamicThemeIntensity.subtle => 'Subtle',
+    AppDynamicThemeIntensity.medium => 'Medium',
+    AppDynamicThemeIntensity.vivid => 'Vivid',
   };
 
   String get settingsTitle => switch (this) {
-    AppDynamicThemeIntensity.subtle => '轻柔',
-    AppDynamicThemeIntensity.medium => '中度',
-    AppDynamicThemeIntensity.vivid => '高级',
+    AppDynamicThemeIntensity.subtle => 'Subtle',
+    AppDynamicThemeIntensity.medium => 'Medium',
+    AppDynamicThemeIntensity.vivid => 'Advanced',
   };
 
   bool get usesAmbientOnly => this == AppDynamicThemeIntensity.subtle;
@@ -205,16 +205,13 @@ extension AppDynamicThemeIntensityX on AppDynamicThemeIntensity {
     required bool inPlayerPaneHost,
     required bool isPane,
   }) {
-    if (inPlayerPaneHost) {
-      return false;
-    }
     return this == AppDynamicThemeIntensity.vivid;
   }
 
   String get behaviorDescription => switch (this) {
-    AppDynamicThemeIntensity.subtle => '当前页轻量取色，按钮和边框会跟随变化',
-    AppDynamicThemeIntensity.medium => '当前页完整取色，推荐',
-    AppDynamicThemeIntensity.vivid => '高级取色，普通页面流可联动主屏',
+    AppDynamicThemeIntensity.subtle => 'Light current-page color extraction',
+    AppDynamicThemeIntensity.medium => 'Full current-page color extraction',
+    AppDynamicThemeIntensity.vivid => 'Advanced color extraction',
   };
 
   static AppDynamicThemeIntensity fromStorageValue(String? value) {
@@ -426,7 +423,7 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
   }
 
   static AppThemeColors fromMap(Map<String, dynamic> map) {
-    final fallback = AppThemePalette.fallback;
+    const fallback = AppThemePalette.fallback;
     return AppThemeColors(
       backgroundBase: _readColor(
         map,
@@ -958,6 +955,9 @@ class AppThemeBuilder {
       focusColor: Colors.transparent,
       extensions: <ThemeExtension<dynamic>>[colors],
     );
+    // 先用一份完整的 M3 主题兜底，再叠加调用方传入的 baseTheme。
+    // 这样外层如果已经有字体、平台适配或导航主题定制，可以保留原有骨架，
+    // 但颜色体系仍然由当前动态主题统一接管。
     final base = (baseTheme ?? seedBase).copyWith(
       brightness: brightness,
       colorScheme: scheme,
@@ -965,7 +965,6 @@ class AppThemeBuilder {
       canvasColor: colors.backgroundBase,
       cardColor: colors.surface,
       dividerColor: colors.borderSubtle,
-      useMaterial3: true,
       splashFactory: NoSplash.splashFactory,
       splashColor: Colors.transparent,
       highlightColor: Colors.transparent,
@@ -1085,7 +1084,114 @@ class AppThemeBuilder {
   }
 }
 
+class AppRuntimeColorController extends ChangeNotifier {
+  AppRuntimeColorController._();
+
+  static final AppRuntimeColorController instance =
+      AppRuntimeColorController._();
+
+  String _pageKey = '';
+  AppThemeColors? _colors;
+  String _signature = '';
+
+  String get pageKey => _pageKey;
+  AppThemeColors? get colors => _colors;
+  bool get hasRuntimeColors => _colors != null;
+
+  void setRuntimeColors({
+    required String pageKey,
+    required AppThemeColors colors,
+  }) {
+    final normalizedPageKey = pageKey.trim();
+    if (normalizedPageKey.isEmpty) {
+      return;
+    }
+    final signature = _runtimeSignature(normalizedPageKey, colors);
+    if (_signature == signature) {
+      return;
+    }
+    _pageKey = normalizedPageKey;
+    _colors = colors;
+    _signature = signature;
+    notifyListeners();
+  }
+
+  void clearRuntimeColors({String? pageKey}) {
+    final normalizedPageKey = pageKey?.trim() ?? '';
+    if (normalizedPageKey.isNotEmpty && normalizedPageKey != _pageKey) {
+      return;
+    }
+    if (_colors == null && _pageKey.isEmpty) {
+      return;
+    }
+    _pageKey = '';
+    _colors = null;
+    _signature = '';
+    notifyListeners();
+  }
+
+  static String _runtimeSignature(String pageKey, AppThemeColors colors) {
+    return <Object>[pageKey, ...colors.toMap().values].join('|');
+  }
+}
+
+class AppRuntimeColorScope
+    extends InheritedNotifier<AppRuntimeColorController> {
+  const AppRuntimeColorScope({
+    super.key,
+    required AppRuntimeColorController controller,
+    required super.child,
+  }) : super(notifier: controller);
+
+  static AppRuntimeColorController? maybeControllerOf(BuildContext context) {
+    return context
+        .dependOnInheritedWidgetOfExactType<AppRuntimeColorScope>()
+        ?.notifier;
+  }
+
+  static AppThemeColors? maybeColorsOf(BuildContext context) {
+    return maybeControllerOf(context)?.colors;
+  }
+
+  static bool hasRuntimeColorsOf(BuildContext context) {
+    return maybeControllerOf(context)?.hasRuntimeColors ?? false;
+  }
+}
+
+class DynamicPageThemeSnapshot extends InheritedWidget {
+  final bool hasDynamicTheme;
+  final AppThemeColors effectiveColors;
+
+  const DynamicPageThemeSnapshot({
+    super.key,
+    required this.hasDynamicTheme,
+    required this.effectiveColors,
+    required super.child,
+  });
+
+  static DynamicPageThemeSnapshot? maybeOf(BuildContext context) {
+    return context
+        .dependOnInheritedWidgetOfExactType<DynamicPageThemeSnapshot>();
+  }
+
+  @override
+  bool updateShouldNotify(DynamicPageThemeSnapshot oldWidget) {
+    return hasDynamicTheme != oldWidget.hasDynamicTheme ||
+        effectiveColors != oldWidget.effectiveColors;
+  }
+}
+
 extension AppThemeBuildContextX on BuildContext {
-  AppThemeColors get appColors =>
+  AppThemeColors get baseAppColors =>
       Theme.of(this).extension<AppThemeColors>() ?? AppThemePalette.fallback;
+
+  AppThemeColors get appColors {
+    final pageSnapshot = DynamicPageThemeSnapshot.maybeOf(this);
+    if (pageSnapshot?.hasDynamicTheme == true) {
+      return pageSnapshot!.effectiveColors;
+    }
+    return AppRuntimeColorScope.maybeColorsOf(this) ?? baseAppColors;
+  }
+
+  bool get hasRuntimeAppColors => AppRuntimeColorScope.hasRuntimeColorsOf(this);
 }

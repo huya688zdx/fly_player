@@ -107,7 +107,7 @@ class _PlayerOptionDrawer extends StatelessWidget {
           Positioned.fill(
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: () => Navigator.of(context).maybePop(),
+              onTap: () => AppSheetTransitions.close(context),
               child: const SizedBox.expand(),
             ),
           ),
@@ -333,7 +333,7 @@ class _DrawerOptionTile extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () => Navigator.of(context).pop(item.id),
+        onTap: () => AppSheetTransitions.close(context, item.id),
         borderRadius: tileRadius,
         child: Ink(
           padding: EdgeInsets.symmetric(

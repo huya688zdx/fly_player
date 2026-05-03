@@ -88,10 +88,10 @@ class DanmakuTrackLayoutEngine {
 
     final topTrackCount = trackHeight <= 0
         ? 0
-        : (topAreaHeight / trackHeight).floor().clamp(0, 1000);
+        : (topAreaHeight / trackHeight).round().clamp(0, 1000);
     final bottomTrackCount = trackHeight <= 0
         ? 0
-        : (bottomAreaHeight / trackHeight).floor().clamp(0, 1000);
+        : (bottomAreaHeight / trackHeight).round().clamp(0, 1000);
 
     final topTracks = <double>[];
     for (var index = 0; index < topTrackCount; index += 1) {

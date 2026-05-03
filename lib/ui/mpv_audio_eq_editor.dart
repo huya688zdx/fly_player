@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../player/stores/mpv_settings_store.dart';
 import '../theme/app_theme.dart';
 
@@ -8,8 +9,8 @@ class MpvAudioEqEditor extends StatelessWidget {
   final ValueChanged<MapEntry<String, double>> onChanged;
   final ValueChanged<MapEntry<String, double>> onChangeEnd;
   final VoidCallback? onReset;
-  final String title;
-  final String subtitle;
+  final String? title;
+  final String? subtitle;
 
   const MpvAudioEqEditor({
     super.key,
@@ -17,13 +18,16 @@ class MpvAudioEqEditor extends StatelessWidget {
     required this.onChanged,
     required this.onChangeEnd,
     this.onReset,
-    this.title = '高级均衡',
-    this.subtitle = '上下拖动每个频段，细微调整整体音色。',
+    this.title,
+    this.subtitle,
   });
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
+    final resolvedTitle = title ?? l10n.mpvEqEditorTitle;
+    final resolvedSubtitle = subtitle ?? l10n.mpvEqEditorSubtitle;
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -41,7 +45,7 @@ class MpvAudioEqEditor extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Text(
-                      title,
+                      resolvedTitle,
                       style: TextStyle(
                         color: colors.textPrimary,
                         fontSize: 17,
@@ -50,7 +54,7 @@ class MpvAudioEqEditor extends StatelessWidget {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      subtitle,
+                      resolvedSubtitle,
                       style: TextStyle(
                         color: colors.textSecondary,
                         fontSize: 13,
@@ -64,7 +68,7 @@ class MpvAudioEqEditor extends StatelessWidget {
                 TextButton.icon(
                   onPressed: onReset,
                   icon: const Icon(Icons.restart_alt_rounded),
-                  label: const Text('归零'),
+                  label: Text(l10n.mpvEqReset),
                 ),
             ],
           ),

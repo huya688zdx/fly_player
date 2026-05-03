@@ -4,6 +4,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import '../../l10n/generated/app_localizations.dart';
 import '../../services/play_stats/play_stats.dart';
 import '../../theme/app_theme.dart';
 import '../../ui/app_info_popover.dart';
@@ -159,6 +160,7 @@ class PlayStatsHeroCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = formatters.l10n;
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
       decoration: BoxDecoration(
@@ -196,7 +198,7 @@ class PlayStatsHeroCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  '${selectedRange.label}观影战报',
+                  l10n.playStatsReportHeroTitle(selectedRange.label),
                   style: TextStyle(
                     color: colors.textPrimary,
                     fontSize: 12.5,
@@ -206,7 +208,7 @@ class PlayStatsHeroCard extends StatelessWidget {
               ),
               const Spacer(),
               _HeroStatBadge(
-                label: '活跃天数',
+                label: l10n.playStatsReportActiveDays,
                 value: '${overview.activeDays}',
                 valueChild: PlayStatsAnimatedMetricText(
                   value: overview.activeDays.toDouble(),
@@ -222,8 +224,9 @@ class PlayStatsHeroCard extends StatelessWidget {
           const SizedBox(height: 18),
           PlayStatsAnimatedMetricText(
             value: overview.totalPlayedMs.toDouble(),
-            builder: (value) =>
-                '累计 ${formatters.duration(value.round(), compact: true)}',
+            builder: (value) => l10n.playStatsReportTotalDuration(
+              formatters.duration(value.round(), compact: true),
+            ),
             style: TextStyle(
               color: colors.textPrimary,
               fontSize: 28,
@@ -248,12 +251,12 @@ class PlayStatsHeroCard extends StatelessWidget {
             runSpacing: 10,
             children: <Widget>[
               _MetricPill(
-                label: '播放次数',
+                label: l10n.playStatsReportClickCount,
                 value: '${overview.totalClickCount}',
                 tone: colors.selectionStrong,
-                infoTitle: '播放次数',
-                infoDescription: '统计这段时间里，你主动点开播放或手动切换内容的次数。',
-                infoDetail: '更接近你发起了多少次播放，不包含自动连播或系统恢复。',
+                infoTitle: l10n.playStatsReportClickCount,
+                infoDescription: l10n.playStatsReportClickCountDescription,
+                infoDetail: l10n.playStatsReportClickCountDetail,
                 valueChild: PlayStatsAnimatedMetricText(
                   value: overview.totalClickCount.toDouble(),
                   builder: (value) => value.round().toString(),
@@ -265,12 +268,12 @@ class PlayStatsHeroCard extends StatelessWidget {
                 ),
               ),
               _MetricPill(
-                label: '观看次数',
+                label: l10n.playStatsReportViewCount,
                 value: '${overview.totalViewCount}',
                 tone: colors.accent,
-                infoTitle: '观看次数',
-                infoDescription: '只统计达到有效观看门槛的播放记录，用来看你真正进入观看状态了多少次。',
-                infoDetail: '剧集需看满 20%，电影需看满 10%。',
+                infoTitle: l10n.playStatsReportViewCount,
+                infoDescription: l10n.playStatsReportViewCountDescription,
+                infoDetail: l10n.playStatsReportViewCountDetail,
                 valueChild: PlayStatsAnimatedMetricText(
                   value: overview.totalViewCount.toDouble(),
                   builder: (value) => value.round().toString(),
@@ -282,12 +285,12 @@ class PlayStatsHeroCard extends StatelessWidget {
                 ),
               ),
               _MetricPill(
-                label: '完播视频',
+                label: l10n.playStatsReportCompletedVideos,
                 value: '${overview.totalCompletedVideoCount}',
                 tone: colors.success,
-                infoTitle: '完播视频',
-                infoDescription: '统计被判定为完整看完的具体视频条目数，更接近你真正看完了多少集或多少部片。',
-                infoDetail: '通常需要看满约 80%，并且结尾不是一拖而过，才会记入完播。',
+                infoTitle: l10n.playStatsReportCompletedVideos,
+                infoDescription: l10n.playStatsReportCompletedVideosDescription,
+                infoDetail: l10n.playStatsReportCompletedVideosDetail,
                 valueChild: PlayStatsAnimatedMetricText(
                   value: overview.totalCompletedVideoCount.toDouble(),
                   builder: (value) => value.round().toString(),
@@ -299,12 +302,13 @@ class PlayStatsHeroCard extends StatelessWidget {
                 ),
               ),
               _MetricPill(
-                label: '完播季度',
+                label: l10n.playStatsReportCompletedSeasons,
                 value: '${overview.totalCompletedSeasonCount}',
                 tone: colors.warning,
-                infoTitle: '完播季度',
-                infoDescription: '统计在当前时间范围内，被判定为整季看完的季度数量。',
-                infoDetail: '只有计入季完播的正片都完成后，这一季才会记作 1 个完播季度。',
+                infoTitle: l10n.playStatsReportCompletedSeasons,
+                infoDescription:
+                    l10n.playStatsReportCompletedSeasonsDescription,
+                infoDetail: l10n.playStatsReportCompletedSeasonsDetail,
                 valueChild: PlayStatsAnimatedMetricText(
                   value: overview.totalCompletedSeasonCount.toDouble(),
                   builder: (value) => value.round().toString(),
@@ -316,15 +320,16 @@ class PlayStatsHeroCard extends StatelessWidget {
                 ),
               ),
               _MetricPill(
-                label: '元数据覆盖',
+                label: l10n.playStatsReportMetadataCoverage,
                 value: formatters.percent(
                   overview.metadataCoverage,
                   fractionDigits: 0,
                 ),
                 tone: colors.selectionStrong,
-                infoTitle: '元数据覆盖',
-                infoDescription: '反映这批内容里，类型、国家地区、年份和演职人员等信息补全得有多完整。',
-                infoDetail: '覆盖越高，下面的偏好分析和亲和榜越完整、越可靠。',
+                infoTitle: l10n.playStatsReportMetadataCoverage,
+                infoDescription:
+                    l10n.playStatsReportMetadataCoverageDescription,
+                infoDetail: l10n.playStatsReportMetadataCoverageDetail,
                 valueChild: PlayStatsAnimatedMetricText(
                   value: overview.metadataCoverage * 100,
                   builder: (value) => '${value.round()}%',
@@ -477,7 +482,7 @@ class PlayStatsLineChartCard extends StatelessWidget {
     final colors = context.appColors;
     final palette = PlayStatsReportPalette.of(context);
     if (points.isEmpty) {
-      return const _InlineEmpty(label: '暂无播放趋势数据');
+      return _InlineEmpty(label: formatters.l10n.playStatsReportNoTrendData);
     }
     final xAxisLabelIndexes = _buildXAxisLabelIndexes(points.length);
     final maxY = points.fold<int>(
@@ -635,8 +640,9 @@ class PlayStatsBarChartCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     if (points.isEmpty) {
-      return const _InlineEmpty(label: '暂无观看次数数据');
+      return _InlineEmpty(label: l10n.playStatsReportNoViewCountData);
     }
     final maxY = points.fold<int>(
       0,
@@ -706,7 +712,11 @@ class PlayStatsBarChartCard extends StatelessWidget {
               getTooltipColor: (_) => colors.surfaceStrong,
               getTooltipItem: (group, _, rod, __) {
                 return BarTooltipItem(
-                  '${points[group.x.toInt()].date.month}/${points[group.x.toInt()].date.day}\n${rod.toY.toInt()} 次',
+                  l10n.playStatsReportBarTooltip(
+                    points[group.x.toInt()].date.month,
+                    points[group.x.toInt()].date.day,
+                    rod.toY.toInt(),
+                  ),
                   TextStyle(
                     color: colors.textPrimary,
                     fontWeight: FontWeight.w700,
@@ -755,7 +765,7 @@ class PlayStatsHeatmap extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     if (cells.isEmpty) {
-      return const _InlineEmpty(label: '暂无活跃时段数据');
+      return _InlineEmpty(label: formatters.l10n.playStatsReportNoHeatmapData);
     }
     final palette = PlayStatsReportPalette.of(context);
     final cellMap = <String, PlayStatsHeatmapCell>{
@@ -817,8 +827,16 @@ class PlayStatsHeatmap extends StatelessWidget {
                           child: Padding(
                             padding: EdgeInsets.only(right: hour == 23 ? 0 : 3),
                             child: Tooltip(
-                              message:
-                                  '周${formatters.weekday(weekday)} ${formatters.hourLabel(hour)}:00\n${cell.sessionCount} 次 / ${formatters.duration(cell.playedMs, compact: true)}',
+                              message: formatters.l10n
+                                  .playStatsReportHeatmapTooltip(
+                                    formatters.weekday(weekday),
+                                    formatters.hourLabel(hour),
+                                    cell.sessionCount,
+                                    formatters.duration(
+                                      cell.playedMs,
+                                      compact: true,
+                                    ),
+                                  ),
                               child: Container(
                                 height: 14,
                                 decoration: BoxDecoration(
@@ -845,7 +863,10 @@ class PlayStatsHeatmap extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: <Widget>[
-            Text('少', style: TextStyle(color: colors.textMuted, fontSize: 11)),
+            Text(
+              formatters.l10n.playStatsReportHeatmapLow,
+              style: TextStyle(color: colors.textMuted, fontSize: 11),
+            ),
             const SizedBox(width: 6),
             Container(
               width: 14,
@@ -865,7 +886,10 @@ class PlayStatsHeatmap extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 6),
-            Text('多', style: TextStyle(color: colors.textMuted, fontSize: 11)),
+            Text(
+              formatters.l10n.playStatsReportHeatmapHigh,
+              style: TextStyle(color: colors.textMuted, fontSize: 11),
+            ),
           ],
         ),
       ],
@@ -937,7 +961,9 @@ class _PlayStatsPieSummaryState extends State<PlayStatsPieSummary> {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     if (widget.buckets.isEmpty) {
-      return const _InlineEmpty(label: '暂无分布数据');
+      return _InlineEmpty(
+        label: AppLocalizations.of(context).playStatsReportNoDistributionData,
+      );
     }
     final reportPalette = PlayStatsReportPalette.of(context);
     final visible = widget.buckets
@@ -1302,7 +1328,9 @@ class PlayStatsDistributionBars extends StatelessWidget {
       palette.rose,
     ];
     if (buckets.isEmpty) {
-      return const _InlineEmpty(label: '相关元数据还在补全中');
+      return _InlineEmpty(
+        label: AppLocalizations.of(context).playStatsReportMetadataBackfilling,
+      );
     }
     final maxValue = buckets.fold<int>(
       0,
@@ -1374,21 +1402,22 @@ class PlayStatsSeekComparison extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final maxValue = math.max(forwardSeekCount, backwardSeekCount);
     if (maxValue <= 0) {
-      return const _InlineEmpty(label: '本时间段几乎没有快进或回退操作');
+      return _InlineEmpty(label: l10n.playStatsReportNoSeekActions);
     }
     return Column(
       children: <Widget>[
         _CompareBar(
-          label: '快进',
+          label: l10n.playStatsFieldForwardSeekCount,
           value: forwardSeekCount,
           maxValue: maxValue,
           color: colors.warning,
         ),
         const SizedBox(height: 12),
         _CompareBar(
-          label: '回退',
+          label: l10n.playStatsFieldBackwardSeekCount,
           value: backwardSeekCount,
           maxValue: maxValue,
           color: colors.selectionStrong,
@@ -1411,6 +1440,7 @@ class PlayStatsOpEdRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     if (summary.detectedCount <= 0) {
       return Container(
         padding: const EdgeInsets.all(14),
@@ -1419,7 +1449,7 @@ class PlayStatsOpEdRow extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
         ),
         child: Text(
-          '$label 暂无检测记录',
+          l10n.playStatsReportNoDetectionRecord(label),
           style: TextStyle(color: colors.textSecondary, fontSize: 12.6),
         ),
       );
@@ -1452,18 +1482,21 @@ class PlayStatsOpEdRow extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '检测 ${summary.detectedCount} 次 · 跳过 ${summary.skippedCount} 次',
+                  l10n.playStatsReportOpEdDetectedSkipped(
+                    summary.detectedCount,
+                    summary.skippedCount,
+                  ),
                   style: TextStyle(color: colors.textSecondary, fontSize: 12.2),
                 ),
                 const SizedBox(height: 12),
                 _MiniRatioLine(
-                  label: '跳过',
+                  label: l10n.playStatsReportSkipped,
                   value: skippedRatio,
                   color: colors.warning,
                 ),
                 const SizedBox(height: 8),
                 _MiniRatioLine(
-                  label: '完整观看',
+                  label: l10n.playStatsReportWatchedCompletely,
                   value: watchedRatio,
                   color: colors.success,
                 ),
@@ -1525,7 +1558,9 @@ class PlayStatsRankList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (items.isEmpty) {
-      return const _InlineEmpty(label: '当前没有足够的排行数据');
+      return _InlineEmpty(
+        label: AppLocalizations.of(context).playStatsReportNoRankingData,
+      );
     }
     return Column(
       children: List<Widget>.generate(items.length, (index) {
@@ -1557,7 +1592,9 @@ class PlayStatsTimelineList extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     if (items.isEmpty) {
-      return const _InlineEmpty(label: '最近还没有新的观看记录');
+      return _InlineEmpty(
+        label: formatters.l10n.playStatsReportNoRecentHistory,
+      );
     }
     return Column(
       children: List<Widget>.generate(items.length, (index) {
@@ -1594,7 +1631,9 @@ class PlayStatsTimelineList extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
                       Text(
-                        item.title.trim().isEmpty ? '未命名视频' : item.title,
+                        item.title.trim().isEmpty
+                            ? formatters.l10n.playStatsUnnamedVideo
+                            : item.title,
                         style: TextStyle(
                           color: colors.textPrimary,
                           fontSize: 13.5,
@@ -1690,6 +1729,7 @@ class _PlayStatsPagedTimelineListState
       return;
     }
     final controller = TextEditingController(text: '${_pageIndex + 1}');
+    final l10n = widget.formatters.l10n;
     final selectedIndex = await showModalBottomSheet<int>(
       context: context,
       showDragHandle: true,
@@ -1703,7 +1743,7 @@ class _PlayStatsPagedTimelineListState
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  '跳转页码',
+                  l10n.playStatsReportJumpPageTitle,
                   style: TextStyle(
                     color: colors.textPrimary,
                     fontSize: 16,
@@ -1712,7 +1752,7 @@ class _PlayStatsPagedTimelineListState
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '输入 1 到 $_pageCount 之间的页码',
+                  l10n.playStatsReportJumpPageDescription(_pageCount),
                   style: TextStyle(color: colors.textSecondary, fontSize: 12.6),
                 ),
                 const SizedBox(height: 14),
@@ -1721,8 +1761,10 @@ class _PlayStatsPagedTimelineListState
                   autofocus: true,
                   keyboardType: TextInputType.number,
                   decoration: InputDecoration(
-                    labelText: '页码',
-                    hintText: '例如 ${_pageIndex + 1}',
+                    labelText: l10n.playStatsReportPageNumberLabel,
+                    hintText: l10n.playStatsReportPageNumberHint(
+                      _pageIndex + 1,
+                    ),
                     isDense: true,
                     filled: true,
                     fillColor: colors.surfaceSubtle,
@@ -1744,7 +1786,7 @@ class _PlayStatsPagedTimelineListState
                   children: <Widget>[
                     TextButton(
                       onPressed: () => Navigator.of(sheetContext).pop(),
-                      child: const Text('取消'),
+                      child: Text(l10n.commonCancel),
                     ),
                     const Spacer(),
                     FilledButton(
@@ -1757,7 +1799,7 @@ class _PlayStatsPagedTimelineListState
                         final targetIndex = (page - 1).clamp(0, _pageCount - 1);
                         Navigator.of(sheetContext).pop(targetIndex);
                       },
-                      child: const Text('跳转'),
+                      child: Text(l10n.playStatsReportJumpPageAction),
                     ),
                   ],
                 ),
@@ -1780,7 +1822,9 @@ class _PlayStatsPagedTimelineListState
   Widget build(BuildContext context) {
     final colors = context.appColors;
     if (widget.items.isEmpty) {
-      return const _InlineEmpty(label: '最近还没有新的观看记录');
+      return _InlineEmpty(
+        label: widget.formatters.l10n.playStatsReportNoRecentHistory,
+      );
     }
     final pageItems = widget.items
         .skip(_pageIndex * widget.pageSize)
@@ -1830,7 +1874,10 @@ class _PlayStatsPagedTimelineListState
                         border: Border.all(color: colors.borderSubtle),
                       ),
                       child: Text(
-                        '第 ${_pageIndex + 1} / $_pageCount 页',
+                        widget.formatters.l10n.playStatsReportPageIndicator(
+                          _pageIndex + 1,
+                          _pageCount,
+                        ),
                         style: TextStyle(
                           color: colors.textPrimary,
                           fontSize: 12.2,
@@ -1874,7 +1921,7 @@ class _PlayStatsPagedTimelineListState
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              '跳页',
+                              widget.formatters.l10n.playStatsReportJumpPage,
                               style: TextStyle(
                                 color: colors.textPrimary,
                                 fontSize: 11.8,
@@ -1893,7 +1940,7 @@ class _PlayStatsPagedTimelineListState
                     Expanded(
                       child: _TimelinePagerWideButton(
                         key: const Key('play-stats-history-first-page'),
-                        label: '第一页',
+                        label: widget.formatters.l10n.playStatsReportFirstPage,
                         icon: Icons.first_page_rounded,
                         enabled: _pageIndex > 0,
                         onTap: () => setState(() => _pageIndex = 0),
@@ -1903,7 +1950,7 @@ class _PlayStatsPagedTimelineListState
                     Expanded(
                       child: _TimelinePagerWideButton(
                         key: const Key('play-stats-history-prev-page'),
-                        label: '上一页',
+                        label: widget.formatters.l10n.playStatsPreviousPage,
                         icon: Icons.chevron_left_rounded,
                         enabled: _pageIndex > 0,
                         onTap: () => setState(() => _pageIndex -= 1),
@@ -1913,7 +1960,7 @@ class _PlayStatsPagedTimelineListState
                     Expanded(
                       child: _TimelinePagerWideButton(
                         key: const Key('play-stats-history-next-page'),
-                        label: '下一页',
+                        label: widget.formatters.l10n.playStatsNextPage,
                         icon: Icons.chevron_right_rounded,
                         enabled: _pageIndex < _pageCount - 1,
                         onTap: () => setState(() => _pageIndex += 1),
@@ -1923,7 +1970,7 @@ class _PlayStatsPagedTimelineListState
                     Expanded(
                       child: _TimelinePagerWideButton(
                         key: const Key('play-stats-history-last-page'),
-                        label: '最后页',
+                        label: widget.formatters.l10n.playStatsReportLastPage,
                         icon: Icons.last_page_rounded,
                         enabled: _pageIndex < _pageCount - 1,
                         onTap: () =>
@@ -1978,7 +2025,9 @@ class _TimelineEventTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  item.title.trim().isEmpty ? '未命名视频' : item.title,
+                  item.title.trim().isEmpty
+                      ? formatters.l10n.playStatsUnnamedVideo
+                      : item.title,
                   style: TextStyle(
                     color: colors.textPrimary,
                     fontSize: 13.5,
@@ -2131,7 +2180,9 @@ class _PlayStatsContinueWatchingStripState
   Widget build(BuildContext context) {
     final colors = context.appColors;
     if (widget.items.isEmpty) {
-      return const _InlineEmpty(label: '目前没有适合继续观看的内容');
+      return _InlineEmpty(
+        label: widget.formatters.l10n.playStatsReportNoContinueWatching,
+      );
     }
     return SizedBox(
       height: 156,
@@ -2156,7 +2207,9 @@ class _PlayStatsContinueWatchingStripState
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
-                    item.title.trim().isEmpty ? '未命名视频' : item.title,
+                    item.title.trim().isEmpty
+                        ? widget.formatters.l10n.playStatsUnnamedVideo
+                        : item.title,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -2186,7 +2239,9 @@ class _PlayStatsContinueWatchingStripState
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '上次观看 ${widget.formatters.dateTime(item.lastPlayedAtMs)}',
+                    widget.formatters.l10n.playStatsReportLastWatchedAt(
+                      widget.formatters.dateTime(item.lastPlayedAtMs),
+                    ),
                     style: TextStyle(color: colors.textMuted, fontSize: 11.5),
                   ),
                 ],
@@ -2220,6 +2275,7 @@ class PlayStatsEmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(22),
@@ -2241,7 +2297,7 @@ class PlayStatsEmptyState extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           Text(
-            '还没有可展示的观影战报',
+            l10n.playStatsReportEmptyTitle,
             style: TextStyle(
               color: colors.textPrimary,
               fontSize: 16,
@@ -2250,7 +2306,7 @@ class PlayStatsEmptyState extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            '开始播放内容后，这里会自动生成趋势、偏好、行为和回看报表。',
+            l10n.playStatsReportEmptySubtitle,
             textAlign: TextAlign.center,
             style: TextStyle(
               color: colors.textSecondary,
@@ -2454,6 +2510,7 @@ class _CompareBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final ratio = maxValue <= 0 ? 0.0 : value / maxValue;
     return Column(
       children: <Widget>[
@@ -2469,7 +2526,7 @@ class _CompareBar extends StatelessWidget {
             ),
             const Spacer(),
             Text(
-              '$value 次',
+              l10n.playStatsReportCountTimes(value),
               style: TextStyle(color: colors.textSecondary, fontSize: 12),
             ),
           ],
@@ -2725,8 +2782,13 @@ List<PlayStatsRankDisplayItem> animeRankItems(
   return items
       .map(
         (item) => PlayStatsRankDisplayItem(
-          title: item.title.trim().isEmpty ? '未命名剧集' : item.title,
-          subtitle: '观看 ${item.sessionCount} 次 · 完整观看 ${item.viewCount} 次',
+          title: item.title.trim().isEmpty
+              ? formatters.l10n.playStatsReportUnnamedEpisode
+              : item.title,
+          subtitle: formatters.l10n.playStatsReportAnimeRankSubtitle(
+            item.sessionCount,
+            item.viewCount,
+          ),
           trailing: formatters.duration(item.playedMs, compact: true),
           onTap: onTapBuilder?.call(item),
         ),
@@ -2742,7 +2804,9 @@ List<PlayStatsRankDisplayItem> videoRankItems(
   return items
       .map(
         (item) => PlayStatsRankDisplayItem(
-          title: item.title.trim().isEmpty ? '未命名视频' : item.title,
+          title: item.title.trim().isEmpty
+              ? formatters.l10n.playStatsUnnamedVideo
+              : item.title,
           subtitle: formatters.topVideoSubtitle(item),
           trailing: formatters.duration(item.playedMs, compact: true),
           onTap: onTapBuilder?.call(item),
@@ -2759,9 +2823,13 @@ List<PlayStatsRankDisplayItem> affinityRankItems(
   return items
       .map(
         (item) => PlayStatsRankDisplayItem(
-          title: item.name.trim().isEmpty ? '未知人物' : item.name,
+          title: item.name.trim().isEmpty
+              ? formatters.l10n.playStatsReportUnknownPerson
+              : item.name,
           subtitle: formatters.affinitySubtitle(item),
-          trailing: '${item.appearanceCount} 次',
+          trailing: formatters.l10n.playStatsReportCountTimes(
+            item.appearanceCount,
+          ),
           onTap: onTapBuilder?.call(item),
         ),
       )

@@ -3,9 +3,12 @@ import 'dart:math' as math;
 import 'play_stats_models.dart';
 import 'play_stats_report_models.dart';
 
+/// 负责将播放历史与统计记录聚合为报表快照。
 class PlayStatsReportAggregator {
+  /// 创建一个无状态的报表聚合器。
   const PlayStatsReportAggregator();
 
+  /// 根据历史记录与聚合数据构造完整报表快照。
   PlayStatsReportSnapshot buildSnapshot({
     required PlayStatsRange range,
     required List<PlayHistoryRecord> histories,

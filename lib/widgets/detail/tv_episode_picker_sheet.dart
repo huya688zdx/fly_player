@@ -170,6 +170,7 @@ class _TvEpisodePickerSheetBodyState extends State<_TvEpisodePickerSheetBody> {
 
     return SafeArea(
       top: false,
+      bottom: false,
       child: Container(
         height: height,
         padding: EdgeInsets.only(
@@ -221,7 +222,7 @@ class _TvEpisodePickerSheetBodyState extends State<_TvEpisodePickerSheetBody> {
                     switchOutCurve: Curves.easeOutCubic,
                     child: _modeUpdating
                         ? SizedBox(
-                            key: ValueKey<String>('saving'),
+                            key: const ValueKey<String>('saving'),
                             width: 20,
                             height: 20,
                             child: CircularProgressIndicator(
@@ -249,7 +250,7 @@ class _TvEpisodePickerSheetBodyState extends State<_TvEpisodePickerSheetBody> {
                     for (int i = 0; i < widget.seasons.length; i++) ...[
                       if (i > 0)
                         Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
                           child: Text(
                             '/',
                             style: TextStyle(
@@ -588,7 +589,7 @@ class _EpisodeCompletedBadge extends StatelessWidget {
       height: 14,
       decoration: BoxDecoration(
         color: colors.surfaceStrong,
-        borderRadius: BorderRadius.only(
+        borderRadius: const BorderRadius.only(
           topLeft: Radius.circular(7),
           bottomRight: Radius.circular(12),
         ),

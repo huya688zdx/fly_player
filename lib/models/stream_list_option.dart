@@ -2,6 +2,8 @@
 import 'package:fly_player/utils/media_language_mapper.dart';
 
 class StreamListOption {
+  static const String unknownVersionLabel = '\u672a\u77e5\u7248\u672c';
+
   final String mediaGuid;
   final String videoGuid;
   final String resolutionType;
@@ -27,6 +29,7 @@ class StreamListOption {
       if (resolution.isNotEmpty) resolution,
       if (color.isNotEmpty) color,
     ];
+    if (parts.isEmpty) return unknownVersionLabel;
     return parts.join(' ');
   }
 
@@ -85,4 +88,3 @@ class StreamListOption {
     return options;
   }
 }
-

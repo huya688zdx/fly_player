@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/generated/app_localizations.dart';
 import '../../models/authorized_dir_entry.dart';
 import '../../models/stream_track_data.dart';
 import '../../theme/app_theme.dart';
@@ -7,25 +8,25 @@ import '../../theme/app_theme.dart';
 class FileInfoSection extends StatefulWidget {
   final StreamFileInfo? file;
   final List<AuthorizedDirEntry> authorizedDirs;
-  final String title;
-  final String locationLabel;
-  final String sizeLabel;
-  final String createdAtLabel;
-  final String addedAtLabel;
+  final String? title;
+  final String? locationLabel;
+  final String? sizeLabel;
+  final String? createdAtLabel;
+  final String? addedAtLabel;
   final String toggleToRawLabel;
-  final String toggleToFriendlyLabel;
+  final String? toggleToFriendlyLabel;
 
   const FileInfoSection({
     super.key,
     required this.file,
     this.authorizedDirs = const <AuthorizedDirEntry>[],
-    this.title = '文件信息',
-    this.locationLabel = '文件位置',
-    this.sizeLabel = '文件大小',
-    this.createdAtLabel = '文件创建日期',
-    this.addedAtLabel = '添加日期',
+    this.title,
+    this.locationLabel,
+    this.sizeLabel,
+    this.createdAtLabel,
+    this.addedAtLabel,
     this.toggleToRawLabel = '/vol',
-    this.toggleToFriendlyLabel = '转换',
+    this.toggleToFriendlyLabel,
   });
 
   @override
@@ -38,10 +39,11 @@ class _FileInfoSectionState extends State<FileInfoSection> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final f = widget.file;
     if (f == null) return const SizedBox.shrink();
 
-    final friendlyPath = _friendlyPath(f.path, widget.authorizedDirs);
+    final friendlyPath = _friendlyPath(f.path, widget.authorizedDirs, l10n);
     final displayedPath = _showRawPath || friendlyPath.isEmpty
         ? f.path
         : friendlyPath;
@@ -50,7 +52,7 @@ class _FileInfoSectionState extends State<FileInfoSection> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          widget.title,
+          widget.title ?? l10n.detailFileInfoTitle,
           style: TextStyle(
             color: colors.textPrimary,
             fontSize: 24,
@@ -73,7 +75,7 @@ class _FileInfoSectionState extends State<FileInfoSection> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _RowBlock(
-                label: widget.locationLabel,
+                label: widget.locationLabel ?? l10n.fileInfoLocationLabel,
                 value: displayedPath,
                 trailing: TextButton.icon(
                   onPressed: friendlyPath.isEmpty
@@ -98,7 +100,8 @@ class _FileInfoSectionState extends State<FileInfoSection> {
                   ),
                   label: Text(
                     _showRawPath
-                        ? widget.toggleToFriendlyLabel
+                        ? widget.toggleToFriendlyLabel ??
+                              l10n.fileInfoToggleToFriendly
                         : widget.toggleToRawLabel,
                     style: const TextStyle(
                       fontSize: 12,
@@ -108,15 +111,18 @@ class _FileInfoSectionState extends State<FileInfoSection> {
                 ),
               ),
               const SizedBox(height: 16),
-              _RowBlock(label: widget.sizeLabel, value: _formatBytes(f.size)),
+              _RowBlock(
+                label: widget.sizeLabel ?? l10n.fileInfoSizeLabel,
+                value: _formatBytes(f.size),
+              ),
               const SizedBox(height: 16),
               _RowBlock(
-                label: widget.createdAtLabel,
+                label: widget.createdAtLabel ?? l10n.fileInfoCreatedAtLabel,
                 value: _formatTs(f.fileBirthTime),
               ),
               const SizedBox(height: 16),
               _RowBlock(
-                label: widget.addedAtLabel,
+                label: widget.addedAtLabel ?? l10n.fileInfoAddedAtLabel,
                 value: _formatTs(f.createTime),
               ),
             ],
@@ -171,7 +177,11 @@ class _RowBlock extends StatelessWidget {
   }
 }
 
-String _friendlyPath(String rawPath, List<AuthorizedDirEntry> authorizedDirs) {
+String _friendlyPath(
+  String rawPath,
+  List<AuthorizedDirEntry> authorizedDirs,
+  AppLocalizations l10n,
+) {
   final normalized = rawPath.trim();
   if (normalized.isEmpty || !normalized.startsWith('/vol')) {
     return normalized;
@@ -199,7 +209,9 @@ String _friendlyPath(String rawPath, List<AuthorizedDirEntry> authorizedDirs) {
   final uname = matched?.uname.trim().isNotEmpty == true
       ? matched!.uname.trim()
       : '';
-  final head = uname.isNotEmpty ? '存储空间$volumeNo/$uname 的文件' : '存储空间$volumeNo';
+  final head = uname.isNotEmpty
+      ? l10n.fileInfoStorageSpaceFile(volumeNo, uname)
+      : l10n.fileInfoStorageSpace(volumeNo);
   return '$head$suffix';
 }
 

@@ -2,12 +2,15 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// 管理设置页搜索使用频次的本地存储。
 class SettingsSearchStore {
   static const String _usageKey = 'settings_search_usage_v1';
   static const int _maxEntries = 48;
 
+  /// 创建一个设置搜索统计存储实例。
   const SettingsSearchStore();
 
+  /// 读取各设置项的搜索使用次数。
   Future<Map<String, int>> loadUsage() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_usageKey);
@@ -33,6 +36,7 @@ class SettingsSearchStore {
     }
   }
 
+  /// 记录一次设置项被命中的使用行为。
   Future<void> recordUse(String id) async {
     if (id.trim().isEmpty) return;
     final next = await loadUsage();

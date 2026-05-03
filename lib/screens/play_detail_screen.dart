@@ -8,8 +8,8 @@ import '../providers/nas_provider.dart';
 import '../theme/app_theme.dart';
 import '../ui/detail_presentation.dart';
 import '../utils/app_exception.dart';
-import '../utils/media_locale_store.dart';
 import '../widgets/common/app_error_state.dart';
+import '../widgets/detail/detail_loading_skeleton.dart';
 import '../pages/media_collection_detail_page.dart';
 import '../pages/play_detail_page.dart';
 import '../pages/tv_detail_page.dart';
@@ -41,29 +41,20 @@ class _PlayDetailScreenState extends State<PlayDetailScreen> {
   AppException? _error;
   DetailPageMode _mode = DetailPageMode.movie;
   Map<String, dynamic>? _itemDetail;
-  Map<String, dynamic> _localeMap = const <String, dynamic>{};
+  final Map<String, dynamic> _localeMap = const <String, dynamic>{};
 
   @override
   void initState() {
     super.initState();
-    unawaited(_ensureLocaleMapLoaded());
     if (widget.initialItemDetail != null) {
       final initial = widget.initialItemDetail!;
       _itemDetail = initial;
       _mode = _resolveMode(initial);
       _loading = false;
+      unawaited(_load(silent: true));
       return;
     }
     unawaited(_load());
-  }
-
-  Future<void> _ensureLocaleMapLoaded() async {
-    final provider = context.read<NasProvider>();
-    final localeMap = await MediaLocaleStore.load(provider);
-    if (!mounted || localeMap.isEmpty) return;
-    setState(() {
-      _localeMap = localeMap;
-    });
   }
 
   Future<void> _load({bool silent = false}) async {
@@ -96,6 +87,9 @@ class _PlayDetailScreenState extends State<PlayDetailScreen> {
   }
 
   DetailPageMode _resolveMode(Map<String, dynamic> detail) {
+    if (widget.seriesGuid.trim().isNotEmpty) {
+      return DetailPageMode.movie;
+    }
     final directType = (detail['type'] ?? '').toString().trim().toLowerCase();
     if (directType == 'tv') return DetailPageMode.tv;
     if (directType == 'mediadb' || directType == 'directory') {
@@ -121,7 +115,7 @@ class _PlayDetailScreenState extends State<PlayDetailScreen> {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     if (_loading) {
-      return const SizedBox.expand();
+      return DetailLoadingSkeleton(presentation: widget.presentation);
     }
 
     if (_error != null) {

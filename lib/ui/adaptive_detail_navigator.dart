@@ -1,8 +1,7 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 
 import '../models/media_library_item.dart';
+import '../services/detail_route_payload_store.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../pages/media_collection_detail_page.dart';
 import '../pages/tv_season_detail_page.dart';
@@ -11,16 +10,19 @@ import '../screens/play_detail_screen.dart';
 import 'app_transitions.dart';
 import 'detail_presentation.dart';
 import 'player_pane_host_scope.dart';
+import '../utils/async_action_guard.dart';
 
 class AdaptiveDetailRequest {
   final Route<dynamic> Function(DetailPresentation presentation) buildRoute;
   final Future<bool> Function()? tryOpenEmbedded;
   final String? localRouteName;
+  final String? actionKey;
 
   const AdaptiveDetailRequest._({
     required this.buildRoute,
     this.tryOpenEmbedded,
     this.localRouteName,
+    this.actionKey,
   });
 
   factory AdaptiveDetailRequest.item({
@@ -44,15 +46,12 @@ class AdaptiveDetailRequest {
         seriesGuid: seriesGuid,
         initialItemDetail: initialItemDetail,
       ),
-      localRouteName: Uri(
-        path: '/detail/item',
-        queryParameters: <String, String>{
-          'itemGuid': itemGuid.trim(),
-          if (seriesGuid.trim().isNotEmpty) 'seriesGuid': seriesGuid.trim(),
-          if (initialItemDetail != null)
-            'initialItemDetail': jsonEncode(initialItemDetail),
-        },
-      ).toString(),
+      localRouteName: DetailRoutePayloadStore.routeNameForItem(
+        itemGuid: itemGuid,
+        seriesGuid: seriesGuid,
+        initialItemDetail: initialItemDetail,
+      ),
+      actionKey: 'item:${itemGuid.trim()}:${seriesGuid.trim()}',
     );
   }
 
@@ -81,6 +80,7 @@ class AdaptiveDetailRequest {
           if (initialName.trim().isNotEmpty) 'initialName': initialName.trim(),
         },
       ).toString(),
+      actionKey: 'person:${personGuid.trim()}',
     );
   }
 
@@ -108,15 +108,13 @@ class AdaptiveDetailRequest {
         backdropPath: backdropPath,
         seasonItem: seasonItem,
       ),
-      localRouteName: Uri(
-        path: '/detail/season',
-        queryParameters: <String, String>{
-          'parentGuid': parentGuid.trim(),
-          'seriesTitle': seriesTitle.trim(),
-          'backdropPath': backdropPath.trim(),
-          'seasonItem': jsonEncode(seasonItem.toJson()),
-        },
-      ).toString(),
+      localRouteName: DetailRoutePayloadStore.routeNameForSeason(
+        parentGuid: parentGuid,
+        seriesTitle: seriesTitle,
+        backdropPath: backdropPath,
+        seasonItem: seasonItem.toJson(),
+      ),
+      actionKey: 'season:${parentGuid.trim()}:${seasonItem.guid.trim()}',
     );
   }
 
@@ -139,6 +137,7 @@ class AdaptiveDetailRequest {
         path: '/detail/item',
         queryParameters: <String, String>{'itemGuid': itemGuid.trim()},
       ).toString(),
+      actionKey: 'item:${itemGuid.trim()}:',
     );
   }
 }
@@ -150,6 +149,26 @@ class AdaptiveDetailNavigator {
     BuildContext context,
     AdaptiveDetailRequest request, {
     DetailPresentation presentation = DetailPresentation.page,
+  }) async {
+    final routeName = request.localRouteName?.trim() ?? '';
+    final guardKey = request.actionKey?.trim().isNotEmpty == true
+        ? request.actionKey!.trim()
+        : routeName;
+    if (guardKey.isNotEmpty) {
+      return AsyncActionGuard.run<T?>(
+        'adaptive_detail:${presentation.name}:$guardKey',
+        settleDuration: const Duration(milliseconds: 450),
+        action: () =>
+            _openInternal<T>(context, request, presentation: presentation),
+      );
+    }
+    return _openInternal<T>(context, request, presentation: presentation);
+  }
+
+  static Future<T?> _openInternal<T>(
+    BuildContext context,
+    AdaptiveDetailRequest request, {
+    required DetailPresentation presentation,
   }) async {
     final navigator = Navigator.of(context);
     final paneHost = PlayerPaneHostScope.maybeOf(context);

@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/generated/app_localizations.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/app_exception.dart';
-import '../../utils/media_locale_text.dart';
+import '../../utils/app_localization_lookup.dart';
 
 class AppErrorState extends StatelessWidget {
   final AppException error;
@@ -19,12 +20,13 @@ class AppErrorState extends StatelessWidget {
   });
 
   String _t(
+    BuildContext context,
     String path,
     String fallback, {
     Map<String, Object?> params = const <String, Object?>{},
   }) {
-    return MediaLocaleText.text(
-      localeMap,
+    return AppLocalizationLookup.text(
+      AppLocalizations.of(context),
       path,
       fallback: fallback,
       params: params,
@@ -37,22 +39,26 @@ class AppErrorState extends StatelessWidget {
     final (icon, title, tint) = switch (error.kind) {
       AppExceptionKind.noData => (
         Icons.folder_open_rounded,
-        _t('layout.dataLayout.noData', '暂无数据'),
+        _t(context, 'layout.dataLayout.noData', 'No data'),
         colors.textMuted,
       ),
       AppExceptionKind.unauthorized => (
         Icons.lock_outline_rounded,
-        _t('layout.dataLayout.noAccessLibrary', '没有可访问的媒体库，请联系管理员'),
+        _t(
+          context,
+          'layout.dataLayout.noAccessLibrary',
+          'No accessible library',
+        ),
         colors.warning,
       ),
       AppExceptionKind.transient => (
         Icons.cloud_off_rounded,
-        _t('layout.dataLayout.loadFailed', '加载失败'),
+        _t(context, 'layout.dataLayout.loadFailed', 'Load failed'),
         colors.danger,
       ),
       AppExceptionKind.fatal => (
         Icons.error_outline_rounded,
-        _t('layout.dataLayout.loadFailed', '加载失败'),
+        _t(context, 'layout.dataLayout.loadFailed', 'Load failed'),
         colors.danger,
       ),
     };
@@ -92,7 +98,7 @@ class AppErrorState extends StatelessWidget {
               const SizedBox(height: 18),
               ElevatedButton(
                 onPressed: onRetry,
-                child: Text(_t('layout.globalError.refresh', '刷新重试')),
+                child: Text(_t(context, 'layout.globalError.refresh', 'Retry')),
               ),
             ],
           ],

@@ -10,6 +10,7 @@ enum DanmakuLoadedSourceType { none, local, network }
 
 class DanmakuController extends ChangeNotifier {
   final DanmakuSettingsStore _store;
+  Timer? _saveSettingsTimer;
 
   DanmakuController(this._store);
 
@@ -18,6 +19,7 @@ class DanmakuController extends ChangeNotifier {
   bool _ready = false;
   bool _supportsAutoMatch = false;
   String _currentTitle = '';
+  String _currentSeasonGuid = '';
   String _sourceLabel = '';
   int _seasonNumber = 0;
   int _episodeNumber = 0;
@@ -31,38 +33,38 @@ class DanmakuController extends ChangeNotifier {
   DanmakuLoadedSourceType get loadedSourceType => _loadedSourceType;
 
   String get statusLabel {
-    if (!_settings.enabled) return '已关闭';
+    if (!_settings.enabled) return 'Off';
     return switch (_loadedSourceType) {
-      DanmakuLoadedSourceType.local => '本地',
-      DanmakuLoadedSourceType.network => '弹弹play',
-      DanmakuLoadedSourceType.none => '未载入',
+      DanmakuLoadedSourceType.local => 'Local',
+      DanmakuLoadedSourceType.network => 'DanDanPlay',
+      DanmakuLoadedSourceType.none => 'Not loaded',
     };
   }
 
   String get summaryText {
     if (!_settings.enabled) {
-      return '弹幕层已关闭，开启后会按当前优先级自动载入弹幕。';
+      return 'Danmaku is disabled.';
     }
     if (_comments.isNotEmpty) {
       final sourcePrefix = switch (_loadedSourceType) {
-        DanmakuLoadedSourceType.local => '当前已加载本地弹幕',
-        DanmakuLoadedSourceType.network => '当前已加载弹弹play弹幕',
-        DanmakuLoadedSourceType.none => '当前已加载弹幕',
+        DanmakuLoadedSourceType.local => 'Local danmaku loaded',
+        DanmakuLoadedSourceType.network => 'DanDanPlay danmaku loaded',
+        DanmakuLoadedSourceType.none => 'Danmaku loaded',
       };
       final label = _sourceLabel.trim();
       if (label.isNotEmpty) {
-        return '$sourcePrefix：$label，共 ${_comments.length} 条。';
+        return '$sourcePrefix: $label, ${_comments.length} items.';
       }
-      return '$sourcePrefix，共 ${_comments.length} 条。';
+      return '$sourcePrefix, ${_comments.length} items.';
     }
     if (_supportsAutoMatch) {
-      return '当前还没有载入弹幕，可搜索弹弹play弹幕或手动导入本地弹幕。';
+      return 'No danmaku loaded. Search DanDanPlay or import a local file.';
     }
     final title = _currentEpisodeContextLabel();
     if (title.isNotEmpty) {
-      return '$title 暂未载入弹幕，可手动导入本地弹幕。';
+      return '$title has no danmaku loaded. Import a local file.';
     }
-    return '当前片源暂未载入弹幕，可手动导入本地弹幕。';
+    return 'No danmaku loaded for this source. Import a local file.';
   }
 
   Future<void> initialize() async {
@@ -74,7 +76,11 @@ class DanmakuController extends ChangeNotifier {
   Future<void> updateSettings(DanmakuSettings next) async {
     _settings = next;
     notifyListeners();
-    unawaited(_store.save(next));
+    _saveSettingsTimer?.cancel();
+    _saveSettingsTimer = Timer(const Duration(milliseconds: 160), () {
+      _saveSettingsTimer = null;
+      unawaited(_store.save(_settings));
+    });
   }
 
   void updateMediaContext({
@@ -83,13 +89,30 @@ class DanmakuController extends ChangeNotifier {
     required int seasonNumber,
     required int episodeNumber,
   }) {
-    _currentTitle = title.trim();
-    _sourceLabel = '';
-    _loadedSourceType = DanmakuLoadedSourceType.none;
-    _supportsAutoMatch =
-        seasonGuid.trim().isNotEmpty || episodeNumber > 0 || seasonNumber > 0;
+    final nextTitle = title.trim();
+    final nextSeasonGuid = seasonGuid.trim();
+    final nextSupportsAutoMatch =
+        nextSeasonGuid.isNotEmpty || episodeNumber > 0 || seasonNumber > 0;
+    final contextChanged =
+        _currentTitle != nextTitle ||
+        _currentSeasonGuid != nextSeasonGuid ||
+        _seasonNumber != seasonNumber ||
+        _episodeNumber != episodeNumber;
+    final metadataChanged =
+        _supportsAutoMatch != nextSupportsAutoMatch || contextChanged;
+    _currentTitle = nextTitle;
+    _currentSeasonGuid = nextSeasonGuid;
+    _supportsAutoMatch = nextSupportsAutoMatch;
     _seasonNumber = seasonNumber;
     _episodeNumber = episodeNumber;
+    if (!contextChanged) {
+      if (metadataChanged) {
+        notifyListeners();
+      }
+      return;
+    }
+    _sourceLabel = '';
+    _loadedSourceType = DanmakuLoadedSourceType.none;
     _comments = const <DanmakuComment>[];
     notifyListeners();
   }
@@ -98,10 +121,6 @@ class DanmakuController extends ChangeNotifier {
     _sourceLabel = '';
     _loadedSourceType = DanmakuLoadedSourceType.none;
     _comments = _normalizeComments(comments);
-    debugPrint(
-      '[DANMAKU][LOAD] source=manual total=${comments.length} '
-      'normalized=${_comments.length}',
-    );
     notifyListeners();
   }
 
@@ -113,10 +132,6 @@ class DanmakuController extends ChangeNotifier {
     _sourceLabel = sourceLabel.trim();
     _loadedSourceType = sourceType;
     _comments = _normalizeComments(comments);
-    debugPrint(
-      '[DANMAKU][LOAD] source=${sourceType.name} label=$_sourceLabel '
-      'total=${comments.length} normalized=${_comments.length}',
-    );
     notifyListeners();
   }
 
@@ -137,9 +152,18 @@ class DanmakuController extends ChangeNotifier {
     final title = _currentTitle.trim();
     final parts = <String>[
       if (title.isNotEmpty) title,
-      if (_seasonNumber > 0) '第$_seasonNumber季',
-      if (_episodeNumber > 0) '第$_episodeNumber集',
+      if (_seasonNumber > 0) 'Season $_seasonNumber',
+      if (_episodeNumber > 0) 'Episode $_episodeNumber',
     ];
     return parts.join(' ');
+  }
+
+  @override
+  void dispose() {
+    final pendingSave = _saveSettingsTimer;
+    _saveSettingsTimer = null;
+    pendingSave?.cancel();
+    unawaited(_store.save(_settings));
+    super.dispose();
   }
 }

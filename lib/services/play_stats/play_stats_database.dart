@@ -1,14 +1,25 @@
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
+/// 定义播放统计数据库访问层的统一接口。
 abstract class PlayStatsDatabase {
+  /// 打开底层数据库连接。
   Future<void> open();
+
+  /// 绑定当前数据库实例所属的账号作用域。
   Future<void> bindOwnerScope(String ownerScope);
+
+  /// 返回底层 `sqflite` 数据库实例。
   Future<Database> get rawDatabase;
+
+  /// 在单个事务内执行给定数据库操作。
   Future<T> transaction<T>(Future<T> Function(DatabaseExecutor txn) action);
+
+  /// 清空所有播放统计数据表。
   Future<void> clearAll();
 }
 
+/// 基于 `sqflite` 的播放统计数据库实现。
 class SqflitePlayStatsDatabase implements PlayStatsDatabase {
   static const String databaseName = 'play_stats.db';
   static const int databaseVersion = 3;
@@ -16,11 +27,13 @@ class SqflitePlayStatsDatabase implements PlayStatsDatabase {
   Database? _database;
   String _ownerScope = '';
 
+  /// 见 [PlayStatsDatabase.open]。
   @override
   Future<void> open() async {
     await rawDatabase;
   }
 
+  /// 见 [PlayStatsDatabase.bindOwnerScope]。
   @override
   Future<void> bindOwnerScope(String ownerScope) async {
     final normalized = ownerScope.trim().toLowerCase();
@@ -35,6 +48,7 @@ class SqflitePlayStatsDatabase implements PlayStatsDatabase {
     }
   }
 
+  /// 见 [PlayStatsDatabase.rawDatabase]。
   @override
   Future<Database> get rawDatabase async {
     final existing = _database;
@@ -58,6 +72,7 @@ class SqflitePlayStatsDatabase implements PlayStatsDatabase {
     return database;
   }
 
+  /// 见 [PlayStatsDatabase.transaction]。
   @override
   Future<T> transaction<T>(
     Future<T> Function(DatabaseExecutor txn) action,
@@ -66,6 +81,7 @@ class SqflitePlayStatsDatabase implements PlayStatsDatabase {
     return database.transaction<T>((txn) => action(txn));
   }
 
+  /// 见 [PlayStatsDatabase.clearAll]。
   @override
   Future<void> clearAll() async {
     await transaction<void>((txn) async {

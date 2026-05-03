@@ -198,7 +198,8 @@ class _PlayerNestedSheetHostState<T> extends State<_PlayerNestedSheetHost<T>> {
     };
     _controller = PlayerNestedSheetController<T>(
       initialPageId: widget.initialPageId,
-      closeWithResult: (result) => Navigator.of(context).pop(result),
+      closeWithResult: (result) =>
+          AppSheetTransitions.close<T>(context, result),
     )..addListener(_handleControllerChanged);
   }
 
@@ -241,7 +242,7 @@ class _PlayerNestedSheetHostState<T> extends State<_PlayerNestedSheetHost<T>> {
           Positioned.fill(
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: () => Navigator.of(context).maybePop(),
+              onTap: () => AppSheetTransitions.close(context),
               child: const SizedBox.expand(),
             ),
           ),
@@ -252,42 +253,44 @@ class _PlayerNestedSheetHostState<T> extends State<_PlayerNestedSheetHost<T>> {
             bottom: 0,
             width: isLandscape ? drawerWidth : null,
             height: sheetHeight,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: Color.alphaBlend(
-                  colors.surfaceStrong.withValues(
-                    alpha: isLandscape ? 0.70 : 0.82,
+            child: RepaintBoundary(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Color.alphaBlend(
+                    colors.surfaceStrong.withValues(
+                      alpha: isLandscape ? 0.96 : 0.98,
+                    ),
+                    colors.surface,
                   ),
-                  colors.overlayScrim.withValues(
-                    alpha: isLandscape ? 0.30 : 0.48,
-                  ),
+                  border: isLandscape
+                      ? Border.all(color: colors.borderSubtle)
+                      : null,
                 ),
-                border: isLandscape
-                    ? Border.all(color: colors.borderSubtle)
-                    : null,
-              ),
-              child: ClipRect(
-                child: AnimatedSwitcher(
-                  duration: AppMotion.sheetTransition,
-                  switchInCurve: AppMotion.sheetEnterCurve,
-                  switchOutCurve: AppMotion.sheetExitCurve,
-                  layoutBuilder: (currentChild, previousChildren) {
-                    return currentChild ??
-                        (previousChildren.isNotEmpty
-                            ? previousChildren.last
-                            : const SizedBox.shrink());
-                  },
-                  transitionBuilder: (child, animation) {
-                    return AppSheetTransitions.buildDirectionalSheetTransition(
-                      child: child,
-                      animation: animation,
-                      isCurrent: child.key == activeKey,
-                      isForward: _controller.isForward,
-                    );
-                  },
-                  child: KeyedSubtree(
-                    key: activeKey,
-                    child: currentPage.builder(context, _controller),
+                child: ClipRect(
+                  child: AnimatedSwitcher(
+                    duration: AppMotion.sheetTransition,
+                    switchInCurve: AppMotion.sheetEnterCurve,
+                    switchOutCurve: AppMotion.sheetExitCurve,
+                    layoutBuilder: (currentChild, previousChildren) {
+                      return currentChild ??
+                          (previousChildren.isNotEmpty
+                              ? previousChildren.last
+                              : const SizedBox.shrink());
+                    },
+                    transitionBuilder: (child, animation) {
+                      return _buildPageTransition(
+                        child: child,
+                        animation: animation,
+                        isCurrent: child.key == activeKey,
+                        isForward: _controller.isForward,
+                      );
+                    },
+                    child: KeyedSubtree(
+                      key: activeKey,
+                      child: RepaintBoundary(
+                        child: currentPage.builder(context, _controller),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -295,6 +298,32 @@ class _PlayerNestedSheetHostState<T> extends State<_PlayerNestedSheetHost<T>> {
           ),
         ],
       ),
+      );
+  }
+
+  Widget _buildPageTransition({
+    required Widget child,
+    required Animation<double> animation,
+    required bool isCurrent,
+    required bool isForward,
+  }) {
+    final curved = CurvedAnimation(
+      parent: animation,
+      curve: AppMotion.sheetEnterCurve,
+      reverseCurve: AppMotion.sheetExitCurve,
+    );
+    final begin = isForward
+        ? AppMotion.sheetForwardOffset
+        : AppMotion.sheetBackwardOffset;
+    final end = isForward
+        ? const Offset(-0.04, 0)
+        : const Offset(0.04, 0);
+    return SlideTransition(
+      position: Tween<Offset>(
+        begin: isCurrent ? begin : Offset.zero,
+        end: isCurrent ? Offset.zero : end,
+      ).animate(curved),
+      child: child,
     );
   }
 

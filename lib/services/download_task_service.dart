@@ -3,12 +3,23 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/feiniu_api.dart';
+import '../danmaku/api/dandanplay_api.dart';
+import '../danmaku/api/dandanplay_config.dart';
+import '../danmaku/api/dandanplay_resolver.dart';
+import '../danmaku/models/danmaku_import_result.dart';
+import '../danmaku/models/danmaku_saved_source.dart';
+import '../danmaku/parser/danmaku_import_parser.dart';
+import '../danmaku/settings/danmaku_saved_source_store.dart';
 import '../models/download_task_record.dart';
+import '../models/media_library_item.dart';
+import '../models/play_info.dart';
 import '../models/stream_list_option.dart';
 import '../models/stream_track_data.dart';
 import '../providers/nas_provider.dart';
@@ -18,15 +29,37 @@ import 'app_log_service.dart';
 import 'storage_access_service.dart';
 import 'storage_management_service.dart';
 
+/// 表示发起下载后的即时状态。
 enum DownloadStartState { started, downloading, downloaded, importedFromCache }
 
+/// 描述单次发起下载操作的结果。
 class DownloadStartResult {
   final DownloadStartState state;
   final DownloadTaskRecord record;
 
+  /// 根据启动状态与对应任务记录构造结果对象。
   const DownloadStartResult({required this.state, required this.record});
 }
 
+/// 描述离线下载恢复扫描的统计结果。
+class DownloadRecoveryResult {
+  final int scannedVideoCount;
+  final int importedCount;
+  final int alreadyTrackedCount;
+  final int skippedCount;
+  final DownloadTaskRecord? preferredRecord;
+
+  /// 根据恢复统计数据构造结果对象。
+  const DownloadRecoveryResult({
+    required this.scannedVideoCount,
+    required this.importedCount,
+    required this.alreadyTrackedCount,
+    required this.skippedCount,
+    this.preferredRecord,
+  });
+}
+
+/// 统一管理离线下载任务、缓存导入与恢复逻辑。
 class DownloadTaskService extends ChangeNotifier {
   DownloadTaskService._();
 
@@ -34,15 +67,33 @@ class DownloadTaskService extends ChangeNotifier {
 
   static const String _prefsKey = 'download_task_records_v1';
   static const String _downloadFolderName = 'FlyPlayer';
+  static const String _recoveryMetadataFileName = '.flyplayer-download.json';
+  static const String _pathRecoveryMetadataSuffix = '.flyplayer-download.json';
+  static const MethodChannel _storageChannel = MethodChannel(
+    'fly_player/storage',
+  );
   static const String _interruptedMessage = '下载已中断';
 
+  static const List<String> _recoveredImageExtensions = <String>[
+    '.webp',
+    '.jpg',
+    '.jpeg',
+    '.png',
+    '.img',
+  ];
   static const Duration _taskProgressPollInterval = Duration(seconds: 2);
+  static const int _downloadSpeedEstimateWindowMs = 1200;
+  static const int _downloadSpeedPublishIntervalMs = 900;
+  static const int _downloadSpeedMinChangeBytesPerSecond = 256 * 1024;
 
   final List<DownloadTaskRecord> _records = <DownloadTaskRecord>[];
   final Map<String, CancelToken> _cancelTokens = <String, CancelToken>{};
   final Map<String, int> _downloadSpeedBytesPerSecond = <String, int>{};
   final Map<String, _DownloadProgressSample> _downloadProgressSamples =
       <String, _DownloadProgressSample>{};
+  final Map<String, _DownloadProgressSample> _downloadSpeedAnchorSamples =
+      <String, _DownloadProgressSample>{};
+  final Map<String, int> _downloadSpeedPublishedAtMs = <String, int>{};
   final Map<String, DownloadTaskProgressInfo> _downloadTaskProgress =
       <String, DownloadTaskProgressInfo>{};
   final Map<String, Timer> _downloadTaskProgressPollers = <String, Timer>{};
@@ -55,12 +106,15 @@ class DownloadTaskService extends ChangeNotifier {
   List<DownloadTaskRecord> get records =>
       List<DownloadTaskRecord>.unmodifiable(_records);
 
+  /// 返回指定任务最近一次发布的下载速度估计值。
   int downloadSpeedBytesPerSecondFor(String recordId) =>
       _downloadSpeedBytesPerSecond[recordId] ?? 0;
 
+  /// 返回指定任务当前缓存的远端进度信息。
   DownloadTaskProgressInfo? downloadTaskProgressFor(String recordId) =>
       _downloadTaskProgress[recordId];
 
+  /// 初始化下载任务服务并恢复本地持久化记录。
   Future<void> initialize() {
     if (_initialized) return Future<void>.value();
     if (_pendingInitialization != null) return _pendingInitialization!;
@@ -89,12 +143,15 @@ class DownloadTaskService extends ChangeNotifier {
     return total;
   }
 
+  /// 按状态返回排序后的下载任务列表。
   List<DownloadTaskRecord> recordsByStatus(DownloadTaskStatus status) {
-    return _records
-        .where((record) => _matchesStatus(record, status))
-        .toList(growable: false);
+    return _sortedRecords(
+      _records.where((record) => _matchesStatus(record, status)),
+      status: status,
+    );
   }
 
+  /// 按状态对下载任务分组，并返回排序后的分组列表。
   List<DownloadTaskGroup> groupsByStatus(DownloadTaskStatus status) {
     final grouped = <String, List<DownloadTaskRecord>>{};
     for (final record in _records) {
@@ -108,43 +165,53 @@ class DownloadTaskService extends ChangeNotifier {
             .map(
               (entry) => DownloadTaskGroup(
                 id: entry.key,
-                title: entry.value.first.groupTitle,
-                records: List<DownloadTaskRecord>.from(entry.value)
-                  ..sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs)),
+                title: _displayGroupTitleForRecord(entry.value.first),
+                records: _sortedRecords(entry.value, status: status),
               ),
             )
             .toList(growable: false)
           ..sort(
-            (a, b) =>
-                b.leadRecord.updatedAtMs.compareTo(a.leadRecord.updatedAtMs),
+            (a, b) => compareDownloadTaskRecordsForDisplay(
+              a.leadRecord,
+              b.leadRecord,
+              statusHint: status,
+            ),
           );
     return groups;
   }
 
+  /// 返回指定分组下的任务记录，并可按状态进一步过滤。
   List<DownloadTaskRecord> recordsForGroup(
     String groupId, {
     DownloadTaskStatus? status,
   }) {
-    return _records
-        .where(
-          (record) =>
-              _canonicalGroupId(record) == groupId &&
-              (status == null || _matchesStatus(record, status)),
-        )
-        .toList(growable: false)
-      ..sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
+    return _sortedRecords(
+      _records.where(
+        (record) =>
+            _canonicalGroupId(record) == groupId &&
+            (status == null || _matchesStatus(record, status)),
+      ),
+      status: status,
+    );
   }
 
+  /// 生成用于界面展示的下载任务标题。
+  String displayTitleForRecord(DownloadTaskRecord record) {
+    return _displayRecordTitleForRecord(record);
+  }
+
+  /// 按分组标识查询下载任务分组。
   DownloadTaskGroup? groupById(String groupId, {DownloadTaskStatus? status}) {
     final records = recordsForGroup(groupId, status: status);
     if (records.isEmpty) return null;
     return DownloadTaskGroup(
       id: groupId,
-      title: records.first.groupTitle,
+      title: _displayGroupTitleForRecord(records.first),
       records: records,
     );
   }
 
+  /// 计算指定条目当前在下载入口上的动作状态。
   DownloadActionState actionStateForItem(String itemGuid) {
     final normalized = itemGuid.trim();
     if (normalized.isEmpty) return DownloadActionState.idle;
@@ -177,6 +244,7 @@ class DownloadTaskService extends ChangeNotifier {
     return DownloadActionState.idle;
   }
 
+  /// 批量计算多个条目的下载动作状态。
   Map<String, DownloadActionState> actionStatesForItems(
     Iterable<String> itemGuids,
   ) {
@@ -189,6 +257,7 @@ class DownloadTaskService extends ChangeNotifier {
     return result;
   }
 
+  /// 查询指定条目及清晰度对应的已下载记录。
   DownloadTaskRecord? downloadedRecordForItem(
     String itemGuid, {
     String resolution = '',
@@ -213,6 +282,7 @@ class DownloadTaskService extends ChangeNotifier {
     return null;
   }
 
+  /// 返回指定条目的全部已下载记录。
   List<DownloadTaskRecord> downloadedRecordsForItem(String itemGuid) {
     final normalizedItemGuid = itemGuid.trim();
     if (normalizedItemGuid.isEmpty) return const <DownloadTaskRecord>[];
@@ -225,6 +295,91 @@ class DownloadTaskService extends ChangeNotifier {
         .toList(growable: false);
   }
 
+  /// 按本地文件路径查找已登记的下载记录。
+  DownloadTaskRecord? downloadedRecordForFilePath(String filePath) {
+    final normalizedPath = _normalizeFilePathForComparison(filePath);
+    if (normalizedPath.isEmpty) return null;
+    for (final record in _records) {
+      if (!_isDownloadedRecordAvailable(record)) continue;
+      if (_normalizeFilePathForComparison(record.filePath) == normalizedPath) {
+        return record;
+      }
+    }
+    return null;
+  }
+
+  /// 扫描下载目录并恢复未登记的本地离线资源。
+  Future<DownloadRecoveryResult> recoverDownloadedFiles({
+    bool requestStorageAccess = true,
+    NasProvider? provider,
+  }) async {
+    await initialize();
+    return _recoverDownloadedFilesInternal(
+      requestStorageAccess: requestStorageAccess,
+      backendLookup: _createRecoveredBackendLookup(provider),
+    );
+  }
+
+  /// 针对外部打开的本地媒体尝试补建对应的下载记录。
+  Future<DownloadTaskRecord?> recoverDownloadedRecordForExternalOpen({
+    required String sourceUrl,
+    required String displayName,
+    int sizeBytes = 0,
+    NasProvider? provider,
+  }) async {
+    await initialize();
+    final backendLookup = _createRecoveredBackendLookup(provider);
+    final directPath = _localFilePathFromUrl(sourceUrl);
+    if (directPath != null && directPath.trim().isNotEmpty) {
+      final existing = downloadedRecordForFilePath(directPath);
+      if (existing != null) {
+        return _refreshRecoveredRecordArtifacts(
+          existing,
+          File(directPath),
+          backendLookup: backendLookup,
+        );
+      }
+      final file = File(directPath);
+      if (await _looksRecoverableDownloadFile(
+        file,
+        expectedDisplayName: displayName,
+        expectedSizeBytes: sizeBytes,
+      )) {
+        return _importRecoveredVideoFile(
+          file,
+          expectedDisplayName: displayName,
+          expectedSizeBytes: sizeBytes,
+          backendLookup: backendLookup,
+        );
+      }
+      return null;
+    }
+
+    final existingBySignature = await _downloadedRecordForFileSignature(
+      displayName: displayName,
+      sizeBytes: sizeBytes,
+    );
+    if (existingBySignature != null) {
+      final path = existingBySignature.filePath.trim();
+      if (path.isEmpty) return existingBySignature;
+      return _refreshRecoveredRecordArtifacts(
+        existingBySignature,
+        File(path),
+        backendLookup: backendLookup,
+      );
+    }
+
+    final result = await _recoverDownloadedFilesInternal(
+      requestStorageAccess: false,
+      preferredDisplayName: displayName,
+      preferredSizeBytes: sizeBytes,
+      stopAfterPreferredMatch: true,
+      backendLookup: backendLookup,
+    );
+    return result.preferredRecord;
+  }
+
+  /// 判断指定条目是否已存在目标清晰度的离线副本。
   bool hasDownloadedResolution(String itemGuid, String resolution) {
     final normalizedItemGuid = itemGuid.trim();
     final normalizedResolution = _normalizeResolutionKey(resolution);
@@ -241,6 +396,7 @@ class DownloadTaskService extends ChangeNotifier {
     return false;
   }
 
+  /// 删除已下载记录及其关联文件，并返回实际清理数量。
   Future<int> clearDownloadedRecords({Iterable<String>? recordIds}) async {
     await initialize();
     final targetIds = recordIds
@@ -261,7 +417,7 @@ class DownloadTaskService extends ChangeNotifier {
               !targets.any((target) => target.id == record.id) &&
               record.filePath.trim().isNotEmpty,
         )
-        .map((record) => _groupDirectoryForVideo(record.filePath).path)
+        .map((record) => _recoveredGroupDirectoryForVideo(record.filePath).path)
         .toSet();
     final affectedGroupDirectories = <String>{};
 
@@ -271,7 +427,7 @@ class DownloadTaskService extends ChangeNotifier {
       _stopDownloadTaskProgressPolling(record.id);
       final path = record.filePath.trim();
       if (path.isEmpty) continue;
-      affectedGroupDirectories.add(_groupDirectoryForVideo(path).path);
+      affectedGroupDirectories.add(_recoveredGroupDirectoryForVideo(path).path);
       await _deleteRecordArtifacts(record);
     }
 
@@ -289,6 +445,7 @@ class DownloadTaskService extends ChangeNotifier {
     return targets.length;
   }
 
+  /// 重新拉取已下载分组的展示元数据。
   Future<void> refreshDownloadedGroupMetadata(NasProvider provider) {
     if (_pendingGroupMetadataRefresh != null) {
       return _pendingGroupMetadataRefresh!;
@@ -300,6 +457,7 @@ class DownloadTaskService extends ChangeNotifier {
     return _pendingGroupMetadataRefresh!;
   }
 
+  /// 创建或复用离线下载任务，并返回启动结果。
   Future<DownloadStartResult> startDownload({
     required NasProvider provider,
     required String itemGuid,
@@ -375,6 +533,12 @@ class DownloadTaskService extends ChangeNotifier {
       preferredSubtitleTrack: preferredSubtitleTrack,
       preferredSubtitleGuid: preferredSubtitleGuid,
     );
+    final persistedAudioTracks = List<AudioTrackOption>.from(
+      streamData.audiosForMedia(option.mediaGuid),
+    );
+    final persistedSubtitleTracks = List<SubtitleTrackOption>.from(
+      streamData.subtitlesForMedia(option.mediaGuid),
+    );
     final importedFromCache = await importCachedMedia(
       provider: provider,
       identity: CachedMediaSourceIdentity(
@@ -390,6 +554,8 @@ class DownloadTaskService extends ChangeNotifier {
       posterUrls: posterUrls,
       groupPosterUrls: groupPosterUrls,
       fileInfo: fileInfo,
+      audioTracks: persistedAudioTracks,
+      subtitleTracks: persistedSubtitleTracks,
       subtitleTrack: resolvedSubtitleTrack,
     );
     if (importedFromCache != null) {
@@ -426,12 +592,18 @@ class DownloadTaskService extends ChangeNotifier {
       videoFilePath: filePath,
       suffix: 'cover',
     );
-    final cachedGroupPosterUrls = await _cacheArtworkUrls(
-      provider: provider,
-      sourceUrls: groupPosterUrls,
-      videoFilePath: filePath,
-      suffix: 'group_cover',
-    );
+    final cachedGroupPosterUrls =
+        _shouldReuseEpisodeArtworkForGroup(
+          posterUrls: posterUrls,
+          groupPosterUrls: groupPosterUrls,
+        )
+        ? cachedPosterUrls
+        : await _cacheArtworkUrls(
+            provider: provider,
+            sourceUrls: groupPosterUrls,
+            videoFilePath: filePath,
+            suffix: 'group_cover',
+          );
 
     final now = DateTime.now().millisecondsSinceEpoch;
     final record = DownloadTaskRecord(
@@ -450,6 +622,8 @@ class DownloadTaskService extends ChangeNotifier {
       filePath: filePath,
       totalBytes: fileInfo.size > 0 ? fileInfo.size : 0,
       downloadedBytes: 0,
+      audioTracks: persistedAudioTracks,
+      subtitleTracks: persistedSubtitleTracks,
       status: DownloadTaskStatus.downloading,
       errorMessage: '',
       createdAtMs: now,
@@ -457,6 +631,7 @@ class DownloadTaskService extends ChangeNotifier {
     );
     _upsertRecord(record, persistImmediately: true);
     _clearDownloadSpeed(record.id);
+    unawaited(_prefetchDanmakuForDownload(provider: provider, record: record));
     if (_shouldPollTaskProgressForResolution(record.resolution)) {
       _startDownloadTaskProgressPolling(api: api, record: record);
     }
@@ -475,6 +650,7 @@ class DownloadTaskService extends ChangeNotifier {
     );
   }
 
+  /// 将已存在的本地缓存媒体导入为下载记录。
   Future<DownloadStartResult?> importCachedMedia({
     NasProvider? provider,
     required CachedMediaSourceIdentity identity,
@@ -486,6 +662,8 @@ class DownloadTaskService extends ChangeNotifier {
     required List<String> posterUrls,
     required List<String> groupPosterUrls,
     StreamFileInfo? fileInfo,
+    List<AudioTrackOption> audioTracks = const <AudioTrackOption>[],
+    List<SubtitleTrackOption> subtitleTracks = const <SubtitleTrackOption>[],
     SubtitleTrackOption? subtitleTrack,
     String? subtitleFilePath,
   }) async {
@@ -616,19 +794,47 @@ class DownloadTaskService extends ChangeNotifier {
               videoFilePath: resolvedVideoPath,
               suffix: 'cover',
             );
-      final cachedGroupPosterUrls = provider == null
-          ? importArtwork.groupPosterUrls
-          : await _cacheArtworkUrls(
-              provider: provider,
-              sourceUrls: importArtwork.groupPosterUrls,
-              videoFilePath: resolvedVideoPath,
-              suffix: 'group_cover',
-            );
+      final cachedGroupPosterUrls =
+          _shouldReuseEpisodeArtworkForGroup(
+            posterUrls: importArtwork.posterUrls,
+            groupPosterUrls: importArtwork.groupPosterUrls,
+          )
+          ? cachedPosterUrls
+          : (provider == null
+                ? importArtwork.groupPosterUrls
+                : await _cacheArtworkUrls(
+                    provider: provider,
+                    sourceUrls: importArtwork.groupPosterUrls,
+                    videoFilePath: resolvedVideoPath,
+                    suffix: 'group_cover',
+                  ));
 
       final actualBytes = await File(resolvedVideoPath).length();
       final api = provider == null ? null : FeiniuApi(provider);
+      StreamTrackData? importedTrackData;
+      if (api != null &&
+          (audioTracks.isEmpty ||
+              subtitleTracks.isEmpty ||
+              subtitleTrack == null)) {
+        try {
+          importedTrackData = await api.getStreamTrackData(itemGuid);
+        } catch (_) {}
+      }
+      final persistedAudioTracks = audioTracks.isNotEmpty
+          ? audioTracks
+          : (mediaGuid.isEmpty
+                ? const <AudioTrackOption>[]
+                : importedTrackData?.audiosForMedia(mediaGuid) ??
+                      const <AudioTrackOption>[]);
+      final persistedSubtitleTracks = subtitleTracks.isNotEmpty
+          ? subtitleTracks
+          : (mediaGuid.isEmpty
+                ? const <SubtitleTrackOption>[]
+                : importedTrackData?.subtitlesForMedia(mediaGuid) ??
+                      const <SubtitleTrackOption>[]);
       final resolvedSubtitleTrack =
           subtitleTrack ??
+          _resolveDownloadSubtitleTrack(persistedSubtitleTracks) ??
           await _resolveImportedCacheSubtitleTrack(
             api: api,
             itemGuid: itemGuid,
@@ -657,12 +863,14 @@ class DownloadTaskService extends ChangeNotifier {
           math.max(downloadability.totalBytes, fileInfo?.size ?? 0),
         ),
         downloadedBytes: actualBytes,
+        audioTracks: persistedAudioTracks,
+        subtitleTracks: persistedSubtitleTracks,
         status: DownloadTaskStatus.downloaded,
         errorMessage: '',
         createdAtMs: DateTime.now().millisecondsSinceEpoch,
         updatedAtMs: DateTime.now().millisecondsSinceEpoch,
       );
-      await _materializeSubtitleForRecord(
+      final materializedSubtitlePath = await _materializeSubtitleForRecord(
         api: api,
         record: record,
         subtitleTrack: resolvedSubtitleTrack,
@@ -675,9 +883,20 @@ class DownloadTaskService extends ChangeNotifier {
           math.max(downloadability.totalBytes, fileInfo?.size ?? 0),
         ),
         downloadedBytes: refreshedBytes,
+        subtitleTracks: _persistedSubtitleTracksForRecord(
+          record: record,
+          subtitleTracks: record.subtitleTracks,
+          subtitleTrack: resolvedSubtitleTrack,
+          localSubtitlePath: materializedSubtitlePath,
+        ),
         updatedAtMs: DateTime.now().millisecondsSinceEpoch,
       );
       _upsertRecord(record, persistImmediately: true);
+      if (provider != null) {
+        unawaited(
+          _prefetchDanmakuForDownload(provider: provider, record: record),
+        );
+      }
       await _clearImportedCacheEntry(
         identity,
         resolvedResourceKey: downloadability.resourceKey,
@@ -737,8 +956,12 @@ class DownloadTaskService extends ChangeNotifier {
           validateStatus: (status) => status == 200 || status == 206,
         ),
         onReceiveProgress: (received, total) {
-          final normalizedTotal = total > 0 ? total : record.totalBytes;
-          if (received == record.downloadedBytes) return;
+          final activeRecord = _recordById(record.id) ?? record;
+          final normalizedTotal = total > 0 ? total : activeRecord.totalBytes;
+          if (received == activeRecord.downloadedBytes &&
+              normalizedTotal == activeRecord.totalBytes) {
+            return;
+          }
           final now = DateTime.now().millisecondsSinceEpoch;
           _updateDownloadSpeed(record.id, received, now);
           if (received > 0) {
@@ -747,11 +970,11 @@ class DownloadTaskService extends ChangeNotifier {
           final shouldPersist =
               received == normalizedTotal ||
               received - lastPersistedBytes >= 512 * 1024;
-          final updated = record.copyWith(
+          final updated = activeRecord.copyWith(
             downloadedBytes: math.max(received, 0),
             totalBytes: normalizedTotal > 0
                 ? normalizedTotal
-                : record.totalBytes,
+                : activeRecord.totalBytes,
             updatedAtMs: now,
           );
           _upsertRecord(updated, persistImmediately: shouldPersist);
@@ -762,15 +985,24 @@ class DownloadTaskService extends ChangeNotifier {
       );
 
       final actualBytes = await file.length();
-      await _materializeSubtitleForRecord(
+      final completedRecord = _recordById(record.id) ?? record;
+      final materializedSubtitlePath = await _materializeSubtitleForRecord(
         api: api,
-        record: record,
+        record: completedRecord,
         subtitleTrack: subtitleTrack,
       );
       _upsertRecord(
-        record.copyWith(
+        completedRecord.copyWith(
           downloadedBytes: actualBytes,
-          totalBytes: actualBytes > 0 ? actualBytes : record.totalBytes,
+          totalBytes: actualBytes > 0
+              ? actualBytes
+              : completedRecord.totalBytes,
+          subtitleTracks: _persistedSubtitleTracksForRecord(
+            record: completedRecord,
+            subtitleTracks: completedRecord.subtitleTracks,
+            subtitleTrack: subtitleTrack,
+            localSubtitlePath: materializedSubtitlePath,
+          ),
           status: DownloadTaskStatus.downloaded,
           errorMessage: '',
           updatedAtMs: DateTime.now().millisecondsSinceEpoch,
@@ -778,13 +1010,15 @@ class DownloadTaskService extends ChangeNotifier {
         persistImmediately: true,
       );
     } catch (error, stackTrace) {
+      final failedRecord = _recordById(record.id) ?? record;
       final canceled = error is DioException && CancelToken.isCancel(error);
       if (!canceled) {
         await AppLogService.instance.recordWarning(
           error: error,
           stackTrace: stackTrace,
           source: 'download',
-          details: 'item=${record.itemGuid} task=${record.remoteTaskId}',
+          details:
+              'item=${failedRecord.itemGuid} task=${failedRecord.remoteTaskId}',
         );
       }
       if (file.existsSync()) {
@@ -793,7 +1027,7 @@ class DownloadTaskService extends ChangeNotifier {
         } catch (_) {}
       }
       _upsertRecord(
-        record.copyWith(
+        failedRecord.copyWith(
           status: DownloadTaskStatus.failed,
           downloadedBytes: 0,
           errorMessage: canceled ? '下载已取消' : '$error',
@@ -836,6 +1070,11 @@ class DownloadTaskService extends ChangeNotifier {
       _sortRecords();
       notifyListeners();
       await _persist();
+      for (final record in _records) {
+        if (_isDownloadedRecordAvailable(record)) {
+          unawaited(_writeRecoveryMetadata(record));
+        }
+      }
     } catch (_) {
       _records.clear();
     }
@@ -864,34 +1103,2361 @@ class DownloadTaskService extends ChangeNotifier {
     } else {
       _schedulePersist();
     }
+    if (_isDownloadedRecordAvailable(record)) {
+      unawaited(_writeRecoveryMetadata(record));
+    }
   }
 
   void _sortRecords() {
-    _records.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
+    _records.sort(compareDownloadTaskRecordsForDisplay);
+  }
+
+  List<DownloadTaskRecord> _sortedRecords(
+    Iterable<DownloadTaskRecord> records, {
+    DownloadTaskStatus? status,
+  }) {
+    final sorted = List<DownloadTaskRecord>.from(records);
+    sorted.sort(
+      (lhs, rhs) =>
+          compareDownloadTaskRecordsForDisplay(lhs, rhs, statusHint: status),
+    );
+    return sorted;
+  }
+
+  DownloadTaskRecord? _recordById(String recordId) {
+    final targetId = recordId.trim();
+    if (targetId.isEmpty) return null;
+    for (final entry in _records) {
+      if (entry.id == targetId) return entry;
+    }
+    return null;
+  }
+
+  Future<DownloadRecoveryResult> _recoverDownloadedFilesInternal({
+    required bool requestStorageAccess,
+    String preferredDisplayName = '',
+    int preferredSizeBytes = 0,
+    bool stopAfterPreferredMatch = false,
+    _RecoveredBackendLookup? backendLookup,
+  }) async {
+    final roots = await _downloadRecoveryRoots(
+      requestStorageAccess: requestStorageAccess,
+    );
+    if (roots.isEmpty) {
+      return const DownloadRecoveryResult(
+        scannedVideoCount: 0,
+        importedCount: 0,
+        alreadyTrackedCount: 0,
+        skippedCount: 0,
+      );
+    }
+
+    var scannedVideoCount = 0;
+    var importedCount = 0;
+    var alreadyTrackedCount = 0;
+    var skippedCount = 0;
+    DownloadTaskRecord? preferredRecord;
+    final seenPaths = <String>{};
+    final scanOnlyPreferred =
+        stopAfterPreferredMatch &&
+        (preferredDisplayName.trim().isNotEmpty || preferredSizeBytes > 0);
+
+    for (final root in roots) {
+      try {
+        if (!await root.exists()) continue;
+        await for (final entity in root.list(
+          recursive: true,
+          followLinks: false,
+        )) {
+          if (entity is! File) continue;
+          final normalizedPath = _normalizeFilePathForComparison(entity.path);
+          if (normalizedPath.isEmpty || !seenPaths.add(normalizedPath)) {
+            continue;
+          }
+          if (!_isRecoverableVideoFileName(entity.path)) continue;
+          scannedVideoCount += 1;
+          if (scanOnlyPreferred &&
+              !await _matchesRecoveredFileSignature(
+                entity,
+                displayName: preferredDisplayName,
+                sizeBytes: preferredSizeBytes,
+              )) {
+            continue;
+          }
+
+          final existing = downloadedRecordForFilePath(entity.path);
+          if (existing != null) {
+            alreadyTrackedCount += 1;
+            final refreshed = await _refreshRecoveredRecordArtifacts(
+              existing,
+              entity,
+              backendLookup: backendLookup,
+            );
+            if (await _recordMatchesRecoveredFileSignature(
+              refreshed,
+              displayName: preferredDisplayName,
+              sizeBytes: preferredSizeBytes,
+            )) {
+              preferredRecord ??= refreshed;
+              if (stopAfterPreferredMatch) {
+                return DownloadRecoveryResult(
+                  scannedVideoCount: scannedVideoCount,
+                  importedCount: importedCount,
+                  alreadyTrackedCount: alreadyTrackedCount,
+                  skippedCount: skippedCount,
+                  preferredRecord: preferredRecord,
+                );
+              }
+            }
+            continue;
+          }
+
+          final imported = await _importRecoveredVideoFile(
+            entity,
+            expectedDisplayName: preferredDisplayName,
+            expectedSizeBytes: preferredSizeBytes,
+            backendLookup: backendLookup,
+          );
+          if (imported == null) {
+            skippedCount += 1;
+            continue;
+          }
+          importedCount += 1;
+          if (await _recordMatchesRecoveredFileSignature(
+            imported,
+            displayName: preferredDisplayName,
+            sizeBytes: preferredSizeBytes,
+          )) {
+            preferredRecord ??= imported;
+            if (stopAfterPreferredMatch) {
+              return DownloadRecoveryResult(
+                scannedVideoCount: scannedVideoCount,
+                importedCount: importedCount,
+                alreadyTrackedCount: alreadyTrackedCount,
+                skippedCount: skippedCount,
+                preferredRecord: preferredRecord,
+              );
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    return DownloadRecoveryResult(
+      scannedVideoCount: scannedVideoCount,
+      importedCount: importedCount,
+      alreadyTrackedCount: alreadyTrackedCount,
+      skippedCount: skippedCount,
+      preferredRecord: preferredRecord,
+    );
+  }
+
+  Future<DownloadTaskRecord?> _downloadedRecordForFileSignature({
+    required String displayName,
+    required int sizeBytes,
+  }) async {
+    final normalizedName = _normalizeRecoveredFileName(displayName);
+    if (normalizedName.isEmpty) return null;
+    final matches = <DownloadTaskRecord>[];
+    for (final record in downloadedRecords) {
+      if (_normalizeRecoveredFileName(record.fileName) != normalizedName) {
+        continue;
+      }
+      if (sizeBytes > 0 &&
+          !await _recordMatchesRecoveredFileSignature(
+            record,
+            displayName: displayName,
+            sizeBytes: sizeBytes,
+          )) {
+        continue;
+      }
+      matches.add(record);
+    }
+    return matches.length == 1 ? matches.first : null;
+  }
+
+  Future<bool> _looksRecoverableDownloadFile(
+    File file, {
+    required String expectedDisplayName,
+    required int expectedSizeBytes,
+  }) async {
+    if (!_isRecoverableVideoFileName(file.path)) return false;
+    if (!await file.exists()) return false;
+    final metadata = await _readRecoveryMetadataForFile(file);
+    if (metadata == null && !_pathLooksInsideFlyPlayerDownloadRoot(file.path)) {
+      return false;
+    }
+    final actualBytes = await file.length();
+    return _passesRecoveryIntegrityCheck(
+      actualBytes: actualBytes,
+      metadata: metadata,
+      expectedSizeBytes: expectedSizeBytes,
+    );
+  }
+
+  Future<DownloadTaskRecord?> _importRecoveredVideoFile(
+    File file, {
+    required String expectedDisplayName,
+    required int expectedSizeBytes,
+    _RecoveredBackendLookup? backendLookup,
+  }) async {
+    try {
+      if (!_isRecoverableVideoFileName(file.path)) return null;
+      if (!await file.exists()) return null;
+      final actualBytes = await file.length();
+      final metadata = await _readRecoveryMetadataForFile(file);
+      if (!_passesRecoveryIntegrityCheck(
+        actualBytes: actualBytes,
+        metadata: metadata,
+        expectedSizeBytes: expectedSizeBytes,
+      )) {
+        return null;
+      }
+      final existing = downloadedRecordForFilePath(file.path);
+      if (existing != null) {
+        return _refreshRecoveredRecordArtifacts(
+          existing,
+          file,
+          backendLookup: backendLookup,
+        );
+      }
+      final context = await _buildRecoveredVideoContext(
+        file: file,
+        actualBytes: actualBytes,
+        metadata: metadata,
+        existingRecord: null,
+        backendLookup: backendLookup,
+      );
+      final record = _buildRecoveredRecord(context: context);
+      _upsertRecord(record, persistImmediately: true);
+      await _writeRecoveryMetadata(record);
+      await _recoverLocalDanmakuForRecord(record);
+      return record;
+    } catch (error, stackTrace) {
+      unawaited(
+        AppLogService.instance.recordWarning(
+          error: error,
+          stackTrace: stackTrace,
+          source: 'download-recovery',
+          details: 'path=${file.path}',
+        ),
+      );
+      return null;
+    }
+  }
+
+  Future<DownloadTaskRecord> _refreshRecoveredRecordArtifacts(
+    DownloadTaskRecord record,
+    File file, {
+    _RecoveredBackendLookup? backendLookup,
+  }) async {
+    try {
+      if (!await file.exists()) return record;
+      final actualBytes = await file.length();
+      final metadata = await _readRecoveryMetadataForFile(file);
+      final context = await _buildRecoveredVideoContext(
+        file: file,
+        actualBytes: actualBytes,
+        metadata: metadata,
+        existingRecord: record,
+        backendLookup: backendLookup,
+      );
+      final refreshed = _mergeRecoveredArtifacts(record, context);
+      if (!_sameDownloadRecordForRecovery(record, refreshed)) {
+        _upsertRecord(refreshed, persistImmediately: true);
+        await _writeRecoveryMetadata(refreshed);
+      }
+      await _recoverLocalDanmakuForRecord(refreshed);
+      return refreshed;
+    } catch (error, stackTrace) {
+      unawaited(
+        AppLogService.instance.recordWarning(
+          error: error,
+          stackTrace: stackTrace,
+          source: 'download-recovery-refresh',
+          details: 'path=${file.path}',
+        ),
+      );
+      return record;
+    }
+  }
+
+  DownloadTaskRecord _buildRecoveredRecord({
+    required _RecoveredVideoContext context,
+  }) {
+    final file = context.file;
+    final actualBytes = context.actualBytes;
+    final metadata = context.metadata;
+    final fileName = context.fileName;
+    final title = context.title;
+    final recoveredItemGuid = context.itemGuid.trim();
+    final recoveredMediaGuid = context.mediaGuid.trim();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (metadata != null) {
+      final metadataIsGenericRecovered = _isGenericRecoveredRecord(metadata);
+      final id = _resolveRecoveredRecordId(
+        preferredId: metadata.id,
+        filePath: file.path,
+        actualBytes: actualBytes,
+      );
+      final useRecoveredPosterUrls = _shouldPreferRecoveredLocalArtwork(
+        record: metadata,
+        currentUrls: metadata.posterUrls,
+        recoveredUrls: context.posterUrls,
+      );
+      final useRecoveredGroupPosterUrls = _shouldPreferRecoveredLocalArtwork(
+        record: metadata,
+        currentUrls: metadata.groupPosterUrls,
+        recoveredUrls: context.groupPosterUrls,
+      );
+      return metadata.copyWith(
+        id: id,
+        remoteTaskId: metadata.remoteTaskId.trim().isEmpty
+            ? 'recovered'
+            : metadata.remoteTaskId,
+        itemGuid:
+            (metadata.itemGuid.trim().isEmpty || metadataIsGenericRecovered) &&
+                recoveredItemGuid.isNotEmpty
+            ? recoveredItemGuid
+            : metadata.itemGuid,
+        mediaGuid:
+            (metadata.mediaGuid.trim().isEmpty || metadataIsGenericRecovered) &&
+                recoveredMediaGuid.isNotEmpty
+            ? recoveredMediaGuid
+            : metadata.mediaGuid,
+        groupId: metadata.groupId.trim().isEmpty || metadataIsGenericRecovered
+            ? context.groupId
+            : metadata.groupId,
+        groupTitle:
+            metadata.groupTitle.trim().isEmpty || metadataIsGenericRecovered
+            ? context.groupTitle
+            : metadata.groupTitle,
+        title: metadata.title.trim().isEmpty || metadataIsGenericRecovered
+            ? title
+            : metadata.title,
+        durationText:
+            metadata.durationText.trim().isEmpty || metadataIsGenericRecovered
+            ? context.durationText
+            : metadata.durationText,
+        posterUrls: useRecoveredPosterUrls
+            ? context.posterUrls
+            : metadata.posterUrls,
+        groupPosterUrls: useRecoveredGroupPosterUrls
+            ? context.groupPosterUrls
+            : metadata.groupPosterUrls,
+        resolution:
+            _shouldPreferRecoveredResolution(
+              record: metadata,
+              recoveredResolution: context.resolution,
+            )
+            ? context.resolution
+            : metadata.resolution,
+        fileName: fileName,
+        filePath: file.path,
+        totalBytes: math.max(
+          actualBytes,
+          math.max(metadata.totalBytes, metadata.downloadedBytes),
+        ),
+        downloadedBytes: actualBytes,
+        status: DownloadTaskStatus.downloaded,
+        errorMessage: '',
+        createdAtMs: metadata.createdAtMs > 0 ? metadata.createdAtMs : now,
+        updatedAtMs: now,
+      );
+    }
+
+    final identity = _stableRecoveryId(file.path, actualBytes);
+    return DownloadTaskRecord(
+      id: 'download_recovered_$identity',
+      remoteTaskId: 'recovered',
+      itemGuid: recoveredItemGuid,
+      mediaGuid: recoveredMediaGuid.isNotEmpty
+          ? recoveredMediaGuid
+          : 'recovered-media-$identity',
+      groupId: context.groupId,
+      groupTitle: context.groupTitle,
+      title: title,
+      durationText: context.durationText,
+      posterUrls: context.posterUrls,
+      groupPosterUrls: context.groupPosterUrls,
+      resolution: context.resolution,
+      fileName: fileName,
+      filePath: file.path,
+      totalBytes: actualBytes,
+      downloadedBytes: actualBytes,
+      status: DownloadTaskStatus.downloaded,
+      errorMessage: '',
+      createdAtMs: now,
+      updatedAtMs: now,
+    );
+  }
+
+  DownloadTaskRecord _mergeRecoveredArtifacts(
+    DownloadTaskRecord record,
+    _RecoveredVideoContext context,
+  ) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final isGenericRecovered = _isGenericRecoveredRecord(record);
+    final recoveredItemGuid = context.itemGuid.trim();
+    final recoveredMediaGuid = context.mediaGuid.trim();
+    final currentGroupTitle = record.groupTitle.trim();
+    final shouldReplaceGroupTitle =
+        currentGroupTitle.isEmpty ||
+        (isGenericRecovered && currentGroupTitle != context.groupTitle);
+    final currentGroupId = record.groupId.trim();
+    final shouldReplaceGroupId =
+        currentGroupId.isEmpty ||
+        (isGenericRecovered && currentGroupId != context.groupId);
+    final posterUrls =
+        _shouldPreferRecoveredLocalArtwork(
+          record: record,
+          currentUrls: record.posterUrls,
+          recoveredUrls: context.posterUrls,
+        )
+        ? context.posterUrls
+        : record.posterUrls;
+    final groupPosterUrls =
+        _shouldPreferRecoveredLocalArtwork(
+          record: record,
+          currentUrls: record.groupPosterUrls,
+          recoveredUrls: context.groupPosterUrls,
+        )
+        ? context.groupPosterUrls
+        : record.groupPosterUrls;
+    return record.copyWith(
+      itemGuid:
+          (record.itemGuid.trim().isEmpty || isGenericRecovered) &&
+              recoveredItemGuid.isNotEmpty
+          ? recoveredItemGuid
+          : record.itemGuid,
+      mediaGuid:
+          (record.mediaGuid.trim().isEmpty || isGenericRecovered) &&
+              recoveredMediaGuid.isNotEmpty
+          ? recoveredMediaGuid
+          : record.mediaGuid,
+      groupId: shouldReplaceGroupId ? context.groupId : record.groupId,
+      groupTitle: shouldReplaceGroupTitle
+          ? context.groupTitle
+          : record.groupTitle,
+      title: record.title.trim().isEmpty || isGenericRecovered
+          ? context.title
+          : record.title,
+      durationText: record.durationText.trim().isEmpty || isGenericRecovered
+          ? context.durationText
+          : record.durationText,
+      posterUrls: posterUrls,
+      groupPosterUrls: groupPosterUrls,
+      resolution:
+          _shouldPreferRecoveredResolution(
+            record: record,
+            recoveredResolution: context.resolution,
+          )
+          ? context.resolution
+          : record.resolution,
+      fileName: context.fileName,
+      filePath: context.file.path,
+      totalBytes: math.max(
+        context.actualBytes,
+        math.max(record.totalBytes, record.downloadedBytes),
+      ),
+      downloadedBytes: context.actualBytes,
+      status: DownloadTaskStatus.downloaded,
+      errorMessage: '',
+      updatedAtMs: now,
+    );
+  }
+
+  bool _sameDownloadRecordForRecovery(
+    DownloadTaskRecord left,
+    DownloadTaskRecord right,
+  ) {
+    return left.id == right.id &&
+        left.remoteTaskId == right.remoteTaskId &&
+        left.itemGuid == right.itemGuid &&
+        left.mediaGuid == right.mediaGuid &&
+        left.groupId == right.groupId &&
+        left.groupTitle == right.groupTitle &&
+        left.title == right.title &&
+        left.durationText == right.durationText &&
+        _sameStringList(left.posterUrls, right.posterUrls) &&
+        _sameStringList(left.groupPosterUrls, right.groupPosterUrls) &&
+        left.resolution == right.resolution &&
+        left.fileName == right.fileName &&
+        left.filePath == right.filePath &&
+        left.totalBytes == right.totalBytes &&
+        left.downloadedBytes == right.downloadedBytes &&
+        _sameAudioTrackList(left.audioTracks, right.audioTracks) &&
+        _sameSubtitleTrackList(left.subtitleTracks, right.subtitleTracks) &&
+        left.status == right.status &&
+        left.errorMessage == right.errorMessage;
+  }
+
+  bool _sameStringList(List<String> left, List<String> right) {
+    if (left.length != right.length) return false;
+    for (var index = 0; index < left.length; index += 1) {
+      if (left[index] != right[index]) return false;
+    }
+    return true;
+  }
+
+  bool _sameAudioTrackList(
+    List<AudioTrackOption> left,
+    List<AudioTrackOption> right,
+  ) {
+    if (left.length != right.length) return false;
+    for (var index = 0; index < left.length; index += 1) {
+      final lhs = left[index];
+      final rhs = right[index];
+      if (lhs.mediaGuid != rhs.mediaGuid ||
+          lhs.guid != rhs.guid ||
+          lhs.title != rhs.title ||
+          lhs.codecName != rhs.codecName ||
+          lhs.profile != rhs.profile ||
+          lhs.language != rhs.language ||
+          lhs.audioType != rhs.audioType ||
+          lhs.channelLayout != rhs.channelLayout ||
+          lhs.channels != rhs.channels ||
+          lhs.sampleRate != rhs.sampleRate ||
+          lhs.bps != rhs.bps ||
+          lhs.index != rhs.index ||
+          lhs.isDefault != rhs.isDefault) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool _sameSubtitleTrackList(
+    List<SubtitleTrackOption> left,
+    List<SubtitleTrackOption> right,
+  ) {
+    if (left.length != right.length) return false;
+    for (var index = 0; index < left.length; index += 1) {
+      final lhs = left[index];
+      final rhs = right[index];
+      if (lhs.mediaGuid != rhs.mediaGuid ||
+          lhs.guid != rhs.guid ||
+          lhs.title != rhs.title ||
+          lhs.codecName != rhs.codecName ||
+          lhs.format != rhs.format ||
+          lhs.language != rhs.language ||
+          lhs.index != rhs.index ||
+          lhs.isDefault != rhs.isDefault ||
+          lhs.forced != rhs.forced ||
+          lhs.isExternal != rhs.isExternal ||
+          lhs.extraFile != rhs.extraFile ||
+          lhs.isBitmap != rhs.isBitmap) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool _isGenericRecoveredRecord(DownloadTaskRecord record) {
+    return record.remoteTaskId.trim() == 'recovered' ||
+        record.itemGuid.trim().isEmpty ||
+        record.id.startsWith('download_recovered_');
+  }
+
+  bool _shouldPreferRecoveredLocalArtwork({
+    required DownloadTaskRecord record,
+    required List<String> currentUrls,
+    required List<String> recoveredUrls,
+  }) {
+    if (recoveredUrls.isEmpty) return false;
+    if (currentUrls.isEmpty) return true;
+    return record.remoteTaskId.trim() == 'recovered' ||
+        record.itemGuid.trim().isEmpty ||
+        record.id.startsWith('download_recovered_');
+  }
+
+  bool _shouldPreferRecoveredResolution({
+    required DownloadTaskRecord record,
+    required String recoveredResolution,
+  }) {
+    final normalizedRecovered = recoveredResolution.trim();
+    if (normalizedRecovered.isEmpty) return false;
+    final current = record.resolution.trim();
+    if (current.isEmpty) return true;
+    if (_isGenericRecoveredRecord(record)) {
+      return current != normalizedRecovered &&
+          (current == '本地' || normalizedRecovered != '本地');
+    }
+    return false;
+  }
+
+  _RecoveredBackendLookup? _createRecoveredBackendLookup(
+    NasProvider? provider,
+  ) {
+    if (provider == null || !provider.isConfigured) return null;
+    return _RecoveredBackendLookup(provider);
+  }
+
+  Future<_RecoveredBackendMetadata?> _resolveRecoveredBackendMetadata({
+    required _RecoveredBackendLookup? lookup,
+    required DownloadTaskRecord? sourceRecord,
+    required String filePath,
+    required String fileName,
+    required String localTitle,
+    required String localGroupTitle,
+  }) async {
+    if (lookup == null) return null;
+    final playInfo = await _resolveRecoveredBackendPlayInfo(
+      lookup: lookup,
+      sourceRecord: sourceRecord,
+      fileName: fileName,
+      localTitle: localTitle,
+      localGroupTitle: localGroupTitle,
+    );
+    if (playInfo == null) return null;
+
+    final item = playInfo.item;
+    final itemGuid = item.guid.trim().isNotEmpty
+        ? item.guid.trim()
+        : (sourceRecord?.itemGuid.trim() ?? '');
+    if (itemGuid.isEmpty) return null;
+    final mediaGuid = playInfo.mediaGuid.trim().isNotEmpty
+        ? playInfo.mediaGuid.trim()
+        : (sourceRecord?.mediaGuid.trim() ?? '');
+    final title = _backendEpisodeTitle(item, fallbackTitle: localTitle);
+    final durationText = _backendDurationText(item);
+    final resolution = _backendResolutionText(item);
+    final episodePosterUrls = _backendImageCandidates(lookup.provider, <String>[
+      item.stillPath,
+      item.posters,
+      item.backdrops,
+    ]);
+    final cachedPosterUrls = episodePosterUrls.isEmpty
+        ? const <String>[]
+        : await _cacheRecoveredBackendArtworkUrls(
+            provider: lookup.provider,
+            sourceUrls: episodePosterUrls,
+            videoFilePath: filePath,
+            suffix: 'cover',
+          );
+
+    final lookupRecord = (sourceRecord ?? _emptyRecord).copyWith(
+      itemGuid: itemGuid,
+      mediaGuid: mediaGuid,
+      groupId: playInfo.parentGuid.trim().isNotEmpty
+          ? playInfo.parentGuid.trim()
+          : (sourceRecord?.groupId ?? ''),
+      groupTitle: localGroupTitle,
+      filePath: filePath,
+      status: DownloadTaskStatus.downloaded,
+    );
+    final groupMeta = await _loadRecoveredBackendGroupMeta(
+      lookup,
+      lookupRecord,
+    );
+    final fallbackGroupTitle = _composeGroupTitle(
+      seriesTitle: item.tvTitle,
+      collectionTitle: item.parentTitle,
+    );
+    final groupTitle = groupMeta?.title.trim().isNotEmpty == true
+        ? groupMeta!.title
+        : (fallbackGroupTitle.trim().isNotEmpty
+              ? fallbackGroupTitle.trim()
+              : localGroupTitle);
+    final groupId = groupMeta?.id.trim().isNotEmpty == true
+        ? groupMeta!.id
+        : (playInfo.parentGuid.trim().isNotEmpty
+              ? playInfo.parentGuid.trim()
+              : (sourceRecord?.groupId.trim().isNotEmpty == true
+                    ? sourceRecord!.groupId.trim()
+                    : _inferRecoveredGroupId(
+                        filePath,
+                        groupTitle: groupTitle,
+                      )));
+    final groupPosterSourceUrls = groupMeta?.posterUrls.isNotEmpty == true
+        ? groupMeta!.posterUrls
+        : _backendImageCandidates(lookup.provider, <String>[
+            item.posters,
+            item.backdrops,
+          ]);
+    final cachedGroupPosterUrls = groupPosterSourceUrls.isEmpty
+        ? const <String>[]
+        : await _cacheRecoveredBackendArtworkUrls(
+            provider: lookup.provider,
+            sourceUrls: groupPosterSourceUrls,
+            videoFilePath: filePath,
+            suffix: 'group_cover',
+          );
+
+    return _RecoveredBackendMetadata(
+      itemGuid: itemGuid,
+      mediaGuid: mediaGuid,
+      groupId: groupId,
+      groupTitle: groupTitle,
+      title: title,
+      durationText: durationText,
+      resolution: resolution,
+      posterUrls: cachedPosterUrls,
+      groupPosterUrls: cachedGroupPosterUrls,
+    );
+  }
+
+  Future<PlayInfoData?> _resolveRecoveredBackendPlayInfo({
+    required _RecoveredBackendLookup lookup,
+    required DownloadTaskRecord? sourceRecord,
+    required String fileName,
+    required String localTitle,
+    required String localGroupTitle,
+  }) async {
+    final directGuid = sourceRecord?.itemGuid.trim() ?? '';
+    if (directGuid.isNotEmpty) {
+      return _loadRecoveredBackendPlayInfo(lookup, directGuid);
+    }
+
+    final episodeNumber = _parseRecoveredEpisodeNumber(
+      <String>[localTitle, fileName].join(' '),
+    );
+    final seasonNumber = _parseRecoveredSeasonNumber(localGroupTitle);
+    final query = _recoveredBackendSeriesQuery(
+      localGroupTitle: localGroupTitle,
+      localTitle: localTitle,
+      fileName: fileName,
+    );
+    if (query.isEmpty) return null;
+
+    final itemGuid = await _resolveRecoveredBackendGuidFromSearch(
+      lookup: lookup,
+      query: query,
+      seasonNumber: seasonNumber,
+      episodeNumber: episodeNumber,
+      localTitle: localTitle,
+      localGroupTitle: localGroupTitle,
+    );
+    if (itemGuid.isEmpty) return null;
+    return _loadRecoveredBackendPlayInfo(lookup, itemGuid);
+  }
+
+  Future<PlayInfoData?> _loadRecoveredBackendPlayInfo(
+    _RecoveredBackendLookup lookup,
+    String itemGuid,
+  ) {
+    final normalizedGuid = itemGuid.trim();
+    if (normalizedGuid.isEmpty) return Future<PlayInfoData?>.value();
+    return lookup.playInfoByItemGuid.putIfAbsent(normalizedGuid, () async {
+      try {
+        return await lookup.api.getPlayInfo(normalizedGuid);
+      } catch (_) {
+        return null;
+      }
+    });
+  }
+
+  Future<_StoredGroupMeta?> _loadRecoveredBackendGroupMeta(
+    _RecoveredBackendLookup lookup,
+    DownloadTaskRecord record,
+  ) {
+    final itemGuid = record.itemGuid.trim();
+    if (itemGuid.isEmpty) return Future<_StoredGroupMeta?>.value();
+    return lookup.groupMetaByItemGuid.putIfAbsent(itemGuid, () {
+      return _resolveStoredGroupMeta(
+        api: lookup.api,
+        provider: lookup.provider,
+        record: record,
+      );
+    });
+  }
+
+  Future<String> _resolveRecoveredBackendGuidFromSearch({
+    required _RecoveredBackendLookup lookup,
+    required String query,
+    required int seasonNumber,
+    required int episodeNumber,
+    required String localTitle,
+    required String localGroupTitle,
+  }) async {
+    final results = await _loadRecoveredBackendSearch(lookup, query);
+    if (results.isEmpty) return '';
+
+    if (episodeNumber > 0) {
+      for (final item in results) {
+        if (!_isRecoveredBackendEpisodeCandidate(item)) continue;
+        if (_mediaItemEpisodeNumber(item) == episodeNumber &&
+            item.guid.trim().isNotEmpty) {
+          return item.guid.trim();
+        }
+      }
+    } else {
+      final direct = results
+          .where(
+            (item) =>
+                item.guid.trim().isNotEmpty &&
+                _isRecoveredBackendPlayableCandidate(item),
+          )
+          .toList(growable: false);
+      if (direct.length == 1) return direct.first.guid.trim();
+    }
+
+    final ranked = _rankRecoveredBackendSearchResults(
+      results,
+      query: query,
+      localGroupTitle: localGroupTitle,
+    );
+    for (final item in ranked) {
+      final resolvedGuid = await _resolveRecoveredBackendGuidFromContainer(
+        lookup: lookup,
+        item: item,
+        seasonNumber: seasonNumber,
+        episodeNumber: episodeNumber,
+        localTitle: localTitle,
+        localGroupTitle: localGroupTitle,
+      );
+      if (resolvedGuid.isNotEmpty) return resolvedGuid;
+    }
+    return '';
+  }
+
+  Future<List<MediaLibraryItem>> _loadRecoveredBackendSearch(
+    _RecoveredBackendLookup lookup,
+    String query,
+  ) {
+    final normalizedQuery = query.trim();
+    if (normalizedQuery.isEmpty) {
+      return Future<List<MediaLibraryItem>>.value(const <MediaLibraryItem>[]);
+    }
+    return lookup.searchByQuery.putIfAbsent(normalizedQuery, () async {
+      try {
+        return await lookup.api.searchList(normalizedQuery);
+      } catch (_) {
+        return const <MediaLibraryItem>[];
+      }
+    });
+  }
+
+  Future<String> _resolveRecoveredBackendGuidFromContainer({
+    required _RecoveredBackendLookup lookup,
+    required MediaLibraryItem item,
+    required int seasonNumber,
+    required int episodeNumber,
+    required String localTitle,
+    required String localGroupTitle,
+  }) async {
+    final guid = item.guid.trim();
+    if (guid.isEmpty) return '';
+    final type = item.type.trim().toLowerCase();
+    if (_isRecoveredBackendEpisodeCandidate(item)) {
+      if (episodeNumber <= 0 ||
+          _mediaItemEpisodeNumber(item) == episodeNumber ||
+          _looseTitleMatches(localTitle, item.title)) {
+        return guid;
+      }
+      return '';
+    }
+    if (_isRecoveredBackendPlayableCandidate(item) && episodeNumber <= 0) {
+      return guid;
+    }
+    if (type.contains('season')) {
+      return _resolveRecoveredBackendGuidFromSeason(
+        lookup: lookup,
+        season: item,
+        episodeNumber: episodeNumber,
+        localTitle: localTitle,
+      );
+    }
+    if (type.contains('tv')) {
+      final seasons = await _loadRecoveredBackendSeasons(lookup, guid);
+      final season = _pickRecoveredBackendSeason(
+        seasons,
+        seasonNumber: seasonNumber,
+        localGroupTitle: localGroupTitle,
+      );
+      if (season == null) return '';
+      return _resolveRecoveredBackendGuidFromSeason(
+        lookup: lookup,
+        season: season,
+        episodeNumber: episodeNumber,
+        localTitle: localTitle,
+      );
+    }
+    if (item.numberOfEpisodes > 0) {
+      return _resolveRecoveredBackendGuidFromSeason(
+        lookup: lookup,
+        season: item,
+        episodeNumber: episodeNumber,
+        localTitle: localTitle,
+      );
+    }
+    return '';
+  }
+
+  Future<String> _resolveRecoveredBackendGuidFromSeason({
+    required _RecoveredBackendLookup lookup,
+    required MediaLibraryItem season,
+    required int episodeNumber,
+    required String localTitle,
+  }) async {
+    if (season.guid.trim().isEmpty) return '';
+    final episodes = await _loadRecoveredBackendEpisodes(
+      lookup,
+      season.guid.trim(),
+    );
+    if (episodes.isEmpty) return '';
+    if (episodeNumber > 0) {
+      for (final episode in episodes) {
+        if (_mediaItemEpisodeNumber(episode) == episodeNumber &&
+            episode.guid.trim().isNotEmpty) {
+          return episode.guid.trim();
+        }
+      }
+    }
+    for (final episode in episodes) {
+      if (episode.guid.trim().isEmpty) continue;
+      if (_looseTitleMatches(localTitle, episode.title)) {
+        return episode.guid.trim();
+      }
+    }
+    return episodes.length == 1 ? episodes.first.guid.trim() : '';
+  }
+
+  Future<List<MediaLibraryItem>> _loadRecoveredBackendSeasons(
+    _RecoveredBackendLookup lookup,
+    String itemGuid,
+  ) {
+    final guid = itemGuid.trim();
+    if (guid.isEmpty) {
+      return Future<List<MediaLibraryItem>>.value(const <MediaLibraryItem>[]);
+    }
+    return lookup.seasonsByItemGuid.putIfAbsent(guid, () async {
+      try {
+        return await lookup.api.getSeasonList(guid);
+      } catch (_) {
+        return const <MediaLibraryItem>[];
+      }
+    });
+  }
+
+  Future<List<MediaLibraryItem>> _loadRecoveredBackendEpisodes(
+    _RecoveredBackendLookup lookup,
+    String seasonGuid,
+  ) {
+    final guid = seasonGuid.trim();
+    if (guid.isEmpty) {
+      return Future<List<MediaLibraryItem>>.value(const <MediaLibraryItem>[]);
+    }
+    return lookup.episodesBySeasonGuid.putIfAbsent(guid, () async {
+      try {
+        return await lookup.api.getEpisodeList(guid);
+      } catch (_) {
+        return const <MediaLibraryItem>[];
+      }
+    });
+  }
+
+  List<MediaLibraryItem> _rankRecoveredBackendSearchResults(
+    List<MediaLibraryItem> results, {
+    required String query,
+    required String localGroupTitle,
+  }) {
+    final ranked = List<MediaLibraryItem>.from(
+      results.where((item) => item.guid.trim().isNotEmpty),
+    );
+    ranked.sort((left, right) {
+      return _recoveredBackendSearchScore(
+        right,
+        query: query,
+        localGroupTitle: localGroupTitle,
+      ).compareTo(
+        _recoveredBackendSearchScore(
+          left,
+          query: query,
+          localGroupTitle: localGroupTitle,
+        ),
+      );
+    });
+    return ranked;
+  }
+
+  int _recoveredBackendSearchScore(
+    MediaLibraryItem item, {
+    required String query,
+    required String localGroupTitle,
+  }) {
+    final queryToken = _normalizeLooseFileToken(query);
+    final groupToken = _normalizeLooseFileToken(localGroupTitle);
+    final titleTokens = <String>[
+      item.title,
+      item.tvTitle,
+      item.parentTitle,
+      item.ancestorName,
+    ].map(_normalizeLooseFileToken).where((value) => value.isNotEmpty).toList();
+    var score = 0;
+    for (final token in titleTokens) {
+      if (token == queryToken) score += 100;
+      if (queryToken.isNotEmpty && token.contains(queryToken)) score += 50;
+      if (groupToken.isNotEmpty && groupToken.contains(token)) score += 20;
+      if (groupToken.isNotEmpty && token.contains(groupToken)) score += 20;
+    }
+    final type = item.type.trim().toLowerCase();
+    if (type.contains('tv')) score += 12;
+    if (type.contains('season')) score += 10;
+    if (type.contains('episode')) score += 8;
+    if (type.contains('movie') || type == 'video') score += 4;
+    return score;
+  }
+
+  MediaLibraryItem? _pickRecoveredBackendSeason(
+    List<MediaLibraryItem> seasons, {
+    required int seasonNumber,
+    required String localGroupTitle,
+  }) {
+    if (seasons.isEmpty) return null;
+    if (seasonNumber > 0) {
+      for (final season in seasons) {
+        if (_mediaItemSeasonNumber(season) == seasonNumber) return season;
+      }
+    }
+    for (final season in seasons) {
+      if (_looseTitleMatches(localGroupTitle, season.title) ||
+          _looseTitleMatches(localGroupTitle, season.parentTitle)) {
+        return season;
+      }
+    }
+    return seasons.length == 1 ? seasons.first : null;
+  }
+
+  bool _isRecoveredBackendEpisodeCandidate(MediaLibraryItem item) {
+    final type = item.type.trim().toLowerCase();
+    if (type.contains('episode')) return true;
+    return item.episodeNumber > 0 && item.guid.trim().isNotEmpty;
+  }
+
+  bool _isRecoveredBackendPlayableCandidate(MediaLibraryItem item) {
+    final type = item.type.trim().toLowerCase();
+    return type.contains('movie') || type == 'video';
+  }
+
+  int _mediaItemEpisodeNumber(MediaLibraryItem item) {
+    if (item.episodeNumber > 0) return item.episodeNumber;
+    return _parseRecoveredEpisodeNumber(
+      <String>[item.title, item.path].join(' '),
+    );
+  }
+
+  int _mediaItemSeasonNumber(MediaLibraryItem item) {
+    if (item.seasonNumber > 0) return item.seasonNumber;
+    return _parseRecoveredSeasonNumber(
+      <String>[item.title, item.parentTitle].join(' '),
+    );
+  }
+
+  int _parseRecoveredSeasonNumber(String value) {
+    final text = value.trim();
+    if (text.isEmpty) return 0;
+    for (final pattern in <RegExp>[
+      RegExp('\u7b2c\\s*(\\d{1,3})\\s*[\u5b63\u90e8]'),
+      RegExp(r'\bseason\s*(\d{1,3})\b', caseSensitive: false),
+      RegExp(r'\bs\s*(\d{1,3})\b', caseSensitive: false),
+    ]) {
+      final match = pattern.firstMatch(text);
+      final number = match == null
+          ? 0
+          : int.tryParse(match.group(1) ?? '') ?? 0;
+      if (number > 0) return number;
+    }
+    return 0;
+  }
+
+  int _parseRecoveredEpisodeNumber(String value) {
+    final text = value.trim();
+    if (text.isEmpty) return 0;
+    for (final pattern in <RegExp>[
+      RegExp(r'\bS\s*\d{1,3}\s*E\s*(\d{1,4})\b', caseSensitive: false),
+      RegExp('\u7b2c\\s*(\\d{1,4})\\s*[\u96c6\u8bdd\u8a71]'),
+      RegExp(r'\bEP?\s*(\d{1,4})\b', caseSensitive: false),
+      RegExp(r'(?:^|[\s._\-\[\(])0*(\d{1,4})(?:[\s._\-\]\)]|$)'),
+    ]) {
+      for (final match in pattern.allMatches(text)) {
+        final number = int.tryParse(match.group(1) ?? '') ?? 0;
+        if (_isPlausibleRecoveredEpisodeNumber(number)) return number;
+      }
+    }
+    return 0;
+  }
+
+  bool _isPlausibleRecoveredEpisodeNumber(int number) {
+    if (number <= 0 || number > 500) return false;
+    return !const <int>{480, 720, 1080, 1440, 2160}.contains(number);
+  }
+
+  String _recoveredBackendSeriesQuery({
+    required String localGroupTitle,
+    required String localTitle,
+    required String fileName,
+  }) {
+    var query = _stripTrailingRecoveredSeasonText(localGroupTitle);
+    query = query
+        .replaceFirst(
+          RegExp(
+            '\u7b2c\\s*\\d{1,3}\\s*[\u5b63\u90e8]\\s*\$',
+            caseSensitive: false,
+          ),
+          '',
+        )
+        .replaceFirst(
+          RegExp(r'\bseason\s*\d{1,3}\s*$', caseSensitive: false),
+          '',
+        )
+        .trim();
+    query = _trimRecoveredTitleSeparators(query);
+    if (query.isNotEmpty) return query;
+    final title = _normalizeRecoveredEpisodeTitle(
+      localTitle,
+      groupTitle: localGroupTitle,
+      fileName: fileName,
+    );
+    return _trimRecoveredTitleSeparators(title);
+  }
+
+  bool _looseTitleMatches(String left, String right) {
+    final leftToken = _normalizeLooseFileToken(left);
+    final rightToken = _normalizeLooseFileToken(right);
+    if (leftToken.isEmpty || rightToken.isEmpty) return false;
+    return leftToken == rightToken ||
+        leftToken.contains(rightToken) ||
+        rightToken.contains(leftToken);
+  }
+
+  String _backendEpisodeTitle(PlayItem item, {required String fallbackTitle}) {
+    final title = item.title.trim();
+    final tvTitle = item.tvTitle.trim();
+    final parentTitle = item.parentTitle.trim();
+    var cleanTitle = title;
+    if (cleanTitle == tvTitle || cleanTitle == parentTitle) {
+      cleanTitle = '';
+    }
+    final episodeNumber = item.episodeNumber;
+    if (episodeNumber > 0) {
+      if (_titleStartsWithEpisodeNumber(cleanTitle, episodeNumber)) {
+        return cleanTitle;
+      }
+      final prefix = '\u7b2c $episodeNumber \u96c6';
+      if (cleanTitle.isEmpty) return prefix;
+      return '$prefix $cleanTitle';
+    }
+    if (cleanTitle.isNotEmpty) return cleanTitle;
+    return fallbackTitle.trim();
+  }
+
+  bool _titleStartsWithEpisodeNumber(String title, int episodeNumber) {
+    if (title.trim().isEmpty || episodeNumber <= 0) return false;
+    final parsed = _parseRecoveredEpisodeNumber(title);
+    if (parsed != episodeNumber) return false;
+    final normalized = title.trim().toLowerCase();
+    return normalized.startsWith('\u7b2c') ||
+        normalized.startsWith('e') ||
+        normalized.startsWith('ep') ||
+        normalized.startsWith('s');
+  }
+
+  String _backendDurationText(PlayItem item) {
+    if (item.runtime > 0) return '${item.runtime}\u5206\u949f';
+    return _formatRecoveredDurationText(item.duration);
+  }
+
+  String _backendResolutionText(PlayItem item) {
+    for (final resolution in item.resolutions) {
+      final normalized = resolution.trim();
+      if (normalized.isNotEmpty) return normalized;
+    }
+    return '';
+  }
+
+  List<String> _backendImageCandidates(
+    NasProvider provider,
+    Iterable<String> paths,
+  ) {
+    for (final rawPath in paths) {
+      final path = rawPath.trim();
+      if (path.isEmpty) continue;
+      if (_isLocalPath(path) ||
+          path.startsWith('file://') ||
+          path.startsWith('http://') ||
+          path.startsWith('https://')) {
+        return <String>[path];
+      }
+      return ApiUrlHelper.imageCandidates(provider.baseUrl, path, width: 720);
+    }
+    return const <String>[];
+  }
+
+  String _preferRecoveredBackendResolution({
+    required String localResolution,
+    required String backendResolution,
+  }) {
+    final local = localResolution.trim();
+    final backend = backendResolution.trim();
+    if (backend.isEmpty) return local;
+    if (local.isEmpty) return backend;
+    final localHasQuality = RegExp(
+      r'(?:4k|\d{3,4})',
+      caseSensitive: false,
+    ).hasMatch(local);
+    final backendHasQuality = RegExp(
+      r'(?:4k|\d{3,4})',
+      caseSensitive: false,
+    ).hasMatch(backend);
+    if (!localHasQuality && backendHasQuality) return backend;
+    return local;
+  }
+
+  Future<_RecoveredVideoContext> _buildRecoveredVideoContext({
+    required File file,
+    required int actualBytes,
+    required DownloadTaskRecord? metadata,
+    required DownloadTaskRecord? existingRecord,
+    required _RecoveredBackendLookup? backendLookup,
+  }) async {
+    final fileName = _lastPathSegment(file.path);
+    final fileTitle = _fileNameBase(fileName).trim();
+    final fallbackTitle = fileTitle.isEmpty ? fileName : fileTitle;
+    final mediaMetadata = await _readRecoveredLocalVideoMetadata(file.path);
+    final localResolution = _inferRecoveredResolution(
+      fileName,
+      width: mediaMetadata?.width ?? 0,
+      height: mediaMetadata?.height ?? 0,
+    );
+    final localDurationText = _formatRecoveredDurationText(
+      ((mediaMetadata?.durationMs ?? 0) / 1000).round(),
+    );
+    final rawTitle = _inferRecoveredEpisodeTitle(
+      file.path,
+      fallbackTitle: fallbackTitle,
+    );
+    final groupTitle = _inferRecoveredGroupTitle(
+      file.path,
+      fallbackTitle: rawTitle,
+    );
+    final title = _normalizeRecoveredEpisodeTitle(
+      rawTitle,
+      groupTitle: groupTitle,
+      fileName: fileName,
+    );
+    final localPosterUrls = _recoverEpisodePosterUrls(file.path);
+    final localGroupPosterUrls = _recoverGroupPosterUrls(
+      file.path,
+      fallbackUrls: localPosterUrls,
+    );
+    final backendMetadata = await _resolveRecoveredBackendMetadata(
+      lookup: backendLookup,
+      sourceRecord: metadata ?? existingRecord,
+      filePath: file.path,
+      fileName: fileName,
+      localTitle: title,
+      localGroupTitle: groupTitle,
+    );
+    final effectivePosterUrls = backendMetadata?.posterUrls.isNotEmpty == true
+        ? backendMetadata!.posterUrls
+        : localPosterUrls;
+    final effectiveGroupPosterUrls =
+        backendMetadata?.groupPosterUrls.isNotEmpty == true
+        ? backendMetadata!.groupPosterUrls
+        : localGroupPosterUrls;
+    final effectiveDurationText =
+        backendMetadata?.durationText.trim().isNotEmpty == true
+        ? backendMetadata!.durationText
+        : localDurationText;
+    final effectiveResolution = _preferRecoveredBackendResolution(
+      localResolution: localResolution,
+      backendResolution: backendMetadata?.resolution ?? '',
+    );
+    return _RecoveredVideoContext(
+      file: file,
+      actualBytes: actualBytes,
+      metadata: metadata,
+      itemGuid: backendMetadata?.itemGuid ?? '',
+      mediaGuid: backendMetadata?.mediaGuid ?? '',
+      fileName: fileName,
+      title: backendMetadata?.title.trim().isNotEmpty == true
+          ? backendMetadata!.title
+          : title,
+      groupId: backendMetadata?.groupId.trim().isNotEmpty == true
+          ? backendMetadata!.groupId
+          : _inferRecoveredGroupId(file.path, groupTitle: groupTitle),
+      groupTitle: backendMetadata?.groupTitle.trim().isNotEmpty == true
+          ? backendMetadata!.groupTitle
+          : groupTitle,
+      durationText: effectiveDurationText,
+      resolution: effectiveResolution,
+      posterUrls: effectivePosterUrls,
+      groupPosterUrls: effectiveGroupPosterUrls,
+    );
+  }
+
+  Future<_LocalVideoMetadata?> _readRecoveredLocalVideoMetadata(
+    String filePath,
+  ) async {
+    if (!Platform.isAndroid) return null;
+    try {
+      final raw = await _storageChannel.invokeMethod<Map<dynamic, dynamic>>(
+        'readLocalVideoMetadata',
+        <String, Object?>{'path': filePath},
+      );
+      if (raw == null || raw.isEmpty) return null;
+      return _LocalVideoMetadata(
+        durationMs: _intFromDynamic(raw['durationMs']),
+        width: _intFromDynamic(raw['width']),
+        height: _intFromDynamic(raw['height']),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  int _intFromDynamic(dynamic value) {
+    return switch (value) {
+      final int number => number,
+      final num number => number.toInt(),
+      final String text => int.tryParse(text.trim()) ?? 0,
+      _ => 0,
+    };
+  }
+
+  String _inferRecoveredGroupId(String filePath, {required String groupTitle}) {
+    final groupDirectory = _recoveredGroupDirectoryForVideo(filePath).path;
+    final normalizedGroupDirectory = _normalizeFilePathForComparison(
+      groupDirectory,
+    );
+    if (normalizedGroupDirectory.isNotEmpty) {
+      return 'recovered-group-${_stableRecoveryId(normalizedGroupDirectory, 0)}';
+    }
+    return 'recovered-group-${_stableRecoveryId(groupTitle, 0)}';
+  }
+
+  List<String> _recoverEpisodePosterUrls(String videoFilePath) {
+    final videoFile = File(videoFilePath);
+    final directory = videoFile.parent;
+    final baseName = _fileNameBase(_lastPathSegment(videoFilePath));
+    return _firstExistingFileUris(<File>[
+      ..._imageNameCandidates(
+        directory: directory,
+        names: <String>[
+          'cover',
+          '${baseName}_cover',
+          '${baseName}_poster',
+          baseName,
+          'poster',
+          'folder',
+          'thumb',
+          'thumbnail',
+          'still',
+          'backdrop',
+        ],
+      ),
+      ..._directoryImageCandidates(
+        directory,
+        preferredNames: <String>{
+          'cover',
+          '${baseName}_cover',
+          '${baseName}_poster',
+          baseName,
+          'poster',
+          'folder',
+          'thumb',
+          'thumbnail',
+          'still',
+          'backdrop',
+        },
+      ),
+    ]);
+  }
+
+  List<String> _recoverGroupPosterUrls(
+    String videoFilePath, {
+    required List<String> fallbackUrls,
+  }) {
+    final groupDirectory = _recoveredGroupDirectoryForVideo(videoFilePath);
+    final artworkDirectory = Directory(
+      _recoveredGroupArtworkDirectory(videoFilePath),
+    );
+    final urls = _firstExistingFileUris(<File>[
+      ..._imageNameCandidates(
+        directory: artworkDirectory,
+        names: const <String>[
+          'group_cover',
+          'poster',
+          'folder',
+          'cover',
+          'thumb',
+          'thumbnail',
+        ],
+      ),
+      ..._directoryImageCandidates(
+        artworkDirectory,
+        preferredNames: const <String>{
+          'group_cover',
+          'poster',
+          'folder',
+          'cover',
+          'thumb',
+          'thumbnail',
+        },
+      ),
+      ..._imageNameCandidates(
+        directory: groupDirectory,
+        names: const <String>[
+          'group_cover',
+          'poster',
+          'folder',
+          'cover',
+          'thumb',
+          'thumbnail',
+        ],
+      ),
+      ..._directoryImageCandidates(
+        groupDirectory,
+        preferredNames: const <String>{
+          'group_cover',
+          'poster',
+          'folder',
+          'cover',
+          'thumb',
+          'thumbnail',
+        },
+      ),
+    ]);
+    return urls.isNotEmpty ? urls : fallbackUrls;
+  }
+
+  Iterable<File> _imageNameCandidates({
+    required Directory directory,
+    required List<String> names,
+  }) sync* {
+    for (final name in names) {
+      for (final extension in _recoveredImageExtensions) {
+        yield File('${directory.path}${Platform.pathSeparator}$name$extension');
+      }
+    }
+  }
+
+  List<File> _directoryImageCandidates(
+    Directory directory, {
+    required Set<String> preferredNames,
+  }) {
+    try {
+      if (!directory.existsSync()) return const <File>[];
+      final preferredTokens = preferredNames
+          .map(_normalizeLooseFileToken)
+          .where((value) => value.isNotEmpty)
+          .toSet();
+      final files = directory
+          .listSync(followLinks: false)
+          .whereType<File>()
+          .where(_isRecoveredImageFile)
+          .toList(growable: false);
+      files.sort((left, right) {
+        final leftScore = _recoveredImageCandidateScore(
+          left,
+          preferredTokens: preferredTokens,
+        );
+        final rightScore = _recoveredImageCandidateScore(
+          right,
+          preferredTokens: preferredTokens,
+        );
+        if (leftScore != rightScore) return rightScore.compareTo(leftScore);
+        return left.path.compareTo(right.path);
+      });
+      return files;
+    } catch (_) {
+      return const <File>[];
+    }
+  }
+
+  int _recoveredImageCandidateScore(
+    File file, {
+    required Set<String> preferredTokens,
+  }) {
+    final baseName = _fileNameBase(_lastPathSegment(file.path));
+    final token = _normalizeLooseFileToken(baseName);
+    if (preferredTokens.contains(token)) return 1000;
+    for (final preferred in preferredTokens) {
+      if (preferred.isNotEmpty && token.contains(preferred)) return 800;
+      if (preferred.isNotEmpty && preferred.contains(token)) return 700;
+    }
+    if (token.contains('cover')) return 600;
+    if (token.contains('poster')) return 550;
+    if (token.contains('thumb') || token.contains('thumbnail')) return 500;
+    if (token.contains('still')) return 450;
+    if (token.contains('backdrop')) return 400;
+    if (token.contains('folder')) return 350;
+    return 100;
+  }
+
+  bool _isRecoveredImageFile(File file) {
+    final extension = _extensionOfFileName(_lastPathSegment(file.path));
+    if (!_recoveredImageExtensions.contains('.$extension')) return false;
+    try {
+      return file.lengthSync() > 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  List<String> _firstExistingFileUris(Iterable<File> candidates) {
+    final seen = <String>{};
+    for (final candidate in candidates) {
+      final normalizedPath = _normalizeFilePathForComparison(candidate.path);
+      if (normalizedPath.isEmpty || !seen.add(normalizedPath)) continue;
+      if (!candidate.existsSync()) continue;
+      return <String>[Uri.file(candidate.path).toString()];
+    }
+    return const <String>[];
+  }
+
+  Future<void> _recoverLocalDanmakuForRecord(DownloadTaskRecord record) async {
+    final videoPath = record.filePath.trim();
+    if (videoPath.isEmpty || !File(videoPath).existsSync()) return;
+    final candidates = _localDanmakuCandidatesForVideo(videoPath);
+    if (candidates.isEmpty) return;
+    final targets = _danmakuRecoveryTargetsForRecord(record);
+    if (targets.isEmpty) return;
+    const store = DanmakuSavedSourceStore();
+    var allTargetsHaveExistingLocalSource = true;
+    for (final target in targets) {
+      final previousSources = await store.loadForMedia(target.mediaKey);
+      final hasExistingLocalSource = previousSources.any(
+        _isReadableLocalDanmakuSource,
+      );
+      if (!hasExistingLocalSource) {
+        allTargetsHaveExistingLocalSource = false;
+      }
+    }
+    if (allTargetsHaveExistingLocalSource) return;
+
+    DanmakuImportResult? parsed;
+    File? sourceFile;
+    for (final candidate in candidates) {
+      try {
+        final result = await DanmakuImportParser.parseFile(candidate.path);
+        if (result.comments.isEmpty) continue;
+        parsed = result;
+        sourceFile = candidate;
+        break;
+      } catch (_) {}
+    }
+    if (parsed == null || sourceFile == null) return;
+
+    for (final target in targets) {
+      final label = parsed.sourceLabel.trim().isNotEmpty
+          ? parsed.sourceLabel.trim()
+          : _lastPathSegment(sourceFile.path);
+      final source = DanmakuSavedSource(
+        type: DanmakuSavedSourceType.localFile,
+        mediaKey: target.mediaKey,
+        sourceKey: sourceFile.path,
+        label: label,
+        detail: sourceFile.path,
+        ancestorName: record.groupTitle.trim(),
+        seriesTitle: record.groupTitle.trim(),
+        itemTitle: record.title.trim(),
+        itemGuid: record.itemGuid.trim(),
+        seasonGuid: target.seasonGuid,
+        mediaGuid: record.mediaGuid.trim().isNotEmpty
+            ? record.mediaGuid.trim()
+            : record.id,
+        seasonNumber: 0,
+        episodeNumber: 0,
+        mediaType: record.itemGuid.trim().isEmpty ? 'local' : '',
+        commentCount: parsed.comments.length,
+        updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      await _saveDanmakuSourceWithLocalPriority(store: store, source: source);
+    }
+  }
+
+  List<_DanmakuRecoveryTarget> _danmakuRecoveryTargetsForRecord(
+    DownloadTaskRecord record,
+  ) {
+    final mediaGuid = record.mediaGuid.trim().isNotEmpty
+        ? record.mediaGuid.trim()
+        : record.id;
+    final itemGuid = record.itemGuid.trim();
+    final groupId = record.groupId.trim();
+    final targets = <_DanmakuRecoveryTarget>[];
+    void addTarget(String seasonGuid) {
+      final mediaKey = _buildDanmakuMediaKey(
+        itemGuid: itemGuid,
+        mediaGuid: mediaGuid,
+        seasonGuid: seasonGuid,
+        seasonNumber: 0,
+        episodeNumber: 0,
+        seriesTitle: record.groupTitle,
+        itemTitle: record.title,
+      );
+      if (mediaKey.trim().isEmpty ||
+          targets.any((target) => target.mediaKey == mediaKey)) {
+        return;
+      }
+      targets.add(
+        _DanmakuRecoveryTarget(mediaKey: mediaKey, seasonGuid: seasonGuid),
+      );
+    }
+
+    addTarget(groupId);
+    if (groupId.isNotEmpty) addTarget('');
+    return targets;
+  }
+
+  List<File> _localDanmakuCandidatesForVideo(String videoFilePath) {
+    final videoFile = File(videoFilePath);
+    final directory = videoFile.parent;
+    if (!directory.existsSync()) return const <File>[];
+    final baseName = _fileNameBase(_lastPathSegment(videoFilePath));
+    final candidates = <String, File>{};
+    void add(File file) {
+      final normalizedPath = _normalizeFilePathForComparison(file.path);
+      if (normalizedPath.isEmpty || candidates.containsKey(normalizedPath)) {
+        return;
+      }
+      if (!file.existsSync()) return;
+      candidates[normalizedPath] = file;
+    }
+
+    for (final suffix in const <String>[
+      '',
+      '.danmaku',
+      '.danmu',
+      '.comment',
+      '.comments',
+    ]) {
+      for (final extension in const <String>['.xml', '.json']) {
+        add(
+          File(
+            '${directory.path}${Platform.pathSeparator}$baseName$suffix$extension',
+          ),
+        );
+      }
+    }
+
+    try {
+      for (final entity in directory.listSync(followLinks: false)) {
+        if (entity is! File) continue;
+        if (!_isRecoverableDanmakuFileName(entity.path, baseName: baseName)) {
+          continue;
+        }
+        add(entity);
+      }
+    } catch (_) {}
+    return candidates.values.toList(growable: false);
+  }
+
+  File? _downloadedDanmakuFileForVideo(String videoFilePath) {
+    final normalizedPath = videoFilePath.trim();
+    if (normalizedPath.isEmpty) return null;
+    final videoFile = File(normalizedPath);
+    final baseName = _fileNameBase(_lastPathSegment(normalizedPath)).trim();
+    if (baseName.isEmpty) return null;
+    return File(
+      '${videoFile.parent.path}${Platform.pathSeparator}$baseName.danmaku.json',
+    );
+  }
+
+  Future<File?> _writeDownloadedDanmakuFile({
+    required DownloadTaskRecord record,
+    required DanDanPlayPlaybackResolveResult resolved,
+  }) async {
+    if (resolved.result.comments.isEmpty) return null;
+    final targetFile = _downloadedDanmakuFileForVideo(record.filePath);
+    if (targetFile == null) return null;
+    final payload = <String, Object?>{
+      'schemaVersion': 1,
+      'source': 'dandanplay',
+      'episodeId': resolved.item.episodeId,
+      'sourceLabel': resolved.result.sourceLabel,
+      'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+      'comments': resolved.result.comments
+          .map(
+            (comment) => <String, Object?>{
+              'id': comment.id,
+              'time': comment.timeMs / 1000.0,
+              'mode': _danmakuCommentMode(comment.type.index),
+              'color': comment.color.toARGB32() & 0x00ffffff,
+              'text': comment.text,
+            },
+          )
+          .toList(growable: false),
+    };
+    await targetFile.parent.create(recursive: true);
+    await targetFile.writeAsString(jsonEncode(payload), flush: true);
+    return targetFile;
+  }
+
+  int _danmakuCommentMode(int typeIndex) {
+    return switch (typeIndex) {
+      1 => 4,
+      2 => 5,
+      _ => 1,
+    };
+  }
+
+  Future<void> _saveDanmakuSourceWithLocalPriority({
+    required DanmakuSavedSourceStore store,
+    required DanmakuSavedSource source,
+  }) async {
+    final previousSources = await store.loadForMedia(source.mediaKey);
+    final previousActiveSourceKey =
+        (await store.loadActiveSourceKey(source.mediaKey))?.trim() ?? '';
+    final previousActiveSource = previousSources
+        .where((entry) => entry.sourceKey == previousActiveSourceKey)
+        .cast<DanmakuSavedSource?>()
+        .firstWhere((entry) => entry != null, orElse: () => null);
+
+    await store.saveSource(source);
+
+    if (previousActiveSource != null &&
+        previousActiveSource.sourceKey != source.sourceKey) {
+      final shouldRestorePreviousActive = source.isLocalFile
+          ? _isReadableLocalDanmakuSource(previousActiveSource)
+          : true;
+      if (shouldRestorePreviousActive) {
+        await store.setActiveSourceKey(
+          mediaKey: source.mediaKey,
+          sourceKey: previousActiveSource.sourceKey,
+        );
+        return;
+      }
+    }
+
+    if (source.isLocalFile) {
+      await store.setActiveSourceKey(
+        mediaKey: source.mediaKey,
+        sourceKey: source.sourceKey,
+      );
+    }
+  }
+
+  bool _isReadableLocalDanmakuSource(DanmakuSavedSource source) {
+    if (!source.isLocalFile) return false;
+    final sourceKey = source.sourceKey.trim();
+    if (sourceKey.isEmpty) return false;
+    if (StorageAccessService.isScopedIdentifier(sourceKey)) return true;
+    try {
+      return File(sourceKey).existsSync();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  bool _isRecoverableDanmakuFileName(
+    String filePath, {
+    required String baseName,
+  }) {
+    final fileName = _lastPathSegment(filePath);
+    final lower = fileName.toLowerCase();
+    if (lower == _recoveryMetadataFileName ||
+        lower.endsWith(_pathRecoveryMetadataSuffix)) {
+      return false;
+    }
+    final extension = _extensionOfFileName(fileName);
+    if (extension != 'xml' && extension != 'json') return false;
+    final candidateBase = _fileNameBase(fileName);
+    final normalizedCandidate = _normalizeLooseFileToken(candidateBase);
+    final normalizedBase = _normalizeLooseFileToken(baseName);
+    if (normalizedBase.isNotEmpty &&
+        (normalizedCandidate == normalizedBase ||
+            normalizedCandidate.startsWith(normalizedBase) ||
+            normalizedCandidate.contains(normalizedBase))) {
+      return true;
+    }
+    return lower.contains('danmaku') ||
+        lower.contains('danmu') ||
+        lower.contains('comment') ||
+        lower.contains('\u5f39\u5e55');
+  }
+
+  String _normalizeLooseFileToken(String value) {
+    return value.toLowerCase().replaceAll(
+      RegExp(r'[^a-z0-9\u4e00-\u9fff]+'),
+      '',
+    );
+  }
+
+  String _resolveRecoveredRecordId({
+    required String preferredId,
+    required String filePath,
+    required int actualBytes,
+  }) {
+    final normalizedPreferredId = preferredId.trim();
+    if (normalizedPreferredId.isNotEmpty) {
+      final existing = _recordById(normalizedPreferredId);
+      if (existing == null ||
+          _normalizeFilePathForComparison(existing.filePath) ==
+              _normalizeFilePathForComparison(filePath) ||
+          !File(existing.filePath).existsSync()) {
+        return normalizedPreferredId;
+      }
+    }
+    return 'download_recovered_${_stableRecoveryId(filePath, actualBytes)}';
+  }
+
+  Future<List<Directory>> _downloadRecoveryRoots({
+    required bool requestStorageAccess,
+  }) async {
+    final paths = <String>{};
+    for (final record in _records) {
+      final root = _flyPlayerDownloadRootFromPath(record.filePath);
+      if (root != null) paths.add(root);
+    }
+    try {
+      var hasAccess = await StorageAccessService.hasFileAccess();
+      if (!hasAccess && requestStorageAccess) {
+        hasAccess = await StorageAccessService.requestFileAccess();
+      }
+      if (hasAccess) {
+        final root = await StorageAccessService.primaryStorageRoot();
+        final storageRoot = root.trim().isEmpty
+            ? '/storage/emulated/0'
+            : root.trim();
+        paths.add('$storageRoot/Download/$_downloadFolderName');
+      }
+    } catch (_) {}
+
+    return paths
+        .map((path) => path.trim())
+        .where((path) => path.isNotEmpty)
+        .map(Directory.new)
+        .toList(growable: false);
+  }
+
+  Future<bool> _matchesRecoveredFileSignature(
+    File file, {
+    required String displayName,
+    required int sizeBytes,
+  }) async {
+    final expectedName = _normalizeRecoveredFileName(displayName);
+    if (expectedName.isNotEmpty &&
+        _normalizeRecoveredFileName(_lastPathSegment(file.path)) !=
+            expectedName) {
+      return false;
+    }
+    if (expectedName.isEmpty && sizeBytes <= 0) return false;
+    if (sizeBytes <= 0) return true;
+    try {
+      return _bytesClose(await file.length(), sizeBytes);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> _recordMatchesRecoveredFileSignature(
+    DownloadTaskRecord record, {
+    required String displayName,
+    required int sizeBytes,
+  }) async {
+    final expectedName = _normalizeRecoveredFileName(displayName);
+    if (expectedName.isNotEmpty &&
+        _normalizeRecoveredFileName(record.fileName) != expectedName) {
+      return false;
+    }
+    if (expectedName.isEmpty && sizeBytes <= 0) return false;
+    if (sizeBytes <= 0) return true;
+    try {
+      return _bytesClose(await File(record.filePath).length(), sizeBytes);
+    } catch (_) {
+      return _bytesClose(record.downloadedBytes, sizeBytes) ||
+          _bytesClose(record.totalBytes, sizeBytes);
+    }
+  }
+
+  bool _passesRecoveryIntegrityCheck({
+    required int actualBytes,
+    required DownloadTaskRecord? metadata,
+    required int expectedSizeBytes,
+  }) {
+    if (actualBytes <= 0) return false;
+    if (expectedSizeBytes > 0 && !_bytesClose(actualBytes, expectedSizeBytes)) {
+      return false;
+    }
+    final expectedBytes = metadata == null
+        ? 0
+        : math.max(metadata.totalBytes, metadata.downloadedBytes);
+    if (expectedBytes > 0) {
+      final tolerance = math.max(1024 * 1024, (expectedBytes * 0.05).round());
+      return actualBytes + tolerance >= expectedBytes;
+    }
+    return actualBytes >= 64 * 1024;
+  }
+
+  bool _bytesClose(int actualBytes, int expectedBytes) {
+    if (expectedBytes <= 0) return true;
+    final delta = (actualBytes - expectedBytes).abs();
+    final tolerance = math.max(4096, (expectedBytes * 0.01).round());
+    return delta <= tolerance;
+  }
+
+  Future<void> _writeRecoveryMetadata(DownloadTaskRecord record) async {
+    try {
+      if (!_isDownloadedRecordAvailable(record)) return;
+      final videoFile = File(record.filePath);
+      final metadataFile = _recoveryMetadataFileForVideoPath(record.filePath);
+      await metadataFile.parent.create(recursive: true);
+      await metadataFile.writeAsString(
+        jsonEncode(<String, Object?>{
+          'schemaVersion': 1,
+          'fileSizeBytes': await videoFile.length(),
+          'record': record.toJson(),
+        }),
+        flush: true,
+      );
+    } catch (_) {}
+  }
+
+  Future<DownloadTaskRecord?> _readRecoveryMetadataForFile(
+    File videoFile,
+  ) async {
+    final candidates = <_RecoveryMetadataCandidate>[
+      _RecoveryMetadataCandidate(
+        file: File('${videoFile.path}$_pathRecoveryMetadataSuffix'),
+        pathSpecific: true,
+      ),
+      _RecoveryMetadataCandidate(
+        file: File(
+          '${videoFile.parent.path}${Platform.pathSeparator}$_recoveryMetadataFileName',
+        ),
+        pathSpecific: false,
+      ),
+    ];
+    for (final candidate in candidates) {
+      try {
+        if (!await candidate.file.exists()) continue;
+        final decoded = jsonDecode(await candidate.file.readAsString());
+        if (decoded is! Map) continue;
+        final rawRecord = decoded['record'] ?? decoded['downloadTaskRecord'];
+        final recordMap = rawRecord is Map ? rawRecord : decoded;
+        final record = DownloadTaskRecord.fromJson(
+          Map<String, dynamic>.from(recordMap),
+        );
+        if (!_metadataBelongsToFile(
+          record,
+          videoFile,
+          pathSpecific: candidate.pathSpecific,
+        )) {
+          continue;
+        }
+        return record;
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  bool _metadataBelongsToFile(
+    DownloadTaskRecord record,
+    File videoFile, {
+    required bool pathSpecific,
+  }) {
+    if (pathSpecific) return true;
+    final fileName = _normalizeRecoveredFileName(
+      _lastPathSegment(videoFile.path),
+    );
+    final recordFileName = _normalizeRecoveredFileName(record.fileName);
+    if (recordFileName.isNotEmpty && recordFileName == fileName) return true;
+    final recordPathFileName = _normalizeRecoveredFileName(
+      _lastPathSegment(record.filePath),
+    );
+    if (recordPathFileName.isNotEmpty && recordPathFileName == fileName) {
+      return true;
+    }
+    return _isDedicatedRecordDirectory(videoFile.path);
+  }
+
+  File _recoveryMetadataFileForVideoPath(String videoFilePath) {
+    final videoFile = File(videoFilePath);
+    if (_isDedicatedRecordDirectory(videoFilePath)) {
+      return File(
+        '${videoFile.parent.path}${Platform.pathSeparator}$_recoveryMetadataFileName',
+      );
+    }
+    return File('$videoFilePath$_pathRecoveryMetadataSuffix');
+  }
+
+  bool _isRecoverableVideoFileName(String value) {
+    final fileName = _lastPathSegment(value).toLowerCase();
+    if (fileName.isEmpty ||
+        fileName.endsWith('.part') ||
+        fileName.endsWith('.tmp') ||
+        fileName.endsWith('.download') ||
+        fileName.endsWith('.crdownload')) {
+      return false;
+    }
+    return _videoFileExtensions.contains(_extensionOfFileName(fileName));
+  }
+
+  String _extensionOfFileName(String fileName) {
+    final dotIndex = fileName.lastIndexOf('.');
+    if (dotIndex < 0 || dotIndex >= fileName.length - 1) return '';
+    return fileName.substring(dotIndex + 1).toLowerCase();
+  }
+
+  String _normalizeRecoveredFileName(String value) {
+    final normalized = value.trim().replaceAll('\\', '/');
+    final name = normalized.contains('/')
+        ? normalized.substring(normalized.lastIndexOf('/') + 1)
+        : normalized;
+    return name.trim().toLowerCase();
+  }
+
+  String _lastPathSegment(String path) {
+    final normalized = path.replaceAll('\\', '/');
+    final trimmed = normalized.endsWith('/')
+        ? normalized.substring(0, normalized.length - 1)
+        : normalized;
+    final slashIndex = trimmed.lastIndexOf('/');
+    if (slashIndex < 0) return trimmed;
+    return trimmed.substring(slashIndex + 1);
+  }
+
+  String _inferRecoveredGroupTitle(
+    String filePath, {
+    required String fallbackTitle,
+  }) {
+    final root = _flyPlayerDownloadRootFromPath(filePath);
+    if (root != null) {
+      final relative = _relativePathSegments(
+        rootPath: root,
+        childPath: File(filePath).parent.path,
+      );
+      if (relative.length >= 2) {
+        return relative.take(relative.length - 1).join(' ');
+      }
+      if (relative.isNotEmpty) return relative.join(' ');
+    }
+    final groupDirectory = _recoveredGroupDirectoryForVideo(filePath);
+    final candidate = _lastPathSegment(groupDirectory.path);
+    final normalized = candidate.trim();
+    if (normalized.isEmpty || normalized == _downloadFolderName) {
+      return fallbackTitle.trim().isEmpty ? 'Downloads' : fallbackTitle.trim();
+    }
+    return normalized;
+  }
+
+  String _inferRecoveredEpisodeTitle(
+    String filePath, {
+    required String fallbackTitle,
+  }) {
+    final root = _flyPlayerDownloadRootFromPath(filePath);
+    if (root != null) {
+      final relative = _relativePathSegments(
+        rootPath: root,
+        childPath: File(filePath).parent.path,
+      );
+      if (relative.length >= 2) {
+        final candidate = relative.last.trim();
+        if (candidate.isNotEmpty) return candidate;
+      }
+    }
+    if (_isDedicatedRecordDirectory(filePath)) {
+      final candidate = _lastPathSegment(File(filePath).parent.path).trim();
+      if (candidate.isNotEmpty) return candidate;
+    }
+    return fallbackTitle.trim();
+  }
+
+  String _normalizeRecoveredEpisodeTitle(
+    String rawTitle, {
+    required String groupTitle,
+    required String fileName,
+  }) {
+    final fallback = rawTitle.trim().isNotEmpty
+        ? rawTitle.trim()
+        : _fileNameBase(fileName).trim();
+    var title = fallback;
+    final prefixes = _recoveredEpisodeTitlePrefixes(groupTitle);
+    for (final prefix in prefixes) {
+      title = _stripLooseLeadingText(title, prefix);
+    }
+    title = _stripLeadingRecoveredSeasonText(title);
+    title = _trimRecoveredTitleSeparators(title);
+    if (title.isNotEmpty && title != groupTitle.trim()) return title;
+
+    final fileBase = _fileNameBase(fileName).trim();
+    if (fileBase.isNotEmpty && fileBase != fallback) {
+      title = fileBase;
+      for (final prefix in prefixes) {
+        title = _stripLooseLeadingText(title, prefix);
+      }
+      title = _stripLeadingRecoveredSeasonText(title);
+      title = _trimRecoveredTitleSeparators(title);
+      if (title.isNotEmpty && title != groupTitle.trim()) return title;
+    }
+    return fallback;
+  }
+
+  List<String> _recoveredEpisodeTitlePrefixes(String groupTitle) {
+    final prefixes = <String>[];
+    void add(String value) {
+      final normalized = value.trim();
+      if (normalized.isEmpty) return;
+      if (prefixes.any(
+        (entry) =>
+            _normalizeLooseFileToken(entry) ==
+            _normalizeLooseFileToken(normalized),
+      )) {
+        return;
+      }
+      prefixes.add(normalized);
+    }
+
+    add(groupTitle);
+    add(_stripTrailingRecoveredSeasonText(groupTitle));
+    return prefixes..sort((left, right) => right.length.compareTo(left.length));
+  }
+
+  String _stripTrailingRecoveredSeasonText(String value) {
+    return value
+        .replaceFirst(
+          RegExp(
+            r'\s*(第\s*\d+\s*[季部卷]|season\s*\d+|s\d{1,2})\s*$',
+            caseSensitive: false,
+          ),
+          '',
+        )
+        .trim();
+  }
+
+  String _stripLeadingRecoveredSeasonText(String value) {
+    return value
+        .replaceFirst(
+          RegExp(
+            r'^\s*(第\s*\d+\s*[季部卷]|season\s*\d+|s\d{1,2})\s*',
+            caseSensitive: false,
+          ),
+          '',
+        )
+        .trim();
+  }
+
+  String _stripLooseLeadingText(String title, String prefix) {
+    final normalizedPrefix = _normalizeLooseFileToken(prefix);
+    if (normalizedPrefix.isEmpty) return title;
+    var tokenIndex = 0;
+    var endIndex = 0;
+    for (var index = 0; index < title.length; index += 1) {
+      final char = title[index];
+      if (_isRecoveredTitleSeparator(char)) {
+        continue;
+      }
+      if (tokenIndex >= normalizedPrefix.length) break;
+      if (char.toLowerCase() != normalizedPrefix[tokenIndex]) {
+        return title;
+      }
+      tokenIndex += 1;
+      endIndex = index + 1;
+      if (tokenIndex == normalizedPrefix.length) {
+        return _trimRecoveredTitleSeparators(title.substring(endIndex));
+      }
+    }
+    return title;
+  }
+
+  String _trimRecoveredTitleSeparators(String value) {
+    var result = value.trim();
+    while (result.isNotEmpty && _isRecoveredTitleSeparator(result[0])) {
+      result = result.substring(1).trimLeft();
+    }
+    while (result.isNotEmpty &&
+        _isRecoveredTitleSeparator(result[result.length - 1])) {
+      result = result.substring(0, result.length - 1).trimRight();
+    }
+    return result;
+  }
+
+  bool _isRecoveredTitleSeparator(String char) {
+    return char.trim().isEmpty ||
+        const <String>{
+          '-',
+          '_',
+          '.',
+          '·',
+          '•',
+          ':',
+          '：',
+          '|',
+          '/',
+          '\\',
+          '[',
+          ']',
+          '(',
+          ')',
+          '（',
+          '）',
+          '【',
+          '】',
+          '「',
+          '」',
+          '『',
+          '』',
+          ',',
+          '，',
+        }.contains(char);
+  }
+
+  Directory _recoveredGroupDirectoryForVideo(String videoFilePath) {
+    final root = _flyPlayerDownloadRootFromPath(videoFilePath);
+    if (root != null) {
+      final videoDirectory = File(videoFilePath).parent;
+      final relative = _relativePathSegments(
+        rootPath: root,
+        childPath: videoDirectory.path,
+      );
+      if (relative.length >= 2) {
+        return Directory(
+          <String>[root, ...relative.take(relative.length - 1)].join('/'),
+        );
+      }
+    }
+    return _groupDirectoryForVideo(videoFilePath);
+  }
+
+  String _recoveredGroupArtworkDirectory(String videoFilePath) {
+    final groupDirectory = _recoveredGroupDirectoryForVideo(videoFilePath);
+    return '${groupDirectory.path}${Platform.pathSeparator}_artwork';
+  }
+
+  List<String> _relativePathSegments({
+    required String rootPath,
+    required String childPath,
+  }) {
+    final normalizedRoot = rootPath.trim().replaceAll('\\', '/');
+    final normalizedChild = childPath.trim().replaceAll('\\', '/');
+    if (normalizedRoot.isEmpty || normalizedChild.isEmpty) {
+      return const <String>[];
+    }
+    final lowerRoot = normalizedRoot.toLowerCase();
+    final lowerChild = normalizedChild.toLowerCase();
+    if (!lowerChild.startsWith(lowerRoot)) return const <String>[];
+    var relative = normalizedChild.substring(normalizedRoot.length);
+    while (relative.startsWith('/')) {
+      relative = relative.substring(1);
+    }
+    if (relative.trim().isEmpty) return const <String>[];
+    return relative
+        .split('/')
+        .map((segment) => segment.trim())
+        .where((segment) => segment.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  String _inferRecoveredResolution(
+    String fileName, {
+    int width = 0,
+    int height = 0,
+  }) {
+    if (width > 0 && height > 0) {
+      final longSide = math.max(width, height);
+      final shortSide = math.min(width, height);
+      if (longSide >= 3500 || shortSide >= 1800) return '2160p';
+      if (longSide >= 2500 || shortSide >= 1200) return '1440p';
+      if (longSide >= 1700 || shortSide >= 900) return '1080p';
+      if (longSide >= 1100 || shortSide >= 650) return '720p';
+      if (longSide >= 700 || shortSide >= 360) return '480p';
+    }
+    final normalized = fileName.toLowerCase();
+    if (normalized.contains('2160p') || normalized.contains('4k')) {
+      return '2160p';
+    }
+    for (final value in const <String>['1440p', '1080p', '720p', '480p']) {
+      if (normalized.contains(value)) return value;
+    }
+    return '本地';
+  }
+
+  String _formatRecoveredDurationText(int durationSeconds) {
+    if (durationSeconds <= 0) return '';
+    final hour = durationSeconds ~/ 3600;
+    final minute = (durationSeconds % 3600) ~/ 60;
+    final second = durationSeconds % 60;
+    if (hour > 0) return '$hour小时$minute分钟';
+    if (minute > 0) return second > 0 ? '$minute分钟$second秒' : '$minute分钟';
+    return '$second秒';
+  }
+
+  String _stableRecoveryId(String raw, int bytes) {
+    final digest = crypto.sha256
+        .convert(utf8.encode('$raw|${bytes.clamp(0, 1 << 62)}'))
+        .toString();
+    return digest.substring(0, 24);
+  }
+
+  String _normalizeFilePathForComparison(String path) {
+    final normalized = path.trim().replaceAll('\\', '/');
+    return Platform.isWindows ? normalized.toLowerCase() : normalized;
+  }
+
+  String? _flyPlayerDownloadRootFromPath(String path) {
+    final normalized = path.trim().replaceAll('\\', '/');
+    if (normalized.isEmpty) return null;
+    final lower = normalized.toLowerCase();
+    const marker = '/download/flyplayer';
+    final markerIndex = lower.indexOf(marker);
+    if (markerIndex < 0) return null;
+    return normalized.substring(0, markerIndex + marker.length);
+  }
+
+  bool _pathLooksInsideFlyPlayerDownloadRoot(String path) {
+    final root = _flyPlayerDownloadRootFromPath(path);
+    if (root == null) return false;
+    final normalizedRoot = _normalizeFilePathForComparison(root);
+    final normalizedPath = _normalizeFilePathForComparison(path);
+    return normalizedPath.length > normalizedRoot.length &&
+        normalizedPath.startsWith('$normalizedRoot/');
   }
 
   void _updateDownloadSpeed(String recordId, int received, int timestampMs) {
     final previous = _downloadProgressSamples[recordId];
-    if (previous != null) {
-      final deltaBytes = received - previous.receivedBytes;
-      final deltaMs = timestampMs - previous.timestampMs;
-      if (deltaBytes >= 0 && deltaMs > 0) {
-        final instantBytesPerSecond = ((deltaBytes * 1000) / deltaMs).round();
-        final currentSpeed = _downloadSpeedBytesPerSecond[recordId] ?? 0;
-        _downloadSpeedBytesPerSecond[recordId] = currentSpeed <= 0
-            ? instantBytesPerSecond
-            : ((currentSpeed * 2) + instantBytesPerSecond) ~/ 3;
-      }
-    }
-    _downloadProgressSamples[recordId] = _DownloadProgressSample(
+    final currentSample = _DownloadProgressSample(
       receivedBytes: received,
       timestampMs: timestampMs,
     );
+    if (previous != null && received >= previous.receivedBytes) {
+      final anchor = _downloadSpeedAnchorSamples[recordId] ?? previous;
+      final deltaBytes = received - anchor.receivedBytes;
+      final deltaMs = timestampMs - anchor.timestampMs;
+      if (deltaBytes >= 0 && deltaMs >= _downloadSpeedEstimateWindowMs) {
+        final estimatedBytesPerSecond = ((deltaBytes * 1000) / deltaMs).round();
+        final currentSpeed = _downloadSpeedBytesPerSecond[recordId] ?? 0;
+        final smoothedBytesPerSecond = currentSpeed <= 0
+            ? estimatedBytesPerSecond
+            : ((currentSpeed * 5) + estimatedBytesPerSecond) ~/ 6;
+        final lastPublishedAt = _downloadSpeedPublishedAtMs[recordId] ?? 0;
+        final shouldPublish =
+            lastPublishedAt <= 0 ||
+            timestampMs - lastPublishedAt >= _downloadSpeedPublishIntervalMs ||
+            _isMeaningfulDownloadSpeedShift(
+              currentSpeed: currentSpeed,
+              nextSpeed: smoothedBytesPerSecond,
+            );
+        if (shouldPublish) {
+          _downloadSpeedBytesPerSecond[recordId] = smoothedBytesPerSecond;
+          _downloadSpeedPublishedAtMs[recordId] = timestampMs;
+        }
+        _downloadSpeedAnchorSamples[recordId] = currentSample;
+      }
+    }
+    _downloadProgressSamples[recordId] = currentSample;
   }
 
   void _clearDownloadSpeed(String recordId) {
     _downloadSpeedBytesPerSecond.remove(recordId);
     _downloadProgressSamples.remove(recordId);
+    _downloadSpeedAnchorSamples.remove(recordId);
+    _downloadSpeedPublishedAtMs.remove(recordId);
+  }
+
+  bool _isMeaningfulDownloadSpeedShift({
+    required int currentSpeed,
+    required int nextSpeed,
+  }) {
+    if (currentSpeed <= 0 || nextSpeed <= 0) {
+      return true;
+    }
+    final delta = (currentSpeed - nextSpeed).abs();
+    if (delta < _downloadSpeedMinChangeBytesPerSecond) {
+      return false;
+    }
+    return delta >= ((currentSpeed * 18) ~/ 100);
   }
 
   bool _shouldPollTaskProgressForResolution(String resolution) {
@@ -1150,14 +3716,11 @@ class DownloadTaskService extends ChangeNotifier {
       return <String>[firstUrl];
     }
 
+    final targetPath = _artworkFilePath(videoFilePath, suffix, firstUrl);
+    final targetFile = File(targetPath);
     try {
-      final targetPath = _artworkFilePath(videoFilePath, suffix, firstUrl);
-      final targetFile = File(targetPath);
-      if (overwrite && targetFile.existsSync()) {
-        await targetFile.delete();
-      }
-      if (!targetFile.existsSync()) {
-        await targetFile.parent.create(recursive: true);
+      final shouldWrite = overwrite || !targetFile.existsSync();
+      if (shouldWrite) {
         final response = await Dio().get<List<int>>(
           firstUrl,
           options: Options(
@@ -1175,12 +3738,125 @@ class DownloadTaskService extends ChangeNotifier {
         if (bytes == null || bytes.isEmpty) {
           return normalizedUrls;
         }
+        await targetFile.parent.create(recursive: true);
         await targetFile.writeAsBytes(bytes, flush: true);
       }
       return <String>[Uri.file(targetFile.path).toString()];
     } catch (_) {
+      if (targetFile.existsSync()) {
+        return <String>[Uri.file(targetFile.path).toString()];
+      }
       return normalizedUrls;
     }
+  }
+
+  Future<List<String>> _cacheRecoveredBackendArtworkUrls({
+    required NasProvider provider,
+    required List<String> sourceUrls,
+    required String videoFilePath,
+    required String suffix,
+  }) async {
+    final urls = await _cacheArtworkUrls(
+      provider: provider,
+      sourceUrls: sourceUrls,
+      videoFilePath: videoFilePath,
+      suffix: suffix,
+      overwrite: true,
+    );
+    if (suffix == 'group_cover') {
+      await _deleteRedundantEpisodeGroupArtwork(videoFilePath);
+    }
+    return _existingLocalArtworkUrls(urls);
+  }
+
+  List<String> _existingLocalArtworkUrls(List<String> urls) {
+    final result = <String>[];
+    for (final url in urls) {
+      final path = _localFilePathFromUrl(url) ?? (_isLocalPath(url) ? url : '');
+      if (path.trim().isEmpty) continue;
+      try {
+        final file = File(path);
+        if (file.existsSync() && file.lengthSync() > 0) {
+          result.add(Uri.file(file.path).toString());
+        }
+      } catch (_) {}
+    }
+    return result;
+  }
+
+  bool _shouldReuseEpisodeArtworkForGroup({
+    required List<String> posterUrls,
+    required List<String> groupPosterUrls,
+  }) {
+    final posterKeys = _normalizedArtworkIdentitySet(posterUrls);
+    final groupPosterKeys = _normalizedArtworkIdentitySet(groupPosterUrls);
+    if (posterKeys.isEmpty || groupPosterKeys.isEmpty) return false;
+    if (posterKeys.length != groupPosterKeys.length) return false;
+    return posterKeys.containsAll(groupPosterKeys);
+  }
+
+  Set<String> _normalizedArtworkIdentitySet(List<String> urls) {
+    return urls
+        .map(_normalizeArtworkIdentity)
+        .where((value) => value.isNotEmpty)
+        .toSet();
+  }
+
+  String _normalizeArtworkIdentity(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return '';
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null) return trimmed.toLowerCase();
+    if (uri.hasScheme && uri.scheme != 'file') {
+      final path = uri.path.trim().toLowerCase();
+      final width = uri.queryParameters['w'] ?? uri.queryParameters['width'];
+      final height = uri.queryParameters['h'] ?? uri.queryParameters['height'];
+      return <String>[
+        uri.host.toLowerCase(),
+        path,
+        width ?? '',
+        height ?? '',
+      ].join('|');
+    }
+    return trimmed.replaceAll('\\', '/').toLowerCase();
+  }
+
+  Future<void> _deleteRedundantEpisodeGroupArtwork(String videoFilePath) async {
+    final videoFile = File(videoFilePath);
+    final episodeDirectory = videoFile.parent;
+    final groupArtworkPath = _normalizeFilePathForComparison(
+      _recoveredGroupArtworkDirectory(videoFilePath),
+    );
+    final episodeArtworkDirectory = Directory(
+      '${episodeDirectory.path}${Platform.pathSeparator}_artwork',
+    );
+    final baseName = _fileNameBase(_lastPathSegment(videoFilePath));
+
+    for (final extension in _recoveredImageExtensions) {
+      await _deleteIfExists(
+        File(
+          '${episodeDirectory.path}${Platform.pathSeparator}group_cover$extension',
+        ),
+      );
+      await _deleteIfExists(
+        File(
+          '${episodeDirectory.path}${Platform.pathSeparator}${baseName}_group_cover$extension',
+        ),
+      );
+    }
+
+    if (_normalizeFilePathForComparison(episodeArtworkDirectory.path) ==
+        groupArtworkPath) {
+      return;
+    }
+    for (final extension in _recoveredImageExtensions) {
+      await _deleteIfExists(
+        File(
+          '${episodeArtworkDirectory.path}${Platform.pathSeparator}group_cover$extension',
+        ),
+      );
+    }
+    await _deleteEmptyDirectoriesUpward(episodeArtworkDirectory);
   }
 
   String _artworkFilePath(
@@ -1203,7 +3879,7 @@ class DownloadTaskService extends ChangeNotifier {
   }
 
   String _groupArtworkDirectory(String videoFilePath) {
-    final groupDirectory = _groupDirectoryForVideo(videoFilePath);
+    final groupDirectory = _recoveredGroupDirectoryForVideo(videoFilePath);
     return '${groupDirectory.path}${Platform.pathSeparator}_artwork';
   }
 
@@ -1387,7 +4063,7 @@ class DownloadTaskService extends ChangeNotifier {
     final uri = Uri.tryParse(trimmed);
     if (uri?.scheme == 'file') {
       try {
-        return uri!.toFilePath();
+        return uri!.toFilePath(windows: Platform.isWindows);
       } catch (_) {
         return null;
       }
@@ -1450,27 +4126,25 @@ class DownloadTaskService extends ChangeNotifier {
       } catch (_) {}
     }
 
-    await _deleteIfExists(File('${episodeDirectory.path}/cover.webp'));
-    await _deleteIfExists(File('${episodeDirectory.path}/cover.jpg'));
-    await _deleteIfExists(File('${episodeDirectory.path}/cover.jpeg'));
-    await _deleteIfExists(
-      File('${episodeDirectory.path}/${baseName}_cover.webp'),
-    );
-    await _deleteIfExists(
-      File('${episodeDirectory.path}/${baseName}_cover.jpg'),
-    );
-    await _deleteIfExists(
-      File('${episodeDirectory.path}/${baseName}_cover.jpeg'),
-    );
-    await _deleteIfExists(
-      File('${episodeDirectory.path}/${baseName}_group_cover.webp'),
-    );
-    await _deleteIfExists(
-      File('${episodeDirectory.path}/${baseName}_group_cover.jpg'),
-    );
-    await _deleteIfExists(
-      File('${episodeDirectory.path}/${baseName}_group_cover.jpeg'),
-    );
+    for (final danmakuFile in _localDanmakuCandidatesForVideo(path)) {
+      await _deleteIfExists(danmakuFile);
+    }
+
+    for (final extension in _recoveredImageExtensions) {
+      await _deleteIfExists(File('${episodeDirectory.path}/cover$extension'));
+      await _deleteIfExists(
+        File('${episodeDirectory.path}/${baseName}_cover$extension'),
+      );
+      await _deleteIfExists(
+        File('${episodeDirectory.path}/group_cover$extension'),
+      );
+      await _deleteIfExists(
+        File('${episodeDirectory.path}/${baseName}_group_cover$extension'),
+      );
+    }
+    await _deleteRedundantEpisodeGroupArtwork(path);
+    await _deleteIfExists(_recoveryMetadataFileForVideoPath(path));
+    await _deleteIfExists(File('$path$_pathRecoveryMetadataSuffix'));
     await _deleteEmptyDirectoriesUpward(episodeDirectory);
   }
 
@@ -1577,7 +4251,7 @@ class DownloadTaskService extends ChangeNotifier {
     return track.isExternal == 1 || track.extraFile == 1;
   }
 
-  Future<void> _materializeSubtitleForRecord({
+  Future<String?> _materializeSubtitleForRecord({
     required FeiniuApi? api,
     required DownloadTaskRecord record,
     required SubtitleTrackOption? subtitleTrack,
@@ -1590,8 +4264,8 @@ class DownloadTaskService extends ChangeNotifier {
     if (localFilePath != null) {
       try {
         final sourceFile = File(localFilePath);
-        if (!sourceFile.existsSync()) return;
-        if (subtitleTrack == null) return;
+        if (!sourceFile.existsSync()) return null;
+        if (subtitleTrack == null) return null;
         final targetFile = File(
           _subtitleFilePath(record.filePath, subtitleTrack),
         );
@@ -1600,6 +4274,7 @@ class DownloadTaskService extends ChangeNotifier {
           await targetFile.delete();
         }
         await sourceFile.copy(targetFile.path);
+        return targetFile.path;
       } catch (error, stackTrace) {
         await AppLogService.instance.recordWarning(
           error: error,
@@ -1609,18 +4284,19 @@ class DownloadTaskService extends ChangeNotifier {
               'item=${record.itemGuid} subtitle=${subtitleTrack?.guid ?? ''} media=${record.mediaGuid}',
         );
       }
-      return;
+      return null;
     }
-    if (subtitleTrack == null || api == null) return;
-    if (!_isDownloadableSubtitleTrack(subtitleTrack)) return;
+    if (subtitleTrack == null || api == null) return null;
+    if (!_isDownloadableSubtitleTrack(subtitleTrack)) return null;
     try {
       final text = await api.downloadSubtitleText(subtitleTrack.guid);
-      if (text.trim().isEmpty) return;
+      if (text.trim().isEmpty) return null;
       final targetFile = File(
         _subtitleFilePath(record.filePath, subtitleTrack),
       );
       await targetFile.parent.create(recursive: true);
       await targetFile.writeAsString(text, flush: true);
+      return targetFile.path;
     } catch (error, stackTrace) {
       await AppLogService.instance.recordWarning(
         error: error,
@@ -1630,6 +4306,57 @@ class DownloadTaskService extends ChangeNotifier {
             'item=${record.itemGuid} subtitle=${subtitleTrack.guid} media=${record.mediaGuid}',
       );
     }
+    return null;
+  }
+
+  List<SubtitleTrackOption> _persistedSubtitleTracksForRecord({
+    required DownloadTaskRecord record,
+    required List<SubtitleTrackOption> subtitleTracks,
+    required SubtitleTrackOption? subtitleTrack,
+    required String? localSubtitlePath,
+  }) {
+    final next = List<SubtitleTrackOption>.from(subtitleTracks);
+    if (subtitleTrack == null || localSubtitlePath == null) {
+      return next;
+    }
+    final localTrack = _buildPersistedLocalSubtitleTrack(
+      record: record,
+      sourceTrack: subtitleTrack,
+      localSubtitlePath: localSubtitlePath,
+    );
+    next.removeWhere((track) => track.guid.trim() == localTrack.guid);
+    next.add(localTrack);
+    return next;
+  }
+
+  SubtitleTrackOption _buildPersistedLocalSubtitleTrack({
+    required DownloadTaskRecord record,
+    required SubtitleTrackOption sourceTrack,
+    required String localSubtitlePath,
+  }) {
+    final localFile = File(localSubtitlePath);
+    final fileName = localFile.uri.pathSegments.isNotEmpty
+        ? localFile.uri.pathSegments.last
+        : localFile.path.split(Platform.pathSeparator).last;
+    final guid =
+        'local:${Uri.file(localFile.path, windows: Platform.isWindows)}';
+    final extension = _subtitleExtension(sourceTrack);
+    return SubtitleTrackOption(
+      mediaGuid: record.mediaGuid.trim().isNotEmpty
+          ? record.mediaGuid.trim()
+          : sourceTrack.mediaGuid,
+      guid: guid,
+      title: fileName,
+      codecName: extension,
+      format: extension,
+      language: sourceTrack.language.trim(),
+      index: -1,
+      isDefault: sourceTrack.isDefault,
+      forced: sourceTrack.forced,
+      isExternal: 1,
+      extraFile: 1,
+      isBitmap: sourceTrack.isBitmap,
+    );
   }
 
   Future<SubtitleTrackOption?> _resolveImportedCacheSubtitleTrack({
@@ -1767,6 +4494,199 @@ class DownloadTaskService extends ChangeNotifier {
     return 'ass';
   }
 
+  Future<void> _prefetchDanmakuForDownload({
+    required NasProvider provider,
+    required DownloadTaskRecord record,
+  }) async {
+    final normalizedItemGuid = record.itemGuid.trim();
+    if (normalizedItemGuid.isEmpty) {
+      return;
+    }
+    try {
+      if (!await DanDanPlayConfig.ensureConfigured()) {
+        return;
+      }
+      final api = FeiniuApi(provider);
+      final playInfo = await api.getPlayInfo(normalizedItemGuid);
+      final item = playInfo.item;
+      final seriesTitle = _downloadDanmakuSeriesTitle(
+        item: item,
+        record: record,
+      );
+      final itemTitle = item.title.trim().isNotEmpty
+          ? item.title.trim()
+          : record.title.trim();
+      final sourceItemGuid = item.guid.trim().isNotEmpty
+          ? item.guid.trim()
+          : normalizedItemGuid;
+      final sourceMediaGuid = record.mediaGuid.trim().isNotEmpty
+          ? record.mediaGuid.trim()
+          : playInfo.mediaGuid.trim();
+      final sourceSeasonGuid = playInfo.parentGuid.trim();
+      final mediaKey = _buildDanmakuMediaKey(
+        itemGuid: sourceItemGuid,
+        mediaGuid: sourceMediaGuid,
+        seasonGuid: sourceSeasonGuid,
+        seasonNumber: item.seasonNumber,
+        episodeNumber: item.episodeNumber,
+        seriesTitle: seriesTitle,
+        itemTitle: itemTitle,
+      );
+      final resolver = DanDanPlayResolver(
+        DanDanPlayApi(
+          appId: DanDanPlayConfig.appId,
+          appSecrets: DanDanPlayConfig.appSecrets,
+        ),
+      );
+      final resolved = await resolver.resolveForPlayback(
+        seriesTitle: seriesTitle,
+        seasonNumber: item.seasonNumber,
+        episodeNumber: item.episodeNumber,
+        tmdbId: item.trimId.trim(),
+      );
+      if (resolved == null) {
+        return;
+      }
+      const store = DanmakuSavedSourceStore();
+      final savedAtMs = DateTime.now().millisecondsSinceEpoch;
+      final source = DanmakuSavedSource(
+        type: DanmakuSavedSourceType.danDanPlay,
+        mediaKey: mediaKey,
+        sourceKey: resolved.item.episodeId.toString(),
+        label: resolved.item.displayTitle,
+        detail: resolved.item.displaySubtitle,
+        ancestorName: item.ancestorName.trim().isNotEmpty
+            ? item.ancestorName.trim()
+            : record.groupTitle.trim(),
+        seriesTitle: seriesTitle,
+        itemTitle: itemTitle,
+        itemGuid: sourceItemGuid,
+        seasonGuid: sourceSeasonGuid,
+        mediaGuid: sourceMediaGuid,
+        seasonNumber: item.seasonNumber,
+        episodeNumber: item.episodeNumber,
+        mediaType: item.type.trim(),
+        commentCount: resolved.result.comments.length,
+        updatedAtMs: savedAtMs,
+      );
+      await _saveDanmakuSourceWithLocalPriority(store: store, source: source);
+
+      final localFile = await _writeDownloadedDanmakuFile(
+        record: record,
+        resolved: resolved,
+      );
+      if (localFile != null) {
+        final targets = <_DanmakuRecoveryTarget>[];
+        void addTarget(_DanmakuRecoveryTarget target) {
+          if (target.mediaKey.trim().isEmpty ||
+              targets.any((entry) => entry.mediaKey == target.mediaKey)) {
+            return;
+          }
+          targets.add(target);
+        }
+
+        addTarget(
+          _DanmakuRecoveryTarget(
+            mediaKey: mediaKey,
+            seasonGuid: sourceSeasonGuid,
+          ),
+        );
+        for (final target in _danmakuRecoveryTargetsForRecord(record)) {
+          addTarget(target);
+        }
+
+        final localLabel = _lastPathSegment(localFile.path);
+        final localDetail = resolved.result.sourceLabel.trim().isNotEmpty
+            ? resolved.result.sourceLabel.trim()
+            : localFile.path;
+        final ancestorName = item.ancestorName.trim().isNotEmpty
+            ? item.ancestorName.trim()
+            : record.groupTitle.trim();
+        for (final target in targets) {
+          await _saveDanmakuSourceWithLocalPriority(
+            store: store,
+            source: DanmakuSavedSource(
+              type: DanmakuSavedSourceType.localFile,
+              mediaKey: target.mediaKey,
+              sourceKey: localFile.path,
+              label: localLabel,
+              detail: localDetail,
+              ancestorName: ancestorName,
+              seriesTitle: seriesTitle,
+              itemTitle: itemTitle,
+              itemGuid: sourceItemGuid,
+              seasonGuid: target.seasonGuid,
+              mediaGuid: sourceMediaGuid,
+              seasonNumber: item.seasonNumber,
+              episodeNumber: item.episodeNumber,
+              mediaType: item.type.trim(),
+              commentCount: resolved.result.comments.length,
+              updatedAtMs: savedAtMs,
+            ),
+          );
+        }
+      }
+    } catch (error, stackTrace) {
+      await AppLogService.instance.recordWarning(
+        error: error,
+        stackTrace: stackTrace,
+        source: 'download-danmaku-prefetch',
+        details: 'item=${record.itemGuid} media=${record.mediaGuid}',
+      );
+    }
+  }
+
+  String _downloadDanmakuSeriesTitle({
+    required PlayItem item,
+    required DownloadTaskRecord record,
+  }) {
+    final tvTitle = item.tvTitle.trim();
+    if (tvTitle.isNotEmpty) {
+      return tvTitle;
+    }
+    final parentTitle = item.parentTitle.trim();
+    if (parentTitle.isNotEmpty) {
+      return parentTitle;
+    }
+    final groupTitle = record.groupTitle.trim();
+    if (groupTitle.isNotEmpty) {
+      return groupTitle;
+    }
+    return item.title.trim().isNotEmpty
+        ? item.title.trim()
+        : record.title.trim();
+  }
+
+  String _buildDanmakuMediaKey({
+    required String itemGuid,
+    required String mediaGuid,
+    required String seasonGuid,
+    required int seasonNumber,
+    required int episodeNumber,
+    required String seriesTitle,
+    required String itemTitle,
+  }) {
+    final normalizedItemGuid = itemGuid.trim();
+    final normalizedMediaGuid = mediaGuid.trim();
+    final normalizedSeasonGuid = seasonGuid.trim();
+    if (normalizedItemGuid.isNotEmpty ||
+        normalizedMediaGuid.isNotEmpty ||
+        normalizedSeasonGuid.isNotEmpty ||
+        episodeNumber > 0) {
+      return <String>[
+        'v2',
+        'item=$normalizedItemGuid',
+        'media=$normalizedMediaGuid',
+        'season=$normalizedSeasonGuid',
+        's=$seasonNumber',
+        'e=$episodeNumber',
+      ].join('|');
+    }
+    final title = (seriesTitle.trim().isNotEmpty ? seriesTitle : itemTitle)
+        .trim();
+    return 'fallback:v2:$title:$seasonNumber:$episodeNumber';
+  }
+
   DownloadTaskRecord? _findLatestRecord({
     required String itemGuid,
     required String resolution,
@@ -1842,12 +4762,97 @@ class DownloadTaskService extends ChangeNotifier {
   }
 
   String _canonicalGroupId(DownloadTaskRecord record) {
+    if (_isGenericRecoveredRecord(record)) {
+      if (record.itemGuid.trim().isNotEmpty &&
+          record.groupId.trim().isNotEmpty) {
+        return record.groupId.trim();
+      }
+      final path = record.filePath.trim();
+      if (path.isNotEmpty) {
+        final groupTitle = _displayGroupTitleForRecord(record);
+        return _inferRecoveredGroupId(path, groupTitle: groupTitle);
+      }
+    }
     final title = record.groupTitle.trim();
     if (title.isNotEmpty) return title;
     final groupId = record.groupId.trim();
     if (groupId.isNotEmpty) return groupId;
     return record.itemGuid.trim();
   }
+
+  String _displayGroupTitleForRecord(DownloadTaskRecord record) {
+    if (_isGenericRecoveredRecord(record)) {
+      if (record.itemGuid.trim().isNotEmpty &&
+          record.groupTitle.trim().isNotEmpty) {
+        return record.groupTitle.trim();
+      }
+      final path = record.filePath.trim();
+      if (path.isNotEmpty) {
+        return _inferRecoveredGroupTitle(
+          path,
+          fallbackTitle: record.groupTitle.trim().isNotEmpty
+              ? record.groupTitle.trim()
+              : record.title.trim(),
+        );
+      }
+    }
+    final groupTitle = record.groupTitle.trim();
+    if (groupTitle.isNotEmpty) return groupTitle;
+    final title = record.title.trim();
+    if (title.isNotEmpty) return title;
+    return record.fileName.trim();
+  }
+
+  String _displayRecordTitleForRecord(DownloadTaskRecord record) {
+    final title = record.title.trim();
+    if (!_isGenericRecoveredRecord(record)) {
+      if (title.isNotEmpty) return title;
+      return record.fileName.trim();
+    }
+
+    final path = record.filePath.trim();
+    final fileName = record.fileName.trim().isNotEmpty
+        ? record.fileName.trim()
+        : (path.isNotEmpty ? _lastPathSegment(path) : '');
+    final fallbackTitle = title.isNotEmpty
+        ? title
+        : (fileName.isNotEmpty ? _fileNameBase(fileName).trim() : '');
+    if (path.isEmpty) return fallbackTitle;
+    final groupTitle = _displayGroupTitleForRecord(record);
+    final rawTitle = title.isNotEmpty
+        ? title
+        : _inferRecoveredEpisodeTitle(path, fallbackTitle: fallbackTitle);
+    final displayTitle = _normalizeRecoveredEpisodeTitle(
+      rawTitle,
+      groupTitle: groupTitle,
+      fileName: fileName,
+    );
+    return displayTitle.trim().isNotEmpty ? displayTitle : fallbackTitle;
+  }
+
+  static const Set<String> _videoFileExtensions = <String>{
+    'mp4',
+    'm4v',
+    'mkv',
+    'webm',
+    'avi',
+    'mov',
+    'wmv',
+    'flv',
+    'ts',
+    'm2ts',
+    'mts',
+    '3gp',
+    '3g2',
+    'mpg',
+    'mpeg',
+    'ogv',
+    'rm',
+    'rmvb',
+    'vob',
+    'asf',
+    'f4v',
+  };
 
   static const DownloadTaskRecord _emptyRecord = DownloadTaskRecord(
     id: '__empty__',
@@ -1870,6 +4875,111 @@ class DownloadTaskService extends ChangeNotifier {
     createdAtMs: 0,
     updatedAtMs: 0,
   );
+}
+
+class _RecoveryMetadataCandidate {
+  final File file;
+  final bool pathSpecific;
+
+  const _RecoveryMetadataCandidate({
+    required this.file,
+    required this.pathSpecific,
+  });
+}
+
+class _RecoveredVideoContext {
+  final File file;
+  final int actualBytes;
+  final DownloadTaskRecord? metadata;
+  final String itemGuid;
+  final String mediaGuid;
+  final String fileName;
+  final String title;
+  final String groupId;
+  final String groupTitle;
+  final String durationText;
+  final String resolution;
+  final List<String> posterUrls;
+  final List<String> groupPosterUrls;
+
+  const _RecoveredVideoContext({
+    required this.file,
+    required this.actualBytes,
+    required this.metadata,
+    required this.itemGuid,
+    required this.mediaGuid,
+    required this.fileName,
+    required this.title,
+    required this.groupId,
+    required this.groupTitle,
+    required this.durationText,
+    required this.resolution,
+    required this.posterUrls,
+    required this.groupPosterUrls,
+  });
+}
+
+class _RecoveredBackendLookup {
+  final NasProvider provider;
+  final FeiniuApi api;
+  final Map<String, Future<PlayInfoData?>> playInfoByItemGuid =
+      <String, Future<PlayInfoData?>>{};
+  final Map<String, Future<_StoredGroupMeta?>> groupMetaByItemGuid =
+      <String, Future<_StoredGroupMeta?>>{};
+  final Map<String, Future<List<MediaLibraryItem>>> searchByQuery =
+      <String, Future<List<MediaLibraryItem>>>{};
+  final Map<String, Future<List<MediaLibraryItem>>> seasonsByItemGuid =
+      <String, Future<List<MediaLibraryItem>>>{};
+  final Map<String, Future<List<MediaLibraryItem>>> episodesBySeasonGuid =
+      <String, Future<List<MediaLibraryItem>>>{};
+
+  _RecoveredBackendLookup(this.provider) : api = FeiniuApi(provider);
+}
+
+class _RecoveredBackendMetadata {
+  final String itemGuid;
+  final String mediaGuid;
+  final String groupId;
+  final String groupTitle;
+  final String title;
+  final String durationText;
+  final String resolution;
+  final List<String> posterUrls;
+  final List<String> groupPosterUrls;
+
+  const _RecoveredBackendMetadata({
+    required this.itemGuid,
+    required this.mediaGuid,
+    required this.groupId,
+    required this.groupTitle,
+    required this.title,
+    required this.durationText,
+    required this.resolution,
+    required this.posterUrls,
+    required this.groupPosterUrls,
+  });
+}
+
+class _LocalVideoMetadata {
+  final int durationMs;
+  final int width;
+  final int height;
+
+  const _LocalVideoMetadata({
+    required this.durationMs,
+    required this.width,
+    required this.height,
+  });
+}
+
+class _DanmakuRecoveryTarget {
+  final String mediaKey;
+  final String seasonGuid;
+
+  const _DanmakuRecoveryTarget({
+    required this.mediaKey,
+    required this.seasonGuid,
+  });
 }
 
 class _ImportedCacheArtwork {

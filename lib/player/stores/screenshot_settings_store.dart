@@ -34,23 +34,23 @@ class ScreenshotSettingsStore {
       <ScreenshotSavePathOption>[
         ScreenshotSavePathOption(
           value: 'pictures',
-          label: '系统相册',
-          description: '保存到 Pictures/FlyPlayer，适合普通截图查看。',
+          label: 'Pictures',
+          description: 'Save to Pictures/FlyPlayer.',
         ),
         ScreenshotSavePathOption(
           value: 'dcim',
-          label: '相机目录',
-          description: '保存到 DCIM/FlyPlayer，更容易被系统相册归类展示。',
+          label: 'DCIM',
+          description: 'Save to DCIM/FlyPlayer.',
         ),
         ScreenshotSavePathOption(
           value: 'app_pictures',
-          label: '应用目录',
-          description: '保存到应用专属图片目录，更干净，但部分图库不会直接扫描。',
+          label: 'App pictures',
+          description: 'Save to the app-specific pictures directory.',
         ),
         ScreenshotSavePathOption(
           value: customSavePathMode,
-          label: '自定义目录',
-          description: '保存到用户自己选择的文件夹，适合集中管理截图。',
+          label: 'Custom folder',
+          description: 'Save to a folder selected by the user.',
         ),
       ];
 
@@ -90,7 +90,7 @@ class ScreenshotSettingsStore {
   }
 
   String subtitleModeLabel(bool includeSubtitles) {
-    return includeSubtitles ? '携带字幕' : '仅画面';
+    return includeSubtitles ? 'With subtitles' : 'Image only';
   }
 
   String savePathLabel(String value) {

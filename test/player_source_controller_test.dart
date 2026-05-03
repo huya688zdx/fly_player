@@ -1,171 +1,168 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'dart:io';
-
-import 'package:fly_player/player/controllers/player_source_controller.dart';
 import 'package:fly_player/models/playback_stream.dart';
 import 'package:fly_player/models/stream_track_data.dart';
-import 'package:fly_player/player/controllers/player_subtitle_controller.dart';
+import 'package:fly_player/player/controllers/player_source_controller.dart';
 
 void main() {
-  group('PlayerSourceController.shouldForceNativeProxyForPlaybackUrl', () {
-    test('forces proxy for protected NAS server-session HLS', () {
-      final shouldForce =
-          PlayerSourceController.shouldForceNativeProxyForPlaybackUrl(
-            'http://192.168.6.120:5666/v/media/session-1/preset.m3u8',
-            const {
-              'Authorization': 'Bearer token',
-              'Trim-MC-token': 'trim-token',
-            },
-          );
-
-      expect(shouldForce, isTrue);
-    });
-
-    test('does not force proxy without NAS auth headers', () {
-      final shouldForce =
-          PlayerSourceController.shouldForceNativeProxyForPlaybackUrl(
-            'http://192.168.6.120:5666/v/media/session-1/preset.m3u8',
-            const {'User-Agent': 'fly-player'},
-          );
-
-      expect(shouldForce, isFalse);
-    });
-
-    test('does not force proxy for signed cloud playback urls', () {
-      final shouldForce =
-          PlayerSourceController.shouldForceNativeProxyForPlaybackUrl(
-            'https://media.ctyun.cn/video/preset.m3u8?X-Amz-Signature=abc',
-            const {'Authorization': 'Bearer token'},
-          );
-
-      expect(shouldForce, isFalse);
-    });
-
-    test('does not force proxy for non-HLS media files', () {
-      final shouldForce =
-          PlayerSourceController.shouldForceNativeProxyForPlaybackUrl(
-            'http://192.168.6.120:5666/v/media/session-1/video.mp4',
-            const {'Authorization': 'Bearer token'},
-          );
-
-      expect(shouldForce, isFalse);
-    });
-  });
-
-  group('PlayerSourceController.resolveReloadVideoState', () {
-    const snapshot = PlayerSourceSnapshot(
-      itemGuid: 'item-1',
+  group('PlayerSourceController.preferredInitialQuality', () {
+    const original = PlaybackQualityOption(
       mediaGuid: 'media-1',
-      subtitleSourceMediaGuid: 'media-1',
-      videoGuid: 'video-720',
+      videoGuid: 'video-original',
+      resolution: 'Original',
+      bitrate: 0,
+      isDefault: 0,
+      source: PlaybackQualitySource.originalProxy,
       directLinkQualityIndex: null,
-      audioGuid: 'audio-1',
-      subtitleGuid: 'sub-1',
+    );
+    const direct1080 = PlaybackQualityOption(
+      mediaGuid: 'media-1',
+      videoGuid: 'video-1080',
+      resolution: '1080p',
+      bitrate: 4000000,
+      isDefault: 1,
+      source: PlaybackQualitySource.directLink,
+      directLinkQualityIndex: 0,
+    );
+    const direct720 = PlaybackQualityOption(
+      mediaGuid: 'media-1',
+      videoGuid: 'video-720',
       resolution: '720p',
       bitrate: 2500000,
-      fileSizeBytes: 0,
-      videoWidth: 1280,
-      videoHeight: 720,
-      currentHeaders: <String, String>{},
-      activeProxySessionId: 'proxy-1',
-      activeSubtitleProxySessionId: null,
-      audioTracks: <AudioTrackOption>[],
-      subtitleTracks: <SubtitleTrackOption>[],
-      qualities: <PlaybackQualityOption>[],
-      playbackMode: PlayerPlaybackMode.serverSession,
-      serverFallbackSubtitleGuids: <String>{},
+      isDefault: 0,
+      source: PlaybackQualitySource.directLink,
+      directLinkQualityIndex: 1,
     );
-    const targetVideoInfo = VideoStreamInfo(
+    const server1080 = PlaybackQualityOption(
       mediaGuid: 'media-1',
-      guid: 'video-1080',
-      resolutionType: '1080p',
-      colorRangeType: '',
-      codecName: 'hevc',
-      profile: 'main10',
-      level: '',
-      displayAspectRatio: '',
-      pixFmt: '',
-      rFrameRate: '',
-      colorRange: '',
-      colorSpace: 'bt709',
-      colorTransfer: 'bt709',
-      colorPrimaries: 'bt709',
-      bps: 4000000,
-      bitDepth: 10,
-      refs: 0,
-      progressive: 1,
-      width: 1920,
-      height: 1080,
+      videoGuid: 'video-server-1080',
+      resolution: '1080p',
+      bitrate: 4000000,
+      isDefault: 0,
+      source: PlaybackQualitySource.serverSession,
+      directLinkQualityIndex: null,
     );
 
-    test(
-      'keeps current server-managed quality when reload request has no quality',
-      () {
-        final resolved = PlayerSourceController.resolveReloadVideoState(
-          selectedQuality: null,
-          snapshot: snapshot,
-          targetVideoInfo: targetVideoInfo,
-        );
-
-        expect(resolved.videoGuid, 'video-720');
-        expect(resolved.resolution, '720p');
-        expect(resolved.bitrate, 2500000);
-        expect(resolved.videoWidth, 1280);
-        expect(resolved.videoHeight, 720);
-      },
-    );
-
-    test('uses explicit selected quality when provided', () {
-      const selectedQuality = PlaybackQualityOption(
-        mediaGuid: 'media-1',
-        videoGuid: 'video-480',
-        resolution: '480p',
-        bitrate: 1200000,
-        isDefault: 0,
-        source: PlaybackQualitySource.serverSession,
-        directLinkQualityIndex: null,
+    test('prefers the default direct-link quality by default', () {
+      final selected = PlayerSourceController.preferredInitialQuality(
+        const <PlaybackQualityOption>[server1080, direct1080, direct720],
       );
 
-      final resolved = PlayerSourceController.resolveReloadVideoState(
-        selectedQuality: selectedQuality,
-        snapshot: snapshot,
-        targetVideoInfo: targetVideoInfo,
+      expect(selected, direct1080);
+    });
+
+    test('can prefer the lowest direct-link quality on remote hosts', () {
+      final selected = PlayerSourceController.preferredInitialQuality(
+        const <PlaybackQualityOption>[original, direct1080, direct720],
+        preferConservativeDirectLink: true,
       );
 
-      expect(resolved.videoGuid, 'video-480');
-      expect(resolved.resolution, '480p');
-      expect(resolved.bitrate, 1200000);
-      expect(resolved.videoWidth, 1920);
-      expect(resolved.videoHeight, 1080);
+      expect(selected, direct720);
+    });
+
+    test('falls back to original proxy when no direct-link quality exists', () {
+      final selected = PlayerSourceController.preferredInitialQuality(
+        const <PlaybackQualityOption>[server1080, original],
+      );
+
+      expect(selected, original);
     });
   });
 
-  group('PlayerSubtitleController.activeExternalSubtitlePath', () {
-    test(
-      'falls back to cached subtitle path after pending path is cleared',
-      () async {
-        final controller = PlayerSubtitleController();
-        final tempDir = await Directory.systemTemp.createTemp(
-          'fly_player_subtitle_test_',
-        );
-        final subtitleFile = File(
-          '${tempDir.path}${Platform.pathSeparator}subtitle.ass',
-        );
-        await subtitleFile.writeAsString('[Script Info]\n');
-        controller.cacheLocalSubtitleFile(
-          guid: 'sub-external',
-          path: subtitleFile.path,
-        );
+  group('PlayerSourceController.shouldPreferConservativeDirectLink', () {
+    test('treats external hosts as conservative direct-link candidates', () {
+      expect(
+        PlayerSourceController.shouldPreferConservativeDirectLink(
+          'https://media.example.com',
+        ),
+        isTrue,
+      );
+    });
 
-        final resolved = controller.activeExternalSubtitlePath(
-          currentGuid: 'sub-external',
-          pendingExternalSubtitlePath: null,
-        );
+    test('keeps local hosts on the normal startup path', () {
+      expect(
+        PlayerSourceController.shouldPreferConservativeDirectLink(
+          'http://192.168.6.120:5666',
+        ),
+        isFalse,
+      );
+      expect(
+        PlayerSourceController.shouldPreferConservativeDirectLink(
+          'http://localhost:5666',
+        ),
+        isFalse,
+      );
+    });
+  });
 
-        expect(resolved, subtitleFile.path);
-        await tempDir.delete(recursive: true);
-      },
+  group('PlayerSourceController.subtitle helpers', () {
+    const externalTrack = SubtitleTrackOption(
+      mediaGuid: 'media-1',
+      guid: 'sub-external',
+      title: 'External',
+      codecName: 'ass',
+      format: 'ass',
+      language: 'eng',
+      index: 1,
+      isDefault: 0,
+      forced: 0,
+      isExternal: 1,
+      extraFile: 1,
+      isBitmap: 0,
     );
+    const bitmapTrack = SubtitleTrackOption(
+      mediaGuid: 'media-1',
+      guid: 'sub-bitmap',
+      title: 'PGS',
+      codecName: 'hdmv_pgs_subtitle',
+      format: 'pgs',
+      language: 'eng',
+      index: 2,
+      isDefault: 0,
+      forced: 0,
+      isExternal: 0,
+      extraFile: 0,
+      isBitmap: 1,
+    );
+
+    test('requires an external file only when the track truly needs one', () {
+      expect(
+        PlayerSourceController.subtitleShouldUseExternalFile(
+          externalTrack,
+          const <String>{},
+        ),
+        isTrue,
+      );
+      expect(
+        PlayerSourceController.subtitleShouldUseExternalFile(
+          externalTrack,
+          const <String>{'sub-external'},
+        ),
+        isFalse,
+      );
+      expect(
+        PlayerSourceController.subtitleShouldUseExternalFile(
+          bitmapTrack,
+          const <String>{},
+        ),
+        isFalse,
+      );
+    });
+
+    test('looks up subtitle tracks by guid', () {
+      final resolved = PlayerSourceController.subtitleTrackByGuid(
+        'sub-external',
+        const <SubtitleTrackOption>[bitmapTrack, externalTrack],
+      );
+
+      expect(resolved, externalTrack);
+      expect(
+        PlayerSourceController.subtitleTrackByGuid(
+          'missing',
+          const <SubtitleTrackOption>[bitmapTrack, externalTrack],
+        ),
+        isNull,
+      );
+    });
   });
 }

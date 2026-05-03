@@ -71,6 +71,10 @@ class ApiUrlHelper {
   }) {
     final raw = path.trim();
     if (raw.isEmpty) return const <String>[];
+    final uri = Uri.tryParse(raw);
+    if (uri?.scheme == 'file') {
+      return <String>[raw];
+    }
     if (raw.startsWith('http://') || raw.startsWith('https://')) {
       return _absoluteImageCandidates(
         baseUrl,

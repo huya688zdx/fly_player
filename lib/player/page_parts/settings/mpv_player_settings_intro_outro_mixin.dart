@@ -1,13 +1,14 @@
-part of mpv_player_page;
+part of '../../mpv_player_page.dart';
 
 extension _MpvPlayerSettingsIntroOutroMixin on _MpvPlayerPageState {
   Widget _buildPlaybackSettingsIntroOutroPage(
     BuildContext context,
     PlayerNestedSheetController<void> drawer,
   ) {
+    final l10n = AppLocalizations.of(context);
     return PlayerNestedSheetScaffold(
       header: PlayerNestedSheetHeader(
-        title: '片头片尾设置',
+        title: l10n.playerIntroOutroSettingsTitle,
         onBack: drawer.popPage,
       ),
       child: _buildIntroOutroMainList(drawer),
@@ -31,18 +32,19 @@ extension _MpvPlayerSettingsIntroOutroMixin on _MpvPlayerPageState {
   }
 
   Widget _buildIntroOutroMainList(PlayerNestedSheetController<void> drawer) {
+    final l10n = AppLocalizations.of(context);
     return ListView(
       padding: EdgeInsets.zero,
       children: [
         PlaybackSettingsStatusCard(
-          title: 'OP/ED 跳过',
+          title: l10n.playerIntroOutroStatusTitle,
           value: _introOutroSourceModeLabel(),
           description: _introOutroDisplaySummaryTextV3(),
         ),
         const SizedBox(height: 12),
         PlaybackSettingsChoiceTile(
-          title: '关闭',
-          subtitle: '不自动跳过片头片尾',
+          title: l10n.playerIntroOutroOffTitle,
+          subtitle: l10n.playerIntroOutroOffSubtitle,
           selected:
               _introOutroSourceMode ==
               _MpvPlayerPageState._introOutroSourceModeOff,
@@ -55,8 +57,8 @@ extension _MpvPlayerSettingsIntroOutroMixin on _MpvPlayerPageState {
         ),
         const SizedBox(height: 10),
         PlaybackSettingsChoiceTile(
-          title: '自动跳过官方片头片尾',
-          subtitle: '使用飞牛官方片头片尾时长配置',
+          title: l10n.playerIntroOutroOfficialTitle,
+          subtitle: l10n.playerIntroOutroOfficialSubtitle,
           selected:
               _introOutroSourceMode ==
               _MpvPlayerPageState._introOutroSourceModeOfficial,
@@ -71,8 +73,8 @@ extension _MpvPlayerSettingsIntroOutroMixin on _MpvPlayerPageState {
             _MpvPlayerPageState._introOutroSourceModeOfficial) ...[
           const SizedBox(height: 10),
           PlaybackSettingsMenuTile(
-            title: '飞牛官方设置',
-            subtitle: '设置官方片头片尾跳过时长',
+            title: l10n.playerIntroOutroOfficialSettingsTitle,
+            subtitle: l10n.playerIntroOutroOfficialSettingsSubtitle,
             trailingLabel:
                 '${_formatSecondsLabel(_officialIntroDurationSeconds)} / ${_formatSecondsLabel(_officialOutroDurationSeconds)}',
             onTap: () => drawer.push(_playerSettingsOfficialConfigPageId),
@@ -80,8 +82,8 @@ extension _MpvPlayerSettingsIntroOutroMixin on _MpvPlayerPageState {
         ],
         const SizedBox(height: 10),
         PlaybackSettingsChoiceTile(
-          title: '章节判断跳过',
-          subtitle: '根据章节自动判断，或手动选择章节作为 OP/ED',
+          title: l10n.playerIntroOutroChapterModeTitle,
+          subtitle: l10n.playerIntroOutroChapterModeSubtitle,
           selected:
               _introOutroSourceMode ==
               _MpvPlayerPageState._introOutroSourceModeChapter,
@@ -96,7 +98,7 @@ extension _MpvPlayerSettingsIntroOutroMixin on _MpvPlayerPageState {
             _MpvPlayerPageState._introOutroSourceModeChapter) ...[
           const SizedBox(height: 10),
           PlaybackSettingsMenuTile(
-            title: '章节跳过设置',
+            title: l10n.playerIntroOutroChapterSettingsTitle,
             subtitle: _chapterSkipModeSummaryText(),
             trailingLabel: _chapterSkipModeLabel(),
             onTap: () => drawer.push(_playerSettingsChapterConfigPageId),
@@ -110,22 +112,23 @@ extension _MpvPlayerSettingsIntroOutroMixin on _MpvPlayerPageState {
     BuildContext context,
     PlayerNestedSheetController<void> drawer,
   ) {
+    final l10n = AppLocalizations.of(context);
     return PlayerNestedSheetScaffold(
       header: PlayerNestedSheetHeader(
-        title: '自动跳过官方片头片尾',
+        title: l10n.playerIntroOutroOfficialTitle,
         onBack: drawer.popPage,
       ),
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
           PlaybackSettingsMenuTile(
-            title: '跳过片头',
+            title: l10n.playerSkipIntroTitle,
             trailingLabel: _formatSecondsLabel(_officialIntroDurationSeconds),
             onTap: () => drawer.push(_playerSettingsOfficialOpeningPageId),
           ),
           const SizedBox(height: 12),
           PlaybackSettingsMenuTile(
-            title: '跳过片尾',
+            title: l10n.playerSkipOutroTitle,
             trailingLabel: _formatSecondsLabel(_officialOutroDurationSeconds),
             onTap: () => drawer.push(_playerSettingsOfficialEndingPageId),
           ),
@@ -138,7 +141,10 @@ extension _MpvPlayerSettingsIntroOutroMixin on _MpvPlayerPageState {
     PlayerNestedSheetController<void> drawer, {
     required bool intro,
   }) {
-    final title = intro ? '片头时长' : '片尾时长';
+    final l10n = AppLocalizations.of(context);
+    final title = intro
+        ? l10n.playerIntroDurationTitle
+        : l10n.playerOutroDurationTitle;
     final duration = _effectiveDuration();
     final currentPosition = _displayPosition(_controller.value.value);
     final currentSeconds = intro
@@ -156,13 +162,17 @@ extension _MpvPlayerSettingsIntroOutroMixin on _MpvPlayerPageState {
           PlaybackSettingsStatusCard(
             title: title,
             value: _formatSecondsLabel(selectedSeconds),
-            description: intro ? '设置官方片头跳过时长' : '设置官方片尾跳过时长',
+            description: intro
+                ? l10n.playerOfficialIntroDescription
+                : l10n.playerOfficialOutroDescription,
           ),
           const SizedBox(height: 12),
           PlaybackSettingsMenuTile(
-            title: '当前播放时间',
+            title: l10n.playerCurrentPlaybackTime,
             subtitle: _formatSecondsLabel(currentSeconds),
-            trailingLabel: intro ? '设为片头' : '设为片尾',
+            trailingLabel: intro
+                ? l10n.playerSetAsIntro
+                : l10n.playerSetAsOutro,
             onTap: () async {
               await _setOfficialIntroOutroDuration(
                 intro: intro,
@@ -175,8 +185,8 @@ extension _MpvPlayerSettingsIntroOutroMixin on _MpvPlayerPageState {
           ),
           const SizedBox(height: 12),
           PlaybackSettingsStepperTile(
-            title: '自定义',
-            subtitle: '距离片头/片尾多少秒时开始跳过',
+            title: l10n.playerCustomDurationTitle,
+            subtitle: l10n.playerCustomDurationSubtitle,
             valueLabel: _formatSecondsLabel(selectedSeconds),
             onDecrease: () async {
               await _setOfficialIntroOutroDuration(
@@ -199,8 +209,8 @@ extension _MpvPlayerSettingsIntroOutroMixin on _MpvPlayerPageState {
           ),
           const SizedBox(height: 12),
           PlaybackSettingsMenuTile(
-            title: '\u91cd\u7f6e',
-            subtitle: '\u6062\u590d\u4e3a 0 \u79d2',
+            title: l10n.commonReset,
+            subtitle: l10n.playerResetToZeroSeconds,
             onTap: () async {
               await _setOfficialIntroOutroDuration(intro: intro, seconds: 0);
               if (mounted) {
@@ -217,17 +227,18 @@ extension _MpvPlayerSettingsIntroOutroMixin on _MpvPlayerPageState {
     BuildContext context,
     PlayerNestedSheetController<void> drawer,
   ) {
+    final l10n = AppLocalizations.of(context);
     return PlayerNestedSheetScaffold(
       header: PlayerNestedSheetHeader(
-        title: '章节判断跳过',
+        title: l10n.playerIntroOutroChapterModeTitle,
         onBack: drawer.popPage,
       ),
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
           PlaybackSettingsChoiceTile(
-            title: '自动判断',
-            subtitle: '根据章节位置和短章节时长自动识别 OP/ED',
+            title: l10n.playerIntroOutroAutoModeTitle,
+            subtitle: l10n.playerIntroOutroAutoModeSubtitle,
             selected:
                 _chapterSkipMode == _MpvPlayerPageState._chapterSkipModeAuto,
             onTap: () {
@@ -237,8 +248,8 @@ extension _MpvPlayerSettingsIntroOutroMixin on _MpvPlayerPageState {
           ),
           const SizedBox(height: 12),
           PlaybackSettingsChoiceTile(
-            title: '手动选择章节',
-            subtitle: '手动指定章节作为片头片尾',
+            title: l10n.playerIntroOutroManualModeTitle,
+            subtitle: l10n.playerIntroOutroManualModeSubtitle,
             selected:
                 _chapterSkipMode == _MpvPlayerPageState._chapterSkipModeManual,
             onTap: () {
@@ -248,11 +259,13 @@ extension _MpvPlayerSettingsIntroOutroMixin on _MpvPlayerPageState {
           ),
           if (_chapterSkipMode == _MpvPlayerPageState._chapterSkipModeAuto) ...[
             const SizedBox(height: 16),
-            const PlaybackSettingsSectionLabel(label: '自动判断范围'),
+            PlaybackSettingsSectionLabel(
+              label: l10n.playerIntroOutroAutoRangeLabel,
+            ),
             const SizedBox(height: 10),
             PlaybackSettingsStepperTile(
-              title: '片头最大章节时长',
-              subtitle: '前段短章节小于该时长时，优先判定为片头',
+              title: l10n.playerIntroMaxChapterDurationTitle,
+              subtitle: l10n.playerIntroMaxChapterDurationSubtitle,
               valueLabel: _formatSecondsLabel(_introDurationSeconds),
               onDecrease: () {
                 _adjustIntroOutroDuration(intro: true, deltaSeconds: -10);
@@ -265,8 +278,8 @@ extension _MpvPlayerSettingsIntroOutroMixin on _MpvPlayerPageState {
             ),
             const SizedBox(height: 10),
             PlaybackSettingsStepperTile(
-              title: '片尾最大章节时长',
-              subtitle: '尾段短章节小于该时长时，优先判定为片尾',
+              title: l10n.playerOutroMaxChapterDurationTitle,
+              subtitle: l10n.playerOutroMaxChapterDurationSubtitle,
               valueLabel: _formatSecondsLabel(_outroDurationSeconds),
               onDecrease: () {
                 _adjustIntroOutroDuration(intro: false, deltaSeconds: -10);
@@ -282,8 +295,8 @@ extension _MpvPlayerSettingsIntroOutroMixin on _MpvPlayerPageState {
               _MpvPlayerPageState._chapterSkipModeManual) ...[
             const SizedBox(height: 16),
             PlaybackSettingsMenuTile(
-              title: '片头章节',
-              subtitle: '手动指定片头章节',
+              title: l10n.playerIntroChapterTitle,
+              subtitle: l10n.playerIntroChapterSubtitle,
               trailingLabel: _chapterSelectionLabel(
                 chapters: _chapters,
                 chapterIndex: _introChapterIndex,
@@ -292,8 +305,8 @@ extension _MpvPlayerSettingsIntroOutroMixin on _MpvPlayerPageState {
             ),
             const SizedBox(height: 12),
             PlaybackSettingsMenuTile(
-              title: '片尾章节',
-              subtitle: '手动指定片尾章节',
+              title: l10n.playerOutroChapterTitle,
+              subtitle: l10n.playerOutroChapterSubtitle,
               trailingLabel: _chapterSelectionLabel(
                 chapters: _chapters,
                 chapterIndex: _outroChapterIndex,
@@ -404,13 +417,16 @@ extension _MpvPlayerSettingsIntroOutroMixin on _MpvPlayerPageState {
     required List<MpvChapterItem> chapters,
     required int? chapterIndex,
   }) {
-    if (chapterIndex == null) return '未设置';
+    final l10n = AppLocalizations.of(context);
+    if (chapterIndex == null) return l10n.playerUnset;
     for (final item in chapters) {
       if (item.index != chapterIndex) continue;
       final title = item.title.trim();
-      return title.isNotEmpty ? title : '绗?${item.index + 1} 绔?';
+      return title.isNotEmpty
+          ? title
+          : l10n.playerChapterNumber(item.index + 1);
     }
-    return '绗?${chapterIndex + 1} 绔?';
+    return l10n.playerChapterNumber(chapterIndex + 1);
   }
 
   String _formatSecondsLabel(int seconds) {
@@ -422,20 +438,22 @@ extension _MpvPlayerSettingsIntroOutroMixin on _MpvPlayerPageState {
   }
 
   String _introOutroSourceModeLabel() {
+    final l10n = AppLocalizations.of(context);
     switch (_introOutroSourceMode) {
       case _MpvPlayerPageState._introOutroSourceModeOfficial:
-        return '自动跳过官方片头片尾';
+        return l10n.playerIntroOutroOfficialTitle;
       case _MpvPlayerPageState._introOutroSourceModeChapter:
-      return '章节判断';
+        return l10n.playerIntroOutroSourceChapterLabel;
       default:
-        return '已关闭';
+        return l10n.playerIntroOutroSourceOffLabel;
     }
   }
 
   String _chapterSkipModeLabel() {
+    final l10n = AppLocalizations.of(context);
     return _chapterSkipMode == _MpvPlayerPageState._chapterSkipModeManual
-          ? '手动选择'
-          : '自动判断';
+        ? l10n.playerIntroOutroManualLabel
+        : l10n.playerIntroOutroAutoLabel;
   }
 
   String _chapterSkipModeSummaryText() {
@@ -448,11 +466,14 @@ extension _MpvPlayerSettingsIntroOutroMixin on _MpvPlayerPageState {
         chapters: _chapters,
         chapterIndex: _outroChapterIndex,
       );
-    return '片头：$introLabel，片尾：$outroLabel';
+      return AppLocalizations.of(
+        context,
+      ).playerIntroOutroManualSummary(introLabel, outroLabel);
     }
-    final introLabel = _inferredIntroSkip?.label ?? '未识别';
-    final outroLabel = _inferredOutroSkip?.label ?? '未识别';
-    return '自动判断结果，片头：$introLabel，片尾：$outroLabel';
+    final l10n = AppLocalizations.of(context);
+    final introLabel = _inferredIntroSkip?.label ?? l10n.playerUnrecognized;
+    final outroLabel = _inferredOutroSkip?.label ?? l10n.playerUnrecognized;
+    return l10n.playerIntroOutroAutoSummary(introLabel, outroLabel);
   }
 
   String _introOutroDisplayStatusLabelV3() {
@@ -461,11 +482,14 @@ extension _MpvPlayerSettingsIntroOutroMixin on _MpvPlayerPageState {
 
   String _introOutroDisplaySummaryTextV3() {
     if (_introOutroSourceMode == _MpvPlayerPageState._introOutroSourceModeOff) {
-    return '关闭后不会自动跳过片头片尾';
+      return AppLocalizations.of(context).playerIntroOutroOffSummary;
     }
     if (_introOutroSourceMode ==
         _MpvPlayerPageState._introOutroSourceModeOfficial) {
-    return '官方片头 ${_formatSecondsLabel(_officialIntroDurationSeconds)}，片尾 ${_formatSecondsLabel(_officialOutroDurationSeconds)}';
+      return AppLocalizations.of(context).playerIntroOutroOfficialSummary(
+        _formatSecondsLabel(_officialIntroDurationSeconds),
+        _formatSecondsLabel(_officialOutroDurationSeconds),
+      );
     }
     return _chapterSkipModeSummaryText();
   }

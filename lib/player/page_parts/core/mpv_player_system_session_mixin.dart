@@ -1,4 +1,4 @@
-part of mpv_player_page;
+part of '../../mpv_player_page.dart';
 
 extension _MpvPlayerSystemSessionMixin on _MpvPlayerPageState {
   Future<void> _handleSystemPlaybackMethodCall(MethodCall call) async {
@@ -97,8 +97,11 @@ extension _MpvPlayerSystemSessionMixin on _MpvPlayerPageState {
     final launchSource = _buildSystemPlaybackLaunchSource(position);
     final isReady = readyOverride ?? (value.ready && value.nativeLibLoaded);
     final isPlaying =
-        isPlayingOverride ?? (isReady && !hasError && !value.paused);
-    final speed = speedOverride ?? (!value.paused ? _playbackSpeed : 0.0);
+        isPlayingOverride ??
+        (isReady &&
+            !hasError &&
+            value.playbackPhase == MpvPlaybackPhase.playing);
+    final speed = speedOverride ?? (isPlaying ? _playbackSpeed : 0.0);
     return <String, Object?>{
       'itemGuid': _currentItemGuid,
       'title': title,
@@ -193,8 +196,8 @@ extension _MpvPlayerSystemSessionMixin on _MpvPlayerPageState {
       startPosition: safePosition,
       audioTrackGuid: _currentAudioGuid,
       clearAudioTrackGuid: _currentAudioGuid == null,
-      subtitleTrackGuid: _currentSubtitleGuid,
-      clearSubtitleTrackGuid: _currentSubtitleGuid == null,
+      subtitleTrackGuid: _normalizedSubtitleGuid(),
+      clearSubtitleTrackGuid: _normalizedSubtitleGuid() == null,
       resolution: _currentResolution.trim().isNotEmpty
           ? _currentResolution.trim()
           : widget.source.resolution,
@@ -425,7 +428,7 @@ extension _MpvPlayerSystemSessionMixin on _MpvPlayerPageState {
     if (mediaType.isNotEmpty) {
       parts.add(mediaType);
     }
-    return parts.join(' 路 ');
+    return parts.join(' · ');
   }
 
   bool _systemPlaybackFieldEquals(Object? previous, Object? next) {
@@ -458,6 +461,7 @@ extension _MpvPlayerSystemSessionMixin on _MpvPlayerPageState {
   }
 
   bool _canSkipToPreviousEpisodeForSystemSession() {
+    if (_externalLocalSource) return false;
     if (_episodeItems.isNotEmpty) {
       return _hasPreviousEpisodeInLoadedItems();
     }
@@ -465,6 +469,7 @@ extension _MpvPlayerSystemSessionMixin on _MpvPlayerPageState {
   }
 
   bool _canSkipToNextEpisodeForSystemSession() {
+    if (_externalLocalSource) return false;
     if (_episodeItems.isNotEmpty) {
       return _hasNextEpisodeInLoadedItems();
     }

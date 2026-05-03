@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 
+/// DanDanPlay 请求错误码。
 enum DanDanPlayApiErrorCode {
   notConfigured,
   businessError,
@@ -20,11 +21,21 @@ enum DanDanPlayApiErrorCode {
   unknown,
 }
 
+/// DanDanPlay 请求失败时抛出的统一异常。
 class DanDanPlayApiException implements Exception {
+  /// 归一化后的错误类别。
   final DanDanPlayApiErrorCode code;
+
+  /// 面向调用方展示的错误说明。
   final String message;
+
+  /// HTTP 状态码；如果请求未到达服务端则可能为空。
   final int? statusCode;
+
+  /// 服务端返回的原始错误信息。
   final String? serverMessage;
+
+  /// 建议的重试等待时间。
   final Duration? retryAfter;
 
   const DanDanPlayApiException({
@@ -35,6 +46,7 @@ class DanDanPlayApiException implements Exception {
     this.retryAfter,
   });
 
+  /// 为了避免继续触发限流，调用方应在短时间内暂停请求。
   bool get shouldTemporarilyBlockRequests => switch (code) {
     DanDanPlayApiErrorCode.rateLimited => true,
     DanDanPlayApiErrorCode.serverError => true,
@@ -46,12 +58,15 @@ class DanDanPlayApiException implements Exception {
   String toString() => message;
 }
 
+/// DanDanPlay HTTP 客户端，负责鉴权头、错误映射和多密钥回退。
 class DanDanPlayApi {
   static DateTime? _blockedUntil;
   static DanDanPlayApiException? _blockedException;
 
   final Dio _dio;
   final String appId;
+
+  /// 当前请求可用的 AppSecret 列表。
   final List<String> appSecrets;
 
   DanDanPlayApi({
@@ -59,11 +74,17 @@ class DanDanPlayApi {
     required this.appId,
     String? appSecret,
     List<String> appSecrets = const <String>[],
-  }) : appSecrets = <String>[
-         ...appSecrets,
-         if ((appSecret ?? '').trim().isNotEmpty) appSecret!.trim(),
-       ].map((item) => item.trim()).where((item) => item.isNotEmpty).toSet().toList(growable: false),
-       _dio = dio ??
+  }) : appSecrets =
+           <String>[
+                 ...appSecrets,
+                 if ((appSecret ?? '').trim().isNotEmpty) appSecret!.trim(),
+               ]
+               .map((item) => item.trim())
+               .where((item) => item.isNotEmpty)
+               .toSet()
+               .toList(growable: false),
+       _dio =
+           dio ??
            Dio(
              BaseOptions(
                baseUrl: 'https://api.dandanplay.net',
@@ -73,8 +94,12 @@ class DanDanPlayApi {
              ),
            );
 
+  /// 当前是否已经具备可发起请求的 AppId / AppSecret。
   bool get ready => appId.trim().isNotEmpty && appSecrets.isNotEmpty;
 
+  /// 搜索番剧/剧集候选。
+  ///
+  /// `anime` 是搜索关键字，`episode` 和 `tmdbId` 会作为额外约束缩小结果范围。
   Future<Response<Map<String, dynamic>>> searchEpisodes({
     String anime = '',
     int? episode,
@@ -97,6 +122,7 @@ class DanDanPlayApi {
     return response;
   }
 
+  /// 按弹弹 Play 的剧集 id 拉取原始弹幕 XML/文本内容。
   Future<Response<String>> fetchComments(
     int episodeId, {
     bool withRelated = true,
@@ -126,7 +152,7 @@ class DanDanPlayApi {
     if (!ready) {
       throw const DanDanPlayApiException(
         code: DanDanPlayApiErrorCode.notConfigured,
-        message: 'DanDanPlay AppId / AppSecret 未配置。',
+        message: 'DanDanPlay AppId / AppSecret is not configured.',
       );
     }
     _throwIfTemporarilyBlocked();
@@ -140,7 +166,10 @@ class DanDanPlayApi {
         final mapped = _mapDioException(error);
         lastError = mapped;
         if (mapped.shouldTemporarilyBlockRequests) {
-          _blockRequests(mapped.retryAfter ?? const Duration(minutes: 10), mapped);
+          _blockRequests(
+            mapped.retryAfter ?? const Duration(minutes: 10),
+            mapped,
+          );
         }
         final canRetry =
             index + 1 < appSecrets.length && _canRetryWithNextSecret(mapped);
@@ -158,7 +187,7 @@ class DanDanPlayApi {
     throw lastError ??
         const DanDanPlayApiException(
           code: DanDanPlayApiErrorCode.unknown,
-          message: 'DanDanPlay 请求失败，但没有返回具体错误。',
+          message: 'DanDanPlay request failed without a specific error.',
         );
   }
 
@@ -168,7 +197,7 @@ class DanDanPlayApi {
     if (normalizedAppId.isEmpty || normalizedSecret.isEmpty) {
       throw const DanDanPlayApiException(
         code: DanDanPlayApiErrorCode.notConfigured,
-        message: 'DanDanPlay AppId / AppSecret 未配置。',
+        message: 'DanDanPlay AppId / AppSecret is not configured.',
       );
     }
     return <String, String>{
@@ -181,13 +210,17 @@ class DanDanPlayApi {
     if (payload == null || payload.isEmpty) return;
     final success = payload['success'];
     if (success is bool && success) return;
-    if (success == null && payload['errorCode'] == null && payload['errorMessage'] == null) {
+    if (success == null &&
+        payload['errorCode'] == null &&
+        payload['errorMessage'] == null) {
       return;
     }
     final serverMessage = _readServerMessage(payload);
     throw DanDanPlayApiException(
       code: DanDanPlayApiErrorCode.businessError,
-      message: serverMessage.isEmpty ? 'DanDanPlay 返回了业务错误。' : serverMessage,
+      message: serverMessage.isEmpty
+          ? 'DanDanPlay returned a business error.'
+          : serverMessage,
       serverMessage: serverMessage.isEmpty ? null : serverMessage,
     );
   }
@@ -222,14 +255,15 @@ class DanDanPlayApi {
         error.type == DioExceptionType.receiveTimeout) {
       return const DanDanPlayApiException(
         code: DanDanPlayApiErrorCode.network,
-        message: 'DanDanPlay 请求超时，请稍后重试。',
+        message: 'DanDanPlay request timed out. Please try again later.',
       );
     }
     if (error.type == DioExceptionType.connectionError ||
         error.type == DioExceptionType.unknown) {
       return const DanDanPlayApiException(
         code: DanDanPlayApiErrorCode.network,
-        message: 'DanDanPlay 网络连接失败，请检查网络后重试。',
+        message:
+            'DanDanPlay network connection failed. Check the network and retry.',
       );
     }
 
@@ -246,7 +280,7 @@ class DanDanPlayApi {
         code: DanDanPlayApiErrorCode.unauthorized,
         statusCode: statusCode,
         serverMessage: serverMessage,
-        message: 'DanDanPlay 认证失败，请检查 AppId / AppSecret 是否有效。',
+        message: 'DanDanPlay authentication failed. Check AppId / AppSecret.',
       );
     }
 
@@ -260,7 +294,8 @@ class DanDanPlayApi {
         statusCode: statusCode,
         serverMessage: serverMessage,
         retryAfter: retryAfter ?? const Duration(minutes: 30),
-        message: 'DanDanPlay 请求过于频繁，已被服务器限流，请稍后再试。',
+        message:
+            'DanDanPlay requests are too frequent and have been rate limited.',
       );
     }
 
@@ -270,7 +305,7 @@ class DanDanPlayApi {
         statusCode: statusCode,
         serverMessage: serverMessage,
         retryAfter: const Duration(minutes: 10),
-        message: 'DanDanPlay 服务器暂时不可用，请稍后再试。',
+        message: 'DanDanPlay server is temporarily unavailable.',
       );
     }
 
@@ -280,8 +315,8 @@ class DanDanPlayApi {
         statusCode: statusCode,
         serverMessage: serverMessage,
         message: serverMessage?.isNotEmpty == true
-            ? 'DanDanPlay 请求失败: $serverMessage'
-            : 'DanDanPlay 请求失败，状态码 $statusCode。',
+            ? 'DanDanPlay request failed: $serverMessage'
+            : 'DanDanPlay request failed with status code $statusCode.',
       );
     }
 
@@ -289,8 +324,8 @@ class DanDanPlayApi {
       code: DanDanPlayApiErrorCode.unknown,
       serverMessage: serverMessage,
       message: serverMessage?.isNotEmpty == true
-          ? 'DanDanPlay 请求失败: $serverMessage'
-          : 'DanDanPlay 请求失败，请稍后重试。',
+          ? 'DanDanPlay request failed: $serverMessage'
+          : 'DanDanPlay request failed. Please try again later.',
     );
   }
 
@@ -304,7 +339,7 @@ class DanDanPlayApi {
         code: DanDanPlayApiErrorCode.missingAuthenticationHeaders,
         statusCode: statusCode,
         serverMessage: serverMessage,
-        message: 'DanDanPlay 请求头缺失认证信息。',
+        message: 'DanDanPlay request is missing authentication headers.',
       );
     }
     if (normalized.contains('invalid timestamp')) {
@@ -312,7 +347,7 @@ class DanDanPlayApi {
         code: DanDanPlayApiErrorCode.invalidTimestamp,
         statusCode: statusCode,
         serverMessage: serverMessage,
-        message: 'DanDanPlay 请求时间戳无效，请检查设备时间。',
+        message: 'DanDanPlay request timestamp is invalid. Check device time.',
       );
     }
     if (normalized.contains('invalid appid')) {
@@ -320,7 +355,7 @@ class DanDanPlayApi {
         code: DanDanPlayApiErrorCode.invalidAppId,
         statusCode: statusCode,
         serverMessage: serverMessage,
-        message: 'DanDanPlay AppId 无效，请检查配置。',
+        message: 'DanDanPlay AppId is invalid. Check the configuration.',
       );
     }
     if (normalized.contains('invalid signature')) {
@@ -328,7 +363,7 @@ class DanDanPlayApi {
         code: DanDanPlayApiErrorCode.invalidSignature,
         statusCode: statusCode,
         serverMessage: serverMessage,
-        message: 'DanDanPlay 请求签名无效。',
+        message: 'DanDanPlay request signature is invalid.',
       );
     }
     if (normalized.contains('invalid appsecret')) {
@@ -336,7 +371,7 @@ class DanDanPlayApi {
         code: DanDanPlayApiErrorCode.invalidAppSecret,
         statusCode: statusCode,
         serverMessage: serverMessage,
-        message: 'DanDanPlay AppSecret 无效，请检查配置。',
+        message: 'DanDanPlay AppSecret is invalid. Check the configuration.',
       );
     }
     if (normalized.contains('too many') ||
@@ -348,7 +383,8 @@ class DanDanPlayApi {
         statusCode: statusCode,
         serverMessage: serverMessage,
         retryAfter: const Duration(minutes: 30),
-        message: 'DanDanPlay 当前拒绝本次请求，可能触发了频率限制，请稍后再试。',
+        message:
+            'DanDanPlay rejected this request, possibly due to rate limits.',
       );
     }
     return DanDanPlayApiException(
@@ -356,8 +392,8 @@ class DanDanPlayApi {
       statusCode: statusCode,
       serverMessage: serverMessage,
       message: serverMessage?.isNotEmpty == true
-          ? 'DanDanPlay 拒绝了请求: $serverMessage'
-          : 'DanDanPlay 拒绝了请求，请检查接口权限和配置。',
+          ? 'DanDanPlay rejected the request: $serverMessage'
+          : 'DanDanPlay rejected the request. Check permissions and config.',
     );
   }
 
@@ -382,7 +418,9 @@ class DanDanPlayApi {
       try {
         final decoded = jsonDecode(trimmed);
         if (decoded is Map) {
-          final message = _readServerMessage(Map<String, dynamic>.from(decoded));
+          final message = _readServerMessage(
+            Map<String, dynamic>.from(decoded),
+          );
           if (message.isNotEmpty) return message;
         }
       } catch (_) {
@@ -418,7 +456,7 @@ class DanDanPlayApi {
     throw DanDanPlayApiException(
       code: DanDanPlayApiErrorCode.temporarilyBlocked,
       message:
-          '${error.message} 当前已在本地暂停请求 ${remaining.inMinutes + 1} 分钟。',
+          '${error.message} Requests are locally paused for ${remaining.inMinutes + 1} more minutes.',
       retryAfter: remaining,
       statusCode: error.statusCode,
       serverMessage: error.serverMessage,

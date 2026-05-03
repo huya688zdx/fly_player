@@ -12,34 +12,22 @@ class PlaybackPauseController(
     ): Boolean {
         if (!initialized || !mpv.isAvailable()) return false
         val desiredString = if (paused) "yes" else "no"
-        val directSuccess = runCatching {
-            mpv.setPropertyBoolean("pause", paused)
-        }.getOrDefault(false)
-        val verifiedAfterDirect = readPausedProperty()
-        if (directSuccess && verifiedAfterDirect == paused) {
-            return true
-        }
-
-        val stringSuccess = runCatching {
+        val writeSuccess = runCatching {
             mpv.setPropertyString("pause", desiredString)
         }.getOrDefault(false)
-        val verifiedAfterString = readPausedProperty()
-        if (stringSuccess && verifiedAfterString == paused) {
+        val verified = readPausedProperty()
+        if (verified == null || verified == paused) {
+            if (!writeSuccess) {
+                Log.w(tag, "setPausedState write reported failure but verify passed desired=$paused")
+            }
             return true
         }
-
-        val commandSuccess = runCatching {
-            mpv.command(arrayOf("set", "pause", desiredString)) >= 0
-        }.getOrDefault(false)
-        val verifiedAfterCommand = readPausedProperty()
-        val finalSuccess = commandSuccess && verifiedAfterCommand == paused
-        if (!finalSuccess) {
-            Log.w(
-                tag,
-                "setPausedState failed desired=$paused direct=$directSuccess string=$stringSuccess command=$commandSuccess verified=$verifiedAfterCommand",
-            )
+        if (!writeSuccess) {
+            Log.w(tag, "setPausedState write failed desired=$paused")
+            return false
         }
-        return finalSuccess
+        Log.w(tag, "setPausedState verify mismatch desired=$paused verified=$verified")
+        return false
     }
 
     private fun readPausedProperty(): Boolean? {

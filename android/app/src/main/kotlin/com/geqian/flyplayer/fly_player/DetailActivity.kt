@@ -56,7 +56,7 @@ class DetailActivity : FlutterHostActivity() {
     override fun getRenderMode(): RenderMode = RenderMode.texture
 
     override fun getBackgroundMode(): FlutterActivityLaunchConfigs.BackgroundMode =
-        FlutterActivityLaunchConfigs.BackgroundMode.transparent
+        FlutterActivityLaunchConfigs.BackgroundMode.opaque
 
     override fun shouldSkipBaseFlutterEngineConfiguration(
         flutterEngine: FlutterEngine,

@@ -1,6 +1,36 @@
-part of mpv_player_page;
+part of '../../mpv_player_page.dart';
 
 extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
+  String _preferredVideoOutputBackend(String requestedBackend) {
+    if (Platform.isAndroid &&
+        _useNativeDanmakuRenderer &&
+        _danmakuController.settings.enabled &&
+        _danmakuController.settings.avoidCenterArea) {
+      // Prefer the async capture path only while native danmaku center
+      // occlusion is actively in use. Otherwise keep the default texture
+      // backend so player drawers and popups don't pay the SurfaceView
+      // composition cost for sessions without danmaku.
+      return MpvVideoOutputBackend.surface;
+    }
+    return MpvVideoOutputBackend.normalize(requestedBackend);
+  }
+
+  String _resolvedVideoOutputBackend(String requestedBackend) {
+    final lockedBackend = _lockedPlatformViewBackend;
+    if (lockedBackend != null && lockedBackend.trim().isNotEmpty) {
+      return MpvVideoOutputBackend.normalize(lockedBackend);
+    }
+    return _preferredVideoOutputBackend(requestedBackend);
+  }
+
+  MpvMediaSource _resolvedPlatformViewSource(MpvMediaSource source) {
+    final resolvedBackend = _resolvedVideoOutputBackend(source.videoOutputBackend);
+    if (resolvedBackend == source.videoOutputBackend) {
+      return source;
+    }
+    return source.copyWith(videoOutputBackend: resolvedBackend);
+  }
+
   AudioTrackOption? _findAudioTrack(String? guid) {
     final normalized = guid?.trim() ?? '';
     if (normalized.isEmpty) return null;
@@ -29,8 +59,8 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
   }
 
   SubtitleTrackOption? _currentSubtitleTrack() {
-    final normalized = (_currentSubtitleGuid ?? '').trim();
-    if (normalized.isEmpty) return null;
+    final normalized = _normalizedSubtitleGuid();
+    if (normalized == null || normalized.isEmpty) return null;
     final selected = _findSubtitleTrack(normalized);
     if (selected != null) return selected;
     for (final track in _subtitleTracks) {
@@ -71,15 +101,16 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
 
   // ignore: unused_element
   String _subtitleSwitchMessageForTrack(SubtitleTrackOption? track) {
+    final l10n = AppLocalizations.of(context);
     if (track == null) {
-      return '正在为您关闭字幕，请稍等...';
+      return l10n.playerSubtitleClosingPleaseWait;
     }
     final title = _subtitleTitle(track);
     final format = (track.format.isNotEmpty ? track.format : track.codecName)
         .trim()
         .toLowerCase();
     final suffix = format.isEmpty ? '' : ' ($format)';
-    return '正在为您切换至$title$suffix 字幕，请稍等...';
+    return l10n.playerSubtitleSwitchingPleaseWait(title, suffix);
   }
 
   void _releaseSubtitleProxySession([String? keepSessionId]) {
@@ -169,9 +200,35 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
   }
 
   String? _normalizedSubtitleGuid() {
-    return (_currentSubtitleGuid ?? '').trim().isEmpty
-        ? null
-        : _currentSubtitleGuid;
+    final normalized = (_currentSubtitleGuid ?? '').trim();
+    if (normalized.isEmpty) return null;
+    if (_isLocalRuntimeTrackSource() ||
+        !normalized.startsWith('mpv-subtitle:')) {
+      return normalized;
+    }
+    final runtimeId = int.tryParse(normalized.substring(13));
+    if (runtimeId != null && runtimeId > 0) {
+      final embeddedTracks = _subtitleTracks
+          .where((track) {
+            if (track.guid.trim().isEmpty) return false;
+            if (track.guid.startsWith('mpv-subtitle:')) return false;
+            return !_subtitleShouldUseExternalFile(track);
+          })
+          .toList(growable: false);
+      if (runtimeId <= embeddedTracks.length) {
+        return embeddedTracks[runtimeId - 1].guid;
+      }
+      for (final track in embeddedTracks) {
+        if (track.index == runtimeId) {
+          return track.guid;
+        }
+      }
+    }
+    final sourceGuid = widget.source.subtitleTrackGuid?.trim() ?? '';
+    if (sourceGuid.isNotEmpty && !sourceGuid.startsWith('mpv-subtitle:')) {
+      return sourceGuid;
+    }
+    return null;
   }
 
   String _speedLabel(double speed) {
@@ -181,15 +238,9 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
     return '${speed.toStringAsFixed(2).replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '')}x';
   }
 
-  String _speedDescription(double speed) {
-    if ((speed - 1.0).abs() < 0.001) return '标准速度';
-    if (speed < 1.0) return '慢速播放';
-    return '快速播放';
-  }
-
   String _audioTitle(AudioTrackOption track) {
     return track.displayLabel.trim().isEmpty
-        ? '未知音轨'
+        ? AppLocalizations.of(context).playerAudioUnknownTrack
         : track.displayLabel.trim();
   }
 
@@ -198,14 +249,15 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
   }
 
   String _subtitleTitle(SubtitleTrackOption track) {
+    final l10n = AppLocalizations.of(context);
     final language = MediaLanguageMapper.subtitleLabel(track.language).trim();
     final normalized =
         (language.isEmpty || language == '字幕' || language == '未知')
-        ? '未知字幕'
+        ? l10n.playerSubtitleUnknownTrack
         : language;
     final suffix = track.isDefaultOption
-        ? '默认'
-        : (track.isExternal == 1 ? '外挂' : '');
+        ? l10n.mpvDefault
+        : (track.isExternal == 1 ? l10n.playerSubtitleExternal : '');
     return suffix.isEmpty ? normalized : '$normalized-$suffix';
   }
 
@@ -312,7 +364,36 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
   String _qualityLabel(PlaybackQualityOption quality) {
     final resolution = quality.resolution.trim();
     if (resolution.isNotEmpty) return resolution;
-    return quality.isDefault == 1 ? '原画' : '清晰度';
+    final l10n = AppLocalizations.of(context);
+    return quality.isDefault == 1
+        ? l10n.playerQualityOriginal
+        : l10n.playerQualityGeneric;
+  }
+
+  String _qualityDisplayLabel(PlaybackQualityOption quality) {
+    final resolution = _qualityDisplayResolution(_qualityLabel(quality));
+    final bitrate = _qualityBitrateLabel(quality.bitrate);
+    if (bitrate.isEmpty) return resolution;
+    return '$resolution $bitrate';
+  }
+
+  String _qualityDisplayResolution(String resolution) {
+    final trimmed = resolution.trim();
+    if (trimmed.isEmpty) return trimmed;
+    if (RegExp(r'^\d+$').hasMatch(trimmed)) {
+      return '${trimmed}p';
+    }
+    return trimmed;
+  }
+
+  String _qualityBitrateLabel(int bitrate) {
+    if (bitrate <= 0) return '';
+    final mbps = bitrate / 1000000;
+    final rounded = mbps.roundToDouble();
+    final value = (mbps - rounded).abs() < 0.05
+        ? rounded.toInt().toString()
+        : mbps.toStringAsFixed(1);
+    return '${value}Mbps';
   }
 
   String _qualityOptionBadge(PlaybackQualityOption quality) {
@@ -321,15 +402,17 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
     if (original == null || _qualityId(original) != _qualityId(quality)) {
       return '';
     }
-    if (label == '原画') return '';
-    return '原画';
+    final originalLabel = AppLocalizations.of(context).playerQualityOriginal;
+    if (label == originalLabel) return '';
+    return originalLabel;
   }
 
   String _currentQualityButtonLabel() {
+    final originalLabel = AppLocalizations.of(context).playerQualityOriginal;
     if (_isCurrentOriginalQuality()) {
-      return '原画';
+      return originalLabel;
     }
-    return _currentResolution.isNotEmpty ? _currentResolution : '原画';
+    return _currentResolution.isNotEmpty ? _currentResolution : originalLabel;
   }
 
   List<PlaybackQualityOption> _visibleQualityOptionsForCurrentMode() {
@@ -454,7 +537,9 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
         ? null
         : (subtitleExplicitOff
               ? -1
-              : (preferExternalSubtitle ? null : _mpvSubtitleTrackId(subtitle)));
+              : (preferExternalSubtitle
+                    ? null
+                    : _mpvSubtitleTrackId(subtitle)));
     final clearSubtitleTrackIndex =
         serverManagedPlayback || preferExternalSubtitle || subtitle == null;
     final normalizedStartPosition = _normalizedSourceStartPosition(
@@ -495,10 +580,8 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
       clearSubtitleTrackIndex: clearSubtitleTrackIndex,
       audioTrackGuid: audio?.guid,
       clearAudioTrackGuid: audio == null,
-      subtitleTrackGuid: (_currentSubtitleGuid ?? '').trim().isEmpty
-          ? null
-          : _currentSubtitleGuid,
-      clearSubtitleTrackGuid: (_currentSubtitleGuid ?? '').trim().isEmpty,
+      subtitleTrackGuid: _normalizedSubtitleGuid(),
+      clearSubtitleTrackGuid: _normalizedSubtitleGuid() == null,
       resolution: _currentResolution,
       bitrate: _currentBitrate,
       durationSeconds: _durationSeconds,
@@ -512,6 +595,9 @@ extension _MpvPlayerSourceMixin on _MpvPlayerPageState {
       playbackMode: _playbackMode,
       playbackSpeed: _playbackSpeed,
       listenVideoModeEnabled: _listenVideoModeEnabled,
+      videoOutputBackend: _resolvedVideoOutputBackend(
+        widget.source.videoOutputBackend,
+      ),
       audioTracks: _audioTracks,
       subtitleTracks: _subtitleTracks,
       qualities: _qualities,

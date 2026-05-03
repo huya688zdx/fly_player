@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 
+/// 表示并行窗口的宿主侧设置快照。
 class ParallelWindowSettings {
   final bool enabled;
   final String preferredPrimaryPaneSide;
@@ -8,6 +9,7 @@ class ParallelWindowSettings {
   final bool defaultPlaybackFullscreen;
   final bool immersiveStatusBar;
 
+  /// 根据并行窗口设置字段构造对象。
   const ParallelWindowSettings({
     required this.enabled,
     required this.preferredPrimaryPaneSide,
@@ -17,6 +19,7 @@ class ParallelWindowSettings {
     required this.immersiveStatusBar,
   });
 
+  /// 从平台层映射恢复并行窗口设置。
   factory ParallelWindowSettings.fromMap(Map<String, dynamic> map) {
     return ParallelWindowSettings(
       enabled: map['enabled'] == true,
@@ -30,6 +33,7 @@ class ParallelWindowSettings {
     );
   }
 
+  /// 基于现有设置生成一份变更后的副本。
   ParallelWindowSettings copyWith({
     bool? enabled,
     String? preferredPrimaryPaneSide,
@@ -53,11 +57,13 @@ class ParallelWindowSettings {
   }
 }
 
+/// 封装并行窗口设置的读取与保存桥接。
 class ParallelWindowSettingsBridge {
   static const MethodChannel _channel = MethodChannel('fly_player/embedding');
 
   const ParallelWindowSettingsBridge._();
 
+  /// 从宿主读取当前并行窗口设置。
   static Future<ParallelWindowSettings> load() async {
     try {
       final result = await _channel.invokeMapMethod<Object?, Object?>(
@@ -86,6 +92,7 @@ class ParallelWindowSettingsBridge {
     }
   }
 
+  /// 将并行窗口设置写回宿主并返回最终生效值。
   static Future<ParallelWindowSettings> save({
     required bool enabled,
     required String preferredPrimaryPaneSide,

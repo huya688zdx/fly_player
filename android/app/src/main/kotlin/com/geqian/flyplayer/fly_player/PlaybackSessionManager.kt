@@ -24,6 +24,10 @@ import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
+/**
+ * 负责把 Flutter 侧的播放会话同步到 Android 系统媒体会话和通知栏。
+ * 这里会同时处理媒体按键回调、通知动作以及封面图的异步加载。
+ */
 class PlaybackSessionManager(
     private val context: Context,
     private val onNotificationInvalidated: () -> Unit,
@@ -65,6 +69,7 @@ class PlaybackSessionManager(
         }
 
     private val mainHandler = Handler(Looper.getMainLooper())
+    // 封面请求串行执行，避免同一时刻并发解码多张大图。
     private val artworkExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
     private var lastPayload: PlaybackSessionPayload? = null
@@ -291,13 +296,7 @@ class PlaybackSessionManager(
                         addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
                     }
                 ?: return null
-        val flags =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            } else {
-                PendingIntent.FLAG_UPDATE_CURRENT
-            }
-        return PendingIntent.getActivity(context, 0, launchIntent, flags)
+        return PendingIntent.getActivity(context, 0, launchIntent, pendingIntentFlags())
     }
 
     private fun buildCommandPendingIntent(action: String): PendingIntent {
@@ -314,13 +313,7 @@ class PlaybackSessionManager(
                 PlaybackCommandReceiver.ACTION_SKIP_TO_NEXT -> 14
                 else -> action.hashCode()
             }
-        val flags =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            } else {
-                PendingIntent.FLAG_UPDATE_CURRENT
-            }
-        return PendingIntent.getBroadcast(context, requestCode, intent, flags)
+        return PendingIntent.getBroadcast(context, requestCode, intent, pendingIntentFlags())
     }
 
     private fun buildSessionExtras(payload: PlaybackSessionPayload): Bundle =
@@ -337,14 +330,9 @@ class PlaybackSessionManager(
         }
 
     private fun syncArtwork(payload: PlaybackSessionPayload) {
-        val candidateUrls =
-            payload.artworkUrls
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
-                .ifEmpty {
-                    payload.artworkUrl.trim().takeIf { it.isNotEmpty() }?.let(::listOf) ?: emptyList()
-                }
-        val nextArtworkCandidateKey = candidateUrls.joinToString(separator = "|")
+        // 先尝试命中当前 payload 或内存缓存，只有都失败时才启动后台抓取。
+        val candidateUrls = artworkCandidateUrls(payload)
+        val nextArtworkCandidateKey = artworkCandidateKey(candidateUrls)
         if (nextArtworkCandidateKey.isEmpty()) {
             Log.d(logTag, "Artwork skipped: no candidate urls")
             artworkCandidateKey = ""
@@ -388,19 +376,7 @@ class PlaybackSessionManager(
                 }
                 val (resolvedUrl, bitmap) = artworkResult
                 artworkCache.put(resolvedUrl, bitmap)
-                val latestCandidateKey =
-                    lastPayload
-                        ?.let { latestPayload ->
-                            latestPayload.artworkUrls
-                                .map { it.trim() }
-                                .filter { it.isNotEmpty() }
-                                .ifEmpty {
-                                    latestPayload.artworkUrl
-                                        .trim()
-                                        .takeIf { it.isNotEmpty() }
-                                        ?.let(::listOf) ?: emptyList()
-                                }.joinToString(separator = "|")
-                        }.orEmpty()
+                val latestCandidateKey = lastPayload?.let(::artworkCandidateKey).orEmpty()
                 if (latestCandidateKey != nextArtworkCandidateKey) {
                     return@post
                 }
@@ -414,6 +390,27 @@ class PlaybackSessionManager(
             }
         }
     }
+
+    private fun artworkCandidateUrls(payload: PlaybackSessionPayload): List<String> =
+        payload.artworkUrls
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .ifEmpty {
+                payload.artworkUrl.trim().takeIf { it.isNotEmpty() }?.let(::listOf) ?: emptyList()
+            }
+
+    private fun artworkCandidateKey(payload: PlaybackSessionPayload): String =
+        artworkCandidateKey(artworkCandidateUrls(payload))
+
+    private fun artworkCandidateKey(candidateUrls: List<String>): String =
+        candidateUrls.joinToString(separator = "|")
+
+    private fun pendingIntentFlags(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
 
     private fun loadArtworkBitmap(
         urls: List<String>,

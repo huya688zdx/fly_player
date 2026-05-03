@@ -1,5 +1,6 @@
 package com.geqian.flyplayer.fly_player.mpv
 
+import android.os.SystemClock
 import android.util.Log
 import java.io.File
 
@@ -8,6 +9,9 @@ class TrackSelectionController(
 ) {
     companion object {
         private const val DEFAULT_SUBTITLE_POSITION = 92
+        private const val MAX_TRACK_SCAN_COUNT = 64
+        private const val EMPTY_TRACK_SCAN_BREAK_THRESHOLD = 8
+        private const val BOGUS_PURGE_RETRY_COOLDOWN_MS = 1800L
     }
 
     private var pendingAudioDelay = 0.0
@@ -21,6 +25,7 @@ class TrackSelectionController(
     private var pendingSubtitleTrackIndex: Int? = null
     private var pendingPreferExternalSubtitle: Boolean = false
     private var pendingSubtitleGuid: String? = null
+    private var lastBogusPurgeAbortElapsedMs: Long = 0L
 
     fun onLoadRequested(source: MpvSource) {
         purgeExternalSubtitleTracks()
@@ -41,7 +46,7 @@ class TrackSelectionController(
     fun onSubtitleTrackSelectedManually() {
         pendingExternalSubtitlePath = null
         activeExternalSubtitlePath = null
-        purgeExternalSubtitleTracks()
+        purgeExternalSubtitleTracks(force = true)
     }
 
     fun onFileLoaded() {
@@ -120,7 +125,7 @@ class TrackSelectionController(
             return true
         }
         val success = runCatching {
-            purgeExternalSubtitleTracks()
+            purgeExternalSubtitleTracks(force = true)
             Log.d("FlyPlayerMpv", "sub-add path=$path")
             runCatching {
                 mpv.setPropertyString("sid", "no")
@@ -175,7 +180,7 @@ class TrackSelectionController(
     }
 
     fun reset() {
-        purgeExternalSubtitleTracks()
+        purgeExternalSubtitleTracks(force = true)
         pendingExternalSubtitlePath = null
         activeExternalSubtitlePath = null
         pendingAudioTrackIndex = null
@@ -184,19 +189,51 @@ class TrackSelectionController(
         pendingSubtitleGuid = null
     }
 
-    private fun purgeExternalSubtitleTracks() {
+    private fun purgeExternalSubtitleTracks(force: Boolean = false) {
+        val now = SystemClock.elapsedRealtime()
+        if (
+            !force &&
+            activeExternalSubtitlePath == null &&
+            pendingExternalSubtitlePath.isNullOrBlank() &&
+            lastBogusPurgeAbortElapsedMs > 0L &&
+            now - lastBogusPurgeAbortElapsedMs < BOGUS_PURGE_RETRY_COOLDOWN_MS
+        ) {
+            Log.d(
+                "FlyPlayerMpv",
+                "skip repeated bogus external subtitle purge cooldownMs=${now - lastBogusPurgeAbortElapsedMs}",
+            )
+            return
+        }
         val count = runCatching { mpv.getPropertyInt("track-list/count") }
             .getOrDefault(0L)
-            .coerceIn(0L, 64L)
+            .coerceIn(0L, MAX_TRACK_SCAN_COUNT.toLong())
             .toInt()
         if (count <= 0) return
         val externalIds = mutableListOf<Int>()
+        var emptyStreak = 0
         for (index in 0 until count) {
             val type = runCatching { mpv.getPropertyString("track-list/$index/type") }
                 .getOrNull()
                 ?.trim()
                 ?.lowercase()
-                ?: continue
+            if (type.isNullOrEmpty()) {
+                emptyStreak += 1
+                if (shouldAbortBogusTrackScan(
+                        index = index,
+                        emptyStreak = emptyStreak,
+                        foundTracks = externalIds.isNotEmpty(),
+                    )
+                ) {
+                    lastBogusPurgeAbortElapsedMs = now
+                    Log.d(
+                        "FlyPlayerMpv",
+                        "skip bogus external subtitle purge count=$count afterEmptyStreak=$emptyStreak",
+                    )
+                    break
+                }
+                continue
+            }
+            emptyStreak = 0
             if (type != "sub") continue
             val externalPath = runCatching {
                 mpv.getPropertyString("track-list/$index/external-filename")
@@ -219,6 +256,9 @@ class TrackSelectionController(
                 externalIds += trackId
             }
         }
+        if (externalIds.isNotEmpty()) {
+            lastBogusPurgeAbortElapsedMs = 0L
+        }
         for (trackId in externalIds) {
             runCatching {
                 mpv.command(arrayOf("sub-remove", trackId.toString()))
@@ -231,16 +271,33 @@ class TrackSelectionController(
         val fallbackTitle = File(path).name.trim().lowercase()
         val count = runCatching { mpv.getPropertyInt("track-list/count") }
             .getOrDefault(0L)
-            .coerceIn(0L, 64L)
+            .coerceIn(0L, MAX_TRACK_SCAN_COUNT.toLong())
             .toInt()
         if (count <= 0) return emptyList()
         val trackIds = mutableListOf<Int>()
+        var emptyStreak = 0
         for (index in 0 until count) {
             val type = runCatching { mpv.getPropertyString("track-list/$index/type") }
                 .getOrNull()
                 ?.trim()
                 ?.lowercase()
-                ?: continue
+            if (type.isNullOrEmpty()) {
+                emptyStreak += 1
+                if (shouldAbortBogusTrackScan(
+                        index = index,
+                        emptyStreak = emptyStreak,
+                        foundTracks = trackIds.isNotEmpty(),
+                    )
+                ) {
+                    Log.d(
+                        "FlyPlayerMpv",
+                        "skip bogus external subtitle reuse scan count=$count afterEmptyStreak=$emptyStreak",
+                    )
+                    break
+                }
+                continue
+            }
+            emptyStreak = 0
             if (type != "sub") continue
             val externalPath = runCatching {
                 mpv.getPropertyString("track-list/$index/external-filename")
@@ -278,5 +335,17 @@ class TrackSelectionController(
 
     private fun normalizeExternalSubtitlePath(path: String): String {
         return path.trim().replace('\\', '/').lowercase()
+    }
+
+    private fun shouldAbortBogusTrackScan(
+        index: Int,
+        emptyStreak: Int,
+        foundTracks: Boolean,
+    ): Boolean {
+        if (foundTracks && emptyStreak >= 3) {
+            return true
+        }
+        return index >= (EMPTY_TRACK_SCAN_BREAK_THRESHOLD - 1) &&
+            emptyStreak >= EMPTY_TRACK_SCAN_BREAK_THRESHOLD
     }
 }

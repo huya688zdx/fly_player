@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../models/stream_track_data.dart';
+import 'media_language_mapper.dart';
 
 class LocalSubtitleBundle {
   final List<SubtitleTrackOption> tracks;
@@ -69,7 +70,8 @@ LocalSubtitleBundle discoverLocalSubtitleBundle({
       title: fileName,
       codecName: extension,
       format: extension,
-      language: 'und',
+      language:
+          MediaLanguageMapper.inferLanguageCodeFromText(fileName) ?? 'und',
       index: -1 - index,
       isDefault: index == 0 ? 1 : 0,
       forced: 0,

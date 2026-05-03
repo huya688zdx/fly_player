@@ -1,9 +1,12 @@
+import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../../l10n/generated/app_localizations.dart';
 import '../../models/tv_episode_browser_models.dart';
 import '../../models/tv_episode_picker_mode.dart';
 import '../../theme/app_theme.dart';
@@ -66,6 +69,19 @@ class EpisodePickerSheetResult {
 typedef EpisodePickerSeasonLoader =
     Future<EpisodePickerSeasonSheetData> Function(String seasonGuid);
 
+class EpisodePickerSheetWarmupData {
+  final EpisodePickerSeasonSheetData seasonData;
+  final List<TvEpisodeSeasonOptionData> seasons;
+
+  const EpisodePickerSheetWarmupData({
+    required this.seasonData,
+    required this.seasons,
+  });
+}
+
+typedef EpisodePickerWarmupLoader =
+    Future<EpisodePickerSheetWarmupData> Function();
+
 class EpisodePickerSheet {
   static Future<EpisodePickerSheetResult?> show(
     BuildContext context, {
@@ -79,6 +95,7 @@ class EpisodePickerSheet {
     required String baseUrl,
     required String token,
     required EpisodePickerSeasonLoader seasonLoader,
+    EpisodePickerWarmupLoader? warmupLoader,
     List<TvEpisodeSeasonOptionData> seasons =
         const <TvEpisodeSeasonOptionData>[],
   }) {
@@ -99,6 +116,7 @@ class EpisodePickerSheet {
           baseUrl: baseUrl,
           token: token,
           seasonLoader: seasonLoader,
+          warmupLoader: warmupLoader,
           seasons: seasons,
         );
       },
@@ -117,6 +135,7 @@ class _EpisodePickerDialog extends StatefulWidget {
   final String baseUrl;
   final String token;
   final EpisodePickerSeasonLoader seasonLoader;
+  final EpisodePickerWarmupLoader? warmupLoader;
   final List<TvEpisodeSeasonOptionData> seasons;
 
   const _EpisodePickerDialog({
@@ -130,6 +149,7 @@ class _EpisodePickerDialog extends StatefulWidget {
     required this.baseUrl,
     required this.token,
     required this.seasonLoader,
+    this.warmupLoader,
     required this.seasons,
   });
 
@@ -144,10 +164,12 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
 
   bool _modeUpdating = false;
   bool _seasonLoading = false;
+  bool _warmupLoading = false;
   int _rangeIndex = 0;
   int _seasonLoadToken = 0;
   late String _selectedSeasonGuid;
   late EpisodePickerSeasonSheetData _seasonData;
+  late List<TvEpisodeSeasonOptionData> _seasons;
 
   @override
   void initState() {
@@ -156,7 +178,14 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
     _mode = widget.initialMode;
     _selectedSeasonGuid = widget.initialSeasonGuid;
     _seasonData = widget.initialSeasonData;
+    _seasons = List<TvEpisodeSeasonOptionData>.from(widget.seasons);
     _rangeIndex = _preferredRangeIndex(_seasonData);
+    if (widget.warmupLoader != null) {
+      _warmupLoading = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _warmupInitialData();
+      });
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _jumpToPreferredItem();
     });
@@ -193,6 +222,29 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
         _modeUpdating = false;
       }
       _scheduleJumpToPreferredItem();
+    }
+  }
+
+  Future<void> _warmupInitialData() async {
+    final loader = widget.warmupLoader;
+    if (loader == null) return;
+    try {
+      final data = await loader();
+      if (!mounted) return;
+      _itemKeys.clear();
+      setState(() {
+        _seasons = data.seasons;
+        if (_selectedSeasonGuid == widget.initialSeasonGuid) {
+          _selectedSeasonGuid = data.seasonData.seasonGuid;
+          _seasonData = data.seasonData;
+          _rangeIndex = _preferredRangeIndex(data.seasonData);
+        }
+        _warmupLoading = false;
+      });
+      _scheduleJumpToPreferredItem();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _warmupLoading = false);
     }
   }
 
@@ -303,15 +355,17 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
     return _seasonData.items.isNotEmpty ? _seasonData.items.first.id : '';
   }
 
-  bool _hasSeasonSwitcher() => widget.seasons.isNotEmpty;
+  bool _hasSeasonSwitcher() => _seasons.length > 1;
 
-  String _seasonCountLabel() {
-    final count = widget.seasons.length;
-    return count > 1 ? '$count季' : '';
+  String _seasonCountLabel(BuildContext context) {
+    final count = _seasons.length;
+    return count > 1
+        ? AppLocalizations.of(context).playerSeasonCountLabel(count)
+        : '';
   }
 
   List<TvEpisodeSeasonOptionData> _seasonOptions() {
-    return widget.seasons
+    return _seasons
         .map(
           (season) => TvEpisodeSeasonOptionData(
             guid: season.guid,
@@ -325,10 +379,10 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
   Future<void> _showSeasonMenu(BuildContext triggerContext) async {
     if (!_hasSeasonSwitcher() || _seasonLoading) return;
     final colors = context.appColors;
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
     final triggerBox = triggerContext.findRenderObject() as RenderBox?;
-    final overlayBox =
-        Overlay.of(context).context.findRenderObject() as RenderBox?;
-    if (triggerBox == null || overlayBox == null) return;
+    final overlayBox = overlay?.context.findRenderObject() as RenderBox?;
+    if (overlay == null || triggerBox == null || overlayBox == null) return;
     final triggerOffset = triggerBox.localToGlobal(
       Offset.zero,
       ancestor: overlayBox,
@@ -339,29 +393,123 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
       triggerBox.size.width,
       triggerBox.size.height,
     );
-    final menuWidth = triggerBox.size.width.clamp(220.0, 320.0);
-    final selection = await showMenu<String>(
-      context: context,
-      position: RelativeRect.fromRect(
-        Rect.fromLTWH(triggerRect.left, triggerRect.bottom + 8, menuWidth, 0),
-        Offset.zero & overlayBox.size,
-      ),
-      color: colors.surface,
-      elevation: 10,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      items: [
-        for (final season in _seasonOptions())
-          PopupMenuItem<String>(
-            value: season.guid,
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            child: _SeasonMenuItem(
-              label: season.label,
-              selected: season.selected,
-              width: menuWidth - 20,
+    const horizontalMargin = 16.0;
+    const verticalGap = 8.0;
+    const itemExtent = 56.0;
+    const menuVerticalPadding = 10.0;
+    final overlaySize = overlayBox.size;
+    final safePadding = MediaQuery.paddingOf(context);
+    final menuWidth = triggerBox.size.width
+        .clamp(
+          220.0,
+          math.min(320.0, overlaySize.width - (horizontalMargin * 2)),
+        )
+        .toDouble();
+    final left = triggerRect.left
+        .clamp(
+          horizontalMargin,
+          overlaySize.width - menuWidth - horizontalMargin,
+        )
+        .toDouble();
+    final estimatedHeight =
+        (_seasonOptions().length * itemExtent) + (menuVerticalPadding * 2);
+    final availableBelow =
+        overlaySize.height -
+        safePadding.bottom -
+        triggerRect.bottom -
+        verticalGap;
+    final availableAbove = triggerRect.top - safePadding.top - verticalGap;
+    final showBelow =
+        availableBelow >= estimatedHeight || availableBelow >= availableAbove;
+    final maxHeight = math
+        .max(
+          itemExtent + (menuVerticalPadding * 2),
+          math.min(
+            estimatedHeight,
+            (showBelow ? availableBelow : availableAbove).clamp(
+              itemExtent + (menuVerticalPadding * 2),
+              420.0,
             ),
           ),
-      ],
+        )
+        .toDouble();
+    final options = _seasonOptions();
+    final completer = Completer<String?>();
+    OverlayEntry? entry;
+
+    void closeMenu([String? value]) {
+      if (completer.isCompleted) return;
+      completer.complete(value);
+      entry?.remove();
+      entry = null;
+    }
+
+    entry = OverlayEntry(
+      builder: (_) {
+        return Positioned.fill(
+          child: Material(
+            type: MaterialType.transparency,
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onTap: () => closeMenu(),
+                  ),
+                ),
+                Positioned(
+                  left: left,
+                  width: menuWidth,
+                  top: showBelow ? triggerRect.bottom + verticalGap : null,
+                  bottom: showBelow
+                      ? null
+                      : overlaySize.height - triggerRect.top + verticalGap,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxHeight: maxHeight),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: colors.surface,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: colors.borderSubtle),
+                        boxShadow: [
+                          BoxShadow(
+                            color: colors.overlayScrim.withValues(alpha: 0.24),
+                            blurRadius: 20,
+                            offset: const Offset(0, 12),
+                          ),
+                        ],
+                      ),
+                      child: ListView.builder(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: menuVerticalPadding,
+                        ),
+                        shrinkWrap: true,
+                        itemCount: options.length,
+                        itemBuilder: (context, index) {
+                          final season = options[index];
+                          return InkWell(
+                            onTap: () => closeMenu(season.guid),
+                            borderRadius: BorderRadius.circular(14),
+                            child: _SeasonMenuItem(
+                              label: season.label,
+                              selected: season.selected,
+                              width: menuWidth - 20,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
+    overlay.insert(entry!);
+    final selection = await completer.future;
     if (selection != null && selection != _selectedSeasonGuid) {
       await _selectSeason(selection);
     }
@@ -403,7 +551,7 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
           Positioned.fill(
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: () => Navigator.of(context).maybePop(),
+              onTap: () => AppSheetTransitions.close(context),
               child: const SizedBox.expand(),
             ),
           ),
@@ -466,9 +614,9 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
                               child: _EpisodePickerHeader(
                                 seriesTitle: seriesTitle,
                                 seasonLabel: currentSeasonLabel,
-                                seasonCountLabel: _seasonCountLabel(),
+                                seasonCountLabel: _seasonCountLabel(context),
                                 hasSeasonSwitcher: _hasSeasonSwitcher(),
-                                seasonLoading: _seasonLoading,
+                                seasonLoading: _seasonLoading || _warmupLoading,
                                 onTap: _hasSeasonSwitcher()
                                     ? _showSeasonMenu
                                     : null,
@@ -587,7 +735,9 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
                             duration: AppTransitions.contentSwitchDuration,
                             switchInCurve: Curves.easeOutCubic,
                             switchOutCurve: Curves.easeOutCubic,
-                            child: _seasonLoading
+                            child:
+                                (_seasonLoading || _warmupLoading) &&
+                                    visibleItems.isEmpty
                                 ? Center(
                                     child: SizedBox(
                                       width: 24,
@@ -599,7 +749,11 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
                                     ),
                                   )
                                 : visibleItems.isEmpty
-                                ? const _EmptySheetState(text: '暂无选集')
+                                ? _EmptySheetState(
+                                    text: AppLocalizations.of(
+                                      context,
+                                    ).playerNoEpisodes,
+                                  )
                                 : _mode == TvEpisodePickerMode.list
                                 ? _EpisodeListView(
                                     key: ValueKey<String>(
@@ -611,7 +765,8 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
                                     baseUrl: widget.baseUrl,
                                     token: widget.token,
                                     onTap: (itemId) =>
-                                        Navigator.of(context).pop(
+                                        AppSheetTransitions.close(
+                                          context,
                                           EpisodePickerSheetResult(
                                             seasonGuid: _selectedSeasonGuid,
                                             itemId: itemId,
@@ -626,7 +781,8 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
                                     itemKeys: _itemKeys,
                                     items: visibleItems,
                                     onTap: (itemId) =>
-                                        Navigator.of(context).pop(
+                                        AppSheetTransitions.close(
+                                          context,
                                           EpisodePickerSheetResult(
                                             seasonGuid: _selectedSeasonGuid,
                                             itemId: itemId,
@@ -708,67 +864,73 @@ class _EpisodePickerHeader extends StatelessWidget {
       );
     }
 
+    final seasonSwitcher = Builder(
+      builder: (triggerContext) => InkWell(
+        onTap: onTap == null ? null : () => onTap!(triggerContext),
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  seasonLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  softWrap: false,
+                  style: titleStyle.copyWith(
+                    color: colors.selectionStrong,
+                    decoration: TextDecoration.underline,
+                    decorationColor: colors.selectionStrong.withValues(
+                      alpha: 0.9,
+                    ),
+                    decorationThickness: 1.8,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+              if (seasonLoading)
+                SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 1.8,
+                    color: colors.selectionStrong,
+                  ),
+                )
+              else if (onTap != null)
+                Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  size: 18,
+                  color: colors.selectionStrong,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+
     return Row(
       children: [
         Expanded(
           child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               if (seriesTitle.isNotEmpty)
-                Expanded(
+                Flexible(
+                  flex: 4,
+                  fit: FlexFit.loose,
                   child: Text(
                     seriesTitle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                    softWrap: false,
                     style: titleStyle,
                   ),
                 ),
               if (seriesTitle.isNotEmpty) const SizedBox(width: 10),
-              Flexible(
-                child: Builder(
-                  builder: (triggerContext) => InkWell(
-                    onTap: onTap == null ? null : () => onTap!(triggerContext),
-                    borderRadius: BorderRadius.circular(8),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 2),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Flexible(
-                            child: Text(
-                              seasonLabel,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: titleStyle.copyWith(
-                                color: colors.selectionStrong,
-                                decoration: TextDecoration.underline,
-                                decorationColor: colors.selectionStrong
-                                    .withValues(alpha: 0.9),
-                                decorationThickness: 1.8,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          if (seasonLoading)
-                            SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 1.8,
-                                color: colors.selectionStrong,
-                              ),
-                            )
-                          else if (onTap != null)
-                            Icon(
-                              Icons.keyboard_arrow_down_rounded,
-                              size: 18,
-                              color: colors.selectionStrong,
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+              Flexible(flex: 2, fit: FlexFit.loose, child: seasonSwitcher),
             ],
           ),
         ),
@@ -784,6 +946,9 @@ class _EpisodePickerHeader extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               child: Text(
                 seasonCountLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                softWrap: false,
                 style: TextStyle(
                   color: colors.textSecondary,
                   fontSize: 12,
@@ -1067,9 +1232,16 @@ class _EpisodePoster extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    const posterWidth = 122.0;
+    const posterHeight = 68.0;
+    final devicePixelRatio = MediaQuery.devicePixelRatioOf(
+      context,
+    ).clamp(1.0, 3.0).toDouble();
+    final cacheWidth = (posterWidth * devicePixelRatio).round();
+    final cacheHeight = (posterHeight * devicePixelRatio).round();
     return SizedBox(
-      width: 122,
-      height: 68,
+      width: posterWidth,
+      height: posterHeight,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(10),
         child: Stack(
@@ -1081,9 +1253,11 @@ class _EpisodePoster extends StatelessWidget {
                 urls: ApiUrlHelper.imageCandidates(
                   baseUrl,
                   posterPath,
-                  width: 560,
+                  width: cacheWidth,
                 ),
                 token: token,
+                cacheWidth: cacheWidth,
+                cacheHeight: cacheHeight,
               ),
             ),
             Positioned.fill(
@@ -1248,8 +1422,15 @@ class _PosterNowPlayingIndicatorState extends State<_PosterNowPlayingIndicator>
 class _EpisodePosterImage extends StatefulWidget {
   final List<String> urls;
   final String token;
+  final int cacheWidth;
+  final int cacheHeight;
 
-  const _EpisodePosterImage({required this.urls, required this.token});
+  const _EpisodePosterImage({
+    required this.urls,
+    required this.token,
+    required this.cacheWidth,
+    required this.cacheHeight,
+  });
 
   @override
   State<_EpisodePosterImage> createState() => _EpisodePosterImageState();
@@ -1269,9 +1450,7 @@ class _EpisodePosterImageState extends State<_EpisodePosterImage> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    if (widget.urls.isEmpty ||
-        _index >= widget.urls.length ||
-        widget.token.trim().isEmpty) {
+    if (widget.urls.isEmpty || _index >= widget.urls.length) {
       return Center(
         child: Icon(
           Icons.movie_outlined,
@@ -1281,7 +1460,34 @@ class _EpisodePosterImageState extends State<_EpisodePosterImage> {
       );
     }
 
-    final current = widget.urls[_index];
+    final current = widget.urls[_index].trim();
+    final localFile = _localImageFile(current);
+    if (_isLocalImageCandidate(current)) {
+      if (localFile == null || !localFile.existsSync()) {
+        return _advanceOrBrokenPlaceholder(colors);
+      }
+      return Image.file(
+        localFile,
+        fit: BoxFit.cover,
+        alignment: Alignment.center,
+        cacheWidth: widget.cacheWidth,
+        cacheHeight: widget.cacheHeight,
+        filterQuality: FilterQuality.none,
+        gaplessPlayback: true,
+        errorBuilder: (_, __, ___) => _advanceOrBrokenPlaceholder(colors),
+      );
+    }
+
+    if (widget.token.trim().isEmpty) {
+      return Center(
+        child: Icon(
+          Icons.movie_outlined,
+          color: colors.textPrimary.withValues(alpha: 0.30),
+          size: 28,
+        ),
+      );
+    }
+
     final headers = <String, String>{
       'Authorization': widget.token,
       'Trim-MC-token': widget.token,
@@ -1291,7 +1497,10 @@ class _EpisodePosterImageState extends State<_EpisodePosterImage> {
       current,
       fit: BoxFit.cover,
       alignment: Alignment.center,
+      cacheWidth: widget.cacheWidth,
+      cacheHeight: widget.cacheHeight,
       filterQuality: FilterQuality.none,
+      gaplessPlayback: true,
       headers: headers,
       frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
         final loaded = wasSynchronouslyLoaded || frame != null;
@@ -1308,22 +1517,46 @@ class _EpisodePosterImageState extends State<_EpisodePosterImage> {
         );
       },
       errorBuilder: (_, __, ___) {
-        if (_index + 1 < widget.urls.length) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              setState(() => _index += 1);
-            }
-          });
-          return const SizedBox.expand();
-        }
-        return Center(
-          child: Icon(
-            Icons.broken_image_outlined,
-            color: colors.textPrimary.withValues(alpha: 0.30),
-            size: 28,
-          ),
-        );
+        return _advanceOrBrokenPlaceholder(colors);
       },
+    );
+  }
+
+  bool _isLocalImageCandidate(String value) {
+    final uri = Uri.tryParse(value);
+    if (uri?.scheme == 'file') return true;
+    if ((uri?.scheme ?? '').isNotEmpty) return false;
+    return value.startsWith('/') || RegExp(r'^[A-Za-z]:[\\/]').hasMatch(value);
+  }
+
+  File? _localImageFile(String value) {
+    final uri = Uri.tryParse(value);
+    if (uri?.scheme == 'file') {
+      try {
+        return File(uri!.toFilePath(windows: Platform.isWindows));
+      } catch (_) {
+        return null;
+      }
+    }
+    if (!_isLocalImageCandidate(value)) return null;
+    return File(value);
+  }
+
+  Widget _advanceOrBrokenPlaceholder(AppThemeColors colors) {
+    if (_index + 1 < widget.urls.length) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() => _index += 1);
+        }
+      });
+      return const SizedBox.expand();
+    }
+    return Center(
+      child: Icon(
+        Icons.broken_image_outlined,
+        color: colors.textPrimary.withValues(alpha: 0.30),
+        size: 28,
+      ),
     );
   }
 }

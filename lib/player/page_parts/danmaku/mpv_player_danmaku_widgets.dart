@@ -1,4 +1,4 @@
-part of mpv_player_page;
+part of '../../mpv_player_page.dart';
 
 const double _kDanmakuSliderVisualInset = 7;
 
@@ -569,7 +569,7 @@ class _SavedDanmakuSourceTile extends StatelessWidget {
             onTap: onDelete,
             borderRadius: BorderRadius.circular(999),
             child: Padding(
-              padding: EdgeInsets.all(6),
+              padding: const EdgeInsets.all(6),
               child: Icon(
                 Icons.delete_outline_rounded,
                 color: colors.textSecondary,

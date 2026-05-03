@@ -2,11 +2,14 @@ import 'dart:convert';
 
 import 'play_stats_models.dart';
 
+/// 负责播放统计模型与数据库字段之间的转换。
 class PlayStatsSqlMapper {
   const PlayStatsSqlMapper._();
 
+  /// 将布尔值转换为 SQLite 常用的整型表示。
   static int boolToInt(bool value) => value ? 1 : 0;
 
+  /// 将 SQLite 返回值转换为布尔值。
   static bool intToBool(Object? value) {
     return switch (value) {
       final bool v => v,
@@ -17,6 +20,7 @@ class PlayStatsSqlMapper {
     };
   }
 
+  /// 将 SQLite 返回值转换为整数。
   static int intValue(Object? value) {
     return switch (value) {
       final int v => v,
@@ -26,6 +30,7 @@ class PlayStatsSqlMapper {
     };
   }
 
+  /// 将 SQLite 返回值转换为双精度浮点数。
   static double doubleValue(Object? value) {
     return switch (value) {
       final double v => v,
@@ -35,8 +40,10 @@ class PlayStatsSqlMapper {
     };
   }
 
+  /// 将 SQLite 返回值转换为字符串。
   static String stringValue(Object? value) => value?.toString() ?? '';
 
+  /// 将播放启动来源枚举转换为数据库文本值。
   static String startSourceToText(PlayStartSource value) {
     return switch (value) {
       PlayStartSource.manual => 'manual',
@@ -47,6 +54,7 @@ class PlayStatsSqlMapper {
     };
   }
 
+  /// 将数据库中的启动来源文本还原为枚举值。
   static PlayStartSource startSourceFromText(Object? value) {
     return switch (stringValue(value).trim()) {
       'manual_switch' => PlayStartSource.manualSwitch,
@@ -57,12 +65,14 @@ class PlayStatsSqlMapper {
     };
   }
 
+  /// 将演职员列表编码为 JSON 文本。
   static String creditsToJson(List<PlayStatsCredit> credits) {
     return jsonEncode(
       credits.map((credit) => credit.toJson()).toList(growable: false),
     );
   }
 
+  /// 将 JSON 文本解码为演职员列表。
   static List<PlayStatsCredit> creditsFromJson(Object? value) {
     final decoded = _decodeJsonList(value);
     if (decoded == null) return const <PlayStatsCredit>[];
@@ -80,9 +90,11 @@ class PlayStatsSqlMapper {
         .toList(growable: false);
   }
 
+  /// 将整数列表编码为 JSON 文本。
   static String intListToJson(List<int> values) =>
       jsonEncode(values.toList(growable: false));
 
+  /// 将 JSON 文本解码为整数列表。
   static List<int> intListFromJson(Object? value) {
     final decoded = _decodeJsonList(value);
     if (decoded == null) return const <int>[];
@@ -92,9 +104,11 @@ class PlayStatsSqlMapper {
         .toList(growable: false);
   }
 
+  /// 将字符串列表编码为 JSON 文本。
   static String stringListToJson(List<String> values) =>
       jsonEncode(values.toList(growable: false));
 
+  /// 将 JSON 文本解码为字符串列表。
   static List<String> stringListFromJson(Object? value) {
     final decoded = _decodeJsonList(value);
     if (decoded == null) return const <String>[];
@@ -104,6 +118,7 @@ class PlayStatsSqlMapper {
         .toList(growable: false);
   }
 
+  /// 将视频统计记录转换为数据库字段映射。
   static Map<String, Object?> videoStatsToMap(VideoStatsRecord record) {
     return <String, Object?>{
       'video_id': record.videoId,
@@ -133,6 +148,7 @@ class PlayStatsSqlMapper {
     };
   }
 
+  /// 将数据库行转换为视频统计记录。
   static VideoStatsRecord videoStatsFromMap(Map<String, Object?> row) {
     return VideoStatsRecord(
       videoId: stringValue(row['video_id']),
@@ -162,6 +178,7 @@ class PlayStatsSqlMapper {
     );
   }
 
+  /// 将演职员统计记录转换为数据库字段映射。
   static Map<String, Object?> videoCreditToMap(VideoCreditRecord record) {
     return <String, Object?>{
       'video_id': record.videoId,
@@ -175,6 +192,7 @@ class PlayStatsSqlMapper {
     };
   }
 
+  /// 将数据库行转换为演职员统计记录。
   static VideoCreditRecord videoCreditFromMap(Map<String, Object?> row) {
     return VideoCreditRecord(
       videoId: stringValue(row['video_id']),
@@ -188,6 +206,7 @@ class PlayStatsSqlMapper {
     );
   }
 
+  /// 将番剧统计记录转换为数据库字段映射。
   static Map<String, Object?> animeStatsToMap(AnimeStatsRecord record) {
     return <String, Object?>{
       'anime_id': record.animeId,
@@ -204,6 +223,7 @@ class PlayStatsSqlMapper {
     };
   }
 
+  /// 将数据库行转换为番剧统计记录。
   static AnimeStatsRecord animeStatsFromMap(Map<String, Object?> row) {
     return AnimeStatsRecord(
       animeId: stringValue(row['anime_id']),
@@ -220,6 +240,7 @@ class PlayStatsSqlMapper {
     );
   }
 
+  /// 将季度统计记录转换为数据库字段映射。
   static Map<String, Object?> seasonStatsToMap(SeasonStatsRecord record) {
     return <String, Object?>{
       'season_id': record.seasonId,
@@ -233,6 +254,7 @@ class PlayStatsSqlMapper {
     };
   }
 
+  /// 将数据库行转换为季度统计记录。
   static SeasonStatsRecord seasonStatsFromMap(Map<String, Object?> row) {
     return SeasonStatsRecord(
       seasonId: stringValue(row['season_id']),
@@ -246,6 +268,7 @@ class PlayStatsSqlMapper {
     );
   }
 
+  /// 将播放历史记录转换为数据库字段映射。
   static Map<String, Object?> playHistoryToMap(PlayHistoryRecord record) {
     return <String, Object?>{
       'history_id': record.historyId,
@@ -282,6 +305,7 @@ class PlayStatsSqlMapper {
     };
   }
 
+  /// 将数据库行转换为播放历史记录。
   static PlayHistoryRecord playHistoryFromMap(Map<String, Object?> row) {
     return PlayHistoryRecord(
       historyId: stringValue(row['history_id']),

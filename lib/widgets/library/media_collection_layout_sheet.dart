@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/generated/app_localizations.dart';
 import '../../models/media_collection_view_type.dart';
 import '../../theme/app_theme.dart';
 
@@ -40,6 +41,7 @@ class MediaCollectionLayoutSheet extends StatelessWidget {
     final verticalSelected =
         currentViewType == MediaCollectionViewType.verticalPoster;
     final listSelected = currentViewType == MediaCollectionViewType.list;
+    final l10n = AppLocalizations.of(context);
 
     return SafeArea(
       top: false,
@@ -64,7 +66,7 @@ class MediaCollectionLayoutSheet extends StatelessWidget {
               SizedBox(height: compact ? 14 : 18),
               Center(
                 child: Text(
-                  '布局',
+                  l10n.collectionLayoutTitle,
                   style: TextStyle(
                     color: colors.textPrimary,
                     fontSize: 18,
@@ -74,7 +76,7 @@ class MediaCollectionLayoutSheet extends StatelessWidget {
               ),
               SizedBox(height: verticalGap),
               Text(
-                '视图',
+                l10n.collectionLayoutViewSection,
                 style: TextStyle(
                   color: colors.textSecondary,
                   fontSize: 14,
@@ -86,7 +88,7 @@ class MediaCollectionLayoutSheet extends StatelessWidget {
                 children: [
                   Expanded(
                     child: _LayoutChoiceTile(
-                      title: '海报墙',
+                      title: l10n.collectionLayoutPosterWall,
                       icon: Icons.grid_view_rounded,
                       selected: posterWallSelected,
                       compact: compact,
@@ -102,7 +104,7 @@ class MediaCollectionLayoutSheet extends StatelessWidget {
                   const SizedBox(width: 14),
                   Expanded(
                     child: _LayoutChoiceTile(
-                      title: '列表',
+                      title: l10n.collectionLayoutList,
                       icon: Icons.view_list_rounded,
                       selected: listSelected,
                       compact: compact,
@@ -116,7 +118,7 @@ class MediaCollectionLayoutSheet extends StatelessWidget {
               if (posterWallSelected) ...[
                 SizedBox(height: verticalGap),
                 Text(
-                  '海报',
+                  l10n.collectionLayoutPosterSection,
                   style: TextStyle(
                     color: colors.textSecondary,
                     fontSize: 14,
@@ -128,7 +130,7 @@ class MediaCollectionLayoutSheet extends StatelessWidget {
                   children: [
                     Expanded(
                       child: _LayoutChoiceTile(
-                        title: '横幅',
+                        title: l10n.collectionLayoutHorizontalPoster,
                         icon: Icons.crop_16_9_rounded,
                         selected: horizontalSelected,
                         compact: compact,
@@ -142,7 +144,7 @@ class MediaCollectionLayoutSheet extends StatelessWidget {
                     const SizedBox(width: 14),
                     Expanded(
                       child: _LayoutChoiceTile(
-                        title: '竖幅',
+                        title: l10n.collectionLayoutVerticalPoster,
                         icon: Icons.crop_portrait_rounded,
                         selected: verticalSelected,
                         compact: compact,

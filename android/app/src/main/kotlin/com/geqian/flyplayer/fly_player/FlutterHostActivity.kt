@@ -15,9 +15,11 @@ import android.os.Build
 import android.os.Bundle
 import android.content.IntentFilter
 import android.os.Environment
+import android.os.SystemClock
 import android.provider.DocumentsContract
 import android.provider.Settings
 import android.util.Log
+import android.view.Display
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
@@ -31,8 +33,13 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.util.HashMap
 import kotlin.concurrent.thread
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
+/**
+ * Android 侧 Flutter 宿主基类。
+ * 这里统一负责 MethodChannel 注册、播放器/分屏宿主协同，以及系统权限和存储能力桥接。
+ */
 abstract class FlutterHostActivity : FlutterActivity() {
     private val logTag: String
         get() = javaClass.simpleName
@@ -48,6 +55,12 @@ abstract class FlutterHostActivity : FlutterActivity() {
     private val screenshotDirectoryAccessController by lazy {
         ScreenshotDirectoryAccessController(applicationContext)
     }
+    private val storageManagementController by lazy {
+        StorageManagementController(applicationContext)
+    }
+    private val screenshotLibraryController by lazy {
+        ScreenshotLibraryController(applicationContext, screenshotDirectoryAccessController)
+    }
     private val danDanPlaySecretStore by lazy {
         DanDanPlaySecretStore(applicationContext)
     }
@@ -58,17 +71,24 @@ abstract class FlutterHostActivity : FlutterActivity() {
     protected var runtimeThemeSyncChannel: MethodChannel? = null
     protected var sessionStateChannel: MethodChannel? = null
     private var playerImmersiveSystemBarsEnabled = false
+    private var lastAppliedDecorFitsSystemWindows: Boolean? = null
+    private var lastAppliedSystemBarsMode: Int? = null
+    private var lastReportedSystemMultiWindowActive: Boolean? = null
+    private var lastEmbeddingDecisionLog: String? = null
+    private var lastEmbeddingDecisionLogAtMs: Long = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ParallelWindowCoordinator.restoreFromPreferences(this)
         ActivityEmbeddingInstaller.install(this)
+        applyPreferredHostDisplayMode(reason = "create")
         applyParallelWindowImmersiveMode()
         notifyPlayerHostSystemWindowMode()
     }
 
     override fun onResume() {
         super.onResume()
+        applyPreferredHostDisplayMode(reason = "resume")
         applyParallelWindowImmersiveMode()
         notifyPlayerHostSystemWindowMode()
         if (awaitingManageStorageAccessResult) {
@@ -81,126 +101,205 @@ abstract class FlutterHostActivity : FlutterActivity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
-            applyParallelWindowImmersiveMode()
+            applyPreferredHostDisplayMode(reason = "focus")
+            applyParallelWindowImmersiveMode(force = true)
         }
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        applyPreferredHostDisplayMode(reason = "configuration")
         applyParallelWindowImmersiveMode()
         notifyPlayerHostSystemWindowMode()
     }
 
     override fun onDestroy() {
         PlaybackSessionCoordinator.detachHost(this)
+        clearMethodChannelReferences()
+        super.onDestroy()
+    }
+
+    override fun getRenderMode(): RenderMode = RenderMode.texture
+
+    private fun applyPreferredHostDisplayMode(reason: String) {
+        if (!shouldApplyHostPreferredDisplayMode()) {
+            return
+        }
+        val currentDisplay = resolveActivityDisplay() ?: return
+        val bestMode =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                currentDisplay.supportedModes.maxByOrNull { it.refreshRate }
+            } else {
+                null
+            }
+        val preferredRefreshRateHz =
+            (bestMode?.refreshRate ?: currentDisplayRefreshRate(currentDisplay)).coerceAtLeast(60f)
+        val params = window.attributes
+        var changed = false
+        if (abs(params.preferredRefreshRate - preferredRefreshRateHz) > 0.1f) {
+            params.preferredRefreshRate = preferredRefreshRateHz
+            changed = true
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val preferredModeId = bestMode?.modeId ?: 0
+            if (preferredModeId != 0 && params.preferredDisplayModeId != preferredModeId) {
+                params.preferredDisplayModeId = preferredModeId
+                changed = true
+            }
+        }
+        if (changed) {
+            window.attributes = params
+        }
+        val modeRefreshRate =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                currentDisplay.mode?.refreshRate ?: preferredRefreshRateHz
+            } else {
+                currentDisplayRefreshRate(currentDisplay)
+            }
+        Log.d(
+            logTag,
+            "applyPreferredHostDisplayMode reason=$reason " +
+                "displayHz=${"%.1f".format(modeRefreshRate)} " +
+                "requestedHz=${"%.1f".format(preferredRefreshRateHz)} " +
+                "modeId=${if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) params.preferredDisplayModeId else 0}",
+        )
+    }
+
+    private fun resolveActivityDisplay(): Display? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            display
+        } else {
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay
+        }
+    }
+
+    private fun currentDisplayRefreshRate(display: Display): Float {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            display.mode?.refreshRate ?: display.refreshRate
+        } else {
+            @Suppress("DEPRECATION")
+            display.refreshRate
+        }
+    }
+
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        if (!shouldSkipBaseFlutterEngineConfiguration(flutterEngine)) {
+            super.configureFlutterEngine(flutterEngine)
+        }
+        // 按能力分组注册 channel，避免单个方法持续膨胀。
+        registerSystemChannel(flutterEngine)
+        registerStorageChannel(flutterEngine)
+        registerSecretStoreChannel(flutterEngine)
+        registerThemeSamplerChannel(flutterEngine)
+        registerRuntimeThemeSyncChannel(flutterEngine)
+        registerSessionStateChannel(flutterEngine)
+        registerMainHostChannel(flutterEngine)
+        registerEmbeddingChannel(flutterEngine)
+        registerPlayerHostChannel(flutterEngine)
+        registerPlayerHostStateChannel(flutterEngine)
+        registerDetailHostChannel(flutterEngine)
+        registerPlatformViewFactories(flutterEngine)
+    }
+
+    private fun clearMethodChannelReferences() {
         systemChannel = null
         detailHostChannel = null
         playerHostStateChannel = null
         mainHostChannel = null
         runtimeThemeSyncChannel = null
         sessionStateChannel = null
-        super.onDestroy()
     }
 
-    override fun getRenderMode(): RenderMode = RenderMode.texture
-
-    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
-        if (!shouldSkipBaseFlutterEngineConfiguration(flutterEngine)) {
-            super.configureFlutterEngine(flutterEngine)
-        }
+    private fun registerSystemChannel(flutterEngine: FlutterEngine) {
         systemChannel =
-            MethodChannel(
-                flutterEngine.dartExecutor.binaryMessenger,
-                "fly_player/system",
-            )
-        systemChannel?.setMethodCallHandler { call, result ->
-            when (call.method) {
-                "setPlayerOrientation" -> {
-                    val mode = call.argument<String>("mode").orEmpty()
-                    requestedOrientation =
-                        when (mode) {
-                            "landscape" -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                            "portrait" -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                            "system" -> ActivityInfo.SCREEN_ORIENTATION_FULL_USER
-                            else -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            createMethodChannel(flutterEngine, "fly_player/system").also { channel ->
+                channel.setMethodCallHandler { call, result ->
+                    when (call.method) {
+                        "setPlayerOrientation" -> {
+                            val mode = call.argument<String>("mode").orEmpty()
+                            requestedOrientation =
+                                when (mode) {
+                                    "landscape" -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                                    "portrait" -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                    "system" -> ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+                                    else -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                                }
+                            result.success(null)
                         }
-                    result.success(null)
-                }
 
-                "setPlayerImmersiveMode" -> {
-                    playerImmersiveSystemBarsEnabled =
-                        call.argument<Boolean>("enabled") ?: false
-                    applyParallelWindowImmersiveMode()
-                    result.success(null)
-                }
+                        "setPlayerImmersiveMode" -> {
+                            playerImmersiveSystemBarsEnabled =
+                                call.argument<Boolean>("enabled") ?: false
+                            applyParallelWindowImmersiveMode()
+                            result.success(null)
+                        }
 
-                "getPlaybackSystemState" -> {
-                    result.success(
-                        mapOf(
-                            "brightness" to currentBrightness(),
-                            "volume" to currentVolumeRatio(),
-                        ),
-                    )
-                }
+                        "getPlaybackSystemState" -> {
+                            result.success(
+                                mapOf(
+                                    "brightness" to currentBrightness(),
+                                    "volume" to currentVolumeRatio(),
+                                ),
+                            )
+                        }
 
-                "getPlayerStatusSnapshot" -> {
-                    result.success(
-                        mapOf(
-                            "batteryLevel" to currentBatteryLevel(),
-                            "charging" to isBatteryCharging(),
-                            "networkType" to currentNetworkType(),
-                        ),
-                    )
-                }
+                        "getPlayerStatusSnapshot" -> {
+                            result.success(
+                                mapOf(
+                                    "batteryLevel" to currentBatteryLevel(),
+                                    "charging" to isBatteryCharging(),
+                                    "networkType" to currentNetworkType(),
+                                ),
+                            )
+                        }
 
-                "getRuntimeThemeSessionId" -> {
-                    result.success(RuntimeThemeSessionRegistry.sessionId)
-                }
+                        "getRuntimeThemeSessionId" -> {
+                            result.success(RuntimeThemeSessionRegistry.sessionId)
+                        }
 
-                "setPlaybackBrightness" -> {
-                    val value = call.argument<Double>("value")
-                    result.success(setPlaybackBrightness(value))
-                }
+                        "setPlaybackBrightness" -> {
+                            val value = call.argument<Double>("value")
+                            result.success(setPlaybackBrightness(value))
+                        }
 
-                "setPlaybackVolume" -> {
-                    val value = call.argument<Double>("value")
-                    result.success(setPlaybackVolume(value))
-                }
+                        "setPlaybackVolume" -> {
+                            val value = call.argument<Double>("value")
+                            result.success(setPlaybackVolume(value))
+                        }
 
-                "playerSessionStart",
-                "playerSessionUpdate",
-                -> {
-                    if (PlaybackSessionCoordinator.areSessionUpdatesBlocked()) {
-                        Log.d(logTag, "ignore ${call.method} because session updates are blocked")
-                        result.success(false)
-                        return@setMethodCallHandler
+                        "playerSessionStart",
+                        "playerSessionUpdate",
+                        -> {
+                            if (PlaybackSessionCoordinator.areSessionUpdatesBlocked()) {
+                                Log.d(logTag, "ignore ${call.method} because session updates are blocked")
+                                result.success(false)
+                                return@setMethodCallHandler
+                            }
+                            val payload = PlaybackSessionPayload.fromArguments(call.arguments)
+                            if (payload == null) {
+                                result.success(false)
+                            } else {
+                                PlaybackSessionCoordinator.attachHost(this)
+                                PlayerNotificationService.startOrUpdate(applicationContext, payload)
+                                result.success(true)
+                            }
+                        }
+
+                        "playerSessionStop" -> {
+                            PlaybackSessionCoordinator.detachHost(this)
+                            PlayerNotificationService.stop(applicationContext)
+                            result.success(true)
+                        }
+
+                        else -> result.notImplemented()
                     }
-                    val payload = PlaybackSessionPayload.fromArguments(call.arguments)
-                    if (payload == null) {
-                        result.success(false)
-                    } else {
-                        PlaybackSessionCoordinator.attachHost(this)
-                        PlayerNotificationService.startOrUpdate(applicationContext, payload)
-                        result.success(true)
-                    }
                 }
-
-                "playerSessionStop" -> {
-                    PlaybackSessionCoordinator.detachHost(this)
-                    PlayerNotificationService.stop(applicationContext)
-                    result.success(true)
-                }
-
-                else -> result.notImplemented()
             }
-        }
+    }
 
-        MethodChannel(
-            flutterEngine.dartExecutor.binaryMessenger,
-            "fly_player/storage",
-        ).setMethodCallHandler { call, result ->
-            val storageController = StorageManagementController(applicationContext)
-            val screenshotLibraryController = ScreenshotLibraryController(applicationContext)
+    private fun registerStorageChannel(flutterEngine: FlutterEngine) {
+        createMethodChannel(flutterEngine, "fly_player/storage").setMethodCallHandler { call, result ->
             when (call.method) {
                 "hasFileAccess" -> result.success(hasFileAccess())
                 "requestFileAccess" -> requestFileAccess(result)
@@ -223,6 +322,15 @@ abstract class FlutterHostActivity : FlutterActivity() {
                 "readScopedFileBytes" -> {
                     val identifier = call.argument<String>("identifier").orEmpty()
                     result.success(scopedTreeAccessController.readFileBytes(identifier))
+                }
+                "readLocalVideoMetadata" -> {
+                    val path = call.argument<String>("path").orEmpty()
+                    thread(name = "fly-local-video-metadata") {
+                        val payload = LocalVideoMetadataReader.read(path)
+                        runOnUiThread {
+                            result.success(payload)
+                        }
+                    }
                 }
                 "getScreenshotCustomDirectory" -> {
                     result.success(screenshotDirectoryAccessController.currentDirectorySummary())
@@ -270,15 +378,15 @@ abstract class FlutterHostActivity : FlutterActivity() {
                     )
                 }
                 "getStorageOverview" -> {
-                    result.success(storageController.loadOverview(hasFileAccess()))
+                    result.success(storageManagementController.loadOverview(hasFileAccess()))
                 }
                 "clearStorageAction" -> {
                     val action = call.argument<String>("action").orEmpty()
-                    result.success(storageController.clear(action, hasFileAccess()))
+                    result.success(storageManagementController.clear(action, hasFileAccess()))
                 }
                 "queryCachedDownloadable" -> {
                     result.success(
-                        storageController.queryCachedDownloadable(
+                        storageManagementController.queryCachedDownloadable(
                             itemGuid = call.argument<String>("itemGuid").orEmpty(),
                             mediaGuid = call.argument<String>("mediaGuid").orEmpty(),
                             videoGuid = call.argument<String>("videoGuid").orEmpty(),
@@ -296,7 +404,7 @@ abstract class FlutterHostActivity : FlutterActivity() {
                     thread(name = "FlyPlayer-PromoteCachedMedia", isDaemon = true) {
                         val promoteResult =
                             runCatching {
-                                storageController.promoteCachedMedia(
+                                storageManagementController.promoteCachedMedia(
                                     itemGuid = itemGuid,
                                     mediaGuid = mediaGuid,
                                     videoGuid = videoGuid,
@@ -316,23 +424,22 @@ abstract class FlutterHostActivity : FlutterActivity() {
                     }
                 }
                 "listPlaybackCacheEntries" -> {
-                    result.success(storageController.listPlaybackCacheEntries())
+                    result.success(storageManagementController.listPlaybackCacheEntries())
                 }
                 "clearPlaybackCacheEntries" -> {
                     @Suppress("UNCHECKED_CAST")
                     val resourceKeys =
                         (call.argument<List<*>>("resourceKeys") ?: emptyList<Any?>())
                             .mapNotNull { it?.toString() }
-                    result.success(storageController.clearPlaybackCacheEntries(resourceKeys))
+                    result.success(storageManagementController.clearPlaybackCacheEntries(resourceKeys))
                 }
                 else -> result.notImplemented()
             }
         }
+    }
 
-        MethodChannel(
-            flutterEngine.dartExecutor.binaryMessenger,
-            "fly_player/secret_store",
-        ).setMethodCallHandler { call, result ->
+    private fun registerSecretStoreChannel(flutterEngine: FlutterEngine) {
+        createMethodChannel(flutterEngine, "fly_player/secret_store").setMethodCallHandler { call, result ->
             when (call.method) {
                 "getDanDanPlayConfig" -> {
                     result.success(danDanPlaySecretStore.getConfig())
@@ -343,11 +450,10 @@ abstract class FlutterHostActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
 
-        MethodChannel(
-            flutterEngine.dartExecutor.binaryMessenger,
-            "fly_player/theme_sampler",
-        ).setMethodCallHandler { call, result ->
+    private fun registerThemeSamplerChannel(flutterEngine: FlutterEngine) {
+        createMethodChannel(flutterEngine, "fly_player/theme_sampler").setMethodCallHandler { call, result ->
             when (call.method) {
                 "extractDynamicThemeSeed" -> {
                     val imageUrl = call.argument<String>("imageUrl").orEmpty().trim()
@@ -363,45 +469,40 @@ abstract class FlutterHostActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
 
+    private fun registerRuntimeThemeSyncChannel(flutterEngine: FlutterEngine) {
         runtimeThemeSyncChannel =
-            MethodChannel(
-                flutterEngine.dartExecutor.binaryMessenger,
-                "fly_player/runtime_theme_sync",
-            ).also { channel ->
+            createMethodChannel(flutterEngine, "fly_player/runtime_theme_sync").also { channel ->
                 channel.setMethodCallHandler { call, result ->
                     when (call.method) {
                         "pushRuntimeThemeToMain" -> {
-                            val payload =
-                                (call.arguments as? Map<*, *>)?.let { raw ->
-                                    HashMap<String, Any?>().apply {
-                                        raw.forEach { (key, value) ->
-                                            put(key?.toString().orEmpty(), value)
-                                        }
-                                    }
-                                } ?: hashMapOf()
-                            result.success(pushRuntimeThemeToMain(payload))
+                            result.success(
+                                pushRuntimeThemeToMain(
+                                    copyStringKeyedMapOrEmpty(call.arguments),
+                                ),
+                            )
                         }
                         "clearRuntimeThemeOnMain" -> {
                             val pageKey = call.argument<String>("pageKey").orEmpty()
                             result.success(clearRuntimeThemeOnMain(pageKey))
                         }
+                        "getActiveRuntimeTheme" -> {
+                            result.success(activeRuntimeThemePayload)
+                        }
                         else -> result.notImplemented()
                     }
                 }
             }
+    }
 
-        sessionStateChannel =
-            MethodChannel(
-                flutterEngine.dartExecutor.binaryMessenger,
-                "fly_player/session_state",
-            )
+    private fun registerSessionStateChannel(flutterEngine: FlutterEngine) {
+        sessionStateChannel = createMethodChannel(flutterEngine, "fly_player/session_state")
+    }
 
+    private fun registerMainHostChannel(flutterEngine: FlutterEngine) {
         mainHostChannel =
-            MethodChannel(
-                flutterEngine.dartExecutor.binaryMessenger,
-                "fly_player/main_host",
-            ).also { channel ->
+            createMethodChannel(flutterEngine, "fly_player/main_host").also { channel ->
                 channel.setMethodCallHandler { call, result ->
                     when (call.method) {
                         "switchPrimaryTab" -> {
@@ -416,17 +517,25 @@ abstract class FlutterHostActivity : FlutterActivity() {
                     }
                 }
             }
+    }
 
-        MethodChannel(
-            flutterEngine.dartExecutor.binaryMessenger,
-            "fly_player/embedding",
-        ).setMethodCallHandler { call, result ->
+    private fun registerEmbeddingChannel(flutterEngine: FlutterEngine) {
+        createMethodChannel(flutterEngine, "fly_player/embedding").setMethodCallHandler { call, result ->
             when (call.method) {
                 "canOpenEmbeddedDetail" -> result.success(canOpenEmbeddedDetail())
                 "isParallelWindowSupported" -> result.success(isParallelWindowSupported())
                 "openItemDetail" -> {
                     val itemGuid = call.argument<String>("itemGuid").orEmpty()
-                    result.success(openEmbeddedDetail(itemGuid))
+                    val seriesGuid = call.argument<String>("seriesGuid").orEmpty()
+                    val initialItemDetail =
+                        call.argument<HashMap<String, Any?>>("initialItemDetail")
+                    result.success(
+                        openEmbeddedDetail(
+                            itemGuid = itemGuid,
+                            seriesGuid = seriesGuid,
+                            initialItemDetail = initialItemDetail,
+                        ),
+                    )
                 }
                 "openSecondaryRoute" -> {
                     val routeName = call.argument<String>("routeName").orEmpty()
@@ -456,15 +565,10 @@ abstract class FlutterHostActivity : FlutterActivity() {
                 }
                 "openFullscreenScreenshot" -> {
                     val rawItems = call.argument<List<*>>("items") ?: emptyList<Any?>()
-                    val items =
-                        rawItems.mapNotNull { raw ->
-                            @Suppress("UNCHECKED_CAST")
-                            (raw as? Map<String, Any?>)?.let { HashMap(it) }
-                        }
                     val initialIndex = call.argument<Int>("initialIndex") ?: 0
                     result.success(
                         openFullscreenScreenshot(
-                            items = items,
+                            items = copyStringKeyedMapList(rawItems),
                             initialIndex = initialIndex,
                         ),
                     )
@@ -473,8 +577,14 @@ abstract class FlutterHostActivity : FlutterActivity() {
                     val token = call.argument<String>("token").orEmpty()
                     result.success(FullscreenScreenshotPayloadStore.consume(token))
                 }
+                "readDetailRoutePayload" -> {
+                    val token = call.argument<String>("token").orEmpty()
+                    result.success(DetailRoutePayloadStore.read(token))
+                }
                 "getParallelHostContext" -> result.success(getParallelHostContext())
-                "getParallelWindowSettings" -> result.success(ParallelWindowCoordinator.settingsMap())
+                "getParallelWindowSettings" -> {
+                    result.success(ParallelWindowCoordinator.settingsMap())
+                }
                 "updateParallelWindowSettings" -> {
                     val enabled = call.argument<Boolean>("enabled") ?: true
                     val preferredPaneSide =
@@ -509,25 +619,16 @@ abstract class FlutterHostActivity : FlutterActivity() {
                 "closeRightPane" -> result.success(closeRightPane())
                 "logoutAndResetParallelUi" -> result.success(logoutAndResetParallelUi())
                 "reportBrowseSnapshot" -> {
-                    val snapshot =
-                        (call.arguments as? Map<*, *>)?.let { raw ->
-                            HashMap<String, Any?>().apply {
-                                raw.forEach { (key, value) ->
-                                    put(key?.toString().orEmpty(), value)
-                                }
-                            }
-                        }
-                    result.success(reportBrowseSnapshot(snapshot))
+                    result.success(reportBrowseSnapshot(copyStringKeyedMap(call.arguments)))
                 }
 
                 else -> result.notImplemented()
             }
         }
+    }
 
-        MethodChannel(
-            flutterEngine.dartExecutor.binaryMessenger,
-            "fly_player/player_host",
-        ).setMethodCallHandler { call, result ->
+    private fun registerPlayerHostChannel(flutterEngine: FlutterEngine) {
+        createMethodChannel(flutterEngine, "fly_player/player_host").setMethodCallHandler { call, result ->
             when (call.method) {
                 "consumeInitialPlayerArgs" -> result.success(consumeInitialPlayerArgs())
                 "finishPlayerActivity" -> {
@@ -580,20 +681,19 @@ abstract class FlutterHostActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
 
+    private fun registerPlayerHostStateChannel(flutterEngine: FlutterEngine) {
         playerHostStateChannel =
-            MethodChannel(
-                flutterEngine.dartExecutor.binaryMessenger,
-                "fly_player/player_host_state",
-            )
+            createMethodChannel(flutterEngine, "fly_player/player_host_state")
         notifyPlayerHostSystemWindowMode()
+    }
 
-        detailHostChannel =
-            MethodChannel(
-                flutterEngine.dartExecutor.binaryMessenger,
-                "fly_player/detail_host",
-            )
+    private fun registerDetailHostChannel(flutterEngine: FlutterEngine) {
+        detailHostChannel = createMethodChannel(flutterEngine, "fly_player/detail_host")
+    }
 
+    private fun registerPlatformViewFactories(flutterEngine: FlutterEngine) {
         flutterEngine
             .platformViewsController
             .registry
@@ -602,6 +702,29 @@ abstract class FlutterHostActivity : FlutterActivity() {
                 MpvPlayerViewFactory(flutterEngine.dartExecutor.binaryMessenger),
             )
     }
+
+    private fun createMethodChannel(
+        flutterEngine: FlutterEngine,
+        channelName: String,
+    ): MethodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
+
+    private fun copyStringKeyedMap(arguments: Any?): HashMap<String, Any?>? =
+        (arguments as? Map<*, *>)?.let(::copyStringKeyedMap)
+
+    private fun copyStringKeyedMap(raw: Map<*, *>): HashMap<String, Any?> =
+        HashMap<String, Any?>().apply {
+            raw.forEach { (key, value) ->
+                put(key?.toString().orEmpty(), value)
+            }
+        }
+
+    private fun copyStringKeyedMapOrEmpty(arguments: Any?): HashMap<String, Any?> =
+        copyStringKeyedMap(arguments) ?: hashMapOf()
+
+    private fun copyStringKeyedMapList(rawItems: List<*>): List<HashMap<String, Any?>> =
+        rawItems.mapNotNull { raw ->
+            (raw as? Map<*, *>)?.let(::copyStringKeyedMap)
+        }
 
     override fun onRequestPermissionsResult(
         requestCode: Int,
@@ -626,53 +749,31 @@ abstract class FlutterHostActivity : FlutterActivity() {
         if (requestCode == SCREENSHOT_TREE_ACCESS_REQUEST_CODE) {
             val callback = pendingScreenshotTreeAccessResult
             pendingScreenshotTreeAccessResult = null
-            if (callback == null) {
-                return
-            }
-            if (resultCode != RESULT_OK || data?.data == null) {
-                callback.success(null)
-                return
-            }
-            val treeUri = data.data ?: run {
-                callback.success(null)
-                return
-            }
-            val grantFlags =
-                data.flags and
-                    (Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-            callback.success(
+            handleDocumentTreeActivityResult(
+                resultCode = resultCode,
+                data = data,
+                callback = callback,
+            ) { treeUri, grantFlags ->
                 screenshotDirectoryAccessController.persistGrantedTree(
                     treeUri = treeUri,
                     grantFlags = grantFlags,
-                ),
-            )
+                )
+            }
             return
         }
         if (requestCode == SCOPED_TREE_ACCESS_REQUEST_CODE) {
             val callback = pendingScopedTreeAccessResult
             pendingScopedTreeAccessResult = null
-            if (callback == null) {
-                return
-            }
-            if (resultCode != RESULT_OK || data?.data == null) {
-                callback.success(null)
-                return
-            }
-            val treeUri = data.data ?: run {
-                callback.success(null)
-                return
-            }
-            val grantFlags =
-                data.flags and
-                    (Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-            callback.success(
+            handleDocumentTreeActivityResult(
+                resultCode = resultCode,
+                data = data,
+                callback = callback,
+            ) { treeUri, grantFlags ->
                 scopedTreeAccessController.persistGrantedTree(
                     treeUri = treeUri,
                     grantFlags = grantFlags,
-                ),
-            )
+                )
+            }
             return
         }
         if (requestCode != PLAYER_ACTIVITY_REQUEST_CODE) return
@@ -683,23 +784,22 @@ abstract class FlutterHostActivity : FlutterActivity() {
 
     protected open fun canOpenEmbeddedDetail(): Boolean {
         if (!ParallelWindowCoordinator.isParallelWindowEnabled()) {
-            Log.d(logTag, "canOpenEmbeddedDetail=false disabledBySettings")
+            logEmbeddingDecision("canOpenEmbeddedDetail=false disabledBySettings")
             return false
         }
         if (ParallelWindowCoordinator.isSplitPlayerVisible() && this !is PlayerActivity) {
-            Log.d(logTag, "canOpenEmbeddedDetail=false splitPlayerVisible")
+            logEmbeddingDecision("canOpenEmbeddedDetail=false splitPlayerVisible")
             return false
         }
         if (Build.VERSION.SDK_INT < 32) return false
         val splitSupportStatus = SplitController.getInstance(this).splitSupportStatus
         if (splitSupportStatus != SplitController.SplitSupportStatus.SPLIT_AVAILABLE) {
-            Log.d(logTag, "canOpenEmbeddedDetail=false splitSupportStatus=$splitSupportStatus")
+            logEmbeddingDecision("canOpenEmbeddedDetail=false splitSupportStatus=$splitSupportStatus")
             return false
         }
 
         if (ParallelWindowCoordinator.hasRightPaneHost()) {
-            Log.d(
-                logTag,
+            logEmbeddingDecision(
                 "canOpenEmbeddedDetail=true reusedExistingSplit rightPaneHost=${ParallelWindowCoordinator.hasRightPaneHost()}",
             )
             return true
@@ -710,8 +810,7 @@ abstract class FlutterHostActivity : FlutterActivity() {
             configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
             configuration.screenWidthDp >= MIN_EMBEDDED_WIDTH_DP &&
             configuration.smallestScreenWidthDp >= MIN_EMBEDDED_SMALLEST_WIDTH_DP
-        Log.d(
-            logTag,
+        logEmbeddingDecision(
             "canOpenEmbeddedDetail=$canOpen splitSupportStatus=$splitSupportStatus orientation=${configuration.orientation} widthDp=${configuration.screenWidthDp} smallestWidthDp=${configuration.smallestScreenWidthDp}",
         )
         return canOpen
@@ -721,28 +820,53 @@ abstract class FlutterHostActivity : FlutterActivity() {
         if (Build.VERSION.SDK_INT < 32) return false
         val splitSupportStatus = SplitController.getInstance(this).splitSupportStatus
         if (splitSupportStatus != SplitController.SplitSupportStatus.SPLIT_AVAILABLE) {
-            Log.d(logTag, "isParallelWindowSupported=false splitSupportStatus=$splitSupportStatus")
+            logEmbeddingDecision("isParallelWindowSupported=false splitSupportStatus=$splitSupportStatus")
             return false
         }
         val configuration = resources.configuration
         val supported = configuration.smallestScreenWidthDp >= MIN_EMBEDDED_SMALLEST_WIDTH_DP
-        Log.d(
-            logTag,
+        logEmbeddingDecision(
             "isParallelWindowSupported=$supported splitSupportStatus=$splitSupportStatus smallestWidthDp=${configuration.smallestScreenWidthDp}",
         )
         return supported
     }
 
-    protected open fun openEmbeddedDetail(itemGuid: String): Boolean {
+    private fun logEmbeddingDecision(message: String) {
+        val nowMs = SystemClock.uptimeMillis()
+        if (
+            message == lastEmbeddingDecisionLog &&
+            nowMs - lastEmbeddingDecisionLogAtMs < EMBEDDING_DECISION_LOG_REPEAT_MS
+        ) {
+            return
+        }
+        lastEmbeddingDecisionLog = message
+        lastEmbeddingDecisionLogAtMs = nowMs
+        Log.d(logTag, message)
+    }
+
+    protected open fun openEmbeddedDetail(
+        itemGuid: String,
+        seriesGuid: String = "",
+        initialItemDetail: HashMap<String, Any?>? = null,
+    ): Boolean {
         val normalizedGuid = itemGuid.trim()
+        val normalizedSeriesGuid = seriesGuid.trim()
         if (normalizedGuid.isEmpty() || !canOpenEmbeddedDetail()) return false
-        val route =
+        val routeBuilder =
             Uri
                 .Builder()
                 .path("/detail/item")
                 .appendQueryParameter("itemGuid", normalizedGuid)
-                .build()
-                .toString()
+        if (normalizedSeriesGuid.isNotEmpty()) {
+            routeBuilder.appendQueryParameter("seriesGuid", normalizedSeriesGuid)
+        }
+        initialItemDetail?.takeIf { it.isNotEmpty() }?.let { payload ->
+            routeBuilder.appendQueryParameter(
+                "payloadToken",
+                DetailRoutePayloadStore.putItem(HashMap(payload)),
+            )
+        }
+        val route = routeBuilder.build().toString()
         if (ParallelWindowCoordinator.isSplitPlayerVisible()) {
             ParallelWindowCoordinator.updateCurrentDetailItemGuid(normalizedGuid)
             ParallelWindowCoordinator.updateCurrentDetailRoute(route)
@@ -760,7 +884,7 @@ abstract class FlutterHostActivity : FlutterActivity() {
         }
         ParallelWindowCoordinator.updateCurrentDetailItemGuid(normalizedGuid)
         ParallelFlutterEngineRegistry.prepareDetailRoute(this, route)
-        startActivity(DetailActivity.createIntent(this, normalizedGuid))
+        startActivity(DetailActivity.createRouteIntent(this, route))
         return true
     }
 
@@ -847,9 +971,10 @@ abstract class FlutterHostActivity : FlutterActivity() {
                 .appendQueryParameter("parentGuid", normalizedParentGuid)
                 .appendQueryParameter("seriesTitle", seriesTitle.trim())
                 .appendQueryParameter("backdropPath", backdropPath.trim())
+                .appendQueryParameter("seasonGuid", seasonGuid)
                 .appendQueryParameter(
-                    "seasonItem",
-                    org.json.JSONObject(normalizedSeasonItem as Map<*, *>).toString(),
+                    "payloadToken",
+                    DetailRoutePayloadStore.putSeason(HashMap(normalizedSeasonItem)),
                 ).build()
                 .toString()
         if (ParallelWindowCoordinator.isSplitPlayerVisible()) {
@@ -869,15 +994,7 @@ abstract class FlutterHostActivity : FlutterActivity() {
         }
         ParallelWindowCoordinator.updateCurrentDetailItemGuid(seasonGuid)
         ParallelFlutterEngineRegistry.prepareDetailRoute(this, route)
-        startActivity(
-            DetailActivity.createSeasonIntent(
-                context = this,
-                parentGuid = normalizedParentGuid,
-                seriesTitle = seriesTitle,
-                backdropPath = backdropPath,
-                seasonItem = HashMap(normalizedSeasonItem),
-            ),
-        )
+        startActivity(DetailActivity.createRouteIntent(this, route))
         return true
     }
 
@@ -1000,20 +1117,31 @@ abstract class FlutterHostActivity : FlutterActivity() {
             ParallelWindowCoordinator.isSplitPlayerVisible()
     }
 
-    protected fun applyParallelWindowImmersiveMode() {
+    protected fun applyParallelWindowImmersiveMode(force: Boolean = false) {
         val parallelImmersive = shouldUseParallelWindowImmersiveMode()
         val playerImmersive = playerImmersiveSystemBarsEnabled
         val immersive = parallelImmersive || playerImmersive
-        WindowCompat.setDecorFitsSystemWindows(window, !immersive)
+        val decorFitsSystemWindows = !immersive
+        if (force || lastAppliedDecorFitsSystemWindows != decorFitsSystemWindows) {
+            WindowCompat.setDecorFitsSystemWindows(window, decorFitsSystemWindows)
+            lastAppliedDecorFitsSystemWindows = decorFitsSystemWindows
+        }
         val controller = WindowInsetsControllerCompat(window, window.decorView)
         controller.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        if (playerImmersive) {
-            controller.hide(WindowInsetsCompat.Type.systemBars())
-        } else if (parallelImmersive) {
-            controller.hide(WindowInsetsCompat.Type.statusBars())
-        } else {
-            controller.show(WindowInsetsCompat.Type.systemBars())
+        val systemBarsMode =
+            when {
+                playerImmersive -> 2
+                parallelImmersive -> 1
+                else -> 0
+            }
+        if (force || lastAppliedSystemBarsMode != systemBarsMode) {
+            when (systemBarsMode) {
+                2 -> controller.hide(WindowInsetsCompat.Type.systemBars())
+                1 -> controller.hide(WindowInsetsCompat.Type.statusBars())
+                else -> controller.show(WindowInsetsCompat.Type.systemBars())
+            }
+            lastAppliedSystemBarsMode = systemBarsMode
         }
     }
 
@@ -1026,6 +1154,8 @@ abstract class FlutterHostActivity : FlutterActivity() {
     protected open fun shouldSkipBaseFlutterEngineConfiguration(
         flutterEngine: FlutterEngine,
     ): Boolean = false
+
+    protected open fun shouldApplyHostPreferredDisplayMode(): Boolean = true
 
     protected open fun getParallelHostContext(): HashMap<String, Any?> {
         val context =
@@ -1049,9 +1179,14 @@ abstract class FlutterHostActivity : FlutterActivity() {
     }
 
     protected fun notifyPlayerHostSystemWindowMode() {
+        val active = isSystemMultiWindowActive()
+        if (lastReportedSystemMultiWindowActive == active) {
+            return
+        }
+        lastReportedSystemMultiWindowActive = active
         playerHostStateChannel?.invokeMethod(
             "systemMultiWindowModeChanged",
-            hashMapOf("active" to isSystemMultiWindowActive()),
+            hashMapOf("active" to active),
         )
     }
 
@@ -1129,9 +1264,17 @@ abstract class FlutterHostActivity : FlutterActivity() {
     }
 
     private fun pushRuntimeThemeToMain(payload: HashMap<String, Any?>): Boolean {
+        val pageKey = payload["pageKey"]?.toString()?.trim().orEmpty()
+        if (pageKey.isEmpty()) {
+            return false
+        }
+        val normalizedPayload = HashMap(payload)
+        normalizedPayload["pageKey"] = pageKey
+        activeRuntimeThemePageKey = pageKey
+        activeRuntimeThemePayload = normalizedPayload
         val mainHost = ParallelWindowCoordinator.currentMainHost() ?: return false
-        Log.d(logTag, "pushRuntimeThemeToMain page=${payload["pageKey"]} mainHost=${mainHost.javaClass.simpleName}")
-        mainHost.dispatchRuntimeThemeSync("applyRuntimeDynamicTheme", payload)
+        Log.d(logTag, "pushRuntimeThemeToMain page=$pageKey mainHost=${mainHost.javaClass.simpleName}")
+        mainHost.dispatchRuntimeThemeSync("applyRuntimeDynamicTheme", normalizedPayload)
         return true
     }
 
@@ -1140,6 +1283,15 @@ abstract class FlutterHostActivity : FlutterActivity() {
         if (normalizedPageKey.isEmpty()) {
             return false
         }
+        if (activeRuntimeThemePageKey.isNotEmpty() && normalizedPageKey != activeRuntimeThemePageKey) {
+            Log.d(
+                logTag,
+                "ignore clearRuntimeThemeOnMain page=$normalizedPageKey active=$activeRuntimeThemePageKey",
+            )
+            return true
+        }
+        activeRuntimeThemePageKey = ""
+        activeRuntimeThemePayload = null
         val mainHost = ParallelWindowCoordinator.currentMainHost() ?: return false
         Log.d(logTag, "clearRuntimeThemeOnMain page=$normalizedPageKey mainHost=${mainHost.javaClass.simpleName}")
         mainHost.dispatchRuntimeThemeSync(
@@ -1220,8 +1372,8 @@ abstract class FlutterHostActivity : FlutterActivity() {
         pendingPlayerResult = result
         val preferFullscreen =
             !canOpenEmbeddedDetail() || ParallelWindowCoordinator.defaultPlaybackFullscreen()
-        runCatching {
-            startActivityForResult(
+        val launchIntent =
+            if (preferFullscreen) {
                 PlayerActivity.createIntent(
                     context = this,
                     title = normalizedTitle,
@@ -1230,14 +1382,24 @@ abstract class FlutterHostActivity : FlutterActivity() {
                     startSource = startSource,
                     fromParallelHost = this is DetailActivity && ParallelWindowCoordinator.hasRightPaneHost(),
                     hostContext = getParallelHostContext(),
-                    layoutMode =
-                        if (preferFullscreen) {
-                            PlayerLaunchContract.MODE_FULLSCREEN
-                        } else {
-                            PlayerLaunchContract.MODE_SPLIT
-                        },
+                    layoutMode = PlayerLaunchContract.MODE_FULLSCREEN,
+                )
+            } else {
+                PlayerActivity.createIntent(
+                    context = this,
+                    title = normalizedTitle,
+                    source = HashMap(playerSource),
+                    initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
+                    startSource = startSource,
+                    fromParallelHost = this is DetailActivity && ParallelWindowCoordinator.hasRightPaneHost(),
+                    hostContext = getParallelHostContext(),
+                    layoutMode = PlayerLaunchContract.MODE_SPLIT,
                     initialRightPaneRoute = resolvePlayerInitialRightPaneRoute(),
-                ),
+                )
+            }
+        runCatching {
+            startActivityForResult(
+                launchIntent,
                 PLAYER_ACTIVITY_REQUEST_CODE,
             )
         }.onFailure { error ->
@@ -1392,23 +1554,12 @@ abstract class FlutterHostActivity : FlutterActivity() {
     private fun requestScopedTreeAccess(result: MethodChannel.Result) {
         pendingScopedTreeAccessResult?.success(null)
         pendingScopedTreeAccessResult = result
-        runCatching {
-            val intent =
-                Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
-                    addFlags(
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
-                            Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
-                            Intent.FLAG_GRANT_PREFIX_URI_PERMISSION,
-                    )
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        scopedTreeAccessController.currentTreeUri()?.let { uri ->
-                            putExtra(DocumentsContract.EXTRA_INITIAL_URI, uri)
-                        }
-                    }
-                }
-            startActivityForResult(intent, SCOPED_TREE_ACCESS_REQUEST_CODE)
-        }.onFailure {
+        if (
+            !launchDocumentTreePicker(
+                scopedTreeAccessController.currentTreeUri(),
+                SCOPED_TREE_ACCESS_REQUEST_CODE,
+            )
+        ) {
             pendingScopedTreeAccessResult = null
             result.success(null)
         }
@@ -1417,34 +1568,77 @@ abstract class FlutterHostActivity : FlutterActivity() {
     private fun requestScreenshotCustomDirectory(result: MethodChannel.Result) {
         pendingScreenshotTreeAccessResult?.success(null)
         pendingScreenshotTreeAccessResult = result
-        runCatching {
-            val intent =
-                Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
-                    addFlags(
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
-                            Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
-                            Intent.FLAG_GRANT_PREFIX_URI_PERMISSION,
-                    )
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        screenshotDirectoryAccessController.currentTreeUri()?.let { uri ->
-                            putExtra(DocumentsContract.EXTRA_INITIAL_URI, uri)
-                        }
-                    }
-                }
-            startActivityForResult(intent, SCREENSHOT_TREE_ACCESS_REQUEST_CODE)
-        }.onFailure {
+        if (
+            !launchDocumentTreePicker(
+                screenshotDirectoryAccessController.currentTreeUri(),
+                SCREENSHOT_TREE_ACCESS_REQUEST_CODE,
+            )
+        ) {
             pendingScreenshotTreeAccessResult = null
             result.success(null)
         }
     }
 
+    private fun launchDocumentTreePicker(
+        initialUri: Uri?,
+        requestCode: Int,
+    ): Boolean =
+        runCatching {
+            startActivityForResult(buildDocumentTreeIntent(initialUri), requestCode)
+            true
+        }.getOrElse { false }
+
+    private fun buildDocumentTreeIntent(initialUri: Uri?): Intent =
+        Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+            addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
+                    Intent.FLAG_GRANT_PREFIX_URI_PERMISSION,
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                initialUri?.let { uri ->
+                    putExtra(DocumentsContract.EXTRA_INITIAL_URI, uri)
+                }
+            }
+        }
+
+    private fun handleDocumentTreeActivityResult(
+        resultCode: Int,
+        data: Intent?,
+        callback: MethodChannel.Result?,
+        persistGrantedTree: (Uri, Int) -> Any?,
+    ) {
+        // SAF 目录授权的结果处理统一走这里，避免请求端和回调端出现分叉逻辑。
+        if (callback == null) {
+            return
+        }
+        val treeUri = data?.data
+        if (resultCode != RESULT_OK || treeUri == null) {
+            callback.success(null)
+            return
+        }
+        val grantFlags =
+            data.flags and
+                (Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        callback.success(
+            persistGrantedTree(
+                treeUri,
+                grantFlags,
+            ),
+        )
+    }
+
     private companion object {
+        var activeRuntimeThemePageKey: String = ""
+        var activeRuntimeThemePayload: HashMap<String, Any?>? = null
         const val PLAYER_ACTIVITY_REQUEST_CODE = 2072
         const val STORAGE_PERMISSION_REQUEST_CODE = 2071
         const val SCOPED_TREE_ACCESS_REQUEST_CODE = 2073
         const val SCREENSHOT_TREE_ACCESS_REQUEST_CODE = 2074
         const val MIN_EMBEDDED_WIDTH_DP = 840
         const val MIN_EMBEDDED_SMALLEST_WIDTH_DP = 600
+        const val EMBEDDING_DECISION_LOG_REPEAT_MS = 2000L
     }
 }

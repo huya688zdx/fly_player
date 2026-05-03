@@ -42,6 +42,9 @@ probe_*
 tmp_*
 .codex_tmp/
 capture/
+.look/
+gfxinfo_*.txt
+perf_logs/
 /android/build/
 /android/.kotlin/
 /android/local.properties

@@ -1,6 +1,9 @@
 package com.geqian.flyplayer.fly_player.mpv
 
+import android.content.Context
+import android.net.Uri
 import android.os.SystemClock
+import android.provider.OpenableColumns
 import android.util.Log
 import fi.iki.elonen.NanoHTTPD
 import okhttp3.Headers
@@ -12,6 +15,7 @@ import java.io.File
 import java.io.BufferedInputStream
 import java.io.ByteArrayInputStream
 import java.io.FilterInputStream
+import java.io.FileInputStream
 import java.io.InputStream
 import java.io.IOException
 import java.io.RandomAccessFile
@@ -57,6 +61,15 @@ private data class NativeProxySession(
     val extremePlaybackEnabled: Boolean,
     val cacheResourceKey: String?,
     val cacheSession: ExtremePlaybackCacheSession?,
+    val transferRateTracker: NativeProxyTransferRateTracker,
+)
+
+private data class NativeLocalContentSession(
+    val context: Context,
+    val uri: Uri,
+    val displayName: String,
+    val mimeType: String,
+    val totalBytes: Long,
 )
 
 private data class NativeProxyRemoteMeta(
@@ -349,6 +362,7 @@ private class ExtremePlaybackCacheSession(
                             val read = input.read(buffer)
                             if (read < 0) break
                             if (read == 0) continue
+                            upstreamProxySession?.transferRateTracker?.onBytesTransferred(read)
                             output.seek(writePosition)
                             output.write(buffer, 0, read)
                             writePosition += read.toLong()
@@ -501,6 +515,7 @@ private class ProxyStreamInputStream(
     upstream: InputStream,
     private val upstreamResponse: OkHttpResponse,
     private val remoteUrl: String,
+    private val transferRateTracker: NativeProxyTransferRateTracker,
 ) : FilterInputStream(upstream) {
     private var bytesRead = 0L
     private var startedAtMs = SystemClock.elapsedRealtime()
@@ -525,6 +540,7 @@ private class ProxyStreamInputStream(
     private fun onBytesRead(count: Int) {
         bytesRead += count.toLong()
         val now = SystemClock.elapsedRealtime()
+        transferRateTracker.onBytesTransferred(count, now)
         if (now - lastLogAtMs < 2000L) return
         lastLogAtMs = now
         val elapsedMs = (now - startedAtMs).coerceAtLeast(1L)
@@ -541,6 +557,58 @@ private class ProxyStreamInputStream(
     }
 }
 
+private class LocalContentInputStream(
+    input: InputStream,
+    private var remainingBytes: Long?,
+    private val closeResource: () -> Unit,
+) : FilterInputStream(input) {
+    override fun read(): Int {
+        val remaining = remainingBytes
+        if (remaining != null && remaining <= 0L) return -1
+        val result = super.read()
+        if (result >= 0 && remaining != null) {
+            remainingBytes = remaining - 1L
+        }
+        return result
+    }
+
+    override fun read(buffer: ByteArray, offset: Int, count: Int): Int {
+        val remaining = remainingBytes
+        if (remaining != null && remaining <= 0L) return -1
+        val cappedCount =
+            if (remaining == null) {
+                count
+            } else {
+                minOf(count.toLong(), remaining).toInt()
+            }
+        val result = super.read(buffer, offset, cappedCount)
+        if (result > 0 && remaining != null) {
+            remainingBytes = remaining - result
+        }
+        return result
+    }
+
+    override fun skip(byteCount: Long): Long {
+        val remaining = remainingBytes
+        val cappedCount =
+            if (remaining == null) {
+                byteCount
+            } else {
+                minOf(byteCount, remaining)
+            }
+        val skipped = super.skip(cappedCount)
+        if (skipped > 0L && remaining != null) {
+            remainingBytes = remaining - skipped
+        }
+        return skipped
+    }
+
+    override fun close() {
+        runCatching { super.close() }
+        runCatching { closeResource() }
+    }
+}
+
 private class NativeProxyHttpStatus(
     private val statusCode: Int,
     private val reason: String,
@@ -552,12 +620,21 @@ private class NativeProxyHttpStatus(
 
 private class NativeProxyHttpServer(
     private val sessions: ConcurrentHashMap<String, NativeProxySession>,
+    private val localContentSessions: ConcurrentHashMap<String, NativeLocalContentSession>,
 ) : NanoHTTPD("127.0.0.1", 0) {
     private val remoteMetaCache = ConcurrentHashMap<String, NativeProxyRemoteMeta>()
 
     override fun serve(session: IHTTPSession): NanoHTTPD.Response {
         val pathSegments = session.uri.trim().split('/').filter { it.isNotBlank() }
-        if (pathSegments.size < 2 || pathSegments.first() != "stream") {
+        if (pathSegments.size < 2) {
+            return newFixedLengthResponse(NanoHTTPD.Response.Status.NOT_FOUND, MIME_PLAINTEXT, "not found")
+        }
+        if (pathSegments.first() == "local") {
+            val localSession = localContentSessions[pathSegments[1]]
+                ?: return newFixedLengthResponse(NanoHTTPD.Response.Status.NOT_FOUND, MIME_PLAINTEXT, "expired")
+            return serveLocalContent(localSession, session)
+        }
+        if (pathSegments.first() != "stream") {
             return newFixedLengthResponse(NanoHTTPD.Response.Status.NOT_FOUND, MIME_PLAINTEXT, "not found")
         }
         val proxySession = sessions[pathSegments[1]]
@@ -628,6 +705,7 @@ private class NativeProxyHttpServer(
                 "upstream method=$method range=${session.headers["range"] ?: "-"} status=${upstreamResponse.code} remote=$resolvedRemoteUrl"
             }
             buildNanoResponse(
+                proxySession = proxySession,
                 method = method,
                 upstreamResponse = upstreamResponse,
                 resolvedRemoteUrl = resolvedRemoteUrl,
@@ -640,6 +718,71 @@ private class NativeProxyHttpServer(
                 "proxy error: ${error.message ?: error.javaClass.simpleName}",
             )
         }
+    }
+
+    private fun serveLocalContent(
+        localSession: NativeLocalContentSession,
+        session: IHTTPSession,
+    ): NanoHTTPD.Response {
+        val method = session.method.name.uppercase(Locale.US)
+        if (method != "GET" && method != "HEAD") {
+            val response = newFixedLengthResponse(
+                NanoHTTPD.Response.Status.METHOD_NOT_ALLOWED,
+                MIME_PLAINTEXT,
+                "method not allowed",
+            )
+            response.addHeader("Allow", "GET, HEAD")
+            return response
+        }
+        val totalBytes = localSession.totalBytes
+        val requestedRange = parseRangeHeader(session.headers["range"].orEmpty())
+        val start = requestedRange?.start?.coerceAtLeast(0L) ?: 0L
+        if (totalBytes > 0L && start >= totalBytes) {
+            val response = newFixedLengthResponse(
+                NativeProxyHttpStatus(416, "Requested Range Not Satisfiable"),
+                MIME_PLAINTEXT,
+                "range not satisfiable",
+            )
+            response.addHeader("Content-Range", "bytes */$totalBytes")
+            return response
+        }
+        val endInclusive = when {
+            totalBytes > 0L && requestedRange?.end != null ->
+                requestedRange.end.coerceAtMost(totalBytes - 1L)
+            totalBytes > 0L -> totalBytes - 1L
+            else -> requestedRange?.end
+        }
+        val responseLength = when {
+            endInclusive != null -> (endInclusive - start + 1L).coerceAtLeast(0L)
+            totalBytes > 0L -> (totalBytes - start).coerceAtLeast(0L)
+            else -> null
+        }
+        val status = if (requestedRange != null) {
+            NativeProxyHttpStatus(206, "Partial Content")
+        } else {
+            NativeProxyHttpStatus(200, "OK")
+        }
+        val mimeType = localSession.mimeType.ifBlank { "application/octet-stream" }
+        val response =
+            if (method == "HEAD") {
+                newFixedLengthResponse(status, mimeType, ByteArrayInputStream(ByteArray(0)), 0)
+            } else {
+                val stream = openLocalContentInputStream(localSession, start, responseLength)
+                if (responseLength != null) {
+                    newFixedLengthResponse(status, mimeType, stream, responseLength)
+                } else {
+                    newChunkedResponse(status, mimeType, stream)
+                }
+            }
+        response.addHeader("Accept-Ranges", "bytes")
+        if (requestedRange != null && endInclusive != null) {
+            val totalPart = if (totalBytes > 0L) totalBytes.toString() else "*"
+            response.addHeader("Content-Range", "bytes $start-$endInclusive/$totalPart")
+        }
+        if (responseLength != null) {
+            response.addHeader("Content-Length", responseLength.toString())
+        }
+        return response
     }
 
     private fun serveChunkedRangeProxy(
@@ -685,6 +828,7 @@ private class NativeProxyHttpServer(
                 "chunked upstream range=bytes=$start-$end status=${upstreamResponse.code} remote=$resolvedRemoteUrl"
             }
             buildChunkedRangeResponse(
+                proxySession = proxySession,
                 upstreamResponse = upstreamResponse,
                 resolvedRemoteUrl = resolvedRemoteUrl,
                 meta = meta,
@@ -832,6 +976,7 @@ private class NativeProxyHttpServer(
     }
 
     private fun buildChunkedRangeResponse(
+        proxySession: NativeProxySession,
         upstreamResponse: OkHttpResponse,
         resolvedRemoteUrl: String,
         meta: NativeProxyRemoteMeta,
@@ -855,6 +1000,7 @@ private class NativeProxyHttpServer(
                 upstream = BufferedInputStream(body.byteStream(), 256 * 1024),
                 upstreamResponse = upstreamResponse,
                 remoteUrl = resolvedRemoteUrl,
+                transferRateTracker = proxySession.transferRateTracker,
             ),
             expectedLength,
         )
@@ -937,6 +1083,7 @@ private class NativeProxyHttpServer(
     }
 
     private fun buildNanoResponse(
+        proxySession: NativeProxySession,
         method: String,
         upstreamResponse: OkHttpResponse,
         resolvedRemoteUrl: String,
@@ -955,6 +1102,7 @@ private class NativeProxyHttpServer(
                 upstream = BufferedInputStream(body.byteStream(), 256 * 1024),
                 upstreamResponse = upstreamResponse,
                 remoteUrl = resolvedRemoteUrl,
+                transferRateTracker = proxySession.transferRateTracker,
             )
             val length = body.contentLength()
             if (length >= 0L) {
@@ -981,6 +1129,67 @@ private class NativeProxyHttpServer(
             response.addHeader("Accept-Ranges", "bytes")
         }
         return response
+    }
+}
+
+private fun openLocalContentInputStream(
+    session: NativeLocalContentSession,
+    start: Long,
+    length: Long?,
+): InputStream {
+    val assetDescriptor = session.context.contentResolver.openAssetFileDescriptor(session.uri, "r")
+    if (assetDescriptor != null) {
+        val input = FileInputStream(assetDescriptor.fileDescriptor)
+        return openLocalContentInputStream(
+            input = input,
+            start = assetDescriptor.startOffset + start.coerceAtLeast(0L),
+            length = length,
+            closeResource = { assetDescriptor.close() },
+        )
+    }
+    val descriptor = session.context.contentResolver.openFileDescriptor(session.uri, "r")
+        ?: throw IOException("content descriptor unavailable")
+    val input = FileInputStream(descriptor.fileDescriptor)
+    return openLocalContentInputStream(
+        input = input,
+        start = start.coerceAtLeast(0L),
+        length = length,
+        closeResource = { descriptor.close() },
+    )
+}
+
+private fun openLocalContentInputStream(
+    input: FileInputStream,
+    start: Long,
+    length: Long?,
+    closeResource: () -> Unit,
+): InputStream {
+    val positioned = runCatching {
+        input.channel.position(start)
+        true
+    }.getOrDefault(false)
+    if (!positioned) {
+        skipFully(input, start)
+    }
+    return LocalContentInputStream(
+        input = BufferedInputStream(input, 256 * 1024),
+        remainingBytes = length?.coerceAtLeast(0L),
+        closeResource = closeResource,
+    )
+}
+
+private fun skipFully(input: InputStream, byteCount: Long) {
+    var remaining = byteCount.coerceAtLeast(0L)
+    val buffer = ByteArray(64 * 1024)
+    while (remaining > 0L) {
+        val skipped = input.skip(remaining)
+        if (skipped > 0L) {
+            remaining -= skipped
+            continue
+        }
+        val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+        if (read < 0) break
+        remaining -= read.toLong()
     }
 }
 
@@ -1020,6 +1229,7 @@ private object UnsafeOkHttpClient {
 
 object NativeMpvProxyServer {
     private val sessions = ConcurrentHashMap<String, NativeProxySession>()
+    private val localContentSessions = ConcurrentHashMap<String, NativeLocalContentSession>()
     private val random = SecureRandom()
     private var server: NativeProxyHttpServer? = null
     @Volatile
@@ -1064,6 +1274,7 @@ object NativeMpvProxyServer {
             extremePlaybackEnabled = extremePlaybackEnabled,
             cacheResourceKey = cacheSession?.resourceKey(),
             cacheSession = cacheSession,
+            transferRateTracker = NativeProxyTransferRateTracker(),
         )
         cacheStore.evictIfNeeded(protectedResourceKeys = activeCacheResourceKeys())
         proxyVerboseLog {
@@ -1078,9 +1289,40 @@ object NativeMpvProxyServer {
         )
     }
 
+    @Synchronized
+    fun registerLocalContent(
+        context: Context,
+        uri: Uri,
+        displayName: String,
+        mimeType: String? = null,
+    ): NativeProxyRegistration {
+        ensureStarted()
+        val sessionId = nextSessionId()
+        val appContext = context.applicationContext
+        val resolvedMimeType =
+            mimeType?.trim()?.takeIf { it.isNotEmpty() }
+                ?: runCatching { appContext.contentResolver.getType(uri).orEmpty() }.getOrDefault("")
+        val totalBytes = resolveLocalContentSize(appContext, uri)
+        localContentSessions[sessionId] = NativeLocalContentSession(
+            context = appContext,
+            uri = uri,
+            displayName = displayName.trim(),
+            mimeType = resolvedMimeType.ifBlank { "application/octet-stream" },
+            totalBytes = totalBytes,
+        )
+        val entry = sanitizeLocalContentEntry(displayName)
+        val port = server?.listeningPort ?: error("native proxy not started")
+        return NativeProxyRegistration(
+            sessionId = sessionId,
+            localUrl = "http://127.0.0.1:$port/local/$sessionId/$entry",
+            cacheResourceKey = null,
+        )
+    }
+
     fun unregister(sessionId: String?) {
         if (sessionId.isNullOrBlank()) return
         sessions.remove(sessionId)?.cacheSession?.close()
+        localContentSessions.remove(sessionId)
         playbackCacheStore?.evictIfNeeded(protectedResourceKeys = activeCacheResourceKeys())
     }
 
@@ -1089,10 +1331,15 @@ object NativeMpvProxyServer {
         return sessions[sessionId]?.cacheSession?.progress()
     }
 
+    fun getNetworkInputRateBytesPerSecond(sessionId: String?): Long? {
+        if (sessionId.isNullOrBlank()) return null
+        return sessions[sessionId]?.transferRateTracker?.currentBytesPerSecond()
+    }
+
     @Synchronized
     private fun ensureStarted() {
         if (server != null) return
-        server = NativeProxyHttpServer(sessions).also {
+        server = NativeProxyHttpServer(sessions, localContentSessions).also {
             it.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
             proxyVerboseLog { "started port=${it.listeningPort}" }
         }
@@ -1102,7 +1349,7 @@ object NativeMpvProxyServer {
         playbackCacheStore?.clearAll(protectedResourceKeys = activeCacheResourceKeys())
     }
 
-    fun hasActiveSessions(): Boolean = sessions.isNotEmpty()
+    fun hasActiveSessions(): Boolean = sessions.isNotEmpty() || localContentSessions.isNotEmpty()
 
     fun getPersistentCacheStats(): PersistentPlaybackCacheStats =
         playbackCacheStore?.loadStats() ?: PersistentPlaybackCacheStats(0L, 0, 0)
@@ -1151,6 +1398,36 @@ object NativeMpvProxyServer {
 
     private fun activeCacheResourceKeys(): Set<String> {
         return sessions.values.mapNotNull { it.cacheResourceKey }.toSet()
+    }
+
+    private fun resolveLocalContentSize(context: Context, uri: Uri): Long {
+        if (uri.scheme.equals("file", ignoreCase = true)) {
+            return File(uri.path.orEmpty()).length().coerceAtLeast(0L)
+        }
+        val queried = runCatching {
+            context.contentResolver.query(
+                uri,
+                arrayOf(OpenableColumns.SIZE),
+                null,
+                null,
+                null,
+            )?.use { cursor ->
+                if (!cursor.moveToFirst()) return@use 0L
+                val index = cursor.getColumnIndex(OpenableColumns.SIZE)
+                if (index >= 0) cursor.getLong(index).coerceAtLeast(0L) else 0L
+            } ?: 0L
+        }.getOrDefault(0L)
+        if (queried > 0L) return queried
+        return runCatching {
+            context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { descriptor ->
+                descriptor.length.takeIf { it > 0L } ?: 0L
+            } ?: 0L
+        }.getOrDefault(0L)
+    }
+
+    private fun sanitizeLocalContentEntry(displayName: String): String {
+        val normalized = displayName.trim().ifBlank { "video" }
+        return normalized.replace(Regex("[^A-Za-z0-9._-]+"), "_").ifBlank { "video" }
     }
 }
 

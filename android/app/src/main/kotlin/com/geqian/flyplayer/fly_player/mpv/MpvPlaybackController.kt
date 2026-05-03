@@ -3,6 +3,7 @@
 import android.media.AudioManager
 import android.content.ContentValues
 import android.content.Context
+import android.graphics.Bitmap
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
@@ -20,6 +21,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.FutureTask
+import java.util.concurrent.TimeUnit
 
 private const val TAG = "FlyPlayerMpv"
 private const val AUTO_SOFTWARE_DECODER_FALLBACK_STATUS = "Auto decoder fallback: software"
@@ -28,6 +30,7 @@ private const val FILTER_FALLBACK_SAMPLE_INTERVAL_MS = 1500L
 private const val FILTER_FALLBACK_DROP_THRESHOLD = 6L
 private const val FILTER_FALLBACK_MISTIMED_THRESHOLD = 12L
 private const val SURFACE_TRANSITION_GRACE_MS = 2500L
+private const val VISUAL_PLAYBACK_PROGRESS_FALLBACK_MS = 900L
 private const val ENABLE_MPV_VERBOSE_LOGS = false
 private const val DEFAULT_SUBTITLE_POSITION = 92
 private val VISUAL_PLAYBACK_RESET_STATUSES =
@@ -35,22 +38,27 @@ private val VISUAL_PLAYBACK_RESET_STATUSES =
         "waiting for playback source",
         "waiting for video surface",
         "preparing video renderer",
-        "source loaded",
-        "playback started",
+        "opening source",
         "proxy stream open failed",
         "playback ended",
     )
 
+/**
+ * mpv 原生控制器入口。
+ * 所有真正触碰 mpv runtime 的操作尽量收敛到 `playbackThread`，主线程只负责 Surface、UI 回调和状态分发，
+ * 这样在 Flutter 页面切换、分屏切换和宿主切换时更容易控制竞态。
+ */
 class MpvPlaybackController(
     private val context: Context,
     private val videoOutputTarget: VideoOutputTarget,
     creationParams: Map<String, Any?>,
     private val stateListener: MpvPlaybackStateListener,
-    private val danmakuOcclusionStateListener: ((DanmakuDynamicOcclusionState) -> Unit)? = null,
+    private val danmakuOcclusionStateListener: ((DanmakuDynamicOcclusionState, Bitmap?) -> Unit)? = null,
 ) : MPVLib.EventObserver,
     MPVLib.LogObserver {
     private val mpv: MpvFacade = DefaultMpvFacade
     private val mainHandler = Handler(Looper.getMainLooper())
+    // mpv 的生命周期与属性访问统一放到单线程里，减少与 UI 线程交错时的状态撕裂。
     private val playbackThread = HandlerThread("FlyPlayerMpvPlayback").apply { start() }
     private val playbackHandler = Handler(playbackThread.looper)
     private val displayProfile = detectDisplayProfile(context)
@@ -95,16 +103,20 @@ class MpvPlaybackController(
     private var lastMistimedFrameCount = 0L
     private var lastVoDelayedFrameCount = 0L
     private var observedCacheDurationMs = 0L
+    private var visualPlaybackStartAnchorMs = 0L
+    private var lastAppliedCachePauseWaitMs = Long.MIN_VALUE
     private var videoOutputSanityCheckToken = 0L
     private var playbackResumeCheckToken = 0L
     private var pendingAutoResumeAfterSurfaceRestore = false
     private var pendingVideoRecoveryAfterSurfaceRestore = false
     private var pendingVideoRecoveryReason: String? = null
     private var lastSurfaceTransitionUptimeMs = 0L
+    // 复杂播放能力尽量拆成协作者，主控制器主要负责线程切换、生命周期和状态编排。
     private val restoreCoordinator = MpvPlaybackRestoreCoordinator()
     private val loadState = PlaybackLoadStateTracker()
     private val sourceResolver = PlaybackSourceResolver(context)
     private val trackSelectionController = TrackSelectionController(mpv)
+    private val weakNetworkBufferingController = WeakNetworkBufferingController()
     private val recoveryPolicy = PlaybackRecoveryPolicy()
     private val recoveryOrchestrator = PlaybackRecoveryOrchestrator(recoveryPolicy)
     private val sessionGate = PlaybackSessionGate()
@@ -139,15 +151,16 @@ class MpvPlaybackController(
         videoOutputController = videoOutputController,
         audioOutputDiagnostics = audioOutputDiagnostics,
     )
-    private val danmakuOcclusionController = DanmakuDynamicOcclusionController(
-        context = context,
-        videoOutputTarget = videoOutputTarget,
-        stateListener = { state ->
-            runOnMainThread {
-                danmakuOcclusionStateListener?.invoke(state)
-            }
-        },
-    )
+    private val danmakuOcclusionController =
+        DanmakuDynamicOcclusionController(
+            context = context,
+            videoOutputTarget = videoOutputTarget,
+            stateListener = { next, runtimeMaskBitmap ->
+                runOnMainThread {
+                    danmakuOcclusionStateListener?.invoke(next, runtimeMaskBitmap)
+                }
+            },
+        )
 
     private fun verboseLog(message: () -> String) {
         if (ENABLE_MPV_VERBOSE_LOGS) {
@@ -159,7 +172,7 @@ class MpvPlaybackController(
         mpv.addObserver(this)
         mpv.addLogObserver(this)
         loadState.reset()
-        danmakuOcclusionController.onSourceChanged(source)
+        danmakuOcclusionController?.onSourceChanged(source)
         verboseLog {
             "view init title=${source.title} url=${source.url} deviceProfile=${deviceProfile.summary} displayProfile=${displayProfile.summary}"
         }
@@ -169,14 +182,34 @@ class MpvPlaybackController(
     }
 
     fun dispose() {
+        dispose(waitForCompletion = false)
+    }
+
+    fun disposeBlocking() {
+        dispose(waitForCompletion = true)
+    }
+
+    private fun dispose(waitForCompletion: Boolean) {
         if (disposed) return
         disposed = true
         mpv.removeObserver(this)
         mpv.removeLogObserver(this)
-        playbackHandler.post {
+        val disposeTask = FutureTask {
             playbackHandler.removeCallbacksAndMessages(null)
             disposeInternal()
             playbackThread.quitSafely()
+        }
+        if (Looper.myLooper() == playbackThread.looper) {
+            disposeTask.run()
+            return
+        }
+        val posted = playbackHandler.postAtFrontOfQueue(disposeTask)
+        if (waitForCompletion && posted) {
+            runCatching {
+                disposeTask.get(2, TimeUnit.SECONDS)
+            }.onFailure { error ->
+                Log.w(TAG, "timed out waiting for mpv controller dispose", error)
+            }
         }
     }
 
@@ -204,26 +237,32 @@ class MpvPlaybackController(
         videoTrackSuspended = false
         advancedSettingsController.resetTransientOverrides()
         resetAutomaticFilterFallbackMonitor()
+        resetWeakNetworkBuffering()
         performanceSampler.reset()
         clearVideoStreamFailure()
         sessionGate.reset()
         videoOutputController.onDispose()
         syncVideoOutputState()
-        danmakuOcclusionController.dispose()
+        danmakuOcclusionController?.dispose()
     }
 
     private fun clearRetainedPlaybackStateForReuse() {
-        runCatching { mpv.setPropertyBoolean("pause", true) }
-        runCatching { mpv.setPropertyString("sid", "no") }
-        runCatching { mpv.setPropertyString("aid", "auto") }
-        runCatching { mpv.setPropertyString("vid", "auto") }
-        runCatching { trackSelectionController.reset() }
-        restoreCoordinator.clearPendingExternalSubtitle()
-        runCatching { mpv.command(arrayOf("playlist-clear")) }
-        runCatching { mpv.command(arrayOf("stop")) }
-        runCatching { mpv.setPropertyString("vo", "null") }
-        runCatching { mpv.detachSurface() }
-        Log.d(TAG, "cleared retained mpv playback state before reuse")
+        val didClear =
+            videoOutputController.clearRetainedPlaybackStateForReuse {
+                runCatching { mpv.setPropertyBoolean("pause", true) }
+                runCatching { mpv.setPropertyString("sid", "no") }
+                runCatching { mpv.setPropertyString("aid", "auto") }
+                runCatching { mpv.setPropertyString("vid", "auto") }
+                runCatching { trackSelectionController.reset() }
+                restoreCoordinator.clearPendingExternalSubtitle()
+                runCatching { mpv.command(arrayOf("playlist-clear")) }
+                runCatching { mpv.command(arrayOf("stop")) }
+            }
+        if (didClear) {
+            Log.d(TAG, "cleared retained mpv playback state before reuse")
+        } else {
+            Log.d(TAG, "skipped retained mpv playback clear because another surface owns mpv")
+        }
     }
 
     fun getStateMap(): Map<String, Any?> {
@@ -243,7 +282,8 @@ class MpvPlaybackController(
 
     fun getDanmakuOcclusionStateMap(): Map<String, Any?> {
         if (disposed) return DanmakuDynamicOcclusionState.disabled().toMap()
-        return callOnPlaybackThread { danmakuOcclusionController.currentStateMap() }
+        val controller = danmakuOcclusionController ?: return DanmakuDynamicOcclusionState.disabled().toMap()
+        return callOnPlaybackThread { controller.currentStateMap() }
     }
 
     fun getChapters(): List<Map<String, Any?>> {
@@ -279,8 +319,9 @@ class MpvPlaybackController(
 
     fun setDanmakuOcclusionConfig(args: Map<String, Any?>): Boolean {
         if (disposed) return false
+        val controller = danmakuOcclusionController ?: return false
         runOnPlaybackThread {
-            danmakuOcclusionController.updateConfig(args)
+            controller.updateConfig(args)
             syncDanmakuOcclusionRuntime()
         }
         return true
@@ -300,11 +341,14 @@ class MpvPlaybackController(
             }
             val previousUrl = source.url
             source = nextSource
-            state = state.copy(loadNonce = source.loadNonce)
+            state = state.copy(
+                loadNonce = source.loadNonce,
+                paused = source.startPaused,
+            )
             if (previousUrl != source.url) {
                 sourceResolver.releaseOnSourceChange(previousUrl, source.url)
             }
-            danmakuOcclusionController.onSourceChanged(source)
+            danmakuOcclusionController?.onSourceChanged(source)
             resumeAfterSurfaceRestore = false
             loadState.resetForSource(source.url)
             trackSelectionController.reset()
@@ -312,6 +356,7 @@ class MpvPlaybackController(
             videoOutputController.resetForSourceLoad()
             advancedSettingsController.resetTransientOverrides()
             resetAutomaticFilterFallbackMonitor()
+            resetWeakNetworkBuffering()
             performanceSampler.reset()
             syncVideoOutputState()
             clearVideoStreamFailure()
@@ -431,7 +476,10 @@ class MpvPlaybackController(
                     } else {
                         0L
                     }
-                source = source.copy(startPositionMs = resumePositionMs)
+                source = source.copy(
+                    startPositionMs = resumePositionMs,
+                    startPaused = state.paused,
+                )
                 loadState.clearForRecovery(source.url)
                 sessionGate.onVideoRecoveryTriggered()
                 loadCurrentSource()
@@ -551,7 +599,7 @@ class MpvPlaybackController(
                 "setAudioTrack requestedIndex=$trackIndex requestedGuid=${trackGuid.orEmpty()} resolvedId=$resolvedTrackId",
             )
             val success = if (initialized && mpv.isAvailable() && resolvedTrackId != null) {
-                runCatching { mpv.setPropertyInt("aid", resolvedTrackId.toLong()) }.getOrDefault(false)
+                runCatching { mpv.setPropertyString("aid", resolvedTrackId.toString()) }.getOrDefault(false)
             } else {
                 false
             }
@@ -585,7 +633,7 @@ class MpvPlaybackController(
                         mpv.setPropertyString("sid", "no")
                     }.getOrDefault(false)
                     else -> runCatching {
-                        mpv.setPropertyInt("sid", resolvedTrackId.toLong())
+                        mpv.setPropertyString("sid", resolvedTrackId.toString())
                     }.getOrDefault(false)
                 }
             } else {
@@ -764,7 +812,10 @@ class MpvPlaybackController(
                     } else {
                         0L
                     }
-                source = source.copy(startPositionMs = resumePositionMs)
+                source = source.copy(
+                    startPositionMs = resumePositionMs,
+                    startPaused = state.paused,
+                )
                 loadState.clearForRecovery(source.url)
                 sessionGate.onVideoRecoveryTriggered()
                 if (surfaceReady && surfaceAttached && currentSurfaceValid()) {
@@ -868,15 +919,16 @@ class MpvPlaybackController(
                             false
                         } else {
                             initialized = true
-                            if (!propertiesObserved) {
-                                mpv.observeProperty("time-pos", 5)
-                                mpv.observeProperty("demuxer-cache-duration", 5)
-                                mpv.observeProperty("duration", 5)
-                                mpv.observeProperty("pause", 4)
-                                mpv.observeProperty("seeking", 4)
-                                mpv.observeProperty("eof-reached", 4)
-                                propertiesObserved = true
-                            }
+                    if (!propertiesObserved) {
+                        mpv.observeProperty("time-pos", 5)
+                        mpv.observeProperty("demuxer-cache-duration", 5)
+                        mpv.observeProperty("duration", 5)
+                        mpv.observeProperty("pause", 4)
+                        mpv.observeProperty("paused-for-cache", 4)
+                        mpv.observeProperty("seeking", 4)
+                        mpv.observeProperty("eof-reached", 4)
+                        propertiesObserved = true
+                    }
                             true
                         }
                     } else {
@@ -1046,7 +1098,7 @@ class MpvPlaybackController(
                 )
                 return@runOnPlaybackThread
             }
-            val wasPlaying = !state.paused
+            val wasPlaying = state.playbackPhase == MpvPlaybackPhase.PLAYING.wireValue
             if (state.positionMs > 0L) {
                 restoreCoordinator.onSeekQueued(state.positionMs)
             }
@@ -1180,7 +1232,29 @@ class MpvPlaybackController(
         }
         sessionGate.beginLoad(playbackTarget.url)
         observedCacheDurationMs = 0L
+        applyWeakNetworkBufferingPolicy(force = true)
         val initialStartPositionMs = preferredResumePositionMs()
+        visualPlaybackStartAnchorMs = initialStartPositionMs
+        val desiredStartPaused = source.startPaused
+        updateState(
+            state.copy(
+                ready = false,
+                nativeLibLoaded = mpv.isAvailable(),
+                visualPlaybackReady = false,
+                buffering = false,
+                paused = desiredStartPaused,
+                positionMs = initialStartPositionMs,
+                bufferedPositionMs = initialStartPositionMs.coerceAtLeast(0L),
+                statusText = "Preparing player",
+                error = null,
+            ),
+        )
+        if (!pauseController.setPausedState(paused = desiredStartPaused, initialized = initialized)) {
+            Log.w(
+                TAG,
+                "failed to prime pause state before load desired=$desiredStartPaused url=${source.url}",
+            )
+        }
         val loadCommand = MpvLoadfileOptions.buildCommand(
             url = playbackTarget.url,
             headers = playbackTarget.headers,
@@ -1214,9 +1288,10 @@ class MpvPlaybackController(
             state.copy(
                 ready = true,
                 nativeLibLoaded = mpv.isAvailable(),
-                paused = if (loaded) state.paused else true,
-                positionMs = source.startPositionMs,
-                bufferedPositionMs = source.startPositionMs.coerceAtLeast(0L),
+                buffering = false,
+                paused = if (loaded) desiredStartPaused else true,
+                positionMs = initialStartPositionMs,
+                bufferedPositionMs = initialStartPositionMs.coerceAtLeast(0L),
                 listenVideoModeEnabled = source.listenVideoModeEnabled,
                 statusText = if (loaded) {
                     "Source loaded"
@@ -1334,6 +1409,7 @@ class MpvPlaybackController(
         Log.w(TAG, "reload current source reason=$reason playback=${loadState.activePlaybackUrl}")
         if (source.url.isNotBlank()) {
             resumeAfterSurfaceRestore = false
+            source = source.copy(startPaused = state.paused)
             loadState.clearForRecovery(source.url)
             sessionGate.onVideoRecoveryTriggered()
             loadCurrentSource()
@@ -1392,14 +1468,159 @@ class MpvPlaybackController(
             ?: buildUnavailableMessage(action)
     }
 
+    private fun derivePlaybackPhase(next: MpvPlayerState): MpvPlaybackPhase {
+        val sessionSnapshot = sessionGate.currentSnapshot()
+        if (!next.error.isNullOrBlank()) {
+            return MpvPlaybackPhase.ERROR
+        }
+        if (
+            !sessionSnapshot.sourceSwitchInProgress &&
+            !sessionSnapshot.loadCommandInFlight &&
+            !loadState.sourceFileLoaded &&
+            next.paused &&
+            isNearPlaybackCompletion(next.positionMs, next.durationMs)
+        ) {
+            return MpvPlaybackPhase.ENDED
+        }
+        if (restoreCoordinator.isSeekingOrRestoringVideo) {
+            return MpvPlaybackPhase.SEEKING
+        }
+        if (next.buffering) {
+            return MpvPlaybackPhase.BUFFERING
+        }
+        if (
+            !next.nativeLibLoaded ||
+            !created ||
+            !next.ready ||
+            source.url.isBlank() ||
+            sessionSnapshot.sourceSwitchInProgress ||
+            sessionSnapshot.loadCommandInFlight ||
+            !loadState.sourceFileLoaded ||
+            !hasUsableVideoOutputTarget() ||
+            (!source.listenVideoModeEnabled && !state.listenVideoModeEnabled && !videoOutputReady)
+        ) {
+            return MpvPlaybackPhase.PREPARING
+        }
+        if (next.paused) {
+            return MpvPlaybackPhase.PAUSED
+        }
+        if (
+            !next.visualPlaybackReady &&
+            !source.listenVideoModeEnabled &&
+            !next.listenVideoModeEnabled
+        ) {
+            return MpvPlaybackPhase.PREPARING
+        }
+        if (next.ready && next.nativeLibLoaded) {
+            return MpvPlaybackPhase.PLAYING
+        }
+        return MpvPlaybackPhase.IDLE
+    }
+
+    private fun resumedStatusText(): String {
+        return when {
+            state.paused -> "Playback paused"
+            loadState.sourceFileLoaded -> "Playback resumed"
+            else -> state.statusText
+        }
+    }
+
+    private fun handleBufferingLog(prefix: String, lowerMessage: String): Boolean {
+        val lowerPrefix = prefix.lowercase()
+        if (!lowerPrefix.startsWith("cplayer")) {
+            return false
+        }
+        val nowUptimeMs = SystemClock.uptimeMillis()
+        return when {
+            lowerMessage.contains("enter buffering") || lowerMessage.contains("still buffering") -> {
+                weakNetworkBufferingController.onBufferingStateChanged(
+                    buffering = true,
+                    qualifiesAsRebuffer = shouldTrackWeakNetworkRebuffer(),
+                    nowUptimeMs = nowUptimeMs,
+                )
+                refreshWeakNetworkMetrics()
+                if (state.playbackPhase != MpvPlaybackPhase.BUFFERING.wireValue || !state.buffering) {
+                    updateState(
+                        state.copy(
+                            buffering = true,
+                            statusText = "Buffering",
+                            error = null,
+                        ),
+                    )
+                }
+                true
+            }
+            lowerMessage.contains("end buffering") -> {
+                weakNetworkBufferingController.onBufferingStateChanged(
+                    buffering = false,
+                    qualifiesAsRebuffer = false,
+                    nowUptimeMs = nowUptimeMs,
+                )
+                refreshWeakNetworkMetrics()
+                if (state.buffering || state.playbackPhase == MpvPlaybackPhase.BUFFERING.wireValue) {
+                    updateState(
+                        state.copy(
+                            buffering = false,
+                            statusText = resumedStatusText(),
+                            error = null,
+                        ),
+                    )
+                }
+                true
+            }
+            else -> false
+        }
+    }
+
+    private fun defaultStatusTextForPhase(phase: MpvPlaybackPhase, previous: MpvPlayerState): String {
+        return when (phase) {
+            MpvPlaybackPhase.IDLE -> "Preparing player"
+            MpvPlaybackPhase.PREPARING ->
+                when {
+                    source.url.isBlank() -> "Waiting for playback source"
+                    !hasUsableVideoOutputTarget() -> "Waiting for video surface"
+                    !videoOutputReady && !source.listenVideoModeEnabled && !state.listenVideoModeEnabled ->
+                        "Preparing video renderer"
+                    else -> "Preparing playback"
+                }
+            MpvPlaybackPhase.BUFFERING -> "Buffering"
+            MpvPlaybackPhase.PLAYING -> "Playback started"
+            MpvPlaybackPhase.PAUSED -> "Playback paused"
+            MpvPlaybackPhase.SEEKING -> "Seeking"
+            MpvPlaybackPhase.ENDED -> "Playback ended"
+            MpvPlaybackPhase.ERROR -> previous.statusText.ifBlank { "Playback error" }
+        }
+    }
+
     private fun updateState(next: MpvPlayerState) {
-        val normalizedStatus = next.statusText.trim().lowercase()
+        val positionSampleTimeNs =
+            when {
+                next.positionSampleTimeNs > 0L -> next.positionSampleTimeNs
+                next.positionMs != state.positionMs -> System.nanoTime()
+                else -> state.positionSampleTimeNs
+            }
+        val weakNetworkSnapshot = currentWeakNetworkSnapshot()
+        val phase = derivePlaybackPhase(next)
+        val buffering = phase == MpvPlaybackPhase.BUFFERING
+        val normalizedStatus =
+            next.statusText.trim().ifBlank {
+                defaultStatusTextForPhase(phase, state)
+            }.lowercase()
         val clearVisualPlaybackReady =
             !next.ready ||
                 next.error != null ||
                 VISUAL_PLAYBACK_RESET_STATUSES.contains(normalizedStatus)
         val enriched =
             next.copy(
+                playbackPhase = phase.wireValue,
+                buffering = buffering,
+                statusText = next.statusText.trim().ifBlank {
+                    defaultStatusTextForPhase(phase, state)
+                },
+                weakNetworkMode = weakNetworkSnapshot.weakNetworkMode,
+                networkSpeedBytesPerSecond = weakNetworkSnapshot.networkSpeedBytesPerSecond,
+                rebufferTargetMs = weakNetworkSnapshot.rebufferTargetMs,
+                estimatedResumeWaitMs = weakNetworkSnapshot.estimatedResumeWaitMs,
                 visualPlaybackReady =
                     if (clearVisualPlaybackReady) {
                         false
@@ -1408,6 +1629,7 @@ class MpvPlaybackController(
                     },
                 nativeProxySessionId = sourceResolver.activeProxySessionId,
                 cacheResourceKey = sourceResolver.activeCacheResourceKey,
+                positionSampleTimeNs = positionSampleTimeNs,
             )
         state = enriched
         syncDanmakuOcclusionRuntime()
@@ -1510,8 +1732,9 @@ class MpvPlaybackController(
     }
 
     private fun syncDanmakuOcclusionRuntime() {
-        danmakuOcclusionController.updatePlaybackState(
-            paused = state.paused,
+        val controller = danmakuOcclusionController ?: return
+        controller.updatePlaybackState(
+            paused = state.playbackPhase != MpvPlaybackPhase.PLAYING.wireValue,
             sourceLoaded = loadState.sourceFileLoaded,
             surfaceReady = surfaceReady,
             videoOutputReady = videoOutputReady,
@@ -1648,6 +1871,9 @@ class MpvPlaybackController(
     }
 
     private fun readRuntimeTrackEntries(): List<RuntimeTrackEntry> {
+        if (!initialized || !mpv.isAvailable() || !loadState.sourceFileLoaded) {
+            return emptyList()
+        }
         val entries = mutableListOf<RuntimeTrackEntry>()
         val reportedCount = rawMpvInt("track-list/count")?.toInt()?.coerceIn(0, 64) ?: 0
         val maxIndex = if (reportedCount > 0) reportedCount else 32
@@ -1700,9 +1926,7 @@ class MpvPlaybackController(
                     external =
                         externalFileName.isNotEmpty() ||
                             currentMpvFlag("track-list/$index/external") == true,
-                    selected =
-                        currentMpvFlag("track-list/$index/selected") == true ||
-                            currentMpvFlag("track-list/$index/current") == true,
+                    selected = currentMpvFlag("track-list/$index/selected") == true,
                     forced = currentMpvFlag("track-list/$index/forced") == true,
                     bitmap = currentMpvFlag("track-list/$index/image") == true,
                     channels = currentMpvInt("track-list/$index/demux-channel-count")?.toInt() ?: 0,
@@ -1825,10 +2049,22 @@ class MpvPlaybackController(
         if (!initialized || !mpv.isAvailable()) return false
         if (!hasUsableVideoOutputTarget()) {
             restoreCoordinator.onSeekQueued(positionMs)
+            updateState(
+                state.copy(
+                    statusText = "Seeking",
+                    error = null,
+                ),
+            )
             Log.w(TAG, "seek queued while surface unavailable positionMs=$positionMs")
             return true
         }
         restoreCoordinator.onSeekQueued(positionMs)
+        updateState(
+            state.copy(
+                statusText = "Seeking",
+                error = null,
+            ),
+        )
         if (videoStreamLost) {
             Log.w(
                 TAG,
@@ -1869,7 +2105,38 @@ class MpvPlaybackController(
                     if (value) {
                         pendingAutoResumeAfterSurfaceRestore = false
                     }
-                    updateState(state.copy(paused = value, error = null))
+                    updateState(
+                        state.copy(
+                            paused = value,
+                            statusText =
+                                when {
+                                    state.buffering && !value -> "Buffering"
+                                    value && !state.buffering -> "Playback paused"
+                                    !value && !state.buffering && loadState.sourceFileLoaded -> "Playback resumed"
+                                    else -> state.statusText
+                                },
+                            error = null,
+                        ),
+                    )
+                }
+                "paused-for-cache" -> {
+                    weakNetworkBufferingController.onBufferingStateChanged(
+                        buffering = value,
+                        qualifiesAsRebuffer = if (value) shouldTrackWeakNetworkRebuffer() else false,
+                        nowUptimeMs = SystemClock.uptimeMillis(),
+                    )
+                    refreshWeakNetworkMetrics()
+                    updateState(
+                        state.copy(
+                            buffering = value,
+                            statusText =
+                                when {
+                                    value -> "Buffering"
+                                    else -> resumedStatusText()
+                                },
+                            error = null,
+                        ),
+                    )
                 }
                 "seeking" -> handleRestorePlan(
                     restoreCoordinator.onSeekingChanged(value),
@@ -1898,21 +2165,29 @@ class MpvPlaybackController(
             when (property) {
                 "time-pos" -> {
                     val positionMs = (value * 1000.0).toLong()
-                    updateState(
-                        state.copy(
-                            positionMs = positionMs,
-                            bufferedPositionMs = bufferedPositionFor(positionMs),
-                            error = null,
-                        ),
-                    )
+                    val positionSampleTimeNs = System.nanoTime()
+                    val visualReadyFromProgress =
+                        shouldMarkVisualPlaybackReadyFromProgress(positionMs)
+                    refreshWeakNetworkMetrics()
                     handleRestorePlan(
                         restoreCoordinator.onTimePosition(positionMs),
                         "property:time-pos",
+                    )
+                    updateState(
+                        state.copy(
+                            visualPlaybackReady =
+                                state.visualPlaybackReady || visualReadyFromProgress,
+                            positionMs = positionMs,
+                            bufferedPositionMs = bufferedPositionFor(positionMs),
+                            error = null,
+                            positionSampleTimeNs = positionSampleTimeNs,
+                        ),
                     )
                     maybeTriggerAutomaticFilterFallback()
                 }
                 "demuxer-cache-duration" -> {
                     observedCacheDurationMs = (value * 1000.0).toLong().coerceAtLeast(0L)
+                    refreshWeakNetworkMetrics()
                     updateState(
                         state.copy(
                             bufferedPositionMs = bufferedPositionFor(state.positionMs),
@@ -1947,6 +2222,20 @@ class MpvPlaybackController(
     override fun event(eventId: Int) {
         runOnPlaybackThread {
             when (eventId) {
+                mpv.onStartFile() -> {
+                    val pausedOnStart = currentMpvFlag("pause") ?: state.paused
+                    updateState(
+                        state.copy(
+                            ready = false,
+                            nativeLibLoaded = mpv.isAvailable(),
+                            visualPlaybackReady = false,
+                            buffering = false,
+                            paused = pausedOnStart,
+                            statusText = "Opening source",
+                            error = null,
+                        ),
+                    )
+                }
                 mpv.onFileLoaded() -> {
                     sessionGate.onFileLoaded()
                     val completedSourceUrl = loadState.takeLoadingSourceUrl()
@@ -1963,6 +2252,10 @@ class MpvPlaybackController(
                     if (completedSourceUrl == null || completedSourceUrl == source.url) {
                         loadState.markCurrentSourceLoaded(source.url)
                     }
+                    visualPlaybackStartAnchorMs = maxOf(
+                        visualPlaybackStartAnchorMs,
+                        state.positionMs,
+                    )
                     resumeAfterSurfaceRestore = false
                     clearVideoStreamFailure()
                     clearProxyOpenFailure()
@@ -1974,10 +2267,25 @@ class MpvPlaybackController(
                         "event:file-loaded",
                     )
                     val pausedAfterFileLoaded = currentMpvFlag("pause") ?: false
+                    val bufferingAfterFileLoaded = currentMpvFlag("paused-for-cache") == true
+                    if (bufferingAfterFileLoaded) {
+                        weakNetworkBufferingController.onBufferingStateChanged(
+                            buffering = true,
+                            qualifiesAsRebuffer = shouldTrackWeakNetworkRebuffer(),
+                            nowUptimeMs = SystemClock.uptimeMillis(),
+                        )
+                        refreshWeakNetworkMetrics()
+                    }
                     updateState(
                         state.copy(
+                            ready = true,
+                            nativeLibLoaded = mpv.isAvailable(),
                             paused = pausedAfterFileLoaded,
-                            statusText = if (pausedAfterFileLoaded) {
+                            visualPlaybackReady = false,
+                            buffering = bufferingAfterFileLoaded,
+                            statusText = if (bufferingAfterFileLoaded) {
+                                "Buffering"
+                            } else if (pausedAfterFileLoaded) {
                                 "Playback paused"
                             } else {
                                 "Playback started"
@@ -2053,6 +2361,7 @@ class MpvPlaybackController(
         runOnPlaybackThread {
             val message = text.trim()
             val lowerMessage = message.lowercase()
+            handleBufferingLog(prefix, lowerMessage)
             if (
                 ENABLE_MPV_VERBOSE_LOGS ||
                     level <= 1 ||
@@ -2091,19 +2400,35 @@ class MpvPlaybackController(
 
     private fun maybeMarkVisualPlaybackReady(lowerMessage: String) {
         if (state.visualPlaybackReady) return
-        val visualReady =
+        val firstVideoFrameShown =
+            lowerMessage.contains("first video frame after restart shown")
+        val playbackRestartComplete =
             lowerMessage.contains("playback restart complete") &&
                 lowerMessage.contains("video=playing") &&
                 (lowerMessage.contains("audio=playing") ||
+                    lowerMessage.contains("audio=ready") ||
                     lowerMessage.contains("audio=disabled") ||
                     lowerMessage.contains("audio=none"))
-        if (!visualReady) return
+        if (!firstVideoFrameShown && !playbackRestartComplete) return
         updateState(
             state.copy(
+                ready = true,
+                nativeLibLoaded = mpv.isAvailable(),
                 visualPlaybackReady = true,
                 error = null,
             ),
         )
+    }
+
+    private fun shouldMarkVisualPlaybackReadyFromProgress(positionMs: Long): Boolean {
+        if (state.visualPlaybackReady) return false
+        if (!loadState.sourceFileLoaded) return false
+        if (!state.ready || !state.nativeLibLoaded) return false
+        if (state.paused || state.buffering) return false
+        if (restoreCoordinator.isSeekingOrRestoringVideo) return false
+        if (source.listenVideoModeEnabled || state.listenVideoModeEnabled) return false
+        if (!videoOutputReady || !hasUsableVideoOutputTarget()) return false
+        return positionMs >= visualPlaybackStartAnchorMs + VISUAL_PLAYBACK_PROGRESS_FALLBACK_MS
     }
 
     private fun applyRecoveryDecision(lowerMessage: String) {
@@ -2158,7 +2483,9 @@ class MpvPlaybackController(
         if (!advancedSettingsController.canTriggerAutomaticFilterFallback(source)) return
         if (!initialized || !mpv.isAvailable()) return
         if (!loadState.sourceFileLoaded || !isCurrentSourceStable()) return
-        if (state.paused || state.positionMs < 3000L) return
+        if (state.playbackPhase != MpvPlaybackPhase.PLAYING.wireValue || state.positionMs < 3000L) {
+            return
+        }
 
         val now = SystemClock.uptimeMillis()
         val dropFrameCount = currentPerformanceCounter("drop-frame-count")
@@ -2224,6 +2551,62 @@ class MpvPlaybackController(
         videoStreamLossReason = null
     }
 
+    private fun currentWeakNetworkSnapshot(): WeakNetworkBufferingSnapshot {
+        return weakNetworkBufferingController.snapshot(
+            isRemoteSource = source.isRemoteHttpSource(),
+            sourceBitrateBitsPerSec = source.bitrate.toLong().coerceAtLeast(0L),
+            demuxerCacheDurationMs = observedCacheDurationMs,
+            nowUptimeMs = SystemClock.uptimeMillis(),
+        )
+    }
+
+    private fun shouldTrackWeakNetworkRebuffer(): Boolean {
+        return source.isRemoteHttpSource() &&
+            loadState.sourceFileLoaded &&
+            !restoreCoordinator.isSeekingOrRestoringVideo &&
+            !sessionGate.currentSnapshot().sourceSwitchInProgress &&
+            (state.playbackPhase == MpvPlaybackPhase.PLAYING.wireValue || state.visualPlaybackReady)
+    }
+
+    private fun refreshWeakNetworkMetrics() {
+        if (!initialized || !mpv.isAvailable()) return
+        if (!source.isRemoteHttpSource()) {
+            applyWeakNetworkBufferingPolicy()
+            return
+        }
+        val sampleBytesPerSecond =
+            if (sourceResolver.activeProxySessionId != null) {
+                sanitizeWeakNetworkSpeedSampleBytesPerSecond(
+                    sourceResolver.activeNetworkSpeedBytesPerSecond(),
+                )
+            } else {
+                resolveMpvCacheSpeedSampleBytesPerSecond(
+                    rawIntBytesPerSecond = rawMpvInt("cache-speed"),
+                    rawStringBytesPerSecond = currentMpvString("cache-speed"),
+                )
+            }
+        weakNetworkBufferingController.onCacheSpeedSample(
+            sampleBytesPerSecond = sampleBytesPerSecond,
+            nowUptimeMs = SystemClock.uptimeMillis(),
+        )
+        applyWeakNetworkBufferingPolicy()
+    }
+
+    private fun applyWeakNetworkBufferingPolicy(force: Boolean = false) {
+        if (!initialized || !mpv.isAvailable()) return
+        val snapshot = currentWeakNetworkSnapshot()
+        val targetMs = snapshot.rebufferTargetMs.coerceAtLeast(0L)
+        if (!force && targetMs == lastAppliedCachePauseWaitMs) {
+            return
+        }
+        lastAppliedCachePauseWaitMs = targetMs
+        runCatching {
+            mpv.setPropertyDouble("cache-pause-wait", targetMs.toDouble() / 1000.0)
+        }.onFailure { error ->
+            Log.w(TAG, "failed to apply cache-pause-wait=${targetMs}ms", error)
+        }
+    }
+
     private fun clearProxyOpenFailure() {
         proxyOpenFailed = false
         proxyOpenFailureReason = null
@@ -2236,6 +2619,12 @@ class MpvPlaybackController(
         lastDecoderDropFrameCount = 0L
         lastMistimedFrameCount = 0L
         lastVoDelayedFrameCount = 0L
+    }
+
+    private fun resetWeakNetworkBuffering() {
+        weakNetworkBufferingController.reset()
+        observedCacheDurationMs = 0L
+        lastAppliedCachePauseWaitMs = Long.MIN_VALUE
     }
 
     private fun markProxyOpenFailure(reason: String, failedUrl: String?) {
@@ -2295,9 +2684,12 @@ class MpvPlaybackController(
     }
 
     private fun isNearPlaybackCompletion(): Boolean {
-        val durationMs = state.durationMs
+        return isNearPlaybackCompletion(state.positionMs, state.durationMs)
+    }
+
+    private fun isNearPlaybackCompletion(positionMs: Long, durationMs: Long): Boolean {
         if (durationMs <= 0L) return false
-        return state.positionMs >= (durationMs - 1500L).coerceAtLeast(0L)
+        return positionMs >= (durationMs - 1500L).coerceAtLeast(0L)
     }
 
     private fun isAudioOnlyVideoState(): Boolean {

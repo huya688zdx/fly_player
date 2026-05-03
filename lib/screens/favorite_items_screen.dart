@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../api/feiniu_api.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../models/media_collection_view_type.dart';
 import '../models/media_library_item.dart';
 import '../providers/nas_provider.dart';
@@ -17,9 +18,8 @@ import '../ui/detail_presentation.dart';
 import '../ui/layout_adaptive.dart';
 import '../ui/media_poster_card.dart';
 import '../utils/api_url_helper.dart';
+import '../utils/app_localization_lookup.dart';
 import '../utils/app_exception.dart';
-import '../utils/media_locale_store.dart';
-import '../utils/media_locale_text.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/library/media_collection_layout_sheet.dart';
 import '../widgets/library/media_library_list_tile.dart';
@@ -122,13 +122,18 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
     super.dispose();
   }
 
+  void _setStateIfMounted(VoidCallback update) {
+    if (!mounted) return;
+    setState(update);
+  }
+
   String _t(
     String path,
     String fallback, {
     Map<String, Object?> params = const <String, Object?>{},
   }) {
-    return MediaLocaleText.text(
-      _localeMap,
+    return AppLocalizationLookup.text(
+      AppLocalizations.of(context),
       path,
       fallback: fallback,
       params: params,
@@ -137,7 +142,7 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
 
   Future<void> _initLoad() async {
     final api = FeiniuApi(context.read<NasProvider>());
-    final localeMap = await MediaLocaleStore.load(context.read<NasProvider>());
+    const localeMap = <String, dynamic>{};
     final genresMap = await api.getTagGenresMap(lan: 'zh-CN');
     final locateMap = await api.getTagIso3166Map(lan: 'zh-CN');
     final setting = await api.getUserListSetting(
@@ -217,7 +222,7 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
     if (_isPersonItem(item)) {
       final workCount = item.numberOfItem;
       if (workCount > 0) {
-        return '共$workCount 个作品';
+        return AppLocalizations.of(context).mediaWorkCount(workCount);
       }
       return '';
     }
@@ -244,7 +249,7 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
     if (seasonCount == 1 && episodeCount > 0) {
       final episodeText = _t(
         'layout.subheading.tv.episodes',
-        '共 {count} 集',
+        '{count} episodes',
         params: <String, Object?>{'count': episodeCount},
       );
       return period.isEmpty ? episodeText : '$episodeText · $period';
@@ -252,7 +257,7 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
     if (seasonCount > 0) {
       final seasonText = _t(
         'layout.subheading.tv.seasons',
-        '共 {count} 季',
+        '{count} seasons',
         params: <String, Object?>{'count': seasonCount},
       );
       return period.isEmpty ? seasonText : '$seasonText · $period';
@@ -268,7 +273,7 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
     ).firstMatch(text);
     if (match != null) return match.group(1) ?? text;
     if (text == 'Others') {
-      return _t('stream.video.videoResolution.others', '其他');
+      return _t('stream.video.videoResolution.others', 'Other');
     }
     return text;
   }
@@ -284,9 +289,9 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
     final raw = value.toString();
     switch (raw) {
       case 'Movie':
-        return _t('layout.list.favoriteTabs.movie', '电影');
+        return _t('layout.list.favoriteTabs.movie', 'Movies');
       case 'TV':
-        return _t('layout.list.favoriteTabs.tv', '电视剧');
+        return _t('layout.list.favoriteTabs.tv', 'TV');
       default:
         return raw;
     }
@@ -301,15 +306,15 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
     final raw = value.toString();
     switch (raw) {
       case 'DolbySurround':
-        return _t('stream.audio.audioSpecs.dolbySurround', '杜比环绕');
+        return _t('stream.audio.audioSpecs.dolbySurround', 'Dolby Surround');
       case 'DolbyAtmos':
-        return _t('stream.audio.audioSpecs.dolbyAtmos', '杜比全景声');
+        return _t('stream.audio.audioSpecs.dolbyAtmos', 'Dolby Atmos');
       case 'DTS':
         return _t('stream.audio.audioSpecs.dts', 'DTS');
       case 'Stereo':
-        return _t('stream.audio.audioSpecs.stereo', '立体声');
+        return _t('stream.audio.audioSpecs.stereo', 'Stereo');
       case 'Others':
-        return _t('stream.audio.audioSpecs.others', '其他');
+        return _t('stream.audio.audioSpecs.others', 'Other');
       default:
         return raw;
     }
@@ -318,7 +323,7 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
   String _decadeLabel(dynamic value) {
     final raw = value.toString();
     if (raw == 'Recent') {
-      return _t('layout.list.filter.decade.Recent', '今年');
+      return _t('layout.list.filter.decade.Recent', 'This year');
     }
     return raw;
   }
@@ -326,21 +331,21 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
   String _recognitionStatusLabel(dynamic value) {
     final code = int.tryParse(value.toString()) ?? 0;
     if (code == 1) {
-      return _t('layout.list.filter.recognitionStatus.1', '未匹配');
+      return _t('layout.list.filter.recognitionStatus.1', 'Unmatched');
     }
     if (code == 2) {
-      return _t('layout.list.filter.recognitionStatus.2', '已匹配');
+      return _t('layout.list.filter.recognitionStatus.2', 'Matched');
     }
     if (code == 3) {
-      return _t('layout.list.filter.recognitionStatus.3', 'NFO匹配');
+      return _t('layout.list.filter.recognitionStatus.3', 'NFO matched');
     }
     return value.toString();
   }
 
   String _watchedLabel(dynamic value) {
     final code = int.tryParse(value.toString()) ?? -1;
-    if (code == 1) return _t('layout.list.filter.watched.1', '已观看');
-    if (code == 0) return _t('layout.list.filter.watched.0', '未观看');
+    if (code == 1) return _t('layout.list.filter.watched.1', 'Watched');
+    if (code == 0) return _t('layout.list.filter.watched.0', 'Unwatched');
     return value.toString();
   }
 
@@ -374,7 +379,7 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
       parts.add(_watchedLabel(_selectedWatched.first));
     }
     if (parts.isEmpty) {
-      return _t('layout.list.filter.filterButton', '筛选');
+      return _t('layout.list.filter.filterButton', 'Filter');
     }
     return parts.join(' / ');
   }
@@ -608,15 +613,15 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
   String _sortLabelFor(String column) {
     switch (column) {
       case 'create_time':
-        return _t('layout.list.sort.sortField.createTime', '按收藏日期');
+        return _t('layout.list.sort.sortField.createTime', 'By favorite date');
       case 'release_date':
-        return _t('layout.list.sort.sortField.releaseDate', '按发行年份');
+        return _t('layout.list.sort.sortField.releaseDate', 'By release year');
       case 'title':
-        return _t('layout.list.sort.sortField.title', '按标题');
+        return _t('layout.list.sort.sortField.title', 'By title');
       case 'vote_average':
-        return _t('layout.list.sort.sortField.voteAverage', '按评分');
+        return _t('layout.list.sort.sortField.voteAverage', 'By rating');
       default:
-        return _t('layout.list.sort.sortField.createTime', '按收藏日期');
+        return _t('layout.list.sort.sortField.createTime', 'By favorite date');
     }
   }
 
@@ -660,6 +665,11 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
 
   DetailPresentation get _detailPresentation =>
       widget.secondaryHost ? DetailPresentation.pane : DetailPresentation.page;
+
+  double _viewportCacheExtent(BuildContext context) {
+    final factor = widget.secondaryHost ? 0.7 : 1.0;
+    return min(MediaQuery.of(context).size.height * factor, 900.0);
+  }
 
   MediaLibraryItem _posterWallDisplayItem(MediaLibraryItem item) {
     if (_viewType != MediaCollectionViewType.horizontalPoster ||

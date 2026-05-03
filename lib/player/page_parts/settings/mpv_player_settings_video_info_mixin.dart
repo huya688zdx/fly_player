@@ -1,12 +1,16 @@
-part of mpv_player_page;
+part of '../../mpv_player_page.dart';
 
 extension _MpvPlayerSettingsVideoInfoMixin on _MpvPlayerPageState {
   Widget _buildPlaybackSettingsVideoInfoPage(
     BuildContext context,
     PlayerNestedSheetController<void> drawer,
   ) {
+    final l10n = AppLocalizations.of(context);
     return PlayerNestedSheetScaffold(
-      header: PlayerNestedSheetHeader(title: '播放诊断', onBack: drawer.popPage),
+      header: PlayerNestedSheetHeader(
+        title: l10n.playerDiagnosticsTitle,
+        onBack: drawer.popPage,
+      ),
       child: FutureBuilder<Map<String, Object?>>(
         future: _controller.getPlaybackDiagnostics(),
         builder: (context, snapshot) {
@@ -24,7 +28,7 @@ extension _MpvPlayerSettingsVideoInfoMixin on _MpvPlayerPageState {
               child: Padding(
                 padding: const EdgeInsets.all(24),
                 child: Text(
-                  '读取播放诊断失败：${snapshot.error}',
+                  l10n.playerDiagnosticsLoadFailed('${snapshot.error}'),
                   style: const TextStyle(color: Colors.white),
                 ),
               ),
@@ -34,10 +38,10 @@ extension _MpvPlayerSettingsVideoInfoMixin on _MpvPlayerPageState {
             snapshot.data ?? const <String, Object?>{},
           );
           if (sections.isEmpty) {
-            return const Center(
+            return Center(
               child: Text(
-                '暂时没有可显示的播放信息',
-                style: TextStyle(color: Color(0xB3FFFFFF), fontSize: 14),
+                l10n.playerDiagnosticsEmpty,
+                style: const TextStyle(color: Color(0xB3FFFFFF), fontSize: 14),
               ),
             );
           }
@@ -61,37 +65,47 @@ extension _MpvPlayerSettingsVideoInfoMixin on _MpvPlayerPageState {
     final output = _diagnosticSection(diagnostics, 'output');
     final display = _diagnosticSection(diagnostics, 'display');
     final mpv = _diagnosticSection(diagnostics, 'mpv');
+    final l10n = AppLocalizations.of(context);
 
     final sections = <PlaybackDetailSection>[
       PlaybackDetailSection(
-        title: '播放信息',
+        title: l10n.playerDiagnosticsPlaybackSection,
         items: <PlaybackDetailItem>[
-          PlaybackDetailItem('状态', _diagnosticString(playback['statusText'])),
           PlaybackDetailItem(
-            '当前位置',
+            l10n.playerDiagnosticsStatus,
+            _diagnosticString(playback['statusText']),
+          ),
+          PlaybackDetailItem(
+            l10n.playerDiagnosticsPosition,
             _diagnosticDurationMs(playback['positionMs']),
           ),
           PlaybackDetailItem(
-            '总时长',
+            l10n.playerDiagnosticsDuration,
             _diagnosticDurationMs(playback['durationMs']),
           ),
           PlaybackDetailItem(
-            '播放速度',
+            l10n.playerDiagnosticsSpeed,
             _diagnosticNumber(playback['playbackSpeed'], suffix: 'x'),
           ),
-          PlaybackDetailItem('已暂停', _diagnosticBool(playback['paused'])),
-          PlaybackDetailItem('错误', _diagnosticString(playback['error'])),
+          PlaybackDetailItem(
+            l10n.playerDiagnosticsPaused,
+            _diagnosticBool(playback['paused']),
+          ),
+          PlaybackDetailItem(
+            l10n.playerDiagnosticsError,
+            _diagnosticString(playback['error']),
+          ),
         ],
       ),
       PlaybackDetailSection(
-        title: '视频',
+        title: l10n.playerDiagnosticsVideoSection,
         items: <PlaybackDetailItem>[
           PlaybackDetailItem(
-            '视频编码',
+            l10n.playerDiagnosticsVideoCodec,
             _diagnosticString(mpv['videoCodec'] ?? _currentVideoCodecName),
           ),
           PlaybackDetailItem(
-            '杜比视界',
+            l10n.playerDiagnosticsDolbyVision,
             _dolbyVisionStatusLabel(source: source, mpv: mpv),
           ),
           PlaybackDetailItem(
@@ -99,55 +113,76 @@ extension _MpvPlayerSettingsVideoInfoMixin on _MpvPlayerPageState {
             _dolbyVisionProfileLevelLabel(mpv),
           ),
           PlaybackDetailItem(
-            '分辨率',
+            l10n.playerDiagnosticsResolution,
             _joinDetailValues(<String>[
               _diagnosticResolution(mpv['videoParamsW'], mpv['videoParamsH']),
               _currentResolution.trim(),
             ]),
           ),
-          PlaybackDetailItem('视频输出', _diagnosticString(mpv['vo'])),
           PlaybackDetailItem(
-            '解码方式',
+            l10n.playerDiagnosticsVideoOutput,
+            _diagnosticString(mpv['vo']),
+          ),
+          PlaybackDetailItem(
+            l10n.playerDiagnosticsDecoder,
             _decoderDetailLabelFromDiagnostics(output: output, mpv: mpv),
           ),
         ],
       ),
       PlaybackDetailSection(
-        title: '音频',
+        title: l10n.playerDiagnosticsAudioSection,
         items: <PlaybackDetailItem>[
           PlaybackDetailItem(
-            '当前音轨',
+            l10n.playerDiagnosticsCurrentAudioTrack,
             _currentAudioTrack()?.detailLabel.trim() ?? '',
           ),
-          PlaybackDetailItem('音频编码', _diagnosticString(mpv['audioCodec'])),
-          PlaybackDetailItem('音频链路', _audioOutputChainLabel(mpv: mpv)),
-          PlaybackDetailItem('输出参数', _audioOutputParamsLabel(mpv)),
-          PlaybackDetailItem('输出设备', _audioRendererLabel(mpv)),
           PlaybackDetailItem(
-            '已接入外接音频',
+            l10n.playerDiagnosticsAudioCodec,
+            _diagnosticString(mpv['audioCodec']),
+          ),
+          PlaybackDetailItem(
+            l10n.playerDiagnosticsAudioChain,
+            _audioOutputChainLabel(mpv: mpv),
+          ),
+          PlaybackDetailItem(
+            l10n.playerDiagnosticsOutputParams,
+            _audioOutputParamsLabel(mpv),
+          ),
+          PlaybackDetailItem(
+            l10n.playerDiagnosticsOutputDevice,
+            _audioRendererLabel(mpv),
+          ),
+          PlaybackDetailItem(
+            l10n.playerDiagnosticsExternalAudio,
             _diagnosticString(output['connectedAudioSummary']),
           ),
-          PlaybackDetailItem('USB / 小尾巴', _usbAudioStatusLabel(output)),
-          PlaybackDetailItem('系统默认输出', _systemAudioOutputLabel(output)),
           PlaybackDetailItem(
-            '当前字幕',
-            _currentSubtitleTrack()?.detailLabel.trim() ?? '关闭',
+            l10n.playerDiagnosticsUsbAudio,
+            _usbAudioStatusLabel(output),
+          ),
+          PlaybackDetailItem(
+            l10n.playerDiagnosticsSystemDefaultOutput,
+            _systemAudioOutputLabel(output),
+          ),
+          PlaybackDetailItem(
+            l10n.playerDiagnosticsCurrentSubtitle,
+            _currentSubtitleTrack()?.detailLabel.trim() ?? l10n.mpvOptionOff,
           ),
         ],
       ),
       PlaybackDetailSection(
-        title: '输出与显示',
+        title: l10n.playerDiagnosticsOutputDisplaySection,
         items: <PlaybackDetailItem>[
           PlaybackDetailItem(
-            'HDR / 杜比链路',
+            l10n.playerDiagnosticsHdrDolbyPipeline,
             _hdrPipelineLabel(source: source, output: output, mpv: mpv),
           ),
           PlaybackDetailItem(
-            '色彩模式',
+            l10n.playerDiagnosticsColorMode,
             _diagnosticString(output['windowColorMode']),
           ),
           PlaybackDetailItem(
-            '设备信息',
+            l10n.playerDiagnosticsDeviceInfo,
             _diagnosticString(
               display['deviceProfileSummary'] ?? display['deviceProfile'],
             ),
@@ -155,23 +190,26 @@ extension _MpvPlayerSettingsVideoInfoMixin on _MpvPlayerPageState {
         ],
       ),
       PlaybackDetailSection(
-        title: '片源',
+        title: l10n.playerDiagnosticsSourceSection,
         items: <PlaybackDetailItem>[
-          PlaybackDetailItem('标题', _currentTitle.trim()),
           PlaybackDetailItem(
-            '媒体标识',
+            l10n.playerDiagnosticsTitleLabel,
+            _currentTitle.trim(),
+          ),
+          PlaybackDetailItem(
+            l10n.playerDiagnosticsMediaId,
             _diagnosticString(source['mediaGuid'] ?? _currentMediaGuid),
           ),
           PlaybackDetailItem(
-            '视频流',
+            l10n.playerDiagnosticsVideoStream,
             _diagnosticString(source['videoGuid'] ?? _currentVideoGuid),
           ),
           PlaybackDetailItem(
-            '音频流',
+            l10n.playerDiagnosticsAudioStream,
             _diagnosticString(source['audioGuid'] ?? _currentAudioGuid),
           ),
           PlaybackDetailItem(
-            '字幕流',
+            l10n.playerDiagnosticsSubtitleStream,
             _diagnosticString(source['subtitleGuid'] ?? _currentSubtitleGuid),
           ),
         ],
@@ -211,7 +249,10 @@ extension _MpvPlayerSettingsVideoInfoMixin on _MpvPlayerPageState {
   }
 
   String _diagnosticBool(Object? value) {
-    return value is bool ? (value ? '是' : '否') : _diagnosticString(value);
+    final l10n = AppLocalizations.of(context);
+    return value is bool
+        ? (value ? l10n.commonYes : l10n.commonNo)
+        : _diagnosticString(value);
   }
 
   String _diagnosticNumber(Object? value, {String suffix = ''}) {
@@ -261,8 +302,12 @@ extension _MpvPlayerSettingsVideoInfoMixin on _MpvPlayerPageState {
   String _decoderDetailLabel(Object? value) {
     final normalized = _diagnosticString(value).toLowerCase();
     if (normalized.isEmpty) return '';
-    if (normalized == 'no') return '软解码';
-    if (normalized.contains('mediacodec')) return '硬解码';
+    if (normalized == 'no') {
+      return AppLocalizations.of(context).playerSoftwareDecoderTitle;
+    }
+    if (normalized.contains('mediacodec')) {
+      return AppLocalizations.of(context).playerHardwareDecoderTitle;
+    }
     return normalized;
   }
 
@@ -293,7 +338,10 @@ extension _MpvPlayerSettingsVideoInfoMixin on _MpvPlayerPageState {
     required Map<String, Object?> source,
     required Map<String, Object?> mpv,
   }) {
-    return _isDolbyVisionDetected(source: source, mpv: mpv) ? '已识别' : '未识别';
+    final l10n = AppLocalizations.of(context);
+    return _isDolbyVisionDetected(source: source, mpv: mpv)
+        ? l10n.playerRecognized
+        : l10n.playerUnrecognized;
   }
 
   String _dolbyVisionProfileLevelLabel(Map<String, Object?> mpv) {
@@ -318,11 +366,14 @@ extension _MpvPlayerSettingsVideoInfoMixin on _MpvPlayerPageState {
     final hdrLikely =
         _diagnosticString(source['hdrLikely']).toLowerCase() == 'true';
     final dvDetected = _isDolbyVisionDetected(source: source, mpv: mpv);
-    final base = dvDetected ? '杜比视界片源' : (hdrLikely ? 'HDR片源' : 'SDR片源');
+    final l10n = AppLocalizations.of(context);
+    final base = dvDetected
+        ? l10n.playerDolbyVisionSource
+        : (hdrLikely ? l10n.playerHdrSource : l10n.playerSdrSource);
     final mode = switch (pipeline) {
-      'HDR_DIRECT' => 'HDR直出',
-      'HDR_TONEMAP_SDR' => 'SDR映射',
-      'SDR' => 'SDR链路',
+      'HDR_DIRECT' => l10n.playerHdrDirect,
+      'HDR_TONEMAP_SDR' => l10n.playerSdrTonemap,
+      'SDR' => l10n.playerSdrPipeline,
       _ => _diagnosticString(output['preferredColorPipeline']),
     };
     if (mode.isEmpty) return base;
@@ -339,17 +390,18 @@ extension _MpvPlayerSettingsVideoInfoMixin on _MpvPlayerPageState {
         device.contains('spdif') ||
         device.contains('passthrough');
     if (directOut) {
-      return '直通输出';
+      return AppLocalizations.of(context).playerAudioPassthrough;
     }
     final dolbyLike =
         codec.contains('truehd') ||
         codec.contains('eac3') ||
         codec.contains('ac3') ||
         codec.contains('atmos');
+    final l10n = AppLocalizations.of(context);
     if (dolbyLike) {
-      return '解码播放（非直通）';
+      return l10n.playerAudioDecodedNonPassthrough;
     }
-    return '解码播放';
+    return l10n.playerAudioDecoded;
   }
 
   String _audioOutputParamsLabel(Map<String, Object?> mpv) {
@@ -379,9 +431,12 @@ extension _MpvPlayerSettingsVideoInfoMixin on _MpvPlayerPageState {
     final connected =
         _diagnosticString(output['usbAudioConnected']).toLowerCase() == 'true';
     final summary = _diagnosticString(output['usbAudioSummary']);
-    if (connected && summary.isNotEmpty) return '已接入 / $summary';
-    if (connected) return '已接入';
-    return '未检测到';
+    final l10n = AppLocalizations.of(context);
+    if (connected && summary.isNotEmpty) {
+      return '${l10n.playerConnected} / $summary';
+    }
+    if (connected) return l10n.playerConnected;
+    return l10n.playerNotDetected;
   }
 
   String _systemAudioOutputLabel(Map<String, Object?> output) {

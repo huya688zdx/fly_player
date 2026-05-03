@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/app_exception.dart';
 import 'storage_access_service.dart';
 
+/// 表示应用日志条目的严重级别。
 enum AppLogLevel { error, warning, info }
 
 extension AppLogLevelX on AppLogLevel {
@@ -20,6 +21,7 @@ extension AppLogLevelX on AppLogLevel {
 }
 
 @immutable
+/// 定义可序列化的运行期日志条目。
 class AppLogEntry {
   final String id;
   final DateTime timestamp;
@@ -29,6 +31,7 @@ class AppLogEntry {
   final String? details;
   final String? stackTraceText;
 
+  /// 根据完整字段构造日志条目。
   const AppLogEntry({
     required this.id,
     required this.timestamp,
@@ -39,6 +42,7 @@ class AppLogEntry {
     this.stackTraceText,
   });
 
+  /// 从持久化映射恢复日志条目。
   factory AppLogEntry.fromJson(Map<String, dynamic> json) {
     return AppLogEntry(
       id: json['id'] as String? ?? '',
@@ -56,6 +60,7 @@ class AppLogEntry {
     );
   }
 
+  /// 将日志条目转换为可持久化的映射结构。
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
       'id': id,
@@ -70,16 +75,19 @@ class AppLogEntry {
 }
 
 @immutable
+/// 描述日志导出的结果信息。
 class AppLogExportResult {
   final String path;
   final bool usedExternalStorage;
 
+  /// 根据导出路径与写入位置构造结果对象。
   const AppLogExportResult({
     required this.path,
     required this.usedExternalStorage,
   });
 }
 
+/// 统一管理应用内错误、警告与崩溃日志。
 class AppLogService extends ChangeNotifier {
   AppLogService._();
 
@@ -104,6 +112,7 @@ class AppLogService extends ChangeNotifier {
 
   AppLogEntry? get latestEntry => _entries.isEmpty ? null : _entries.first;
 
+  /// 初始化日志服务并从本地存储恢复历史记录。
   Future<void> initialize() {
     if (_initialized) return Future<void>.value();
     if (_pendingInitialization != null) return _pendingInitialization!;
@@ -141,6 +150,7 @@ class AppLogService extends ChangeNotifier {
     }
   }
 
+  /// 清空已保存的日志及关联崩溃日志文件。
   Future<void> clear() async {
     await initialize();
     _entries.clear();
@@ -150,6 +160,7 @@ class AppLogService extends ChangeNotifier {
     await _persist();
   }
 
+  /// 记录一条错误级别日志。
   Future<void> recordError({
     required Object error,
     StackTrace? stackTrace,
@@ -165,6 +176,7 @@ class AppLogService extends ChangeNotifier {
     );
   }
 
+  /// 记录一条警告级别日志。
   Future<void> recordWarning({
     required Object error,
     StackTrace? stackTrace,
@@ -180,6 +192,7 @@ class AppLogService extends ChangeNotifier {
     );
   }
 
+  /// 以指定级别写入一条日志记录。
   Future<void> record({
     required AppLogLevel level,
     required Object error,
@@ -201,6 +214,7 @@ class AppLogService extends ChangeNotifier {
     }
   }
 
+  /// 记录 Flutter 框架上报的异常信息。
   Future<void> recordFlutterError(FlutterErrorDetails details) async {
     await initialize();
     final entry = _buildFlutterErrorEntry(details);
@@ -208,6 +222,7 @@ class AppLogService extends ChangeNotifier {
     _appendCrashJournalSync(entry);
   }
 
+  /// 以同步方式记录错误级别日志，适用于异常恢复链路。
   void recordErrorSync({
     required Object error,
     StackTrace? stackTrace,
@@ -225,12 +240,14 @@ class AppLogService extends ChangeNotifier {
     _appendCrashJournalSync(entry);
   }
 
+  /// 以同步方式记录 Flutter 框架异常。
   void recordFlutterErrorSync(FlutterErrorDetails details) {
     final entry = _buildFlutterErrorEntry(details);
     _append(entry);
     _appendCrashJournalSync(entry);
   }
 
+  /// 将当前日志导出为文本文件并返回导出结果。
   Future<AppLogExportResult> exportToTxt() async {
     await initialize();
     final fileName = 'fly_player_logs_${_timestampForFile(DateTime.now())}.txt';
@@ -453,6 +470,7 @@ class AppLogService extends ChangeNotifier {
     return 'log_$millis';
   }
 
+  /// 按日志导出所使用的本地时间格式格式化时间戳。
   static String formatTimestamp(DateTime value) => _formatTimestamp(value);
 
   static String _formatTimestamp(DateTime value) {

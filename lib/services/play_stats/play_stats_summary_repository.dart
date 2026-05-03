@@ -7,31 +7,40 @@ import 'play_stats_report_aggregator.dart';
 import 'play_stats_report_models.dart';
 import 'play_stats_summary_models.dart';
 
+/// 定义播放统计报表与首页数据的读取接口。
 abstract class PlayStatsSummaryRepository {
+  /// 按指定时间范围加载完整报表快照。
   Future<PlayStatsReportSnapshot> loadReportSnapshot({
     required PlayStatsRange range,
     int topLimit = 8,
   });
 
+  /// 加载统计首页所需的核心面板数据。
   Future<PlayStatsDashboard> loadDashboard({
     int topVideoLimit = 10,
     int topAnimeLimit = 10,
     int recentHistoryLimit = 20,
   });
 
+  /// 加载调试视图所需的完整统计树快照。
   Future<PlayStatsDebugSnapshot> loadDebugSnapshot();
 
+  /// 返回最近播放历史列表。
   Future<List<PlayHistoryRecord>> loadRecentHistory({int limit = 50});
 
+  /// 返回播放时长最高的视频列表。
   Future<List<VideoStatsRecord>> loadTopVideosByPlayedMs({int limit = 20});
 
+  /// 返回播放时长最高的番剧列表。
   Future<List<AnimeStatsRecord>> loadTopAnimesByPlayedMs({int limit = 20});
 }
 
+/// 基于 `sqflite` 的播放统计汇总查询实现。
 class SqflitePlayStatsSummaryRepository implements PlayStatsSummaryRepository {
   final PlayStatsDatabase _database;
   final PlayStatsReportAggregator _reportAggregator;
 
+  /// 根据数据库与报表聚合器依赖构造仓储。
   const SqflitePlayStatsSummaryRepository(
     this._database, {
     PlayStatsReportAggregator reportAggregator =

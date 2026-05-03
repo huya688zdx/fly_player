@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../providers/app_theme_provider.dart';
 import '../theme/app_theme.dart';
+import '../theme/app_theme_l10n.dart';
 import '../ui/app_transitions.dart';
 import '../ui/secondary_host_navigation.dart';
 import '../widgets/detail/detail_more_actions_sheet.dart';
@@ -18,10 +20,14 @@ class ThemeSettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final provider = context.watch<AppThemeProvider>();
+    final l10n = AppLocalizations.of(context);
 
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: buildSecondaryHostAppBar(context, title: const Text('主题设置')),
+      appBar: buildSecondaryHostAppBar(
+        context,
+        title: Text(l10n.settingsThemeTitle),
+      ),
       body: DecoratedBox(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -36,14 +42,17 @@ class ThemeSettingsScreen extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
             children: <Widget>[
               ThemeSettingsPreviewCard(
-                themeTitle: provider.currentThemeTitle,
-                themeSubtitle: provider.currentThemeSubtitle,
+                themeTitle: AppThemeL10n.currentThemeTitle(l10n, provider),
+                themeSubtitle: AppThemeL10n.currentThemeSubtitle(
+                  l10n,
+                  provider,
+                ),
                 colors: provider.selectedThemeBaseColors,
               ),
               const SizedBox(height: 18),
-              const ThemeSettingsSectionTitle(
-                title: '固定主题',
-                subtitle: '这里保留官方预设。切换后会直接作为全局主题生效，不影响你下面保存过的自定义主题。',
+              ThemeSettingsSectionTitle(
+                title: l10n.themeFixedSectionTitle,
+                subtitle: l10n.themeFixedSectionSubtitle,
               ),
               const SizedBox(height: 12),
               SizedBox(
@@ -56,7 +65,7 @@ class ThemeSettingsScreen extends StatelessWidget {
                     final preset = AppThemePreset.values[index];
                     return ThemeSettingsPresetCard(
                       title: preset.title,
-                      subtitle: preset.subtitle,
+                      subtitle: AppThemeL10n.presetSubtitle(l10n, preset),
                       previewColors: provider.previewColorsForPreset(preset),
                       selected:
                           provider.isPresetActive && provider.preset == preset,
@@ -68,9 +77,9 @@ class ThemeSettingsScreen extends StatelessWidget {
               const SizedBox(height: 22),
               ThemeSettingsDynamicThemePanel(provider: provider),
               const SizedBox(height: 22),
-              const ThemeSettingsSectionTitle(
-                title: '自定义主题',
-                subtitle: '当前自定义用于继续调色；保存过的主题是独立预设，可应用、重命名和删除。',
+              ThemeSettingsSectionTitle(
+                title: l10n.settingsCustomThemeTitle,
+                subtitle: l10n.themeCustomSectionSubtitle,
               ),
               const SizedBox(height: 12),
               _CurrentCustomThemeCard(provider: provider),
@@ -112,9 +121,10 @@ class _CurrentCustomThemeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return ThemeSettingsPresetCard(
-      title: '当前自定义',
-      subtitle: '进入三级菜单继续编辑颜色分类控制和当前配方。',
+      title: l10n.themeCurrentCustomTitle,
+      subtitle: l10n.themeCurrentCustomCardSubtitle,
       previewColors: provider.themeColors,
       selected: provider.isCurrentCustomActive,
       onTap: () async {
@@ -141,6 +151,7 @@ class _SavedThemeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = context.read<AppThemeProvider>();
+    final l10n = AppLocalizations.of(context);
     return SizedBox(
       width: 232,
       child: Stack(
@@ -148,7 +159,7 @@ class _SavedThemeCard extends StatelessWidget {
           ThemeSettingsPresetCard(
             title: theme.name,
             subtitle: theme.description.trim().isEmpty
-                ? '已保存主题'
+                ? l10n.themeSavedDefaultSubtitle
                 : theme.description,
             previewColors: theme.colorsSnapshot,
             selected: selected,
@@ -184,14 +195,14 @@ class _SavedThemeCard extends StatelessWidget {
                 await provider.deleteSavedTheme(theme.id);
               },
               itemBuilder: (context) =>
-                  const <PopupMenuEntry<_SavedThemeMenuAction>>[
+                  <PopupMenuEntry<_SavedThemeMenuAction>>[
                     PopupMenuItem<_SavedThemeMenuAction>(
                       value: _SavedThemeMenuAction.rename,
-                      child: Text('重命名'),
+                      child: Text(l10n.commonRename),
                     ),
                     PopupMenuItem<_SavedThemeMenuAction>(
                       value: _SavedThemeMenuAction.delete,
-                      child: Text('删除'),
+                      child: Text(l10n.commonDelete),
                     ),
                   ],
             ),
@@ -206,6 +217,7 @@ class _EmptySavedThemesCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(18),
@@ -218,7 +230,7 @@ class _EmptySavedThemesCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            '还没有已保存主题',
+            l10n.themeNoSavedThemesTitle,
             style: TextStyle(
               color: colors.textPrimary,
               fontSize: 15.5,
@@ -227,7 +239,7 @@ class _EmptySavedThemesCard extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            '去详情页右上角三点，使用“保存当前主题”把喜欢的取色存下来。',
+            l10n.themeNoSavedThemesSubtitle,
             style: TextStyle(
               color: colors.textSecondary,
               fontSize: 13.2,

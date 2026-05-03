@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/generated/app_localizations.dart';
 import '../../../theme/app_theme.dart';
 import '../../../ui/adaptive_text.dart';
 import 'theme_settings_helpers.dart';
@@ -30,6 +31,7 @@ class _ThemeSettingsColorPickerDialogState
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return AlertDialog(
       title: Text(
         widget.title,
@@ -67,7 +69,7 @@ class _ThemeSettingsColorPickerDialogState
               ),
               const SizedBox(height: 14),
               _ThemeSettingsPickerSlider(
-                label: '色相',
+                label: l10n.themeColorHue,
                 value: _hsv.hue,
                 min: 0,
                 max: 360,
@@ -77,7 +79,7 @@ class _ThemeSettingsColorPickerDialogState
               ),
               const SizedBox(height: 10),
               _ThemeSettingsPickerSlider(
-                label: '饱和度',
+                label: l10n.themeColorSaturation,
                 value: _hsv.saturation,
                 min: 0,
                 max: 1,
@@ -87,7 +89,7 @@ class _ThemeSettingsColorPickerDialogState
               ),
               const SizedBox(height: 10),
               _ThemeSettingsPickerSlider(
-                label: '明度',
+                label: l10n.themeColorValue,
                 value: _hsv.value,
                 min: 0,
                 max: 1,
@@ -97,7 +99,7 @@ class _ThemeSettingsColorPickerDialogState
               ),
               const SizedBox(height: 14),
               Text(
-                '快速颜色',
+                l10n.themeQuickColors,
                 style: TextStyle(
                   color: colors.textSecondary,
                   fontWeight: FontWeight.w600,
@@ -135,11 +137,11 @@ class _ThemeSettingsColorPickerDialogState
       actions: <Widget>[
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('取消'),
+          child: Text(l10n.commonCancel),
         ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(_currentColor),
-          child: const Text('应用'),
+          child: Text(l10n.commonApply),
         ),
       ],
     );

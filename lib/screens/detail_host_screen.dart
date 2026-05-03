@@ -1,14 +1,18 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 
 import '../models/media_item.dart';
 import '../models/media_library_item.dart';
-import '../pages/tv_season_detail_page.dart';
+import '../providers/app_theme_provider.dart';
+import '../services/detail_route_payload_store.dart';
 import '../ui/app_transitions.dart';
 import '../ui/detail_presentation.dart';
+import 'detail_route_bodies.dart';
 import 'app_settings_screen.dart';
 import 'category_items_screen.dart';
 import 'download_list_screen.dart';
@@ -16,7 +20,6 @@ import 'favorite_items_screen.dart';
 import 'media_list_screen.dart';
 import 'parallel_placeholder_screen.dart';
 import 'person_detail_screen.dart';
-import 'play_detail_screen.dart';
 import 'search_screen.dart';
 import 'settings_destination_routes.dart';
 
@@ -24,6 +27,7 @@ class DetailHostScreen extends StatefulWidget {
   final String initialRouteName;
   final String? rootRouteName;
   final ValueListenable<String>? routeListenable;
+  final ValueChanged<List<String>>? onRouteStackChanged;
   final bool enablePlatformChannel;
 
   const DetailHostScreen({
@@ -31,6 +35,7 @@ class DetailHostScreen extends StatefulWidget {
     required this.initialRouteName,
     this.rootRouteName,
     this.routeListenable,
+    this.onRouteStackChanged,
     this.enablePlatformChannel = true,
   });
 
@@ -40,9 +45,15 @@ class DetailHostScreen extends StatefulWidget {
 
 class DetailHostScreenState extends State<DetailHostScreen> {
   static const MethodChannel _channel = MethodChannel('fly_player/detail_host');
+  static const Duration _platformRouteApplyMinInterval = Duration(
+    milliseconds: 320,
+  );
 
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   late final List<String> _routeStack = _buildInitialStack();
+  Timer? _pendingPlatformRouteTimer;
+  String _pendingPlatformRouteName = '';
+  DateTime _lastPlatformRouteAppliedAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   void initState() {
@@ -55,6 +66,7 @@ class DetailHostScreenState extends State<DetailHostScreen> {
 
   @override
   void dispose() {
+    _pendingPlatformRouteTimer?.cancel();
     widget.routeListenable?.removeListener(_handleRouteListenable);
     if (widget.enablePlatformChannel) {
       _channel.setMethodCallHandler(null);
@@ -118,6 +130,39 @@ class DetailHostScreenState extends State<DetailHostScreen> {
     final uri = Uri.tryParse(routeName);
     final path = uri?.path.trim() ?? '';
     return path.isEmpty ? '/parallel/placeholder' : path;
+  }
+
+  String _routeTargetKey(String routeName) {
+    final normalized = _normalizeRoute(routeName);
+    final uri = Uri.tryParse(normalized);
+    if (uri == null) return normalized;
+    final path = uri.path.trim();
+    switch (path) {
+      case '/detail/item':
+        return [
+          path,
+          uri.queryParameters['itemGuid']?.trim() ?? '',
+          uri.queryParameters['seriesGuid']?.trim() ?? '',
+        ].join('|');
+      case '/detail/person':
+        return [
+          path,
+          uri.queryParameters['personGuid']?.trim() ?? '',
+        ].join('|');
+      case '/detail/season':
+        return [
+          path,
+          uri.queryParameters['parentGuid']?.trim() ?? '',
+          uri.queryParameters['seasonGuid']?.trim() ?? '',
+        ].join('|');
+      default:
+        return normalized;
+    }
+  }
+
+  bool _sameRouteTarget(String a, String b) {
+    if (a.trim().isEmpty || b.trim().isEmpty) return false;
+    return _routeTargetKey(a) == _routeTargetKey(b);
   }
 
   bool _shouldReplaceTopRoute({
@@ -191,7 +236,7 @@ class DetailHostScreenState extends State<DetailHostScreen> {
     final current = _routeStack.isEmpty
         ? '/parallel/placeholder'
         : _routeStack.last;
-    if (normalized == current) return;
+    if (normalized == current || _sameRouteTarget(normalized, current)) return;
     setState(() {
       if (_shouldReplaceTopRoute(
         currentRoute: current,
@@ -247,10 +292,44 @@ class DetailHostScreenState extends State<DetailHostScreen> {
     final routeName = arguments?['routeName']?.toString().trim() ?? '';
     final resetStack = arguments?['resetStack'] == true;
     if (!mounted || routeName.isEmpty) return;
+    _schedulePlatformRoute(routeName, resetStack: resetStack);
+  }
+
+  void _schedulePlatformRoute(String routeName, {required bool resetStack}) {
+    final normalizedRoute = _normalizeRoute(routeName);
     if (resetStack) {
-      _replaceRouteStack(routeName);
+      _pendingPlatformRouteTimer?.cancel();
+      _pendingPlatformRouteTimer = null;
+      _pendingPlatformRouteName = '';
+      _lastPlatformRouteAppliedAt = DateTime.now();
+      _replaceRouteStack(normalizedRoute);
       return;
     }
+    final current = currentRoute;
+    final pending = _pendingPlatformRouteName;
+    if (_sameRouteTarget(normalizedRoute, current) ||
+        _sameRouteTarget(normalizedRoute, pending)) {
+      return;
+    }
+    _pendingPlatformRouteName = normalizedRoute;
+    final elapsed = DateTime.now().difference(_lastPlatformRouteAppliedAt);
+    final delay = elapsed >= _platformRouteApplyMinInterval
+        ? Duration.zero
+        : _platformRouteApplyMinInterval - elapsed;
+    _pendingPlatformRouteTimer?.cancel();
+    if (delay == Duration.zero) {
+      _flushPendingPlatformRoute();
+      return;
+    }
+    _pendingPlatformRouteTimer = Timer(delay, _flushPendingPlatformRoute);
+  }
+
+  void _flushPendingPlatformRoute() {
+    _pendingPlatformRouteTimer = null;
+    final routeName = _pendingPlatformRouteName;
+    _pendingPlatformRouteName = '';
+    if (!mounted || routeName.isEmpty) return;
+    _lastPlatformRouteAppliedAt = DateTime.now();
     _pushRoute(routeName);
   }
 
@@ -262,21 +341,30 @@ class DetailHostScreenState extends State<DetailHostScreen> {
       _syncRouteListenableValue(nextStack.last);
       return;
     }
+    final themeProvider = context.read<AppThemeProvider>();
+    // 整体替换路由栈时，先临时锁住主界面的动态清屏过渡，
+    // 避免旧页面的环境色在新栈首帧渲染前闪一下。
+    themeProvider.acquireRuntimeMainClearHold();
     setState(() {
       _routeStack
         ..clear()
         ..addAll(nextStack);
     });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      themeProvider.releaseRuntimeMainClearHold();
+    });
     _syncRouteListenableValue(nextStack.last);
   }
 
-  bool _handlePopPage(Route<dynamic> route, Object? result) {
-    if (!route.didPop(result)) return false;
-    if (_routeStack.length <= 1) return false;
+  void _handleDidRemovePage(Page<Object?> page) {
+    if (_routeStack.length <= 1) return;
+    // Navigator 已经完成实际移除，这里只同步我们维护的路由栈镜像。
     setState(() {
       _routeStack.removeLast();
     });
-    return true;
+    final current = currentRoute;
+    _syncRouteListenableValue(current);
+    widget.onRouteStackChanged?.call(routeStackSnapshot);
   }
 
   @override
@@ -302,10 +390,13 @@ class DetailHostScreenState extends State<DetailHostScreen> {
       onPopWithResult: (result) {
         _navigatorKey.currentState?.pop(result);
       },
-      child: Navigator(
-        key: _navigatorKey,
-        pages: pages,
-        onPopPage: _handlePopPage,
+      child: ColoredBox(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        child: Navigator(
+          key: _navigatorKey,
+          pages: pages,
+          onDidRemovePage: _handleDidRemovePage,
+        ),
       ),
     );
   }
@@ -317,43 +408,59 @@ Widget _buildRouteChild(String routeName, {required bool isActiveRoute}) {
       : routeName.trim();
   final uri = Uri.tryParse(normalizedRoute);
   if (uri == null) {
-    return const _DetailHostRouteError(message: '路由格式错误');
+    return const _DetailHostRouteError(message: 'Invalid route format');
   }
 
   if (uri.path == '/detail/item') {
     final itemGuid = uri.queryParameters['itemGuid'] ?? '';
-    final rawInitialItemDetail = uri.queryParameters['initialItemDetail'] ?? '';
+    final payloadToken = DetailRoutePayloadStore.payloadTokenFromUri(uri);
+    final rawInitialItemDetail = payloadToken == null
+        ? (uri.queryParameters['initialItemDetail'] ?? '')
+        : '';
     final decodedInitialItemDetail = rawInitialItemDetail.isEmpty
         ? null
         : (jsonDecode(rawInitialItemDetail) as Map).cast<String, dynamic>();
     if (itemGuid.trim().isEmpty) {
-      return const _DetailHostRouteError(message: '缺少详情参数');
+      return const _DetailHostRouteError(message: 'Missing detail parameters');
     }
-    return PlayDetailScreen(
+    return DetailItemRouteBody(
       key: ValueKey<String>(routeName),
       itemGuid: itemGuid,
       seriesGuid: uri.queryParameters['seriesGuid'] ?? '',
       initialItemDetail: decodedInitialItemDetail,
+      payloadToken: payloadToken,
       presentation: DetailPresentation.pane,
     );
   }
 
   if (uri.path == '/detail/season') {
-    final rawSeasonItem = uri.queryParameters['seasonItem'] ?? '';
+    final payloadToken = DetailRoutePayloadStore.payloadTokenFromUri(uri);
+    final rawSeasonItem = payloadToken == null
+        ? (uri.queryParameters['seasonItem'] ?? '')
+        : '';
     final decodedSeasonItem = rawSeasonItem.isEmpty
         ? const <String, dynamic>{}
         : (jsonDecode(rawSeasonItem) as Map).cast<String, dynamic>();
     final parentGuid = uri.queryParameters['parentGuid'] ?? '';
-    final seasonItem = MediaLibraryItem.fromJson(decodedSeasonItem);
-    if (parentGuid.trim().isEmpty || seasonItem.guid.trim().isEmpty) {
-      return const _DetailHostRouteError(message: '缺少季详情参数');
+    final seasonItem = decodedSeasonItem.isEmpty
+        ? null
+        : MediaLibraryItem.fromJson(decodedSeasonItem);
+    final seasonGuid = uri.queryParameters['seasonGuid'] ?? '';
+    if (parentGuid.trim().isEmpty ||
+        (((seasonItem?.guid ?? '').trim().isEmpty) &&
+            seasonGuid.trim().isEmpty)) {
+      return const _DetailHostRouteError(
+        message: 'Missing season detail parameters',
+      );
     }
-    return TvSeasonDetailPage(
+    return DetailSeasonRouteBody(
       key: ValueKey<String>(routeName),
       parentGuid: parentGuid,
       seriesTitle: uri.queryParameters['seriesTitle'] ?? '',
       backdropPath: uri.queryParameters['backdropPath'] ?? '',
       seasonItem: seasonItem,
+      seasonGuid: seasonGuid,
+      payloadToken: payloadToken,
       presentation: DetailPresentation.pane,
     );
   }
@@ -361,7 +468,9 @@ Widget _buildRouteChild(String routeName, {required bool isActiveRoute}) {
   if (uri.path == '/detail/person') {
     final personGuid = uri.queryParameters['personGuid'] ?? '';
     if (personGuid.trim().isEmpty) {
-      return const _DetailHostRouteError(message: '缺少人物详情参数');
+      return const _DetailHostRouteError(
+        message: 'Missing person detail parameters',
+      );
     }
     return PersonDetailScreen(
       key: ValueKey<String>(routeName),
@@ -415,7 +524,9 @@ Widget _buildRouteChild(String routeName, {required bool isActiveRoute}) {
   if (uri.path == '/screen/downloads/detail') {
     final groupId = uri.queryParameters['groupId'] ?? '';
     if (groupId.trim().isEmpty) {
-      return const _DetailHostRouteError(message: '缺少下载详情参数');
+      return const _DetailHostRouteError(
+        message: 'Missing download detail parameters',
+      );
     }
     return DownloadGroupDetailScreen(
       key: ValueKey<String>(routeName),
@@ -457,7 +568,7 @@ Widget _buildRouteChild(String routeName, {required bool isActiveRoute}) {
     );
   }
 
-  return const _DetailHostRouteError(message: '未找到对应页面');
+  return const _DetailHostRouteError(message: 'Page not found');
 }
 
 class _DeferredRouteChild extends StatefulWidget {

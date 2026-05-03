@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/feiniu_api.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../models/media_library_item.dart';
 import '../providers/nas_provider.dart';
 import '../services/embedded_detail_launcher.dart';
@@ -14,9 +15,9 @@ import '../ui/app_transitions.dart';
 import '../ui/layout_adaptive.dart';
 import '../ui/media_poster_card.dart';
 import '../utils/api_url_helper.dart';
+import '../utils/app_localization_lookup.dart';
+import '../utils/async_action_guard.dart';
 import '../utils/app_exception.dart';
-import '../utils/media_locale_store.dart';
-import '../utils/media_locale_text.dart';
 import '../widgets/common/app_error_state.dart';
 import 'person_detail_screen.dart';
 import 'play_detail_screen.dart';
@@ -82,8 +83,8 @@ class _SearchScreenState extends State<SearchScreen> {
     String fallback, {
     Map<String, Object?> params = const <String, Object?>{},
   }) {
-    return MediaLocaleText.text(
-      _localeMap,
+    return AppLocalizationLookup.text(
+      AppLocalizations.of(context),
       path,
       fallback: fallback,
       params: params,
@@ -92,11 +93,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Future<void> _loadLocaleIfNeeded() async {
     if (_localeMap.isNotEmpty) return;
-    final localeMap = await MediaLocaleStore.load(context.read<NasProvider>());
-    if (!mounted) return;
-    setState(() {
-      _localeMap = localeMap;
-    });
+    return;
   }
 
   String _historyKey() {
@@ -227,36 +224,42 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Future<void> _openItemDetail(MediaLibraryItem item) async {
     if (item.guid.trim().isEmpty) return;
-    await _saveHistoryEntry(_controller.text);
-    if (!mounted) return;
-    if (_isPersonItem(item)) {
-      Navigator.of(context).push(
-        AppTransitions.leftToRightPageTurnRoute(
-          PersonDetailScreen(
-            personGuid: item.guid,
-            initialName: item.displayTitle,
-            initialLocaleMap: _localeMap,
+    await AsyncActionGuard.run<void>(
+      'search_detail:${item.type.trim().toLowerCase()}:${item.guid.trim()}',
+      settleDuration: const Duration(milliseconds: 450),
+      action: () async {
+        await _saveHistoryEntry(_controller.text);
+        if (!mounted) return;
+        if (_isPersonItem(item)) {
+          await Navigator.of(context).push(
+            AppTransitions.leftToRightPageTurnRoute(
+              PersonDetailScreen(
+                personGuid: item.guid,
+                initialName: item.displayTitle,
+                initialLocaleMap: _localeMap,
+              ),
+            ),
+          );
+          return;
+        }
+        final provider = context.read<NasProvider>();
+        Map<String, dynamic>? initialDetail;
+        try {
+          initialDetail = await FeiniuApi(
+            provider,
+          ).getItemDetail(item.guid).timeout(const Duration(milliseconds: 240));
+        } catch (_) {}
+        if (!mounted) return;
+        await Navigator.of(context).push(
+          AppTransitions.leftToRightPageTurnRoute(
+            PlayDetailScreen(
+              itemGuid: item.guid,
+              heroTag: null,
+              initialItemDetail: initialDetail,
+            ),
           ),
-        ),
-      );
-      return;
-    }
-    final provider = context.read<NasProvider>();
-    Map<String, dynamic>? initialDetail;
-    try {
-      initialDetail = await FeiniuApi(
-        provider,
-      ).getItemDetail(item.guid).timeout(const Duration(milliseconds: 240));
-    } catch (_) {}
-    if (!mounted) return;
-    Navigator.of(context).push(
-      AppTransitions.leftToRightPageTurnRoute(
-        PlayDetailScreen(
-          itemGuid: item.guid,
-          heroTag: null,
-          initialItemDetail: initialDetail,
-        ),
-      ),
+        );
+      },
     );
   }
 

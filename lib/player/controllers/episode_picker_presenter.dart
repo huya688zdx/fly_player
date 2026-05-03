@@ -1,8 +1,49 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/generated/app_localizations.dart';
 import '../../models/media_library_item.dart';
 import '../../models/tv_episode_browser_models.dart';
 import '../panels/episode_picker_sheet.dart';
+
+class EpisodePickerPresenterLabels {
+  final String episodeList;
+  final String specialSeason;
+  final String seasonTemplate;
+  final String playing;
+  final String watched;
+  final String watchedPercentTemplate;
+  final String unwatched;
+
+  const EpisodePickerPresenterLabels({
+    this.episodeList = 'Episode list',
+    this.specialSeason = 'Specials',
+    this.seasonTemplate = 'Season {season}',
+    this.playing = 'Playing..',
+    this.watched = 'Watched',
+    this.watchedPercentTemplate = 'Watched {percent}%',
+    this.unwatched = 'Unwatched',
+  });
+
+  factory EpisodePickerPresenterLabels.fromL10n(AppLocalizations l10n) {
+    return EpisodePickerPresenterLabels(
+      episodeList: l10n.playerEpisodeList,
+      specialSeason: l10n.playerEpisodeSpecialSeason,
+      seasonTemplate: l10n.playerEpisodeSeasonTemplate('{season}'),
+      playing: l10n.playerEpisodePlaying,
+      watched: l10n.playerEpisodeWatched,
+      watchedPercentTemplate: l10n.playerEpisodeWatchedPercent('{percent}'),
+      unwatched: l10n.playerEpisodeUnwatched,
+    );
+  }
+
+  String seasonLabel(int seasonNumber) {
+    return seasonTemplate.replaceAll('{season}', seasonNumber.toString());
+  }
+
+  String watchedPercentLabel(int percent) {
+    return watchedPercentTemplate.replaceAll('{percent}', percent.toString());
+  }
+}
 
 class EpisodePickerPlaybackState {
   final String currentItemGuid;
@@ -21,19 +62,22 @@ class EpisodePickerPlaybackState {
 String buildEpisodePickerSectionLabel(
   List<MediaLibraryItem> episodes, {
   String fallbackSeriesTitle = '',
+  EpisodePickerPresenterLabels labels = const EpisodePickerPresenterLabels(),
 }) {
   final first = episodes.isNotEmpty ? episodes.first : null;
   final seriesTitle = buildEpisodePickerSeriesTitle(
     episodes,
     fallbackSeriesTitle: fallbackSeriesTitle,
   );
-  final seasonLabel = first == null ? '' : buildEpisodePickerSeasonLabel(first);
+  final seasonLabel = first == null
+      ? ''
+      : buildEpisodePickerSeasonLabel(first, labels: labels);
   if (seriesTitle.isNotEmpty && seasonLabel.isNotEmpty) {
     return '$seriesTitle $seasonLabel';
   }
   if (seasonLabel.isNotEmpty) return seasonLabel;
   if (seriesTitle.isNotEmpty) return seriesTitle;
-  return '剧集列表';
+  return labels.episodeList;
 }
 
 String buildEpisodePickerSeriesTitle(
@@ -49,9 +93,10 @@ String buildEpisodePickerSeriesTitle(
 String buildEpisodePickerSeasonLabel(
   MediaLibraryItem item, {
   String fallbackLabel = '',
+  EpisodePickerPresenterLabels labels = const EpisodePickerPresenterLabels(),
 }) {
-  if (item.seasonNumber == 0) return '特别篇';
-  if (item.seasonNumber > 0) return '第${item.seasonNumber}季';
+  if (item.seasonNumber == 0) return labels.specialSeason;
+  if (item.seasonNumber > 0) return labels.seasonLabel(item.seasonNumber);
 
   final normalizedFallback = fallbackLabel.trim();
   if (normalizedFallback.isNotEmpty) return normalizedFallback;
@@ -71,12 +116,13 @@ String buildEpisodePickerSeasonLabel(
 List<TvEpisodeSeasonOptionData> buildEpisodePickerSeasonOptions(
   List<MediaLibraryItem> seasons, {
   required String selectedSeasonGuid,
+  EpisodePickerPresenterLabels labels = const EpisodePickerPresenterLabels(),
 }) {
   return seasons
       .map(
         (season) => TvEpisodeSeasonOptionData(
           guid: season.guid,
-          label: buildEpisodePickerSeasonLabel(season),
+          label: buildEpisodePickerSeasonLabel(season, labels: labels),
           selected: season.guid == selectedSeasonGuid,
         ),
       )
@@ -86,10 +132,12 @@ List<TvEpisodeSeasonOptionData> buildEpisodePickerSeasonOptions(
 EpisodePickerSheetItem buildEpisodePickerSheetItem(
   MediaLibraryItem episode, {
   required EpisodePickerPlaybackState playbackState,
+  EpisodePickerPresenterLabels labels = const EpisodePickerPresenterLabels(),
 }) {
   final playback = _episodePlaybackPresentation(
     episode,
     playbackState: playbackState,
+    labels: labels,
   );
   return EpisodePickerSheetItem(
     id: episode.guid,
@@ -203,6 +251,7 @@ String _episodeDurationLabel(
 (String, Color) _episodePlaybackPresentation(
   MediaLibraryItem episode, {
   required EpisodePickerPlaybackState playbackState,
+  required EpisodePickerPresenterLabels labels,
 }) {
   final isCurrent = episode.guid == playbackState.currentItemGuid;
   final durationSeconds = episode.duration > 0
@@ -216,22 +265,25 @@ String _episodeDurationLabel(
       : rawSeconds.clamp(0, 999999);
 
   if (isCurrent) {
-    return ('播放中..', const Color(0xFF2D87FF));
+    return (labels.playing, const Color(0xFF2D87FF));
   }
   if (episode.watched == 1 && watchedSeconds <= 0) {
-    return ('已观看', Colors.white);
+    return (labels.watched, Colors.white);
   }
   if (durationSeconds > 0 && watchedSeconds > 0) {
     final percent = (watchedSeconds / durationSeconds * 100).clamp(0, 100);
     if (percent >= 95 || episode.watched == 1) {
-      return ('已观看', Colors.white);
+      return (labels.watched, Colors.white);
     }
-    return ('已观看${percent.round()}%', const Color(0xFF2D87FF));
+    return (
+      labels.watchedPercentLabel(percent.round()),
+      const Color(0xFF2D87FF),
+    );
   }
   if (episode.watched == 1) {
-    return ('已观看', Colors.white);
+    return (labels.watched, Colors.white);
   }
-  return ('未观看', Colors.white70);
+  return (labels.unwatched, Colors.white70);
 }
 
 bool _episodeCompleted(

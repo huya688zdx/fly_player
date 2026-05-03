@@ -8,6 +8,7 @@ import '../../providers/nas_provider.dart';
 import '../../services/embedded_detail_launcher.dart';
 import '../../services/play_stats/play_stats.dart';
 import '../../ui/app_transitions.dart';
+import '../../l10n/generated/app_localizations.dart';
 import 'play_stats_debug_detail_pages.dart';
 import 'play_stats_debug_formatters.dart';
 import 'play_stats_debug_widgets.dart';
@@ -150,20 +151,21 @@ class _PlayStatsDebugPageState extends State<PlayStatsDebugPage> {
   }
 
   Future<void> _clearStats() async {
+    final l10n = AppLocalizations.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('清空播放统计'),
-          content: const Text('这会删除本地播放历史和所有聚合统计数据。'),
+          title: Text(l10n.playStatsClearTitle),
+          content: Text(l10n.playStatsClearContent),
           actions: <Widget>[
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('取消'),
+              child: Text(l10n.commonCancel),
             ),
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('清空'),
+              child: Text(l10n.commonClear),
             ),
           ],
         );
@@ -181,7 +183,9 @@ class _PlayStatsDebugPageState extends State<PlayStatsDebugPage> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final formatters = PlayStatsDebugFormatters(
+      l10n: l10n,
       genreMap: _genreMap,
       countryMap: _countryMap,
     );
@@ -193,15 +197,15 @@ class _PlayStatsDebugPageState extends State<PlayStatsDebugPage> {
           },
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
         ),
-        title: const Text('播放统计'),
+        title: Text(l10n.playStatsTitle),
         actions: <Widget>[
           IconButton(
-            tooltip: '刷新',
+            tooltip: l10n.commonRefresh,
             onPressed: _refreshWithBackfill,
             icon: const Icon(Icons.refresh_rounded),
           ),
           IconButton(
-            tooltip: '清空统计',
+            tooltip: l10n.playStatsClearTooltip,
             onPressed: _clearStats,
             icon: const Icon(Icons.delete_outline_rounded),
           ),
@@ -214,7 +218,9 @@ class _PlayStatsDebugPageState extends State<PlayStatsDebugPage> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
-            return Center(child: Text('加载播放统计失败：${snapshot.error}'));
+            return Center(
+              child: Text(l10n.playStatsLoadFailed('${snapshot.error}')),
+            );
           }
           final data =
               snapshot.data ??
@@ -234,51 +240,53 @@ class _PlayStatsDebugPageState extends State<PlayStatsDebugPage> {
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
               children: <Widget>[
                 PlayStatsDebugSectionCard(
-                  title: '总览',
+                  title: l10n.playStatsOverview,
                   child: buildDebugRows(<PlayStatsDebugRowData>[
                     PlayStatsDebugRowData(
-                      '总播放时长',
+                      l10n.playStatsTotalPlayedDuration,
                       formatters.duration(data.totals.totalPlayedMs),
                     ),
                     PlayStatsDebugRowData(
-                      '总点击数',
+                      l10n.playStatsTotalClicks,
                       '${data.totals.totalClickCount}',
                     ),
                     PlayStatsDebugRowData(
-                      '总观看数',
+                      l10n.playStatsTotalViews,
                       '${data.totals.totalViewCount}',
                     ),
                     PlayStatsDebugRowData(
-                      '总完播视频数',
+                      l10n.playStatsTotalCompletedVideos,
                       '${data.totals.totalCompletedVideoCount}',
                     ),
                     PlayStatsDebugRowData(
-                      '总完播季数',
+                      l10n.playStatsTotalCompletedSeasons,
                       '${data.totals.totalCompletedSeasonCount}',
                     ),
                   ]),
                 ),
                 if (_metadataBackfillRunning) ...<Widget>[
                   const SizedBox(height: 12),
-                  const PlayStatsDebugSectionCard(
-                    title: '后台补全',
-                    child: Text('正在后台补全年份、国家、类型和演职人员。'),
+                  PlayStatsDebugSectionCard(
+                    title: l10n.playStatsBackfillTitle,
+                    child: Text(l10n.playStatsBackfillRunning),
                   ),
                 ],
                 const SizedBox(height: 12),
                 PlayStatsDebugSectionCard(
-                  title: '番剧列表',
+                  title: l10n.playStatsAnimeList,
                   child: data.animes.isEmpty
-                      ? const Text('还没有番剧播放统计。')
+                      ? Text(l10n.playStatsNoAnimeStats)
                       : Column(
                           children: data.animes
                               .map(
                                 (node) => PlayStatsDebugEntryTile(
                                   title: node.anime.title.isEmpty
-                                      ? '未命名番剧'
+                                      ? l10n.playStatsUnnamedAnime
                                       : node.anime.title,
-                                  subtitle:
-                                      '季度 ${node.seasons.length} / 未分组视频 ${node.ungroupedVideos.length}',
+                                  subtitle: l10n.playStatsAnimeSubtitle(
+                                    node.seasons.length,
+                                    node.ungroupedVideos.length,
+                                  ),
                                   onTap: () {
                                     Navigator.of(context).push(
                                       AppTransitions.paneCardRoute<void>(
@@ -297,7 +305,7 @@ class _PlayStatsDebugPageState extends State<PlayStatsDebugPage> {
                 if (data.movies.isNotEmpty) ...<Widget>[
                   const SizedBox(height: 12),
                   PlayStatsDebugSectionCard(
-                    title: '电影列表',
+                    title: l10n.playStatsMovieList,
                     child: Column(
                       children: data.movies
                           .map(
@@ -305,8 +313,10 @@ class _PlayStatsDebugPageState extends State<PlayStatsDebugPage> {
                               context,
                               node,
                               formatters,
-                              subtitleOverride:
-                                  '电影 / 历史 ${node.history.length} 条 / 观看数 ${node.video.viewCount}',
+                              subtitleOverride: l10n.playStatsMovieSubtitle(
+                                node.history.length,
+                                node.video.viewCount,
+                              ),
                             ),
                           )
                           .toList(growable: false),
@@ -316,7 +326,7 @@ class _PlayStatsDebugPageState extends State<PlayStatsDebugPage> {
                 if (data.orphanVideos.isNotEmpty) ...<Widget>[
                   const SizedBox(height: 12),
                   PlayStatsDebugSectionCard(
-                    title: '异常未归类视频',
+                    title: l10n.playStatsOrphanVideos,
                     child: Column(
                       children: data.orphanVideos
                           .map(
@@ -324,8 +334,9 @@ class _PlayStatsDebugPageState extends State<PlayStatsDebugPage> {
                               context,
                               node,
                               formatters,
-                              subtitleOverride:
-                                  '未匹配番剧或季度 / 历史 ${node.history.length} 条',
+                              subtitleOverride: l10n.playStatsOrphanSubtitle(
+                                node.history.length,
+                              ),
                             ),
                           )
                           .toList(growable: false),
@@ -335,15 +346,17 @@ class _PlayStatsDebugPageState extends State<PlayStatsDebugPage> {
                 if (data.unlinkedHistory.isNotEmpty) ...<Widget>[
                   const SizedBox(height: 12),
                   PlayStatsDebugSectionCard(
-                    title: '未关联历史',
+                    title: l10n.playStatsUnlinkedHistory,
                     child: PlayStatsDebugEntryTile(
-                      title: '未关联历史',
-                      subtitle: '共 ${data.unlinkedHistory.length} 条',
+                      title: l10n.playStatsUnlinkedHistory,
+                      subtitle: l10n.playStatsCountItems(
+                        data.unlinkedHistory.length,
+                      ),
                       onTap: () {
                         Navigator.of(context).push(
                           AppTransitions.paneCardRoute<void>(
                             PlayStatsDebugHistoryListPage(
-                              title: '未关联历史',
+                              title: l10n.playStatsUnlinkedHistory,
                               items: data.unlinkedHistory,
                               formatters: formatters,
                             ),

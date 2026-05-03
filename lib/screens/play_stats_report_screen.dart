@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../api/feiniu_api.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../providers/nas_provider.dart';
 import '../services/play_stats/play_stats.dart';
 import '../theme/app_theme.dart';
@@ -274,7 +275,9 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final formatters = PlayStatsReportFormatters(
+      l10n: l10n,
       genreMap: _genreMap,
       countryMap: _countryMap,
     );
@@ -283,15 +286,15 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
       backgroundColor: colors.backgroundBase,
       appBar: buildSecondaryHostAppBar(
         context,
-        title: const Text('播放统计'),
+        title: Text(l10n.playStatsTitle),
         actions: <Widget>[
           TextButton.icon(
             onPressed: _openDetailPage,
             icon: const Icon(Icons.data_object_rounded, size: 18),
-            label: const Text('详细数据'),
+            label: Text(l10n.playStatsReportDetailData),
           ),
           IconButton(
-            tooltip: '刷新',
+            tooltip: l10n.commonRefresh,
             onPressed: () => _refresh(withBackfill: true),
             icon: const Icon(Icons.refresh_rounded),
           ),
@@ -669,107 +672,8 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
     );
   }
 
-  /*
   Widget _buildExpandedRangeToolbarContent(AppThemeColors colors) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-      child: Column(
-          children: <Widget>[
-            Row(
-              children: <Widget>[
-                Text(
-                  '观影战报时间范围',
-                  style: TextStyle(
-                    color: colors.textPrimary,
-                    fontSize: 12.4,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const Spacer(),
-                SizedBox(
-                  width: 66,
-                  height: 16,
-                  child: AnimatedOpacity(
-                    duration: const Duration(milliseconds: 180),
-                    curve: Curves.easeOutCubic,
-                    opacity: _isBusy ? 1 : 0,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        SizedBox(
-                          width: 12,
-                          height: 12,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 1.8,
-                            color: colors.accent,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          '切换中',
-                          style: TextStyle(
-                            color: colors.textSecondary,
-                            fontSize: 10.8,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            PlayStatsRangeSelector(
-              selectedRange: _selectedRange,
-              onChanged: _handleRangeChanged,
-              compact: true,
-            ),
-            const SizedBox(height: 6),
-            SizedBox(
-              height: 14,
-              child: AnimatedOpacity(
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeOutCubic,
-                opacity: _metadataBackfillRunning ? 1 : 0,
-                child: AnimatedSlide(
-                  duration: const Duration(milliseconds: 200),
-                  curve: Curves.easeOutCubic,
-                  offset: _metadataBackfillRunning
-                      ? Offset.zero
-                      : const Offset(0, -0.18),
-                  child: Row(
-                    children: <Widget>[
-                      Icon(
-                        Icons.auto_awesome_rounded,
-                        size: 11,
-                        color: colors.textSecondary,
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          '正在补全类型、国家地区、年份和演职人员数据',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: colors.textSecondary,
-                            fontSize: 10.2,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-*/
-  Widget _buildExpandedRangeToolbarContent(AppThemeColors colors) {
+    final l10n = AppLocalizations.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
       child: LayoutBuilder(
@@ -790,7 +694,7 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
             children: <Widget>[
               Expanded(
                 child: Text(
-                  '观影战报时间范围',
+                  l10n.playStatsReportRangeTitle,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -835,7 +739,7 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
                               const SizedBox(width: 6),
                               Flexible(
                                 child: Text(
-                                  '切换中',
+                                  l10n.playStatsReportSwitching,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
@@ -926,7 +830,7 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
                                   const SizedBox(width: 6),
                                   Expanded(
                                     child: Text(
-                                      '正在补全类型、国家地区、年份和演职人员数据',
+                                      l10n.playStatsReportBackfillingMetadata,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
@@ -1024,6 +928,7 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
 
   Widget _buildErrorState() {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
@@ -1040,7 +945,7 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Text(
-                '加载播放统计失败',
+                l10n.playStatsReportLoadFailedTitle,
                 style: TextStyle(
                   color: colors.textPrimary,
                   fontSize: 16,
@@ -1049,7 +954,9 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                '错误信息：${_loadError ?? '未知错误'}',
+                l10n.playStatsReportErrorMessage(
+                  '${_loadError ?? l10n.playStatsReportUnknownError}',
+                ),
                 style: TextStyle(
                   color: colors.textSecondary,
                   fontSize: 13,
@@ -1060,7 +967,7 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
               FilledButton.icon(
                 onPressed: () => _refresh(withBackfill: true),
                 icon: const Icon(Icons.refresh_rounded),
-                label: const Text('重试'),
+                label: Text(l10n.commonRetry),
               ),
             ],
           ),
@@ -1087,15 +994,16 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
     PlayStatsReportSnapshot data,
     PlayStatsReportFormatters formatters,
   ) {
+    final l10n = AppLocalizations.of(context);
     return PlayStatsReportSection(
-      title: '活跃趋势',
-      subtitle: '按天观察播放时长变化，看看这段时间里哪几天看得最久。',
+      title: l10n.playStatsReportActivityTitle,
+      subtitle: l10n.playStatsReportActivitySubtitle,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          const _ActivitySubsection(
-            title: '每日播放时长',
-            subtitle: '看最近一段时间里，哪几天看得最久。',
+          _ActivitySubsection(
+            title: l10n.playStatsReportDailyDurationTitle,
+            subtitle: l10n.playStatsReportDailyDurationSubtitle,
           ),
           const SizedBox(height: 10),
           PlayStatsLineChartCard(points: data.trends, formatters: formatters),
@@ -1109,6 +1017,7 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
     PlayStatsReportFormatters formatters,
   ) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final palette = PlayStatsReportPalette.of(context);
     final buckets = switch (_contentMetric) {
       ContentMetric.genre => data.genreBuckets,
@@ -1116,15 +1025,15 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
       ContentMetric.year => data.yearBuckets,
     };
     return PlayStatsReportSection(
-      title: '内容偏好',
-      subtitle: '用播放时长加权，看看你最近更偏好的内容类型与人物。',
+      title: l10n.playStatsReportContentTitle,
+      subtitle: l10n.playStatsReportContentSubtitle,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           PlayStatsPieSummary(
             buckets: data.mediaTypeBuckets,
             palette: palette.mediaPieColors,
-            centerLabel: '内容占比',
+            centerLabel: l10n.playStatsReportContentShare,
             centerValue: formatters.duration(
               data.overview.totalPlayedMs,
               compact: true,
@@ -1192,7 +1101,7 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
           Align(
             alignment: Alignment.centerLeft,
             child: Text(
-              '演职人员亲和榜',
+              l10n.playStatsReportAffinityTitle,
               style: TextStyle(
                 color: colors.textPrimary,
                 fontSize: 14.5,
@@ -1218,21 +1127,24 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
     PlayStatsReportFormatters formatters,
   ) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final palette = PlayStatsReportPalette.of(context);
     return PlayStatsReportSection(
-      title: '观看行为',
-      subtitle: '统计来源、完播率、快进回退以及 OP/ED 的观看习惯。',
+      title: l10n.playStatsReportBehaviorTitle,
+      subtitle: l10n.playStatsReportBehaviorSubtitle,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           PlayStatsPieSummary(
             buckets: data.behavior.startSourceBuckets,
             palette: palette.behaviorPieColors,
-            centerLabel: '播放来源',
-            centerValue: '${data.behavior.totalSessions} 次',
+            centerLabel: l10n.playStatsReportStartSource,
+            centerValue: l10n.playStatsReportCountTimes(
+              data.behavior.totalSessions,
+            ),
             centerValueChild: PlayStatsAnimatedMetricText(
               value: data.behavior.totalSessions.toDouble(),
-              builder: (value) => '${value.round()} 次',
+              builder: (value) => l10n.playStatsReportCountTimes(value.round()),
               style: TextStyle(
                 color: colors.textPrimary,
                 fontSize: 14,
@@ -1242,7 +1154,8 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
               pulseScale: 1.08,
             ),
             labelBuilder: (bucket) => bucket.label,
-            valueBuilder: (bucket) => '${bucket.value} 次',
+            valueBuilder: (bucket) =>
+                l10n.playStatsReportCountTimes(bucket.value),
           ),
           const SizedBox(height: 16),
           Container(
@@ -1256,23 +1169,27 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
               children: <Widget>[
                 Expanded(
                   child: _BehaviorMetric(
-                    label: '完播率',
+                    label: l10n.playStatsReportCompletionRate,
                     value: formatters.percent(
                       data.behavior.completionRate,
                       fractionDigits: 0,
                     ),
-                    subtitle:
-                        '${data.behavior.completedSessions}/${data.behavior.totalSessions} 次会话',
+                    subtitle: l10n.playStatsReportSessionRatio(
+                      data.behavior.completedSessions,
+                      data.behavior.totalSessions,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: _BehaviorMetric(
-                    label: '总操作数',
+                    label: l10n.playStatsReportTotalActions,
                     value:
                         '${data.behavior.forwardSeekCount + data.behavior.backwardSeekCount}',
-                    subtitle:
-                        '快进 ${data.behavior.forwardSeekCount} · 回退 ${data.behavior.backwardSeekCount}',
+                    subtitle: l10n.playStatsReportSeekSummary(
+                      data.behavior.forwardSeekCount,
+                      data.behavior.backwardSeekCount,
+                    ),
                   ),
                 ),
               ],
@@ -1284,9 +1201,15 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
             backwardSeekCount: data.behavior.backwardSeekCount,
           ),
           const SizedBox(height: 16),
-          PlayStatsOpEdRow(label: '片头 OP', summary: data.behavior.intro),
+          PlayStatsOpEdRow(
+            label: l10n.playStatsReportIntroOp,
+            summary: data.behavior.intro,
+          ),
           const SizedBox(height: 12),
-          PlayStatsOpEdRow(label: '片尾 ED', summary: data.behavior.outro),
+          PlayStatsOpEdRow(
+            label: l10n.playStatsReportOutroEd,
+            summary: data.behavior.outro,
+          ),
         ],
       ),
     );
@@ -1296,9 +1219,10 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
     PlayStatsReportSnapshot data,
     PlayStatsReportFormatters formatters,
   ) {
+    final l10n = AppLocalizations.of(context);
     return PlayStatsReportSection(
-      title: '排行与回看',
-      subtitle: '保留最近活跃内容、继续观看线索和当前最常看的内容。',
+      title: l10n.playStatsReportRankingTitle,
+      subtitle: l10n.playStatsReportRankingSubtitle,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
@@ -1307,7 +1231,10 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
             formatters: formatters,
           ),
           const SizedBox(height: 16),
-          const _RankingSubsection(title: '剧集榜', subtitle: '按剧集聚合后的总观看时长排行'),
+          _RankingSubsection(
+            title: l10n.playStatsReportAnimeRankingTitle,
+            subtitle: l10n.playStatsReportAnimeRankingSubtitle,
+          ),
           const SizedBox(height: 10),
           PlayStatsRankList(
             items: animeRankItems(
@@ -1317,9 +1244,9 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          const _RankingSubsection(
-            title: '单集 / 视频榜',
-            subtitle: '按具体视频或单集聚合的观看时长排行',
+          _RankingSubsection(
+            title: l10n.playStatsReportVideoRankingTitle,
+            subtitle: l10n.playStatsReportVideoRankingSubtitle,
           ),
           const SizedBox(height: 10),
           PlayStatsRankList(
@@ -1330,7 +1257,10 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          const _RankingSubsection(title: '最近观看', subtitle: '最近发生的播放记录时间线'),
+          _RankingSubsection(
+            title: l10n.playStatsReportRecentHistoryTitle,
+            subtitle: l10n.playStatsReportRecentHistorySubtitle,
+          ),
           const SizedBox(height: 10),
           PlayStatsPagedTimelineList(
             items: data.recentHistory,
@@ -1430,6 +1360,7 @@ class _ContentMetricSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return Row(
       children: ContentMetric.values
           .map((metric) {
@@ -1452,9 +1383,10 @@ class _ContentMetricSelector extends StatelessWidget {
                     ),
                     child: Text(
                       switch (metric) {
-                        ContentMetric.genre => '类型',
-                        ContentMetric.country => '国家地区',
-                        ContentMetric.year => '年份',
+                        ContentMetric.genre => l10n.playStatsFieldGenreNames,
+                        ContentMetric.country =>
+                          l10n.playStatsFieldCountryNames,
+                        ContentMetric.year => l10n.playStatsFieldYear,
                       },
                       textAlign: TextAlign.center,
                       style: TextStyle(

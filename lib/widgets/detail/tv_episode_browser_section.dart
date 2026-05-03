@@ -610,8 +610,8 @@ class _EpisodePoster extends StatelessWidget {
                 'assets/icons/watched_selected.svg',
                 width: 16,
                 height: 16,
-                colorFilter: ColorFilter.mode(
-                  context.appColors.textPrimary,
+                colorFilter: const ColorFilter.mode(
+                  Color(0xFFF3F8FF),
                   BlendMode.srcIn,
                 ),
               ),

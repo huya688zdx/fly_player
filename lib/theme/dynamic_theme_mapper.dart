@@ -10,7 +10,7 @@ class DynamicThemeMapper {
     required AppThemeColors baseColors,
     required DynamicThemeSeed seed,
   }) {
-    final brightness = _brightnessFor(seed);
+    final brightness = _brightnessFor(baseColors);
     final scheme = ColorScheme.fromSeed(
       seedColor: seed.accentSeed,
       brightness: brightness,
@@ -73,7 +73,7 @@ class DynamicThemeMapper {
     required DynamicThemeSeed seed,
     required AppDynamicThemeIntensity intensity,
   }) {
-    final brightness = _brightnessFor(seed);
+    final brightness = _brightnessFor(baseColors);
     final backdropColors = _baseSurfacesFor(seed, brightness: brightness);
     final scheme = ColorScheme.fromSeed(
       seedColor: seed.accentSeed,
@@ -179,7 +179,7 @@ class DynamicThemeMapper {
     required DynamicThemeSeed seed,
     required AppDynamicThemeIntensity intensity,
   }) {
-    final brightness = _brightnessFor(seed);
+    final brightness = _brightnessFor(baseColors);
     final scheme = ColorScheme.fromSeed(
       seedColor: seed.accentSeed,
       brightness: brightness,
@@ -208,8 +208,10 @@ class DynamicThemeMapper {
     };
   }
 
-  static Brightness _brightnessFor(DynamicThemeSeed seed) {
-    return seed.preferLightSurface ? Brightness.light : Brightness.dark;
+  static Brightness _brightnessFor(AppThemeColors baseColors) {
+    return baseColors.backgroundBase.computeLuminance() >= 0.58
+        ? Brightness.light
+        : Brightness.dark;
   }
 
   static AppThemeColors _baseSurfacesFor(

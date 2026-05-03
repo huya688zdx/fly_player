@@ -113,8 +113,8 @@ extension SavedMpvPresetKindX on SavedMpvPresetKind {
   };
 
   String get label => switch (this) {
-    SavedMpvPresetKind.picture => '画质',
-    SavedMpvPresetKind.audio => '音频',
+    SavedMpvPresetKind.picture => 'picture',
+    SavedMpvPresetKind.audio => 'audio',
   };
 
   static SavedMpvPresetKind fromStorageValue(String? value) {
@@ -381,21 +381,21 @@ class MpvSettingsCatalog {
       <MpvSettingPreset>[
         MpvSettingPreset(
           id: 'off',
-          label: '默认',
-          description: '关闭额外画质增强，优先保证兼容性和稳定性。',
+          label: 'Default',
+          description: 'Disable extra picture enhancement.',
           settings: <String, String>{},
         ),
         MpvSettingPreset(
           id: 'anime',
-          label: '动画清晰',
-          description: '通过轻微对比度和饱和度调整突出线条感，不再默认带入重滤镜。',
+          label: 'Anime Clear',
+          description: 'Light contrast and saturation tuning for line art.',
           settings: <String, String>{},
           videoAdjustments: <String, double>{contrastKey: 4, saturationKey: 6},
         ),
         MpvSettingPreset(
           id: 'cinema',
-          label: '影院柔和',
-          description: '用较轻的亮暗和饱和调整偏向影院观感，避免额外画面计算。',
+          label: 'Cinema Soft',
+          description: 'Softer brightness and saturation tuning for films.',
           settings: <String, String>{},
           videoAdjustments: <String, double>{
             contrastKey: -4,
@@ -405,8 +405,8 @@ class MpvSettingsCatalog {
         ),
         MpvSettingPreset(
           id: 'smooth',
-          label: '流畅优先',
-          description: '偏向稳定和响应的轻量流畅方案，不再默认带入插帧。',
+          label: 'Smooth First',
+          description: 'Lightweight settings for stability and responsiveness.',
           settings: <String, String>{
             scaleProfileKey: 'fast',
             cacheProfileKey: 'stable',
@@ -418,14 +418,14 @@ class MpvSettingsCatalog {
   static const List<MpvSettingPreset> builtInAudioPresets = <MpvSettingPreset>[
     MpvSettingPreset(
       id: 'off',
-      label: '默认',
-      description: '关闭额外音频增强，保留基础播放参数。',
+      label: 'Default',
+      description: 'Disable extra audio enhancement.',
       settings: <String, String>{},
     ),
     MpvSettingPreset(
       id: 'hi_fi',
-      label: '原声保真',
-      description: '打开高保真，旁路 EQ 和增强，适合耳机和高质量片源。',
+      label: 'Hi-Fi',
+      description: 'Bypass EQ and enhancement for clean output.',
       settings: <String, String>{
         audioHighFidelityKey: 'on',
         volumeGainKey: '100',
@@ -433,8 +433,8 @@ class MpvSettingsCatalog {
     ),
     MpvSettingPreset(
       id: 'balanced',
-      label: '通用增强',
-      description: '轻度提亮人声和低频，适合大多数普通剧集、综艺和日常看片。',
+      label: 'Balanced Boost',
+      description: 'Light voice and bass enhancement for everyday playback.',
       settings: <String, String>{
         volumeGainKey: '125',
         audioEqKey: 'soft',
@@ -446,8 +446,8 @@ class MpvSettingsCatalog {
     ),
     MpvSettingPreset(
       id: 'dialogue',
-      label: '人声清晰',
-      description: '抬前对白和中高频细节，适合台词偏轻的片源。',
+      label: 'Dialogue Clear',
+      description: 'Bring dialogue and mid-high details forward.',
       settings: <String, String>{
         volumeGainKey: '140',
         dynamicRangeKey: 'low',
@@ -459,8 +459,8 @@ class MpvSettingsCatalog {
     ),
     MpvSettingPreset(
       id: 'speaker_clear',
-      label: '外放清晰',
-      description: '针对手机和平板外放，压住爆点、把对白往前推，减少糊成一团。',
+      label: 'Speaker Clear',
+      description: 'Improve dialogue clarity for phone and tablet speakers.',
       settings: <String, String>{
         volumeGainKey: '160',
         dynamicRangeKey: 'medium',
@@ -472,8 +472,8 @@ class MpvSettingsCatalog {
     ),
     MpvSettingPreset(
       id: 'cinema_bass',
-      label: '影院低频',
-      description: '增强低频氛围和厚度，适合动作片、配乐片和外放。',
+      label: 'Cinema Bass',
+      description: 'Enhance low-frequency weight for films and speakers.',
       settings: <String, String>{
         volumeGainKey: '135',
         audioEqKey: 'cinema',
@@ -484,8 +484,8 @@ class MpvSettingsCatalog {
     ),
     MpvSettingPreset(
       id: 'headphone_immersive',
-      label: '耳机沉浸',
-      description: '保留动态感，补一点氛围和厚度，适合耳机听电影和演唱会现场。',
+      label: 'Headphone Immersive',
+      description: 'Keep dynamics with extra ambience and low-end weight.',
       settings: <String, String>{
         volumeGainKey: '120',
         audioEqKey: 'cinema',
@@ -496,8 +496,8 @@ class MpvSettingsCatalog {
     ),
     MpvSettingPreset(
       id: 'night',
-      label: '夜间均衡',
-      description: '压低爆点、抬前对白，适合深夜外放和追剧。',
+      label: 'Night Balance',
+      description: 'Reduce peaks and bring dialogue forward for late playback.',
       settings: <String, String>{
         volumeGainKey: '140',
         dynamicRangeKey: 'medium',
@@ -512,533 +512,609 @@ class MpvSettingsCatalog {
   static const List<MpvScenePreset> builtInScenePresets = <MpvScenePreset>[
     MpvScenePreset(
       id: 'stable_clear',
-      label: '省电稳定',
-      description: '优先照顾解码稳定和系统流畅度，适合 4K、HDR、HEVC 和高码率片源。',
+      label: 'Stable Clear',
+      description: 'Prefer decode stability and smooth system behavior.',
       picturePresetId: 'smooth',
       audioPresetId: 'balanced',
     ),
     MpvScenePreset(
       id: 'balanced_movie',
-      label: '通用观影',
-      description: '用轻量画质和通用增强音频组成的日常观影片方案，适合大多数普通片源。',
+      label: 'Balanced Movie',
+      description: 'Daily movie preset with light picture and audio tuning.',
       picturePresetId: 'cinema',
       audioPresetId: 'balanced',
     ),
     MpvScenePreset(
       id: 'anime_dialogue',
-      label: '追番对白',
-      description: '保留动画线条感并把对白往前提，适合动画、综艺和日常追番。',
+      label: 'Anime Dialogue',
+      description: 'Keep anime line detail and bring dialogue forward.',
       picturePresetId: 'anime',
       audioPresetId: 'dialogue',
     ),
     MpvScenePreset(
       id: 'speaker_clear',
-      label: '外放清晰',
-      description: '优先照顾手机和平板外放，把爆点压住并把对白往前推。',
+      label: 'Speaker Clear',
+      description: 'Prioritize phone and tablet speaker clarity.',
       picturePresetId: 'smooth',
       audioPresetId: 'speaker_clear',
     ),
     MpvScenePreset(
       id: 'night_binge',
-      label: '夜间追剧',
-      description: '偏向稳定和夜间聆听，压低爆点并减少长时间观看的刺耳感。',
+      label: 'Night Binge',
+      description: 'Stable and softer late-night playback.',
       picturePresetId: 'smooth',
       audioPresetId: 'night',
     ),
     MpvScenePreset(
       id: 'headphone_immersive',
-      label: '耳机沉浸',
-      description: '画面保持轻柔层次，耳机下保留氛围感和低频厚度。',
+      label: 'Headphone Immersive',
+      description: 'Soft picture with immersive headphone audio.',
       picturePresetId: 'cinema',
       audioPresetId: 'headphone_immersive',
     ),
   ];
-
   static const List<MpvSettingDefinition> definitions = <MpvSettingDefinition>[
     MpvSettingDefinition(
       key: debandKey,
-      title: '去色带',
-      shortTitle: '去色带',
-      description: '处理渐变断层和暗部条带，适合高压缩或低码率片源。',
-      helperLabel: '去色带强度',
+      title: 'Deband',
+      shortTitle: 'Deband',
+      description: 'Smooth gradients and reduce banding.',
+      helperLabel: 'Deband strength',
       options: <MpvSettingOption>[
-        MpvSettingOption(value: 'off', label: '关闭', description: '不额外处理色带。'),
+        MpvSettingOption(
+          value: 'off',
+          label: 'Off',
+          description: 'No extra debanding.',
+        ),
         MpvSettingOption(
           value: 'low',
-          label: '轻度',
-          description: '轻微去除色带，兼顾细节。',
+          label: 'Low',
+          description: 'Light debanding with more detail preserved.',
         ),
         MpvSettingOption(
           value: 'medium',
-          label: '标准',
-          description: '更明显地平滑色带。',
+          label: 'Medium',
+          description: 'Stronger debanding for visible banding.',
         ),
       ],
     ),
     MpvSettingDefinition(
       key: sharpenKey,
-      title: '锐化',
-      shortTitle: '锐化',
-      description: '提升边缘清晰度，但过强可能带来噪点和轮廓感。',
-      helperLabel: '锐化强度',
+      title: 'Sharpen',
+      shortTitle: 'Sharpen',
+      description: 'Increase edge clarity.',
+      helperLabel: 'Sharpen strength',
       options: <MpvSettingOption>[
-        MpvSettingOption(value: 'off', label: '关闭', description: '保持原始画面细节。'),
-        MpvSettingOption(value: 'low', label: '轻度', description: '轻微提升边缘锐利度。'),
+        MpvSettingOption(
+          value: 'off',
+          label: 'Off',
+          description: 'Keep original detail.',
+        ),
+        MpvSettingOption(
+          value: 'low',
+          label: 'Low',
+          description: 'Slightly sharper edges.',
+        ),
         MpvSettingOption(
           value: 'medium',
-          label: '标准',
-          description: '更明显的锐化效果。',
+          label: 'Medium',
+          description: 'More visible sharpening.',
         ),
       ],
     ),
     MpvSettingDefinition(
       key: denoiseKey,
-      title: '降噪',
-      shortTitle: '降噪',
-      description: '压制噪点和颗粒感，适合老片源或码率偏低的视频。',
-      helperLabel: '降噪强度',
+      title: 'Denoise',
+      shortTitle: 'Denoise',
+      description: 'Reduce noise and grain.',
+      helperLabel: 'Denoise strength',
       options: <MpvSettingOption>[
-        MpvSettingOption(value: 'off', label: '关闭', description: '不做额外降噪。'),
+        MpvSettingOption(
+          value: 'off',
+          label: 'Off',
+          description: 'No extra denoise.',
+        ),
         MpvSettingOption(
           value: 'low',
-          label: '轻度',
-          description: '轻微压制噪点，保留较多细节。',
+          label: 'Low',
+          description: 'Light noise reduction.',
         ),
-        MpvSettingOption(value: 'medium', label: '标准', description: '更强调干净画面。'),
+        MpvSettingOption(
+          value: 'medium',
+          label: 'Medium',
+          description: 'Stronger cleanup.',
+        ),
       ],
     ),
     MpvSettingDefinition(
       key: deinterlaceKey,
-      title: '反交错',
-      shortTitle: '反交错',
-      description: '针对隔行扫描片源，普通网络视频建议保持自动。',
-      helperLabel: '处理方式',
+      title: 'Deinterlace',
+      shortTitle: 'Deinterlace',
+      description: 'Handle interlaced sources.',
+      helperLabel: 'Deinterlace mode',
       options: <MpvSettingOption>[
         MpvSettingOption(
           value: 'auto',
-          label: '自动',
-          description: '检测到隔行源时才启用。',
+          label: 'Auto',
+          description: 'Enable only when needed.',
         ),
-        MpvSettingOption(value: 'off', label: '关闭', description: '始终关闭反交错。'),
+        MpvSettingOption(
+          value: 'off',
+          label: 'Off',
+          description: 'Always disable deinterlace.',
+        ),
         MpvSettingOption(
           value: 'force',
-          label: '强制开启',
-          description: '无论片源类型都执行反交错。',
+          label: 'Force',
+          description: 'Always run deinterlace processing.',
         ),
       ],
     ),
     MpvSettingDefinition(
       key: scaleProfileKey,
-      title: '缩放算法',
-      shortTitle: '缩放',
-      description: '控制放大和缩小时的画面取向，在画质和性能之间取舍。',
-      helperLabel: '缩放策略',
+      title: 'Scale Profile',
+      shortTitle: 'Scale',
+      description: 'Choose scaling quality and performance balance.',
+      helperLabel: 'Scaling strategy',
       options: <MpvSettingOption>[
         MpvSettingOption(
           value: 'fast',
-          label: '快速',
-          description: '优先性能，适合低端设备。',
+          label: 'Fast',
+          description: 'Prefer performance.',
         ),
         MpvSettingOption(
           value: 'balanced',
-          label: '标准',
-          description: '画质和功耗更均衡。',
+          label: 'Balanced',
+          description: 'Balance quality and power usage.',
         ),
         MpvSettingOption(
           value: 'quality',
-          label: '高质量',
-          description: '追求更细腻的缩放效果。',
+          label: 'Quality',
+          description: 'Prefer higher quality scaling.',
         ),
       ],
     ),
     MpvSettingDefinition(
       key: hdrModeKey,
-      title: 'HDR 处理',
+      title: 'HDR Mode',
       shortTitle: 'HDR',
-      description: '控制 HDR 到 SDR 的映射和整体色彩倾向。',
-      helperLabel: 'HDR 模式',
+      description: 'Control HDR to SDR mapping.',
+      helperLabel: 'HDR mode',
       options: <MpvSettingOption>[
         MpvSettingOption(
           value: 'auto',
-          label: '自动',
-          description: '按片源和设备能力自动选择。',
+          label: 'Auto',
+          description: 'Choose automatically.',
         ),
         MpvSettingOption(
           value: 'sdr_map',
-          label: 'SDR 映射',
-          description: '更偏兼容和稳定。',
+          label: 'SDR Map',
+          description: 'Prefer compatibility.',
         ),
         MpvSettingOption(
           value: 'conservative',
-          label: '保守映射',
-          description: '更稳地压制高光。',
+          label: 'Conservative',
+          description: 'Tone-map more safely.',
         ),
         MpvSettingOption(
           value: 'enhanced',
-          label: '增强映射',
-          description: '更强调对比和高光层次。',
+          label: 'Enhanced',
+          description: 'Emphasize contrast and highlights.',
         ),
       ],
     ),
     MpvSettingDefinition(
       key: frameInterpolationKey,
-      title: '插帧',
-      shortTitle: '插帧',
-      description: '通过补帧提升运动流畅度，但会增加功耗，也可能改变观感。',
-      helperLabel: '插帧策略',
+      title: 'Frame Interpolation',
+      shortTitle: 'Interpolation',
+      description: 'Improve motion smoothness at higher cost.',
+      helperLabel: 'Interpolation mode',
       options: <MpvSettingOption>[
-        MpvSettingOption(value: 'off', label: '关闭', description: '保持原始帧率输出。'),
-        MpvSettingOption(value: 'auto', label: '自动', description: '按场景决定是否启用。'),
+        MpvSettingOption(
+          value: 'off',
+          label: 'Off',
+          description: 'Keep original frame rate.',
+        ),
+        MpvSettingOption(
+          value: 'auto',
+          label: 'Auto',
+          description: 'Enable by scene.',
+        ),
         MpvSettingOption(
           value: 'on',
-          label: '始终开启',
-          description: '最大化流畅度，性能开销最高。',
+          label: 'On',
+          description: 'Maximize smoothness.',
         ),
       ],
     ),
     MpvSettingDefinition(
       key: videoSyncKey,
-      title: '同步模式',
-      shortTitle: '同步',
-      description: '只控制音画与刷新率的同步取向，不负责缓冲大小和缓存风格。',
-      helperLabel: '同步取向',
+      title: 'Video Sync',
+      shortTitle: 'Sync',
+      description: 'Choose audio, display, and refresh sync behavior.',
+      helperLabel: 'Sync preference',
       options: <MpvSettingOption>[
         MpvSettingOption(
           value: 'auto',
-          label: '智能平衡',
-          description: '按当前设备能力自动平衡音画稳定与刷新率匹配。',
+          label: 'Auto',
+          description: 'Balance automatically.',
         ),
         MpvSettingOption(
           value: 'audio',
-          label: '音频优先',
-          description: '优先保证音频连续稳定。',
+          label: 'Audio',
+          description: 'Prefer continuous audio.',
         ),
         MpvSettingOption(
           value: 'display',
-          label: '显示优先',
-          description: '更重视刷新率匹配。',
+          label: 'Display',
+          description: 'Prefer display refresh matching.',
         ),
         MpvSettingOption(
           value: 'smooth',
-          label: '平滑同步',
-          description: '更积极地贴合显示刷新率，适合更在意观感流畅的场景。',
+          label: 'Smooth',
+          description: 'More actively fit display refresh.',
         ),
       ],
     ),
     MpvSettingDefinition(
       key: cacheProfileKey,
-      title: '缓存策略',
-      shortTitle: '缓存',
-      description: '只决定缓冲风格和预读力度，不会改动同步模式。',
-      helperLabel: '缓冲取向',
+      title: 'Cache Profile',
+      shortTitle: 'Cache',
+      description: 'Choose buffering behavior.',
+      helperLabel: 'Buffering profile',
       options: <MpvSettingOption>[
         MpvSettingOption(
           value: 'default',
-          label: '智能分配',
-          description: '按片源类型自动选择更合适的缓冲强度。',
+          label: 'Default',
+          description: 'Choose a suitable cache automatically.',
         ),
         MpvSettingOption(
           value: 'low_latency',
-          label: '极速响应',
-          description: '尽量减轻预读，优先拖动和切换响应。',
+          label: 'Low Latency',
+          description: 'Prefer quick seeking and switching.',
         ),
         MpvSettingOption(
           value: 'stable',
-          label: '稳定缓冲',
-          description: '适当增加预读，优先减轻网络抖动。',
+          label: 'Stable',
+          description: 'Add more read-ahead for network jitter.',
         ),
         MpvSettingOption(
           value: 'network',
-          label: '网盘 / STRM / NAS',
-          description: '适合网盘、STRM 和 NAS 里的高码率片源。',
+          label: 'Network',
+          description: 'Use heavier buffering for remote sources.',
         ),
       ],
     ),
     MpvSettingDefinition(
       key: cacheSizeMbKey,
-      title: '缓冲大小',
-      shortTitle: '缓冲大小',
-      description: '直接控制播放器最多预读多少数据，数值越大越稳，但起播和拖动后的回填会更重。',
-      helperLabel: '缓冲上限',
+      title: 'Cache Size',
+      shortTitle: 'Cache Size',
+      description: 'Override maximum read-ahead cache size.',
+      helperLabel: 'Cache limit',
       options: <MpvSettingOption>[
         MpvSettingOption(
           value: 'auto',
-          label: '自动',
-          description: '跟随当前缓存策略自动分配。',
+          label: 'Auto',
+          description: 'Follow the selected cache profile.',
         ),
         MpvSettingOption(
           value: '64',
           label: '64 MB',
-          description: '较省内存，适合普通码率。',
+          description: 'Lower memory use.',
         ),
         MpvSettingOption(
           value: '128',
           label: '128 MB',
-          description: '更适合远程直链和高码率文件。',
+          description: 'Better for remote direct links.',
         ),
         MpvSettingOption(
           value: '256',
           label: '256 MB',
-          description: '优先减少网络抖动带来的卡顿。',
+          description: 'Reduce network jitter.',
         ),
         MpvSettingOption(
           value: '512',
           label: '512 MB',
-          description: '适合超高码率和不稳定网络，但占用更高。',
+          description: 'For very high bitrate or unstable network.',
         ),
       ],
     ),
     MpvSettingDefinition(
       key: volumeGainKey,
-      title: '音量放大',
-      shortTitle: '音量',
-      description: '为偏小声音片源提供更高的音量上限。',
-      helperLabel: '音量上限',
+      title: 'Volume Gain',
+      shortTitle: 'Volume',
+      description: 'Increase maximum output volume.',
+      helperLabel: 'Volume cap',
       options: <MpvSettingOption>[
-        MpvSettingOption(value: '100', label: '100%', description: '标准音量上限。'),
+        MpvSettingOption(
+          value: '100',
+          label: '100%',
+          description: 'Standard maximum volume.',
+        ),
         MpvSettingOption(
           value: '150',
           label: '150%',
-          description: '适合对白偏轻的片源。',
+          description: 'For quieter dialogue.',
         ),
         MpvSettingOption(
           value: '200',
           label: '200%',
-          description: '最大放大，可能带来失真。',
+          description: 'Maximum boost, may distort.',
         ),
       ],
     ),
     MpvSettingDefinition(
       key: audioHighFidelityKey,
-      title: '高保真模式',
-      shortTitle: '高保真',
-      description: '关闭 EQ、限幅、低音增强、人声增强和动态压缩，尽量保持更干净的解码输出。',
-      helperLabel: '输出取向',
+      title: 'High Fidelity',
+      shortTitle: 'Hi-Fi',
+      description: 'Bypass most audio post-processing.',
+      helperLabel: 'Output mode',
       options: <MpvSettingOption>[
         MpvSettingOption(
           value: 'off',
-          label: '关闭',
-          description: '继续按当前音频处理设置应用增强和滤镜链。',
+          label: 'Off',
+          description: 'Keep current audio processing.',
         ),
         MpvSettingOption(
           value: 'on',
-          label: '开启',
-          description: '优先保留原始音色，统一旁路大部分音频后处理。',
+          label: 'On',
+          description: 'Prefer cleaner original output.',
         ),
       ],
     ),
     MpvSettingDefinition(
       key: dynamicRangeKey,
-      title: '动态范围压缩',
-      shortTitle: '动态范围',
-      description: '压低爆点和高动态差异，让对白更靠前。',
-      helperLabel: '压缩强度',
+      title: 'Dynamic Range Compression',
+      shortTitle: 'Dynamic Range',
+      description: 'Compress peaks and bring dialogue forward.',
+      helperLabel: 'Compression strength',
       options: <MpvSettingOption>[
-        MpvSettingOption(value: 'off', label: '关闭', description: '保持原始动态范围。'),
-        MpvSettingOption(value: 'low', label: '轻度', description: '轻微提升对白可听性。'),
-        MpvSettingOption(value: 'medium', label: '标准', description: '夜间播放更友好。'),
+        MpvSettingOption(
+          value: 'off',
+          label: 'Off',
+          description: 'Keep original dynamic range.',
+        ),
+        MpvSettingOption(
+          value: 'low',
+          label: 'Low',
+          description: 'Light dialogue lift.',
+        ),
+        MpvSettingOption(
+          value: 'medium',
+          label: 'Medium',
+          description: 'Friendlier for night playback.',
+        ),
       ],
     ),
     MpvSettingDefinition(
       key: audioEqKey,
-      title: 'EQ 均衡器',
+      title: 'EQ',
       shortTitle: 'EQ',
-      description: '用不同的均衡预设调整低频、中频和高频的听感平衡。',
-      helperLabel: '均衡预设',
+      description: 'Choose an equalizer preset.',
+      helperLabel: 'EQ preset',
       options: <MpvSettingOption>[
-        MpvSettingOption(value: 'off', label: '关闭', description: '保持原始音色。'),
+        MpvSettingOption(
+          value: 'off',
+          label: 'Off',
+          description: 'Keep original tone.',
+        ),
         MpvSettingOption(
           value: 'soft',
-          label: '柔和',
-          description: '轻微修整低频和人声，适合普通观看。',
+          label: 'Soft',
+          description: 'Light low-end and voice tuning.',
         ),
         MpvSettingOption(
           value: 'clarity',
-          label: '清晰',
-          description: '更强调人声和高频细节，适合对白偏轻的片源。',
+          label: 'Clarity',
+          description: 'Emphasize voice and high-frequency detail.',
         ),
         MpvSettingOption(
           value: 'cinema',
-          label: '影院',
-          description: '更均衡地兼顾低频氛围和台词清晰度。',
+          label: 'Cinema',
+          description: 'Balance low-end ambience and dialogue clarity.',
         ),
         MpvSettingOption(
           value: audioEqCustomValue,
-          label: '高级自定义',
-          description: '进入多频段页，自己上下拖动每个频带。',
+          label: 'Custom',
+          description: 'Open multi-band custom EQ.',
         ),
       ],
     ),
     MpvSettingDefinition(
       key: audioLimiterKey,
-      title: '峰值限幅',
-      shortTitle: '限幅',
-      description: '在不改变整体听感的情况下压住瞬时过高的声音，防止破音。',
-      helperLabel: '限幅强度',
+      title: 'Limiter',
+      shortTitle: 'Limiter',
+      description: 'Control sudden peaks and prevent clipping.',
+      helperLabel: 'Limiter strength',
       options: <MpvSettingOption>[
-        MpvSettingOption(value: 'off', label: '关闭', description: '不额外做峰值压制。'),
+        MpvSettingOption(
+          value: 'off',
+          label: 'Off',
+          description: 'No extra limiting.',
+        ),
         MpvSettingOption(
           value: 'light',
-          label: '轻度',
-          description: '轻微压低突然的大音量，尽量保留动态。',
+          label: 'Light',
+          description: 'Light peak control.',
         ),
         MpvSettingOption(
           value: 'strong',
-          label: '标准',
-          description: '更积极地防止破音，适合增强较多时使用。',
+          label: 'Strong',
+          description: 'More active clipping prevention.',
         ),
       ],
     ),
     MpvSettingDefinition(
       key: audioBassBoostKey,
-      title: '低音增强',
-      shortTitle: '低音',
-      description: '为影院氛围感、地鸣和配乐的低频部分提供更强烈的存在感。',
-      helperLabel: '低音强度',
+      title: 'Bass Boost',
+      shortTitle: 'Bass',
+      description: 'Increase low-frequency presence.',
+      helperLabel: 'Bass strength',
       options: <MpvSettingOption>[
-        MpvSettingOption(value: 'off', label: '关闭', description: '保持当前低频表现。'),
-        MpvSettingOption(value: 'low', label: '轻度', description: '轻微提升低频厚度。'),
+        MpvSettingOption(
+          value: 'off',
+          label: 'Off',
+          description: 'Keep current bass.',
+        ),
+        MpvSettingOption(
+          value: 'low',
+          label: 'Low',
+          description: 'Light bass boost.',
+        ),
         MpvSettingOption(
           value: 'medium',
-          label: '标准',
-          description: '更明显的低音增强效果。',
+          label: 'Medium',
+          description: 'More obvious bass boost.',
         ),
       ],
     ),
     MpvSettingDefinition(
       key: audioVoiceEnhanceKey,
-      title: '人声增强',
-      shortTitle: '人声',
-      description: '通过人声去除低频混浊，提升台词和对白的清晰度。',
-      helperLabel: '人声强度',
+      title: 'Voice Enhance',
+      shortTitle: 'Voice',
+      description: 'Improve dialogue clarity.',
+      helperLabel: 'Voice strength',
       options: <MpvSettingOption>[
-        MpvSettingOption(value: 'off', label: '关闭', description: '保持原始人声表现。'),
+        MpvSettingOption(
+          value: 'off',
+          label: 'Off',
+          description: 'Keep original voice tone.',
+        ),
         MpvSettingOption(
           value: 'low',
-          label: '轻度',
-          description: '轻微提升台词，不太改变整体音色。',
+          label: 'Low',
+          description: 'Light dialogue lift.',
         ),
         MpvSettingOption(
           value: 'medium',
-          label: '标准',
-          description: '更适合对白偏轻或后景音偏响的片源。',
+          label: 'Medium',
+          description: 'More focused dialogue.',
         ),
       ],
     ),
     MpvSettingDefinition(
       key: channelMixKey,
-      title: '声道混合',
-      shortTitle: '声道',
-      description: '控制多声道到当前输出设备的混合策略。',
-      helperLabel: '输出方式',
+      title: 'Channel Mix',
+      shortTitle: 'Channel',
+      description: 'Control multi-channel output mixing.',
+      helperLabel: 'Output mode',
       options: <MpvSettingOption>[
         MpvSettingOption(
           value: 'auto',
-          label: '自动',
-          description: '按设备和片源自动选择。',
+          label: 'Auto',
+          description: 'Choose by device and source.',
         ),
         MpvSettingOption(
           value: 'stereo',
-          label: '立体声优先',
-          description: '更适合耳机和普通外放。',
+          label: 'Stereo',
+          description: 'Prefer stereo output.',
         ),
         MpvSettingOption(
           value: 'surround',
-          label: '环绕优先',
-          description: '尽量保留更多多声道信息。',
+          label: 'Surround',
+          description: 'Preserve more surround information.',
         ),
       ],
     ),
     MpvSettingDefinition(
       key: compatibilityKey,
-      title: '兼容模式',
-      shortTitle: '兼容',
-      description: '遇到黑屏、花屏或特殊机型问题时，用来快速回退策略。',
-      helperLabel: '兼容策略',
+      title: 'Compatibility',
+      shortTitle: 'Compatibility',
+      description: 'Fallback behavior for device-specific playback issues.',
+      helperLabel: 'Compatibility profile',
       options: <MpvSettingOption>[
         MpvSettingOption(
           value: 'default',
-          label: '默认',
-          description: '保持当前常规配置。',
+          label: 'Default',
+          description: 'Use the normal profile.',
         ),
         MpvSettingOption(
           value: 'conservative',
-          label: '保守兼容',
-          description: '减少激进渲染和滤镜行为。',
+          label: 'Conservative',
+          description: 'Reduce aggressive rendering and filters.',
         ),
         MpvSettingOption(
           value: 'software_fallback',
-          label: '软件优先',
-          description: '更强调稳定性，必要时回退到软解策略。',
+          label: 'Software',
+          description: 'Prefer stable software fallback when needed.',
         ),
       ],
     ),
   ];
-
   static MpvPerformanceImpactWarning? performanceWarningForSelection(
     String key,
     String value,
   ) {
     if (key == debandKey && value == 'medium') {
       return const MpvPerformanceImpactWarning(
-        title: '性能提醒',
-        message: '中档去色带会增加额外画面处理开销，部分设备可能出现掉帧、发热或系统卡顿。',
+        title: 'Performance warning',
+        message:
+            'Medium debanding adds extra video processing cost and may cause dropped frames, heat, or system stutter on some devices.',
       );
     }
     if (key == sharpenKey && value != 'off') {
       return const MpvPerformanceImpactWarning(
-        title: '性能提醒',
-        message: '锐化会增加滤镜计算量，片源较重或设备较弱时可能导致播放掉帧和界面不流畅。',
+        title: 'Performance warning',
+        message:
+            'Sharpening increases filter workload and may cause playback drops or UI stutter on heavy sources or weaker devices.',
       );
     }
     if (key == denoiseKey && value != 'off') {
       return const MpvPerformanceImpactWarning(
-        title: '性能提醒',
-        message: '降噪属于较重的视频滤镜，移动设备上很容易带来明显掉帧、发热甚至系统卡顿。',
+        title: 'Performance warning',
+        message:
+            'Denoise is a heavy video filter and can easily cause dropped frames, heat, or system stutter on mobile devices.',
       );
     }
     if (key == deinterlaceKey && value == 'force') {
       return const MpvPerformanceImpactWarning(
-        title: '性能提醒',
-        message: '强制反交错会让所有片源都走额外处理链路，普通逐行片源通常没有必要，且可能拖慢播放。',
+        title: 'Performance warning',
+        message:
+            'Forced deinterlacing sends every source through extra processing. Progressive sources usually do not need it and playback may slow down.',
       );
     }
     if (key == scaleProfileKey && value == 'quality') {
       return const MpvPerformanceImpactWarning(
-        title: '性能提醒',
-        message: '高质量缩放会增加 GPU 和渲染压力，高分辨率或高码率片源上更容易出现掉帧。',
+        title: 'Performance warning',
+        message:
+            'High quality scaling increases GPU and rendering load, especially on high resolution or high bitrate sources.',
       );
     }
     if (key == hdrModeKey && (value == 'conservative' || value == 'enhanced')) {
       return const MpvPerformanceImpactWarning(
-        title: '性能提醒',
-        message: '这个 HDR 模式会增加色调映射压力，HDR、10-bit 或高分辨率片源上可能导致明显卡顿。',
+        title: 'Performance warning',
+        message:
+            'This HDR mode increases tone mapping load and may stutter on HDR, 10-bit, or high resolution sources.',
       );
     }
     if (key == frameInterpolationKey && (value == 'auto' || value == 'on')) {
       return const MpvPerformanceImpactWarning(
-        title: '性能提醒',
-        message: '插帧是最容易拖慢播放和系统流畅度的选项之一，开启后可能出现视频掉帧、UI 掉帧和系统卡顿。',
+        title: 'Performance warning',
+        message:
+            'Frame interpolation is one of the heaviest options and may cause video drops, UI stutter, and system slowdown.',
       );
     }
     if (key == videoSyncKey && value == 'smooth') {
       return const MpvPerformanceImpactWarning(
-        title: '性能提醒',
-        message: '平滑同步会更积极地贴合屏幕刷新率，部分设备上会增加合成与同步压力。',
+        title: 'Performance warning',
+        message:
+            'Smooth sync follows the display refresh rate more aggressively and can increase composition and sync load on some devices.',
       );
     }
     if (key == cacheProfileKey && value == 'network') {
       return const MpvPerformanceImpactWarning(
-        title: '性能提醒',
-        message: '网络重缓存会占用更多内存，并让拖动回填更重，只建议在高码率远程片源上使用。',
+        title: 'Performance warning',
+        message:
+            'Network-heavy caching uses more memory and makes seek refill heavier. Use it mainly for high bitrate remote sources.',
       );
     }
     if (key == cacheSizeMbKey) {
       final parsed = int.tryParse(value);
       if (parsed != null && parsed >= cacheSizeExtremeMinimumMb) {
         return const MpvPerformanceImpactWarning(
-          title: '性能提醒',
-          message: '较大的缓冲会占用更多内存，并让起播、拖动后的回填更重；低内存设备上可能影响系统流畅度。',
+          title: 'Performance warning',
+          message:
+              'Large buffers use more memory and make startup or seek refill heavier. Low-memory devices may feel less smooth.',
         );
       }
     }
@@ -1048,136 +1124,139 @@ class MpvSettingsCatalog {
   static const List<MpvSettingCategory> categories = <MpvSettingCategory>[
     MpvSettingCategory(
       id: videoFiltersCategoryId,
-      title: '视频滤镜',
-      subtitle: '去色带、锐化、降噪、反交错、缩放算法',
-      description: '主要针对画面净化、边缘锐度和缩放观感。',
+      title: 'Video filters',
+      subtitle: 'Deband, sharpen, denoise, deinterlace, scaling',
+      description: 'Controls image cleanup, edge clarity, and scaling feel.',
       entries: <MpvSettingCategoryEntry>[
         MpvSettingCategoryEntry(
           key: debandKey,
-          title: '去色带',
-          subtitle: '处理渐变断层和暗部条带',
+          title: 'Deband',
+          subtitle: 'Smooth gradients and dark color bands',
         ),
         MpvSettingCategoryEntry(
           key: sharpenKey,
-          title: '锐化',
-          subtitle: '提升边缘清晰度',
+          title: 'Sharpen',
+          subtitle: 'Improve edge clarity',
         ),
         MpvSettingCategoryEntry(
           key: denoiseKey,
-          title: '降噪',
-          subtitle: '压制噪点和颗粒感',
+          title: 'Denoise',
+          subtitle: 'Reduce noise and grain',
         ),
         MpvSettingCategoryEntry(
           key: deinterlaceKey,
-          title: '反交错',
-          subtitle: '处理隔行扫描片源',
+          title: 'Deinterlace',
+          subtitle: 'Handle interlaced sources',
         ),
         MpvSettingCategoryEntry(
           key: scaleProfileKey,
-          title: '缩放算法',
-          subtitle: '控制放大和缩小时的取向',
+          title: 'Scaling',
+          subtitle: 'Control upscale and downscale behavior',
         ),
       ],
     ),
     MpvSettingCategory(
       id: pictureRenderingCategoryId,
-      title: '画质渲染',
-      subtitle: 'HDR 处理、插帧',
-      description: '更偏向画面风格和输出观感的增强项。',
+      title: 'Picture rendering',
+      subtitle: 'HDR processing, frame interpolation',
+      description: 'Picture-style and output-feel enhancements.',
       entries: <MpvSettingCategoryEntry>[
         MpvSettingCategoryEntry(
           key: hdrModeKey,
-          title: 'HDR 处理',
-          subtitle: '调整 HDR 映射和整体色调',
+          title: 'HDR processing',
+          subtitle: 'Adjust HDR mapping and tone',
         ),
         MpvSettingCategoryEntry(
           key: frameInterpolationKey,
-          title: '插帧',
-          subtitle: '改善运动流畅度，性能开销更高',
+          title: 'Frame interpolation',
+          subtitle: 'Improve motion smoothness with higher cost',
         ),
       ],
     ),
     MpvSettingCategory(
       id: playbackSyncCategoryId,
-      title: '播放同步',
-      subtitle: '同步模式、缓存策略、缓冲大小',
-      description: '主要影响拖动响应、网络稳定性和播放流畅度。',
+      title: 'Playback sync',
+      subtitle: 'Sync mode, cache profile, buffer size',
+      description:
+          'Affects seeking response, network tolerance, and smoothness.',
       entries: <MpvSettingCategoryEntry>[
         MpvSettingCategoryEntry(
           key: videoSyncKey,
-          title: '同步模式',
-          subtitle: '只调整音画与刷新率的同步取向',
+          title: 'Sync mode',
+          subtitle: 'Adjust audio/video and refresh sync preference',
         ),
         MpvSettingCategoryEntry(
           key: cacheProfileKey,
-          title: '缓存策略',
-          subtitle: '只调整预读力度和缓冲风格',
+          title: 'Cache profile',
+          subtitle: 'Adjust pre-read strength and buffer style',
         ),
         MpvSettingCategoryEntry(
           key: cacheSizeMbKey,
-          title: '缓冲大小',
-          subtitle: '手动覆盖自动缓存上限',
+          title: 'Buffer size',
+          subtitle: 'Manually override automatic cache limit',
         ),
       ],
     ),
     MpvSettingCategory(
       id: audioProcessingCategoryId,
-      title: '音频处理',
-      subtitle: '音量、EQ、限幅、低音和人声增强',
-      description: '主要影响对白可听性、音色重心和多声道输出适配。',
+      title: 'Audio processing',
+      subtitle: 'Volume, EQ, limiter, bass, voice enhancement',
+      description:
+          'Affects dialogue clarity, tone balance, and channel output.',
       entries: <MpvSettingCategoryEntry>[
         MpvSettingCategoryEntry(
           key: volumeGainKey,
-          title: '音量放大',
-          subtitle: '提高偏小声音源的音量上限',
+          title: 'Volume gain',
+          subtitle: 'Raise the output ceiling for quiet sources',
         ),
         MpvSettingCategoryEntry(
           key: audioHighFidelityKey,
-          title: '高保真模式',
-          subtitle: '优先保留干净解码输出，统一旁路大部分后处理',
+          title: 'High fidelity',
+          subtitle: 'Keep clean decoded output and bypass most post-processing',
         ),
         MpvSettingCategoryEntry(
           key: dynamicRangeKey,
-          title: '动态范围压缩',
-          subtitle: '让对白更靠前，夜间播放更稳',
+          title: 'Dynamic range',
+          subtitle: 'Bring dialogue forward and stabilize night playback',
         ),
         MpvSettingCategoryEntry(
           key: audioEqKey,
-          title: 'EQ 均衡器',
-          subtitle: '调整低频、中频和高频的听感平衡',
+          title: 'EQ',
+          subtitle: 'Adjust low, mid, and high frequency balance',
         ),
         MpvSettingCategoryEntry(
           key: audioLimiterKey,
-          title: '峰值限幅',
-          subtitle: '防止瞬时音量过高导致破音',
+          title: 'Limiter',
+          subtitle: 'Prevent sudden peaks from clipping',
         ),
         MpvSettingCategoryEntry(
           key: audioBassBoostKey,
-          title: '低音增强',
-          subtitle: '增强影院氛围和低频存在感',
+          title: 'Bass boost',
+          subtitle: 'Add cinematic weight and low-end presence',
         ),
         MpvSettingCategoryEntry(
           key: audioVoiceEnhanceKey,
-          title: '人声增强',
-          subtitle: '让台词和对白更清晰更靠前',
+          title: 'Voice enhance',
+          subtitle: 'Make speech and dialogue clearer',
         ),
         MpvSettingCategoryEntry(
           key: channelMixKey,
-          title: '声道混合',
-          subtitle: '控制多声道输出取向',
+          title: 'Channel mix',
+          subtitle: 'Control multichannel output preference',
         ),
       ],
     ),
     MpvSettingCategory(
       id: compatibilityCategoryId,
-      title: '兼容模式',
-      subtitle: '兼容回退与问题排查',
-      description: '遇到黑屏、花屏或特殊机型时，优先从这里回退。',
+      title: 'Compatibility',
+      subtitle: 'Fallbacks and diagnostics',
+      description:
+          'Use these fallbacks for black screen, artifacts, or device issues.',
       entries: <MpvSettingCategoryEntry>[
         MpvSettingCategoryEntry(
           key: compatibilityKey,
-          title: '兼容模式',
-          subtitle: '遇到黑屏、花屏或异常时切换',
+          title: 'Compatibility mode',
+          subtitle: 'Switch when black screen, artifacts, or errors appear',
         ),
       ],
     ),
@@ -1324,17 +1403,17 @@ class MpvSettingsCatalog {
       final preset = builtInScenePresetById('stable_clear');
       if (preset == null) return null;
       final reasons = <String>[];
-      if (isUltraHighResolution) reasons.add('分辨率偏高');
-      if (isHdr) reasons.add('HDR/高动态范围');
-      if (bitDepth >= 10) reasons.add('10-bit 片源');
-      if (isHevcLike && bitrate >= 8000000) reasons.add('HEVC 高码率');
-      if (isRemoteSource) reasons.add('远程网络片源');
+      if (isUltraHighResolution) reasons.add('high resolution');
+      if (isHdr) reasons.add('HDR/high dynamic range');
+      if (bitDepth >= 10) reasons.add('10-bit source');
+      if (isHevcLike && bitrate >= 8000000) reasons.add('high bitrate HEVC');
+      if (isRemoteSource) reasons.add('remote source');
       return MpvScenePresetRecommendation(
         preset: preset,
-        title: '推荐稳定优先',
+        title: 'Stable profile recommended',
         reason: reasons.isEmpty
-            ? '当前片源负载偏高，先用更稳的轻量场景，避免播放器和系统一起掉帧。'
-            : '检测到${reasons.join('、')}，建议先用更稳的轻量场景，避免播放器和系统一起掉帧。',
+            ? 'This source may be heavy. Use a lighter stable profile first.'
+            : 'Detected ${reasons.join(', ')}. Use a lighter stable profile first.',
       );
     }
     if (audioChannels >= 6) {
@@ -1342,8 +1421,9 @@ class MpvSettingsCatalog {
       if (preset == null) return null;
       return MpvScenePresetRecommendation(
         preset: preset,
-        title: '推荐电影沉浸',
-        reason: '当前音轨是多声道，适合保留氛围感和低频厚度的电影向组合。',
+        title: 'Cinema immersion recommended',
+        reason:
+            'The current audio track is multichannel, so a cinematic mix can preserve space and low-end weight.',
       );
     }
     if (audioChannels > 0 &&
@@ -1356,16 +1436,18 @@ class MpvSettingsCatalog {
       if (preset == null) return null;
       return MpvScenePresetRecommendation(
         preset: preset,
-        title: '推荐清晰外放',
-        reason: '当前音轨偏轻，优先把对白和主体声推前，普通剧集和外放更省心。',
+        title: 'Speaker clarity recommended',
+        reason:
+            'The current audio track is light, so dialogue-forward speaker tuning is a safer default.',
       );
     }
     final preset = builtInScenePresetById('balanced_movie');
     if (preset == null) return null;
     return MpvScenePresetRecommendation(
       preset: preset,
-      title: '推荐通用观影',
-      reason: '当前片源负载正常，先用平衡一些的画质和音频组合最稳妥。',
+      title: 'Balanced viewing recommended',
+      reason:
+          'The current source load looks normal. A balanced picture and audio profile is a stable default.',
     );
   }
 
@@ -1469,22 +1551,23 @@ class MpvSettingsCatalog {
 
   static String videoAdjustmentTitle(String key) {
     return switch (key) {
-      brightnessKey => '亮度',
-      contrastKey => '对比度',
-      saturationKey => '饱和度',
+      brightnessKey => 'Brightness',
+      contrastKey => 'Contrast',
+      saturationKey => 'Saturation',
       gammaKey => 'Gamma',
-      hueKey => '色相',
-      _ => '画面参数',
+      hueKey => 'Hue',
+      _ => 'Video parameter',
     };
   }
 
   static String videoAdjustmentSubtitle(String key) {
     return switch (key) {
-      brightnessKey => '提亮暗场或压暗过曝画面。',
-      contrastKey => '拉开明暗层次，数值过高会更硬。',
-      saturationKey => '控制整体颜色浓度。',
-      gammaKey => '偏向中间调修正，适合微调灰雾感。',
-      hueKey => '整体色调偏移，建议小幅修正偏色片源。',
+      brightnessKey => 'Brighten dark scenes or reduce overexposed images.',
+      contrastKey => 'Separate light and dark levels; high values look harder.',
+      saturationKey => 'Control overall color intensity.',
+      gammaKey => 'Adjust midtones for haze and shadow detail.',
+      hueKey =>
+        'Shift overall color tone; use small corrections for color casts.',
       _ => '',
     };
   }
@@ -1572,14 +1655,14 @@ class MpvSettingsCatalog {
   static String statusLabel(Map<String, String> settings) {
     final preset = activePreset(settings);
     if (preset != null) return preset.label;
-    return changedCount(settings) == 0 ? '默认' : '已自定义';
+    return changedCount(settings) == 0 ? 'Default' : 'Customized';
   }
 
   static String summaryText(Map<String, String> settings) {
     final preset = activePreset(settings);
     if (preset != null) return preset.description;
     final changed = changedCount(settings);
-    if (changed == 0) return '当前使用默认 MPV 参数。';
+    if (changed == 0) return 'Default MPV parameters are active.';
     final labels = <String>[];
     for (final definition in definitions) {
       if (settingValue(definition.key, settings) == defaults[definition.key]) {
@@ -1591,8 +1674,8 @@ class MpvSettingsCatalog {
       if (labels.length == 3) break;
     }
     return labels.isEmpty
-        ? '已调整 $changed 项 MPV 参数。'
-        : '已调整 $changed 项：${labels.join(' / ')}';
+        ? '$changed MPV parameters adjusted.'
+        : '$changed adjusted: ${labels.join(' / ')}';
   }
 
   static String categorySummaryLabel(
@@ -1603,7 +1686,7 @@ class MpvSettingsCatalog {
         .map((entry) => entry.key)
         .toList(growable: false);
     final changed = changedCount(settings, keys);
-    if (changed == 0) return '默认';
+    if (changed == 0) return 'Default';
     if (changed == 1) {
       for (final key in keys) {
         if (settingValue(key, settings) != defaults[key]) {
@@ -1611,7 +1694,7 @@ class MpvSettingsCatalog {
         }
       }
     }
-    return '$changed 项';
+    return '$changed changed';
   }
 
   static int normalizeCacheSizeMb(int value) {
@@ -1649,7 +1732,7 @@ class MpvSettingsCatalog {
   }
 
   static String formatCacheSizeLabel(String value) {
-    if (value == 'auto') return '自动';
+    if (value == 'auto') return 'Auto';
     final parsed = int.tryParse(value);
     if (parsed == null) return value;
     return formatCachePercentLabel(mbToCachePercent(parsed));
@@ -1963,7 +2046,7 @@ class MpvSettingsStore {
   }
 
   Future<String> nextSavedPresetName(SavedMpvPresetKind kind) async {
-    return nextSavedPresetNameFromBase(kind, '${kind.label}预设');
+    return nextSavedPresetNameFromBase(kind, '${kind.label}_preset');
   }
 
   Future<String> nextSavedPresetNameFromBase(
@@ -1971,7 +2054,7 @@ class MpvSettingsStore {
     String baseName,
   ) async {
     final normalizedBase = baseName.trim().isEmpty
-        ? '${kind.label}预设'
+        ? '${kind.label}_preset'
         : baseName.trim();
     var index = 1;
     while (true) {

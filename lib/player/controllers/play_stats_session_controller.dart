@@ -1,27 +1,47 @@
 import '../../services/play_stats/play_stats_models.dart';
 import '../../services/play_stats/play_stats_repositories.dart';
 
+/// 定义片头片尾播放行为跟踪器的最小接口。
 abstract class OpEdTracker {
+  /// 设置当前播放条目识别出的片头与片尾区间。
   void setSegments({OpEdSegment? intro, OpEdSegment? outro});
+
+  /// 在播放进度推进时同步片头片尾的观看状态。
   void onProgress({
     required int positionMs,
     required bool paused,
     required int mediaDurationMs,
   });
+
+  /// 在用户执行拖动后同步片头片尾统计状态。
   void onSeek({
     required int fromMs,
     required int toMs,
     required bool userInitiated,
   });
+
+  /// 记录一次片头或片尾被主动跳过的行为。
   void markSkip({required bool intro});
+
+  /// 记录一次片头或片尾提示被用户忽略的行为。
   void markDismiss({required bool intro});
+
+  /// 生成当前会话结束时的片头片尾统计快照。
   OpEdSnapshot snapshotAtFinish();
+
+  /// 重置跟踪器内部状态。
   void reset();
 }
 
+/// 定义单次播放会话统计控制器的统一接口。
 abstract class PlayStatsSessionController {
+  /// 启动一段新的播放统计会话。
   Future<void> startPlayback(PlayStatsStartContext context);
+
+  /// 更新当前会话的媒体元数据。
   void updateMetadata(PlayStatsVideoMeta meta);
+
+  /// 写入一次播放进度采样。
   void updateProgress({
     required int positionMs,
     required int mediaDurationMs,
@@ -29,17 +49,31 @@ abstract class PlayStatsSessionController {
     required DateTime now,
     required bool playbackCompleted,
   });
+
+  /// 记录一次用户触发的拖动行为。
   void recordSeek({
     required int fromMs,
     required int toMs,
     required bool userInitiated,
   });
+
+  /// 提交本次会话识别出的片头与片尾区间。
   void markOpEdDetected({OpEdSegment? intro, OpEdSegment? outro});
+
+  /// 记录一次片头或片尾跳过行为。
   void recordOpEdSkip({required bool intro});
+
+  /// 记录一次片头或片尾忽略行为。
   void recordOpEdDismiss({required bool intro});
+
+  /// 将当前会话状态持久化，但不结束会话。
+  Future<void> flushPlayback({required String reason});
+
+  /// 结束当前会话并持久化最终统计结果。
   Future<void> finishPlayback({required String reason});
 }
 
+/// 默认的本地播放统计会话控制器实现。
 class DefaultPlayStatsSessionController implements PlayStatsSessionController {
   static const int _maxContinuousProgressDeltaMs = 3000;
   static const int _completedAfterSeekThresholdMs = 3000;
@@ -50,13 +84,16 @@ class DefaultPlayStatsSessionController implements PlayStatsSessionController {
   final OpEdTracker _opEdTracker;
 
   _ActivePlayStatsSession? _currentSession;
+  Future<void> _persistQueue = Future<void>.value();
 
+  /// 根据仓储实现与可选片头片尾跟踪器构造控制器。
   DefaultPlayStatsSessionController({
     required PlayStatsRepository repository,
     OpEdTracker? opEdTracker,
   }) : _repository = repository,
        _opEdTracker = opEdTracker ?? LocalOpEdTracker();
 
+  /// 见 [PlayStatsSessionController.startPlayback]。
   @override
   Future<void> startPlayback(PlayStatsStartContext context) async {
     if (_currentSession != null) {
@@ -66,6 +103,7 @@ class DefaultPlayStatsSessionController implements PlayStatsSessionController {
     _currentSession = _ActivePlayStatsSession.fromContext(context);
   }
 
+  /// 见 [PlayStatsSessionController.updateMetadata]。
   @override
   void updateMetadata(PlayStatsVideoMeta meta) {
     final session = _currentSession;
@@ -77,6 +115,7 @@ class DefaultPlayStatsSessionController implements PlayStatsSessionController {
     }
   }
 
+  /// 见 [PlayStatsSessionController.updateProgress]。
   @override
   void updateProgress({
     required int positionMs,
@@ -137,6 +176,7 @@ class DefaultPlayStatsSessionController implements PlayStatsSessionController {
     session.lastObservedAtMs = nowMs;
   }
 
+  /// 见 [PlayStatsSessionController.recordSeek]。
   @override
   void recordSeek({
     required int fromMs,
@@ -174,26 +214,47 @@ class DefaultPlayStatsSessionController implements PlayStatsSessionController {
     );
   }
 
+  /// 见 [PlayStatsSessionController.markOpEdDetected]。
   @override
   void markOpEdDetected({OpEdSegment? intro, OpEdSegment? outro}) {
     _opEdTracker.setSegments(intro: intro, outro: outro);
   }
 
+  /// 见 [PlayStatsSessionController.recordOpEdSkip]。
   @override
   void recordOpEdSkip({required bool intro}) {
     _opEdTracker.markSkip(intro: intro);
   }
 
+  /// 见 [PlayStatsSessionController.recordOpEdDismiss]。
   @override
   void recordOpEdDismiss({required bool intro}) {
     _opEdTracker.markDismiss(intro: intro);
   }
 
+  /// 见 [PlayStatsSessionController.flushPlayback]。
+  @override
+  Future<void> flushPlayback({required String reason}) async {
+    final session = _currentSession;
+    if (session == null) return;
+    await _enqueuePersist(_buildFinalizedSession(session, reason: reason));
+  }
+
+  /// 见 [PlayStatsSessionController.finishPlayback]。
   @override
   Future<void> finishPlayback({required String reason}) async {
     final session = _currentSession;
     if (session == null) return;
     _currentSession = null;
+    final finalizedSession = _buildFinalizedSession(session, reason: reason);
+    _opEdTracker.reset();
+    await _enqueuePersist(finalizedSession);
+  }
+
+  FinalizedPlaySession _buildFinalizedSession(
+    _ActivePlayStatsSession session, {
+    required String reason,
+  }) {
     final endedAtMs = DateTime.now().millisecondsSinceEpoch;
     final mediaDurationMs = session.mediaDurationMs < 0
         ? 0
@@ -252,8 +313,17 @@ class DefaultPlayStatsSessionController implements PlayStatsSessionController {
           : session.currentPositionMs,
       finishReason: reason,
     );
-    _opEdTracker.reset();
-    await _repository.persistFinalizedSession(finalizedSession);
+    return finalizedSession;
+  }
+
+  Future<void> _enqueuePersist(FinalizedPlaySession session) {
+    Future<void> persist() => _repository.persistFinalizedSession(session);
+    final next = _persistQueue.then<void>(
+      (_) => persist(),
+      onError: (_, __) => persist(),
+    );
+    _persistQueue = next.catchError((_) {});
+    return next;
   }
 
   double _viewThresholdFor(String videoKind) {
@@ -263,6 +333,7 @@ class DefaultPlayStatsSessionController implements PlayStatsSessionController {
   }
 }
 
+/// 在本地会话中统计片头片尾观看行为的默认实现。
 class LocalOpEdTracker implements OpEdTracker {
   static const int _maxProgressDeltaMs = 3000;
   static const double _notSkippedThreshold = 0.8;
@@ -272,12 +343,14 @@ class LocalOpEdTracker implements OpEdTracker {
   int? _lastPositionMs;
   bool _seekJustHappened = false;
 
+  /// 见 [OpEdTracker.setSegments]。
   @override
   void setSegments({OpEdSegment? intro, OpEdSegment? outro}) {
     _intro = intro == null ? null : _mergeSegmentState(_intro, intro);
     _outro = outro == null ? null : _mergeSegmentState(_outro, outro);
   }
 
+  /// 见 [OpEdTracker.onProgress]。
   @override
   void onProgress({
     required int positionMs,
@@ -302,6 +375,7 @@ class LocalOpEdTracker implements OpEdTracker {
     _lastPositionMs = safePositionMs;
   }
 
+  /// 见 [OpEdTracker.onSeek]。
   @override
   void onSeek({
     required int fromMs,
@@ -313,6 +387,7 @@ class LocalOpEdTracker implements OpEdTracker {
     _lastPositionMs = toMs;
   }
 
+  /// 见 [OpEdTracker.markSkip]。
   @override
   void markSkip({required bool intro}) {
     final state = intro ? _intro : _outro;
@@ -320,6 +395,7 @@ class LocalOpEdTracker implements OpEdTracker {
     state.skipped = true;
   }
 
+  /// 见 [OpEdTracker.markDismiss]。
   @override
   void markDismiss({required bool intro}) {
     final state = intro ? _intro : _outro;
@@ -327,6 +403,7 @@ class LocalOpEdTracker implements OpEdTracker {
     state.dismissed = true;
   }
 
+  /// 见 [OpEdTracker.snapshotAtFinish]。
   @override
   OpEdSnapshot snapshotAtFinish() {
     final introNotSkipped = _resolveNotSkipped(_intro);
@@ -343,6 +420,7 @@ class LocalOpEdTracker implements OpEdTracker {
     );
   }
 
+  /// 见 [OpEdTracker.reset]。
   @override
   void reset() {
     _intro = null;

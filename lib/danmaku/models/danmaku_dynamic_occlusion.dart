@@ -45,6 +45,7 @@ class DanmakuDynamicOcclusionState {
   final bool enabled;
   final bool available;
   final String backend;
+  final String occlusionMode;
   final int updatedAtMs;
   final String? maskPath;
   final String? maskSignature;
@@ -54,11 +55,17 @@ class DanmakuDynamicOcclusionState {
   final bool cacheHit;
   final double captureAreaRatio;
   final DanmakuDynamicOcclusionRect? normalizedRect;
+  final String? unavailableReason;
+  final String captureBackend;
+  final String degradationLevel;
+  final int effectiveSampleIntervalMs;
+  final int effectiveInputWidth;
 
   const DanmakuDynamicOcclusionState({
     required this.enabled,
     required this.available,
     required this.backend,
+    required this.occlusionMode,
     required this.updatedAtMs,
     required this.maskPath,
     required this.maskSignature,
@@ -68,12 +75,18 @@ class DanmakuDynamicOcclusionState {
     required this.cacheHit,
     required this.captureAreaRatio,
     required this.normalizedRect,
+    required this.unavailableReason,
+    required this.captureBackend,
+    required this.degradationLevel,
+    required this.effectiveSampleIntervalMs,
+    required this.effectiveInputWidth,
   });
 
   static const disabled = DanmakuDynamicOcclusionState(
     enabled: false,
     available: false,
     backend: 'disabled',
+    occlusionMode: 'disabled',
     updatedAtMs: 0,
     maskPath: null,
     maskSignature: null,
@@ -83,6 +96,11 @@ class DanmakuDynamicOcclusionState {
     cacheHit: false,
     captureAreaRatio: 1.0,
     normalizedRect: null,
+    unavailableReason: null,
+    captureBackend: 'none',
+    degradationLevel: 'none',
+    effectiveSampleIntervalMs: 800,
+    effectiveInputWidth: 256,
   );
 
   factory DanmakuDynamicOcclusionState.fromMap(Map<Object?, Object?> raw) {
@@ -91,6 +109,7 @@ class DanmakuDynamicOcclusionState {
       enabled: raw['enabled'] == true,
       available: raw['available'] == true,
       backend: (raw['backend'] ?? 'disabled').toString().trim(),
+      occlusionMode: (raw['occlusionMode'] ?? 'disabled').toString().trim(),
       updatedAtMs: switch (raw['updatedAtMs']) {
         final int value => value,
         final num value => value.toInt(),
@@ -107,6 +126,16 @@ class DanmakuDynamicOcclusionState {
       normalizedRect: rectRaw is Map<Object?, Object?>
           ? DanmakuDynamicOcclusionRect.fromMap(rectRaw)
           : null,
+      unavailableReason: _readText(raw['unavailableReason']),
+      captureBackend: _readText(raw['captureBackend']) ?? 'none',
+      degradationLevel: _readText(raw['degradationLevel']) ?? 'none',
+      effectiveSampleIntervalMs:
+          _readInt(raw['effectiveSampleIntervalMs']) <= 0
+              ? disabled.effectiveSampleIntervalMs
+              : _readInt(raw['effectiveSampleIntervalMs']),
+      effectiveInputWidth: _readInt(raw['effectiveInputWidth']) <= 0
+          ? disabled.effectiveInputWidth
+          : _readInt(raw['effectiveInputWidth']),
     );
   }
 
@@ -114,6 +143,7 @@ class DanmakuDynamicOcclusionState {
     bool? enabled,
     bool? available,
     String? backend,
+    String? occlusionMode,
     int? updatedAtMs,
     String? maskPath,
     String? maskSignature,
@@ -123,14 +153,21 @@ class DanmakuDynamicOcclusionState {
     bool? cacheHit,
     double? captureAreaRatio,
     DanmakuDynamicOcclusionRect? normalizedRect,
+    String? unavailableReason,
+    String? captureBackend,
+    String? degradationLevel,
+    int? effectiveSampleIntervalMs,
+    int? effectiveInputWidth,
     bool clearMaskPath = false,
     bool clearFramePath = false,
     bool clearRect = false,
+    bool clearUnavailableReason = false,
   }) {
     return DanmakuDynamicOcclusionState(
       enabled: enabled ?? this.enabled,
       available: available ?? this.available,
       backend: backend ?? this.backend,
+      occlusionMode: occlusionMode ?? this.occlusionMode,
       updatedAtMs: updatedAtMs ?? this.updatedAtMs,
       maskPath: clearMaskPath ? null : maskPath ?? this.maskPath,
       maskSignature: clearMaskPath ? null : maskSignature ?? this.maskSignature,
@@ -140,6 +177,14 @@ class DanmakuDynamicOcclusionState {
       cacheHit: cacheHit ?? this.cacheHit,
       captureAreaRatio: captureAreaRatio ?? this.captureAreaRatio,
       normalizedRect: clearRect ? null : normalizedRect ?? this.normalizedRect,
+      unavailableReason: clearUnavailableReason
+          ? null
+          : unavailableReason ?? this.unavailableReason,
+      captureBackend: captureBackend ?? this.captureBackend,
+      degradationLevel: degradationLevel ?? this.degradationLevel,
+      effectiveSampleIntervalMs:
+          effectiveSampleIntervalMs ?? this.effectiveSampleIntervalMs,
+      effectiveInputWidth: effectiveInputWidth ?? this.effectiveInputWidth,
     );
   }
 
@@ -149,12 +194,15 @@ class DanmakuDynamicOcclusionState {
       maskWidth > 0 &&
       maskHeight > 0;
 
+  bool get hasUsableRect => available && normalizedRect != null;
+
   @override
   bool operator ==(Object other) {
     return other is DanmakuDynamicOcclusionState &&
         other.enabled == enabled &&
         other.available == available &&
         other.backend == backend &&
+        other.occlusionMode == occlusionMode &&
         other.updatedAtMs == updatedAtMs &&
         other.maskPath == maskPath &&
         other.maskSignature == maskSignature &&
@@ -163,7 +211,12 @@ class DanmakuDynamicOcclusionState {
         other.framePath == framePath &&
         other.cacheHit == cacheHit &&
         other.captureAreaRatio == captureAreaRatio &&
-        other.normalizedRect == normalizedRect;
+        other.normalizedRect == normalizedRect &&
+        other.unavailableReason == unavailableReason &&
+        other.captureBackend == captureBackend &&
+        other.degradationLevel == degradationLevel &&
+        other.effectiveSampleIntervalMs == effectiveSampleIntervalMs &&
+        other.effectiveInputWidth == effectiveInputWidth;
   }
 
   @override
@@ -171,6 +224,7 @@ class DanmakuDynamicOcclusionState {
     enabled,
     available,
     backend,
+    occlusionMode,
     updatedAtMs,
     maskPath,
     maskSignature,
@@ -180,6 +234,11 @@ class DanmakuDynamicOcclusionState {
     cacheHit,
     captureAreaRatio,
     normalizedRect,
+    unavailableReason,
+    captureBackend,
+    degradationLevel,
+    effectiveSampleIntervalMs,
+    effectiveInputWidth,
   );
 
   static String? _readText(Object? value) {

@@ -1,8 +1,10 @@
 package com.geqian.flyplayer.fly_player.mpv
 
+import android.os.SystemClock
 import android.util.Log
 
 private const val ADVANCED_SETTINGS_TAG = "FlyPlayerMpv"
+private const val ADVANCED_SETTINGS_DUPLICATE_APPLY_WINDOW_MS = 1500L
 
 class MpvAdvancedSettingsController(
     private val mpv: MpvFacade,
@@ -10,6 +12,9 @@ class MpvAdvancedSettingsController(
 ) {
     private var settings: Map<String, String> = emptyMap()
     private var automaticFilterFallbackActive = false
+    private var lastApplyFingerprint: String = ""
+    private var lastApplyUptimeMs: Long = 0L
+    private var lastApplySucceeded = false
 
     fun update(settings: Map<String, Any?>): MpvAdvancedSettingsUpdate {
         val normalized = buildMap<String, String> {
@@ -37,6 +42,18 @@ class MpvAdvancedSettingsController(
 
     fun apply(initialized: Boolean, available: Boolean, source: MpvSource): Boolean {
         if (!initialized || !available || !mpv.isAvailable()) return false
+        val fingerprint = buildApplyFingerprint(source)
+        val nowUptimeMs = SystemClock.uptimeMillis()
+        if (
+            fingerprint == lastApplyFingerprint &&
+            nowUptimeMs - lastApplyUptimeMs <= ADVANCED_SETTINGS_DUPLICATE_APPLY_WINDOW_MS
+        ) {
+            Log.d(
+                ADVANCED_SETTINGS_TAG,
+                "skip duplicate mpv advanced settings apply fingerprint=$fingerprint lastSuccess=$lastApplySucceeded source=[${source.debugSummary()}]",
+            )
+            return true
+        }
         val adaptiveFilterBypass = automaticFilterFallbackActive
         var success = true
         success = applyDeband(adaptiveFilterBypass) && success
@@ -48,6 +65,9 @@ class MpvAdvancedSettingsController(
         success = applyAudioProcessing() && success
         success = applyHdrMode(source) && success
         success = applyCompatibilityProfile() && success
+        lastApplyFingerprint = fingerprint
+        lastApplyUptimeMs = nowUptimeMs
+        lastApplySucceeded = success
         Log.d(
             ADVANCED_SETTINGS_TAG,
             "applied mpv advanced settings success=$success automaticFilterFallbackActive=$automaticFilterFallbackActive settings=$settings source=[${source.debugSummary()}]",
@@ -61,9 +81,27 @@ class MpvAdvancedSettingsController(
         automaticFilterFallbackActive = false
     }
 
+    private fun buildApplyFingerprint(source: MpvSource): String {
+        val normalizedSettings =
+            settings.entries
+                .sortedBy { it.key }
+                .joinToString(separator = "&") { (key, value) -> "$key=$value" }
+        return listOf(
+            normalizedSettings,
+            automaticFilterFallbackActive.toString(),
+            source.isRemoteHttpSource().toString(),
+            source.isUltraHighResolution().toString(),
+            source.bitrate.toString(),
+            source.videoWidth.toString(),
+            source.videoHeight.toString(),
+            source.isHdrLikely().toString(),
+            source.listenVideoModeEnabled.toString(),
+            source.extremePlaybackEnabled.toString(),
+        ).joinToString(separator = "|")
+    }
+
     fun canTriggerAutomaticFilterFallback(source: MpvSource): Boolean {
         if (automaticFilterFallbackActive) return false
-        if (!videoOutputController.shouldBypassHeavyVideoFilters(source)) return false
         return hasHeavyVideoEnhancementsEnabled(source)
     }
 
@@ -110,7 +148,13 @@ class MpvAdvancedSettingsController(
                 "medium" -> filters += "lavfi=[hqdn3d=3:2:9:7]"
             }
         }
-        val deinterlace = settings["deinterlace"] ?: "auto"
+        val requestedDeinterlace = settings["deinterlace"] ?: "auto"
+        val deinterlace =
+            if (adaptiveFilterBypass && requestedDeinterlace == "force") {
+                "auto"
+            } else {
+                requestedDeinterlace
+            }
         val deinterlaceSuccess =
             runCatching {
                 mpv.setPropertyString(
@@ -179,7 +223,12 @@ class MpvAdvancedSettingsController(
 
     private fun applyVideoSync(adaptiveFilterBypass: Boolean, source: MpvSource): Boolean {
         val interpolationEnabled = isFrameInterpolationEnabled(adaptiveFilterBypass, source)
-        val requestedMode = settings["video_sync"] ?: "auto"
+        val requestedMode =
+            if (adaptiveFilterBypass && settings["video_sync"] == "smooth") {
+                "auto"
+            } else {
+                settings["video_sync"] ?: "auto"
+            }
         val mode =
             if (interpolationEnabled) {
                 "display-resample"
@@ -356,17 +405,21 @@ class MpvAdvancedSettingsController(
         val debandEnabled = (settings["deband"] ?: "off") != "off"
         val sharpenEnabled = (settings["sharpen"] ?: "off") != "off"
         val denoiseEnabled = (settings["denoise"] ?: "off") != "off"
+        val forcedDeinterlaceEnabled = (settings["deinterlace"] ?: "auto") == "force"
         val interpolationEnabled =
             isFrameInterpolationEnabled(
                 adaptiveFilterBypass = false,
                 source = source,
             )
         val qualityScaleEnabled = (settings["scale_profile"] ?: "balanced") == "quality"
+        val smoothSyncEnabled = (settings["video_sync"] ?: "auto") == "smooth"
         return debandEnabled ||
             sharpenEnabled ||
             denoiseEnabled ||
+            forcedDeinterlaceEnabled ||
             interpolationEnabled ||
-            qualityScaleEnabled
+            qualityScaleEnabled ||
+            smoothSyncEnabled
     }
 
     private fun isFrameInterpolationEnabled(adaptiveFilterBypass: Boolean, source: MpvSource): Boolean {

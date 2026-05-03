@@ -286,8 +286,8 @@ class DanmakuImportParser {
 
   static DanmakuCommentType _mapMode(int mode) {
     return switch (mode) {
-      4 => DanmakuCommentType.top,
-      5 => DanmakuCommentType.bottom,
+      4 => DanmakuCommentType.bottom,
+      5 => DanmakuCommentType.top,
       _ => DanmakuCommentType.scroll,
     };
   }

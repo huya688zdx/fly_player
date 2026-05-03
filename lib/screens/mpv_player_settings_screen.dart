@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../l10n/generated/app_localizations.dart';
+import '../player/mpv_settings_l10n.dart';
 import '../player/stores/mpv_settings_store.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
@@ -47,11 +49,11 @@ Future<bool> _showMpvPerformanceWarningDialog(
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('取消'),
+            child: Text(AppLocalizations.of(dialogContext).commonCancel),
           ),
           FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('继续开启'),
+            child: Text(AppLocalizations.of(dialogContext).mpvContinueEnable),
           ),
         ],
       );
@@ -138,62 +140,74 @@ class _MpvPlayerSettingsDestinationScreenState
   }
 
   String _settingTitle(String key) {
+    final l10n = AppLocalizations.of(context);
     return switch (key) {
-      MpvSettingsCatalog.debandKey => '去色带',
-      MpvSettingsCatalog.sharpenKey => '锐化',
-      MpvSettingsCatalog.denoiseKey => '降噪',
-      MpvSettingsCatalog.deinterlaceKey => '反交错',
-      MpvSettingsCatalog.scaleProfileKey => '缩放算法',
-      MpvSettingsCatalog.hdrModeKey => 'HDR 处理',
-      MpvSettingsCatalog.frameInterpolationKey => '插帧',
-      MpvSettingsCatalog.videoSyncKey => '同步模式',
-      MpvSettingsCatalog.cacheProfileKey => '缓存策略',
-      MpvSettingsCatalog.cacheSizeMbKey => '缓存大小',
-      MpvSettingsCatalog.volumeGainKey => '音量放大',
-      MpvSettingsCatalog.audioHighFidelityKey => '高保真模式',
-      MpvSettingsCatalog.dynamicRangeKey => '动态范围压缩',
-      MpvSettingsCatalog.audioEqKey => 'EQ 均衡器',
-      MpvSettingsCatalog.audioLimiterKey => '峰值限幅',
-      MpvSettingsCatalog.audioBassBoostKey => '低音增强',
-      MpvSettingsCatalog.audioVoiceEnhanceKey => '人声增强',
-      MpvSettingsCatalog.channelMixKey => '声道混合',
-      MpvSettingsCatalog.compatibilityKey => '兼容模式',
-      _ => '调节项',
+      MpvSettingsCatalog.debandKey => l10n.mpvSettingDebandTitle,
+      MpvSettingsCatalog.sharpenKey => l10n.mpvSettingSharpenTitle,
+      MpvSettingsCatalog.denoiseKey => l10n.mpvSettingDenoiseTitle,
+      MpvSettingsCatalog.deinterlaceKey => l10n.mpvSettingDeinterlaceTitle,
+      MpvSettingsCatalog.scaleProfileKey => l10n.mpvSettingScaleProfileTitle,
+      MpvSettingsCatalog.hdrModeKey => l10n.mpvSettingHdrModeTitle,
+      MpvSettingsCatalog.frameInterpolationKey =>
+        l10n.mpvSettingFrameInterpolationTitle,
+      MpvSettingsCatalog.videoSyncKey => l10n.mpvSettingVideoSyncTitle,
+      MpvSettingsCatalog.cacheProfileKey => l10n.mpvSettingCacheProfileTitle,
+      MpvSettingsCatalog.cacheSizeMbKey => l10n.mpvSettingCacheSizeTitle,
+      MpvSettingsCatalog.volumeGainKey => l10n.mpvSettingVolumeGainTitle,
+      MpvSettingsCatalog.audioHighFidelityKey =>
+        l10n.mpvSettingAudioHighFidelityTitle,
+      MpvSettingsCatalog.dynamicRangeKey => l10n.mpvSettingDynamicRangeTitle,
+      MpvSettingsCatalog.audioEqKey => l10n.mpvSettingAudioEqTitle,
+      MpvSettingsCatalog.audioLimiterKey => l10n.mpvSettingAudioLimiterTitle,
+      MpvSettingsCatalog.audioBassBoostKey =>
+        l10n.mpvSettingAudioBassBoostTitle,
+      MpvSettingsCatalog.audioVoiceEnhanceKey =>
+        l10n.mpvSettingAudioVoiceEnhanceTitle,
+      MpvSettingsCatalog.channelMixKey => l10n.mpvSettingChannelMixTitle,
+      MpvSettingsCatalog.compatibilityKey => l10n.mpvSettingCompatibilityTitle,
+      _ => l10n.mpvGenericSettingTitle,
     };
   }
 
   String _settingSubtitle(String key) {
+    final l10n = AppLocalizations.of(context);
     return switch (key) {
-      MpvSettingsCatalog.debandKey => '处理渐变断层和暗部条带。',
-      MpvSettingsCatalog.sharpenKey => '提升线条和边缘清晰度。',
-      MpvSettingsCatalog.denoiseKey => '压制噪点和颗粒感。',
-      MpvSettingsCatalog.deinterlaceKey => '适配隔行扫描片源。',
-      MpvSettingsCatalog.scaleProfileKey => '控制放大和缩小时的取向。',
-      MpvSettingsCatalog.hdrModeKey => '调整 HDR 映射和整体色彩倾向。',
-      MpvSettingsCatalog.frameInterpolationKey => '提升运动流畅度，性能开销更高。',
-      MpvSettingsCatalog.videoSyncKey => '控制音画同步与刷新率优先级。',
-      MpvSettingsCatalog.cacheProfileKey => '按片源和网络环境切换缓存风格。',
-      MpvSettingsCatalog.cacheSizeMbKey => '单独调整最大预读缓存上限。',
-      MpvSettingsCatalog.volumeGainKey => '提高偏小声音源的输出上限。',
-      MpvSettingsCatalog.audioHighFidelityKey => '优先保持干净解码输出，旁路大部分后处理。',
-      MpvSettingsCatalog.dynamicRangeKey => '让对白更靠前，夜间播放更稳。',
-      MpvSettingsCatalog.audioEqKey => '调整低频、中频和高频的听感平衡。',
-      MpvSettingsCatalog.audioLimiterKey => '抑制突发峰值，避免爆音。',
-      MpvSettingsCatalog.audioBassBoostKey => '增强低频氛围和下潜感。',
-      MpvSettingsCatalog.audioVoiceEnhanceKey => '提升对白和人声清晰度。',
-      MpvSettingsCatalog.channelMixKey => '控制多声道输出的下混方式。',
-      MpvSettingsCatalog.compatibilityKey => '遇到异常时优先回退到更稳方案。',
+      MpvSettingsCatalog.debandKey => l10n.mpvSettingDebandSubtitle,
+      MpvSettingsCatalog.sharpenKey => l10n.mpvSettingSharpenSubtitle,
+      MpvSettingsCatalog.denoiseKey => l10n.mpvSettingDenoiseSubtitle,
+      MpvSettingsCatalog.deinterlaceKey => l10n.mpvSettingDeinterlaceSubtitle,
+      MpvSettingsCatalog.scaleProfileKey => l10n.mpvSettingScaleProfileSubtitle,
+      MpvSettingsCatalog.hdrModeKey => l10n.mpvSettingHdrModeSubtitle,
+      MpvSettingsCatalog.frameInterpolationKey =>
+        l10n.mpvSettingFrameInterpolationSubtitle,
+      MpvSettingsCatalog.videoSyncKey => l10n.mpvSettingVideoSyncSubtitle,
+      MpvSettingsCatalog.cacheProfileKey => l10n.mpvSettingCacheProfileSubtitle,
+      MpvSettingsCatalog.cacheSizeMbKey => l10n.mpvSettingCacheSizeSubtitle,
+      MpvSettingsCatalog.volumeGainKey => l10n.mpvSettingVolumeGainSubtitle,
+      MpvSettingsCatalog.audioHighFidelityKey =>
+        l10n.mpvSettingAudioHighFidelitySubtitle,
+      MpvSettingsCatalog.dynamicRangeKey => l10n.mpvSettingDynamicRangeSubtitle,
+      MpvSettingsCatalog.audioEqKey => l10n.mpvSettingAudioEqSubtitle,
+      MpvSettingsCatalog.audioLimiterKey => l10n.mpvSettingAudioLimiterSubtitle,
+      MpvSettingsCatalog.audioBassBoostKey =>
+        l10n.mpvSettingAudioBassBoostSubtitle,
+      MpvSettingsCatalog.audioVoiceEnhanceKey =>
+        l10n.mpvSettingAudioVoiceEnhanceSubtitle,
+      MpvSettingsCatalog.channelMixKey => l10n.mpvSettingChannelMixSubtitle,
+      MpvSettingsCatalog.compatibilityKey =>
+        l10n.mpvSettingCompatibilitySubtitle,
       _ => '',
     };
   }
 
   MpvSettingCategory? _resolveCategory(String section) {
+    final l10n = AppLocalizations.of(context);
     return switch (section) {
       MpvPlayerSettingsScreen.sectionPicture => _buildCategory(
         id: 'display_picture_adjust',
-        title: '画面调节',
-        subtitle: '滤镜、渲染、HDR 与插帧',
-        description: '围绕画面观感的细项调节，适合按片源逐步细调。',
+        title: l10n.settingsMpvPictureSection,
+        subtitle: l10n.mpvPictureCategorySubtitle,
+        description: l10n.mpvPictureCategoryDescription,
         keys: const <String>[
           MpvSettingsCatalog.debandKey,
           MpvSettingsCatalog.sharpenKey,
@@ -206,9 +220,9 @@ class _MpvPlayerSettingsDestinationScreenState
       ),
       MpvPlayerSettingsScreen.sectionAudio => _buildCategory(
         id: 'display_audio_adjust',
-        title: '音频调节',
-        subtitle: '音量、EQ、增强与声道混合',
-        description: '统一管理音频后处理和高保真模式，避免入口散开。',
+        title: l10n.settingsMpvAudioSection,
+        subtitle: l10n.mpvAudioCategorySubtitle,
+        description: l10n.mpvAudioCategoryDescription,
         keys: const <String>[
           MpvSettingsCatalog.volumeGainKey,
           MpvSettingsCatalog.audioHighFidelityKey,
@@ -222,9 +236,9 @@ class _MpvPlayerSettingsDestinationScreenState
       ),
       MpvPlayerSettingsScreen.sectionPlayback => _buildCategory(
         id: 'display_playback_cache',
-        title: '播放与缓存',
-        subtitle: '同步模式、缓存策略与缓存大小',
-        description: '主要影响拖动响应、缓存强度和播放稳定性。',
+        title: l10n.settingsMpvPlaybackSection,
+        subtitle: l10n.mpvPlaybackCategorySubtitle,
+        description: l10n.mpvPlaybackCategoryDescription,
         keys: const <String>[
           MpvSettingsCatalog.videoSyncKey,
           MpvSettingsCatalog.cacheProfileKey,
@@ -233,9 +247,9 @@ class _MpvPlayerSettingsDestinationScreenState
       ),
       MpvPlayerSettingsScreen.sectionCompatibility => _buildCategory(
         id: 'display_compatibility_diagnostics',
-        title: '兼容与诊断',
-        subtitle: '兼容模式与排障入口',
-        description: '遇到兼容性问题时优先从这里回退和排查。',
+        title: l10n.settingsMpvCompatibilitySection,
+        subtitle: l10n.mpvCompatibilityCategorySubtitle,
+        description: l10n.mpvCompatibilityCategoryDescription,
         keys: const <String>[MpvSettingsCatalog.compatibilityKey],
       ),
       _ => null,
@@ -245,7 +259,10 @@ class _MpvPlayerSettingsDestinationScreenState
   Widget _buildTarget(Map<String, String> settings) {
     final settingKey = widget.settingKey;
     if (settingKey != null && settingKey.trim().isNotEmpty) {
-      final definition = MpvSettingsCatalog.definitionByKey(settingKey);
+      final definition = MpvSettingsL10n.definitionByKey(
+        AppLocalizations.of(context),
+        settingKey,
+      );
       if (definition != null) {
         if (definition.key == MpvSettingsCatalog.cacheSizeMbKey) {
           return _MpvCacheSizeScreen(
@@ -359,19 +376,6 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
     });
   }
 
-  Future<void> _applyScenePreset(MpvScenePreset preset) async {
-    final next = await _store.applyScenePreset(
-      preset,
-      currentSettings: _settings,
-      currentVideoAdjustments: _videoAdjustments,
-    );
-    if (!mounted) return;
-    setState(() {
-      _settings = next.settings;
-      _videoAdjustments = next.videoAdjustments;
-    });
-  }
-
   Future<void> _resetSettings() async {
     final next = await _store.resetAll();
     if (!mounted) return;
@@ -398,13 +402,14 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
     SavedMpvPresetKind kind,
     SavedMpvPreset preset,
   ) async {
+    final l10n = AppLocalizations.of(context);
     final result = await showNamedPresetSaveDialog(
       context,
-      title: '重命名${kind.label}预设',
+      title: MpvSettingsL10n.presetRenameTitle(l10n, kind),
       initialName: preset.name,
       initialDescription: preset.description,
-      nameLabel: '${kind.label}预设名称',
-      descriptionLabel: '说明（可选）',
+      nameLabel: MpvSettingsL10n.presetNameLabel(l10n, kind),
+      descriptionLabel: l10n.commonRemarkOptional,
       validateName: (name) {
         final presets = kind == SavedMpvPresetKind.picture
             ? _savedPicturePresets
@@ -412,7 +417,7 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
         for (final item in presets) {
           if (item.id == preset.id) continue;
           if (item.name.trim().toLowerCase() == name.trim().toLowerCase()) {
-            return '${kind.label}预设名称不能重复';
+            return MpvSettingsL10n.presetDuplicateName(l10n, kind);
           }
         }
         return null;
@@ -472,7 +477,10 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
     if (!mounted) return;
     final initialSettingKey = widget.initialSettingKey;
     if (initialSettingKey != null && initialSettingKey.trim().isNotEmpty) {
-      final definition = MpvSettingsCatalog.definitionByKey(initialSettingKey);
+      final definition = MpvSettingsL10n.definitionByKey(
+        AppLocalizations.of(context),
+        initialSettingKey,
+      );
       if (definition != null) {
         await _replaceWithDefinition(definition);
       }
@@ -553,57 +561,60 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
   static const String _displayCompatibilityCategoryId =
       'display_compatibility_diagnostics';
 
-  List<MpvSettingCategory> get _displayCategories => <MpvSettingCategory>[
-    _buildDisplayCategory(
-      id: _displayPictureCategoryId,
-      title: '画面调节',
-      subtitle: '滤镜、渲染、HDR 与插帧',
-      description: '围绕画面观感的细项调节，适合按片源逐步细调。',
-      keys: const <String>[
-        MpvSettingsCatalog.debandKey,
-        MpvSettingsCatalog.sharpenKey,
-        MpvSettingsCatalog.denoiseKey,
-        MpvSettingsCatalog.deinterlaceKey,
-        MpvSettingsCatalog.scaleProfileKey,
-        MpvSettingsCatalog.hdrModeKey,
-        MpvSettingsCatalog.frameInterpolationKey,
-      ],
-    ),
-    _buildDisplayCategory(
-      id: _displayAudioCategoryId,
-      title: '音频调节',
-      subtitle: '音量、EQ、增强与声道混合',
-      description: '统一管理音频后处理和高保真模式，避免入口散开。',
-      keys: const <String>[
-        MpvSettingsCatalog.volumeGainKey,
-        MpvSettingsCatalog.audioHighFidelityKey,
-        MpvSettingsCatalog.dynamicRangeKey,
-        MpvSettingsCatalog.audioEqKey,
-        MpvSettingsCatalog.audioLimiterKey,
-        MpvSettingsCatalog.audioBassBoostKey,
-        MpvSettingsCatalog.audioVoiceEnhanceKey,
-        MpvSettingsCatalog.channelMixKey,
-      ],
-    ),
-    _buildDisplayCategory(
-      id: _displayPlaybackCategoryId,
-      title: '播放与缓存',
-      subtitle: '同步模式、缓存策略与缓存大小',
-      description: '主要影响拖动响应、缓存强度和播放稳定性。',
-      keys: const <String>[
-        MpvSettingsCatalog.videoSyncKey,
-        MpvSettingsCatalog.cacheProfileKey,
-        MpvSettingsCatalog.cacheSizeMbKey,
-      ],
-    ),
-    _buildDisplayCategory(
-      id: _displayCompatibilityCategoryId,
-      title: '兼容与诊断',
-      subtitle: '兼容模式与排障入口',
-      description: '遇到兼容性问题时优先从这里回退和排查。',
-      keys: const <String>[MpvSettingsCatalog.compatibilityKey],
-    ),
-  ];
+  List<MpvSettingCategory> get _displayCategories {
+    final l10n = AppLocalizations.of(context);
+    return <MpvSettingCategory>[
+      _buildDisplayCategory(
+        id: _displayPictureCategoryId,
+        title: l10n.settingsMpvPictureSection,
+        subtitle: l10n.mpvPictureCategorySubtitle,
+        description: l10n.mpvPictureCategoryDescription,
+        keys: const <String>[
+          MpvSettingsCatalog.debandKey,
+          MpvSettingsCatalog.sharpenKey,
+          MpvSettingsCatalog.denoiseKey,
+          MpvSettingsCatalog.deinterlaceKey,
+          MpvSettingsCatalog.scaleProfileKey,
+          MpvSettingsCatalog.hdrModeKey,
+          MpvSettingsCatalog.frameInterpolationKey,
+        ],
+      ),
+      _buildDisplayCategory(
+        id: _displayAudioCategoryId,
+        title: l10n.settingsMpvAudioSection,
+        subtitle: l10n.mpvAudioCategorySubtitle,
+        description: l10n.mpvAudioCategoryDescription,
+        keys: const <String>[
+          MpvSettingsCatalog.volumeGainKey,
+          MpvSettingsCatalog.audioHighFidelityKey,
+          MpvSettingsCatalog.dynamicRangeKey,
+          MpvSettingsCatalog.audioEqKey,
+          MpvSettingsCatalog.audioLimiterKey,
+          MpvSettingsCatalog.audioBassBoostKey,
+          MpvSettingsCatalog.audioVoiceEnhanceKey,
+          MpvSettingsCatalog.channelMixKey,
+        ],
+      ),
+      _buildDisplayCategory(
+        id: _displayPlaybackCategoryId,
+        title: l10n.settingsMpvPlaybackSection,
+        subtitle: l10n.mpvPlaybackCategorySubtitle,
+        description: l10n.mpvPlaybackCategoryDescription,
+        keys: const <String>[
+          MpvSettingsCatalog.videoSyncKey,
+          MpvSettingsCatalog.cacheProfileKey,
+          MpvSettingsCatalog.cacheSizeMbKey,
+        ],
+      ),
+      _buildDisplayCategory(
+        id: _displayCompatibilityCategoryId,
+        title: l10n.settingsMpvCompatibilitySection,
+        subtitle: l10n.mpvCompatibilityCategorySubtitle,
+        description: l10n.mpvCompatibilityCategoryDescription,
+        keys: const <String>[MpvSettingsCatalog.compatibilityKey],
+      ),
+    ];
+  }
 
   MpvSettingCategory _buildDisplayCategory({
     required String id,
@@ -630,51 +641,62 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
   }
 
   String _displaySettingTitle(String key) {
+    final l10n = AppLocalizations.of(context);
     return switch (key) {
-      MpvSettingsCatalog.debandKey => '去色带',
-      MpvSettingsCatalog.sharpenKey => '锐化',
-      MpvSettingsCatalog.denoiseKey => '降噪',
-      MpvSettingsCatalog.deinterlaceKey => '反交错',
-      MpvSettingsCatalog.scaleProfileKey => '缩放算法',
-      MpvSettingsCatalog.hdrModeKey => 'HDR 处理',
-      MpvSettingsCatalog.frameInterpolationKey => '插帧',
-      MpvSettingsCatalog.videoSyncKey => '同步模式',
-      MpvSettingsCatalog.cacheProfileKey => '缓存策略',
-      MpvSettingsCatalog.cacheSizeMbKey => '缓存大小',
-      MpvSettingsCatalog.volumeGainKey => '音量放大',
-      MpvSettingsCatalog.audioHighFidelityKey => '高保真模式',
-      MpvSettingsCatalog.dynamicRangeKey => '动态范围压缩',
-      MpvSettingsCatalog.audioEqKey => 'EQ 均衡器',
-      MpvSettingsCatalog.audioLimiterKey => '峰值限幅',
-      MpvSettingsCatalog.audioBassBoostKey => '低音增强',
-      MpvSettingsCatalog.audioVoiceEnhanceKey => '人声增强',
-      MpvSettingsCatalog.channelMixKey => '声道混合',
-      MpvSettingsCatalog.compatibilityKey => '兼容模式',
-      _ => '调节项',
+      MpvSettingsCatalog.debandKey => l10n.mpvSettingDebandTitle,
+      MpvSettingsCatalog.sharpenKey => l10n.mpvSettingSharpenTitle,
+      MpvSettingsCatalog.denoiseKey => l10n.mpvSettingDenoiseTitle,
+      MpvSettingsCatalog.deinterlaceKey => l10n.mpvSettingDeinterlaceTitle,
+      MpvSettingsCatalog.scaleProfileKey => l10n.mpvSettingScaleProfileTitle,
+      MpvSettingsCatalog.hdrModeKey => l10n.mpvSettingHdrModeTitle,
+      MpvSettingsCatalog.frameInterpolationKey =>
+        l10n.mpvSettingFrameInterpolationTitle,
+      MpvSettingsCatalog.videoSyncKey => l10n.mpvSettingVideoSyncTitle,
+      MpvSettingsCatalog.cacheProfileKey => l10n.mpvSettingCacheProfileTitle,
+      MpvSettingsCatalog.cacheSizeMbKey => l10n.mpvSettingCacheSizeTitle,
+      MpvSettingsCatalog.volumeGainKey => l10n.mpvSettingVolumeGainTitle,
+      MpvSettingsCatalog.audioHighFidelityKey =>
+        l10n.mpvSettingAudioHighFidelityTitle,
+      MpvSettingsCatalog.dynamicRangeKey => l10n.mpvSettingDynamicRangeTitle,
+      MpvSettingsCatalog.audioEqKey => l10n.mpvSettingAudioEqTitle,
+      MpvSettingsCatalog.audioLimiterKey => l10n.mpvSettingAudioLimiterTitle,
+      MpvSettingsCatalog.audioBassBoostKey =>
+        l10n.mpvSettingAudioBassBoostTitle,
+      MpvSettingsCatalog.audioVoiceEnhanceKey =>
+        l10n.mpvSettingAudioVoiceEnhanceTitle,
+      MpvSettingsCatalog.channelMixKey => l10n.mpvSettingChannelMixTitle,
+      MpvSettingsCatalog.compatibilityKey => l10n.mpvSettingCompatibilityTitle,
+      _ => l10n.mpvGenericSettingTitle,
     };
   }
 
   String _displaySettingSubtitle(String key) {
+    final l10n = AppLocalizations.of(context);
     return switch (key) {
-      MpvSettingsCatalog.debandKey => '处理渐变断层和暗部条带。',
-      MpvSettingsCatalog.sharpenKey => '提升线条和边缘清晰度。',
-      MpvSettingsCatalog.denoiseKey => '压制噪点和颗粒感。',
-      MpvSettingsCatalog.deinterlaceKey => '适配隔行扫描片源。',
-      MpvSettingsCatalog.scaleProfileKey => '控制放大和缩小时的取向。',
-      MpvSettingsCatalog.hdrModeKey => '调整 HDR 映射和整体亮度取向。',
-      MpvSettingsCatalog.frameInterpolationKey => '提升运动流畅度，性能开销更高。',
-      MpvSettingsCatalog.videoSyncKey => '控制音画同步与刷新率优先级。',
-      MpvSettingsCatalog.cacheProfileKey => '按片源和网络环境切换缓存风格。',
-      MpvSettingsCatalog.cacheSizeMbKey => '单独调整最大预读缓存上限。',
-      MpvSettingsCatalog.volumeGainKey => '提高偏小声音源的输出上限。',
-      MpvSettingsCatalog.audioHighFidelityKey => '优先保持干净解码输出，旁路大部分后处理。',
-      MpvSettingsCatalog.dynamicRangeKey => '让对白更靠前，夜间播放更稳。',
-      MpvSettingsCatalog.audioEqKey => '调整低频、中频和高频的听感平衡。',
-      MpvSettingsCatalog.audioLimiterKey => '抑制突发峰值，避免爆音。',
-      MpvSettingsCatalog.audioBassBoostKey => '增强低频氛围和下潜感。',
-      MpvSettingsCatalog.audioVoiceEnhanceKey => '提升对白和人声清晰度。',
-      MpvSettingsCatalog.channelMixKey => '控制多声道输出的下混方式。',
-      MpvSettingsCatalog.compatibilityKey => '遇到异常时优先回退到更稳妥方案。',
+      MpvSettingsCatalog.debandKey => l10n.mpvSettingDebandSubtitle,
+      MpvSettingsCatalog.sharpenKey => l10n.mpvSettingSharpenSubtitle,
+      MpvSettingsCatalog.denoiseKey => l10n.mpvSettingDenoiseSubtitle,
+      MpvSettingsCatalog.deinterlaceKey => l10n.mpvSettingDeinterlaceSubtitle,
+      MpvSettingsCatalog.scaleProfileKey => l10n.mpvSettingScaleProfileSubtitle,
+      MpvSettingsCatalog.hdrModeKey => l10n.mpvSettingHdrModeSubtitle,
+      MpvSettingsCatalog.frameInterpolationKey =>
+        l10n.mpvSettingFrameInterpolationSubtitle,
+      MpvSettingsCatalog.videoSyncKey => l10n.mpvSettingVideoSyncSubtitle,
+      MpvSettingsCatalog.cacheProfileKey => l10n.mpvSettingCacheProfileSubtitle,
+      MpvSettingsCatalog.cacheSizeMbKey => l10n.mpvSettingCacheSizeSubtitle,
+      MpvSettingsCatalog.volumeGainKey => l10n.mpvSettingVolumeGainSubtitle,
+      MpvSettingsCatalog.audioHighFidelityKey =>
+        l10n.mpvSettingAudioHighFidelitySubtitle,
+      MpvSettingsCatalog.dynamicRangeKey => l10n.mpvSettingDynamicRangeSubtitle,
+      MpvSettingsCatalog.audioEqKey => l10n.mpvSettingAudioEqSubtitle,
+      MpvSettingsCatalog.audioLimiterKey => l10n.mpvSettingAudioLimiterSubtitle,
+      MpvSettingsCatalog.audioBassBoostKey =>
+        l10n.mpvSettingAudioBassBoostSubtitle,
+      MpvSettingsCatalog.audioVoiceEnhanceKey =>
+        l10n.mpvSettingAudioVoiceEnhanceSubtitle,
+      MpvSettingsCatalog.channelMixKey => l10n.mpvSettingChannelMixSubtitle,
+      MpvSettingsCatalog.compatibilityKey =>
+        l10n.mpvSettingCompatibilitySubtitle,
       _ => '',
     };
   }
@@ -712,53 +734,79 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
     );
   }
 
-  String _scenePresetSummaryLabel() {
-    final preset = _activeScenePreset();
-    if (preset != null) return preset.label;
-    if (_settingsStatusLabel() == '默认') return '未使用';
-    return '当前组合';
-  }
-
   String _picturePresetSummaryLabel() {
+    final l10n = AppLocalizations.of(context);
     final savedPreset = _activeSavedPreset(SavedMpvPresetKind.picture);
     if (savedPreset != null) return savedPreset.name;
     final preset = _activeBuiltInPicturePreset();
-    if (preset != null) return preset.label;
+    if (preset != null) {
+      return MpvSettingsL10n.picturePresetLabel(
+        l10n,
+        preset.id,
+        fallback: preset.label,
+      );
+    }
     final changed =
         MpvSettingsCatalog.changedCount(
           _settings,
           MpvSettingsCatalog.picturePresetKeys,
         ) +
         MpvSettingsCatalog.videoAdjustmentChangedCount(_videoAdjustments);
-    return changed == 0 ? '默认' : '当前自定义';
+    return changed == 0
+        ? MpvSettingsL10n.defaultLabel(l10n)
+        : MpvSettingsL10n.currentCustomLabel(l10n);
   }
 
   String _audioPresetSummaryLabel() {
+    final l10n = AppLocalizations.of(context);
     final savedPreset = _activeSavedPreset(SavedMpvPresetKind.audio);
     if (savedPreset != null) return savedPreset.name;
     final preset = _activeBuiltInAudioPreset();
-    if (preset != null) return preset.label;
+    if (preset != null) {
+      return MpvSettingsL10n.audioPresetLabel(
+        l10n,
+        preset.id,
+        fallback: preset.label,
+      );
+    }
     final changed = MpvSettingsCatalog.changedCount(
       _settings,
       MpvSettingsCatalog.audioPresetKeys,
     );
-    return changed == 0 ? '默认' : '当前自定义';
+    return changed == 0
+        ? MpvSettingsL10n.defaultLabel(l10n)
+        : MpvSettingsL10n.currentCustomLabel(l10n);
   }
 
   String _settingsStatusLabel() {
+    final l10n = AppLocalizations.of(context);
     final scenePreset = _activeScenePreset();
-    if (scenePreset != null) return scenePreset.label;
+    if (scenePreset != null) {
+      return MpvSettingsL10n.scenePresetLabel(
+        l10n,
+        scenePreset.id,
+        fallback: scenePreset.label,
+      );
+    }
     final picture = _picturePresetSummaryLabel();
     final audio = _audioPresetSummaryLabel();
-    if (picture == '默认' && audio == '默认') return '默认';
-    if (picture == '默认') return audio;
-    if (audio == '默认') return picture;
+    final defaultLabel = MpvSettingsL10n.defaultLabel(l10n);
+    if (picture == defaultLabel && audio == defaultLabel) return defaultLabel;
+    if (picture == defaultLabel) return audio;
+    if (audio == defaultLabel) return picture;
     return '$picture / $audio';
   }
 
   String _settingsSummaryText() {
+    final l10n = AppLocalizations.of(context);
     final scenePreset = _activeScenePreset();
-    if (scenePreset != null) return scenePreset.description;
+    if (scenePreset != null) {
+      return MpvSettingsL10n.scenePresetDescription(
+        l10n,
+        scenePreset.id,
+        fallback: scenePreset.description,
+      );
+    }
     final parts = <String>[];
     final savedPicture = _activeSavedPreset(SavedMpvPresetKind.picture);
     final builtInPicture = _activeBuiltInPicturePreset();
@@ -766,17 +814,21 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
     final builtInAudio = _activeBuiltInAudioPreset();
     if (savedPicture != null) {
       parts.add(
-        '画质：${savedPicture.description.isEmpty ? savedPicture.name : savedPicture.description}',
+        '${MpvSettingsL10n.savedPresetKindLabel(l10n, SavedMpvPresetKind.picture)}: ${savedPicture.description.isEmpty ? savedPicture.name : savedPicture.description}',
       );
     } else if (builtInPicture != null && builtInPicture.id != 'off') {
-      parts.add('画质：${builtInPicture.description}');
+      parts.add(
+        '${MpvSettingsL10n.savedPresetKindLabel(l10n, SavedMpvPresetKind.picture)}: ${MpvSettingsL10n.picturePresetDescription(l10n, builtInPicture.id, fallback: builtInPicture.description)}',
+      );
     }
     if (savedAudio != null) {
       parts.add(
-        '音频：${savedAudio.description.isEmpty ? savedAudio.name : savedAudio.description}',
+        '${MpvSettingsL10n.savedPresetKindLabel(l10n, SavedMpvPresetKind.audio)}: ${savedAudio.description.isEmpty ? savedAudio.name : savedAudio.description}',
       );
     } else if (builtInAudio != null && builtInAudio.id != 'off') {
-      parts.add('音频：${builtInAudio.description}');
+      parts.add(
+        '${MpvSettingsL10n.savedPresetKindLabel(l10n, SavedMpvPresetKind.audio)}: ${MpvSettingsL10n.audioPresetDescription(l10n, builtInAudio.id, fallback: builtInAudio.description)}',
+      );
     }
     if (parts.isNotEmpty) return parts.join('  ');
     final labels = <String>[];
@@ -785,12 +837,12 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
         final current = _videoAdjustments[entry.key] ?? entry.value;
         if (current == entry.value) continue;
         labels.add(
-          '${MpvSettingsCatalog.videoAdjustmentTitle(entry.key)} ${MpvSettingsCatalog.formatVideoAdjustmentValue(current)}',
+          '${MpvSettingsL10n.videoAdjustmentTitle(l10n, entry.key)} ${MpvSettingsCatalog.formatVideoAdjustmentValue(current)}',
         );
         if (labels.length == 3) break;
       }
     }
-    for (final definition in MpvSettingsCatalog.definitions) {
+    for (final definition in MpvSettingsL10n.definitions(l10n)) {
       final current = MpvSettingsCatalog.settingValue(
         definition.key,
         _settings,
@@ -798,21 +850,22 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
       final fallback = MpvSettingsCatalog.defaults[definition.key];
       if (current == fallback) continue;
       labels.add(
-        '${definition.shortTitle} ${MpvSettingsCatalog.labelForSetting(definition.key, _settings)}',
+        '${definition.shortTitle} ${MpvSettingsL10n.labelForSetting(l10n, definition.key, _settings)}',
       );
       if (labels.length == 3) break;
     }
     final changed =
         MpvSettingsCatalog.changedCount(_settings) +
         MpvSettingsCatalog.videoAdjustmentChangedCount(_videoAdjustments);
-    if (changed == 0) return '当前使用默认 MPV 参数。';
+    if (changed == 0) return l10n.mpvVideoAdjustAllDefaultSummary;
     return labels.isEmpty
-        ? '已调整 $changed 项。'
-        : '已调整 $changed 项：${labels.join(' / ')}';
+        ? MpvSettingsL10n.changedCount(l10n, changed)
+        : '${MpvSettingsL10n.changedCount(l10n, changed)}: ${labels.join(' / ')}';
   }
 
   // ignore: unused_element
   String _displayCategorySummary(MpvSettingCategory category) {
+    final l10n = AppLocalizations.of(context);
     var changed = 0;
     for (final entry in category.entries) {
       final current = MpvSettingsCatalog.settingValue(entry.key, _settings);
@@ -823,10 +876,12 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
     }
     if (category.id == _displayAudioCategoryId &&
         _settings[MpvSettingsCatalog.audioHighFidelityKey] == 'on') {
-      return changed == 0 ? '高保真' : '高保真 / $changed 项';
+      return changed == 0
+          ? l10n.mpvSettingAudioHighFidelityTitle
+          : '${l10n.mpvSettingAudioHighFidelityTitle} / ${MpvSettingsL10n.changedCount(l10n, changed)}';
     }
-    if (changed == 0) return '默认';
-    return '$changed 项';
+    if (changed == 0) return l10n.mpvDefault;
+    return MpvSettingsL10n.changedCount(l10n, changed);
   }
 
   Future<void> _openCustomManagementScreen() async {
@@ -845,12 +900,15 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
+    final picturePresets = MpvSettingsL10n.builtInPicturePresets(l10n);
+    final audioPresets = MpvSettingsL10n.builtInAudioPresets(l10n);
     return Scaffold(
       backgroundColor: colors.backgroundBase,
       appBar: buildSecondaryHostAppBar(
         context,
         title: Text(
-          'MPV播放器设置',
+          l10n.settingsMpvTitle,
           style: TextStyle(
             color: colors.textPrimary,
             fontSize: AdaptiveText.roleSize(20, role: AdaptiveFontRole.title),
@@ -860,7 +918,7 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
         actions: <Widget>[
           TextButton(
             onPressed: _loading ? null : _resetSettings,
-            child: const Text('恢复默认'),
+            child: Text(l10n.commonRestoreDefault),
           ),
         ],
       ),
@@ -880,7 +938,7 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
                   children: <Widget>[
                     _HeroCard(
-                      title: '当前方案',
+                      title: l10n.mpvCurrentSchemeTitle,
                       status: _settingsStatusLabel(),
                       summary: _settingsSummaryText(),
                     ),
@@ -888,27 +946,25 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
                     _CardBlock(
                       child: _MenuTile(
                         icon: Icons.tune_rounded,
-                        title: '自定义管理',
-                        subtitle: '把画质自定义和音频自定义统一收进三级页面管理，首页只保留快速预设和已保存预设。',
+                        title: l10n.mpvCustomManagementTitle,
+                        subtitle: l10n.mpvCustomManagementSubtitle,
                         trailing: _settingsStatusLabel(),
                         onTap: () => unawaited(_openCustomManagementScreen()),
                       ),
                     ),
                     const SizedBox(height: 18),
-                    const _SectionTitle(title: '画质快速预设'),
+                    _SectionTitle(title: l10n.mpvPictureQuickPresetTitle),
                     const SizedBox(height: 12),
                     _CardBlock(
                       child: SizedBox(
                         height: 152,
                         child: ListView.separated(
                           scrollDirection: Axis.horizontal,
-                          itemCount:
-                              MpvSettingsCatalog.builtInPicturePresets.length,
+                          itemCount: picturePresets.length,
                           separatorBuilder: (_, __) =>
                               const SizedBox(width: 12),
                           itemBuilder: (context, index) {
-                            final preset =
-                                MpvSettingsCatalog.builtInPicturePresets[index];
+                            final preset = picturePresets[index];
                             final selected =
                                 _activeSavedPreset(
                                       SavedMpvPresetKind.picture,
@@ -960,25 +1016,23 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
                         ),
                       )
                     else
-                      const _HintCard(
-                        title: '还没有已保存画质预设',
-                        content: '去“画质自定义”里微调即时调节和画质项后，再把喜欢的结果另存下来。',
+                      _HintCard(
+                        title: l10n.mpvNoSavedPicturePresetTitle,
+                        content: l10n.mpvNoSavedPicturePresetContent,
                       ),
                     const SizedBox(height: 18),
-                    const _SectionTitle(title: '音频快速预设'),
+                    _SectionTitle(title: l10n.mpvAudioQuickPresetTitle),
                     const SizedBox(height: 12),
                     _CardBlock(
                       child: SizedBox(
                         height: 152,
                         child: ListView.separated(
                           scrollDirection: Axis.horizontal,
-                          itemCount:
-                              MpvSettingsCatalog.builtInAudioPresets.length,
+                          itemCount: audioPresets.length,
                           separatorBuilder: (_, __) =>
                               const SizedBox(width: 12),
                           itemBuilder: (context, index) {
-                            final preset =
-                                MpvSettingsCatalog.builtInAudioPresets[index];
+                            final preset = audioPresets[index];
                             final selected =
                                 _activeSavedPreset(SavedMpvPresetKind.audio) ==
                                     null &&
@@ -1028,15 +1082,10 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
                         ),
                       )
                     else
-                      const _HintCard(
-                        title: '还没有已保存音频预设',
-                        content: '去“音频自定义”里把高保真、EQ 和增强调好后，再把常用听感保存成独立预设。',
+                      _HintCard(
+                        title: l10n.mpvNoSavedAudioPresetTitle,
+                        content: l10n.mpvNoSavedAudioPresetContent,
                       ),
-                    const SizedBox(height: 18),
-                    const _HintCard(
-                      title: '当前自定义',
-                      content: '当前自定义会持续保留，已保存预设是独立快照，可应用、重命名和删除。',
-                    ),
                   ],
                 ),
         ),
@@ -1098,6 +1147,7 @@ class _MpvCustomManagementScreenState
   }
 
   String _pictureLabel() {
+    final l10n = AppLocalizations.of(context);
     final savedPreset = MpvSettingsCatalog.activeSavedPreset(
       SavedMpvPresetKind.picture,
       _savedPicturePresets,
@@ -1109,17 +1159,20 @@ class _MpvCustomManagementScreenState
       _settings,
       _videoAdjustments,
     );
-    if (builtInPreset != null) return builtInPreset.label;
+    if (builtInPreset != null) {
+      return MpvSettingsL10n.picturePreset(l10n, builtInPreset).label;
+    }
     final changed =
         MpvSettingsCatalog.changedCount(
           _settings,
           MpvSettingsCatalog.picturePresetKeys,
         ) +
         MpvSettingsCatalog.videoAdjustmentChangedCount(_videoAdjustments);
-    return changed == 0 ? '默认' : '当前自定义';
+    return changed == 0 ? l10n.mpvDefault : l10n.mpvCurrentCustom;
   }
 
   String _audioLabel() {
+    final l10n = AppLocalizations.of(context);
     final savedPreset = MpvSettingsCatalog.activeSavedPreset(
       SavedMpvPresetKind.audio,
       _savedAudioPresets,
@@ -1130,12 +1183,14 @@ class _MpvCustomManagementScreenState
     final builtInPreset = MpvSettingsCatalog.activeBuiltInAudioPreset(
       _settings,
     );
-    if (builtInPreset != null) return builtInPreset.label;
+    if (builtInPreset != null) {
+      return MpvSettingsL10n.audioPreset(l10n, builtInPreset).label;
+    }
     final changed = MpvSettingsCatalog.changedCount(
       _settings,
       MpvSettingsCatalog.audioPresetKeys,
     );
-    return changed == 0 ? '默认' : '当前自定义';
+    return changed == 0 ? l10n.mpvDefault : l10n.mpvCurrentCustom;
   }
 
   Future<void> _openCustomPresetScreen(SavedMpvPresetKind kind) async {
@@ -1154,12 +1209,13 @@ class _MpvCustomManagementScreenState
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
       backgroundColor: colors.backgroundBase,
       appBar: buildSecondaryHostAppBar(
         context,
         title: Text(
-          '自定义管理',
+          l10n.mpvCustomManagementTitle,
           style: TextStyle(
             color: colors.textPrimary,
             fontSize: AdaptiveText.roleSize(18, role: AdaptiveFontRole.title),
@@ -1182,10 +1238,10 @@ class _MpvCustomManagementScreenState
               : ListView(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
                   children: <Widget>[
-                    const _HeroCard(
-                      title: '自定义管理',
-                      status: '三级页面',
-                      summary: '首页只保留快速预设和已保存预设，当前画质自定义与音频自定义统一收进这里继续细调、保存和管理。',
+                    _HeroCard(
+                      title: l10n.mpvCustomManagementTitle,
+                      status: l10n.mpvPresetManagementStatus,
+                      summary: l10n.mpvPresetManagementSummary,
                       icon: Icons.tune_rounded,
                     ),
                     const SizedBox(height: 18),
@@ -1194,8 +1250,8 @@ class _MpvCustomManagementScreenState
                         children: <Widget>[
                           _MenuTile(
                             icon: Icons.movie_filter_outlined,
-                            title: '画质自定义',
-                            subtitle: '即时调节、滤镜、HDR、插帧、同步、缓存和兼容项都在这里继续管理。',
+                            title: l10n.mpvPictureCustomTitle,
+                            subtitle: l10n.mpvPictureCustomSubtitle,
                             trailing: _pictureLabel(),
                             onTap: () => unawaited(
                               _openCustomPresetScreen(
@@ -1206,8 +1262,8 @@ class _MpvCustomManagementScreenState
                           const _DividerLine(),
                           _MenuTile(
                             icon: Icons.graphic_eq_rounded,
-                            title: '音频自定义',
-                            subtitle: '高保真、音量增强、EQ、限幅、低音增强、人声增强和声道混合都在这里继续管理。',
+                            title: l10n.mpvAudioCustomTitle,
+                            subtitle: l10n.mpvAudioCustomSubtitle,
                             trailing: _audioLabel(),
                             onTap: () => unawaited(
                               _openCustomPresetScreen(SavedMpvPresetKind.audio),
@@ -1282,7 +1338,8 @@ class _MpvCustomPresetScreenState extends State<_MpvCustomPresetScreen> {
     final allowedIds = widget.kind == SavedMpvPresetKind.picture
         ? pictureCategoryIds
         : audioCategoryIds;
-    return MpvSettingsCatalog.categories
+    final l10n = AppLocalizations.of(context);
+    return MpvSettingsL10n.categories(l10n)
         .where((category) => allowedIds.contains(category.id))
         .toList(growable: false);
   }
@@ -1306,10 +1363,23 @@ class _MpvCustomPresetScreenState extends State<_MpvCustomPresetScreen> {
   }
 
   String _statusLabel() {
+    final l10n = AppLocalizations.of(context);
     final savedPreset = _activeSavedPreset();
     if (savedPreset != null) return savedPreset.name;
     final builtInPreset = _activeBuiltInPreset();
-    if (builtInPreset != null) return builtInPreset.label;
+    if (builtInPreset != null) {
+      return widget.kind == SavedMpvPresetKind.picture
+          ? MpvSettingsL10n.picturePresetLabel(
+              l10n,
+              builtInPreset.id,
+              fallback: builtInPreset.label,
+            )
+          : MpvSettingsL10n.audioPresetLabel(
+              l10n,
+              builtInPreset.id,
+              fallback: builtInPreset.label,
+            );
+    }
     final changed = widget.kind == SavedMpvPresetKind.picture
         ? MpvSettingsCatalog.changedCount(
                 _settings,
@@ -1320,39 +1390,53 @@ class _MpvCustomPresetScreenState extends State<_MpvCustomPresetScreen> {
             _settings,
             MpvSettingsCatalog.audioPresetKeys,
           );
-    return changed == 0 ? '默认' : '当前自定义';
+    return changed == 0
+        ? MpvSettingsL10n.defaultLabel(l10n)
+        : MpvSettingsL10n.currentCustomLabel(l10n);
   }
 
   String _summaryText() {
+    final l10n = AppLocalizations.of(context);
     final savedPreset = _activeSavedPreset();
     if (savedPreset != null && savedPreset.description.isNotEmpty) {
       return savedPreset.description;
     }
     final builtInPreset = _activeBuiltInPreset();
     if (builtInPreset != null && builtInPreset.id != 'off') {
-      return builtInPreset.description;
+      return widget.kind == SavedMpvPresetKind.picture
+          ? MpvSettingsL10n.picturePresetDescription(
+              l10n,
+              builtInPreset.id,
+              fallback: builtInPreset.description,
+            )
+          : MpvSettingsL10n.audioPresetDescription(
+              l10n,
+              builtInPreset.id,
+              fallback: builtInPreset.description,
+            );
     }
     if (widget.kind == SavedMpvPresetKind.picture) {
-      return '即时调节、滤镜、HDR、插帧、同步和缓存都会纳入当前画质自定义，保存后可在播放器抽屉和设置页直接复用。';
+      return l10n.mpvPictureCustomDescription;
     }
-    return '高保真、音量增强、EQ、限幅、低音增强、人声增强和声道混合都会纳入当前音频自定义，保存后可快速切换。';
+    return l10n.mpvAudioCustomDescription;
   }
 
   String _videoAdjustmentTrailingLabel() {
+    final l10n = AppLocalizations.of(context);
     final changed = MpvSettingsCatalog.videoAdjustmentChangedCount(
       _videoAdjustments,
     );
-    if (changed == 0) return '默认';
+    if (changed == 0) return MpvSettingsL10n.defaultLabel(l10n);
     if (changed == 1) {
       for (final key in MpvSettingsCatalog.videoAdjustmentDefaults.keys) {
         final current =
             _videoAdjustments[key] ??
             MpvSettingsCatalog.videoAdjustmentDefaults[key]!;
         if (current == 0) continue;
-        return '${MpvSettingsCatalog.videoAdjustmentTitle(key)} ${MpvSettingsCatalog.formatVideoAdjustmentValue(current)}';
+        return '${MpvSettingsL10n.videoAdjustmentTitle(l10n, key)} ${MpvSettingsCatalog.formatVideoAdjustmentValue(current)}';
       }
     }
-    return '$changed 项';
+    return MpvSettingsL10n.changedCount(l10n, changed);
   }
 
   Future<void> _openCategory(MpvSettingCategory category) async {
@@ -1377,27 +1461,31 @@ class _MpvCustomPresetScreenState extends State<_MpvCustomPresetScreen> {
   }
 
   Future<String> _suggestedPresetName() async {
+    final l10n = AppLocalizations.of(context);
     final builtInPreset = _activeBuiltInPreset();
     final baseName = builtInPreset != null && builtInPreset.id != 'off'
         ? builtInPreset.label
-        : '${widget.kind.label}预设';
+        : MpvSettingsL10n.presetDefaultBaseName(l10n, widget.kind);
     return _store.nextSavedPresetNameFromBase(widget.kind, baseName);
   }
 
   Future<void> _saveCurrentPreset() async {
     final suggestedName = await _suggestedPresetName();
     if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
     final result = await showNamedPresetSaveDialog(
       context,
-      title: widget.kind == SavedMpvPresetKind.picture ? '保存当前画质' : '保存当前音频',
+      title: widget.kind == SavedMpvPresetKind.picture
+          ? l10n.mpvSaveCurrentPictureTitle
+          : l10n.mpvSaveCurrentAudioTitle,
       initialName: suggestedName,
       suggestedName: suggestedName,
-      nameLabel: '${widget.kind.label}预设名称',
-      descriptionLabel: '说明（可选）',
+      nameLabel: MpvSettingsL10n.presetNameLabel(l10n, widget.kind),
+      descriptionLabel: l10n.commonRemarkOptional,
       validateName: (name) {
         for (final preset in _savedPresets) {
           if (preset.name.trim().toLowerCase() == name.trim().toLowerCase()) {
-            return '${widget.kind.label}预设名称不能重复';
+            return MpvSettingsL10n.presetDuplicateName(l10n, widget.kind);
           }
         }
         return null;
@@ -1415,7 +1503,11 @@ class _MpvCustomPresetScreenState extends State<_MpvCustomPresetScreen> {
     if (!mounted) return;
     AppTopTip().show(
       context,
-      message: '已保存${widget.kind.label}预设：${savedPreset.name}',
+      message: MpvSettingsL10n.presetSavedMessage(
+        l10n,
+        widget.kind,
+        savedPreset.name,
+      ),
       color: context.appColors.success,
     );
   }
@@ -1423,13 +1515,16 @@ class _MpvCustomPresetScreenState extends State<_MpvCustomPresetScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final title = widget.kind == SavedMpvPresetKind.picture ? '画质自定义' : '音频自定义';
+    final l10n = AppLocalizations.of(context);
+    final title = widget.kind == SavedMpvPresetKind.picture
+        ? l10n.mpvPictureCustomTitle
+        : l10n.mpvAudioCustomTitle;
     final saveTitle = widget.kind == SavedMpvPresetKind.picture
-        ? '保存当前画质'
-        : '保存当前音频';
+        ? l10n.mpvSaveCurrentPictureTitle
+        : l10n.mpvSaveCurrentAudioTitle;
     final saveSubtitle = widget.kind == SavedMpvPresetKind.picture
-        ? '将即时调节和画质增强项保存为独立预设，后续可以在播放器抽屉和设置页快速应用。'
-        : '将高保真、EQ 和增强项保存为独立预设，后续可以在播放器抽屉和设置页快速应用。';
+        ? l10n.mpvSaveCurrentPictureSubtitle
+        : l10n.mpvSaveCurrentAudioSubtitle;
     return Scaffold(
       backgroundColor: colors.backgroundBase,
       appBar: buildSecondaryHostAppBar(
@@ -1473,8 +1568,8 @@ class _MpvCustomPresetScreenState extends State<_MpvCustomPresetScreen> {
                           if (widget.kind == SavedMpvPresetKind.picture) ...[
                             _MenuTile(
                               icon: Icons.tune_rounded,
-                              title: '即时调节',
-                              subtitle: '亮度、对比度、饱和度、Gamma 和色相会一起保存到画质预设中。',
+                              title: l10n.mpvInstantAdjustTitle,
+                              subtitle: l10n.mpvInstantAdjustSubtitle,
                               trailing: _videoAdjustmentTrailingLabel(),
                               onTap: () => unawaited(_openVideoAdjustments()),
                             ),
@@ -1491,7 +1586,8 @@ class _MpvCustomPresetScreenState extends State<_MpvCustomPresetScreen> {
                               ),
                               title: _categories[index].title,
                               subtitle: _categories[index].subtitle,
-                              trailing: MpvSettingsCatalog.categorySummaryLabel(
+                              trailing: MpvSettingsL10n.categorySummaryLabel(
+                                l10n,
                                 _categories[index],
                                 _settings,
                               ),
@@ -1509,15 +1605,9 @@ class _MpvCustomPresetScreenState extends State<_MpvCustomPresetScreen> {
                         icon: Icons.bookmark_add_outlined,
                         title: saveTitle,
                         subtitle: saveSubtitle,
-                        trailing: '保存',
+                        trailing: l10n.commonSave,
                         onTap: () => unawaited(_saveCurrentPreset()),
                       ),
-                    ),
-                    const SizedBox(height: 18),
-                    const _HintCard(
-                      title: '当前自定义',
-                      content:
-                          '当前自定义会持续保留；你保存出来的是独立快照。后续继续微调当前自定义，不会反向覆盖已经保存的预设。',
                     ),
                   ],
                 ),
@@ -1602,6 +1692,7 @@ class _MpvSettingCategoryScreenState extends State<_MpvSettingCategoryScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
       backgroundColor: colors.backgroundBase,
       appBar: buildSecondaryHostAppBar(
@@ -1630,7 +1721,8 @@ class _MpvSettingCategoryScreenState extends State<_MpvSettingCategoryScreen> {
             children: <Widget>[
               _HeroCard(
                 title: widget.category.title,
-                status: MpvSettingsCatalog.categorySummaryLabel(
+                status: MpvSettingsL10n.categorySummaryLabel(
+                  l10n,
                   widget.category,
                   _settings,
                 ),
@@ -1650,12 +1742,14 @@ class _MpvSettingCategoryScreenState extends State<_MpvSettingCategoryScreen> {
                         icon: Icons.adjust_rounded,
                         title: widget.category.entries[index].title,
                         subtitle: widget.category.entries[index].subtitle,
-                        trailing: MpvSettingsCatalog.labelForSetting(
+                        trailing: MpvSettingsL10n.labelForSetting(
+                          l10n,
                           widget.category.entries[index].key,
                           _settings,
                         ),
                         onTap: () {
-                          final definition = MpvSettingsCatalog.definitionByKey(
+                          final definition = MpvSettingsL10n.definitionByKey(
+                            l10n,
                             widget.category.entries[index].key,
                           );
                           if (definition == null) return;
@@ -1696,7 +1790,8 @@ class _MpvSettingChoiceScreenState extends State<_MpvSettingChoiceScreen> {
 
   Future<bool> _confirmSelection(String value) async {
     if (_currentValue == value) return true;
-    final warning = MpvSettingsCatalog.performanceWarningForSelection(
+    final warning = MpvSettingsL10n.performanceWarningForSelection(
+      AppLocalizations.of(context),
       widget.definition.key,
       value,
     );
@@ -1707,6 +1802,7 @@ class _MpvSettingChoiceScreenState extends State<_MpvSettingChoiceScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
       backgroundColor: colors.backgroundBase,
       appBar: buildSecondaryHostAppBar(
@@ -1735,7 +1831,8 @@ class _MpvSettingChoiceScreenState extends State<_MpvSettingChoiceScreen> {
             children: <Widget>[
               _HeroCard(
                 title: widget.definition.helperLabel,
-                status: MpvSettingsCatalog.labelForSetting(
+                status: MpvSettingsL10n.labelForSetting(
+                  l10n,
                   widget.definition.key,
                   <String, String>{widget.definition.key: _currentValue},
                 ),
@@ -1784,25 +1881,26 @@ class _MpvSettingChoiceScreenState extends State<_MpvSettingChoiceScreen> {
 
   void _showCacheProfileHelp(BuildContext context, String value) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final title = switch (value) {
-      'default' => '智能分配',
-      'low_latency' => '极速响应',
-      'stable' => '稳定缓冲',
-      'network' => '网盘 / STRM / NAS',
-      _ => '缓存策略',
+      'default' => l10n.mpvOptionDefault,
+      'low_latency' => l10n.mpvOptionLowLatency,
+      'stable' => l10n.mpvOptionStable,
+      'network' => l10n.mpvOptionNetwork,
+      _ => l10n.mpvSettingCacheProfileTitle,
     };
     final content = switch (value) {
-      'default' => '自动档。播放器会根据片源类型决定更合适的缓冲强度，本地文件更偏常规，较重的网络片源会自动偏向更稳的缓冲。',
-      'low_latency' => '预读最轻，拖动、切换和回填最快，但抗抖动最弱。更适合本地视频，或者局域网很稳时追求跟手感。',
-      'stable' => '中等偏重缓冲，优先减少抖动导致的卡顿。拖动响应会比极速慢一点，但更适合大多数 NAS、网盘和普通 STRM 观看。',
-      'network' => '最重的一档，给高码率网盘、STRM 和 NAS 片源更多预读空间。起播和拖动后的回填更重，但最抗波动。',
-      _ => '当前选项用于控制预读力度和缓冲风格。',
+      'default' => l10n.mpvCacheHelpDefaultContent,
+      'low_latency' => l10n.mpvCacheHelpLowLatencyContent,
+      'stable' => l10n.mpvCacheHelpStableContent,
+      'network' => l10n.mpvCacheHelpNetworkContent,
+      _ => l10n.mpvCacheHelpGenericContent,
     };
     final extra = switch (value) {
-      'default' => '适合：不想自己判断时直接用。',
-      'low_latency' => '适合：本地硬盘视频、局域网很稳时的 NAS。',
-      'stable' => '适合：大多数 NAS、网盘和普通 STRM。',
-      'network' => '适合：高码率、大体积、跨网络访问的片源。',
+      'default' => l10n.mpvCacheHelpDefaultExtra,
+      'low_latency' => l10n.mpvCacheHelpLowLatencyExtra,
+      'stable' => l10n.mpvCacheHelpStableExtra,
+      'network' => l10n.mpvCacheHelpNetworkExtra,
       _ => '',
     };
     showDialog<void>(
@@ -1851,7 +1949,7 @@ class _MpvSettingChoiceScreenState extends State<_MpvSettingChoiceScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('知道了'),
+              child: Text(l10n.commonOk),
             ),
           ],
         );
@@ -1883,6 +1981,7 @@ class _MpvAudioEqChoiceScreenState extends State<_MpvAudioEqChoiceScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final currentValue = MpvSettingsCatalog.settingValue(
       widget.definition.key,
       _currentSettings,
@@ -1920,7 +2019,8 @@ class _MpvAudioEqChoiceScreenState extends State<_MpvAudioEqChoiceScreen> {
             children: <Widget>[
               _HeroCard(
                 title: widget.definition.helperLabel,
-                status: MpvSettingsCatalog.labelForSetting(
+                status: MpvSettingsL10n.labelForSetting(
+                  l10n,
                   widget.definition.key,
                   _currentSettings,
                 ),
@@ -1931,12 +2031,12 @@ class _MpvAudioEqChoiceScreenState extends State<_MpvAudioEqChoiceScreen> {
               _CardBlock(
                 child: _MenuTile(
                   icon: Icons.tune_rounded,
-                  title: '高级频段调整',
-                  subtitle: '进入上下滑动频谱页，自定义每个频段并保存多套预设。',
+                  title: l10n.mpvAudioEqAdvancedTitle,
+                  subtitle: l10n.mpvAudioEqAdvancedSubtitle,
                   trailing:
                       currentValue == MpvSettingsCatalog.audioEqCustomValue
-                      ? '当前使用'
-                      : '进入',
+                      ? l10n.mpvCurrentlyUsed
+                      : l10n.commonEnter,
                   onTap: () async {
                     await Navigator.of(context).push(
                       AppTransitions.leftToRightPageTurnRoute<void>(
@@ -2005,12 +2105,13 @@ class _MpvAudioEqAdvancedScreenState extends State<_MpvAudioEqAdvancedScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
       backgroundColor: colors.backgroundBase,
       appBar: buildSecondaryHostAppBar(
         context,
         title: Text(
-          '高级均衡',
+          l10n.mpvAudioEqAdvancedHeader,
           style: TextStyle(
             color: colors.textPrimary,
             fontSize: AdaptiveText.roleSize(18, role: AdaptiveFontRole.title),
@@ -2081,7 +2182,8 @@ class _MpvCacheSizeScreenState extends State<_MpvCacheSizeScreen> {
     );
     final mapped = MpvSettingsCatalog.cachePercentToMb(normalized);
     if (_persistedValue == mapped.toString()) return true;
-    final warning = MpvSettingsCatalog.performanceWarningForSelection(
+    final warning = MpvSettingsL10n.performanceWarningForSelection(
+      AppLocalizations.of(context),
       MpvSettingsCatalog.cacheSizeMbKey,
       mapped.toString(),
     );
@@ -2108,6 +2210,7 @@ class _MpvCacheSizeScreenState extends State<_MpvCacheSizeScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final selectedPercent = _sliderValue.round().clamp(
       MpvSettingsCatalog.cachePercentSliderMin,
       MpvSettingsCatalog.cachePercentSliderMax,
@@ -2141,7 +2244,7 @@ class _MpvCacheSizeScreenState extends State<_MpvCacheSizeScreen> {
               _HeroCard(
                 title: widget.definition.helperLabel,
                 status: _auto
-                    ? '自动'
+                    ? l10n.mpvOptionAuto
                     : MpvSettingsCatalog.formatCachePercentLabel(
                         selectedPercent,
                       ),
@@ -2171,7 +2274,7 @@ class _MpvCacheSizeScreenState extends State<_MpvCacheSizeScreen> {
                         }
                       },
                       title: Text(
-                        '自动缓冲',
+                        l10n.mpvCacheAutoSwitchTitle,
                         style: TextStyle(
                           color: colors.textPrimary,
                           fontSize: AdaptiveText.roleSize(16),
@@ -2179,7 +2282,9 @@ class _MpvCacheSizeScreenState extends State<_MpvCacheSizeScreen> {
                         ),
                       ),
                       subtitle: Text(
-                        _auto ? '当前由缓存策略自动分配缓冲上限。' : '关闭后可手动指定缓冲百分比。',
+                        _auto
+                            ? l10n.mpvCacheAutoSwitchAutoSubtitle
+                            : l10n.mpvCacheAutoSwitchManualSubtitle,
                         style: TextStyle(
                           color: colors.textSecondary,
                           fontSize: AdaptiveText.roleSize(14),
@@ -2198,7 +2303,7 @@ class _MpvCacheSizeScreenState extends State<_MpvCacheSizeScreen> {
                               children: <Widget>[
                                 Expanded(
                                   child: Text(
-                                    '滑动调节缓冲强度',
+                                    l10n.mpvCacheSliderTitle,
                                     style: TextStyle(
                                       color: colors.textPrimary,
                                       fontSize: AdaptiveText.roleSize(15),
@@ -2314,12 +2419,13 @@ class _MpvVideoAdjustmentsScreenState
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
       backgroundColor: colors.backgroundBase,
       appBar: buildSecondaryHostAppBar(
         context,
         title: Text(
-          '即时调节',
+          l10n.mpvInstantAdjustTitle,
           style: TextStyle(
             color: colors.textPrimary,
             fontSize: AdaptiveText.roleSize(18, role: AdaptiveFontRole.title),
@@ -2329,7 +2435,7 @@ class _MpvVideoAdjustmentsScreenState
         actions: <Widget>[
           TextButton(
             onPressed: () => unawaited(_resetAll()),
-            child: const Text('恢复默认'),
+            child: Text(l10n.commonRestoreDefault),
           ),
         ],
       ),
@@ -2347,18 +2453,20 @@ class _MpvVideoAdjustmentsScreenState
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
             children: <Widget>[
               _HeroCard(
-                title: '即时调节',
-                status:
-                    '${MpvSettingsCatalog.videoAdjustmentChangedCount(_values)} 项已调整',
-                summary: '这些值会直接写入 mpv 的亮度、对比度、饱和度、Gamma 和色相参数，并会一起保存到画质预设中。',
+                title: l10n.mpvInstantAdjustTitle,
+                status: MpvSettingsL10n.changedCount(
+                  l10n,
+                  MpvSettingsCatalog.videoAdjustmentChangedCount(_values),
+                ),
+                summary: l10n.mpvVideoAdjustDescription,
                 icon: Icons.tune_rounded,
               ),
               const SizedBox(height: 18),
               for (final key
                   in MpvSettingsCatalog.videoAdjustmentDefaults.keys) ...[
                 _VideoAdjustmentSliderCard(
-                  title: MpvSettingsCatalog.videoAdjustmentTitle(key),
-                  subtitle: MpvSettingsCatalog.videoAdjustmentSubtitle(key),
+                  title: MpvSettingsL10n.videoAdjustmentTitle(l10n, key),
+                  subtitle: MpvSettingsL10n.videoAdjustmentSubtitle(l10n, key),
                   value: _values[key] ?? 0,
                   onChanged: (value) {
                     setState(() {
@@ -2619,6 +2727,7 @@ class _SavedMpvPresetCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return InkWell(
       borderRadius: BorderRadius.circular(18),
       onTap: onApply,
@@ -2660,9 +2769,15 @@ class _SavedMpvPresetCard extends StatelessWidget {
                       onDelete();
                     }
                   },
-                  itemBuilder: (_) => const <PopupMenuEntry<String>>[
-                    PopupMenuItem<String>(value: 'rename', child: Text('重命名')),
-                    PopupMenuItem<String>(value: 'delete', child: Text('删除')),
+                  itemBuilder: (_) => <PopupMenuEntry<String>>[
+                    PopupMenuItem<String>(
+                      value: 'rename',
+                      child: Text(l10n.commonRename),
+                    ),
+                    PopupMenuItem<String>(
+                      value: 'delete',
+                      child: Text(l10n.commonDelete),
+                    ),
                   ],
                   icon: Icon(Icons.more_horiz_rounded, color: colors.textMuted),
                 ),
@@ -2671,7 +2786,7 @@ class _SavedMpvPresetCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               preset.description.isEmpty
-                  ? '已保存的独立预设，可随时再次应用。'
+                  ? l10n.mpvSavedPresetDefaultDescription
                   : preset.description,
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
@@ -2689,7 +2804,7 @@ class _SavedMpvPresetCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(999),
               ),
               child: Text(
-                selected ? '当前已应用' : '点按应用',
+                selected ? l10n.mpvPresetApplied : l10n.mpvTapToApply,
                 style: TextStyle(
                   color: selected ? colors.textPrimary : colors.textSecondary,
                   fontSize: AdaptiveText.roleSize(12.4),

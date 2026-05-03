@@ -3,7 +3,6 @@ package com.geqian.flyplayer.fly_player.mpv
 import android.content.Context
 import android.net.Uri
 import android.util.Log
-import java.io.File
 import java.util.LinkedHashSet
 import java.util.Locale
 
@@ -17,6 +16,7 @@ data class PlaybackTarget(
 class PlaybackSourceResolver(
     context: Context,
 ) {
+    private val appContext = context.applicationContext
     private val playbackCacheStore = PersistentPlaybackCacheStore(context)
     var activeProxySessionId: String? = null
         private set
@@ -28,6 +28,15 @@ class PlaybackSourceResolver(
     private val retiredProxySessionIds = LinkedHashSet<String>()
 
     fun prepare(source: MpvSource): PlaybackTarget {
+        if (isContentUri(source.url)) {
+            val registration = ensureLocalContentRegistration(source)
+            return PlaybackTarget(
+                url = registration.localUrl,
+                headers = emptyMap(),
+                disableTlsVerify = false,
+                viaNativeProxy = true,
+            )
+        }
         val cacheDescriptor = PersistentPlaybackCacheDescriptor.fromSource(source)
         val localPlayback = playbackCacheStore.findCompleteLocalPlayback(cacheDescriptor)
         if (localPlayback != null) {
@@ -80,6 +89,7 @@ class PlaybackSourceResolver(
         NativeMpvProxyServer.unregister(activeProxySessionId)
         activeProxySessionId = null
         activeProxyUrl = null
+        activeCacheResourceKey = null
         activeProxyKey = null
     }
 
@@ -88,6 +98,7 @@ class PlaybackSourceResolver(
         NativeMpvProxyServer.unregister(activeProxySessionId)
         activeProxySessionId = null
         activeProxyUrl = null
+        activeCacheResourceKey = null
         activeProxyKey = null
     }
 
@@ -134,6 +145,30 @@ class PlaybackSourceResolver(
         }
     }
 
+    private fun ensureLocalContentRegistration(source: MpvSource): NativeProxyRegistration {
+        val key = "local-content|${source.url}"
+        if (activeProxySessionId != null && activeProxyUrl != null && activeProxyKey == key) {
+            return NativeProxyRegistration(
+                sessionId = activeProxySessionId!!,
+                localUrl = activeProxyUrl!!,
+                cacheResourceKey = null,
+            )
+        }
+        retireActiveProxy()
+        val registration = NativeMpvProxyServer.registerLocalContent(
+            context = appContext,
+            uri = Uri.parse(source.url),
+            displayName = source.title.ifBlank { "Local Video" },
+            mimeType = null,
+        )
+        activeProxySessionId = registration.sessionId
+        activeProxyUrl = registration.localUrl
+        activeCacheResourceKey = null
+        activeProxyKey = key
+        Log.d("FlyPlayerMpv", "local content proxy registered session=${registration.sessionId} local=${registration.localUrl}")
+        return registration
+    }
+
     private fun retireActiveProxy() {
         activeProxySessionId?.let(retiredProxySessionIds::add)
         activeProxySessionId = null
@@ -153,6 +188,11 @@ class PlaybackSourceResolver(
         return host != "127.0.0.1" && host != "localhost"
     }
 
+    private fun isContentUri(url: String): Boolean {
+        val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return false
+        return uri.scheme.equals("content", ignoreCase = true)
+    }
+
     fun activeBufferedPositionMs(source: MpvSource, positionMs: Long, durationMs: Long): Long? {
         if (!source.extremePlaybackEnabled || durationMs <= 0L) return null
         val progress = NativeMpvProxyServer.getCacheProgress(activeProxySessionId) ?: return null
@@ -161,6 +201,10 @@ class PlaybackSourceResolver(
         val normalizedDownloaded = progress.downloadedBytes.coerceIn(0L, totalBytes)
         val bufferedMs = (durationMs.toDouble() * normalizedDownloaded.toDouble() / totalBytes.toDouble()).toLong()
         return bufferedMs.coerceAtLeast(positionMs).coerceAtMost(durationMs)
+    }
+
+    fun activeNetworkSpeedBytesPerSecond(): Long? {
+        return NativeMpvProxyServer.getNetworkInputRateBytesPerSecond(activeProxySessionId)
     }
 
     private fun shouldDisableTlsVerify(url: String, headers: Map<String, String> = emptyMap()): Boolean {

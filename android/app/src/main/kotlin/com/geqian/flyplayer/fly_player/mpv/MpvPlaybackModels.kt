@@ -26,6 +26,7 @@ data class MpvSource(
     val tmdbId: String,
     val episodeNumber: Int,
     val startPositionMs: Long,
+    val startPaused: Boolean,
     val audioTrackIndex: Int?,
     val subtitleTrackIndex: Int?,
     val audioTrackGuid: String?,
@@ -48,6 +49,7 @@ data class MpvSource(
     val seekProbeSummary: String?,
     val playbackSpeed: Double,
     val listenVideoModeEnabled: Boolean,
+    val videoOutputBackend: String,
 ) {
     companion object {
         fun fromMap(map: Map<String, Any?>): MpvSource {
@@ -71,6 +73,7 @@ data class MpvSource(
                 tmdbId = map["tmdbId"]?.toString().orEmpty(),
                 episodeNumber = map["episodeNumber"].toIntValue() ?: 0,
                 startPositionMs = map["startPositionMs"].toLongValue(),
+                startPaused = map["startPaused"] as? Boolean ?: false,
                 audioTrackIndex = map["audioTrackIndex"].toIntValue(),
                 subtitleTrackIndex = map["subtitleTrackIndex"].toIntValue(),
                 audioTrackGuid = map["audioTrackGuid"]?.toString(),
@@ -93,6 +96,8 @@ data class MpvSource(
                 seekProbeSummary = map["seekProbeSummary"]?.toString(),
                 playbackSpeed = map["playbackSpeed"].toDoubleValue() ?: 1.0,
                 listenVideoModeEnabled = map["listenVideoModeEnabled"] as? Boolean ?: false,
+                videoOutputBackend =
+                    VideoOutputBackend.fromValue(map["videoOutputBackend"]?.toString()).wireValue,
             )
         }
     }
@@ -189,20 +194,40 @@ enum class VideoColorPipeline {
     HDR_TONEMAP_SDR,
 }
 
+enum class MpvPlaybackPhase(
+    val wireValue: String,
+) {
+    IDLE("idle"),
+    PREPARING("preparing"),
+    BUFFERING("buffering"),
+    PLAYING("playing"),
+    PAUSED("paused"),
+    SEEKING("seeking"),
+    ENDED("ended"),
+    ERROR("error"),
+}
+
 data class MpvPlayerState(
     val loadNonce: Int = 0,
     val ready: Boolean = false,
     val nativeLibLoaded: Boolean = false,
     val visualPlaybackReady: Boolean = false,
     val paused: Boolean = true,
+    val playbackPhase: String = MpvPlaybackPhase.IDLE.wireValue,
+    val buffering: Boolean = false,
     val positionMs: Long = 0L,
     val bufferedPositionMs: Long = 0L,
     val durationMs: Long = 0L,
+    val weakNetworkMode: Boolean = false,
+    val networkSpeedBytesPerSecond: Long = 0L,
+    val rebufferTargetMs: Long = 0L,
+    val estimatedResumeWaitMs: Long? = null,
     val listenVideoModeEnabled: Boolean = false,
     val statusText: String = "Preparing player",
     val error: String? = null,
     val nativeProxySessionId: String? = null,
     val cacheResourceKey: String? = null,
+    val positionSampleTimeNs: Long = 0L,
 ) {
     fun toMap(): Map<String, Any?> {
         return mapOf(
@@ -211,9 +236,15 @@ data class MpvPlayerState(
             "nativeLibLoaded" to nativeLibLoaded,
             "visualPlaybackReady" to visualPlaybackReady,
             "paused" to paused,
+            "playbackPhase" to playbackPhase,
+            "buffering" to buffering,
             "positionMs" to positionMs,
             "bufferedPositionMs" to bufferedPositionMs,
             "durationMs" to durationMs,
+            "weakNetworkMode" to weakNetworkMode,
+            "networkSpeedBytesPerSecond" to networkSpeedBytesPerSecond,
+            "rebufferTargetMs" to rebufferTargetMs,
+            "estimatedResumeWaitMs" to estimatedResumeWaitMs,
             "listenVideoModeEnabled" to listenVideoModeEnabled,
             "statusText" to statusText,
             "error" to error,

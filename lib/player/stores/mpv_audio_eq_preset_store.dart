@@ -30,7 +30,7 @@ class MpvAudioEqPresetEntry {
     }
     return MpvAudioEqPresetEntry(
       id: json['id']?.toString() ?? '',
-      name: json['name']?.toString() ?? '未命名预设',
+      name: json['name']?.toString() ?? 'Unnamed preset',
       bands: nextBands,
       updatedAtMillis:
           int.tryParse(json['updatedAtMillis']?.toString() ?? '') ??

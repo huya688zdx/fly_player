@@ -28,6 +28,9 @@ class LocalRuntimeTrackController {
     if (parsed?.scheme.toLowerCase() == 'file') {
       return true;
     }
+    if (parsed?.scheme.toLowerCase() == 'content') {
+      return true;
+    }
     if (normalizedUrl.startsWith('/')) {
       return true;
     }
@@ -41,7 +44,7 @@ class LocalRuntimeTrackController {
     required bool pendingSubtitleSelectionRefresh,
     required String? pendingExternalSubtitlePath,
     required int lastSnapshotLoadNonce,
-    required String lastSnapshotStatus,
+    required String lastSnapshotPhase,
     bool force = false,
   }) {
     if (!isLocalPlayback) return false;
@@ -54,18 +57,16 @@ class LocalRuntimeTrackController {
       return false;
     }
     if (force) return true;
-    const refreshStatuses = <String>{
-      'source loaded',
-      'playback started',
-      'audio track changed',
-      'subtitle track changed',
-      'external subtitle loaded',
+    const refreshPhases = <MpvPlaybackPhase>{
+      // Avoid sweeping mpv track-list while active playback is ramping up.
+      MpvPlaybackPhase.paused,
+      MpvPlaybackPhase.ended,
     };
-    final status = value.statusText.trim().toLowerCase();
+    final phase = value.playbackPhase;
     if (lastSnapshotLoadNonce != value.loadNonce) {
-      return refreshStatuses.contains(status);
+      return refreshPhases.contains(phase);
     }
-    return refreshStatuses.contains(status) && lastSnapshotStatus != status;
+    return refreshPhases.contains(phase) && lastSnapshotPhase != phase.name;
   }
 
   LocalRuntimeTrackSyncResult applySnapshot({

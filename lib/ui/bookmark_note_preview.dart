@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../theme/app_theme.dart';
 
 class BookmarkNotePreview extends StatefulWidget {
@@ -24,6 +25,7 @@ class _BookmarkNotePreviewState extends State<BookmarkNotePreview> {
     final note = widget.note.trim();
     if (note.isEmpty) return const SizedBox.shrink();
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final showToggle = note.runes.length > 28;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -46,7 +48,9 @@ class _BookmarkNotePreviewState extends State<BookmarkNotePreview> {
               minimumSize: Size.zero,
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
-            child: Text(_expanded ? '收起' : '更多'),
+            child: Text(
+              _expanded ? l10n.bookmarkNoteCollapse : l10n.bookmarkNoteExpand,
+            ),
           ),
       ],
     );

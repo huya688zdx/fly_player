@@ -129,6 +129,7 @@ class AppTransitions {
     String? restorationId,
     bool maintainState = true,
     bool disableHero = true,
+    bool animate = true,
   }) {
     return AppPaneCardPage<T>(
       key: key,
@@ -137,6 +138,7 @@ class AppTransitions {
       restorationId: restorationId,
       maintainState: maintainState,
       disableHero: disableHero,
+      animate: animate,
       child: child,
     );
   }
@@ -146,12 +148,14 @@ class AppTransitions {
     RouteSettings? settings,
     bool maintainState = true,
     bool disableHero = true,
+    bool animate = true,
   }) {
     return AppPaneCardRoute<T>(
       builder: (_) => page,
       settings: settings,
       maintainState: maintainState,
       disableHero: disableHero,
+      animate: animate,
     );
   }
 
@@ -283,6 +287,7 @@ class AppPaneCardPage<T> extends Page<T> {
   final Widget child;
   final bool maintainState;
   final bool disableHero;
+  final bool animate;
 
   const AppPaneCardPage({
     required this.child,
@@ -292,6 +297,7 @@ class AppPaneCardPage<T> extends Page<T> {
     super.restorationId,
     this.maintainState = true,
     this.disableHero = true,
+    this.animate = true,
   }) : super(key: key);
 
   @override
@@ -305,21 +311,25 @@ class AppPaneCardRoute<T> extends PageRoute<T> {
   @override
   final bool maintainState;
   final bool disableHero;
+  final bool animate;
 
   AppPaneCardRoute({
     required this.builder,
     super.settings,
     this.maintainState = true,
     this.disableHero = true,
+    this.animate = true,
     super.allowSnapshotting = true,
     super.barrierDismissible = false,
   });
 
   @override
-  Duration get transitionDuration => AppTransitions.routeEnter;
+  Duration get transitionDuration =>
+      animate ? AppTransitions.routeEnter : Duration.zero;
 
   @override
-  Duration get reverseTransitionDuration => AppTransitions.routeExit;
+  Duration get reverseTransitionDuration =>
+      animate ? AppTransitions.routeExit : Duration.zero;
 
   @override
   DelegatedTransitionBuilder? get delegatedTransition => null;
@@ -352,6 +362,9 @@ class AppPaneCardRoute<T> extends PageRoute<T> {
     Animation<double> secondaryAnimation,
     Widget child,
   ) {
+    if (!animate) {
+      return child;
+    }
     return AppTransitions.leftToRightPageTurnTransition(
       child,
       animation,
@@ -373,10 +386,12 @@ class _AppPageBasedPaneCardRoute<T> extends PageRoute<T> {
   AppPaneCardPage<T> get _page => settings as AppPaneCardPage<T>;
 
   @override
-  Duration get transitionDuration => AppTransitions.routeEnter;
+  Duration get transitionDuration =>
+      _page.animate ? AppTransitions.routeEnter : Duration.zero;
 
   @override
-  Duration get reverseTransitionDuration => AppTransitions.routeExit;
+  Duration get reverseTransitionDuration =>
+      _page.animate ? AppTransitions.routeExit : Duration.zero;
 
   @override
   DelegatedTransitionBuilder? get delegatedTransition => null;
@@ -411,6 +426,9 @@ class _AppPageBasedPaneCardRoute<T> extends PageRoute<T> {
     Animation<double> secondaryAnimation,
     Widget child,
   ) {
+    if (!_page.animate) {
+      return child;
+    }
     return AppTransitions.leftToRightPageTurnTransition(
       child,
       animation,

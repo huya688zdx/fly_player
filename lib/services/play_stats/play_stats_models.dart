@@ -1,5 +1,7 @@
+/// 定义播放会话的启动来源。
 enum PlayStartSource { manual, manualSwitch, autoNext, replay, systemResume }
 
+/// 表示与视频关联的一条演职员信息。
 class PlayStatsCredit {
   final String personId;
   final String name;
@@ -7,6 +9,7 @@ class PlayStatsCredit {
   final String job;
   final int order;
 
+  /// 根据演职员字段构造对象。
   const PlayStatsCredit({
     required this.personId,
     required this.name,
@@ -15,6 +18,7 @@ class PlayStatsCredit {
     this.order = 0,
   });
 
+  /// 转换为可序列化的映射结构。
   Map<String, Object?> toJson() {
     return <String, Object?>{
       'personId': personId,
@@ -26,6 +30,7 @@ class PlayStatsCredit {
   }
 }
 
+/// 表示单个视频在统计体系中的业务元数据。
 class PlayStatsVideoMeta {
   final String videoId;
   final String animeId;
@@ -42,6 +47,7 @@ class PlayStatsVideoMeta {
   final int mediaDurationMs;
   final List<PlayStatsCredit> credits;
 
+  /// 根据视频统计元数据字段构造对象。
   const PlayStatsVideoMeta({
     required this.videoId,
     required this.animeId,
@@ -59,6 +65,7 @@ class PlayStatsVideoMeta {
     this.credits = const <PlayStatsCredit>[],
   });
 
+  /// 基于现有对象生成一份变更后的副本。
   PlayStatsVideoMeta copyWith({
     String? videoId,
     String? animeId,
@@ -95,6 +102,7 @@ class PlayStatsVideoMeta {
   }
 }
 
+/// 表示按视频维度聚合后的统计记录。
 class VideoStatsRecord {
   final String videoId;
   final String animeId;
@@ -121,6 +129,7 @@ class VideoStatsRecord {
   final int lastPlayedAtMs;
   final List<PlayStatsCredit> credits;
 
+  /// 根据视频统计字段构造记录对象。
   const VideoStatsRecord({
     required this.videoId,
     required this.animeId,
@@ -149,6 +158,7 @@ class VideoStatsRecord {
   });
 }
 
+/// 表示按视频维度持久化的演职员统计记录。
 class VideoCreditRecord {
   final String videoId;
   final String animeId;
@@ -159,6 +169,7 @@ class VideoCreditRecord {
   final String job;
   final int order;
 
+  /// 根据演职员统计字段构造记录对象。
   const VideoCreditRecord({
     required this.videoId,
     required this.animeId,
@@ -171,6 +182,7 @@ class VideoCreditRecord {
   });
 }
 
+/// 表示按番剧维度聚合后的统计记录。
 class AnimeStatsRecord {
   final String animeId;
   final String title;
@@ -184,6 +196,7 @@ class AnimeStatsRecord {
   final int completedSeasonCount;
   final int lastPlayedAtMs;
 
+  /// 根据番剧统计字段构造记录对象。
   const AnimeStatsRecord({
     required this.animeId,
     required this.title,
@@ -199,6 +212,7 @@ class AnimeStatsRecord {
   });
 }
 
+/// 表示按季度维度聚合后的统计记录。
 class SeasonStatsRecord {
   final String seasonId;
   final String animeId;
@@ -209,6 +223,7 @@ class SeasonStatsRecord {
   final bool isCompleted;
   final int lastPlayedAtMs;
 
+  /// 根据季度统计字段构造记录对象。
   const SeasonStatsRecord({
     required this.seasonId,
     required this.animeId,
@@ -221,6 +236,7 @@ class SeasonStatsRecord {
   });
 }
 
+/// 表示一次播放会话的历史记录。
 class PlayHistoryRecord {
   final String historyId;
   final String videoId;
@@ -254,6 +270,7 @@ class PlayHistoryRecord {
   final int forwardSeekCount;
   final int backwardSeekCount;
 
+  /// 根据播放历史字段构造记录对象。
   const PlayHistoryRecord({
     required this.historyId,
     required this.videoId,
@@ -289,20 +306,24 @@ class PlayHistoryRecord {
   });
 }
 
+/// 表示识别出的片头或片尾时间区间。
 class OpEdSegment {
   final bool isIntro;
   final int startMs;
   final int endMs;
 
+  /// 根据片头片尾时间范围构造对象。
   const OpEdSegment({
     required this.isIntro,
     required this.startMs,
     required this.endMs,
   });
 
+  /// 返回当前片段的有效时长。
   int get durationMs => endMs > startMs ? endMs - startMs : 0;
 }
 
+/// 表示单次播放中片头片尾相关行为的统计快照。
 class OpEdSnapshot {
   final bool opDetected;
   final bool edDetected;
@@ -313,6 +334,7 @@ class OpEdSnapshot {
   final int opPlayedMs;
   final int edPlayedMs;
 
+  /// 根据片头片尾统计字段构造对象。
   const OpEdSnapshot({
     required this.opDetected,
     required this.edDetected,
@@ -325,12 +347,14 @@ class OpEdSnapshot {
   });
 }
 
+/// 描述启动一次播放统计会话所需的上下文。
 class PlayStatsStartContext {
   final PlayStartSource startSource;
   final PlayStatsVideoMeta meta;
   final int startPositionMs;
   final int startedAtMs;
 
+  /// 根据播放启动上下文字段构造对象。
   const PlayStatsStartContext({
     required this.startSource,
     required this.meta,
@@ -339,6 +363,7 @@ class PlayStatsStartContext {
   });
 }
 
+/// 表示已经收口并可持久化的播放会话结果。
 class FinalizedPlaySession {
   final PlayHistoryRecord history;
   final PlayStatsVideoMeta meta;
@@ -347,6 +372,7 @@ class FinalizedPlaySession {
   final int lastPositionMs;
   final String finishReason;
 
+  /// 根据最终播放会话字段构造对象。
   const FinalizedPlaySession({
     required this.history,
     required this.meta,

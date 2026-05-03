@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/generated/app_localizations.dart';
 import '../../../providers/app_theme_provider.dart';
 import '../../../theme/app_theme.dart';
+import '../../../theme/app_theme_l10n.dart';
 import '../../../ui/adaptive_text.dart';
 import 'theme_settings_helpers.dart';
 
@@ -70,6 +72,7 @@ class ThemeSettingsControlPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -149,7 +152,7 @@ class ThemeSettingsControlPanel extends StatelessWidget {
                                     border: Border.all(color: colors.selection),
                                   ),
                                   child: Text(
-                                    '自定义',
+                                    l10n.themeCustomLabel,
                                     style: TextStyle(
                                       color: colors.selectionStrong,
                                       fontSize: AdaptiveText.roleSize(11.5),
@@ -175,7 +178,7 @@ class ThemeSettingsControlPanel extends StatelessWidget {
                     TextButton.icon(
                       onPressed: onOpenCustomPicker,
                       icon: const Icon(Icons.palette_outlined, size: 18),
-                      label: const Text('调色盘'),
+                      label: Text(l10n.themePaletteButton),
                     ),
                   ],
                 ),
@@ -275,6 +278,7 @@ class ThemeSettingsCustomColorChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return InkWell(
       borderRadius: BorderRadius.circular(16),
       onTap: onTap,
@@ -307,7 +311,7 @@ class ThemeSettingsCustomColorChip extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             Text(
-              '自定义',
+              l10n.themeCustomLabel,
               style: TextStyle(
                 color: colors.textPrimary,
                 fontSize: AdaptiveText.roleSize(13.5),
@@ -331,12 +335,14 @@ class ThemeSettingsRecipePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
+    final customLabel = l10n.themeCustomLabel;
     final items = <String>[
-      '预设: ${provider.preset.title}',
-      '背景: ${provider.usesCustomBackgroundColor ? '自定义 ${themeSettingsColorHex(provider.backgroundPreviewColor)}' : provider.backgroundTone.title}',
-      '主操作: ${provider.usesCustomAccentColor ? '自定义 ${themeSettingsColorHex(provider.accentPreviewColor)}' : provider.accentTone.title}',
-      '选中色: ${provider.usesCustomSelectionColor ? '自定义 ${themeSettingsColorHex(provider.selectionPreviewColor)}' : provider.selectionTone.title}',
-      '链接色: ${provider.usesCustomLinkColor ? '自定义 ${themeSettingsColorHex(provider.linkPreviewColor)}' : provider.linkTone.title}',
+      '${l10n.themeRecipePresetLabel}: ${provider.preset.title}',
+      '${l10n.themeRecipeBackgroundLabel}: ${provider.usesCustomBackgroundColor ? '$customLabel ${themeSettingsColorHex(provider.backgroundPreviewColor)}' : AppThemeL10n.backgroundToneTitle(l10n, provider.backgroundTone)}',
+      '${l10n.themeRecipeAccentLabel}: ${provider.usesCustomAccentColor ? '$customLabel ${themeSettingsColorHex(provider.accentPreviewColor)}' : AppThemeL10n.accentToneTitle(l10n, provider.accentTone)}',
+      '${l10n.themeRecipeSelectionLabel}: ${provider.usesCustomSelectionColor ? '$customLabel ${themeSettingsColorHex(provider.selectionPreviewColor)}' : AppThemeL10n.accentToneTitle(l10n, provider.selectionTone)}',
+      '${l10n.themeRecipeLinkLabel}: ${provider.usesCustomLinkColor ? '$customLabel ${themeSettingsColorHex(provider.linkPreviewColor)}' : AppThemeL10n.accentToneTitle(l10n, provider.linkTone)}',
     ];
     return Container(
       width: double.infinity,
@@ -350,7 +356,7 @@ class ThemeSettingsRecipePanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            '当前配方',
+            l10n.themeRecipeCurrentTitle,
             style: TextStyle(
               color: colors.textPrimary,
               fontSize: AdaptiveText.roleSize(15.5),
@@ -385,6 +391,7 @@ class ThemeSettingsDynamicThemePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final enabled = provider.dynamicThemeEnabled;
     final visibleIntensities = <AppDynamicThemeIntensity>[
       AppDynamicThemeIntensity.subtle,
@@ -410,7 +417,7 @@ class ThemeSettingsDynamicThemePanel extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Text(
-                      '动态取色主题',
+                      l10n.themeDynamicTitle,
                       style: TextStyle(
                         color: colors.textPrimary,
                         fontSize: AdaptiveText.roleSize(15.5),
@@ -419,7 +426,7 @@ class ThemeSettingsDynamicThemePanel extends StatelessWidget {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      '进入详情页后根据海报临时取色，退出恢复当前主题。会保留你选的深色或奶白基础风格，不会乱跳明暗。',
+                      l10n.themeDynamicSubtitle,
                       style: TextStyle(
                         color: colors.textSecondary,
                         fontSize: AdaptiveText.roleSize(13.2),
@@ -455,7 +462,9 @@ class ThemeSettingsDynamicThemePanel extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  enabled ? '当前范围: 详情页和人物页' : '当前范围: 已关闭',
+                  enabled
+                      ? l10n.themeDynamicScopeDetailsAndPeople
+                      : l10n.themeDynamicScopeOff,
                   style: TextStyle(
                     color: colors.textPrimary,
                     fontSize: AdaptiveText.roleSize(13.8),
@@ -464,7 +473,7 @@ class ThemeSettingsDynamicThemePanel extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'V1 先控制背景主色系、面板层级、桥接渐变和环境 tint，按钮与链接继续保持你手动设定的固定颜色。',
+                  l10n.themeDynamicDescription,
                   style: TextStyle(
                     color: colors.textMuted,
                     fontSize: AdaptiveText.roleSize(12.8),
@@ -478,7 +487,10 @@ class ThemeSettingsDynamicThemePanel extends StatelessWidget {
                   children: visibleIntensities
                       .map(
                         (intensity) => ThemeSettingsColorOptionChip(
-                          label: intensity.settingsTitle,
+                          label: AppThemeL10n.dynamicThemeIntensitySettingsTitle(
+                            l10n,
+                            intensity,
+                          ),
                           swatchColor: provider.backgroundPreviewColor,
                           selected:
                               enabled &&
@@ -498,8 +510,11 @@ class ThemeSettingsDynamicThemePanel extends StatelessWidget {
                 const SizedBox(height: 12),
                 Text(
                   enabled
-                      ? provider.dynamicThemeIntensity.behaviorDescription
-                      : '关闭后不再执行详情页取色',
+                      ? AppThemeL10n.dynamicThemeBehaviorDescription(
+                          l10n,
+                          provider.dynamicThemeIntensity,
+                        )
+                      : l10n.themeDynamicDisabled,
                   style: TextStyle(
                     color: colors.textSecondary,
                     fontSize: AdaptiveText.roleSize(12.8),
@@ -508,7 +523,7 @@ class ThemeSettingsDynamicThemePanel extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '播放态不会覆盖主屏主题；普通页面流下，高级档会联动主屏。',
+                  l10n.themeDynamicPlayerNote,
                   style: TextStyle(
                     color: colors.textMuted,
                     fontSize: AdaptiveText.roleSize(12.2),

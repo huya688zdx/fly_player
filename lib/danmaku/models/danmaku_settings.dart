@@ -1,26 +1,96 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
-const List<double> danmakuDisplayAreaPresets = <double>[
-  0.10,
-  0.25,
-  0.50,
-  0.75,
-  1.0,
-];
+const List<double> danmakuDisplayAreaPresets = <double>[0.25, 0.50, 0.75, 1.0];
+
+const List<double> danmakuFontThicknessPresets = <double>[0.8, 1.0, 1.2, 1.4];
+
+const double danmakuSpeedMin = 0.70;
+const double danmakuSpeedMax = 1.55;
+const int danmakuSpeedDivisions = 4;
+const int danmakuRuntimeSpeedNotchOffset = 1;
+const double danmakuSpeedStep =
+    (danmakuSpeedMax - danmakuSpeedMin) / danmakuSpeedDivisions;
+
+final List<double> danmakuSpeedPresets = List<double>.generate(
+  danmakuSpeedDivisions + 1,
+  (index) => danmakuSpeedMin + (index * danmakuSpeedStep),
+  growable: false,
+);
+
+const List<int> danmakuFrameRatePresets = <int>[24, 30, 45, 60, 72, 90, 120];
+
+const double danmakuMotionReferenceShortSideDp = 420.0;
+const double danmakuMotionMinDurationScale = 0.90;
+const double danmakuMotionMaxDurationScale = 1.40;
 
 double clampDanmakuAreaRatio(double value) {
-  return value.clamp(0.1, 1.0).toDouble();
+  return value
+      .clamp(danmakuDisplayAreaPresets.first, danmakuDisplayAreaPresets.last)
+      .toDouble();
+}
+
+double clampDanmakuSpeed(double value) {
+  return value.clamp(danmakuSpeedMin, danmakuSpeedMax).toDouble();
+}
+
+double nearestDanmakuSpeedPreset(double value) {
+  final normalized = clampDanmakuSpeed(value);
+  return danmakuSpeedPresets.reduce((best, candidate) {
+    return (candidate - normalized).abs() < (best - normalized).abs()
+        ? candidate
+        : best;
+  });
+}
+
+double resolveDanmakuRuntimeSpeed(
+  double configuredSpeed, {
+  int notchOffset = danmakuRuntimeSpeedNotchOffset,
+}) {
+  final normalized = clampDanmakuSpeed(configuredSpeed);
+  if (notchOffset == 0) {
+    return normalized;
+  }
+  return clampDanmakuSpeed(normalized + (danmakuSpeedStep * notchOffset));
+}
+
+double resolveDanmakuMotionSpeedFactor(
+  double configuredSpeed, {
+  int notchOffset = danmakuRuntimeSpeedNotchOffset,
+}) {
+  final runtimeSpeed = resolveDanmakuRuntimeSpeed(
+    configuredSpeed,
+    notchOffset: notchOffset,
+  );
+  if (runtimeSpeed >= 1.0) {
+    return 1.0 + ((runtimeSpeed - 1.0) * 0.55);
+  }
+  return 1.0 - ((1.0 - runtimeSpeed) * 0.45);
+}
+
+int normalizeDanmakuFrameRateHz(int value) {
+  final normalized = value.clamp(
+    danmakuFrameRatePresets.first,
+    danmakuFrameRatePresets.last,
+  );
+  return danmakuFrameRatePresets.reduce((best, candidate) {
+    return (candidate - normalized).abs() < (best - normalized).abs()
+        ? candidate
+        : best;
+  });
 }
 
 double resolveDanmakuCaptureAreaRatio(double displayAreaRatio) {
-  final normalized = clampDanmakuAreaRatio(displayAreaRatio);
-  for (var index = 0; index < danmakuDisplayAreaPresets.length; index += 1) {
-    final preset = danmakuDisplayAreaPresets[index];
-    if (normalized <= preset + 0.0001) {
-      final nextIndex = index + 1 < danmakuDisplayAreaPresets.length
-          ? index + 1
-          : danmakuDisplayAreaPresets.length - 1;
-      return danmakuDisplayAreaPresets[nextIndex];
+  if (displayAreaRatio < danmakuDisplayAreaPresets.first) {
+    return danmakuDisplayAreaPresets.first;
+  }
+  final display = danmakuDisplayAreaPresets.firstWhere(
+    (preset) => displayAreaRatio <= preset + 0.0001,
+    orElse: () => danmakuDisplayAreaPresets.last,
+  );
+  for (final preset in danmakuDisplayAreaPresets) {
+    if (preset > display + 0.0001) {
+      return preset;
     }
   }
   return danmakuDisplayAreaPresets.last;
@@ -36,6 +106,22 @@ double resolveDanmakuMaskSourceCoverageRatio({
     return 1.0;
   }
   return (display / capture).clamp(0.0, 1.0).toDouble();
+}
+
+double resolveDanmakuViewportMotionDurationScale(double shortSideDp) {
+  if (shortSideDp <= 0) {
+    return 1.0;
+  }
+  return (shortSideDp / danmakuMotionReferenceShortSideDp)
+      .clamp(danmakuMotionMinDurationScale, danmakuMotionMaxDurationScale)
+      .toDouble();
+}
+
+double resolveDanmakuDensityCapacityScale(double capacityScale) {
+  if (capacityScale <= 0) {
+    return 0.0;
+  }
+  return math.sqrt(capacityScale.clamp(0.0, 1.0)).toDouble();
 }
 
 class DanmakuAiPrecisionPreset {
@@ -65,8 +151,10 @@ class DanmakuSettings {
   final double opacity;
   final double density;
   final double fontScale;
+  final double fontThickness;
   final double speed;
   final double displayAreaRatio;
+  final int targetFrameRateHz;
   final int aiSampleIntervalMs;
   final int aiInputWidth;
 
@@ -84,8 +172,10 @@ class DanmakuSettings {
     required this.opacity,
     required this.density,
     required this.fontScale,
+    required this.fontThickness,
     required this.speed,
     required this.displayAreaRatio,
+    required this.targetFrameRateHz,
     required this.aiSampleIntervalMs,
     required this.aiInputWidth,
   });
@@ -104,8 +194,10 @@ class DanmakuSettings {
     opacity: 0.85,
     density: 1.0,
     fontScale: 1.0,
-    speed: 1.0,
+    fontThickness: 1.0,
+    speed: 0.85,
     displayAreaRatio: 0.50,
+    targetFrameRateHz: 60,
     aiSampleIntervalMs: 500,
     aiInputWidth: 256,
   );
@@ -124,8 +216,10 @@ class DanmakuSettings {
     double? opacity,
     double? density,
     double? fontScale,
+    double? fontThickness,
     double? speed,
     double? displayAreaRatio,
+    int? targetFrameRateHz,
     int? aiSampleIntervalMs,
     int? aiInputWidth,
     String? aiPrecisionPreset,
@@ -148,8 +242,16 @@ class DanmakuSettings {
       opacity: opacity ?? this.opacity,
       density: density ?? this.density,
       fontScale: fontScale ?? this.fontScale,
-      speed: speed ?? this.speed,
-      displayAreaRatio: displayAreaRatio ?? this.displayAreaRatio,
+      fontThickness: (fontThickness ?? this.fontThickness)
+          .clamp(0.8, 1.4)
+          .toDouble(),
+      speed: clampDanmakuSpeed(speed ?? this.speed),
+      displayAreaRatio: clampDanmakuAreaRatio(
+        displayAreaRatio ?? this.displayAreaRatio,
+      ),
+      targetFrameRateHz: normalizeDanmakuFrameRateHz(
+        targetFrameRateHz ?? this.targetFrameRateHz,
+      ),
       aiSampleIntervalMs: aiSampleIntervalMs ?? this.aiSampleIntervalMs,
       aiInputWidth: mappedAiInputWidth.clamp(minAiInputWidth, maxAiInputWidth),
     );
@@ -185,8 +287,10 @@ class DanmakuSettings {
       'opacity': opacity,
       'density': density,
       'fontScale': fontScale,
+      'fontThickness': fontThickness,
       'speed': speed,
       'displayAreaRatio': displayAreaRatio,
+      'targetFrameRateHz': targetFrameRateHz,
       'aiSampleIntervalMs': aiSampleIntervalMs,
       'aiInputWidth': aiInputWidth,
     };
@@ -216,10 +320,14 @@ class DanmakuSettings {
       opacity: _readDouble(json['opacity'], defaults.opacity),
       density: _readDouble(json['density'], defaults.density),
       fontScale: _readDouble(json['fontScale'], defaults.fontScale),
+      fontThickness: _readDouble(json['fontThickness'], defaults.fontThickness),
       speed: _readDouble(json['speed'], defaults.speed),
       displayAreaRatio: _readDouble(
         json['displayAreaRatio'],
         defaults.displayAreaRatio,
+      ),
+      targetFrameRateHz: normalizeDanmakuFrameRateHz(
+        _readInt(json['targetFrameRateHz'], defaults.targetFrameRateHz),
       ),
       aiSampleIntervalMs: _readInt(
         json['aiSampleIntervalMs'],

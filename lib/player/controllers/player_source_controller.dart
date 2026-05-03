@@ -10,6 +10,7 @@ import '../../utils/app_error_reporter.dart';
 import '../../utils/app_exception.dart';
 import '../../utils/play_detail_track_selector.dart';
 
+/// 定义播放器当前使用的媒体加载链路模式。
 enum PlayerPlaybackMode {
   originalQuality,
   directLinkQuality,
@@ -24,6 +25,7 @@ enum PlayerPlaybackMode {
   bool get isServerManaged => this == PlayerPlaybackMode.serverSession;
 }
 
+/// 表示可直接交给播放器内核消费的播放源信息。
 class PlayerPlayableSource {
   final String? proxySessionId;
   final String url;
@@ -32,6 +34,7 @@ class PlayerPlayableSource {
   final bool reliableSeek;
   final String? seekProbeSummary;
 
+  /// 根据可播放地址及附加元数据构造播放源。
   const PlayerPlayableSource({
     required this.proxySessionId,
     required this.url,
@@ -42,6 +45,7 @@ class PlayerPlayableSource {
   });
 }
 
+/// 表示首次进入播放器时解析得到的播放结果。
 class PlayerInitialPlaybackResult {
   final PlayerPlayableSource playableSource;
   final String mediaGuid;
@@ -50,6 +54,7 @@ class PlayerInitialPlaybackResult {
   final int serverSessionHlsTimeSeconds;
   final PlayerPlaybackMode playbackMode;
 
+  /// 根据首播链路解析结果构造对象。
   const PlayerInitialPlaybackResult({
     required this.playableSource,
     required this.mediaGuid,
@@ -60,6 +65,7 @@ class PlayerInitialPlaybackResult {
   });
 }
 
+/// 表示当前播放器媒体源状态的快照。
 class PlayerSourceSnapshot {
   final String itemGuid;
   final String mediaGuid;
@@ -81,6 +87,7 @@ class PlayerSourceSnapshot {
   final PlayerPlaybackMode playbackMode;
   final Set<String> serverFallbackSubtitleGuids;
 
+  /// 根据当前播放上下文构造源快照。
   const PlayerSourceSnapshot({
     required this.itemGuid,
     required this.mediaGuid,
@@ -104,12 +111,14 @@ class PlayerSourceSnapshot {
   });
 }
 
+/// 定义服务端会话重建时允许变更的参数。
 class PlayerServerReloadRequest {
   final String? audioGuid;
   final String? subtitleGuid;
   final PlaybackQualityOption? quality;
   final Duration startPosition;
 
+  /// 根据服务端重载参数构造请求对象。
   const PlayerServerReloadRequest({
     this.audioGuid,
     this.subtitleGuid,
@@ -118,6 +127,7 @@ class PlayerServerReloadRequest {
   });
 }
 
+/// 表示服务端播放会话重建后的最新结果。
 class PlayerServerReloadResult {
   final String? activeProxySessionId;
   final String? activeSubtitleProxySessionId;
@@ -149,6 +159,7 @@ class PlayerServerReloadResult {
   final String? oldSessionId;
   final String? oldSubtitleSessionId;
 
+  /// 根据重载后的服务端会话数据构造结果对象。
   const PlayerServerReloadResult({
     required this.activeProxySessionId,
     required this.activeSubtitleProxySessionId,
@@ -182,11 +193,13 @@ class PlayerServerReloadResult {
   });
 }
 
+/// 描述从播放源重新整理字幕轨后的结果。
 class PlayerSubtitleRefreshResult {
   final List<SubtitleTrackOption> subtitleTracks;
   final String? selectedGuid;
   final SubtitleTrackOption? selectedTrack;
 
+  /// 根据刷新后的字幕选择状态构造结果对象。
   const PlayerSubtitleRefreshResult({
     required this.subtitleTracks,
     required this.selectedGuid,
@@ -194,7 +207,9 @@ class PlayerSubtitleRefreshResult {
   });
 }
 
+/// 负责在播放器内部解析、切换并重建播放源。
 class PlayerSourceController {
+  /// 创建一个无状态的播放源控制器。
   const PlayerSourceController();
 
   static bool _subtitleShouldPreferEmbeddedTrack(SubtitleTrackOption? track) {
@@ -214,6 +229,7 @@ class PlayerSourceController {
         codec.contains('vobsub');
   }
 
+  /// 根据清晰度选项推断应采用的播放链路模式。
   static PlayerPlaybackMode playbackModeForQuality(
     PlaybackQualityOption? quality,
   ) {
@@ -226,6 +242,7 @@ class PlayerSourceController {
     return PlayerPlaybackMode.serverSession;
   }
 
+  /// 根据当前播放配置构造首播所需的播放源与会话数据。
   Future<PlayerInitialPlaybackResult> buildInitialPlaybackResult({
     required FeiniuApi api,
     required String directUrl,
@@ -325,6 +342,7 @@ class PlayerSourceController {
     );
   }
 
+  /// 在服务端会话模式下重建播放会话并返回最新状态。
   Future<PlayerServerReloadResult> reloadServerPlaySession({
     required FeiniuApi api,
     required PlayerSourceSnapshot snapshot,
@@ -480,11 +498,14 @@ class PlayerSourceController {
     }
     final normalizedResolution = _normalizeServerResolution(
       request.quality?.resolution ??
-          (preserveCurrentServerManagedVideoState ? snapshot.resolution : null) ??
+          (preserveCurrentServerManagedVideoState
+              ? snapshot.resolution
+              : null) ??
           targetVideoInfo?.resolutionType ??
           snapshot.resolution,
     );
-    final targetBitrate = request.quality?.bitrate ??
+    final targetBitrate =
+        request.quality?.bitrate ??
         (preserveCurrentServerManagedVideoState ? snapshot.bitrate : null) ??
         targetVideoInfo?.bps ??
         snapshot.bitrate;
@@ -567,6 +588,7 @@ class PlayerSourceController {
     );
   }
 
+  /// 依据当前媒体源重新整理字幕轨列表与选中状态。
   Future<PlayerSubtitleRefreshResult> refreshSubtitleTracksFromSource({
     required FeiniuApi api,
     required PlayerSourceSnapshot snapshot,
@@ -607,6 +629,7 @@ class PlayerSourceController {
     );
   }
 
+  /// 判断指定字幕轨是否必须以独立字幕文件形式加载。
   static bool subtitleShouldUseExternalFile(
     SubtitleTrackOption? track,
     Set<String> serverFallbackSubtitleGuids,
@@ -617,10 +640,12 @@ class PlayerSourceController {
     return track.isExternal == 1 || track.extraFile == 1;
   }
 
+  /// 将服务端返回的相对路径或完整地址解析为可播放 URL。
   static String resolvePlayableUrl(FeiniuApi api, String pathOrUrl) {
     return _resolvePlayableUrl(api, pathOrUrl);
   }
 
+  /// 计算播放器首次进入时的默认清晰度选项。
   static PlaybackQualityOption? preferredInitialQuality(
     List<PlaybackQualityOption> qualities, {
     bool preferConservativeDirectLink = false,
@@ -646,6 +671,7 @@ class PlayerSourceController {
     return qualities.isNotEmpty ? qualities.first : null;
   }
 
+  /// 判断当前直链地址是否应采用保守的寻址策略。
   static bool shouldPreferConservativeDirectLink(String baseUrl) {
     final normalized = ApiUrlHelper.normalizeBaseUrl(baseUrl);
     final uri = Uri.tryParse(normalized);
@@ -671,6 +697,7 @@ class PlayerSourceController {
         address.isLinkLocal);
   }
 
+  /// 将业务侧地址转换为播放器可直接消费的播放源。
   static Future<PlayerPlayableSource> buildPlayableSource(
     FeiniuApi api,
     String pathOrUrl, {
@@ -754,6 +781,7 @@ class PlayerSourceController {
         (first == 172 && second >= 16 && second <= 31);
   }
 
+  /// 按字幕标识在候选列表中查找对应字幕轨。
   static SubtitleTrackOption? subtitleTrackByGuid(
     String? guid,
     List<SubtitleTrackOption> tracks,
@@ -761,14 +789,15 @@ class PlayerSourceController {
     return _subtitleTrackByGuid(guid, tracks);
   }
 
+  /// 生成切换清晰度时用于展示的提示文案。
   static String qualitySwitchMessageFor(PlaybackQualityOption quality) {
     final title = quality.resolution.trim().isNotEmpty
         ? quality.resolution.trim()
-        : (quality.isDefault == 1 ? '原画' : '清晰度');
+        : (quality.isDefault == 1 ? 'Original' : 'Quality');
     final bitrate = quality.bitrate > 0
         ? ' ${(quality.bitrate / 1000000).toStringAsFixed(0)} Mbps'
         : '';
-    return '正在为您切换至$title$bitrate 画质，请稍等...';
+    return 'Switching to $title$bitrate quality. Please wait...';
   }
 
   static String _resolvePlayableUrl(FeiniuApi api, String pathOrUrl) {
@@ -776,7 +805,8 @@ class PlayerSourceController {
     if (raw.isEmpty) return '';
     if (raw.startsWith('http://') ||
         raw.startsWith('https://') ||
-        raw.startsWith('file://')) {
+        raw.startsWith('file://') ||
+        raw.startsWith('content://')) {
       return raw;
     }
     if (RegExp(r'^[A-Za-z]:[\\/]').hasMatch(raw)) {

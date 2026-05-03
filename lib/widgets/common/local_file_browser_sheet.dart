@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../l10n/generated/app_localizations.dart';
 import '../../services/storage_access_service.dart';
 import '../../theme/app_theme.dart';
 import '../../ui/app_sheet_transitions.dart';
@@ -44,7 +45,10 @@ class LocalFileBrowserSheet extends StatelessWidget {
               Positioned.fill(
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: () => Navigator.of(dialogContext).maybePop(),
+                  onTap: () =>
+                      AppSheetTransitions.close<LocalBrowserFileSelection>(
+                        dialogContext,
+                      ),
                   child: const SizedBox.expand(),
                 ),
               ),
@@ -104,7 +108,10 @@ class LocalFileBrowserSheet extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: InkWell(
-                  onTap: () => Navigator.of(context).maybePop(),
+                  onTap: () =>
+                      AppSheetTransitions.close<LocalBrowserFileSelection>(
+                        context,
+                      ),
                   borderRadius: BorderRadius.circular(18),
                   child: SizedBox(
                     width: 32,
@@ -136,6 +143,12 @@ class LocalFileBrowserSheet extends StatelessWidget {
               allowedExtensions: allowedExtensions,
               onFileSelected: (selection) async {
                 if (!context.mounted) return;
+                if (AppSheetTransitions.maybeClose<LocalBrowserFileSelection>(
+                  context,
+                  selection,
+                )) {
+                  return;
+                }
                 Navigator.of(context).pop(selection);
               },
             ),
@@ -170,7 +183,7 @@ class _LocalFileBrowserBodyState extends State<LocalFileBrowserBody> {
   bool _loading = true;
   bool _blocked = false;
   int _loadGeneration = 0;
-  String _statusMessage = '请先授权一个文件夹，然后在应用内选择本地文件';
+  String _statusMessage = '';
 
   @override
   void initState() {
@@ -199,7 +212,9 @@ class _LocalFileBrowserBodyState extends State<LocalFileBrowserBody> {
         _blocked = true;
         _directoryStack = const <ScopedBrowserDirectory>[];
         _entries = const <ScopedBrowserEntry>[];
-        _statusMessage = '还没有授权本地文件夹，先授权一个目录后才能在应用内浏览';
+        _statusMessage = AppLocalizations.of(
+          context,
+        ).localFileNoAuthorizedFolder;
       });
       return;
     }
@@ -222,7 +237,9 @@ class _LocalFileBrowserBodyState extends State<LocalFileBrowserBody> {
         _blocked = true;
         _directoryStack = const <ScopedBrowserDirectory>[];
         _entries = const <ScopedBrowserEntry>[];
-        _statusMessage = '没有完成文件夹授权，无法读取本地文件';
+        _statusMessage = AppLocalizations.of(
+          context,
+        ).localFileAuthorizationCanceled;
       });
       return;
     }
@@ -250,7 +267,9 @@ class _LocalFileBrowserBodyState extends State<LocalFileBrowserBody> {
           _blocked = true;
           _directoryStack = _directoryStack.take(depth).toList(growable: false);
           _entries = const <ScopedBrowserEntry>[];
-          _statusMessage = '已授权的目录当前不可访问，请重新授权文件夹';
+          _statusMessage = AppLocalizations.of(
+            context,
+          ).localFileAuthorizedFolderUnavailable;
         });
         return;
       }
@@ -270,11 +289,15 @@ class _LocalFileBrowserBodyState extends State<LocalFileBrowserBody> {
         _loading = false;
         _blocked = true;
         _entries = const <ScopedBrowserEntry>[];
-        _statusMessage = '读取目录失败，请重新授权后重试';
+        _statusMessage = AppLocalizations.of(
+          context,
+        ).localFileReadDirectoryFailedRetry;
       });
       _topTip.show(
         context,
-        message: '读取目录失败: $error',
+        message: AppLocalizations.of(
+          context,
+        ).localFileReadDirectoryFailed(error),
         color: context.appColors.danger,
       );
     }
@@ -294,6 +317,7 @@ class _LocalFileBrowserBodyState extends State<LocalFileBrowserBody> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     if (_loading) {
       return Center(
         child: SizedBox(
@@ -315,7 +339,9 @@ class _LocalFileBrowserBodyState extends State<LocalFileBrowserBody> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                _statusMessage,
+                _statusMessage.isEmpty
+                    ? l10n.localFileAuthorizeFirst
+                    : _statusMessage,
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: colors.textSecondary,
@@ -327,7 +353,7 @@ class _LocalFileBrowserBodyState extends State<LocalFileBrowserBody> {
               FilledButton.tonalIcon(
                 onPressed: () => unawaited(_requestFolderAccess()),
                 icon: const Icon(Icons.folder_open_rounded),
-                label: const Text('授权文件夹'),
+                label: Text(l10n.localFileAuthorizeFolder),
               ),
             ],
           ),
@@ -369,7 +395,7 @@ class _LocalFileBrowserBodyState extends State<LocalFileBrowserBody> {
             const SizedBox(width: 8),
             TextButton(
               onPressed: () => unawaited(_requestFolderAccess()),
-              child: const Text('更换文件夹'),
+              child: Text(l10n.localFileChangeFolder),
             ),
           ],
         ),
@@ -389,7 +415,7 @@ class _LocalFileBrowserBodyState extends State<LocalFileBrowserBody> {
                   return _BrowserEntryTile(
                     icon: Icons.arrow_upward_rounded,
                     title: '..',
-                    subtitle: '返回上一级',
+                    subtitle: l10n.localFileParentDirectory,
                     onTap: () => unawaited(_goUp()),
                   );
                 }
@@ -399,7 +425,7 @@ class _LocalFileBrowserBodyState extends State<LocalFileBrowserBody> {
                   return _BrowserEntryTile(
                     icon: Icons.folder_rounded,
                     title: entry.name,
-                    subtitle: '文件夹',
+                    subtitle: l10n.localFileFolder,
                     onTap: () => unawaited(
                       _openDirectory(entry.id, depth: _directoryStack.length),
                     ),

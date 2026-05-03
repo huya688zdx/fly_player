@@ -7,6 +7,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 object MPVLib {
     private const val EVENT_PROPERTY = 1
+    private const val EVENT_START_FILE = 6
     private const val EVENT_FILE_LOADED = 8
     private const val EVENT_END_FILE = 7
 
@@ -138,6 +139,9 @@ object MPVLib {
             observer.logMessage(prefix, level, text)
         }
     }
+
+    @Keep
+    fun onStartFile(): Int = EVENT_START_FILE
 
     @Keep
     fun onFileLoaded(): Int = EVENT_FILE_LOADED

@@ -72,10 +72,21 @@ List<PersonCredit> _parsePersonCredits(Map<String, dynamic> data) {
   return List<PersonCredit>.unmodifiable(people);
 }
 
+/// 登录流程的最终结果。
+///
+/// `resolvedBaseUrl` 是实际登录成功的服务器地址，可能和输入值不同，
+/// 例如用户输入 FN Connect 标识时，会先解析为可直连地址。
 class LoginWithBaseUrlResult {
+  /// 登录成功后返回的令牌。
   final String token;
+
+  /// 实际可用于后续请求的标准化 baseUrl。
   final String resolvedBaseUrl;
+
+  /// 本次登录是否经过 FN Connect 地址解析。
   final bool usedFnConnect;
+
+  /// FN Connect 相关诊断信息；普通直连登录时通常为空。
   final FnConnectLoginDiagnostic? diagnostic;
 
   const LoginWithBaseUrlResult({
@@ -86,21 +97,41 @@ class LoginWithBaseUrlResult {
   });
 }
 
+/// FN Connect OAuth 所需的配置。
 class FnConnectOauthConfig {
+  /// FN Connect OAuth 回调后应连接的目标地址。
   final String baseUrl;
+
+  /// FN Connect OAuth 对应的应用标识。
   final String appId;
 
   const FnConnectOauthConfig({required this.baseUrl, required this.appId});
 }
 
+/// FN Connect 地址发现结果的可展示诊断信息。
 class FnConnectDiscoveryDiagnostic {
+  /// 发现到的 DDNS 地址。
   final List<String> ddns;
+
+  /// 发现到的局域网 IPv4 地址。
   final List<String> ipv4;
+
+  /// 发现到的局域网 IPv6 地址。
   final List<String> ipv6;
+
+  /// 发现到的公网 IPv4 地址。
   final List<String> publicIpv4;
+
+  /// 发现到的公网 IPv6 地址。
   final List<String> publicIpv6;
+
+  /// 发现到的 relay 主机列表。
   final List<String> relayHosts;
+
+  /// HTTP 服务端口。
   final int httpPort;
+
+  /// HTTPS 服务端口。
   final int httpsPort;
 
   const FnConnectDiscoveryDiagnostic({
@@ -115,10 +146,18 @@ class FnConnectDiscoveryDiagnostic {
   });
 }
 
+/// 单个 FN Connect 登录尝试的诊断记录。
 class FnConnectAttemptDiagnostic {
+  /// 本次尝试的地址标签。
   final String label;
+
+  /// 本次尝试使用的 baseUrl。
   final String baseUrl;
+
+  /// 归一化后的尝试状态。
   final String status;
+
+  /// 本次尝试的结果说明。
   final String message;
 
   const FnConnectAttemptDiagnostic({
@@ -129,9 +168,15 @@ class FnConnectAttemptDiagnostic {
   });
 }
 
+/// FN Connect 登录过程中累计的诊断信息。
 class FnConnectLoginDiagnostic {
+  /// 用户输入或解析得到的 FN Connect 标识。
   final String fnConnectId;
+
+  /// 地址发现阶段的诊断数据。
   final FnConnectDiscoveryDiagnostic? discovery;
+
+  /// 登录尝试记录。
   final List<FnConnectAttemptDiagnostic> attempts;
 
   const FnConnectLoginDiagnostic({
@@ -140,6 +185,7 @@ class FnConnectLoginDiagnostic {
     required this.attempts,
   });
 
+  /// 返回一个追加了尝试记录的新诊断对象。
   FnConnectLoginDiagnostic withAttempt(FnConnectAttemptDiagnostic attempt) {
     return FnConnectLoginDiagnostic(
       fnConnectId: fnConnectId,
@@ -152,8 +198,12 @@ class FnConnectLoginDiagnostic {
   }
 }
 
+/// FN Connect 登录失败时抛出的异常，包含可上报/展示的诊断信息。
 class FnConnectLoginException implements Exception {
+  /// 归一化后的登录错误。
   final AppException error;
+
+  /// 失败时的完整诊断信息。
   final FnConnectLoginDiagnostic diagnostic;
 
   const FnConnectLoginException({
@@ -266,8 +316,12 @@ bool _isIpv6Host(String host) {
   return address?.type == InternetAddressType.IPv6;
 }
 
+/// 下载任务的简化进度信息。
 class DownloadTaskProgressInfo {
+  /// 下载任务状态码。
   final int status;
+
+  /// 当前进度百分比。
   final int percents;
 
   const DownloadTaskProgressInfo({
@@ -275,6 +329,7 @@ class DownloadTaskProgressInfo {
     required this.percents,
   });
 
+  /// 根据后端返回的 JSON 构造进度对象。
   factory DownloadTaskProgressInfo.fromJson(Map<String, dynamic> json) {
     return DownloadTaskProgressInfo(
       status: json['status'] is num ? (json['status'] as num).toInt() : 0,
@@ -283,10 +338,10 @@ class DownloadTaskProgressInfo {
   }
 }
 
-/// Centralized Feiniu backend client.
+/// 飞牛后端 API 客户端。
 ///
-/// Keeps request signing, common headers and response parsing in one place so
-/// the rest of the app only deals with typed models and simple method calls.
+/// 统一封装登录、鉴权头、缓存、错误转换和响应解析，调用方应优先通过
+/// 类型化方法与模型访问后端能力，而不是重复拼接路径或处理公共异常。
 class FeiniuApi {
   static const String _apiPrefix = '/v/api/v1';
   static const String _loginPath = '$_apiPrefix/login';
@@ -338,7 +393,6 @@ class FeiniuApi {
   static const String _personItemListPath = '$_apiPrefix/person/item/list';
   static const String _streamMetadataPath =
       '$_apiPrefix/mediadb/stream/metadata';
-  static const String _mediaLocalePathPrefix = '/v/locales';
   static const String _fnConnectServiceBaseUrl = 'https://fnos.net';
   static const String _fnConnectServicePath = '/api/v1/fn/con';
   static const String _publicAuthxKey = 'NDzZTVxnRKP8Z0jXg1VAMonaG8akvh';
@@ -412,7 +466,7 @@ class FeiniuApi {
     );
   }
 
-  // Authentication
+  /// 使用当前 `NasProvider` 中配置的 baseUrl 发起用户名密码登录。
   Future<String> login(String userName, String password) {
     return _performLogin(
       _dio,
@@ -422,6 +476,9 @@ class FeiniuApi {
     );
   }
 
+  /// 从用户输入中提取 FN Connect id。
+  ///
+  /// 支持纯 id、`*.fnos.net` 子域名和官网页面地址三种输入形式。
   static String? extractFnConnectIdFromInput(String rawInput) {
     final trimmed = rawInput.trim();
     if (trimmed.isEmpty) return null;
@@ -451,6 +508,9 @@ class FeiniuApi {
     return null;
   }
 
+  /// 根据用户输入的地址或 FN Connect 标识完成登录。
+  ///
+  /// 返回值里会带上最终可直连的 baseUrl，后续应保存这个地址而不是原始输入。
   static Future<LoginWithBaseUrlResult> loginWithBaseUrl({
     required String baseUrl,
     required String userName,
@@ -473,7 +533,7 @@ class FeiniuApi {
         throw AppException.api(
           action: 'login',
           message:
-              '当前设备没有可用的全局 IPv6 网络，无法直接连接 IPv6 NAS。Android 模拟器通常只有链路本地 IPv6，请改用真机或可用的 IPv6 网络。',
+              'This device has no usable global IPv6 network and cannot connect to an IPv6 NAS directly. Android emulators usually only have link-local IPv6; use a real device or an available IPv6 network.',
         );
       }
     }
@@ -547,6 +607,7 @@ class FeiniuApi {
     return dio;
   }
 
+  /// 拉取 FN Connect OAuth 所需的 baseUrl 和 appId。
   static Future<FnConnectOauthConfig> fetchFnConnectOauthConfig({
     required String baseUrl,
     required String cookie,
@@ -619,6 +680,7 @@ class FeiniuApi {
     }
   }
 
+  /// 使用 FN Connect OAuth 回调 code 换取 NAS 登录结果。
   static Future<LoginWithBaseUrlResult> loginWithFnConnectOauthCode({
     required String baseUrl,
     required String code,
@@ -986,6 +1048,7 @@ class FeiniuApi {
     return entries.join('; ');
   }
 
+  /// 获取当前登录用户信息。
   Future<Map<String, dynamic>> getUserInfo() async {
     try {
       final response = await _dio.get(_userInfoPath);
@@ -999,7 +1062,7 @@ class FeiniuApi {
     }
   }
 
-  // Media library
+  /// 获取首页媒体库分类列表。
   Future<List<MediaItem>> getMediaList() async {
     return _getOrLoadSharedResource<List<MediaItem>>(
       cacheKey: _sharedResourceKey('home_media_list'),
@@ -1024,6 +1087,7 @@ class FeiniuApi {
     );
   }
 
+  /// 获取首页媒体库概览统计。
   Future<Map<String, dynamic>> getMediaSummary() async {
     return _getOrLoadSharedResource<Map<String, dynamic>>(
       cacheKey: _sharedResourceKey('home_media_summary'),
@@ -1041,60 +1105,6 @@ class FeiniuApi {
         }
       },
     );
-  }
-
-  Future<Map<String, dynamic>> getMediaLocaleMap({
-    String locale = 'zh-CN',
-  }) async {
-    try {
-      final localeMap = await _loadMediaLocaleMap(locale);
-      if (localeMap.isNotEmpty || locale == 'zh-CN') {
-        return localeMap;
-      }
-
-      final fallbackLocaleMap = await _loadMediaLocaleMap('zh-CN');
-      if (fallbackLocaleMap.isNotEmpty) {
-        debugPrint('[API][LOCALE] fallback locale=$locale -> zh-CN');
-      }
-      return fallbackLocaleMap;
-    } catch (e) {
-      debugPrint('[API][LOCALE] load failed locale=$locale error=$e');
-      return const <String, dynamic>{};
-    }
-  }
-
-  Future<Map<String, dynamic>> _loadMediaLocaleMap(String locale) async {
-    final response = await _dio.get<List<int>>(
-      '$_mediaLocalePathPrefix/$locale/media.json',
-      options: Options(responseType: ResponseType.bytes),
-    );
-    final bytes = response.data;
-    if (bytes == null || bytes.isEmpty) return const <String, dynamic>{};
-
-    final contentType = response.headers.value(Headers.contentTypeHeader) ?? '';
-    final text = utf8.decode(bytes, allowMalformed: true).trim();
-    if (!_looksLikeJsonPayload(text, contentType)) {
-      return const <String, dynamic>{};
-    }
-
-    final decoded = jsonDecode(text);
-    if (decoded is! Map<String, dynamic>) {
-      return const <String, dynamic>{};
-    }
-    return _normalizeLocaleMap(decoded);
-  }
-
-  bool _looksLikeJsonPayload(String text, String contentType) {
-    final normalizedContentType = contentType.toLowerCase();
-    if (normalizedContentType.contains('application/json')) {
-      return true;
-    }
-    if (text.isEmpty) return false;
-    if (text.startsWith('{')) return true;
-    if (text.startsWith('<!doctype html') || text.startsWith('<html')) {
-      return false;
-    }
-    return normalizedContentType.contains('json');
   }
 
   static void _configureHttpsTrust(Dio dio, String urlOrBaseUrl) {
@@ -1119,35 +1129,7 @@ class FeiniuApi {
     }
   }
 
-  Map<String, dynamic> _normalizeLocaleMap(Map<String, dynamic> input) {
-    final out = <String, dynamic>{};
-    input.forEach((key, value) {
-      out[key] = _normalizeLocaleValue(value);
-    });
-    return out;
-  }
-
-  dynamic _normalizeLocaleValue(dynamic value) {
-    if (value is Map<String, dynamic>) {
-      return _normalizeLocaleMap(value);
-    }
-    if (value is Map) {
-      final converted = <String, dynamic>{};
-      value.forEach((k, v) {
-        converted['$k'] = _normalizeLocaleValue(v);
-      });
-      return converted;
-    }
-    if (value is List) {
-      return value.map(_normalizeLocaleValue).toList();
-    }
-    if (value is String) {
-      return _fixMojibake(value);
-    }
-    return value;
-  }
-
-  // Some locale/tag payloads are returned with mojibake. Repair them once here.
+  // Some tag/subtitle payloads are returned with mojibake. Repair them once here.
   String _fixMojibake(String input) {
     if (input.isEmpty) return input;
     if (!RegExp(r'[脙脗芒氓忙莽猫茅冒茂]').hasMatch(input)) {
@@ -1208,6 +1190,7 @@ class FeiniuApi {
   }
 
   // System
+  /// 获取系统配置。
   Future<Map<String, dynamic>> getSystemConfig() async {
     try {
       final response = await _dio.get(_systemConfigPath);
@@ -1221,6 +1204,7 @@ class FeiniuApi {
     }
   }
 
+  /// 获取系统版本信息。
   Future<Map<String, dynamic>> getSystemVersion() async {
     try {
       final response = await _dio.get(_systemVersionPath);
@@ -1234,6 +1218,7 @@ class FeiniuApi {
     }
   }
 
+  /// 获取服务器基础信息。
   Future<Map<String, dynamic>> getServerInfo() async {
     try {
       final response = await _dio.get(_serverInfoPath);
@@ -1247,6 +1232,7 @@ class FeiniuApi {
     }
   }
 
+  /// 获取应用已授权访问的目录列表。
   Future<List<AuthorizedDirEntry>> getAppAuthorizedDirs() async {
     return _getOrLoadSharedResource<List<AuthorizedDirEntry>>(
       cacheKey: _sharedResourceKey('authorized_dirs'),
@@ -1270,6 +1256,7 @@ class FeiniuApi {
     );
   }
 
+  /// 获取某个分类目录下的条目列表。
   Future<List<MediaLibraryItem>> getItemsByCategoryGuid(
     String ancestorGuid, {
     int page = 1,
@@ -1283,6 +1270,7 @@ class FeiniuApi {
     return result.items;
   }
 
+  /// 关键词搜索媒体条目。
   Future<List<MediaLibraryItem>> searchList(String query) async {
     try {
       final response = await _dio.get(
@@ -1303,6 +1291,7 @@ class FeiniuApi {
   }
 
   // Item list / favorite list
+  /// 按祖先目录构造并查询分页结果。
   Future<ItemListPage> getItemsPageByCategoryGuid(
     String ancestorGuid, {
     int page = 1,
@@ -1316,10 +1305,14 @@ class FeiniuApi {
     return getItemsPageByRequest(request);
   }
 
+  /// 使用结构化请求对象查询条目分页。
   Future<ItemListPage> getItemsPageByRequest(ItemListRequest request) async {
     return getItemsPage(request.toJson());
   }
 
+  /// 直接使用原始 payload 查询条目分页。
+  ///
+  /// 适合调用方已经自行构造复杂筛选条件的场景。
   Future<ItemListPage> getItemsPage(Map<String, dynamic> payload) async {
     final key = _stableJson(payload);
     final existing = _itemListInflight[key];
@@ -1339,6 +1332,7 @@ class FeiniuApi {
     }
   }
 
+  /// 获取收藏列表分页。
   Future<ItemListPage> getFavoritePage({
     Map<String, dynamic>? tags,
     String sortType = 'DESC',
@@ -1412,12 +1406,14 @@ class FeiniuApi {
     }
   }
 
+  /// 获取后端正在运行的任务列表。
   Future<Map<String, dynamic>> getRunningTasks() async {
     final response = await _dio.get(_runningTasksPath);
     return _extractDataMap(response.data, 'task running');
   }
 
   // User preferences / tags
+  /// 读取某个列表页的用户展示设置。
   Future<UserListSetting?> getUserListSetting(
     String ancestorGuid, {
     String key = _folderListSettingKey,
@@ -1434,6 +1430,7 @@ class FeiniuApi {
     }
   }
 
+  /// 保存某个列表页的用户展示设置。
   Future<bool> setUserListSetting(
     String ancestorGuid, {
     String? sortType,
@@ -1457,6 +1454,7 @@ class FeiniuApi {
     return setUserDataJsonValue(key, next, mdbGuid: ancestorGuid);
   }
 
+  /// 读取用户数据表中的原始条目。
   Future<Map<String, dynamic>?> getUserDataEntry(
     String key, {
     String mdbGuid = '',
@@ -1474,6 +1472,7 @@ class FeiniuApi {
     }
   }
 
+  /// 读取用户数据条目里的 JSON 值。
   Future<Map<String, dynamic>?> getUserDataJsonValue(
     String key, {
     String mdbGuid = '',
@@ -1493,6 +1492,7 @@ class FeiniuApi {
     }
   }
 
+  /// 写入用户数据的普通字符串值。
   Future<bool> setUserDataValue(
     String key,
     String value, {
@@ -1512,6 +1512,7 @@ class FeiniuApi {
     }
   }
 
+  /// 写入用户数据的 JSON 值。
   Future<bool> setUserDataJsonValue(
     String key,
     Map<String, dynamic> value, {
@@ -1520,6 +1521,7 @@ class FeiniuApi {
     return setUserDataValue(key, jsonEncode(value), mdbGuid: mdbGuid);
   }
 
+  /// 读取播放列表视图类型偏好。
   Future<String?> getPlaylistViewType() async {
     final setting = await getUserDataJsonValue('playlist:setting');
     final viewType = setting?['view_type']?.toString().trim();
@@ -1529,6 +1531,7 @@ class FeiniuApi {
     return null;
   }
 
+  /// 保存播放列表视图类型偏好。
   Future<bool> setPlaylistViewType(String viewType) {
     if (viewType != 'button' && viewType != 'card') {
       debugPrint('[API][USER_DATA] unsupported playlist view type=$viewType');
@@ -1539,6 +1542,7 @@ class FeiniuApi {
     });
   }
 
+  /// 获取标签接口的原始数据。
   Future<Map<String, List<dynamic>>> getTagList({
     String ancestorGuid = '',
     int isFavorite = 0,
@@ -1558,6 +1562,7 @@ class FeiniuApi {
     return result;
   }
 
+  /// 获取题材标签 id 到名称的映射。
   Future<Map<int, String>> getTagGenresMap({String lan = 'zh-CN'}) async {
     final normalizedLan = lan.trim();
     return _getOrLoadSharedResource<Map<int, String>>(
@@ -1584,6 +1589,7 @@ class FeiniuApi {
     );
   }
 
+  /// 获取地区代码到名称的映射。
   Future<Map<String, String>> getTagIso3166Map({String lan = 'zh-CN'}) async {
     final normalizedLan = lan.trim();
     return _getOrLoadSharedResource<Map<String, String>>(
@@ -1612,6 +1618,7 @@ class FeiniuApi {
     );
   }
 
+  /// 获取语言代码到名称的映射。
   Future<Map<String, String>> getTagIso6392Map({String lan = 'zh-CN'}) async {
     final normalizedLan = lan.trim();
     return _getOrLoadSharedResource<Map<String, String>>(
@@ -1641,6 +1648,9 @@ class FeiniuApi {
   }
 
   // Playback / item actions
+  /// 获取某个条目的可播放列表。
+  ///
+  /// 既可用于电影，也可用于剧集/目录展开后的播放集合。
   Future<List<MediaLibraryItem>> getPlayList({
     bool forceRefresh = false,
   }) async {
@@ -1673,6 +1683,7 @@ class FeiniuApi {
     );
   }
 
+  /// 获取播放页初始化所需的播放信息。
   Future<PlayInfoData> getPlayInfo(String itemGuid) async {
     try {
       final response = await _dio.post(
@@ -1690,6 +1701,9 @@ class FeiniuApi {
     }
   }
 
+  /// 更新条目的播放配置。
+  ///
+  /// 当前主要用于同步官方片头片尾跳过时长。
   Future<void> setPlayConfigByItem({
     required String itemGuid,
     int? skipOpening,
@@ -1714,6 +1728,9 @@ class FeiniuApi {
     }
   }
 
+  /// 获取媒体实际播放流信息。
+  ///
+  /// `recordProgress` 为 true 时会顺带触发服务端进度记录。
   Future<PlaybackStreamData> getPlaybackStream(
     String mediaGuid, {
     int level = 1,
@@ -1742,6 +1759,9 @@ class FeiniuApi {
     }
   }
 
+  /// 创建服务端托管播放会话。
+  ///
+  /// 用于需要服务端保活、鉴权续期或统一回收的播放链路。
   Future<ServerPlaySessionData> createServerPlaySession({
     required String mediaGuid,
     required String videoGuid,
@@ -1781,11 +1801,15 @@ class FeiniuApi {
     }
   }
 
+  /// 获取字幕下载地址。
+  ///
+  /// 返回值是可直接用于 HTTP 请求的完整 URL。
   String getSubtitleDownloadUrl(String subtitleGuid) {
     final base = ApiUrlHelper.normalizeBaseUrl(nasProvider.baseUrl);
     return '$base$_subtitleDownloadPathPrefix/$subtitleGuid';
   }
 
+  /// 下载字幕正文文本。
   Future<String> downloadSubtitleText(String subtitleGuid) async {
     try {
       final response = await _dio.get<List<int>>(
@@ -1804,6 +1828,7 @@ class FeiniuApi {
     }
   }
 
+  /// 搜索远程字幕候选。
   Future<RemoteSubtitleSearchResult> searchRemoteSubtitles({
     required String mediaGuid,
     required String language,
@@ -1827,6 +1852,7 @@ class FeiniuApi {
     }
   }
 
+  /// 下载远程字幕并让服务端挂接到当前媒体。
   Future<RemoteSubtitleDownloadResult> downloadRemoteSubtitle({
     required String mediaGuid,
     required String trimId,
@@ -1852,6 +1878,7 @@ class FeiniuApi {
     }
   }
 
+  /// 删除已挂接的字幕记录。
   Future<void> deleteSubtitle({
     required String subtitleGuid,
     String mediaGuid = '',
@@ -1875,6 +1902,9 @@ class FeiniuApi {
     }
   }
 
+  /// 上报播放进度。
+  ///
+  /// 一般在播放器退出、切源或定时心跳时调用。
   Future<void> recordPlayback({
     required String itemGuid,
     required String mediaGuid,
@@ -1912,6 +1942,9 @@ class FeiniuApi {
     }
   }
 
+  /// 判断播放链接是否已经过期。
+  ///
+  /// 返回 `null` 表示当前无法可靠判断。
   Future<bool?> checkPlayLinkExpired(String? playLink) async {
     final normalizedPlayLink = (playLink ?? '').trim();
     if (normalizedPlayLink.isEmpty) {
@@ -1943,6 +1976,7 @@ class FeiniuApi {
     }
   }
 
+  /// 重置某条播放记录到指定位置。
   Future<void> resetPlaybackRecord({
     required String itemGuid,
     required String mediaGuid,
@@ -1966,6 +2000,7 @@ class FeiniuApi {
     }
   }
 
+  /// 删除指定条目的播放记录。
   Future<void> deletePlaybackRecord({required String itemGuid}) async {
     try {
       final response = await _dio.delete(
@@ -1982,6 +2017,9 @@ class FeiniuApi {
     }
   }
 
+  /// 为任意飞牛资源 URL 构造鉴权请求头。
+  ///
+  /// 主要用于播放器、下载器等不直接复用 `_dio` 的场景。
   Map<String, String> buildSignedHeadersForUrl(
     String url, {
     String method = 'GET',
@@ -2013,6 +2051,9 @@ class FeiniuApi {
     return headers;
   }
 
+  /// 为播放链路构造请求头。
+  ///
+  /// 在通用签名头基础上补充播放链路使用的 User-Agent。
   Map<String, String> buildPlaybackHeadersForUrl(
     String url, {
     String method = 'GET',
@@ -2077,6 +2118,7 @@ class FeiniuApi {
     return (await future) as T;
   }
 
+  /// 设置收藏状态。
   Future<bool> setFavorite(String itemGuid, {required bool favorite}) async {
     try {
       dynamic payload;
@@ -2109,6 +2151,7 @@ class FeiniuApi {
     }
   }
 
+  /// 设置看过状态。
   Future<bool> setWatched(String itemGuid, {required bool watched}) async {
     try {
       dynamic payload;
@@ -2141,6 +2184,7 @@ class FeiniuApi {
     }
   }
 
+  /// 获取条目的完整详情。
   Future<Map<String, dynamic>> getItemDetail(String itemGuid) async {
     try {
       final response = await _dio.get('$_itemPathPrefix/$itemGuid');
@@ -2154,6 +2198,7 @@ class FeiniuApi {
     }
   }
 
+  /// 获取可用于创建下载任务的清晰度选项。
   Future<List<String>> getDownloadResolutionOptions(
     String playItemGuid, {
     String lan = 'zh-CN',
@@ -2189,6 +2234,7 @@ class FeiniuApi {
     }
   }
 
+  /// 创建下载任务并返回任务 id。
   Future<String> createDownloadTask({
     required String mediaGuid,
     required String itemGuid,
@@ -2234,6 +2280,7 @@ class FeiniuApi {
     }
   }
 
+  /// 查询下载任务进度。
   Future<DownloadTaskProgressInfo?> getDownloadTaskProgress(
     String taskId, {
     String lan = 'zh-CN',
@@ -2264,6 +2311,7 @@ class FeiniuApi {
     }
   }
 
+  /// 构造下载任务详情接口的完整 URL。
   String buildDownloadTaskUrl(String taskId) {
     final normalizedTaskId = taskId.trim();
     if (normalizedTaskId.isEmpty) return '';
@@ -2271,6 +2319,7 @@ class FeiniuApi {
     return '$base$_downloadTaskPath/$normalizedTaskId';
   }
 
+  /// 获取剧集对应的季列表。
   Future<List<MediaLibraryItem>> getSeasonList(String itemGuid) async {
     try {
       final response = await _dio.get('$_seasonListPathPrefix/$itemGuid');
@@ -2287,6 +2336,7 @@ class FeiniuApi {
     }
   }
 
+  /// 获取某一季下的剧集列表。
   Future<List<MediaLibraryItem>> getEpisodeList(String seasonGuid) async {
     try {
       final response = await _dio.get('$_episodeListPathPrefix/$seasonGuid');
@@ -2303,11 +2353,13 @@ class FeiniuApi {
     }
   }
 
+  /// 获取条目的转码/流清单选项。
   Future<List<StreamListOption>> getStreamListOptions(String itemGuid) async {
     final data = await getStreamTrackData(itemGuid);
     return data.options;
   }
 
+  /// 获取条目的音轨、字幕轨等流轨道信息。
   Future<StreamTrackData> getStreamTrackData(String itemGuid) async {
     final normalizedItemGuid = itemGuid.trim();
     return _getOrLoadSharedResource<StreamTrackData>(
@@ -2339,6 +2391,7 @@ class FeiniuApi {
   }
 
   // People
+  /// 获取人物相关的作品/职务列表。
   Future<List<PersonCredit>> getPersonList(
     String itemGuid, {
     PersonListRequest request = const PersonListRequest(),
@@ -2374,6 +2427,7 @@ class FeiniuApi {
     );
   }
 
+  /// 获取人物详情资料。
   Future<PersonDetailProfile> getPersonDetail(String personGuid) async {
     try {
       final response = await _dio.get('$_personPathPrefix/$personGuid');
@@ -2388,6 +2442,7 @@ class FeiniuApi {
     }
   }
 
+  /// 获取某个人物名下的条目分页。
   Future<ItemListPage> getPersonItemList({
     required String personGuid,
     required String job,
@@ -2416,6 +2471,7 @@ class FeiniuApi {
     }
   }
 
+  /// 获取媒体流的探测元数据。
   Future<MediaInfo> getStreamMetadata(String mediaGuid) async {
     try {
       final response = await _dio.get(
@@ -2434,6 +2490,9 @@ class FeiniuApi {
   }
 
   // Helpers
+  /// 构造媒体流 URL。
+  ///
+  /// `directLinkQualityIndex` 不为空时表示请求指定直链清晰度。
   String getStreamUrl(String mediaGuid, {int? directLinkQualityIndex}) {
     return ApiUrlHelper.streamUrl(
       nasProvider.baseUrl,
@@ -2634,18 +2693,29 @@ class FeiniuApi {
 const String _defaultPlaybackUserAgent =
     'Mozilla/5.0 (Linux; Android 15; FlyPlayer) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Mobile Safari/537.36';
 
+/// 条目分页查询结果。
 class ItemListPage {
+  /// 服务端返回的总条目数。
   final int total;
+
+  /// 当前页条目集合。
   final List<MediaLibraryItem> items;
 
   const ItemListPage({required this.total, required this.items});
 
+  /// 当前页是否还没有覆盖到总条目数。
   bool get hasMore => items.length < total;
 }
 
+/// 列表页在服务端保存的用户展示设置。
 class UserListSetting {
+  /// 排序方向。
   final String sortType;
+
+  /// 排序字段。
   final String sortField;
+
+  /// 列表视图类型。
   final String viewType;
 
   const UserListSetting({
@@ -2654,6 +2724,7 @@ class UserListSetting {
     required this.viewType,
   });
 
+  /// 从后端 JSON 构造设置对象。
   factory UserListSetting.fromJson(Map<String, dynamic> json) {
     return UserListSetting(
       sortType: (json['sort_type'] ?? 'DESC').toString().toUpperCase(),

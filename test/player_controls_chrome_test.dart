@@ -6,10 +6,10 @@ import 'package:fly_player/player/widgets/player_controls_chrome.dart';
 import 'package:fly_player/theme/app_theme.dart';
 
 void main() {
-  ThemeData _theme() =>
+  ThemeData buildTheme() =>
       AppThemeBuilder.buildFromColors(AppThemePalette.fallback);
 
-  Finder _listenVideoAsset() {
+  Finder listenVideoAsset() {
     return find.byWidgetPredicate(
       (widget) =>
           widget is SvgPicture &&
@@ -19,19 +19,19 @@ void main() {
     );
   }
 
-  Finder _fitModeButton() {
+  Finder fitModeButton() {
     return find.byIcon(Icons.fit_screen_outlined);
   }
 
-  Finder _pictureInPictureButton() {
+  Finder pictureInPictureButton() {
     return find.byIcon(Icons.picture_in_picture_alt_outlined);
   }
 
-  Finder _captureButton() {
+  Finder captureButton() {
     return find.byIcon(Icons.photo_camera_outlined);
   }
 
-  Finder _moreButton() {
+  Finder moreButton() {
     return find.byIcon(Icons.more_horiz_rounded);
   }
 
@@ -40,7 +40,7 @@ void main() {
   ) async {
     await tester.pumpWidget(
       MaterialApp(
-        theme: _theme(),
+        theme: buildTheme(),
         home: Scaffold(
           body: PlayerControlsTopBar(
             visible: true,
@@ -60,14 +60,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(_listenVideoAsset(), findsOneWidget);
+    expect(listenVideoAsset(), findsOneWidget);
     expect(find.byType(TextButton), findsNWidgets(4));
   });
 
   testWidgets('highlights listen video action when active', (
     WidgetTester tester,
   ) async {
-    final theme = _theme();
+    final theme = buildTheme();
     await tester.pumpWidget(
       MaterialApp(
         theme: theme,
@@ -92,7 +92,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final buttonFinder = find.ancestor(
-      of: _listenVideoAsset(),
+      of: listenVideoAsset(),
       matching: find.byType(TextButton),
     );
     final button = tester.widget<TextButton>(buttonFinder);
@@ -108,7 +108,7 @@ void main() {
   ) async {
     await tester.pumpWidget(
       MaterialApp(
-        theme: _theme(),
+        theme: buildTheme(),
         home: Scaffold(
           body: PlayerControlsTopBar(
             visible: true,
@@ -129,8 +129,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(_listenVideoAsset(), findsOneWidget);
-    expect(_fitModeButton(), findsNothing);
+    expect(listenVideoAsset(), findsOneWidget);
+    expect(fitModeButton(), findsNothing);
   });
 
   testWidgets('keeps only pip listen-video and more in compact action mode', (
@@ -138,7 +138,7 @@ void main() {
   ) async {
     await tester.pumpWidget(
       MaterialApp(
-        theme: _theme(),
+        theme: buildTheme(),
         home: Scaffold(
           body: PlayerControlsTopBar(
             visible: true,
@@ -167,11 +167,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(_pictureInPictureButton(), findsOneWidget);
-    expect(_listenVideoAsset(), findsOneWidget);
-    expect(_moreButton(), findsOneWidget);
-    expect(_captureButton(), findsNothing);
-    expect(_fitModeButton(), findsNothing);
+    expect(pictureInPictureButton(), findsOneWidget);
+    expect(listenVideoAsset(), findsOneWidget);
+    expect(moreButton(), findsOneWidget);
+    expect(captureButton(), findsNothing);
+    expect(fitModeButton(), findsNothing);
     expect(find.text('AB'), findsNothing);
     expect(find.byIcon(Icons.download_rounded), findsNothing);
     expect(find.byType(TextButton), findsNWidgets(4));

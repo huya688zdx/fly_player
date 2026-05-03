@@ -1,31 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/models/stream_list_option.dart';
 import 'package:fly_player/models/stream_track_data.dart';
 import 'package:fly_player/pages/media_detail_overlay_page.dart';
-import 'package:fly_player/providers/nas_provider.dart';
-import 'package:fly_player/utils/media_locale_store.dart';
 import 'package:fly_player/utils/play_detail_track_selector.dart';
 import 'package:fly_player/widgets/common/track_option_sheet.dart';
 
+/// 提供详情页轨道选择与媒体信息面板的展示入口。
 class PlayDetailSheetController {
   const PlayDetailSheetController._();
 
-  static String _t(
-    Map<String, dynamic> localeMap,
-    String path,
-    String fallback, {
-    Map<String, Object?> params = const <String, Object?>{},
-  }) {
-    return MediaLocaleStore.text(
-      localeMap,
-      path,
-      fallback: fallback,
-      params: params,
-    );
-  }
-
+  /// 展示字幕轨选择面板并返回新的字幕标识。
   static Future<String?> showSubtitleSheet(
     BuildContext context, {
     required List<SubtitleTrackOption> subtitleTracks,
@@ -33,24 +19,17 @@ class PlayDetailSheetController {
   }) async {
     if (subtitleTracks.isEmpty) return null;
 
-    final localeMap = await MediaLocaleStore.load(context.read<NasProvider>());
-    if (!context.mounted) return null;
+    final l10n = AppLocalizations.of(context);
     const offId = '__subtitle_off__';
     final items = <TrackOptionSheetItem>[
-      TrackOptionSheetItem(
-        id: offId,
-        title: _t(localeMap, 'stream.subtitle.hiddenSubtitle', '关闭字幕'),
-      ),
+      TrackOptionSheetItem(id: offId, title: l10n.playerSubtitleOffAction),
       ...subtitleTracks.map(
         (e) => TrackOptionSheetItem(
           id: e.guid,
-          title: PlayDetailTrackSelector.subtitleOptionTitle(
-            e,
-            localeMap: localeMap,
-          ),
+          title: PlayDetailTrackSelector.subtitleOptionTitle(e, l10n: l10n),
           subtitle: PlayDetailTrackSelector.subtitleOptionSubtitle(
             e,
-            localeMap: localeMap,
+            l10n: l10n,
           ),
         ),
       ),
@@ -62,7 +41,7 @@ class PlayDetailSheetController {
 
     final result = await TrackOptionSheet.show(
       context,
-      title: _t(localeMap, 'player.subtitle.select', '选择字幕'),
+      title: l10n.playerSubtitleSelectTitle,
       items: items,
       selectedId: selectedId,
     );
@@ -70,6 +49,7 @@ class PlayDetailSheetController {
     return result == offId ? '' : result;
   }
 
+  /// 展示音轨选择面板并返回新的音轨标识。
   static Future<String?> showAudioSheet(
     BuildContext context, {
     required List<AudioTrackOption> audioTracks,
@@ -77,8 +57,6 @@ class PlayDetailSheetController {
   }) async {
     if (audioTracks.isEmpty) return null;
 
-    final localeMap = await MediaLocaleStore.load(context.read<NasProvider>());
-    if (!context.mounted) return null;
     final items = audioTracks
         .map(
           (e) => TrackOptionSheetItem(
@@ -93,12 +71,13 @@ class PlayDetailSheetController {
         : selectedAudioGuid;
     return TrackOptionSheet.show(
       context,
-      title: _t(localeMap, 'player.audio.select', '选择音频'),
+      title: AppLocalizations.of(context).playerAudioSelectTitle,
       items: items,
       selectedId: selectedId,
     );
   }
 
+  /// 展示当前媒体变体的详细信息面板。
   static Future<void> showMediaInfoDetail(
     BuildContext context, {
     required List<StreamListOption> streamOptions,

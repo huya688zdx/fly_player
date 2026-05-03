@@ -49,6 +49,8 @@ interface MpvFacade {
 
     fun getPropertyDouble(property: String): Double
 
+    fun onStartFile(): Int
+
     fun onFileLoaded(): Int
 
     fun onEndFile(): Int
@@ -98,6 +100,8 @@ object DefaultMpvFacade : MpvFacade {
     override fun getPropertyInt(property: String): Long = MPVLib.getPropertyInt(property)
 
     override fun getPropertyDouble(property: String): Double = MPVLib.getPropertyDouble(property)
+
+    override fun onStartFile(): Int = MPVLib.onStartFile()
 
     override fun onFileLoaded(): Int = MPVLib.onFileLoaded()
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../../l10n/generated/app_localizations.dart';
 import '../../models/media_collection_view_type.dart';
 import '../../models/media_library_item.dart';
 import '../../theme/app_theme.dart';
@@ -9,7 +10,7 @@ import '../../ui/layout_adaptive.dart';
 import '../../ui/media_poster_card.dart';
 import '../../utils/api_url_helper.dart';
 
-class MediaCollectionBrowser extends StatelessWidget {
+class MediaCollectionBrowserSliver extends StatelessWidget {
   final List<MediaLibraryItem> items;
   final String baseUrl;
   final String token;
@@ -18,7 +19,7 @@ class MediaCollectionBrowser extends StatelessWidget {
   final ValueChanged<MediaLibraryItem> onItemLongPress;
   final ValueChanged<MediaLibraryItem> onItemMoreTap;
 
-  const MediaCollectionBrowser({
+  const MediaCollectionBrowserSliver({
     super.key,
     required this.items,
     required this.baseUrl,
@@ -33,12 +34,14 @@ class MediaCollectionBrowser extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     if (items.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.only(top: 12, bottom: 24),
-        child: Center(
-          child: Text(
-            '暂无内容',
-            style: TextStyle(color: colors.textSecondary, fontSize: 15),
+      return SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.only(top: 12, bottom: 24),
+          child: Center(
+            child: Text(
+              AppLocalizations.of(context).commonEmpty,
+              style: TextStyle(color: colors.textSecondary, fontSize: 15),
+            ),
           ),
         ),
       );
@@ -46,7 +49,7 @@ class MediaCollectionBrowser extends StatelessWidget {
 
     switch (viewType) {
       case MediaCollectionViewType.list:
-        return _ListLayout(
+        return _ListSliverLayout(
           items: items,
           baseUrl: baseUrl,
           token: token,
@@ -55,7 +58,7 @@ class MediaCollectionBrowser extends StatelessWidget {
           onItemMoreTap: onItemMoreTap,
         );
       case MediaCollectionViewType.horizontalPoster:
-        return _PosterGridLayout(
+        return _PosterGridSliverLayout(
           items: items,
           baseUrl: baseUrl,
           token: token,
@@ -64,7 +67,7 @@ class MediaCollectionBrowser extends StatelessWidget {
           onItemLongPress: onItemLongPress,
         );
       case MediaCollectionViewType.verticalPoster:
-        return _PosterGridLayout(
+        return _PosterGridSliverLayout(
           items: items,
           baseUrl: baseUrl,
           token: token,
@@ -76,7 +79,7 @@ class MediaCollectionBrowser extends StatelessWidget {
   }
 }
 
-class _PosterGridLayout extends StatelessWidget {
+class _PosterGridSliverLayout extends StatelessWidget {
   final List<MediaLibraryItem> items;
   final String baseUrl;
   final String token;
@@ -84,7 +87,7 @@ class _PosterGridLayout extends StatelessWidget {
   final ValueChanged<MediaLibraryItem> onItemTap;
   final ValueChanged<MediaLibraryItem> onItemLongPress;
 
-  const _PosterGridLayout({
+  const _PosterGridSliverLayout({
     required this.items,
     required this.baseUrl,
     required this.token,
@@ -113,161 +116,49 @@ class _PosterGridLayout extends StatelessWidget {
         ? imageHeight + 58
         : layout.categoryGridRowHeight;
 
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
+    return SliverPadding(
       padding: const EdgeInsets.only(bottom: 16),
-      itemCount: items.length,
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: crossAxisCount,
-        mainAxisSpacing: spacing,
-        crossAxisSpacing: spacing,
-        mainAxisExtent: rowHeight,
+      sliver: SliverGrid(
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: crossAxisCount,
+          mainAxisSpacing: spacing,
+          crossAxisSpacing: spacing,
+          mainAxisExtent: rowHeight,
+        ),
+        delegate: SliverChildBuilderDelegate((context, index) {
+          final item = items[index];
+          return MediaPosterCard(
+            urls: _posterCandidates(
+              baseUrl,
+              item,
+              width: horizontal ? 720 : layout.categoryGridRequestWidth,
+              preferDirectPath: horizontal,
+            ),
+            token: token,
+            title: item.displayTitle,
+            subtitle: _subtitleFor(context, item),
+            imageAspectRatioHint: item.hasPosterSize
+                ? item.posterWidth / item.posterHeight
+                : null,
+            rating: _ratingFor(item),
+            resolutions: item.resolutions
+                .map(_resolutionLabel)
+                .where((e) => e.isNotEmpty)
+                .toList(growable: false),
+            watched: item.watched == 1,
+            imageHeight: imageHeight,
+            titleFontSize: layout.homePosterTitleFontSize,
+            subtitleFontSize: layout.homePosterSubtitleFontSize,
+            expandImageToFit: false,
+            imageFit: horizontal
+                ? BoxFit.contain
+                : (_isEpisodeItem(item) ? BoxFit.contain : BoxFit.cover),
+            autoFitByImageAspect: false,
+            onTap: () => onItemTap(item),
+            onLongPress: () => onItemLongPress(item),
+          );
+        }, childCount: items.length),
       ),
-      itemBuilder: (context, index) {
-        final item = items[index];
-        return MediaPosterCard(
-          urls: _posterCandidates(
-            baseUrl,
-            item,
-            width: horizontal ? 720 : layout.categoryGridRequestWidth,
-            preferDirectPath: horizontal,
-          ),
-          token: token,
-          title: item.displayTitle,
-          subtitle: _subtitleFor(item),
-          imageAspectRatioHint: item.hasPosterSize
-              ? item.posterWidth / item.posterHeight
-              : null,
-          rating: _ratingFor(item),
-          resolutions: item.resolutions
-              .map(_resolutionLabel)
-              .where((e) => e.isNotEmpty)
-              .toList(growable: false),
-          watched: item.watched == 1,
-          imageHeight: imageHeight,
-          titleFontSize: layout.homePosterTitleFontSize,
-          subtitleFontSize: layout.homePosterSubtitleFontSize,
-          expandImageToFit: false,
-          imageFit: horizontal
-              ? BoxFit.contain
-              : (_isEpisodeItem(item) ? BoxFit.contain : BoxFit.cover),
-          autoFitByImageAspect: false,
-          onTap: () => onItemTap(item),
-          onLongPress: () => onItemLongPress(item),
-        );
-      },
-    );
-  }
-}
-
-class _ListLayout extends StatelessWidget {
-  final List<MediaLibraryItem> items;
-  final String baseUrl;
-  final String token;
-  final ValueChanged<MediaLibraryItem> onItemTap;
-  final ValueChanged<MediaLibraryItem> onItemLongPress;
-  final ValueChanged<MediaLibraryItem> onItemMoreTap;
-
-  const _ListLayout({
-    required this.items,
-    required this.baseUrl,
-    required this.token,
-    required this.onItemTap,
-    required this.onItemLongPress,
-    required this.onItemMoreTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    return ListView.separated(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      padding: const EdgeInsets.only(bottom: 16),
-      itemCount: items.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
-      itemBuilder: (context, index) {
-        final item = items[index];
-        final urls = _posterCandidates(baseUrl, item, width: 280);
-        return InkWell(
-          onTap: () => onItemTap(item),
-          onLongPress: () => onItemLongPress(item),
-          borderRadius: BorderRadius.circular(16),
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(8, 8, 4, 8),
-            decoration: BoxDecoration(
-              color: colors.surface,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: colors.borderSubtle),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: SizedBox(
-                    width: 72,
-                    height: 46,
-                    child: _ListThumb(urls: urls, token: token),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        item.displayTitle,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: colors.textPrimary,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          height: 1.12,
-                        ),
-                      ),
-                      const SizedBox(height: 5),
-                      Wrap(
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        spacing: 6,
-                        runSpacing: 4,
-                        children: [
-                          if (_resolutionBadgeAsset(item) != null)
-                            _ResolutionBadge(
-                              asset: _resolutionBadgeAsset(item)!,
-                            ),
-                          Text(
-                            _subtitleFor(item),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: colors.textSecondary,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  onPressed: () => onItemMoreTap(item),
-                  splashRadius: 20,
-                  icon: Icon(
-                    Icons.more_horiz_rounded,
-                    color: colors.textMuted,
-                    size: 22,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
     );
   }
 }
@@ -368,23 +259,141 @@ List<String> _posterCandidates(
       .toList(growable: false);
 }
 
-String _subtitleFor(MediaLibraryItem item) {
+class _ListSliverLayout extends StatelessWidget {
+  final List<MediaLibraryItem> items;
+  final String baseUrl;
+  final String token;
+  final ValueChanged<MediaLibraryItem> onItemTap;
+  final ValueChanged<MediaLibraryItem> onItemLongPress;
+  final ValueChanged<MediaLibraryItem> onItemMoreTap;
+
+  const _ListSliverLayout({
+    required this.items,
+    required this.baseUrl,
+    required this.token,
+    required this.onItemTap,
+    required this.onItemLongPress,
+    required this.onItemMoreTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final childCount = items.length * 2 - 1;
+    return SliverPadding(
+      padding: const EdgeInsets.only(bottom: 16),
+      sliver: SliverList(
+        delegate: SliverChildBuilderDelegate((context, index) {
+          if (index.isOdd) {
+            return const SizedBox(height: 8);
+          }
+          final item = items[index ~/ 2];
+          final urls = _posterCandidates(baseUrl, item, width: 280);
+          return InkWell(
+            onTap: () => onItemTap(item),
+            onLongPress: () => onItemLongPress(item),
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(8, 8, 4, 8),
+              decoration: BoxDecoration(
+                color: colors.surface,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: colors.borderSubtle),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: SizedBox(
+                      width: 72,
+                      height: 46,
+                      child: _ListThumb(urls: urls, token: token),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          item.displayTitle,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: colors.textPrimary,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            height: 1.12,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 6,
+                          runSpacing: 4,
+                          children: [
+                            if (_resolutionBadgeAsset(item) != null)
+                              _ResolutionBadge(
+                                asset: _resolutionBadgeAsset(item)!,
+                              ),
+                            Text(
+                              _subtitleFor(context, item),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: colors.textSecondary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => onItemMoreTap(item),
+                    splashRadius: 20,
+                    icon: Icon(
+                      Icons.more_horiz_rounded,
+                      color: colors.textMuted,
+                      size: 22,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }, childCount: childCount),
+      ),
+    );
+  }
+}
+
+String _subtitleFor(BuildContext context, MediaLibraryItem item) {
+  final l10n = AppLocalizations.of(context);
   final lowerType = item.type.trim().toLowerCase();
   if (lowerType == 'directory') {
     final count = item.numberOfItem > 0
         ? item.numberOfItem
         : item.localNumberOfEpisodes;
-    return count > 0 ? '共 $count 项' : '目录';
+    return count > 0
+        ? l10n.collectionItemCount(count)
+        : l10n.resourceTypeDirectory;
   }
   if (item.duration > 0) {
     final minutes = item.duration ~/ 60;
     final seconds = item.duration % 60;
-    return seconds == 0 ? '$minutes 分钟' : '$minutes 分钟 $seconds 秒';
+    return seconds == 0
+        ? l10n.commonDurationMinutes(minutes)
+        : l10n.commonDurationMinutesSeconds(minutes, seconds);
   }
   if (item.releaseDate.length >= 4) {
     return item.releaseDate.substring(0, 4);
   }
-  return lowerType == 'video' ? '视频' : item.type;
+  return lowerType == 'video' ? l10n.resourceTypeVideo : item.type;
 }
 
 bool _isEpisodeItem(MediaLibraryItem item) {

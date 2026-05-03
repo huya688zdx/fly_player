@@ -249,9 +249,7 @@ class PlaybackStreamData {
               : directLinkOption;
           hasDirectLinkDefault =
               hasDirectLinkDefault || normalizedDirectLinkOption.isDefault == 1;
-          qualities.add(
-            normalizedDirectLinkOption,
-          );
+          qualities.add(normalizedDirectLinkOption);
         }
       }
     }
@@ -272,7 +270,7 @@ class PlaybackStreamData {
           mediaGuid: originalMediaGuid,
           videoGuid: videoStream?.guid.trim() ?? '',
           resolution: isQuarkOriginal
-              ? '原画'
+              ? 'Original'
               : (videoStream?.resolutionType.trim() ?? ''),
           bitrate: videoStream?.bps ?? 0,
           isDefault: isQuarkOriginal ? 0 : 1,
@@ -330,7 +328,7 @@ class PlaybackStreamData {
     if (userAgent.isNotEmpty) {
       headers['User-Agent'] = userAgent;
     }
-    final debugSummary = 'cloud-direct';
+    const debugSummary = 'cloud-direct';
     return DirectLinkPlaybackTarget(
       url: url,
       headers: headers,
@@ -519,14 +517,6 @@ PlaybackCloudStorageType _parseCloudStorageType(int code) {
     default:
       return PlaybackCloudStorageType.unknown;
   }
-}
-
-bool _looksLikeQuarkUrl(String url) {
-  final uri = Uri.tryParse(url);
-  final host = uri?.host.toLowerCase() ?? '';
-  return host.contains('quark') ||
-      host.contains('uc.cn') ||
-      host.contains('夸克');
 }
 
 bool _shouldIncludeDirectLinkQuality(

@@ -20,6 +20,9 @@ class PlayerRuntimePreferencesStore {
   final String introOutroChapterModePrefKey;
   final String introOutroIntroMaxPrefKey;
   final String introOutroOutroMaxPrefKey;
+  final String subtitleDelayPrefKey;
+  final String subtitlePositionFactorPrefKey;
+  final String subtitleScaleFactorPrefKey;
   final String mpvSettingPrefPrefix;
   final String decoderModeHardware;
   final String decoderModeSoftware;
@@ -31,6 +34,11 @@ class PlayerRuntimePreferencesStore {
   final Set<String> supportedChapterSkipModes;
   final Map<String, String> defaultMpvSettings;
   final Offset defaultPerformanceOverlayOffset;
+  final double defaultSubtitleDelaySeconds;
+  final double defaultSubtitlePositionFactor;
+  final double defaultSubtitleScaleFactor;
+  final double subtitleDelayMinSeconds;
+  final double subtitleDelayMaxSeconds;
   final int introDurationMinSeconds;
   final int introDurationMaxSeconds;
   final int outroDurationMinSeconds;
@@ -52,6 +60,9 @@ class PlayerRuntimePreferencesStore {
     required this.introOutroChapterModePrefKey,
     required this.introOutroIntroMaxPrefKey,
     required this.introOutroOutroMaxPrefKey,
+    required this.subtitleDelayPrefKey,
+    required this.subtitlePositionFactorPrefKey,
+    required this.subtitleScaleFactorPrefKey,
     required this.mpvSettingPrefPrefix,
     required this.decoderModeHardware,
     required this.decoderModeSoftware,
@@ -63,6 +74,11 @@ class PlayerRuntimePreferencesStore {
     required this.supportedChapterSkipModes,
     required this.defaultMpvSettings,
     required this.defaultPerformanceOverlayOffset,
+    required this.defaultSubtitleDelaySeconds,
+    required this.defaultSubtitlePositionFactor,
+    required this.defaultSubtitleScaleFactor,
+    required this.subtitleDelayMinSeconds,
+    required this.subtitleDelayMaxSeconds,
     required this.introDurationMinSeconds,
     required this.introDurationMaxSeconds,
     required this.outroDurationMinSeconds,
@@ -109,6 +125,17 @@ class PlayerRuntimePreferencesStore {
           .clamp(introDurationMinSeconds, introDurationMaxSeconds),
       outroDurationSeconds: (prefs.getInt(introOutroOutroMaxPrefKey) ?? 180)
           .clamp(outroDurationMinSeconds, outroDurationMaxSeconds),
+      subtitleDelaySeconds: _normalizeSubtitleDelaySeconds(
+        prefs.getDouble(subtitleDelayPrefKey),
+      ),
+      subtitlePositionFactor: _normalizeUnitFactor(
+        prefs.getDouble(subtitlePositionFactorPrefKey),
+        defaultValue: defaultSubtitlePositionFactor,
+      ),
+      subtitleScaleFactor: _normalizeUnitFactor(
+        prefs.getDouble(subtitleScaleFactorPrefKey),
+        defaultValue: defaultSubtitleScaleFactor,
+      ),
       mpvSettings: resolvedMpvSettings,
       performanceOverlayOffset: overlayDx != null && overlayDy != null
           ? Offset(overlayDx, overlayDy)
@@ -164,5 +191,16 @@ class PlayerRuntimePreferencesStore {
     return supportedChapterSkipModes.contains(value)
         ? value!
         : chapterSkipModeAuto;
+  }
+
+  double _normalizeSubtitleDelaySeconds(double? value) {
+    final normalized = (value ?? defaultSubtitleDelaySeconds)
+        .clamp(subtitleDelayMinSeconds, subtitleDelayMaxSeconds)
+        .toDouble();
+    return double.parse(normalized.toStringAsFixed(1));
+  }
+
+  double _normalizeUnitFactor(double? value, {required double defaultValue}) {
+    return (value ?? defaultValue).clamp(0.0, 1.0).toDouble();
   }
 }

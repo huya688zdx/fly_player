@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../l10n/generated/app_localizations.dart';
 import '../../theme/app_theme.dart';
 
 class AppActionSheetOption<T> {
@@ -19,7 +20,7 @@ Future<T?> showAppActionSheet<T>(
   BuildContext context, {
   required String title,
   required List<AppActionSheetOption<T>> options,
-  String cancelText = '取消',
+  String? cancelText,
 }) async {
   await HapticFeedback.mediumImpact();
   if (!context.mounted) return null;
@@ -30,6 +31,7 @@ Future<T?> showAppActionSheet<T>(
     isScrollControlled: true,
     builder: (context) {
       final colors = context.appColors;
+      final l10n = AppLocalizations.of(context);
       final media = MediaQuery.of(context);
       final screenWidth = media.size.width;
       final textScale = media.textScaler.scale(1).clamp(1.0, 1.12);
@@ -91,7 +93,7 @@ Future<T?> showAppActionSheet<T>(
                     SizedBox(height: buttonGap),
                   ],
                   _ActionSheetButton(
-                    label: cancelText,
+                    label: cancelText ?? l10n.commonCancel,
                     secondary: true,
                     height: buttonHeight,
                     radius: buttonRadius,

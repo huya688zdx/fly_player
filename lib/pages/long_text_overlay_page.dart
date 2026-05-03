@@ -1,16 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
-import '../providers/nas_provider.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../theme/app_theme.dart';
 import '../ui/app_sheet_transitions.dart';
-import '../utils/media_locale_store.dart';
 
 class LongTextOverlayPage extends StatelessWidget {
   final String title;
   final String sectionTitle;
   final String content;
-  final Map<String, dynamic> localeMap;
   final bool floating;
 
   const LongTextOverlayPage({
@@ -18,7 +15,6 @@ class LongTextOverlayPage extends StatelessWidget {
     required this.title,
     required this.sectionTitle,
     required this.content,
-    this.localeMap = const <String, dynamic>{},
     this.floating = false,
   });
 
@@ -28,9 +24,6 @@ class LongTextOverlayPage extends StatelessWidget {
     required String sectionTitle,
     required String content,
   }) async {
-    final provider = context.read<NasProvider>();
-    final localeMap = await MediaLocaleStore.load(provider);
-    if (!context.mounted) return;
     final inheritedTheme = Theme.of(context);
 
     final media = MediaQuery.of(context);
@@ -39,13 +32,13 @@ class LongTextOverlayPage extends StatelessWidget {
       title: title,
       sectionTitle: sectionTitle,
       content: content,
-      localeMap: localeMap,
       floating: isLandscape,
     );
 
     if (isLandscape) {
       return showDialog<void>(
         context: context,
+        useRootNavigator: false,
         barrierDismissible: true,
         barrierColor: const Color(0xBF020812),
         builder: (_) => Theme(data: inheritedTheme, child: page),
@@ -61,19 +54,6 @@ class LongTextOverlayPage extends StatelessWidget {
     );
   }
 
-  String _t(
-    String path,
-    String fallback, {
-    Map<String, Object?> params = const <String, Object?>{},
-  }) {
-    return MediaLocaleStore.text(
-      localeMap,
-      path,
-      fallback: fallback,
-      params: params,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
@@ -82,7 +62,7 @@ class LongTextOverlayPage extends StatelessWidget {
     final panelDialogHeight = (media.size.height * 0.68).clamp(360.0, 700.0);
     final panelDialogWidth = (media.size.width * 0.62).clamp(560.0, 920.0);
     final bodyText = content.trim().isEmpty
-        ? _t('layout.details.overview.empty', '暂无简介')
+        ? AppLocalizations.of(context).detailOverviewEmpty
         : content;
 
     final child = Container(
@@ -117,7 +97,12 @@ class LongTextOverlayPage extends StatelessWidget {
                   ),
                   const Spacer(),
                   InkWell(
-                    onTap: () => Navigator.of(context).maybePop(),
+                    onTap: () {
+                      if (AppSheetTransitions.maybeClose<void>(context)) {
+                        return;
+                      }
+                      Navigator.of(context).maybePop();
+                    },
                     borderRadius: BorderRadius.circular(14),
                     child: Padding(
                       padding: const EdgeInsets.all(4),

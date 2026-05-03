@@ -4,9 +4,10 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math' as math;
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
@@ -16,7 +17,7 @@ import '../danmaku/api/dandanplay_config.dart';
 import '../danmaku/api/dandanplay_resolver.dart';
 import '../danmaku/controller/danmaku_controller.dart';
 import '../danmaku/models/dandanplay_episode_search_item.dart';
-import '../danmaku/models/danmaku_dynamic_occlusion.dart';
+import '../danmaku/models/danmaku_comment.dart';
 import '../danmaku/models/danmaku_import_result.dart';
 import '../danmaku/models/danmaku_saved_source.dart';
 import '../danmaku/parser/danmaku_import_parser.dart';
@@ -25,12 +26,14 @@ import '../danmaku/render/danmaku_overlay.dart';
 import '../danmaku/settings/danmaku_saved_source_store.dart';
 import '../danmaku/settings/danmaku_settings_store.dart';
 import '../controllers/play_detail_data_loader.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../models/download_task_record.dart';
 import '../models/media_library_item.dart';
 import '../models/play_info.dart';
 import '../models/playback_stream.dart';
 import '../models/remote_subtitle.dart';
 import '../models/stream_track_data.dart';
+import '../models/tv_episode_browser_models.dart';
 import '../models/tv_episode_picker_mode.dart';
 import '../providers/nas_provider.dart';
 import '../providers/parallel_window_settings_provider.dart';
@@ -49,11 +52,12 @@ import '../utils/app_error_reporter.dart';
 import '../utils/app_exception.dart';
 import '../utils/back_dismiss_manager.dart';
 import '../utils/media_language_mapper.dart';
-import '../utils/media_locale_store.dart';
 import '../utils/player_title_formatter.dart';
+import '../utils/playback_resume_position_resolver.dart';
 import '../utils/play_detail_track_selector.dart';
 import '../utils/app_top_tip.dart';
 import '../utils/action_rate_limiter.dart';
+import 'mpv_settings_l10n.dart';
 import '../ui/bookmark_note_dialog.dart';
 import '../ui/bookmark_note_preview.dart';
 import '../ui/mpv_audio_eq_advanced_panel.dart';
@@ -68,6 +72,7 @@ import 'controllers/player_runtime_controller.dart';
 import 'controllers/player_session_controller.dart';
 import 'controllers/play_stats_session_controller.dart';
 import 'controllers/local_runtime_track_controller.dart';
+import 'controllers/weak_network_quality_recommender.dart';
 import 'stores/screenshot_settings_store.dart';
 import 'services/mpv_proxy_server.dart';
 import 'services/player_runtime_preferences_store.dart';
@@ -223,8 +228,11 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
       'player_performance_overlay_offset_x';
   static const String _performanceOverlayOffsetYPrefKey =
       'player_performance_overlay_offset_y';
-  static const Duration _videoLoadingPlaybackStartTolerance = Duration(
-    milliseconds: 450,
+  static const Duration _episodePickerPrefetchDelay = Duration(
+    milliseconds: 1800,
+  );
+  static const Duration _videoLoadingPlaybackProgressTolerance = Duration(
+    milliseconds: 750,
   );
   static const Duration _autoPlayPromptMinimumProgress = Duration(seconds: 5);
   static const String _introOutroEnabledPrefKey = 'player_intro_outro_enabled';
@@ -236,6 +244,11 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
       'player_intro_outro_intro_max_seconds';
   static const String _introOutroOutroMaxPrefKey =
       'player_intro_outro_outro_max_seconds';
+  static const String _subtitleDelayPrefKey = 'player_subtitle_delay_seconds';
+  static const String _subtitlePositionFactorPrefKey =
+      'player_subtitle_position_factor';
+  static const String _subtitleScaleFactorPrefKey =
+      'player_subtitle_scale_factor';
   static const String _mpvSettingPrefPrefix = 'player_mpv_setting_';
   static const String _decoderModeHardware = 'hardware';
   static const String _decoderModeSoftware = 'software';
@@ -247,15 +260,13 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   static const String _autoFilterFallbackStatusText =
       'Auto performance fallback: filters disabled';
   static const String _introOutroModeAuto = 'auto';
-  static const String _introOutroModeChapter = 'chapter';
-  static const String _introOutroModeManual = 'manual';
   static const String _introOutroSourceModeOff = 'off';
   static const String _introOutroSourceModeOfficial = 'official';
   static const String _introOutroSourceModeChapter = 'chapter';
   static const String _chapterSkipModeAuto = 'auto';
   static const String _chapterSkipModeManual = 'manual';
   static const Duration _systemPlaybackSessionPositionThreshold = Duration(
-    seconds: 1,
+    seconds: 3,
   );
   static const String _mpvSettingDeband = 'deband';
   static const String _mpvSettingSharpen = 'sharpen';
@@ -330,6 +341,8 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   final PlayerGestureController _gestureController = PlayerGestureController(
     systemController: const PlayerSystemController(),
   );
+  final PlayerGestureTapCoordinator _gestureTapCoordinator =
+      PlayerGestureTapCoordinator();
   final PlayerCompletionController _completionController =
       PlayerCompletionController();
   final PlayerRuntimeController _runtimeController = PlayerRuntimeController();
@@ -375,6 +388,9 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
         introOutroChapterModePrefKey: _introOutroChapterModePrefKey,
         introOutroIntroMaxPrefKey: _introOutroIntroMaxPrefKey,
         introOutroOutroMaxPrefKey: _introOutroOutroMaxPrefKey,
+        subtitleDelayPrefKey: _subtitleDelayPrefKey,
+        subtitlePositionFactorPrefKey: _subtitlePositionFactorPrefKey,
+        subtitleScaleFactorPrefKey: _subtitleScaleFactorPrefKey,
         mpvSettingPrefPrefix: _mpvSettingPrefPrefix,
         decoderModeHardware: _decoderModeHardware,
         decoderModeSoftware: _decoderModeSoftware,
@@ -399,6 +415,13 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
         },
         defaultMpvSettings: _defaultMpvSettings,
         defaultPerformanceOverlayOffset: Offset(12, 56),
+        defaultSubtitleDelaySeconds: 0,
+        defaultSubtitlePositionFactor:
+            PlayerSettingsController.defaultSubtitlePositionFactor,
+        defaultSubtitleScaleFactor:
+            (1.0 - _subtitleScaleMin) / (_subtitleScaleMax - _subtitleScaleMin),
+        subtitleDelayMinSeconds: -10,
+        subtitleDelayMaxSeconds: 10,
         introDurationMinSeconds: 60,
         introDurationMaxSeconds: 240,
         outroDurationMinSeconds: 60,
@@ -430,7 +453,10 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   Timer? _performanceOverlayTimer;
   Timer? _chapterRetryTimer;
   Timer? _centerPopupTimer;
+  Timer? _initialSourceLoadTimer;
   int? _lastAppliedEffectiveSubtitlePosition;
+  double? _lastAppliedSubtitleDelaySeconds;
+  double? _lastAppliedSubtitleScale;
   NasProvider? _nasProvider;
   bool _abLoopSeekPending = false;
   bool _resumeAfterLifecyclePause = false;
@@ -439,14 +465,17 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   bool _exitPlaybackRecordQueued = false;
   bool _danmakuSearchLoading = false;
   bool _playbackSettingsDrawerVisible = false;
+  bool _audioDrawerVisible = false;
+  bool _subtitleDrawerVisible = false;
+  bool _episodeSheetVisible = false;
   bool _speedDialVisible = false;
-  bool _speedDialRestoreControlsVisible = false;
   bool _playerUiLocked = false;
   String _playerSystemTimeLabel = '';
   String _playerSystemNetworkType = 'unknown';
   int? _playerSystemBatteryLevel;
   bool _playerSystemCharging = false;
   bool _initialPlayerPreferencesLoaded = false;
+  bool _initialDanmakuPreferencesLoaded = false;
   bool _platformViewAttached = false;
   bool _initialSourceLoadStarted = false;
   bool _initialFrameReady = false;
@@ -462,6 +491,7 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   bool _pictureInPictureSupported = false;
   bool _parallelWindowSupported = false;
   bool _parallelWindowEnabled = false;
+  bool _audioDrawerSyncInFlight = false;
   int _cacheDownloadCheckToken = 0;
   int _loadNonceSeed = 0;
   int _runtimeTrackSnapshotLoadNonce = 0;
@@ -470,7 +500,26 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   Duration? _abLoopStart;
   Duration? _abLoopEnd;
   String? _activeDanmakuSourceKey;
+  String? _lockedPlatformViewBackend;
   int _danmakuContextToken = 0;
+  String _lastNativeDanmakuCommentsSignature = '';
+  String _lastNativeDanmakuSettingsSignature = '';
+  String _lastDanmakuOcclusionConfigSignature = '';
+  Timer? _nativeDanmakuSyncTimer;
+  Timer? _episodePickerPrefetchTimer;
+  bool _nativeDanmakuSyncInFlight = false;
+  bool _nativeDanmakuSyncDirty = false;
+  int _systemPlaybackSessionWarmupUntilMs = 0;
+  int _lastSystemPlaybackSessionRequestMs = 0;
+  String _lastSystemPlaybackSessionRequestKey = '';
+  int _runtimeTrackAutoRefreshReadyAtMs = 0;
+  int _runtimeTrackAutoRefreshLoadNonce = 0;
+  int _externalSubtitleAutoApplyReadyAtMs = 0;
+  int _externalSubtitleAutoApplyLoadNonce = 0;
+  int _lastRuntimeTrackRefreshRequestMs = 0;
+  String _lastRuntimeTrackRefreshRequestKey = '';
+  bool _episodePickerPrefetchInFlight = false;
+  int _episodePickerPrefetchGeneration = 0;
   int? _danmakuImportingEpisodeId;
   String? _danmakuImportingLocalPath;
   String? _danmakuDeletingLocalPath;
@@ -511,9 +560,13 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
       const <PlayerBookmarkEntry>[];
   bool _captureFrameInFlight = false;
   bool _systemPlaybackSessionStarted = false;
+  PlayerNestedSheetController<void>? _activeAudioDrawerController;
+  PlayerNestedSheetController<void>? _activeSubtitleDrawerController;
+  PlayerNestedSheetController<void>? _activePlaybackSettingsDrawerController;
   bool _autoPlayPromptRequestInFlight = false;
   Map<String, Object?>? _lastSystemPlaybackSessionPayload;
   SystemUiMode? _lastAppliedSystemUiMode;
+  bool? _lastAppliedPlayerImmersiveMode;
   PlayInfoData? _playStatsCurrentInfo;
   String _playStatsCurrentVideoId = '';
   DateTime? _lastServerManagedPlayLinkCheckAt;
@@ -526,10 +579,18 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
       _completionController.completionActionInFlight;
   bool get _controlsVisible => _overlayState.controlsVisible;
   bool get _controlsAnimatingOut => _overlayState.controlsAnimatingOut;
+  bool get _uiTransientOverlayVisible =>
+      _playbackSettingsDrawerVisible ||
+      _audioDrawerVisible ||
+      _subtitleDrawerVisible ||
+      _episodeSheetVisible ||
+      _speedDialVisible;
   PlayerAdjustmentOverlayData? get _gestureOverlayData =>
       _gestureController.gestureOverlayData;
   Map<String, String> get _subtitleFileByGuid =>
       _subtitleController.subtitleFileByGuid;
+  Map<String, Future<String?>> get _subtitleFileRequestByGuid =>
+      _subtitleController.subtitleFileRequestByGuid;
   Set<String> get _serverFallbackSubtitleGuids =>
       _subtitleController.serverFallbackSubtitleGuids;
   Set<String> get _subtitleFailureNoticeShownGuids =>
@@ -558,24 +619,14 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   set _pendingExternalSubtitlePath(String? value) =>
       _subtitleController.pendingExternalSubtitlePath = value;
   String? get _subtitleDeletingGuid => _subtitleController.subtitleDeletingGuid;
-  set _subtitleDeletingGuid(String? value) =>
-      _subtitleController.subtitleDeletingGuid = value;
   String get _subtitleSearchLanguage =>
       _subtitleController.subtitleSearchLanguage;
-  set _subtitleSearchLanguage(String value) =>
-      _subtitleController.subtitleSearchLanguage = value;
   String? get _subtitleSearchLoadingLanguage =>
       _subtitleController.subtitleSearchLoadingLanguage;
-  set _subtitleSearchLoadingLanguage(String? value) =>
-      _subtitleController.subtitleSearchLoadingLanguage = value;
   String? get _subtitleDownloadTrimId =>
       _subtitleController.subtitleDownloadTrimId;
-  set _subtitleDownloadTrimId(String? value) =>
-      _subtitleController.subtitleDownloadTrimId = value;
   List<RemoteSubtitleSearchItem> get _subtitleSearchResults =>
       _subtitleController.subtitleSearchResults;
-  set _subtitleSearchResults(List<RemoteSubtitleSearchItem> value) =>
-      _subtitleController.subtitleSearchResults = value;
   bool get _autoPlayEnabled => _settingsController.autoPlayEnabled;
   set _autoPlayEnabled(bool value) =>
       _settingsController.autoPlayEnabled = value;
@@ -612,8 +663,6 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
       _settingsController.pendingReloadAutoplayRefresh;
   set _pendingReloadAutoplayRefresh(bool value) =>
       _settingsController.pendingReloadAutoplayRefresh = value;
-  bool get _watchedMarkedForCurrentItem =>
-      _settingsController.watchedMarkedForCurrentItem;
   set _watchedMarkedForCurrentItem(bool value) =>
       _settingsController.watchedMarkedForCurrentItem = value;
   int get _skipPromptCountdownSeconds =>
@@ -652,7 +701,6 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   String get _chapterSkipMode => _settingsController.chapterSkipMode;
   set _chapterSkipMode(String value) =>
       _settingsController.chapterSkipMode = value;
-  String get _introOutroMode => _settingsController.introOutroMode;
   set _introOutroMode(String value) =>
       _settingsController.introOutroMode = value;
   Map<String, String> get _mpvSettings => _settingsController.mpvSettings;
@@ -766,9 +814,15 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
       _sessionController.currentServerSessionHlsTimeSeconds = value;
   String get _currentUrl => _sessionController.currentUrl;
   set _currentUrl(String value) => _sessionController.currentUrl = value;
+  bool get _externalLocalSource => widget.source.externalLocalSource;
+  bool get _danmakuAutoSearchAllowed => widget.source.danmakuAutoSearchAllowed;
   bool get _currentSourceIsDownloadedFile {
+    if (_externalLocalSource) return true;
     final normalizedUrl = _currentUrl.trim().toLowerCase();
-    if (normalizedUrl.startsWith('file:')) return true;
+    if (normalizedUrl.startsWith('file:') ||
+        normalizedUrl.startsWith('content:')) {
+      return true;
+    }
     if (normalizedUrl.isNotEmpty) return false;
     return widget.source.isDownloadedFile;
   }
@@ -815,6 +869,7 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   set _qualities(List<PlaybackQualityOption> value) =>
       _sessionController.qualities = value;
   bool get _supportsIntroOutroUi {
+    if (_externalLocalSource) return false;
     if (_currentSeasonGuid.trim().isNotEmpty) return true;
     if (_currentEpisodeNumber > 0) return true;
     if (widget.source.seasonGuid.trim().isNotEmpty) return true;
@@ -823,6 +878,7 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   }
 
   bool get _showCloudDriveUiEntry {
+    if (_externalLocalSource) return false;
     if (_playbackMode.isDirectLink) return true;
     return _qualities.any((quality) => quality.isDirectLink);
   }
@@ -851,23 +907,28 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
     unawaited(_loadInitialPlayerPreferences());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _initialFrameReady = true;
+      _updatePlayerState(() => _initialFrameReady = true);
       _tryStartInitialSourceLoad();
       unawaited(_loadDanmakuPreferences());
     });
     widget.onBackActionHandlerChanged?.call(_hostBackActionHandler);
     _danmakuController.addListener(_handleDanmakuControllerChanged);
+    _controller.danmakuOcclusionState.addListener(
+      _handleDanmakuOcclusionStateChanged,
+    );
     _controller.value.addListener(_handlePlayerValueChanged);
     _completionController.addListener(_handleOverlayControllersChanged);
-    _overlayState.addListener(_handleOverlayControllersChanged);
     _recordTimer = Timer.periodic(
       const Duration(seconds: 15),
-      (_) => unawaited(_submitPlaybackRecord()),
+      (_) => unawaited(_submitPlaybackRecordAndFlushStats()),
     );
     _scheduleControlsAutoHide();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       unawaited(_syncParallelLayoutOrientationLock());
+      unawaited(
+        _applySystemUiForOrientation(_isLandscapeViewport(), force: true),
+      );
     });
   }
 
@@ -875,7 +936,9 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   void didChangeDependencies() {
     super.didChangeDependencies();
     _nasProvider ??= context.read<NasProvider>();
-    if (!_introOutroConfigLoaded && _currentItemGuid.trim().isNotEmpty) {
+    if (!_externalLocalSource &&
+        !_introOutroConfigLoaded &&
+        _currentItemGuid.trim().isNotEmpty) {
       _introOutroConfigLoaded = true;
       unawaited(_loadIntroOutroConfigForItem(_currentItemGuid));
     }
@@ -901,6 +964,10 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
         oldWidget.source.itemGuid != widget.source.itemGuid ||
         oldWidget.source.mediaGuid != widget.source.mediaGuid ||
         oldWidget.source.videoGuid != widget.source.videoGuid ||
+        oldWidget.source.externalLocalSource !=
+            widget.source.externalLocalSource ||
+        oldWidget.source.danmakuAutoSearchAllowed !=
+            widget.source.danmakuAutoSearchAllowed ||
         oldWidget.source.audioTrackGuid != widget.source.audioTrackGuid ||
         oldWidget.source.subtitleTrackGuid != widget.source.subtitleTrackGuid ||
         oldWidget.source.audioTrackIndex != widget.source.audioTrackIndex ||
@@ -912,10 +979,7 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
     if (layoutModeChanged) {
       unawaited(_syncParallelLayoutOrientationLock());
       unawaited(
-        _applySystemUiForOrientation(
-          _isLandscapeViewport(),
-          controlsVisible: _controlsVisible,
-        ),
+        _applySystemUiForOrientation(_isLandscapeViewport(), force: true),
       );
     }
     if (oldWidget.pictureInPictureActive != widget.pictureInPictureActive) {
@@ -927,9 +991,11 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
       }
     }
     if (sourceChanged) {
-      if (!_initialSourceLoadStarted &&
-          (!_initialPlayerPreferencesLoaded || !_platformViewAttached)) {
+      if (!_initialSourceLoadStarted) {
+        _initialSourceLoadTimer?.cancel();
+        _initialSourceLoadTimer = null;
         _hydrateFromSource(widget.source);
+        _tryStartInitialSourceLoad();
       } else {
         _replacePlayerSource(widget.source);
       }
@@ -954,7 +1020,7 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
         }
       }());
     }
-    unawaited(_applySystemUiForOrientation(isLandscape));
+    unawaited(_applySystemUiForOrientation(isLandscape, force: true));
     if (_uiController.orientationChangeInProgress) {
       _completeOrientationTransitionAfterMetrics();
       return;
@@ -979,10 +1045,15 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
     _performanceOverlayTimer?.cancel();
     _chapterRetryTimer?.cancel();
     _centerPopupTimer?.cancel();
+    _initialSourceLoadTimer?.cancel();
+    _nativeDanmakuSyncTimer?.cancel();
     _danmakuController.removeListener(_handleDanmakuControllerChanged);
+    _controller.danmakuOcclusionState.removeListener(
+      _handleDanmakuOcclusionStateChanged,
+    );
     _controller.value.removeListener(_handlePlayerValueChanged);
     _completionController.removeListener(_handleOverlayControllersChanged);
-    _overlayState.removeListener(_handleOverlayControllersChanged);
+    _gestureTapCoordinator.dispose();
     if (_playStatsCurrentVideoId.isNotEmpty) {
       _playStatsCurrentVideoId = '';
       unawaited(_playStatsSessionController.finishPlayback(reason: 'dispose'));
@@ -1187,6 +1258,12 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
       return;
     }
     await _closePlayer();
+  }
+
+  void _updatePlayerState(VoidCallback update) {
+    if (!mounted) return;
+    setState(update);
+    _syncVideoLoadingOverlayVisibility();
   }
 
   void _completeOrientationTransitionAfterMetrics() {

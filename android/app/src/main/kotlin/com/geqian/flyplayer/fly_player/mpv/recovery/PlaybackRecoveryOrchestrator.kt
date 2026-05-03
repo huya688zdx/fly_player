@@ -30,6 +30,14 @@ data class PlaybackRecoveryExecution(
 class PlaybackRecoveryOrchestrator(
     private val recoveryPolicy: PlaybackRecoveryPolicy = PlaybackRecoveryPolicy(),
 ) {
+    private fun shouldIgnoreLogRecovery(
+        snapshot: PlaybackRecoveryRuntimeSnapshot,
+    ): Boolean {
+        return snapshot.sourceSwitchInProgress ||
+            snapshot.suppressRetryRecovery ||
+            snapshot.hlsSubResourceLog
+    }
+
     private fun queuedRecoveryPositionMs(
         snapshot: PlaybackRecoveryRuntimeSnapshot,
     ): Long? {
@@ -64,6 +72,9 @@ class PlaybackRecoveryOrchestrator(
         snapshot: PlaybackRecoveryRuntimeSnapshot,
         lowerMessage: String,
     ): PlaybackRecoveryExecution {
+        if (shouldIgnoreLogRecovery(snapshot)) {
+            return PlaybackRecoveryExecution()
+        }
         if (
             lowerMessage.contains("playback restart complete") &&
             lowerMessage.contains("audio=playing") &&

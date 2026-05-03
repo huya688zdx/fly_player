@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../../l10n/generated/app_localizations.dart';
 import '../../theme/app_theme.dart';
 import '../controllers/mpv_player_controller.dart';
 import 'player_overlay_sections.dart';
@@ -168,7 +169,10 @@ class PlayerControlsTopBar extends StatelessWidget {
               child: Row(
                 children: [
                   if (showDownloadedBadge) ...[
-                    _PlayerTopStatusBadge(compact: compactUi, label: '已下载'),
+                    _PlayerTopStatusBadge(
+                      compact: compactUi,
+                      label: AppLocalizations.of(context).playerDownloadedBadge,
+                    ),
                     SizedBox(width: compactUi ? 8 : 10),
                   ],
                   Expanded(
@@ -237,7 +241,7 @@ class _PlayerTopSystemStatusRow extends StatelessWidget {
           color: Colors.white.withValues(alpha: 0.94),
         ),
         SizedBox(width: compact ? 4 : 5),
-        Text(_networkLabelForType(networkType), style: textStyle),
+        Text(_networkLabelForType(context, networkType), style: textStyle),
         SizedBox(width: compact ? 10 : 12),
         Icon(
           charging
@@ -269,7 +273,7 @@ class _PlayerTopSystemStatusRow extends StatelessWidget {
     }
   }
 
-  String _networkLabelForType(String type) {
+  String _networkLabelForType(BuildContext context, String type) {
     switch (type.trim().toLowerCase()) {
       case 'wifi':
         return 'WiFi';
@@ -280,9 +284,9 @@ class _PlayerTopSystemStatusRow extends StatelessWidget {
       case 'bluetooth':
         return 'BT';
       case 'offline':
-        return '离线';
+        return AppLocalizations.of(context).playerNetworkOffline;
       case 'online':
-        return '网络';
+        return AppLocalizations.of(context).playerNetworkOnline;
       default:
         return '--';
     }

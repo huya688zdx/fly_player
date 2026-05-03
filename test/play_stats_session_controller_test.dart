@@ -38,6 +38,65 @@ void main() {
     expect(repository.sessions[1].history.countedAsView, isTrue);
     expect(repository.sessions[2].history.countedAsView, isTrue);
   });
+
+  test('periodic flush and finish update the same play history', () async {
+    final repository = _FakePlayStatsRepository();
+    final controller = DefaultPlayStatsSessionController(
+      repository: repository,
+    );
+    final startedAt = DateTime(2026, 3, 24, 20);
+    final meta = _meta(videoId: 'episode-1', videoKind: 'episode');
+
+    await controller.startPlayback(
+      PlayStatsStartContext(
+        startSource: PlayStartSource.manual,
+        meta: meta,
+        startPositionMs: 0,
+        startedAtMs: startedAt.millisecondsSinceEpoch,
+      ),
+    );
+    controller.updateProgress(
+      positionMs: 0,
+      mediaDurationMs: 100000,
+      paused: false,
+      now: startedAt,
+      playbackCompleted: false,
+    );
+    for (var position = 1000; position <= 5000; position += 1000) {
+      controller.updateProgress(
+        positionMs: position,
+        mediaDurationMs: 100000,
+        paused: false,
+        now: startedAt.add(Duration(milliseconds: position)),
+        playbackCompleted: false,
+      );
+    }
+
+    await controller.flushPlayback(reason: 'periodic');
+
+    for (var position = 6000; position <= 10000; position += 1000) {
+      controller.updateProgress(
+        positionMs: position,
+        mediaDurationMs: 100000,
+        paused: false,
+        now: startedAt.add(Duration(milliseconds: position)),
+        playbackCompleted: false,
+      );
+    }
+    await controller.finishPlayback(reason: 'close');
+
+    expect(repository.sessions, hasLength(2));
+    expect(
+      repository.sessions[0].history.historyId,
+      repository.sessions[1].history.historyId,
+    );
+    expect(repository.sessions[0].finishReason, 'periodic');
+    expect(repository.sessions[1].finishReason, 'close');
+    expect(
+      repository.sessions[1].history.watchedMs,
+      greaterThan(repository.sessions[0].history.watchedMs),
+    );
+  });
 }
 
 Future<void> _playSession({

@@ -19,6 +19,10 @@ val localProperties = Properties().apply {
     if (localPropertiesFile.exists()) {
         localPropertiesFile.inputStream().use(::load)
     }
+    val sharedSecretsFile = rootProject.file("../.look/local.properties")
+    if (sharedSecretsFile.exists()) {
+        sharedSecretsFile.inputStream().use(::load)
+    }
 }
 
 fun resolveSecretConfig(name: String): String {
@@ -36,11 +40,23 @@ fun buildConfigString(value: String): String {
 val danDanPlayAppId = resolveSecretConfig("DANDANPLAY_APP_ID")
 val danDanPlayAppSecret = resolveSecretConfig("DANDANPLAY_APP_SECRET")
 val danDanPlayAppSecretFallback = resolveSecretConfig("DANDANPLAY_APP_SECRET_FALLBACK")
+val debugKeystoreFile = rootProject.file("../.look/debug.keystore")
 
 android {
     namespace = "com.geqian.flyplayer.fly_player"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
+
+    signingConfigs {
+        getByName("debug") {
+            if (debugKeystoreFile.exists()) {
+                storeFile = debugKeystoreFile
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+    }
 
     androidResources {
         noCompress += listOf("pdmodel", "pdiparams", "pdiparams.info", "yaml", "yml")
@@ -84,6 +100,10 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("debug")
+        }
+
         release {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
@@ -111,6 +131,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.nanohttpd:nanohttpd:2.3.1")
     implementation(files("libs/fastdeploy-android-sdk-latest-dev.aar"))
+    testImplementation("junit:junit:4.13.2")
 }
 
 flutter {

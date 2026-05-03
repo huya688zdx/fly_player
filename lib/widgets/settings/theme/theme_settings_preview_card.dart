@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/generated/app_localizations.dart';
 import '../../../theme/app_theme.dart';
 import '../../../ui/adaptive_text.dart';
 import 'theme_settings_helpers.dart';
@@ -18,6 +19,7 @@ class ThemeSettingsPreviewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -33,7 +35,7 @@ class ThemeSettingsPreviewCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            '当前外观',
+            l10n.themePreviewCurrentAppearance,
             style: TextStyle(
               color: colors.textPrimary,
               fontSize: AdaptiveText.roleSize(18, role: AdaptiveFontRole.title),
@@ -42,7 +44,7 @@ class ThemeSettingsPreviewCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            '$themeTitle · $themeSubtitle',
+            l10n.settingsThemeSubtitle(themeTitle, themeSubtitle),
             style: TextStyle(
               color: colors.textSecondary,
               fontSize: AdaptiveText.roleSize(14),
@@ -82,7 +84,7 @@ class ThemeSettingsPreviewCard extends StatelessWidget {
                           ),
                           alignment: Alignment.center,
                           child: Text(
-                            '主按钮',
+                            l10n.themePreviewPrimaryButton,
                             style: TextStyle(
                               color: themeSettingsForegroundOn(colors.accent),
                               fontWeight: FontWeight.w700,
@@ -101,7 +103,7 @@ class ThemeSettingsPreviewCard extends StatelessWidget {
                           ),
                           alignment: Alignment.center,
                           child: Text(
-                            '选中标签',
+                            l10n.themePreviewSelectedTab,
                             style: TextStyle(
                               color: colors.selectionStrong,
                               fontWeight: FontWeight.w700,
@@ -131,7 +133,7 @@ class ThemeSettingsPreviewCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    '更多',
+                    l10n.themePreviewMore,
                     style: TextStyle(
                       color: colors.link,
                       fontSize: AdaptiveText.roleSize(14),

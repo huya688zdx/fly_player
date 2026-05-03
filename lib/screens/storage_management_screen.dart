@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../models/download_task_record.dart';
 import '../providers/app_theme_provider.dart';
 import '../providers/nas_provider.dart';
@@ -115,9 +116,10 @@ class _StorageManagementScreenState extends State<StorageManagementScreen> {
       final result = await _service.clearSystemAction(action);
       if (!mounted) return;
       if (!result.success) {
+        final l10n = AppLocalizations.of(context);
         final message = switch (result.code) {
-          'playback_active' => '播放中不可清理播放缓存',
-          _ => '清理失败，请稍后重试',
+          'playback_active' => l10n.storagePlaybackActiveMessage,
+          _ => l10n.storageClearFailedMessage,
         };
         _topTip.show(
           context,
@@ -150,9 +152,10 @@ class _StorageManagementScreenState extends State<StorageManagementScreen> {
 
   Future<void> _clearSelectedPlaybackCache() async {
     if (_working || _selectedPlaybackKeys.isEmpty) return;
+    final l10n = AppLocalizations.of(context);
     final confirmed = await _confirmDialog(
-      title: '清理选中缓存',
-      message: '将删除选中的播放缓存文件，删除后需要重新缓存。是否继续？',
+      title: l10n.storageClearSelectedCacheTitle,
+      message: l10n.storageClearSelectedCacheMessage,
     );
     if (confirmed != true || !mounted) return;
     setState(() => _working = true);
@@ -163,9 +166,9 @@ class _StorageManagementScreenState extends State<StorageManagementScreen> {
       if (!mounted) return;
       if (!result.success) {
         final message = switch (result.code) {
-          'playback_active' => '播放中不可清理播放缓存',
-          'empty_selection' => '请先勾选要清理的缓存',
-          _ => '清理失败，请稍后重试',
+          'playback_active' => l10n.storagePlaybackActiveMessage,
+          'empty_selection' => l10n.storageEmptyPlaybackSelection,
+          _ => l10n.storageClearFailedMessage,
         };
         _topTip.show(
           context,
@@ -180,7 +183,7 @@ class _StorageManagementScreenState extends State<StorageManagementScreen> {
       setState(() => _selectedPlaybackKeys.clear());
       _topTip.show(
         context,
-        message: '已清理选中的播放缓存',
+        message: l10n.storageSelectedPlaybackCleared,
         color: context.appColors.success,
       );
     } finally {
@@ -271,9 +274,10 @@ class _StorageManagementScreenState extends State<StorageManagementScreen> {
 
   Future<void> _clearSelectedDownloads() async {
     if (_working || _selectedDownloadIds.isEmpty) return;
+    final l10n = AppLocalizations.of(context);
     final confirmed = await _confirmDialog(
-      title: '清理已下载文件',
-      message: '将删除选中的本地下载文件，删除后需要重新下载。是否继续？',
+      title: l10n.storageClearSelectedDownloadsTitle,
+      message: l10n.storageClearSelectedDownloadsMessage,
     );
     if (confirmed != true || !mounted) return;
     setState(() => _working = true);
@@ -284,8 +288,8 @@ class _StorageManagementScreenState extends State<StorageManagementScreen> {
       if (!mounted) return;
       if (!result.success) {
         final message = switch (result.code) {
-          'empty_selection' => '请先勾选要清理的下载文件',
-          _ => '清理失败，请稍后重试',
+          'empty_selection' => l10n.storageEmptyDownloadSelection,
+          _ => l10n.storageClearFailedMessage,
         };
         _topTip.show(
           context,
@@ -300,7 +304,7 @@ class _StorageManagementScreenState extends State<StorageManagementScreen> {
       setState(() => _selectedDownloadIds.clear());
       _topTip.show(
         context,
-        message: '已清理选中的下载文件',
+        message: l10n.storageSelectedDownloadsCleared,
         color: context.appColors.success,
       );
     } finally {
@@ -321,7 +325,7 @@ class _StorageManagementScreenState extends State<StorageManagementScreen> {
     final resolution = entry.resolution.trim();
     if (resolution.isNotEmpty) return resolution;
     final segments = entry.subtitle
-        .split('路')
+        .split(' · ')
         .map((segment) => segment.trim())
         .where((segment) => segment.isNotEmpty)
         .toList(growable: false);
@@ -330,7 +334,7 @@ class _StorageManagementScreenState extends State<StorageManagementScreen> {
         return segment;
       }
     }
-    return '缓存';
+    return AppLocalizations.of(context).storageCacheResolutionFallback;
   }
 
   String _playbackEntryTitle(PlaybackCacheEntry entry) {
@@ -338,7 +342,7 @@ class _StorageManagementScreenState extends State<StorageManagementScreen> {
     if (title.isNotEmpty) return title;
     final seriesTitle = entry.seriesTitle.trim();
     if (seriesTitle.isNotEmpty) return seriesTitle;
-    return '缓存视频';
+    return AppLocalizations.of(context).storageCacheVideoFallback;
   }
 
   String _playbackEntryGroupId(PlaybackCacheEntry entry) {
@@ -360,10 +364,12 @@ class _StorageManagementScreenState extends State<StorageManagementScreen> {
       return _playbackEntryTitle(entry);
     }
     if (entry.seasonNumber > 0) {
-      return '$seriesTitle 第${entry.seasonNumber}季';
+      return AppLocalizations.of(
+        context,
+      ).storageSeasonGroupTitle(seriesTitle, entry.seasonNumber);
     }
     if (entry.episodeNumber > 0) {
-      return '$seriesTitle 特别篇';
+      return AppLocalizations.of(context).storageSpecialGroupTitle(seriesTitle);
     }
     return seriesTitle;
   }
@@ -374,17 +380,18 @@ class _StorageManagementScreenState extends State<StorageManagementScreen> {
     required int unavailableCount,
   }) {
     final parts = <String>[];
+    final l10n = AppLocalizations.of(context);
     if (convertedCount > 0) {
-      parts.add('已转为下载 $convertedCount 项');
+      parts.add(l10n.storagePromoteConverted(convertedCount));
     }
     if (existingCount > 0) {
-      parts.add('已有下载 $existingCount 项');
+      parts.add(l10n.storagePromoteExisting(existingCount));
     }
     if (unavailableCount > 0) {
-      parts.add('不可转换 $unavailableCount 项');
+      parts.add(l10n.storagePromoteUnavailable(unavailableCount));
     }
     if (parts.isEmpty) {
-      return '当前没有可转换的完整缓存';
+      return l10n.storageNoConvertibleCache;
     }
     return parts.join('，');
   }
@@ -404,11 +411,11 @@ class _StorageManagementScreenState extends State<StorageManagementScreen> {
           actions: <Widget>[
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('取消'),
+              child: Text(AppLocalizations.of(context).commonCancel),
             ),
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('确认'),
+              child: Text(AppLocalizations.of(context).commonConfirm),
             ),
           ],
         );
@@ -455,17 +462,18 @@ class _StorageManagementScreenState extends State<StorageManagementScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final overview = _overview;
     return Scaffold(
       backgroundColor: colors.backgroundBase,
       appBar: buildSecondaryHostAppBar(
         context,
-        title: const Text('储存管理'),
+        title: Text(l10n.storageTitle),
         actions: <Widget>[
           IconButton(
             onPressed: _working ? null : _loadOverview,
             icon: const Icon(Icons.refresh_rounded),
-            tooltip: '刷新',
+            tooltip: l10n.storageRefreshTooltip,
           ),
         ],
       ),
@@ -570,14 +578,16 @@ class _StorageManagementScreenState extends State<StorageManagementScreen> {
                     final action = item.clearAction;
                     if (action == null) return;
                     final confirmed = await _confirmDialog(
-                      title: '清理${item.title}',
-                      message: '将清理${item.title}，对应文件会被删除。是否继续？',
+                      title: l10n.storageClearItemTitle(item.title),
+                      message: l10n.storageClearItemMessage(item.title),
                     );
                     if (confirmed != true || !mounted) return;
                     await _runSystemAction(
                       action,
-                      successMessage: '${item.title}已清理',
-                      restrictedMessage: '${item.title}已部分清理，公共目录未授权',
+                      successMessage: l10n.storageClearItemSuccess(item.title),
+                      restrictedMessage: l10n.storageClearItemRestricted(
+                        item.title,
+                      ),
                     );
                   },
                   onOpenAppData: () => _openAppDataDetails(overview),
@@ -623,6 +633,7 @@ class _StorageAppDataScreenState extends State<StorageAppDataScreen> {
       context: context,
       builder: (dialogContext) {
         final colors = context.appColors;
+        final l10n = AppLocalizations.of(context);
         return AlertDialog(
           backgroundColor: colors.backgroundElevated,
           title: Text(title),
@@ -630,11 +641,11 @@ class _StorageAppDataScreenState extends State<StorageAppDataScreen> {
           actions: <Widget>[
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('鍙栨秷'),
+              child: Text(l10n.commonCancel),
             ),
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('纭'),
+              child: Text(l10n.commonConfirm),
             ),
           ],
         );
@@ -645,16 +656,18 @@ class _StorageAppDataScreenState extends State<StorageAppDataScreen> {
     try {
       await onConfirmed();
       if (!mounted) return;
+      final l10n = AppLocalizations.of(context);
       _topTip.show(
         context,
-        message: '$title已完成',
+        message: l10n.storageActionCompleted(title),
         color: context.appColors.success,
       );
     } catch (_) {
       if (!mounted) return;
+      final l10n = AppLocalizations.of(context);
       _topTip.show(
         context,
-        message: '$title失败，请稍后重试',
+        message: l10n.storageActionFailed(title),
         color: context.appColors.warning,
       );
     } finally {
@@ -667,10 +680,14 @@ class _StorageAppDataScreenState extends State<StorageAppDataScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final overview = widget.overview;
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: buildSecondaryHostAppBar(context, title: const Text('应用数据与危险操作')),
+      appBar: buildSecondaryHostAppBar(
+        context,
+        title: Text(l10n.storageAppDataDangerTitle),
+      ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
         children: <Widget>[
@@ -679,7 +696,7 @@ class _StorageAppDataScreenState extends State<StorageAppDataScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  '应用数据',
+                  l10n.storageAppDataTitle,
                   style: TextStyle(
                     color: colors.textPrimary,
                     fontSize: 18,
@@ -688,30 +705,30 @@ class _StorageAppDataScreenState extends State<StorageAppDataScreen> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '这些内容通常是用户记录和个性化配置，不会和普通缓存一起清理。',
+                  l10n.storageAppDataDescription,
                   style: TextStyle(color: colors.textMuted, fontSize: 13),
                 ),
                 const SizedBox(height: 14),
                 _DangerActionRow(
-                  title: '清空书签',
-                  subtitle: '仅删除播放书签记录',
+                  title: l10n.storageClearBookmarksTitle,
+                  subtitle: l10n.storageClearBookmarksSubtitle,
                   trailing: widget.formatBytes(overview.bookmarksBytes),
                   busy: _working,
                   onTap: () => _runDangerAction(
-                    title: '清空书签',
-                    message: '将删除全部播放书签，此操作不可恢复。',
+                    title: l10n.storageClearBookmarksTitle,
+                    message: l10n.storageClearBookmarksMessage,
                     onConfirmed: _service.clearBookmarks,
                   ),
                 ),
                 const Divider(height: 24),
                 _DangerActionRow(
-                  title: '清空已保存主题',
-                  subtitle: '保留当前自定义配置',
+                  title: l10n.storageClearSavedThemesTitle,
+                  subtitle: l10n.storageClearSavedThemesSubtitle,
                   trailing: widget.formatBytes(overview.savedThemesBytes),
                   busy: _working,
                   onTap: () => _runDangerAction(
-                    title: '清空已保存主题',
-                    message: '将删除已保存主题，但不会影响当前自定义配置。',
+                    title: l10n.storageClearSavedThemesTitle,
+                    message: l10n.storageClearSavedThemesMessage,
                     onConfirmed: () => _service.clearSavedThemes(
                       context.read<AppThemeProvider>(),
                     ),
@@ -719,39 +736,51 @@ class _StorageAppDataScreenState extends State<StorageAppDataScreen> {
                 ),
                 const Divider(height: 24),
                 _DangerActionRow(
-                  title: '清空弹幕来源',
-                  subtitle: '删除已保存的弹幕来源记录',
+                  title: l10n.storageClearDynamicThemeTitle,
+                  subtitle: l10n.storageClearDynamicThemeSubtitle,
+                  trailing: widget.formatBytes(overview.dynamicThemeCacheBytes),
+                  busy: _working,
+                  onTap: () => _runDangerAction(
+                    title: l10n.storageClearDynamicThemeTitle,
+                    message: l10n.storageClearDynamicThemeMessage,
+                    onConfirmed: _service.clearDynamicThemeSeedCache,
+                  ),
+                ),
+                const Divider(height: 24),
+                _DangerActionRow(
+                  title: l10n.storageClearDanmakuSourcesTitle,
+                  subtitle: l10n.storageClearDanmakuSourcesSubtitle,
                   trailing: widget.formatBytes(
                     overview.danmakuSourcesBytes + overview.danmakuCacheBytes,
                   ),
                   busy: _working,
                   onTap: () => _runDangerAction(
-                    title: '清空弹幕来源',
-                    message: '将删除已保存的弹幕来源记录。',
+                    title: l10n.storageClearDanmakuSourcesTitle,
+                    message: l10n.storageClearDanmakuSourcesMessage,
                     onConfirmed: _service.clearDanmakuSources,
                   ),
                 ),
                 const Divider(height: 24),
                 _DangerActionRow(
-                  title: '清空登录历史',
-                  subtitle: '不会退出当前会话',
+                  title: l10n.storageClearLoginHistoryTitle,
+                  subtitle: l10n.storageClearLoginHistorySubtitle,
                   trailing: widget.formatBytes(overview.loginHistoryBytes),
                   busy: _working,
                   onTap: () => _runDangerAction(
-                    title: '清空登录历史',
-                    message: '将删除历史登录记录，不会退出当前登录。',
+                    title: l10n.storageClearLoginHistoryTitle,
+                    message: l10n.storageClearLoginHistoryMessage,
                     onConfirmed: _service.clearLoginHistory,
                   ),
                 ),
                 const Divider(height: 24),
                 _DangerActionRow(
-                  title: '重置设置',
-                  subtitle: '主题、播放器、截图、弹幕与平行窗口设置',
+                  title: l10n.storageResetSettingsTitle,
+                  subtitle: l10n.storageResetSettingsSubtitle,
                   trailing: widget.formatBytes(overview.otherSettingsBytes),
                   busy: _working,
                   onTap: () => _runDangerAction(
-                    title: '重置设置',
-                    message: '将重置主题、播放器、截图、弹幕和平行窗口设置，不会清理缓存和用户文件。',
+                    title: l10n.storageResetSettingsTitle,
+                    message: l10n.storageResetSettingsMessage,
                     onConfirmed: () => _service.resetSettings(
                       themeProvider: context.read<AppThemeProvider>(),
                       parallelWindowSettingsProvider: context
@@ -782,6 +811,7 @@ class _StorageOverviewCard extends StatelessWidget {
     final colors = context.appColors;
     final hh = updatedAt.hour.toString().padLeft(2, '0');
     final mm = updatedAt.minute.toString().padLeft(2, '0');
+    final l10n = AppLocalizations.of(context);
     return _SectionCard(
       child: Row(
         children: <Widget>[
@@ -800,7 +830,7 @@ class _StorageOverviewCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  '总占用',
+                  l10n.storageTotalUsage,
                   style: TextStyle(color: colors.textSecondary, fontSize: 13),
                 ),
                 const SizedBox(height: 4),
@@ -814,7 +844,7 @@ class _StorageOverviewCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '上次刷新 $hh:$mm',
+                  l10n.storageLastRefreshed('$hh:$mm'),
                   style: TextStyle(color: colors.textMuted, fontSize: 12),
                 ),
               ],
@@ -937,6 +967,7 @@ class _StorageChartCardState extends State<_StorageChartCard>
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final activeItems = widget.items
         .where((item) => item.bytes > 0)
         .toList(growable: false);
@@ -1024,7 +1055,7 @@ class _StorageChartCardState extends State<_StorageChartCard>
                           mainAxisSize: MainAxisSize.min,
                           children: <Widget>[
                             Text(
-                              selectedItem?.title ?? '总计',
+                              selectedItem?.title ?? l10n.storageTotal,
                               style: TextStyle(
                                 color: selectedItem == null
                                     ? colors.textSecondary
@@ -1066,7 +1097,7 @@ class _StorageChartCardState extends State<_StorageChartCard>
               ? Padding(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   child: Text(
-                    '暂无占用数据',
+                    l10n.storageNoUsageData,
                     style: TextStyle(color: colors.textMuted, fontSize: 13),
                   ),
                 )
@@ -1149,7 +1180,7 @@ class _StorageChartCardState extends State<_StorageChartCard>
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Text(
-                '占用分类',
+                l10n.storageUsageCategory,
                 style: TextStyle(
                   color: colors.textPrimary,
                   fontSize: 18,
@@ -1355,12 +1386,13 @@ class _StorageCategoriesCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return _SectionCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            '分类详情',
+            l10n.storageCategoryDetails,
             style: TextStyle(
               color: colors.textPrimary,
               fontSize: 18,
@@ -1544,7 +1576,7 @@ class _ExpandableStorageRow extends StatelessWidget {
                     [
                       if (item.countLabel.isNotEmpty) item.countLabel,
                       if (item.note?.trim().isNotEmpty == true) item.note!,
-                    ].join(' 路'),
+                    ].join(' · '),
                     style: TextStyle(color: colors.textSecondary, fontSize: 12),
                   ),
                 ],
@@ -1562,6 +1594,607 @@ class _ExpandableStorageRow extends StatelessWidget {
       ),
     );
   }
+}
+
+const int _storageEntryPageSize = 8;
+
+class _ParsedStorageSeason {
+  final String seriesTitle;
+  final String seasonLabel;
+  final int seasonSort;
+
+  const _ParsedStorageSeason({
+    required this.seriesTitle,
+    required this.seasonLabel,
+    required this.seasonSort,
+  });
+}
+
+class _StorageSeriesGroup<T> {
+  final String id;
+  final String title;
+  final int bytes;
+  final int latestAtMs;
+  final List<_StorageSeasonGroup<T>> seasons;
+
+  const _StorageSeriesGroup({
+    required this.id,
+    required this.title,
+    required this.bytes,
+    required this.latestAtMs,
+    required this.seasons,
+  });
+
+  int get entryCount =>
+      seasons.fold<int>(0, (sum, season) => sum + season.entries.length);
+
+  Iterable<T> get entries sync* {
+    for (final season in seasons) {
+      yield* season.entries;
+    }
+  }
+}
+
+class _StorageSeasonGroup<T> {
+  final String id;
+  final String title;
+  final int bytes;
+  final int latestAtMs;
+  final int sortIndex;
+  final List<T> entries;
+
+  const _StorageSeasonGroup({
+    required this.id,
+    required this.title,
+    required this.bytes,
+    required this.latestAtMs,
+    required this.sortIndex,
+    required this.entries,
+  });
+}
+
+class _MutableStorageSeriesGroup<T> {
+  final String id;
+  final String title;
+  final Map<String, _MutableStorageSeasonGroup<T>> seasons =
+      <String, _MutableStorageSeasonGroup<T>>{};
+
+  _MutableStorageSeriesGroup({required this.id, required this.title});
+}
+
+class _MutableStorageSeasonGroup<T> {
+  final String id;
+  final String title;
+  final int sortIndex;
+  final List<T> entries = <T>[];
+
+  _MutableStorageSeasonGroup({
+    required this.id,
+    required this.title,
+    required this.sortIndex,
+  });
+}
+
+class _GroupedStorageTree<T> extends StatelessWidget {
+  final List<_StorageSeriesGroup<T>> groups;
+  final String Function(int bytes) formatBytes;
+  final bool busy;
+  final bool Function(T entry) selectable;
+  final bool Function(T entry) selected;
+  final void Function(T entry, bool selected) onToggleSelected;
+  final String Function(T entry) entryTitle;
+  final String Function(T entry) entrySubtitle;
+  final String Function(T entry) entryTrailing;
+  final int maxSubtitleLines;
+
+  const _GroupedStorageTree({
+    required this.groups,
+    required this.formatBytes,
+    required this.busy,
+    required this.selectable,
+    required this.selected,
+    required this.onToggleSelected,
+    required this.entryTitle,
+    required this.entrySubtitle,
+    required this.entryTrailing,
+    this.maxSubtitleLines = 2,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (groups.isEmpty) return const SizedBox.shrink();
+    final pageCount = math.max(
+      1,
+      (groups.length / _storageEntryPageSize).ceil(),
+    );
+    return DefaultTabController(
+      key: ValueKey<int>(pageCount),
+      length: pageCount,
+      child: Column(
+        children: <Widget>[
+          if (pageCount > 1) ...<Widget>[
+            _StoragePageTabs(pageCount: pageCount, totalCount: groups.length),
+            const SizedBox(height: 8),
+          ],
+          Builder(
+            builder: (context) {
+              final controller = DefaultTabController.of(context);
+              return AnimatedBuilder(
+                animation: controller,
+                builder: (context, _) {
+                  final pageIndex = controller.index.clamp(0, pageCount - 1);
+                  final pageGroups = groups
+                      .skip(pageIndex * _storageEntryPageSize)
+                      .take(_storageEntryPageSize)
+                      .toList(growable: false);
+                  return Column(
+                    children: <Widget>[
+                      for (final group in pageGroups)
+                        _seriesTile(context, group),
+                    ],
+                  );
+                },
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _seriesTile(BuildContext context, _StorageSeriesGroup<T> group) {
+    final colors = context.appColors;
+    final selectionValue = _selectionValue(group.entries);
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        key: PageStorageKey<String>('storage-series-${group.id}'),
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: EdgeInsets.zero,
+        leading: Checkbox(
+          tristate: true,
+          value: selectionValue,
+          onChanged: busy ? null : (_) => _toggleEntries(group.entries),
+        ),
+        title: Text(
+          group.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: colors.textPrimary,
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        subtitle: Text(
+          AppLocalizations.of(context).storageSeriesGroupSubtitle(
+            group.seasons.length,
+            group.entryCount,
+            formatBytes(group.bytes),
+            _formatStorageTimeMs(group.latestAtMs),
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: colors.textMuted, fontSize: 11),
+        ),
+        children: <Widget>[
+          for (final season in group.seasons) _seasonTile(context, season),
+        ],
+      ),
+    );
+  }
+
+  Widget _seasonTile(BuildContext context, _StorageSeasonGroup<T> season) {
+    final colors = context.appColors;
+    final selectionValue = _selectionValue(season.entries);
+    return Padding(
+      padding: const EdgeInsets.only(left: 16),
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          key: PageStorageKey<String>('storage-season-${season.id}'),
+          tilePadding: EdgeInsets.zero,
+          childrenPadding: EdgeInsets.zero,
+          leading: Checkbox(
+            tristate: true,
+            value: selectionValue,
+            onChanged: busy ? null : (_) => _toggleEntries(season.entries),
+          ),
+          title: Text(
+            season.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: colors.textPrimary,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          subtitle: Text(
+            AppLocalizations.of(context).storageSeasonGroupSubtitle(
+              season.entries.length,
+              formatBytes(season.bytes),
+              _formatStorageTimeMs(season.latestAtMs),
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: colors.textMuted, fontSize: 11),
+          ),
+          children: <Widget>[
+            for (final entry in season.entries) _entryTile(entry),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _entryTile(T entry) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 32),
+      child: CheckboxListTile(
+        value: selected(entry),
+        dense: true,
+        controlAffinity: ListTileControlAffinity.leading,
+        contentPadding: EdgeInsets.zero,
+        onChanged: busy || !selectable(entry)
+            ? null
+            : (value) => onToggleSelected(entry, value ?? false),
+        title: Text(
+          entryTitle(entry),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        subtitle: Text(
+          entrySubtitle(entry),
+          maxLines: maxSubtitleLines,
+          overflow: TextOverflow.ellipsis,
+        ),
+        secondary: Text(
+          entryTrailing(entry),
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+        ),
+      ),
+    );
+  }
+
+  bool? _selectionValue(Iterable<T> entries) {
+    final selectableEntries = entries.where(selectable).toList(growable: false);
+    if (selectableEntries.isEmpty) return false;
+    final selectedCount = selectableEntries.where(selected).length;
+    if (selectedCount == 0) return false;
+    if (selectedCount == selectableEntries.length) return true;
+    return null;
+  }
+
+  void _toggleEntries(Iterable<T> entries) {
+    final selectableEntries = entries.where(selectable).toList(growable: false);
+    final nextSelected = _selectionValue(selectableEntries) != true;
+    for (final entry in selectableEntries) {
+      onToggleSelected(entry, nextSelected);
+    }
+  }
+}
+
+class _StoragePageTabs extends StatelessWidget {
+  final int pageCount;
+  final int totalCount;
+
+  const _StoragePageTabs({required this.pageCount, required this.totalCount});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            AppLocalizations.of(
+              context,
+            ).storageGroupedPageSummary(totalCount, _storageEntryPageSize),
+            style: TextStyle(color: colors.textMuted, fontSize: 12),
+          ),
+          const SizedBox(height: 8),
+          TabBar(
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
+            labelColor: colors.textPrimary,
+            unselectedLabelColor: colors.textMuted,
+            indicatorSize: TabBarIndicatorSize.tab,
+            dividerColor: Colors.transparent,
+            tabs: <Widget>[
+              for (var i = 0; i < pageCount; i++) Tab(text: '${i + 1}'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+List<_StorageSeriesGroup<PlaybackCacheEntry>> _buildPlaybackGroups(
+  List<PlaybackCacheEntry> entries,
+  AppLocalizations l10n,
+) {
+  final seriesMap = <String, _MutableStorageSeriesGroup<PlaybackCacheEntry>>{};
+  for (final entry in entries) {
+    final seriesTitle = _cleanStorageLabel(entry.seriesTitle).isNotEmpty
+        ? _cleanStorageLabel(entry.seriesTitle)
+        : _cleanStorageLabel(entry.title).isNotEmpty
+        ? _cleanStorageLabel(entry.title)
+        : l10n.storageUnknownWork;
+    final seasonLabel = entry.seasonNumber > 0
+        ? l10n.storageSeasonNumberSpaced(entry.seasonNumber)
+        : l10n.storageUngroupedSeason;
+    final seasonSort = entry.seasonNumber > 0 ? entry.seasonNumber : 999999;
+    final seriesId = _storageStableId('playback-series', seriesTitle);
+    final series = seriesMap.putIfAbsent(
+      seriesId,
+      () => _MutableStorageSeriesGroup<PlaybackCacheEntry>(
+        id: seriesId,
+        title: seriesTitle,
+      ),
+    );
+    final seasonId = _storageStableId(seriesId, seasonLabel);
+    final season = series.seasons.putIfAbsent(
+      seasonId,
+      () => _MutableStorageSeasonGroup<PlaybackCacheEntry>(
+        id: seasonId,
+        title: seasonLabel,
+        sortIndex: seasonSort,
+      ),
+    );
+    season.entries.add(entry);
+  }
+  return _finalizeStorageGroups<PlaybackCacheEntry>(
+    seriesMap.values,
+    bytesOf: (entry) => entry.bytes,
+    latestMsOf: (entry) => entry.lastAccessAt.millisecondsSinceEpoch,
+    compareEntries: (left, right) {
+      final episodeCompare = _playbackEpisodeSort(
+        left,
+      ).compareTo(_playbackEpisodeSort(right));
+      if (episodeCompare != 0) return episodeCompare;
+      return right.lastAccessAt.compareTo(left.lastAccessAt);
+    },
+  );
+}
+
+List<_StorageSeriesGroup<DownloadTaskRecord>> _buildDownloadGroups(
+  List<DownloadTaskRecord> entries,
+  AppLocalizations l10n,
+) {
+  final seriesMap = <String, _MutableStorageSeriesGroup<DownloadTaskRecord>>{};
+  for (final entry in entries) {
+    final parsed = _downloadSeriesSeason(entry, l10n);
+    final seriesId = _storageStableId('download-series', parsed.seriesTitle);
+    final series = seriesMap.putIfAbsent(
+      seriesId,
+      () => _MutableStorageSeriesGroup<DownloadTaskRecord>(
+        id: seriesId,
+        title: parsed.seriesTitle,
+      ),
+    );
+    final seasonId = _storageStableId(seriesId, parsed.seasonLabel);
+    final season = series.seasons.putIfAbsent(
+      seasonId,
+      () => _MutableStorageSeasonGroup<DownloadTaskRecord>(
+        id: seasonId,
+        title: parsed.seasonLabel,
+        sortIndex: parsed.seasonSort,
+      ),
+    );
+    season.entries.add(entry);
+  }
+  return _finalizeStorageGroups<DownloadTaskRecord>(
+    seriesMap.values,
+    bytesOf: (entry) => entry.totalBytes,
+    latestMsOf: (entry) => entry.updatedAtMs,
+    compareEntries: (left, right) {
+      final episodeCompare = _downloadEpisodeSort(
+        left,
+      ).compareTo(_downloadEpisodeSort(right));
+      if (episodeCompare != 0) return episodeCompare;
+      return right.updatedAtMs.compareTo(left.updatedAtMs);
+    },
+  );
+}
+
+List<_StorageSeriesGroup<T>> _finalizeStorageGroups<T>(
+  Iterable<_MutableStorageSeriesGroup<T>> mutableGroups, {
+  required int Function(T entry) bytesOf,
+  required int Function(T entry) latestMsOf,
+  required int Function(T left, T right) compareEntries,
+}) {
+  final groups = mutableGroups
+      .map((series) {
+        final seasons =
+            series.seasons.values
+                .map((season) {
+                  season.entries.sort(compareEntries);
+                  final bytes = season.entries.fold<int>(
+                    0,
+                    (sum, entry) => sum + bytesOf(entry),
+                  );
+                  final latestAtMs = season.entries.fold<int>(
+                    0,
+                    (latest, entry) => math.max(latest, latestMsOf(entry)),
+                  );
+                  return _StorageSeasonGroup<T>(
+                    id: season.id,
+                    title: season.title,
+                    bytes: bytes,
+                    latestAtMs: latestAtMs,
+                    sortIndex: season.sortIndex,
+                    entries: List<T>.unmodifiable(season.entries),
+                  );
+                })
+                .toList(growable: false)
+              ..sort((left, right) {
+                final sortCompare = left.sortIndex.compareTo(right.sortIndex);
+                if (sortCompare != 0) return sortCompare;
+                return right.latestAtMs.compareTo(left.latestAtMs);
+              });
+        final bytes = seasons.fold<int>(0, (sum, season) => sum + season.bytes);
+        final latestAtMs = seasons.fold<int>(
+          0,
+          (latest, season) => math.max(latest, season.latestAtMs),
+        );
+        return _StorageSeriesGroup<T>(
+          id: series.id,
+          title: series.title,
+          bytes: bytes,
+          latestAtMs: latestAtMs,
+          seasons: seasons,
+        );
+      })
+      .toList(growable: false);
+  groups.sort((left, right) => right.latestAtMs.compareTo(left.latestAtMs));
+  return groups;
+}
+
+_ParsedStorageSeason _downloadSeriesSeason(
+  DownloadTaskRecord entry,
+  AppLocalizations l10n,
+) {
+  final candidates =
+      <String>[entry.groupTitle, _parentFolderName(entry.filePath)]
+          .map(_cleanStorageLabel)
+          .where((value) => value.isNotEmpty)
+          .toList(growable: false);
+  for (final candidate in candidates) {
+    final parsed = _parseSeriesSeasonLabel(candidate, l10n);
+    if (parsed.seriesTitle.trim().isNotEmpty) return parsed;
+  }
+  final fallbackTitle = _cleanStorageLabel(entry.title).isNotEmpty
+      ? _cleanStorageLabel(entry.title)
+      : l10n.storageUnknownWork;
+  return _ParsedStorageSeason(
+    seriesTitle: fallbackTitle,
+    seasonLabel: l10n.storageUngroupedSeason,
+    seasonSort: 999999,
+  );
+}
+
+_ParsedStorageSeason _parseSeriesSeasonLabel(
+  String rawLabel,
+  AppLocalizations l10n,
+) {
+  final label = _cleanStorageLabel(rawLabel);
+  if (label.isEmpty) {
+    return _ParsedStorageSeason(
+      seriesTitle: l10n.storageUnknownWork,
+      seasonLabel: l10n.storageUngroupedSeason,
+      seasonSort: 999999,
+    );
+  }
+  final patterns = <RegExp>[
+    RegExp(r'^(.*?)\s+Season\s*-?\s*(\d+)$', caseSensitive: false),
+    RegExp(r'^(.*?)\s+S(\d+)$', caseSensitive: false),
+  ];
+  for (final pattern in patterns) {
+    final match = pattern.firstMatch(label);
+    if (match == null) continue;
+    final series = _cleanStorageLabel(match.group(1) ?? '');
+    final season = int.tryParse(match.group(2) ?? '') ?? 0;
+    if (series.isEmpty || season <= 0) continue;
+    return _ParsedStorageSeason(
+      seriesTitle: series,
+      seasonLabel: l10n.storageSeasonNumberSpaced(season),
+      seasonSort: season,
+    );
+  }
+  if (label.toLowerCase().contains('special')) {
+    final series = _cleanStorageLabel(
+      label.replaceAll(RegExp('specials?', caseSensitive: false), ''),
+    );
+    return _ParsedStorageSeason(
+      seriesTitle: series.isEmpty ? label : series,
+      seasonLabel: l10n.bookmarkManagerSpecialSeason,
+      seasonSort: 0,
+    );
+  }
+  return _ParsedStorageSeason(
+    seriesTitle: label,
+    seasonLabel: l10n.storageUngroupedSeason,
+    seasonSort: 999999,
+  );
+}
+
+String _playbackEpisodeTitle(PlaybackCacheEntry entry, AppLocalizations l10n) {
+  final title = _cleanStorageLabel(entry.title);
+  if (entry.episodeNumber > 0) {
+    return l10n
+        .storageEpisodeTitleWithNumber(entry.episodeNumber, title)
+        .trim();
+  }
+  return title.isEmpty ? l10n.storageUnknownEpisode : title;
+}
+
+String _downloadEpisodeTitle(DownloadTaskRecord entry, AppLocalizations l10n) {
+  final title = _cleanStorageLabel(entry.title);
+  if (title.isNotEmpty) return title;
+  final fileName = _cleanStorageLabel(entry.fileName);
+  return fileName.isEmpty ? l10n.storageUnknownEpisode : fileName;
+}
+
+int _playbackEpisodeSort(PlaybackCacheEntry entry) {
+  if (entry.episodeNumber > 0) return entry.episodeNumber;
+  return _episodeNumberFromText(entry.title) ?? 999999;
+}
+
+int _downloadEpisodeSort(DownloadTaskRecord entry) {
+  return _episodeNumberFromText(entry.title) ??
+      _episodeNumberFromText(entry.fileName) ??
+      999999;
+}
+
+int? _episodeNumberFromText(String raw) {
+  final text = _cleanStorageLabel(raw);
+  if (text.isEmpty) return null;
+  final patterns = <RegExp>[
+    RegExp(r'\bE(\d{1,4})\b', caseSensitive: false),
+    RegExp(r'\b(\d{1,4})\b'),
+  ];
+  for (final pattern in patterns) {
+    final match = pattern.firstMatch(text);
+    final value = int.tryParse(match?.group(1) ?? '');
+    if (value != null && value > 0) return value;
+  }
+  return null;
+}
+
+String _parentFolderName(String filePath) {
+  final normalized = filePath.replaceAll('\\', '/');
+  final parts = normalized
+      .split('/')
+      .map((part) => part.trim())
+      .where((part) => part.isNotEmpty)
+      .toList(growable: false);
+  if (parts.length < 2) return '';
+  return parts[parts.length - 2];
+}
+
+String _storageStableId(String prefix, String value) {
+  return '$prefix:${_cleanStorageLabel(value).toLowerCase()}';
+}
+
+String _cleanStorageLabel(String raw) {
+  return raw.replaceAll(RegExp(r'\s+'), ' ').trim();
+}
+
+String _formatStorageTimeMs(int updatedAtMs) {
+  if (updatedAtMs <= 0) return '-';
+  final dateTime = DateTime.fromMillisecondsSinceEpoch(updatedAtMs);
+  final hh = dateTime.hour.toString().padLeft(2, '0');
+  final mm = dateTime.minute.toString().padLeft(2, '0');
+  return '${dateTime.month}/${dateTime.day} $hh:$mm';
 }
 
 class _PlaybackEntryPanel extends StatelessWidget {
@@ -1590,6 +2223,7 @@ class _PlaybackEntryPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final selectableEntries = entries
         .where((entry) => entry.bytes > 0)
         .toList(growable: false);
@@ -1608,6 +2242,7 @@ class _PlaybackEntryPanel extends StatelessWidget {
         selectableEntries.every(
           (entry) => selectedKeys.contains(entry.resourceKey),
         );
+    final groups = _buildPlaybackGroups(entries, l10n);
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -1618,13 +2253,13 @@ class _PlaybackEntryPanel extends StatelessWidget {
       child: Column(
         children: <Widget>[
           _SelectionPanelHeader(
-            title: '\u7f13\u5b58\u6761\u76ee',
+            title: l10n.storagePlaybackFiles,
             primaryAction: TextButton(
               onPressed: loading || busy || selectableEntries.isEmpty
                   ? null
                   : () => onToggleSelectAll(!allSelected),
               child: Text(
-                allSelected ? '\u53d6\u6d88\u5168\u9009' : '\u5168\u9009',
+                allSelected ? l10n.commonDeselectAll : l10n.commonSelectAll,
               ),
             ),
             secondaryAction: Wrap(
@@ -1637,16 +2272,14 @@ class _PlaybackEntryPanel extends StatelessWidget {
                       ? null
                       : onPromoteSelected,
                   child: Text(
-                    '\u8f6c\u4e3a\u4e0b\u8f7d ($promotableSelectedCount)',
+                    l10n.storagePromoteSelected(promotableSelectedCount),
                   ),
                 ),
                 FilledButton.tonal(
                   onPressed: busy || selectedKeys.isEmpty
                       ? null
                       : onClearSelected,
-                  child: Text(
-                    '\u6e05\u7406\u9009\u4e2d (${selectedKeys.length})',
-                  ),
+                  child: Text(l10n.storageClearSelected(selectedKeys.length)),
                 ),
               ],
             ),
@@ -1661,9 +2294,29 @@ class _PlaybackEntryPanel extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 20),
               child: Text(
-                '当前没有可清理的播放缓存。',
+                l10n.storageNoPlaybackCache,
                 style: TextStyle(color: colors.textMuted, fontSize: 13),
               ),
+            )
+          else if (groups.isNotEmpty)
+            _GroupedStorageTree<PlaybackCacheEntry>(
+              groups: groups,
+              formatBytes: formatBytes,
+              busy: busy,
+              selectable: (entry) => entry.bytes > 0,
+              selected: (entry) => selectedKeys.contains(entry.resourceKey),
+              onToggleSelected: (entry, selected) =>
+                  onToggleSelected(entry.resourceKey, selected),
+              entryTitle: (entry) => _playbackEpisodeTitle(entry, l10n),
+              entrySubtitle: (entry) => [
+                if (entry.subtitle.trim().isNotEmpty) entry.subtitle.trim(),
+                if (entry.resolution.trim().isNotEmpty) entry.resolution.trim(),
+                entry.complete
+                    ? l10n.storageCompleteCache
+                    : l10n.storageIncompleteCache,
+                _formatAccessTime(entry.lastAccessAt),
+              ].join(' · '),
+              entryTrailing: (entry) => formatBytes(entry.bytes),
             )
           else
             ...entries.map((entry) {
@@ -1687,9 +2340,11 @@ class _PlaybackEntryPanel extends StatelessWidget {
                 subtitle: Text(
                   [
                     if (entry.subtitle.isNotEmpty) entry.subtitle,
-                    entry.complete ? '已完整缓存' : '未完整缓存',
+                    entry.complete
+                        ? l10n.storageCompletedCache
+                        : l10n.storageIncompleteCache,
                     _formatAccessTime(entry.lastAccessAt),
-                  ].join(' 路'),
+                  ].join(' · '),
                   style: TextStyle(color: colors.textMuted, fontSize: 12),
                 ),
                 secondary: Text(
@@ -1738,12 +2393,14 @@ class _DownloadEntryPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final selectableEntries = entries
         .where((entry) => entry.filePath.trim().isNotEmpty)
         .toList(growable: false);
     final allSelected =
         selectableEntries.isNotEmpty &&
         selectableEntries.every((entry) => selectedIds.contains(entry.id));
+    final groups = _buildDownloadGroups(entries, l10n);
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -1754,18 +2411,18 @@ class _DownloadEntryPanel extends StatelessWidget {
       child: Column(
         children: <Widget>[
           _SelectionPanelHeader(
-            title: '\u4e0b\u8f7d\u6587\u4ef6',
+            title: l10n.storageDownloadFiles,
             primaryAction: TextButton(
               onPressed: loading || busy || selectableEntries.isEmpty
                   ? null
                   : () => onToggleSelectAll(!allSelected),
               child: Text(
-                allSelected ? '\u53d6\u6d88\u5168\u9009' : '\u5168\u9009',
+                allSelected ? l10n.commonDeselectAll : l10n.commonSelectAll,
               ),
             ),
             secondaryAction: FilledButton.tonal(
               onPressed: busy || selectedIds.isEmpty ? null : onClearSelected,
-              child: Text('\u6e05\u7406\u9009\u4e2d (${selectedIds.length})'),
+              child: Text(l10n.storageClearSelected(selectedIds.length)),
             ),
           ),
           const SizedBox(height: 8),
@@ -1778,9 +2435,29 @@ class _DownloadEntryPanel extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 20),
               child: Text(
-                '当前没有可查看的本地下载文件。',
+                l10n.storageNoDownloadFiles,
                 style: TextStyle(color: colors.textMuted, fontSize: 13),
               ),
+            )
+          else if (groups.isNotEmpty)
+            _GroupedStorageTree<DownloadTaskRecord>(
+              groups: groups,
+              formatBytes: formatBytes,
+              busy: busy,
+              selectable: (entry) => entry.filePath.trim().isNotEmpty,
+              selected: (entry) => selectedIds.contains(entry.id),
+              onToggleSelected: (entry, selected) =>
+                  onToggleSelected(entry.id, selected),
+              entryTitle: (entry) => _downloadEpisodeTitle(entry, l10n),
+              entrySubtitle: (entry) => [
+                if (entry.resolution.trim().isNotEmpty) entry.resolution.trim(),
+                if (entry.durationText.trim().isNotEmpty)
+                  entry.durationText.trim(),
+                _formatUpdatedTime(entry.updatedAtMs),
+                entry.filePath,
+              ].join(' · '),
+              entryTrailing: (entry) => formatBytes(entry.totalBytes),
+              maxSubtitleLines: 3,
             )
           else
             ...entries.map((entry) {
@@ -1909,6 +2586,7 @@ class _NavigateStorageRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return InkWell(
       borderRadius: BorderRadius.circular(16),
       onTap: onTap,
@@ -1955,8 +2633,8 @@ class _NavigateStorageRow extends StatelessWidget {
                     [
                       if (item.countLabel.isNotEmpty) item.countLabel,
                       if (item.note?.trim().isNotEmpty == true) item.note!,
-                      '进入管理',
-                    ].join(' 路'),
+                      l10n.storageEnterManagement,
+                    ].join(' · '),
                     style: TextStyle(color: colors.textSecondary, fontSize: 12),
                   ),
                 ],
@@ -1989,6 +2667,7 @@ class _StorageItemRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -2029,9 +2708,9 @@ class _StorageItemRow extends StatelessWidget {
               Text(
                 [
                   if (item.countLabel.isNotEmpty) item.countLabel,
-                  if (item.isEstimated) '估算',
-                  if (item.isRestricted) '权限受限',
-                ].join(' 路'),
+                  if (item.isEstimated) l10n.storageEstimated,
+                  if (item.isRestricted) l10n.storageRestricted,
+                ].join(' · '),
                 style: TextStyle(color: colors.textSecondary, fontSize: 12),
               ),
               if (item.note?.trim().isNotEmpty == true) ...<Widget>[
@@ -2048,7 +2727,7 @@ class _StorageItemRow extends StatelessWidget {
           const SizedBox(width: 12),
           OutlinedButton(
             onPressed: busy || item.clearDisabled ? null : onClear,
-            child: const Text('清理'),
+            child: Text(l10n.commonClear),
           ),
         ],
       ],
@@ -2106,7 +2785,10 @@ class _DangerActionRow extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 12),
-        TextButton(onPressed: busy ? null : onTap, child: const Text('清空')),
+        TextButton(
+          onPressed: busy ? null : onTap,
+          child: Text(AppLocalizations.of(context).commonClear),
+        ),
       ],
     );
   }

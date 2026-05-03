@@ -6,6 +6,7 @@ import android.os.Build
 import android.util.Log
 import android.view.Surface
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicLong
 
 private const val VIDEO_OUTPUT_TAG = "FlyPlayerMpv"
 private const val VIDEO_OUTPUT_GPU = "gpu"
@@ -31,9 +32,11 @@ class VideoOutputController(
     private val runOnMainThread: (() -> Unit) -> Unit,
     private val mpv: MpvFacade = DefaultMpvFacade,
 ) {
+    private val controllerInstanceId = nextControllerInstanceId()
     private var lastErrorMessage: String? = null
     private var latestSurfaceGeneration = -1L
     private var attachedSurfaceGeneration = -1L
+    private var attachedSurfaceIdentity = 0
     var surfaceReady = false
         private set
     var surfaceAttached = false
@@ -55,6 +58,10 @@ class VideoOutputController(
     private var advancedHdrMode = "auto"
     private var compatibilityProfile = "default"
     private var filterCompatibleFramesRequired = false
+    private var activeVideoOutputName = VIDEO_OUTPUT_NONE
+    private var forceWindowEnabled = true
+    private var activeAspectOverride = VIDEO_ASPECT_OVERRIDE_NONE
+    private var activePanscan = 0.0
 
     fun resetForSourceLoad() {
         forcedHwdecMode = null
@@ -63,6 +70,7 @@ class VideoOutputController(
     }
 
     fun onDispose() {
+        clearGlobalSurfaceOwnerIfOwned()
         surfaceAttached = false
         videoOutputReady = false
         videoTrackSuspended = false
@@ -70,6 +78,11 @@ class VideoOutputController(
         lastErrorMessage = null
         latestSurfaceGeneration = -1L
         attachedSurfaceGeneration = -1L
+        attachedSurfaceIdentity = 0
+        activeVideoOutputName = VIDEO_OUTPUT_NONE
+        forceWindowEnabled = true
+        activeAspectOverride = VIDEO_ASPECT_OVERRIDE_NONE
+        activePanscan = 0.0
         applyWindowColorMode(VideoColorPipeline.SDR)
     }
 
@@ -111,14 +124,12 @@ class VideoOutputController(
         lastErrorMessage = null
         runCatching {
             if (surfaceAttached && attachedSurfaceGeneration <= generation) {
-                mpv.detachSurface()
-                surfaceAttached = false
-                attachedSurfaceGeneration = -1L
+                detachAttachedSurface("surfaceDestroyed:$generation")
             }
             if (initialized && available) {
                 mpv.setPropertyString("vid", "no")
                 videoTrackSuspended = true
-                mpv.setPropertyString("vo", VIDEO_OUTPUT_NONE)
+                setVideoOutputProperty(VIDEO_OUTPUT_NONE)
             }
         }.onFailure { error ->
             lastErrorMessage = formatNativePlaybackError("video output suspension", error)
@@ -139,14 +150,37 @@ class VideoOutputController(
         videoOutputReady = false
         lastErrorMessage = null
         runCatching {
-            if (surfaceAttached) {
-                mpv.detachSurface()
-                surfaceAttached = false
-                attachedSurfaceGeneration = -1L
-            }
+            detachAttachedSurface("handoff")
         }.onFailure { error ->
             lastErrorMessage = formatNativePlaybackError("surface handoff", error)
         }
+    }
+
+    fun clearRetainedPlaybackStateForReuse(clearPlaybackState: () -> Unit): Boolean {
+        var didClear = false
+        synchronized(SURFACE_BIND_LOCK) {
+            if (globalSurfaceOwnerId != 0L && globalSurfaceOwnerId != controllerInstanceId) {
+                Log.d(
+                    VIDEO_OUTPUT_TAG,
+                    "skip retained playback clear owner=$globalSurfaceOwnerId controller=$controllerInstanceId",
+                )
+                resetSurfaceAttachmentState()
+                return false
+            }
+            clearPlaybackState()
+            runCatching {
+                setVideoOutputProperty(VIDEO_OUTPUT_NONE)
+                if (surfaceAttached && globalSurfaceOwnerId == controllerInstanceId) {
+                    mpv.detachSurface()
+                    globalSurfaceOwnerId = 0L
+                }
+                didClear = true
+            }.onFailure { error ->
+                lastErrorMessage = formatNativePlaybackError("surface reuse cleanup", error)
+            }
+            resetSurfaceAttachmentState()
+        }
+        return didClear
     }
 
     fun hasUsableVideoOutputTarget(): Boolean {
@@ -304,7 +338,7 @@ class VideoOutputController(
         lastErrorMessage = null
         return runCatching {
             mpv.setPropertyString("vid", "no")
-            mpv.setPropertyString("vo", VIDEO_OUTPUT_NONE)
+            setVideoOutputProperty(VIDEO_OUTPUT_NONE)
             videoTrackSuspended = true
             videoOutputReady = false
             applyWindowColorMode(VideoColorPipeline.SDR)
@@ -343,8 +377,8 @@ class VideoOutputController(
             }
             applyColorPipeline(targetColorPipeline)
             applyWindowColorMode(targetColorPipeline)
-            mpv.setPropertyString("vo", VIDEO_OUTPUT_GPU)
-            mpv.setPropertyBoolean("force-window", true)
+            setVideoOutputProperty(VIDEO_OUTPUT_GPU)
+            setForceWindowProperty(true)
             applyDisplayAspectRatioMode()
             videoOutputReady = true
             Log.i(
@@ -464,25 +498,87 @@ class VideoOutputController(
         reason: String,
         generation: Long,
     ) {
+        val nextSurfaceIdentity = System.identityHashCode(surface)
         if (!surface.isValid) {
             surfaceAttached = false
             videoOutputReady = false
             attachedSurfaceGeneration = -1L
+            attachedSurfaceIdentity = 0
+            activeVideoOutputName = VIDEO_OUTPUT_NONE
             error("invalid surface for $reason")
+        }
+        if (
+            surfaceAttached &&
+            attachedSurfaceGeneration == generation &&
+            attachedSurfaceIdentity == nextSurfaceIdentity &&
+            currentSurfaceValid()
+        ) {
+            return
         }
         if (surfaceAttached) {
             runCatching {
-                mpv.detachSurface()
+                detachAttachedSurface("stale:$reason")
             }.onFailure { error ->
                 Log.w(VIDEO_OUTPUT_TAG, "detach stale surface failed reason=$reason", error)
             }
-            surfaceAttached = false
-            attachedSurfaceGeneration = -1L
         }
-        mpv.attachSurface(surface)
-        surfaceAttached = true
-        attachedSurfaceGeneration = generation
+        synchronized(SURFACE_BIND_LOCK) {
+            mpv.attachSurface(surface)
+            globalSurfaceOwnerId = controllerInstanceId
+            surfaceAttached = true
+            attachedSurfaceGeneration = generation
+            attachedSurfaceIdentity = nextSurfaceIdentity
+            videoOutputReady = false
+        }
+    }
+
+    private fun detachAttachedSurface(reason: String) {
+        if (!surfaceAttached) return
+        synchronized(SURFACE_BIND_LOCK) {
+            if (globalSurfaceOwnerId != controllerInstanceId) {
+                Log.d(
+                    VIDEO_OUTPUT_TAG,
+                    "skip stale surface detach reason=$reason owner=$globalSurfaceOwnerId controller=$controllerInstanceId",
+                )
+            } else {
+                setVideoOutputProperty(VIDEO_OUTPUT_NONE)
+                mpv.detachSurface()
+                globalSurfaceOwnerId = 0L
+            }
+            resetSurfaceAttachmentState()
+        }
+    }
+
+    private fun resetSurfaceAttachmentState() {
+        surfaceAttached = false
+        attachedSurfaceGeneration = -1L
+        attachedSurfaceIdentity = 0
+        activeVideoOutputName = VIDEO_OUTPUT_NONE
         videoOutputReady = false
+    }
+
+    private fun clearGlobalSurfaceOwnerIfOwned() {
+        synchronized(SURFACE_BIND_LOCK) {
+            if (globalSurfaceOwnerId == controllerInstanceId) {
+                globalSurfaceOwnerId = 0L
+            }
+        }
+    }
+
+    private fun setVideoOutputProperty(nextValue: String) {
+        if (activeVideoOutputName == nextValue) {
+            return
+        }
+        mpv.setPropertyString("vo", nextValue)
+        activeVideoOutputName = nextValue
+    }
+
+    private fun setForceWindowProperty(enabled: Boolean) {
+        if (forceWindowEnabled == enabled) {
+            return
+        }
+        mpv.setPropertyBoolean("force-window", enabled)
+        forceWindowEnabled = enabled
     }
 
     private fun applyWindowColorMode(targetColorPipeline: VideoColorPipeline) {
@@ -513,19 +609,51 @@ class VideoOutputController(
     private fun applyDisplayAspectRatioMode() {
         when (displayAspectRatioMode) {
             VIDEO_ASPECT_MODE_FILL -> {
-                mpv.setPropertyString("video-aspect-override", VIDEO_ASPECT_OVERRIDE_NONE)
-                mpv.setPropertyDouble("panscan", 1.0)
+                setAspectProperties(
+                    aspectOverride = VIDEO_ASPECT_OVERRIDE_NONE,
+                    panscan = 1.0,
+                )
             }
             VIDEO_ASPECT_MODE_4X3,
             VIDEO_ASPECT_MODE_16X9,
             VIDEO_ASPECT_MODE_21X9 -> {
-                mpv.setPropertyString("video-aspect-override", displayAspectRatioMode)
-                mpv.setPropertyDouble("panscan", 0.0)
+                setAspectProperties(
+                    aspectOverride = displayAspectRatioMode,
+                    panscan = 0.0,
+                )
             }
             else -> {
-                mpv.setPropertyString("video-aspect-override", VIDEO_ASPECT_OVERRIDE_NONE)
-                mpv.setPropertyDouble("panscan", 0.0)
+                setAspectProperties(
+                    aspectOverride = VIDEO_ASPECT_OVERRIDE_NONE,
+                    panscan = 0.0,
+                )
             }
+        }
+    }
+
+    private fun setAspectProperties(
+        aspectOverride: String,
+        panscan: Double,
+    ) {
+        if (activeAspectOverride != aspectOverride) {
+            mpv.setPropertyString("video-aspect-override", aspectOverride)
+            activeAspectOverride = aspectOverride
+        }
+        if (activePanscan != panscan) {
+            mpv.setPropertyDouble("panscan", panscan)
+            activePanscan = panscan
+        }
+    }
+
+    companion object {
+        private val NEXT_CONTROLLER_INSTANCE_ID = AtomicLong(1L)
+        private val SURFACE_BIND_LOCK = Any()
+
+        @Volatile
+        private var globalSurfaceOwnerId = 0L
+
+        private fun nextControllerInstanceId(): Long {
+            return NEXT_CONTROLLER_INSTANCE_ID.getAndIncrement()
         }
     }
 

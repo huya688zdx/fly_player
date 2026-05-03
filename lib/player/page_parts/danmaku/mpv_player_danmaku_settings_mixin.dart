@@ -1,17 +1,6 @@
-part of mpv_player_page;
+part of '../../mpv_player_page.dart';
 
 extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
-  static const List<String> _danmakuAiBackendOrder = <String>[
-    'paddle',
-  ];
-  static const int _runtimeDanmakuAiMinSampleIntervalMs = 650;
-  static const int _runtimeDanmakuAiMaxInputWidth = 224;
-  static const List<String> _danmakuAiPrecisionPresets = <String>[
-    DanmakuAiPrecisionPreset.performance,
-    DanmakuAiPrecisionPreset.balanced,
-    DanmakuAiPrecisionPreset.quality,
-  ];
-
   String _danmakuStatusLabel() => _danmakuController.statusLabel;
 
   String _danmakuSummaryText() => _danmakuController.summaryText;
@@ -39,40 +28,103 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
     return '较大';
   }
 
+  String _danmakuThicknessLabel() {
+    final thickness = _nearestDanmakuThicknessPreset(
+      _danmakuController.settings.fontThickness,
+    );
+    if (thickness <= 0.8) return '较细';
+    if (thickness >= 1.4) return '很粗';
+    if (thickness >= 1.2) return '较粗';
+    return '标准';
+  }
+
   String _danmakuAreaLabel() {
     final ratio = _nearestDanmakuAreaPreset(
       _danmakuController.settings.displayAreaRatio,
     );
-    if (ratio <= 0.10) return '1/10屏';
-    if (ratio <= 0.25) return '1/4屏';
+    if (ratio <= 0.25) return '1/4 屏';
     if (ratio <= 0.5) return '半屏';
-    if (ratio <= 0.75) return '3/4屏';
+    if (ratio <= 0.75) return '3/4 屏';
     return '全屏';
   }
 
   String _danmakuSpeedLabel() {
-    final speed = _danmakuController.settings.speed;
-    if (speed <= 0.85) return '慢速';
-    if (speed >= 1.55) return '极速';
-    if (speed >= 1.25) return '较快';
+    final speed = nearestDanmakuSpeedPreset(_danmakuController.settings.speed);
+    if (speed <= danmakuSpeedPresets.first + 0.0001) return '偏慢';
+    if (speed >= danmakuSpeedPresets.last - 0.0001) return '极快';
+    if (speed >= danmakuSpeedPresets[3] - 0.0001) return '较快';
     return '标准';
   }
 
-  String _danmakuAiSampleIntervalLabel() {
-    return '${_danmakuController.settings.aiSampleIntervalMs}ms';
+  String _danmakuFrameRateLabel() {
+    final frameRate = _nearestDanmakuFrameRatePreset(
+      _danmakuController.settings.targetFrameRateHz,
+    );
+    return '$frameRate FPS';
   }
 
-  String _danmakuAiPrecisionLabel() {
-    return switch (_danmakuController.settings.aiPrecisionPreset) {
-      DanmakuAiPrecisionPreset.performance => '低',
-      DanmakuAiPrecisionPreset.quality => '高',
-      _ => '标准',
-    };
+  String _danmakuAiSampleIntervalLabel() {
+    final intervalMs = _nearestDanmakuAiSampleIntervalPreset(
+      _danmakuController.settings.aiSampleIntervalMs,
+    ).round();
+    return '${intervalMs}ms';
   }
 
   String _danmakuAiInputSizeLabel() {
-    final settings = _danmakuController.settings;
-    return '${settings.aiInputWidth}x${settings.aiInputHeight}';
+    final inputWidth = _nearestDanmakuAiInputWidthPreset(
+      _danmakuController.settings.aiInputWidth,
+    ).round();
+    final inputHeight = ((inputWidth * 9) / 16).round();
+    final normalizedHeight = inputHeight.isEven ? inputHeight : inputHeight + 1;
+    return '$inputWidth x $normalizedHeight';
+  }
+
+  String _danmakuOcclusionStatusTitle() {
+    final state = _controller.danmakuOcclusionState.value;
+    if (!state.enabled) {
+      return '主体遮挡已关闭';
+    }
+    if (state.available) {
+      return switch (state.occlusionMode.trim().toLowerCase()) {
+        'mask' => '精细遮罩中',
+        'bbox' => '人物框兜底中',
+        _ => '主体遮挡已启用',
+      };
+    }
+    return '主体遮挡暂不可用';
+  }
+
+  String _danmakuOcclusionStatusSubtitle() {
+    final state = _controller.danmakuOcclusionState.value;
+    if (!state.enabled) {
+      return '关闭后会恢复普通弹幕显示。';
+    }
+    final backend = state.backend.trim().isEmpty ? 'disabled' : state.backend;
+    if (state.available) {
+      final modeLabel = switch (state.occlusionMode.trim().toLowerCase()) {
+        'mask' => state.cacheHit ? '已复用精细遮罩缓存' : '正在使用实时精细遮罩',
+        'bbox' => '正在使用人物框兜底',
+        _ => '遮挡状态正常',
+      };
+      return '当前后端：$backend，$modeLabel。';
+    }
+    final reason = _danmakuOcclusionUnavailableLabel(state.unavailableReason);
+    return '当前后端：$backend${reason == null ? '' : '，$reason'}';
+  }
+
+  String? _danmakuOcclusionUnavailableLabel(String? reason) {
+    final normalized = reason?.trim().toLowerCase();
+    switch (normalized) {
+      case null:
+      case '':
+        return null;
+      case 'capture_unsupported':
+        return '当前视频输出后端不支持 AI 采样';
+      case 'capture_budget_unsupported':
+        return '当前链路在高刷新率下已禁用实时 AI 采样';
+      default:
+        return normalized;
+    }
   }
 
   Future<void> _updateDanmakuSettings(
@@ -115,6 +167,38 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
     });
   }
 
+  double _nearestDanmakuThicknessPreset(double value) {
+    return _danmakuThicknessPresets.reduce((best, candidate) {
+      return (candidate - value).abs() < (best - value).abs()
+          ? candidate
+          : best;
+    });
+  }
+
+  int _nearestDanmakuFrameRatePreset(int value) {
+    return danmakuFrameRatePresets.reduce((best, candidate) {
+      return (candidate - value).abs() < (best - value).abs()
+          ? candidate
+          : best;
+    });
+  }
+
+  double _nearestDanmakuAiSampleIntervalPreset(int value) {
+    return _danmakuAiSampleIntervalPresets.reduce((best, candidate) {
+      return (candidate - value).abs() < (best - value).abs()
+          ? candidate
+          : best;
+    });
+  }
+
+  double _nearestDanmakuAiInputWidthPreset(int value) {
+    return _danmakuAiInputWidthPresets.reduce((best, candidate) {
+      return (candidate - value).abs() < (best - value).abs()
+          ? candidate
+          : best;
+    });
+  }
+
   Future<void> _setDanmakuAreaPreset(double value) {
     return _updateDanmakuSettings(
       (current) => current.copyWith(displayAreaRatio: value),
@@ -139,38 +223,45 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
     );
   }
 
+  Future<void> _setDanmakuFontThickness(double value) {
+    return _updateDanmakuSettings(
+      (current) => current.copyWith(fontThickness: value.clamp(0.8, 1.4)),
+    );
+  }
+
   Future<void> _setDanmakuSpeed(double value) {
     return _updateDanmakuSettings(
-      (current) => current.copyWith(speed: value.clamp(0.7, 1.8)),
+      (current) => current.copyWith(speed: clampDanmakuSpeed(value)),
+    );
+  }
+
+  Future<void> _setDanmakuFrameRate(int value) {
+    return _updateDanmakuSettings(
+      (current) => current.copyWith(
+        targetFrameRateHz: normalizeDanmakuFrameRateHz(value),
+      ),
     );
   }
 
   Future<void> _setDanmakuAiSampleInterval(int value) {
-    final normalized = value.clamp(
-      DanmakuSettings.minAiSampleIntervalMs,
-      DanmakuSettings.maxAiSampleIntervalMs,
-    );
     return _updateDanmakuSettings(
-      (current) => current.copyWith(aiSampleIntervalMs: normalized),
+      (current) => current.copyWith(
+        aiSampleIntervalMs: value.clamp(
+          DanmakuSettings.minAiSampleIntervalMs,
+          DanmakuSettings.maxAiSampleIntervalMs,
+        ),
+      ),
     );
   }
 
   Future<void> _setDanmakuAiInputWidth(int value) {
-    final normalized = value.clamp(
-      DanmakuSettings.minAiInputWidth,
-      DanmakuSettings.maxAiInputWidth,
-    );
     return _updateDanmakuSettings(
-      (current) => current.copyWith(aiInputWidth: normalized),
-    );
-  }
-
-  Future<void> _setDanmakuAiPrecisionPreset(String value) {
-    final normalized = _danmakuAiPrecisionPresets.contains(value)
-        ? value
-        : DanmakuAiPrecisionPreset.balanced;
-    return _updateDanmakuSettings(
-      (current) => current.copyWith(aiPrecisionPreset: normalized),
+      (current) => current.copyWith(
+        aiInputWidth: value.clamp(
+          DanmakuSettings.minAiInputWidth,
+          DanmakuSettings.maxAiInputWidth,
+        ),
+      ),
     );
   }
 
@@ -194,40 +285,36 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
   }
 
   Future<void> _syncDanmakuDynamicOcclusionConfig() async {
-    if (!Platform.isAndroid || !_platformViewAttached) {
+    if (!_platformViewAttached) {
       return;
     }
     final settings = _danmakuController.settings;
-    final interactionBusy =
-        _gestureController.adjustmentActive ||
-        _gestureSeekActive ||
-        _speedBoostActive ||
-        _uiController.pendingLoadingTransition ||
-        _uiController.awaitingVisualPlaybackStart ||
-        _uiController.qualitySwitchLoading;
-    final enabled =
-        settings.enabled &&
-        settings.avoidCenterArea &&
-        !_useNativeDanmakuRenderer &&
-        !interactionBusy &&
-        !widget.pictureInPictureActive;
-    final sampleIntervalMs = math.max(
+    final configSignature = <Object?>[
+      settings.enabled,
+      settings.avoidCenterArea,
       settings.aiSampleIntervalMs,
-      _runtimeDanmakuAiMinSampleIntervalMs,
-    );
-    final inputWidth = math.min(
       settings.aiInputWidth,
-      _runtimeDanmakuAiMaxInputWidth,
-    );
+      settings.targetFrameRateHz,
+      settings.displayAreaRatio.toStringAsFixed(3),
+      resolveDanmakuCaptureAreaRatio(
+        settings.displayAreaRatio,
+      ).toStringAsFixed(3),
+    ].join('|');
+    if (configSignature == _lastDanmakuOcclusionConfigSignature) {
+      return;
+    }
+    _lastDanmakuOcclusionConfigSignature = configSignature;
     await _controller.setDanmakuOcclusionConfig(<String, Object?>{
-      'enabled': enabled,
-      'sampleIntervalMs': sampleIntervalMs,
-      'preferredBackendOrder': _danmakuAiBackendOrder,
-      'inputWidth': inputWidth,
-      'inputHeight': DanmakuSettings.defaults
-          .copyWith(aiInputWidth: inputWidth)
-          .aiInputHeight,
-      'sampleAreaRatio': settings.displayAreaRatio,
+      'enabled': settings.enabled && settings.avoidCenterArea,
+      'sampleIntervalMs': settings.aiSampleIntervalMs,
+      'renderTargetFrameRateHz': settings.targetFrameRateHz,
+      'preferredBackendOrder': const <String>['paddle'],
+      'inputWidth': settings.aiInputWidth,
+      'inputHeight': settings.aiInputHeight,
+      'displayAreaRatio': settings.displayAreaRatio,
+      'sampleAreaRatio': resolveDanmakuCaptureAreaRatio(
+        settings.displayAreaRatio,
+      ),
     });
   }
 }

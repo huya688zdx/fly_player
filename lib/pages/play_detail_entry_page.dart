@@ -8,7 +8,6 @@ import '../providers/nas_provider.dart';
 import '../theme/app_theme.dart';
 import '../ui/detail_presentation.dart';
 import '../utils/app_exception.dart';
-import '../utils/media_locale_store.dart';
 import '../widgets/common/app_error_state.dart';
 import 'media_collection_detail_page.dart';
 import 'play_detail_page.dart';
@@ -41,29 +40,19 @@ class _PlayDetailEntryPageState extends State<PlayDetailEntryPage> {
   AppException? _error;
   DetailPageMode _mode = DetailPageMode.movie;
   Map<String, dynamic>? _itemDetail;
-  Map<String, dynamic> _localeMap = const <String, dynamic>{};
 
   @override
   void initState() {
     super.initState();
-    unawaited(_ensureLocaleMapLoaded());
     if (widget.initialItemDetail != null) {
       final initial = widget.initialItemDetail!;
       _itemDetail = initial;
       _mode = _resolveMode(initial);
       _loading = false;
+      unawaited(_load(silent: true));
       return;
     }
     unawaited(_load());
-  }
-
-  Future<void> _ensureLocaleMapLoaded() async {
-    final provider = context.read<NasProvider>();
-    final localeMap = await MediaLocaleStore.load(provider);
-    if (!mounted || localeMap.isEmpty) return;
-    setState(() {
-      _localeMap = localeMap;
-    });
   }
 
   Future<void> _load({bool silent = false}) async {
@@ -121,7 +110,10 @@ class _PlayDetailEntryPageState extends State<PlayDetailEntryPage> {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     if (_loading) {
-      return const SizedBox.expand();
+      return ColoredBox(
+        color: colors.backgroundBase,
+        child: const SizedBox.expand(),
+      );
     }
 
     if (_error != null) {
@@ -130,7 +122,7 @@ class _PlayDetailEntryPageState extends State<PlayDetailEntryPage> {
         appBar: _isPane ? null : AppBar(backgroundColor: colors.backgroundBase),
         body: AppErrorState(
           error: _error!,
-          localeMap: _localeMap,
+          localeMap: const <String, dynamic>{},
           onRetry: _load,
         ),
       );

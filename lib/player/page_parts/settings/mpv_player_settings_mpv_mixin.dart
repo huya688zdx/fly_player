@@ -1,4 +1,4 @@
-part of mpv_player_page;
+part of '../../mpv_player_page.dart';
 
 const int _mpvCacheSizeSliderMinMb = 64;
 const int _mpvCacheSizeSliderMaxMb = 1984;
@@ -13,49 +13,50 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
     BuildContext context,
     PlayerNestedSheetController<void> drawer,
   ) {
+    final l10n = AppLocalizations.of(context);
     return PlayerNestedSheetScaffold(
       header: PlayerNestedSheetHeader(
-        title: 'MPV 播放器设置',
+        title: l10n.settingsMpvTitle,
         onBack: drawer.popPage,
       ),
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
           PlaybackSettingsStatusCard(
-            title: '当前方案',
+            title: l10n.mpvCurrentSchemeTitle,
             value: _mpvSettingsStatusLabel(),
             description: _mpvSettingsSummaryText(),
           ),
           const SizedBox(height: 12),
           PlaybackSettingsMenuTile(
-            title: '智能推荐',
-            subtitle: '根据当前片源的分辨率、码率、HDR 和音轨信息推荐更合适的场景预设',
+            title: l10n.mpvSmartRecommendationTitle,
+            subtitle: l10n.mpvSmartRecommendationSubtitle,
             trailingLabel: _mpvRecommendedSceneLabel(),
             onTap: () => drawer.push(_playerSettingsMpvScenePresetPageId),
           ),
           const SizedBox(height: 12),
           PlaybackSettingsMenuTile(
-            title: '画质快速预设',
-            subtitle: '快速套用动画、影院、流畅等画质方案',
+            title: l10n.mpvPictureQuickPresetTitle,
+            subtitle: l10n.mpvPictureQuickPresetSubtitle,
             trailingLabel: _mpvVideoQuickPresetSummaryLabel(),
             onTap: () => drawer.push(_playerSettingsMpvPresetPageId),
           ),
           const SizedBox(height: 12),
           PlaybackSettingsMenuTile(
-            title: '音频快速预设',
-            subtitle: '高保真、EQ、低音增强、人声增强一键切换',
+            title: l10n.mpvAudioQuickPresetTitle,
+            subtitle: l10n.mpvAudioQuickPresetSubtitle,
             trailingLabel: _mpvAudioQuickPresetSummaryLabel(),
             onTap: () => drawer.push(_playerSettingsMpvAudioPresetPageId),
           ),
           const SizedBox(height: 12),
           PlaybackSettingsMenuTile(
-            title: '自定义管理',
-            subtitle: '把画质自定义、音频自定义和即时调节统一收进三级页面管理',
+            title: l10n.mpvCustomManagementTitle,
+            subtitle: l10n.mpvCustomManagementSubtitle,
             trailingLabel:
                 _mpvChangedSettingCount() > 0 ||
                     _videoAdjustmentChangedCount() > 0
-                ? '当前自定义'
-                : '默认',
+                ? l10n.mpvCurrentCustom
+                : l10n.mpvDefault,
             onTap: () => drawer.push(_playerSettingsMpvCustomPageId),
           ),
         ],
@@ -69,16 +70,36 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
   ) {
     final recommendation = _recommendedMpvScenePreset();
     final activeScenePreset = _activeMpvScenePreset();
-    final scenePresets = MpvSettingsCatalog.builtInScenePresets;
+    final l10n = AppLocalizations.of(context);
+    final scenePresets = MpvSettingsL10n.builtInScenePresets(l10n);
     return PlayerNestedSheetScaffold(
-      header: PlayerNestedSheetHeader(title: '智能推荐', onBack: drawer.popPage),
+      header: PlayerNestedSheetHeader(
+        title: l10n.mpvSmartRecommendationTitle,
+        onBack: drawer.popPage,
+      ),
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
           PlaybackSettingsStatusCard(
-            title: recommendation?.title ?? '当前没有推荐',
-            value: recommendation?.preset.label ?? _mpvRecommendedSceneLabel(),
-            description: recommendation?.reason ?? '当前片源信息还不完整，先保留手动选择。',
+            title: recommendation == null
+                ? l10n.mpvNoRecommendationTitle
+                : MpvSettingsL10n.sceneRecommendationTitle(
+                    l10n,
+                    recommendation.preset.id,
+                  ),
+            value: recommendation == null
+                ? _mpvRecommendedSceneLabel()
+                : MpvSettingsL10n.scenePresetLabel(
+                    l10n,
+                    recommendation.preset.id,
+                    fallback: recommendation.preset.label,
+                  ),
+            description: recommendation == null
+                ? l10n.mpvNoRecommendationDescription
+                : MpvSettingsL10n.sceneRecommendationReason(
+                    l10n,
+                    recommendation.preset.id,
+                  ),
           ),
           const SizedBox(height: 12),
           for (var index = 0; index < scenePresets.length; index++) ...[
@@ -111,16 +132,20 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
   ) {
     final activeBuiltInPreset = _activeMpvVideoPreset();
     final activeSavedPreset = _activeSavedMpvPicturePreset();
-    final builtInPresets = MpvSettingsCatalog.builtInPicturePresets;
+    final l10n = AppLocalizations.of(context);
+    final builtInPresets = MpvSettingsL10n.builtInPicturePresets(l10n);
     return PlayerNestedSheetScaffold(
-      header: PlayerNestedSheetHeader(title: '画质快速预设', onBack: drawer.popPage),
+      header: PlayerNestedSheetHeader(
+        title: l10n.mpvPictureQuickPresetTitle,
+        onBack: drawer.popPage,
+      ),
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
           PlaybackSettingsStatusCard(
-            title: '画质快速预设',
+            title: l10n.mpvPictureQuickPresetTitle,
             value: _mpvVideoQuickPresetSummaryLabel(),
-            description: '这里只放画面相关方案，音频增强已经拆到独立的音频快速预设。',
+            description: l10n.mpvPictureQuickPresetDescription,
           ),
           const SizedBox(height: 12),
           for (var index = 0; index < builtInPresets.length; index++) ...[
@@ -155,7 +180,7 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
               PlaybackSettingsChoiceTile(
                 title: _savedMpvPicturePresets[index].name,
                 subtitle: _savedMpvPicturePresets[index].description.isEmpty
-                    ? '已保存画质预设'
+                    ? l10n.mpvSavedPicturePreset
                     : _savedMpvPicturePresets[index].description,
                 selected:
                     activeSavedPreset?.id == _savedMpvPicturePresets[index].id,
@@ -186,16 +211,20 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
   ) {
     final activeBuiltInPreset = _activeMpvAudioPreset();
     final activeSavedPreset = _activeSavedMpvAudioPreset();
-    final builtInPresets = MpvSettingsCatalog.builtInAudioPresets;
+    final l10n = AppLocalizations.of(context);
+    final builtInPresets = MpvSettingsL10n.builtInAudioPresets(l10n);
     return PlayerNestedSheetScaffold(
-      header: PlayerNestedSheetHeader(title: '音频快速预设', onBack: drawer.popPage),
+      header: PlayerNestedSheetHeader(
+        title: l10n.mpvAudioQuickPresetTitle,
+        onBack: drawer.popPage,
+      ),
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
           PlaybackSettingsStatusCard(
-            title: '音频快速预设',
+            title: l10n.mpvAudioQuickPresetTitle,
             value: _mpvAudioQuickPresetSummaryLabel(),
-            description: '一键切换高保真、对白增强、低频氛围和夜间压缩，不再和画质预设混在一起。',
+            description: l10n.mpvAudioQuickPresetDescription,
           ),
           const SizedBox(height: 12),
           for (var index = 0; index < builtInPresets.length; index++) ...[
@@ -230,7 +259,7 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
               PlaybackSettingsChoiceTile(
                 title: _savedMpvAudioPresets[index].name,
                 subtitle: _savedMpvAudioPresets[index].description.isEmpty
-                    ? '已保存音频预设'
+                    ? l10n.mpvSavedAudioPreset
                     : _savedMpvAudioPresets[index].description,
                 selected:
                     activeSavedPreset?.id == _savedMpvAudioPresets[index].id,
@@ -259,31 +288,35 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
     BuildContext context,
     PlayerNestedSheetController<void> drawer,
   ) {
+    final l10n = AppLocalizations.of(context);
     return PlayerNestedSheetScaffold(
-      header: PlayerNestedSheetHeader(title: '自定义管理', onBack: drawer.popPage),
+      header: PlayerNestedSheetHeader(
+        title: l10n.mpvCustomManagementTitle,
+        onBack: drawer.popPage,
+      ),
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
           PlaybackSettingsStatusCard(
-            title: '自定义管理',
+            title: l10n.mpvCustomManagementTitle,
             value:
                 _mpvChangedSettingCount() > 0 ||
                     _videoAdjustmentChangedCount() > 0
-                ? '当前自定义'
-                : '全部默认',
-            description: '首页只保留快速预设；即时调节、分类细调和保存当前预设都统一收进这里。',
+                ? l10n.mpvCurrentCustom
+                : l10n.mpvAllDefault,
+            description: l10n.mpvCustomManagementDescription,
           ),
           const SizedBox(height: 12),
           PlaybackSettingsMenuTile(
-            title: '画质自定义',
-            subtitle: '即时调节、滤镜、渲染、HDR、插帧、同步、缓存和兼容项',
+            title: l10n.mpvPictureCustomTitle,
+            subtitle: l10n.mpvPictureCustomSubtitle,
             trailingLabel: _mpvPictureCustomSummaryLabel(),
             onTap: () => drawer.push(_playerSettingsMpvPictureCustomPageId),
           ),
           const SizedBox(height: 12),
           PlaybackSettingsMenuTile(
-            title: '音频自定义',
-            subtitle: '高保真、音量增强、EQ、限幅、低音增强、人声增强和声道混合',
+            title: l10n.mpvAudioCustomTitle,
+            subtitle: l10n.mpvAudioCustomSubtitle,
             trailingLabel: _mpvAudioCustomSummaryLabel(),
             onTap: () => drawer.push(_playerSettingsMpvAudioCustomPageId),
           ),
@@ -302,21 +335,25 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
       _mpvPlaybackSyncCategory,
       _mpvCompatibilityCategory,
     ];
+    final l10n = AppLocalizations.of(context);
     return PlayerNestedSheetScaffold(
-      header: PlayerNestedSheetHeader(title: '画质自定义', onBack: drawer.popPage),
+      header: PlayerNestedSheetHeader(
+        title: l10n.mpvPictureCustomTitle,
+        onBack: drawer.popPage,
+      ),
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
           PlaybackSettingsStatusCard(
-            title: '画质自定义',
+            title: l10n.mpvPictureCustomTitle,
             value: _mpvPictureCustomSummaryLabel(),
-            description: '即时调节和所有画质相关细项都统一放在这里管理，保存后会生成独立画质预设。',
+            description: l10n.mpvPictureCustomDescription,
           ),
           const SizedBox(height: 12),
           PlaybackSettingsMenuTile(
-            title: '保存当前画质',
-            subtitle: '把当前即时调节和画质增强另存为独立预设',
-            trailingLabel: '保存',
+            title: l10n.mpvSaveCurrentPictureTitle,
+            subtitle: l10n.mpvSaveCurrentPictureSubtitle,
+            trailingLabel: l10n.commonSave,
             onTap: () => unawaited(
               _saveCurrentMpvPresetFromDrawer(
                 drawer,
@@ -326,8 +363,8 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
           ),
           const SizedBox(height: 12),
           PlaybackSettingsMenuTile(
-            title: '即时调节',
-            subtitle: '亮度、对比度、饱和度、Gamma、色相',
+            title: l10n.mpvInstantAdjustTitle,
+            subtitle: l10n.mpvInstantAdjustSubtitle,
             trailingLabel: _videoAdjustmentSummaryLabel(),
             onTap: () => drawer.push(_playerSettingsMpvQuickAdjustPageId),
           ),
@@ -350,21 +387,25 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
     BuildContext context,
     PlayerNestedSheetController<void> drawer,
   ) {
+    final l10n = AppLocalizations.of(context);
     return PlayerNestedSheetScaffold(
-      header: PlayerNestedSheetHeader(title: '音频自定义', onBack: drawer.popPage),
+      header: PlayerNestedSheetHeader(
+        title: l10n.mpvAudioCustomTitle,
+        onBack: drawer.popPage,
+      ),
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
           PlaybackSettingsStatusCard(
-            title: '音频自定义',
+            title: l10n.mpvAudioCustomTitle,
             value: _mpvAudioCustomSummaryLabel(),
-            description: '把高保真、EQ、音量增强和所有音频后处理统一放在这里管理，保存后会生成独立音频预设。',
+            description: l10n.mpvAudioCustomDescription,
           ),
           const SizedBox(height: 12),
           PlaybackSettingsMenuTile(
-            title: '保存当前音频',
-            subtitle: '把当前音频增强和 EQ 另存为独立预设',
-            trailingLabel: '保存',
+            title: l10n.mpvSaveCurrentAudioTitle,
+            subtitle: l10n.mpvSaveCurrentAudioSubtitle,
+            trailingLabel: l10n.commonSave,
             onTap: () => unawaited(
               _saveCurrentMpvPresetFromDrawer(
                 drawer,
@@ -481,25 +522,26 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
 
   void _showMpvCacheProfileHelp(BuildContext context, String value) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final title = switch (value) {
-      'default' => '智能分配',
-      'low_latency' => '极速响应',
-      'stable' => '稳定缓冲',
-      'network' => '网盘 / STRM / NAS',
-      _ => '缓存策略',
+      'default' => l10n.mpvOptionDefault,
+      'low_latency' => l10n.mpvOptionLowLatency,
+      'stable' => l10n.mpvOptionStable,
+      'network' => l10n.mpvOptionNetwork,
+      _ => l10n.mpvSettingCacheProfileTitle,
     };
     final content = switch (value) {
-      'default' => '自动档。播放器会根据片源类型决定更合适的缓冲强度，本地文件更偏常规，较重的网络片源会自动偏向更稳的缓冲。',
-      'low_latency' => '预读最轻，拖动、切换和回填最快，但抗抖动最弱。更适合本地视频，或者局域网很稳时追求跟手感。',
-      'stable' => '中等偏重缓冲，优先减少抖动导致的卡顿。拖动响应会比极速慢一点，但更适合大多数 NAS、网盘和 STRM 观看。',
-      'network' => '最重的一档，给高码率网盘、STRM 和 NAS 片源更多预读空间。起播和拖动后的回填更重，但最抗波动。',
-      _ => '当前选项用于控制预读力度和缓冲风格。',
+      'default' => l10n.mpvCacheHelpDefaultContent,
+      'low_latency' => l10n.mpvCacheHelpLowLatencyContent,
+      'stable' => l10n.mpvCacheHelpStableContent,
+      'network' => l10n.mpvCacheHelpNetworkContent,
+      _ => l10n.mpvCacheHelpGenericContent,
     };
     final extra = switch (value) {
-      'default' => '适合：不想自己判断时直接用。',
-      'low_latency' => '适合：本地硬盘视频、局域网很稳时的 NAS。',
-      'stable' => '适合：大多数 NAS、网盘和普通 STRM。',
-      'network' => '适合：高码率、大体积、跨网络访问的片源。',
+      'default' => l10n.mpvCacheHelpDefaultExtra,
+      'low_latency' => l10n.mpvCacheHelpLowLatencyExtra,
+      'stable' => l10n.mpvCacheHelpStableExtra,
+      'network' => l10n.mpvCacheHelpNetworkExtra,
       _ => '',
     };
     showDialog<void>(
@@ -548,7 +590,7 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('知道了'),
+              child: Text(l10n.commonOk),
             ),
           ],
         );
@@ -561,7 +603,9 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
     String key,
     String value,
   ) async {
-    final warning = MpvSettingsCatalog.performanceWarningForSelection(
+    final l10n = AppLocalizations.of(context);
+    final warning = MpvSettingsL10n.performanceWarningForSelection(
+      l10n,
       key,
       value,
     );
@@ -595,11 +639,11 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
           actions: <Widget>[
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('取消'),
+              child: Text(l10n.commonCancel),
             ),
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('继续开启'),
+              child: Text(l10n.mpvContinueEnable),
             ),
           ],
         );
@@ -612,6 +656,7 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
     PlayerNestedSheetController<void> drawer,
     _MpvSettingDefinition definition,
   ) {
+    final l10n = AppLocalizations.of(context);
     final presetOptions = definition.options
         .where(
           (option) => option.value != MpvSettingsCatalog.audioEqCustomValue,
@@ -632,13 +677,13 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
           ),
           const SizedBox(height: 12),
           PlaybackSettingsMenuTile(
-            title: '高级频段调整',
-            subtitle: '进入上下滑动频谱页，自定义每个频段并保存多套预设。',
+            title: l10n.mpvAudioEqAdvancedTitle,
+            subtitle: l10n.mpvAudioEqAdvancedSubtitle,
             trailingLabel:
                 _mpvSettingValue(definition.key) ==
                     MpvSettingsCatalog.audioEqCustomValue
-                ? '当前使用'
-                : '进入',
+                ? l10n.mpvCurrentlyUsed
+                : l10n.commonEnter,
             onTap: () => drawer.push(_playerSettingsMpvAudioEqAdvancedPageId),
           ),
           const SizedBox(height: 12),
@@ -669,8 +714,12 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
   Widget _buildMpvAudioEqAdvancedPage(
     PlayerNestedSheetController<void> drawer,
   ) {
+    final l10n = AppLocalizations.of(context);
     return PlayerNestedSheetScaffold(
-      header: PlayerNestedSheetHeader(title: '高级均衡', onBack: drawer.popPage),
+      header: PlayerNestedSheetHeader(
+        title: l10n.mpvAudioEqAdvancedHeader,
+        onBack: drawer.popPage,
+      ),
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
@@ -678,9 +727,6 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
             settings: _mpvSettings,
             onApplyPatch: (patch) async {
               await _setMpvAdvancedSettingsPatch(patch);
-              if (mounted) {
-                drawer.refresh();
-              }
             },
             onMessage: (message) => _showTopTip(
               message,
@@ -704,6 +750,10 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
 
     return StatefulBuilder(
       builder: (context, setLocalState) {
+        final l10n = AppLocalizations.of(context);
+        final cacheDefinition = _mpvDefinitionForKey(
+          _MpvPlayerPageState._mpvSettingCacheSizeMb,
+        )!;
         final selectedPercent = sliderValue.round().clamp(
           _mpvCachePercentSliderMin,
           _mpvCachePercentSliderMax,
@@ -716,25 +766,27 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
             );
         return PlayerNestedSheetScaffold(
           header: PlayerNestedSheetHeader(
-            title: _mpvCacheSizeDefinition.title,
+            title: cacheDefinition.title,
             onBack: drawer.popPage,
           ),
           child: ListView(
             padding: EdgeInsets.zero,
             children: [
               PlaybackSettingsStatusCard(
-                title: '缓存设定',
+                title: l10n.mpvCacheSettingStatusTitle,
                 value: auto
-                    ? '自动'
+                    ? l10n.mpvOptionAuto
                     : _formatMpvCachePercentLabel(selectedPercent),
                 description: auto
-                    ? '当前由缓存策略自动分配上限。关闭自动后，可直接拖动滑杆控制缓存百分比。'
-                    : '缓存百分比越高，越有利于高码率和不稳定网络，但也会占用更多内存和存储。',
+                    ? l10n.mpvCacheSettingAutoDescription
+                    : l10n.mpvCacheSettingManualDescription,
               ),
               const SizedBox(height: 12),
               PlaybackSettingsSwitchTile(
-                title: '自动缓存',
-                subtitle: auto ? '当前由缓存策略自动分配缓冲上限' : '关闭后可手动指定缓存百分比',
+                title: l10n.mpvCacheAutoSwitchTitle,
+                subtitle: auto
+                    ? l10n.mpvCacheAutoSwitchAutoSubtitle
+                    : l10n.mpvCacheAutoSwitchManualSubtitle,
                 value: auto,
                 onChanged: (value) async {
                   final nextValue = value ? 'auto' : selectedMb.toString();
@@ -796,15 +848,17 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
                     children: [
                       Row(
                         children: [
-                          const Expanded(
+                          Expanded(
                             child: _SettingsTextBlock(
-                              title: '滑动设定',
-                              subtitle: '拖动滑杆调整缓存百分比，修改后会立即应用到当前播放器。',
+                              title: l10n.mpvCacheSliderTitle,
+                              subtitle: l10n.mpvCacheSliderSubtitle,
                             ),
                           ),
                           const SizedBox(width: 12),
                           Text(
-                            '缓存设定：${_formatMpvCachePercentLabel(selectedPercent)}',
+                            l10n.mpvCachePercentSettingLabel(
+                              _formatMpvCachePercentLabel(selectedPercent),
+                            ),
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 14,
@@ -961,7 +1015,7 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
 
   int _mbToCachePercent(int value) {
     final normalized = _normalizeMpvCacheSizeMb(value);
-    final range = _mpvCacheSizeSliderMaxMb - _mpvCacheSizeSliderMinMb;
+    const range = _mpvCacheSizeSliderMaxMb - _mpvCacheSizeSliderMinMb;
     if (range <= 0) return _mpvCachePercentSliderMax;
     final percent = ((normalized - _mpvCacheSizeSliderMinMb) * 100 / range)
         .round();
@@ -973,7 +1027,7 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
       _mpvCachePercentSliderMin,
       _mpvCachePercentSliderMax,
     );
-    final range = _mpvCacheSizeSliderMaxMb - _mpvCacheSizeSliderMinMb;
+    const range = _mpvCacheSizeSliderMaxMb - _mpvCacheSizeSliderMinMb;
     final mapped =
         _mpvCacheSizeSliderMinMb + (range * normalizedPercent / 100).round();
     return _normalizeMpvCacheSizeMb(mapped);
@@ -991,7 +1045,7 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
   }
 
   String _formatMpvCacheSizeLabel(String value) {
-    if (value == 'auto') return '自动';
+    if (value == 'auto') return AppLocalizations.of(context).mpvOptionAuto;
     final parsed = int.tryParse(value);
     if (parsed == null) return value;
     return _formatMpvCachePercentLabel(_mbToCachePercent(parsed));
@@ -1006,36 +1060,65 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
   }
 
   String _mpvSettingsStatusLabel() {
+    final l10n = AppLocalizations.of(context);
     final scenePreset = _activeMpvScenePreset();
-    if (scenePreset != null) return scenePreset.label;
+    if (scenePreset != null) {
+      return MpvSettingsL10n.scenePresetLabel(
+        l10n,
+        scenePreset.id,
+        fallback: scenePreset.label,
+      );
+    }
     final videoPreset = _activeMpvVideoPreset();
     final audioPreset = _activeMpvAudioPreset();
     if (videoPreset != null && audioPreset != null) {
       final videoOff = videoPreset.id == 'off';
       final audioOff = audioPreset.id == 'off';
-      if (videoOff && audioOff) return '默认';
-      if (videoOff) return audioPreset.label;
-      if (audioOff) return videoPreset.label;
-      return '${videoPreset.label} / ${audioPreset.label}';
+      final defaultLabel = MpvSettingsL10n.defaultLabel(l10n);
+      final videoLabel = MpvSettingsL10n.picturePresetLabel(
+        l10n,
+        videoPreset.id,
+        fallback: videoPreset.label,
+      );
+      final audioLabel = MpvSettingsL10n.audioPresetLabel(
+        l10n,
+        audioPreset.id,
+        fallback: audioPreset.label,
+      );
+      if (videoOff && audioOff) return defaultLabel;
+      if (videoOff) return audioLabel;
+      if (audioOff) return videoLabel;
+      return '$videoLabel / $audioLabel';
     }
     if (_mpvChangedSettingCount() == 0 && _videoAdjustmentChangedCount() == 0) {
-      return '默认';
+      return MpvSettingsL10n.defaultLabel(l10n);
     }
-    return '已自定义';
+    return MpvSettingsL10n.currentCustomLabel(l10n);
   }
 
   String _mpvSettingsSummaryText() {
+    final l10n = AppLocalizations.of(context);
     final scenePreset = _activeMpvScenePreset();
-    if (scenePreset != null) return scenePreset.description;
+    if (scenePreset != null) {
+      return MpvSettingsL10n.scenePresetDescription(
+        l10n,
+        scenePreset.id,
+        fallback: scenePreset.description,
+      );
+    }
     final videoPreset = _activeMpvVideoPreset();
     final audioPreset = _activeMpvAudioPreset();
     if (videoPreset != null || audioPreset != null) {
       final parts = <String>[];
       if (videoPreset != null && videoPreset.id != 'off') {
-        parts.add('画质：${videoPreset.description}');
+        parts.add(
+          '${MpvSettingsL10n.savedPresetKindLabel(l10n, SavedMpvPresetKind.picture)}: ${MpvSettingsL10n.picturePresetDescription(l10n, videoPreset.id, fallback: videoPreset.description)}',
+        );
       }
       if (audioPreset != null && audioPreset.id != 'off') {
-        parts.add('音频：${audioPreset.description}');
+        parts.add(
+          '${MpvSettingsL10n.savedPresetKindLabel(l10n, SavedMpvPresetKind.audio)}: ${MpvSettingsL10n.audioPresetDescription(l10n, audioPreset.id, fallback: audioPreset.description)}',
+        );
       }
       if (parts.isNotEmpty) return parts.join('  ');
     }
@@ -1044,7 +1127,7 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
     }
     final changed = _mpvChangedSettingCount();
     if (changed == 0 && _videoAdjustmentChangedCount() == 0) {
-      return '当前使用默认 MPV 参数。';
+      return l10n.mpvVideoAdjustAllDefaultSummary;
     }
     final labels = <String>[];
     for (final definition in _videoAdjustmentDefinitions) {
@@ -1067,8 +1150,8 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
     }
     final totalChanged = changed + _videoAdjustmentChangedCount();
     return labels.isEmpty
-        ? '已调整 $totalChanged 项。'
-        : '已调整 $totalChanged 项：${labels.join(' / ')}';
+        ? MpvSettingsL10n.changedCount(l10n, totalChanged)
+        : '${MpvSettingsL10n.changedCount(l10n, totalChanged)}: ${labels.join(' / ')}';
   }
 
   String _mpvCategorySummaryLabel(_MpvSettingCategory category) {
@@ -1078,7 +1161,7 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
           .whereType<String>()
           .toList(growable: false),
     );
-    if (changedCount == 0) return '默认';
+    if (changedCount == 0) return AppLocalizations.of(context).mpvDefault;
     if (changedCount == 1) {
       for (final entry in category.entries) {
         final key = entry.settingKey;
@@ -1090,7 +1173,10 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
         }
       }
     }
-    return '$changedCount 项';
+    return MpvSettingsL10n.changedCount(
+      AppLocalizations.of(context),
+      changedCount,
+    );
   }
 
   int _mpvChangedSettingCount([List<String>? keys]) {
@@ -1189,48 +1275,99 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
   }
 
   String _mpvRecommendedSceneLabel() {
+    final l10n = AppLocalizations.of(context);
     final recommendation = _recommendedMpvScenePreset();
-    if (recommendation != null) return recommendation.preset.label;
-    return _activeMpvScenePreset()?.label ?? '未使用';
+    if (recommendation != null) {
+      return MpvSettingsL10n.scenePresetLabel(
+        l10n,
+        recommendation.preset.id,
+        fallback: recommendation.preset.label,
+      );
+    }
+    final active = _activeMpvScenePreset();
+    if (active != null) {
+      return MpvSettingsL10n.scenePresetLabel(
+        l10n,
+        active.id,
+        fallback: active.label,
+      );
+    }
+    return MpvSettingsL10n.notUsedLabel(l10n);
   }
 
   String _mpvVideoQuickPresetSummaryLabel() {
+    final l10n = AppLocalizations.of(context);
     final preset = _activeMpvVideoPreset();
-    if (preset != null) return preset.label;
+    if (preset != null) {
+      return MpvSettingsL10n.picturePresetLabel(
+        l10n,
+        preset.id,
+        fallback: preset.label,
+      );
+    }
     final changed = _mpvChangedSettingCount(
       _mpvVideoQuickPresetKeys.toList(growable: false),
     );
-    if (changed == 0 && _videoAdjustmentChangedCount() == 0) return '默认';
-    return '当前自定义';
+    if (changed == 0 && _videoAdjustmentChangedCount() == 0) {
+      return MpvSettingsL10n.defaultLabel(l10n);
+    }
+    return MpvSettingsL10n.currentCustomLabel(l10n);
   }
 
   String _mpvAudioQuickPresetSummaryLabel() {
+    final l10n = AppLocalizations.of(context);
     final preset = _activeMpvAudioPreset();
-    if (preset != null) return preset.label;
+    if (preset != null) {
+      return MpvSettingsL10n.audioPresetLabel(
+        l10n,
+        preset.id,
+        fallback: preset.label,
+      );
+    }
     final changed = _mpvChangedSettingCount(
       _mpvAudioQuickPresetKeys.toList(growable: false),
     );
-    return changed == 0 ? '默认' : '当前自定义';
+    return changed == 0
+        ? MpvSettingsL10n.defaultLabel(l10n)
+        : MpvSettingsL10n.currentCustomLabel(l10n);
   }
 
   String _mpvPictureCustomSummaryLabel() {
+    final l10n = AppLocalizations.of(context);
     final preset = _activeMpvVideoPreset();
-    if (preset != null) return preset.label;
+    if (preset != null) {
+      return MpvSettingsL10n.picturePresetLabel(
+        l10n,
+        preset.id,
+        fallback: preset.label,
+      );
+    }
     final changed =
         _mpvChangedSettingCount(
           _mpvVideoQuickPresetKeys.toList(growable: false),
         ) +
         _videoAdjustmentChangedCount();
-    return changed == 0 ? '默认' : '当前自定义';
+    return changed == 0
+        ? MpvSettingsL10n.defaultLabel(l10n)
+        : MpvSettingsL10n.currentCustomLabel(l10n);
   }
 
   String _mpvAudioCustomSummaryLabel() {
+    final l10n = AppLocalizations.of(context);
     final preset = _activeMpvAudioPreset();
-    if (preset != null) return preset.label;
+    if (preset != null) {
+      return MpvSettingsL10n.audioPresetLabel(
+        l10n,
+        preset.id,
+        fallback: preset.label,
+      );
+    }
     final changed = _mpvChangedSettingCount(
       _mpvAudioQuickPresetKeys.toList(growable: false),
     );
-    return changed == 0 ? '默认' : '当前自定义';
+    return changed == 0
+        ? MpvSettingsL10n.defaultLabel(l10n)
+        : MpvSettingsL10n.currentCustomLabel(l10n);
   }
 
   MpvSettingPreset? _activeMpvVideoPreset() {
@@ -1254,10 +1391,13 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
       videoAdjustments: _videoAdjustments,
     );
     if (preset == null) return null;
+    final l10n = AppLocalizations.of(context);
     return MpvSettingPreset(
       id: preset.id,
       label: preset.name,
-      description: preset.description.isEmpty ? '已保存画质预设' : preset.description,
+      description: preset.description.isEmpty
+          ? l10n.mpvSavedPicturePreset
+          : preset.description,
       settings: preset.settingsSnapshot,
       videoAdjustments: preset.videoAdjustmentsSnapshot,
     );
@@ -1271,10 +1411,13 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
       videoAdjustments: _videoAdjustments,
     );
     if (preset == null) return null;
+    final l10n = AppLocalizations.of(context);
     return MpvSettingPreset(
       id: preset.id,
       label: preset.name,
-      description: preset.description.isEmpty ? '已保存音频预设' : preset.description,
+      description: preset.description.isEmpty
+          ? l10n.mpvSavedAudioPreset
+          : preset.description,
       settings: preset.settingsSnapshot,
     );
   }
@@ -1285,20 +1428,23 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
   }) async {
     final suggestedName = await _suggestedMpvPresetName(kind);
     if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
     final result = await showNamedPresetSaveDialog(
       context,
-      title: kind == SavedMpvPresetKind.picture ? '保存当前画质' : '保存当前音频',
+      title: kind == SavedMpvPresetKind.picture
+          ? l10n.mpvSaveCurrentPictureTitle
+          : l10n.mpvSaveCurrentAudioTitle,
       initialName: suggestedName,
       suggestedName: suggestedName,
-      nameLabel: '${kind.label}预设名称',
-      descriptionLabel: '说明（可选）',
+      nameLabel: MpvSettingsL10n.presetNameLabel(l10n, kind),
+      descriptionLabel: l10n.commonDescriptionOptional,
       validateName: (name) {
         final presets = kind == SavedMpvPresetKind.picture
             ? _savedMpvPicturePresets
             : _savedMpvAudioPresets;
         for (final preset in presets) {
           if (preset.name.trim().toLowerCase() == name.trim().toLowerCase()) {
-            return '${kind.label}预设名称不能重复';
+            return MpvSettingsL10n.presetDuplicateName(l10n, kind);
           }
         }
         return null;
@@ -1317,12 +1463,13 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
     drawer.refresh();
     AppTopTip().show(
       context,
-      message: '已保存${kind.label}预设：${savedPreset.name}',
+      message: MpvSettingsL10n.presetSavedMessage(l10n, kind, savedPreset.name),
       color: context.appColors.success,
     );
   }
 
   Future<String> _suggestedMpvPresetName(SavedMpvPresetKind kind) async {
+    final l10n = AppLocalizations.of(context);
     final basePreset = kind == SavedMpvPresetKind.picture
         ? MpvSettingsCatalog.activeBuiltInPicturePreset(
             _mpvSettings,
@@ -1331,7 +1478,7 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
         : MpvSettingsCatalog.activeBuiltInAudioPreset(_mpvSettings);
     final baseName = basePreset != null && basePreset.id != 'off'
         ? basePreset.label
-        : '${kind.label}预设';
+        : MpvSettingsL10n.presetDefaultBaseName(l10n, kind);
     return _mpvSettingsStore.nextSavedPresetNameFromBase(kind, baseName);
   }
 
@@ -1341,136 +1488,6 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
     }
     return null;
   }
-
-  List<_MpvSettingPreset> get _mpvPresets => <_MpvSettingPreset>[
-    const _MpvSettingPreset(
-      id: 'off',
-      label: '默认',
-      description: '关闭额外画质增强，优先保证兼容性和稳定性。',
-      settings: <String, String>{},
-    ),
-    const _MpvSettingPreset(
-      id: 'anime',
-      label: '动画清晰',
-      description: '轻量去色带加标准缩放，适合动画和较干净的片源。',
-      settings: <String, String>{
-        _MpvPlayerPageState._mpvSettingDeband: 'low',
-        _MpvPlayerPageState._mpvSettingScaleProfile: 'balanced',
-      },
-    ),
-    const _MpvSettingPreset(
-      id: 'cinema',
-      label: '影院柔和',
-      description: '保守去色带，适合老片和暗场，避免过重后处理。',
-      settings: <String, String>{_MpvPlayerPageState._mpvSettingDeband: 'low'},
-    ),
-    const _MpvSettingPreset(
-      id: 'smooth',
-      label: '流畅优先',
-      description: '偏性能与稳定的流畅方案，自动判断是否启用插帧。',
-      settings: <String, String>{
-        _MpvPlayerPageState._mpvSettingScaleProfile: 'fast',
-        _MpvPlayerPageState._mpvSettingFrameInterpolation: 'auto',
-        _MpvPlayerPageState._mpvSettingVideoSync: 'auto',
-        _MpvPlayerPageState._mpvSettingCacheProfile: 'stable',
-        _MpvPlayerPageState._mpvSettingCompatibility: 'conservative',
-      },
-    ),
-  ];
-
-  List<_MpvSettingPreset> get _mpvAudioPresets => <_MpvSettingPreset>[
-    const _MpvSettingPreset(
-      id: 'off',
-      label: '默认',
-      description: '关闭额外音频增强，保留基础播放参数。',
-      settings: <String, String>{},
-    ),
-    const _MpvSettingPreset(
-      id: 'hi_fi',
-      label: '原声保真',
-      description: '打开高保真，旁路 EQ 和增强，适合耳机和高质量片源。',
-      settings: <String, String>{
-        _MpvPlayerPageState._mpvSettingAudioHighFidelity: 'on',
-        _MpvPlayerPageState._mpvSettingVolumeGain: '100',
-      },
-    ),
-    const _MpvSettingPreset(
-      id: 'balanced',
-      label: '通用增强',
-      description: '轻度提亮人声和低频，适合大多数普通剧集、综艺和日常看片。',
-      settings: <String, String>{
-        _MpvPlayerPageState._mpvSettingVolumeGain: '125',
-        _MpvPlayerPageState._mpvSettingAudioEq: 'soft',
-        _MpvPlayerPageState._mpvSettingAudioLimiter: 'light',
-        _MpvPlayerPageState._mpvSettingAudioBassBoost: 'low',
-        _MpvPlayerPageState._mpvSettingAudioVoiceEnhance: 'low',
-        _MpvPlayerPageState._mpvSettingChannelMix: 'stereo',
-      },
-    ),
-    const _MpvSettingPreset(
-      id: 'dialogue',
-      label: '人声清晰',
-      description: '抬前对白和中高频细节，适合台词偏轻的片源。',
-      settings: <String, String>{
-        _MpvPlayerPageState._mpvSettingVolumeGain: '140',
-        _MpvPlayerPageState._mpvSettingDynamicRange: 'low',
-        _MpvPlayerPageState._mpvSettingAudioEq: 'clarity',
-        _MpvPlayerPageState._mpvSettingAudioLimiter: 'light',
-        _MpvPlayerPageState._mpvSettingAudioVoiceEnhance: 'medium',
-        _MpvPlayerPageState._mpvSettingChannelMix: 'stereo',
-      },
-    ),
-    const _MpvSettingPreset(
-      id: 'speaker_clear',
-      label: '外放清晰',
-      description: '针对手机和平板外放，压住爆点、把对白往前推，减少糊成一团。',
-      settings: <String, String>{
-        _MpvPlayerPageState._mpvSettingVolumeGain: '160',
-        _MpvPlayerPageState._mpvSettingDynamicRange: 'medium',
-        _MpvPlayerPageState._mpvSettingAudioEq: 'clarity',
-        _MpvPlayerPageState._mpvSettingAudioLimiter: 'strong',
-        _MpvPlayerPageState._mpvSettingAudioVoiceEnhance: 'medium',
-        _MpvPlayerPageState._mpvSettingChannelMix: 'stereo',
-      },
-    ),
-    const _MpvSettingPreset(
-      id: 'cinema_bass',
-      label: '影院低频',
-      description: '增强低频氛围和厚度，适合动作片、配乐片和外放。',
-      settings: <String, String>{
-        _MpvPlayerPageState._mpvSettingVolumeGain: '135',
-        _MpvPlayerPageState._mpvSettingAudioEq: 'cinema',
-        _MpvPlayerPageState._mpvSettingAudioLimiter: 'light',
-        _MpvPlayerPageState._mpvSettingAudioBassBoost: 'medium',
-        _MpvPlayerPageState._mpvSettingChannelMix: 'auto',
-      },
-    ),
-    const _MpvSettingPreset(
-      id: 'headphone_immersive',
-      label: '耳机沉浸',
-      description: '保留动态感，补一点氛围和厚度，适合耳机听电影和演唱会现场。',
-      settings: <String, String>{
-        _MpvPlayerPageState._mpvSettingVolumeGain: '120',
-        _MpvPlayerPageState._mpvSettingAudioEq: 'cinema',
-        _MpvPlayerPageState._mpvSettingAudioLimiter: 'light',
-        _MpvPlayerPageState._mpvSettingAudioBassBoost: 'low',
-        _MpvPlayerPageState._mpvSettingChannelMix: 'stereo',
-      },
-    ),
-    const _MpvSettingPreset(
-      id: 'night',
-      label: '夜间均衡',
-      description: '压低爆点、抬前对白，适合深夜外放和追剧。',
-      settings: <String, String>{
-        _MpvPlayerPageState._mpvSettingVolumeGain: '140',
-        _MpvPlayerPageState._mpvSettingDynamicRange: 'medium',
-        _MpvPlayerPageState._mpvSettingAudioEq: 'soft',
-        _MpvPlayerPageState._mpvSettingAudioLimiter: 'strong',
-        _MpvPlayerPageState._mpvSettingAudioVoiceEnhance: 'low',
-        _MpvPlayerPageState._mpvSettingChannelMix: 'stereo',
-      },
-    ),
-  ];
 
   Set<String> get _mpvVideoQuickPresetKeys => <String>{
     _MpvPlayerPageState._mpvSettingDeband,
@@ -1502,749 +1519,216 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
     _MpvPlayerPageState._mpvSettingChannelMix,
   };
 
-  List<_MpvSettingDefinition> get _mpvChoiceDefinitions =>
-      <_MpvSettingDefinition>[
-        _mpvDebandDefinition,
-        _mpvSharpenDefinition,
-        _mpvDenoiseDefinition,
-        _mpvDeinterlaceDefinition,
-        _mpvScaleProfileDefinition,
-        _mpvHdrDefinition,
-        _mpvFrameInterpolationDefinition,
-        _mpvVideoSyncDefinition,
-        _mpvCacheDefinition,
-        _mpvCacheSizeDefinition,
-        _mpvVolumeGainDefinition,
-        _mpvAudioHighFidelityDefinition,
-        _mpvDynamicRangeDefinition,
-        _mpvAudioEqDefinitionFixed,
-        _mpvAudioLimiterDefinition,
-        _mpvAudioBassBoostDefinition,
-        _mpvAudioVoiceEnhanceDefinition,
-        _mpvChannelMixDefinition,
-        _mpvCompatibilityDefinition,
-      ];
+  List<_MpvSettingDefinition> get _mpvChoiceDefinitions {
+    return <String>[
+          _MpvPlayerPageState._mpvSettingDeband,
+          _MpvPlayerPageState._mpvSettingSharpen,
+          _MpvPlayerPageState._mpvSettingDenoise,
+          _MpvPlayerPageState._mpvSettingDeinterlace,
+          _MpvPlayerPageState._mpvSettingScaleProfile,
+          _MpvPlayerPageState._mpvSettingHdrMode,
+          _MpvPlayerPageState._mpvSettingFrameInterpolation,
+          _MpvPlayerPageState._mpvSettingVideoSync,
+          _MpvPlayerPageState._mpvSettingCacheProfile,
+          _MpvPlayerPageState._mpvSettingCacheSizeMb,
+          _MpvPlayerPageState._mpvSettingVolumeGain,
+          _MpvPlayerPageState._mpvSettingAudioHighFidelity,
+          _MpvPlayerPageState._mpvSettingDynamicRange,
+          _MpvPlayerPageState._mpvSettingAudioEq,
+          _MpvPlayerPageState._mpvSettingAudioLimiter,
+          _MpvPlayerPageState._mpvSettingAudioBassBoost,
+          _MpvPlayerPageState._mpvSettingAudioVoiceEnhance,
+          _MpvPlayerPageState._mpvSettingChannelMix,
+          _MpvPlayerPageState._mpvSettingCompatibility,
+        ]
+        .map(_mpvDefinitionForKey)
+        .whereType<_MpvSettingDefinition>()
+        .toList(growable: false);
+  }
 
-  _MpvSettingDefinition get _mpvDebandDefinition => const _MpvSettingDefinition(
-    key: _MpvPlayerPageState._mpvSettingDeband,
-    pageId: _playerSettingsMpvDebandPageId,
-    title: '去色带',
-    shortTitle: '去色带',
-    description: '处理渐变断层和暗部条带，适合高压缩或低码率片源。',
-    helperLabel: '去色带强度',
-    options: <_MpvSettingOption>[
-      _MpvSettingOption(value: 'off', label: '关闭', description: '不额外处理色带。'),
-      _MpvSettingOption(value: 'low', label: '轻度', description: '轻微去除色带，兼顾细节。'),
-      _MpvSettingOption(value: 'medium', label: '标准', description: '更明显地平滑色带。'),
-    ],
-  );
+  _MpvSettingDefinition? _mpvDefinitionForKey(String key) {
+    final l10n = AppLocalizations.of(context);
+    final definition = MpvSettingsL10n.definitionByKey(l10n, key);
+    if (definition == null) return null;
+    final pageId = _mpvPageIdForSettingKey(key);
+    if (pageId == null) return null;
+    return _MpvSettingDefinition(
+      key: definition.key,
+      pageId: pageId,
+      title: definition.title,
+      shortTitle: definition.shortTitle,
+      description: definition.description,
+      helperLabel: definition.helperLabel,
+      options: definition.options
+          .map(
+            (option) => _MpvSettingOption(
+              value: option.value,
+              label: option.label,
+              description: option.description,
+            ),
+          )
+          .toList(growable: false),
+    );
+  }
 
-  _MpvSettingDefinition
-  get _mpvSharpenDefinition => const _MpvSettingDefinition(
-    key: _MpvPlayerPageState._mpvSettingSharpen,
-    pageId: _playerSettingsMpvSharpenPageId,
-    title: '锐化',
-    shortTitle: '锐化',
-    description: '提升边缘清晰度，但过强可能带来噪点和轮廓感。',
-    helperLabel: '锐化强度',
-    options: <_MpvSettingOption>[
-      _MpvSettingOption(value: 'off', label: '关闭', description: '保持原始画面细节。'),
-      _MpvSettingOption(value: 'low', label: '轻度', description: '轻微提升边缘锐利度。'),
-      _MpvSettingOption(value: 'medium', label: '标准', description: '更明显的锐化效果。'),
-    ],
-  );
+  String? _mpvPageIdForSettingKey(String key) {
+    return switch (key) {
+      _MpvPlayerPageState._mpvSettingDeband => _playerSettingsMpvDebandPageId,
+      _MpvPlayerPageState._mpvSettingSharpen => _playerSettingsMpvSharpenPageId,
+      _MpvPlayerPageState._mpvSettingDenoise => _playerSettingsMpvDenoisePageId,
+      _MpvPlayerPageState._mpvSettingDeinterlace =>
+        _playerSettingsMpvDeinterlacePageId,
+      _MpvPlayerPageState._mpvSettingScaleProfile =>
+        _playerSettingsMpvScaleProfilePageId,
+      _MpvPlayerPageState._mpvSettingHdrMode => _playerSettingsMpvHdrPageId,
+      _MpvPlayerPageState._mpvSettingFrameInterpolation =>
+        _playerSettingsMpvFrameInterpolationPageId,
+      _MpvPlayerPageState._mpvSettingVideoSync =>
+        _playerSettingsMpvVideoSyncPageId,
+      _MpvPlayerPageState._mpvSettingCacheProfile =>
+        _playerSettingsMpvCachePageId,
+      _MpvPlayerPageState._mpvSettingCacheSizeMb =>
+        _playerSettingsMpvCacheSizePageId,
+      _MpvPlayerPageState._mpvSettingVolumeGain =>
+        _playerSettingsMpvVolumeGainPageId,
+      _MpvPlayerPageState._mpvSettingAudioHighFidelity =>
+        _playerSettingsMpvAudioHighFidelityPageId,
+      _MpvPlayerPageState._mpvSettingDynamicRange =>
+        _playerSettingsMpvDynamicRangePageId,
+      _MpvPlayerPageState._mpvSettingAudioEq => _playerSettingsMpvAudioEqPageId,
+      _MpvPlayerPageState._mpvSettingAudioLimiter =>
+        _playerSettingsMpvAudioLimiterPageId,
+      _MpvPlayerPageState._mpvSettingAudioBassBoost =>
+        _playerSettingsMpvAudioBassBoostPageId,
+      _MpvPlayerPageState._mpvSettingAudioVoiceEnhance =>
+        _playerSettingsMpvAudioVoiceEnhancePageId,
+      _MpvPlayerPageState._mpvSettingChannelMix =>
+        _playerSettingsMpvChannelMixPageId,
+      _MpvPlayerPageState._mpvSettingCompatibility =>
+        _playerSettingsMpvCompatibilityProfilePageId,
+      _ => null,
+    };
+  }
 
-  _MpvSettingDefinition get _mpvDenoiseDefinition =>
-      const _MpvSettingDefinition(
-        key: _MpvPlayerPageState._mpvSettingDenoise,
-        pageId: _playerSettingsMpvDenoisePageId,
-        title: '降噪',
-        shortTitle: '降噪',
-        description: '压制噪点和颗粒感，适合老片源或码率偏低的视频。',
-        helperLabel: '降噪强度',
-        options: <_MpvSettingOption>[
-          _MpvSettingOption(value: 'off', label: '关闭', description: '不做额外降噪。'),
-          _MpvSettingOption(
-            value: 'low',
-            label: '轻度',
-            description: '轻微压制噪点，保留较多细节。',
-          ),
-          _MpvSettingOption(
-            value: 'medium',
-            label: '标准',
-            description: '更强调干净画面。',
-          ),
-        ],
-      );
+  _MpvSettingCategoryEntry _mpvEntry(String key) {
+    final definition = _mpvDefinitionForKey(key)!;
+    return _MpvSettingCategoryEntry(
+      title: definition.title,
+      subtitle: definition.description,
+      pageId: definition.pageId,
+      settingKey: key,
+    );
+  }
 
-  _MpvSettingDefinition get _mpvDeinterlaceDefinition =>
-      const _MpvSettingDefinition(
-        key: _MpvPlayerPageState._mpvSettingDeinterlace,
-        pageId: _playerSettingsMpvDeinterlacePageId,
-        title: '反交错',
-        shortTitle: '反交错',
-        description: '针对隔行扫描片源，普通网络视频建议保持自动。',
-        helperLabel: '处理方式',
-        options: <_MpvSettingOption>[
-          _MpvSettingOption(
-            value: 'auto',
-            label: '自动',
-            description: '检测到隔行源时才启用。',
-          ),
-          _MpvSettingOption(value: 'off', label: '关闭', description: '始终关闭反交错。'),
-          _MpvSettingOption(
-            value: 'force',
-            label: '强制开启',
-            description: '无论片源类型都执行反交错。',
-          ),
-        ],
-      );
+  _MpvSettingCategoryEntry _mpvStaticEntry({
+    required String title,
+    required String subtitle,
+    required String pageId,
+    String trailingLabel = '',
+  }) {
+    return _MpvSettingCategoryEntry(
+      title: title,
+      subtitle: subtitle,
+      pageId: pageId,
+      trailingLabel: trailingLabel,
+    );
+  }
 
-  _MpvSettingDefinition get _mpvScaleProfileDefinition =>
-      const _MpvSettingDefinition(
-        key: _MpvPlayerPageState._mpvSettingScaleProfile,
-        pageId: _playerSettingsMpvScaleProfilePageId,
-        title: '缩放算法',
-        shortTitle: '缩放',
-        description: '控制放大和缩小时的画面取向，在画质和性能之间取舍。',
-        helperLabel: '缩放策略',
-        options: <_MpvSettingOption>[
-          _MpvSettingOption(
-            value: 'fast',
-            label: '快速',
-            description: '优先性能，适合低端设备。',
-          ),
-          _MpvSettingOption(
-            value: 'balanced',
-            label: '标准',
-            description: '画质和功耗更均衡。',
-          ),
-          _MpvSettingOption(
-            value: 'quality',
-            label: '高质量',
-            description: '追求更细腻的缩放效果。',
-          ),
-        ],
-      );
+  _MpvSettingCategory get _mpvVideoFiltersCategory {
+    final l10n = AppLocalizations.of(context);
+    return _MpvSettingCategory(
+      pageId: _playerSettingsMpvVideoFiltersPageId,
+      title: l10n.mpvVideoFiltersCategoryTitle,
+      subtitle: l10n.mpvVideoFiltersCategorySubtitle,
+      description: l10n.mpvVideoFiltersCategoryDescription,
+      entries: <_MpvSettingCategoryEntry>[
+        _mpvEntry(_MpvPlayerPageState._mpvSettingDeband),
+        _mpvEntry(_MpvPlayerPageState._mpvSettingSharpen),
+        _mpvEntry(_MpvPlayerPageState._mpvSettingDenoise),
+        _mpvEntry(_MpvPlayerPageState._mpvSettingDeinterlace),
+        _mpvEntry(_MpvPlayerPageState._mpvSettingScaleProfile),
+      ],
+    );
+  }
 
-  _MpvSettingDefinition get _mpvHdrDefinition => const _MpvSettingDefinition(
-    key: _MpvPlayerPageState._mpvSettingHdrMode,
-    pageId: _playerSettingsMpvHdrPageId,
-    title: 'HDR 处理',
-    shortTitle: 'HDR',
-    description: '控制 HDR 到 SDR 的映射和整体色彩倾向。',
-    helperLabel: 'HDR 模式',
-    options: <_MpvSettingOption>[
-      _MpvSettingOption(
-        value: 'auto',
-        label: '自动',
-        description: '按片源和设备能力自动选择。',
-      ),
-      _MpvSettingOption(
-        value: 'sdr_map',
-        label: 'SDR 映射',
-        description: '更偏兼容和稳定。',
-      ),
-      _MpvSettingOption(
-        value: 'conservative',
-        label: '保守映射',
-        description: '更稳地压制高光。',
-      ),
-      _MpvSettingOption(
-        value: 'enhanced',
-        label: '增强映射',
-        description: '更强调对比和高光层次。',
-      ),
-    ],
-  );
+  _MpvSettingCategory get _mpvPictureRenderingCategory {
+    final l10n = AppLocalizations.of(context);
+    return _MpvSettingCategory(
+      pageId: _playerSettingsMpvPictureRenderingPageId,
+      title: l10n.settingsMpvPictureSection,
+      subtitle: l10n.mpvPictureCategorySubtitle,
+      description: l10n.mpvPictureCategoryDescription,
+      entries: <_MpvSettingCategoryEntry>[
+        _mpvStaticEntry(
+          title: l10n.mpvInstantAdjustTitle,
+          subtitle: l10n.mpvInstantAdjustSubtitle,
+          pageId: _playerSettingsMpvQuickAdjustPageId,
+          trailingLabel: l10n.commonEnter,
+        ),
+        _mpvEntry(_MpvPlayerPageState._mpvSettingDeband),
+        _mpvEntry(_MpvPlayerPageState._mpvSettingSharpen),
+        _mpvEntry(_MpvPlayerPageState._mpvSettingDenoise),
+        _mpvEntry(_MpvPlayerPageState._mpvSettingDeinterlace),
+        _mpvEntry(_MpvPlayerPageState._mpvSettingScaleProfile),
+        _mpvEntry(_MpvPlayerPageState._mpvSettingHdrMode),
+        _mpvEntry(_MpvPlayerPageState._mpvSettingFrameInterpolation),
+      ],
+    );
+  }
 
-  _MpvSettingDefinition get _mpvFrameInterpolationDefinition =>
-      const _MpvSettingDefinition(
-        key: _MpvPlayerPageState._mpvSettingFrameInterpolation,
-        pageId: _playerSettingsMpvFrameInterpolationPageId,
-        title: '插帧',
-        shortTitle: '插帧',
-        description: '通过补帧提升运动流畅度，但会增加功耗，也可能改变观感。',
-        helperLabel: '插帧策略',
-        options: <_MpvSettingOption>[
-          _MpvSettingOption(
-            value: 'off',
-            label: '关闭',
-            description: '保持原始帧率输出。',
-          ),
-          _MpvSettingOption(
-            value: 'auto',
-            label: '自动',
-            description: '按场景决定是否启用。',
-          ),
-          _MpvSettingOption(
-            value: 'on',
-            label: '始终开启',
-            description: '最大化流畅度，性能开销最高。',
-          ),
-        ],
-      );
+  _MpvSettingCategory get _mpvPlaybackSyncCategory {
+    final l10n = AppLocalizations.of(context);
+    return _MpvSettingCategory(
+      pageId: _playerSettingsMpvPlaybackSyncPageId,
+      title: l10n.settingsMpvPlaybackSection,
+      subtitle: l10n.mpvPlaybackCategorySubtitle,
+      description: l10n.mpvPlaybackCategoryDescription,
+      entries: <_MpvSettingCategoryEntry>[
+        _mpvEntry(_MpvPlayerPageState._mpvSettingVideoSync),
+        _mpvEntry(_MpvPlayerPageState._mpvSettingCacheProfile),
+        _mpvEntry(_MpvPlayerPageState._mpvSettingCacheSizeMb),
+      ],
+    );
+  }
 
-  _MpvSettingDefinition get _mpvVideoSyncDefinition =>
-      const _MpvSettingDefinition(
-        key: _MpvPlayerPageState._mpvSettingVideoSync,
-        pageId: _playerSettingsMpvVideoSyncPageId,
-        title: '同步模式',
-        shortTitle: '同步',
-        description: '只控制音画与刷新率的同步取向，不负责缓冲大小和缓存风格。',
-        helperLabel: '同步取向',
-        options: <_MpvSettingOption>[
-          _MpvSettingOption(
-            value: 'auto',
-            label: '智能平衡',
-            description: '按当前设备能力自动平衡音画稳定与刷新率匹配。',
-          ),
-          _MpvSettingOption(
-            value: 'audio',
-            label: '音频优先',
-            description: '优先保证音频连续稳定。',
-          ),
-          _MpvSettingOption(
-            value: 'display',
-            label: '显示优先',
-            description: '更重视刷新率匹配。',
-          ),
-          _MpvSettingOption(
-            value: 'smooth',
-            label: '平滑同步',
-            description: '更积极地贴合显示刷新率，适合更在意观感流畅的场景。',
-          ),
-        ],
-      );
+  _MpvSettingCategory get _mpvAudioProcessingCategory {
+    final l10n = AppLocalizations.of(context);
+    return _MpvSettingCategory(
+      pageId: _playerSettingsMpvAudioProcessingPageId,
+      title: l10n.settingsMpvAudioSection,
+      subtitle: l10n.mpvAudioCategorySubtitle,
+      description: l10n.mpvAudioCategoryDescription,
+      entries: <_MpvSettingCategoryEntry>[
+        _mpvEntry(_MpvPlayerPageState._mpvSettingVolumeGain),
+        _mpvEntry(_MpvPlayerPageState._mpvSettingAudioHighFidelity),
+        _mpvEntry(_MpvPlayerPageState._mpvSettingDynamicRange),
+        _mpvEntry(_MpvPlayerPageState._mpvSettingAudioEq),
+        _mpvEntry(_MpvPlayerPageState._mpvSettingAudioLimiter),
+        _mpvEntry(_MpvPlayerPageState._mpvSettingAudioBassBoost),
+        _mpvEntry(_MpvPlayerPageState._mpvSettingAudioVoiceEnhance),
+        _mpvEntry(_MpvPlayerPageState._mpvSettingChannelMix),
+      ],
+    );
+  }
 
-  _MpvSettingDefinition get _mpvCacheDefinition => const _MpvSettingDefinition(
-    key: _MpvPlayerPageState._mpvSettingCacheProfile,
-    pageId: _playerSettingsMpvCachePageId,
-    title: '缓存策略',
-    shortTitle: '缓存',
-    description: '只决定缓冲风格和预读力度，不会改动同步模式。',
-    helperLabel: '缓冲取向',
-    options: <_MpvSettingOption>[
-      _MpvSettingOption(
-        value: 'default',
-        label: '智能分配',
-        description: '按片源类型自动选择更合适的缓冲强度。',
-      ),
-      _MpvSettingOption(
-        value: 'low_latency',
-        label: '极速响应',
-        description: '尽量减轻预读，优先拖动和切换响应。',
-      ),
-      _MpvSettingOption(
-        value: 'stable',
-        label: '稳定缓冲',
-        description: '适当增加预读，优先减轻网络抖动。',
-      ),
-      _MpvSettingOption(
-        value: 'network',
-        label: '网盘 / STRM / NAS',
-        description: '适合网盘、STRM 和 NAS 里的高码率片源。',
-      ),
-    ],
-  );
-
-  _MpvSettingDefinition get _mpvCacheSizeDefinition =>
-      const _MpvSettingDefinition(
-        key: _MpvPlayerPageState._mpvSettingCacheSizeMb,
-        pageId: _playerSettingsMpvCacheSizePageId,
-        title: '缓冲大小',
-        shortTitle: '缓冲大小',
-        description: '直接控制播放器最多预读多少数据，数值越大越稳，但起播和拖动后的回填会更重。',
-        helperLabel: '缓冲上限',
-        options: <_MpvSettingOption>[
-          _MpvSettingOption(
-            value: 'auto',
-            label: '自动',
-            description: '跟随当前缓存策略自动分配。',
-          ),
-          _MpvSettingOption(
-            value: '64',
-            label: '64 MB',
-            description: '较省内存，适合普通码率。',
-          ),
-          _MpvSettingOption(
-            value: '128',
-            label: '128 MB',
-            description: '更适合远程直链和高码率文件。',
-          ),
-          _MpvSettingOption(
-            value: '256',
-            label: '256 MB',
-            description: '优先减少网络抖动带来的卡顿。',
-          ),
-          _MpvSettingOption(
-            value: '512',
-            label: '512 MB',
-            description: '适合超高码率和不稳定网络，但占用更高。',
-          ),
-        ],
-      );
-
-  _MpvSettingDefinition get _mpvVolumeGainDefinition =>
-      const _MpvSettingDefinition(
-        key: _MpvPlayerPageState._mpvSettingVolumeGain,
-        pageId: _playerSettingsMpvVolumeGainPageId,
-        title: '音量放大',
-        shortTitle: '音量',
-        description: '为偏小声片源提供更高的音量上限。',
-        helperLabel: '音量上限',
-        options: <_MpvSettingOption>[
-          _MpvSettingOption(
-            value: '100',
-            label: '100%',
-            description: '标准音量上限。',
-          ),
-          _MpvSettingOption(
-            value: '150',
-            label: '150%',
-            description: '适合对白偏轻的片源。',
-          ),
-          _MpvSettingOption(
-            value: '200',
-            label: '200%',
-            description: '最大放大，可能带来失真。',
-          ),
-        ],
-      );
-
-  _MpvSettingDefinition
-  get _mpvDynamicRangeDefinition => const _MpvSettingDefinition(
-    key: _MpvPlayerPageState._mpvSettingDynamicRange,
-    pageId: _playerSettingsMpvDynamicRangePageId,
-    title: '动态范围压缩',
-    shortTitle: '动态范围',
-    description: '压低爆点和高动态差异，让对白更靠前。',
-    helperLabel: '压缩强度',
-    options: <_MpvSettingOption>[
-      _MpvSettingOption(value: 'off', label: '关闭', description: '保持原始动态范围。'),
-      _MpvSettingOption(value: 'low', label: '轻度', description: '轻微提升对白可听性。'),
-      _MpvSettingOption(value: 'medium', label: '标准', description: '夜间播放更友好。'),
-    ],
-  );
-
-  _MpvSettingDefinition get _mpvAudioHighFidelityDefinition =>
-      const _MpvSettingDefinition(
-        key: _MpvPlayerPageState._mpvSettingAudioHighFidelity,
-        pageId: _playerSettingsMpvAudioHighFidelityPageId,
-        title: '高保真模式',
-        shortTitle: '高保真',
-        description: '关闭 EQ、限幅、低音增强、人声增强和动态压缩，尽量保持更干净的解码输出。',
-        helperLabel: '输出取向',
-        options: <_MpvSettingOption>[
-          _MpvSettingOption(
-            value: 'off',
-            label: '关闭',
-            description: '继续按当前音频处理设置应用增强和滤镜链。',
-          ),
-          _MpvSettingOption(
-            value: 'on',
-            label: '开启',
-            description: '优先保留原始音色，旁路大部分音频后处理。',
-          ),
-        ],
-      );
-  // ignore: unused_element
-  _MpvSettingDefinition get _mpvAudioEqDefinition =>
-      const _MpvSettingDefinition(
-        key: _MpvPlayerPageState._mpvSettingAudioEq,
-        pageId: _playerSettingsMpvAudioEqPageId,
-        title: 'EQ 均衡器',
-        shortTitle: 'EQ',
-        description: '用不同的均衡预设调整低频、中频和高频的听感平衡。',
-        helperLabel: '均衡预设',
-        options: <_MpvSettingOption>[
-          _MpvSettingOption(value: 'off', label: '关闭', description: '保持原始音色。'),
-          _MpvSettingOption(
-            value: 'soft',
-            label: '柔和',
-            description: '轻微修整低频和人声，适合普通观看。',
-          ),
-          _MpvSettingOption(
-            value: 'clarity',
-            label: '清晰',
-            description: '更强调人声和高频细节，适合对白偏轻的片源。',
-          ),
-          _MpvSettingOption(
-            value: 'cinema',
-            label: '影院',
-            description: '更均衡地兼顾低频氛围和台词清晰度。',
-          ),
-        ],
-      );
-
-  _MpvSettingDefinition get _mpvAudioEqDefinitionFixed =>
-      const _MpvSettingDefinition(
-        key: _MpvPlayerPageState._mpvSettingAudioEq,
-        pageId: _playerSettingsMpvAudioEqPageId,
-        title: 'EQ 均衡器',
-        shortTitle: 'EQ',
-        description: '用不同的均衡预设调整低频、中频和高频的听感平衡。',
-        helperLabel: '均衡预设',
-        options: <_MpvSettingOption>[
-          _MpvSettingOption(value: 'off', label: '关闭', description: '保持原始音色。'),
-          _MpvSettingOption(
-            value: 'soft',
-            label: '柔和',
-            description: '轻微修整低频和人声，适合普通观看。',
-          ),
-          _MpvSettingOption(
-            value: 'clarity',
-            label: '清晰',
-            description: '更强调人声和高频细节，适合对白偏轻的片源。',
-          ),
-          _MpvSettingOption(
-            value: 'cinema',
-            label: '影院',
-            description: '更均衡地兼顾低频氛围和台词清晰度。',
-          ),
-          _MpvSettingOption(
-            value: MpvSettingsCatalog.audioEqCustomValue,
-            label: '高级自定义',
-            description: '进入多频段页，自己上下拖动每个频带。',
-          ),
-        ],
-      );
-
-  _MpvSettingDefinition get _mpvAudioLimiterDefinition =>
-      const _MpvSettingDefinition(
-        key: _MpvPlayerPageState._mpvSettingAudioLimiter,
-        pageId: _playerSettingsMpvAudioLimiterPageId,
-        title: '峰值限幅',
-        shortTitle: '限幅',
-        description: '在不改变整体听感的情况下压住瞬时过高的声音，防止破音。',
-        helperLabel: '限幅强度',
-        options: <_MpvSettingOption>[
-          _MpvSettingOption(
-            value: 'off',
-            label: '关闭',
-            description: '不额外做峰值压制。',
-          ),
-          _MpvSettingOption(
-            value: 'light',
-            label: '轻度',
-            description: '轻微压低突然的大音量，尽量保留动态。',
-          ),
-          _MpvSettingOption(
-            value: 'strong',
-            label: '标准',
-            description: '更积极地防止破音，适合增强较多时使用。',
-          ),
-        ],
-      );
-
-  _MpvSettingDefinition get _mpvAudioBassBoostDefinition =>
-      const _MpvSettingDefinition(
-        key: _MpvPlayerPageState._mpvSettingAudioBassBoost,
-        pageId: _playerSettingsMpvAudioBassBoostPageId,
-        title: '低音增强',
-        shortTitle: '低音',
-        description: '为影院氛围感、地鸣和配乐的低频部分提供更强烈的存在感。',
-        helperLabel: '低音强度',
-        options: <_MpvSettingOption>[
-          _MpvSettingOption(
-            value: 'off',
-            label: '关闭',
-            description: '保持当前低频表现。',
-          ),
-          _MpvSettingOption(
-            value: 'low',
-            label: '轻度',
-            description: '轻微提升低频厚度。',
-          ),
-          _MpvSettingOption(
-            value: 'medium',
-            label: '标准',
-            description: '更明显的低音增强效果。',
-          ),
-        ],
-      );
-
-  _MpvSettingDefinition get _mpvAudioVoiceEnhanceDefinition =>
-      const _MpvSettingDefinition(
-        key: _MpvPlayerPageState._mpvSettingAudioVoiceEnhance,
-        pageId: _playerSettingsMpvAudioVoiceEnhancePageId,
-        title: '人声增强',
-        shortTitle: '人声',
-        description: '通过人声去除低频混浊，提升台词和对白的清晰度。',
-        helperLabel: '人声强度',
-        options: <_MpvSettingOption>[
-          _MpvSettingOption(
-            value: 'off',
-            label: '关闭',
-            description: '保持原始人声表现。',
-          ),
-          _MpvSettingOption(
-            value: 'low',
-            label: '轻度',
-            description: '轻微提升台词，不太改变整体音色。',
-          ),
-          _MpvSettingOption(
-            value: 'medium',
-            label: '标准',
-            description: '更适合对白偏轻或后景音偏响的片源。',
-          ),
-        ],
-      );
-
-  _MpvSettingDefinition get _mpvChannelMixDefinition =>
-      const _MpvSettingDefinition(
-        key: _MpvPlayerPageState._mpvSettingChannelMix,
-        pageId: _playerSettingsMpvChannelMixPageId,
-        title: '声道混合',
-        shortTitle: '声道',
-        description: '控制多声道到当前输出设备的混合策略。',
-        helperLabel: '输出方式',
-        options: <_MpvSettingOption>[
-          _MpvSettingOption(
-            value: 'auto',
-            label: '自动',
-            description: '按设备和片源自动选择。',
-          ),
-          _MpvSettingOption(
-            value: 'stereo',
-            label: '立体声优先',
-            description: '更适合耳机和普通外放。',
-          ),
-          _MpvSettingOption(
-            value: 'surround',
-            label: '环绕优先',
-            description: '尽量保留更多多声道信息。',
-          ),
-        ],
-      );
-
-  _MpvSettingDefinition get _mpvCompatibilityDefinition =>
-      const _MpvSettingDefinition(
-        key: _MpvPlayerPageState._mpvSettingCompatibility,
-        pageId: _playerSettingsMpvCompatibilityProfilePageId,
-        title: '兼容模式',
-        shortTitle: '兼容',
-        description: '遇到黑屏、花屏或特殊机型问题时，用来快速回退策略。',
-        helperLabel: '兼容策略',
-        options: <_MpvSettingOption>[
-          _MpvSettingOption(
-            value: 'default',
-            label: '默认',
-            description: '保持当前常规配置。',
-          ),
-          _MpvSettingOption(
-            value: 'conservative',
-            label: '保守兼容',
-            description: '减少激进渲染和滤镜行为。',
-          ),
-          _MpvSettingOption(
-            value: 'software_fallback',
-            label: '软件优先',
-            description: '更强调稳定性，必要时回退到软解策略。',
-          ),
-        ],
-      );
-
-  _MpvSettingCategory get _mpvVideoFiltersCategory => _MpvSettingCategory(
-    pageId: _playerSettingsMpvVideoFiltersPageId,
-    title: '视频滤镜',
-    subtitle: '去色带、锐化、降噪、反交错、缩放算法',
-    description: '主要针对画面净化、边缘锐度和缩放观感。',
-    entries: const <_MpvSettingCategoryEntry>[
-      _MpvSettingCategoryEntry(
-        title: '去色带',
-        subtitle: '处理渐变断层和暗部条带',
-        pageId: _playerSettingsMpvDebandPageId,
-        settingKey: _MpvPlayerPageState._mpvSettingDeband,
-      ),
-      _MpvSettingCategoryEntry(
-        title: '锐化',
-        subtitle: '提升边缘清晰度',
-        pageId: _playerSettingsMpvSharpenPageId,
-        settingKey: _MpvPlayerPageState._mpvSettingSharpen,
-      ),
-      _MpvSettingCategoryEntry(
-        title: '降噪',
-        subtitle: '压制噪点和颗粒感',
-        pageId: _playerSettingsMpvDenoisePageId,
-        settingKey: _MpvPlayerPageState._mpvSettingDenoise,
-      ),
-      _MpvSettingCategoryEntry(
-        title: '反交错',
-        subtitle: '处理隔行扫描片源',
-        pageId: _playerSettingsMpvDeinterlacePageId,
-        settingKey: _MpvPlayerPageState._mpvSettingDeinterlace,
-      ),
-      _MpvSettingCategoryEntry(
-        title: '缩放算法',
-        subtitle: '控制放大和缩小时的取向',
-        pageId: _playerSettingsMpvScaleProfilePageId,
-        settingKey: _MpvPlayerPageState._mpvSettingScaleProfile,
-      ),
-    ],
-  );
-
-  _MpvSettingCategory get _mpvPictureRenderingCategory => _MpvSettingCategory(
-    pageId: _playerSettingsMpvPictureRenderingPageId,
-    title: '画面调节',
-    subtitle: '即时调节、滤镜、渲染、HDR 与插帧',
-    description: '围绕画面观感的细项统一收在这里，避免和其他链路混杂。',
-    entries: const <_MpvSettingCategoryEntry>[
-      _MpvSettingCategoryEntry(
-        title: '即时调节',
-        subtitle: '亮度、对比度、饱和度、Gamma、色相',
-        pageId: _playerSettingsMpvQuickAdjustPageId,
-        trailingLabel: '进入',
-      ),
-      _MpvSettingCategoryEntry(
-        title: '去色带',
-        subtitle: '处理渐变断层和暗部条带',
-        pageId: _playerSettingsMpvDebandPageId,
-        settingKey: _MpvPlayerPageState._mpvSettingDeband,
-      ),
-      _MpvSettingCategoryEntry(
-        title: '锐化',
-        subtitle: '提升线条和边缘清晰度',
-        pageId: _playerSettingsMpvSharpenPageId,
-        settingKey: _MpvPlayerPageState._mpvSettingSharpen,
-      ),
-      _MpvSettingCategoryEntry(
-        title: '降噪',
-        subtitle: '压制噪点和颗粒感',
-        pageId: _playerSettingsMpvDenoisePageId,
-        settingKey: _MpvPlayerPageState._mpvSettingDenoise,
-      ),
-      _MpvSettingCategoryEntry(
-        title: '反交错',
-        subtitle: '处理隔行扫描片源',
-        pageId: _playerSettingsMpvDeinterlacePageId,
-        settingKey: _MpvPlayerPageState._mpvSettingDeinterlace,
-      ),
-      _MpvSettingCategoryEntry(
-        title: '缩放算法',
-        subtitle: '控制放大和缩小时的取向',
-        pageId: _playerSettingsMpvScaleProfilePageId,
-        settingKey: _MpvPlayerPageState._mpvSettingScaleProfile,
-      ),
-      _MpvSettingCategoryEntry(
-        title: 'HDR 处理',
-        subtitle: '调整 HDR 映射和整体色调',
-        pageId: _playerSettingsMpvHdrPageId,
-        settingKey: _MpvPlayerPageState._mpvSettingHdrMode,
-      ),
-      _MpvSettingCategoryEntry(
-        title: '插帧',
-        subtitle: '改善运动流畅度，性能开销更高',
-        pageId: _playerSettingsMpvFrameInterpolationPageId,
-        settingKey: _MpvPlayerPageState._mpvSettingFrameInterpolation,
-      ),
-    ],
-  );
-
-  _MpvSettingCategory get _mpvPlaybackSyncCategory => _MpvSettingCategory(
-    pageId: _playerSettingsMpvPlaybackSyncPageId,
-    title: '播放与缓存',
-    subtitle: '同步模式、缓存策略与缓冲大小',
-    description: '主要影响拖动响应、缓冲强度和播放稳定性。',
-    entries: const <_MpvSettingCategoryEntry>[
-      _MpvSettingCategoryEntry(
-        title: '同步模式',
-        subtitle: '只调整音画与刷新率的同步取向',
-        pageId: _playerSettingsMpvVideoSyncPageId,
-        settingKey: _MpvPlayerPageState._mpvSettingVideoSync,
-      ),
-      _MpvSettingCategoryEntry(
-        title: '缓存策略',
-        subtitle: '只调整预读力度和缓冲风格',
-        pageId: _playerSettingsMpvCachePageId,
-        settingKey: _MpvPlayerPageState._mpvSettingCacheProfile,
-      ),
-      _MpvSettingCategoryEntry(
-        title: '缓冲大小',
-        subtitle: '手动覆盖自动缓存上限',
-        pageId: _playerSettingsMpvCacheSizePageId,
-        settingKey: _MpvPlayerPageState._mpvSettingCacheSizeMb,
-      ),
-    ],
-  );
-
-  _MpvSettingCategory get _mpvAudioProcessingCategory => _MpvSettingCategory(
-    pageId: _playerSettingsMpvAudioProcessingPageId,
-    title: '音频调节',
-    subtitle: '音量、EQ、增强与声道混合',
-    description: '统一管理音频后处理和高保真模式，避免入口散开。',
-    entries: const <_MpvSettingCategoryEntry>[
-      _MpvSettingCategoryEntry(
-        title: '音量放大',
-        subtitle: '提高偏小声音源的音量上限',
-        pageId: _playerSettingsMpvVolumeGainPageId,
-        settingKey: _MpvPlayerPageState._mpvSettingVolumeGain,
-      ),
-      _MpvSettingCategoryEntry(
-        title: '高保真模式',
-        subtitle: '优先保留干净解码输出，统一旁路大部分后处理',
-        pageId: _playerSettingsMpvAudioHighFidelityPageId,
-        settingKey: _MpvPlayerPageState._mpvSettingAudioHighFidelity,
-      ),
-      _MpvSettingCategoryEntry(
-        title: '动态范围压缩',
-        subtitle: '让对白更靠前，夜间播放更稳',
-        pageId: _playerSettingsMpvDynamicRangePageId,
-        settingKey: _MpvPlayerPageState._mpvSettingDynamicRange,
-      ),
-      _MpvSettingCategoryEntry(
-        title: 'EQ 均衡器',
-        subtitle: '调整低频、中频和高频的听感平衡',
-        pageId: _playerSettingsMpvAudioEqPageId,
-        settingKey: _MpvPlayerPageState._mpvSettingAudioEq,
-      ),
-      _MpvSettingCategoryEntry(
-        title: '峰值限幅',
-        subtitle: '防止音量突然过高带来破音',
-        pageId: _playerSettingsMpvAudioLimiterPageId,
-        settingKey: _MpvPlayerPageState._mpvSettingAudioLimiter,
-      ),
-      _MpvSettingCategoryEntry(
-        title: '低音增强',
-        subtitle: '为影院氛围和低频空间感提供支撑',
-        pageId: _playerSettingsMpvAudioBassBoostPageId,
-        settingKey: _MpvPlayerPageState._mpvSettingAudioBassBoost,
-      ),
-      _MpvSettingCategoryEntry(
-        title: '人声增强',
-        subtitle: '让台词和对白更清晰更靠前',
-        pageId: _playerSettingsMpvAudioVoiceEnhancePageId,
-        settingKey: _MpvPlayerPageState._mpvSettingAudioVoiceEnhance,
-      ),
-      _MpvSettingCategoryEntry(
-        title: '声道混合',
-        subtitle: '控制多声道输出取向',
-        pageId: _playerSettingsMpvChannelMixPageId,
-        settingKey: _MpvPlayerPageState._mpvSettingChannelMix,
-      ),
-    ],
-  );
-
-  _MpvSettingCategory get _mpvCompatibilityCategory => _MpvSettingCategory(
-    pageId: _playerSettingsMpvCompatibilityPageId,
-    title: '兼容与诊断',
-    subtitle: '兼容模式、播放器诊断信息',
-    description: '遇到机型兼容或播放异常时，优先从这里排查。',
-    entries: const <_MpvSettingCategoryEntry>[
-      _MpvSettingCategoryEntry(
-        title: '兼容模式',
-        subtitle: '遇到黑屏、花屏或异常时切换',
-        pageId: _playerSettingsMpvCompatibilityProfilePageId,
-        settingKey: _MpvPlayerPageState._mpvSettingCompatibility,
-      ),
-      _MpvSettingCategoryEntry(
-        title: '播放器诊断信息',
-        subtitle: '查看当前 codec、输出、色彩和源信息',
-        pageId: _playerSettingsVideoInfoPageId,
-        trailingLabel: '查看',
-      ),
-    ],
-  );
+  _MpvSettingCategory get _mpvCompatibilityCategory {
+    final l10n = AppLocalizations.of(context);
+    return _MpvSettingCategory(
+      pageId: _playerSettingsMpvCompatibilityPageId,
+      title: l10n.settingsMpvCompatibilitySection,
+      subtitle: l10n.mpvCompatibilityCategorySubtitle,
+      description: l10n.mpvCompatibilityCategoryDescription,
+      entries: <_MpvSettingCategoryEntry>[
+        _mpvEntry(_MpvPlayerPageState._mpvSettingCompatibility),
+        _mpvStaticEntry(
+          title: l10n.mpvPlayerDiagnosticsTitle,
+          subtitle: l10n.mpvPlayerDiagnosticsSubtitle,
+          pageId: _playerSettingsVideoInfoPageId,
+          trailingLabel: l10n.commonView,
+        ),
+      ],
+    );
+  }
 }
 
 class _MpvSettingCategory {
@@ -2308,19 +1792,5 @@ class _MpvSettingOption {
     required this.value,
     required this.label,
     required this.description,
-  });
-}
-
-class _MpvSettingPreset {
-  final String id;
-  final String label;
-  final String description;
-  final Map<String, String> settings;
-
-  const _MpvSettingPreset({
-    required this.id,
-    required this.label,
-    required this.description,
-    required this.settings,
   });
 }

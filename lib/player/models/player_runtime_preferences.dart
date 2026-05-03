@@ -14,6 +14,9 @@ class PlayerRuntimePreferences {
   final String chapterSkipMode;
   final int introDurationSeconds;
   final int outroDurationSeconds;
+  final double subtitleDelaySeconds;
+  final double subtitlePositionFactor;
+  final double subtitleScaleFactor;
   final Map<String, String> mpvSettings;
   final Offset performanceOverlayOffset;
 
@@ -31,6 +34,9 @@ class PlayerRuntimePreferences {
     required this.chapterSkipMode,
     required this.introDurationSeconds,
     required this.outroDurationSeconds,
+    required this.subtitleDelaySeconds,
+    required this.subtitlePositionFactor,
+    required this.subtitleScaleFactor,
     required this.mpvSettings,
     required this.performanceOverlayOffset,
   });

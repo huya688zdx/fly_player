@@ -1,5 +1,7 @@
 package com.geqian.flyplayer.fly_player.mpv
 
+import kotlin.math.abs
+
 data class MpvPlaybackRestorePlan(
     val seekPositionMs: Long? = null,
     val applyExternalSubtitle: Boolean = false,
@@ -7,6 +9,10 @@ data class MpvPlaybackRestorePlan(
 )
 
 class MpvPlaybackRestoreCoordinator {
+    companion object {
+        private const val SEEK_SETTLE_TOLERANCE_MS = 3000L
+    }
+
     var pendingSeekPositionMs: Long = 0L
         private set
     val isSeekingOrRestoringVideo: Boolean
@@ -73,6 +79,12 @@ class MpvPlaybackRestoreCoordinator {
         if (!sourceFileLoaded || videoEofReached) return MpvPlaybackRestorePlan()
         if (positionMs >= 0L) {
             waitingForVideoAfterSeek = false
+            val targetReached =
+                pendingSeekPositionMs > 0L &&
+                    abs(positionMs - pendingSeekPositionMs) <= SEEK_SETTLE_TOLERANCE_MS
+            if (targetReached) {
+                seeking = false
+            }
             if (!seeking) {
                 pendingSeekPositionMs = 0L
                 abnormalVideoRetryCount = 0
