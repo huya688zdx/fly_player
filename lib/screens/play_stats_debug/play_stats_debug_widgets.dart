@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../services/play_stats/play_stats.dart';
 import '../../theme/app_theme.dart';
+import '../../l10n/generated/app_localizations.dart';
 import 'play_stats_debug_formatters.dart';
 
 class PlayStatsDebugSectionCard extends StatelessWidget {
@@ -173,8 +174,9 @@ class PlayStatsDebugCreditList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     if (credits.isEmpty) {
-      return const Text('当前没有记录到演职人员快照。');
+      return Text(l10n.playStatsNoCreditSnapshot);
     }
     return Column(
       children: credits
@@ -187,11 +189,17 @@ class PlayStatsDebugCreditList extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: buildDebugRows(<PlayStatsDebugRowData>[
-                PlayStatsDebugRowData('人员 ID', credit.personId),
-                PlayStatsDebugRowData('姓名', credit.name),
-                PlayStatsDebugRowData('角色', credit.role),
-                PlayStatsDebugRowData('工种', credit.job),
-                PlayStatsDebugRowData('排序', '${credit.order}'),
+                PlayStatsDebugRowData(
+                  l10n.playStatsFieldPersonId,
+                  credit.personId,
+                ),
+                PlayStatsDebugRowData(l10n.playStatsFieldName, credit.name),
+                PlayStatsDebugRowData(l10n.playStatsFieldRole, credit.role),
+                PlayStatsDebugRowData(l10n.playStatsFieldJob, credit.job),
+                PlayStatsDebugRowData(
+                  l10n.playStatsFieldOrder,
+                  '${credit.order}',
+                ),
               ]),
             ),
           )
@@ -229,8 +237,9 @@ class _PlayStatsDebugCreditCarouselState
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     if (widget.credits.isEmpty) {
-      return const Text('当前没有记录到演职人员快照。');
+      return Text(l10n.playStatsNoCreditSnapshot);
     }
     final colors = context.appColors;
     return Column(
@@ -283,11 +292,23 @@ class _PlayStatsDebugCreditCarouselState
                   ),
                   child: SingleChildScrollView(
                     child: buildDebugRows(<PlayStatsDebugRowData>[
-                      PlayStatsDebugRowData('人员 ID', credit.personId),
-                      PlayStatsDebugRowData('姓名', credit.name),
-                      PlayStatsDebugRowData('角色', credit.role),
-                      PlayStatsDebugRowData('工种', credit.job),
-                      PlayStatsDebugRowData('排序', '${credit.order}'),
+                      PlayStatsDebugRowData(
+                        l10n.playStatsFieldPersonId,
+                        credit.personId,
+                      ),
+                      PlayStatsDebugRowData(
+                        l10n.playStatsFieldName,
+                        credit.name,
+                      ),
+                      PlayStatsDebugRowData(
+                        l10n.playStatsFieldRole,
+                        credit.role,
+                      ),
+                      PlayStatsDebugRowData(l10n.playStatsFieldJob, credit.job),
+                      PlayStatsDebugRowData(
+                        l10n.playStatsFieldOrder,
+                        '${credit.order}',
+                      ),
                     ]),
                   ),
                 ),
@@ -384,19 +405,26 @@ class _PlayStatsDebugPaginator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         Text(
-          '第 ${currentPage + 1} 页 / 共 $pageCount 页',
+          l10n.playStatsPageIndicator(currentPage + 1, pageCount),
           style: TextStyle(color: colors.textSecondary, fontSize: 12.5),
         ),
         const SizedBox(height: 10),
         Row(
           children: <Widget>[
-            OutlinedButton(onPressed: onPrevious, child: const Text('上一页')),
+            OutlinedButton(
+              onPressed: onPrevious,
+              child: Text(l10n.playStatsPreviousPage),
+            ),
             const SizedBox(width: 8),
-            OutlinedButton(onPressed: onNext, child: const Text('下一页')),
+            OutlinedButton(
+              onPressed: onNext,
+              child: Text(l10n.playStatsNextPage),
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: SingleChildScrollView(

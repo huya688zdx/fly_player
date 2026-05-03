@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../theme/app_theme.dart';
@@ -34,6 +36,7 @@ class TrackOptionSheet {
     if (isLandscape) {
       return showDialog<String>(
         context: context,
+        useRootNavigator: false,
         barrierDismissible: true,
         barrierColor: colors.overlayScrim,
         builder: (_) => body,
@@ -70,9 +73,14 @@ class _TrackOptionSheetBody extends StatelessWidget {
         ? (media.size.height * 0.78).clamp(320.0, 560.0)
         : media.size.height * 0.7;
     final maxWidth = (media.size.width * 0.62).clamp(520.0, 760.0);
+    final bottomContentPadding = math.max(
+      media.padding.bottom,
+      floating ? 22.0 : 18.0,
+    );
 
     final child = SafeArea(
       top: false,
+      bottom: false,
       child: Container(
         decoration: BoxDecoration(
           color: colors.surface,
@@ -85,7 +93,7 @@ class _TrackOptionSheetBody extends StatelessWidget {
           floating ? 22 : 16,
           floating ? 20 : 12,
           floating ? 22 : 16,
-          floating ? 22 : 18,
+          bottomContentPadding,
         ),
         child: ConstrainedBox(
           constraints: BoxConstraints(maxHeight: maxHeight),
@@ -113,7 +121,15 @@ class _TrackOptionSheetBody extends StatelessWidget {
                     return _OptionTile(
                       item: item,
                       selected: selected,
-                      onTap: () => Navigator.of(context).pop(item.id),
+                      onTap: () {
+                        if (AppSheetTransitions.maybeClose<String>(
+                          context,
+                          item.id,
+                        )) {
+                          return;
+                        }
+                        Navigator.of(context).pop(item.id);
+                      },
                     );
                   },
                 ),

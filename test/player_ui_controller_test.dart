@@ -34,7 +34,15 @@ void main() {
         ..pendingTransitionTargetPaused = true
         ..qualitySwitchLoading = true
         ..awaitingVisualPlaybackStart = true
+        ..allowPlaybackProgressTransitionCompletion = true
         ..videoLoadingOverlayVisible = true
+        ..weakNetworkSuggestionSuppressionKey = 'item|1080p'
+        ..weakNetworkSuggestion = const PlayerWeakNetworkSuggestion(
+          suppressionKey: 'item|1080p',
+          targetQualityId: '720p',
+          title: 'Network slow',
+          subtitle: 'Current speed 1 MB/s',
+        )
         ..visualPlaybackStartAnchorPosition = const Duration(seconds: 5);
 
       controller.resetSourceLoadTransitionState();
@@ -43,7 +51,10 @@ void main() {
       expect(controller.pendingTransitionTargetPaused, isFalse);
       expect(controller.qualitySwitchLoading, isFalse);
       expect(controller.awaitingVisualPlaybackStart, isFalse);
+      expect(controller.allowPlaybackProgressTransitionCompletion, isFalse);
       expect(controller.videoLoadingOverlayVisible, isFalse);
+      expect(controller.weakNetworkSuggestion, isNull);
+      expect(controller.weakNetworkSuggestionSuppressionKey, 'item|1080p');
       expect(
         controller.visualPlaybackStartAnchorPosition,
         equals(Duration.zero),
@@ -64,6 +75,41 @@ void main() {
         controller.visualPlaybackStartAnchorPosition,
         equals(Duration.zero),
       );
+      expect(controller.pendingLoadingTransition, isTrue);
+      expect(controller.allowPlaybackProgressTransitionCompletion, isFalse);
+    });
+
+    test(
+      'markAwaitingVisualPlaybackStart keeps background transitions silent',
+      () {
+        final controller = PlayerUiController();
+
+        controller.markAwaitingVisualPlaybackStart(
+          const Duration(seconds: 3),
+          targetPaused: false,
+          background: true,
+        );
+
+        expect(controller.awaitingVisualPlaybackStart, isTrue);
+        expect(controller.backgroundLoadingTransition, isTrue);
+        expect(controller.pendingLoadingTransition, isFalse);
+      },
+    );
+
+    test('resetForSourceChange clears weak network suggestion suppression', () {
+      final controller = PlayerUiController()
+        ..weakNetworkSuggestionSuppressionKey = 'item|1080p'
+        ..weakNetworkSuggestion = const PlayerWeakNetworkSuggestion(
+          suppressionKey: 'item|1080p',
+          targetQualityId: '720p',
+          title: 'Network slow',
+          subtitle: 'Current speed 1 MB/s',
+        );
+
+      controller.resetForSourceChange();
+
+      expect(controller.weakNetworkSuggestion, isNull);
+      expect(controller.weakNetworkSuggestionSuppressionKey, isNull);
     });
   });
 }

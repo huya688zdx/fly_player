@@ -1,4 +1,7 @@
+import '../../l10n/generated/app_localizations.dart';
+
 String buildThemeSaveNameBase({
+  required AppLocalizations l10n,
   required String title,
   String? seriesTitle,
   int? seasonNumber,
@@ -12,7 +15,9 @@ String buildThemeSaveNameBase({
       : normalizedSeriesTitle;
 
   if (!isEpisode) {
-    return '${effectiveTitle.isNotEmpty ? effectiveTitle : '自定义主题'}主题色';
+    return l10n.themeSaveName(
+      effectiveTitle.isNotEmpty ? effectiveTitle : l10n.themeSaveDefaultBase,
+    );
   }
 
   final parts = <String>[
@@ -22,14 +27,16 @@ String buildThemeSaveNameBase({
   final resolvedEpisode = episodeNumber ?? 0;
 
   if (resolvedSeason == 0) {
-    parts.add('特别篇');
+    parts.add(l10n.bookmarkManagerSpecialSeason);
   } else if (resolvedSeason > 0) {
-    parts.add('第$resolvedSeason季');
+    parts.add(l10n.bookmarkManagerSeasonLabel(resolvedSeason));
   }
 
   if (resolvedEpisode > 0) {
-    parts.add('第$resolvedEpisode集');
+    parts.add(l10n.bookmarkManagerEpisodeLabel(resolvedEpisode));
   }
 
-  return '${parts.where((part) => part.trim().isNotEmpty).join('·')}·主题色';
+  return l10n.themeSaveName(
+    parts.where((part) => part.trim().isNotEmpty).join('·'),
+  );
 }

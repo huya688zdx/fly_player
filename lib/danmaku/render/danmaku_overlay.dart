@@ -36,17 +36,79 @@ class DanmakuOverlay extends StatefulWidget {
   State<DanmakuOverlay> createState() => _DanmakuOverlayState();
 }
 
+enum _CommentAdmissionResult { admitted, queued, blocked, skipped, dropped }
+
+enum _OverloadLevel { normal, soft, hard }
+
+class _DanmakuRuntimeTuning {
+  final _OverloadLevel overloadLevel;
+  final int effectiveDurationMs;
+  final double effectiveDensity;
+  final double effectiveAreaRatio;
+
+  const _DanmakuRuntimeTuning({
+    required this.overloadLevel,
+    required this.effectiveDurationMs,
+    required this.effectiveDensity,
+    required this.effectiveAreaRatio,
+  });
+}
+
+class _PendingScrollComment {
+  DanmakuComment comment;
+  final int eligibleAtMs;
+  final int enqueuedAtMs;
+  final int delayBudgetMs;
+  final String normalizedText;
+  final int timeBucket;
+  String displayText;
+  int mergedCount;
+
+  _PendingScrollComment({
+    required this.comment,
+    required this.eligibleAtMs,
+    required this.enqueuedAtMs,
+    required this.delayBudgetMs,
+    required this.normalizedText,
+    required this.timeBucket,
+    String? displayText,
+  }) : mergedCount = 1,
+       displayText = displayText ?? comment.text;
+
+  void mergeWith() {
+    mergedCount += 1;
+    displayText = '${comment.text} x$mergedCount';
+  }
+}
+
 class _DanmakuOverlayState extends State<DanmakuOverlay>
     with SingleTickerProviderStateMixin {
   static const int _densityBucketScale = 1000;
   static const int _massiveModeThreshold = 1200;
   static const int _minimumDuplicateWindowMs = 2500;
   static const int _staticDanmakuDurationMs = 2600;
+  static const int _minVisibleScrollItems = 8;
+  static const int _maxVisibleScrollItems = 96;
+  static const int _maxPendingVisibleScrollItems = 160;
+  static const double _perTrackVisibleScrollMultiplier = 3.2;
   static const double _subtitleReservedAreaRatio = 0.16;
   static const double _lineHeight = 1.0;
-  static const int _fontWeightIndex = 7;
-  static const double _strokeWidth = 0.9;
-  static const Duration _maskEmptyStateClearGrace = Duration(milliseconds: 900);
+  static const int _baseFontWeightIndex = 7;
+  static const double _baseStrokeWidth = 0.9;
+  static const Duration _maskEmptyStateClearGrace = Duration(milliseconds: 350);
+  static const int _maxSchedulingLeadMs = 280;
+  static const int _seekResyncThresholdMs = 1500;
+  static const int _pendingQueueMinimumSize = 360;
+  static const int _pendingQueueCapacityMultiplier = 12;
+  static const int _pendingDrainMinimumBudget = 8;
+  static const int _maxPendingDelayMs = 1800;
+  static const int _mergeTimeBucketMs = 1000;
+  static const int _paintSampleWindowSize = 12;
+  static const int _paintSoftThresholdUs = 7000;
+  static const int _paintHardThresholdUs = 12000;
+  static const int _paintPressureSamples = 6;
+  static const int _recoverySamples = 20;
+  static const int _schedulerLogIntervalMs = 2000;
 
   final ValueNotifier<int> _timelineNotifier = ValueNotifier<int>(0);
   final ValueNotifier<int> _sceneRevision = ValueNotifier<int>(0);
@@ -67,9 +129,13 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
       <LocalDanmakuItem<DanmakuComment>>[];
   final List<LocalDanmakuItem<DanmakuComment>> _staticItems =
       <LocalDanmakuItem<DanmakuComment>>[];
+  final List<_PendingScrollComment> _pendingScrollComments =
+      <_PendingScrollComment>[];
+  final Set<String> _pendingScrollCommentIds = <String>{};
 
   DanmakuTrackLayout? _trackLayout;
   int _lastScheduledPositionMs = 0;
+  int _lastReportedPositionMs = 0;
   int _timelineMs = 0;
   int _lastTickerElapsedUs = 0;
   int? _pendingPauseSyncPositionMs;
@@ -79,6 +145,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   String _lastTrackLayoutSignature = '';
   String _lastVisualStateSignature = '';
   String _lastTrackMetricsSignature = '';
+  String _lastScheduledCommentsSignature = '';
   Size _viewportSize = Size.zero;
   double _devicePixelRatio = 1.0;
   double? _cachedTrackHeightValue;
@@ -90,16 +157,35 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   Size? _pendingViewportSize;
   double? _pendingViewportDevicePixelRatio;
   String? _pendingViewportSignature;
+  int _lastSchedulerLogWallClockMs = 0;
+  int _schedulerQueuedByCapacityCount = 0;
+  int _schedulerQueuedByTrackCount = 0;
+  int _schedulerBlockedByCapacityCount = 0;
+  int _schedulerBlockedByTrackCount = 0;
+  int _schedulerDrainedFromQueueCount = 0;
+  int _schedulerDroppedFromQueueCount = 0;
+  int _schedulerDroppedByTrimCount = 0;
+  int _schedulerMergedCount = 0;
+  int _schedulerSampledCount = 0;
+  int _schedulerDrainBlockedByTrackCount = 0;
+  int _schedulerDrainBlockedBySafetyCount = 0;
+  int _lastWindowPendingCount = 0;
+  int _lastWindowDrainedCount = 0;
+  int _lastWindowBlockedCapacityCount = 0;
+  int _queuePressureStreak = 0;
+  final List<int> _recentPaintElapsedUs = <int>[];
+  _OverloadLevel _overloadLevel = _OverloadLevel.normal;
+  int _paintSoftStreak = 0;
+  int _paintHardStreak = 0;
+  int _recoveryStreak = 0;
+  bool _queueHealthyForRecovery = true;
+  bool _pendingRuntimeRetune = false;
 
   @override
   void initState() {
     super.initState();
     widget.controller.addListener(_handleControllerChanged);
     _lastVisualStateSignature = _buildVisualStateSignature();
-    debugPrint(
-      '[DANMAKU][OVERLAY] init overlay=${identityHashCode(this)} '
-      'maskKey=${_maskStateKey(widget.occlusionState).isEmpty ? '-' : _maskStateKey(widget.occlusionState)}',
-    );
     unawaited(_syncMaskImage());
   }
 
@@ -117,13 +203,6 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
         _maskStateKey(oldWidget.occlusionState) !=
         _maskStateKey(widget.occlusionState);
     if (maskChanged) {
-      debugPrint(
-        '[DANMAKU][OVERLAY] didUpdate overlay=${identityHashCode(this)} '
-        'oldKey=${_maskStateKey(oldWidget.occlusionState).isEmpty ? '-' : _maskStateKey(oldWidget.occlusionState)} '
-        'newKey=${_maskStateKey(widget.occlusionState).isEmpty ? '-' : _maskStateKey(widget.occlusionState)}',
-      );
-    }
-    if (maskChanged) {
       unawaited(_syncMaskImage());
     }
     if (oldWidget.deferViewportSync && !widget.deferViewportSync) {
@@ -134,14 +213,6 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
         final freezePositionMs = pausedChanged
             ? () {
                 final stabilizedPositionMs = _stabilizePausedPositionMs();
-                if (stabilizedPositionMs != widget.position.inMilliseconds) {
-                  debugPrint(
-                    '[DANMAKU][OVERLAY] stabilize_pause '
-                    'reported=${widget.position.inMilliseconds} '
-                    'stabilized=$stabilizedPositionMs '
-                    'timeline=$_timelineMs scheduled=$_lastScheduledPositionMs',
-                  );
-                }
                 return stabilizedPositionMs;
               }()
             : (_timelineMs > 0 ? _timelineMs : widget.position.inMilliseconds);
@@ -162,10 +233,6 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
 
   @override
   void dispose() {
-    debugPrint(
-      '[DANMAKU][OVERLAY] dispose overlay=${identityHashCode(this)} '
-      'maskKey=${_maskImageKey ?? '-'}',
-    );
     widget.controller.removeListener(_handleControllerChanged);
     _maskLoadGeneration += 1;
     _cancelPendingMaskClear();
@@ -211,21 +278,24 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
         return IgnorePointer(
           child: RepaintBoundary(
             child: ClipRect(
-              child: Opacity(
-                opacity: settings.opacity.clamp(0.2, 1.0),
-                child: CustomPaint(
-                  painter: LocalDanmakuPainter<DanmakuComment>(
-                    repaint: _painterRepaint,
-                    scrollItems: _scrollItems,
-                    staticItems: _staticItems,
-                    timelineListenable: _timelineNotifier,
-                    devicePixelRatio: _devicePixelRatio,
-                    maskImage: settings.avoidCenterArea ? _maskImage : null,
-                    displayAreaRatio: settings.displayAreaRatio,
-                    captureAreaRatio: widget.occlusionState.captureAreaRatio,
-                  ),
-                  size: Size.infinite,
+              child: CustomPaint(
+                painter: LocalDanmakuPainter<DanmakuComment>(
+                  repaint: _painterRepaint,
+                  scrollItems: _scrollItems,
+                  staticItems: _staticItems,
+                  timelineListenable: _timelineNotifier,
+                  devicePixelRatio: _devicePixelRatio,
+                  opacity: settings.opacity.clamp(0.2, 1.0),
+                  maskImage: settings.avoidCenterArea ? _maskImage : null,
+                  displayAreaRatio: _effectiveAreaRatio(settings),
+                  captureAreaRatio: widget.occlusionState.captureAreaRatio,
+                  occlusionRect: settings.avoidCenterArea
+                      ? widget.occlusionState.normalizedRect
+                      : null,
+                  occlusionMode: widget.occlusionState.occlusionMode,
+                  onPaintElapsedUs: _handlePaintElapsedUs,
                 ),
+                size: Size.infinite,
               ),
             ),
           ),
@@ -306,6 +376,44 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     _pendingViewportSignature = null;
   }
 
+  void _maybeLogSchedulerState() {
+    final wallClockMs = DateTime.now().millisecondsSinceEpoch;
+    if (wallClockMs - _lastSchedulerLogWallClockMs < _schedulerLogIntervalMs) {
+      return;
+    }
+    _lastSchedulerLogWallClockMs = wallClockMs;
+    if (!widget.controller.ready || !widget.controller.settings.enabled) {
+      return;
+    }
+    final settings = widget.controller.settings;
+    _evaluateQueuePressure();
+    final tuning = _runtimeTuning(settings);
+    debugPrint(
+      '[DANMAKU][SCHED] '
+      'visible=${_visibleScrollItemCountAt(_timelineMs)} '
+      'capacity=${_visibleScrollCapacity(settings)} '
+      'active=${_scrollItems.length} '
+      'pending=${_pendingScrollComments.length} '
+      'timeline=$_timelineMs '
+      'scheduled=$_lastScheduledPositionMs '
+      'overload=${_overloadLevelLabel()} '
+      'effectiveDurationMs=${tuning.effectiveDurationMs} '
+      'effectiveDensity=${tuning.effectiveDensity.toStringAsFixed(3)} '
+      'effectiveAreaRatio=${tuning.effectiveAreaRatio.toStringAsFixed(3)} '
+      'queuedCapacity=$_schedulerQueuedByCapacityCount '
+      'queuedTrack=$_schedulerQueuedByTrackCount '
+      'blockedCapacity=$_schedulerBlockedByCapacityCount '
+      'blockedTrack=$_schedulerBlockedByTrackCount '
+      'drained=$_schedulerDrainedFromQueueCount '
+      'dropped=$_schedulerDroppedFromQueueCount '
+      'droppedTrim=$_schedulerDroppedByTrimCount '
+      'merged=$_schedulerMergedCount '
+      'sampled=$_schedulerSampledCount '
+      'drainBlockedByTrack=$_schedulerDrainBlockedByTrackCount '
+      'drainBlockedBySafety=$_schedulerDrainBlockedBySafetyCount',
+    );
+  }
+
   void _handleTick(Duration elapsed) {
     final elapsedUs = elapsed.inMicroseconds;
     if (_lastTickerElapsedUs == 0) {
@@ -327,11 +435,34 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     if (_timelineNotifier.value != _timelineMs) {
       _timelineNotifier.value = _timelineMs;
     }
-    if (_purgeExpiredItems() &&
-        (_scrollItems.isNotEmpty || _staticItems.isNotEmpty)) {
+    var sceneChanged = false;
+    if (_purgeExpiredItems()) {
+      sceneChanged = true;
+    }
+    if (widget.controller.ready &&
+        widget.controller.settings.enabled &&
+        !_viewportSize.isEmpty) {
+      final reportedPositionMs = _resolvedPositionMs();
+      final schedulingTargetMs = _resolveSchedulingPositionMs(
+        reportedPositionMs,
+      );
+      final emittedCount = _advanceSchedulingToPosition(
+        widget.controller.settings,
+        schedulingTargetMs,
+      );
+      if (emittedCount > 0) {
+        sceneChanged = true;
+      }
+    }
+    if (sceneChanged && (_scrollItems.isNotEmpty || _staticItems.isNotEmpty)) {
       _bumpScene();
     }
-    if (_scrollItems.isEmpty && _staticItems.isEmpty && _ticker.isActive) {
+    _maybeLogSchedulerState();
+    if (_scrollItems.isEmpty &&
+        _staticItems.isEmpty &&
+        _pendingScrollComments.isEmpty &&
+        !_hasFutureScheduledComments() &&
+        _ticker.isActive) {
       _pauseTicker();
     }
   }
@@ -341,7 +472,10 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
       _pauseTicker();
       return;
     }
-    if (_scrollItems.isEmpty && _staticItems.isEmpty) {
+    if (_scrollItems.isEmpty &&
+        _staticItems.isEmpty &&
+        _pendingScrollComments.isEmpty &&
+        !_hasFutureScheduledComments()) {
       return;
     }
     if (_ticker.isActive) return;
@@ -354,9 +488,14 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
       _ticker.stop();
     }
     _lastTickerElapsedUs = 0;
-    _timelineMs =
-        positionMs ??
-        (_timelineMs > 0 ? _timelineMs : widget.position.inMilliseconds);
+    _setTimelineMs(
+      positionMs ??
+          (_timelineMs > 0 ? _timelineMs : widget.position.inMilliseconds),
+    );
+  }
+
+  void _setTimelineMs(int positionMs) {
+    _timelineMs = math.max(0, positionMs);
     if (_timelineNotifier.value != _timelineMs) {
       _timelineNotifier.value = _timelineMs;
     }
@@ -366,6 +505,9 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     try {
       final settings = widget.controller.settings;
       final currentPositionMs = _resolvedPositionMs();
+      final schedulingPositionMs = _resolveSchedulingPositionMs(
+        currentPositionMs,
+      );
       if (!widget.controller.ready ||
           !settings.enabled ||
           _viewportSize.isEmpty) {
@@ -383,8 +525,10 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
       );
       final visibleWindowSignature = _buildVisibleWindowSignature(settings);
 
+      final commentsSignature = _buildCommentsSignature(comments);
       final sourceChanged =
-          forceSourceReset || !identical(comments, _scheduledComments);
+          forceSourceReset ||
+          commentsSignature != _lastScheduledCommentsSignature;
       final visibleWindowChanged =
           visibleWindowSignature != _lastVisibleWindowSignature;
       final optionChanged = optionSignature != _lastOptionSignature;
@@ -392,59 +536,89 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
 
       if (sourceChanged || visibleWindowChanged || optionChanged) {
         _scheduledComments = comments;
+        _lastScheduledCommentsSignature = commentsSignature;
         _lastVisibleWindowSignature = visibleWindowSignature;
+        if (sourceChanged &&
+            !forceSourceReset &&
+            _canPreserveSceneOnSourceRefresh(currentPositionMs)) {
+          debugPrint(
+            '[DANMAKU][SOURCE_REFRESH] preserveScene=true '
+            'position=$currentPositionMs '
+            'activeScroll=${_scrollItems.length} '
+            'pending=${_pendingScrollComments.length} '
+            'scheduled=$_lastScheduledPositionMs '
+            'comments=${comments.length}',
+          );
+          _lastReportedPositionMs = currentPositionMs;
+          _syncTickerForPlaybackState(positionMs: currentPositionMs);
+          return;
+        }
         _resyncVisibleWindow(
           comments,
           settings,
-          currentPositionMs,
+          schedulingPositionMs,
           reason: sourceChanged ? 'source' : 'settings',
         );
+        _lastReportedPositionMs = currentPositionMs;
         return;
       }
 
       final previousPositionMs = _lastScheduledPositionMs;
+      final previousReportedPositionMs = _lastReportedPositionMs;
 
-      if (currentPositionMs < previousPositionMs - 800) {
+      if (currentPositionMs <
+          previousReportedPositionMs - _seekResyncThresholdMs) {
         _resyncVisibleWindow(
           comments,
           settings,
           currentPositionMs,
           reason: 'seek_back',
         );
+        _lastReportedPositionMs = currentPositionMs;
         return;
       }
 
-      if (currentPositionMs > previousPositionMs + 1500) {
+      if (currentPositionMs >
+          previousReportedPositionMs + _seekResyncThresholdMs) {
         _resyncVisibleWindow(
           comments,
           settings,
           currentPositionMs,
           reason: 'seek_forward',
         );
+        _lastReportedPositionMs = currentPositionMs;
         return;
       }
 
       if (currentPositionMs <= previousPositionMs) {
+        _lastReportedPositionMs = currentPositionMs;
         _syncTickerForPlaybackState(positionMs: currentPositionMs);
         return;
       }
 
-      final startIndex = _upperBound(comments, previousPositionMs);
-      final endIndex = _upperBound(comments, currentPositionMs);
-      var emittedCount = 0;
-      for (var i = startIndex; i < endIndex; i += 1) {
-        if (_enqueueComment(comments[i], settings, currentPositionMs)) {
-          emittedCount += 1;
-        }
-      }
+      final emittedCount = _advanceSchedulingToPosition(
+        settings,
+        schedulingPositionMs,
+      );
       if (emittedCount > 0) {
         _bumpScene();
       }
-      _lastScheduledPositionMs = currentPositionMs;
+      _lastReportedPositionMs = currentPositionMs;
       _syncTickerForPlaybackState(positionMs: currentPositionMs);
     } finally {
       _pendingPauseSyncPositionMs = null;
     }
+  }
+
+  bool _canPreserveSceneOnSourceRefresh(int currentPositionMs) {
+    if (_scrollItems.isEmpty && _pendingScrollComments.isEmpty) {
+      return false;
+    }
+    if (currentPositionMs <= 0 || _lastReportedPositionMs <= 0) {
+      return false;
+    }
+    final driftMs = (currentPositionMs - _lastReportedPositionMs).abs();
+    return driftMs <= _seekResyncThresholdMs;
   }
 
   void _resyncVisibleWindow(
@@ -453,7 +627,17 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     int currentPositionMs, {
     required String reason,
   }) {
+    debugPrint(
+      '[DANMAKU][RESYNC] reason=$reason '
+      'position=$currentPositionMs '
+      'scheduled=$_lastScheduledPositionMs '
+      'comments=${comments.length} '
+      'activeScroll=${_scrollItems.length} '
+      'pending=${_pendingScrollComments.length} '
+      'timeline=$_timelineMs',
+    );
     _resetEngineTimeline(clearScreen: true);
+    _setTimelineMs(currentPositionMs);
     final startMs = math.max(0, currentPositionMs - _activeWindowMs(settings));
     _emitCommentsInRange(
       comments,
@@ -463,6 +647,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
       currentPositionMs: currentPositionMs,
     );
     _lastScheduledPositionMs = currentPositionMs;
+    _lastReportedPositionMs = currentPositionMs;
     _bumpScene();
     _syncTickerForPlaybackState();
   }
@@ -470,6 +655,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   void _resetEngineTimeline({required bool clearScreen}) {
     if (clearScreen) {
       _clearActiveItems(notify: false);
+      _clearPendingScrollComments();
     }
     _emittedCommentIds.clear();
   }
@@ -480,17 +666,19 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     _cachedSourceComments = const <DanmakuComment>[];
     _cachedVisibleComments = const <DanmakuComment>[];
     _scheduledComments = const <DanmakuComment>[];
+    _lastScheduledCommentsSignature = '';
     _emittedCommentIds.clear();
+    _clearPendingScrollComments();
     _trackLayout = null;
     _lastScheduledPositionMs = 0;
+    _lastReportedPositionMs = 0;
     _timelineMs = 0;
     _lastTickerElapsedUs = 0;
     _lastOptionSignature = '';
     _lastVisibleWindowSignature = '';
     _lastTrackLayoutSignature = '';
-    if (_timelineNotifier.value != 0) {
-      _timelineNotifier.value = 0;
-    }
+    _resetOverloadState();
+    _setTimelineMs(0);
     _pendingPauseSyncPositionMs = null;
     _bumpScene();
   }
@@ -508,10 +696,6 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
 
   Future<void> _syncMaskImage() async {
     final nextKey = _maskStateKey(widget.occlusionState);
-    debugPrint(
-      '[DANMAKU][OVERLAY] sync overlay=${identityHashCode(this)} '
-      'nextKey=${nextKey.isEmpty ? '-' : nextKey} currentKey=${_maskImageKey ?? '-'}',
-    );
     if (nextKey.isEmpty) {
       if (_shouldDelayMaskClear()) {
         _scheduleDeferredMaskClear();
@@ -520,10 +704,6 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
       _cancelPendingMaskClear();
       _maskLoadGeneration += 1;
       if (_maskImage != null || _maskImageKey != null) {
-        debugPrint(
-          '[DANMAKU][OVERLAY] clear overlay=${identityHashCode(this)} '
-          'reason=empty_state currentKey=${_maskImageKey ?? '-'}',
-        );
         _disposeMaskImage();
         if (mounted) {
           setState(() {});
@@ -539,10 +719,6 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     final path = widget.occlusionState.maskPath;
     if (path == null || path.trim().isEmpty) {
       _maskLoadGeneration += 1;
-      debugPrint(
-        '[DANMAKU][OVERLAY] clear overlay=${identityHashCode(this)} '
-        'reason=missing_path currentKey=${_maskImageKey ?? '-'}',
-      );
       _disposeMaskImage();
       if (mounted) {
         setState(() {});
@@ -553,10 +729,6 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     if (!await file.exists()) {
       _maskLoadGeneration += 1;
       if (_maskImage != null || _maskImageKey != null) {
-        debugPrint(
-          '[DANMAKU][OVERLAY] clear overlay=${identityHashCode(this)} '
-          'reason=file_missing currentKey=${_maskImageKey ?? '-'} path=$path',
-        );
         _disposeMaskImage();
         if (mounted) {
           setState(() {});
@@ -573,10 +745,6 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
         DanmakuImageDisposer.deferDispose(frame.image);
         return;
       }
-      debugPrint(
-        '[DANMAKU][OVERLAY] apply overlay=${identityHashCode(this)} '
-        'key=$nextKey path=$path size=${frame.image.width}x${frame.image.height}',
-      );
       _disposeMaskImage();
       _maskImage = frame.image;
       _maskImageKey = nextKey;
@@ -585,22 +753,12 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
       if (!mounted || generation != _maskLoadGeneration) {
         return;
       }
-      debugPrint(
-        '[DANMAKU][OVERLAY] clear overlay=${identityHashCode(this)} '
-        'reason=decode_failed currentKey=${_maskImageKey ?? '-'} path=$path',
-      );
       _disposeMaskImage();
       setState(() {});
     }
   }
 
   void _disposeMaskImage() {
-    if (_maskImage != null || _maskImageKey != null) {
-      debugPrint(
-        '[DANMAKU][OVERLAY] dispose_mask overlay=${identityHashCode(this)} '
-        'key=${_maskImageKey ?? '-'}',
-      );
-    }
     DanmakuImageDisposer.deferDispose(_maskImage);
     _maskImage = null;
     _maskImageKey = null;
@@ -632,10 +790,6 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
       if (_maskImage == null && _maskImageKey == null) {
         return;
       }
-      debugPrint(
-        '[DANMAKU][OVERLAY] clear overlay=${identityHashCode(this)} '
-        'reason=empty_state_grace_elapsed currentKey=${_maskImageKey ?? '-'}',
-      );
       _disposeMaskImage();
       setState(() {});
     });
@@ -644,6 +798,35 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   void _cancelPendingMaskClear() {
     _maskClearTimer?.cancel();
     _maskClearTimer = null;
+  }
+
+  void _clearPendingScrollComments() {
+    _pendingScrollComments.clear();
+    _pendingScrollCommentIds.clear();
+  }
+
+  void _resetOverloadState() {
+    _recentPaintElapsedUs.clear();
+    _overloadLevel = _OverloadLevel.normal;
+    _paintSoftStreak = 0;
+    _paintHardStreak = 0;
+    _recoveryStreak = 0;
+    _queuePressureStreak = 0;
+    _queueHealthyForRecovery = true;
+    _lastWindowPendingCount = 0;
+    _lastWindowDrainedCount = 0;
+    _lastWindowBlockedCapacityCount = 0;
+    _schedulerQueuedByCapacityCount = 0;
+    _schedulerQueuedByTrackCount = 0;
+    _schedulerBlockedByCapacityCount = 0;
+    _schedulerBlockedByTrackCount = 0;
+    _schedulerDrainedFromQueueCount = 0;
+    _schedulerDroppedFromQueueCount = 0;
+    _schedulerDroppedByTrimCount = 0;
+    _schedulerMergedCount = 0;
+    _schedulerSampledCount = 0;
+    _schedulerDrainBlockedByTrackCount = 0;
+    _schedulerDrainBlockedBySafetyCount = 0;
   }
 
   void _clearActiveItems({required bool notify}) {
@@ -698,6 +881,21 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     return _pendingPauseSyncPositionMs ?? widget.position.inMilliseconds;
   }
 
+  int _resolveSchedulingPositionMs(int reportedPositionMs) {
+    if (widget.paused || _timelineMs <= 0) {
+      return reportedPositionMs;
+    }
+    return math.min(reportedPositionMs, _timelineMs + _maxSchedulingLeadMs);
+  }
+
+  bool _hasFutureScheduledComments() {
+    final comments = _scheduledComments;
+    if (comments.isEmpty) {
+      return false;
+    }
+    return _upperBound(comments, _lastScheduledPositionMs) < comments.length;
+  }
+
   int _stabilizePausedPositionMs() {
     final renderedTimelineMs = _timelineMs;
     if ((_ticker.isActive ||
@@ -711,6 +909,429 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
 
   double _effectivePlaybackSpeedFactor() {
     return widget.playbackSpeedFactor.clamp(0.25, 4.0).toDouble();
+  }
+
+  _DanmakuRuntimeTuning _runtimeTuning(DanmakuSettings settings) {
+    final baseAreaRatio = settings.displayAreaRatio.clamp(0.1, 1.0).toDouble();
+    final baseDensity = settings.density.clamp(0.2, 1.0).toDouble();
+    final baseDurationMs = _baseScrollDurationMs(settings);
+    return switch (_overloadLevel) {
+      _OverloadLevel.normal => _DanmakuRuntimeTuning(
+        overloadLevel: _overloadLevel,
+        effectiveDurationMs: baseDurationMs,
+        effectiveDensity: baseDensity,
+        effectiveAreaRatio: baseAreaRatio,
+      ),
+      _OverloadLevel.soft => _DanmakuRuntimeTuning(
+        overloadLevel: _overloadLevel,
+        effectiveDurationMs: math.max(2400, (baseDurationMs * 0.88).round()),
+        effectiveDensity: (baseDensity * 0.92).clamp(0.2, 1.0).toDouble(),
+        effectiveAreaRatio: (baseAreaRatio + 0.10).clamp(0.1, 0.75).toDouble(),
+      ),
+      _OverloadLevel.hard => _DanmakuRuntimeTuning(
+        overloadLevel: _overloadLevel,
+        effectiveDurationMs: math.max(2200, (baseDurationMs * 0.75).round()),
+        effectiveDensity: (baseDensity * 0.82).clamp(0.2, 1.0).toDouble(),
+        effectiveAreaRatio: (baseAreaRatio + 0.20).clamp(0.1, 0.85).toDouble(),
+      ),
+    };
+  }
+
+  String _overloadLevelLabel() {
+    return switch (_overloadLevel) {
+      _OverloadLevel.normal => 'normal',
+      _OverloadLevel.soft => 'soft',
+      _OverloadLevel.hard => 'hard',
+    };
+  }
+
+  void _handlePaintElapsedUs(int elapsedUs) {
+    _recentPaintElapsedUs.add(elapsedUs);
+    if (_recentPaintElapsedUs.length > _paintSampleWindowSize) {
+      _recentPaintElapsedUs.removeAt(0);
+    }
+    final averagePaintUs = _averagePaintElapsedUs();
+    if (averagePaintUs >= _paintHardThresholdUs) {
+      _paintHardStreak += 1;
+      _paintSoftStreak += 1;
+      _recoveryStreak = 0;
+      if (_paintHardStreak >= _paintPressureSamples) {
+        _setOverloadLevel(_OverloadLevel.hard);
+      }
+      return;
+    }
+    if (averagePaintUs >= _paintSoftThresholdUs) {
+      _paintSoftStreak += 1;
+      _paintHardStreak = 0;
+      _recoveryStreak = 0;
+      if (_paintSoftStreak >= _paintPressureSamples &&
+          _overloadLevel == _OverloadLevel.normal) {
+        _setOverloadLevel(_OverloadLevel.soft);
+      }
+      return;
+    }
+    _paintSoftStreak = 0;
+    _paintHardStreak = 0;
+    if (_queueHealthyForRecovery) {
+      _recoveryStreak += 1;
+      if (_recoveryStreak >= _recoverySamples) {
+        if (_overloadLevel == _OverloadLevel.hard) {
+          _setOverloadLevel(_OverloadLevel.soft);
+        } else if (_overloadLevel == _OverloadLevel.soft) {
+          _setOverloadLevel(_OverloadLevel.normal);
+        }
+        _recoveryStreak = 0;
+      }
+    } else {
+      _recoveryStreak = 0;
+    }
+  }
+
+  double _averagePaintElapsedUs() {
+    if (_recentPaintElapsedUs.isEmpty) {
+      return 0;
+    }
+    var total = 0;
+    for (final sample in _recentPaintElapsedUs) {
+      total += sample;
+    }
+    return total / _recentPaintElapsedUs.length;
+  }
+
+  void _setOverloadLevel(_OverloadLevel nextLevel) {
+    if (_overloadLevel == nextLevel) {
+      return;
+    }
+    _overloadLevel = nextLevel;
+    _scheduleRuntimeRetune();
+  }
+
+  void _scheduleRuntimeRetune() {
+    if (_pendingRuntimeRetune) {
+      return;
+    }
+    _pendingRuntimeRetune = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _pendingRuntimeRetune = false;
+      if (!mounted) {
+        return;
+      }
+      _trackLayout = null;
+      _lastTrackLayoutSignature = '';
+      _cachedTrackHeightValue = null;
+      if (_ticker.isActive ||
+          _scrollItems.isNotEmpty ||
+          _staticItems.isNotEmpty) {
+        _bumpScene();
+      }
+      setState(() {});
+    });
+  }
+
+  void _evaluateQueuePressure() {
+    final pendingDelta =
+        _pendingScrollComments.length - _lastWindowPendingCount;
+    final drainedDelta =
+        _schedulerDrainedFromQueueCount - _lastWindowDrainedCount;
+    final blockedCapacityDelta =
+        _schedulerBlockedByCapacityCount - _lastWindowBlockedCapacityCount;
+    final backlogGrowing = pendingDelta > 0 && drainedDelta == 0;
+    final stalledOnCapacity = blockedCapacityDelta > 0 && drainedDelta == 0;
+    _queueHealthyForRecovery =
+        _pendingScrollComments.isEmpty ||
+        drainedDelta > 0 ||
+        pendingDelta <= 0 ||
+        blockedCapacityDelta == 0;
+    if (backlogGrowing || stalledOnCapacity) {
+      _queuePressureStreak += 1;
+      _recoveryStreak = 0;
+      if (_queuePressureStreak >= 2) {
+        if (_overloadLevel == _OverloadLevel.normal) {
+          _setOverloadLevel(_OverloadLevel.soft);
+        } else if (_overloadLevel == _OverloadLevel.soft) {
+          _setOverloadLevel(_OverloadLevel.hard);
+        }
+        _queuePressureStreak = 0;
+      }
+    } else {
+      _queuePressureStreak = 0;
+    }
+    _lastWindowPendingCount = _pendingScrollComments.length;
+    _lastWindowDrainedCount = _schedulerDrainedFromQueueCount;
+    _lastWindowBlockedCapacityCount = _schedulerBlockedByCapacityCount;
+  }
+
+  int _visibleScrollCapacity(DanmakuSettings settings) {
+    final trackCount = _resolveTrackLayout(settings)?.topTrackYs.length ?? 0;
+    if (trackCount <= 0) {
+      return _minVisibleScrollItems;
+    }
+    final density = _runtimeTuning(settings).effectiveDensity;
+    final scaledMultiplier = _perTrackVisibleScrollMultiplier * density;
+    final dynamicMinimum = math.max(_minVisibleScrollItems, trackCount * 2);
+    return math.max(
+      dynamicMinimum,
+      math.min(_maxVisibleScrollItems, (trackCount * scaledMultiplier).round()),
+    );
+  }
+
+  int _visibleScrollLimit(
+    DanmakuSettings settings, {
+    required bool fromPending,
+  }) {
+    final baseCapacity = _visibleScrollCapacity(settings);
+    if (!fromPending) {
+      return baseCapacity;
+    }
+    return _pendingVisibleSafetyLimit(settings);
+  }
+
+  int _pendingVisibleSafetyLimit(DanmakuSettings settings) {
+    final baseCapacity = _visibleScrollCapacity(settings);
+    return math.max(
+      _maxVisibleScrollItems,
+      math.min(_maxPendingVisibleScrollItems, baseCapacity * 3),
+    );
+  }
+
+  int _visibleScrollItemCountAt(int timelineMs) {
+    final viewportSize = _viewportSize;
+    if (viewportSize.isEmpty) {
+      return 0;
+    }
+    var count = 0;
+    for (final item in _scrollItems) {
+      if (item.isExpired(timelineMs, viewportSize)) {
+        continue;
+      }
+      final x = item.xFor(viewportSize, timelineMs);
+      if (x < viewportSize.width && x + item.width > 0) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  int _visibleScrollItemCountOnTrack(
+    double trackY,
+    int timelineMs,
+    Size viewportSize,
+  ) {
+    var count = 0;
+    for (final item in _scrollItems) {
+      if (item.trackPosition != trackY) {
+        continue;
+      }
+      if (item.isExpired(timelineMs, viewportSize)) {
+        continue;
+      }
+      final x = item.xFor(viewportSize, timelineMs);
+      if (x < viewportSize.width && x + item.width > 0) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  int _maxVisibleScrollItemsPerTrack(
+    DanmakuSettings settings, {
+    required bool fromPending,
+  }) {
+    final trackCount = _resolveTrackLayout(settings)?.topTrackYs.length ?? 0;
+    if (trackCount <= 0) {
+      return 3;
+    }
+    final basePerTrack = math.max(
+      3,
+      (_visibleScrollCapacity(settings) / trackCount).ceil(),
+    );
+    if (!fromPending) {
+      return math.min(4, basePerTrack);
+    }
+    final pendingHeadroom = switch (_overloadLevel) {
+      _OverloadLevel.normal => 0,
+      _OverloadLevel.soft => 1,
+      _OverloadLevel.hard => 2,
+    };
+    return math.min(6, basePerTrack + pendingHeadroom);
+  }
+
+  int _pendingDrainBudget(DanmakuSettings settings) {
+    return math.max(
+      _pendingDrainMinimumBudget,
+      _visibleScrollCapacity(settings) ~/ 3,
+    );
+  }
+
+  int _pendingDelayBudgetMs(DanmakuSettings settings) {
+    final durationBasedBudget = (_scrollDurationMs(settings) * 2.5).round();
+    return math.max(_maxPendingDelayMs, durationBasedBudget);
+  }
+
+  int _maxPendingScrollCount(DanmakuSettings settings) {
+    return math.max(
+      _visibleScrollCapacity(settings) * _pendingQueueCapacityMultiplier,
+      _pendingQueueMinimumSize,
+    );
+  }
+
+  String _normalizedMergeKey(String text) {
+    return text.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  int _pendingTimeBucket(int timeMs) {
+    return timeMs ~/ _mergeTimeBucketMs;
+  }
+
+  bool _mergePendingScrollComment(DanmakuComment comment, {int? skipIndex}) {
+    if (_overloadLevel == _OverloadLevel.normal) {
+      return false;
+    }
+    final normalizedText = _normalizedMergeKey(comment.text);
+    if (normalizedText.isEmpty) {
+      return false;
+    }
+    final bucket = _pendingTimeBucket(comment.timeMs);
+    for (var i = _pendingScrollComments.length - 1; i >= 0; i -= 1) {
+      if (skipIndex != null && i == skipIndex) {
+        continue;
+      }
+      final pending = _pendingScrollComments[i];
+      if (pending.normalizedText != normalizedText ||
+          pending.timeBucket != bucket) {
+        continue;
+      }
+      pending.mergeWith();
+      _schedulerMergedCount += 1;
+      _emittedCommentIds.add(comment.id);
+      return true;
+    }
+    return false;
+  }
+
+  bool _queuePendingScrollComment(
+    DanmakuComment comment,
+    DanmakuSettings settings,
+    int currentPositionMs,
+  ) {
+    if (_pendingScrollCommentIds.contains(comment.id) ||
+        _emittedCommentIds.contains(comment.id)) {
+      return false;
+    }
+    if (_mergePendingScrollComment(comment)) {
+      return true;
+    }
+    final normalizedText = _normalizedMergeKey(comment.text);
+    _pendingScrollCommentIds.add(comment.id);
+    _pendingScrollComments.add(
+      _PendingScrollComment(
+        comment: comment,
+        eligibleAtMs: currentPositionMs,
+        enqueuedAtMs: currentPositionMs,
+        delayBudgetMs: _pendingDelayBudgetMs(settings),
+        normalizedText: normalizedText,
+        timeBucket: _pendingTimeBucket(comment.timeMs),
+      ),
+    );
+    _trimPendingScrollQueue(settings);
+    return true;
+  }
+
+  void _trimPendingScrollQueue(DanmakuSettings settings) {
+    final maxPendingCount = _maxPendingScrollCount(settings);
+    while (_pendingScrollComments.length > maxPendingCount) {
+      final trimIndex = _pickPendingTrimIndex(settings);
+      _dropPendingScrollCommentAt(trimIndex, markEmitted: true, reason: 'trim');
+    }
+  }
+
+  int _pickPendingTrimIndex(DanmakuSettings settings) {
+    if (_pendingScrollComments.isEmpty) {
+      return -1;
+    }
+    final timelineMs = math.max(_timelineMs, _lastScheduledPositionMs);
+    for (var index = 0; index < _pendingScrollComments.length; index += 1) {
+      final pending = _pendingScrollComments[index];
+      final queuedDurationMs = timelineMs - pending.enqueuedAtMs;
+      if (queuedDurationMs >= pending.delayBudgetMs) {
+        return index;
+      }
+      final missedVisibleWindow =
+          timelineMs - pending.comment.timeMs >= _scrollDurationMs(settings);
+      if (missedVisibleWindow) {
+        return index;
+      }
+    }
+    return 0;
+  }
+
+  void _dropPendingScrollCommentAt(
+    int index, {
+    required bool markEmitted,
+    required String reason,
+  }) {
+    if (index < 0 || index >= _pendingScrollComments.length) {
+      return;
+    }
+    final pending = _pendingScrollComments.removeAt(index);
+    _pendingScrollCommentIds.remove(pending.comment.id);
+    _schedulerDroppedFromQueueCount += 1;
+    if (reason == 'trim') {
+      _schedulerDroppedByTrimCount += 1;
+    }
+    if (markEmitted) {
+      _emittedCommentIds.add(pending.comment.id);
+    }
+  }
+
+  int _drainPendingScrollComments(
+    DanmakuSettings settings,
+    int currentPositionMs,
+  ) {
+    if (_pendingScrollComments.isEmpty || !settings.scrollEnabled) {
+      return 0;
+    }
+    final successBudget = _pendingDrainBudget(settings);
+    final scanBudget = math.max(successBudget * 4, 24);
+    var admittedCount = 0;
+    var scannedCount = 0;
+    var index = 0;
+    while (index < _pendingScrollComments.length && scannedCount < scanBudget) {
+      final pending = _pendingScrollComments[index];
+      if (currentPositionMs < pending.eligibleAtMs) {
+        break;
+      }
+      scannedCount += 1;
+      final result = _tryAdmitComment(
+        pending.comment,
+        settings,
+        currentPositionMs,
+        queueOnBlocked: false,
+        fromPending: true,
+        textOverride: pending.displayText,
+      );
+      switch (result) {
+        case _CommentAdmissionResult.admitted:
+          _pendingScrollCommentIds.remove(pending.comment.id);
+          _pendingScrollComments.removeAt(index);
+          admittedCount += 1;
+          _schedulerDrainedFromQueueCount += 1;
+          if (admittedCount >= successBudget) {
+            return admittedCount;
+          }
+          continue;
+        case _CommentAdmissionResult.dropped:
+        case _CommentAdmissionResult.skipped:
+          _pendingScrollCommentIds.remove(pending.comment.id);
+          _pendingScrollComments.removeAt(index);
+          continue;
+        case _CommentAdmissionResult.blocked:
+        case _CommentAdmissionResult.queued:
+          index += 1;
+          continue;
+      }
+    }
+    return admittedCount;
   }
 
   int _emitCommentsInRange(
@@ -734,35 +1355,100 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     return emittedCount;
   }
 
+  int _advanceSchedulingToPosition(
+    DanmakuSettings settings,
+    int currentPositionMs,
+  ) {
+    var emittedCount = _drainPendingScrollComments(settings, currentPositionMs);
+    if (_scheduledComments.isEmpty ||
+        currentPositionMs <= _lastScheduledPositionMs) {
+      return emittedCount;
+    }
+    final startIndex = _upperBound(
+      _scheduledComments,
+      _lastScheduledPositionMs,
+    );
+    final endIndex = _upperBound(_scheduledComments, currentPositionMs);
+    for (var i = startIndex; i < endIndex; i += 1) {
+      if (_enqueueComment(_scheduledComments[i], settings, currentPositionMs)) {
+        emittedCount += 1;
+      }
+    }
+    _lastScheduledPositionMs = currentPositionMs;
+    return emittedCount;
+  }
+
   bool _enqueueComment(
     DanmakuComment comment,
     DanmakuSettings settings,
     int currentPositionMs,
   ) {
+    final result = _tryAdmitComment(
+      comment,
+      settings,
+      currentPositionMs,
+      queueOnBlocked: true,
+      fromPending: false,
+      textOverride: null,
+    );
+    return result == _CommentAdmissionResult.admitted;
+  }
+
+  _CommentAdmissionResult _tryAdmitComment(
+    DanmakuComment comment,
+    DanmakuSettings settings,
+    int currentPositionMs, {
+    required bool queueOnBlocked,
+    required bool fromPending,
+    required String? textOverride,
+  }) {
     if (!_isCommentTypeEnabled(comment, settings)) {
-      return false;
+      return _CommentAdmissionResult.skipped;
     }
-    if (!_emittedCommentIds.add(comment.id)) {
-      return false;
+    if (_emittedCommentIds.contains(comment.id)) {
+      return _CommentAdmissionResult.skipped;
+    }
+    if (!fromPending && _pendingScrollCommentIds.contains(comment.id)) {
+      return _CommentAdmissionResult.queued;
     }
     final layout = _resolveTrackLayout(settings);
     if (layout == null) {
-      return false;
+      return _CommentAdmissionResult.blocked;
     }
 
     final itemType = _mapItemType(comment.type);
     final durationMs = itemType == LocalDanmakuItemType.scroll
         ? _scrollDurationMs(settings)
-        : _staticDanmakuDurationMs;
-    final ageMs = math.max(0, currentPositionMs - comment.timeMs);
+        : _staticDurationMs(settings);
+    final ageMs = fromPending && itemType == LocalDanmakuItemType.scroll
+        ? 0
+        : math.max(0, currentPositionMs - comment.timeMs);
     if (ageMs >= durationMs) {
-      return false;
+      if (itemType == LocalDanmakuItemType.scroll) {
+        _emittedCommentIds.add(comment.id);
+      }
+      return _CommentAdmissionResult.dropped;
     }
-
+    final visibleScrollCount = _visibleScrollItemCountAt(_timelineMs);
+    final visibleScrollLimit = _visibleScrollLimit(
+      settings,
+      fromPending: fromPending,
+    );
+    if (itemType == LocalDanmakuItemType.scroll &&
+        !fromPending &&
+        visibleScrollCount >= visibleScrollLimit) {
+      if (queueOnBlocked &&
+          _queuePendingScrollComment(comment, settings, currentPositionMs)) {
+        _schedulerQueuedByCapacityCount += 1;
+        return _CommentAdmissionResult.queued;
+      }
+      _schedulerBlockedByCapacityCount += 1;
+      return _CommentAdmissionResult.blocked;
+    }
     final color = settings.colorEnabled ? comment.color : Colors.white;
     final item = LocalDanmakuItem.rasterize<DanmakuComment>(
       content: LocalDanmakuContentItem<DanmakuComment>(
-        comment.text,
+        textOverride ?? comment.text,
         color: color,
         type: itemType,
         extra: comment,
@@ -771,8 +1457,8 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
       startMs: _timelineMs - ageMs,
       durationMs: durationMs,
       fontSize: _fontSize(settings),
-      fontWeight: _fontWeightIndex,
-      strokeWidth: _strokeWidth,
+      fontWeight: _fontWeightIndex(settings),
+      strokeWidth: _strokeWidth(settings),
       lineHeight: _lineHeight,
       devicePixelRatio: _devicePixelRatio,
     );
@@ -780,28 +1466,51 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     final trackPosition = _pickTrackPosition(
       layout,
       item,
-      allowOverlap:
-          itemType == LocalDanmakuItemType.scroll &&
-          _scheduledComments.length >= _massiveModeThreshold,
+      settings: settings,
+      fromPending: fromPending,
+      allowOverlap: false,
       overlapSeed: comment.id,
     );
     if (trackPosition == null) {
       item.dispose();
-      return false;
+      if (itemType == LocalDanmakuItemType.scroll &&
+          queueOnBlocked &&
+          _queuePendingScrollComment(comment, settings, currentPositionMs)) {
+        _schedulerQueuedByTrackCount += 1;
+        return _CommentAdmissionResult.queued;
+      }
+      if (itemType == LocalDanmakuItemType.scroll) {
+        _schedulerBlockedByTrackCount += 1;
+        if (fromPending) {
+          _schedulerDrainBlockedByTrackCount += 1;
+        }
+      }
+      return _CommentAdmissionResult.blocked;
+    }
+    if (itemType == LocalDanmakuItemType.scroll &&
+        fromPending &&
+        visibleScrollCount >= _pendingVisibleSafetyLimit(settings)) {
+      item.dispose();
+      _schedulerBlockedByCapacityCount += 1;
+      _schedulerDrainBlockedBySafetyCount += 1;
+      return _CommentAdmissionResult.blocked;
     }
 
+    _emittedCommentIds.add(comment.id);
     item.trackPosition = trackPosition;
     if (item.isScroll) {
       _scrollItems.add(item);
     } else {
       _staticItems.add(item);
     }
-    return true;
+    return _CommentAdmissionResult.admitted;
   }
 
   double? _pickTrackPosition(
     DanmakuTrackLayout layout,
     LocalDanmakuItem<DanmakuComment> item, {
+    required DanmakuSettings settings,
+    required bool fromPending,
     required bool allowOverlap,
     required String overlapSeed,
   }) {
@@ -811,8 +1520,13 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
         final trackY = _findTrack(
           layout.topTrackYs,
           seed: overlapSeed,
-          canUse: (track) =>
-              _scrollCanAddToTrack(track, item.width, viewportSize),
+          canUse: (track) => _scrollCanAddToTrack(
+            track,
+            item.width,
+            viewportSize,
+            settings: settings,
+            fromPending: fromPending,
+          ),
         );
         if (trackY != null) {
           return trackY;
@@ -870,24 +1584,45 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   bool _scrollCanAddToTrack(
     double trackY,
     double newItemWidth,
-    Size viewportSize,
-  ) {
+    Size viewportSize, {
+    required DanmakuSettings settings,
+    required bool fromPending,
+  }) {
+    final visibleOnTrack = _visibleScrollItemCountOnTrack(
+      trackY,
+      _timelineMs,
+      viewportSize,
+    );
+    if (visibleOnTrack >=
+        _maxVisibleScrollItemsPerTrack(settings, fromPending: fromPending)) {
+      return false;
+    }
     for (final item in _scrollItems) {
       if (item.trackPosition != trackY) continue;
       if (item.isExpired(_timelineMs, viewportSize)) continue;
       final x = item.xFor(viewportSize, _timelineMs);
-      final existingEndPosition = x + item.width;
-      if (viewportSize.width - existingEndPosition < 0) {
+      final existingTailX = x + item.width;
+      if (existingTailX >= viewportSize.width) {
         return false;
       }
-      if (item.width < newItemWidth) {
-        final existingProgress =
-            1 - ((viewportSize.width - x) / (item.width + viewportSize.width));
-        final newThreshold =
-            viewportSize.width / (viewportSize.width + newItemWidth);
-        if (existingProgress > newThreshold) {
-          return false;
-        }
+      final remainingMs = math.max(
+        1,
+        item.startMs + item.durationMs - _timelineMs,
+      );
+      final existingSpeed =
+          (viewportSize.width + item.width) / item.durationMs.clamp(1, 1 << 30);
+      final newSpeed =
+          (viewportSize.width + newItemWidth) /
+          _scrollDurationMs(widget.controller.settings).clamp(1, 1 << 30);
+      final minSafeGap = math.max(
+        20.0,
+        (newSpeed - existingSpeed) > 0
+            ? (newSpeed - existingSpeed) * remainingMs
+            : newItemWidth * 0.20,
+      );
+      final availableGap = viewportSize.width - existingTailX;
+      if (availableGap < minSafeGap) {
+        return false;
       }
     }
     return true;
@@ -934,7 +1669,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     required DanmakuSettings settings,
   }) {
     final hideDuplicate = settings.hideDuplicate;
-    final density = settings.density;
+    final density = _effectiveSamplingDensity(settings);
     final duplicateWindowMs = _duplicateWindowMs(settings);
     if (identical(sourceComments, _cachedSourceComments) &&
         hideDuplicate == _cachedHideDuplicate &&
@@ -971,29 +1706,121 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     return _cachedVisibleComments;
   }
 
+  double _effectiveSamplingDensity(DanmakuSettings settings) {
+    final baseDensity = _runtimeTuning(settings).effectiveDensity;
+    if (_overloadLevel == _OverloadLevel.normal &&
+        _pendingScrollComments.isEmpty &&
+        _queuePressureStreak == 0) {
+      return baseDensity;
+    }
+    final currentLayout = _resolveTrackLayout(settings);
+    if (currentLayout == null || _viewportSize.isEmpty) {
+      return baseDensity;
+    }
+    final referenceLayout = DanmakuTrackLayoutEngine.compute(
+      viewportSize: _viewportSize,
+      trackHeight: _trackHeight(settings),
+      areaRatio: 1.0,
+      avoidSubtitleArea: settings.avoidSubtitleArea,
+      avoidCenterArea: false,
+      subtitleReservedAreaRatio: _subtitleReservedAreaRatio,
+    );
+    final currentCapacity = _samplingLaneCapacity(currentLayout, settings);
+    final referenceCapacity = _samplingLaneCapacity(referenceLayout, settings);
+    if (currentCapacity <= 0 || referenceCapacity <= 0) {
+      return baseDensity;
+    }
+    final capacityScale = currentCapacity / referenceCapacity;
+    final easedCapacityScale = resolveDanmakuDensityCapacityScale(
+      capacityScale,
+    );
+    return (baseDensity * easedCapacityScale)
+        .clamp(1 / _densityBucketScale, 1.0)
+        .toDouble();
+  }
+
+  double _samplingLaneCapacity(
+    DanmakuTrackLayout layout,
+    DanmakuSettings settings,
+  ) {
+    var capacity = 0.0;
+    if (settings.scrollEnabled || settings.topEnabled) {
+      capacity += layout.topTrackYs.length;
+    }
+    if (settings.bottomEnabled) {
+      capacity += layout.bottomTrackOffsets.length;
+    }
+    return capacity;
+  }
+
   String _normalizeDuplicateKey(String text) {
     return text.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
   int _duplicateWindowMs(DanmakuSettings settings) {
-    return math.max(_activeWindowMs(settings), _minimumDuplicateWindowMs);
+    return math.max(_scrollDurationMs(settings), _minimumDuplicateWindowMs);
   }
 
   int _activeWindowMs(DanmakuSettings settings) {
-    return math.max(_scrollDurationMs(settings), _staticDanmakuDurationMs);
+    return math.max(_scrollDurationMs(settings), _staticDurationMs(settings));
   }
 
   int _scrollDurationMs(DanmakuSettings settings) {
-    return (_scrollDurationSeconds(settings) * 1000).round();
+    return _runtimeTuning(settings).effectiveDurationMs;
+  }
+
+  int _staticDurationMs(DanmakuSettings settings) {
+    return (_staticDanmakuDurationMs /
+            resolveDanmakuMotionSpeedFactor(settings.speed))
+        .round();
+  }
+
+  int _baseScrollDurationMs(DanmakuSettings settings) {
+    final viewportDurationScale = resolveDanmakuViewportMotionDurationScale(
+      _viewportSize.shortestSide,
+    );
+    return (_scrollDurationSeconds(settings) * viewportDurationScale * 1000)
+        .round();
   }
 
   double _scrollDurationSeconds(DanmakuSettings settings) {
-    final speed = settings.speed.clamp(0.7, 1.8).toDouble();
-    return (8.5 / speed).clamp(3.2, 8.5).toDouble();
+    final speedFactor = resolveDanmakuMotionSpeedFactor(settings.speed);
+    return (8.5 / speedFactor).clamp(3.2, 8.5).toDouble();
+  }
+
+  double _viewportAdaptiveScale() {
+    if (_viewportSize.isEmpty) {
+      return 1.0;
+    }
+    final safeDevicePixelRatio = math.max(1.0, _devicePixelRatio);
+    final shortSideDp = _viewportSize.shortestSide / safeDevicePixelRatio;
+    return (shortSideDp / 420.0).clamp(0.76, 1.0).toDouble();
   }
 
   double _fontSize(DanmakuSettings settings) {
-    return math.max(16.0, 24.0 * settings.fontScale);
+    final viewportScale = _viewportAdaptiveScale();
+    return math.max(12.0, 24.0 * settings.fontScale * viewportScale);
+  }
+
+  double _fontThickness(DanmakuSettings settings) {
+    return settings.fontThickness.clamp(0.8, 1.4).toDouble();
+  }
+
+  int _fontWeightIndex(DanmakuSettings settings) {
+    final thickness = _fontThickness(settings);
+    if (thickness <= 0.8) {
+      return math.max(0, _baseFontWeightIndex - 1);
+    }
+    if (thickness >= 1.3) {
+      return math.min(FontWeight.values.length - 1, _baseFontWeightIndex + 1);
+    }
+    return _baseFontWeightIndex;
+  }
+
+  double _strokeWidth(DanmakuSettings settings) {
+    return _baseStrokeWidth *
+        _fontThickness(settings) *
+        _viewportAdaptiveScale();
   }
 
   double _trackHeight(DanmakuSettings settings) {
@@ -1004,8 +1831,12 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     }
     final textPainter = TextPainter(
       text: TextSpan(
-        text: '弹幕',
-        style: TextStyle(fontSize: _fontSize(settings), height: _lineHeight),
+        text: 'Danmaku',
+        style: TextStyle(
+          fontSize: _fontSize(settings),
+          height: _lineHeight,
+          fontWeight: FontWeight.values[_fontWeightIndex(settings)],
+        ),
       ),
       textDirection: TextDirection.ltr,
     )..layout();
@@ -1016,11 +1847,11 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   }
 
   double _textVerticalPadding(DanmakuSettings settings) {
-    return math.max(_strokeWidth + 1.0, _fontSize(settings) * 0.18);
+    return math.max(_strokeWidth(settings) + 1.0, _fontSize(settings) * 0.18);
   }
 
   double _effectiveAreaRatio(DanmakuSettings settings) {
-    final base = settings.displayAreaRatio.clamp(0.1, 1.0).toDouble();
+    final base = _runtimeTuning(settings).effectiveAreaRatio;
     if (!settings.avoidSubtitleArea) {
       return base;
     }
@@ -1042,8 +1873,10 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   }) {
     return <Object>[
       settings.fontScale,
+      settings.fontThickness.toStringAsFixed(3),
       settings.speed,
-      _effectiveAreaRatio(settings),
+      settings.displayAreaRatio.toStringAsFixed(3),
+      settings.density.toStringAsFixed(3),
       settings.topEnabled,
       settings.bottomEnabled,
       settings.scrollEnabled,
@@ -1060,13 +1893,15 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
       _trackHeight(settings).toStringAsFixed(2),
       _effectiveAreaRatio(settings).toStringAsFixed(3),
       settings.avoidSubtitleArea,
+      settings.avoidCenterArea,
     ].join('|');
   }
 
   String _buildTrackMetricsSignature(DanmakuSettings settings) {
     return <Object>[
       _fontSize(settings).toStringAsFixed(2),
-      _strokeWidth.toStringAsFixed(2),
+      _fontWeightIndex(settings),
+      _strokeWidth(settings).toStringAsFixed(2),
       _lineHeight.toStringAsFixed(2),
     ].join('|');
   }
@@ -1079,6 +1914,35 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
       settings.opacity.toStringAsFixed(3),
       settings.avoidCenterArea,
       settings.displayAreaRatio.toStringAsFixed(3),
+    ].join('|');
+  }
+
+  String _buildCommentsSignature(List<DanmakuComment> comments) {
+    if (comments.isEmpty) {
+      return '0';
+    }
+    var hash = 0;
+    for (final comment in comments) {
+      hash = 0x1fffffff & (hash + comment.id.hashCode);
+      hash = 0x1fffffff & (hash + comment.timeMs.hashCode);
+      hash = 0x1fffffff & (hash + comment.type.hashCode);
+      hash = 0x1fffffff & (hash + comment.text.hashCode);
+      hash = 0x1fffffff & (hash + comment.color.toARGB32().hashCode);
+      hash = 0x1fffffff & (hash + ((0x0007ffff & hash) << 10));
+      hash ^= (hash >> 6);
+    }
+    hash = 0x1fffffff & (hash + ((0x03ffffff & hash) << 3));
+    hash ^= (hash >> 11);
+    hash = 0x1fffffff & (hash + ((0x00003fff & hash) << 15));
+    final first = comments.first;
+    final last = comments.last;
+    return <Object>[
+      comments.length,
+      first.id,
+      first.timeMs,
+      last.id,
+      last.timeMs,
+      hash,
     ].join('|');
   }
 

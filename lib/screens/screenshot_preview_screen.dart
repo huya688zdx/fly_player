@@ -1,9 +1,10 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../services/storage_access_service.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
@@ -69,7 +70,8 @@ class ScreenshotLightboxRouteScreen extends StatelessWidget {
   }
 
   static ScreenshotLibraryItem? itemFromUri(Uri uri) {
-    final pathOrIdentifier = uri.queryParameters['pathOrIdentifier']?.trim() ?? '';
+    final pathOrIdentifier =
+        uri.queryParameters['pathOrIdentifier']?.trim() ?? '';
     if (pathOrIdentifier.isEmpty) {
       return null;
     }
@@ -99,10 +101,8 @@ class ScreenshotLightboxRouteScreen extends StatelessWidget {
   }) {
     return _ScreenshotLightboxRoute(
       settings: settings,
-      builder: (_) => ScreenshotLightboxRouteScreen(
-        item: item,
-        payloadToken: payloadToken,
-      ),
+      builder: (_) =>
+          ScreenshotLightboxRouteScreen(item: item, payloadToken: payloadToken),
     );
   }
 
@@ -180,7 +180,10 @@ class _ScreenshotLightboxRouteLoaderState
         if (payload != null && payload.items.isNotEmpty) {
           return _ScreenshotLightbox(
             items: payload.items,
-            initialIndex: payload.initialIndex.clamp(0, payload.items.length - 1),
+            initialIndex: payload.initialIndex.clamp(
+              0,
+              payload.items.length - 1,
+            ),
           );
         }
         if (fallbackItem != null) {
@@ -205,14 +208,13 @@ class _ScreenshotLightboxPayload {
   });
 
   factory _ScreenshotLightboxPayload.fromMap(Map<Object?, Object?> raw) {
-    final itemList =
-        (raw['items'] as List<dynamic>? ?? const <dynamic>[])
-            .whereType<Map>()
-            .map(
-              (item) =>
-                  ScreenshotLibraryItem.fromMap(item.cast<Object?, Object?>()),
-            )
-            .toList(growable: false);
+    final itemList = (raw['items'] as List<dynamic>? ?? const <dynamic>[])
+        .whereType<Map>()
+        .map(
+          (item) =>
+              ScreenshotLibraryItem.fromMap(item.cast<Object?, Object?>()),
+        )
+        .toList(growable: false);
     final initialIndex = switch (raw['initialIndex']) {
       final int value => value,
       final num value => value.toInt(),
@@ -265,7 +267,7 @@ class _ScreenshotPreviewScreenState extends State<ScreenshotPreviewScreen> {
             item.name,
             item.locationLabel,
             item.pathOrIdentifier,
-            _sourceLabel(item.sourceKind),
+            item.sourceKind,
           ];
           return haystacks.any(
             (value) => value.toLowerCase().contains(normalizedQuery),
@@ -465,9 +467,7 @@ class _ScreenshotPreviewScreenState extends State<ScreenshotPreviewScreen> {
           right.locationLabel.toLowerCase(),
         );
       case _ScreenshotSortField.source:
-        base = _sourceLabel(
-          left.sourceKind,
-        ).compareTo(_sourceLabel(right.sourceKind));
+        base = left.sourceKind.compareTo(right.sourceKind);
     }
     return rule.descending ? -base : base;
   }
@@ -496,21 +496,21 @@ class _ScreenshotPreviewScreenState extends State<ScreenshotPreviewScreen> {
   ) {
     switch (field) {
       case _ScreenshotSortField.modifiedAt:
-        return _dateSectionLabel(item.modifiedAt);
+        return _dateSectionLabel(AppLocalizations.of(context), item.modifiedAt);
       case _ScreenshotSortField.fileName:
         return _alphaSectionLabel(item.name);
       case _ScreenshotSortField.sizeBytes:
-        return _sizeSectionLabel(item.sizeBytes);
+        return _sizeSectionLabel(AppLocalizations.of(context), item.sizeBytes);
       case _ScreenshotSortField.resolution:
         final metadata = _sortMetadata[item.id];
         if (metadata?.hasDimensions != true) {
-          return '未知分辨率';
+          return AppLocalizations.of(context).screenshotUnknownResolution;
         }
         return '${metadata!.width} x ${metadata.height}';
       case _ScreenshotSortField.directory:
         return item.locationLabel;
       case _ScreenshotSortField.source:
-        return _sourceLabel(item.sourceKind);
+        return _sourceLabel(AppLocalizations.of(context), item.sourceKind);
     }
   }
 
@@ -537,15 +537,13 @@ class _ScreenshotPreviewScreenState extends State<ScreenshotPreviewScreen> {
     final hostContext = await ParallelHostBridge.getHostContext();
     if (paneHost != null || hostContext.isSecondaryHost) {
       final handled =
-          await _embeddingChannel.invokeMethod<bool>(
-            'openFullscreenScreenshot',
-            <String, Object?>{
-              'items': visibleItems
-                  .map((entry) => entry.toMap())
-                  .toList(growable: false),
-              'initialIndex': initialIndex,
-            },
-          ) ??
+          await _embeddingChannel
+              .invokeMethod<bool>('openFullscreenScreenshot', <String, Object?>{
+                'items': visibleItems
+                    .map((entry) => entry.toMap())
+                    .toList(growable: false),
+                'initialIndex': initialIndex,
+              }) ??
           false;
       if (handled) {
         return;
@@ -568,12 +566,13 @@ class _ScreenshotPreviewScreenState extends State<ScreenshotPreviewScreen> {
     final selectedItems = _items
         .where((item) => _selectedIds.contains(item.id))
         .toList(growable: false);
+    final l10n = AppLocalizations.of(context);
     final confirmed = await showAppConfirmDialog(
       context,
-      title: '删除截图',
-      content: '将删除选中的 ${selectedItems.length} 张截图，删除后无法恢复。',
-      cancelText: '取消',
-      confirmText: '删除',
+      title: l10n.screenshotDeleteTitle,
+      content: l10n.screenshotDeleteContent(selectedItems.length),
+      cancelText: l10n.commonCancel,
+      confirmText: l10n.commonDelete,
       confirmColor: context.appColors.danger,
     );
     if (!confirmed || !mounted) return;
@@ -595,7 +594,9 @@ class _ScreenshotPreviewScreenState extends State<ScreenshotPreviewScreen> {
 
       _topTip.show(
         context,
-        message: deletedCount > 0 ? '已删除 $deletedCount 张截图' : '没有删除任何截图',
+        message: deletedCount > 0
+            ? l10n.screenshotDeletedCount(deletedCount)
+            : l10n.screenshotDeleteNone,
         color: deletedCount > 0
             ? context.appColors.success
             : context.appColors.warning,
@@ -614,17 +615,29 @@ class _ScreenshotPreviewScreenState extends State<ScreenshotPreviewScreen> {
     }
 
     return <_ScreenshotFilter>[
-      _ScreenshotFilter(value: 'all', label: '全部', count: countFor('all')),
+      _ScreenshotFilter(
+        value: 'all',
+        label: AppLocalizations.of(context).commonAll,
+        count: countFor('all'),
+      ),
       _ScreenshotFilter(
         value: 'pictures',
-        label: '系统相册',
+        label: AppLocalizations.of(context).screenshotSourcePictures,
         count: countFor('pictures'),
       ),
-      _ScreenshotFilter(value: 'dcim', label: '相机目录', count: countFor('dcim')),
-      _ScreenshotFilter(value: 'app', label: '应用目录', count: countFor('app')),
+      _ScreenshotFilter(
+        value: 'dcim',
+        label: AppLocalizations.of(context).screenshotSourceDcim,
+        count: countFor('dcim'),
+      ),
+      _ScreenshotFilter(
+        value: 'app',
+        label: AppLocalizations.of(context).screenshotSourceApp,
+        count: countFor('app'),
+      ),
       _ScreenshotFilter(
         value: 'custom',
-        label: '自定义目录',
+        label: AppLocalizations.of(context).screenshotSourceCustom,
         count: countFor('custom'),
       ),
     ];
@@ -633,6 +646,7 @@ class _ScreenshotPreviewScreenState extends State<ScreenshotPreviewScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final visibleItems = _visibleItems;
     final visibleSections = _visibleSections;
 
@@ -641,7 +655,9 @@ class _ScreenshotPreviewScreenState extends State<ScreenshotPreviewScreen> {
       appBar: buildSecondaryHostAppBar(
         context,
         title: Text(
-          _selectionMode ? '已选中 ${_selectedIds.length} 张' : '截图图库',
+          _selectionMode
+              ? l10n.screenshotSelectedCount(_selectedIds.length)
+              : l10n.screenshotGalleryTitle,
           style: TextStyle(
             color: colors.textPrimary,
             fontSize: AdaptiveText.roleSize(20, role: AdaptiveFontRole.title),
@@ -838,6 +854,7 @@ class _ScreenshotSearchSheetState extends State<_ScreenshotSearchSheet> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     return SafeArea(
       top: false,
@@ -868,7 +885,7 @@ class _ScreenshotSearchSheetState extends State<_ScreenshotSearchSheet> {
                 ),
                 const SizedBox(height: 18),
                 Text(
-                  '搜索截图',
+                  l10n.screenshotSearchTitle,
                   style: TextStyle(
                     color: colors.textPrimary,
                     fontSize: AdaptiveText.roleSize(
@@ -886,7 +903,7 @@ class _ScreenshotSearchSheetState extends State<_ScreenshotSearchSheet> {
                   onSubmitted: (value) =>
                       Navigator.of(context).pop(value.trim()),
                   decoration: InputDecoration(
-                    hintText: '输入截图名、目录或来源',
+                    hintText: l10n.screenshotSearchHint,
                     prefixIcon: const Icon(Icons.search_rounded),
                     suffixIcon: _controller.text.isEmpty
                         ? null
@@ -906,13 +923,13 @@ class _ScreenshotSearchSheetState extends State<_ScreenshotSearchSheet> {
                     if (widget.initialQuery.trim().isNotEmpty)
                       TextButton(
                         onPressed: () => Navigator.of(context).pop(''),
-                        child: const Text('清空搜索'),
+                        child: Text(l10n.screenshotClearSearch),
                       ),
                     const Spacer(),
                     FilledButton(
                       onPressed: () =>
                           Navigator.of(context).pop(_controller.text.trim()),
-                      child: const Text('应用'),
+                      child: Text(l10n.commonApply),
                     ),
                   ],
                 ),
@@ -939,6 +956,7 @@ class _ScreenshotFilterSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return SafeArea(
       top: false,
       child: DecoratedBox(
@@ -965,7 +983,7 @@ class _ScreenshotFilterSheet extends StatelessWidget {
               ),
               const SizedBox(height: 18),
               Text(
-                '筛选与排序',
+                l10n.screenshotFilterSortTitle,
                 style: TextStyle(
                   color: colors.textPrimary,
                   fontSize: AdaptiveText.roleSize(
@@ -977,7 +995,7 @@ class _ScreenshotFilterSheet extends StatelessWidget {
               ),
               const SizedBox(height: 14),
               Text(
-                '来源筛选',
+                l10n.screenshotSourceFilter,
                 style: TextStyle(
                   color: colors.textMuted,
                   fontSize: AdaptiveText.roleSize(
@@ -1033,7 +1051,7 @@ class _ScreenshotFilterSheet extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: <Widget>[
                             Text(
-                              '排序标准',
+                              l10n.screenshotSortStandard,
                               style: TextStyle(
                                 color: colors.textMuted,
                                 fontSize: AdaptiveText.roleSize(
@@ -1045,7 +1063,15 @@ class _ScreenshotFilterSheet extends StatelessWidget {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              '当前按 ${_sortFieldLabel(primarySortRule.field)}${primarySortRule.descending ? '降序' : '升序'}分组',
+                              l10n.screenshotCurrentSortGroup(
+                                _sortFieldLabel(
+                                  AppLocalizations.of(context),
+                                  primarySortRule.field,
+                                ),
+                                primarySortRule.descending
+                                    ? l10n.commonDescending
+                                    : l10n.commonAscending,
+                              ),
                               style: TextStyle(
                                 color: colors.textPrimary,
                                 fontSize: AdaptiveText.roleSize(
@@ -1073,7 +1099,6 @@ class _ScreenshotFilterSheet extends StatelessWidget {
     );
   }
 }
-
 
 class _GallerySection extends StatelessWidget {
   final String title;
@@ -1170,6 +1195,7 @@ class _ScreenshotSortSheetState extends State<_ScreenshotSortSheet> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final availableFields = _ScreenshotSortField.values
         .where((field) => !_rules.any((rule) => rule.field == field))
         .toList(growable: false);
@@ -1200,7 +1226,7 @@ class _ScreenshotSortSheetState extends State<_ScreenshotSortSheet> {
               ),
               const SizedBox(height: 18),
               Text(
-                '排序标准',
+                l10n.screenshotSortStandard,
                 style: TextStyle(
                   color: colors.textPrimary,
                   fontSize: AdaptiveText.roleSize(
@@ -1212,7 +1238,7 @@ class _ScreenshotSortSheetState extends State<_ScreenshotSortSheet> {
               ),
               const SizedBox(height: 6),
               Text(
-                '支持多级排序，排在最上面的规则优先级最高，页面分组也按它展示。',
+                l10n.screenshotSortDescription,
                 style: TextStyle(
                   color: colors.textSecondary,
                   fontSize: AdaptiveText.roleSize(
@@ -1283,13 +1309,13 @@ class _ScreenshotSortSheetState extends State<_ScreenshotSortSheet> {
                         });
                       },
                       icon: const Icon(Icons.add_rounded),
-                      label: const Text('添加排序'),
+                      label: Text(l10n.screenshotAddSort),
                     ),
                   FilledButton(
                     onPressed: () => Navigator.of(
                       context,
                     ).pop(List<_ScreenshotSortRule>.unmodifiable(_rules)),
-                    child: const Text('应用排序'),
+                    child: Text(l10n.screenshotApplySort),
                   ),
                 ],
               ),
@@ -1329,6 +1355,7 @@ class _SortRuleCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -1369,7 +1396,7 @@ class _SortRuleCard extends StatelessWidget {
                       .map((field) {
                         return DropdownMenuItem<_ScreenshotSortField>(
                           value: field,
-                          child: Text(_sortFieldLabel(field)),
+                          child: Text(_sortFieldLabel(l10n, field)),
                         );
                       })
                       .toList(growable: false),
@@ -1392,23 +1419,27 @@ class _SortRuleCard extends StatelessWidget {
                       ? Icons.arrow_downward_rounded
                       : Icons.arrow_upward_rounded,
                 ),
-                label: Text(rule.descending ? '降序' : '升序'),
+                label: Text(
+                  rule.descending
+                      ? l10n.commonDescending
+                      : l10n.commonAscending,
+                ),
               ),
               const Spacer(),
               IconButton(
                 onPressed: onMoveUp,
                 icon: const Icon(Icons.keyboard_arrow_up_rounded),
-                tooltip: '上移优先级',
+                tooltip: l10n.screenshotMoveUpPriority,
               ),
               IconButton(
                 onPressed: onMoveDown,
                 icon: const Icon(Icons.keyboard_arrow_down_rounded),
-                tooltip: '下移优先级',
+                tooltip: l10n.screenshotMoveDownPriority,
               ),
               IconButton(
                 onPressed: onRemove,
                 icon: const Icon(Icons.delete_outline_rounded),
-                tooltip: '删除规则',
+                tooltip: l10n.screenshotDeleteRule,
               ),
             ],
           ),
@@ -1434,14 +1465,15 @@ class _EmptyGalleryState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final message = searchQuery.trim().isNotEmpty
-        ? '没有找到和“$searchQuery”相关的截图。'
+        ? l10n.screenshotSearchEmpty(searchQuery)
         : switch (filter) {
-            'pictures' => '系统相册里还没有截图。',
-            'dcim' => '相机目录里还没有截图。',
-            'app' => '应用目录里还没有截图。',
-            'custom' => '自定义目录里还没有截图。',
-            _ => '当前没有可预览的截图。',
+            'pictures' => l10n.screenshotEmptyPictures,
+            'dcim' => l10n.screenshotEmptyDcim,
+            'app' => l10n.screenshotEmptyApp,
+            'custom' => l10n.screenshotEmptyCustom,
+            _ => l10n.screenshotEmptyDefault,
           };
 
     return Center(
@@ -1479,7 +1511,7 @@ class _EmptyGalleryState extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              '下拉刷新后会重新扫描可访问目录。',
+              l10n.screenshotRefreshHint,
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: colors.textMuted,
@@ -1497,7 +1529,7 @@ class _EmptyGalleryState extends StatelessWidget {
               FilledButton.tonalIcon(
                 onPressed: onRequestFileAccess,
                 icon: const Icon(Icons.perm_media_outlined),
-                label: const Text('授权公共目录'),
+                label: Text(l10n.screenshotAuthorizePublicDirectories),
               ),
             ],
           ],
@@ -1525,6 +1557,7 @@ class _GalleryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
 
     return Material(
       color: Colors.transparent,
@@ -1559,7 +1592,7 @@ class _GalleryCard extends StatelessWidget {
                 Positioned(
                   top: 12,
                   left: 12,
-                  child: _MetaPill(label: _formatBadgeLabel(item)),
+                  child: _MetaPill(label: _formatBadgeLabel(l10n, item)),
                 ),
               Positioned(
                 top: 12,
@@ -1695,10 +1728,7 @@ class _ScreenshotLightboxRoute extends PageRouteBuilder<void> {
             curve: Curves.easeOutCubic,
             reverseCurve: Curves.easeInCubic,
           );
-          final scale = Tween<double>(
-            begin: 0.96,
-            end: 1,
-          ).animate(curved);
+          final scale = Tween<double>(begin: 0.96, end: 1).animate(curved);
           return FadeTransition(
             opacity: curved,
             child: ScaleTransition(scale: scale, child: child),
@@ -1766,6 +1796,7 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox> {
       backgroundColor: context.appColors.surface,
       builder: (context) {
         final colors = context.appColors;
+        final l10n = AppLocalizations.of(context);
         return FutureBuilder<_ScreenshotMetadata>(
           future: _ScreenshotMetadataLoader.instance.load(item),
           builder: (context, snapshot) {
@@ -1804,35 +1835,43 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox> {
                     runSpacing: 10,
                     children: <Widget>[
                       _InfoTile(
-                        label: '分类',
-                        value: _sourceLabel(item.sourceKind),
+                        label: l10n.screenshotInfoCategory,
+                        value: _sourceLabel(l10n, item.sourceKind),
                       ),
-                      _InfoTile(label: '格式', value: _formatLabel(item)),
-                      _InfoTile(label: '来源目录', value: item.locationLabel),
                       _InfoTile(
-                        label: '拍摄时间',
+                        label: l10n.screenshotInfoFormat,
+                        value: _formatLabel(l10n, item),
+                      ),
+                      _InfoTile(
+                        label: l10n.screenshotInfoSourceDirectory,
+                        value: item.locationLabel,
+                      ),
+                      _InfoTile(
+                        label: l10n.screenshotInfoTakenAt,
                         value: _formatDate(item.modifiedAt),
                       ),
                       _InfoTile(
-                        label: '文件大小',
+                        label: l10n.screenshotInfoFileSize,
                         value: _formatBytes(item.sizeBytes),
                       ),
                       _InfoTile(
-                        label: '存储类型',
-                        value: item.isScoped ? '受管目录' : '本地文件',
+                        label: l10n.screenshotInfoStorageType,
+                        value: item.isScoped
+                            ? l10n.screenshotManagedDirectory
+                            : l10n.screenshotLocalFile,
                       ),
                       _InfoTile(
-                        label: '分辨率',
+                        label: l10n.screenshotInfoResolution,
                         value: metadata.hasDimensions
                             ? '${metadata.width} x ${metadata.height}'
-                            : '读取中',
+                            : l10n.screenshotLoading,
                       ),
                     ],
                   ),
                   const SizedBox(height: 12),
                   if (item.isHdr)
                     Text(
-                      '该文件为 Ultra HDR JPEG，应用内预览可能只显示 SDR 基底，相册中可按系统能力显示 HDR。',
+                      l10n.screenshotUltraHdrNotice,
                       style: TextStyle(
                         color: colors.textSecondary,
                         fontSize: AdaptiveText.roleSize(
@@ -1877,7 +1916,9 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox> {
           ).evaluate(overlayAnimation);
 
           return ColoredBox(
-            color: Colors.black.withValues(alpha: 0.96 * overlayAnimation.value),
+            color: Colors.black.withValues(
+              alpha: 0.96 * overlayAnimation.value,
+            ),
             child: Stack(
               children: <Widget>[
                 Positioned.fill(
@@ -1953,52 +1994,57 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox> {
                           (_chromeVisible ? topOffset.dy : -0.08) * 140,
                         ),
                         child: Row(
-                        children: <Widget>[
-                          _LightboxButton(
-                            icon: Icons.close_rounded,
-                            onPressed: () => Navigator.of(context).pop(),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: <Widget>[
-                                Text(
-                                  item.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  item.locationLabel,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: Color(0xFFD0D4DB),
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                                if (item.isHdr) ...<Widget>[
-                                  const SizedBox(height: 6),
-                                  _MetaPill(label: _formatBadgeLabel(item)),
-                                ],
-                              ],
+                          children: <Widget>[
+                            _LightboxButton(
+                              icon: Icons.close_rounded,
+                              onPressed: () => Navigator.of(context).pop(),
                             ),
-                          ),
-                          _LightboxButton(
-                            icon: Icons.info_outline_rounded,
-                            onPressed: _showInfo,
-                          ),
-                        ],
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: <Widget>[
+                                  Text(
+                                    item.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    item.locationLabel,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Color(0xFFD0D4DB),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  if (item.isHdr) ...<Widget>[
+                                    const SizedBox(height: 6),
+                                    _MetaPill(
+                                      label: _formatBadgeLabel(
+                                        AppLocalizations.of(context),
+                                        item,
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                            _LightboxButton(
+                              icon: Icons.info_outline_rounded,
+                              onPressed: _showInfo,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
                   ),
                 ),
                 Positioned(
@@ -2017,59 +2063,74 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox> {
                           (_chromeVisible ? bottomOffset.dy : 0.08) * 140,
                         ),
                         child: FutureBuilder<_ScreenshotMetadata>(
-                        future: _ScreenshotMetadataLoader.instance.load(item),
-                        builder: (context, snapshot) {
-                          final metadata = snapshot.data;
-                          return DecoratedBox(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(22),
-                              color: Colors.black.withValues(alpha: 0.42),
-                              border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.12),
+                          future: _ScreenshotMetadataLoader.instance.load(item),
+                          builder: (context, snapshot) {
+                            final metadata = snapshot.data;
+                            final l10n = AppLocalizations.of(context);
+                            return DecoratedBox(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(22),
+                                color: Colors.black.withValues(alpha: 0.42),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.12),
+                                ),
                               ),
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: <Widget>[
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    children: <Widget>[
-                                      _MetaPill(
-                                        label: _sourceLabel(item.sourceKind),
-                                      ),
-                                      _MetaPill(label: _formatLabel(item)),
-                                      _MetaPill(label: _formatDate(item.modifiedAt)),
-                                      _MetaPill(label: _formatBytes(item.sizeBytes)),
-                                      if (metadata?.hasDimensions == true)
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  14,
+                                  12,
+                                  14,
+                                  14,
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: <Widget>[
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: <Widget>[
                                         _MetaPill(
-                                          label:
-                                              '${metadata!.width} x ${metadata.height}',
+                                          label: _sourceLabel(
+                                            l10n,
+                                            item.sourceKind,
+                                          ),
                                         ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 10),
-                                  Text(
-                                    item.locationLabel,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: Color(0xFFE6E9EF),
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
+                                        _MetaPill(
+                                          label: _formatLabel(l10n, item),
+                                        ),
+                                        _MetaPill(
+                                          label: _formatDate(item.modifiedAt),
+                                        ),
+                                        _MetaPill(
+                                          label: _formatBytes(item.sizeBytes),
+                                        ),
+                                        if (metadata?.hasDimensions == true)
+                                          _MetaPill(
+                                            label:
+                                                '${metadata!.width} x ${metadata.height}',
+                                          ),
+                                      ],
                                     ),
-                                  ),
-                                ],
+                                    const SizedBox(height: 10),
+                                    Text(
+                                      item.locationLabel,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Color(0xFFE6E9EF),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
+                        ),
                       ),
                     ),
-                  ),
                   ),
                 ),
               ],
@@ -2120,14 +2181,15 @@ class _LightboxImageViewportState extends State<_LightboxImageViewport>
     super.initState();
     _transformController = TransformationController();
     _metadataFuture = _ScreenshotMetadataLoader.instance.load(widget.item);
-    _zoomAnimationController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 220),
-    )..addListener(() {
-        final animation = _zoomAnimation;
-        if (animation == null) return;
-        _transformController.value = animation.value;
-      });
+    _zoomAnimationController =
+        AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 220),
+        )..addListener(() {
+          final animation = _zoomAnimation;
+          if (animation == null) return;
+          _transformController.value = animation.value;
+        });
     _transformController.addListener(_handleTransformChanged);
   }
 
@@ -2155,16 +2217,14 @@ class _LightboxImageViewportState extends State<_LightboxImageViewport>
 
   void _animateTo(Matrix4 target) {
     _zoomAnimationController.stop();
-    _zoomAnimation = Matrix4Tween(
-      begin: _transformController.value,
-      end: target,
-    ).animate(
-      CurvedAnimation(
-        parent: _zoomAnimationController,
-        curve: Curves.easeOutCubic,
-        reverseCurve: Curves.easeInCubic,
-      ),
-    );
+    _zoomAnimation =
+        Matrix4Tween(begin: _transformController.value, end: target).animate(
+          CurvedAnimation(
+            parent: _zoomAnimationController,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          ),
+        );
     _zoomAnimationController
       ..reset()
       ..forward();
@@ -2229,12 +2289,7 @@ class _LightboxImageViewportState extends State<_LightboxImageViewport>
     final minY = viewportSize.height - viewportSize.height * scale;
 
     return Matrix4.identity()
-      ..translateByDouble(
-        targetX.clamp(minX, 0),
-        targetY.clamp(minY, 0),
-        0,
-        1,
-      )
+      ..translateByDouble(targetX.clamp(minX, 0), targetY.clamp(minY, 0), 0, 1)
       ..scaleByDouble(scale, scale, 1, 1);
   }
 
@@ -2513,16 +2568,16 @@ class _ScreenshotMetadataLoader {
   }
 }
 
-String _sourceLabel(String sourceKind) {
+String _sourceLabel(AppLocalizations l10n, String sourceKind) {
   return switch (sourceKind) {
-    'pictures' => '系统相册',
-    'dcim' => '相机目录',
-    'custom' => '自定义目录',
-    _ => '应用目录',
+    'pictures' => l10n.screenshotSourcePictures,
+    'dcim' => l10n.screenshotSourceDcim,
+    'custom' => l10n.screenshotSourceCustom,
+    _ => l10n.screenshotSourceApp,
   };
 }
 
-String _formatLabel(ScreenshotLibraryItem item) {
+String _formatLabel(AppLocalizations l10n, ScreenshotLibraryItem item) {
   if (item.isHdr) {
     return 'Ultra HDR JPEG';
   }
@@ -2531,37 +2586,37 @@ String _formatLabel(ScreenshotLibraryItem item) {
     'png' => 'PNG',
     'webp' => 'WebP',
     'bmp' => 'BMP',
-    _ => '图片',
+    _ => l10n.screenshotFormatImage,
   };
 }
 
-String _formatBadgeLabel(ScreenshotLibraryItem item) {
+String _formatBadgeLabel(AppLocalizations l10n, ScreenshotLibraryItem item) {
   if (item.isHdr) {
     return 'Ultra HDR';
   }
-  return _formatLabel(item);
+  return _formatLabel(l10n, item);
 }
 
-String _sortFieldLabel(_ScreenshotSortField field) {
+String _sortFieldLabel(AppLocalizations l10n, _ScreenshotSortField field) {
   return switch (field) {
-    _ScreenshotSortField.modifiedAt => '日期',
-    _ScreenshotSortField.fileName => '文件名',
-    _ScreenshotSortField.sizeBytes => '大小',
-    _ScreenshotSortField.resolution => '分辨率',
-    _ScreenshotSortField.directory => '目录',
-    _ScreenshotSortField.source => '来源',
+    _ScreenshotSortField.modifiedAt => l10n.screenshotSortDate,
+    _ScreenshotSortField.fileName => l10n.screenshotSortFileName,
+    _ScreenshotSortField.sizeBytes => l10n.screenshotSortSize,
+    _ScreenshotSortField.resolution => l10n.screenshotSortResolution,
+    _ScreenshotSortField.directory => l10n.screenshotSortDirectory,
+    _ScreenshotSortField.source => l10n.screenshotSortSource,
   };
 }
 
-String _dateSectionLabel(DateTime value) {
+String _dateSectionLabel(AppLocalizations l10n, DateTime value) {
   final now = DateTime.now();
   final today = DateTime(now.year, now.month, now.day);
   final current = DateTime(value.year, value.month, value.day);
   final diff = today.difference(current).inDays;
-  if (diff == 0) return '今天';
-  if (diff == 1) return '昨天';
-  if (diff == 2) return '前天';
-  return '${value.month}月${value.day}日';
+  if (diff == 0) return l10n.screenshotDateToday;
+  if (diff == 1) return l10n.screenshotDateYesterday;
+  if (diff == 2) return l10n.screenshotDateBeforeYesterday;
+  return l10n.screenshotMonthDay(value.month, value.day);
 }
 
 String _alphaSectionLabel(String input) {
@@ -2571,11 +2626,11 @@ String _alphaSectionLabel(String input) {
   return RegExp(r'[A-Z]').hasMatch(head) ? head : '#';
 }
 
-String _sizeSectionLabel(int bytes) {
-  if (bytes >= 1024 * 1024 * 10) return '10 MB 以上';
+String _sizeSectionLabel(AppLocalizations l10n, int bytes) {
+  if (bytes >= 1024 * 1024 * 10) return l10n.screenshotSizeOver10Mb;
   if (bytes >= 1024 * 1024) return '1 MB - 10 MB';
   if (bytes >= 1024 * 100) return '100 KB - 1 MB';
-  return '100 KB 以下';
+  return l10n.screenshotSizeUnder100Kb;
 }
 
 String _formatBytes(int bytes) {

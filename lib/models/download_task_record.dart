@@ -1,3 +1,5 @@
+import 'stream_track_data.dart';
+
 enum DownloadTaskStatus { downloading, downloaded, failed }
 
 extension DownloadTaskStatusX on DownloadTaskStatus {
@@ -13,6 +15,30 @@ extension DownloadTaskStatusX on DownloadTaskStatus {
       orElse: () => DownloadTaskStatus.failed,
     );
   }
+}
+
+int compareDownloadTaskRecordsForDisplay(
+  DownloadTaskRecord lhs,
+  DownloadTaskRecord rhs, {
+  DownloadTaskStatus? statusHint,
+}) {
+  final keepCreationOrder =
+      statusHint == DownloadTaskStatus.downloading ||
+      (statusHint == null &&
+          lhs.status == DownloadTaskStatus.downloading &&
+          rhs.status == DownloadTaskStatus.downloading);
+  if (keepCreationOrder) {
+    final createdAtCompare = rhs.createdAtMs.compareTo(lhs.createdAtMs);
+    if (createdAtCompare != 0) return createdAtCompare;
+    final idCompare = rhs.id.compareTo(lhs.id);
+    if (idCompare != 0) return idCompare;
+    return rhs.updatedAtMs.compareTo(lhs.updatedAtMs);
+  }
+  final updatedAtCompare = rhs.updatedAtMs.compareTo(lhs.updatedAtMs);
+  if (updatedAtCompare != 0) return updatedAtCompare;
+  final createdAtCompare = rhs.createdAtMs.compareTo(lhs.createdAtMs);
+  if (createdAtCompare != 0) return createdAtCompare;
+  return rhs.id.compareTo(lhs.id);
 }
 
 class DownloadTaskRecord {
@@ -31,6 +57,8 @@ class DownloadTaskRecord {
   final String filePath;
   final int totalBytes;
   final int downloadedBytes;
+  final List<AudioTrackOption> audioTracks;
+  final List<SubtitleTrackOption> subtitleTracks;
   final DownloadTaskStatus status;
   final String errorMessage;
   final int createdAtMs;
@@ -52,6 +80,8 @@ class DownloadTaskRecord {
     required this.filePath,
     required this.totalBytes,
     required this.downloadedBytes,
+    this.audioTracks = const <AudioTrackOption>[],
+    this.subtitleTracks = const <SubtitleTrackOption>[],
     required this.status,
     required this.errorMessage,
     required this.createdAtMs,
@@ -77,6 +107,8 @@ class DownloadTaskRecord {
     String? filePath,
     int? totalBytes,
     int? downloadedBytes,
+    List<AudioTrackOption>? audioTracks,
+    List<SubtitleTrackOption>? subtitleTracks,
     DownloadTaskStatus? status,
     String? errorMessage,
     int? createdAtMs,
@@ -98,6 +130,8 @@ class DownloadTaskRecord {
       filePath: filePath ?? this.filePath,
       totalBytes: totalBytes ?? this.totalBytes,
       downloadedBytes: downloadedBytes ?? this.downloadedBytes,
+      audioTracks: audioTracks ?? this.audioTracks,
+      subtitleTracks: subtitleTracks ?? this.subtitleTracks,
       status: status ?? this.status,
       errorMessage: errorMessage ?? this.errorMessage,
       createdAtMs: createdAtMs ?? this.createdAtMs,
@@ -128,6 +162,8 @@ class DownloadTaskRecord {
       filePath: (json['filePath'] ?? '').toString(),
       totalBytes: _asInt(json['totalBytes']),
       downloadedBytes: _asInt(json['downloadedBytes']),
+      audioTracks: _parseAudioTracks(json['audioTracks']),
+      subtitleTracks: _parseSubtitleTracks(json['subtitleTracks']),
       status: DownloadTaskStatusX.fromStorage(
         (json['status'] ?? '').toString(),
       ),
@@ -154,6 +190,12 @@ class DownloadTaskRecord {
       'filePath': filePath,
       'totalBytes': totalBytes,
       'downloadedBytes': downloadedBytes,
+      'audioTracks': audioTracks
+          .map<Map<String, dynamic>>(_audioTrackToJson)
+          .toList(growable: false),
+      'subtitleTracks': subtitleTracks
+          .map<Map<String, dynamic>>(_subtitleTrackToJson)
+          .toList(growable: false),
       'status': status.storageValue,
       'errorMessage': errorMessage,
       'createdAtMs': createdAtMs,
@@ -162,6 +204,91 @@ class DownloadTaskRecord {
   }
 
   static int _asInt(dynamic value) => int.tryParse('$value') ?? 0;
+
+  static List<AudioTrackOption> _parseAudioTracks(dynamic value) {
+    if (value is! List) return const <AudioTrackOption>[];
+    return value
+        .whereType<Map>()
+        .map((entry) {
+          final map = Map<String, dynamic>.from(entry);
+          return AudioTrackOption(
+            mediaGuid: (map['mediaGuid'] ?? map['media_guid'] ?? '').toString(),
+            guid: (map['guid'] ?? '').toString(),
+            title: (map['title'] ?? '').toString(),
+            codecName: (map['codecName'] ?? map['codec_name'] ?? '').toString(),
+            profile: (map['profile'] ?? '').toString(),
+            language: (map['language'] ?? '').toString(),
+            audioType: (map['audioType'] ?? map['audio_type'] ?? '').toString(),
+            channelLayout: (map['channelLayout'] ?? map['channel_layout'] ?? '')
+                .toString(),
+            channels: _asInt(map['channels']),
+            sampleRate: _asInt(map['sampleRate'] ?? map['sample_rate']),
+            bps: _asInt(map['bps']),
+            index: _asInt(map['index']),
+            isDefault: _asInt(map['isDefault'] ?? map['is_default']),
+          );
+        })
+        .toList(growable: false);
+  }
+
+  static List<SubtitleTrackOption> _parseSubtitleTracks(dynamic value) {
+    if (value is! List) return const <SubtitleTrackOption>[];
+    return value
+        .whereType<Map>()
+        .map((entry) {
+          final map = Map<String, dynamic>.from(entry);
+          return SubtitleTrackOption(
+            mediaGuid: (map['mediaGuid'] ?? map['media_guid'] ?? '').toString(),
+            guid: (map['guid'] ?? '').toString(),
+            title: (map['title'] ?? '').toString(),
+            codecName: (map['codecName'] ?? map['codec_name'] ?? '').toString(),
+            format: (map['format'] ?? '').toString(),
+            language: (map['language'] ?? '').toString(),
+            index: _asInt(map['index']),
+            isDefault: _asInt(map['isDefault'] ?? map['is_default']),
+            forced: _asInt(map['forced']),
+            isExternal: _asInt(map['isExternal'] ?? map['is_external']),
+            extraFile: _asInt(map['extraFile'] ?? map['extra_file']),
+            isBitmap: _asInt(map['isBitmap'] ?? map['is_bitmap']),
+          );
+        })
+        .toList(growable: false);
+  }
+
+  static Map<String, dynamic> _audioTrackToJson(AudioTrackOption track) {
+    return <String, dynamic>{
+      'mediaGuid': track.mediaGuid,
+      'guid': track.guid,
+      'title': track.title,
+      'codecName': track.codecName,
+      'profile': track.profile,
+      'language': track.language,
+      'audioType': track.audioType,
+      'channelLayout': track.channelLayout,
+      'channels': track.channels,
+      'sampleRate': track.sampleRate,
+      'bps': track.bps,
+      'index': track.index,
+      'isDefault': track.isDefault,
+    };
+  }
+
+  static Map<String, dynamic> _subtitleTrackToJson(SubtitleTrackOption track) {
+    return <String, dynamic>{
+      'mediaGuid': track.mediaGuid,
+      'guid': track.guid,
+      'title': track.title,
+      'codecName': track.codecName,
+      'format': track.format,
+      'language': track.language,
+      'index': track.index,
+      'isDefault': track.isDefault,
+      'forced': track.forced,
+      'isExternal': track.isExternal,
+      'extraFile': track.extraFile,
+      'isBitmap': track.isBitmap,
+    };
+  }
 }
 
 class DownloadTaskGroup {
@@ -198,9 +325,9 @@ class DownloadActionState {
   });
 
   String label({
-    String downloadLabel = '下载',
-    String downloadingLabel = '下载中',
-    String downloadedLabel = '已下载',
+    String downloadLabel = 'Download',
+    String downloadingLabel = 'Downloading',
+    String downloadedLabel = 'Downloaded',
   }) {
     if (downloaded) return downloadedLabel;
     if (downloading) return downloadingLabel;

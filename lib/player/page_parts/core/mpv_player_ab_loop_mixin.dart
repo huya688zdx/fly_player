@@ -1,4 +1,4 @@
-part of mpv_player_page;
+part of '../../mpv_player_page.dart';
 
 const Duration _abLoopMinimumSpan = Duration(milliseconds: 800);
 const Duration _abLoopSeekLead = Duration(milliseconds: 160);
@@ -8,8 +8,9 @@ extension _MpvPlayerAbLoopMixin on _MpvPlayerPageState {
   bool get _abLoopEnabled => _abLoopStart != null && _abLoopEnd != null;
 
   String get _abLoopButtonLabel {
+    final l10n = AppLocalizations.of(context);
     if (_abLoopEnabled) return 'A-B';
-    if (_abLoopStart != null) return 'A点';
+    if (_abLoopStart != null) return l10n.playerAbLoopPoint;
     return 'AB';
   }
 
@@ -30,8 +31,9 @@ extension _MpvPlayerAbLoopMixin on _MpvPlayerPageState {
 
   Future<void> _handleAbLoopButtonPressed() async {
     final duration = _effectiveDuration();
+    final l10n = AppLocalizations.of(context);
     if (duration <= Duration.zero) {
-      _showTopTip('当前时长不足，无法设置 A-B 循环', context.appColors.warning);
+      _showTopTip(l10n.playerAbLoopUnavailable, context.appColors.warning);
       return;
     }
     final position = _currentAbLoopAnchorPosition(duration);
@@ -44,7 +46,7 @@ extension _MpvPlayerAbLoopMixin on _MpvPlayerPageState {
         _abLoopSeekPending = false;
       });
       _showTopTip(
-        'A 点已设置到 ${_formatDuration(position)}',
+        l10n.playerAbLoopPointSet(_formatDuration(position)),
         context.appColors.accent,
       );
       return;
@@ -58,7 +60,7 @@ extension _MpvPlayerAbLoopMixin on _MpvPlayerPageState {
         nextEnd = temp;
       }
       if (nextEnd - nextStart < _abLoopMinimumSpan) {
-        _showTopTip('A-B 间隔至少需要 0.8 秒', context.appColors.warning);
+        _showTopTip(l10n.playerAbLoopMinimumSpan, context.appColors.warning);
         return;
       }
       _updatePlayerState(() {
@@ -67,7 +69,10 @@ extension _MpvPlayerAbLoopMixin on _MpvPlayerPageState {
         _abLoopSeekPending = false;
       });
       _showTopTip(
-        'A-B 循环已设置 ${_formatDuration(nextStart)} - ${_formatDuration(nextEnd)}',
+        l10n.playerAbLoopSet(
+          _formatDuration(nextStart),
+          _formatDuration(nextEnd),
+        ),
         context.appColors.success,
       );
       return;
@@ -84,7 +89,10 @@ extension _MpvPlayerAbLoopMixin on _MpvPlayerPageState {
       _abLoopSeekPending = false;
     });
     if (showMessage) {
-      _showTopTip('A-B 循环已清除', context.appColors.warning);
+      _showTopTip(
+        AppLocalizations.of(context).playerAbLoopCleared,
+        context.appColors.warning,
+      );
     }
   }
 

@@ -6,6 +6,7 @@ import 'play_stats_repository_impl.dart';
 import 'play_stats_summary_repository.dart';
 import 'play_stats_updaters.dart';
 
+/// 统一装配播放统计模块各项能力的服务门面。
 class PlayStatsService {
   PlayStatsService._internal() {
     final db = SqflitePlayStatsDatabase();
@@ -67,6 +68,7 @@ class PlayStatsService {
   late final PlayStatsRepository repository;
   late final PlayStatsSessionController sessionController;
 
+  /// 绑定当前统计数据所属的账号作用域。
   Future<void> bindOwnerScope(String ownerScope) {
     return database.bindOwnerScope(ownerScope);
   }

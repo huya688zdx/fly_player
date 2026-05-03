@@ -248,6 +248,7 @@ data class PersistentPlaybackCacheLocalPlayback(
 class PersistentPlaybackCacheEntry internal constructor(
     val rootDir: File,
     metadata: PersistentPlaybackCacheMetadata,
+    private val persistOnCreate: Boolean = false,
 ) {
     private val lock = Any()
 
@@ -263,7 +264,9 @@ class PersistentPlaybackCacheEntry internal constructor(
         if (!dataFile.exists()) {
             runCatching { dataFile.createNewFile() }
         }
-        persist()
+        if (persistOnCreate || !metadataFile.isFile) {
+            persist()
+        }
     }
 
     fun touch() {
@@ -365,7 +368,7 @@ class PersistentPlaybackCacheStore(
             sourceUrlFingerprint = descriptor.sourceUrlFingerprint,
             headerFingerprint = descriptor.headerFingerprint,
         )
-        return PersistentPlaybackCacheEntry(entryDir, metadata)
+        return PersistentPlaybackCacheEntry(entryDir, metadata, persistOnCreate = true)
     }
 
     fun hasReusableEntry(descriptor: PersistentPlaybackCacheDescriptor): Boolean {
@@ -396,14 +399,13 @@ class PersistentPlaybackCacheStore(
     }
 
     fun loadStats(): PersistentPlaybackCacheStats {
-        val entries = scanEntries()
+        val metadatas = scanEntries().map { entry -> entry.metadata }
         return PersistentPlaybackCacheStats(
-            totalBytes = entries.sumOf { entry ->
-                entry.reloadFromDisk().downloadedBytes.coerceAtLeast(0L)
+            totalBytes = metadatas.sumOf { metadata ->
+                metadata.downloadedBytes.coerceAtLeast(0L)
             },
-            fileCount = entries.count { it.reloadFromDisk().downloadedBytes > 0L },
-            completeCount = entries.count {
-                val metadata = it.reloadFromDisk()
+            fileCount = metadatas.count { metadata -> metadata.downloadedBytes > 0L },
+            completeCount = metadatas.count { metadata ->
                 metadata.isComplete && metadata.downloadedBytes > 0L
             },
         )
@@ -412,7 +414,7 @@ class PersistentPlaybackCacheStore(
     fun listEntries(): List<PersistentPlaybackCacheListItem> {
         return scanEntries()
             .map { entry ->
-                val metadata = entry.reloadFromDisk()
+                val metadata = entry.metadata
                 PersistentPlaybackCacheListItem(
                     resourceKey = metadata.resourceKey,
                     itemGuid = metadata.itemGuid,
@@ -467,14 +469,14 @@ class PersistentPlaybackCacheStore(
 
     fun evictIfNeeded(protectedResourceKeys: Set<String> = emptySet()) {
         val entries = scanEntries()
-        var totalBytes = entries.sumOf { it.reloadFromDisk().downloadedBytes.coerceAtLeast(0L) }
+        var totalBytes = entries.sumOf { it.metadata.downloadedBytes.coerceAtLeast(0L) }
         if (totalBytes <= PLAYBACK_CACHE_MAX_BYTES) return
         val candidates = entries
             .filter { it.metadata.isComplete && !protectedResourceKeys.contains(it.metadata.resourceKey) }
             .sortedBy { it.metadata.lastAccessAtMs }
         for (entry in candidates) {
             if (totalBytes <= PLAYBACK_CACHE_TARGET_BYTES) break
-            val reclaimed = entry.reloadFromDisk().downloadedBytes.coerceAtLeast(0L)
+            val reclaimed = entry.metadata.downloadedBytes.coerceAtLeast(0L)
             runCatching { entry.rootDir.deleteRecursively() }
             totalBytes = (totalBytes - reclaimed).coerceAtLeast(0L)
         }
@@ -567,8 +569,7 @@ class PersistentPlaybackCacheStore(
         if (resourceKey.isNotBlank()) {
             val entryDir = rootDir.resolve(resourceKey)
             if (entryDir.isDirectory) {
-                val metadata = loadMetadata(entryDir.resolve("meta.json")) ?: return null
-                return PersistentPlaybackCacheEntry(entryDir, metadata)
+                loadEntry(entryDir)?.let { return it }
             }
         }
         return scanEntries().firstOrNull { entry ->
@@ -584,8 +585,7 @@ class PersistentPlaybackCacheStore(
     ): PersistentPlaybackCacheEntry? {
         val direct = rootDir.resolve(descriptor.resourceKey)
         if (direct.isDirectory) {
-            val metadata = loadMetadata(direct.resolve("meta.json")) ?: return null
-            return PersistentPlaybackCacheEntry(direct, metadata)
+            loadEntry(direct)?.let { return it }
         }
         return scanEntries().firstOrNull { entry ->
             val metadata = entry.metadata
@@ -606,10 +606,14 @@ class PersistentPlaybackCacheStore(
         val entries = mutableListOf<PersistentPlaybackCacheEntry>()
         rootDir.listFiles()?.forEach { child ->
             if (!child.isDirectory) return@forEach
-            val metadata = loadMetadata(child.resolve("meta.json")) ?: return@forEach
-            entries += PersistentPlaybackCacheEntry(child, metadata)
+            loadEntry(child)?.let(entries::add)
         }
         return entries
+    }
+
+    private fun loadEntry(entryDir: File): PersistentPlaybackCacheEntry? {
+        val metadata = loadMetadata(entryDir.resolve("meta.json")) ?: return null
+        return PersistentPlaybackCacheEntry(entryDir, metadata)
     }
 
     private fun buildSuggestedFileName(metadata: PersistentPlaybackCacheMetadata): String {

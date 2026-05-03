@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 
 import '../api/feiniu_api.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../models/media_library_item.dart';
 import '../models/person_detail_profile.dart';
 import '../pages/long_text_overlay_page.dart';
@@ -23,10 +24,9 @@ import '../ui/layout_adaptive.dart';
 import '../ui/media_poster_card.dart';
 import '../ui/player_pane_host_scope.dart';
 import '../utils/api_url_helper.dart';
+import '../utils/app_localization_lookup.dart';
 import '../utils/app_exception.dart';
 import '../utils/imdb_launcher.dart';
-import '../utils/media_locale_store.dart';
-import '../utils/media_locale_text.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/detail/detail_header.dart';
 import '../widgets/detail/detail_more_actions_sheet.dart';
@@ -114,8 +114,8 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
     String fallback, {
     Map<String, Object?> params = const <String, Object?>{},
   }) {
-    return MediaLocaleText.text(
-      _localeMap,
+    return AppLocalizationLookup.text(
+      AppLocalizations.of(context),
       path,
       fallback: fallback,
       params: params,
@@ -173,9 +173,7 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
 
     final api = FeiniuApi(context.read<NasProvider>());
     final loadVersion = ++_jobLoadVersion;
-    final localeFuture = _localeMap.isEmpty
-        ? MediaLocaleStore.load(context.read<NasProvider>())
-        : Future.value(_localeMap);
+    final localeFuture = Future.value(_localeMap);
     try {
       final personFuture = _loadPersonDetail(api, widget.personGuid);
 
@@ -198,8 +196,9 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
         action: 'person detail',
         fallbackKind: AppExceptionKind.transient,
       );
-      final locale =
-          await localeFuture.catchError((_) => Map<String, dynamic>.from(_localeMap));
+      final locale = await localeFuture.catchError(
+        (_) => Map<String, dynamic>.from(_localeMap),
+      );
       if (!mounted) return;
       if (appError.isNoData) {
         setState(() {
@@ -425,9 +424,10 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
     final imdbId = _person?.imdbId ?? '';
     final result = await ImdbLauncher.openPersonExternal(imdbId);
     if (!mounted || result == ImdbLaunchResult.success) return;
+    final l10n = AppLocalizations.of(context);
     final text = result == ImdbLaunchResult.empty
-        ? '\u6682\u65e0 IMDB \u94fe\u63a5'
-        : '\u65e0\u6cd5\u6253\u5f00 IMDB \u94fe\u63a5';
+        ? l10n.detailImdbEmpty
+        : l10n.detailImdbOpenFailed;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(text), duration: const Duration(seconds: 2)),
     );
@@ -437,9 +437,10 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
     final trimId = _person?.trimId ?? '';
     final result = await ImdbLauncher.openTmdbExternal(trimId);
     if (!mounted || result == ImdbLaunchResult.success) return;
+    final l10n = AppLocalizations.of(context);
     final text = result == ImdbLaunchResult.empty
-        ? '暂无 TMDB 链接'
-        : '无法打开 TMDB 链接';
+        ? l10n.detailTmdbEmpty
+        : l10n.detailTmdbOpenFailed;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(text), duration: const Duration(seconds: 2)),
     );
@@ -479,24 +480,40 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final themeProvider = context.watch<AppThemeProvider>();
+    final (
+      dynamicThemeEnabled: dynamicThemeEnabled,
+      dynamicThemeIntensity: dynamicThemeIntensity,
+    ) = context
+        .select<
+          AppThemeProvider,
+          ({
+            bool dynamicThemeEnabled,
+            AppDynamicThemeIntensity dynamicThemeIntensity,
+          })
+        >(
+          (themeProvider) => (
+            dynamicThemeEnabled: themeProvider.dynamicThemeEnabled,
+            dynamicThemeIntensity: themeProvider.dynamicThemeIntensity,
+          ),
+        );
     final provider = context.read<NasProvider>();
     final inPlayerPaneHost = PlayerPaneHostScope.maybeOf(context) != null;
     final dynamicThemeUrls =
         _person == null || _person!.profilePath.trim().isEmpty
         ? const <String>[]
         : _imageCandidates(provider.baseUrl, _person!.profilePath, width: 240);
+    final syncGlobalTheme = dynamicThemeIntensity.allowsGlobalRuntimeThemeSync(
+      inPlayerPaneHost: inPlayerPaneHost,
+      isPane: _isPane,
+    );
 
-    final dynamicThemeIntensity = themeProvider.dynamicThemeIntensity;
     return DynamicPageThemeScope(
       pageKey: widget.personGuid,
       imageUrl: dynamicThemeUrls.isNotEmpty ? dynamicThemeUrls.first : '',
       token: provider.token,
-      enabled: themeProvider.dynamicThemeEnabled,
-      syncGlobalTheme: dynamicThemeIntensity.allowsGlobalRuntimeThemeSync(
-        inPlayerPaneHost: inPlayerPaneHost,
-        isPane: _isPane,
-      ),
+      enabled: dynamicThemeEnabled,
+      syncGlobalTheme: syncGlobalTheme,
+      deferLocalThemeApplyUntilGlobalSync: _isPane && syncGlobalTheme,
       intensity: dynamicThemeIntensity,
       builder: (context, _) {
         final colors = context.appColors;
@@ -543,7 +560,7 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
                                 _imageCandidates(
                                   provider.baseUrl,
                                   person.profilePath,
-                                  width: 460,
+                                  width: 260,
                                 ),
                                 provider.token,
                               ),
@@ -732,14 +749,17 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
                         suggestedThemeName: context
                             .read<AppThemeProvider>()
                             .nextSavedThemeNameFromBase(
-                              buildThemeSaveNameBase(title: title),
+                              buildThemeSaveNameBase(
+                                l10n: AppLocalizations.of(context),
+                                title: title,
+                              ),
                             ),
                         clearRuntimeBroadcastToMain: !inPlayerPaneHost,
                       ),
                     ),
                     title: title,
                     titleOpacity: titleOpacity,
-                    showBack: !_isPane,
+                    showBack: true,
                   );
                 },
               ),
@@ -878,29 +898,43 @@ class _PersonProfileImageState extends State<_PersonProfileImage> {
       return widget.fallback;
     }
 
-    final currentUrl = widget.urls[_index];
-    return Image.network(
-      currentUrl,
-      fit: BoxFit.cover,
-      headers: <String, String>{
-        'Authorization': widget.token,
-        'Trim-MC-token': widget.token,
-      },
-      errorBuilder: (_, error, ___) {
-        if (_index + 1 < widget.urls.length) {
-          final nextUrl = widget.urls[_index + 1];
-          debugPrint(
-            '[IMG][PERSON_PROFILE] failed url=$currentUrl error=$error -> fallback=$nextUrl',
-          );
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) setState(() => _index += 1);
-          });
-          return widget.fallback;
-        }
-        debugPrint(
-          '[IMG][PERSON_PROFILE] failed url=$currentUrl error=$error -> no_more_fallback',
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final dpr = MediaQuery.of(context).devicePixelRatio.clamp(1.0, 1.8);
+        final cacheWidth = constraints.maxWidth.isFinite
+            ? (constraints.maxWidth * dpr).round().clamp(160, 280)
+            : 240;
+        final cacheHeight = constraints.maxHeight.isFinite
+            ? (constraints.maxHeight * dpr).round().clamp(220, 400)
+            : 340;
+        final currentUrl = widget.urls[_index];
+        return Image.network(
+          currentUrl,
+          fit: BoxFit.cover,
+          filterQuality: FilterQuality.low,
+          cacheWidth: cacheWidth,
+          cacheHeight: cacheHeight,
+          headers: <String, String>{
+            'Authorization': widget.token,
+            'Trim-MC-token': widget.token,
+          },
+          errorBuilder: (_, error, ___) {
+            if (_index + 1 < widget.urls.length) {
+              final nextUrl = widget.urls[_index + 1];
+              debugPrint(
+                '[IMG][PERSON_PROFILE] failed url=$currentUrl error=$error -> fallback=$nextUrl',
+              );
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) setState(() => _index += 1);
+              });
+              return widget.fallback;
+            }
+            debugPrint(
+              '[IMG][PERSON_PROFILE] failed url=$currentUrl error=$error -> no_more_fallback',
+            );
+            return widget.fallback;
+          },
         );
-        return widget.fallback;
       },
     );
   }

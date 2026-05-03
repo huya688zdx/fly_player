@@ -1,11 +1,13 @@
 package com.geqian.flyplayer.fly_player
 
 import android.content.Context
-import android.os.Environment
 import com.geqian.flyplayer.fly_player.mpv.NativeMpvProxyServer
 import com.geqian.flyplayer.fly_player.mpv.PersistentPlaybackCacheStore
 import java.io.File
 
+/**
+ * 汇总原生侧缓存、截图与偏好设置的体积统计，并提供清理入口。
+ */
 internal class StorageManagementController(
     private val context: Context,
 ) {
@@ -223,7 +225,10 @@ internal class StorageManagementController(
     }
 
     private fun clearOtherCache() {
-        otherCacheRoots().forEach(::clearDirectoryContents)
+        val excludedRoots = setOf(danmakuAiCacheRoot())
+        otherCacheRoots().forEach { root ->
+            clearDirectoryContents(root, excludedRoots)
+        }
     }
 
     private fun clearDanmakuAiCache() {
@@ -259,39 +264,37 @@ internal class StorageManagementController(
         return context.cacheDir.resolve(DANMAKU_AI_CACHE_DIR_NAME).canonicalOrSelf()
     }
 
-    private fun screenshotRoots(includePublic: Boolean): List<File> {
-        val roots = linkedMapOf<String, File>()
-
-        fun add(root: File?) {
-            if (root == null) return
-            val normalized = root.canonicalOrSelf()
-            roots[normalized.absolutePath] = normalized
-        }
-
-        if (includePublic) {
-            add(File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "FlyPlayer"))
-            add(File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM), "FlyPlayer"))
-        }
-
-        add(context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)?.resolve("FlyPlayer"))
-        add(context.getExternalFilesDir(Environment.DIRECTORY_DCIM)?.resolve("FlyPlayer"))
-
-        return roots.values.toList()
-    }
-
-    private fun clearDirectoryContents(root: File) {
-        if (!root.exists()) return
-        if (root.isFile) {
-            runCatching { root.delete() }
+    private fun clearDirectoryContents(
+        root: File,
+        excludedRoots: Set<File> = emptySet(),
+    ) {
+        val normalizedRoot = root.canonicalOrSelf()
+        if (normalizedRoot.isSameOrInsideAny(excludedRoots)) return
+        if (!normalizedRoot.exists()) return
+        if (normalizedRoot.isFile) {
+            runCatching { normalizedRoot.delete() }
             return
         }
-        root.listFiles()?.forEach { child ->
-            runCatching {
-                if (child.isDirectory) {
-                    child.deleteRecursively()
-                } else {
-                    child.delete()
+        normalizedRoot.listFiles()?.forEach { child ->
+            clearPath(child, excludedRoots)
+        }
+    }
+
+    private fun clearPath(target: File, excludedRoots: Set<File>) {
+        val normalizedTarget = target.canonicalOrSelf()
+        if (normalizedTarget.isSameOrInsideAny(excludedRoots)) return
+        runCatching {
+            if (normalizedTarget.isDirectory &&
+                excludedRoots.any { excludedRoot -> excludedRoot.isSameOrInside(normalizedTarget) }
+            ) {
+                normalizedTarget.listFiles()?.forEach { child ->
+                    clearPath(child, excludedRoots)
                 }
+                normalizedTarget.delete()
+            } else if (normalizedTarget.isDirectory) {
+                normalizedTarget.deleteRecursively()
+            } else {
+                normalizedTarget.delete()
             }
         }
     }
@@ -355,3 +358,13 @@ private data class FileStats(
 )
 
 private fun File.canonicalOrSelf(): File = runCatching { canonicalFile }.getOrDefault(this)
+
+private fun File.isSameOrInside(parent: File): Boolean {
+    val childPath = canonicalOrSelf().absolutePath.trimEnd(File.separatorChar)
+    val parentPath = parent.canonicalOrSelf().absolutePath.trimEnd(File.separatorChar)
+    return childPath == parentPath || childPath.startsWith(parentPath + File.separator)
+}
+
+private fun File.isSameOrInsideAny(parents: Set<File>): Boolean {
+    return parents.any { parent -> isSameOrInside(parent) }
+}

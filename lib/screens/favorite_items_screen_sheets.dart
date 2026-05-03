@@ -17,7 +17,7 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 Text(
-                  _t('layout.list.sort.title', '排序'),
+                  _t('layout.list.sort.title', 'Sort'),
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 28,
@@ -43,8 +43,8 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
                     trailing: column == _sortColumn
                         ? Text(
                             _sortType == 'ASC'
-                                ? '${_t('layout.list.sort.sortType.asc', '升序')} ↕'
-                                : '${_t('layout.list.sort.sortType.desc', '降序')} ↕',
+                                ? '${_t('layout.list.sort.sortType.asc', 'Ascending')} ↕'
+                                : '${_t('layout.list.sort.sortType.desc', 'Descending')} ↕',
                             style: const TextStyle(
                               color: Colors.white70,
                               fontWeight: FontWeight.w700,
@@ -149,7 +149,7 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
                   Wrap(
                     children: <Widget>[
                       chip(
-                        _t('layout.list.filter.all', '全部'),
+                        _t('layout.list.filter.all', 'All'),
                         selected.isEmpty,
                         () => setModal(() => selected.clear()),
                       ),
@@ -186,7 +186,7 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
                         children: <Widget>[
                           const Spacer(),
                           Text(
-                            _t('layout.list.filter.filterButton', '筛选'),
+                            _t('layout.list.filter.filterButton', 'Filter'),
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 24,
@@ -207,7 +207,10 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
                         child: ListView(
                           children: <Widget>[
                             section(
-                              _t('layout.list.filter.tagMap.type', '影视类型'),
+                              _t(
+                                'layout.list.filter.tagMap.type',
+                                'Media type',
+                              ),
                               _selectedTab == _FavoriteTab.all
                                   ? const <String>['Movie', 'TV']
                                   : const <String>[],
@@ -215,37 +218,52 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
                               _mediaTypeLabel,
                             ),
                             section(
-                              _t('layout.list.filter.tagMap.genres', '类型'),
+                              _t('layout.list.filter.tagMap.genres', 'Genre'),
                               _tagOptions['genres'] ?? const <dynamic>[],
                               tempGenres,
                               _genreLabel,
                             ),
                             section(
-                              _t('layout.list.filter.tagMap.locate', '国家和地区'),
+                              _t(
+                                'layout.list.filter.tagMap.locate',
+                                'Country and region',
+                              ),
                               _tagOptions['locate'] ?? const <dynamic>[],
                               tempLocate,
                               _locateLabel,
                             ),
                             section(
-                              _t('layout.list.filter.tagMap.decade', '发行年份'),
+                              _t(
+                                'layout.list.filter.tagMap.decade',
+                                'Release year',
+                              ),
                               _tagOptions['decades'] ?? const <dynamic>[],
                               tempDecades,
                               _decadeLabel,
                             ),
                             section(
-                              _t('layout.list.filter.tagMap.resolution', '分辨率'),
+                              _t(
+                                'layout.list.filter.tagMap.resolution',
+                                'Resolution',
+                              ),
                               _tagOptions['resolutions'] ?? const <dynamic>[],
                               tempResolutions,
                               (value) => _resolutionLabel('$value'),
                             ),
                             section(
-                              _t('layout.list.filter.tagMap.color_range', '视频动态范围'),
+                              _t(
+                                'layout.list.filter.tagMap.color_range',
+                                'Video range',
+                              ),
                               _tagOptions['color_range'] ?? const <dynamic>[],
                               tempColorRange,
                               (value) => '$value',
                             ),
                             section(
-                              _t('layout.list.filter.tagMap.audio_type', '音频规格'),
+                              _t(
+                                'layout.list.filter.tagMap.audio_type',
+                                'Audio spec',
+                              ),
                               _tagOptions['audio_type'] ?? const <dynamic>[],
                               tempAudioType,
                               _audioLabel,
@@ -253,7 +271,7 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
                             section(
                               _t(
                                 'layout.list.filter.tagMap.recognition_status',
-                                '匹配状态',
+                                'Match status',
                               ),
                               _tagOptions['recognition_status'] ??
                                   const <dynamic>[],
@@ -261,7 +279,10 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
                               _recognitionStatusLabel,
                             ),
                             section(
-                              _t('layout.list.filter.tagMap.watched', '是否已观看'),
+                              _t(
+                                'layout.list.filter.tagMap.watched',
+                                'Watched status',
+                              ),
                               const <int>[1, 0],
                               tempWatched,
                               _watchedLabel,
@@ -294,7 +315,7 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
                                 minimumSize: const Size.fromHeight(44),
                               ),
                               child: Text(
-                                _t('layout.list.filter.resetButton', '重置'),
+                                _t('layout.list.filter.resetButton', 'Reset'),
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -306,7 +327,7 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
                             child: FilledButton(
                               onPressed: () {
                                 Navigator.of(context).pop();
-                                setState(() {
+                                _setStateIfMounted(() {
                                   _selectedMediaTypes = tempMediaTypes;
                                   _selectedGenres = tempGenres;
                                   _selectedLocate = tempLocate;
@@ -323,7 +344,7 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
                                 minimumSize: const Size.fromHeight(44),
                               ),
                               child: Text(
-                                _t('common.actions.default.default', '确定'),
+                                _t('common.actions.default.default', 'Confirm'),
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w700,
                                 ),

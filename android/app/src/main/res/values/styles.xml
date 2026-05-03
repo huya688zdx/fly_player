@@ -35,4 +35,14 @@
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:colorBackground">@android:color/transparent</item>
     </style>
+
+    <style name="DetailPaneLaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowBackground">@color/detail_pane_window_background</item>
+        <item name="android:colorBackground">@color/detail_pane_window_background</item>
+    </style>
+
+    <style name="DetailPaneNormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowBackground">@color/detail_pane_window_background</item>
+        <item name="android:colorBackground">@color/detail_pane_window_background</item>
+    </style>
 </resources>

@@ -459,6 +459,7 @@ class _DownloadEpisodeListSection extends StatelessWidget {
         if (ranges.length > 1) const SizedBox(height: 14),
         for (int i = 0; i < visibleEntries.length; i++) ...[
           _DownloadEpisodeRow(
+            key: ValueKey<String>(visibleEntries[i].guid),
             entry: visibleEntries[i],
             token: token,
             downloadLabel: downloadLabel,
@@ -535,6 +536,7 @@ class _DownloadEpisodeRow extends StatelessWidget {
   final VoidCallback onDownloadTap;
 
   const _DownloadEpisodeRow({
+    super.key,
     required this.entry,
     required this.token,
     required this.downloadLabel,

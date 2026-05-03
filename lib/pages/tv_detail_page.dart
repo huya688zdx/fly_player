@@ -7,6 +7,7 @@ import '../api/feiniu_api.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
 import '../controllers/play_detail_item_actions.dart';
 import '../controllers/tv_season_playback_launcher.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../models/media_library_item.dart';
 import '../models/play_info.dart';
 import '../providers/app_theme_provider.dart';
@@ -24,13 +25,13 @@ import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
 import '../utils/detail_top_tip.dart';
 import '../utils/imdb_launcher.dart';
-import '../utils/media_locale_store.dart';
 import '../utils/play_detail_formatters.dart';
 import '../utils/tv_hero_adaptive.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/detail/detail_description_section.dart';
 import '../widgets/detail/detail_header.dart';
 import '../widgets/detail/detail_hero_overlay.dart';
+import '../widgets/detail/detail_loading_skeleton.dart';
 import '../widgets/detail/detail_more_actions_sheet.dart';
 import '../widgets/detail/dynamic_page_theme_scope.dart';
 import '../widgets/detail/immersive_detail_background.dart';
@@ -83,6 +84,9 @@ class _TvDetailPageState extends State<TvDetailPage>
   bool _descriptionVisible = false;
   bool _seasonCardsVisible = false;
   bool _deferredLoadStarted = false;
+  bool _seasonItemsResolved = false;
+  bool _artworkReady = false;
+  bool _suppressGlobalThemeSyncUntilFullDetail = false;
   Timer? _deferredTimer;
   late final AnimationController _descriptionPopController;
   late final AnimationController _seasonCardPopController;
@@ -101,7 +105,7 @@ class _TvDetailPageState extends State<TvDetailPage>
   DateTime _lastWatchedTapAt = DateTime.fromMillisecondsSinceEpoch(0);
   bool _playPreparing = false;
   final DetailTopTip _topTip = DetailTopTip();
-  Map<String, dynamic> _localeMap = const <String, dynamic>{};
+  final Map<String, dynamic> _localeMap = const <String, dynamic>{};
 
   bool get _isPane => widget.presentation == DetailPresentation.pane;
   bool get _useRuntimeCache => _isPane;
@@ -177,26 +181,69 @@ class _TvDetailPageState extends State<TvDetailPage>
     String fallback, {
     Map<String, Object?> params = const <String, Object?>{},
   }) {
-    return MediaLocaleStore.text(
-      _localeMap,
-      path,
-      fallback: fallback,
-      params: params,
-    );
+    final l10n = AppLocalizations.of(context);
+    return switch (path) {
+      'layout.subheading.season.special' => l10n.detailSeasonSpecial,
+      'layout.subheading.season.number' => l10n.detailSeasonNumber(
+        _paramInt(params, 'number'),
+      ),
+      'layout.subheading.episode.number' => l10n.detailEpisodeNumber(
+        _paramInt(params, 'number'),
+      ),
+      'layout.subheading.seasonEpisode.number' =>
+        l10n.detailSeasonEpisodeNumber(
+          _paramInt(params, 'season'),
+          _paramInt(params, 'episode'),
+        ),
+      'layout.subheading.specialEpisode.number' =>
+        l10n.detailSpecialEpisodeNumber(_paramInt(params, 'episode')),
+      'layout.subheading.namedEpisode.number' => l10n.detailNamedEpisodeNumber(
+        '${params['title'] ?? ''}',
+        _paramInt(params, 'episode'),
+      ),
+      'layout.subheading.season.default' => l10n.detailSeasonDefault,
+      'layout.subheading.tv.episodes' => l10n.detailEpisodeTotal(
+        _paramInt(params, 'count'),
+      ),
+      'layout.subheading.tv.seasons' => l10n.detailTvSeasonCount(
+        _paramInt(params, 'count'),
+      ),
+      'layout.details.castAndCrew.imdb' => l10n.detailImdbEmpty,
+      'layout.details.castAndCrew.imdbOpenFailed' => l10n.detailImdbOpenFailed,
+      'layout.globalError.clickToRetry' => l10n.commonClickTooFastRetryLater,
+      'common.actions.favorite.unfavoriteFailed' => l10n.detailUnfavoriteFailed,
+      'common.actions.favorite.favoriteFailed' => l10n.detailFavoriteFailed,
+      'common.actions.watched.markedAsUnwatchedFailed' =>
+        l10n.detailMarkUnwatchedFailed,
+      'common.actions.watched.markedAsWatchedFailed' =>
+        l10n.detailMarkWatchedFailed,
+      'player.play.preparing' => l10n.detailPreparingPlayback,
+      'player.play.placeholder' => l10n.detailPlayPlaceholder,
+      'player.play.playInfoFailed' => l10n.detailPlayInfoFailed,
+      'player.play.play' => l10n.detailPlay,
+      'layout.details.overview.overview' => l10n.detailOverviewTitle,
+      'layout.details.castAndCrew.title' => l10n.detailCastCrewTitle,
+      'layout.loading' => l10n.commonLoading,
+      'layout.details.season.empty' => l10n.detailSeasonEmpty,
+      _ => _replaceParams(fallback, params),
+    };
   }
 
-  Future<void> _ensureLocaleMapLoaded() async {
-    if (_localeMap.isNotEmpty) return;
-    final provider = context.read<NasProvider>();
-    final localeMap = await MediaLocaleStore.load(provider);
-    if (!mounted || localeMap.isEmpty) return;
-    setState(() {
-      _localeMap = localeMap;
-    });
+  int _paramInt(Map<String, Object?> params, String key) {
+    final value = params[key];
+    if (value is int) return value;
+    return int.tryParse('${value ?? ''}') ?? 0;
+  }
+
+  String _replaceParams(String fallback, Map<String, Object?> params) {
+    var resolved = fallback;
+    for (final entry in params.entries) {
+      resolved = resolved.replaceAll('{${entry.key}}', '${entry.value ?? ''}');
+    }
+    return resolved;
   }
 
   Future<void> _load() async {
-    unawaited(_ensureLocaleMapLoaded());
     _deferredTimer?.cancel();
     _descriptionPopController.reset();
     _seasonCardPopController.reset();
@@ -206,6 +253,9 @@ class _TvDetailPageState extends State<TvDetailPage>
       _descriptionVisible = false;
       _seasonCardsVisible = false;
       _deferredLoadStarted = false;
+      _seasonItemsResolved = false;
+      _artworkReady = false;
+      _suppressGlobalThemeSyncUntilFullDetail = false;
       _seasonItems = const [];
       _genresMapZhCn = const {};
       _locateMapZhCn = const <String, String>{};
@@ -215,20 +265,24 @@ class _TvDetailPageState extends State<TvDetailPage>
       final api = FeiniuApi(context.read<NasProvider>());
       final canUseInitial =
           !_usedInitialDetail && widget.initialItemDetail != null;
-      final Map<String, dynamic> detail = canUseInitial
-          ? widget.initialItemDetail!
-          : await _loadItemDetail(api, widget.itemGuid);
+      if (canUseInitial) {
+        final detail = widget.initialItemDetail!;
+        if (!mounted) return;
+        setState(() {
+          _applyBaseDetail(detail);
+          _usedInitialDetail = true;
+          _suppressGlobalThemeSyncUntilFullDetail = true;
+          _loading = false;
+        });
+        _startDeferredLoad();
+        unawaited(_refreshBaseDetail(api));
+        return;
+      }
+      final detail = await _loadItemDetail(api, widget.itemGuid);
       if (!mounted) return;
       setState(() {
-        _detail = detail;
-        if (canUseInitial) _usedInitialDetail = true;
-        _imdbId = _extractImdbId(detail);
-        _trimId = _extractTrimId(detail);
-        final item = detail['item'] is Map<String, dynamic>
-            ? detail['item'] as Map<String, dynamic>
-            : detail;
-        _liked = _asInt(item['is_favorite']) == 1;
-        _watched = _asInt(item['is_watched']) == 1;
+        _applyBaseDetail(detail);
+        _suppressGlobalThemeSyncUntilFullDetail = false;
         _loading = false;
       });
       _startDeferredLoad();
@@ -241,6 +295,34 @@ class _TvDetailPageState extends State<TvDetailPage>
           fallbackKind: AppExceptionKind.transient,
         );
         _loading = false;
+      });
+    }
+  }
+
+  void _applyBaseDetail(Map<String, dynamic> detail) {
+    _detail = detail;
+    _imdbId = _extractImdbId(detail);
+    _trimId = _extractTrimId(detail);
+    final item = detail['item'] is Map<String, dynamic>
+        ? detail['item'] as Map<String, dynamic>
+        : detail;
+    _liked = _asInt(item['is_favorite']) == 1;
+    _watched = _asInt(item['is_watched']) == 1;
+  }
+
+  Future<void> _refreshBaseDetail(FeiniuApi api) async {
+    try {
+      final detail = await _loadItemDetail(api, widget.itemGuid);
+      if (!mounted) return;
+      setState(() {
+        _applyBaseDetail(detail);
+        _suppressGlobalThemeSyncUntilFullDetail = false;
+        _error = null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _suppressGlobalThemeSyncUntilFullDetail = false;
       });
     }
   }
@@ -316,11 +398,14 @@ class _TvDetailPageState extends State<TvDetailPage>
 
   void _startDeferredLoad() {
     _deferredTimer?.cancel();
+    unawaited(_loadDeferredSections());
     _deferredTimer = Timer(_deferredSectionStartDelay, () {
       if (!mounted) return;
-      setState(() => _descriptionVisible = true);
+      setState(() {
+        _descriptionVisible = true;
+        _artworkReady = _seasonItemsResolved;
+      });
       _descriptionPopController.forward(from: 0);
-      unawaited(_loadDeferredSections());
     });
   }
 
@@ -335,12 +420,20 @@ class _TvDetailPageState extends State<TvDetailPage>
       seasonItems.sort((a, b) => a.seasonNumber.compareTo(b.seasonNumber));
       setState(() {
         _seasonItems = seasonItems;
+        _seasonItemsResolved = true;
         _seasonCardsVisible = seasonItems.isNotEmpty;
+        _artworkReady = _descriptionVisible;
       });
       if (seasonItems.isNotEmpty) {
         _seasonCardPopController.forward(from: 0);
       }
-    } catch (_) {}
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _seasonItemsResolved = true;
+        _artworkReady = _descriptionVisible;
+      });
+    }
 
     await Future<void>.delayed(_deferredSectionStepDelay);
     if (!mounted) return;
@@ -394,18 +487,24 @@ class _TvDetailPageState extends State<TvDetailPage>
     final earlyEpisode =
         fromPlayInfo?.episodeNumber ?? _asInt(item['episode_number']);
     if (seasonNumber == 0) {
-      final specialLabel = _t('layout.subheading.season.special', '特别篇');
       if (earlyEpisode > 0) {
-        return '$specialLabel 集 $earlyEpisode';
+        return _t(
+          'layout.subheading.specialEpisode.number',
+          'Special episode {episode}',
+          params: {'episode': earlyEpisode},
+        );
       }
-      return specialLabel;
+      return _t('layout.subheading.season.special', 'Special');
     }
     if (seasonNumber == 0) {
-      final specialLabel = _t('layout.subheading.season.special', '特别篇');
       if (earlyEpisode > 0) {
-        return '$specialLabel 集 $earlyEpisode';
+        return _t(
+          'layout.subheading.specialEpisode.number',
+          'Special episode {episode}',
+          params: {'episode': earlyEpisode},
+        );
       }
-      return specialLabel;
+      return _t('layout.subheading.season.special', 'Special');
     }
     final seriesTitle = (fromPlayInfo?.tvTitle ?? item['tv_title'] ?? '')
         .toString()
@@ -426,32 +525,36 @@ class _TvDetailPageState extends State<TvDetailPage>
         continue;
       }
       if (episode > 0) {
-        return '$candidate 集 $episode';
+        return _t(
+          'layout.subheading.namedEpisode.number',
+          '{title} episode {episode}',
+          params: {'title': candidate, 'episode': episode},
+        );
       }
       break;
     }
     if (season > 0 && episode > 0) {
       return _t(
         'layout.subheading.seasonEpisode.number',
-        '季 {season} 集 {episode}',
+        'Season {season} episode {episode}',
         params: {'season': season, 'episode': episode},
       );
     }
     if (season > 0) {
       return _t(
         'layout.subheading.season.number',
-        '第 {number} 季',
+        'Season {number}',
         params: {'number': season},
       );
     }
     if (episode > 0) {
       return _t(
         'layout.subheading.episode.number',
-        '第 {number} 集',
+        'Episode {number}',
         params: {'number': episode},
       );
     }
-    return _t('player.play.play', '播放');
+    return _t('player.play.play', 'Play');
   }
 
   String _tvPrimaryLabel(Map<String, dynamic> item) {
@@ -461,34 +564,37 @@ class _TvDetailPageState extends State<TvDetailPage>
         fromPlayInfo?.episodeNumber ?? _asInt(item['episode_number']);
 
     if (season == 0) {
-      final specialLabel = _t('layout.subheading.season.special', '特别篇');
       if (episode > 0) {
-        return '$specialLabel 集 $episode';
+        return _t(
+          'layout.subheading.specialEpisode.number',
+          'Special episode {episode}',
+          params: {'episode': episode},
+        );
       }
-      return specialLabel;
+      return _t('layout.subheading.season.special', 'Special');
     }
     if (season > 0 && episode > 0) {
       return _t(
         'layout.subheading.seasonEpisode.number',
-        '季 {season} 集 {episode}',
+        'Season {season} episode {episode}',
         params: {'season': season, 'episode': episode},
       );
     }
     if (season > 0) {
       return _t(
         'layout.subheading.season.number',
-        '第 {number} 季',
+        'Season {number}',
         params: {'number': season},
       );
     }
     if (episode > 0) {
       return _t(
         'layout.subheading.episode.number',
-        '第 {number} 集',
+        'Episode {number}',
         params: {'number': episode},
       );
     }
-    return _t('player.play.play', '播放');
+    return _t('player.play.play', 'Play');
   }
 
   String _year(String date) => date.length >= 4 ? date.substring(0, 4) : '';
@@ -497,14 +603,14 @@ class _TvDetailPageState extends State<TvDetailPage>
     if (item.seasonNumber > 0) {
       return _t(
         'layout.subheading.season.number',
-        '第 {number} 季',
+        'Season {number}',
         params: {'number': item.seasonNumber},
       );
     }
     final title = item.title.trim();
     return title.isNotEmpty
         ? title
-        : _t('layout.subheading.season.default', '季');
+        : _t('layout.subheading.season.default', 'Season');
   }
 
   String _seasonSubtitle(MediaLibraryItem item) {
@@ -517,7 +623,7 @@ class _TvDetailPageState extends State<TvDetailPage>
       parts.add(
         _t(
           'layout.subheading.tv.episodes',
-          '共 {count} 集',
+          '{count} episodes',
           params: {'count': episodes},
         ),
       );
@@ -535,6 +641,7 @@ class _TvDetailPageState extends State<TvDetailPage>
     final title = _title(item);
     if (itemType == 'episode') {
       return buildThemeSaveNameBase(
+        l10n: AppLocalizations.of(context),
         title: title,
         seriesTitle: playItem?.tvTitle.trim().isNotEmpty == true
             ? playItem!.tvTitle.trim()
@@ -545,7 +652,10 @@ class _TvDetailPageState extends State<TvDetailPage>
         isEpisode: true,
       );
     }
-    return buildThemeSaveNameBase(title: title);
+    return buildThemeSaveNameBase(
+      l10n: AppLocalizations.of(context),
+      title: title,
+    );
   }
 
   List<String> _genreNamesForMeta(dynamic rawGenres) {
@@ -576,7 +686,7 @@ class _TvDetailPageState extends State<TvDetailPage>
     final colors = context.appColors;
     final dividerForeground = colors.textPrimary.withValues(alpha: 0.52);
     return Padding(
-      padding: EdgeInsets.symmetric(horizontal: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Text(
         '/',
         style: TextStyle(
@@ -672,17 +782,21 @@ class _TvDetailPageState extends State<TvDetailPage>
 
   Future<void> _openImdb() async {
     final result = await ImdbLauncher.openExternal(_imdbId);
+    if (!mounted) return;
     switch (result) {
       case ImdbLaunchResult.success:
         return;
       case ImdbLaunchResult.empty:
         _showTopTip(
-          _t('layout.details.castAndCrew.imdb', '暂无 IMDB 链接'),
+          _t('layout.details.castAndCrew.imdb', 'No IMDB link'),
           context.appColors.warning,
         );
       case ImdbLaunchResult.failed:
         _showTopTip(
-          _t('layout.details.castAndCrew.imdbOpenFailed', '无法打开 IMDB 链接'),
+          _t(
+            'layout.details.castAndCrew.imdbOpenFailed',
+            'Unable to open IMDB link',
+          ),
           context.appColors.danger,
         );
     }
@@ -690,13 +804,20 @@ class _TvDetailPageState extends State<TvDetailPage>
 
   Future<void> _openTmdb() async {
     final result = await ImdbLauncher.openTmdbExternal(_trimId);
+    if (!mounted) return;
     switch (result) {
       case ImdbLaunchResult.success:
         return;
       case ImdbLaunchResult.empty:
-        _showTopTip('暂无 TMDB 链接', context.appColors.warning);
+        _showTopTip(
+          AppLocalizations.of(context).detailTmdbEmpty,
+          context.appColors.warning,
+        );
       case ImdbLaunchResult.failed:
-        _showTopTip('无法打开 TMDB 链接', context.appColors.danger);
+        _showTopTip(
+          AppLocalizations.of(context).detailTmdbOpenFailed,
+          context.appColors.danger,
+        );
     }
   }
 
@@ -704,7 +825,7 @@ class _TvDetailPageState extends State<TvDetailPage>
   Future<void> _onPrimaryPlayTap() async {
     if (_playPreparing) {
       _showTopTip(
-        _t('player.play.preparing', '正在准备播放'),
+        _t('player.play.preparing', 'Preparing playback'),
         context.appColors.warning,
       );
       return;
@@ -716,13 +837,13 @@ class _TvDetailPageState extends State<TvDetailPage>
       if (!mounted) return;
       setState(() => _playInfo = info);
       _showTopTip(
-        _t('player.play.placeholder', '播放接口已预留'),
+        _t('player.play.placeholder', 'Playback entry is reserved'),
         context.appColors.success,
       );
       // TODO: hook real player launch here with `info`.
     } catch (_) {
       _showTopTip(
-        _t('player.play.playInfoFailed', '获取播放信息失败'),
+        _t('player.play.playInfoFailed', 'Failed to get playback info'),
         context.appColors.danger,
       );
     } finally {
@@ -733,7 +854,7 @@ class _TvDetailPageState extends State<TvDetailPage>
   Future<void> _launchPrimaryPlayback() async {
     if (_playPreparing) {
       _showTopTip(
-        _t('player.play.preparing', '正在准备播放'),
+        _t('player.play.preparing', 'Preparing playback'),
         context.appColors.warning,
       );
       return;
@@ -761,7 +882,7 @@ class _TvDetailPageState extends State<TvDetailPage>
       }
     } catch (_) {
       _showTopTip(
-        _t('player.play.playInfoFailed', '获取播放信息失败'),
+        _t('player.play.playInfoFailed', 'Failed to get playback info'),
         context.appColors.danger,
       );
     } finally {
@@ -778,7 +899,10 @@ class _TvDetailPageState extends State<TvDetailPage>
     if (_favoriteUpdating ||
         now.difference(_lastFavoriteTapAt) < _favoriteTapCooldown) {
       _showTopTip(
-        _t('layout.globalError.clickToRetry', '点击过快，请稍后再试'),
+        _t(
+          'layout.globalError.clickToRetry',
+          'Too many taps, please try again later',
+        ),
         context.appColors.warning,
       );
       return;
@@ -789,7 +913,7 @@ class _TvDetailPageState extends State<TvDetailPage>
       final api = FeiniuApi(context.read<NasProvider>());
       final result = await PlayDetailItemActions(
         api,
-        localeMap: _localeMap,
+        l10n: AppLocalizations.of(context),
       ).toggleFavorite(itemGuid: widget.itemGuid, currentLiked: _liked);
       if (!mounted) return;
       setState(() => _liked = result.state);
@@ -800,8 +924,14 @@ class _TvDetailPageState extends State<TvDetailPage>
     } catch (_) {
       _showTopTip(
         _liked
-            ? _t('common.actions.favorite.unfavoriteFailed', '取消收藏失败')
-            : _t('common.actions.favorite.favoriteFailed', '收藏失败'),
+            ? _t(
+                'common.actions.favorite.unfavoriteFailed',
+                'Failed to remove favorite',
+              )
+            : _t(
+                'common.actions.favorite.favoriteFailed',
+                'Failed to favorite',
+              ),
         context.appColors.danger,
       );
     } finally {
@@ -814,7 +944,10 @@ class _TvDetailPageState extends State<TvDetailPage>
     if (_watchedUpdating ||
         now.difference(_lastWatchedTapAt) < _watchedTapCooldown) {
       _showTopTip(
-        _t('layout.globalError.clickToRetry', '点击过快，请稍后再试'),
+        _t(
+          'layout.globalError.clickToRetry',
+          'Too many taps, please try again later',
+        ),
         context.appColors.warning,
       );
       return;
@@ -825,7 +958,7 @@ class _TvDetailPageState extends State<TvDetailPage>
       final api = FeiniuApi(context.read<NasProvider>());
       final result = await PlayDetailItemActions(
         api,
-        localeMap: _localeMap,
+        l10n: AppLocalizations.of(context),
       ).toggleWatched(itemGuid: widget.itemGuid, currentWatched: _watched);
       if (!mounted) return;
       setState(() {
@@ -841,8 +974,14 @@ class _TvDetailPageState extends State<TvDetailPage>
     } catch (_) {
       _showTopTip(
         _watched
-            ? _t('common.actions.watched.markedAsUnwatchedFailed', '标记为未观看失败')
-            : _t('common.actions.watched.markedAsWatchedFailed', '标记为已观看失败'),
+            ? _t(
+                'common.actions.watched.markedAsUnwatchedFailed',
+                'Failed to mark as unwatched',
+              )
+            : _t(
+                'common.actions.watched.markedAsWatchedFailed',
+                'Failed to mark as watched',
+              ),
         context.appColors.danger,
       );
     } finally {
@@ -899,9 +1038,25 @@ class _TvDetailPageState extends State<TvDetailPage>
 
   @override
   Widget build(BuildContext context) {
-    final themeProvider = context.watch<AppThemeProvider>();
+    final (
+      dynamicThemeEnabled: dynamicThemeEnabled,
+      dynamicThemeIntensity: dynamicThemeIntensity,
+    ) = context
+        .select<
+          AppThemeProvider,
+          ({
+            bool dynamicThemeEnabled,
+            AppDynamicThemeIntensity dynamicThemeIntensity,
+          })
+        >(
+          (themeProvider) => (
+            dynamicThemeEnabled: themeProvider.dynamicThemeEnabled,
+            dynamicThemeIntensity: themeProvider.dynamicThemeIntensity,
+          ),
+        );
     final nasProvider = context.read<NasProvider>();
     final inPlayerPaneHost = PlayerPaneHostScope.maybeOf(context) != null;
+    final deferArtwork = _loading || !_artworkReady;
     var dynamicThemeImageUrl = '';
     if (_detail.isNotEmpty) {
       final item = _detail['item'] is Map<String, dynamic>
@@ -928,25 +1083,32 @@ class _TvDetailPageState extends State<TvDetailPage>
         dynamicThemeImageUrl = urls.first;
       }
     }
-
-    final dynamicThemeIntensity = themeProvider.dynamicThemeIntensity;
+    final dynamicThemeKey = _isPane && widget.itemGuid.trim().isNotEmpty
+        ? 'tv-season-series:${widget.itemGuid.trim()}'
+        : widget.itemGuid;
+    final allowRuntimeThemeSync = dynamicThemeIntensity
+        .allowsGlobalRuntimeThemeSync(
+          inPlayerPaneHost: inPlayerPaneHost,
+          isPane: _isPane,
+        );
+    final dynamicThemeScopeEnabled = dynamicThemeEnabled;
+    final syncGlobalTheme =
+        dynamicThemeScopeEnabled &&
+        allowRuntimeThemeSync &&
+        !_suppressGlobalThemeSyncUntilFullDetail;
     return DynamicPageThemeScope(
-      pageKey: widget.itemGuid,
+      pageKey: dynamicThemeKey,
       imageUrl: dynamicThemeImageUrl,
       token: nasProvider.token,
-      enabled: themeProvider.dynamicThemeEnabled,
-      syncGlobalTheme: dynamicThemeIntensity.allowsGlobalRuntimeThemeSync(
-        inPlayerPaneHost: inPlayerPaneHost,
-        isPane: _isPane,
-      ),
+      enabled: dynamicThemeScopeEnabled,
+      allowLiveResolve: !deferArtwork,
+      syncGlobalTheme: syncGlobalTheme,
+      deferLocalThemeApplyUntilGlobalSync: _isPane && allowRuntimeThemeSync,
       intensity: dynamicThemeIntensity,
       builder: (context, ambientTint) {
         final colors = context.appColors;
         if (_loading) {
-          return Scaffold(
-            backgroundColor: colors.backgroundBase,
-            body: SizedBox.shrink(),
-          );
+          return DetailLoadingSkeleton(presentation: widget.presentation);
         }
         if (_error != null) {
           return Scaffold(
@@ -970,17 +1132,20 @@ class _TvDetailPageState extends State<TvDetailPage>
           screenSize,
           devicePixelRatio: media.devicePixelRatio,
         );
+        final posterHeightMax = screenSize.height * 0.48;
+        final posterHeightMin = math.min(300.0, posterHeightMax);
         final posterHeight = math
             .min(
               screenSize.height * heroAdaptive.posterHeightRatio,
               screenSize.width / 1.55,
             )
-            .clamp(300.0, screenSize.height * 0.48)
+            .clamp(posterHeightMin, posterHeightMax)
             .toDouble();
+        final collapseRangeMax = math.max(1.0, posterHeight);
         final collapseRange =
             (posterHeight - media.padding.top - kToolbarHeight).clamp(
               1.0,
-              posterHeight,
+              collapseRangeMax,
             );
 
         final item = _detail['item'] is Map<String, dynamic>
@@ -993,6 +1158,8 @@ class _TvDetailPageState extends State<TvDetailPage>
         final seasons = _asInt(item['number_of_seasons']);
         final localSeasons = _asInt(item['local_number_of_seasons']);
         final seasonCount = localSeasons > 0 ? localSeasons : seasons;
+        final showSeasonPlaceholders = !_seasonItemsResolved && seasonCount > 0;
+        final seasonPlaceholderCount = seasonCount.clamp(1, 4);
         final contentRating = (item['content_ratings'] ?? '').toString().trim();
         final genreNames = _genreNamesForMeta(item['genres']);
         final countryNames = PlayDetailFormatters.countryNamesFromCodes(
@@ -1017,16 +1184,33 @@ class _TvDetailPageState extends State<TvDetailPage>
                 .clamp(480.0, 1200.0)
                 .round();
 
-        final heroUrls = ApiUrlHelper.imageCandidates(
-          provider.baseUrl,
-          _backdrops(item),
-          width: backdropRequestWidth,
-        );
-        final logoUrls = ApiUrlHelper.imageCandidates(
-          provider.baseUrl,
-          (item['logos'] ?? '').toString(),
-          width: logoRequestWidth,
-        );
+        final heroUrls = deferArtwork
+            ? const <String>[]
+            : ApiUrlHelper.imageCandidates(
+                provider.baseUrl,
+                _backdrops(item),
+                width: backdropRequestWidth,
+              );
+        final logoUrls = deferArtwork
+            ? const <String>[]
+            : ApiUrlHelper.imageCandidates(
+                provider.baseUrl,
+                (item['logos'] ?? '').toString(),
+                width: logoRequestWidth,
+              );
+        final heroTitleChild = deferArtwork
+            ? const SizedBox.shrink()
+            : (logoUrls.isNotEmpty
+                  ? DetailHeroLogoTitle(
+                      urls: logoUrls,
+                      token: provider.token,
+                      fallbackTitle: title,
+                      maxHeight: 124,
+                      maxWidth:
+                          screenSize.width -
+                          (DetailTokens.screenHorizontalPadding * 2),
+                    )
+                  : null);
 
         return Scaffold(
           backgroundColor: colors.backgroundBase,
@@ -1069,17 +1253,7 @@ class _TvDetailPageState extends State<TvDetailPage>
                       height: posterHeight,
                       title: title,
                       useSoftGradient: true,
-                      titleChild: logoUrls.isNotEmpty
-                          ? DetailHeroLogoTitle(
-                              urls: logoUrls,
-                              token: provider.token,
-                              fallbackTitle: title,
-                              maxHeight: 124,
-                              maxWidth:
-                                  screenSize.width -
-                                  (DetailTokens.screenHorizontalPadding * 2),
-                            )
-                          : null,
+                      titleChild: heroTitleChild,
                     ),
                   ),
                   SliverToBoxAdapter(
@@ -1148,7 +1322,7 @@ class _TvDetailPageState extends State<TvDetailPage>
                                   title: title,
                                   sectionTitle: _t(
                                     'layout.details.overview.overview',
-                                    '简介',
+                                    'Overview',
                                   ),
                                   content: overview,
                                 );
@@ -1159,7 +1333,7 @@ class _TvDetailPageState extends State<TvDetailPage>
                           Text(
                             _t(
                               'layout.subheading.tv.seasons',
-                              '共 {count} 季',
+                              '{count} seasons',
                               params: {'count': seasonCount},
                             ),
                             style: TextStyle(
@@ -1209,11 +1383,14 @@ class _TvDetailPageState extends State<TvDetailPage>
                                     return SizedBox(
                                       width: layout.homePosterCardWidth,
                                       child: MediaPosterCard(
-                                        urls: _posterCandidates(
-                                          provider.baseUrl,
-                                          season.poster,
-                                          width: layout.homePosterRequestWidth,
-                                        ),
+                                        urls: deferArtwork
+                                            ? const <String>[]
+                                            : _posterCandidates(
+                                                provider.baseUrl,
+                                                season.poster,
+                                                width: layout
+                                                    .homePosterRequestWidth,
+                                              ),
                                         token: provider.token,
                                         title: _seasonTitle(season),
                                         subtitle: _seasonSubtitle(season),
@@ -1254,6 +1431,37 @@ class _TvDetailPageState extends State<TvDetailPage>
                                 ),
                               ),
                             )
+                          else if (showSeasonPlaceholders)
+                            SizedBox(
+                              height: layout.homePosterRowHeight,
+                              child: ListView.separated(
+                                scrollDirection: Axis.horizontal,
+                                itemCount: seasonPlaceholderCount,
+                                separatorBuilder: (_, __) =>
+                                    SizedBox(width: layout.itemGap),
+                                itemBuilder: (context, index) {
+                                  final seasonNumber = index + 1;
+                                  return SizedBox(
+                                    width: layout.homePosterCardWidth,
+                                    child: MediaPosterCard(
+                                      urls: const <String>[],
+                                      token: provider.token,
+                                      title: _t(
+                                        'layout.subheading.season.number',
+                                        'Season {number}',
+                                        params: {'number': seasonNumber},
+                                      ),
+                                      subtitle: _t('layout.loading', 'Loading'),
+                                      imageHeight: layout.homePosterImageHeight,
+                                      titleFontSize:
+                                          layout.homePosterTitleFontSize,
+                                      subtitleFontSize:
+                                          layout.homePosterSubtitleFontSize,
+                                    ),
+                                  );
+                                },
+                              ),
+                            )
                           else
                             Container(
                               width: double.infinity,
@@ -1263,7 +1471,7 @@ class _TvDetailPageState extends State<TvDetailPage>
                                 borderRadius: BorderRadius.circular(14),
                               ),
                               child: Text(
-                                _t('layout.details.season.empty', '暂无季列表'),
+                                _t('layout.details.season.empty', 'No seasons'),
                                 style: TextStyle(
                                   color: colors.textSecondary,
                                   fontSize: 16,
@@ -1311,7 +1519,7 @@ class _TvDetailPageState extends State<TvDetailPage>
                     ),
                     title: title,
                     titleOpacity: centerTitleOpacity,
-                    showBack: !_isPane,
+                    showBack: true,
                   );
                 },
               ),

@@ -3,108 +3,59 @@ package com.geqian.flyplayer.fly_player
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.os.Bundle
+import android.util.Log
 import java.util.HashMap
 
-class FullscreenPlayerActivity : FlutterHostActivity() {
-    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+class FullscreenPlayerActivity : Activity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        PlaybackSessionCoordinator.allowSessionUpdates()
-    }
-
-    override fun getInitialRoute(): String = "/player?layoutMode=fullscreen"
-
-    override fun hostSurface(): String = "player"
-
-    override fun hostPaneSide(): ParallelPaneSide = ParallelPaneSide.FULLSCREEN
-
-    override fun hostRoleOverride(): ParallelHostRole = ParallelHostRole.FULLSCREEN
-
-    override fun consumeInitialPlayerArgs(): HashMap<String, Any?>? {
-        return PlayerLaunchContract.buildInitialArgs(intent)
-    }
-
-    override fun finishPlayerActivity(result: HashMap<String, Any?>?): Boolean {
-        PlaybackSessionCoordinator.blockSessionUpdates()
-        PlaybackSessionCoordinator.detachHost(this)
-        PlayerNotificationService.stop(applicationContext)
-        setResult(
-            Activity.RESULT_OK,
-            Intent().apply {
-                PlayerLaunchContract.putResultPayload(this, result)
-            },
-        )
-        runAfterMethodReply {
+        val source = PlayerLaunchContract.readSerializableHashMap(intent, EXTRA_PLAYER_SOURCE)
+        if (source == null || source.isEmpty()) {
             finish()
+            return
         }
-        return true
-    }
-
-    override fun onDestroy() {
-        if (isFinishing && !isChangingConfigurations) {
-            PlaybackSessionCoordinator.blockSessionUpdates()
-            PlaybackSessionCoordinator.detachHost(this)
-            PlayerNotificationService.stop(applicationContext)
-        }
-        super.onDestroy()
-    }
-
-    override fun switchPlayerLayoutMode(
-        title: String,
-        source: HashMap<String, Any?>?,
-        initialPlayInfo: HashMap<String, Any?>?,
-        startSource: String,
-        targetMode: String,
-        resultPayload: HashMap<String, Any?>?,
-    ): Boolean {
-        val normalizedTitle = title.trim()
-        val normalizedSource = source ?: hashMapOf()
-        if (normalizedTitle.isEmpty() || normalizedSource.isEmpty()) return false
-        if (targetMode != PlayerLaunchContract.MODE_SPLIT) return false
-        if (!PlayerLaunchContract.isFromParallelHost(intent)) return false
-        val detailHost = ParallelWindowCoordinator.currentDetailHost() ?: return false
-        PlayerLayoutHandoffCoordinator.beginFrom(this)
-        setResult(
-            Activity.RESULT_OK,
-            Intent().apply {
-                PlayerLaunchContract.putResultPayload(this, resultPayload)
-            },
-        )
-        runAfterMethodReply {
-            detailHost.launchSplitPlayer(
-                title = normalizedTitle,
-                source = HashMap(normalizedSource),
-                initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
-                startSource = startSource,
-            )
-            finish()
-        }
-        return true
-    }
-
-    override fun syncPlayerLaunchState(
-        title: String,
-        source: HashMap<String, Any?>?,
-        initialPlayInfo: HashMap<String, Any?>?,
-        startSource: String,
-    ): Boolean {
-        val normalizedTitle = title.trim()
-        val normalizedSource = source ?: hashMapOf()
-        if (normalizedTitle.isEmpty() || normalizedSource.isEmpty()) return false
-        val nextIntent =
-            createIntent(
+        val launchIntent =
+            PlayerActivity.createIntent(
                 context = this,
-                title = normalizedTitle,
-                source = HashMap(normalizedSource),
-                initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
-                startSource = startSource,
+                title = intent?.getStringExtra(EXTRA_PLAYER_TITLE).orEmpty(),
+                source = HashMap(source),
+                initialPlayInfo =
+                    PlayerLaunchContract.readSerializableHashMap(
+                        intent,
+                        EXTRA_PLAYER_INITIAL_PLAY_INFO,
+                    ),
+                startSource = intent?.getStringExtra(EXTRA_PLAYER_START_SOURCE).orEmpty(),
                 fromParallelHost = PlayerLaunchContract.isFromParallelHost(intent),
-                hostContext = getParallelHostContext(),
-            )
-        setIntent(nextIntent)
-        return true
+                hostContext =
+                    PlayerLaunchContract.readSerializableHashMap(
+                        intent,
+                        EXTRA_PLAYER_HOST_CONTEXT,
+                    ) ?: hashMapOf(),
+                layoutMode = PlayerLaunchContract.MODE_FULLSCREEN,
+                initialRightPaneRoute = PlayerLaunchContract.readInitialRightPaneRoute(intent),
+            ).apply {
+                action = intent?.action ?: action
+                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                PlayerLaunchContract.readResultPayload(intent)?.let { result ->
+                    PlayerLaunchContract.putResultPayload(this, result)
+                }
+            }
+        Log.d(TAG, "redirect fullscreen host to PlayerActivity action=${intent?.action}")
+        startActivity(launchIntent)
+        finish()
     }
 
     companion object {
+        private const val TAG = "FullscreenPlayerActivity"
+        private const val EXTRA_PLAYER_TITLE = "player_title"
+        private const val EXTRA_PLAYER_SOURCE = "player_source"
+        private const val EXTRA_PLAYER_INITIAL_PLAY_INFO = "player_initial_play_info"
+        private const val EXTRA_PLAYER_START_SOURCE = "player_start_source"
+        private const val EXTRA_PLAYER_HOST_CONTEXT = "player_host_context"
+
         fun createIntent(
             context: Context,
             title: String,
@@ -114,14 +65,37 @@ class FullscreenPlayerActivity : FlutterHostActivity() {
             fromParallelHost: Boolean = false,
             hostContext: HashMap<String, Any?> = hashMapOf(),
         ): Intent {
-            return PlayerLaunchContract.applyLaunchExtras(
-                intent = Intent(context, FullscreenPlayerActivity::class.java),
+            return PlayerActivity.createIntent(
+                context = context,
                 title = title,
                 source = source,
                 initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
                 startSource = startSource,
                 fromParallelHost = fromParallelHost,
                 hostContext = hostContext,
+                layoutMode = PlayerLaunchContract.MODE_FULLSCREEN,
+            ).apply {
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            }
+        }
+
+        fun createResumeIntent(
+            context: Context,
+            title: String,
+            source: HashMap<String, Any?>,
+            initialPlayInfo: HashMap<String, Any?>? = null,
+            startSource: String = "manual",
+            fromParallelHost: Boolean = false,
+        ): Intent {
+            return PlayerActivity.createResumeIntent(
+                context = context,
+                title = title,
+                source = source,
+                initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
+                startSource = startSource,
+                fromParallelHost = fromParallelHost,
                 layoutMode = PlayerLaunchContract.MODE_FULLSCREEN,
             )
         }

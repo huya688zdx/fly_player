@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../l10n/generated/app_localizations.dart';
 import '../../theme/app_theme.dart';
 import 'player_system_controls.dart';
 
@@ -12,10 +13,38 @@ class PlayerAdjustmentOverlayData {
   const PlayerAdjustmentOverlayData({required this.type, required this.value});
 }
 
+class PlayerGestureTapCoordinator {
+  Timer? pendingTapTimer;
+  DateTime? lastTapTime;
+  Offset? lastTapPosition;
+  Offset? currentTapPosition;
+
+  void clear({bool clearCurrentTapPosition = true}) {
+    pendingTapTimer = null;
+    lastTapTime = null;
+    lastTapPosition = null;
+    if (clearCurrentTapPosition) {
+      currentTapPosition = null;
+    }
+  }
+
+  void cancel() {
+    pendingTapTimer?.cancel();
+    clear();
+  }
+
+  void dispose() {
+    pendingTapTimer?.cancel();
+    clear();
+  }
+}
+
 class PlayerGestureLayer extends StatefulWidget {
   final Widget child;
   final VoidCallback? onTap;
   final VoidCallback? onDoubleTap;
+  final bool deferSingleTapForDoubleTap;
+  final PlayerGestureTapCoordinator? tapCoordinator;
   final GestureLongPressStartCallback? onLongPressStart;
   final GestureLongPressEndCallback? onLongPressEnd;
   final VoidCallback? onLongPressCancel;
@@ -33,6 +62,8 @@ class PlayerGestureLayer extends StatefulWidget {
     this.child = const SizedBox.expand(),
     this.onTap,
     this.onDoubleTap,
+    this.deferSingleTapForDoubleTap = true,
+    this.tapCoordinator,
     this.onLongPressStart,
     this.onLongPressEnd,
     this.onLongPressCancel,
@@ -51,32 +82,48 @@ class PlayerGestureLayer extends StatefulWidget {
 }
 
 class _PlayerGestureLayerState extends State<PlayerGestureLayer> {
-  static const Duration _doubleTapMaxInterval = Duration(milliseconds: 220);
+  static const Duration _doubleTapMaxInterval = Duration(milliseconds: 300);
   static const double _doubleTapMaxDistance = 56;
 
-  Timer? _pendingTapTimer;
-  DateTime? _lastTapTime;
-  Offset? _lastTapPosition;
-  Offset? _currentTapPosition;
+  late final PlayerGestureTapCoordinator _localTapCoordinator =
+      PlayerGestureTapCoordinator();
+
+  PlayerGestureTapCoordinator get _tapCoordinator =>
+      widget.tapCoordinator ?? _localTapCoordinator;
 
   @override
   void dispose() {
-    _pendingTapTimer?.cancel();
+    if (widget.tapCoordinator == null) {
+      _localTapCoordinator.dispose();
+    }
     super.dispose();
   }
 
   void _handleTapDown(TapDownDetails details) {
-    _currentTapPosition = details.localPosition;
+    _tapCoordinator.currentTapPosition = details.localPosition;
   }
 
   void _handleTapCancel() {
-    _currentTapPosition = null;
+    _tapCoordinator.currentTapPosition = null;
+  }
+
+  bool get _useNativeDeferredDoubleTapHandling =>
+      widget.onDoubleTap != null && widget.deferSingleTapForDoubleTap;
+
+  void _handleDeferredTap() {
+    _clearTapTracking();
+    widget.onTap?.call();
+  }
+
+  void _handleDeferredDoubleTap() {
+    _clearTapTracking();
+    widget.onDoubleTap?.call();
   }
 
   void _handleTap() {
     final now = DateTime.now();
-    final tapPosition = _currentTapPosition;
-    final hasPendingTap = _pendingTapTimer?.isActive ?? false;
+    final tapPosition = _tapCoordinator.currentTapPosition;
+    final hasPendingTap = _tapCoordinator.pendingTapTimer?.isActive ?? false;
 
     if (widget.onDoubleTap == null) {
       widget.onTap?.call();
@@ -84,31 +131,51 @@ class _PlayerGestureLayerState extends State<PlayerGestureLayer> {
     }
 
     final withinInterval =
-        _lastTapTime != null &&
-        now.difference(_lastTapTime!) <= _doubleTapMaxInterval;
+        _tapCoordinator.lastTapTime != null &&
+        now.difference(_tapCoordinator.lastTapTime!) <= _doubleTapMaxInterval;
     final withinDistance =
         tapPosition != null &&
-        _lastTapPosition != null &&
-        (tapPosition - _lastTapPosition!).distance <= _doubleTapMaxDistance;
+        _tapCoordinator.lastTapPosition != null &&
+        (tapPosition - _tapCoordinator.lastTapPosition!).distance <=
+            _doubleTapMaxDistance;
+
+    if (!widget.deferSingleTapForDoubleTap) {
+      if (hasPendingTap && withinInterval && withinDistance) {
+        _tapCoordinator.pendingTapTimer?.cancel();
+        _clearTapTracking();
+        widget.onDoubleTap?.call();
+        return;
+      }
+
+      _tapCoordinator.pendingTapTimer?.cancel();
+      widget.onTap?.call();
+      _tapCoordinator.lastTapTime = now;
+      _tapCoordinator.lastTapPosition = tapPosition;
+      _tapCoordinator.pendingTapTimer = Timer(_doubleTapMaxInterval, () {
+        _tapCoordinator.pendingTapTimer = null;
+        _clearTapTracking(clearCurrentTapPosition: false);
+      });
+      return;
+    }
 
     if (hasPendingTap && withinInterval && withinDistance) {
-      _pendingTapTimer?.cancel();
+      _tapCoordinator.pendingTapTimer?.cancel();
       _clearTapTracking();
       widget.onDoubleTap?.call();
       return;
     }
 
     if (hasPendingTap) {
-      _pendingTapTimer?.cancel();
+      _tapCoordinator.pendingTapTimer?.cancel();
       final pendingSingleTap = widget.onTap;
       _clearTapTracking(clearCurrentTapPosition: false);
       pendingSingleTap?.call();
     }
 
-    _lastTapTime = now;
-    _lastTapPosition = tapPosition;
-    _pendingTapTimer = Timer(_doubleTapMaxInterval, () {
-      _pendingTapTimer = null;
+    _tapCoordinator.lastTapTime = now;
+    _tapCoordinator.lastTapPosition = tapPosition;
+    _tapCoordinator.pendingTapTimer = Timer(_doubleTapMaxInterval, () {
+      _tapCoordinator.pendingTapTimer = null;
       final singleTap = widget.onTap;
       _clearTapTracking(clearCurrentTapPosition: false);
       singleTap?.call();
@@ -116,17 +183,11 @@ class _PlayerGestureLayerState extends State<PlayerGestureLayer> {
   }
 
   void _clearTapTracking({bool clearCurrentTapPosition = true}) {
-    _pendingTapTimer = null;
-    _lastTapTime = null;
-    _lastTapPosition = null;
-    if (clearCurrentTapPosition) {
-      _currentTapPosition = null;
-    }
+    _tapCoordinator.clear(clearCurrentTapPosition: clearCurrentTapPosition);
   }
 
   void _cancelPendingTapRecognition() {
-    _pendingTapTimer?.cancel();
-    _clearTapTracking();
+    _tapCoordinator.cancel();
   }
 
   @override
@@ -135,7 +196,12 @@ class _PlayerGestureLayerState extends State<PlayerGestureLayer> {
       behavior: HitTestBehavior.opaque,
       onTapDown: _handleTapDown,
       onTapCancel: _handleTapCancel,
-      onTap: _handleTap,
+      onTap: _useNativeDeferredDoubleTapHandling
+          ? _handleDeferredTap
+          : _handleTap,
+      onDoubleTap: _useNativeDeferredDoubleTapHandling
+          ? _handleDeferredDoubleTap
+          : null,
       onLongPressStart: widget.onLongPressStart == null
           ? null
           : (details) {
@@ -247,11 +313,13 @@ double _statusBannerTopOffset(MediaQueryData media) {
 class PlayerLoadingOverlay extends StatelessWidget {
   final bool visible;
   final String message;
+  final String? secondaryMessage;
 
   const PlayerLoadingOverlay({
     super.key,
     required this.visible,
-    this.message = '视频加载中',
+    this.message = '',
+    this.secondaryMessage,
   });
 
   @override
@@ -266,6 +334,10 @@ class PlayerLoadingOverlay extends StatelessWidget {
     final spinnerSize = 18.0 * scale;
     final textSize = 14.0 * scale;
     final spacing = 14.0 * scale;
+    final primaryMessage = message.trim().isEmpty
+        ? AppLocalizations.of(context).playerLoadingVideo
+        : message;
+    final details = secondaryMessage?.trim() ?? '';
 
     return IgnorePointer(
       child: Center(
@@ -282,7 +354,7 @@ class PlayerLoadingOverlay extends StatelessWidget {
             ),
             SizedBox(height: spacing),
             Text(
-              message,
+              primaryMessage,
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Colors.white,
@@ -298,8 +370,58 @@ class PlayerLoadingOverlay extends StatelessWidget {
                 ],
               ),
             ),
+            if (details.isNotEmpty) ...[
+              SizedBox(height: 8.0 * scale),
+              Text(
+                details,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.82),
+                  fontSize: 11.8 * scale,
+                  fontWeight: FontWeight.w400,
+                  height: 1.25,
+                  shadows: const <Shadow>[
+                    Shadow(
+                      color: Color(0x90000000),
+                      blurRadius: 10,
+                      offset: Offset(0, 2),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+class PlayerWeakNetworkSuggestionOverlay extends StatelessWidget {
+  final bool visible;
+  final String title;
+  final String subtitle;
+  final VoidCallback onSwitch;
+  final VoidCallback onDismiss;
+
+  const PlayerWeakNetworkSuggestionOverlay({
+    super.key,
+    required this.visible,
+    required this.title,
+    required this.subtitle,
+    required this.onSwitch,
+    required this.onDismiss,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _PlayerEdgeNoticeOverlay(
+      visible: visible,
+      child: _PlayerWeakNetworkSuggestionCard(
+        title: title,
+        subtitle: subtitle,
+        onSwitch: onSwitch,
+        onDismiss: onDismiss,
       ),
     );
   }
@@ -321,15 +443,16 @@ class PlayerSkipPromptOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final title = countdownSeconds > 0
-        ? '$countdownSeconds 秒后跳过$label'
-        : '即将跳过$label';
+        ? l10n.playerSkipPromptCountdown(countdownSeconds, label)
+        : l10n.playerSkipPromptSoon(label);
 
     return _PlayerEdgeNoticeOverlay(
       visible: visible,
       child: _PlayerEdgeNoticeCard(
         title: title,
-        subtitle: '点击关闭后，本次不会自动跳过',
+        subtitle: l10n.playerSkipPromptDismissSubtitle,
         onClose: onClose,
       ),
     );
@@ -525,6 +648,125 @@ class _PlayerEdgeNoticeCard extends StatelessWidget {
                     ),
                   ),
                 ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlayerWeakNetworkSuggestionCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final VoidCallback onSwitch;
+  final VoidCallback onDismiss;
+
+  const _PlayerWeakNetworkSuggestionCard({
+    required this.title,
+    required this.subtitle,
+    required this.onSwitch,
+    required this.onDismiss,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final media = MediaQuery.of(context);
+    final scale = (media.size.shortestSide / 411).clamp(0.74, 0.92);
+    final maxWidth = (media.size.width * 0.48).clamp(236.0, 332.0);
+
+    return Material(
+      color: Colors.transparent,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colors.backgroundElevated.withValues(alpha: 0.94),
+          borderRadius: BorderRadius.circular(16 * scale),
+          border: Border.all(color: colors.borderSubtle),
+        ),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxWidth),
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              15 * scale,
+              12 * scale,
+              15 * scale,
+              12 * scale,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 12.8 * scale,
+                    fontWeight: FontWeight.w600,
+                    height: 1.25,
+                  ),
+                ),
+                if (subtitle.trim().isNotEmpty) ...[
+                  SizedBox(height: 5 * scale),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: colors.textSecondary,
+                      fontSize: 11.1 * scale,
+                      fontWeight: FontWeight.w400,
+                      height: 1.25,
+                    ),
+                  ),
+                ],
+                SizedBox(height: 10 * scale),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextButton(
+                      onPressed: onDismiss,
+                      style: TextButton.styleFrom(
+                        foregroundColor: colors.textSecondary,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 10 * scale,
+                          vertical: 7 * scale,
+                        ),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      child: Text(
+                        '\u6682\u4e0d',
+                        style: TextStyle(
+                          fontSize: 11.4 * scale,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: 6 * scale),
+                    FilledButton(
+                      onPressed: onSwitch,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: colors.accent,
+                        foregroundColor: Colors.white,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 12 * scale,
+                          vertical: 8 * scale,
+                        ),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      child: Text(
+                        '\u5207\u6362',
+                        style: TextStyle(
+                          fontSize: 11.6 * scale,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),

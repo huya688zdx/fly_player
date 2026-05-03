@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+/// 负责将运行时主题状态同步到主宿主进程。
 class RuntimeThemeSyncBridge {
   RuntimeThemeSyncBridge._();
 
@@ -14,6 +15,7 @@ class RuntimeThemeSyncBridge {
 
   Object? _handlerOwner;
 
+  /// 注册来自宿主侧的运行时主题回调处理器。
   Future<void> registerHandler(
     Object owner,
     Future<void> Function(MethodCall call) handler,
@@ -27,6 +29,7 @@ class RuntimeThemeSyncBridge {
     });
   }
 
+  /// 注销当前持有者注册的运行时主题回调。
   Future<void> unregisterHandler(Object owner) async {
     if (!identical(_handlerOwner, owner)) {
       return;
@@ -35,6 +38,7 @@ class RuntimeThemeSyncBridge {
     _channel.setMethodCallHandler(null);
   }
 
+  /// 将指定页面的运行时主题种子推送到主宿主。
   Future<void> pushRuntimeThemeToMain({
     required String pageKey,
     required int backgroundSeed,
@@ -47,7 +51,9 @@ class RuntimeThemeSyncBridge {
       return;
     }
     try {
-      debugPrint('[THEME][SYNC] invoke pushRuntimeThemeToMain page=$pageKey');
+      if (kDebugMode) {
+        debugPrint('[THEME][SYNC] invoke pushRuntimeThemeToMain page=$pageKey');
+      }
       await _channel.invokeMethod<void>('pushRuntimeThemeToMain', {
         'pageKey': pageKey,
         'backgroundSeed': backgroundSeed,
@@ -61,17 +67,36 @@ class RuntimeThemeSyncBridge {
     }
   }
 
+  /// 清除主宿主中指定页面的运行时主题覆盖。
   Future<void> clearRuntimeThemeOnMain(String pageKey) async {
     if (!Platform.isAndroid) {
       return;
     }
     try {
-      debugPrint('[THEME][SYNC] invoke clearRuntimeThemeOnMain page=$pageKey');
+      if (kDebugMode) {
+        debugPrint(
+          '[THEME][SYNC] invoke clearRuntimeThemeOnMain page=$pageKey',
+        );
+      }
       await _channel.invokeMethod<void>('clearRuntimeThemeOnMain', {
         'pageKey': pageKey,
       });
     } on PlatformException {
       // Ignore unavailable host synchronization.
+    }
+  }
+
+  Future<Map<String, dynamic>?> activeRuntimeThemeSnapshot() async {
+    if (!Platform.isAndroid) {
+      return null;
+    }
+    try {
+      final result = await _channel.invokeMapMethod<String, dynamic>(
+        'getActiveRuntimeTheme',
+      );
+      return result;
+    } on PlatformException {
+      return null;
     }
   }
 }

@@ -48,14 +48,14 @@
             android:name=".DetailActivity"
             android:exported="false"
             android:taskAffinity="com.geqian.flyplayer.fly_player"
-            android:theme="@style/ParallelPaneLaunchTheme"
+            android:theme="@style/DetailPaneLaunchTheme"
             android:resizeableActivity="true"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
-                android:resource="@style/ParallelPaneNormalTheme" />
+                android:resource="@style/DetailPaneNormalTheme" />
         </activity>
         <activity
             android:name=".PlaceholderActivity"
@@ -84,6 +84,32 @@
                 android:resource="@style/NormalTheme" />
         </activity>
         <activity
+            android:name=".ExternalLocalVideoActivity"
+            android:exported="true"
+            android:theme="@style/PlayerLaunchTheme"
+            android:noHistory="true"
+            android:excludeFromRecents="true"
+            android:resizeableActivity="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" android:mimeType="video/*" />
+                <data android:scheme="file" android:mimeType="video/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" android:mimeType="application/octet-stream" />
+                <data android:scheme="file" android:mimeType="application/octet-stream" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+            </intent-filter>
+        </activity>
+        <activity
             android:name=".PlayerActivity"
             android:exported="false"
             android:launchMode="singleTop"
@@ -101,7 +127,8 @@
         <activity
             android:name=".FullscreenPlayerActivity"
             android:exported="false"
-            android:taskAffinity="com.geqian.flyplayer.fly_player"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.geqian.flyplayer.fly_player.fullscreen"
             android:theme="@style/PlayerLaunchTheme"
             android:resizeableActivity="true"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"

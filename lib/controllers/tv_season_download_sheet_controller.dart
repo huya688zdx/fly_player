@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../api/feiniu_api.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../models/media_library_item.dart';
 import '../models/tv_episode_browser_models.dart';
 import '../providers/nas_provider.dart';
@@ -11,15 +12,18 @@ import '../services/download_task_service.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../theme/app_theme.dart';
 import '../utils/api_url_helper.dart';
+import '../utils/async_action_guard.dart';
 import '../utils/detail_top_tip.dart';
-import '../utils/media_locale_store.dart';
 import '../widgets/detail/tv_season_download_sheet.dart';
 
+/// 负责展示季度或剧集范围的下载面板。
 class TvSeasonDownloadSheetController {
   static final DetailTopTip _topTip = DetailTopTip();
 
+  /// 创建一个季度下载面板控制器。
   const TvSeasonDownloadSheetController();
 
+  /// 加载下载信息并展示季度下载面板。
   Future<void> show(
     BuildContext context, {
     MediaLibraryItem? episode,
@@ -31,205 +35,203 @@ class TvSeasonDownloadSheetController {
     String preferredSubtitleGuid = '',
     Map<String, dynamic> localeMap = const <String, dynamic>{},
   }) async {
+    final l10n = AppLocalizations.of(context);
+    final primaryGuid = episode?.guid.trim().isNotEmpty == true
+        ? episode!.guid.trim()
+        : candidateItemGuids
+              .map((value) => value.trim())
+              .firstWhere((value) => value.isNotEmpty, orElse: () => '');
+    final actionKey =
+        'tv_season_download_sheet:$primaryGuid:${seriesTitle.trim()}';
+    if (AsyncActionGuard.isRunning(actionKey)) {
+      _showTopTip(context, l10n.downloadLoadingInfo, context.appColors.warning);
+      return;
+    }
+
     final provider = context.read<NasProvider>();
     final api = FeiniuApi(provider);
     final colors = context.appColors;
     final downloadService = DownloadTaskService.instance;
 
-    try {
-      await downloadService.initialize();
-      final detail = await _resolveDownloadDetail(
-        api,
-        episode: episode,
-        candidateItemGuids: candidateItemGuids,
-      );
-      if (!context.mounted || detail == null) return;
-
-      final item = _detailItem(detail);
-      final groupMeta = await _resolveGroupMeta(
-        api,
-        provider.baseUrl,
-        detail,
-        item,
-        episode,
-        seriesTitle,
-      );
-      final playItemGuid = _extractPlayItemGuid(detail, item);
-      if (playItemGuid.isEmpty) {
-        _showTopTip(
-          context,
-          MediaLocaleStore.text(
-            localeMap,
-            'common.actions.download.unavailable',
-            fallback: '暂无可下载资源',
-          ),
-          colors.warning,
-        );
-        return;
-      }
-
-      final qualities = await api.getDownloadResolutionOptions(
-        playItemGuid,
-        lan: 'zh-CN',
-      );
-      if (!context.mounted) return;
-      if (qualities.isEmpty) {
-        _showTopTip(
-          context,
-          MediaLocaleStore.text(
-            localeMap,
-            'common.actions.download.noQuality',
-            fallback: '暂无可下载画质',
-          ),
-          colors.warning,
-        );
-        return;
-      }
-
-      final sourceResolution = _extractSourceResolution(item, episode);
-      final payload = TvSeasonDownloadSheetPayload(
-        sheetTitle: MediaLocaleStore.text(
-          localeMap,
-          'common.actions.download.selectItem',
-          fallback: '选择下载影片',
-        ),
-        qualityLabel: MediaLocaleStore.text(
-          localeMap,
-          'common.actions.download.quality',
-          fallback: '下载画质',
-        ),
-        qualitySheetTitle: MediaLocaleStore.text(
-          localeMap,
-          'common.actions.download.selectQuality',
-          fallback: '选择下载影片画质',
-        ),
-        itemTitle: _buildItemTitle(item, episode, seriesTitle),
-        posterUrls: _posterUrls(provider.baseUrl, item, episode),
-        token: provider.token,
-        posterBadgeLabel: _posterBadgeLabel(sourceResolution),
-        episodeEntries: episodeEntries,
-        qualityOptions: qualities
-            .map(
-              (quality) => TvSeasonDownloadQualityOption(
-                value: quality,
-                label: _qualityLabel(quality, localeMap),
-                hint: _downloadQualityHint(
-                  localeMap: localeMap,
-                  sourceResolution: sourceResolution,
-                  quality: quality,
-                  downloaded: downloadService.hasDownloadedResolution(
-                    episode?.guid ?? '',
-                    quality,
-                  ),
-                ),
-              ),
-            )
-            .toList(growable: false),
-        initialQuality: _resolveInitialQuality(qualities, sourceResolution),
-        initialRangeIndex: initialRangeIndex,
-        rangeSize: rangeSize,
-        downloadLabel: MediaLocaleStore.text(
-          localeMap,
-          'common.actions.download.download',
-          fallback: '下载',
-        ),
-        openListLabel: MediaLocaleStore.text(
-          localeMap,
-          'common.actions.download.openList',
-          fallback: '查看下载列表',
-        ),
-        primaryActionState: downloadService.actionStateForItem(
-          episode?.guid ?? '',
-        ),
-        episodeActionStates: downloadService.actionStatesForItems(
-          episodeEntries.map((entry) => entry.guid),
-        ),
-      );
-
-      await TvSeasonDownloadSheet.show(
-        context,
-        payload: payload,
-        onDownloadTap: (selectedQuality) async {
-          final targetEpisode = episode;
-          if (targetEpisode == null) return;
-          try {
-            final result = await downloadService.startDownload(
-              provider: provider,
-              itemGuid: targetEpisode.guid,
-              resolution: selectedQuality,
-              title: _buildItemTitle(item, targetEpisode, seriesTitle),
-              groupId: groupMeta.id,
-              groupTitle: groupMeta.title,
-              durationText: _durationText(targetEpisode.duration),
-              posterUrls: _posterUrls(provider.baseUrl, item, targetEpisode),
-              groupPosterUrls: groupMeta.posterUrls,
-              preferredSubtitleGuid: preferredSubtitleGuid,
-            );
-            if (!context.mounted) return;
-            _showStartResultTip(
-              context,
-              result: result,
-              qualityText: _qualityLabel(selectedQuality, localeMap),
-              colors: colors,
-            );
-          } catch (error) {
-            if (!context.mounted) return;
-            _showTopTip(context, '下载失败: $error', colors.danger);
-          }
-        },
-        onEpisodeDownloadTap: (episodeGuid, selectedQuality) async {
-          final matched = episodeEntries.cast<TvEpisodeCardData?>().firstWhere(
-            (entry) => entry?.guid == episodeGuid,
-            orElse: () => null,
+    await AsyncActionGuard.run<void>(
+      actionKey,
+      settleDuration: const Duration(milliseconds: 500),
+      action: () async {
+        try {
+          await downloadService.initialize();
+          final detail = await _resolveDownloadDetail(
+            api,
+            episode: episode,
+            candidateItemGuids: candidateItemGuids,
           );
-          if (matched == null) return;
-          try {
-            final result = await downloadService.startDownload(
-              provider: provider,
-              itemGuid: episodeGuid,
-              resolution: selectedQuality,
-              title: matched.title,
-              groupId: groupMeta.id,
-              groupTitle: groupMeta.title,
-              durationText: matched.durationText,
-              posterUrls: matched.imageUrls,
-              groupPosterUrls: groupMeta.posterUrls,
-              preferredSubtitleGuid: preferredSubtitleGuid,
-            );
-            if (!context.mounted) return;
-            _showStartResultTip(
-              context,
-              result: result,
-              qualityText: _qualityLabel(selectedQuality, localeMap),
-              colors: colors,
-              title: matched.title,
-            );
-          } catch (error) {
-            if (!context.mounted) return;
-            _showTopTip(context, '下载失败: $error', colors.danger);
+          if (!context.mounted || detail == null) return;
+
+          final item = _detailItem(detail);
+          final groupMeta = await _resolveGroupMeta(
+            api,
+            provider.baseUrl,
+            detail,
+            item,
+            episode,
+            seriesTitle,
+            l10n,
+          );
+          if (!context.mounted) return;
+          final playItemGuid = _extractPlayItemGuid(detail, item);
+          if (playItemGuid.isEmpty) {
+            _showTopTip(context, l10n.downloadNoResources, colors.warning);
+            return;
           }
-        },
-        onOpenDownloadListTap: () {
-          unawaited(
-            EmbeddedDetailLauncher.openDownloads(
-              context: context,
-              tab: 'downloading',
+
+          final qualities = await api.getDownloadResolutionOptions(
+            playItemGuid,
+            lan: 'zh-CN',
+          );
+          if (!context.mounted) return;
+          if (qualities.isEmpty) {
+            _showTopTip(context, l10n.downloadNoQuality, colors.warning);
+            return;
+          }
+
+          final sourceResolution = _extractSourceResolution(item, episode);
+          final payload = TvSeasonDownloadSheetPayload(
+            sheetTitle: l10n.downloadSelectItem,
+            qualityLabel: l10n.downloadQuality,
+            qualitySheetTitle: l10n.downloadSelectQuality,
+            itemTitle: _buildItemTitle(item, episode, seriesTitle, l10n),
+            posterUrls: _posterUrls(provider.baseUrl, item, episode),
+            token: provider.token,
+            posterBadgeLabel: _posterBadgeLabel(sourceResolution),
+            episodeEntries: episodeEntries,
+            qualityOptions: qualities
+                .map(
+                  (quality) => TvSeasonDownloadQualityOption(
+                    value: quality,
+                    label: _qualityLabel(quality, l10n),
+                    hint: _downloadQualityHint(
+                      l10n: l10n,
+                      sourceResolution: sourceResolution,
+                      quality: quality,
+                      downloaded: downloadService.hasDownloadedResolution(
+                        episode?.guid ?? '',
+                        quality,
+                      ),
+                    ),
+                  ),
+                )
+                .toList(growable: false),
+            initialQuality: _resolveInitialQuality(qualities, sourceResolution),
+            initialRangeIndex: initialRangeIndex,
+            rangeSize: rangeSize,
+            downloadLabel: l10n.downloadDownload,
+            openListLabel: l10n.downloadOpenList,
+            primaryActionState: downloadService.actionStateForItem(
+              episode?.guid ?? '',
+            ),
+            episodeActionStates: downloadService.actionStatesForItems(
+              episodeEntries.map((entry) => entry.guid),
             ),
           );
-        },
-      );
-    } catch (_) {
-      if (!context.mounted) return;
-      _showTopTip(
-        context,
-        MediaLocaleStore.text(
-          localeMap,
-          'common.actions.download.loadFailed',
-          fallback: '获取下载信息失败，请稍后重试',
-        ),
-        colors.danger,
-      );
-    }
+
+          await TvSeasonDownloadSheet.show(
+            context,
+            payload: payload,
+            onDownloadTap: (selectedQuality) async {
+              final targetEpisode = episode;
+              if (targetEpisode == null) return;
+              try {
+                final result = await downloadService.startDownload(
+                  provider: provider,
+                  itemGuid: targetEpisode.guid,
+                  resolution: selectedQuality,
+                  title: _buildItemTitle(
+                    item,
+                    targetEpisode,
+                    seriesTitle,
+                    l10n,
+                  ),
+                  groupId: groupMeta.id,
+                  groupTitle: groupMeta.title,
+                  durationText: _durationText(targetEpisode.duration, l10n),
+                  posterUrls: _posterUrls(
+                    provider.baseUrl,
+                    item,
+                    targetEpisode,
+                  ),
+                  groupPosterUrls: groupMeta.posterUrls,
+                  preferredSubtitleGuid: preferredSubtitleGuid,
+                );
+                if (!context.mounted) return;
+                _showStartResultTip(
+                  context,
+                  result: result,
+                  qualityText: _qualityLabel(selectedQuality, l10n),
+                  colors: colors,
+                  l10n: l10n,
+                );
+              } catch (error) {
+                if (!context.mounted) return;
+                _showTopTip(
+                  context,
+                  l10n.downloadFailedWithError(error),
+                  colors.danger,
+                );
+              }
+            },
+            onEpisodeDownloadTap: (episodeGuid, selectedQuality) async {
+              final matched = episodeEntries
+                  .cast<TvEpisodeCardData?>()
+                  .firstWhere(
+                    (entry) => entry?.guid == episodeGuid,
+                    orElse: () => null,
+                  );
+              if (matched == null) return;
+              try {
+                final result = await downloadService.startDownload(
+                  provider: provider,
+                  itemGuid: episodeGuid,
+                  resolution: selectedQuality,
+                  title: matched.title,
+                  groupId: groupMeta.id,
+                  groupTitle: groupMeta.title,
+                  durationText: matched.durationText,
+                  posterUrls: matched.imageUrls,
+                  groupPosterUrls: groupMeta.posterUrls,
+                  preferredSubtitleGuid: preferredSubtitleGuid,
+                );
+                if (!context.mounted) return;
+                _showStartResultTip(
+                  context,
+                  result: result,
+                  qualityText: _qualityLabel(selectedQuality, l10n),
+                  colors: colors,
+                  l10n: l10n,
+                  title: matched.title,
+                );
+              } catch (error) {
+                if (!context.mounted) return;
+                _showTopTip(
+                  context,
+                  l10n.downloadFailedWithError(error),
+                  colors.danger,
+                );
+              }
+            },
+            onOpenDownloadListTap: () {
+              unawaited(
+                EmbeddedDetailLauncher.openDownloads(
+                  context: context,
+                  tab: 'downloading',
+                ),
+              );
+            },
+          );
+        } catch (_) {
+          if (!context.mounted) return;
+          _showTopTip(context, l10n.downloadLoadFailed, colors.danger);
+        }
+      },
+    );
   }
 
   static Future<Map<String, dynamic>?> _resolveDownloadDetail(
@@ -258,19 +260,14 @@ class TvSeasonDownloadSheetController {
   }
 
   static String _downloadQualityHint({
-    required Map<String, dynamic> localeMap,
+    required AppLocalizations l10n,
     required String sourceResolution,
     required String quality,
     required bool downloaded,
   }) {
     final hints = <String>[
-      if (_isSameQuality(quality, sourceResolution))
-        MediaLocaleStore.text(
-          localeMap,
-          'common.actions.download.source',
-          fallback: '原画',
-        ),
-      if (downloaded) '已下载',
+      if (_isSameQuality(quality, sourceResolution)) l10n.downloadSourceQuality,
+      if (downloaded) l10n.downloadDownloaded,
     ];
     return hints.join(' · ');
   }
@@ -329,9 +326,10 @@ class TvSeasonDownloadSheetController {
     Map<String, dynamic> item,
     MediaLibraryItem? episode,
     String seriesTitle,
+    AppLocalizations l10n,
   ) async {
     final currentPosterUrls = _posterUrls(baseUrl, item, episode);
-    final currentTitle = _collectionTitleFromMap(item);
+    final currentTitle = _collectionTitleFromMap(item, l10n);
     final tvTitle = (item['tv_title'] ?? '').toString().trim();
     final currentSeasonNumber = _asInt(item['season_number']);
     if (currentTitle.isNotEmpty &&
@@ -341,7 +339,11 @@ class TvSeasonDownloadSheetController {
           .trim();
       return _DownloadGroupMeta(
         id: currentGuid.isNotEmpty ? currentGuid : seriesTitle.trim(),
-        title: _groupTitle(seriesTitle: seriesTitle, seasonTitle: currentTitle),
+        title: _groupTitle(
+          seriesTitle: seriesTitle,
+          seasonTitle: currentTitle,
+          l10n: l10n,
+        ),
         posterUrls: currentPosterUrls,
       );
     }
@@ -356,7 +358,7 @@ class TvSeasonDownloadSheetController {
       try {
         final parentDetail = await api.getItemDetail(guid);
         final parentItem = _detailItem(parentDetail);
-        final parentTitle = _collectionTitleFromMap(parentItem);
+        final parentTitle = _collectionTitleFromMap(parentItem, l10n);
         final posterPath = (parentItem['posters'] ?? parentItem['poster'] ?? '')
             .toString()
             .trim();
@@ -371,7 +373,8 @@ class TvSeasonDownloadSheetController {
           title: _composeGroupTitle(
             seriesTitle: seriesTitle,
             collectionTitle: parentTitle,
-            fallbackTitle: _fallbackGroupSuffix(item, episode),
+            fallbackTitle: _fallbackGroupSuffix(item, episode, l10n),
+            l10n: l10n,
           ),
           posterUrls: urls,
         );
@@ -383,7 +386,8 @@ class TvSeasonDownloadSheetController {
       id: detailGuid.isNotEmpty ? detailGuid : seriesTitle.trim(),
       title: _composeGroupTitle(
         seriesTitle: seriesTitle,
-        collectionTitle: _fallbackGroupSuffix(item, episode),
+        collectionTitle: _fallbackGroupSuffix(item, episode, l10n),
+        l10n: l10n,
       ),
       posterUrls: const <String>[],
     );
@@ -393,6 +397,7 @@ class TvSeasonDownloadSheetController {
     Map<String, dynamic> item,
     MediaLibraryItem? episode,
     String seriesTitle,
+    AppLocalizations l10n,
   ) {
     final tvTitle = (item['tv_title'] ?? '').toString().trim();
     final episodeTitle = (item['title'] ?? episode?.title ?? '')
@@ -404,7 +409,7 @@ class TvSeasonDownloadSheetController {
     final parts = <String>[
       if (tvTitle.isNotEmpty) tvTitle,
       if (seasonTitle.isNotEmpty) seasonTitle,
-      if (episodeNumber > 0) '第 $episodeNumber 集',
+      if (episodeNumber > 0) _episodeLabel(episodeNumber, l10n),
       if (episodeTitle.isNotEmpty && episodeTitle != tvTitle) episodeTitle,
     ];
     if (parts.isNotEmpty) return parts.join(' ');
@@ -423,14 +428,10 @@ class TvSeasonDownloadSheetController {
     return trimmed;
   }
 
-  static String _qualityLabel(String raw, Map<String, dynamic> localeMap) {
+  static String _qualityLabel(String raw, AppLocalizations l10n) {
     final trimmed = raw.trim();
     if (trimmed == 'Others') {
-      return MediaLocaleStore.text(
-        localeMap,
-        'stream.video.videoResolution.others',
-        fallback: '其他',
-      );
+      return l10n.commonOther;
     }
     return trimmed;
   }
@@ -456,9 +457,10 @@ class TvSeasonDownloadSheetController {
   static String _fallbackGroupSuffix(
     Map<String, dynamic> item,
     MediaLibraryItem? episode,
+    AppLocalizations l10n,
   ) {
     final seasonNumber = _asInt(item['season_number']);
-    if (seasonNumber > 0) return '第$seasonNumber季';
+    if (seasonNumber > 0) return _seasonLabel(seasonNumber, l10n);
     final parentTitle = (item['parent_title'] ?? '').toString().trim();
     if (parentTitle.isNotEmpty) return parentTitle;
     final episodeParentTitle = episode?.parentTitle.trim() ?? '';
@@ -472,30 +474,35 @@ class TvSeasonDownloadSheetController {
     return '';
   }
 
-  static String _collectionTitleFromMap(Map<String, dynamic> item) {
+  static String _collectionTitleFromMap(
+    Map<String, dynamic> item,
+    AppLocalizations l10n,
+  ) {
     final title = (item['title'] ?? '').toString().trim();
     if (title.isNotEmpty) return title;
     final seasonNumber = _asInt(item['season_number']);
-    if (seasonNumber > 0) return '第$seasonNumber季';
+    if (seasonNumber > 0) return _seasonLabel(seasonNumber, l10n);
     return '';
   }
 
   static String _groupTitle({
     required String seriesTitle,
     required String seasonTitle,
+    required AppLocalizations l10n,
   }) {
     final parts = <String>[
       if (seriesTitle.trim().isNotEmpty) seriesTitle.trim(),
       if (seasonTitle.trim().isNotEmpty) seasonTitle.trim(),
     ];
     if (parts.isNotEmpty) return parts.join(' ');
-    return '下载列表';
+    return l10n.downloadListTitle;
   }
 
   static String _composeGroupTitle({
     required String seriesTitle,
     required String collectionTitle,
     String fallbackTitle = '',
+    AppLocalizations? l10n,
   }) {
     final series = seriesTitle.trim();
     final suffix = collectionTitle.trim().isNotEmpty
@@ -507,17 +514,21 @@ class TvSeasonDownloadSheetController {
     ];
     if (parts.isNotEmpty) return parts.join(' ');
     if (suffix.isNotEmpty) return suffix;
-    return series.isNotEmpty ? series : '涓嬭浇鍒楄〃';
+    return series.isNotEmpty ? series : l10n?.downloadListTitle ?? '';
   }
 
-  static String _durationText(int durationSeconds) {
+  static String _durationText(int durationSeconds, AppLocalizations l10n) {
     if (durationSeconds <= 0) return '';
     final hour = durationSeconds ~/ 3600;
     final minute = (durationSeconds % 3600) ~/ 60;
     final second = durationSeconds % 60;
-    if (hour > 0) return '$hour小时$minute分钟';
-    if (minute > 0) return second > 0 ? '$minute分钟$second秒' : '$minute分钟';
-    return '$second秒';
+    if (hour > 0) return _hoursMinutesLabel(hour, minute, l10n);
+    if (minute > 0) {
+      return second > 0
+          ? _minutesSecondsLabel(minute, second, l10n)
+          : _minutesLabel(minute, l10n);
+    }
+    return _secondsLabel(second, l10n);
   }
 
   static void _showStartResultTip(
@@ -525,22 +536,67 @@ class TvSeasonDownloadSheetController {
     required DownloadStartResult result,
     required String qualityText,
     required AppThemeColors colors,
+    required AppLocalizations l10n,
     String title = '',
   }) {
     final prefix = title.trim().isEmpty ? '' : '${title.trim()} ';
     if (result.state == DownloadStartState.started) {
-      _showTopTip(context, '$prefix已开始下载 $qualityText', colors.success);
+      _showTopTip(
+        context,
+        '$prefix${l10n.downloadStartedWithQuality(qualityText)}',
+        colors.success,
+      );
       return;
     }
     if (result.state == DownloadStartState.downloading) {
-      _showTopTip(context, '$prefix正在下载中', colors.warning);
+      _showTopTip(
+        context,
+        '$prefix${l10n.downloadItemDownloading}',
+        colors.warning,
+      );
       return;
     }
-    _showTopTip(context, '$prefix已下载完成', colors.textSecondary);
+    _showTopTip(
+      context,
+      '$prefix${l10n.downloadItemDownloaded}',
+      colors.textSecondary,
+    );
   }
 
   static void _showTopTip(BuildContext context, String message, Color color) {
     _topTip.show(context, message: message, color: color);
+  }
+
+  static String _seasonLabel(int season, AppLocalizations l10n) {
+    return l10n.detailSeasonNumber(season);
+  }
+
+  static String _episodeLabel(int episode, AppLocalizations l10n) {
+    return l10n.detailEpisodeNumber(episode);
+  }
+
+  static String _hoursMinutesLabel(
+    int hours,
+    int minutes,
+    AppLocalizations l10n,
+  ) {
+    return l10n.commonDurationHoursMinutes(hours, minutes);
+  }
+
+  static String _minutesSecondsLabel(
+    int minutes,
+    int seconds,
+    AppLocalizations l10n,
+  ) {
+    return l10n.commonDurationMinutesSeconds(minutes, seconds);
+  }
+
+  static String _minutesLabel(int minutes, AppLocalizations l10n) {
+    return l10n.commonDurationMinutes(minutes);
+  }
+
+  static String _secondsLabel(int seconds, AppLocalizations l10n) {
+    return l10n.commonDurationSeconds(seconds);
   }
 }
 

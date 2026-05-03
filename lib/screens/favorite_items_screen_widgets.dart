@@ -84,7 +84,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
           fontSize: 20,
           fontWeight: FontWeight.w700,
         ),
-        title: Text(_t('layout.sidebar.favorite', '收藏')),
+        title: Text(_t('layout.sidebar.favorite', 'Favorites')),
         actions: <Widget>[
           IconButton(
             icon: const Icon(Icons.search),
@@ -106,23 +106,23 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
               children: <Widget>[
                 _buildTabButton(
                   _FavoriteTab.all,
-                  _t('layout.list.favoriteTabs.all', '全部'),
+                  _t('layout.list.favoriteTabs.all', 'All'),
                 ),
                 _buildTabButton(
                   _FavoriteTab.movie,
-                  _t('layout.list.favoriteTabs.movie', '电影'),
+                  _t('layout.list.favoriteTabs.movie', 'Movies'),
                 ),
                 _buildTabButton(
                   _FavoriteTab.tv,
-                  _t('layout.list.favoriteTabs.tv', '电视节目'),
+                  _t('layout.list.favoriteTabs.tv', 'TV'),
                 ),
                 _buildTabButton(
                   _FavoriteTab.episode,
-                  _t('layout.list.favoriteTabs.episode', '单集'),
+                  _t('layout.list.favoriteTabs.episode', 'Episodes'),
                 ),
                 _buildTabButton(
                   _FavoriteTab.person,
-                  _t('layout.list.favoriteTabs.person', '人物'),
+                  _t('layout.list.favoriteTabs.person', 'People'),
                 ),
               ],
             ),
@@ -240,7 +240,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
     if (data.items.isEmpty) {
       return Center(
         child: Text(
-          _t('common.other.empty', '没有内容'),
+          _t('common.other.empty', 'No content'),
           style: TextStyle(color: colors.textSecondary),
         ),
       );
@@ -254,7 +254,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
       case MediaCollectionViewType.list:
         content = ListView.separated(
           controller: _tabScrollControllers[tab],
-          cacheExtent: MediaQuery.of(context).size.height * 2,
+          cacheExtent: _viewportCacheExtent(context),
           padding: EdgeInsets.fromLTRB(
             layout.pageHorizontalPadding,
             0,
@@ -294,7 +294,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
 
             return GridView.builder(
               controller: _tabScrollControllers[tab],
-              cacheExtent: MediaQuery.of(context).size.height * 2,
+              cacheExtent: _viewportCacheExtent(context),
               padding: EdgeInsets.fromLTRB(
                 layout.pageHorizontalPadding,
                 0,
@@ -345,7 +345,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
       case MediaCollectionViewType.verticalPoster:
         content = GridView.builder(
           controller: _tabScrollControllers[tab],
-          cacheExtent: MediaQuery.of(context).size.height * 2,
+          cacheExtent: _viewportCacheExtent(context),
           padding: EdgeInsets.fromLTRB(
             layout.pageHorizontalPadding,
             0,
@@ -420,7 +420,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
               child: TextButton.icon(
                 onPressed: () => _fetch(tab: tab, reset: false),
                 icon: const Icon(Icons.refresh, size: 16),
-                label: Text(_t('layout.globalError.refresh', '刷新重试')),
+                label: Text(_t('layout.globalError.refresh', 'Retry')),
               ),
             ),
           ),

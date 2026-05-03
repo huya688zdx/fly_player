@@ -4,21 +4,29 @@ import 'play_stats_identity.dart';
 import 'play_stats_models.dart';
 import 'play_stats_repositories.dart';
 
+/// 定义视频维度统计记录的更新接口。
 abstract class VideoStatsUpdater {
+  /// 根据一次最终播放会话更新视频统计记录。
   Future<void> apply(
     FinalizedPlaySession session, {
+    PlayHistoryRecord? previousHistory,
     required DatabaseExecutor executor,
   });
 }
 
+/// 定义番剧维度统计记录的更新接口。
 abstract class AnimeStatsUpdater {
+  /// 根据一次最终播放会话更新番剧统计记录。
   Future<void> apply(
     FinalizedPlaySession session, {
+    PlayHistoryRecord? previousHistory,
     required DatabaseExecutor executor,
   });
 }
 
+/// 定义季度维度统计记录的更新接口。
 abstract class SeasonStatsUpdater {
+  /// 根据季度下的视频统计结果重新计算季度聚合值。
   Future<void> recomputeForSeason({
     required String seasonId,
     required String animeId,
@@ -28,18 +36,22 @@ abstract class SeasonStatsUpdater {
   });
 }
 
+/// 默认的视频维度统计更新器实现。
 class DefaultVideoStatsUpdater implements VideoStatsUpdater {
   final VideoStatsRepository _videoStatsRepository;
   final VideoCreditStatsRepository _videoCreditStatsRepository;
 
+  /// 根据视频统计仓储与演职员仓储构造更新器。
   const DefaultVideoStatsUpdater(
     this._videoStatsRepository,
     this._videoCreditStatsRepository,
   );
 
+  /// 见 [VideoStatsUpdater.apply]。
   @override
   Future<void> apply(
     FinalizedPlaySession session, {
+    PlayHistoryRecord? previousHistory,
     required DatabaseExecutor executor,
   }) async {
     final existing = await _videoStatsRepository.getByVideoId(
@@ -48,6 +60,17 @@ class DefaultVideoStatsUpdater implements VideoStatsUpdater {
     );
     final history = session.history;
     final meta = session.meta;
+    final previous =
+        previousHistory != null &&
+            previousHistory.videoId.trim() == meta.videoId.trim()
+        ? previousHistory
+        : null;
+    final clickDelta = previous == null ? session.clickDelta : 0;
+    final autoPlayDelta = previous == null ? session.autoPlayDelta : 0;
+    final viewDelta =
+        _boolCount(history.countedAsView) -
+        _boolCount(previous?.countedAsView ?? false);
+    final watchedDelta = history.watchedMs - (previous?.watchedMs ?? 0);
     final effectiveCountryCodes = meta.countryCodes.isNotEmpty
         ? meta.countryCodes
         : (existing?.countryCodes ?? const <String>[]);
@@ -77,10 +100,14 @@ class DefaultVideoStatsUpdater implements VideoStatsUpdater {
       mediaDurationMs: meta.mediaDurationMs > 0
           ? meta.mediaDurationMs
           : history.mediaDurationMs,
-      clickCount: (existing?.clickCount ?? 0) + session.clickDelta,
-      autoPlayCount: (existing?.autoPlayCount ?? 0) + session.autoPlayDelta,
-      viewCount: (existing?.viewCount ?? 0) + (history.countedAsView ? 1 : 0),
-      totalPlayedMs: (existing?.totalPlayedMs ?? 0) + history.watchedMs,
+      clickCount: _nonNegative((existing?.clickCount ?? 0) + clickDelta),
+      autoPlayCount: _nonNegative(
+        (existing?.autoPlayCount ?? 0) + autoPlayDelta,
+      ),
+      viewCount: _nonNegative((existing?.viewCount ?? 0) + viewDelta),
+      totalPlayedMs: _nonNegative(
+        (existing?.totalPlayedMs ?? 0) + watchedDelta,
+      ),
       maxProgress: _max(existing?.maxProgress ?? 0, history.maxProgress),
       lastProgress: history.maxProgress,
       lastPositionMs: session.lastPositionMs,
@@ -113,6 +140,10 @@ class DefaultVideoStatsUpdater implements VideoStatsUpdater {
     }
   }
 
+  int _boolCount(bool value) => value ? 1 : 0;
+
+  int _nonNegative(int value) => value < 0 ? 0 : value;
+
   String _resolveAnimeId(String existingAnimeId, String nextAnimeId) {
     final existing = existingAnimeId.trim();
     final next = nextAnimeId.trim();
@@ -133,15 +164,18 @@ class DefaultVideoStatsUpdater implements VideoStatsUpdater {
   double _max(double left, double right) => left >= right ? left : right;
 }
 
+/// 默认的季度维度统计更新器实现。
 class DefaultSeasonStatsUpdater implements SeasonStatsUpdater {
   final VideoStatsRepository _videoStatsRepository;
   final SeasonStatsRepository _seasonStatsRepository;
 
+  /// 根据视频统计仓储与季度仓储构造更新器。
   const DefaultSeasonStatsUpdater(
     this._videoStatsRepository,
     this._seasonStatsRepository,
   );
 
+  /// 见 [SeasonStatsUpdater.recomputeForSeason]。
   @override
   Future<void> recomputeForSeason({
     required String seasonId,
@@ -174,20 +208,24 @@ class DefaultSeasonStatsUpdater implements SeasonStatsUpdater {
   }
 }
 
+/// 默认的番剧维度统计更新器实现。
 class DefaultAnimeStatsUpdater implements AnimeStatsUpdater {
   final AnimeStatsRepository _animeStatsRepository;
   final VideoStatsRepository _videoStatsRepository;
   final SeasonStatsRepository _seasonStatsRepository;
 
+  /// 根据番剧、视频与季度仓储构造更新器。
   const DefaultAnimeStatsUpdater(
     this._animeStatsRepository,
     this._videoStatsRepository,
     this._seasonStatsRepository,
   );
 
+  /// 见 [AnimeStatsUpdater.apply]。
   @override
   Future<void> apply(
     FinalizedPlaySession session, {
+    PlayHistoryRecord? previousHistory,
     required DatabaseExecutor executor,
   }) async {
     final updatedVideo = await _videoStatsRepository.getByVideoId(
@@ -207,16 +245,33 @@ class DefaultAnimeStatsUpdater implements AnimeStatsUpdater {
     final completedSeasonCount = await _seasonStatsRepository
         .countCompletedSeasonsByAnime(animeId, executor: executor);
     final history = session.history;
+    final previous =
+        previousHistory != null && previousHistory.animeId.trim() == animeId
+        ? previousHistory
+        : null;
+    final clickDelta = previous == null ? session.clickDelta : 0;
+    final viewDelta =
+        _boolCount(history.countedAsView) -
+        _boolCount(previous?.countedAsView ?? false);
+    final watchedDelta = history.watchedMs - (previous?.watchedMs ?? 0);
+    final forwardSeekDelta =
+        history.forwardSeekCount - (previous?.forwardSeekCount ?? 0);
+    final backwardSeekDelta =
+        history.backwardSeekCount - (previous?.backwardSeekCount ?? 0);
     final next = AnimeStatsRecord(
       animeId: animeId,
       title: (updatedVideo?.animeTitle ?? session.meta.animeTitle).trim(),
-      clickCount: (existing?.clickCount ?? 0) + session.clickDelta,
-      viewCount: (existing?.viewCount ?? 0) + (history.countedAsView ? 1 : 0),
-      totalPlayedMs: (existing?.totalPlayedMs ?? 0) + history.watchedMs,
-      forwardSeekCount:
-          (existing?.forwardSeekCount ?? 0) + history.forwardSeekCount,
-      backwardSeekCount:
-          (existing?.backwardSeekCount ?? 0) + history.backwardSeekCount,
+      clickCount: _nonNegative((existing?.clickCount ?? 0) + clickDelta),
+      viewCount: _nonNegative((existing?.viewCount ?? 0) + viewDelta),
+      totalPlayedMs: _nonNegative(
+        (existing?.totalPlayedMs ?? 0) + watchedDelta,
+      ),
+      forwardSeekCount: _nonNegative(
+        (existing?.forwardSeekCount ?? 0) + forwardSeekDelta,
+      ),
+      backwardSeekCount: _nonNegative(
+        (existing?.backwardSeekCount ?? 0) + backwardSeekDelta,
+      ),
       watchedEpisodeCount: watchedEpisodeCount,
       completedEpisodeCount: completedEpisodeCount,
       completedSeasonCount: completedSeasonCount,
@@ -224,4 +279,8 @@ class DefaultAnimeStatsUpdater implements AnimeStatsUpdater {
     );
     await _animeStatsRepository.upsert(next, executor: executor);
   }
+
+  int _boolCount(bool value) => value ? 1 : 0;
+
+  int _nonNegative(int value) => value < 0 ? 0 : value;
 }

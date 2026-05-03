@@ -4,8 +4,12 @@ import '../models/danmaku_import_result.dart';
 import '../parser/danmaku_import_parser.dart';
 import 'dandanplay_api.dart';
 
+/// 播放场景下的弹弹 Play 匹配结果。
 class DanDanPlayPlaybackResolveResult {
+  /// 匹配到的弹弹 Play 剧集条目。
   final DanDanPlayEpisodeSearchItem item;
+
+  /// 已经解析完成的弹幕导入结果。
   final DanmakuImportResult result;
 
   const DanDanPlayPlaybackResolveResult({
@@ -14,6 +18,7 @@ class DanDanPlayPlaybackResolveResult {
   });
 }
 
+/// 弹弹 Play 搜索、缓存和导入编排入口。
 class DanDanPlayResolver {
   final DanDanPlayApi _api;
   final DanDanPlayCommentCacheStore _cacheStore;
@@ -27,6 +32,9 @@ class DanDanPlayResolver {
         const DanDanPlayCommentCacheStore(),
   }) : _cacheStore = cacheStore;
 
+  /// 按当前播放上下文直接解析可用的弹幕结果。
+  ///
+  /// 成功时会返回匹配到的剧集以及已经解析完成的弹幕导入结果。
   Future<DanDanPlayPlaybackResolveResult?> resolveForPlayback({
     required String seriesTitle,
     required int seasonNumber,
@@ -46,6 +54,9 @@ class DanDanPlayResolver {
     return DanDanPlayPlaybackResolveResult(item: item, result: result);
   }
 
+  /// 搜索当前剧集可能对应的弹弹 Play 候选项。
+  ///
+  /// 会优先走精确关键字 + TMDB 约束，必要时再逐步放宽条件。
   Future<List<DanDanPlayEpisodeSearchItem>> searchEpisodeCandidates({
     required String keyword,
     required int episodeNumber,
@@ -97,6 +108,7 @@ class DanDanPlayResolver {
     return const <DanDanPlayEpisodeSearchItem>[];
   }
 
+  /// 按剧集 id 导入弹幕，优先命中本地缓存并对并发请求做去重。
   Future<DanmakuImportResult?> importEpisodeById(
     DanDanPlayEpisodeSearchItem item,
   ) async {
@@ -129,7 +141,7 @@ class DanDanPlayResolver {
     try {
       return DanmakuImportParser.parseContentString(
         content,
-        sourceLabel: '弹弹play · ${item.displaySubtitle}',
+        sourceLabel: 'DanDanPlay · ${item.displaySubtitle}',
       );
     } catch (_) {
       await _cacheStore.removeComments(item.episodeId);
@@ -145,14 +157,17 @@ class DanDanPlayResolver {
     if (content.isEmpty) return null;
     final result = DanmakuImportParser.parseContentString(
       content,
-      sourceLabel: '弹弹play · ${item.displaySubtitle}',
+      sourceLabel: 'DanDanPlay · ${item.displaySubtitle}',
     );
     await _cacheStore.saveComments(episodeId: item.episodeId, content: content);
     return result;
   }
 
+  /// 对外暴露的标题归一化规则，便于调用方复用相同搜索口径。
   static String normalizeSeriesTitle(String value) =>
       _normalizeSeriesTitle(value);
+
+  /// 把 `tm12345` 或纯数字字符串统一转成可搜索的 TMDB 数字 id。
   static int? normalizeTmdbId(String value) => _normalizeTmdbId(value);
 
   Future<List<DanDanPlayEpisodeSearchItem>> _searchEpisodeCandidatesOnce({
@@ -210,11 +225,11 @@ class DanDanPlayResolver {
     if (compact.length <= 4) {
       return const <String>[];
     }
-    return <String>[
+    return <String>{
       compact.substring(compact.length - 4),
       compact.substring(compact.length - 3),
       compact.substring(compact.length - 2),
-    ].toSet().toList(growable: false);
+    }.toList(growable: false);
   }
 
   static List<DanDanPlayEpisodeSearchItem> _collectEpisodeItems(

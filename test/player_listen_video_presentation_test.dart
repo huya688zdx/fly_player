@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/player/widgets/player_listen_video_presentation.dart';
 
 void main() {
-  Widget _buildSubject({
+  Widget buildSubject({
     required Size size,
     required String title,
     required String subtitle,
@@ -29,7 +29,7 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      _buildSubject(
+      buildSubject(
         size: const Size(390, 844),
         title: '春日之邻',
         subtitle: '摇曳露营 · 第2季 · 第1集',
@@ -49,7 +49,7 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      _buildSubject(size: const Size(844, 390), title: '当前视频', subtitle: ''),
+      buildSubject(size: const Size(844, 390), title: '当前视频', subtitle: ''),
     );
     await tester.pump();
 
@@ -66,7 +66,7 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      _buildSubject(
+      buildSubject(
         size: const Size(560, 420),
         title: '葬送的芙莉莲 第2集',
         subtitle: '葬送的芙莉莲 · 第2集 · Episode',

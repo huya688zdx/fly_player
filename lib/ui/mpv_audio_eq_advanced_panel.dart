@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../player/stores/mpv_audio_eq_preset_store.dart';
 import '../player/stores/mpv_settings_store.dart';
 import '../theme/app_theme.dart';
@@ -151,16 +152,18 @@ class _MpvAudioEqAdvancedPanelState extends State<MpvAudioEqAdvancedPanel> {
   }
 
   Future<void> _resetBands() async {
+    final l10n = AppLocalizations.of(context);
     setState(() {
       _values = <String, double>{
         for (final band in MpvSettingsCatalog.audioEqBands) band.key: 0,
       };
     });
     await widget.onApplyPatch(_currentBandPatch());
-    widget.onMessage?.call('已归零所有 EQ 频段');
+    widget.onMessage?.call(l10n.mpvEqAllBandsReset);
   }
 
   Future<void> _applyPreset(MpvAudioEqPresetEntry preset) async {
+    final l10n = AppLocalizations.of(context);
     setState(() {
       _values = <String, double>{
         for (final band in MpvSettingsCatalog.audioEqBands)
@@ -171,10 +174,11 @@ class _MpvAudioEqAdvancedPanelState extends State<MpvAudioEqAdvancedPanel> {
       MpvSettingsCatalog.audioEqKey: MpvSettingsCatalog.audioEqCustomValue,
       ...preset.bands,
     });
-    widget.onMessage?.call('已套用预设: ${preset.name}');
+    widget.onMessage?.call(l10n.mpvEqPresetApplied(preset.name));
   }
 
   Future<void> _savePreset() async {
+    final l10n = AppLocalizations.of(context);
     final name = await _showPresetNameDialog(context);
     if (!mounted || name == null) return;
     final presets = await _presetStore.savePreset(
@@ -183,14 +187,15 @@ class _MpvAudioEqAdvancedPanelState extends State<MpvAudioEqAdvancedPanel> {
     );
     if (!mounted) return;
     setState(() => _presets = presets);
-    widget.onMessage?.call('已保存 EQ 预设');
+    widget.onMessage?.call(l10n.mpvEqPresetSaved);
   }
 
   Future<void> _deletePreset(MpvAudioEqPresetEntry preset) async {
+    final l10n = AppLocalizations.of(context);
     final presets = await _presetStore.deletePreset(preset.id);
     if (!mounted) return;
     setState(() => _presets = presets);
-    widget.onMessage?.call('已删除预设: ${preset.name}');
+    widget.onMessage?.call(l10n.mpvEqPresetDeleted(preset.name));
   }
 
   Future<String?> _showPresetNameDialog(BuildContext context) async {
@@ -199,23 +204,27 @@ class _MpvAudioEqAdvancedPanelState extends State<MpvAudioEqAdvancedPanel> {
       context: context,
       builder: (dialogContext) {
         final colors = dialogContext.appColors;
+        final l10n = AppLocalizations.of(dialogContext);
         return AlertDialog(
           backgroundColor: colors.surface,
-          title: Text('保存 EQ 预设', style: TextStyle(color: colors.textPrimary)),
+          title: Text(
+            l10n.mpvEqSavePresetTitle,
+            style: TextStyle(color: colors.textPrimary),
+          ),
           content: TextField(
             controller: controller,
             autofocus: true,
             maxLength: 20,
             style: TextStyle(color: colors.textPrimary),
             decoration: InputDecoration(
-              hintText: '例如: 夜间对白 / 动漫人声',
+              hintText: l10n.mpvEqSavePresetHint,
               hintStyle: TextStyle(color: colors.textMuted),
             ),
           ),
           actions: <Widget>[
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('取消'),
+              child: Text(l10n.commonCancel),
             ),
             FilledButton(
               onPressed: () {
@@ -223,7 +232,7 @@ class _MpvAudioEqAdvancedPanelState extends State<MpvAudioEqAdvancedPanel> {
                 if (trimmed.isEmpty) return;
                 Navigator.of(dialogContext).pop(trimmed);
               },
-              child: const Text('保存'),
+              child: Text(l10n.commonSave),
             ),
           ],
         );
@@ -234,6 +243,7 @@ class _MpvAudioEqAdvancedPanelState extends State<MpvAudioEqAdvancedPanel> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -262,7 +272,7 @@ class _MpvAudioEqAdvancedPanelState extends State<MpvAudioEqAdvancedPanel> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
                         Text(
-                          '我的预设',
+                          l10n.mpvEqMyPresetsTitle,
                           style: TextStyle(
                             color: colors.textPrimary,
                             fontSize: AdaptiveText.roleSize(15.5),
@@ -271,7 +281,7 @@ class _MpvAudioEqAdvancedPanelState extends State<MpvAudioEqAdvancedPanel> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          '把当前频段组合保存成多套预设，后面一键套用。',
+                          l10n.mpvEqMyPresetsSubtitle,
                           style: TextStyle(
                             color: colors.textSecondary,
                             fontSize: AdaptiveText.roleSize(13),
@@ -285,7 +295,7 @@ class _MpvAudioEqAdvancedPanelState extends State<MpvAudioEqAdvancedPanel> {
                   FilledButton.icon(
                     onPressed: _savePreset,
                     icon: const Icon(Icons.bookmark_add_outlined),
-                    label: const Text('保存当前'),
+                    label: Text(l10n.mpvEqSaveCurrent),
                   ),
                 ],
               ),
@@ -299,7 +309,7 @@ class _MpvAudioEqAdvancedPanelState extends State<MpvAudioEqAdvancedPanel> {
                 )
               else if (_presets.isEmpty)
                 Text(
-                  '还没有自定义 EQ 预设，调好以后可以直接保存。',
+                  l10n.mpvEqEmptyPresets,
                   style: TextStyle(
                     color: colors.textSecondary,
                     fontSize: AdaptiveText.roleSize(13.2),
@@ -340,7 +350,7 @@ class _EqPresetTile extends StatelessWidget {
     required this.onDelete,
   });
 
-  String _summary() {
+  String _summary(AppLocalizations l10n) {
     final labels = <String>[];
     for (final band in MpvSettingsCatalog.audioEqBands) {
       final raw = preset.bands[band.key] ?? '0';
@@ -351,12 +361,13 @@ class _EqPresetTile extends StatelessWidget {
       );
       if (labels.length == 3) break;
     }
-    return labels.isEmpty ? '全部频段保持 0 dB。' : labels.join(' / ');
+    return labels.isEmpty ? l10n.mpvEqSummaryNeutral : labels.join(' / ');
   }
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -380,7 +391,7 @@ class _EqPresetTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  _summary(),
+                  _summary(l10n),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -393,12 +404,12 @@ class _EqPresetTile extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          TextButton(onPressed: onApply, child: const Text('套用')),
+          TextButton(onPressed: onApply, child: Text(l10n.mpvEqApply)),
           IconButton(
             onPressed: onDelete,
             icon: const Icon(Icons.delete_outline_rounded),
             color: colors.textMuted,
-            tooltip: '删除',
+            tooltip: l10n.commonDelete,
           ),
         ],
       ),

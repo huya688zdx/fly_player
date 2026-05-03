@@ -139,19 +139,42 @@ class _ListThumb extends StatelessWidget {
       return Container(
         color: colors.surfaceStrong,
         alignment: Alignment.center,
-        child: Icon(Icons.movie, color: colors.textMuted.withValues(alpha: 0.5)),
+        child: Icon(
+          Icons.movie,
+          color: colors.textMuted.withValues(alpha: 0.5),
+        ),
       );
     }
 
-    return Image.network(
-      urls.first,
-      fit: BoxFit.cover,
-      headers: <String, String>{'Authorization': token, 'Trim-MC-token': token},
-      errorBuilder: (_, __, ___) {
-        return Container(
-          color: colors.surfaceStrong,
-          alignment: Alignment.center,
-          child: Icon(Icons.movie, color: colors.textMuted.withValues(alpha: 0.5)),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final dpr = MediaQuery.of(context).devicePixelRatio.clamp(1.0, 2.0);
+        final cacheWidth = constraints.maxWidth.isFinite
+            ? (constraints.maxWidth * dpr).round().clamp(96, 220)
+            : 160;
+        final cacheHeight = constraints.maxHeight.isFinite
+            ? (constraints.maxHeight * dpr).round().clamp(72, 160)
+            : 104;
+        return Image.network(
+          urls.first,
+          fit: BoxFit.cover,
+          filterQuality: FilterQuality.none,
+          cacheWidth: cacheWidth,
+          cacheHeight: cacheHeight,
+          headers: <String, String>{
+            'Authorization': token,
+            'Trim-MC-token': token,
+          },
+          errorBuilder: (_, __, ___) {
+            return Container(
+              color: colors.surfaceStrong,
+              alignment: Alignment.center,
+              child: Icon(
+                Icons.movie,
+                color: colors.textMuted.withValues(alpha: 0.5),
+              ),
+            );
+          },
         );
       },
     );

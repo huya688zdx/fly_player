@@ -5,18 +5,21 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../controllers/play_detail_data_loader.dart';
+import '../models/download_task_record.dart';
 import '../models/play_info.dart';
 import '../player/controllers/mpv_player_controller.dart';
 import '../player/models/player_host_launch_args.dart';
 import '../player/mpv_player_page.dart';
 import '../providers/nas_provider.dart';
 import '../providers/parallel_window_settings_provider.dart';
+import '../services/download_task_service.dart';
 import '../services/player_host_bridge.dart';
 import '../services/play_stats/play_stats.dart';
 import '../theme/app_theme.dart';
 import '../ui/app_motion.dart';
 import '../ui/player_pane_host_scope.dart';
 import '../utils/back_dismiss_manager.dart';
+import '../utils/playback_resume_position_resolver.dart';
 import 'connection_screen.dart';
 import 'detail_host_screen.dart';
 import 'settings_destination_routes.dart';
@@ -100,7 +103,9 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
   }
 
   Future<void> _loadInitialArgs() async {
-    final args = await PlayerHostBridge.consumeInitialPlayerArgs();
+    final args = await _resolveRecoveredDownloadArgs(
+      await PlayerHostBridge.consumeInitialPlayerArgs(),
+    );
     if (!mounted) return;
     setState(() {
       _loadingInitialArgs = false;
@@ -134,6 +139,119 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
     }
   }
 
+  Future<PlayerHostLaunchArgs?> _resolveRecoveredDownloadArgs(
+    PlayerHostLaunchArgs? args,
+  ) async {
+    if (args == null || !args.source.externalLocalSource) return args;
+    final record = await DownloadTaskService.instance
+        .recoverDownloadedRecordForExternalOpen(
+          sourceUrl: args.source.url,
+          displayName: args.source.title,
+          sizeBytes: args.source.externalLocalFileSizeBytes,
+          provider: context.read<NasProvider>(),
+        );
+    if (record == null) return args;
+    final source = await _buildRecoveredDownloadSource(
+      record: record,
+      fallbackSource: args.source,
+    );
+    return PlayerHostLaunchArgs(
+      title: source.title.trim().isEmpty ? args.title : source.title,
+      source: source,
+      initialPlayInfo: args.initialPlayInfo,
+      startSource: args.startSource,
+      fromParallelHost: args.fromParallelHost,
+      layoutMode: args.layoutMode,
+      initialRightPaneRoute: args.initialRightPaneRoute,
+    );
+  }
+
+  Future<MpvMediaSource> _buildRecoveredDownloadSource({
+    required DownloadTaskRecord record,
+    required MpvMediaSource fallbackSource,
+  }) async {
+    final title = _downloadTitleForRecord(record, fallbackSource.title);
+    final mediaGuid = record.mediaGuid.trim().isNotEmpty
+        ? record.mediaGuid.trim()
+        : (fallbackSource.mediaGuid.trim().isNotEmpty
+              ? fallbackSource.mediaGuid.trim()
+              : record.id);
+    final resume = await PlaybackResumePositionResolver.resolve(
+      videoIds: <String>[record.itemGuid, fallbackSource.itemGuid, record.id],
+      durationSeconds: fallbackSource.durationSeconds,
+      networkPositionAvailable: false,
+    );
+    return MpvMediaSource.localFile(
+      filePath: record.filePath,
+      itemGuid: record.itemGuid,
+      mediaGuid: mediaGuid,
+      seriesGuid: fallbackSource.seriesGuid,
+      seasonGuid: fallbackSource.seasonGuid.trim().isNotEmpty
+          ? fallbackSource.seasonGuid
+          : record.groupId,
+      posterPath: _firstPosterUrl(record),
+      mediaType: fallbackSource.mediaType,
+      ancestorName: fallbackSource.ancestorName,
+      videoGuid: fallbackSource.videoGuid.trim().isNotEmpty
+          ? fallbackSource.videoGuid
+          : mediaGuid,
+      title: title,
+      seriesTitle: record.groupTitle,
+      seasonNumber: fallbackSource.seasonNumber,
+      tmdbId: fallbackSource.tmdbId,
+      episodeNumber: fallbackSource.episodeNumber,
+      startPosition: resume.position,
+      audioTrackIndex: fallbackSource.audioTrackIndex,
+      subtitleTrackIndex: fallbackSource.subtitleTrackIndex,
+      audioTrackGuid: fallbackSource.audioTrackGuid,
+      subtitleTrackGuid: fallbackSource.subtitleTrackGuid,
+      resolution: record.resolution,
+      bitrate: fallbackSource.bitrate,
+      durationSeconds: resume.effectiveDurationSeconds,
+      videoWidth: fallbackSource.videoWidth,
+      videoHeight: fallbackSource.videoHeight,
+      videoCodecName: fallbackSource.videoCodecName,
+      videoProfile: fallbackSource.videoProfile,
+      colorSpace: fallbackSource.colorSpace,
+      colorTransfer: fallbackSource.colorTransfer,
+      colorPrimaries: fallbackSource.colorPrimaries,
+      bitDepth: fallbackSource.bitDepth,
+      playbackSpeed: fallbackSource.playbackSpeed,
+      listenVideoModeEnabled: fallbackSource.listenVideoModeEnabled,
+      danmakuAutoSearchAllowed: true,
+      audioTracks: record.audioTracks.isNotEmpty
+          ? record.audioTracks
+          : fallbackSource.audioTracks,
+      subtitleTracks: record.subtitleTracks.isNotEmpty
+          ? record.subtitleTracks
+          : fallbackSource.subtitleTracks,
+      qualities: fallbackSource.qualities,
+    );
+  }
+
+  String _downloadTitleForRecord(
+    DownloadTaskRecord record,
+    String fallbackTitle,
+  ) {
+    final groupTitle = record.groupTitle.trim();
+    final title = DownloadTaskService.instance
+        .displayTitleForRecord(record)
+        .trim();
+    if (title.isEmpty) {
+      final fileName = record.fileName.trim();
+      if (fileName.isNotEmpty) return fileName;
+      return fallbackTitle.trim();
+    }
+    if (groupTitle.isEmpty || title.startsWith(groupTitle)) return title;
+    return '$groupTitle $title';
+  }
+
+  String _firstPosterUrl(DownloadTaskRecord record) {
+    if (record.posterUrls.isNotEmpty) return record.posterUrls.first;
+    if (record.groupPosterUrls.isNotEmpty) return record.groupPosterUrls.first;
+    return '';
+  }
+
   String _normalizeRoute(String routeName) {
     final trimmed = routeName.trim();
     return trimmed.isEmpty ? _homeRoute : trimmed;
@@ -159,15 +277,35 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
   void _adoptDetailHostStack() {
     final detailHost = _detailHostKey.currentState;
     if (detailHost == null) return;
-    final snapshot = detailHost.routeStackSnapshot;
+    _applyRightPaneRouteStackSnapshot(detailHost.routeStackSnapshot);
+  }
+
+  void _applyRightPaneRouteStackSnapshot(List<String> snapshot) {
     if (snapshot.isEmpty) return;
+    final normalizedSnapshot = snapshot
+        .map(_normalizeRoute)
+        .where((route) => route.isNotEmpty)
+        .toList(growable: false);
+    if (normalizedSnapshot.isEmpty) return;
+    if (_sameRouteStack(_rightPaneRouteStack, normalizedSnapshot)) return;
     _rightPaneRouteStack
       ..clear()
-      ..addAll(snapshot);
+      ..addAll(normalizedSnapshot);
     final currentRoute = _currentRightPaneRoute;
+    _splitBackExitGuardArmed = currentRoute != _homeRoute;
     if (_rightPaneRouteNotifier.value != currentRoute) {
       _rightPaneRouteNotifier.value = currentRoute;
     }
+  }
+
+  bool _sameRouteStack(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i += 1) {
+      if (_normalizeRoute(a[i]) != _normalizeRoute(b[i])) {
+        return false;
+      }
+    }
+    return true;
   }
 
   void _resetRightPaneStack(String initialRoute) {
@@ -278,6 +416,43 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
     );
   }
 
+  Future<void> _applyPlatformLayoutModeChange(
+    String nextMode, {
+    String initialRightPaneRoute = '',
+  }) async {
+    final normalizedMode = nextMode == _splitMode
+        ? _splitMode
+        : _fullscreenMode;
+    final normalizedRoute = _normalizeRoute(initialRightPaneRoute);
+    final currentArgs = _currentArgs;
+    if (currentArgs != null) {
+      _currentArgs = PlayerHostLaunchArgs(
+        title: currentArgs.title,
+        source: currentArgs.source,
+        initialPlayInfo: currentArgs.initialPlayInfo,
+        startSource: currentArgs.startSource,
+        fromParallelHost: currentArgs.fromParallelHost,
+        layoutMode: normalizedMode,
+        initialRightPaneRoute: normalizedMode == _splitMode
+            ? normalizedRoute
+            : currentArgs.initialRightPaneRoute,
+      );
+    }
+    if (normalizedMode == _splitMode &&
+        normalizedRoute != _homeRoute &&
+        _currentRightPaneRoute == _homeRoute) {
+      _replaceOrPushRightPaneRoute(normalizedRoute);
+    }
+    await _setLayoutMode(
+      normalizedMode,
+      activePane:
+          normalizedMode == _splitMode && _currentRightPaneRoute != _homeRoute
+          ? _PlayerHostActivePane.detail
+          : _PlayerHostActivePane.player,
+      syncPlatform: false,
+    );
+  }
+
   Future<void> _setLayoutMode(
     String nextMode, {
     required _PlayerHostActivePane activePane,
@@ -333,7 +508,9 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
     if (call.method == 'replaceSource') {
       final rawArgs = call.arguments;
       if (rawArgs is! Map<Object?, Object?>) return;
-      final args = PlayerHostLaunchArgs.fromPlatformMap(rawArgs);
+      final args = await _resolveRecoveredDownloadArgs(
+        PlayerHostLaunchArgs.fromPlatformMap(rawArgs),
+      );
       if (args == null || !mounted) return;
       setState(() => _applyLaunchArgs(args, replaceSourceOnly: true));
       return;
@@ -346,6 +523,18 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
           '';
       if (routeName.isEmpty) return;
       await openRoute(routeName);
+      return;
+    }
+    if (call.method == 'layoutModeChanged') {
+      final payload = call.arguments as Map<Object?, Object?>?;
+      final nextMode = (payload?['layoutMode'] ?? _fullscreenMode).toString();
+      final initialRightPaneRoute = (payload?['initialRightPaneRoute'] ?? '')
+          .toString()
+          .trim();
+      await _applyPlatformLayoutModeChange(
+        nextMode,
+        initialRightPaneRoute: initialRightPaneRoute,
+      );
       return;
     }
     if (call.method == 'systemMultiWindowModeChanged') {
@@ -494,12 +683,12 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
         body: Center(child: CircularProgressIndicator(color: colors.accent)),
       );
     }
-    if (!provider.isConfigured) {
-      return const ConnectionScreen();
-    }
     final args = _currentArgs;
     if (args == null) {
       return const _PlayerHostError(message: '当前播放器参数错误');
+    }
+    if (!provider.isConfigured && !_sourceCanRunWithoutNas(args.source)) {
+      return const ConnectionScreen();
     }
     final playbackPrimaryOnLeft = context
         .watch<ParallelWindowSettingsProvider>()
@@ -562,6 +751,8 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
                                       _rightPaneRouteNotifier.value,
                                   rootRouteName: _homeRoute,
                                   routeListenable: _rightPaneRouteNotifier,
+                                  onRouteStackChanged:
+                                      _applyRightPaneRouteStackSnapshot,
                                   enablePlatformChannel: false,
                                 ),
                               ),
@@ -695,6 +886,14 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
         ),
       ),
     );
+  }
+
+  bool _sourceCanRunWithoutNas(MpvMediaSource source) {
+    if (source.externalLocalSource) return true;
+    if (!source.isDownloadedFile) return false;
+    final normalizedUrl = source.url.trim().toLowerCase();
+    return normalizedUrl.startsWith('file:') ||
+        normalizedUrl.startsWith('content:');
   }
 }
 

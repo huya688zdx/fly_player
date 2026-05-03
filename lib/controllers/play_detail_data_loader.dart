@@ -11,6 +11,7 @@ import '../utils/app_error_reporter.dart';
 import '../utils/app_exception.dart';
 import '../utils/play_detail_track_selector.dart';
 
+/// 表示详情页首次加载完成后的聚合数据。
 class PlayDetailInitialData {
   final PlayInfoData info;
   final StreamTrackData streamTrackData;
@@ -22,6 +23,7 @@ class PlayDetailInitialData {
   final String imdbId;
   final String trimId;
 
+  /// 根据详情页首屏所需数据构造对象。
   const PlayDetailInitialData({
     required this.info,
     required this.streamTrackData,
@@ -35,6 +37,7 @@ class PlayDetailInitialData {
   });
 }
 
+/// 表示详情页在状态变更后重新刷新的数据。
 class PlayDetailRefreshData {
   final PlayInfoData info;
   final StreamTrackData streamTrackData;
@@ -45,6 +48,7 @@ class PlayDetailRefreshData {
   final String imdbId;
   final String trimId;
 
+  /// 根据详情页刷新结果构造对象。
   const PlayDetailRefreshData({
     required this.info,
     required this.streamTrackData,
@@ -57,6 +61,7 @@ class PlayDetailRefreshData {
   });
 }
 
+/// 表示播放器返回详情页时携带的数据。
 class PlayDetailPlayerReturnData {
   final String itemGuid;
   final int currentTsSeconds;
@@ -64,6 +69,7 @@ class PlayDetailPlayerReturnData {
   final String? parentItemGuid;
   final bool canPopToParent;
 
+  /// 根据播放器返回字段构造对象。
   const PlayDetailPlayerReturnData({
     required this.itemGuid,
     required this.currentTsSeconds,
@@ -72,6 +78,7 @@ class PlayDetailPlayerReturnData {
     this.canPopToParent = false,
   });
 
+  /// 转换为可供路由或平台桥接传递的映射结构。
   Map<String, Object?> toMap() {
     return <String, Object?>{
       'itemGuid': itemGuid.trim(),
@@ -81,6 +88,7 @@ class PlayDetailPlayerReturnData {
     };
   }
 
+  /// 从映射结构恢复播放器返回数据。
   factory PlayDetailPlayerReturnData.fromMap(Map<String, dynamic> raw) {
     return PlayDetailPlayerReturnData(
       itemGuid: (raw['itemGuid'] ?? '').toString().trim(),
@@ -103,6 +111,7 @@ class PlayDetailPlayerReturnData {
   }
 }
 
+/// 负责装配详情页播放相关数据的加载器。
 class PlayDetailDataLoader {
   static const PersonListRequest _creditsRequest = PersonListRequest(
     page: 1,
@@ -111,8 +120,10 @@ class PlayDetailDataLoader {
 
   final FeiniuApi api;
 
+  /// 根据 API 实例构造详情页数据加载器。
   const PlayDetailDataLoader(this.api);
 
+  /// 首次加载详情页所需的播放信息、轨道与演职员数据。
   Future<PlayDetailInitialData> load(String itemGuid) async {
     List<PersonCredit> people = const [];
     final info = await api.getPlayInfo(itemGuid);
@@ -167,6 +178,7 @@ class PlayDetailDataLoader {
     );
   }
 
+  /// 在条目状态变化后刷新详情页相关播放数据。
   Future<PlayDetailRefreshData> refreshAfterItemStateChange({
     required String itemGuid,
     required String currentMediaGuid,
@@ -221,6 +233,7 @@ class PlayDetailDataLoader {
     );
   }
 
+  /// 从详情接口返回中提取 IMDb 标识。
   static String extractImdbId(Map<String, dynamic> data) {
     final direct = (data['imdb_id'] ?? '').toString().trim();
     if (direct.isNotEmpty) return direct;
@@ -232,6 +245,7 @@ class PlayDetailDataLoader {
     return '';
   }
 
+  /// 从详情接口返回中提取第三方条目标识。
   static String extractTrimId(Map<String, dynamic> data) {
     final direct = (data['trim_id'] ?? '').toString().trim();
     if (direct.isNotEmpty) return direct;

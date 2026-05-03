@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../services/app_log_service.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
@@ -30,11 +31,12 @@ class _AppLogScreenState extends State<AppLogScreen> {
 
   Future<void> _handleExport() async {
     if (_exporting) return;
+    final l10n = AppLocalizations.of(context);
     final service = AppLogService.instance;
     if (service.entries.isEmpty) {
       _topTip.show(
         context,
-        message: '当前没有可导出的日志',
+        message: l10n.logNoExportableLogs,
         color: context.appColors.warning,
       );
       return;
@@ -45,14 +47,14 @@ class _AppLogScreenState extends State<AppLogScreen> {
       final result = await service.exportToTxt();
       if (!mounted) return;
       final message = result.usedExternalStorage
-          ? 'TXT 已导出到 ${result.path}'
-          : '外部存储不可用，已导出到临时目录 ${result.path}';
+          ? l10n.logTxtExported(result.path)
+          : l10n.logExternalUnavailableExported(result.path);
       _topTip.show(context, message: message, color: context.appColors.success);
     } catch (error) {
       if (!mounted) return;
       _topTip.show(
         context,
-        message: '导出失败: $error',
+        message: l10n.logExportFailed('$error'),
         color: context.appColors.danger,
       );
     } finally {
@@ -64,12 +66,13 @@ class _AppLogScreenState extends State<AppLogScreen> {
 
   Future<void> _handleClear() async {
     if (_clearing) return;
+    final l10n = AppLocalizations.of(context);
     final confirmed = await showAppConfirmDialog(
       context,
-      title: '清空日志',
-      content: '会移除当前已记录的报错日志，这个操作不能恢复。',
-      cancelText: '取消',
-      confirmText: '清空',
+      title: l10n.logClearTitle,
+      content: l10n.logClearContent,
+      cancelText: l10n.commonCancel,
+      confirmText: l10n.logClearConfirm,
       confirmColor: context.appColors.danger,
     );
     if (!confirmed || !mounted) return;
@@ -78,7 +81,11 @@ class _AppLogScreenState extends State<AppLogScreen> {
     try {
       await AppLogService.instance.clear();
       if (!mounted) return;
-      _topTip.show(context, message: '日志已清空', color: context.appColors.success);
+      _topTip.show(
+        context,
+        message: l10n.logCleared,
+        color: context.appColors.success,
+      );
     } finally {
       if (mounted) {
         setState(() => _clearing = false);
@@ -89,10 +96,11 @@ class _AppLogScreenState extends State<AppLogScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
 
     return Scaffold(
       backgroundColor: colors.backgroundBase,
-      appBar: buildSecondaryHostAppBar(context, title: const Text('日志信息')),
+      appBar: buildSecondaryHostAppBar(context, title: Text(l10n.logInfoTitle)),
       body: DecoratedBox(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -200,6 +208,7 @@ class _LogSummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return Container(
       width: double.infinity,
       padding: EdgeInsets.all(compact ? 18 : 22),
@@ -223,7 +232,7 @@ class _LogSummaryCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            '报错日志',
+            l10n.logErrorLogTitle,
             style: TextStyle(
               color: colors.textPrimary,
               fontSize: AdaptiveText.roleSize(
@@ -235,7 +244,7 @@ class _LogSummaryCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            '这里会记录全局 Flutter、平台层和 Zone 捕获到的异常，支持导出为 TXT。',
+            l10n.logErrorLogDescription,
             style: TextStyle(
               color: colors.textSecondary,
               fontSize: AdaptiveText.roleSize(13.6),
@@ -248,19 +257,19 @@ class _LogSummaryCard extends StatelessWidget {
             runSpacing: 10,
             children: <Widget>[
               _SummaryBadge(
-                label: '总数',
+                label: l10n.logTotal,
                 value: '$totalCount',
                 tint: colors.selection,
               ),
               _SummaryBadge(
-                label: '错误',
+                label: l10n.logErrors,
                 value: '$errorCount',
                 tint: colors.danger,
               ),
               _SummaryBadge(
-                label: '最近',
+                label: l10n.logLatest,
                 value: latestEntry == null
-                    ? '暂无'
+                    ? l10n.logNone
                     : AppLogService.formatTimestamp(latestEntry!.timestamp),
                 tint: colors.accent,
                 wide: true,
@@ -274,14 +283,14 @@ class _LogSummaryCard extends StatelessWidget {
             children: <Widget>[
               _ActionButton(
                 icon: Icons.download_rounded,
-                label: exporting ? '导出中...' : '导出 TXT',
+                label: exporting ? l10n.logExporting : l10n.logExportTxt,
                 backgroundColor: colors.accent,
                 foregroundColor: Theme.of(context).colorScheme.onPrimary,
                 onPressed: exporting || clearing ? null : onExport,
               ),
               _ActionButton(
                 icon: Icons.delete_outline_rounded,
-                label: clearing ? '清空中...' : '清空日志',
+                label: clearing ? l10n.logClearing : l10n.logClearAction,
                 backgroundColor: colors.surfaceStrong,
                 foregroundColor: colors.textPrimary,
                 onPressed: exporting || clearing ? null : onClear,
@@ -405,6 +414,7 @@ class _LogEmptyCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(22),
@@ -418,7 +428,7 @@ class _LogEmptyCard extends StatelessWidget {
           Icon(Icons.inbox_outlined, color: colors.textMuted, size: 34),
           const SizedBox(height: 12),
           Text(
-            '当前还没有报错日志',
+            l10n.logEmptyTitle,
             style: TextStyle(
               color: colors.textPrimary,
               fontSize: AdaptiveText.roleSize(15.5),
@@ -427,7 +437,7 @@ class _LogEmptyCard extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            '后续出现全局异常后，会自动记录到这里。',
+            l10n.logEmptySubtitle,
             textAlign: TextAlign.center,
             style: TextStyle(
               color: colors.textSecondary,
@@ -456,6 +466,7 @@ class _LogEntryCardState extends State<_LogEntryCard> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final entry = widget.entry;
     final accent = switch (entry.level) {
       AppLogLevel.error => colors.danger,
@@ -559,7 +570,9 @@ class _LogEntryCardState extends State<_LogEntryCard> {
                         : Icons.unfold_more_rounded,
                     size: 18,
                   ),
-                  label: Text(_expanded ? '收起堆栈' : '展开堆栈'),
+                  label: Text(
+                    _expanded ? l10n.logCollapseStack : l10n.logExpandStack,
+                  ),
                   style: TextButton.styleFrom(
                     foregroundColor: colors.link,
                     padding: EdgeInsets.zero,

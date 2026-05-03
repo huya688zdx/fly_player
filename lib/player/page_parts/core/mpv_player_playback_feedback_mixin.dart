@@ -1,12 +1,5 @@
-part of mpv_player_page;
+part of '../../mpv_player_page.dart';
 
-const Set<String> _loadingStatusTexts = <String>{
-  'preparing player',
-  'preparing playback',
-  'preparing video renderer',
-  'waiting for video surface',
-  'waiting for playback source',
-};
 const Duration _videoLoadingOverlayShowDelay = Duration(milliseconds: 260);
 
 extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
@@ -23,6 +16,7 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
     }
     _uiController.pendingLoadingTransition = false;
     _uiController.awaitingVisualPlaybackStart = false;
+    _uiController.allowPlaybackProgressTransitionCompletion = false;
     _uiController.backgroundLoadingTransition = false;
     _uiController.pendingTransitionTargetPaused = false;
     if (mounted) {
@@ -38,6 +32,7 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
     Duration hideDelay = const Duration(milliseconds: 900),
   }) {
     _uiController.awaitingVisualPlaybackStart = false;
+    _uiController.allowPlaybackProgressTransitionCompletion = false;
     _uiController.backgroundLoadingTransition = false;
     _uiController.pendingTransitionTargetPaused = false;
     _finishPendingLoadingTransition(hideDelay: hideDelay);
@@ -69,26 +64,31 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
       _finishPendingLoadingTransition();
       return;
     }
-    final status = value.statusText.trim().toLowerCase();
+    if (value.visualPlaybackReady && value.ready && value.nativeLibLoaded) {
+      _uiController.awaitingVisualPlaybackStart = false;
+      _finishPendingLoadingTransition(
+        hideDelay: const Duration(milliseconds: 220),
+      );
+      return;
+    }
     if (_uiController.pendingTransitionTargetPaused) {
       if (value.ready &&
           value.nativeLibLoaded &&
-          (value.paused || !_loadingStatusTexts.contains(status))) {
+          (value.paused ||
+              value.playbackPhase == MpvPlaybackPhase.paused ||
+              !value.isTransientLoadingPhase)) {
         _uiController.awaitingVisualPlaybackStart = false;
         _finishPendingLoadingTransition();
       }
       return;
     }
-    final playbackAdvanced =
+    final playbackProgressedAfterSwitch =
+        _uiController.allowPlaybackProgressTransitionCompletion &&
+        value.playbackPhase == MpvPlaybackPhase.playing &&
         value.position >=
-        _uiController.visualPlaybackStartAnchorPosition +
-            _MpvPlayerPageState._videoLoadingPlaybackStartTolerance;
-    if (playbackAdvanced) {
-      _uiController.awaitingVisualPlaybackStart = false;
-      _finishPendingLoadingTransition();
-      return;
-    }
-    if (value.visualPlaybackReady && value.ready && value.nativeLibLoaded) {
+            _uiController.visualPlaybackStartAnchorPosition +
+                _MpvPlayerPageState._videoLoadingPlaybackProgressTolerance;
+    if (playbackProgressedAfterSwitch) {
       _uiController.awaitingVisualPlaybackStart = false;
       _finishPendingLoadingTransition(
         hideDelay: const Duration(milliseconds: 220),
@@ -98,19 +98,66 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
   }
 
   String _videoLoadingOverlayMessage(MpvPlayerValue value) {
+    final l10n = AppLocalizations.of(context);
     final switchMessage = _uiController.subtitleSwitchMessage?.trim() ?? '';
     if (_uiController.qualitySwitchLoading && switchMessage.isNotEmpty) {
       return switchMessage;
     }
+    if (!_initialSourceLoadStarted) {
+      if (!_initialPlayerPreferencesLoaded ||
+          !_initialDanmakuPreferencesLoaded) {
+        return l10n.playerLoadingPreparingEnvironment;
+      }
+      if (!_platformViewAttached) {
+        return l10n.playerLoadingInitializingPlayer;
+      }
+      return l10n.playerLoadingPreparingSource;
+    }
+    if (value.playbackPhase == MpvPlaybackPhase.buffering) {
+      return l10n.playerLoadingBuffering;
+    }
     final status = value.statusText.trim().toLowerCase();
+    if (value.playbackPhase == MpvPlaybackPhase.seeking) {
+      return l10n.playerLoadingSeeking;
+    }
     if (status == 'waiting for playback source') {
-      return '\u6b63\u5728\u51c6\u5907\u64ad\u653e\u6e90...';
+      return l10n.playerLoadingPreparingSource;
+    }
+    if (status == 'opening source' || status == 'source loaded') {
+      return l10n.playerLoadingOpeningSource;
     }
     if (status == 'waiting for video surface' ||
         status == 'preparing video renderer') {
-      return '\u6b63\u5728\u51c6\u5907\u753b\u9762...';
+      return l10n.playerLoadingPreparingVideo;
     }
-    return '\u89c6\u9891\u52a0\u8f7d\u4e2d...';
+    return l10n.playerLoadingVideo;
+  }
+
+  String? _videoLoadingOverlaySecondaryMessage(MpvPlayerValue value) {
+    if (_currentSourceIsDownloadedFile || _externalLocalSource) {
+      return null;
+    }
+    final sourceUrl =
+        (_currentUrl.trim().isNotEmpty ? _currentUrl : widget.source.url)
+            .trim()
+            .toLowerCase();
+    final remoteHttpSource =
+        sourceUrl.startsWith('http://') || sourceUrl.startsWith('https://');
+    if (!remoteHttpSource) {
+      return null;
+    }
+    if (value.playbackPhase != MpvPlaybackPhase.buffering &&
+        !value.isTransientLoadingPhase &&
+        !_uiController.awaitingVisualPlaybackStart &&
+        !_uiController.qualitySwitchLoading) {
+      return null;
+    }
+    return buildWeakNetworkBufferingDetails(
+      networkSpeedBytesPerSecond: value.networkSpeedBytesPerSecond,
+      estimatedResumeWait: value.playbackPhase == MpvPlaybackPhase.buffering
+          ? value.estimatedResumeWait
+          : null,
+    );
   }
 
   bool _shouldShowResumePrompt({
@@ -143,9 +190,9 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
     );
     unawaited(_preloadNextEpisodeIfNeeded(nextEpisode));
     final value = _controller.value.value;
-    final statusText = value.statusText.trim().toLowerCase();
     _completionController.setAutoPlayCountdownPaused(
-      value.paused && statusText != 'playback ended',
+      value.playbackPhase != MpvPlaybackPhase.playing &&
+          value.playbackPhase != MpvPlaybackPhase.ended,
     );
   }
 
@@ -174,9 +221,9 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
       );
       unawaited(_preloadNextEpisodeIfNeeded(nextEpisode));
       final value = _controller.value.value;
-      final statusText = value.statusText.trim().toLowerCase();
       _completionController.setAutoPlayCountdownPaused(
-        value.paused && statusText != 'playback ended',
+        value.playbackPhase != MpvPlaybackPhase.playing &&
+            value.playbackPhase != MpvPlaybackPhase.ended,
       );
     } finally {
       _autoPlayPromptRequestInFlight = false;
@@ -226,7 +273,7 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
       return;
     }
 
-    if (!_controller.value.value.paused) {
+    if (_controller.value.value.playbackPhase == MpvPlaybackPhase.playing) {
       await _controller.pause();
       if (!mounted) return;
     }
@@ -279,6 +326,9 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
     if (_uiController.qualitySwitchLoading) {
       return true;
     }
+    if (!_initialSourceLoadStarted) {
+      return true;
+    }
     if (_shouldSuppressPlayerStatusUi(value)) {
       return true;
     }
@@ -291,14 +341,41 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
     if (_uiController.awaitingVisualPlaybackStart) {
       return true;
     }
+    if (value.playbackPhase == MpvPlaybackPhase.buffering) {
+      return true;
+    }
     if (!value.ready || !value.nativeLibLoaded) {
       return true;
     }
-    return _loadingStatusTexts.contains(value.statusText.trim().toLowerCase());
+    return value.isTransientLoadingPhase;
+  }
+
+  bool _shouldForceVideoLoadingOverlay(MpvPlayerValue value) {
+    if (_exitInProgress || _playbackCompleted || _completionActionInFlight) {
+      return false;
+    }
+    if (_uiController.backgroundLoadingTransition) {
+      return false;
+    }
+    if (!_initialSourceLoadStarted ||
+        _uiController.qualitySwitchLoading ||
+        _uiController.pendingLoadingTransition ||
+        _uiController.awaitingVisualPlaybackStart) {
+      return true;
+    }
+    if (value.paused || value.visualPlaybackReady) {
+      return false;
+    }
+    return value.playbackPhase == MpvPlaybackPhase.preparing ||
+        value.playbackPhase == MpvPlaybackPhase.buffering ||
+        value.playbackPhase == MpvPlaybackPhase.seeking ||
+        !value.ready ||
+        !value.nativeLibLoaded;
   }
 
   bool _shouldShowVideoLoadingOverlay(MpvPlayerValue value) {
-    return _uiController.videoLoadingOverlayVisible;
+    return _uiController.videoLoadingOverlayVisible ||
+        _shouldForceVideoLoadingOverlay(value);
   }
 
   void _syncVideoLoadingOverlayVisibility([MpvPlayerValue? currentValue]) {
@@ -308,25 +385,36 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
       _videoLoadingOverlayTimer?.cancel();
       _videoLoadingOverlayTimer = null;
       if (_uiController.videoLoadingOverlayVisible && mounted) {
-        setState(() => _uiController.videoLoadingOverlayVisible = false);
+        _updatePlayerState(
+          () => _uiController.videoLoadingOverlayVisible = false,
+        );
       } else {
         _uiController.videoLoadingOverlayVisible = false;
       }
       return;
     }
-    if (_uiController.videoLoadingOverlayVisible ||
-        _videoLoadingOverlayTimer != null) {
+    final transitionWantsImmediateOverlay =
+        _uiController.pendingLoadingTransition ||
+        _uiController.awaitingVisualPlaybackStart ||
+        _uiController.qualitySwitchLoading;
+    if (_uiController.videoLoadingOverlayVisible) {
       return;
     }
-    final showDelay =
-        (_uiController.pendingLoadingTransition ||
-            _uiController.awaitingVisualPlaybackStart ||
-            _uiController.qualitySwitchLoading)
+    final showDelay = transitionWantsImmediateOverlay
         ? Duration.zero
         : _videoLoadingOverlayShowDelay;
+    if (_videoLoadingOverlayTimer != null) {
+      if (showDelay > Duration.zero) {
+        return;
+      }
+      _videoLoadingOverlayTimer?.cancel();
+      _videoLoadingOverlayTimer = null;
+    }
     if (showDelay <= Duration.zero) {
       if (mounted) {
-        setState(() => _uiController.videoLoadingOverlayVisible = true);
+        _updatePlayerState(
+          () => _uiController.videoLoadingOverlayVisible = true,
+        );
       } else {
         _uiController.videoLoadingOverlayVisible = true;
       }
@@ -336,7 +424,7 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
       _videoLoadingOverlayTimer = null;
       if (!mounted) return;
       if (!_wantsVideoLoadingOverlay(_controller.value.value)) return;
-      setState(() => _uiController.videoLoadingOverlayVisible = true);
+      _updatePlayerState(() => _uiController.videoLoadingOverlayVisible = true);
     });
   }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/generated/app_localizations.dart';
 import '../../theme/app_theme.dart';
 
 class NamedPresetDialogResult {
@@ -18,10 +19,10 @@ Future<NamedPresetDialogResult?> showNamedPresetSaveDialog(
   required String initialName,
   String? suggestedName,
   String initialDescription = '',
-  String nameLabel = '名称',
-  String descriptionLabel = '描述',
-  String emptyNameErrorText = '请输入名称',
-  String confirmLabel = '保存',
+  String? nameLabel,
+  String? descriptionLabel,
+  String? emptyNameErrorText,
+  String? confirmLabel,
   int maxNameLength = 32,
   String? Function(String name)? validateName,
 }) {
@@ -32,10 +33,13 @@ Future<NamedPresetDialogResult?> showNamedPresetSaveDialog(
       initialName: initialName,
       suggestedName: suggestedName,
       initialDescription: initialDescription,
-      nameLabel: nameLabel,
-      descriptionLabel: descriptionLabel,
-      emptyNameErrorText: emptyNameErrorText,
-      confirmLabel: confirmLabel,
+      nameLabel: nameLabel ?? AppLocalizations.of(context).presetNameLabel,
+      descriptionLabel:
+          descriptionLabel ??
+          AppLocalizations.of(context).presetDescriptionLabel,
+      emptyNameErrorText:
+          emptyNameErrorText ?? AppLocalizations.of(context).presetNameRequired,
+      confirmLabel: confirmLabel ?? AppLocalizations.of(context).commonSave,
       maxNameLength: maxNameLength,
       validateName: validateName,
     ),
@@ -120,6 +124,7 @@ class _NamedPresetSaveDialogState extends State<_NamedPresetSaveDialog> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final suggestedName = widget.suggestedName?.trim() ?? '';
     return AlertDialog(
       backgroundColor: colors.surfaceSubtle,
@@ -154,7 +159,7 @@ class _NamedPresetSaveDialogState extends State<_NamedPresetSaveDialog> {
                         padding: const EdgeInsets.only(right: 4),
                         child: TextButton(
                           onPressed: _applySuggestedName,
-                          child: const Text('自动填入'),
+                          child: Text(l10n.presetAutoFill),
                         ),
                       )
                     : null,
@@ -186,7 +191,7 @@ class _NamedPresetSaveDialogState extends State<_NamedPresetSaveDialog> {
               style: TextStyle(color: colors.textPrimary),
               decoration: InputDecoration(
                 labelText: widget.descriptionLabel,
-                hintText: '可选，简单写一下这个预设的用途',
+                hintText: l10n.presetDescriptionHint,
                 filled: true,
                 fillColor: colors.backgroundElevated,
                 border: OutlineInputBorder(
@@ -209,7 +214,7 @@ class _NamedPresetSaveDialogState extends State<_NamedPresetSaveDialog> {
       actions: <Widget>[
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('取消'),
+          child: Text(l10n.commonCancel),
         ),
         FilledButton(onPressed: _submit, child: Text(widget.confirmLabel)),
       ],

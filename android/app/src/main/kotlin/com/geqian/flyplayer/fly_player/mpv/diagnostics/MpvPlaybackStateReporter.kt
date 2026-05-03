@@ -68,15 +68,22 @@ class MpvPlaybackStateReporter(
                 previous.nativeLibLoaded != next.nativeLibLoaded ||
                 previous.visualPlaybackReady != next.visualPlaybackReady ||
                 previous.paused != next.paused ||
+                previous.playbackPhase != next.playbackPhase ||
+                previous.buffering != next.buffering ||
                 previous.bufferedPositionMs != next.bufferedPositionMs ||
                 previous.durationMs != next.durationMs ||
+                previous.weakNetworkMode != next.weakNetworkMode ||
+                previous.networkSpeedBytesPerSecond != next.networkSpeedBytesPerSecond ||
+                previous.rebufferTargetMs != next.rebufferTargetMs ||
+                previous.estimatedResumeWaitMs != next.estimatedResumeWaitMs ||
                 previous.statusText != next.statusText ||
                 previous.error != next.error
         ) {
             return true
         }
         val now = SystemClock.uptimeMillis()
-        val minIntervalMs = if (next.paused) 1000L else 250L
+        val minIntervalMs =
+            if (next.playbackPhase == MpvPlaybackPhase.PLAYING.wireValue) 250L else 1000L
         if (now - lastDispatchUptimeMs >= minIntervalMs) {
             return true
         }
@@ -89,9 +96,15 @@ class MpvPlaybackStateReporter(
             "nativeLibLoaded" to snapshot.state.nativeLibLoaded,
             "visualPlaybackReady" to snapshot.state.visualPlaybackReady,
             "paused" to snapshot.state.paused,
+            "playbackPhase" to snapshot.state.playbackPhase,
+            "buffering" to snapshot.state.buffering,
             "positionMs" to snapshot.state.positionMs,
             "bufferedPositionMs" to snapshot.state.bufferedPositionMs,
             "durationMs" to snapshot.state.durationMs,
+            "weakNetworkMode" to snapshot.state.weakNetworkMode,
+            "networkSpeedBytesPerSecond" to snapshot.state.networkSpeedBytesPerSecond,
+            "rebufferTargetMs" to snapshot.state.rebufferTargetMs,
+            "estimatedResumeWaitMs" to snapshot.state.estimatedResumeWaitMs,
             "statusText" to snapshot.state.statusText,
             "error" to snapshot.state.error,
             "playbackSpeed" to snapshot.source.playbackSpeed,

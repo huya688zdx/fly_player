@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../services/settings_search_store.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
@@ -115,7 +116,10 @@ class _SettingsSearchScreenState extends State<SettingsSearchScreen> {
     final colors = context.appColors;
     final visibleEntries = _visibleEntries;
     final hasQuery = _query.trim().isNotEmpty;
-    final sectionTitle = hasQuery ? '搜索结果' : '常用入口';
+    final l10n = AppLocalizations.of(context);
+    final sectionTitle = hasQuery
+        ? l10n.settingsSearchResults
+        : l10n.settingsSearchFrequent;
 
     return Scaffold(
       backgroundColor: colors.backgroundBase,
@@ -144,7 +148,7 @@ class _SettingsSearchScreenState extends State<SettingsSearchScreen> {
                     fontWeight: FontWeight.w500,
                   ),
                   decoration: InputDecoration(
-                    hintText: '搜索设置项',
+                    hintText: l10n.settingsSearchHint,
                     hintStyle: TextStyle(
                       color: colors.textMuted,
                       fontSize: AdaptiveText.roleSize(15),
@@ -185,7 +189,9 @@ class _SettingsSearchScreenState extends State<SettingsSearchScreen> {
           child: visibleEntries.isEmpty
               ? Center(
                   child: Text(
-                    hasQuery ? '没有找到相关设置项。' : '先输入关键字，或从常用入口开始。',
+                    hasQuery
+                        ? l10n.settingsSearchEmptyResults
+                        : l10n.settingsSearchEmptyPrompt,
                     style: TextStyle(
                       color: colors.textSecondary,
                       fontSize: AdaptiveText.roleSize(14),

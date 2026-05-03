@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/generated/app_localizations.dart';
 import '../../../theme/app_theme.dart';
 import '../../../ui/adaptive_text.dart';
 import 'theme_settings_helpers.dart';
@@ -11,11 +12,12 @@ class ThemeSettingsBackgroundSample extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Row(
       children: <Widget>[
         Expanded(
           child: _ThemeSampleSwatch(
-            title: '页面',
+            title: l10n.themeSamplePage,
             color: colors.backgroundBase,
             borderColor: colors.borderSubtle,
           ),
@@ -23,7 +25,7 @@ class ThemeSettingsBackgroundSample extends StatelessWidget {
         const SizedBox(width: 10),
         Expanded(
           child: _ThemeSampleSwatch(
-            title: '卡片',
+            title: l10n.themeSampleCard,
             color: colors.surface,
             borderColor: colors.borderSubtle,
           ),
@@ -31,7 +33,7 @@ class ThemeSettingsBackgroundSample extends StatelessWidget {
         const SizedBox(width: 10),
         Expanded(
           child: _ThemeSampleSwatch(
-            title: '底栏',
+            title: l10n.themeSampleBottomBar,
             color: colors.navBarBackground,
             borderColor: colors.borderSubtle,
           ),
@@ -48,6 +50,7 @@ class ThemeSettingsActionSample extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -62,7 +65,7 @@ class ThemeSettingsActionSample extends StatelessWidget {
                 ),
                 alignment: Alignment.center,
                 child: Text(
-                  '继续播放',
+                  l10n.themeSampleContinuePlay,
                   style: TextStyle(
                     color: themeSettingsForegroundOn(colors.accent),
                     fontWeight: FontWeight.w700,
@@ -81,7 +84,7 @@ class ThemeSettingsActionSample extends StatelessWidget {
                 ),
                 alignment: Alignment.center,
                 child: Text(
-                  '次要操作',
+                  l10n.themeSampleSecondaryAction,
                   style: TextStyle(
                     color: colors.textSecondary,
                     fontWeight: FontWeight.w600,
@@ -121,6 +124,7 @@ class ThemeSettingsSelectionSample extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Wrap(
       spacing: 10,
       runSpacing: 10,
@@ -133,7 +137,7 @@ class ThemeSettingsSelectionSample extends StatelessWidget {
             border: Border.all(color: colors.selection),
           ),
           child: Text(
-            '已选中',
+            l10n.themeSampleSelected,
             style: TextStyle(
               color: colors.selectionStrong,
               fontWeight: FontWeight.w700,
@@ -148,7 +152,7 @@ class ThemeSettingsSelectionSample extends StatelessWidget {
             border: Border.all(color: colors.borderSubtle),
           ),
           child: Text(
-            '未选中',
+            l10n.themeSampleUnselected,
             style: TextStyle(
               color: colors.textSecondary,
               fontWeight: FontWeight.w600,
@@ -167,10 +171,11 @@ class ThemeSettingsLinkSample extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Row(
       children: <Widget>[
         Text(
-          '更多',
+          l10n.themePreviewMore,
           style: TextStyle(
             color: colors.link,
             fontWeight: FontWeight.w700,
@@ -183,7 +188,7 @@ class ThemeSettingsLinkSample extends StatelessWidget {
         Icon(Icons.open_in_new_rounded, color: colors.link, size: 18),
         const SizedBox(width: 8),
         Text(
-          '查看详情',
+          l10n.themeSampleViewDetails,
           style: TextStyle(
             color: colors.textSecondary,
             fontSize: AdaptiveText.roleSize(13.2),

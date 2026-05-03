@@ -1,4 +1,4 @@
-part of mpv_player_page;
+part of '../../mpv_player_page.dart';
 
 const String _audioMainPageId = 'audio_main';
 const String _audioAdjustPageId = 'audio_adjust';
@@ -17,12 +17,9 @@ extension _MpvPlayerAudioDrawerMixin on _MpvPlayerPageState {
       _MpvPlayerPageState._mpvSettingAudioVoiceEnhance,
       _MpvPlayerPageState._mpvSettingChannelMix,
     };
-    if (_isLocalRuntimeTrackSource()) {
-      await _refreshRuntimeTracks(force: true);
-      if (!mounted) return;
-    }
-    if (_audioTracks.isEmpty) {
-      _showTransientMessage('当前没有可用音轨');
+    final shouldWarmupLocalTracks = _isLocalRuntimeTrackSource();
+    if (!shouldWarmupLocalTracks && _audioTracks.isEmpty) {
+      _showTransientMessage('\u5f53\u524d\u6ca1\u6709\u53ef\u7528\u97f3\u8f68');
       return;
     }
     _overlayState.cancelAutoHide();
@@ -31,6 +28,14 @@ extension _MpvPlayerAudioDrawerMixin on _MpvPlayerPageState {
       _hideControlsImmediately();
     }
     try {
+      if (mounted && !_audioDrawerVisible) {
+        _audioDrawerVisible = true;
+        unawaited(_syncDanmakuDynamicOcclusionConfig());
+      }
+      if (shouldWarmupLocalTracks) {
+        _audioDrawerSyncInFlight = true;
+        unawaited(_warmupAudioDrawerTracks());
+      }
       await PlayerNestedSheet.show<void>(
         context,
         initialPageId: _audioMainPageId,
@@ -69,9 +74,25 @@ extension _MpvPlayerAudioDrawerMixin on _MpvPlayerPageState {
         ],
       );
     } finally {
-      if (mounted && restoreControls) {
-        _showControls();
+      _activeAudioDrawerController = null;
+      _audioDrawerSyncInFlight = false;
+      if (mounted && _audioDrawerVisible) {
+        _audioDrawerVisible = false;
+        unawaited(_syncDanmakuDynamicOcclusionConfig());
+        unawaited(_startOrUpdateSystemPlaybackSession(force: true));
       }
+      if (mounted && !restoreControls) {
+        _scheduleControlsAutoHide();
+      }
+    }
+  }
+
+  Future<void> _warmupAudioDrawerTracks() async {
+    try {
+      await _refreshRuntimeTracks(force: true);
+    } finally {
+      _audioDrawerSyncInFlight = false;
+      _activeAudioDrawerController?.refresh();
     }
   }
 
@@ -79,14 +100,15 @@ extension _MpvPlayerAudioDrawerMixin on _MpvPlayerPageState {
     BuildContext context,
     PlayerNestedSheetController<void> drawer,
   ) {
+    _activeAudioDrawerController = drawer;
     final tracks = _audioTracks;
     return PlayerNestedSheetScaffold(
       header: PlayerNestedSheetHeader(
-        title: '音频',
+        title: '\u97f3\u9891',
         actions: <Widget>[
           _SubtitleHeaderActionButton(
             icon: Icons.tune_rounded,
-            label: '调节',
+            label: '\u8c03\u8282',
             onTap: () => drawer.push(_audioAdjustPageId),
           ),
         ],
@@ -97,7 +119,7 @@ extension _MpvPlayerAudioDrawerMixin on _MpvPlayerPageState {
             children: [
               const Expanded(
                 child: Text(
-                  '音轨列表',
+                  '\u97f3\u8f68\u5217\u8868',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 14,
@@ -113,21 +135,36 @@ extension _MpvPlayerAudioDrawerMixin on _MpvPlayerPageState {
           ),
           const SizedBox(height: 8),
           Expanded(
-            child: ListView.separated(
-              padding: const EdgeInsets.only(bottom: 2),
-              itemCount: tracks.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemBuilder: (context, index) {
-                final track = tracks[index];
-                return _SubtitleOptionTile(
-                  title: _audioTitle(track),
-                  subtitle: _audioSubtitle(track),
-                  selected: track.guid == _currentAudioGuid,
-                  onTap: () =>
-                      unawaited(_selectAudioTrackFromDrawer(track, drawer)),
-                );
-              },
-            ),
+            child: _audioDrawerSyncInFlight && tracks.isEmpty
+                ? const Center(
+                    child: CircularProgressIndicator(strokeWidth: 2.2),
+                  )
+                : tracks.isEmpty
+                ? Center(
+                    child: Text(
+                      '\u5f53\u524d\u6ca1\u6709\u53ef\u7528\u97f3\u8f68',
+                      style: TextStyle(
+                        color: context.appColors.textSecondary,
+                        fontSize: 14,
+                      ),
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    itemCount: tracks.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final track = tracks[index];
+                      return _SubtitleOptionTile(
+                        title: _audioTitle(track),
+                        subtitle: _audioSubtitle(track),
+                        selected: track.guid == _currentAudioGuid,
+                        onTap: () => unawaited(
+                          _selectAudioTrackFromDrawer(track, drawer),
+                        ),
+                      );
+                    },
+                  ),
           ),
         ],
       ),
@@ -140,14 +177,14 @@ extension _MpvPlayerAudioDrawerMixin on _MpvPlayerPageState {
   ) {
     return PlayerNestedSheetScaffold(
       header: PlayerNestedSheetHeader(
-        title: '音频调整',
+        title: '\u97f3\u9891\u8c03\u6574',
         onBack: drawer.popPage,
         actions: [
           TextButton.icon(
             onPressed: () => unawaited(_resetAudioDelay(drawer)),
             icon: const Icon(Icons.restart_alt_rounded, color: Colors.white),
             label: const Text(
-              '重置',
+              '\u91cd\u7f6e',
               style: TextStyle(color: Colors.white, fontSize: 15),
             ),
           ),
@@ -157,12 +194,12 @@ extension _MpvPlayerAudioDrawerMixin on _MpvPlayerPageState {
         padding: EdgeInsets.zero,
         children: [
           _SubtitleAdjustRow(
-            label: '音频延迟',
+            label: '\u97f3\u9891\u5ef6\u8fdf',
             child: Row(
               children: [
                 Expanded(
                   child: _SubtitleActionCapsule(
-                    label: '延后',
+                    label: '\u5ef6\u540e',
                     onTap: () => unawaited(
                       _setAudioDelaySeconds(
                         _audioDelaySeconds + 0.1,
@@ -180,7 +217,7 @@ extension _MpvPlayerAudioDrawerMixin on _MpvPlayerPageState {
                 const SizedBox(width: 10),
                 Expanded(
                   child: _SubtitleActionCapsule(
-                    label: '提前',
+                    label: '\u63d0\u524d',
                     onTap: () => unawaited(
                       _setAudioDelaySeconds(
                         _audioDelaySeconds - 0.1,
@@ -194,7 +231,7 @@ extension _MpvPlayerAudioDrawerMixin on _MpvPlayerPageState {
           ),
           const SizedBox(height: 14),
           Text(
-            '正值会让声音更晚，负值会让声音更早。',
+            '\u6b63\u503c\u4f1a\u8ba9\u58f0\u97f3\u66f4\u665a\uff0c\u8d1f\u503c\u4f1a\u8ba9\u58f0\u97f3\u66f4\u65e9\u3002',
             style: TextStyle(
               color: context.appColors.textSecondary,
               fontSize: 13,
@@ -203,8 +240,9 @@ extension _MpvPlayerAudioDrawerMixin on _MpvPlayerPageState {
           ),
           const SizedBox(height: 18),
           PlaybackSettingsMenuTile(
-            title: '均衡器与滤镜',
-            subtitle: 'EQ、限幅、低音增强、人声增强',
+            title: '\u5747\u8861\u5668\u4e0e\u6ee4\u955c',
+            subtitle:
+                '\u5305\u542b EQ\u3001\u9650\u5e45\u3001\u4f4e\u97f3\u589e\u5f3a\u3001\u4eba\u58f0\u589e\u5f3a',
             trailingLabel: _mpvCategorySummaryLabel(
               _mpvAudioProcessingCategory,
             ),
@@ -229,7 +267,8 @@ extension _MpvPlayerAudioDrawerMixin on _MpvPlayerPageState {
       var reloadStarted = false;
       _updatePlayerState(() {
         _uiController.qualitySwitchLoading = true;
-        _uiController.subtitleSwitchMessage = '姝ｅ湪鍒囨崲闊抽锛岃绋嶇瓑...';
+        _uiController.subtitleSwitchMessage =
+            '\u6b63\u5728\u5207\u6362\u97f3\u9891\uff0c\u8bf7\u7a0d\u7b49...';
         _currentAudioGuid = selected.guid;
       });
       _uiController.pendingLoadingTransition = true;
@@ -237,7 +276,9 @@ extension _MpvPlayerAudioDrawerMixin on _MpvPlayerPageState {
         currentPosition,
         targetPaused: _controller.value.value.paused,
       );
-      _showSubtitleSwitchMessage('正在切换音频，请稍等...');
+      _showSubtitleSwitchMessage(
+        '\u6b63\u5728\u5207\u6362\u97f3\u9891\uff0c\u8bf7\u7a0d\u7b49...',
+      );
       try {
         await _reloadServerPlaySession(audioGuid: selected.guid);
         reloadStarted = true;
@@ -299,13 +340,13 @@ extension _MpvPlayerAudioDrawerMixin on _MpvPlayerPageState {
 
   String _audioDelayDisplayLabel(double seconds) {
     final prefix = seconds > 0 ? '+' : '';
-    return '$prefix${seconds.toStringAsFixed(1)} 秒';
+    return '$prefix${seconds.toStringAsFixed(1)} \u79d2';
   }
 
   String _audioDelayErrorMessage(Object error) {
     if (error is MissingPluginException) {
-      return '音频延迟原生模块未加载，请重启应用后重试';
+      return '\u97f3\u9891\u5ef6\u8fdf\u539f\u751f\u6a21\u5757\u672a\u52a0\u8f7d\uff0c\u8bf7\u91cd\u542f\u5e94\u7528\u540e\u91cd\u8bd5';
     }
-    return '音频延迟设置失败';
+    return '\u97f3\u9891\u5ef6\u8fdf\u8bbe\u7f6e\u5931\u8d25';
   }
 }

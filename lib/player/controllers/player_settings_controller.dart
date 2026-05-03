@@ -58,15 +58,18 @@ class PlayerSettingsController {
     introOutroMode = preferences.chapterSkipMode;
     introDurationSeconds = preferences.introDurationSeconds;
     outroDurationSeconds = preferences.outroDurationSeconds;
+    subtitleDelaySeconds = preferences.subtitleDelaySeconds;
+    subtitlePositionFactor = preferences.subtitlePositionFactor;
+    subtitleScaleFactor = preferences.subtitleScaleFactor;
     introOutroConfigLoaded = true;
     mpvSettings = Map<String, String>.from(preferences.mpvSettings);
   }
 
   String playbackMonitorStatusLabel() {
-    return performanceOverlayEnabled ? '部分开启' : '已关闭';
+    return performanceOverlayEnabled ? 'Partially enabled' : 'Off';
   }
 
   String decoderSwitchMessage(String modeLabel) {
-    return '正在切换为 $modeLabel，请稍等...';
+    return 'Switching to $modeLabel. Please wait...';
   }
 }

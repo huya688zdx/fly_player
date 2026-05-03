@@ -9,23 +9,35 @@ import '../models/media_item.dart';
 import '../models/media_library_item.dart';
 import '../models/play_info.dart';
 import '../player/controllers/mpv_player_controller.dart';
+import '../services/detail_route_payload_store.dart';
 import '../services/play_stats/play_stats.dart';
 import '../ui/player_pane_host_scope.dart';
+import '../utils/async_action_guard.dart';
 import 'main_host_bridge.dart';
 import 'parallel_browse_snapshot.dart';
 
+/// 表示嵌入式播放器启动请求的处理结果。
 class EmbeddedPlayerLaunchResult {
   final bool handled;
   final PlayDetailPlayerReturnData? data;
 
+  /// 根据处理状态与可选返回值构造结果对象。
   const EmbeddedPlayerLaunchResult({required this.handled, this.data});
 }
 
+/// 统一封装嵌入式详情页与播放器的打开逻辑。
 class EmbeddedDetailLauncher {
   static const MethodChannel _channel = MethodChannel('fly_player/embedding');
+  static const Duration _parallelWindowSupportCacheTtl = Duration(
+    milliseconds: 800,
+  );
+  static bool? _parallelWindowSupportCacheValue;
+  static DateTime? _parallelWindowSupportCacheTime;
+  static Future<bool>? _parallelWindowSupportRequest;
 
   const EmbeddedDetailLauncher._();
 
+  /// 查询当前宿主环境是否支持嵌入式详情页。
   static Future<bool> canOpenEmbeddedDetail() async {
     try {
       return await _channel.invokeMethod<bool>('canOpenEmbeddedDetail') ??
@@ -35,7 +47,35 @@ class EmbeddedDetailLauncher {
     }
   }
 
+  /// 查询当前环境是否支持并行浏览窗口。
   static Future<bool> isParallelWindowSupported() async {
+    final now = DateTime.now();
+    final cachedValue = _parallelWindowSupportCacheValue;
+    final cachedTime = _parallelWindowSupportCacheTime;
+    if (cachedValue != null &&
+        cachedTime != null &&
+        now.difference(cachedTime) < _parallelWindowSupportCacheTtl) {
+      return cachedValue;
+    }
+    final pendingRequest = _parallelWindowSupportRequest;
+    if (pendingRequest != null) {
+      return pendingRequest;
+    }
+    final request = _queryParallelWindowSupported();
+    _parallelWindowSupportRequest = request;
+    try {
+      final supported = await request;
+      _parallelWindowSupportCacheValue = supported;
+      _parallelWindowSupportCacheTime = DateTime.now();
+      return supported;
+    } finally {
+      if (identical(_parallelWindowSupportRequest, request)) {
+        _parallelWindowSupportRequest = null;
+      }
+    }
+  }
+
+  static Future<bool> _queryParallelWindowSupported() async {
     try {
       return await _channel.invokeMethod<bool>('isParallelWindowSupported') ??
           false;
@@ -44,6 +84,7 @@ class EmbeddedDetailLauncher {
     }
   }
 
+  /// 打开指定媒体条目的详情页。
   static Future<bool> openItemDetail(
     String itemGuid, {
     BuildContext? context,
@@ -53,35 +94,40 @@ class EmbeddedDetailLauncher {
     final normalizedGuid = itemGuid.trim();
     final normalizedSeriesGuid = seriesGuid.trim();
     if (normalizedGuid.isEmpty) return false;
-    final routeName = Uri(
-      path: '/detail/item',
-      queryParameters: <String, String>{
-        'itemGuid': normalizedGuid,
-        if (normalizedSeriesGuid.isNotEmpty) 'seriesGuid': normalizedSeriesGuid,
-        if (initialItemDetail != null)
-          'initialItemDetail': jsonEncode(initialItemDetail),
-      },
-    ).toString();
-    final paneHost = context == null
-        ? null
-        : PlayerPaneHostScope.maybeOf(context);
-    if (paneHost != null) {
-      return paneHost.openRoute(routeName);
-    }
-    if (Platform.isAndroid) {
-      try {
-        return await _channel.invokeMethod<bool>(
-              'openSecondaryRoute',
-              <String, String>{'routeName': routeName},
-            ) ??
-            false;
-      } on PlatformException {
+    final routeName = DetailRoutePayloadStore.routeNameForItem(
+      itemGuid: normalizedGuid,
+      seriesGuid: normalizedSeriesGuid,
+      initialItemDetail: initialItemDetail,
+    );
+    return AsyncActionGuard.run<bool>(
+      'embedded_item_detail:$normalizedGuid:$normalizedSeriesGuid',
+      settleDuration: const Duration(milliseconds: 450),
+      action: () async {
+        final paneHost = context == null
+            ? null
+            : PlayerPaneHostScope.maybeOf(context);
+        if (paneHost != null) {
+          return paneHost.openRoute(routeName);
+        }
+        if (Platform.isAndroid) {
+          try {
+            return await _channel
+                    .invokeMethod<bool>('openItemDetail', <String, Object?>{
+                      'itemGuid': normalizedGuid,
+                      'seriesGuid': normalizedSeriesGuid,
+                      'initialItemDetail': initialItemDetail,
+                    }) ??
+                false;
+          } on PlatformException {
+            return false;
+          }
+        }
         return false;
-      }
-    }
-    return false;
+      },
+    );
   }
 
+  /// 打开指定季详情页。
   static Future<bool> openSeasonDetail({
     BuildContext? context,
     required String parentGuid,
@@ -94,67 +140,82 @@ class EmbeddedDetailLauncher {
     if (normalizedParentGuid.isEmpty || normalizedSeasonGuid.isEmpty) {
       return false;
     }
-    final paneHost = context == null
-        ? null
-        : PlayerPaneHostScope.maybeOf(context);
-    if (paneHost != null) {
-      return paneHost.openRoute(
-        Uri(
-          path: '/detail/season',
-          queryParameters: <String, String>{
-            'parentGuid': normalizedParentGuid,
-            'seriesTitle': seriesTitle.trim(),
-            'backdropPath': backdropPath.trim(),
-            'seasonItem': jsonEncode(seasonItem.toJson()),
-          },
-        ).toString(),
-      );
-    }
-    try {
-      return await _channel
-              .invokeMethod<bool>('openSeasonDetail', <String, Object?>{
-                'parentGuid': normalizedParentGuid,
-                'seriesTitle': seriesTitle.trim(),
-                'backdropPath': backdropPath.trim(),
-                'seasonItem': seasonItem.toJson(),
-              }) ??
-          false;
-    } on PlatformException {
-      return false;
-    }
+    final routeName = DetailRoutePayloadStore.routeNameForSeason(
+      parentGuid: normalizedParentGuid,
+      seriesTitle: seriesTitle,
+      backdropPath: backdropPath,
+      seasonItem: seasonItem.toJson(),
+    );
+    return AsyncActionGuard.run<bool>(
+      'embedded_season_detail:$normalizedParentGuid:$normalizedSeasonGuid',
+      settleDuration: const Duration(milliseconds: 450),
+      action: () async {
+        final paneHost = context == null
+            ? null
+            : PlayerPaneHostScope.maybeOf(context);
+        if (paneHost != null) {
+          return paneHost.openRoute(routeName);
+        }
+        try {
+          return await _channel
+                  .invokeMethod<bool>('openSeasonDetail', <String, Object?>{
+                    'parentGuid': normalizedParentGuid,
+                    'seriesTitle': seriesTitle.trim(),
+                    'backdropPath': backdropPath.trim(),
+                    'seasonItem': seasonItem.toJson(),
+                  }) ??
+              false;
+        } on PlatformException {
+          return false;
+        }
+      },
+    );
   }
 
+  /// 打开搜索页。
   static Future<bool> openSearch({BuildContext? context}) async {
     return _openRoute('/screen/search', context: context);
   }
 
+  /// 打开收藏页。
   static Future<bool> openFavorites({BuildContext? context}) async {
     return _openRoute('/screen/favorites', context: context);
   }
 
+  /// 打开设置页，并可跳转到指定子路由。
   static Future<bool> openSettings({
     BuildContext? context,
     String? destinationRoute,
   }) async {
     final normalizedDestination = destinationRoute?.trim() ?? '';
-    final handled = await MainHostBridge.openPrimarySettings(
-      destinationRoute: normalizedDestination.isEmpty
-          ? null
-          : normalizedDestination,
-    );
-    if (handled) return true;
-    if (context == null || !context.mounted) return false;
     final fallbackRoute = normalizedDestination.isEmpty
         ? '/screen/settings'
         : normalizedDestination;
-    try {
-      await Navigator.of(context, rootNavigator: true).pushNamed(fallbackRoute);
-      return true;
-    } catch (_) {
-      return false;
-    }
+    return AsyncActionGuard.run<bool>(
+      'embedded_settings:$fallbackRoute',
+      settleDuration: const Duration(milliseconds: 450),
+      action: () async {
+        final handled = await MainHostBridge.openPrimarySettings(
+          destinationRoute: normalizedDestination.isEmpty
+              ? null
+              : normalizedDestination,
+        );
+        if (handled) return true;
+        if (context == null || !context.mounted) return false;
+        try {
+          await Navigator.of(
+            context,
+            rootNavigator: true,
+          ).pushNamed(fallbackRoute);
+          return true;
+        } catch (_) {
+          return false;
+        }
+      },
+    );
   }
 
+  /// 打开下载页，并可指定初始页签。
   static Future<bool> openDownloads({
     BuildContext? context,
     String? tab,
@@ -171,6 +232,7 @@ class EmbeddedDetailLauncher {
     );
   }
 
+  /// 打开指定下载分组的详情页。
   static Future<bool> openDownloadDetail({
     BuildContext? context,
     required String groupId,
@@ -191,6 +253,7 @@ class EmbeddedDetailLauncher {
     );
   }
 
+  /// 打开分类浏览页。
   static Future<bool> openCategory({
     BuildContext? context,
     required MediaItem category,
@@ -208,6 +271,7 @@ class EmbeddedDetailLauncher {
     );
   }
 
+  /// 打开人物详情页。
   static Future<bool> openPersonDetail({
     BuildContext? context,
     required String personGuid,
@@ -227,6 +291,7 @@ class EmbeddedDetailLauncher {
     );
   }
 
+  /// 以全屏播放器形式打开指定播放源。
   static Future<EmbeddedPlayerLaunchResult> openFullscreenPlayer({
     BuildContext? context,
     required String title,
@@ -234,47 +299,63 @@ class EmbeddedDetailLauncher {
     PlayInfoData? initialPlayInfo,
     PlayStartSource startSource = PlayStartSource.manual,
   }) async {
-    if (context != null) {
-      final paneHost = PlayerPaneHostScope.maybeOf(context);
-      if (paneHost != null) {
-        final handled = await paneHost.replacePlayerSource(
-          title: title,
-          source: source,
-          initialPlayInfo: initialPlayInfo,
-          startSource: startSource,
-        );
-        return EmbeddedPlayerLaunchResult(handled: handled);
-      }
-    }
-    if (!Platform.isAndroid) {
-      return const EmbeddedPlayerLaunchResult(handled: false);
-    }
-    final normalizedTitle = title.trim();
-    if (normalizedTitle.isEmpty) {
-      return const EmbeddedPlayerLaunchResult(handled: false);
-    }
-    try {
-      final result = await _channel.invokeMapMethod<Object?, Object?>(
-        'openFullscreenPlayer',
-        <String, Object?>{
-          'title': normalizedTitle,
-          'source': source.toMap(),
-          'initialPlayInfo': initialPlayInfo?.toJson(),
-          'startSource': PlayStatsSqlMapper.startSourceToText(startSource),
-        },
-      );
-      if (result == null) {
-        return const EmbeddedPlayerLaunchResult(handled: true);
-      }
-      return EmbeddedPlayerLaunchResult(
-        handled: true,
-        data: PlayDetailPlayerReturnData.fromMap(_normalizeMap(result)),
-      );
-    } on PlatformException {
-      return const EmbeddedPlayerLaunchResult(handled: false);
-    }
+    final playbackKey = <String>[
+      source.itemGuid.trim(),
+      source.mediaGuid.trim(),
+      source.videoGuid.trim(),
+      source.url.trim(),
+      source.playLink?.trim() ?? '',
+      source.playbackMode.name,
+      title.trim(),
+    ].where((value) => value.isNotEmpty).join('|');
+    return AsyncActionGuard.run<EmbeddedPlayerLaunchResult>(
+      'embedded_player:$playbackKey',
+      settleDuration: const Duration(milliseconds: 500),
+      action: () async {
+        if (context != null) {
+          final paneHost = PlayerPaneHostScope.maybeOf(context);
+          if (paneHost != null) {
+            final handled = await paneHost.replacePlayerSource(
+              title: title,
+              source: source,
+              initialPlayInfo: initialPlayInfo,
+              startSource: startSource,
+            );
+            return EmbeddedPlayerLaunchResult(handled: handled);
+          }
+        }
+        if (!Platform.isAndroid) {
+          return const EmbeddedPlayerLaunchResult(handled: false);
+        }
+        final normalizedTitle = title.trim();
+        if (normalizedTitle.isEmpty) {
+          return const EmbeddedPlayerLaunchResult(handled: false);
+        }
+        try {
+          final result = await _channel.invokeMapMethod<Object?, Object?>(
+            'openFullscreenPlayer',
+            <String, Object?>{
+              'title': normalizedTitle,
+              'source': source.toMap(),
+              'initialPlayInfo': initialPlayInfo?.toJson(),
+              'startSource': PlayStatsSqlMapper.startSourceToText(startSource),
+            },
+          );
+          if (result == null) {
+            return const EmbeddedPlayerLaunchResult(handled: true);
+          }
+          return EmbeddedPlayerLaunchResult(
+            handled: true,
+            data: PlayDetailPlayerReturnData.fromMap(_normalizeMap(result)),
+          );
+        } on PlatformException {
+          return const EmbeddedPlayerLaunchResult(handled: false);
+        }
+      },
+    );
   }
 
+  /// 请求关闭右侧嵌入面板。
   static Future<bool> closeRightPane() async {
     if (!Platform.isAndroid) return false;
     try {
@@ -284,6 +365,7 @@ class EmbeddedDetailLauncher {
     }
   }
 
+  /// 优先回退当前路由，否则关闭嵌入宿主容器。
   static Future<void> closeHostOrPop(BuildContext context) async {
     final navigator = Navigator.of(context);
     final paneHost = PlayerPaneHostScope.maybeOf(context);
@@ -297,6 +379,7 @@ class EmbeddedDetailLauncher {
     await closeRightPane();
   }
 
+  /// 向宿主同步当前并行浏览快照。
   static Future<void> reportBrowseSnapshot(
     ParallelBrowseSnapshot snapshot,
   ) async {
@@ -317,36 +400,42 @@ class EmbeddedDetailLauncher {
   }) async {
     final normalizedRoute = routeName.trim();
     if (normalizedRoute.isEmpty) return false;
-    final paneHost = context == null
-        ? null
-        : PlayerPaneHostScope.maybeOf(context);
-    if (paneHost != null) {
-      final handled = await paneHost.openRoute(normalizedRoute);
-      if (handled) return true;
-    }
-    if (Platform.isAndroid) {
-      try {
-        final handled =
-            await _channel.invokeMethod<bool>(
-              'openSecondaryRoute',
-              <String, Object?>{'routeName': normalizedRoute},
-            ) ??
-            false;
-        if (handled) return true;
-      } on PlatformException {
-        // Fall through to local navigator push when a Flutter context exists.
-      }
-    }
-    if (context == null || !context.mounted) return false;
-    try {
-      await Navigator.of(
-        context,
-        rootNavigator: true,
-      ).pushNamed(normalizedRoute);
-      return true;
-    } catch (_) {
-      return false;
-    }
+    return AsyncActionGuard.run<bool>(
+      'embedded_route:$normalizedRoute',
+      settleDuration: const Duration(milliseconds: 450),
+      action: () async {
+        final paneHost = context == null
+            ? null
+            : PlayerPaneHostScope.maybeOf(context);
+        if (paneHost != null) {
+          final handled = await paneHost.openRoute(normalizedRoute);
+          if (handled) return true;
+        }
+        if (Platform.isAndroid) {
+          try {
+            final handled =
+                await _channel.invokeMethod<bool>(
+                  'openSecondaryRoute',
+                  <String, Object?>{'routeName': normalizedRoute},
+                ) ??
+                false;
+            if (handled) return true;
+          } on PlatformException {
+            // Fall through to local navigator push when a Flutter context exists.
+          }
+        }
+        if (context == null || !context.mounted) return false;
+        try {
+          await Navigator.of(
+            context,
+            rootNavigator: true,
+          ).pushNamed(normalizedRoute);
+          return true;
+        } catch (_) {
+          return false;
+        }
+      },
+    );
   }
 
   static Map<String, dynamic> _normalizeMap(Map<Object?, Object?> raw) {
