@@ -60,3 +60,11 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Claude Code
+.claude/
+
+# Local dev tools
+getapi/
+.getapi/
+弹幕.json
