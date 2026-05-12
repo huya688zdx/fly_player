@@ -309,9 +309,10 @@ class _PosterImageState extends State<_PosterImage> {
         final cacheW = constraints.maxWidth.isFinite
             ? (constraints.maxWidth * dpr).round().clamp(120, 1200)
             : null;
-        final cacheH = constraints.maxHeight.isFinite
-            ? (constraints.maxHeight * dpr).round().clamp(120, 1200)
-            : null;
+        // Only constrain cacheWidth, NOT cacheHeight.
+        // When both are set, Flutter decodes the image into a fixed-size box,
+        // which destroys the original aspect ratio and causes poster stretching
+        // or cropping when the image aspect doesn't match the container.
         return Image.network(
           url,
           fit: widget.fit,
@@ -319,7 +320,6 @@ class _PosterImageState extends State<_PosterImage> {
           filterQuality: FilterQuality.none,
           gaplessPlayback: true,
           cacheWidth: cacheW,
-          cacheHeight: cacheH,
           headers: _headers,
           frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
             final loaded = wasSynchronouslyLoaded || frame != null;
