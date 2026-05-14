@@ -25,11 +25,11 @@ val localProperties = Properties().apply {
     }
 }
 
-fun resolveSecretConfig(name: String): String {
+fun resolveSecretConfig(name: String, fallback: String = ""): String {
     return providers.gradleProperty(name).orNull
         ?: localProperties.getProperty(name)
         ?: System.getenv(name)
-        ?: ""
+        ?: fallback
 }
 
 fun buildConfigString(value: String): String {
@@ -37,9 +37,11 @@ fun buildConfigString(value: String): String {
     return "\"$escaped\""
 }
 
-val danDanPlayAppId = resolveSecretConfig("DANDANPLAY_APP_ID")
-val danDanPlayAppSecret = resolveSecretConfig("DANDANPLAY_APP_SECRET")
-val danDanPlayAppSecretFallback = resolveSecretConfig("DANDANPLAY_APP_SECRET_FALLBACK")
+val danDanPlayAppId = resolveSecretConfig("DANDANPLAY_APP_ID", "mgfbs9knmv")
+val danDanPlayAppSecret =
+    resolveSecretConfig("DANDANPLAY_APP_SECRET", "9XHIIK2RB9mh9YvUF8V9JECahuP9kG39")
+val danDanPlayAppSecretFallback =
+    resolveSecretConfig("DANDANPLAY_APP_SECRET_FALLBACK", "IBhGjXBXSqspI6UPN5Rwr5mmf3JeqJx2")
 val debugKeystoreFile = rootProject.file("../.look/debug.keystore")
 
 android {

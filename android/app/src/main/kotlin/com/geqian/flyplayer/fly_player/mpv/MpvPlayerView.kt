@@ -202,6 +202,11 @@ class MpvPlayerView(
                 controller.seek(args["positionMs"].toLongValue())
                 result.success(null)
             }
+            "hintNativeDanmakuSeek" -> {
+                val args = methodArgumentsMap(call)
+                nativeDanmakuOverlayView?.hintSeek(args["positionMs"].toLongValue())
+                result.success(null)
+            }
             "setAudioTrack" -> {
                 val args = methodArgumentsMap(call)
                 controller.setAudioTrack(
