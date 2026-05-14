@@ -94,6 +94,18 @@ private data class NativeDanmakuPayload(
     val initialPositionMs: Float?,
 )
 
+internal object NativeDanmakuLaneScheduler {
+    fun findReleasedLane(availableAtMs: FloatArray, targetTimeMs: Float): Int? {
+        if (availableAtMs.isEmpty()) return null
+        for (index in availableAtMs.indices) {
+            if (availableAtMs[index] <= targetTimeMs) {
+                return index
+            }
+        }
+        return null
+    }
+}
+
 private data class PendingNativeScrollDanmaku(
     val comment: NativeDanmakuComment,
     val eligibleAtMs: Float,
@@ -590,6 +602,31 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
             softSyncApplied = softSyncApplied,
             latencyFiltered = abs(latencyAdjustedPositionMs - rawNextPositionMs) >= 0.5f,
         )
+        invalidate()
+        if (shouldAnimate()) {
+            scheduleFrame()
+        } else {
+            cancelFrame()
+        }
+    }
+
+    fun hintSeek(positionMs: Long) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { hintSeek(positionMs) }
+            return
+        }
+        val targetMs = positionMs.toFloat().coerceAtLeast(0f)
+        val nowNs = currentAnimationClockNs(System.nanoTime())
+        armSeekGuard(targetMs, nowNs)
+        lastKnownPositionMs = targetMs
+        if (settings.enabled && comments.isNotEmpty()) {
+            rebuildTimeline(targetMs, nowNs)
+        } else {
+            reanchorTimeline(targetMs, nowNs)
+            activeItems.clear()
+            clearPendingScrollQueue()
+            duplicateWindow.clear()
+        }
         invalidate()
         if (shouldAnimate()) {
             scheduleFrame()
@@ -1097,6 +1134,7 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
             if (left >= viewportWidth || left + item.bitmap.drawWidth <= 0f) {
                 continue
             }
+            if (item.bitmap.bitmap.isRecycled) continue
             canvas.drawBitmap(item.bitmap.bitmap, left, item.top, bitmapPaint)
             drawnItems += 1
         }
@@ -2594,20 +2632,10 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
     }
 
     private fun findAvailableLane(availableAtMs: FloatArray, targetTimeMs: Float): Int? {
-        if (availableAtMs.isEmpty()) return null
-        var bestIndex = 0
-        var bestTime = availableAtMs[0]
-        for (index in availableAtMs.indices) {
-            val laneTime = availableAtMs[index]
-            if (laneTime <= targetTimeMs) {
-                return index
-            }
-            if (laneTime < bestTime) {
-                bestTime = laneTime
-                bestIndex = index
-            }
-        }
-        return bestIndex.takeIf { availableAtMs[it] - targetTimeMs <= currentStaticDurationMs() }
+        return NativeDanmakuLaneScheduler.findReleasedLane(
+            availableAtMs = availableAtMs,
+            targetTimeMs = targetTimeMs,
+        )
     }
 
     private fun shouldDrawOcclusionMask(): Boolean {

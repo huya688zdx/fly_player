@@ -111,5 +111,95 @@ void main() {
         expect(fullLayout.topTrackYs.length, 12);
       },
     );
+
+    test('reduces available rows as configured font scale grows', () {
+      final normalLayout = DanmakuTrackLayoutEngine.compute(
+        viewportSize: const Size(1280, 720),
+        trackHeight: 36,
+        areaRatio: 0.5,
+        avoidSubtitleArea: true,
+        avoidCenterArea: false,
+        subtitleReservedAreaRatio: 0.16,
+      );
+      final largeFontLayout = DanmakuTrackLayoutEngine.compute(
+        viewportSize: const Size(1280, 720),
+        trackHeight: 52,
+        areaRatio: 0.5,
+        avoidSubtitleArea: true,
+        avoidCenterArea: false,
+        subtitleReservedAreaRatio: 0.16,
+      );
+
+      expect(
+        largeFontLayout.topTrackYs.length,
+        lessThan(normalLayout.topTrackYs.length),
+      );
+      expect(
+        largeFontLayout.topTrackYs.toSet().length,
+        largeFontLayout.topTrackYs.length,
+      );
+    });
+  });
+
+  group('DanmakuScrollTrackScheduler', () {
+    test(
+      'blocks a new scroll item while the previous tail is still entering',
+      () {
+        final canAdd = DanmakuScrollTrackScheduler.canAddToTrack(
+          visibleItems: const <DanmakuScrollTrackItemSnapshot>[
+            DanmakuScrollTrackItemSnapshot(
+              width: 200,
+              startMs: 0,
+              durationMs: 5000,
+            ),
+          ],
+          viewportWidth: 1000,
+          timelineMs: 0,
+          newItemWidth: 400,
+          newItemDurationMs: 5000,
+          minGap: 20,
+        );
+
+        expect(canAdd, isFalse);
+      },
+    );
+
+    test('blocks a faster new item that would catch the previous item', () {
+      final canAdd = DanmakuScrollTrackScheduler.canAddToTrack(
+        visibleItems: const <DanmakuScrollTrackItemSnapshot>[
+          DanmakuScrollTrackItemSnapshot(
+            width: 200,
+            startMs: 0,
+            durationMs: 5000,
+          ),
+        ],
+        viewportWidth: 1000,
+        timelineMs: 1000,
+        newItemWidth: 400,
+        newItemDurationMs: 5000,
+        minGap: 20,
+      );
+
+      expect(canAdd, isFalse);
+    });
+
+    test('allows a new scroll item after safe same-lane spacing opens', () {
+      final canAdd = DanmakuScrollTrackScheduler.canAddToTrack(
+        visibleItems: const <DanmakuScrollTrackItemSnapshot>[
+          DanmakuScrollTrackItemSnapshot(
+            width: 200,
+            startMs: 0,
+            durationMs: 5000,
+          ),
+        ],
+        viewportWidth: 1000,
+        timelineMs: 2000,
+        newItemWidth: 400,
+        newItemDurationMs: 5000,
+        minGap: 20,
+      );
+
+      expect(canAdd, isTrue);
+    });
   });
 }

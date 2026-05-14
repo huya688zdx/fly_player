@@ -367,6 +367,6 @@ class LocalDanmakuItem<T> {
   }
 
   static double _verticalRasterPadding(double fontSize, double strokeWidth) {
-    return math.max(strokeWidth + 1.0, fontSize * 0.18);
+    return math.max(strokeWidth + 1.0, fontSize * 0.38);
   }
 }
