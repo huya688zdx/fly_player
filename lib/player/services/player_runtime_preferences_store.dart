@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:ui';
 
 import 'package:shared_preferences/shared_preferences.dart';
@@ -23,6 +24,7 @@ class PlayerRuntimePreferencesStore {
   final String subtitleDelayPrefKey;
   final String subtitlePositionFactorPrefKey;
   final String subtitleScaleFactorPrefKey;
+  final String subtitleAdjustmentRecordsPrefKey;
   final String mpvSettingPrefPrefix;
   final String decoderModeHardware;
   final String decoderModeSoftware;
@@ -63,6 +65,7 @@ class PlayerRuntimePreferencesStore {
     required this.subtitleDelayPrefKey,
     required this.subtitlePositionFactorPrefKey,
     required this.subtitleScaleFactorPrefKey,
+    required this.subtitleAdjustmentRecordsPrefKey,
     required this.mpvSettingPrefPrefix,
     required this.decoderModeHardware,
     required this.decoderModeSoftware,
@@ -163,6 +166,55 @@ class PlayerRuntimePreferencesStore {
     await prefs.setDouble(key, value);
   }
 
+  Future<PlayerSubtitleAdjustmentRecord?> loadSubtitleAdjustmentRecord(
+    String key,
+  ) async {
+    final normalizedKey = key.trim();
+    if (normalizedKey.isEmpty) return null;
+    final prefs = await SharedPreferences.getInstance();
+    final records = _decodeSubtitleAdjustmentRecords(
+      prefs.getString(subtitleAdjustmentRecordsPrefKey),
+    );
+    final raw = records[normalizedKey];
+    if (raw is! Map<String, Object?>) return null;
+    return _subtitleAdjustmentRecordFromMap(normalizedKey, raw);
+  }
+
+  Future<void> saveSubtitleAdjustmentRecord({
+    required String key,
+    required String title,
+    required double subtitleDelaySeconds,
+    required double subtitlePositionFactor,
+    required double subtitleScaleFactor,
+  }) async {
+    final normalizedKey = key.trim();
+    if (normalizedKey.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final records = _decodeSubtitleAdjustmentRecords(
+      prefs.getString(subtitleAdjustmentRecordsPrefKey),
+    );
+    records[normalizedKey] = <String, Object?>{
+      'title': title.trim(),
+      'subtitleDelaySeconds': _normalizeSubtitleDelaySeconds(
+        subtitleDelaySeconds,
+      ),
+      'subtitlePositionFactor': _normalizeUnitFactor(
+        subtitlePositionFactor,
+        defaultValue: defaultSubtitlePositionFactor,
+      ),
+      'subtitleScaleFactor': _normalizeUnitFactor(
+        subtitleScaleFactor,
+        defaultValue: defaultSubtitleScaleFactor,
+      ),
+      'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+    };
+    _trimSubtitleAdjustmentRecords(records);
+    await prefs.setString(
+      subtitleAdjustmentRecordsPrefKey,
+      jsonEncode(records),
+    );
+  }
+
   Future<void> persistPerformanceOverlayOffset(Offset offset) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(performanceOverlayOffsetXPrefKey, offset.dx);
@@ -202,5 +254,69 @@ class PlayerRuntimePreferencesStore {
 
   double _normalizeUnitFactor(double? value, {required double defaultValue}) {
     return (value ?? defaultValue).clamp(0.0, 1.0).toDouble();
+  }
+
+  Map<String, Object?> _decodeSubtitleAdjustmentRecords(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return <String, Object?>{};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return <String, Object?>{};
+      return decoded.map(
+        (key, value) => MapEntry(key.toString(), _normalizeRecordMap(value)),
+      );
+    } catch (_) {
+      return <String, Object?>{};
+    }
+  }
+
+  Map<String, Object?> _normalizeRecordMap(Object? value) {
+    if (value is! Map) return <String, Object?>{};
+    return value.map((key, value) => MapEntry(key.toString(), value));
+  }
+
+  PlayerSubtitleAdjustmentRecord? _subtitleAdjustmentRecordFromMap(
+    String key,
+    Map<String, Object?> raw,
+  ) {
+    final delay = _numberToDouble(raw['subtitleDelaySeconds']);
+    final position = _numberToDouble(raw['subtitlePositionFactor']);
+    final scale = _numberToDouble(raw['subtitleScaleFactor']);
+    if (delay == null || position == null || scale == null) return null;
+    return PlayerSubtitleAdjustmentRecord(
+      key: key,
+      title: raw['title']?.toString().trim() ?? '',
+      subtitleDelaySeconds: _normalizeSubtitleDelaySeconds(delay),
+      subtitlePositionFactor: _normalizeUnitFactor(
+        position,
+        defaultValue: defaultSubtitlePositionFactor,
+      ),
+      subtitleScaleFactor: _normalizeUnitFactor(
+        scale,
+        defaultValue: defaultSubtitleScaleFactor,
+      ),
+      updatedAtMs: (raw['updatedAtMs'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  double? _numberToDouble(Object? value) {
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
+  }
+
+  void _trimSubtitleAdjustmentRecords(Map<String, Object?> records) {
+    const maxRecords = 300;
+    if (records.length <= maxRecords) return;
+    final entries = records.entries.toList()
+      ..sort((left, right) {
+        final leftMap = _normalizeRecordMap(left.value);
+        final rightMap = _normalizeRecordMap(right.value);
+        final leftUpdated = (leftMap['updatedAtMs'] as num?)?.toInt() ?? 0;
+        final rightUpdated = (rightMap['updatedAtMs'] as num?)?.toInt() ?? 0;
+        return rightUpdated.compareTo(leftUpdated);
+      });
+    records
+      ..clear()
+      ..addEntries(entries.take(maxRecords));
   }
 }

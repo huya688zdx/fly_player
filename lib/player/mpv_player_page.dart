@@ -69,6 +69,7 @@ import 'panels/episode_picker_sheet.dart';
 import 'stores/mpv_settings_store.dart';
 import 'controllers/mpv_player_controller.dart';
 import 'controllers/player_runtime_controller.dart';
+import 'models/player_runtime_preferences.dart';
 import 'controllers/player_session_controller.dart';
 import 'controllers/play_stats_session_controller.dart';
 import 'controllers/local_runtime_track_controller.dart';
@@ -249,6 +250,8 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
       'player_subtitle_position_factor';
   static const String _subtitleScaleFactorPrefKey =
       'player_subtitle_scale_factor';
+  static const String _subtitleAdjustmentRecordsPrefKey =
+      'player_subtitle_adjustment_records';
   static const String _mpvSettingPrefPrefix = 'player_mpv_setting_';
   static const String _decoderModeHardware = 'hardware';
   static const String _decoderModeSoftware = 'software';
@@ -391,6 +394,7 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
         subtitleDelayPrefKey: _subtitleDelayPrefKey,
         subtitlePositionFactorPrefKey: _subtitlePositionFactorPrefKey,
         subtitleScaleFactorPrefKey: _subtitleScaleFactorPrefKey,
+        subtitleAdjustmentRecordsPrefKey: _subtitleAdjustmentRecordsPrefKey,
         mpvSettingPrefPrefix: _mpvSettingPrefPrefix,
         decoderModeHardware: _decoderModeHardware,
         decoderModeSoftware: _decoderModeSoftware,
@@ -997,7 +1001,7 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
         _hydrateFromSource(widget.source);
         _tryStartInitialSourceLoad();
       } else {
-        _replacePlayerSource(widget.source);
+        unawaited(_replacePlayerSource(widget.source));
       }
     }
   }
@@ -1262,7 +1266,11 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
 
   void _updatePlayerState(VoidCallback update) {
     if (!mounted) return;
-    setState(update);
+    if (_uiTransientOverlayVisible) {
+      update();
+    } else {
+      setState(update);
+    }
     _syncVideoLoadingOverlayVisibility();
   }
 

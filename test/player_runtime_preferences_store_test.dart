@@ -23,6 +23,7 @@ PlayerRuntimePreferencesStore _buildStore() {
     subtitleDelayPrefKey: 'player_subtitle_delay_seconds',
     subtitlePositionFactorPrefKey: 'player_subtitle_position_factor',
     subtitleScaleFactorPrefKey: 'player_subtitle_scale_factor',
+    subtitleAdjustmentRecordsPrefKey: 'player_subtitle_adjustment_records',
     mpvSettingPrefPrefix: 'player_mpv_setting_',
     decoderModeHardware: 'hardware',
     decoderModeSoftware: 'software',
@@ -119,6 +120,29 @@ void main() {
       expect(preferences.subtitlePositionFactor, 0.08);
       expect(preferences.subtitleScaleFactor, closeTo(1 / 6, 1e-9));
       expect(preferences.performanceOverlayOffset, const Offset(12, 56));
+    });
+
+    test('persists subtitle adjustment records per video key', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+
+      final store = _buildStore();
+      await store.saveSubtitleAdjustmentRecord(
+        key: 'video:video-1',
+        title: 'Episode 1',
+        subtitleDelaySeconds: 12.34,
+        subtitlePositionFactor: -1,
+        subtitleScaleFactor: 1.5,
+      );
+
+      final record = await store.loadSubtitleAdjustmentRecord('video:video-1');
+
+      expect(record, isNotNull);
+      expect(record!.key, 'video:video-1');
+      expect(record.title, 'Episode 1');
+      expect(record.subtitleDelaySeconds, 10.0);
+      expect(record.subtitlePositionFactor, 0.0);
+      expect(record.subtitleScaleFactor, 1.0);
+      expect(await store.loadSubtitleAdjustmentRecord('video:missing'), isNull);
     });
   });
 }
