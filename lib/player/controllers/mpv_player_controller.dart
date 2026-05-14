@@ -1168,6 +1168,9 @@ class MpvPlayerController {
   DateTime? _pendingSeekGuardUntil;
   Duration? _positionFloorGuard;
   DateTime? _positionFloorGuardUntil;
+  Timer? _coalescedSeekTimer;
+  Duration _coalescedSeekTarget = Duration.zero;
+  static const Duration _seekCoalesceInterval = Duration(milliseconds: 64);
 
   void attach(int viewId) {
     _disposed = false;
@@ -1235,9 +1238,17 @@ class MpvPlayerController {
       ),
       force: true,
     );
-    return _invoke('seek', <String, Object?>{
-      'positionMs': normalized.inMilliseconds,
+    _coalescedSeekTarget = normalized;
+    _coalescedSeekTimer?.cancel();
+    _coalescedSeekTimer = Timer(_seekCoalesceInterval, () {
+      _coalescedSeekTimer = null;
+      final payload = <String, Object?>{
+        'positionMs': _coalescedSeekTarget.inMilliseconds,
+      };
+      unawaited(_invoke('hintNativeDanmakuSeek', payload));
+      unawaited(_invoke('seek', payload));
     });
+    return Future<void>.value();
   }
 
   void prepareForSourceLoad(
@@ -1791,6 +1802,8 @@ class MpvPlayerController {
   void _clearTransientPositionGuards() {
     _clearPendingSeekGuard();
     _clearPlaybackCommandPositionGuard();
+    _coalescedSeekTimer?.cancel();
+    _coalescedSeekTimer = null;
   }
 
   void _publishDanmakuOcclusionState(DanmakuDynamicOcclusionState next) {

@@ -83,6 +83,49 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     await _syncEffectiveSubtitlePosition(force: force);
   }
 
+  String _subtitleAdjustmentRecordKeyForSource(MpvMediaSource source) {
+    final videoGuid = source.videoGuid.trim();
+    if (videoGuid.isNotEmpty) return 'video:$videoGuid';
+    final mediaGuid = source.mediaGuid.trim();
+    if (mediaGuid.isNotEmpty) return 'media:$mediaGuid';
+    final itemGuid = source.itemGuid.trim();
+    if (itemGuid.isNotEmpty) return 'item:$itemGuid';
+    final url = source.url.trim();
+    return url.isNotEmpty ? 'url:$url' : '';
+  }
+
+  String _currentSubtitleAdjustmentRecordKey() {
+    final videoGuid = _currentVideoGuid.trim();
+    if (videoGuid.isNotEmpty) return 'video:$videoGuid';
+    final mediaGuid = _currentMediaGuid.trim();
+    if (mediaGuid.isNotEmpty) return 'media:$mediaGuid';
+    final itemGuid = _currentItemGuid.trim();
+    if (itemGuid.isNotEmpty) return 'item:$itemGuid';
+    final url = _currentUrl.trim();
+    return url.isNotEmpty ? 'url:$url' : '';
+  }
+
+  Future<PlayerSubtitleAdjustmentRecord?> _loadSubtitleAdjustmentForSource(
+    MpvMediaSource source,
+  ) {
+    return _runtimePreferencesStore.loadSubtitleAdjustmentRecord(
+      _subtitleAdjustmentRecordKeyForSource(source),
+    );
+  }
+
+  void _applySubtitleAdjustmentValues({
+    required double delaySeconds,
+    required double positionFactor,
+    required double scaleFactor,
+  }) {
+    _subtitleDelaySeconds = delaySeconds;
+    _subtitlePositionFactor = positionFactor;
+    _subtitleScaleFactor = scaleFactor;
+    _subtitleController.subtitleDelaySeconds = delaySeconds;
+    _subtitleController.subtitlePositionFactor = positionFactor;
+    _subtitleController.subtitleScaleFactor = scaleFactor;
+  }
+
   void _invalidateAppliedSubtitleStyle() {
     _lastAppliedSubtitleDelaySeconds = null;
     _lastAppliedSubtitleScale = null;
@@ -720,6 +763,9 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
 
   Future<void> _loadInitialPlayerPreferences() async {
     final preferences = await _runtimePreferencesStore.load();
+    final subtitleAdjustmentRecord = await _loadSubtitleAdjustmentForSource(
+      widget.source,
+    );
     final mpvBundle = await _mpvSettingsStore.loadBundle();
     final savedPicturePresets = await _mpvSettingsStore.loadSavedPresets(
       SavedMpvPresetKind.picture,
@@ -736,11 +782,17 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
         : null;
     if (!mounted) {
       _settingsController.applyRuntimePreferences(preferences);
-      _subtitleController.subtitleDelaySeconds =
-          preferences.subtitleDelaySeconds;
-      _subtitleController.subtitlePositionFactor =
-          preferences.subtitlePositionFactor;
-      _subtitleController.subtitleScaleFactor = preferences.subtitleScaleFactor;
+      _applySubtitleAdjustmentValues(
+        delaySeconds:
+            subtitleAdjustmentRecord?.subtitleDelaySeconds ??
+            preferences.subtitleDelaySeconds,
+        positionFactor:
+            subtitleAdjustmentRecord?.subtitlePositionFactor ??
+            preferences.subtitlePositionFactor,
+        scaleFactor:
+            subtitleAdjustmentRecord?.subtitleScaleFactor ??
+            preferences.subtitleScaleFactor,
+      );
       _mpvSettings = mpvBundle.settings;
       _videoAdjustments = mpvBundle.videoAdjustments;
       _savedMpvPicturePresets = savedPicturePresets;
@@ -756,11 +808,17 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     }
     _updatePlayerState(() {
       _settingsController.applyRuntimePreferences(preferences);
-      _subtitleController.subtitleDelaySeconds =
-          preferences.subtitleDelaySeconds;
-      _subtitleController.subtitlePositionFactor =
-          preferences.subtitlePositionFactor;
-      _subtitleController.subtitleScaleFactor = preferences.subtitleScaleFactor;
+      _applySubtitleAdjustmentValues(
+        delaySeconds:
+            subtitleAdjustmentRecord?.subtitleDelaySeconds ??
+            preferences.subtitleDelaySeconds,
+        positionFactor:
+            subtitleAdjustmentRecord?.subtitlePositionFactor ??
+            preferences.subtitlePositionFactor,
+        scaleFactor:
+            subtitleAdjustmentRecord?.subtitleScaleFactor ??
+            preferences.subtitleScaleFactor,
+      );
       _mpvSettings = mpvBundle.settings;
       _videoAdjustments = mpvBundle.videoAdjustments;
       _savedMpvPicturePresets = savedPicturePresets;
@@ -1233,7 +1291,7 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
         return;
       }
       _initialSourceLoadStarted = true;
-      _replacePlayerSource(widget.source);
+      unawaited(_replacePlayerSource(widget.source));
     });
   }
 
@@ -1266,14 +1324,33 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     await _controller.reload(effectiveSource);
   }
 
-  void _replacePlayerSource(MpvMediaSource incomingSource) {
+  Future<void> _replacePlayerSource(MpvMediaSource incomingSource) async {
     final source = incomingSource.loadNonce > 0
         ? incomingSource
         : incomingSource.copyWith(loadNonce: _issueNextLoadNonce());
+    final preferences = await _runtimePreferencesStore.load();
+    final subtitleAdjustmentRecord = await _loadSubtitleAdjustmentForSource(
+      source,
+    );
+    if (!mounted || _exitInProgress) return;
     _invalidateNextEpisodePreload();
     _speedDialVisible = false;
     _resetSourceLoadTransitionState();
     _hydrateFromSource(source);
+    _updatePlayerState(() {
+      _settingsController.subtitleDelaySeconds =
+          subtitleAdjustmentRecord?.subtitleDelaySeconds ??
+          preferences.subtitleDelaySeconds;
+      _settingsController.subtitlePositionFactor =
+          subtitleAdjustmentRecord?.subtitlePositionFactor ??
+          preferences.subtitlePositionFactor;
+      _settingsController.subtitleScaleFactor =
+          subtitleAdjustmentRecord?.subtitleScaleFactor ??
+          preferences.subtitleScaleFactor;
+      _subtitleController.subtitleDelaySeconds = _subtitleDelaySeconds;
+      _subtitleController.subtitlePositionFactor = _subtitlePositionFactor;
+      _subtitleController.subtitleScaleFactor = _subtitleScaleFactor;
+    });
     unawaited(_prefetchCurrentSubtitleFileIfNeeded());
     unawaited(
       _startPlayStatsSession(

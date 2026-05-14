@@ -378,7 +378,11 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
                   ),
                 ),
                 const SizedBox(width: 10),
-                const Expanded(child: _SubtitleValueCapsule(label: '\u79d2')),
+                Expanded(
+                  child: _SubtitleValueCapsule(
+                    label: _subtitleDelayDisplayLabel(),
+                  ),
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: _SubtitleActionCapsule(
@@ -396,7 +400,7 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
           ),
           const SizedBox(height: 18),
           _SubtitleAdjustRow(
-            label: '\u4f4d\u7f6e',
+            label: '\u4f4d\u7f6e ${_subtitlePositionDisplayLabel()}',
             child: Row(
               children: [
                 const Text(
@@ -431,7 +435,7 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
           ),
           const SizedBox(height: 18),
           _SubtitleAdjustRow(
-            label: '\u5927\u5c0f',
+            label: '\u5927\u5c0f ${_subtitleScaleDisplayLabel()}',
             child: Row(
               children: [
                 const Text(
@@ -768,10 +772,7 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
       value,
     );
     drawer.refresh();
-    await _runtimePreferencesStore.setDouble(
-      _MpvPlayerPageState._subtitleDelayPrefKey,
-      _subtitleDelaySeconds,
-    );
+    await _persistSubtitleAdjustmentRecord();
     await _syncEffectiveSubtitleDelay(force: true);
   }
 
@@ -782,10 +783,7 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
     _subtitleController.updateSubtitlePositionFactor(value);
     _subtitlePositionFactor = _subtitleController.subtitlePositionFactor;
     drawer.refresh();
-    await _runtimePreferencesStore.setDouble(
-      _MpvPlayerPageState._subtitlePositionFactorPrefKey,
-      _subtitlePositionFactor,
-    );
+    await _persistSubtitleAdjustmentRecord();
     await _syncEffectiveSubtitlePosition(force: true);
   }
 
@@ -800,10 +798,7 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
     );
     _subtitleScaleFactor = _subtitleController.subtitleScaleFactor;
     drawer.refresh();
-    await _runtimePreferencesStore.setDouble(
-      _MpvPlayerPageState._subtitleScaleFactorPrefKey,
-      _subtitleScaleFactor,
-    );
+    await _persistSubtitleAdjustmentRecord();
     await _syncEffectiveSubtitleScale(force: true);
   }
 
@@ -818,21 +813,38 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
     _subtitlePositionFactor = _subtitleController.subtitlePositionFactor;
     _subtitleScaleFactor = _subtitleController.subtitleScaleFactor;
     drawer.refresh();
-    await _runtimePreferencesStore.setDouble(
-      _MpvPlayerPageState._subtitleDelayPrefKey,
-      _subtitleDelaySeconds,
-    );
-    await _runtimePreferencesStore.setDouble(
-      _MpvPlayerPageState._subtitlePositionFactorPrefKey,
-      _subtitlePositionFactor,
-    );
-    await _runtimePreferencesStore.setDouble(
-      _MpvPlayerPageState._subtitleScaleFactorPrefKey,
-      _subtitleScaleFactor,
-    );
+    await _persistSubtitleAdjustmentRecord();
     await _controller.resetSubtitleStyle();
     _invalidateAppliedSubtitleStyle();
     await _syncEffectiveSubtitleStyle(force: true);
+  }
+
+  Future<void> _persistSubtitleAdjustmentRecord() {
+    return _runtimePreferencesStore.saveSubtitleAdjustmentRecord(
+      key: _currentSubtitleAdjustmentRecordKey(),
+      title: _currentTitle,
+      subtitleDelaySeconds: _subtitleDelaySeconds,
+      subtitlePositionFactor: _subtitlePositionFactor,
+      subtitleScaleFactor: _subtitleScaleFactor,
+    );
+  }
+
+  String _subtitleDelayDisplayLabel() {
+    final value = _subtitleDelaySeconds;
+    final sign = value > 0 ? '+' : '';
+    return '$sign${value.toStringAsFixed(1)} \u79d2';
+  }
+
+  String _subtitlePositionDisplayLabel() {
+    final percent = (_subtitlePositionFactor.clamp(0.0, 1.0) * 100).round();
+    return '$percent%';
+  }
+
+  String _subtitleScaleDisplayLabel() {
+    final factor = _subtitleScaleFactor.clamp(0.0, 1.0).toDouble();
+    final scale =
+        _subtitleScaleMin + ((_subtitleScaleMax - _subtitleScaleMin) * factor);
+    return '${scale.toStringAsFixed(2)}x';
   }
 
   String _subtitleSearchLanguageLabel(String language) {
