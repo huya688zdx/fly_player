@@ -14,6 +14,7 @@ import '../models/media_library_item.dart';
 import '../providers/nas_provider.dart';
 import '../services/download_task_service.dart';
 import '../services/embedded_detail_launcher.dart';
+import '../services/home_data_cache.dart';
 import '../services/parallel_browse_snapshot.dart';
 import '../theme/app_theme.dart';
 import '../theme/detail_tokens.dart';
@@ -26,6 +27,7 @@ import '../utils/async_action_guard.dart';
 import '../utils/app_confirm_dialog.dart';
 import '../utils/app_exception.dart';
 import '../utils/app_top_tip.dart';
+import '../utils/reduced_overscroll_physics.dart';
 import '../widgets/common/app_action_sheet.dart';
 import '../widgets/common/app_error_state.dart';
 import 'category_items_screen.dart';
@@ -69,6 +71,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
   String _lastLoadKey = '';
 
   bool _isLoading = false;
+  bool _loadingFromCache = false;
   AppException? _error;
 
   int get _continueLimit =>
@@ -116,46 +119,82 @@ class _MediaListScreenState extends State<MediaListScreen> {
       _localeMap = <String, dynamic>{};
       _error = null;
       _isLoading = false;
+      _loadingFromCache = false;
       return;
     }
     final loadKey = '${provider.baseUrl}|${provider.token}';
     if (loadKey != _lastLoadKey) {
       _lastLoadKey = loadKey;
-      _fetchHomeData();
+      _tryLoadFromCacheThenRefresh();
     }
+  }
+
+  Future<void> _tryLoadFromCacheThenRefresh() async {
+    final snapshot = await HomeDataCache.load();
+    if (snapshot != null && snapshot.categories.isNotEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _categories = snapshot.categories;
+        _itemsByCategory = snapshot.itemsByCategory;
+        _mediaSummary = snapshot.mediaSummary;
+        _continueWatching = snapshot.continueWatching;
+        _loadingFromCache = true;
+        _isLoading = false;
+        _error = null;
+      });
+      // Refresh in background — update incrementally if changed.
+      unawaited(_backgroundRefresh());
+      return;
+    }
+    // No cache — full load with spinner.
+    _fetchHomeData();
   }
 
   Future<void> _fetchHomeData() async {
     debugPrint('[UI][HOME] start loading home data');
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+    final usingSpinner = !_loadingFromCache;
+    if (usingSpinner) {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+    }
 
     try {
       final provider = context.read<NasProvider>();
       final api = FeiniuApi(provider);
-      final categories = await api.getMediaList();
-      final summary = await api.getMediaSummary();
-      final playList = await api.getPlayList();
+
+      // Fetch categories, summary, and play list in parallel.
+      final parallelResults = await Future.wait([
+        api.getMediaList(),
+        api.getMediaSummary(),
+        api.getPlayList(),
+      ]);
+      final categories = parallelResults[0] as List<MediaItem>;
+      final summary = parallelResults[1] as Map<String, dynamic>;
+      final playList = parallelResults[2] as List<MediaLibraryItem>;
       const localeMap = <String, dynamic>{};
 
+      // Fetch all category items in parallel.
       final itemsByCategory = <String, List<MediaLibraryItem>>{};
       final allItems = <MediaLibraryItem>[];
-
-      for (final category in categories) {
+      final categoryFutures = categories.map((category) async {
         try {
           final items = await api.getItemsByCategoryGuid(
             category.id,
             page: 1,
             limit: _categoryPreviewLimit,
           );
-          itemsByCategory[category.id] = items;
-          allItems.addAll(items);
+          return (category.id, items);
         } catch (error) {
           debugPrint('[UI][HOME] category load failed ${category.id}: $error');
-          itemsByCategory[category.id] = <MediaLibraryItem>[];
+          return (category.id, <MediaLibraryItem>[]);
         }
+      }).toList();
+      final categoryResults = await Future.wait(categoryFutures);
+      for (final (catId, items) in categoryResults) {
+        itemsByCategory[catId] = items;
+        allItems.addAll(items);
       }
 
       final continueWatching = playList.isNotEmpty
@@ -170,10 +209,22 @@ class _MediaListScreenState extends State<MediaListScreen> {
         _mediaSummary = summary;
         _localeMap = localeMap;
         _isLoading = false;
+        _loadingFromCache = false;
+        _error = null;
       });
+
+      // Persist to cache.
+      unawaited(HomeDataCache.save(
+        categories: categories,
+        itemsByCategory: itemsByCategory,
+        mediaSummary: summary,
+        continueWatching: continueWatching,
+      ));
     } catch (error) {
       debugPrint('[UI][HOME] load failed $error');
       if (!mounted) return;
+      // If we have stale cache data, keep showing it.
+      if (_loadingFromCache) return;
       setState(() {
         _error = AppException.from(
           error,
@@ -182,6 +233,94 @@ class _MediaListScreenState extends State<MediaListScreen> {
         );
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _backgroundRefresh() async {
+    debugPrint('[UI][HOME] background refresh start');
+    final provider = context.read<NasProvider>();
+    if (!provider.isConfigured) return;
+
+    try {
+      final api = FeiniuApi(provider);
+
+      // Fetch categories and summary in parallel.
+      final parallelResults = await Future.wait([
+        api.getMediaList(),
+        api.getMediaSummary(),
+        api.getPlayList(forceRefresh: true),
+      ]);
+      final categories = parallelResults[0] as List<MediaItem>;
+      final summary = parallelResults[1] as Map<String, dynamic>;
+      final playList = parallelResults[2] as List<MediaLibraryItem>;
+
+      // Fetch all category items in parallel.
+      final itemsByCategory = <String, List<MediaLibraryItem>>{};
+      final allItems = <MediaLibraryItem>[];
+      final categoryFutures = categories.map((category) async {
+        try {
+          final items = await api.getItemsByCategoryGuid(
+            category.id,
+            page: 1,
+            limit: _categoryPreviewLimit,
+          );
+          return (category.id, items);
+        } catch (_) {
+          return (category.id, <MediaLibraryItem>[]);
+        }
+      }).toList();
+      final categoryResults = await Future.wait(categoryFutures);
+      for (final (catId, items) in categoryResults) {
+        itemsByCategory[catId] = items;
+        allItems.addAll(items);
+      }
+
+      final continueWatching = playList.isNotEmpty
+          ? playList.take(_continueLimit).toList()
+          : _pickContinueWatching(allItems);
+
+      if (!mounted) return;
+
+      // Only update UI if data changed.
+      final newSnapshot = HomeDataSnapshot(
+        categories: categories,
+        itemsByCategory: itemsByCategory,
+        mediaSummary: summary,
+        continueWatching: continueWatching,
+        cachedAt: DateTime.now(),
+      );
+
+      final currentSnapshot = HomeDataSnapshot(
+        categories: _categories,
+        itemsByCategory: _itemsByCategory,
+        mediaSummary: _mediaSummary,
+        continueWatching: _continueWatching,
+        cachedAt: DateTime.now(),
+      );
+
+      if (!newSnapshot.isSameAs(currentSnapshot)) {
+        setState(() {
+          _categories = categories;
+          _itemsByCategory = itemsByCategory;
+          _continueWatching = continueWatching;
+          _mediaSummary = summary;
+          _loadingFromCache = false;
+        });
+      } else {
+        setState(() => _loadingFromCache = false);
+      }
+
+      // Always update cache with fresh data.
+      unawaited(HomeDataCache.save(
+        categories: categories,
+        itemsByCategory: itemsByCategory,
+        mediaSummary: summary,
+        continueWatching: continueWatching,
+      ));
+    } catch (error) {
+      debugPrint('[UI][HOME] background refresh failed: $error');
+      if (!mounted) return;
+      setState(() => _loadingFromCache = false);
     }
   }
 

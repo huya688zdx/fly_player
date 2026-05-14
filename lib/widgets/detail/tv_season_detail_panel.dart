@@ -130,7 +130,15 @@ class TvSeasonDetailPanel extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 4),
-              Row(
+              AnimatedBuilder(
+                animation: headerMetaOpacity,
+                builder: (context, child) {
+                  return Opacity(
+                    opacity: headerMetaOpacity.value,
+                    child: child,
+                  );
+                },
+                child: Row(
                 children: [
                   Expanded(
                     child: DetailPrimaryPlayButton(
@@ -161,7 +169,8 @@ class TvSeasonDetailPanel extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 14),
+              ),
+              const SizedBox(height: 10),
               AnimatedSize(
                 duration: switchDuration,
                 curve: Curves.easeOut,
@@ -182,7 +191,7 @@ class TvSeasonDetailPanel extends StatelessWidget {
                             )
                           : const SizedBox.shrink(),
                     ),
-                    SizedBox(height: hasOverview ? 12 : 16),
+                    SizedBox(height: hasOverview ? 12 : 8),
                   ],
                 ),
               ),
