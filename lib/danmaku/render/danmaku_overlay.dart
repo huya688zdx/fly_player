@@ -92,12 +92,13 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   static const int _maxPendingVisibleScrollItems = 160;
   static const double _perTrackVisibleScrollMultiplier = 3.2;
   static const double _subtitleReservedAreaRatio = 0.16;
-  static const double _lineHeight = 1.0;
+  static const double _lineHeight = 1.2;
   static const int _baseFontWeightIndex = 7;
   static const double _baseStrokeWidth = 0.9;
   static const Duration _maskEmptyStateClearGrace = Duration(milliseconds: 350);
   static const int _maxSchedulingLeadMs = 280;
   static const int _seekResyncThresholdMs = 1500;
+  static const int _timelineDriftResyncThresholdMs = 300;
   static const int _pendingQueueMinimumSize = 360;
   static const int _pendingQueueCapacityMultiplier = 12;
   static const int _pendingDrainMinimumBudget = 8;
@@ -133,10 +134,15 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
       <_PendingScrollComment>[];
   final Set<String> _pendingScrollCommentIds = <String>{};
 
+  double _cachedTrackSnapshotY = -1;
+  int _cachedTrackSnapshotScrollCount = -1;
+  List<DanmakuScrollTrackItemSnapshot>? _cachedTrackSnapshots;
+
   DanmakuTrackLayout? _trackLayout;
   int _lastScheduledPositionMs = 0;
   int _lastReportedPositionMs = 0;
   int _timelineMs = 0;
+  double _timelineMsAccumulator = 0.0;
   int _lastTickerElapsedUs = 0;
   int? _pendingPauseSyncPositionMs;
   String _lastOptionSignature = '';
@@ -423,18 +429,22 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
       _lastTickerElapsedUs = elapsedUs;
       if (deltaUs > 0) {
         final scaledDeltaMs =
-            (deltaUs *
+            deltaUs *
                     _effectivePlaybackSpeedFactor() /
-                    Duration.microsecondsPerMillisecond)
-                .round();
+                    Duration.microsecondsPerMillisecond;
         if (scaledDeltaMs > 0) {
-          _timelineMs += scaledDeltaMs;
+          _timelineMsAccumulator += scaledDeltaMs;
+          final newTimelineMs = _timelineMsAccumulator.floor();
+          if (newTimelineMs != _timelineMs) {
+            _timelineMs = newTimelineMs;
+          }
         }
       }
     }
     if (_timelineNotifier.value != _timelineMs) {
       _timelineNotifier.value = _timelineMs;
     }
+    _correctTimelineDrift();
     var sceneChanged = false;
     if (_purgeExpiredItems()) {
       sceneChanged = true;
@@ -496,8 +506,18 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
 
   void _setTimelineMs(int positionMs) {
     _timelineMs = math.max(0, positionMs);
+    _timelineMsAccumulator = _timelineMs.toDouble();
     if (_timelineNotifier.value != _timelineMs) {
       _timelineNotifier.value = _timelineMs;
+    }
+  }
+
+  void _correctTimelineDrift() {
+    if (widget.paused || !widget.controller.ready) return;
+    final reportedMs = _resolvedPositionMs();
+    final driftMs = (_timelineMs - reportedMs).abs();
+    if (driftMs >= _timelineDriftResyncThresholdMs) {
+      _setTimelineMs(reportedMs);
     }
   }
 
@@ -594,6 +614,11 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
         _lastReportedPositionMs = currentPositionMs;
         _syncTickerForPlaybackState(positionMs: currentPositionMs);
         return;
+      }
+
+      final timelineDriftMs = (_timelineMs - currentPositionMs).abs();
+      if (timelineDriftMs >= _timelineDriftResyncThresholdMs) {
+        _setTimelineMs(currentPositionMs);
       }
 
       final emittedCount = _advanceSchedulingToPosition(
@@ -846,22 +871,23 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   bool _purgeExpiredItems() {
     var changed = false;
     final viewportSize = _viewportSize;
-    _scrollItems.removeWhere((item) {
-      final expired = item.isExpired(_timelineMs, viewportSize);
-      if (expired) {
-        item.dispose();
+    for (var i = _scrollItems.length - 1; i >= 0; i--) {
+      if (_scrollItems[i].isExpired(_timelineMs, viewportSize)) {
+        _scrollItems[i].dispose();
+        _scrollItems.removeAt(i);
         changed = true;
       }
-      return expired;
-    });
-    _staticItems.removeWhere((item) {
-      final expired = item.isExpired(_timelineMs, viewportSize);
-      if (expired) {
-        item.dispose();
+    }
+    for (var i = _staticItems.length - 1; i >= 0; i--) {
+      if (_staticItems[i].isExpired(_timelineMs, viewportSize)) {
+        _staticItems[i].dispose();
+        _staticItems.removeAt(i);
         changed = true;
       }
-      return expired;
-    });
+    }
+    if (changed) {
+      _cachedTrackSnapshotY = -1;
+    }
     return changed;
   }
 
@@ -1445,6 +1471,10 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
       _schedulerBlockedByCapacityCount += 1;
       return _CommentAdmissionResult.blocked;
     }
+    final rawStartMs = _timelineMs - ageMs;
+    final effectiveStartMs = fromPending
+        ? rawStartMs
+        : math.max(comment.timeMs, rawStartMs);
     final color = settings.colorEnabled ? comment.color : Colors.white;
     final item = LocalDanmakuItem.rasterize<DanmakuComment>(
       content: LocalDanmakuContentItem<DanmakuComment>(
@@ -1454,7 +1484,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
         extra: comment,
       ),
       trackPosition: 0,
-      startMs: _timelineMs - ageMs,
+      startMs: effectiveStartMs,
       durationMs: durationMs,
       fontSize: _fontSize(settings),
       fontWeight: _fontWeightIndex(settings),
@@ -1500,6 +1530,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     item.trackPosition = trackPosition;
     if (item.isScroll) {
       _scrollItems.add(item);
+      _cachedTrackSnapshotY = -1;
     } else {
       _staticItems.add(item);
     }
@@ -1597,35 +1628,34 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
         _maxVisibleScrollItemsPerTrack(settings, fromPending: fromPending)) {
       return false;
     }
-    for (final item in _scrollItems) {
-      if (item.trackPosition != trackY) continue;
-      if (item.isExpired(_timelineMs, viewportSize)) continue;
-      final x = item.xFor(viewportSize, _timelineMs);
-      final existingTailX = x + item.width;
-      if (existingTailX >= viewportSize.width) {
-        return false;
-      }
-      final remainingMs = math.max(
-        1,
-        item.startMs + item.durationMs - _timelineMs,
-      );
-      final existingSpeed =
-          (viewportSize.width + item.width) / item.durationMs.clamp(1, 1 << 30);
-      final newSpeed =
-          (viewportSize.width + newItemWidth) /
-          _scrollDurationMs(widget.controller.settings).clamp(1, 1 << 30);
-      final minSafeGap = math.max(
-        20.0,
-        (newSpeed - existingSpeed) > 0
-            ? (newSpeed - existingSpeed) * remainingMs
-            : newItemWidth * 0.20,
-      );
-      final availableGap = viewportSize.width - existingTailX;
-      if (availableGap < minSafeGap) {
-        return false;
-      }
+    final cachedY = _cachedTrackSnapshotY;
+    final cachedCount = _cachedTrackSnapshotScrollCount;
+    List<DanmakuScrollTrackItemSnapshot> trackSnapshots;
+    if (cachedY == trackY && cachedCount == _scrollItems.length && _cachedTrackSnapshots != null) {
+      trackSnapshots = _cachedTrackSnapshots!;
+    } else {
+      trackSnapshots = _scrollItems
+          .where((item) => item.trackPosition == trackY)
+          .map(
+            (item) => DanmakuScrollTrackItemSnapshot(
+              width: item.width,
+              startMs: item.startMs,
+              durationMs: item.durationMs,
+            ),
+          )
+          .toList(growable: false);
+      _cachedTrackSnapshotY = trackY;
+      _cachedTrackSnapshotScrollCount = _scrollItems.length;
+      _cachedTrackSnapshots = trackSnapshots;
     }
-    return true;
+    return DanmakuScrollTrackScheduler.canAddToTrack(
+      visibleItems: trackSnapshots,
+      viewportWidth: viewportSize.width,
+      timelineMs: _timelineMs,
+      newItemWidth: newItemWidth,
+      newItemDurationMs: _scrollDurationMs(widget.controller.settings),
+      minGap: 20.0,
+    );
   }
 
   bool _staticCanAddToTrack(double trackPosition, LocalDanmakuItemType type) {
@@ -1794,7 +1824,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
     }
     final safeDevicePixelRatio = math.max(1.0, _devicePixelRatio);
     final shortSideDp = _viewportSize.shortestSide / safeDevicePixelRatio;
-    return (shortSideDp / 420.0).clamp(0.76, 1.0).toDouble();
+    return (shortSideDp / 420.0).clamp(0.72, 1.35).toDouble();
   }
 
   double _fontSize(DanmakuSettings settings) {
@@ -1847,7 +1877,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay>
   }
 
   double _textVerticalPadding(DanmakuSettings settings) {
-    return math.max(_strokeWidth(settings) + 1.0, _fontSize(settings) * 0.18);
+    return math.max(_strokeWidth(settings) + 1.0, _fontSize(settings) * 0.38);
   }
 
   double _effectiveAreaRatio(DanmakuSettings settings) {

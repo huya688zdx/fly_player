@@ -54,6 +54,67 @@ class DanmakuTrackLayout {
   });
 }
 
+class DanmakuScrollTrackItemSnapshot {
+  final double width;
+  final int startMs;
+  final int durationMs;
+
+  const DanmakuScrollTrackItemSnapshot({
+    required this.width,
+    required this.startMs,
+    required this.durationMs,
+  });
+
+  bool isExpired(int timelineMs, double viewportWidth) {
+    return xFor(timelineMs, viewportWidth) <= -width;
+  }
+
+  double xFor(int timelineMs, double viewportWidth) {
+    final elapsedMs = (timelineMs - startMs).clamp(0, durationMs);
+    final progress = durationMs <= 0 ? 1.0 : elapsedMs / durationMs;
+    return viewportWidth - (progress * (viewportWidth + width));
+  }
+}
+
+class DanmakuScrollTrackScheduler {
+  static bool canAddToTrack({
+    required List<DanmakuScrollTrackItemSnapshot> visibleItems,
+    required double viewportWidth,
+    required int timelineMs,
+    required double newItemWidth,
+    required int newItemDurationMs,
+    required double minGap,
+  }) {
+    for (final item in visibleItems) {
+      if (item.isExpired(timelineMs, viewportWidth)) continue;
+      final x = item.xFor(timelineMs, viewportWidth);
+      final existingTailX = x + item.width;
+      if (existingTailX >= viewportWidth) {
+        return false;
+      }
+      final remainingMs = math.max(
+        1,
+        item.startMs + item.durationMs - timelineMs,
+      );
+      final existingSpeed =
+          (viewportWidth + item.width) / item.durationMs.clamp(1, 1 << 30);
+      final newSpeed =
+          (viewportWidth + newItemWidth) / newItemDurationMs.clamp(1, 1 << 30);
+      final minSafeGap = math.max(
+        minGap,
+        (newSpeed - existingSpeed) > 0
+            ? (newSpeed - existingSpeed) * remainingMs
+            : newItemWidth * 0.20,
+      );
+      final availableGap = viewportWidth - existingTailX;
+      if (availableGap < minSafeGap) {
+        return false;
+      }
+    }
+    return true;
+  }
+}
+
 class DanmakuTrackLayoutEngine {
   static const DanmakuExclusionZone defaultSubjectSafeZone =
       DanmakuExclusionZone(x: 0.22, y: 0.28, width: 0.56, height: 0.42);
@@ -69,7 +130,7 @@ class DanmakuTrackLayoutEngine {
   }) {
     final viewport = DanmakuViewportRect.fromSize(viewportSize);
     final normalizedAreaRatio = areaRatio.clamp(0.1, 1.0).toDouble();
-    final edgePadding = (trackHeight * 0.18).clamp(3.0, 10.0);
+    final edgePadding = (trackHeight * 0.18).clamp(4.0, 18.0);
     final subtitleReserveHeight = avoidSubtitleArea
         ? viewport.height * subtitleReservedAreaRatio.clamp(0.0, 0.5)
         : 0.0;
