@@ -41,3 +41,21 @@ class PlayerRuntimePreferences {
     required this.performanceOverlayOffset,
   });
 }
+
+class PlayerSubtitleAdjustmentRecord {
+  final String key;
+  final String title;
+  final double subtitleDelaySeconds;
+  final double subtitlePositionFactor;
+  final double subtitleScaleFactor;
+  final int updatedAtMs;
+
+  const PlayerSubtitleAdjustmentRecord({
+    required this.key,
+    required this.title,
+    required this.subtitleDelaySeconds,
+    required this.subtitlePositionFactor,
+    required this.subtitleScaleFactor,
+    required this.updatedAtMs,
+  });
+}
