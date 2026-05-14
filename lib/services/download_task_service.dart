@@ -106,6 +106,18 @@ class DownloadTaskService extends ChangeNotifier {
   List<DownloadTaskRecord> get records =>
       List<DownloadTaskRecord>.unmodifiable(_records);
 
+  /// 返回所有活跃（下载中或已暂停）的下载任务。
+  List<DownloadTaskRecord> get activeRecords {
+    return _sortedRecords(
+      _records.where(
+        (record) =>
+            record.status == DownloadTaskStatus.downloading ||
+            record.status == DownloadTaskStatus.paused,
+      ),
+      status: DownloadTaskStatus.downloading,
+    );
+  }
+
   /// 返回指定任务最近一次发布的下载速度估计值。
   int downloadSpeedBytesPerSecondFor(String recordId) =>
       _downloadSpeedBytesPerSecond[recordId] ?? 0;
@@ -231,6 +243,15 @@ class DownloadTaskService extends ChangeNotifier {
     );
     if (downloading != _emptyRecord) {
       return const DownloadActionState(downloading: true);
+    }
+    final paused = _records.firstWhere(
+      (record) =>
+          record.itemGuid == normalized &&
+          record.status == DownloadTaskStatus.paused,
+      orElse: () => _emptyRecord,
+    );
+    if (paused != _emptyRecord) {
+      return const DownloadActionState(paused: true);
     }
     final failed = _records.firstWhere(
       (record) =>
@@ -445,6 +466,327 @@ class DownloadTaskService extends ChangeNotifier {
     return targets.length;
   }
 
+  /// 暂停指定下载任务，保留已下载的部分文件并通知服务端取消。
+  Future<void> pauseDownload(NasProvider provider, String recordId) async {
+    await initialize();
+    final index = _records.indexWhere((record) => record.id == recordId);
+    if (index < 0) {
+      debugPrint('[DL] pause: record not found id=$recordId');
+      return;
+    }
+    final record = _records[index];
+    if (record.status != DownloadTaskStatus.downloading) {
+      debugPrint('[DL] pause: status not downloading (current=${record.status.storageValue}) id=$recordId');
+      return;
+    }
+    debugPrint('[DL] pause: cancel token and mark paused id=$recordId');
+    _cancelTokens.remove(recordId)?.cancel();
+    _clearDownloadSpeed(recordId);
+    _stopDownloadTaskProgressPolling(recordId);
+    _records[index] = record.copyWith(
+      status: DownloadTaskStatus.paused,
+      errorMessage: '',
+      updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+    );
+    _sortRecords();
+    notifyListeners();
+    await _persist();
+  }
+
+  /// 恢复已暂停的下载任务，从断点继续。
+  Future<void> resumeDownload(NasProvider provider, String recordId) async {
+    await initialize();
+    final index = _records.indexWhere((record) => record.id == recordId);
+    if (index < 0) {
+      debugPrint('[DL] resume: record not found id=$recordId');
+      return;
+    }
+    final pausedRecord = _records[index];
+    if (pausedRecord.status != DownloadTaskStatus.paused) {
+      debugPrint('[DL] resume: status not paused (current=${pausedRecord.status.storageValue}) id=$recordId');
+      return;
+    }
+
+    final file = File(pausedRecord.filePath);
+    final resumeOffset = file.existsSync() ? file.lengthSync() : 0;
+    debugPrint('[DL] resume: fileExists=${file.existsSync()} fileSize=$resumeOffset totalBytes=${pausedRecord.totalBytes} downloadedBytes=${pausedRecord.downloadedBytes}');
+
+    final api = FeiniuApi(provider);
+
+    // Use the existing server-side task — official flow reuses the same
+    // task ID across pause/resume cycles. Only create a new task if the
+    // original was never created or expired.
+    var effectiveTaskId = pausedRecord.remoteTaskId.trim();
+    if (effectiveTaskId.isEmpty) {
+      debugPrint('[DL] resume: remoteTaskId empty, creating new task');
+      try {
+        effectiveTaskId = await api.createDownloadTask(
+          mediaGuid: pausedRecord.mediaGuid.trim().isNotEmpty
+              ? pausedRecord.mediaGuid.trim()
+              : pausedRecord.itemGuid,
+          itemGuid: pausedRecord.itemGuid,
+          resolution: pausedRecord.resolution,
+        );
+        final updatedRecord = _recordById(recordId)?.copyWith(
+          remoteTaskId: effectiveTaskId,
+          updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+        );
+        if (updatedRecord != null) {
+          _records[index] = updatedRecord;
+        }
+        // Poll for transcode since this is a fresh task.
+        if (_shouldPollTaskProgressForResolution(pausedRecord.resolution)) {
+          debugPrint('[DL] resume: transcode polling for new task');
+          _startDownloadTaskProgressPolling(api: api, record: _recordById(recordId)!);
+          while (true) {
+            final activeRecord = _recordById(recordId);
+            if (activeRecord == null ||
+                activeRecord.status != DownloadTaskStatus.downloading) {
+              return;
+            }
+            try {
+              final progress = await api.getDownloadTaskProgress(
+                activeRecord.remoteTaskId,
+              );
+              if (progress != null && progress.status != 0) break;
+            } catch (_) {}
+            await Future<void>.delayed(_taskProgressPollInterval);
+          }
+        }
+      } catch (error) {
+        debugPrint('[DL] resume: create new task failed, error=$error');
+        _setRecordPaused(index, recordId, errorMessage: '$error');
+        return;
+      }
+    }
+
+    final downloadUrl = api.buildDownloadTaskUrl(effectiveTaskId);
+    if (downloadUrl.trim().isEmpty) {
+      _setRecordPaused(index, recordId, errorMessage: '无法获取下载资源');
+      return;
+    }
+
+    debugPrint('[DL] resume: using existing taskId=$effectiveTaskId resumeOffset=$resumeOffset path=${file.path}');
+
+    // Always write to a .part file so partial data survives cancel.
+    // We use dio.get + ResponseType.stream + manual RandomAccessFile writes
+    // instead of dio.download because dio.download may remove the partial
+    // file on cancel (observed on Android).
+    await file.parent.create(recursive: true);
+    final partFile = File('${file.path}.part');
+    // If there's leftover .part data from a previous cancelled run, use it
+    // as the starting offset.
+    final partOffset = partFile.existsSync() ? partFile.lengthSync() : 0;
+    final effectiveOffset = resumeOffset + partOffset;
+    debugPrint('[DL] resume: resumeOffset=$resumeOffset partOffset=$partOffset effectiveOffset=$effectiveOffset');
+
+    // Update record NOW that we know the real starting point (includes .part data).
+    _records[index] = pausedRecord.copyWith(
+      status: DownloadTaskStatus.downloading,
+      downloadedBytes: effectiveOffset,
+      errorMessage: '',
+      updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+    );
+    notifyListeners();
+
+    RandomAccessFile? raf;
+    final cancelToken = CancelToken();
+    _cancelTokens[recordId] = cancelToken;
+
+    try {
+      final dio = Dio();
+      final headers = api.buildPlaybackHeadersForUrl(
+        downloadUrl,
+        includeInitialRangeHeader: false,
+        extraHeaders: <String, String>{
+          'Range': 'bytes=$effectiveOffset-',
+        },
+      );
+
+      // Open the .part file for append (or create if it doesn't exist).
+      raf = await partFile.open(mode: FileMode.append);
+
+      var lastPersistedBytes = effectiveOffset;
+      final response = await dio.get<ResponseBody>(
+        downloadUrl,
+        cancelToken: cancelToken,
+        options: Options(
+          headers: headers,
+          responseType: ResponseType.stream,
+          followRedirects: false,
+          receiveTimeout: const Duration(hours: 2),
+          sendTimeout: const Duration(seconds: 30),
+          validateStatus: (status) => status == 200 || status == 206,
+        ),
+      );
+      final stream = response.data!.stream;
+      await for (final chunk in stream) {
+        await raf.writeFrom(chunk);
+        final now = DateTime.now().millisecondsSinceEpoch;
+        final activeRecord = _recordById(recordId) ?? pausedRecord;
+        // raf is opened in append mode so positionSync() already includes
+        // any pre-existing .part data. Only add resumeOffset (target file).
+        final absoluteReceived = resumeOffset + raf.positionSync();
+        final rawFileSize = response.headers.map['file-size']?.first;
+        final totalFromHeaders = rawFileSize != null ? int.tryParse('$rawFileSize') : null;
+        final normalizedTotal = totalFromHeaders != null && totalFromHeaders > 0
+            ? totalFromHeaders
+            : activeRecord.totalBytes;
+        if (totalFromHeaders != null && totalFromHeaders != activeRecord.totalBytes) {
+          debugPrint('[DL] resume: server file-size=$totalFromHeaders was=${activeRecord.totalBytes}');
+        }
+        _updateDownloadSpeed(recordId, absoluteReceived, now);
+        _stopDownloadTaskProgressPolling(recordId);
+        final shouldPersist = absoluteReceived == normalizedTotal ||
+            absoluteReceived - lastPersistedBytes >= 512 * 1024;
+        final updated = activeRecord.copyWith(
+          downloadedBytes: math.max(absoluteReceived, 0),
+          totalBytes: normalizedTotal > 0
+              ? normalizedTotal
+              : activeRecord.totalBytes,
+          updatedAtMs: now,
+        );
+        _upsertRecord(updated, persistImmediately: shouldPersist);
+        if (shouldPersist) {
+          lastPersistedBytes = absoluteReceived;
+        }
+      }
+      await raf.close();
+      raf = null;
+
+      // Download completed — move .part to target.
+      if (file.existsSync() && resumeOffset > 0) {
+        // Append .part data to the existing partial file.
+        final sink = file.openWrite(mode: FileMode.append);
+        try {
+          await partFile.openRead().pipe(sink);
+        } finally {
+          await sink.close();
+        }
+        await partFile.delete();
+      } else {
+        // No existing partial — just rename .part to target.
+        if (file.existsSync()) {
+          await file.delete();
+        }
+        await partFile.rename(file.path);
+      }
+
+      final actualBytes = await file.length();
+      final completedRecord = _recordById(recordId) ?? pausedRecord;
+      _upsertRecord(
+        completedRecord.copyWith(
+          downloadedBytes: actualBytes,
+          totalBytes:
+              actualBytes > 0 ? actualBytes : completedRecord.totalBytes,
+          status: DownloadTaskStatus.downloaded,
+          errorMessage: '',
+          updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+        ),
+        persistImmediately: true,
+      );
+    } catch (error, stackTrace) {
+      // Make sure the .part file is properly flushed and closed first.
+      if (raf != null) {
+        try {
+          await raf.flush();
+          await raf.close();
+        } catch (_) {}
+        raf = null;
+      }
+      final failedRecord = _recordById(recordId) ?? pausedRecord;
+      final canceled = error is DioException && CancelToken.isCancel(error);
+      if (!canceled) {
+        await AppLogService.instance.recordWarning(
+          error: error,
+          stackTrace: stackTrace,
+          source: 'download_resume',
+          details:
+              'item=${failedRecord.itemGuid} task=${failedRecord.remoteTaskId}',
+        );
+      }
+      if (canceled && _cancelTokens[recordId] != cancelToken) {
+        debugPrint('[DL] resume catch: token mismatch. partFile=${partFile.existsSync()} partSize=${partFile.existsSync() ? partFile.lengthSync() : 0} targetFile=${file.existsSync()}');
+        return;
+      }
+      final totalSaved = (partFile.existsSync() ? partFile.lengthSync() : 0) +
+          (file.existsSync() ? file.lengthSync() : 0);
+      debugPrint('[DL] resume catch: canceled=$canceled totalSaved=$totalSaved');
+      _upsertRecord(
+        failedRecord.copyWith(
+          status: DownloadTaskStatus.paused,
+          downloadedBytes: totalSaved,
+          errorMessage: canceled ? '' : '$error',
+          updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+        ),
+        persistImmediately: true,
+      );
+    } finally {
+      if (raf != null) {
+        try {
+          await raf.flush();
+          await raf.close();
+        } catch (_) {}
+      }
+      _cancelTokens.remove(recordId);
+    }
+  }
+
+  void _setRecordPaused(int index, String recordId, {String errorMessage = ''}) {
+    final freshIndex =
+        _records.indexWhere((record) => record.id == recordId);
+    if (freshIndex < 0) return;
+    _records[freshIndex] = _records[freshIndex].copyWith(
+      status: DownloadTaskStatus.paused,
+      errorMessage: errorMessage,
+      updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+    );
+    notifyListeners();
+    unawaited(_persist());
+  }
+
+  /// 删除下载中或已暂停的任务，同时取消下载并清理部分文件。
+  Future<int> clearActiveDownloadRecords({Iterable<String>? recordIds}) async {
+    await initialize();
+    final targetIds = recordIds
+        ?.map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet();
+    final targets = _records
+        .where((record) {
+          if (record.status != DownloadTaskStatus.downloading &&
+              record.status != DownloadTaskStatus.paused) {
+            return false;
+          }
+          return targetIds == null || targetIds.contains(record.id);
+        })
+        .toList(growable: false);
+    if (targets.isEmpty) return 0;
+
+    for (final record in targets) {
+      _cancelTokens.remove(record.id)?.cancel();
+      _clearDownloadSpeed(record.id);
+      _stopDownloadTaskProgressPolling(record.id);
+      final path = record.filePath.trim();
+      if (path.isNotEmpty) {
+        final file = File(path);
+        if (file.existsSync()) {
+          try {
+            await file.delete();
+          } catch (_) {}
+        }
+      }
+    }
+
+    _records.removeWhere(
+      (record) => targets.any((target) => target.id == record.id),
+    );
+    _sortRecords();
+    notifyListeners();
+    await _persist();
+    return targets.length;
+  }
+
   /// 重新拉取已下载分组的展示元数据。
   Future<void> refreshDownloadedGroupMetadata(NasProvider provider) {
     if (_pendingGroupMetadataRefresh != null) {
@@ -507,67 +849,85 @@ class DownloadTaskService extends ChangeNotifier {
         record: existingDownloading,
       );
     }
+    final existingPaused = _findLatestRecord(
+      itemGuid: normalizedItemGuid,
+      resolution: normalizedResolution,
+      status: DownloadTaskStatus.paused,
+    );
+    if (existingPaused != null) {
+      return DownloadStartResult(
+        state: DownloadStartState.downloading,
+        record: existingPaused,
+      );
+    }
 
     final api = FeiniuApi(provider);
     final streamData = await api.getStreamTrackData(normalizedItemGuid);
-    final option = _pickStreamOption(
+    final matchedOption = _pickStreamOption(
       streamData.options,
       resolution: normalizedResolution,
     );
-    if (option == null) {
-      throw AppException.api(
-        action: 'download start',
-        message: 'No stream option matched download resolution',
+
+    // Use the matched stream option for metadata (file info, subtitles, etc.)
+    // but fall back to the first available option if no exact match.
+    final metadataOption = matchedOption ??
+        (streamData.options.isNotEmpty ? streamData.options.first : null);
+
+    final fileInfo = metadataOption != null
+        ? streamData.fileForMedia(metadataOption.mediaGuid)
+        : null;
+    final resolvedSubtitleTrack = metadataOption != null
+        ? _resolveDownloadSubtitleTrack(
+            streamData.subtitlesForMedia(metadataOption.mediaGuid),
+            preferredSubtitleTrack: preferredSubtitleTrack,
+            preferredSubtitleGuid: preferredSubtitleGuid,
+          )
+        : null;
+    final persistedAudioTracks = metadataOption != null
+        ? List<AudioTrackOption>.from(
+            streamData.audiosForMedia(metadataOption.mediaGuid),
+          )
+        : const <AudioTrackOption>[];
+    final persistedSubtitleTracks = metadataOption != null
+        ? List<SubtitleTrackOption>.from(
+            streamData.subtitlesForMedia(metadataOption.mediaGuid),
+          )
+        : const <SubtitleTrackOption>[];
+
+    // Only attempt cache import when the stream option exactly matches the
+    // user-selected download resolution — prevents cross-resolution cache reuse.
+    if (matchedOption != null) {
+      final importedFromCache = await importCachedMedia(
+        provider: provider,
+        identity: CachedMediaSourceIdentity(
+          itemGuid: normalizedItemGuid,
+          mediaGuid: matchedOption.mediaGuid,
+          videoGuid: matchedOption.videoGuid,
+        ),
+        resolution: normalizedResolution,
+        title: title,
+        groupId: groupId,
+        groupTitle: groupTitle,
+        durationText: durationText,
+        posterUrls: posterUrls,
+        groupPosterUrls: groupPosterUrls,
+        fileInfo: fileInfo,
+        audioTracks: persistedAudioTracks,
+        subtitleTracks: persistedSubtitleTracks,
+        subtitleTrack: resolvedSubtitleTrack,
       );
+      if (importedFromCache != null) {
+        return importedFromCache;
+      }
     }
 
-    final fileInfo = streamData.fileForMedia(option.mediaGuid);
-    if (fileInfo == null) {
-      throw AppException.api(
-        action: 'download start',
-        message: 'Missing stream file info',
-      );
-    }
-    final resolvedSubtitleTrack = _resolveDownloadSubtitleTrack(
-      streamData.subtitlesForMedia(option.mediaGuid),
-      preferredSubtitleTrack: preferredSubtitleTrack,
-      preferredSubtitleGuid: preferredSubtitleGuid,
-    );
-    final persistedAudioTracks = List<AudioTrackOption>.from(
-      streamData.audiosForMedia(option.mediaGuid),
-    );
-    final persistedSubtitleTracks = List<SubtitleTrackOption>.from(
-      streamData.subtitlesForMedia(option.mediaGuid),
-    );
-    final importedFromCache = await importCachedMedia(
-      provider: provider,
-      identity: CachedMediaSourceIdentity(
-        itemGuid: normalizedItemGuid,
-        mediaGuid: option.mediaGuid,
-        videoGuid: option.videoGuid,
-      ),
-      resolution: normalizedResolution,
-      title: title,
-      groupId: groupId,
-      groupTitle: groupTitle,
-      durationText: durationText,
-      posterUrls: posterUrls,
-      groupPosterUrls: groupPosterUrls,
-      fileInfo: fileInfo,
-      audioTracks: persistedAudioTracks,
-      subtitleTracks: persistedSubtitleTracks,
-      subtitleTrack: resolvedSubtitleTrack,
-    );
-    if (importedFromCache != null) {
-      return importedFromCache;
-    }
-
+    // Always use the user-selected resolution for the download task.
+    // stream/list resolutionType must NOT override it.
+    final taskMediaGuid = metadataOption?.mediaGuid ?? normalizedItemGuid;
     final remoteTaskId = await api.createDownloadTask(
-      mediaGuid: option.mediaGuid,
+      mediaGuid: taskMediaGuid,
       itemGuid: normalizedItemGuid,
-      resolution: option.resolutionType.trim().isEmpty
-          ? normalizedResolution
-          : option.resolutionType.trim(),
+      resolution: normalizedResolution,
     );
     final downloadUrl = api.buildDownloadTaskUrl(remoteTaskId);
     if (downloadUrl.trim().isEmpty) {
@@ -610,7 +970,7 @@ class DownloadTaskService extends ChangeNotifier {
       id: _buildId(),
       remoteTaskId: remoteTaskId,
       itemGuid: normalizedItemGuid,
-      mediaGuid: option.mediaGuid,
+      mediaGuid: taskMediaGuid,
       groupId: groupId.trim().isEmpty ? normalizedItemGuid : groupId.trim(),
       groupTitle: groupTitle.trim().isEmpty ? title.trim() : groupTitle.trim(),
       title: title.trim(),
@@ -620,7 +980,7 @@ class DownloadTaskService extends ChangeNotifier {
       resolution: normalizedResolution,
       fileName: safeFileName,
       filePath: filePath,
-      totalBytes: fileInfo.size > 0 ? fileInfo.size : 0,
+      totalBytes: fileInfo?.size ?? 0,
       downloadedBytes: 0,
       audioTracks: persistedAudioTracks,
       subtitleTracks: persistedSubtitleTracks,
@@ -632,21 +992,80 @@ class DownloadTaskService extends ChangeNotifier {
     _upsertRecord(record, persistImmediately: true);
     _clearDownloadSpeed(record.id);
     unawaited(_prefetchDanmakuForDownload(provider: provider, record: record));
-    if (_shouldPollTaskProgressForResolution(record.resolution)) {
+    final sourceResolution = streamData.options.isNotEmpty
+        ? streamData.options.first.resolutionType
+        : null;
+    final needsTranscode =
+        _shouldPollTaskProgressForResolution(record.resolution,
+            sourceResolution: sourceResolution);
+    if (needsTranscode) {
       _startDownloadTaskProgressPolling(api: api, record: record);
     }
 
     unawaited(
-      _performDownload(
-        api,
-        record,
-        downloadUrl,
-        subtitleTrack: resolvedSubtitleTrack,
-      ),
+      needsTranscode
+          ? _waitForTranscodeThenDownload(
+              api,
+              record,
+              downloadUrl,
+              subtitleTrack: resolvedSubtitleTrack,
+            )
+          : _performDownload(
+              api,
+              record,
+              downloadUrl,
+              subtitleTrack: resolvedSubtitleTrack,
+            ),
     );
     return DownloadStartResult(
       state: DownloadStartState.started,
       record: record,
+    );
+  }
+
+  /// Polls download task progress until transcode completes, then starts
+  /// the actual download. For non-transcode tasks use _performDownload directly.
+  Future<void> _waitForTranscodeThenDownload(
+    FeiniuApi api,
+    DownloadTaskRecord record,
+    String downloadUrl, {
+    SubtitleTrackOption? subtitleTrack,
+  }) async {
+    // Brief initial delay to avoid immediate API spam before transcode starts.
+    await Future<void>.delayed(const Duration(seconds: 1));
+
+    while (true) {
+      final activeRecord = _recordById(record.id);
+      if (activeRecord == null ||
+          activeRecord.status != DownloadTaskStatus.downloading) {
+        return;
+      }
+      try {
+        final progress = await api.getDownloadTaskProgress(
+          activeRecord.remoteTaskId,
+        );
+        // status != 0 indicates transcode has finished (ready or errored).
+        if (progress != null && progress.status != 0) {
+          break;
+        }
+      } catch (_) {
+        // Polling error – retry after delay.
+      }
+      await Future<void>.delayed(_taskProgressPollInterval);
+    }
+
+    final activeRecord = _recordById(record.id);
+    if (activeRecord == null ||
+        activeRecord.status != DownloadTaskStatus.downloading) {
+      return;
+    }
+    unawaited(
+      _performDownload(
+        api,
+        activeRecord,
+        downloadUrl,
+        subtitleTrack: subtitleTrack,
+      ),
     );
   }
 
@@ -700,6 +1119,17 @@ class DownloadTaskService extends ChangeNotifier {
       return DownloadStartResult(
         state: DownloadStartState.downloading,
         record: existingDownloading,
+      );
+    }
+    final existingPaused = _findLatestRecord(
+      itemGuid: itemGuid,
+      resolution: normalizedResolution,
+      status: DownloadTaskStatus.paused,
+    );
+    if (existingPaused != null) {
+      return DownloadStartResult(
+        state: DownloadStartState.downloading,
+        record: existingPaused,
       );
     }
 
@@ -929,60 +1359,83 @@ class DownloadTaskService extends ChangeNotifier {
     final file = File(record.filePath);
     final cancelToken = CancelToken();
     _cancelTokens[record.id] = cancelToken;
+    RandomAccessFile? raf;
     try {
       await file.parent.create(recursive: true);
-      if (file.existsSync()) {
+      final partFile = File('${file.path}.part');
+      // If there's a leftover .part from a cancelled attempt, use it.
+      final startingOffset = partFile.existsSync() ? partFile.lengthSync() : 0;
+      if (file.existsSync() && startingOffset == 0) {
+        debugPrint('[DL] _performDownload: deleting stale target path=${file.path}');
         await file.delete();
       }
+      debugPrint('[DL] _performDownload: starting download path=${file.path} startingOffset=$startingOffset');
 
       final dio = Dio();
       final headers = api.buildPlaybackHeadersForUrl(
         downloadUrl,
         includeInitialRangeHeader: false,
-        extraHeaders: const <String, String>{'Range': 'bytes=0-'},
+        extraHeaders: <String, String>{
+          'Range': 'bytes=$startingOffset-',
+        },
       );
 
-      var lastPersistedBytes = 0;
-      await dio.download(
+      raf = await partFile.open(mode: FileMode.append);
+      var lastPersistedBytes = startingOffset;
+
+      final response = await dio.get<ResponseBody>(
         downloadUrl,
-        file.path,
         cancelToken: cancelToken,
         options: Options(
           headers: headers,
-          responseType: ResponseType.bytes,
+          responseType: ResponseType.stream,
           followRedirects: false,
           receiveTimeout: const Duration(hours: 2),
           sendTimeout: const Duration(seconds: 30),
           validateStatus: (status) => status == 200 || status == 206,
         ),
-        onReceiveProgress: (received, total) {
-          final activeRecord = _recordById(record.id) ?? record;
-          final normalizedTotal = total > 0 ? total : activeRecord.totalBytes;
-          if (received == activeRecord.downloadedBytes &&
-              normalizedTotal == activeRecord.totalBytes) {
-            return;
-          }
-          final now = DateTime.now().millisecondsSinceEpoch;
-          _updateDownloadSpeed(record.id, received, now);
-          if (received > 0) {
-            _stopDownloadTaskProgressPolling(record.id);
-          }
-          final shouldPersist =
-              received == normalizedTotal ||
-              received - lastPersistedBytes >= 512 * 1024;
-          final updated = activeRecord.copyWith(
-            downloadedBytes: math.max(received, 0),
-            totalBytes: normalizedTotal > 0
-                ? normalizedTotal
-                : activeRecord.totalBytes,
-            updatedAtMs: now,
-          );
-          _upsertRecord(updated, persistImmediately: shouldPersist);
-          if (shouldPersist) {
-            lastPersistedBytes = received;
-          }
-        },
       );
+      final stream = response.data!.stream;
+      await for (final chunk in stream) {
+        await raf.writeFrom(chunk);
+        final now = DateTime.now().millisecondsSinceEpoch;
+        final activeRecord = _recordById(record.id) ?? record;
+        // raf is opened in append mode so positionSync() already includes
+        // any pre-existing .part data.
+        final absoluteReceived = raf.positionSync();
+        final totalFromHeaders = response.headers.map['file-size'] != null
+            ? int.tryParse('${response.headers.map['file-size']?.first ?? ''}')
+            : null;
+        final normalizedTotal = totalFromHeaders != null && totalFromHeaders > 0
+            ? totalFromHeaders
+            : activeRecord.totalBytes;
+        _updateDownloadSpeed(record.id, absoluteReceived, now);
+        if (absoluteReceived > 0) {
+          _stopDownloadTaskProgressPolling(record.id);
+        }
+        final shouldPersist = absoluteReceived == normalizedTotal ||
+            absoluteReceived - lastPersistedBytes >= 512 * 1024;
+        final updated = activeRecord.copyWith(
+          downloadedBytes: math.max(absoluteReceived, 0),
+          totalBytes: normalizedTotal > 0
+              ? normalizedTotal
+              : activeRecord.totalBytes,
+          updatedAtMs: now,
+        );
+        _upsertRecord(updated, persistImmediately: shouldPersist);
+        if (shouldPersist) {
+          lastPersistedBytes = absoluteReceived;
+        }
+      }
+      await raf.flush();
+      await raf.close();
+      raf = null;
+
+      // Move .part to target.
+      if (file.existsSync()) {
+        await file.delete();
+      }
+      await partFile.rename(file.path);
 
       final actualBytes = await file.length();
       final completedRecord = _recordById(record.id) ?? record;
@@ -1010,6 +1463,14 @@ class DownloadTaskService extends ChangeNotifier {
         persistImmediately: true,
       );
     } catch (error, stackTrace) {
+      // Flush and close the .part file so data is preserved on cancel.
+      if (raf != null) {
+        try {
+          await raf.flush();
+          await raf.close();
+        } catch (_) {}
+        raf = null;
+      }
       final failedRecord = _recordById(record.id) ?? record;
       final canceled = error is DioException && CancelToken.isCancel(error);
       if (!canceled) {
@@ -1021,21 +1482,31 @@ class DownloadTaskService extends ChangeNotifier {
               'item=${failedRecord.itemGuid} task=${failedRecord.remoteTaskId}',
         );
       }
-      if (file.existsSync()) {
-        try {
-          await file.delete();
-        } catch (_) {}
+      if (canceled && _cancelTokens[record.id] != cancelToken) {
+        debugPrint('[DL] _performDownload catch: token mismatch. currentStatus=${failedRecord.status.storageValue}');
+        return;
       }
+      // .part file has the partial data; the target file may also exist.
+      final partFile = File('${file.path}.part');
+      final totalSaved = (partFile.existsSync() ? partFile.lengthSync() : 0) +
+          (file.existsSync() ? file.lengthSync() : 0);
+      debugPrint('[DL] _performDownload catch: canceled=$canceled totalSaved=$totalSaved');
       _upsertRecord(
         failedRecord.copyWith(
-          status: DownloadTaskStatus.failed,
-          downloadedBytes: 0,
-          errorMessage: canceled ? '下载已取消' : '$error',
+          status: DownloadTaskStatus.paused,
+          downloadedBytes: totalSaved,
+          errorMessage: canceled ? '' : '$error',
           updatedAtMs: DateTime.now().millisecondsSinceEpoch,
         ),
         persistImmediately: true,
       );
     } finally {
+      if (raf != null) {
+        try {
+          await raf.flush();
+          await raf.close();
+        } catch (_) {}
+      }
       _cancelTokens.remove(record.id);
     }
   }
@@ -1059,9 +1530,11 @@ class DownloadTaskService extends ChangeNotifier {
       for (int index = 0; index < _records.length; index++) {
         final record = _records[index];
         if (record.status == DownloadTaskStatus.downloading) {
+          final fileExists = record.filePath.trim().isNotEmpty &&
+              File(record.filePath).existsSync();
           _records[index] = record.copyWith(
-            status: DownloadTaskStatus.failed,
-            errorMessage: _interruptedMessage,
+            status: fileExists ? DownloadTaskStatus.paused : DownloadTaskStatus.failed,
+            errorMessage: fileExists ? '' : _interruptedMessage,
             updatedAtMs: DateTime.now().millisecondsSinceEpoch,
           );
         }
@@ -1331,7 +1804,10 @@ class DownloadTaskService extends ChangeNotifier {
       final record = _buildRecoveredRecord(context: context);
       _upsertRecord(record, persistImmediately: true);
       await _writeRecoveryMetadata(record);
-      await _recoverLocalDanmakuForRecord(record);
+      await _recoverLocalDanmakuForRecord(
+        record,
+        backendLookup: backendLookup,
+      );
       return record;
     } catch (error, stackTrace) {
       unawaited(
@@ -1367,7 +1843,10 @@ class DownloadTaskService extends ChangeNotifier {
         _upsertRecord(refreshed, persistImmediately: true);
         await _writeRecoveryMetadata(refreshed);
       }
-      await _recoverLocalDanmakuForRecord(refreshed);
+      await _recoverLocalDanmakuForRecord(
+        refreshed,
+        backendLookup: backendLookup,
+      );
       return refreshed;
     } catch (error, stackTrace) {
       unawaited(
@@ -2607,12 +3086,18 @@ class DownloadTaskService extends ChangeNotifier {
     return const <String>[];
   }
 
-  Future<void> _recoverLocalDanmakuForRecord(DownloadTaskRecord record) async {
+  Future<void> _recoverLocalDanmakuForRecord(
+    DownloadTaskRecord record, {
+    _RecoveredBackendLookup? backendLookup,
+  }) async {
     final videoPath = record.filePath.trim();
     if (videoPath.isEmpty || !File(videoPath).existsSync()) return;
     final candidates = _localDanmakuCandidatesForVideo(videoPath);
     if (candidates.isEmpty) return;
-    final targets = _danmakuRecoveryTargetsForRecord(record);
+    final targets = await _danmakuRecoveryTargetsForRecord(
+      record,
+      backendLookup: backendLookup,
+    );
     if (targets.isEmpty) return;
     const store = DanmakuSavedSourceStore();
     var allTargetsHaveExistingLocalSource = true;
@@ -2668,9 +3153,10 @@ class DownloadTaskService extends ChangeNotifier {
     }
   }
 
-  List<_DanmakuRecoveryTarget> _danmakuRecoveryTargetsForRecord(
-    DownloadTaskRecord record,
-  ) {
+  Future<List<_DanmakuRecoveryTarget>> _danmakuRecoveryTargetsForRecord(
+    DownloadTaskRecord record, {
+    _RecoveredBackendLookup? backendLookup,
+  }) async {
     final mediaGuid = record.mediaGuid.trim().isNotEmpty
         ? record.mediaGuid.trim()
         : record.id;
@@ -2698,7 +3184,58 @@ class DownloadTaskService extends ChangeNotifier {
 
     addTarget(groupId);
     if (groupId.isNotEmpty) addTarget('');
+    final playInfo = await _recoveredPlayInfoForDanmakuTarget(
+      record,
+      backendLookup,
+    );
+    if (playInfo != null) {
+      final item = playInfo.item;
+      final resolvedItemGuid = item.guid.trim().isNotEmpty
+          ? item.guid.trim()
+          : itemGuid;
+      final resolvedMediaGuid = record.mediaGuid.trim().isNotEmpty
+          ? record.mediaGuid.trim()
+          : playInfo.mediaGuid.trim();
+      final resolvedSeasonGuid = playInfo.parentGuid.trim().isNotEmpty
+          ? playInfo.parentGuid.trim()
+          : groupId;
+      final resolvedSeriesTitle = item.tvTitle.trim().isNotEmpty
+          ? item.tvTitle.trim()
+          : record.groupTitle;
+      final resolvedItemTitle = item.title.trim().isNotEmpty
+          ? item.title.trim()
+          : record.title;
+      final mediaKey = _buildDanmakuMediaKey(
+        itemGuid: resolvedItemGuid,
+        mediaGuid: resolvedMediaGuid,
+        seasonGuid: resolvedSeasonGuid,
+        seasonNumber: item.seasonNumber,
+        episodeNumber: item.episodeNumber,
+        seriesTitle: resolvedSeriesTitle,
+        itemTitle: resolvedItemTitle,
+      );
+      if (mediaKey.trim().isNotEmpty &&
+          !targets.any((target) => target.mediaKey == mediaKey)) {
+        targets.add(
+          _DanmakuRecoveryTarget(
+            mediaKey: mediaKey,
+            seasonGuid: resolvedSeasonGuid,
+          ),
+        );
+      }
+    }
     return targets;
+  }
+
+  Future<PlayInfoData?> _recoveredPlayInfoForDanmakuTarget(
+    DownloadTaskRecord record,
+    _RecoveredBackendLookup? backendLookup,
+  ) {
+    final itemGuid = record.itemGuid.trim();
+    if (itemGuid.isEmpty || backendLookup == null) {
+      return Future<PlayInfoData?>.value();
+    }
+    return _loadRecoveredBackendPlayInfo(backendLookup, itemGuid);
   }
 
   List<File> _localDanmakuCandidatesForVideo(String videoFilePath) {
@@ -3415,7 +3952,11 @@ class DownloadTaskService extends ChangeNotifier {
       final anchor = _downloadSpeedAnchorSamples[recordId] ?? previous;
       final deltaBytes = received - anchor.receivedBytes;
       final deltaMs = timestampMs - anchor.timestampMs;
-      if (deltaBytes >= 0 && deltaMs >= _downloadSpeedEstimateWindowMs) {
+      final hasAnchor = _downloadSpeedAnchorSamples.containsKey(recordId);
+      final effectiveWindowMs = hasAnchor
+          ? _downloadSpeedEstimateWindowMs
+          : 400;
+      if (deltaBytes >= 0 && deltaMs >= effectiveWindowMs) {
         final estimatedBytesPerSecond = ((deltaBytes * 1000) / deltaMs).round();
         final currentSpeed = _downloadSpeedBytesPerSecond[recordId] ?? 0;
         final smoothedBytesPerSecond = currentSpeed <= 0
@@ -3432,6 +3973,7 @@ class DownloadTaskService extends ChangeNotifier {
         if (shouldPublish) {
           _downloadSpeedBytesPerSecond[recordId] = smoothedBytesPerSecond;
           _downloadSpeedPublishedAtMs[recordId] = timestampMs;
+          notifyListeners();
         }
         _downloadSpeedAnchorSamples[recordId] = currentSample;
       }
@@ -3460,10 +4002,23 @@ class DownloadTaskService extends ChangeNotifier {
     return delta >= ((currentSpeed * 18) ~/ 100);
   }
 
-  bool _shouldPollTaskProgressForResolution(String resolution) {
+  /// Returns true if the server may need time (transcode) before the file is
+  /// ready. The first option in the stream list is the source quality — it
+  /// never needs transcode. Anything below the source resolution may need it.
+  /// On resume (sourceResolution is null) polling is unnecessary because the
+  /// initial download already handled transcode and we reuse the same task.
+  bool _shouldPollTaskProgressForResolution(
+    String resolution, {
+    String? sourceResolution,
+  }) {
     final normalized = resolution.trim().toLowerCase();
     if (normalized.isEmpty) return false;
-    return normalized != '原画' && normalized != 'source';
+    // The first option in the stream list is the highest/source quality.
+    if (sourceResolution != null) {
+      return sourceResolution.trim().toLowerCase() != normalized;
+    }
+    // Resume — task was already created, no transcode polling needed.
+    return false;
   }
 
   void _startDownloadTaskProgressPolling({
@@ -3638,11 +4193,11 @@ class DownloadTaskService extends ChangeNotifier {
   }
 
   String _resolveFileName(
-    StreamFileInfo fileInfo,
+    StreamFileInfo? fileInfo,
     String title,
     String resolution,
   ) {
-    final source = fileInfo.fileName.trim();
+    final source = (fileInfo?.fileName ?? '').trim();
     if (source.isNotEmpty) {
       return _sanitizeFileName(source);
     }
@@ -4199,13 +4754,18 @@ class DownloadTaskService extends ChangeNotifier {
 
   String _resolveUniqueDirectoryPath(String parentPath, String directoryName) {
     final safeDirectoryName = _sanitizePathSegment(directoryName);
-    var candidate = '$parentPath/$safeDirectoryName';
+    // Try to reuse an existing empty directory first to avoid proliferation.
     var index = 1;
-    while (Directory(candidate).existsSync() || File(candidate).existsSync()) {
-      candidate = '$parentPath/${safeDirectoryName}_$index';
+    var baseCandidate = '$parentPath/$safeDirectoryName';
+    while (Directory(baseCandidate).existsSync() || File(baseCandidate).existsSync()) {
+      final dir = Directory(baseCandidate);
+      if (dir.existsSync() && dir.listSync().isEmpty) {
+        return baseCandidate; // Reuse empty directory.
+      }
+      baseCandidate = '$parentPath/${safeDirectoryName}_$index';
       index += 1;
     }
-    return candidate;
+    return baseCandidate;
   }
 
   SubtitleTrackOption? _resolveDownloadSubtitleTrack(
@@ -4591,7 +5151,7 @@ class DownloadTaskService extends ChangeNotifier {
             seasonGuid: sourceSeasonGuid,
           ),
         );
-        for (final target in _danmakuRecoveryTargetsForRecord(record)) {
+        for (final target in await _danmakuRecoveryTargetsForRecord(record)) {
           addTarget(target);
         }
 

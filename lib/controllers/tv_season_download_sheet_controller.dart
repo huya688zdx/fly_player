@@ -19,9 +19,94 @@ import '../widgets/detail/tv_season_download_sheet.dart';
 /// 负责展示季度或剧集范围的下载面板。
 class TvSeasonDownloadSheetController {
   static final DetailTopTip _topTip = DetailTopTip();
+  static final Map<String, List<String>> _cachedQualities =
+      <String, List<String>>{};
+  static final Map<String, Map<String, dynamic>> _cachedItemDetails =
+      <String, Map<String, dynamic>>{};
 
   /// 创建一个季度下载面板控制器。
   const TvSeasonDownloadSheetController();
+
+  /// 释放所有静态缓存（详情页退出时调用）。
+  static void clearCache() {
+    _cachedQualities.clear();
+    _cachedItemDetails.clear();
+  }
+
+  /// 获取已缓存的 item detail，可能为 null。
+  static Map<String, dynamic>? cachedItemDetail(String itemGuid) {
+    return _cachedItemDetails[itemGuid.trim()];
+  }
+
+  /// 预加载剧集下载所需数据（在季度详情页加载时调用）。
+  /// 遍历候选项，直到找到一个同时缓存了 item detail 和分辨率列表的条目。
+  static Future<void> prefetchSeasonDownloadData(
+    FeiniuApi api, {
+    required List<String> candidateItemGuids,
+  }) async {
+    for (final guid in candidateItemGuids) {
+      final key = guid.trim();
+      if (key.isEmpty) continue;
+      try {
+        // Resolve detail — prefer cache, otherwise fetch.
+        final detail = _cachedItemDetails[key] ?? await api.getItemDetail(key);
+        if (detail.isEmpty) continue;
+        _cachedItemDetails[key] = detail;
+
+        final item = _detailItem(detail);
+        final playItemGuid = _extractPlayItemGuid(detail, item);
+        if (playItemGuid.isEmpty) continue; // Need playItemGuid for qualities.
+
+        if (_cachedQualities.containsKey(playItemGuid)) return; // Already done.
+
+        final qualities = await api.getDownloadResolutionOptions(
+          playItemGuid,
+          lan: 'zh-CN',
+        );
+        if (qualities.isNotEmpty) {
+          _cachedQualities[playItemGuid] = qualities;
+          return; // Successfully cached both detail and qualities.
+        }
+        // Qualities came back empty — continue to next candidate.
+      } catch (_) {
+        // Try next candidate.
+      }
+    }
+  }
+
+  /// 遍历候选项缓存，尝试找到已缓存的清晰度列表。
+  static List<String> _resolveCachedQualities({
+    required List<String> candidateItemGuids,
+  }) {
+    for (final guid in candidateItemGuids) {
+      final key = guid.trim();
+      if (key.isEmpty) continue;
+      final detail = _cachedItemDetails[key];
+      if (detail == null) continue;
+      final item = _detailItem(detail);
+      final playItemGuid = _extractPlayItemGuid(detail, item);
+      if (playItemGuid.isEmpty) continue;
+      final qualities = _cachedQualities[playItemGuid];
+      if (qualities != null && qualities.isNotEmpty) return qualities;
+    }
+    return const <String>[];
+  }
+
+  /// 遍历候选项缓存，尝试提取源清晰度。
+  static String _resolveCachedSourceResolution({
+    required MediaLibraryItem? episode,
+    required List<String> candidateItemGuids,
+  }) {
+    for (final guid in candidateItemGuids) {
+      final key = guid.trim();
+      if (key.isEmpty) continue;
+      final detail = _cachedItemDetails[key];
+      if (detail == null) continue;
+      final item = _detailItem(detail);
+      return _extractSourceResolution(item, episode);
+    }
+    return '';
+  }
 
   /// 加载下载信息并展示季度下载面板。
   Future<void> show(
@@ -53,77 +138,72 @@ class TvSeasonDownloadSheetController {
     final colors = context.appColors;
     final downloadService = DownloadTaskService.instance;
 
+    // Shared context populated during loading, used by download callbacks.
+    Map<String, dynamic>? loadedItem;
+    _DownloadGroupMeta? loadedGroupMeta;
+
     await AsyncActionGuard.run<void>(
       actionKey,
       settleDuration: const Duration(milliseconds: 500),
       action: () async {
         try {
           await downloadService.initialize();
-          final detail = await _resolveDownloadDetail(
-            api,
+
+          // Try to pre-populate quality options from cache.
+          final sourceResolution = _resolveCachedSourceResolution(
             episode: episode,
             candidateItemGuids: candidateItemGuids,
           );
-          if (!context.mounted || detail == null) return;
-
-          final item = _detailItem(detail);
-          final groupMeta = await _resolveGroupMeta(
-            api,
-            provider.baseUrl,
-            detail,
-            item,
-            episode,
-            seriesTitle,
-            l10n,
+          final cachedQualityStrings = _resolveCachedQualities(
+            candidateItemGuids: candidateItemGuids,
           );
-          if (!context.mounted) return;
-          final playItemGuid = _extractPlayItemGuid(detail, item);
-          if (playItemGuid.isEmpty) {
-            _showTopTip(context, l10n.downloadNoResources, colors.warning);
-            return;
-          }
+          final cachedQualityOptions = cachedQualityStrings.isNotEmpty
+              ? cachedQualityStrings
+                  .map(
+                    (quality) => TvSeasonDownloadQualityOption(
+                      value: quality,
+                      label: _qualityLabel(quality, l10n),
+                      hint: _downloadQualityHint(
+                        l10n: l10n,
+                        sourceResolution: sourceResolution,
+                        quality: quality,
+                        downloaded: downloadService.hasDownloadedResolution(
+                          episode?.guid ?? '',
+                          quality,
+                        ),
+                      ),
+                    ),
+                  )
+                  .toList(growable: false)
+              : const <TvSeasonDownloadQualityOption>[];
 
-          final qualities = await api.getDownloadResolutionOptions(
-            playItemGuid,
-            lan: 'zh-CN',
-          );
-          if (!context.mounted) return;
-          if (qualities.isEmpty) {
-            _showTopTip(context, l10n.downloadNoQuality, colors.warning);
-            return;
-          }
-
-          final sourceResolution = _extractSourceResolution(item, episode);
-          final payload = TvSeasonDownloadSheetPayload(
+          // Build initial payload with static data — shown immediately.
+          final episodePoster = (episode?.poster ?? '').trim();
+          final initialPosterUrl = episodePoster.isNotEmpty
+              ? '${provider.baseUrl}$episodePoster'
+              : '';
+          final initialPayload = TvSeasonDownloadSheetPayload(
             sheetTitle: l10n.downloadSelectItem,
             qualityLabel: l10n.downloadQuality,
             qualitySheetTitle: l10n.downloadSelectQuality,
-            itemTitle: _buildItemTitle(item, episode, seriesTitle, l10n),
-            posterUrls: _posterUrls(provider.baseUrl, item, episode),
+            itemTitle: episode?.title ?? seriesTitle,
+            posterUrls: initialPosterUrl.isNotEmpty
+                ? <String>[initialPosterUrl]
+                : const <String>[],
             token: provider.token,
             posterBadgeLabel: _posterBadgeLabel(sourceResolution),
             episodeEntries: episodeEntries,
-            qualityOptions: qualities
-                .map(
-                  (quality) => TvSeasonDownloadQualityOption(
-                    value: quality,
-                    label: _qualityLabel(quality, l10n),
-                    hint: _downloadQualityHint(
-                      l10n: l10n,
-                      sourceResolution: sourceResolution,
-                      quality: quality,
-                      downloaded: downloadService.hasDownloadedResolution(
-                        episode?.guid ?? '',
-                        quality,
-                      ),
-                    ),
-                  ),
-                )
-                .toList(growable: false),
-            initialQuality: _resolveInitialQuality(qualities, sourceResolution),
+            qualityOptions: cachedQualityOptions,
+            initialQuality: _resolveInitialQuality(
+              cachedQualityStrings,
+              sourceResolution,
+            ),
             initialRangeIndex: initialRangeIndex,
             rangeSize: rangeSize,
             downloadLabel: l10n.downloadDownload,
+            downloadingLabel: l10n.downloadDownloading,
+            downloadedLabel: l10n.downloadDownloaded,
+            pausedLabel: l10n.downloadPaused,
             openListLabel: l10n.downloadOpenList,
             primaryActionState: downloadService.actionStateForItem(
               episode?.guid ?? '',
@@ -133,12 +213,37 @@ class TvSeasonDownloadSheetController {
             ),
           );
 
+          final payloadNotifier =
+              ValueNotifier<TvSeasonDownloadSheetPayload>(initialPayload);
+
+          // Kick off API loading in background (does not block sheet display).
+          unawaited(_loadSheetApiData(
+            api: api,
+            provider: provider,
+            episode: episode,
+            candidateItemGuids: candidateItemGuids,
+            episodeEntries: episodeEntries,
+            seriesTitle: seriesTitle,
+            initialRangeIndex: initialRangeIndex,
+            rangeSize: rangeSize,
+            l10n: l10n,
+            downloadService: downloadService,
+            payloadNotifier: payloadNotifier,
+            initialPayload: initialPayload,
+            onItemLoaded: (item) => loadedItem = item,
+            onGroupMetaLoaded: (meta) => loadedGroupMeta = meta,
+          ));
+
+          // Show sheet immediately with static data; blocks until sheet closes.
           await TvSeasonDownloadSheet.show(
             context,
-            payload: payload,
+            payloadNotifier: payloadNotifier,
             onDownloadTap: (selectedQuality) async {
               final targetEpisode = episode;
               if (targetEpisode == null) return;
+              final item = loadedItem;
+              final groupMeta = loadedGroupMeta;
+              if (item == null || groupMeta == null) return;
               try {
                 final result = await downloadService.startDownload(
                   provider: provider,
@@ -186,6 +291,8 @@ class TvSeasonDownloadSheetController {
                     orElse: () => null,
                   );
               if (matched == null) return;
+              final groupMeta = loadedGroupMeta;
+              if (groupMeta == null) return;
               try {
                 final result = await downloadService.startDownload(
                   provider: provider,
@@ -234,6 +341,99 @@ class TvSeasonDownloadSheetController {
     );
   }
 
+  static Future<void> _loadSheetApiData({
+    required FeiniuApi api,
+    required NasProvider provider,
+    MediaLibraryItem? episode,
+    required List<String> candidateItemGuids,
+    required List<TvEpisodeCardData> episodeEntries,
+    required String seriesTitle,
+    required int initialRangeIndex,
+    required int rangeSize,
+    required AppLocalizations l10n,
+    required DownloadTaskService downloadService,
+    required ValueNotifier<TvSeasonDownloadSheetPayload> payloadNotifier,
+    required TvSeasonDownloadSheetPayload initialPayload,
+    required void Function(Map<String, dynamic>?) onItemLoaded,
+    required void Function(_DownloadGroupMeta?) onGroupMetaLoaded,
+  }) async {
+    try {
+      final detail = await _resolveDownloadDetail(
+        api,
+        episode: episode,
+        candidateItemGuids: candidateItemGuids,
+      );
+      if (detail == null) return;
+
+      final item = _detailItem(detail);
+      onItemLoaded(item);
+      final groupMeta = await _resolveGroupMeta(
+        api,
+        provider.baseUrl,
+        detail,
+        item,
+        episode,
+        seriesTitle,
+        l10n,
+      );
+      onGroupMetaLoaded(groupMeta);
+
+      final playItemGuid = _extractPlayItemGuid(detail, item);
+      if (playItemGuid.isEmpty) return;
+
+      final qualities = _cachedQualities[playItemGuid] ??
+          await api.getDownloadResolutionOptions(
+            playItemGuid,
+            lan: 'zh-CN',
+          );
+      if (qualities.isEmpty) return;
+      _cachedQualities[playItemGuid] = qualities;
+
+      final sourceResolution = _extractSourceResolution(item, episode);
+      final updatedPayload = TvSeasonDownloadSheetPayload(
+        sheetTitle: initialPayload.sheetTitle,
+        qualityLabel: initialPayload.qualityLabel,
+        qualitySheetTitle: initialPayload.qualitySheetTitle,
+        itemTitle: _buildItemTitle(item, episode, seriesTitle, l10n),
+        posterUrls: _posterUrls(provider.baseUrl, item, episode),
+        token: initialPayload.token,
+        posterBadgeLabel: _posterBadgeLabel(sourceResolution),
+        episodeEntries: initialPayload.episodeEntries,
+        qualityOptions: qualities
+            .map(
+              (quality) => TvSeasonDownloadQualityOption(
+                value: quality,
+                label: _qualityLabel(quality, l10n),
+                hint: _downloadQualityHint(
+                  l10n: l10n,
+                  sourceResolution: sourceResolution,
+                  quality: quality,
+                  downloaded: downloadService.hasDownloadedResolution(
+                    episode?.guid ?? '',
+                    quality,
+                  ),
+                ),
+              ),
+            )
+            .toList(growable: false),
+        initialQuality: _resolveInitialQuality(qualities, sourceResolution),
+        initialRangeIndex: initialPayload.initialRangeIndex,
+        rangeSize: initialPayload.rangeSize,
+        downloadLabel: initialPayload.downloadLabel,
+        downloadingLabel: initialPayload.downloadingLabel,
+        downloadedLabel: initialPayload.downloadedLabel,
+        pausedLabel: initialPayload.pausedLabel,
+        openListLabel: initialPayload.openListLabel,
+        primaryActionState: initialPayload.primaryActionState,
+        episodeActionStates: initialPayload.episodeActionStates,
+      );
+      payloadNotifier.value = updatedPayload;
+    } catch (error) {
+      // Push an error-indicating payload so the sheet shows the failure state.
+      payloadNotifier.value = initialPayload.copyWith(loadingError: true);
+    }
+  }
+
   static Future<Map<String, dynamic>?> _resolveDownloadDetail(
     FeiniuApi api, {
     required MediaLibraryItem? episode,
@@ -246,8 +446,22 @@ class TvSeasonDownloadSheetController {
           .where((value) => value.isNotEmpty),
     }.toList(growable: false);
 
+    // Check cache first.
+    for (final guid in candidates) {
+      final cached = _cachedItemDetails[guid];
+      if (cached != null) {
+        final item = _detailItem(cached);
+        if (_extractPlayItemGuid(cached, item).isNotEmpty) {
+          return cached;
+        }
+      }
+    }
+
     for (final guid in candidates) {
       final detail = await api.getItemDetail(guid);
+      if (detail.isNotEmpty) {
+        _cachedItemDetails[guid] = detail;
+      }
       final item = _detailItem(detail);
       final playItemGuid = _extractPlayItemGuid(detail, item);
       if (playItemGuid.isNotEmpty) {
