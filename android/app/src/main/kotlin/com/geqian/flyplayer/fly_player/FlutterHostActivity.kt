@@ -1120,8 +1120,11 @@ abstract class FlutterHostActivity : FlutterActivity() {
     protected fun applyParallelWindowImmersiveMode(force: Boolean = false) {
         val parallelImmersive = shouldUseParallelWindowImmersiveMode()
         val playerImmersive = playerImmersiveSystemBarsEnabled
-        val immersive = parallelImmersive || playerImmersive
-        val decorFitsSystemWindows = !immersive
+        // Only let content draw under system bars when player is fully immersive.
+        // Parallel window immersive mode only hides the status bar; navigation bar
+        // remains visible, so we keep decorFitsSystemWindows = true to prevent the
+        // Flutter page bottom from being obscured by the navigation bar.
+        val decorFitsSystemWindows = !playerImmersive
         if (force || lastAppliedDecorFitsSystemWindows != decorFitsSystemWindows) {
             WindowCompat.setDecorFitsSystemWindows(window, decorFitsSystemWindows)
             lastAppliedDecorFitsSystemWindows = decorFitsSystemWindows
