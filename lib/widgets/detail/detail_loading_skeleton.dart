@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../theme/app_theme.dart';
+import '../../theme/detail_tokens.dart';
 import '../../ui/detail_presentation.dart';
 
 class DetailLoadingSkeleton extends StatelessWidget {
@@ -21,8 +22,8 @@ class DetailLoadingSkeleton extends StatelessWidget {
     final media = MediaQuery.of(context);
     final size = media.size;
     final heroHeight = math
-        .min(size.height * 0.36, size.width / 1.36)
-        .clamp(_isPane ? 220.0 : 260.0, _isPane ? 380.0 : 460.0)
+        .min(size.height * 0.38, size.width / 1.36)
+        .clamp(_isPane ? 220.0 : 300.0, _isPane ? 380.0 : 560.0)
         .toDouble();
     final fill = Color.alphaBlend(
       colors.surfaceStrong.withValues(alpha: 0.48),
@@ -36,6 +37,18 @@ class DetailLoadingSkeleton extends StatelessWidget {
       colors.textMuted.withValues(alpha: 0.18),
       colors.backgroundBase,
     );
+    final pad = DetailTokens.screenHorizontalPadding;
+    final buttonHeight = _isPane ? 48.0 : 56.0;
+    final topReserve = media.padding.top + 12 + DetailTokens.topButtonSize + 8;
+    final bodyWidth = size.width - pad * 2;
+    // Poster card: matches tv_season_detail_page / TvSeasonDetailPanel
+    final posterWidth = (size.width * (_isPane ? 0.24 : 0.30))
+        .clamp(120.0, _isPane ? 150.0 : 180.0);
+    final posterHeight = posterWidth * 1.45;
+    // Fill remaining space beside poster
+    final textZoneWidth = bodyWidth - posterWidth - 16;
+    final titleWidth = textZoneWidth * 0.88;
+    final metaWidth1 = textZoneWidth;
 
     return Scaffold(
       backgroundColor: colors.backgroundBase,
@@ -60,85 +73,76 @@ class DetailLoadingSkeleton extends StatelessWidget {
                     ],
                   ),
                 ),
-              ),
-              Expanded(child: ColoredBox(color: colors.backgroundBase)),
-            ],
-          ),
-          SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(16, _isPane ? 8 : 12, 16, 0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (!_isPane)
-                    _SkeletonBox(width: 44, height: 44, color: fill),
-                  const Spacer(),
-                  _SkeletonBox(
-                    width: size.width * (_isPane ? 0.56 : 0.48),
-                    height: _isPane ? 28 : 34,
-                    color: fill,
-                  ),
-                  const SizedBox(height: 12),
-                  _SkeletonBox(
-                    width: size.width * 0.74,
-                    height: 14,
-                    color: line,
-                  ),
-                  const SizedBox(height: 8),
-                  _SkeletonBox(
-                    width: size.width * 0.46,
-                    height: 14,
-                    color: line,
-                  ),
-                  SizedBox(height: _isPane ? 22 : 30),
-                  DecoratedBox(
-                    decoration: BoxDecoration(color: colors.backgroundBase),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                padding: EdgeInsets.fromLTRB(
+                  pad, topReserve, pad, _isPane ? 12 : 20,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Spacer(),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        _SkeletonBox(
-                          width: double.infinity,
-                          height: _isPane ? 42 : 48,
-                          color: subtle,
+                        // Poster card placeholder — matches the vertical poster
+                        // beside the title in TvSeasonDetailPanel
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(14),
+                          child: _Bar(
+                            width: posterWidth,
+                            height: posterHeight,
+                            color: fill,
+                          ),
                         ),
-                        const SizedBox(height: 14),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _SkeletonBox(height: 36, color: fill),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: _SkeletonBox(height: 36, color: fill),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 18),
-                        _SkeletonBox(
-                          width: size.width * 0.88,
-                          height: 12,
-                          color: line,
-                        ),
-                        const SizedBox(height: 8),
-                        _SkeletonBox(
-                          width: size.width * 0.78,
-                          height: 12,
-                          color: line,
-                        ),
-                        const SizedBox(height: 8),
-                        _SkeletonBox(
-                          width: size.width * 0.64,
-                          height: 12,
-                          color: line,
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _Bar(width: titleWidth, height: _isPane ? 20 : 24, radius: 6, color: fill),
+                              const SizedBox(height: 10),
+                              _Bar(width: metaWidth1, height: 14, radius: 7, color: line),
+                              const SizedBox(height: 6),
+                              _Bar(width: metaWidth1 * 0.52, height: 14, radius: 7, color: line),
+                            ],
+                          ),
                         ),
                       ],
                     ),
-                  ),
-                  SizedBox(height: media.padding.bottom + 20),
-                ],
+                  ],
+                ),
               ),
-            ),
+              Padding(
+                padding: EdgeInsets.fromLTRB(pad, 0, pad, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(height: _isPane ? 18 : 24),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _Bar(
+                            height: buttonHeight,
+                            radius: buttonHeight / 2,
+                            color: subtle,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        _Circle(size: _isPane ? 48.0 : 56.0, color: fill),
+                        const SizedBox(width: 10),
+                        _Circle(size: _isPane ? 48.0 : 56.0, color: fill),
+                        const SizedBox(width: 10),
+                        _Circle(size: _isPane ? 48.0 : 56.0, color: fill),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    _Bar(width: bodyWidth * 0.92, height: 12, radius: 6, color: line),
+                    const SizedBox(height: 8),
+                    _Bar(width: bodyWidth * 0.64, height: 12, radius: 6, color: line),
+                  ],
+                ),
+              ),
+              Expanded(child: ColoredBox(color: colors.backgroundBase)),
+            ],
           ),
         ],
       ),
@@ -146,24 +150,38 @@ class DetailLoadingSkeleton extends StatelessWidget {
   }
 }
 
-class _SkeletonBox extends StatelessWidget {
+class _Bar extends StatelessWidget {
   final double? width;
   final double height;
+  final double radius;
   final Color color;
+  const _Bar({this.width, required this.height, this.radius = 0, required this.color});
 
-  const _SkeletonBox({this.width, required this.height, required this.color});
+  @override
+  Widget build(BuildContext context) {
+    final decoration = radius > 0
+        ? BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.all(Radius.circular(radius)),
+          )
+        : BoxDecoration(color: color);
+    return SizedBox(
+      width: width, height: height,
+      child: DecoratedBox(decoration: decoration),
+    );
+  }
+}
+
+class _Circle extends StatelessWidget {
+  final double size;
+  final Color color;
+  const _Circle({required this.size, required this.color});
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: width,
-      height: height,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(8),
-        ),
-      ),
+      width: size, height: size,
+      child: DecoratedBox(decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
     );
   }
 }

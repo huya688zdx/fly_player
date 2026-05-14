@@ -60,20 +60,33 @@ class DynamicPageThemeScope extends StatefulWidget {
   State<DynamicPageThemeScope> createState() => _DynamicPageThemeScopeState();
 }
 
-class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
+class _GlobalSyncEntry {
+  final DynamicThemeSeed seed;
+  final Duration? localNotifyDelay;
+  final VoidCallback? localApply;
+
+  _GlobalSyncEntry({
+    required this.seed,
+    this.localNotifyDelay,
+    this.localApply,
+  });
+}
+
+class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope>
+    with TickerProviderStateMixin {
   static final Map<String, int> _globalThemeOwnerCounts = <String, int>{};
   static final Set<String> _pendingGlobalClearPageKeys = <String>{};
-  static String? _pendingGlobalPageKey;
-  static DynamicThemeSeed? _pendingGlobalSeed;
-  static Duration? _pendingGlobalLocalNotifyDelay;
-  static VoidCallback? _pendingGlobalLocalApply;
-  static Timer? _pendingGlobalLocalApplyTimer;
+  static final Map<String, _GlobalSyncEntry> _pendingGlobalSyncs =
+      <String, _GlobalSyncEntry>{};
   static Timer? _globalThemeSyncTimer;
   static bool _globalThemeSyncScheduled = false;
   static AppThemeProvider? _globalThemeSyncProvider;
 
   DynamicThemeSeed? _seed;
   DynamicThemeSeed? _resolvedSeed;
+  Color? _ambientTint;
+  late final AnimationController _colorAnimController;
+  ColorTween? _colorTween;
   String _seedPageKey = '';
   String _seedImageUrl = '';
   int _requestVersion = 0;
@@ -89,6 +102,10 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
   @override
   void initState() {
     super.initState();
+    _colorAnimController = AnimationController(
+      duration: const Duration(milliseconds: 140),
+      vsync: this,
+    );
     _updateGlobalThemeOwnerRegistration();
     _debugLogScopeConfig('init');
     final cachedSeed = DynamicThemeRuntimeController.instance.cachedSeedFor(
@@ -157,6 +174,7 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
 
   @override
   void dispose() {
+    _colorAnimController.dispose();
     _resolveTimer?.cancel();
     _setGlobalThemeResolveHold(false);
     final globalThemeKeyToClear =
@@ -447,18 +465,19 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
       return;
     }
     _pendingGlobalClearPageKeys.remove(normalizedPageKey);
-    _pendingGlobalPageKey = normalizedPageKey;
-    _pendingGlobalSeed = seedForGlobal;
-    _pendingGlobalLocalNotifyDelay = widget.deferLocalThemeApplyUntilGlobalSync
-        ? DynamicPageThemeScope.globalSyncLocalApplyDelay
-        : null;
-    _pendingGlobalLocalApply = widget.deferLocalThemeApplyUntilGlobalSync
-        ? _buildDeferredLocalThemeApply(
-            pageKey: normalizedPageKey,
-            imageUrl: normalizedImageUrl,
-            seed: seedForGlobal,
-          )
-        : null;
+    _pendingGlobalSyncs[normalizedPageKey] = _GlobalSyncEntry(
+      seed: seedForGlobal,
+      localNotifyDelay: widget.deferLocalThemeApplyUntilGlobalSync
+          ? DynamicPageThemeScope.globalSyncLocalApplyDelay
+          : null,
+      localApply: widget.deferLocalThemeApplyUntilGlobalSync
+          ? _buildDeferredLocalThemeApply(
+              pageKey: normalizedPageKey,
+              imageUrl: normalizedImageUrl,
+              seed: seedForGlobal,
+            )
+          : null,
+    );
     _lastSyncedPageKey = normalizedPageKey;
     _lastSyncedSeedSignature = seedSignature;
     _lastSyncedWasClear = false;
@@ -505,12 +524,7 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
     }
     _pendingGlobalClearPageKeys.add(normalizedPageKey);
     debugPrint('[THEME][SCOPE] clear page=$normalizedPageKey');
-    if (_pendingGlobalPageKey == normalizedPageKey) {
-      _pendingGlobalPageKey = null;
-      _pendingGlobalSeed = null;
-      _pendingGlobalLocalNotifyDelay = null;
-      _pendingGlobalLocalApply = null;
-    }
+    _pendingGlobalSyncs.remove(normalizedPageKey);
     _lastSyncedPageKey = normalizedPageKey;
     _lastSyncedSeedSignature = '';
     _lastSyncedWasClear = true;
@@ -540,30 +554,21 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
     final provider = _globalThemeSyncProvider ?? _themeProvider;
     if (provider == null) {
       _pendingGlobalClearPageKeys.clear();
-      _pendingGlobalPageKey = null;
-      _pendingGlobalSeed = null;
-      _pendingGlobalLocalNotifyDelay = null;
-      _pendingGlobalLocalApply = null;
+      _pendingGlobalSyncs.clear();
       return;
     }
     final pendingClearPageKeys = _pendingGlobalClearPageKeys.toList(
       growable: false,
     );
-    final pendingPageKey = _pendingGlobalPageKey;
-    final pendingSeed = _pendingGlobalSeed;
-    final pendingLocalNotifyDelay = _pendingGlobalLocalNotifyDelay;
-    final pendingLocalApply = _pendingGlobalLocalApply;
+    final pendingSyncs = Map<String, _GlobalSyncEntry>.from(_pendingGlobalSyncs);
     debugPrint(
-      '[THEME][SCOPE] flush clear=${pendingClearPageKeys.length} apply=${pendingPageKey ?? ''}',
+      '[THEME][SCOPE] flush clear=${pendingClearPageKeys.length} apply=${pendingSyncs.length}',
     );
     _pendingGlobalClearPageKeys.clear();
-    _pendingGlobalPageKey = null;
-    _pendingGlobalSeed = null;
-    _pendingGlobalLocalNotifyDelay = null;
-    _pendingGlobalLocalApply = null;
-    _pendingGlobalLocalApplyTimer?.cancel();
-    _pendingGlobalLocalApplyTimer = null;
+    _pendingGlobalSyncs.clear();
+    // Process clears — skip pageKeys that also have a pending set.
     for (final pageKey in pendingClearPageKeys) {
+      if (pendingSyncs.containsKey(pageKey)) continue;
       unawaited(
         provider.clearRuntimeDynamicTheme(
           pageKey,
@@ -571,20 +576,31 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
         ),
       );
     }
-    if (pendingPageKey != null && pendingSeed != null) {
+    // Store all seeds in the provider so fallback works after a top clear.
+    final batchedLocalApplies = <VoidCallback>[];
+    for (final MapEntry<String, _GlobalSyncEntry> mapEntry
+        in pendingSyncs.entries) {
+      final pageKey = mapEntry.key;
+      final syncEntry = mapEntry.value;
       unawaited(
         provider.setRuntimeDynamicTheme(
-          pageKey: pendingPageKey,
-          seed: pendingSeed,
-          localNotifyDelayAfterBroadcast: pendingLocalNotifyDelay,
+          pageKey: pageKey,
+          seed: syncEntry.seed,
+          localNotifyDelayAfterBroadcast: syncEntry.localNotifyDelay,
         ),
       );
-      if (pendingLocalApply != null) {
-        _pendingGlobalLocalApplyTimer = Timer(
-          pendingLocalNotifyDelay ?? Duration.zero,
-          pendingLocalApply,
-        );
+      if (syncEntry.localApply != null) {
+        batchedLocalApplies.add(syncEntry.localApply!);
       }
+    }
+    // Fire all deferred-local-apply callbacks in a single post-frame callback
+    // so every scope updates its _seed in the same frame.
+    if (batchedLocalApplies.isNotEmpty) {
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        for (final apply in batchedLocalApplies) {
+          apply();
+        }
+      });
     }
   }
 
@@ -655,59 +671,92 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
     return bundle;
   }
 
+  void _startAmbientTintAnimationTo(Color? target) {
+    final begin = _ambientTint;
+    if (Color.lerp(begin, target, 0) == Color.lerp(begin, target, 1.0)) {
+      _ambientTint = target;
+      _colorTween = null;
+      return;
+    }
+    _colorAnimController
+      ..removeListener(_onColorAnimTick)
+      ..removeStatusListener(_onColorAnimDone);
+    _colorTween = ColorTween(begin: begin, end: target);
+    _colorAnimController
+      ..reset()
+      ..forward();
+    _colorAnimController.addListener(_onColorAnimTick);
+    _colorAnimController.addStatusListener(_onColorAnimDone);
+  }
+
+  void _onColorAnimTick() {
+    if (mounted) setState(() {});
+  }
+
+  void _onColorAnimDone(AnimationStatus status) {
+    if (status == AnimationStatus.completed ||
+        status == AnimationStatus.dismissed) {
+      _ambientTint = _colorTween?.end;
+      _colorAnimController
+        ..removeListener(_onColorAnimTick)
+        ..removeStatusListener(_onColorAnimDone);
+    }
+  }
+
+  Color? _animatedAmbientTint() {
+    if (_colorTween == null) return _ambientTint;
+    return _colorTween!.animate(
+      CurvedAnimation(
+        parent: _colorAnimController,
+        curve: Curves.easeOutCubic,
+      ),
+    ).value;
+  }
+
   @override
   Widget build(BuildContext context) {
     final parentTheme = Theme.of(context);
     final baseColors = context.baseAppColors;
     final effectiveSeed = widget.enabled ? _seed : null;
+    final Color? targetAmbientTint;
+    final AppThemeColors effectiveColors;
+    final ThemeData? effectiveTheme;
     if (effectiveSeed == null) {
-      return DynamicPageThemeSnapshot(
-        hasDynamicTheme: false,
-        effectiveColors: baseColors,
-        child: Builder(
-          builder: (context) {
-            return widget.builder(context, null);
-          },
-        ),
+      targetAmbientTint = null;
+      effectiveColors = baseColors;
+      effectiveTheme = null;
+    } else {
+      final bundle = _themeBundleFor(
+        parentTheme: parentTheme,
+        baseColors: baseColors,
+        seed: effectiveSeed,
       );
+      targetAmbientTint = bundle.ambientTint;
+      effectiveColors = bundle.effectiveColors;
+      effectiveTheme = bundle.effectiveTheme;
     }
-    final bundle = _themeBundleFor(
-      parentTheme: parentTheme,
-      baseColors: baseColors,
-      seed: effectiveSeed,
-    );
-    if (widget.intensity.usesAmbientOnly) {
-      return Theme(
-        data: bundle.effectiveTheme,
-        child: DynamicPageThemeSnapshot(
-          hasDynamicTheme: true,
-          effectiveColors: bundle.effectiveColors,
-          child: Builder(
-            builder: (context) {
-              return widget.builder(context, bundle.ambientTint);
-            },
-          ),
-        ),
-      );
+    // Start animation if the ambient tint target changed.
+    if (targetAmbientTint != _ambientTint ||
+        (_colorTween != null && _colorTween!.end != targetAmbientTint)) {
+      _startAmbientTintAnimationTo(targetAmbientTint);
     }
-
-    final themedChild = DynamicPageThemeSnapshot(
-      hasDynamicTheme: true,
-      effectiveColors: bundle.effectiveColors,
+    final animatedTint = _animatedAmbientTint();
+    final hasTheme = effectiveSeed != null;
+    Widget child = DynamicPageThemeSnapshot(
+      hasDynamicTheme: hasTheme,
+      effectiveColors: effectiveColors,
       child: Builder(
-        builder: (context) {
-          return widget.builder(context, bundle.ambientTint);
-        },
+        builder: (context) => widget.builder(context, animatedTint),
       ),
     );
-    if (widget.deferLocalThemeApplyUntilGlobalSync) {
-      return Theme(data: bundle.effectiveTheme, child: themedChild);
+    if (effectiveTheme != null) {
+      child = AnimatedTheme(
+        data: effectiveTheme,
+        duration: const Duration(milliseconds: 140),
+        curve: Curves.easeOutCubic,
+        child: child,
+      );
     }
-    return AnimatedTheme(
-      data: bundle.effectiveTheme,
-      duration: const Duration(milliseconds: 140),
-      curve: Curves.easeOutCubic,
-      child: themedChild,
-    );
+    return child;
   }
 }

@@ -184,6 +184,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _scrollOffsetNotifier.dispose();
+    TvSeasonDownloadSheetController.clearCache();
     super.dispose();
   }
 
@@ -1207,6 +1208,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         );
         _artworkReady = _descriptionVisible;
       });
+      unawaited(_prefetchDownloadData(episodes, selectedEpisodeGuid));
     } catch (_) {
       if (!mounted ||
           seq != _seasonLoadSeq ||
@@ -1383,6 +1385,27 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     _showTopTip(
       _t('common.actions.download.placeholder', 'Download API placeholder'),
       const Color(0xFF3B4A5E),
+    );
+  }
+
+  Future<void> _prefetchDownloadData(
+    List<MediaLibraryItem> episodes,
+    String selectedEpisodeGuid,
+  ) async {
+    if (episodes.isEmpty) return;
+    final provider = context.read<NasProvider>();
+    if (!provider.isConfigured) return;
+    final api = FeiniuApi(provider);
+    final candidates = <String>{
+      selectedEpisodeGuid.trim(),
+      _playInfo?.item.guid ?? '',
+      episodes.first.guid,
+      _selectedSeasonGuid,
+      widget.seasonItem.guid,
+    }.where((g) => g.isNotEmpty).toList(growable: false);
+    await TvSeasonDownloadSheetController.prefetchSeasonDownloadData(
+      api,
+      candidateItemGuids: candidates,
     );
   }
 
@@ -2019,14 +2042,14 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const SizedBox(height: 10),
+                            const SizedBox(height: 4),
                             Container(
                               color: colors.backgroundBase,
                               padding: const EdgeInsets.fromLTRB(
                                 DetailTokens.screenHorizontalPadding,
                                 0,
                                 DetailTokens.screenHorizontalPadding,
-                                24,
+                                20,
                               ),
                               child: TvSeasonDetailPanel(
                                 title: title,

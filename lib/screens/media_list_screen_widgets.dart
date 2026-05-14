@@ -128,7 +128,9 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
       onRefresh: _fetchHomeData,
       child: CustomScrollView(
         cacheExtent: _scrollCacheExtent,
-        physics: const AlwaysScrollableScrollPhysics(),
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: ReducedOverscrollPhysics(topOverscrollFraction: 0.5),
+        ),
         slivers: <Widget>[
           SliverPadding(
             padding: EdgeInsets.fromLTRB(
