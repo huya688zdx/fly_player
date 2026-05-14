@@ -72,8 +72,10 @@ class LocalDanmakuPainter<T> extends CustomPainter {
       final y = item.yFor(size);
       if (x >= size.width) {
         offRightScrollCount += 1;
+        continue;
       } else if (x + item.width <= 0) {
         offLeftTailScrollCount += 1;
+        continue;
       } else {
         visibleScrollCount += 1;
       }
