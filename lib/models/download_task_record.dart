@@ -1,12 +1,13 @@
 import 'stream_track_data.dart';
 
-enum DownloadTaskStatus { downloading, downloaded, failed }
+enum DownloadTaskStatus { downloading, downloaded, failed, paused }
 
 extension DownloadTaskStatusX on DownloadTaskStatus {
   String get storageValue => switch (this) {
     DownloadTaskStatus.downloading => 'downloading',
     DownloadTaskStatus.downloaded => 'downloaded',
     DownloadTaskStatus.failed => 'failed',
+    DownloadTaskStatus.paused => 'paused',
   };
 
   static DownloadTaskStatus fromStorage(String raw) {
@@ -24,9 +25,12 @@ int compareDownloadTaskRecordsForDisplay(
 }) {
   final keepCreationOrder =
       statusHint == DownloadTaskStatus.downloading ||
+      statusHint == DownloadTaskStatus.paused ||
       (statusHint == null &&
-          lhs.status == DownloadTaskStatus.downloading &&
-          rhs.status == DownloadTaskStatus.downloading);
+          (lhs.status == DownloadTaskStatus.downloading ||
+              lhs.status == DownloadTaskStatus.paused) &&
+          (rhs.status == DownloadTaskStatus.downloading ||
+              rhs.status == DownloadTaskStatus.paused));
   if (keepCreationOrder) {
     final createdAtCompare = rhs.createdAtMs.compareTo(lhs.createdAtMs);
     if (createdAtCompare != 0) return createdAtCompare;
@@ -90,6 +94,8 @@ class DownloadTaskRecord {
 
   bool get isDownloaded => status == DownloadTaskStatus.downloaded;
   bool get isDownloading => status == DownloadTaskStatus.downloading;
+  bool get isPaused => status == DownloadTaskStatus.paused;
+  bool get isActive => isDownloading || isPaused;
 
   DownloadTaskRecord copyWith({
     String? id,
@@ -317,20 +323,24 @@ class DownloadActionState {
   final bool downloading;
   final bool downloaded;
   final bool failed;
+  final bool paused;
 
   const DownloadActionState({
     this.downloading = false,
     this.downloaded = false,
     this.failed = false,
+    this.paused = false,
   });
 
   String label({
     String downloadLabel = 'Download',
     String downloadingLabel = 'Downloading',
     String downloadedLabel = 'Downloaded',
+    String pausedLabel = 'Paused',
   }) {
     if (downloaded) return downloadedLabel;
     if (downloading) return downloadingLabel;
+    if (paused) return pausedLabel;
     return downloadLabel;
   }
 
