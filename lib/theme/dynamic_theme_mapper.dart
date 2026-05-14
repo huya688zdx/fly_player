@@ -6,15 +6,47 @@ import 'dynamic_theme_seed_extractor.dart';
 class DynamicThemeMapper {
   const DynamicThemeMapper._();
 
+  // Cache [ColorScheme.fromSeed] results — the same (seedColor, brightness,
+  // variant, contrastLevel) tuple produces the identical scheme every time.
+  static final Map<int, ColorScheme> _schemeCache = <int, ColorScheme>{};
+  static const int _schemeCacheMaxSize = 12;
+
+  static ColorScheme _schemeFromSeed({
+    required Color seedColor,
+    required Brightness brightness,
+    required DynamicSchemeVariant variant,
+    required double contrastLevel,
+  }) {
+    final key = Object.hash(
+      seedColor.toARGB32(),
+      brightness.index,
+      variant.index,
+      (contrastLevel * 100).round(),
+    );
+    final cached = _schemeCache[key];
+    if (cached != null) return cached;
+    final scheme = ColorScheme.fromSeed(
+      seedColor: seedColor,
+      brightness: brightness,
+      dynamicSchemeVariant: variant,
+      contrastLevel: contrastLevel,
+    );
+    if (_schemeCache.length >= _schemeCacheMaxSize) {
+      _schemeCache.clear();
+    }
+    _schemeCache[key] = scheme;
+    return scheme;
+  }
+
   static AppThemeColors mapSubtle({
     required AppThemeColors baseColors,
     required DynamicThemeSeed seed,
   }) {
     final brightness = _brightnessFor(baseColors);
-    final scheme = ColorScheme.fromSeed(
+    final scheme = _schemeFromSeed(
       seedColor: seed.accentSeed,
       brightness: brightness,
-      dynamicSchemeVariant: DynamicSchemeVariant.tonalSpot,
+      variant: DynamicSchemeVariant.tonalSpot,
       contrastLevel: -0.15,
     );
     final isLight = brightness == Brightness.light;
@@ -75,16 +107,16 @@ class DynamicThemeMapper {
   }) {
     final brightness = _brightnessFor(baseColors);
     final backdropColors = _baseSurfacesFor(seed, brightness: brightness);
-    final scheme = ColorScheme.fromSeed(
+    final scheme = _schemeFromSeed(
       seedColor: seed.accentSeed,
       brightness: brightness,
-      dynamicSchemeVariant: _variantFor(intensity),
+      variant: _variantFor(intensity),
       contrastLevel: _contrastLevelFor(intensity),
     );
-    final backdropScheme = ColorScheme.fromSeed(
+    final backdropScheme = _schemeFromSeed(
       seedColor: seed.backgroundSeed,
       brightness: brightness,
-      dynamicSchemeVariant: DynamicSchemeVariant.tonalSpot,
+      variant: DynamicSchemeVariant.tonalSpot,
       contrastLevel: -0.05,
     );
 
@@ -180,10 +212,10 @@ class DynamicThemeMapper {
     required AppDynamicThemeIntensity intensity,
   }) {
     final brightness = _brightnessFor(baseColors);
-    final scheme = ColorScheme.fromSeed(
+    final scheme = _schemeFromSeed(
       seedColor: seed.accentSeed,
       brightness: brightness,
-      dynamicSchemeVariant: _variantFor(intensity),
+      variant: _variantFor(intensity),
       contrastLevel: _contrastLevelFor(intensity),
     );
     final isLight = brightness == Brightness.light;

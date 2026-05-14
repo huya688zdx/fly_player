@@ -352,6 +352,21 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
     );
   }
 
+  /// Stable value-based signature for cache keys — avoids the per-frame
+  /// churn that [identityHashCode] causes when new wrapper objects are
+  /// created each build.
+  int get cacheSignature => Object.hash(
+    backgroundBase.toARGB32(),
+    backgroundElevated.toARGB32(),
+    surface.toARGB32(),
+    surfaceStrong.toARGB32(),
+    accent.toARGB32(),
+    accentStrong.toARGB32(),
+    selection.toARGB32(),
+    textPrimary.toARGB32(),
+    overlayScrim.toARGB32(),
+  );
+
   @override
   AppThemeColors lerp(ThemeExtension<AppThemeColors>? other, double t) {
     if (other is! AppThemeColors) return this;

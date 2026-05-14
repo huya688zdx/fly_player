@@ -26,6 +26,7 @@ import '../models/stream_track_data.dart';
 import '../providers/nas_provider.dart';
 import '../utils/app_exception.dart';
 import '../utils/api_url_helper.dart';
+import '../utils/private_network_http_overrides.dart';
 
 const bool _verboseApiLogsEnabled = false;
 
@@ -1116,6 +1117,8 @@ class FeiniuApi {
         uri.host.isEmpty) {
       return;
     }
+
+    PrivateNetworkHttpOverrides.registerNasHost(uri.host);
 
     final adapter = dio.httpClientAdapter;
     if (adapter is IOHttpClientAdapter) {
@@ -2239,7 +2242,7 @@ class FeiniuApi {
     required String mediaGuid,
     required String itemGuid,
     required String resolution,
-    int type = 1,
+    int type = 0,
     String lan = 'zh-CN',
   }) async {
     final normalizedMediaGuid = mediaGuid.trim();
@@ -2308,6 +2311,20 @@ class FeiniuApi {
         action: 'download task progress',
         fallbackKind: AppExceptionKind.transient,
       );
+    }
+  }
+
+  /// 取消服务端下载任务（暂停/取消下载时调用）。
+  Future<void> deleteDownloadTask(String taskId, {String lan = 'zh-CN'}) async {
+    final normalizedTaskId = taskId.trim();
+    if (normalizedTaskId.isEmpty) return;
+    try {
+      await _dio.delete(
+        '$_downloadTaskPath/$normalizedTaskId',
+        data: <String, dynamic>{'lan': lan.trim()},
+      );
+    } catch (_) {
+      // Best-effort: server-side cleanup should not block the local UX.
     }
   }
 
