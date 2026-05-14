@@ -186,12 +186,12 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     required bool canPlay,
   }) {
     if (!canPlay) {
-      return _isPhonePortrait(screenSize) ? 148.0 : 132.0;
+      return _isPhonePortrait(screenSize) ? 110.0 : 100.0;
     }
     if (_isPhonePortrait(screenSize)) {
-      return 252.0;
+      return 180.0;
     }
-    return screenSize.width > screenSize.height ? 188.0 : 208.0;
+    return screenSize.width > screenSize.height ? 150.0 : 160.0;
   }
 
   Widget _asyncFadeSwitcher(Widget child, {required Object switchKey}) {
@@ -310,6 +310,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     _downloadTaskService.removeListener(_handleDownloadTasksChanged);
     _scrollController.dispose();
     _scrollOffsetNotifier.dispose();
+    PlayDetailDownloadSheetController.clearCache();
     super.dispose();
   }
 
@@ -570,6 +571,13 @@ class _PlayDetailPageState extends State<PlayDetailPage>
 
       // Phase 2: load track-related data while header fade is running.
       unawaited(_loadPhase2(api: api, info: info));
+
+      // Pre-fetch download qualities so the download sheet opens instantly.
+      unawaited(_prefetchDownloadQualities(
+        api: api,
+        itemGuid: _currentItemGuid,
+        playItem: info.item,
+      ));
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -1595,6 +1603,23 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     }
   }
 
+  Future<void> _prefetchDownloadQualities({
+    required FeiniuApi api,
+    required String itemGuid,
+    required PlayItem playItem,
+  }) async {
+    // Pre-fetch item detail so the download sheet opens instantly.
+    await PlayDetailDownloadSheetController.prefetchItemDetail(api, itemGuid);
+    // Pre-fetch quality options for likely play-item guids.
+    final candidates = <String>{
+      itemGuid.trim(),
+      playItem.guid.trim(),
+    }.where((v) => v.isNotEmpty).toSet();
+    for (final guid in candidates) {
+      unawaited(PlayDetailDownloadSheetController.prefetchQualities(api, guid));
+    }
+  }
+
   void _handleDownloadTap() {
     final item = _data?.item;
     final itemGuid = _currentItemGuid.trim();
@@ -1631,6 +1656,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           width: 720,
         ),
         localeMap: _localeMap,
+        itemDetail: PlayDetailDownloadSheetController.cachedItemDetail(itemGuid),
       ),
     );
   }
@@ -1711,11 +1737,12 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       intensity: dynamicThemeIntensity,
       builder: (context, ambientTint) {
         final colors = context.appColors;
+        late final Widget pageBody;
         if (_loading) {
           final initial = widget.initialItemDetail;
           if (initial == null) {
-            return DetailLoadingSkeleton(presentation: widget.presentation);
-          }
+            pageBody = DetailLoadingSkeleton(presentation: widget.presentation);
+          } else {
           final provider = context.read<NasProvider>();
           final media = MediaQuery.of(context);
           final backdropRequestWidth =
@@ -1813,7 +1840,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
             safePadding: media.padding,
             posterHeight: posterHeight,
           );
-          return Scaffold(
+          pageBody = Scaffold(
             backgroundColor: colors.backgroundBase,
             body: Stack(
               fit: StackFit.expand,
@@ -1849,10 +1876,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               ],
             ),
           );
-        }
-
-        if (_error != null || _data == null) {
-          return Scaffold(
+          }
+        } else if (_error != null || _data == null) {
+          pageBody = Scaffold(
             backgroundColor: colors.backgroundBase,
             appBar: _isPane
                 ? null
@@ -1863,7 +1889,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               onRetry: _load,
             ),
           );
-        }
+        } else {
 
         final provider = context.read<NasProvider>();
         final data = _data!;
@@ -2063,7 +2089,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
             )
             .toList();
 
-        return Scaffold(
+        pageBody = Scaffold(
           backgroundColor: colors.backgroundBase,
           body: Stack(
             fit: StackFit.expand,
@@ -2112,7 +2138,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                         DetailTokens.screenHorizontalPadding,
                         8,
                         DetailTokens.screenHorizontalPadding,
-                        18,
+                        10,
                       ),
                       child: AnimatedSize(
                         duration: _asyncContentFadeDuration,
@@ -2299,7 +2325,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                         color: colors.backgroundBase,
                         padding: EdgeInsets.fromLTRB(
                           DetailTokens.screenHorizontalPadding,
-                          8,
+                          4,
                           DetailTokens.screenHorizontalPadding,
                           media.padding.bottom + 18,
                         ),
@@ -2454,6 +2480,12 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               ),
             ],
           ),
+        );
+        }
+        return AppTransitions.crossFadeSwitch(
+          switchKey: 'detail-${_loading ? 'loading' : 'ready'}',
+          duration: AppTransitions.switchDuration,
+          child: pageBody,
         );
       },
     );

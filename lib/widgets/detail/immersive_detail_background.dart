@@ -443,7 +443,7 @@ class _BackgroundImage extends StatelessWidget {
           cacheWidth: cacheWidth,
           headers: {'Authorization': token, 'Trim-MC-token': token},
           frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-            if (wasSynchronouslyLoaded || isAndroid) {
+            if (wasSynchronouslyLoaded) {
               return child;
             }
             return AnimatedOpacity(

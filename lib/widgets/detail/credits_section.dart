@@ -213,6 +213,15 @@ class _CreditAvatarState extends State<_CreditAvatar> {
             'Authorization': widget.token,
             'Trim-MC-token': widget.token,
           },
+          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+            if (wasSynchronouslyLoaded) return child;
+            return AnimatedOpacity(
+              opacity: frame == null ? 0 : 1,
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              child: child,
+            );
+          },
           errorBuilder: (_, error, ___) {
             if (_index + 1 < widget.urls.length) {
               final currentUrl = widget.urls[_index];
