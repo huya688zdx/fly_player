@@ -35,9 +35,13 @@ class TvSeasonDownloadSheetPayload {
   final int initialRangeIndex;
   final int rangeSize;
   final String downloadLabel;
+  final String downloadingLabel;
+  final String downloadedLabel;
+  final String pausedLabel;
   final String openListLabel;
   final DownloadActionState primaryActionState;
   final Map<String, DownloadActionState> episodeActionStates;
+  final bool loadingError;
 
   const TvSeasonDownloadSheetPayload({
     required this.sheetTitle,
@@ -53,21 +57,50 @@ class TvSeasonDownloadSheetPayload {
     this.initialRangeIndex = 0,
     this.rangeSize = 30,
     required this.downloadLabel,
+    this.downloadingLabel = 'Downloading',
+    this.downloadedLabel = 'Downloaded',
+    this.pausedLabel = 'Paused',
     required this.openListLabel,
     this.primaryActionState = DownloadActionState.idle,
     this.episodeActionStates = const <String, DownloadActionState>{},
+    this.loadingError = false,
   });
+
+  TvSeasonDownloadSheetPayload copyWith({bool? loadingError}) {
+    return TvSeasonDownloadSheetPayload(
+      sheetTitle: sheetTitle,
+      qualityLabel: qualityLabel,
+      qualitySheetTitle: qualitySheetTitle,
+      itemTitle: itemTitle,
+      posterUrls: posterUrls,
+      token: token,
+      posterBadgeLabel: posterBadgeLabel,
+      episodeEntries: episodeEntries,
+      qualityOptions: qualityOptions,
+      initialQuality: initialQuality,
+      initialRangeIndex: initialRangeIndex,
+      rangeSize: rangeSize,
+      downloadLabel: downloadLabel,
+      downloadingLabel: downloadingLabel,
+      downloadedLabel: downloadedLabel,
+      pausedLabel: pausedLabel,
+      openListLabel: openListLabel,
+      primaryActionState: primaryActionState,
+      episodeActionStates: episodeActionStates,
+      loadingError: loadingError ?? this.loadingError,
+    );
+  }
 }
 
 class TvSeasonDownloadSheet extends StatefulWidget {
-  final TvSeasonDownloadSheetPayload payload;
+  final ValueNotifier<TvSeasonDownloadSheetPayload> payloadNotifier;
   final ValueChanged<String> onDownloadTap;
   final void Function(String episodeGuid, String quality)? onEpisodeDownloadTap;
   final VoidCallback onOpenDownloadListTap;
 
   const TvSeasonDownloadSheet({
     super.key,
-    required this.payload,
+    required this.payloadNotifier,
     required this.onDownloadTap,
     this.onEpisodeDownloadTap,
     required this.onOpenDownloadListTap,
@@ -75,7 +108,7 @@ class TvSeasonDownloadSheet extends StatefulWidget {
 
   static Future<void> show(
     BuildContext context, {
-    required TvSeasonDownloadSheetPayload payload,
+    required ValueNotifier<TvSeasonDownloadSheetPayload> payloadNotifier,
     required ValueChanged<String> onDownloadTap,
     void Function(String episodeGuid, String quality)? onEpisodeDownloadTap,
     required VoidCallback onOpenDownloadListTap,
@@ -89,7 +122,7 @@ class TvSeasonDownloadSheet extends StatefulWidget {
       barrierColor: context.downloadSheetTheme.barrierColor,
       builder: (context) {
         return TvSeasonDownloadSheet(
-          payload: payload,
+          payloadNotifier: payloadNotifier,
           onDownloadTap: onDownloadTap,
           onEpisodeDownloadTap: onEpisodeDownloadTap,
           onOpenDownloadListTap: onOpenDownloadListTap,
@@ -103,26 +136,56 @@ class TvSeasonDownloadSheet extends StatefulWidget {
 }
 
 class _TvSeasonDownloadSheetState extends State<TvSeasonDownloadSheet> {
+  late TvSeasonDownloadSheetPayload _payload;
   late String _selectedQuality;
   late int _selectedRangeIndex;
+  final Map<String, DownloadActionState> _localActionStates =
+      <String, DownloadActionState>{};
 
   @override
   void initState() {
     super.initState();
-    _selectedQuality = _resolveInitialQuality();
-    _selectedRangeIndex = widget.payload.initialRangeIndex;
+    _payload = widget.payloadNotifier.value;
+    _initFromPayload(_payload);
+    widget.payloadNotifier.addListener(_onPayloadUpdated);
   }
 
-  String _resolveInitialQuality() {
-    final initial = widget.payload.initialQuality.trim();
+  @override
+  void dispose() {
+    widget.payloadNotifier.removeListener(_onPayloadUpdated);
+    super.dispose();
+  }
+
+  void _onPayloadUpdated() {
+    final updated = widget.payloadNotifier.value;
+    if (identical(updated, _payload)) return;
+    setState(() {
+      _payload = updated;
+      _selectedQuality = _resolveInitialQuality(updated);
+      _localActionStates
+        ..clear()
+        ..addAll(updated.episodeActionStates);
+    });
+  }
+
+  void _initFromPayload(TvSeasonDownloadSheetPayload payload) {
+    _selectedQuality = _resolveInitialQuality(payload);
+    _selectedRangeIndex = payload.initialRangeIndex;
+    _localActionStates
+      ..clear()
+      ..addAll(payload.episodeActionStates);
+  }
+
+  String _resolveInitialQuality(TvSeasonDownloadSheetPayload payload) {
+    final initial = payload.initialQuality.trim();
     if (initial.isNotEmpty &&
-        widget.payload.qualityOptions.any(
+        payload.qualityOptions.any(
           (option) => option.value == initial,
         )) {
       return initial;
     }
-    if (widget.payload.qualityOptions.isNotEmpty) {
-      return widget.payload.qualityOptions.first.value;
+    if (payload.qualityOptions.isNotEmpty) {
+      return payload.qualityOptions.first.value;
     }
     return '';
   }
@@ -130,8 +193,8 @@ class _TvSeasonDownloadSheetState extends State<TvSeasonDownloadSheet> {
   Future<void> _openQualitySheet() async {
     final selected = await _TvSeasonDownloadQualitySheet.show(
       context,
-      title: widget.payload.qualitySheetTitle,
-      options: widget.payload.qualityOptions,
+      title: _payload.qualitySheetTitle,
+      options: _payload.qualityOptions,
       selectedValue: _selectedQuality,
     );
     if (!mounted || selected == null || selected == _selectedQuality) return;
@@ -139,17 +202,19 @@ class _TvSeasonDownloadSheetState extends State<TvSeasonDownloadSheet> {
   }
 
   void _handleDownloadTap() {
-    final navigator = Navigator.of(context);
     final selectedQuality = _selectedQuality;
-    navigator.pop();
     widget.onDownloadTap(selectedQuality);
   }
 
   void _handleEpisodeDownloadTap(String episodeGuid) {
-    final navigator = Navigator.of(context);
     final selectedQuality = _selectedQuality;
-    navigator.pop();
     widget.onEpisodeDownloadTap?.call(episodeGuid, selectedQuality);
+    if (!mounted) return;
+    setState(() {
+      _localActionStates[episodeGuid] = const DownloadActionState(
+        downloading: true,
+      );
+    });
   }
 
   void _handleOpenListTap() {
@@ -163,12 +228,13 @@ class _TvSeasonDownloadSheetState extends State<TvSeasonDownloadSheet> {
     final sheetTheme = context.downloadSheetTheme;
     final media = MediaQuery.of(context);
     final bottomInset = media.padding.bottom > 0 ? media.padding.bottom : 16.0;
-    final hasEpisodeEntries = widget.payload.episodeEntries.isNotEmpty;
+    final payload = _payload;
+    final hasEpisodeEntries = payload.episodeEntries.isNotEmpty;
     final maxSheetHeight =
         media.size.height * (hasEpisodeEntries ? 0.82 : 0.58);
     final episodeRanges = _buildEpisodeRanges(
-      widget.payload.episodeEntries,
-      rangeSize: widget.payload.rangeSize,
+      payload.episodeEntries,
+      rangeSize: payload.rangeSize,
     );
     final safeRangeIndex = episodeRanges.isEmpty
         ? 0
@@ -176,12 +242,13 @@ class _TvSeasonDownloadSheetState extends State<TvSeasonDownloadSheet> {
     final visibleEntries = episodeRanges.isEmpty
         ? const <TvEpisodeCardData>[]
         : episodeRanges[safeRangeIndex];
-    final selectedOption = widget.payload.qualityOptions
+    final selectedOption = payload.qualityOptions
         .cast<TvSeasonDownloadQualityOption?>()
         .firstWhere(
           (option) => option?.value == _selectedQuality,
           orElse: () => null,
         );
+    final qualityLoading = payload.qualityOptions.isEmpty;
 
     return SafeArea(
       top: false,
@@ -210,7 +277,7 @@ class _TvSeasonDownloadSheetState extends State<TvSeasonDownloadSheet> {
                 children: [
                   Expanded(
                     child: Text(
-                      widget.payload.sheetTitle,
+                      payload.sheetTitle,
                       style: TextStyle(
                         color: sheetTheme.titleColor,
                         fontSize: 16,
@@ -218,50 +285,96 @@ class _TvSeasonDownloadSheetState extends State<TvSeasonDownloadSheet> {
                       ),
                     ),
                   ),
-                  InkWell(
-                    onTap: _openQualitySheet,
-                    borderRadius: BorderRadius.circular(12),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 4,
-                        vertical: 6,
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
+                  if (qualityLoading)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (payload.loadingError)
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.error_outline_rounded,
+                                size: 14,
+                                color: sheetTheme.subtitleColor,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                '加载失败',
+                                style: TextStyle(
+                                  color: sheetTheme.subtitleColor,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          )
+                        else ...<Widget>[
+                          SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: sheetTheme.subtitleColor,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
                           Text(
-                            widget.payload.qualityLabel,
+                            '加载中…',
                             style: TextStyle(
                               color: sheetTheme.subtitleColor,
-                              fontSize: 14,
+                              fontSize: 13,
                               fontWeight: FontWeight.w500,
                             ),
                           ),
-                          const SizedBox(width: 10),
-                          Text(
-                            selectedOption?.label ?? '',
-                            style: TextStyle(
-                              color: sheetTheme.qualityValueColor,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          Icon(
-                            Icons.keyboard_arrow_down_rounded,
-                            color: sheetTheme.qualityIconColor,
-                            size: 20,
-                          ),
                         ],
+                      ],
+                    )
+                  else
+                    InkWell(
+                      onTap: _openQualitySheet,
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 6,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              payload.qualityLabel,
+                              style: TextStyle(
+                                color: sheetTheme.subtitleColor,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              selectedOption?.label ?? '',
+                              style: TextStyle(
+                                color: sheetTheme.qualityValueColor,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Icon(
+                              Icons.keyboard_arrow_down_rounded,
+                              color: sheetTheme.qualityIconColor,
+                              size: 20,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
                 ],
               ),
               const SizedBox(height: 16),
               if (!hasEpisodeEntries)
                 _DownloadSingleCard(
-                  payload: widget.payload,
+                  payload: payload,
                   onDownloadTap: _handleDownloadTap,
                 )
               else
@@ -274,9 +387,12 @@ class _TvSeasonDownloadSheetState extends State<TvSeasonDownloadSheet> {
                         setState(() => _selectedRangeIndex = index);
                       },
                       visibleEntries: visibleEntries,
-                      token: widget.payload.token,
-                      downloadLabel: widget.payload.downloadLabel,
-                      actionStates: widget.payload.episodeActionStates,
+                      token: payload.token,
+                      downloadLabel: payload.downloadLabel,
+                      downloadingLabel: payload.downloadingLabel,
+                      downloadedLabel: payload.downloadedLabel,
+                      pausedLabel: payload.pausedLabel,
+                      actionStates: _localActionStates,
                       onEpisodeDownloadTap: _handleEpisodeDownloadTap,
                     ),
                   ),
@@ -296,7 +412,7 @@ class _TvSeasonDownloadSheetState extends State<TvSeasonDownloadSheet> {
                     ),
                   ),
                   child: Text(
-                    widget.payload.openListLabel,
+                    payload.openListLabel,
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
@@ -341,7 +457,12 @@ class _DownloadSingleCard extends StatelessWidget {
     final colors = context.appColors;
     final sheetTheme = context.downloadSheetTheme;
     final actionState = payload.primaryActionState;
-    final actionLabel = actionState.label(downloadLabel: payload.downloadLabel);
+    final actionLabel = actionState.label(
+      downloadLabel: payload.downloadLabel,
+      downloadingLabel: payload.downloadingLabel,
+      downloadedLabel: payload.downloadedLabel,
+      pausedLabel: payload.pausedLabel,
+    );
     final actionColor = actionState.downloaded
         ? sheetTheme.mutedTextColor
         : actionState.downloading
@@ -432,6 +553,9 @@ class _DownloadEpisodeListSection extends StatelessWidget {
   final List<TvEpisodeCardData> visibleEntries;
   final String token;
   final String downloadLabel;
+  final String downloadingLabel;
+  final String downloadedLabel;
+  final String pausedLabel;
   final Map<String, DownloadActionState> actionStates;
   final ValueChanged<String> onEpisodeDownloadTap;
 
@@ -442,6 +566,9 @@ class _DownloadEpisodeListSection extends StatelessWidget {
     required this.visibleEntries,
     required this.token,
     required this.downloadLabel,
+    this.downloadingLabel = 'Downloading',
+    this.downloadedLabel = 'Downloaded',
+    this.pausedLabel = 'Paused',
     required this.actionStates,
     required this.onEpisodeDownloadTap,
   });
@@ -463,6 +590,9 @@ class _DownloadEpisodeListSection extends StatelessWidget {
             entry: visibleEntries[i],
             token: token,
             downloadLabel: downloadLabel,
+            downloadingLabel: downloadingLabel,
+            downloadedLabel: downloadedLabel,
+            pausedLabel: pausedLabel,
             actionState:
                 actionStates[visibleEntries[i].guid] ??
                 DownloadActionState.idle,
@@ -532,6 +662,9 @@ class _DownloadEpisodeRow extends StatelessWidget {
   final TvEpisodeCardData entry;
   final String token;
   final String downloadLabel;
+  final String downloadingLabel;
+  final String downloadedLabel;
+  final String pausedLabel;
   final DownloadActionState actionState;
   final VoidCallback onDownloadTap;
 
@@ -540,6 +673,9 @@ class _DownloadEpisodeRow extends StatelessWidget {
     required this.entry,
     required this.token,
     required this.downloadLabel,
+    this.downloadingLabel = 'Downloading',
+    this.downloadedLabel = 'Downloaded',
+    this.pausedLabel = 'Paused',
     required this.actionState,
     required this.onDownloadTap,
   });
@@ -551,7 +687,12 @@ class _DownloadEpisodeRow extends StatelessWidget {
     final resolutionLabel = entry.resolutions.isNotEmpty
         ? entry.resolutions.first
         : '';
-    final actionLabel = actionState.label(downloadLabel: downloadLabel);
+    final actionLabel = actionState.label(
+      downloadLabel: downloadLabel,
+      downloadingLabel: downloadingLabel,
+      downloadedLabel: downloadedLabel,
+      pausedLabel: pausedLabel,
+    );
     final actionColor = actionState.downloaded
         ? sheetTheme.mutedTextColor
         : actionState.downloading

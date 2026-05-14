@@ -285,9 +285,7 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
                   _selectedGroupIds.removeWhere(
                     (id) => !downloadedGroups.any((group) => group.id == id),
                   );
-                  final downloadingRecords = _service.recordsByStatus(
-                    DownloadTaskStatus.downloading,
-                  );
+                  final downloadingRecords = _service.activeRecords;
                   return PageView(
                     controller: _pageController,
                     onPageChanged: _handlePageChanged,
@@ -1379,6 +1377,8 @@ class _DownloadRecordRow extends StatelessWidget {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
     final isDownloading = record.status == DownloadTaskStatus.downloading;
+    final isPaused = record.status == DownloadTaskStatus.paused;
+    final isActive = isDownloading || isPaused;
     final taskProgress = DownloadTaskService.instance.downloadTaskProgressFor(
       record.id,
     );
@@ -1387,17 +1387,24 @@ class _DownloadRecordRow extends StatelessWidget {
         isDownloading &&
         record.downloadedBytes <= 0 &&
         taskProgress?.status == 0;
-    final leadingMeta = isTranscoding
-        ? l10n.downloadTranscodingPercent(transcodePercent)
+    final speedText = isPaused
+        ? l10n.downloadPaused
         : (isDownloading && downloadSpeedBytesPerSecond > 0
               ? _formatTransferRate(downloadSpeedBytesPerSecond)
-              : (isDownloading
-                    ? l10n.downloadCalculating
-                    : _formatBytes(record.totalBytes)));
+              : (isDownloading && !isTranscoding
+                    ? l10n.downloadWaitingNetwork
+                    : (isDownloading
+                          ? l10n.downloadCalculating
+                          : _formatBytes(record.totalBytes))));
+    final leadingMeta = isTranscoding
+        ? l10n.downloadTranscodingPercent(transcodePercent)
+        : (isActive ? speedText : _formatBytes(record.totalBytes));
     final trailingMeta = isTranscoding
         ? ''
-        : (isDownloading
-              ? _formatBytes(record.totalBytes)
+        : (isActive
+              ? (record.totalBytes > 0
+                    ? _formatBytes(record.totalBytes)
+                    : '')
               : (record.durationText.trim().isEmpty
                     ? record.resolution
                     : record.durationText));
@@ -1406,15 +1413,6 @@ class _DownloadRecordRow extends StatelessWidget {
         : (record.totalBytes > 0
               ? (record.downloadedBytes / record.totalBytes).clamp(0.0, 1.0)
               : null);
-    final progressPercent = progressValue == null
-        ? null
-        : (progressValue * 100).round().clamp(0, 100);
-    final progressLabel = progressPercent == null
-        ? l10n.downloadWaiting
-        : '$progressPercent%';
-    final progressAccent = isTranscoding
-        ? colors.warning
-        : colors.selectionStrong;
     final transferLabel = isTranscoding
         ? (record.totalBytes > 0
               ? _formatBytes(record.totalBytes)
@@ -1422,6 +1420,110 @@ class _DownloadRecordRow extends StatelessWidget {
         : (record.totalBytes > 0
               ? '${_formatBytes(record.downloadedBytes)} / ${_formatBytes(record.totalBytes)}'
               : _formatBytes(record.downloadedBytes));
+    final statusLabel = isPaused
+        ? l10n.downloadPaused
+        : (isTranscoding
+              ? l10n.downloadTranscoding
+              : l10n.downloadDownloading);
+    final statusColor = isPaused
+        ? colors.textMuted
+        : (isTranscoding ? colors.warning : colors.selectionStrong);
+    void handlePause() {
+      final provider = Provider.of<NasProvider>(context, listen: false);
+      debugPrint('[DL] UI handlePause id=${record.id}');
+      DownloadTaskService.instance.pauseDownload(provider, record.id);
+    }
+    void handleResume() {
+      final provider = Provider.of<NasProvider>(context, listen: false);
+      debugPrint('[DL] UI handleResume id=${record.id} status=${record.status.storageValue}');
+      DownloadTaskService.instance.resumeDownload(provider, record.id);
+    }
+    void handleDelete() {
+      showModalBottomSheet<bool>(
+        context: context,
+        backgroundColor: Colors.transparent,
+        builder: (sheetContext) {
+          final sheetColors = context.appColors;
+          return SafeArea(
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(22, 26, 22, 22),
+              decoration: BoxDecoration(
+                color: sheetColors.backgroundElevated,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(28),
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Text(
+                    l10n.downloadCancelTask,
+                    style: TextStyle(
+                      color: sheetColors.textPrimary,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    l10n.downloadCancelTaskContent,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: sheetColors.textSecondary,
+                      fontSize: 15,
+                      height: 1.45,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: FilledButton.tonal(
+                          onPressed: () =>
+                              Navigator.of(sheetContext).pop(false),
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size.fromHeight(56),
+                            backgroundColor: sheetColors.surfaceStrong,
+                            foregroundColor: sheetColors.textPrimary,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                          ),
+                          child: Text(l10n.commonCancel),
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: () =>
+                              Navigator.of(sheetContext).pop(true),
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size.fromHeight(56),
+                            backgroundColor: sheetColors.danger,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                          ),
+                          child: Text(l10n.commonConfirm),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ).then((confirmed) {
+        if (confirmed == true) {
+          DownloadTaskService.instance.clearActiveDownloadRecords(
+            recordIds: <String>[record.id],
+          );
+        }
+      });
+    }
     final child = AnimatedContainer(
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeOutCubic,
@@ -1451,8 +1553,8 @@ class _DownloadRecordRow extends StatelessWidget {
             onTap: onSelectToggle,
           ),
           SizedBox(
-            width: isDownloading ? 128 : 146,
-            height: isDownloading ? 72 : 82,
+            width: isActive ? 128 : 146,
+            height: isActive ? 72 : 82,
             child: _DownloadPosterImage(
               urls: record.posterUrls,
               token: token,
@@ -1477,31 +1579,75 @@ class _DownloadRecordRow extends StatelessWidget {
                       height: 1.35,
                     ),
                   ),
-                  if (isDownloading) ...<Widget>[
-                    const SizedBox(height: 12),
-                    _DownloadProgressPanel(
-                      statusLabel: isTranscoding
-                          ? l10n.downloadTranscoding
-                          : l10n.downloadDownloading,
-                      progressLabel: progressLabel,
-                      progressValue: progressValue,
-                      accentColor: progressAccent,
-                      leadingIcon: isTranscoding
-                          ? Icons.auto_awesome_rounded
-                          : Icons.speed_rounded,
-                      leadingLabel: isTranscoding
-                          ? l10n.downloadCurrentStage
-                          : l10n.downloadSpeed,
-                      leadingValue: isTranscoding
-                          ? l10n.downloadCloudTranscoding
-                          : leadingMeta,
-                      trailingIcon: isTranscoding
-                          ? Icons.movie_creation_outlined
-                          : Icons.folder_zip_outlined,
-                      trailingLabel: isTranscoding
-                          ? l10n.downloadEstimatedFile
-                          : l10n.downloadTransferredTotal,
-                      trailingValue: transferLabel,
+                  if (isActive) ...<Widget>[
+                    const SizedBox(height: 10),
+                    Row(
+                      children: <Widget>[
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: statusColor.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            statusLabel,
+                            style: TextStyle(
+                              color: statusColor,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const Spacer(),
+                        if (!editing) ...<Widget>[
+                          if (isDownloading && !isTranscoding)
+                            _CompactIconButton(
+                              icon: Icons.pause_rounded,
+                              tooltip: l10n.downloadPause,
+                              color: colors.textSecondary,
+                              onTap: handlePause,
+                            )
+                          else if (isPaused)
+                            _CompactIconButton(
+                              icon: Icons.play_arrow_rounded,
+                              tooltip: l10n.downloadResume,
+                              color: colors.selectionStrong,
+                              onTap: handleResume,
+                            ),
+                          const SizedBox(width: 4),
+                          _CompactIconButton(
+                            icon: Icons.delete_outline_rounded,
+                            tooltip: l10n.downloadCancelTask,
+                            color: colors.danger,
+                            onTap: handleDelete,
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    if (progressValue != null)
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(2),
+                        child: LinearProgressIndicator(
+                          value: progressValue,
+                          minHeight: 3,
+                          backgroundColor: colors.borderSubtle,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            isPaused ? colors.textMuted : colors.selectionStrong,
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 6),
+                    Text(
+                      transferLabel,
+                      style: TextStyle(
+                        color: colors.textSecondary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w400,
+                      ),
                     ),
                   ] else ...<Widget>[
                     const SizedBox(height: 12),
@@ -2210,6 +2356,35 @@ class _DownloadEmptyArtwork extends StatelessWidget {
         shape: BoxShape.circle,
       ),
       child: Icon(Icons.folder_open_rounded, size: 52, color: colors.textMuted),
+    );
+  }
+}
+
+class _CompactIconButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _CompactIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Icon(icon, size: 20, color: color),
+        ),
+      ),
     );
   }
 }
