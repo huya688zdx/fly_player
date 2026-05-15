@@ -18,17 +18,18 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
     _showSpeedDialOverlay();
   }
 
-  void _showSpeedDialOverlay() {
+  Future<void> _showSpeedDialOverlay() async {
     if (_playerUiLocked) return;
     if (_speedDialVisible || !mounted) return;
     _overlayState.cancelAutoHide();
     final restoreControls = _controlsVisible || _controlsAnimatingOut;
-    _updatePlayerState(() {
-      _speedDialVisible = true;
-    });
     if (restoreControls) {
       _hideControlsImmediately();
     }
+
+    _updatePlayerState(() {
+      _speedDialVisible = true;
+    });
   }
 
   void _hideSpeedDialOverlay({bool restoreAutoHide = true}) {
@@ -120,6 +121,7 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
       );
       return;
     }
+
     final result = await _showPlayerOptionSheet(
       title: AppLocalizations.of(context).playerQualitySheetTitle,
       sectionLabel: AppLocalizations.of(context).playerQualitySheetSection,

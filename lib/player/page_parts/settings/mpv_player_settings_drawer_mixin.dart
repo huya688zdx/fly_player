@@ -88,8 +88,9 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
     }
 
     if (!mounted) return;
+
     try {
-      _playbackSettingsDrawerVisible = true;
+      _updatePlayerState(() => _playbackSettingsDrawerVisible = true);
       unawaited(_syncDanmakuDynamicOcclusionConfig());
       unawaited(_warmupPlaybackSettingsDrawerState());
       await PlayerNestedSheet.show<void>(
@@ -271,7 +272,7 @@ extension _MpvPlayerSettingsDrawerMixin on _MpvPlayerPageState {
     } finally {
       if (mounted) {
         _activePlaybackSettingsDrawerController = null;
-        _playbackSettingsDrawerVisible = false;
+        _updatePlayerState(() => _playbackSettingsDrawerVisible = false);
         unawaited(_syncDanmakuDynamicOcclusionConfig());
         unawaited(_startOrUpdateSystemPlaybackSession(force: true));
         if (!restoreControls) {
