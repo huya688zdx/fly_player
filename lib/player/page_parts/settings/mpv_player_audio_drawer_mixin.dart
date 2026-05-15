@@ -27,6 +27,7 @@ extension _MpvPlayerAudioDrawerMixin on _MpvPlayerPageState {
     if (restoreControls) {
       _hideControlsImmediately();
     }
+
     try {
       if (mounted && !_audioDrawerVisible) {
         _audioDrawerVisible = true;

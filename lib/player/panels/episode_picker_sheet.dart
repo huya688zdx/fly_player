@@ -4,7 +4,6 @@ import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../l10n/generated/app_localizations.dart';
 import '../../models/tv_episode_browser_models.dart';
@@ -171,6 +170,11 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
   late EpisodePickerSeasonSheetData _seasonData;
   late List<TvEpisodeSeasonOptionData> _seasons;
 
+  // Cached computations to avoid allocations in every build.
+  List<List<EpisodePickerSheetItem>>? _cachedRanges;
+  Object? _cachedRangesKey;
+  List<TvEpisodeSeasonOptionData>? _cachedSeasonOptions;
+  Object? _cachedSeasonOptionsKey;
   @override
   void initState() {
     super.initState();
@@ -180,6 +184,8 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
     _seasonData = widget.initialSeasonData;
     _seasons = List<TvEpisodeSeasonOptionData>.from(widget.seasons);
     _rangeIndex = _preferredRangeIndex(_seasonData);
+    _cachedRanges = _computeRanges();
+    _cachedRangesKey = _rangeCacheKey;
     if (widget.warmupLoader != null) {
       _warmupLoading = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -327,7 +333,9 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
     return index ~/ widget.rangeSize;
   }
 
-  List<List<EpisodePickerSheetItem>> _ranges() {
+  Object get _rangeCacheKey => _seasonData.items;
+
+  List<List<EpisodePickerSheetItem>> _computeRanges() {
     if (_seasonData.items.isEmpty || widget.rangeSize <= 0) {
       return const <List<EpisodePickerSheetItem>>[];
     }
@@ -337,6 +345,15 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
       ranges.add(_seasonData.items.sublist(i, end));
     }
     return ranges;
+  }
+
+  List<List<EpisodePickerSheetItem>> _ranges() {
+    final key = _rangeCacheKey;
+    if (_cachedRanges == null || _cachedRangesKey != key) {
+      _cachedRanges = _computeRanges();
+      _cachedRangesKey = key;
+    }
+    return _cachedRanges!;
   }
 
   List<EpisodePickerSheetItem> _visibleItems() {
@@ -364,16 +381,24 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
         : '';
   }
 
+  Object get _seasonOptionsCacheKey =>
+      Object.hash(_seasons.length, _selectedSeasonGuid);
+
   List<TvEpisodeSeasonOptionData> _seasonOptions() {
-    return _seasons
-        .map(
-          (season) => TvEpisodeSeasonOptionData(
-            guid: season.guid,
-            label: season.label,
-            selected: season.guid == _selectedSeasonGuid,
-          ),
-        )
-        .toList(growable: false);
+    final key = _seasonOptionsCacheKey;
+    if (_cachedSeasonOptions == null || _cachedSeasonOptionsKey != key) {
+      _cachedSeasonOptions = _seasons
+          .map(
+            (season) => TvEpisodeSeasonOptionData(
+              guid: season.guid,
+              label: season.label,
+              selected: season.guid == _selectedSeasonGuid,
+            ),
+          )
+          .toList(growable: false);
+      _cachedSeasonOptionsKey = key;
+    }
+    return _cachedSeasonOptions!;
   }
 
   Future<void> _showSeasonMenu(BuildContext triggerContext) async {
@@ -529,7 +554,6 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
     final sheetHeight = isWide
         ? null
         : math.max(420.0, media.size.height * 0.72);
-    const borderRadius = BorderRadius.zero;
     final ranges = _ranges();
     final safeRangeIndex = ranges.isEmpty
         ? 0
@@ -537,6 +561,10 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
     final visibleItems = ranges.isEmpty
         ? const <EpisodePickerSheetItem>[]
         : ranges[safeRangeIndex];
+    final devicePixelRatio = MediaQuery.devicePixelRatioOf(context)
+        .clamp(1.0, 3.0)
+        .toDouble();
+
     final seriesTitle = widget.seriesTitle.trim();
     final currentSeasonLabel = _seasonData.seasonLabel.trim();
     final plainHeading = [
@@ -562,18 +590,12 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
             bottom: bottomInset,
             width: isWide ? width : null,
             height: sheetHeight,
-            child: ClipRRect(
-              borderRadius: borderRadius,
-              child: DecoratedBox(
+            child: DecoratedBox(
                 decoration: BoxDecoration(
-                  borderRadius: borderRadius,
                   color: Color.alphaBlend(
                     colors.surface.withValues(alpha: isWide ? 0.9 : 0.95),
                     colors.overlayScrim.withValues(alpha: isWide ? 0.24 : 0.36),
                   ),
-                  border: isWide
-                      ? Border.all(color: colors.borderSubtle)
-                      : null,
                 ),
                 child: GestureDetector(
                   behavior: HitTestBehavior.translucent,
@@ -687,38 +709,29 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
                                       final end =
                                           start + ranges[index].length - 1;
                                       final selected = index == safeRangeIndex;
-                                      return InkWell(
+                                      return GestureDetector(
                                         onTap: () => _setRangeIndex(index),
-                                        borderRadius: BorderRadius.circular(10),
-                                        child: AnimatedContainer(
-                                          duration:
-                                              AppTransitions.switchDuration,
-                                          curve: Curves.easeOutCubic,
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 14,
-                                            vertical: 8,
-                                          ),
+                                        child: DecoratedBox(
                                           decoration: BoxDecoration(
                                             color: selected
                                                 ? colors.selectionSoft
                                                 : colors.surfaceStrong,
-                                            borderRadius: BorderRadius.circular(
-                                              10,
-                                            ),
-                                            border: Border.all(
-                                              color: selected
-                                                  ? colors.selection
-                                                  : Colors.transparent,
-                                            ),
+                                            borderRadius: BorderRadius.circular(10),
                                           ),
-                                          child: Text(
-                                            '$start-$end',
-                                            style: TextStyle(
-                                              color: selected
-                                                  ? colors.selectionStrong
-                                                  : colors.textSecondary,
-                                              fontSize: 15,
-                                              fontWeight: FontWeight.w600,
+                                          child: Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 14,
+                                              vertical: 8,
+                                            ),
+                                            child: Text(
+                                              '$start-$end',
+                                              style: TextStyle(
+                                                color: selected
+                                                    ? colors.selectionStrong
+                                                    : colors.textSecondary,
+                                                fontSize: 15,
+                                                fontWeight: FontWeight.w600,
+                                              ),
                                             ),
                                           ),
                                         ),
@@ -764,6 +777,7 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
                                     items: visibleItems,
                                     baseUrl: widget.baseUrl,
                                     token: widget.token,
+                                    devicePixelRatio: devicePixelRatio,
                                     onTap: (itemId) =>
                                         AppSheetTransitions.close(
                                           context,
@@ -780,6 +794,7 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
                                     controller: _scrollController,
                                     itemKeys: _itemKeys,
                                     items: visibleItems,
+                                    devicePixelRatio: devicePixelRatio,
                                     onTap: (itemId) =>
                                         AppSheetTransitions.close(
                                           context,
@@ -796,7 +811,6 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
                   ),
                 ),
               ),
-            ),
           ),
         ],
       ),
@@ -1022,6 +1036,7 @@ class _EpisodeListView extends StatelessWidget {
   final List<EpisodePickerSheetItem> items;
   final String baseUrl;
   final String token;
+  final double devicePixelRatio;
   final ValueChanged<String> onTap;
 
   const _EpisodeListView({
@@ -1031,6 +1046,7 @@ class _EpisodeListView extends StatelessWidget {
     required this.items,
     required this.baseUrl,
     required this.token,
+    required this.devicePixelRatio,
     required this.onTap,
   });
 
@@ -1044,12 +1060,15 @@ class _EpisodeListView extends StatelessWidget {
       itemBuilder: (context, index) {
         final item = items[index];
         final itemKey = itemKeys.putIfAbsent(item.id, () => GlobalKey());
-        return _EpisodeListTile(
-          key: itemKey,
-          item: item,
-          baseUrl: baseUrl,
-          token: token,
-          onTap: () => onTap(item.id),
+        return RepaintBoundary(
+          child: _EpisodeListTile(
+            key: itemKey,
+            item: item,
+            baseUrl: baseUrl,
+            token: token,
+            devicePixelRatio: devicePixelRatio,
+            onTap: () => onTap(item.id),
+          ),
         );
       },
     );
@@ -1060,6 +1079,7 @@ class _EpisodeGridView extends StatelessWidget {
   final ScrollController controller;
   final Map<String, GlobalKey> itemKeys;
   final List<EpisodePickerSheetItem> items;
+  final double devicePixelRatio;
   final ValueChanged<String> onTap;
 
   const _EpisodeGridView({
@@ -1067,6 +1087,7 @@ class _EpisodeGridView extends StatelessWidget {
     required this.controller,
     required this.itemKeys,
     required this.items,
+    required this.devicePixelRatio,
     required this.onTap,
   });
 
@@ -1089,43 +1110,37 @@ class _EpisodeGridView extends StatelessWidget {
           itemBuilder: (context, index) {
             final item = items[index];
             final itemKey = itemKeys.putIfAbsent(item.id, () => GlobalKey());
-            return InkWell(
-              key: itemKey,
-              onTap: () => onTap(item.id),
-              borderRadius: BorderRadius.circular(12),
-              child: AnimatedContainer(
-                duration: AppTransitions.switchDuration,
-                curve: Curves.easeOutCubic,
-                decoration: BoxDecoration(
-                  color: colors.surface,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: item.selected
-                        ? colors.selection
-                        : colors.borderSubtle,
+            return RepaintBoundary(
+              child: GestureDetector(
+                key: itemKey,
+                onTap: () => onTap(item.id),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: item.selected ? colors.selectionSoft : colors.surface,
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                ),
-                child: Stack(
-                  children: [
-                    Center(
-                      child: Text(
-                        item.shortLabel,
-                        style: TextStyle(
-                          color: item.selected
-                              ? colors.selectionStrong
-                              : colors.textPrimary,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
+                  child: Stack(
+                    children: [
+                      Center(
+                        child: Text(
+                          item.shortLabel,
+                          style: TextStyle(
+                            color: item.selected
+                                ? colors.selectionStrong
+                                : colors.textPrimary,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
-                    ),
-                    if (item.completed)
-                      const Positioned(
-                        right: 0,
-                        bottom: 0,
-                        child: _EpisodeCompletedBadge(),
-                      ),
-                  ],
+                      if (item.completed)
+                        const Positioned(
+                          right: 0,
+                          bottom: 0,
+                          child: _EpisodeCompletedBadge(),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             );
@@ -1140,6 +1155,7 @@ class _EpisodeListTile extends StatelessWidget {
   final EpisodePickerSheetItem item;
   final String baseUrl;
   final String token;
+  final double devicePixelRatio;
   final VoidCallback onTap;
 
   const _EpisodeListTile({
@@ -1147,71 +1163,72 @@ class _EpisodeListTile extends StatelessWidget {
     required this.item,
     required this.baseUrl,
     required this.token,
+    required this.devicePixelRatio,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    return InkWell(
+    return GestureDetector(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.all(10),
+      child: DecoratedBox(
         decoration: BoxDecoration(
-          color: colors.surface,
+          color: item.selected ? colors.selectionSoft : colors.surface,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: item.selected ? colors.selection : colors.borderSubtle,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Row(
+              children: [
+                _EpisodePoster(
+                  baseUrl: baseUrl,
+                  token: token,
+                  posterPath: item.posterPath,
+                  showCurrentMarker: item.selected || item.isPlaying,
+                  devicePixelRatio: devicePixelRatio,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        item.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: colors.textPrimary,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        item.durationLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: colors.textSecondary, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  item.statusLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: item.statusColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-        child: Row(
-          children: [
-            _EpisodePoster(
-              baseUrl: baseUrl,
-              token: token,
-              posterPath: item.posterPath,
-              showCurrentMarker: item.selected || item.isPlaying,
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    item.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: colors.textPrimary,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    item.durationLabel,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: colors.textSecondary, fontSize: 13),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            Text(
-              item.statusLabel,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: item.statusColor,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -1221,12 +1238,14 @@ class _EpisodePoster extends StatelessWidget {
   final String token;
   final String posterPath;
   final bool showCurrentMarker;
+  final double devicePixelRatio;
 
   const _EpisodePoster({
     required this.baseUrl,
     required this.token,
     required this.posterPath,
     required this.showCurrentMarker,
+    required this.devicePixelRatio,
   });
 
   @override
@@ -1234,9 +1253,6 @@ class _EpisodePoster extends StatelessWidget {
     final colors = context.appColors;
     const posterWidth = 122.0;
     const posterHeight = 68.0;
-    final devicePixelRatio = MediaQuery.devicePixelRatioOf(
-      context,
-    ).clamp(1.0, 3.0).toDouble();
     final cacheWidth = (posterWidth * devicePixelRatio).round();
     final cacheHeight = (posterHeight * devicePixelRatio).round();
     return SizedBox(
@@ -1244,6 +1260,7 @@ class _EpisodePoster extends StatelessWidget {
       height: posterHeight,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(10),
+        clipBehavior: Clip.hardEdge,
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -1261,18 +1278,8 @@ class _EpisodePoster extends StatelessWidget {
               ),
             ),
             Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: <Color>[
-                      Colors.transparent,
-                      colors.overlayScrim.withValues(alpha: 0.10),
-                      colors.overlayScrim.withValues(alpha: 0.24),
-                    ],
-                  ),
-                ),
+              child: ColoredBox(
+                color: colors.overlayScrim.withValues(alpha: 0.12),
               ),
             ),
             if (showCurrentMarker)
@@ -1304,13 +1311,10 @@ class _EpisodeCompletedBadge extends StatelessWidget {
           bottomRight: Radius.circular(12),
         ),
       ),
-      child: Center(
-        child: SvgPicture.asset(
-          'assets/icons/episode_completed_badge.svg',
-          width: 7,
-          height: 7,
-          colorFilter: ColorFilter.mode(colors.textSecondary, BlendMode.srcIn),
-        ),
+      child: Icon(
+        Icons.check_rounded,
+        size: 8,
+        color: colors.textSecondary,
       ),
     );
   }
@@ -1327,6 +1331,20 @@ class _PosterNowPlayingIndicator extends StatefulWidget {
 class _PosterNowPlayingIndicatorState extends State<_PosterNowPlayingIndicator>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
+
+  static const double _badgeWidth = 34.0;
+  static const double _badgeHeight = 22.0;
+  static const double _barWidth = 2.8;
+  static const double _barSpacing = 1.8;
+  static const double _minBarHeight = _badgeHeight * 0.24;
+  static const double _maxBarHeight = _badgeHeight * 0.92;
+  static const List<double> _waveSeeds = <double>[
+    0.03, 0.41, 0.17, 0.76, 0.29, 0.63,
+  ];
+  static const List<double> _waveSpeed = <double>[
+    1.05, 0.82, 1.27, 0.91, 1.18, 0.74,
+  ];
+  static const int _barCount = 6;
 
   @override
   void initState() {
@@ -1346,76 +1364,115 @@ class _PosterNowPlayingIndicatorState extends State<_PosterNowPlayingIndicator>
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    const badgeWidth = 34.0;
-    const badgeHeight = 22.0;
-    const barWidth = 2.8;
-    const barSpacing = 1.8;
-    const minBarHeight = badgeHeight * 0.24;
-    const maxBarHeight = badgeHeight * 0.92;
-    const waveSeeds = <double>[0.03, 0.41, 0.17, 0.76, 0.29, 0.63];
-    const waveSpeed = <double>[1.05, 0.82, 1.27, 0.91, 1.18, 0.74];
+    // Pre-compute bar colors once per build (changes only on theme change).
+    final barColors = List<Color>.generate(_barCount, (i) {
+      return Color.lerp(
+        Colors.white,
+        colors.accent,
+        0.28 + (i / _barCount) * 0.32,
+      )!;
+    }, growable: false);
 
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, _) {
-        return SizedBox(
-          width: badgeWidth,
-          height: badgeHeight,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: List<Widget>.generate(waveSeeds.length, (index) {
-              final phase =
-                  (_controller.value * waveSpeed[index] + waveSeeds[index]) %
-                  1.0;
-              final secondaryPhase =
-                  (_controller.value * (waveSpeed[index] * 1.7) +
-                      waveSeeds[index] * 0.73) %
-                  1.0;
-              final primaryWave = 0.5 + 0.5 * math.sin(phase * math.pi * 2);
-              final secondaryWave =
-                  0.5 + 0.5 * math.cos(secondaryPhase * math.pi * 2);
-              final mixedWave = (primaryWave * 0.68) + (secondaryWave * 0.32);
-              final height = lerpDouble(
-                minBarHeight,
-                maxBarHeight,
-                Curves.easeInOut.transform(mixedWave.clamp(0.0, 1.0)),
-              )!;
-              final highlight = Color.lerp(
-                Colors.white,
-                colors.accent,
-                0.28 + (index / waveSeeds.length) * 0.32,
-              )!;
-              return Container(
-                width: barWidth,
-                height: height,
-                margin: const EdgeInsets.symmetric(
-                  horizontal: barSpacing * 0.5,
-                ),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(999),
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: <Color>[
-                      Colors.white.withValues(alpha: 0.98),
-                      highlight,
-                    ],
-                  ),
-                  boxShadow: <BoxShadow>[
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.18),
-                      blurRadius: 5,
-                      offset: const Offset(0, 1),
-                    ),
-                  ],
-                ),
-              );
-            }),
-          ),
-        );
-      },
+    return RepaintBoundary(
+      child: SizedBox(
+        width: _badgeWidth,
+        height: _badgeHeight,
+        child: AnimatedBuilder(
+          animation: _controller,
+          builder: (context, _) {
+            return CustomPaint(
+              painter: _WaveformBarPainter(
+                animationValue: _controller.value,
+                barColors: barColors,
+              ),
+              size: const Size(_badgeWidth, _badgeHeight),
+            );
+          },
+        ),
+      ),
     );
+  }
+}
+
+class _WaveformBarPainter extends CustomPainter {
+  final double animationValue;
+  final List<Color> barColors;
+
+  const _WaveformBarPainter({
+    required this.animationValue,
+    required this.barColors,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const totalBarsWidth = _PosterNowPlayingIndicatorState._barCount *
+            (_PosterNowPlayingIndicatorState._barWidth +
+                _PosterNowPlayingIndicatorState._barSpacing) -
+        _PosterNowPlayingIndicatorState._barSpacing;
+    final startX = (size.width - totalBarsWidth) / 2;
+
+    final paint = Paint();
+
+    for (int i = 0; i < _PosterNowPlayingIndicatorState._barCount; i++) {
+      final phase = (animationValue *
+              _PosterNowPlayingIndicatorState._waveSpeed[i] +
+          _PosterNowPlayingIndicatorState._waveSeeds[i]) %
+          1.0;
+      final secondaryPhase =
+          (animationValue *
+                  (_PosterNowPlayingIndicatorState._waveSpeed[i] * 1.7) +
+              _PosterNowPlayingIndicatorState._waveSeeds[i] * 0.73) %
+              1.0;
+      final primaryWave = 0.5 + 0.5 * math.sin(phase * math.pi * 2);
+      final secondaryWave =
+          0.5 + 0.5 * math.cos(secondaryPhase * math.pi * 2);
+      final mixedWave = (primaryWave * 0.68) + (secondaryWave * 0.32);
+      final barHeight = lerpDouble(
+        _PosterNowPlayingIndicatorState._minBarHeight,
+        _PosterNowPlayingIndicatorState._maxBarHeight,
+        Curves.easeInOut.transform(mixedWave.clamp(0.0, 1.0)),
+      )!;
+
+      final barX =
+          startX + i * (_PosterNowPlayingIndicatorState._barWidth + _PosterNowPlayingIndicatorState._barSpacing);
+      final barY = size.height - barHeight;
+      final barRect = RRect.fromLTRBR(
+        barX,
+        barY,
+        barX + _PosterNowPlayingIndicatorState._barWidth,
+        size.height,
+        const Radius.circular(999),
+      );
+
+      // Draw shadow
+      paint
+        ..color = Colors.black.withValues(alpha: 0.18)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
+      canvas.drawRRect(
+        barRect.shift(const Offset(0, 1)),
+        paint,
+      );
+
+      // Draw gradient bar
+      paint
+        ..maskFilter = null
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: <Color>[
+            Colors.white.withValues(alpha: 0.98),
+            barColors[i],
+          ],
+        ).createShader(Rect.fromLTWH(barX, barY,
+            _PosterNowPlayingIndicatorState._barWidth, barHeight));
+      canvas.drawRRect(barRect, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _WaveformBarPainter oldDelegate) {
+    return animationValue != oldDelegate.animationValue ||
+        barColors != oldDelegate.barColors;
   }
 }
 
@@ -1463,7 +1520,7 @@ class _EpisodePosterImageState extends State<_EpisodePosterImage> {
     final current = widget.urls[_index].trim();
     final localFile = _localImageFile(current);
     if (_isLocalImageCandidate(current)) {
-      if (localFile == null || !localFile.existsSync()) {
+      if (localFile == null) {
         return _advanceOrBrokenPlaceholder(colors);
       }
       return Image.file(

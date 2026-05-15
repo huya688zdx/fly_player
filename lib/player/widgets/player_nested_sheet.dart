@@ -262,9 +262,6 @@ class _PlayerNestedSheetHostState<T> extends State<_PlayerNestedSheetHost<T>> {
                     ),
                     colors.surface,
                   ),
-                  border: isLandscape
-                      ? Border.all(color: colors.borderSubtle)
-                      : null,
                 ),
                 child: ClipRect(
                   child: AnimatedSwitcher(

@@ -20,6 +20,7 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
       _hideControlsImmediately();
     }
     final shouldWarmupLocalTracks = _isLocalRuntimeTrackSource();
+
     try {
       if (mounted && !_subtitleDrawerVisible) {
         _subtitleDrawerVisible = true;

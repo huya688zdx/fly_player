@@ -1,9 +1,14 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'app_motion.dart';
 
 class AppSheetTransitions {
   const AppSheetTransitions._();
+
+  static final ValueNotifier<int> _activeSheetCount = ValueNotifier<int>(0);
+
+  static ValueListenable<int> get activeSheetCount => _activeSheetCount;
 
   static Future<T?> showAdaptiveSheet<T>(
     BuildContext context, {
@@ -17,6 +22,15 @@ class AppSheetTransitions {
     final effectiveBarrierLabel = barrierLabel.trim().isNotEmpty
         ? barrierLabel
         : MaterialLocalizations.of(context).modalBarrierDismissLabel;
+    _activeSheetCount.value = _activeSheetCount.value + 1;
+    var released = false;
+    void releaseSheetSlot() {
+      if (released) return;
+      released = true;
+      final next = _activeSheetCount.value - 1;
+      _activeSheetCount.value = next < 0 ? 0 : next;
+    }
+
     return showGeneralDialog<T>(
       context: context,
       useRootNavigator: useRootNavigator,
@@ -41,6 +55,7 @@ class AppSheetTransitions {
       },
     ).whenComplete(() {
       closed = true;
+      releaseSheetSlot();
     });
   }
 
