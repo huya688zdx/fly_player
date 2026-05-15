@@ -298,11 +298,12 @@ extension _MpvPlayerEpisodeMixin on _MpvPlayerPageState {
     final provider = context.read<NasProvider>();
     final playbackState = _episodePickerPlaybackState();
     final initialSeasonData = _episodePickerInitialSeasonData(playbackState);
+
     final shouldWarmup = _shouldWarmupEpisodePickerSheet(
       initialSeasonData.seasonGuid,
     );
     try {
-      _episodeSheetVisible = true;
+      _updatePlayerState(() => _episodeSheetVisible = true);
       unawaited(_syncDanmakuDynamicOcclusionConfig());
       final result = await EpisodePickerSheet.show(
         context,
@@ -339,7 +340,7 @@ extension _MpvPlayerEpisodeMixin on _MpvPlayerPageState {
       await _switchToEpisode(selected);
     } finally {
       if (mounted && _episodeSheetVisible) {
-        _episodeSheetVisible = false;
+        _updatePlayerState(() => _episodeSheetVisible = false);
         unawaited(_syncDanmakuDynamicOcclusionConfig());
         unawaited(_startOrUpdateSystemPlaybackSession(force: true));
       }

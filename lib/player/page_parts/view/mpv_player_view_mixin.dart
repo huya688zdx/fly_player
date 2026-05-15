@@ -213,6 +213,7 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
         _controller.value,
         _controller.danmakuOcclusionState,
         _gestureController.speedBoostListenable,
+        AppSheetTransitions.activeSheetCount,
       ]),
       builder: (context, _) {
         final value = _controller.value.value;
@@ -221,10 +222,13 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
             duration > Duration.zero && value.position > duration
             ? duration
             : value.position;
+        final sheetActive = AppSheetTransitions.activeSheetCount.value > 0;
         return DanmakuOverlay(
           controller: _danmakuController,
           position: rawPlaybackPosition,
-          paused: value.playbackPhase != MpvPlaybackPhase.playing,
+          paused:
+              sheetActive ||
+              value.playbackPhase != MpvPlaybackPhase.playing,
           playbackSpeedFactor: _speedBoostActive ? 2.0 : 1.0,
           occlusionState: _controller.danmakuOcclusionState.value,
         );
