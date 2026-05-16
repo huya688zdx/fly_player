@@ -614,6 +614,7 @@ class AppThemeProvider extends ChangeNotifier {
     String pageKey, {
     bool broadcastToMain = true,
     bool restoreFallbackOnMain = true,
+    Duration? localNotifyDelayAfterBroadcast,
   }) async {
     final normalizedPageKey = pageKey.trim();
     if (normalizedPageKey.isEmpty) {
@@ -625,6 +626,7 @@ class AppThemeProvider extends ChangeNotifier {
       broadcastToMain: broadcastToMain,
       allowTopDeferral: true,
       restoreFallbackOnMain: restoreFallbackOnMain,
+      localNotifyDelayAfterBroadcast: localNotifyDelayAfterBroadcast,
     );
   }
 
@@ -633,12 +635,13 @@ class AppThemeProvider extends ChangeNotifier {
     required bool broadcastToMain,
     required bool allowTopDeferral,
     bool restoreFallbackOnMain = true,
+    Duration? localNotifyDelayAfterBroadcast,
   }) async {
     final normalizedPageKey = pageKey.trim();
     if (normalizedPageKey.isEmpty) {
       return;
     }
-    _runtimeThemeApplyToken++;
+    final applyToken = ++_runtimeThemeApplyToken;
     if (kDebugMode) {
       debugPrint(
         '[THEME][RUNTIME] clear page=$normalizedPageKey broadcast=$broadcastToMain session=$_runtimeSessionId',
@@ -667,17 +670,25 @@ class AppThemeProvider extends ChangeNotifier {
     if (!removedFromOrder && removedSeed == null) return;
     _syncRuntimeThemeFromCache();
     final visualChanged = previousVisualSignature != _effectiveThemeSignature();
+    final willRestoreFallback =
+        broadcastToMain &&
+        removedWasTop &&
+        _runtimeDynamicThemeSeed != null &&
+        restoreFallbackOnMain;
+    final shouldDeferLocalNotify =
+        visualChanged &&
+        willRestoreFallback &&
+        localNotifyDelayAfterBroadcast != null &&
+        localNotifyDelayAfterBroadcast > Duration.zero;
     if (!visualChanged && !broadcastToMain) {
       return;
     }
-    if (visualChanged) {
+    if (visualChanged && !shouldDeferLocalNotify) {
       _isReady = true;
       _publishRuntimeDynamicThemeToScope();
     }
     if (broadcastToMain) {
-      if (removedWasTop &&
-          _runtimeDynamicThemeSeed != null &&
-          restoreFallbackOnMain) {
+      if (willRestoreFallback) {
         final fallbackPageKey = _runtimeDynamicThemePage;
         final fallbackSeed = _runtimeDynamicThemeSeed!;
         if (kDebugMode) {
@@ -705,6 +716,18 @@ class AppThemeProvider extends ChangeNotifier {
         _scheduleRuntimeMainClear(normalizedPageKey);
       }
     }
+    if (!shouldDeferLocalNotify || _disposed) {
+      return;
+    }
+    if (applyToken != _runtimeThemeApplyToken) {
+      return;
+    }
+    await Future<void>.delayed(localNotifyDelayAfterBroadcast);
+    if (_disposed || applyToken != _runtimeThemeApplyToken) {
+      return;
+    }
+    _isReady = true;
+    _publishRuntimeDynamicThemeToScope();
   }
 
   void _scheduleRuntimeTopRemoval(String pageKey) {

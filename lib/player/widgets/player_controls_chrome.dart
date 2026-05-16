@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -490,13 +491,13 @@ class PlayerControlsBottomPanel extends StatelessWidget {
   final bool showStatusCard;
   final double timeFontSize;
   final Duration duration;
-  final Duration clampedPosition;
-  final Duration bufferedPosition;
+  final ValueListenable<MpvPlayerValue> playerValueListenable;
+  final Duration Function(MpvPlayerValue value) computeClampedPosition;
+  final Duration Function(MpvPlayerValue value) computeBufferedPosition;
   final List<MpvChapterItem> visibleChapters;
   final int activeChapterIndex;
   final List<PlayerProgressChapterMarker> extraProgressMarkers;
   final PlayerProgressRangeHighlight? progressHighlight;
-  final MpvPlayerValue value;
   final Widget? statusCard;
   final PlayerResumePromptData? resumePrompt;
   final PlayerAutoPlayPromptData? autoPlayPrompt;
@@ -519,13 +520,13 @@ class PlayerControlsBottomPanel extends StatelessWidget {
     required this.showStatusCard,
     required this.timeFontSize,
     required this.duration,
-    required this.clampedPosition,
-    required this.bufferedPosition,
+    required this.playerValueListenable,
+    required this.computeClampedPosition,
+    required this.computeBufferedPosition,
     required this.visibleChapters,
     required this.activeChapterIndex,
     this.extraProgressMarkers = const <PlayerProgressChapterMarker>[],
     this.progressHighlight,
-    required this.value,
     required this.statusCard,
     this.resumePrompt,
     this.autoPlayPrompt,
@@ -544,8 +545,6 @@ class PlayerControlsBottomPanel extends StatelessWidget {
     if (!panelVisible) {
       return const SizedBox.shrink();
     }
-    final timeLabel =
-        '${formatDuration(clampedPosition)}/${formatDuration(duration)}';
     final referenceTimeLabel =
         '${formatDuration(duration)}/${formatDuration(duration)}';
     final markerData = duration.inMilliseconds <= 0
@@ -628,9 +627,11 @@ class PlayerControlsBottomPanel extends StatelessWidget {
                           ),
                         ),
                       ),
-                      Text(
-                        timeLabel,
-                        textAlign: TextAlign.center,
+                      _PlayerControlsTimeLabel(
+                        listenable: playerValueListenable,
+                        duration: duration,
+                        computeClampedPosition: computeClampedPosition,
+                        formatDuration: formatDuration,
                         style: timeLabelStyle,
                       ),
                     ],
@@ -645,26 +646,18 @@ class PlayerControlsBottomPanel extends StatelessWidget {
               Expanded(
                 child: SizedBox(
                   height: compactUi ? 34 : 36,
-                  child: PlayerTimelineBar(
-                    value: duration.inMilliseconds > 0
-                        ? clampedPosition.inMilliseconds
-                                  .clamp(0, duration.inMilliseconds)
-                                  .toDouble() /
-                              duration.inMilliseconds
-                        : 0,
-                    bufferedValue: duration.inMilliseconds > 0
-                        ? bufferedPosition.inMilliseconds
-                                  .clamp(0, duration.inMilliseconds)
-                                  .toDouble() /
-                              duration.inMilliseconds
-                        : 0,
+                  child: _PlayerControlsTimelineBar(
+                    listenable: playerValueListenable,
+                    duration: duration,
+                    computeClampedPosition: computeClampedPosition,
+                    computeBufferedPosition: computeBufferedPosition,
                     chapterMarkers: timelineMarkers,
                     progressHighlight: progressHighlight,
-                    onInteractionStart: onTimelineInteractionStart,
-                    onInteractionEnd: onTimelineInteractionEnd,
                     onChangeStart: onTimelineChangeStart,
                     onChanged: onTimelineChanged,
                     onChangeEnd: onTimelineChangeEnd,
+                    onInteractionStart: onTimelineInteractionStart,
+                    onInteractionEnd: onTimelineInteractionEnd,
                   ),
                 ),
               ),
@@ -701,6 +694,102 @@ class PlayerControlsBottomPanel extends StatelessWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+/// Position-driven leaf that subscribes to [MpvPlayerValue] and rebuilds the
+/// current-time text whenever the clamped position would render differently.
+class _PlayerControlsTimeLabel extends StatelessWidget {
+  final ValueListenable<MpvPlayerValue> listenable;
+  final Duration duration;
+  final Duration Function(MpvPlayerValue value) computeClampedPosition;
+  final String Function(Duration value) formatDuration;
+  final TextStyle style;
+
+  const _PlayerControlsTimeLabel({
+    required this.listenable,
+    required this.duration,
+    required this.computeClampedPosition,
+    required this.formatDuration,
+    required this.style,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final durationLabel = formatDuration(duration);
+    return ValueListenableBuilder<MpvPlayerValue>(
+      valueListenable: listenable,
+      builder: (context, value, _) {
+        final clampedPosition = computeClampedPosition(value);
+        return Text(
+          '${formatDuration(clampedPosition)}/$durationLabel',
+          textAlign: TextAlign.center,
+          style: style,
+        );
+      },
+    );
+  }
+}
+
+/// Position-driven leaf that subscribes to [MpvPlayerValue] and rebuilds only
+/// the slider thumb / buffered fill, keeping the surrounding chrome static.
+class _PlayerControlsTimelineBar extends StatelessWidget {
+  final ValueListenable<MpvPlayerValue> listenable;
+  final Duration duration;
+  final Duration Function(MpvPlayerValue value) computeClampedPosition;
+  final Duration Function(MpvPlayerValue value) computeBufferedPosition;
+  final List<PlayerProgressChapterMarker> chapterMarkers;
+  final PlayerProgressRangeHighlight? progressHighlight;
+  final ValueChanged<double>? onChangeStart;
+  final ValueChanged<double>? onChanged;
+  final ValueChanged<double>? onChangeEnd;
+  final VoidCallback? onInteractionStart;
+  final VoidCallback? onInteractionEnd;
+
+  const _PlayerControlsTimelineBar({
+    required this.listenable,
+    required this.duration,
+    required this.computeClampedPosition,
+    required this.computeBufferedPosition,
+    required this.chapterMarkers,
+    required this.progressHighlight,
+    required this.onChangeStart,
+    required this.onChanged,
+    required this.onChangeEnd,
+    required this.onInteractionStart,
+    required this.onInteractionEnd,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<MpvPlayerValue>(
+      valueListenable: listenable,
+      builder: (context, value, _) {
+        final clampedPosition = computeClampedPosition(value);
+        final bufferedPosition = computeBufferedPosition(value);
+        return PlayerTimelineBar(
+          value: duration.inMilliseconds > 0
+              ? clampedPosition.inMilliseconds
+                        .clamp(0, duration.inMilliseconds)
+                        .toDouble() /
+                    duration.inMilliseconds
+              : 0,
+          bufferedValue: duration.inMilliseconds > 0
+              ? bufferedPosition.inMilliseconds
+                        .clamp(0, duration.inMilliseconds)
+                        .toDouble() /
+                    duration.inMilliseconds
+              : 0,
+          chapterMarkers: chapterMarkers,
+          progressHighlight: progressHighlight,
+          onInteractionStart: onInteractionStart,
+          onInteractionEnd: onInteractionEnd,
+          onChangeStart: onChangeStart,
+          onChanged: onChanged,
+          onChangeEnd: onChangeEnd,
+        );
+      },
     );
   }
 }

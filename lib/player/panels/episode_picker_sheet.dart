@@ -159,7 +159,7 @@ class _EpisodePickerDialog extends StatefulWidget {
 class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
   late final ScrollController _scrollController;
   late TvEpisodePickerMode _mode;
-  final Map<String, GlobalKey> _itemKeys = <String, GlobalKey>{};
+  GlobalKey _scrollTargetItemKey = GlobalKey();
 
   bool _modeUpdating = false;
   bool _seasonLoading = false;
@@ -237,7 +237,7 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
     try {
       final data = await loader();
       if (!mounted) return;
-      _itemKeys.clear();
+      _scrollTargetItemKey = GlobalKey();
       setState(() {
         _seasons = data.seasons;
         if (_selectedSeasonGuid == widget.initialSeasonGuid) {
@@ -271,7 +271,7 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
           _selectedSeasonGuid != seasonGuid) {
         return;
       }
-      _itemKeys.clear();
+      _scrollTargetItemKey = GlobalKey();
       setState(() {
         _seasonData = data;
         _rangeIndex = _preferredRangeIndex(data);
@@ -312,7 +312,7 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
       _scrollController.jumpTo(0);
       return;
     }
-    final targetContext = _itemKeys[targetId]?.currentContext;
+    final targetContext = _scrollTargetItemKey.currentContext;
     if (targetContext == null) {
       _scrollController.jumpTo(0);
       return;
@@ -773,7 +773,8 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
                                       'list-$safeRangeIndex-${visibleItems.length}-$_selectedSeasonGuid',
                                     ),
                                     controller: _scrollController,
-                                    itemKeys: _itemKeys,
+                                    scrollTargetId: _preferredItemId(),
+                                    scrollTargetKey: _scrollTargetItemKey,
                                     items: visibleItems,
                                     baseUrl: widget.baseUrl,
                                     token: widget.token,
@@ -792,7 +793,8 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
                                       'grid-$safeRangeIndex-${visibleItems.length}-$_selectedSeasonGuid',
                                     ),
                                     controller: _scrollController,
-                                    itemKeys: _itemKeys,
+                                    scrollTargetId: _preferredItemId(),
+                                    scrollTargetKey: _scrollTargetItemKey,
                                     items: visibleItems,
                                     devicePixelRatio: devicePixelRatio,
                                     onTap: (itemId) =>
@@ -1030,9 +1032,12 @@ class _SeasonMenuItem extends StatelessWidget {
   }
 }
 
+const double _episodeListItemExtent = 100.0;
+
 class _EpisodeListView extends StatelessWidget {
   final ScrollController controller;
-  final Map<String, GlobalKey> itemKeys;
+  final String scrollTargetId;
+  final GlobalKey scrollTargetKey;
   final List<EpisodePickerSheetItem> items;
   final String baseUrl;
   final String token;
@@ -1042,7 +1047,8 @@ class _EpisodeListView extends StatelessWidget {
   const _EpisodeListView({
     super.key,
     required this.controller,
-    required this.itemKeys,
+    required this.scrollTargetId,
+    required this.scrollTargetKey,
     required this.items,
     required this.baseUrl,
     required this.token,
@@ -1052,22 +1058,29 @@ class _EpisodeListView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView.separated(
+    return ListView.builder(
       controller: controller,
       padding: EdgeInsets.zero,
       itemCount: items.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      itemExtent: _episodeListItemExtent,
+      addAutomaticKeepAlives: false,
+      addRepaintBoundaries: false,
       itemBuilder: (context, index) {
         final item = items[index];
-        final itemKey = itemKeys.putIfAbsent(item.id, () => GlobalKey());
+        final Key tileKey = item.id == scrollTargetId
+            ? scrollTargetKey
+            : ValueKey<String>(item.id);
         return RepaintBoundary(
-          child: _EpisodeListTile(
-            key: itemKey,
-            item: item,
-            baseUrl: baseUrl,
-            token: token,
-            devicePixelRatio: devicePixelRatio,
-            onTap: () => onTap(item.id),
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _EpisodeListTile(
+              key: tileKey,
+              item: item,
+              baseUrl: baseUrl,
+              token: token,
+              devicePixelRatio: devicePixelRatio,
+              onTap: () => onTap(item.id),
+            ),
           ),
         );
       },
@@ -1077,7 +1090,8 @@ class _EpisodeListView extends StatelessWidget {
 
 class _EpisodeGridView extends StatelessWidget {
   final ScrollController controller;
-  final Map<String, GlobalKey> itemKeys;
+  final String scrollTargetId;
+  final GlobalKey scrollTargetKey;
   final List<EpisodePickerSheetItem> items;
   final double devicePixelRatio;
   final ValueChanged<String> onTap;
@@ -1085,7 +1099,8 @@ class _EpisodeGridView extends StatelessWidget {
   const _EpisodeGridView({
     super.key,
     required this.controller,
-    required this.itemKeys,
+    required this.scrollTargetId,
+    required this.scrollTargetKey,
     required this.items,
     required this.devicePixelRatio,
     required this.onTap,
@@ -1101,6 +1116,8 @@ class _EpisodeGridView extends StatelessWidget {
           controller: controller,
           itemCount: items.length,
           padding: EdgeInsets.zero,
+          addAutomaticKeepAlives: false,
+          addRepaintBoundaries: false,
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: crossAxisCount,
             mainAxisSpacing: 10,
@@ -1109,10 +1126,12 @@ class _EpisodeGridView extends StatelessWidget {
           ),
           itemBuilder: (context, index) {
             final item = items[index];
-            final itemKey = itemKeys.putIfAbsent(item.id, () => GlobalKey());
+            final Key tileKey = item.id == scrollTargetId
+                ? scrollTargetKey
+                : ValueKey<String>(item.id);
             return RepaintBoundary(
               child: GestureDetector(
-                key: itemKey,
+                key: tileKey,
                 onTap: () => onTap(item.id),
                 child: DecoratedBox(
                   decoration: BoxDecoration(
@@ -1495,13 +1514,71 @@ class _EpisodePosterImage extends StatefulWidget {
 
 class _EpisodePosterImageState extends State<_EpisodePosterImage> {
   int _index = 0;
+  bool _advancing = false;
+  bool? _localFileExists;
+  String? _localCheckPath;
+  int _localCheckGeneration = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _maybeStartLocalExistsCheck();
+  }
 
   @override
   void didUpdateWidget(covariant _EpisodePosterImage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.urls != widget.urls || oldWidget.token != widget.token) {
       _index = 0;
+      _advancing = false;
     }
+    _maybeStartLocalExistsCheck();
+  }
+
+  void _maybeStartLocalExistsCheck() {
+    if (widget.urls.isEmpty || _index >= widget.urls.length) {
+      _invalidateLocalCheck();
+      return;
+    }
+    final current = widget.urls[_index].trim();
+    if (!_isLocalImageCandidate(current)) {
+      _invalidateLocalCheck();
+      return;
+    }
+    final localFile = _localImageFile(current);
+    if (localFile == null) {
+      _invalidateLocalCheck();
+      _localFileExists = false;
+      _localCheckPath = current;
+      return;
+    }
+    if (_localCheckPath == current && _localFileExists != null) {
+      return;
+    }
+    _localCheckPath = current;
+    _localFileExists = null;
+    final generation = ++_localCheckGeneration;
+    localFile.exists().then((exists) {
+      if (!mounted) return;
+      if (generation != _localCheckGeneration) return;
+      if (_localCheckPath != current) return;
+      setState(() {
+        _localFileExists = exists;
+      });
+    }).catchError((_) {
+      if (!mounted) return;
+      if (generation != _localCheckGeneration) return;
+      if (_localCheckPath != current) return;
+      setState(() {
+        _localFileExists = false;
+      });
+    });
+  }
+
+  void _invalidateLocalCheck() {
+    _localCheckGeneration++;
+    _localCheckPath = null;
+    _localFileExists = null;
   }
 
   @override
@@ -1521,6 +1598,12 @@ class _EpisodePosterImageState extends State<_EpisodePosterImage> {
     final localFile = _localImageFile(current);
     if (_isLocalImageCandidate(current)) {
       if (localFile == null) {
+        return _advanceOrBrokenPlaceholder(colors);
+      }
+      if (_localCheckPath != current || _localFileExists == null) {
+        return const SizedBox.expand();
+      }
+      if (_localFileExists == false) {
         return _advanceOrBrokenPlaceholder(colors);
       }
       return Image.file(
@@ -1562,16 +1645,7 @@ class _EpisodePosterImageState extends State<_EpisodePosterImage> {
       frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
         final loaded = wasSynchronouslyLoaded || frame != null;
         if (loaded) return child;
-        return Center(
-          child: SizedBox(
-            width: 18,
-            height: 18,
-            child: CircularProgressIndicator(
-              strokeWidth: 1.8,
-              color: colors.accent,
-            ),
-          ),
-        );
+        return ColoredBox(color: colors.surfaceStrong);
       },
       errorBuilder: (_, __, ___) {
         return _advanceOrBrokenPlaceholder(colors);
@@ -1601,11 +1675,15 @@ class _EpisodePosterImageState extends State<_EpisodePosterImage> {
 
   Widget _advanceOrBrokenPlaceholder(AppThemeColors colors) {
     if (_index + 1 < widget.urls.length) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
+      if (!_advancing) {
+        _advancing = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _advancing = false;
+          _maybeStartLocalExistsCheck();
           setState(() => _index += 1);
-        }
-      });
+        });
+      }
       return const SizedBox.expand();
     }
     return Center(

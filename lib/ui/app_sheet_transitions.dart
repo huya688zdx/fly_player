@@ -117,23 +117,7 @@ class AppSheetTransitions {
     Animation<double> animation,
     Widget child,
   ) {
-    final media = MediaQuery.of(context);
-    final isLandscape = media.size.width > media.size.height;
-    final curved = CurvedAnimation(
-      parent: animation,
-      curve: AppMotion.sheetEnterCurve,
-      reverseCurve: AppMotion.sheetExitCurve,
-    );
-    final begin = isLandscape
-        ? AppMotion.sheetLandscapeOffset
-        : AppMotion.sheetPortraitOffset;
-    return FadeTransition(
-      opacity: curved,
-      child: SlideTransition(
-        position: Tween<Offset>(begin: begin, end: Offset.zero).animate(curved),
-        child: child,
-      ),
-    );
+    return _AdaptiveSheetTransition(animation: animation, child: child);
   }
 
   static Widget buildDirectionalSheetTransition({
@@ -142,24 +126,180 @@ class AppSheetTransitions {
     required bool isCurrent,
     required bool isForward,
   }) {
-    if (!isCurrent) {
-      return FadeTransition(opacity: ReverseAnimation(animation), child: child);
-    }
+    return _DirectionalSheetTransition(
+      animation: animation,
+      isCurrent: isCurrent,
+      isForward: isForward,
+      child: child,
+    );
+  }
+}
 
-    final curved = CurvedAnimation(
-      parent: animation,
+class _AdaptiveSheetTransition extends StatefulWidget {
+  final Animation<double> animation;
+  final Widget child;
+
+  const _AdaptiveSheetTransition({
+    required this.animation,
+    required this.child,
+  });
+
+  @override
+  State<_AdaptiveSheetTransition> createState() =>
+      _AdaptiveSheetTransitionState();
+}
+
+class _AdaptiveSheetTransitionState extends State<_AdaptiveSheetTransition> {
+  late CurvedAnimation _curved;
+  late Animation<Offset> _offset;
+  bool _isLandscape = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _curved = CurvedAnimation(
+      parent: widget.animation,
       curve: AppMotion.sheetEnterCurve,
       reverseCurve: AppMotion.sheetExitCurve,
     );
-    final begin = isForward
+    _offset = _buildOffsetTween(_isLandscape).animate(_curved);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final media = MediaQuery.of(context);
+    final isLandscape = media.size.width > media.size.height;
+    if (isLandscape != _isLandscape) {
+      _isLandscape = isLandscape;
+      _offset = _buildOffsetTween(_isLandscape).animate(_curved);
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _AdaptiveSheetTransition oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.animation != widget.animation) {
+      _curved.dispose();
+      _curved = CurvedAnimation(
+        parent: widget.animation,
+        curve: AppMotion.sheetEnterCurve,
+        reverseCurve: AppMotion.sheetExitCurve,
+      );
+      _offset = _buildOffsetTween(_isLandscape).animate(_curved);
+    }
+  }
+
+  Tween<Offset> _buildOffsetTween(bool isLandscape) {
+    final begin = isLandscape
+        ? AppMotion.sheetLandscapeOffset
+        : AppMotion.sheetPortraitOffset;
+    return Tween<Offset>(begin: begin, end: Offset.zero);
+  }
+
+  @override
+  void dispose() {
+    _curved.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _curved,
+      child: SlideTransition(position: _offset, child: widget.child),
+    );
+  }
+}
+
+class _DirectionalSheetTransition extends StatefulWidget {
+  final Animation<double> animation;
+  final bool isCurrent;
+  final bool isForward;
+  final Widget child;
+
+  const _DirectionalSheetTransition({
+    required this.animation,
+    required this.isCurrent,
+    required this.isForward,
+    required this.child,
+  });
+
+  @override
+  State<_DirectionalSheetTransition> createState() =>
+      _DirectionalSheetTransitionState();
+}
+
+class _DirectionalSheetTransitionState
+    extends State<_DirectionalSheetTransition> {
+  CurvedAnimation? _curved;
+  Animation<Offset>? _offset;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.isCurrent) {
+      _buildAnimations();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _DirectionalSheetTransition oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final animationChanged = oldWidget.animation != widget.animation;
+    final directionChanged = oldWidget.isForward != widget.isForward;
+    final currentChanged = oldWidget.isCurrent != widget.isCurrent;
+
+    if (!widget.isCurrent) {
+      if (_curved != null) {
+        _curved!.dispose();
+        _curved = null;
+        _offset = null;
+      }
+      return;
+    }
+
+    if (_curved == null || animationChanged) {
+      _curved?.dispose();
+      _buildAnimations();
+    } else if (directionChanged || currentChanged) {
+      _offset = _buildOffsetTween().animate(_curved!);
+    }
+  }
+
+  void _buildAnimations() {
+    _curved = CurvedAnimation(
+      parent: widget.animation,
+      curve: AppMotion.sheetEnterCurve,
+      reverseCurve: AppMotion.sheetExitCurve,
+    );
+    _offset = _buildOffsetTween().animate(_curved!);
+  }
+
+  Tween<Offset> _buildOffsetTween() {
+    final begin = widget.isForward
         ? AppMotion.sheetForwardOffset
         : AppMotion.sheetBackwardOffset;
+    return Tween<Offset>(begin: begin, end: Offset.zero);
+  }
+
+  @override
+  void dispose() {
+    _curved?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.isCurrent) {
+      return FadeTransition(
+        opacity: ReverseAnimation(widget.animation),
+        child: widget.child,
+      );
+    }
     return FadeTransition(
-      opacity: curved,
-      child: SlideTransition(
-        position: Tween<Offset>(begin: begin, end: Offset.zero).animate(curved),
-        child: child,
-      ),
+      opacity: _curved!,
+      child: SlideTransition(position: _offset!, child: widget.child),
     );
   }
 }

@@ -304,22 +304,10 @@ class _PlayerNestedSheetHostState<T> extends State<_PlayerNestedSheetHost<T>> {
     required bool isCurrent,
     required bool isForward,
   }) {
-    final curved = CurvedAnimation(
-      parent: animation,
-      curve: AppMotion.sheetEnterCurve,
-      reverseCurve: AppMotion.sheetExitCurve,
-    );
-    final begin = isForward
-        ? AppMotion.sheetForwardOffset
-        : AppMotion.sheetBackwardOffset;
-    final end = isForward
-        ? const Offset(-0.04, 0)
-        : const Offset(0.04, 0);
-    return SlideTransition(
-      position: Tween<Offset>(
-        begin: isCurrent ? begin : Offset.zero,
-        end: isCurrent ? Offset.zero : end,
-      ).animate(curved),
+    return _NestedPageTransition(
+      animation: animation,
+      isCurrent: isCurrent,
+      isForward: isForward,
       child: child,
     );
   }
@@ -339,5 +327,81 @@ class _PlayerNestedSheetHostState<T> extends State<_PlayerNestedSheetHost<T>> {
       return math.min(430, math.max(340, screenWidth * 0.33));
     }
     return math.min(400, math.max(320, screenWidth * 0.38));
+  }
+}
+
+class _NestedPageTransition extends StatefulWidget {
+  final Animation<double> animation;
+  final bool isCurrent;
+  final bool isForward;
+  final Widget child;
+
+  const _NestedPageTransition({
+    required this.animation,
+    required this.isCurrent,
+    required this.isForward,
+    required this.child,
+  });
+
+  @override
+  State<_NestedPageTransition> createState() => _NestedPageTransitionState();
+}
+
+class _NestedPageTransitionState extends State<_NestedPageTransition> {
+  late CurvedAnimation _curved;
+  late Animation<Offset> _offset;
+
+  @override
+  void initState() {
+    super.initState();
+    _curved = CurvedAnimation(
+      parent: widget.animation,
+      curve: AppMotion.sheetEnterCurve,
+      reverseCurve: AppMotion.sheetExitCurve,
+    );
+    _offset = _buildOffsetTween().animate(_curved);
+  }
+
+  @override
+  void didUpdateWidget(covariant _NestedPageTransition oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final animationChanged = oldWidget.animation != widget.animation;
+    final paramsChanged = oldWidget.isCurrent != widget.isCurrent ||
+        oldWidget.isForward != widget.isForward;
+    if (animationChanged) {
+      _curved.dispose();
+      _curved = CurvedAnimation(
+        parent: widget.animation,
+        curve: AppMotion.sheetEnterCurve,
+        reverseCurve: AppMotion.sheetExitCurve,
+      );
+      _offset = _buildOffsetTween().animate(_curved);
+    } else if (paramsChanged) {
+      _offset = _buildOffsetTween().animate(_curved);
+    }
+  }
+
+  Tween<Offset> _buildOffsetTween() {
+    final begin = widget.isForward
+        ? AppMotion.sheetForwardOffset
+        : AppMotion.sheetBackwardOffset;
+    final end = widget.isForward
+        ? const Offset(-0.04, 0)
+        : const Offset(0.04, 0);
+    return Tween<Offset>(
+      begin: widget.isCurrent ? begin : Offset.zero,
+      end: widget.isCurrent ? Offset.zero : end,
+    );
+  }
+
+  @override
+  void dispose() {
+    _curved.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SlideTransition(position: _offset, child: widget.child);
   }
 }
