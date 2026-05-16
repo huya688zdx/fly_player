@@ -553,6 +553,30 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   );
   final ValueNotifier<Offset> _performanceOverlayOffsetNotifier =
       ValueNotifier<Offset>(const Offset(12, 56));
+
+  // Merged listenables cached as late final so each AnimatedBuilder subtree
+  // subscribes once instead of rebuilding the merge on every parent build.
+  late final Listenable _danmakuLayerListenable = Listenable.merge(<Listenable>[
+    _controller.value,
+    _controller.danmakuOcclusionState,
+    _gestureController.speedBoostListenable,
+    AppSheetTransitions.activeSheetCount,
+  ]);
+  late final Listenable _gestureCaptureLayerListenable = Listenable.merge(
+    <Listenable>[_gestureController.seekListenable, _overlayState],
+  );
+  late final Listenable _controlsChromeLayerListenable = Listenable.merge(
+    <Listenable>[_gestureController.seekListenable, _overlayState],
+  );
+  late final Listenable _bottomChromeListenable = Listenable.merge(
+    <Listenable>[_gestureController.seekListenable, _overlayState],
+  );
+  late final Listenable _performanceOverlayListenable = Listenable.merge(
+    <Listenable>[
+      _performanceOverlayStatsNotifier,
+      _performanceOverlayOffsetNotifier,
+    ],
+  );
   List<MediaLibraryItem> _episodeItems = const <MediaLibraryItem>[];
   TvEpisodePickerMode _episodePickerMode = TvEpisodePickerMode.list;
   List<MpvChapterItem> _chapters = const <MpvChapterItem>[];
