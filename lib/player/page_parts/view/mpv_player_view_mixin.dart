@@ -101,7 +101,8 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
                 compactUi: compactUi,
                 isLandscape: isLandscape,
               ),
-              _buildPlaybackCompletedOverlay(compactUi: compactUi),
+              if (_playbackCompleted)
+                _buildPlaybackCompletedOverlay(compactUi: compactUi),
               if (_shouldShowPerformanceOverlay())
                 _buildPerformanceOverlay(
                   compactUi: compactUi,
@@ -122,18 +123,18 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
                 ),
               ),
               Positioned.fill(child: _buildWeakNetworkSuggestionOverlayLayer()),
-              Positioned.fill(
-                child: PlayerSpeedDialOverlay(
-                  visible:
-                      _speedDialVisible &&
-                      !_playbackSettingsDrawerVisible &&
-                      !_playbackCompleted,
-                  speed: _playbackSpeed,
-                  onSpeedChanged: _handleSpeedDialSpeedChanged,
-                  onDismiss: _hideSpeedDialOverlay,
-                  labelBuilder: _speedLabel,
+              if (_speedDialVisible &&
+                  !_playbackSettingsDrawerVisible &&
+                  !_playbackCompleted)
+                Positioned.fill(
+                  child: PlayerSpeedDialOverlay(
+                    visible: true,
+                    speed: _playbackSpeed,
+                    onSpeedChanged: _handleSpeedDialSpeedChanged,
+                    onDismiss: _hideSpeedDialOverlay,
+                    labelBuilder: _speedLabel,
+                  ),
                 ),
-              ),
             ],
           ],
         ),
@@ -209,12 +210,7 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
       return const SizedBox.shrink();
     }
     return AnimatedBuilder(
-      animation: Listenable.merge(<Listenable>[
-        _controller.value,
-        _controller.danmakuOcclusionState,
-        _gestureController.speedBoostListenable,
-        AppSheetTransitions.activeSheetCount,
-      ]),
+      animation: _danmakuLayerListenable,
       builder: (context, _) {
         final value = _controller.value.value;
         final duration = _effectiveDuration();
@@ -307,7 +303,7 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
     required double titleFontSize,
     required double timeFontSize,
   }) {
-    return Stack(
+    final chromeStack = Stack(
       fit: StackFit.expand,
       children: [
         Positioned.fill(child: _buildGestureCaptureLayer()),
@@ -321,14 +317,24 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
         _buildGestureStatusLayer(),
       ],
     );
+    return AnimatedBuilder(
+      animation: AppSheetTransitions.activeSheetCount,
+      child: chromeStack,
+      builder: (context, child) {
+        if (AppSheetTransitions.activeSheetCount.value > 0) {
+          return TickerMode(
+            enabled: false,
+            child: Offstage(offstage: true, child: child),
+          );
+        }
+        return child!;
+      },
+    );
   }
 
   Widget _buildGestureCaptureLayer() {
     return AnimatedBuilder(
-      animation: Listenable.merge(<Listenable>[
-        _gestureController.seekListenable,
-        _overlayState,
-      ]),
+      animation: _gestureCaptureLayerListenable,
       child: ValueListenableBuilder<MpvPlayerValue>(
         valueListenable: _controller.value,
         builder: (context, value, _) {
@@ -386,10 +392,7 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
           (compactUi ? 8 : 10) + gestureInset,
         );
         return AnimatedBuilder(
-          animation: Listenable.merge(<Listenable>[
-            _gestureController.seekListenable,
-            _overlayState,
-          ]),
+          animation: _controlsChromeLayerListenable,
           builder: (context, _) {
             final overlayVisible = _controlsOverlayVisible;
             final topBarVisible = _controlsTopBarVisible;
@@ -482,54 +485,62 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
     required double timeFontSize,
   }) {
     return AnimatedBuilder(
-      animation: Listenable.merge(<Listenable>[
-        _gestureController.seekListenable,
-        _overlayState,
-      ]),
+      animation: _bottomChromeListenable,
       builder: (context, _) {
         final minimalSeekMode = _controlsMinimalSeekMode;
-        return ValueListenableBuilder<MpvPlayerValue>(
-          valueListenable: _controller.value,
-          builder: (context, value, _) {
-            final duration = _effectiveDuration();
-            final position = _displayPosition(value);
-            final clampedPosition =
-                duration > Duration.zero && position > duration
-                ? duration
-                : position;
-            final bufferedPosition = _currentSourceIsDownloadedFile
-                ? Duration.zero
-                : (duration > Duration.zero && value.bufferedPosition > duration
-                      ? duration
-                      : value.bufferedPosition);
-            final visibleChapters = _controlsOverlayVisible || minimalSeekMode
-                ? _visibleChaptersForDuration(duration)
-                : const <MpvChapterItem>[];
-            final activeChapterIndex =
-                visibleChapters.isEmpty ||
-                    !(_controlsOverlayVisible || minimalSeekMode)
-                ? -1
-                : _activeChapterIndexForPosition(
-                    visibleChapters,
-                    clampedPosition,
-                  );
-            return _buildBottomPanel(
-              value: value,
-              compactUi: compactUi,
-              isLandscape: isLandscape,
-              timeFontSize: timeFontSize,
-              duration: duration,
-              clampedPosition: clampedPosition,
-              bufferedPosition: bufferedPosition,
-              visibleChapters: visibleChapters,
-              activeChapterIndex: activeChapterIndex,
-              minimalSeekMode: minimalSeekMode,
-              showStatusCard: false,
-            );
-          },
+        // Snapshot the current player value once per overlay/seek tick. The
+        // bottom panel's position-driven leaves (time label, slider thumb)
+        // subscribe to _controller.value internally, so this outer builder no
+        // longer rebuilds the chapter list, controls or layout on every
+        // ~160ms position publish.
+        final value = _controller.value.value;
+        final duration = _effectiveDuration();
+        final clampedPosition = _clampPositionToDuration(value, duration);
+        final visibleChapters = _controlsOverlayVisible || minimalSeekMode
+            ? _visibleChaptersForDuration(duration)
+            : const <MpvChapterItem>[];
+        final activeChapterIndex =
+            visibleChapters.isEmpty ||
+                !(_controlsOverlayVisible || minimalSeekMode)
+            ? -1
+            : _activeChapterIndexForPosition(
+                visibleChapters,
+                clampedPosition,
+              );
+        return _buildBottomPanel(
+          value: value,
+          compactUi: compactUi,
+          isLandscape: isLandscape,
+          timeFontSize: timeFontSize,
+          duration: duration,
+          visibleChapters: visibleChapters,
+          activeChapterIndex: activeChapterIndex,
+          minimalSeekMode: minimalSeekMode,
+          showStatusCard: false,
         );
       },
     );
+  }
+
+  Duration _clampPositionToDuration(MpvPlayerValue value, Duration duration) {
+    final position = _displayPosition(value);
+    if (duration > Duration.zero && position > duration) {
+      return duration;
+    }
+    return position;
+  }
+
+  Duration _clampBufferedPositionToDuration(
+    MpvPlayerValue value,
+    Duration duration,
+  ) {
+    if (_currentSourceIsDownloadedFile) {
+      return Duration.zero;
+    }
+    if (duration > Duration.zero && value.bufferedPosition > duration) {
+      return duration;
+    }
+    return value.bufferedPosition;
   }
 
   Widget _buildControlsChromeBackground({
@@ -726,10 +737,7 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
     required Size viewportSize,
   }) {
     return AnimatedBuilder(
-      animation: Listenable.merge(<Listenable>[
-        _performanceOverlayStatsNotifier,
-        _performanceOverlayOffsetNotifier,
-      ]),
+      animation: _performanceOverlayListenable,
       builder: (context, _) {
         final stats = _performanceOverlayStatsNotifier.value;
         final rows = <String>[];
@@ -1291,8 +1299,6 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
     required bool isLandscape,
     required double timeFontSize,
     required Duration duration,
-    required Duration clampedPosition,
-    required Duration bufferedPosition,
     required List<MpvChapterItem> visibleChapters,
     required int activeChapterIndex,
     required bool minimalSeekMode,
@@ -1309,8 +1315,10 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
       showStatusCard: showStatusCard,
       timeFontSize: timeFontSize,
       duration: duration,
-      clampedPosition: clampedPosition,
-      bufferedPosition: bufferedPosition,
+      playerValueListenable: _controller.value,
+      computeClampedPosition: (v) => _clampPositionToDuration(v, duration),
+      computeBufferedPosition: (v) =>
+          _clampBufferedPositionToDuration(v, duration),
       visibleChapters: visibleChapters,
       activeChapterIndex: activeChapterIndex,
       extraProgressMarkers: <PlayerProgressChapterMarker>[
@@ -1318,7 +1326,6 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
         ..._abLoopProgressMarkers(duration),
       ],
       progressHighlight: _abLoopProgressHighlight(duration),
-      value: value,
       statusCard: _buildStatusCard(value),
       resumePrompt: _buildResumePromptData(duration),
       autoPlayPrompt: _buildAutoPlayPromptData(),

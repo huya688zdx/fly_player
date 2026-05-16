@@ -181,7 +181,7 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope>
         _registeredGlobalThemeKey ?? _lastSyncedPageKey;
     _releaseGlobalThemeOwnerRegistration();
     if (widget.syncGlobalTheme) {
-      _queueGlobalThemeClear(globalThemeKeyToClear);
+      _queueGlobalThemeClear(globalThemeKeyToClear, flushImmediate: true);
     }
     super.dispose();
   }
@@ -511,7 +511,10 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope>
     _queueGlobalThemeClear(pageKey);
   }
 
-  void _queueGlobalThemeClear(String pageKey) {
+  void _queueGlobalThemeClear(
+    String pageKey, {
+    bool flushImmediate = false,
+  }) {
     final normalizedPageKey = pageKey.trim();
     if (normalizedPageKey.isEmpty) {
       return;
@@ -528,7 +531,25 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope>
     _lastSyncedPageKey = normalizedPageKey;
     _lastSyncedSeedSignature = '';
     _lastSyncedWasClear = true;
-    _scheduleGlobalThemeSync();
+    if (flushImmediate) {
+      _scheduleGlobalThemeSyncImmediate();
+    } else {
+      _scheduleGlobalThemeSync();
+    }
+  }
+
+  void _scheduleGlobalThemeSyncImmediate() {
+    _globalThemeSyncProvider = _themeProvider ?? _globalThemeSyncProvider;
+    _globalThemeSyncScheduled = true;
+    _globalThemeSyncTimer?.cancel();
+    _globalThemeSyncTimer = null;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!_globalThemeSyncScheduled) {
+        return;
+      }
+      _globalThemeSyncScheduled = false;
+      _flushGlobalThemeSync();
+    });
   }
 
   void _scheduleGlobalThemeSync() {
@@ -572,7 +593,9 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope>
       unawaited(
         provider.clearRuntimeDynamicTheme(
           pageKey,
-          restoreFallbackOnMain: false,
+          restoreFallbackOnMain: true,
+          localNotifyDelayAfterBroadcast:
+              DynamicPageThemeScope.globalSyncLocalApplyDelay,
         ),
       );
     }
