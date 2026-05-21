@@ -225,8 +225,8 @@ class MpvPlaybackController(
             videoOutputController.detachSurfaceForHandoff()
         } else if (mpv.isAvailable() && mpv.isCreated()) {
             clearRetainedPlaybackStateForReuse()
+            runtimeBootstrap.release()
         }
-        runtimeBootstrap.release()
         created = false
         initialized = false
         propertiesObserved = false

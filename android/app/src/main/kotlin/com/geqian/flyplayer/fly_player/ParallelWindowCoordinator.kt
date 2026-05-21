@@ -358,7 +358,12 @@ object ParallelWindowCoordinator {
         return rightPaneHostRefs.mapNotNull { reference -> reference.get() }
     }
 
-    fun hasRightPaneHost(): Boolean = rightPaneHostCount > 0
+    @Synchronized
+    fun hasRightPaneHost(): Boolean {
+        pruneRightPaneHostsLocked()
+        rightPaneHostCount = rightPaneHostRefs.size
+        return rightPaneHostCount > 0
+    }
 
     fun clearRightPane() {
         currentDetailItemGuid = ""

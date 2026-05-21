@@ -170,9 +170,13 @@ class DynamicThemeSeedExtractor {
       }
     }
 
-    final future = _extractUncached(imageUrl: imageUrl, token: token).then((
-      seed,
-    ) {
+    final future = _extractUncached(
+      imageUrl: imageUrl,
+      token: token,
+    ).timeout(
+      const Duration(seconds: 10),
+      onTimeout: () => null,
+    ).then((seed) {
       if (normalizedImageKey.isNotEmpty) {
         _inflight.remove(normalizedImageKey);
         if (seed != null) {
@@ -232,21 +236,34 @@ class DynamicThemeSeedExtractor {
         palette.mutedColor?.color,
       ]);
 
-      final baseCandidate = backgroundCandidate ?? accentCandidate;
-      final actionCandidate = accentCandidate ?? backgroundCandidate;
+      // When all swatches are filtered (dark/gray/bright images), fall back
+      // to the dominant color without filtering so every image gets a theme.
+      final fallback = _lastResortCandidate(palette);
+      final baseCandidate = backgroundCandidate ?? accentCandidate ?? fallback;
+      final actionCandidate = accentCandidate ?? backgroundCandidate ?? fallback;
       if (baseCandidate == null || actionCandidate == null) {
         return null;
       }
-      final preferLightSurface = _preferLightSurface(baseCandidate);
+      final preferLightSurface = baseCandidate.lightness >= 0.62;
+
+      // When both candidates resolve to the same swatch, apply a hue offset
+      // to accent/selection/link seeds so the theme has visual depth.
+      final candidatesAreSame = identical(baseCandidate, actionCandidate) ||
+          baseCandidate.toColor().toARGB32() == actionCandidate.toColor().toARGB32();
+      final accentSource = candidatesAreSame
+          ? _shiftHueHsl(actionCandidate, 30)
+          : actionCandidate;
 
       return DynamicThemeSeed(
-        backgroundSeed: _backgroundSeedFor(
+        backgroundSeed: _backgroundSeedForHsl(
           baseCandidate,
           preferLightSurface: preferLightSurface,
         ),
-        accentSeed: _accentSeedFor(actionCandidate),
-        selectionSeed: _selectionSeedFor(actionCandidate),
-        linkSeed: _linkSeedFor(actionCandidate),
+        accentSeed: _accentSeedForHsl(accentSource),
+        selectionSeed: _selectionSeedForHsl(accentSource),
+        linkSeed: _linkSeedForHsl(candidatesAreSame
+            ? _shiftHueHsl(actionCandidate, -20)
+            : actionCandidate),
         preferLightSurface: preferLightSurface,
       );
     } catch (_) {
@@ -407,31 +424,35 @@ class DynamicThemeSeedExtractor {
     required String imageUrl,
     required String token,
   }) async {
-    final raw = await _themeSamplerChannel.invokeMapMethod<String, dynamic>(
-      'extractDynamicThemeSeed',
-      <String, dynamic>{'imageUrl': imageUrl, 'token': token},
-    );
-    if (raw == null) return null;
-    final backgroundValue = raw['backgroundSeed'];
-    final accentValue = raw['accentSeed'];
-    final selectionValue = raw['selectionSeed'];
-    final linkValue = raw['linkSeed'];
-    if (backgroundValue is! int ||
-        accentValue is! int ||
-        selectionValue is! int ||
-        linkValue is! int) {
+    try {
+      final raw = await _themeSamplerChannel.invokeMapMethod<String, dynamic>(
+        'extractDynamicThemeSeed',
+        <String, dynamic>{'imageUrl': imageUrl, 'token': token},
+      );
+      if (raw == null) return null;
+      final backgroundValue = raw['backgroundSeed'];
+      final accentValue = raw['accentSeed'];
+      final selectionValue = raw['selectionSeed'];
+      final linkValue = raw['linkSeed'];
+      if (backgroundValue is! int ||
+          accentValue is! int ||
+          selectionValue is! int ||
+          linkValue is! int) {
+        return null;
+      }
+      return DynamicThemeSeed(
+        backgroundSeed: Color(backgroundValue & 0xFFFFFFFF),
+        accentSeed: Color(accentValue & 0xFFFFFFFF),
+        selectionSeed: Color(selectionValue & 0xFFFFFFFF),
+        linkSeed: Color(linkValue & 0xFFFFFFFF),
+        preferLightSurface: (raw['preferLightSurface'] as bool?) ?? false,
+      );
+    } catch (_) {
       return null;
     }
-    return DynamicThemeSeed(
-      backgroundSeed: Color(backgroundValue & 0xFFFFFFFF),
-      accentSeed: Color(accentValue & 0xFFFFFFFF),
-      selectionSeed: Color(selectionValue & 0xFFFFFFFF),
-      linkSeed: Color(linkValue & 0xFFFFFFFF),
-      preferLightSurface: (raw['preferLightSurface'] as bool?) ?? false,
-    );
   }
 
-  static Color? _firstAccepted(List<Color?> colors) {
+  static HSLColor? _firstAccepted(List<Color?> colors) {
     for (final color in colors) {
       final normalized = _normalizeCandidate(color);
       if (normalized != null) return normalized;
@@ -439,32 +460,35 @@ class DynamicThemeSeedExtractor {
     return null;
   }
 
-  static Color? _normalizeCandidate(Color? color) {
+  /// Fallback when all palette swatches are filtered — use the dominant color
+  /// as-is so that every image (dark, gray, bright) still gets a dynamic theme.
+  static HSLColor? _lastResortCandidate(PaletteGenerator palette) {
+    final color = palette.dominantColor?.color ??
+        palette.vibrantColor?.color ??
+        palette.mutedColor?.color;
+    if (color == null) return null;
+    return HSLColor.fromColor(color);
+  }
+
+  static HSLColor? _normalizeCandidate(Color? color) {
     if (color == null) return null;
     var hsl = HSLColor.fromColor(color);
     if (hsl.saturation < 0.08) return null;
     if (hsl.lightness < 0.06 || hsl.lightness > 0.90) return null;
 
     final hue = hsl.hue;
-    final isHarshWarmHue =
-        (hue <= 14 || hue >= 342 || (hue >= 34 && hue <= 72));
-    if (isHarshWarmHue && hsl.saturation > 0.66) {
-      hsl = hsl.withSaturation(0.66);
+    final isHarshRed = hue <= 10 || hue >= 350;
+    if (isHarshRed && hsl.saturation > 0.72) {
+      hsl = hsl.withSaturation(0.72);
     }
 
-    return hsl.toColor();
+    return hsl;
   }
 
-  static bool _preferLightSurface(Color color) {
-    final hsl = HSLColor.fromColor(color);
-    return hsl.lightness >= 0.62;
-  }
-
-  static Color _backgroundSeedFor(
-    Color color, {
+  static Color _backgroundSeedForHsl(
+    HSLColor hsl, {
     required bool preferLightSurface,
   }) {
-    final hsl = HSLColor.fromColor(color);
     if (preferLightSurface) {
       return hsl
           .withSaturation((hsl.saturation * 0.42).clamp(0.08, 0.22))
@@ -477,27 +501,28 @@ class DynamicThemeSeedExtractor {
         .toColor();
   }
 
-  static Color _accentSeedFor(Color color) {
-    final hsl = HSLColor.fromColor(color);
+  static Color _accentSeedForHsl(HSLColor hsl) {
     return hsl
         .withSaturation(hsl.saturation.clamp(0.22, 0.58))
         .withLightness(hsl.lightness.clamp(0.34, 0.56))
         .toColor();
   }
 
-  static Color _selectionSeedFor(Color color) {
-    final hsl = HSLColor.fromColor(color);
+  static Color _selectionSeedForHsl(HSLColor hsl) {
     return hsl
         .withSaturation(hsl.saturation.clamp(0.24, 0.62))
         .withLightness((hsl.lightness - 0.02).clamp(0.30, 0.52))
         .toColor();
   }
 
-  static Color _linkSeedFor(Color color) {
-    final hsl = HSLColor.fromColor(color);
+  static Color _linkSeedForHsl(HSLColor hsl) {
     return hsl
         .withSaturation(hsl.saturation.clamp(0.20, 0.54))
         .withLightness((hsl.lightness + 0.08).clamp(0.42, 0.64))
         .toColor();
+  }
+
+  static HSLColor _shiftHueHsl(HSLColor hsl, double degrees) {
+    return hsl.withHue((hsl.hue + degrees) % 360);
   }
 }

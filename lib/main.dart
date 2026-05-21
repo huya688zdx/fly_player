@@ -97,6 +97,7 @@ class _FrameTimingLogger {
   static int _maxTotalMicros = 0;
   static int _maxBuildMicros = 0;
   static int _maxRasterMicros = 0;
+  static final String _source = _resolveSource();
 
   static void install() {
     if (_installed || kReleaseMode) {
@@ -104,7 +105,7 @@ class _FrameTimingLogger {
     }
     _installed = true;
     WidgetsBinding.instance.addTimingsCallback(_handleTimings);
-    debugPrint('[PERF][FRAME] timings enabled');
+    debugPrint('[PERF][FRAME][$_source] timings enabled');
   }
 
   static void _handleTimings(List<FrameTiming> timings) {
@@ -131,7 +132,7 @@ class _FrameTimingLogger {
       if (totalMicros > _jankyFrameMicros) {
         _jankyFrames++;
         debugPrint(
-          '[PERF][FRAME] jank total=${_ms(totalMicros)} build=${_ms(buildMicros)} raster=${_ms(rasterMicros)}',
+          '[PERF][FRAME][$_source] jank total=${_ms(totalMicros)} build=${_ms(buildMicros)} raster=${_ms(rasterMicros)}',
         );
       }
       if (_frames >= _summaryFrameCount) {
@@ -149,7 +150,7 @@ class _FrameTimingLogger {
     final avgTotal = _totalMicros / _frames;
     final estimatedFps = avgTotal <= 0 ? 0 : 1000000 / avgTotal;
     debugPrint(
-      '[PERF][FRAME] summary frames=$_frames slow60=$_slowFrames jank30=$_jankyFrames '
+      '[PERF][FRAME][$_source] summary frames=$_frames slow60=$_slowFrames jank30=$_jankyFrames '
       'avgBuild=${_ms(avgBuild)} avgRaster=${_ms(avgRaster)} avgTotal=${_ms(avgTotal)} '
       'estFps=${estimatedFps.toStringAsFixed(1)} maxTotal=${_ms(_maxTotalMicros)} '
       'maxBuild=${_ms(_maxBuildMicros)} maxRaster=${_ms(_maxRasterMicros)}',
@@ -166,6 +167,31 @@ class _FrameTimingLogger {
   }
 
   static String _ms(num micros) => '${(micros / 1000).toStringAsFixed(1)}ms';
+
+  static String _resolveSource() {
+    final route = PlatformDispatcher.instance.defaultRouteName.trim();
+    final normalizedRoute = route.isEmpty ? '/' : route;
+    final uri = Uri.tryParse(normalizedRoute);
+    final path = uri?.path ?? normalizedRoute;
+    if (path == '/player') {
+      return 'player route=$normalizedRoute';
+    }
+    if (path == '/parallel/placeholder') {
+      return 'placeholder route=$normalizedRoute';
+    }
+    if (path == '/detail/host') {
+      final childRoute = uri?.queryParameters['route']?.trim() ?? '';
+      final childPath = Uri.tryParse(childRoute)?.path ?? childRoute;
+      if (childPath == '/parallel/placeholder') {
+        return 'placeholder route=$childRoute';
+      }
+      return 'detail route=${childRoute.isEmpty ? normalizedRoute : childRoute}';
+    }
+    if (path.startsWith('/detail/')) {
+      return 'detail route=$normalizedRoute';
+    }
+    return 'main route=$normalizedRoute';
+  }
 }
 
 class _GlobalErrorFallback extends StatelessWidget {
@@ -229,7 +255,7 @@ class FlyPlayerApp extends StatelessWidget {
                   if (child == null) return const SizedBox.shrink();
                   final media = MediaQuery.of(context);
                   final scale = AdaptiveText.globalScale(media);
-                  return AppRuntimeColorScope(
+                  return AppRuntimeColorScopeBuilder(
                     controller: AppRuntimeColorController.instance,
                     child: MediaQuery(
                       data: media.copyWith(
