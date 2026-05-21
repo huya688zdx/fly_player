@@ -61,6 +61,7 @@ object ParallelFlutterEngineRegistry {
             return
         }
         val engine = detailEngine(context) ?: return
+        resumeDetailEngine(engine)
         MethodChannel(
             engine.dartExecutor.binaryMessenger,
             DETAIL_HOST_CHANNEL,
@@ -71,6 +72,49 @@ object ParallelFlutterEngineRegistry {
                 "resetStack" to true,
             ),
         )
+    }
+
+    fun resetDetailRouteToPlaceholder() {
+        val engine = FlutterEngineCache.getInstance().get(DETAIL_ENGINE_ID) ?: return
+        MethodChannel(
+            engine.dartExecutor.binaryMessenger,
+            DETAIL_HOST_CHANNEL,
+        ).invokeMethod(
+            "replaceRoute",
+            mapOf(
+                "routeName" to PLACEHOLDER_ROUTE,
+                "resetStack" to true,
+            ),
+            object : MethodChannel.Result {
+                override fun success(result: Any?) {
+                    pauseDetailEngine(engine)
+                }
+
+                override fun error(
+                    errorCode: String,
+                    errorMessage: String?,
+                    errorDetails: Any?,
+                ) {
+                    pauseDetailEngine(engine)
+                }
+
+                override fun notImplemented() {
+                    pauseDetailEngine(engine)
+                }
+            },
+        )
+    }
+
+    fun resumeDetailEngine() {
+        FlutterEngineCache.getInstance().get(DETAIL_ENGINE_ID)?.let(::resumeDetailEngine)
+    }
+
+    private fun resumeDetailEngine(engine: FlutterEngine) {
+        engine.lifecycleChannel.appIsResumed()
+    }
+
+    private fun pauseDetailEngine(engine: FlutterEngine) {
+        engine.lifecycleChannel.appIsPaused()
     }
 
     fun detailHostInitialRoute(): String =

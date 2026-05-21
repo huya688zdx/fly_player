@@ -70,6 +70,7 @@ abstract class FlutterHostActivity : FlutterActivity() {
     protected var mainHostChannel: MethodChannel? = null
     protected var runtimeThemeSyncChannel: MethodChannel? = null
     protected var sessionStateChannel: MethodChannel? = null
+    private val methodChannelsWithHandlers = mutableListOf<MethodChannel>()
     private var playerImmersiveSystemBarsEnabled = false
     private var lastAppliedDecorFitsSystemWindows: Boolean? = null
     private var lastAppliedSystemBarsMode: Int? = null
@@ -203,6 +204,10 @@ abstract class FlutterHostActivity : FlutterActivity() {
     }
 
     private fun clearMethodChannelReferences() {
+        methodChannelsWithHandlers.forEach { channel ->
+            channel.setMethodCallHandler(null)
+        }
+        methodChannelsWithHandlers.clear()
         systemChannel = null
         detailHostChannel = null
         playerHostStateChannel = null
@@ -211,9 +216,15 @@ abstract class FlutterHostActivity : FlutterActivity() {
         sessionStateChannel = null
     }
 
+    private fun trackMethodChannelHandler(channel: MethodChannel) {
+        methodChannelsWithHandlers.remove(channel)
+        methodChannelsWithHandlers += channel
+    }
+
     private fun registerSystemChannel(flutterEngine: FlutterEngine) {
         systemChannel =
             createMethodChannel(flutterEngine, "fly_player/system").also { channel ->
+                trackMethodChannelHandler(channel)
                 channel.setMethodCallHandler { call, result ->
                     when (call.method) {
                         "setPlayerOrientation" -> {
@@ -299,174 +310,183 @@ abstract class FlutterHostActivity : FlutterActivity() {
     }
 
     private fun registerStorageChannel(flutterEngine: FlutterEngine) {
-        createMethodChannel(flutterEngine, "fly_player/storage").setMethodCallHandler { call, result ->
-            when (call.method) {
-                "hasFileAccess" -> result.success(hasFileAccess())
-                "requestFileAccess" -> requestFileAccess(result)
-                "openFileAccessSettings" -> result.success(openFileAccessSettings())
-                "getPrimaryStorageRoot" -> result.success(primaryStorageRoot())
-                "getScopedTreeRoot" -> result.success(scopedTreeAccessController.grantedRoot())
-                "requestScopedTreeAccess" -> requestScopedTreeAccess(result)
-                "listScopedTreeEntries" -> {
-                    @Suppress("UNCHECKED_CAST")
-                    val allowedExtensions =
-                        (call.argument<List<*>>("allowedExtensions") ?: emptyList<Any?>())
-                            .mapNotNull { it?.toString() }
-                    result.success(
-                        scopedTreeAccessController.listEntries(
-                            directoryId = call.argument<String>("directoryId"),
-                            allowedExtensions = allowedExtensions,
-                        ),
-                    )
-                }
-                "readScopedFileBytes" -> {
-                    val identifier = call.argument<String>("identifier").orEmpty()
-                    result.success(scopedTreeAccessController.readFileBytes(identifier))
-                }
-                "readLocalVideoMetadata" -> {
-                    val path = call.argument<String>("path").orEmpty()
-                    thread(name = "fly-local-video-metadata") {
-                        val payload = LocalVideoMetadataReader.read(path)
-                        runOnUiThread {
-                            result.success(payload)
+        createMethodChannel(flutterEngine, "fly_player/storage").also { channel ->
+            trackMethodChannelHandler(channel)
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "hasFileAccess" -> result.success(hasFileAccess())
+                    "requestFileAccess" -> requestFileAccess(result)
+                    "openFileAccessSettings" -> result.success(openFileAccessSettings())
+                    "getPrimaryStorageRoot" -> result.success(primaryStorageRoot())
+                    "getScopedTreeRoot" -> result.success(scopedTreeAccessController.grantedRoot())
+                    "requestScopedTreeAccess" -> requestScopedTreeAccess(result)
+                    "listScopedTreeEntries" -> {
+                        @Suppress("UNCHECKED_CAST")
+                        val allowedExtensions =
+                            (call.argument<List<*>>("allowedExtensions") ?: emptyList<Any?>())
+                                .mapNotNull { it?.toString() }
+                        result.success(
+                            scopedTreeAccessController.listEntries(
+                                directoryId = call.argument<String>("directoryId"),
+                                allowedExtensions = allowedExtensions,
+                            ),
+                        )
+                    }
+                    "readScopedFileBytes" -> {
+                        val identifier = call.argument<String>("identifier").orEmpty()
+                        result.success(scopedTreeAccessController.readFileBytes(identifier))
+                    }
+                    "readLocalVideoMetadata" -> {
+                        val path = call.argument<String>("path").orEmpty()
+                        thread(name = "fly-local-video-metadata") {
+                            val payload = LocalVideoMetadataReader.read(path)
+                            runOnUiThread {
+                                result.success(payload)
+                            }
                         }
                     }
-                }
-                "getScreenshotCustomDirectory" -> {
-                    result.success(screenshotDirectoryAccessController.currentDirectorySummary())
-                }
-                "requestScreenshotCustomDirectory" -> {
-                    requestScreenshotCustomDirectory(result)
-                }
-                "clearScreenshotCustomDirectory" -> {
-                    screenshotDirectoryAccessController.clearPersistedTree()
-                    result.success(true)
-                }
-                "listScreenshotLibrary" -> {
-                    result.success(screenshotLibraryController.listLibrary(hasFileAccess()))
-                }
-                "readScreenshotFileBytes" -> {
-                    val sourceKind = call.argument<String>("sourceKind").orEmpty()
-                    val pathOrIdentifier = call.argument<String>("pathOrIdentifier").orEmpty()
-                    result.success(
-                        screenshotLibraryController.readFileBytes(
-                            sourceKind = sourceKind,
-                            pathOrIdentifier = pathOrIdentifier,
-                        ),
-                    )
-                }
-                "deleteScreenshotFiles" -> {
-                    val items =
-                        (call.argument<List<*>>("items") ?: emptyList<Any?>())
-                            .mapNotNull { entry ->
-                                val map = entry as? Map<*, *> ?: return@mapNotNull null
-                                val sourceKind = map["sourceKind"]?.toString()?.trim().orEmpty()
-                                val pathOrIdentifier =
-                                    map["pathOrIdentifier"]?.toString()?.trim().orEmpty()
-                                if (sourceKind.isEmpty() || pathOrIdentifier.isEmpty()) {
-                                    return@mapNotNull null
+                    "getScreenshotCustomDirectory" -> {
+                        result.success(screenshotDirectoryAccessController.currentDirectorySummary())
+                    }
+                    "requestScreenshotCustomDirectory" -> {
+                        requestScreenshotCustomDirectory(result)
+                    }
+                    "clearScreenshotCustomDirectory" -> {
+                        screenshotDirectoryAccessController.clearPersistedTree()
+                        result.success(true)
+                    }
+                    "listScreenshotLibrary" -> {
+                        result.success(screenshotLibraryController.listLibrary(hasFileAccess()))
+                    }
+                    "readScreenshotFileBytes" -> {
+                        val sourceKind = call.argument<String>("sourceKind").orEmpty()
+                        val pathOrIdentifier = call.argument<String>("pathOrIdentifier").orEmpty()
+                        result.success(
+                            screenshotLibraryController.readFileBytes(
+                                sourceKind = sourceKind,
+                                pathOrIdentifier = pathOrIdentifier,
+                            ),
+                        )
+                    }
+                    "deleteScreenshotFiles" -> {
+                        val items =
+                            (call.argument<List<*>>("items") ?: emptyList<Any?>())
+                                .mapNotNull { entry ->
+                                    val map = entry as? Map<*, *> ?: return@mapNotNull null
+                                    val sourceKind = map["sourceKind"]?.toString()?.trim().orEmpty()
+                                    val pathOrIdentifier =
+                                        map["pathOrIdentifier"]?.toString()?.trim().orEmpty()
+                                    if (sourceKind.isEmpty() || pathOrIdentifier.isEmpty()) {
+                                        return@mapNotNull null
+                                    }
+                                    mapOf(
+                                        "sourceKind" to sourceKind,
+                                        "pathOrIdentifier" to pathOrIdentifier,
+                                    )
                                 }
-                                mapOf(
-                                    "sourceKind" to sourceKind,
-                                    "pathOrIdentifier" to pathOrIdentifier,
-                                )
+                        result.success(
+                            mapOf(
+                                "deletedCount" to screenshotLibraryController.deleteEntries(items),
+                            ),
+                        )
+                    }
+                    "getStorageOverview" -> {
+                        result.success(storageManagementController.loadOverview(hasFileAccess()))
+                    }
+                    "clearStorageAction" -> {
+                        val action = call.argument<String>("action").orEmpty()
+                        result.success(storageManagementController.clear(action, hasFileAccess()))
+                    }
+                    "queryCachedDownloadable" -> {
+                        result.success(
+                            storageManagementController.queryCachedDownloadable(
+                                itemGuid = call.argument<String>("itemGuid").orEmpty(),
+                                mediaGuid = call.argument<String>("mediaGuid").orEmpty(),
+                                videoGuid = call.argument<String>("videoGuid").orEmpty(),
+                                resourceKey = call.argument<String>("resourceKey").orEmpty(),
+                            ),
+                        )
+                    }
+                    "promoteCachedMedia" -> {
+                        val itemGuid = call.argument<String>("itemGuid").orEmpty()
+                        val mediaGuid = call.argument<String>("mediaGuid").orEmpty()
+                        val videoGuid = call.argument<String>("videoGuid").orEmpty()
+                        val resourceKey = call.argument<String>("resourceKey").orEmpty()
+                        val targetMode = call.argument<String>("targetMode").orEmpty()
+                        val hasFileAccess = hasFileAccess()
+                        thread(name = "FlyPlayer-PromoteCachedMedia", isDaemon = true) {
+                            val promoteResult =
+                                runCatching {
+                                    storageManagementController.promoteCachedMedia(
+                                        itemGuid = itemGuid,
+                                        mediaGuid = mediaGuid,
+                                        videoGuid = videoGuid,
+                                        resourceKey = resourceKey,
+                                        targetMode = targetMode,
+                                        hasFileAccess = hasFileAccess,
+                                    )
+                                }.getOrElse {
+                                    mapOf(
+                                        "success" to false,
+                                        "code" to "copy_failed",
+                                    )
+                                }
+                            runOnUiThread {
+                                result.success(promoteResult)
                             }
-                    result.success(
-                        mapOf(
-                            "deletedCount" to screenshotLibraryController.deleteEntries(items),
-                        ),
-                    )
-                }
-                "getStorageOverview" -> {
-                    result.success(storageManagementController.loadOverview(hasFileAccess()))
-                }
-                "clearStorageAction" -> {
-                    val action = call.argument<String>("action").orEmpty()
-                    result.success(storageManagementController.clear(action, hasFileAccess()))
-                }
-                "queryCachedDownloadable" -> {
-                    result.success(
-                        storageManagementController.queryCachedDownloadable(
-                            itemGuid = call.argument<String>("itemGuid").orEmpty(),
-                            mediaGuid = call.argument<String>("mediaGuid").orEmpty(),
-                            videoGuid = call.argument<String>("videoGuid").orEmpty(),
-                            resourceKey = call.argument<String>("resourceKey").orEmpty(),
-                        ),
-                    )
-                }
-                "promoteCachedMedia" -> {
-                    val itemGuid = call.argument<String>("itemGuid").orEmpty()
-                    val mediaGuid = call.argument<String>("mediaGuid").orEmpty()
-                    val videoGuid = call.argument<String>("videoGuid").orEmpty()
-                    val resourceKey = call.argument<String>("resourceKey").orEmpty()
-                    val targetMode = call.argument<String>("targetMode").orEmpty()
-                    val hasFileAccess = hasFileAccess()
-                    thread(name = "FlyPlayer-PromoteCachedMedia", isDaemon = true) {
-                        val promoteResult =
-                            runCatching {
-                                storageManagementController.promoteCachedMedia(
-                                    itemGuid = itemGuid,
-                                    mediaGuid = mediaGuid,
-                                    videoGuid = videoGuid,
-                                    resourceKey = resourceKey,
-                                    targetMode = targetMode,
-                                    hasFileAccess = hasFileAccess,
-                                )
-                            }.getOrElse {
-                                mapOf(
-                                    "success" to false,
-                                    "code" to "copy_failed",
-                                )
-                            }
-                        runOnUiThread {
-                            result.success(promoteResult)
                         }
                     }
+                    "listPlaybackCacheEntries" -> {
+                        result.success(storageManagementController.listPlaybackCacheEntries())
+                    }
+                    "clearPlaybackCacheEntries" -> {
+                        @Suppress("UNCHECKED_CAST")
+                        val resourceKeys =
+                            (call.argument<List<*>>("resourceKeys") ?: emptyList<Any?>())
+                                .mapNotNull { it?.toString() }
+                        result.success(storageManagementController.clearPlaybackCacheEntries(resourceKeys))
+                    }
+                    else -> result.notImplemented()
                 }
-                "listPlaybackCacheEntries" -> {
-                    result.success(storageManagementController.listPlaybackCacheEntries())
-                }
-                "clearPlaybackCacheEntries" -> {
-                    @Suppress("UNCHECKED_CAST")
-                    val resourceKeys =
-                        (call.argument<List<*>>("resourceKeys") ?: emptyList<Any?>())
-                            .mapNotNull { it?.toString() }
-                    result.success(storageManagementController.clearPlaybackCacheEntries(resourceKeys))
-                }
-                else -> result.notImplemented()
             }
         }
     }
 
     private fun registerSecretStoreChannel(flutterEngine: FlutterEngine) {
-        createMethodChannel(flutterEngine, "fly_player/secret_store").setMethodCallHandler { call, result ->
-            when (call.method) {
-                "getDanDanPlayConfig" -> {
-                    result.success(danDanPlaySecretStore.getConfig())
+        createMethodChannel(flutterEngine, "fly_player/secret_store").also { channel ->
+            trackMethodChannelHandler(channel)
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "getDanDanPlayConfig" -> {
+                        result.success(danDanPlaySecretStore.getConfig())
+                    }
+                    "clearDanDanPlayConfig" -> {
+                        result.success(danDanPlaySecretStore.clearConfig())
+                    }
+                    else -> result.notImplemented()
                 }
-                "clearDanDanPlayConfig" -> {
-                    result.success(danDanPlaySecretStore.clearConfig())
-                }
-                else -> result.notImplemented()
             }
         }
     }
 
     private fun registerThemeSamplerChannel(flutterEngine: FlutterEngine) {
-        createMethodChannel(flutterEngine, "fly_player/theme_sampler").setMethodCallHandler { call, result ->
-            when (call.method) {
-                "extractDynamicThemeSeed" -> {
-                    val imageUrl = call.argument<String>("imageUrl").orEmpty().trim()
-                    val token = call.argument<String>("token").orEmpty()
-                    if (imageUrl.isEmpty()) {
-                        result.success(null)
-                        return@setMethodCallHandler
+        createMethodChannel(flutterEngine, "fly_player/theme_sampler").also { channel ->
+            trackMethodChannelHandler(channel)
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "extractDynamicThemeSeed" -> {
+                        val imageUrl = call.argument<String>("imageUrl").orEmpty().trim()
+                        val token = call.argument<String>("token").orEmpty()
+                        if (imageUrl.isEmpty()) {
+                            result.success(null)
+                            return@setMethodCallHandler
+                        }
+                        ThemeColorSampler.sample(imageUrl, token) { seed ->
+                            result.success(seed)
+                        }
                     }
-                    ThemeColorSampler.sample(imageUrl, token) { seed ->
-                        result.success(seed)
-                    }
+                    else -> result.notImplemented()
                 }
-                else -> result.notImplemented()
             }
         }
     }
@@ -474,6 +494,7 @@ abstract class FlutterHostActivity : FlutterActivity() {
     private fun registerRuntimeThemeSyncChannel(flutterEngine: FlutterEngine) {
         runtimeThemeSyncChannel =
             createMethodChannel(flutterEngine, "fly_player/runtime_theme_sync").also { channel ->
+                trackMethodChannelHandler(channel)
                 channel.setMethodCallHandler { call, result ->
                     when (call.method) {
                         "pushRuntimeThemeToMain" -> {
@@ -503,6 +524,7 @@ abstract class FlutterHostActivity : FlutterActivity() {
     private fun registerMainHostChannel(flutterEngine: FlutterEngine) {
         mainHostChannel =
             createMethodChannel(flutterEngine, "fly_player/main_host").also { channel ->
+                trackMethodChannelHandler(channel)
                 channel.setMethodCallHandler { call, result ->
                     when (call.method) {
                         "switchPrimaryTab" -> {
@@ -520,165 +542,171 @@ abstract class FlutterHostActivity : FlutterActivity() {
     }
 
     private fun registerEmbeddingChannel(flutterEngine: FlutterEngine) {
-        createMethodChannel(flutterEngine, "fly_player/embedding").setMethodCallHandler { call, result ->
-            when (call.method) {
-                "canOpenEmbeddedDetail" -> result.success(canOpenEmbeddedDetail())
-                "isParallelWindowSupported" -> result.success(isParallelWindowSupported())
-                "openItemDetail" -> {
-                    val itemGuid = call.argument<String>("itemGuid").orEmpty()
-                    val seriesGuid = call.argument<String>("seriesGuid").orEmpty()
-                    val initialItemDetail =
-                        call.argument<HashMap<String, Any?>>("initialItemDetail")
-                    result.success(
-                        openEmbeddedDetail(
-                            itemGuid = itemGuid,
-                            seriesGuid = seriesGuid,
-                            initialItemDetail = initialItemDetail,
-                        ),
-                    )
-                }
-                "openSecondaryRoute" -> {
-                    val routeName = call.argument<String>("routeName").orEmpty()
-                    result.success(openEmbeddedRoute(routeName))
-                }
-                "openSeasonDetail" -> {
-                    val parentGuid = call.argument<String>("parentGuid").orEmpty()
-                    val seriesTitle = call.argument<String>("seriesTitle").orEmpty()
-                    val backdropPath = call.argument<String>("backdropPath").orEmpty()
-                    val seasonItem = call.argument<HashMap<String, Any?>>("seasonItem")
-                    result.success(
-                        openEmbeddedSeasonDetail(
-                            parentGuid = parentGuid,
-                            seriesTitle = seriesTitle,
-                            backdropPath = backdropPath,
-                            seasonItem = seasonItem,
-                        ),
-                    )
-                }
-                "openFullscreenPlayer" -> {
-                    val title = call.argument<String>("title").orEmpty()
-                    val source = call.argument<HashMap<String, Any?>>("source")
-                    val initialPlayInfo =
-                        call.argument<HashMap<String, Any?>>("initialPlayInfo")
-                    val startSource = call.argument<String>("startSource").orEmpty()
-                    openFullscreenPlayer(title, source, initialPlayInfo, startSource, result)
-                }
-                "openFullscreenScreenshot" -> {
-                    val rawItems = call.argument<List<*>>("items") ?: emptyList<Any?>()
-                    val initialIndex = call.argument<Int>("initialIndex") ?: 0
-                    result.success(
-                        openFullscreenScreenshot(
-                            items = copyStringKeyedMapList(rawItems),
-                            initialIndex = initialIndex,
-                        ),
-                    )
-                }
-                "consumeFullscreenScreenshotPayload" -> {
-                    val token = call.argument<String>("token").orEmpty()
-                    result.success(FullscreenScreenshotPayloadStore.consume(token))
-                }
-                "readDetailRoutePayload" -> {
-                    val token = call.argument<String>("token").orEmpty()
-                    result.success(DetailRoutePayloadStore.read(token))
-                }
-                "getParallelHostContext" -> result.success(getParallelHostContext())
-                "getParallelWindowSettings" -> {
-                    result.success(ParallelWindowCoordinator.settingsMap())
-                }
-                "updateParallelWindowSettings" -> {
-                    val enabled = call.argument<Boolean>("enabled") ?: true
-                    val preferredPaneSide =
-                        when (call.argument<String>("preferredPrimaryPaneSide").orEmpty()) {
-                            ParallelPaneSide.RIGHT.wireValue -> ParallelPaneSide.RIGHT
-                            else -> ParallelPaneSide.LEFT
-                        }
-                    val preferredPlaybackPaneSide =
-                        when (call.argument<String>("preferredPlaybackPrimaryPaneSide").orEmpty()) {
-                            ParallelPaneSide.LEFT.wireValue -> ParallelPaneSide.LEFT
-                            else -> ParallelPaneSide.RIGHT
-                        }
-                    val splitRatioPreset =
-                        call.argument<String>("splitRatioPreset").orEmpty().ifBlank { "balanced" }
-                    val defaultPlaybackFullscreen =
-                        call.argument<Boolean>("defaultPlaybackFullscreen") ?: true
-                    val immersiveStatusBar =
-                        call.argument<Boolean>("immersiveStatusBar") ?: true
-                    ParallelWindowCoordinator.persistSettings(
-                        context = this,
-                        enabled = enabled,
-                        paneSide = preferredPaneSide,
-                        playbackPaneSide = preferredPlaybackPaneSide,
-                        splitRatioPreset = splitRatioPreset,
-                        defaultPlaybackFullscreen = defaultPlaybackFullscreen,
-                        immersiveStatusBar = immersiveStatusBar,
-                    )
-                    ActivityEmbeddingInstaller.install(this, force = true)
-                    applyParallelWindowImmersiveMode()
-                    result.success(ParallelWindowCoordinator.settingsMap())
-                }
-                "closeRightPane" -> result.success(closeRightPane())
-                "logoutAndResetParallelUi" -> result.success(logoutAndResetParallelUi())
-                "reportBrowseSnapshot" -> {
-                    result.success(reportBrowseSnapshot(copyStringKeyedMap(call.arguments)))
-                }
+        createMethodChannel(flutterEngine, "fly_player/embedding").also { channel ->
+            trackMethodChannelHandler(channel)
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "canOpenEmbeddedDetail" -> result.success(canOpenEmbeddedDetail())
+                    "isParallelWindowSupported" -> result.success(isParallelWindowSupported())
+                    "openItemDetail" -> {
+                        val itemGuid = call.argument<String>("itemGuid").orEmpty()
+                        val seriesGuid = call.argument<String>("seriesGuid").orEmpty()
+                        val initialItemDetail =
+                            call.argument<HashMap<String, Any?>>("initialItemDetail")
+                        result.success(
+                            openEmbeddedDetail(
+                                itemGuid = itemGuid,
+                                seriesGuid = seriesGuid,
+                                initialItemDetail = initialItemDetail,
+                            ),
+                        )
+                    }
+                    "openSecondaryRoute" -> {
+                        val routeName = call.argument<String>("routeName").orEmpty()
+                        result.success(openEmbeddedRoute(routeName))
+                    }
+                    "openSeasonDetail" -> {
+                        val parentGuid = call.argument<String>("parentGuid").orEmpty()
+                        val seriesTitle = call.argument<String>("seriesTitle").orEmpty()
+                        val backdropPath = call.argument<String>("backdropPath").orEmpty()
+                        val seasonItem = call.argument<HashMap<String, Any?>>("seasonItem")
+                        result.success(
+                            openEmbeddedSeasonDetail(
+                                parentGuid = parentGuid,
+                                seriesTitle = seriesTitle,
+                                backdropPath = backdropPath,
+                                seasonItem = seasonItem,
+                            ),
+                        )
+                    }
+                    "openFullscreenPlayer" -> {
+                        val title = call.argument<String>("title").orEmpty()
+                        val source = call.argument<HashMap<String, Any?>>("source")
+                        val initialPlayInfo =
+                            call.argument<HashMap<String, Any?>>("initialPlayInfo")
+                        val startSource = call.argument<String>("startSource").orEmpty()
+                        openFullscreenPlayer(title, source, initialPlayInfo, startSource, result)
+                    }
+                    "openFullscreenScreenshot" -> {
+                        val rawItems = call.argument<List<*>>("items") ?: emptyList<Any?>()
+                        val initialIndex = call.argument<Int>("initialIndex") ?: 0
+                        result.success(
+                            openFullscreenScreenshot(
+                                items = copyStringKeyedMapList(rawItems),
+                                initialIndex = initialIndex,
+                            ),
+                        )
+                    }
+                    "consumeFullscreenScreenshotPayload" -> {
+                        val token = call.argument<String>("token").orEmpty()
+                        result.success(FullscreenScreenshotPayloadStore.consume(token))
+                    }
+                    "readDetailRoutePayload" -> {
+                        val token = call.argument<String>("token").orEmpty()
+                        result.success(DetailRoutePayloadStore.read(token))
+                    }
+                    "getParallelHostContext" -> result.success(getParallelHostContext())
+                    "getParallelWindowSettings" -> {
+                        result.success(ParallelWindowCoordinator.settingsMap())
+                    }
+                    "updateParallelWindowSettings" -> {
+                        val enabled = call.argument<Boolean>("enabled") ?: true
+                        val preferredPaneSide =
+                            when (call.argument<String>("preferredPrimaryPaneSide").orEmpty()) {
+                                ParallelPaneSide.RIGHT.wireValue -> ParallelPaneSide.RIGHT
+                                else -> ParallelPaneSide.LEFT
+                            }
+                        val preferredPlaybackPaneSide =
+                            when (call.argument<String>("preferredPlaybackPrimaryPaneSide").orEmpty()) {
+                                ParallelPaneSide.LEFT.wireValue -> ParallelPaneSide.LEFT
+                                else -> ParallelPaneSide.RIGHT
+                            }
+                        val splitRatioPreset =
+                            call.argument<String>("splitRatioPreset").orEmpty().ifBlank { "balanced" }
+                        val defaultPlaybackFullscreen =
+                            call.argument<Boolean>("defaultPlaybackFullscreen") ?: true
+                        val immersiveStatusBar =
+                            call.argument<Boolean>("immersiveStatusBar") ?: true
+                        ParallelWindowCoordinator.persistSettings(
+                            context = this,
+                            enabled = enabled,
+                            paneSide = preferredPaneSide,
+                            playbackPaneSide = preferredPlaybackPaneSide,
+                            splitRatioPreset = splitRatioPreset,
+                            defaultPlaybackFullscreen = defaultPlaybackFullscreen,
+                            immersiveStatusBar = immersiveStatusBar,
+                        )
+                        ActivityEmbeddingInstaller.install(this, force = true)
+                        applyParallelWindowImmersiveMode()
+                        result.success(ParallelWindowCoordinator.settingsMap())
+                    }
+                    "closeRightPane" -> result.success(closeRightPane())
+                    "logoutAndResetParallelUi" -> result.success(logoutAndResetParallelUi())
+                    "reportBrowseSnapshot" -> {
+                        result.success(reportBrowseSnapshot(copyStringKeyedMap(call.arguments)))
+                    }
 
-                else -> result.notImplemented()
+                    else -> result.notImplemented()
+                }
             }
         }
     }
 
     private fun registerPlayerHostChannel(flutterEngine: FlutterEngine) {
-        createMethodChannel(flutterEngine, "fly_player/player_host").setMethodCallHandler { call, result ->
-            when (call.method) {
-                "consumeInitialPlayerArgs" -> result.success(consumeInitialPlayerArgs())
-                "finishPlayerActivity" -> {
-                    val payload = call.argument<HashMap<String, Any?>>("result")
-                    result.success(finishPlayerActivity(payload))
+        createMethodChannel(flutterEngine, "fly_player/player_host").also { channel ->
+            trackMethodChannelHandler(channel)
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "consumeInitialPlayerArgs" -> result.success(consumeInitialPlayerArgs())
+                    "finishPlayerActivity" -> {
+                        val payload = call.argument<HashMap<String, Any?>>("result")
+                        result.success(finishPlayerActivity(payload))
+                    }
+                    "switchPlayerLayoutMode" -> {
+                        val title = call.argument<String>("title").orEmpty()
+                        val source = call.argument<HashMap<String, Any?>>("source")
+                        val initialPlayInfo =
+                            call.argument<HashMap<String, Any?>>("initialPlayInfo")
+                        val startSource = call.argument<String>("startSource").orEmpty()
+                        val targetMode = call.argument<String>("targetMode").orEmpty()
+                        val resultPayload = call.argument<HashMap<String, Any?>>("result")
+                        result.success(
+                            switchPlayerLayoutMode(
+                                title = title,
+                                source = source,
+                                initialPlayInfo = initialPlayInfo,
+                                startSource = startSource,
+                                targetMode = targetMode,
+                                resultPayload = resultPayload,
+                            ),
+                        )
+                    }
+                    "syncPlayerLaunchState" -> {
+                        val title = call.argument<String>("title").orEmpty()
+                        val source = call.argument<HashMap<String, Any?>>("source")
+                        val initialPlayInfo =
+                            call.argument<HashMap<String, Any?>>("initialPlayInfo")
+                        val startSource = call.argument<String>("startSource").orEmpty()
+                        result.success(
+                            syncPlayerLaunchState(
+                                title = title,
+                                source = source,
+                                initialPlayInfo = initialPlayInfo,
+                                startSource = startSource,
+                            ),
+                        )
+                    }
+                    "isSystemMultiWindowActive" -> {
+                        result.success(isSystemMultiWindowActive())
+                    }
+                    "isPictureInPictureSupported" -> {
+                        result.success(isPictureInPictureSupported())
+                    }
+                    "enterPictureInPicture" -> {
+                        result.success(enterPictureInPicture())
+                    }
+                    else -> result.notImplemented()
                 }
-                "switchPlayerLayoutMode" -> {
-                    val title = call.argument<String>("title").orEmpty()
-                    val source = call.argument<HashMap<String, Any?>>("source")
-                    val initialPlayInfo =
-                        call.argument<HashMap<String, Any?>>("initialPlayInfo")
-                    val startSource = call.argument<String>("startSource").orEmpty()
-                    val targetMode = call.argument<String>("targetMode").orEmpty()
-                    val resultPayload = call.argument<HashMap<String, Any?>>("result")
-                    result.success(
-                        switchPlayerLayoutMode(
-                            title = title,
-                            source = source,
-                            initialPlayInfo = initialPlayInfo,
-                            startSource = startSource,
-                            targetMode = targetMode,
-                            resultPayload = resultPayload,
-                        ),
-                    )
-                }
-                "syncPlayerLaunchState" -> {
-                    val title = call.argument<String>("title").orEmpty()
-                    val source = call.argument<HashMap<String, Any?>>("source")
-                    val initialPlayInfo =
-                        call.argument<HashMap<String, Any?>>("initialPlayInfo")
-                    val startSource = call.argument<String>("startSource").orEmpty()
-                    result.success(
-                        syncPlayerLaunchState(
-                            title = title,
-                            source = source,
-                            initialPlayInfo = initialPlayInfo,
-                            startSource = startSource,
-                        ),
-                    )
-                }
-                "isSystemMultiWindowActive" -> {
-                    result.success(isSystemMultiWindowActive())
-                }
-                "isPictureInPictureSupported" -> {
-                    result.success(isPictureInPictureSupported())
-                }
-                "enterPictureInPicture" -> {
-                    result.success(enterPictureInPicture())
-                }
-                else -> result.notImplemented()
             }
         }
     }
@@ -785,24 +813,22 @@ abstract class FlutterHostActivity : FlutterActivity() {
     protected open fun canOpenEmbeddedDetail(): Boolean {
         if (!ParallelWindowCoordinator.isParallelWindowEnabled()) {
             logEmbeddingDecision("canOpenEmbeddedDetail=false disabledBySettings")
+            closeRightPaneIfEmbeddedDetailUnavailable(reason = "disabledBySettings")
             return false
         }
         if (ParallelWindowCoordinator.isSplitPlayerVisible() && this !is PlayerActivity) {
             logEmbeddingDecision("canOpenEmbeddedDetail=false splitPlayerVisible")
             return false
         }
-        if (Build.VERSION.SDK_INT < 32) return false
+        if (Build.VERSION.SDK_INT < 32) {
+            closeRightPaneIfEmbeddedDetailUnavailable(reason = "sdk")
+            return false
+        }
         val splitSupportStatus = SplitController.getInstance(this).splitSupportStatus
         if (splitSupportStatus != SplitController.SplitSupportStatus.SPLIT_AVAILABLE) {
             logEmbeddingDecision("canOpenEmbeddedDetail=false splitSupportStatus=$splitSupportStatus")
+            closeRightPaneIfEmbeddedDetailUnavailable(reason = "splitUnavailable")
             return false
-        }
-
-        if (ParallelWindowCoordinator.hasRightPaneHost()) {
-            logEmbeddingDecision(
-                "canOpenEmbeddedDetail=true reusedExistingSplit rightPaneHost=${ParallelWindowCoordinator.hasRightPaneHost()}",
-            )
-            return true
         }
 
         val configuration = resources.configuration
@@ -810,10 +836,51 @@ abstract class FlutterHostActivity : FlutterActivity() {
             configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
             configuration.screenWidthDp >= MIN_EMBEDDED_WIDTH_DP &&
             configuration.smallestScreenWidthDp >= MIN_EMBEDDED_SMALLEST_WIDTH_DP
+        if (ParallelWindowCoordinator.hasRightPaneHost()) {
+            logEmbeddingDecision(
+                "canOpenEmbeddedDetail=true reusedExistingSplit rightPaneHost=true",
+            )
+            return true
+        }
         logEmbeddingDecision(
             "canOpenEmbeddedDetail=$canOpen splitSupportStatus=$splitSupportStatus orientation=${configuration.orientation} widthDp=${configuration.screenWidthDp} smallestWidthDp=${configuration.smallestScreenWidthDp}",
         )
         return canOpen
+    }
+
+    private fun closeRightPaneIfEmbeddedDetailUnavailable(reason: String) {
+        if (this !is MainActivity && this !is HomePaneActivity) {
+            return
+        }
+        if (!ParallelWindowCoordinator.hasRightPaneHost()) {
+            return
+        }
+        if (ParallelWindowCoordinator.isSplitPlayerVisible()) {
+            return
+        }
+        val canKeepRightPane =
+            ParallelWindowCoordinator.isParallelWindowEnabled() &&
+                Build.VERSION.SDK_INT >= 32 &&
+                SplitController.getInstance(this).splitSupportStatus ==
+                SplitController.SplitSupportStatus.SPLIT_AVAILABLE &&
+                resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+                resources.configuration.screenWidthDp >= MIN_EMBEDDED_WIDTH_DP &&
+                resources.configuration.smallestScreenWidthDp >= MIN_EMBEDDED_SMALLEST_WIDTH_DP
+        if (canKeepRightPane) {
+            return
+        }
+        val rightPaneHosts = ParallelWindowCoordinator.rightPaneHostsSnapshot()
+        Log.d(
+            logTag,
+            "closeRightPaneIfEmbeddedDetailUnavailable reason=$reason hosts=${rightPaneHosts.size}",
+        )
+        ParallelWindowCoordinator.clearRightPane()
+        ParallelFlutterEngineRegistry.resetDetailRouteToPlaceholder()
+        rightPaneHosts.forEach { host ->
+            if (host !== this && !host.isFinishing) {
+                host.finish()
+            }
+        }
     }
 
     protected open fun isParallelWindowSupported(): Boolean {
@@ -1286,15 +1353,10 @@ abstract class FlutterHostActivity : FlutterActivity() {
         if (normalizedPageKey.isEmpty()) {
             return false
         }
-        if (activeRuntimeThemePageKey.isNotEmpty() && normalizedPageKey != activeRuntimeThemePageKey) {
-            Log.d(
-                logTag,
-                "ignore clearRuntimeThemeOnMain page=$normalizedPageKey active=$activeRuntimeThemePageKey",
-            )
-            return true
+        if (normalizedPageKey == activeRuntimeThemePageKey) {
+            activeRuntimeThemePageKey = ""
+            activeRuntimeThemePayload = null
         }
-        activeRuntimeThemePageKey = ""
-        activeRuntimeThemePayload = null
         val mainHost = ParallelWindowCoordinator.currentMainHost() ?: return false
         Log.d(logTag, "clearRuntimeThemeOnMain page=$normalizedPageKey mainHost=${mainHost.javaClass.simpleName}")
         mainHost.dispatchRuntimeThemeSync(
@@ -1367,6 +1429,25 @@ abstract class FlutterHostActivity : FlutterActivity() {
                 result.error("launch_failed", error.message, null)
             }
             return
+        }
+        // 当已有播放器在 PIP 小窗模式时，替换其播放源而非启动新 Activity，
+        // 避免两个播放器同时播放。
+        if (this !is PlayerActivity) {
+            val existingPlayerHost = ParallelWindowCoordinator.currentPlayerHost()
+            if (existingPlayerHost != null && existingPlayerHost.isInPictureInPictureMode) {
+                Log.d(
+                    logTag,
+                    "openFullscreenPlayer replacingPipSource itemGuid=${playerSource["itemGuid"]}",
+                )
+                existingPlayerHost.replaceSourceInPlace(
+                    normalizedTitle,
+                    HashMap(playerSource),
+                    initialPlayInfo?.let { HashMap(it) },
+                    startSource,
+                )
+                result.success(null)
+                return
+            }
         }
         if (pendingPlayerResult != null) {
             result.error("busy", "player activity already pending", null)

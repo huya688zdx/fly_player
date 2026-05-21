@@ -19,6 +19,8 @@ import kotlin.math.abs
  * 这里主要负责播放器窗口形态、启动参数同步，以及与 Flutter 播放页之间的状态桥接。
  */
 class PlayerActivity : FlutterHostActivity() {
+    private var wasInPictureInPictureMode = false
+
     private val decorFrameRateProbe =
         ViewFrameRateProbe(
             logTag = TAG,
@@ -92,6 +94,7 @@ class PlayerActivity : FlutterHostActivity() {
 
     override fun onResume() {
         super.onResume()
+        wasInPictureInPictureMode = false
         applyPreferredDisplayMode(reason = "resume")
         decorFrameRateProbe.start()
     }
@@ -99,6 +102,15 @@ class PlayerActivity : FlutterHostActivity() {
     override fun onPause() {
         decorFrameRateProbe.stop(reason = "pause")
         super.onPause()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (wasInPictureInPictureMode) {
+            wasInPictureInPictureMode = false
+            Log.d(TAG, "onStop pipDismissed finishing layoutMode=${currentLayoutMode()}")
+            finish()
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -334,8 +346,10 @@ class PlayerActivity : FlutterHostActivity() {
             return false
         }
         val decorView = window.decorView
-        val width = decorView.width.coerceAtLeast(1)
-        val height = decorView.height.coerceAtLeast(1)
+        val rawWidth = decorView.width.coerceAtLeast(1)
+        val rawHeight = decorView.height.coerceAtLeast(1)
+        val width = maxOf(rawWidth, rawHeight)
+        val height = minOf(rawWidth, rawHeight)
         val params =
             PictureInPictureParams
                 .Builder()
@@ -349,6 +363,9 @@ class PlayerActivity : FlutterHostActivity() {
         newConfig: Configuration,
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        if (isInPictureInPictureMode) {
+            wasInPictureInPictureMode = true
+        }
         playerHostStateChannel?.invokeMethod(
             "pictureInPictureModeChanged",
             hashMapOf("active" to isInPictureInPictureMode),

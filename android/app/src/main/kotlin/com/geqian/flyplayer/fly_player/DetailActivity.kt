@@ -41,6 +41,11 @@ class DetailActivity : FlutterHostActivity() {
         ParallelWindowCoordinator.updateCurrentDetailRoute(intentToInitialRoute(intent))
     }
 
+    override fun onResume() {
+        ParallelFlutterEngineRegistry.resumeDetailEngine()
+        super.onResume()
+    }
+
     override fun getInitialRoute(): String {
         return wrappedInitialRoute(intentToInitialRoute(intent))
     }
@@ -83,6 +88,7 @@ class DetailActivity : FlutterHostActivity() {
             ParallelWindowCoordinator.detachDetailHost(this)
             ParallelWindowCoordinator.detachRightPaneHost(this)
             ParallelWindowCoordinator.clearRightPane()
+            ParallelFlutterEngineRegistry.resetDetailRouteToPlaceholder()
         }
         super.onDestroy()
     }
