@@ -196,14 +196,24 @@ object ThemeColorSampler {
                 ),
             )
 
-        val baseCandidate = backgroundCandidate ?: accentCandidate ?: return null
-        val actionCandidate = accentCandidate ?: backgroundCandidate ?: return null
+        // When all swatches are filtered (dark/gray/bright images), fall back
+        // to the dominant color without filtering so every image gets a theme.
+        val fallback = palette.dominantSwatch?.rgb
+            ?: palette.vibrantSwatch?.rgb
+            ?: palette.mutedSwatch?.rgb
+        val baseCandidate = backgroundCandidate ?: accentCandidate ?: fallback ?: return null
+        val actionCandidate = accentCandidate ?: backgroundCandidate ?: fallback ?: return null
         val preferLightSurface = preferLightSurface(baseCandidate)
+
+        val candidatesAreSame = baseCandidate == actionCandidate
+        val accentSource = if (candidatesAreSame) shiftHue(actionCandidate, 30f) else actionCandidate
+        val linkSource = if (candidatesAreSame) shiftHue(actionCandidate, -20f) else actionCandidate
+
         return mapOf(
             "backgroundSeed" to backgroundSeedFor(baseCandidate, preferLightSurface),
-            "accentSeed" to accentSeedFor(actionCandidate),
-            "selectionSeed" to selectionSeedFor(actionCandidate),
-            "linkSeed" to linkSeedFor(actionCandidate),
+            "accentSeed" to accentSeedFor(accentSource),
+            "selectionSeed" to selectionSeedFor(accentSource),
+            "linkSeed" to linkSeedFor(linkSource),
             "preferLightSurface" to preferLightSurface,
         )
     }
@@ -224,9 +234,9 @@ object ThemeColorSampler {
         if (hsl[2] < 0.06f || hsl[2] > 0.90f) return null
 
         val hue = hsl[0]
-        val isHarshWarmHue = hue <= 14f || hue >= 342f || (hue >= 34f && hue <= 72f)
-        if (isHarshWarmHue && hsl[1] > 0.66f) {
-            hsl[1] = 0.66f
+        val isHarshRed = hue <= 10f || hue >= 350f
+        if (isHarshRed && hsl[1] > 0.72f) {
+            hsl[1] = 0.72f
         }
         return ColorUtils.HSLToColor(hsl)
     }
@@ -282,4 +292,12 @@ object ThemeColorSampler {
         minValue: Float,
         maxValue: Float,
     ): Float = max(minValue, min(maxValue, value))
+
+    private fun shiftHue(color: Int, degrees: Float): Int {
+        val hsl = FloatArray(3)
+        ColorUtils.colorToHSL(color, hsl)
+        hsl[0] = (hsl[0] + degrees) % 360f
+        if (hsl[0] < 0f) hsl[0] += 360f
+        return ColorUtils.HSLToColor(hsl)
+    }
 }

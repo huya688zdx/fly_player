@@ -100,7 +100,8 @@ class MpvRuntimeBootstrap(
 
     fun release() {
         released = true
-        Log.d(BOOTSTRAP_TAG, "releaseMpv skip shutdown to avoid global runtime race")
+        runCatching { mpv.shutdown() }
+        Log.d(BOOTSTRAP_TAG, "releaseMpv shutdown complete")
     }
 
     private fun prepareSubtitleFonts(fontDir: File): PreparedSubtitleFonts {

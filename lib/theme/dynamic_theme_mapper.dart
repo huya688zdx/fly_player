@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
@@ -8,8 +10,9 @@ class DynamicThemeMapper {
 
   // Cache [ColorScheme.fromSeed] results — the same (seedColor, brightness,
   // variant, contrastLevel) tuple produces the identical scheme every time.
-  static final Map<int, ColorScheme> _schemeCache = <int, ColorScheme>{};
-  static const int _schemeCacheMaxSize = 12;
+  static final LinkedHashMap<int, ColorScheme> _schemeCache =
+      LinkedHashMap<int, ColorScheme>();
+  static const int _schemeCacheMaxSize = 16;
 
   static ColorScheme _schemeFromSeed({
     required Color seedColor,
@@ -23,8 +26,11 @@ class DynamicThemeMapper {
       variant.index,
       (contrastLevel * 100).round(),
     );
-    final cached = _schemeCache[key];
-    if (cached != null) return cached;
+    final cached = _schemeCache.remove(key);
+    if (cached != null) {
+      _schemeCache[key] = cached;
+      return cached;
+    }
     final scheme = ColorScheme.fromSeed(
       seedColor: seedColor,
       brightness: brightness,
@@ -32,7 +38,7 @@ class DynamicThemeMapper {
       contrastLevel: contrastLevel,
     );
     if (_schemeCache.length >= _schemeCacheMaxSize) {
-      _schemeCache.clear();
+      _schemeCache.remove(_schemeCache.keys.first);
     }
     _schemeCache[key] = scheme;
     return scheme;

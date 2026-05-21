@@ -437,6 +437,34 @@ class AppThemeColors extends ThemeExtension<AppThemeColors> {
     };
   }
 
+  Iterable<int> toSignatureValues() sync* {
+    yield backgroundBase.toARGB32();
+    yield backgroundElevated.toARGB32();
+    yield surface.toARGB32();
+    yield surfaceSubtle.toARGB32();
+    yield surfaceStrong.toARGB32();
+    yield navBarBackground.toARGB32();
+    yield borderSubtle.toARGB32();
+    yield borderStrong.toARGB32();
+    yield accent.toARGB32();
+    yield accentSoft.toARGB32();
+    yield accentStrong.toARGB32();
+    yield selection.toARGB32();
+    yield selectionSoft.toARGB32();
+    yield selectionStrong.toARGB32();
+    yield link.toARGB32();
+    yield chipBackground.toARGB32();
+    yield chipBorder.toARGB32();
+    yield chipText.toARGB32();
+    yield textPrimary.toARGB32();
+    yield textSecondary.toARGB32();
+    yield textMuted.toARGB32();
+    yield success.toARGB32();
+    yield warning.toARGB32();
+    yield danger.toARGB32();
+    yield overlayScrim.toARGB32();
+  }
+
   static AppThemeColors fromMap(Map<String, dynamic> map) {
     const fallback = AppThemePalette.fallback;
     return AppThemeColors(
@@ -1146,30 +1174,109 @@ class AppRuntimeColorController extends ChangeNotifier {
   }
 
   static String _runtimeSignature(String pageKey, AppThemeColors colors) {
-    return <Object>[pageKey, ...colors.toMap().values].join('|');
+    return <Object>[pageKey, ...colors.toSignatureValues()].join('|');
   }
 }
 
-class AppRuntimeColorScope
-    extends InheritedNotifier<AppRuntimeColorController> {
+class AppRuntimeColorScope extends InheritedWidget {
+  final AppThemeColors? colors;
+  final bool hasRuntimeColors;
+
   const AppRuntimeColorScope({
     super.key,
-    required AppRuntimeColorController controller,
+    required this.colors,
+    required this.hasRuntimeColors,
     required super.child,
-  }) : super(notifier: controller);
-
-  static AppRuntimeColorController? maybeControllerOf(BuildContext context) {
-    return context
-        .dependOnInheritedWidgetOfExactType<AppRuntimeColorScope>()
-        ?.notifier;
-  }
+  });
 
   static AppThemeColors? maybeColorsOf(BuildContext context) {
-    return maybeControllerOf(context)?.colors;
+    return context
+        .dependOnInheritedWidgetOfExactType<AppRuntimeColorScope>()
+        ?.colors;
   }
 
   static bool hasRuntimeColorsOf(BuildContext context) {
-    return maybeControllerOf(context)?.hasRuntimeColors ?? false;
+    return context
+            .dependOnInheritedWidgetOfExactType<AppRuntimeColorScope>()
+            ?.hasRuntimeColors ??
+        false;
+  }
+
+  @override
+  bool updateShouldNotify(AppRuntimeColorScope oldWidget) {
+    return colors != oldWidget.colors ||
+        hasRuntimeColors != oldWidget.hasRuntimeColors;
+  }
+}
+
+/// Wraps [AppRuntimeColorScope] and only rebuilds it when the controller's
+/// effective [AppThemeColors] actually changes — not on every
+/// [ChangeNotifier.notifyListeners] call.
+class AppRuntimeColorScopeBuilder extends StatefulWidget {
+  final AppRuntimeColorController controller;
+  final Widget child;
+
+  const AppRuntimeColorScopeBuilder({
+    super.key,
+    required this.controller,
+    required this.child,
+  });
+
+  @override
+  State<AppRuntimeColorScopeBuilder> createState() =>
+      _AppRuntimeColorScopeBuilderState();
+}
+
+class _AppRuntimeColorScopeBuilderState
+    extends State<AppRuntimeColorScopeBuilder> {
+  AppThemeColors? _lastColors;
+  bool _lastHasRuntime = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _lastColors = widget.controller.colors;
+    _lastHasRuntime = widget.controller.hasRuntimeColors;
+    widget.controller.addListener(_onControllerChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant AppRuntimeColorScopeBuilder oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_onControllerChanged);
+      _lastColors = widget.controller.colors;
+      _lastHasRuntime = widget.controller.hasRuntimeColors;
+      widget.controller.addListener(_onControllerChanged);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onControllerChanged);
+    super.dispose();
+  }
+
+  void _onControllerChanged() {
+    final newColors = widget.controller.colors;
+    final newHasRuntime = widget.controller.hasRuntimeColors;
+    if (identical(newColors, _lastColors) &&
+        newHasRuntime == _lastHasRuntime &&
+        newColors == _lastColors) {
+      return;
+    }
+    _lastColors = newColors;
+    _lastHasRuntime = newHasRuntime;
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AppRuntimeColorScope(
+      colors: _lastColors,
+      hasRuntimeColors: _lastHasRuntime,
+      child: widget.child,
+    );
   }
 }
 

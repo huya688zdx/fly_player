@@ -55,6 +55,7 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _sessionStateChannel.setMethodCallHandler(null);
     super.dispose();
   }
 

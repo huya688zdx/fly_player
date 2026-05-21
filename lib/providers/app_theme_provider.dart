@@ -766,7 +766,6 @@ class AppThemeProvider extends ChangeNotifier {
     bool notify = true,
   ]) async {
     _isReady = true;
-    _cacheBootstrapSnapshot();
     _publishRuntimeDynamicThemeToScope();
     if (notify) {
       notifyListeners();
@@ -1017,7 +1016,7 @@ class AppThemeProvider extends ChangeNotifier {
       _customLinkColor?.toARGB32(),
       _dynamicThemeMode.storageValue,
       _dynamicThemeIntensity.storageValue,
-      ...selectedThemeBaseColors.toMap().values,
+      ...selectedThemeBaseColors.toSignatureValues(),
     ];
     if (dynamicThemeEnabled && _runtimeDynamicThemeSeed != null) {
       final seed = _runtimeDynamicThemeSeed!;
@@ -1033,7 +1032,7 @@ class AppThemeProvider extends ChangeNotifier {
   }
 
   String _baseThemeSignature() {
-    return selectedThemeBaseColors.toMap().values.join('|');
+    return selectedThemeBaseColors.toSignatureValues().join('|');
   }
 
   AppThemeColors? _runtimeDynamicThemeColors() {
