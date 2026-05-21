@@ -758,9 +758,14 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope>
       effectiveColors = bundle.effectiveColors;
       effectiveTheme = bundle.effectiveTheme;
     }
-    // Start animation if the ambient tint target changed.
-    if (targetAmbientTint != _ambientTint ||
-        (_colorTween != null && _colorTween!.end != targetAmbientTint)) {
+    final currentAnimatedTarget = _colorTween?.end;
+    final shouldStartAmbientTintAnimation =
+        currentAnimatedTarget != targetAmbientTint &&
+        (targetAmbientTint != _ambientTint || currentAnimatedTarget != null);
+    // Only restart the tint animation when the target actually changes.
+    // Re-triggering the same target every build keeps the controller in a
+    // perpetual reset/forward loop and forces continuous frames while idle.
+    if (shouldStartAmbientTintAnimation) {
       _startAmbientTintAnimationTo(targetAmbientTint);
     }
     final animatedTint = _animatedAmbientTint();

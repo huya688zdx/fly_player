@@ -64,6 +64,8 @@ class RuntimeThemeSyncBridge {
       });
     } on PlatformException {
       // Ignore unavailable host synchronization.
+    } on MissingPluginException {
+      // Ignore unavailable host synchronization.
     }
   }
 
@@ -83,6 +85,8 @@ class RuntimeThemeSyncBridge {
       });
     } on PlatformException {
       // Ignore unavailable host synchronization.
+    } on MissingPluginException {
+      // Ignore unavailable host synchronization.
     }
   }
 
@@ -96,6 +100,8 @@ class RuntimeThemeSyncBridge {
       );
       return result;
     } on PlatformException {
+      return null;
+    } on MissingPluginException {
       return null;
     }
   }
