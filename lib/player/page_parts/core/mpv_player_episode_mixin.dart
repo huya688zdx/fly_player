@@ -2617,6 +2617,9 @@ extension _MpvPlayerEpisodeMixin on _MpvPlayerPageState {
       effectiveSource,
       paused: pausedAfterReload,
     );
+    _enablePlaybackProgressTransitionCompletion(
+      targetPaused: pausedAfterReload,
+    );
     await _controller.reload(effectiveSource);
     _showControls();
   }
