@@ -191,7 +191,7 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
     BuildContext context,
     PlayerNestedSheetController<void> drawer,
   ) {
-    final localRuntimeSource = _isLocalRuntimeTrackSource();
+    final canSearchRemoteSubtitle = _canSearchRemoteSubtitlesForCurrentSource();
     return PlayerNestedSheetScaffold(
       header: PlayerNestedSheetHeader(
         title: '\u9009\u62e9\u5b57\u5e55\u6dfb\u52a0\u65b9\u5f0f',
@@ -200,7 +200,7 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
-          if (!localRuntimeSource)
+          if (canSearchRemoteSubtitle)
             _SubtitleMenuTile(
               title: '\u641c\u7d22\u4e0b\u8f7d\u5b57\u5e55',
               onTap: () {
@@ -208,7 +208,7 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
                 unawaited(_loadRemoteSubtitleSearch(drawer));
               },
             ),
-          if (!localRuntimeSource) const SizedBox(height: 12),
+          if (canSearchRemoteSubtitle) const SizedBox(height: 12),
           _SubtitleMenuTile(
             title: '\u6dfb\u52a0\u672c\u5730\u5b57\u5e55',
             onTap: () =>
@@ -217,6 +217,14 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
         ],
       ),
     );
+  }
+
+  bool _canSearchRemoteSubtitlesForCurrentSource() {
+    if (_externalLocalSource) return false;
+    final mediaGuid = _subtitleSourceMediaGuid.trim().isNotEmpty
+        ? _subtitleSourceMediaGuid.trim()
+        : _currentMediaGuid.trim();
+    return mediaGuid.isNotEmpty;
   }
 
   Widget _buildSubtitleSearchPage(
@@ -529,7 +537,7 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
   Future<void> _loadRemoteSubtitleSearch(
     PlayerNestedSheetController<void> drawer,
   ) async {
-    if (_externalLocalSource) return;
+    if (!_canSearchRemoteSubtitlesForCurrentSource()) return;
     final mediaGuid = _subtitleSourceMediaGuid.trim().isNotEmpty
         ? _subtitleSourceMediaGuid.trim()
         : _currentMediaGuid;
@@ -578,7 +586,7 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
     String language,
     PlayerNestedSheetController<void> drawer,
   ) async {
-    if (_externalLocalSource) {
+    if (!_canSearchRemoteSubtitlesForCurrentSource()) {
       drawer.popPage();
       return;
     }
@@ -595,7 +603,7 @@ extension _MpvPlayerSubtitleDrawerMixin on _MpvPlayerPageState {
     required RemoteSubtitleSearchItem item,
     required PlayerNestedSheetController<void> drawer,
   }) async {
-    if (_externalLocalSource) return;
+    if (!_canSearchRemoteSubtitlesForCurrentSource()) return;
     final mediaGuid = _subtitleSourceMediaGuid.trim().isNotEmpty
         ? _subtitleSourceMediaGuid.trim()
         : _currentMediaGuid;
