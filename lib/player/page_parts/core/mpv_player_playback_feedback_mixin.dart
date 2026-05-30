@@ -52,6 +52,13 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
     _syncVideoLoadingOverlayVisibility();
   }
 
+  void _enablePlaybackProgressTransitionCompletion({
+    required bool targetPaused,
+  }) {
+    if (targetPaused) return;
+    _uiController.allowPlaybackProgressTransitionCompletion = true;
+  }
+
   void _syncVisualPlaybackStartState(MpvPlayerValue value) {
     if (!_uiController.awaitingVisualPlaybackStart) {
       return;
@@ -84,7 +91,9 @@ extension _MpvPlayerPlaybackFeedbackMixin on _MpvPlayerPageState {
     }
     final playbackProgressedAfterSwitch =
         _uiController.allowPlaybackProgressTransitionCompletion &&
-        value.playbackPhase == MpvPlaybackPhase.playing &&
+        value.ready &&
+        value.nativeLibLoaded &&
+        !value.paused &&
         value.position >=
             _uiController.visualPlaybackStartAnchorPosition +
                 _MpvPlayerPageState._videoLoadingPlaybackProgressTolerance;

@@ -422,11 +422,40 @@ class MpvMediaSource {
         externalSubtitleTemplates.any(
           (track) => track.guid.trim() == normalizedSubtitleGuid,
         );
+    final shouldPreferDefaultExternalSubtitle =
+        normalizedSubtitleGuid.isEmpty &&
+        subtitleTrackIndex == null &&
+        localSubtitleBundle.preferredGuid?.trim().isNotEmpty != true &&
+        externalSubtitleTemplates.isNotEmpty;
+    String? defaultExternalSubtitleGuid() {
+      for (final track in externalSubtitleTemplates) {
+        final guid = track.guid.trim();
+        if (guid.isNotEmpty && track.isDefaultOption) {
+          return guid;
+        }
+      }
+      for (final track in externalSubtitleTemplates) {
+        final guid = track.guid.trim();
+        if (guid.isNotEmpty) {
+          return guid;
+        }
+      }
+      return null;
+    }
+
     final resolvedSubtitleTrackGuid = shouldPreferDiscoveredLocalSubtitle
         ? localSubtitleBundle.preferredGuid!.trim()
         : shouldMapExplicitExternalSubtitleToLocal
         ? localSubtitleBundle.preferredGuid!.trim()
+        : shouldPreferDefaultExternalSubtitle
+        ? defaultExternalSubtitleGuid()
         : (normalizedSubtitleGuid.isNotEmpty ? normalizedSubtitleGuid : null);
+    final resolvedSubtitleUsesExternalFile =
+        resolvedSubtitleTrackGuid != null &&
+        (resolvedSubtitleTrackGuid.startsWith('local:') ||
+            externalSubtitleTemplates.any(
+              (track) => track.guid.trim() == resolvedSubtitleTrackGuid,
+            ));
     return MpvMediaSource(
       loadNonce: loadNonce ?? createMpvLoadNonce(),
       itemGuid: normalizedItemGuid,
@@ -467,8 +496,7 @@ class MpvMediaSource {
       externalLocalSource: externalLocalSource,
       danmakuAutoSearchAllowed: danmakuAutoSearchAllowed,
       externalLocalFileSizeBytes: externalLocalFileSizeBytes,
-      preferExternalSubtitle:
-          resolvedSubtitleTrackGuid?.startsWith('local:') == true,
+      preferExternalSubtitle: resolvedSubtitleUsesExternalFile,
       reliableSeek: true,
       seekProbeSummary: 'local-download',
       playbackMode: PlayerPlaybackMode.originalQuality,

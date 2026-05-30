@@ -1320,6 +1320,7 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
       statusText:
           statusText ?? AppLocalizations.of(context).playerPreparingPlayback,
     );
+    _enablePlaybackProgressTransitionCompletion(targetPaused: targetPaused);
     await _controller.setMpvAdvancedSettings(_effectiveMpvSettings());
     await _controller.reload(effectiveSource);
   }

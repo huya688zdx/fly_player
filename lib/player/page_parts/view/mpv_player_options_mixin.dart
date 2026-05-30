@@ -440,6 +440,9 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
       effectiveSource,
       paused: pausedAfterReload ?? _controller.value.value.paused,
     );
+    _enablePlaybackProgressTransitionCompletion(
+      targetPaused: pausedAfterReload ?? _controller.value.value.paused,
+    );
     await _controller.reload(effectiveSource);
   }
 
@@ -609,6 +612,9 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
       effectiveSource,
       paused: pausedAfterReload ?? _controller.value.value.paused,
     );
+    _enablePlaybackProgressTransitionCompletion(
+      targetPaused: pausedAfterReload ?? _controller.value.value.paused,
+    );
     await _controller.reload(effectiveSource);
   }
 
@@ -714,6 +720,9 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
       effectiveSource,
       paused: pausedAfterReload ?? _controller.value.value.paused,
     );
+    _enablePlaybackProgressTransitionCompletion(
+      targetPaused: pausedAfterReload ?? _controller.value.value.paused,
+    );
     await _controller.reload(effectiveSource);
   }
 
@@ -722,7 +731,9 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
     if (normalized.isEmpty) return null;
     final localRuntimeSource = _isLocalRuntimeTrackSource();
     bool isAllowedLocalRuntimeGuid(String guid) {
-      return guid.startsWith('mpv-subtitle:') || guid.startsWith('local:');
+      return guid.startsWith('mpv-subtitle:') ||
+          guid.startsWith('local:') ||
+          _canUseRemoteSubtitleFileForCurrentSource(guid);
     }
 
     final selected = _findSubtitleTrack(normalized);
@@ -998,7 +1009,7 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
     final guid = subtitle.guid.trim();
     final existing = _subtitleFileByGuid[guid];
     if (existing != null && File(existing).existsSync()) return existing;
-    if (_isLocalRuntimeTrackSource()) return null;
+    if (!_canUseRemoteSubtitleFileForCurrentSource(guid)) return null;
     if (_subtitleShouldPreferEmbeddedTrack(subtitle)) return null;
     final pending = _subtitleFileRequestByGuid[guid];
     if (pending != null) {
@@ -1049,6 +1060,15 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
         _subtitleFileRequestByGuid.remove(guid);
       }
     }
+  }
+
+  bool _canUseRemoteSubtitleFileForCurrentSource(String guid) {
+    if (_externalLocalSource) return false;
+    if (guid.trim().isEmpty || guid.startsWith('local:')) return false;
+    final mediaGuid = _subtitleSourceMediaGuid.trim().isNotEmpty
+        ? _subtitleSourceMediaGuid.trim()
+        : _currentMediaGuid.trim();
+    return mediaGuid.isNotEmpty;
   }
 
   Future<String?> _downloadSubtitleFile(
