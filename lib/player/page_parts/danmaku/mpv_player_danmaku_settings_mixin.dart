@@ -49,11 +49,9 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
   }
 
   String _danmakuSpeedLabel() {
-    final speed = nearestDanmakuSpeedPreset(_danmakuController.settings.speed);
-    if (speed <= danmakuSpeedPresets.first + 0.0001) return '偏慢';
-    if (speed >= danmakuSpeedPresets.last - 0.0001) return '极快';
-    if (speed >= danmakuSpeedPresets[3] - 0.0001) return '较快';
-    return '标准';
+    // 无级变速：直接显示倍速（1.0× 为正常，<1 更慢，>1 更快）。
+    final speed = clampDanmakuSpeed(_danmakuController.settings.speed);
+    return '${speed.toStringAsFixed(speed >= 1.0 ? 1 : 2)}×';
   }
 
   String _danmakuFrameRateLabel() {
@@ -149,6 +147,17 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
     _showStatusMessage(
       nextEnabled ? '弹幕已开启' : '弹幕已关闭',
       hideAfter: const Duration(milliseconds: 1400),
+    );
+  }
+
+  Future<void> _setDanmakuUseNativeRenderer(bool value) async {
+    await _updateDanmakuSettings(
+      (current) => current.copyWith(useNativeRenderer: value),
+    );
+    if (!mounted) return;
+    _showStatusMessage(
+      value ? '已切换到原生弹幕渲染器，重新打开播放器后生效' : '已切换到 Flutter 弹幕渲染器，重新打开播放器后生效',
+      hideAfter: const Duration(milliseconds: 2600),
     );
   }
 

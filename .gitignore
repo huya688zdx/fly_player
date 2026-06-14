@@ -38,7 +38,7 @@ lib/l10n/generated/
 # Local logs / temp probes
 error.log
 flutter
-lib.rar
+*.rar
 probe_*
 tmp_*
 .codex_tmp/
@@ -63,8 +63,12 @@ app.*.map.json
 
 # Claude Code
 .claude/
+.superpowers/
 
 # Local dev tools
 getapi/
 .getapi/
 弹幕.json
+.gitup/
+.claude.bat
+.claude*.bat

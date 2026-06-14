@@ -1,4 +1,4 @@
-﻿package com.geqian.flyplayer.fly_player.mpv
+package com.geqian.flyplayer.fly_player.mpv
 
 import android.media.AudioManager
 import android.content.ContentValues
@@ -24,11 +24,24 @@ import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
 
 private const val TAG = "FlyPlayerMpv"
+// 可位流直通的 mpv audio-codec-name 集（对齐 AudioPassthroughSupport.ALL_CODECS）。DTS 系
+// FFmpeg 解码器名为 "dca"，另由 name.startsWith("dts") 兜住 dts/dts-hd 写法。
+private val PASSTHROUGH_CAPABLE_CODECS =
+    setOf("ac3", "eac3", "e-ac3", "dca", "dts", "dts-hd", "truehd", "mlp")
 private const val AUTO_SOFTWARE_DECODER_FALLBACK_STATUS = "Auto decoder fallback: software"
 private const val AUTO_FILTER_FALLBACK_STATUS = "Auto performance fallback: filters disabled"
 private const val FILTER_FALLBACK_SAMPLE_INTERVAL_MS = 1500L
-private const val FILTER_FALLBACK_DROP_THRESHOLD = 6L
-private const val FILTER_FALLBACK_MISTIMED_THRESHOLD = 12L
+// 单窗(1.5s)判定"不稳"的阈值。注意 frame-drop-count 含启动/seek/切场景的瞬时丢帧,
+// 流畅设备也常有个位数 VO 丢帧(尤其 mediacodec-copy + 高刷屏),故阈值给得高、避免误判。
+private const val FILTER_FALLBACK_DROP_THRESHOLD = 20L
+private const val FILTER_FALLBACK_MISTIMED_THRESHOLD = 24L
+// 必须连续 N 个采样窗都"不稳"才降级——过滤瞬时尖峰(启动 settling/seek/场景切),
+// 只抓真正持续的"跟不上"。N×1.5s≈4.5s 的持续卡顿才动手。
+private const val FILTER_FALLBACK_CONSECUTIVE_WINDOWS = 3
+// 性能阶梯最高级：1=视频降画质+宿主关 AI 遮罩（方案 B），2=并压弹幕（方案 C），
+// 3=mpv 渲染后端 Vulkan→GLES 重载以保留 HDR 直通（路线1，避开双 Vulkan 争用），
+// 4=仍掉帧才放弃 HDR、降为 HDR→SDR 映射（方案 D，最后兜底）。
+private const val PERFORMANCE_FALLBACK_MAX_LEVEL = 4
 private const val SURFACE_TRANSITION_GRACE_MS = 2500L
 private const val VISUAL_PLAYBACK_PROGRESS_FALLBACK_MS = 900L
 private const val ENABLE_MPV_VERBOSE_LOGS = false
@@ -96,12 +109,15 @@ class MpvPlaybackController(
     private var videoStreamLossReason: String? = null
     private var proxyOpenFailed = false
     private var proxyOpenFailureReason: String? = null
-    private var autoFilterFallbackTriggeredForSource = false
+    // 自适应性能阶梯级别：0=未降级，1=视频已降画质，2=并已请求压弹幕。每个源重置。
+    private var performanceFallbackLevel = 0
     private var lastFilterFallbackSampleUptimeMs = 0L
     private var lastDropFrameCount = 0L
     private var lastDecoderDropFrameCount = 0L
     private var lastMistimedFrameCount = 0L
     private var lastVoDelayedFrameCount = 0L
+    // 连续"不稳"采样窗计数,达到 FILTER_FALLBACK_CONSECUTIVE_WINDOWS 才真正降级(过滤瞬时尖峰)。
+    private var consecutiveUnstableFallbackWindows = 0
     private var observedCacheDurationMs = 0L
     private var visualPlaybackStartAnchorMs = 0L
     private var lastAppliedCachePauseWaitMs = Long.MIN_VALUE
@@ -142,6 +158,7 @@ class MpvPlaybackController(
     private val advancedSettingsController = MpvAdvancedSettingsController(
         mpv = mpv,
         videoOutputController = videoOutputController,
+        context = context,
     )
     private val diagnosticsSnapshotFactory = PlaybackDiagnosticsSnapshotFactory(
         sessionGate = sessionGate,
@@ -160,6 +177,13 @@ class MpvPlaybackController(
                     danmakuOcclusionStateListener?.invoke(next, runtimeMaskBitmap)
                 }
             },
+            // Plan B: current playback position (ms) for decode-ahead. Read the
+            // observer-tracked state (getPropertyDouble from the inference thread
+            // returns 0); state.positionMs is updated by eventProperty("time-pos").
+            positionProviderMs = { state.positionMs },
+            // Plan B v2: playback speed scales the producer's lookahead window so
+            // masks still land ahead of playback at 1.5x/2x.
+            playbackSpeedProvider = { state.speed },
         )
 
     private fun verboseLog(message: () -> String) {
@@ -327,6 +351,26 @@ class MpvPlaybackController(
         return true
     }
 
+    // 弹层/二级界面打开时暂停 AI 遮挡采样，不卸载模型。
+    fun setDanmakuOcclusionSamplingPaused(paused: Boolean): Boolean {
+        if (disposed) return false
+        val controller = danmakuOcclusionController ?: return false
+        runOnPlaybackThread {
+            controller.setExternallyPaused(paused)
+        }
+        return true
+    }
+
+    // 当前屏幕上没有弹幕时暂停 AI 采样，避免无意义的推理消耗。
+    fun setDanmakuHasOnScreenComments(hasComments: Boolean): Boolean {
+        if (disposed) return false
+        val controller = danmakuOcclusionController ?: return false
+        runOnPlaybackThread {
+            controller.setHasDanmakuOnScreen(hasComments)
+        }
+        return true
+    }
+
     fun load(args: Map<String, Any?>) {
         runOnPlaybackThread {
             invalidateVideoOutputSanityChecks()
@@ -344,6 +388,8 @@ class MpvPlaybackController(
             state = state.copy(
                 loadNonce = source.loadNonce,
                 paused = source.startPaused,
+                // 新源从未降级开始（强设备/低负载源应保持满画质）。
+                performanceFallbackLevel = 0,
             )
             if (previousUrl != source.url) {
                 sourceResolver.releaseOnSourceChange(previousUrl, source.url)
@@ -871,6 +917,28 @@ class MpvPlaybackController(
         return true
     }
 
+    /**
+     * 临时改 mpv 输出音量（0~100，duck 用）。与音频页的「音量增益」走不同属性互不干扰：
+     * 这里改的是 mpv `volume`（基础输出），增益走 af 滤镜链。焦点 duck/还原成对调用。
+     */
+    fun setPlaybackVolume(volume: Double) {
+        if (disposed) return
+        runOnPlaybackThread {
+            if (initialized && mpv.isAvailable()) {
+                runCatching { mpv.setPropertyDouble("volume", volume.coerceIn(0.0, 100.0)) }
+            }
+        }
+    }
+
+    /** 读当前 mpv `volume`（duck 前缓存原值用）。失败回退 100。 */
+    fun getPlaybackVolume(): Double {
+        if (disposed) return 100.0
+        return runCatching { mpv.getPropertyDouble("volume") }
+            .getOrDefault(100.0)
+            .let { if (it <= 0.0) 100.0 else it }
+    }
+
+
     fun setVideoAdjustments(args: Map<String, Any?>): Boolean {
         if (disposed) return false
         runOnPlaybackThread {
@@ -1071,7 +1139,17 @@ class MpvPlaybackController(
         generation: Long,
         width: Int,
         height: Int,
-    ) = Unit
+    ) {
+        // 分屏/resize 后 SurfaceView 尺寸变了，必须把新尺寸告诉 mpv，否则它仍按旧（全屏）
+        // 尺寸渲染、被系统缩放进窄栏 → 画面被压缩（android-surface-size 是 mpv-android 标准机制）。
+        if (width <= 0 || height <= 0) return
+        runOnPlaybackThread {
+            if (!initialized || !mpv.isAvailable()) return@runOnPlaybackThread
+            runCatching {
+                mpv.setPropertyString("android-surface-size", "${width}x$height")
+            }
+        }
+    }
 
     fun onVideoOutputSurfaceDestroyed(generation: Long) {
         runOnPlaybackThread {
@@ -2377,6 +2455,7 @@ class MpvPlaybackController(
             maybeMarkProxyOpenFailure(prefix, message, lowerMessage)
             maybeTriggerHdrHwdecFallback(lowerMessage)
             maybeTriggerAutomaticSoftwareDecoderFallback(lowerMessage)
+            maybeTriggerAudioPassthroughFallback(lowerMessage)
             applyRecoveryDecision(lowerMessage)
             maybeMarkVisualPlaybackReady(lowerMessage)
             if (
@@ -2461,6 +2540,37 @@ class MpvPlaybackController(
         }
     }
 
+    private fun maybeTriggerAudioPassthroughFallback(lowerMessage: String) {
+        if (!isAudioPassthroughInitFailure(lowerMessage)) return
+        if (!advancedSettingsController.triggerAudioPassthroughFallback()) return
+        if (!initialized || !mpv.isAvailable()) return
+        // 直通失败回退到解码：重套高级设置（fingerprint 含回退标志，不会被去抖跳过），af/spdif 立即生效。
+        advancedSettingsController.apply(initialized, mpv.isAvailable(), source)
+        updateState(
+            state.copy(
+                statusText = "直通输出不被支持，已切换为解码播放",
+                error = null,
+            ),
+        )
+        Log.w(TAG, "audio passthrough fallback applied after log=\"$lowerMessage\"")
+    }
+
+    /** 直通(spdif/AudioTrack)初始化失败的日志特征：保守匹配，避免误伤普通音频日志。 */
+    private fun isAudioPassthroughInitFailure(lowerMessage: String): Boolean {
+        val mentionsPassthrough =
+            lowerMessage.contains("spdif") ||
+                lowerMessage.contains("passthrough") ||
+                lowerMessage.contains("audiotrack")
+        if (!mentionsPassthrough) return false
+        return lowerMessage.contains("fail") ||
+            lowerMessage.contains("error") ||
+            lowerMessage.contains("not support") ||
+            lowerMessage.contains("unsupported") ||
+            lowerMessage.contains("could not open") ||
+            lowerMessage.contains("init")
+    }
+
+
     private fun maybeTriggerAutomaticSoftwareDecoderFallback(lowerMessage: String) {
         val changed = videoOutputController.maybeTriggerSoftwareDecoderFallback(source, lowerMessage)
         syncVideoOutputState()
@@ -2479,8 +2589,8 @@ class MpvPlaybackController(
     }
 
     private fun maybeTriggerAutomaticFilterFallback() {
-        if (autoFilterFallbackTriggeredForSource) return
-        if (!advancedSettingsController.canTriggerAutomaticFilterFallback(source)) return
+        // 已到顶级（视频已最省 + 已请求压弹幕）就不再采样。
+        if (performanceFallbackLevel >= PERFORMANCE_FALLBACK_MAX_LEVEL) return
         if (!initialized || !mpv.isAvailable()) return
         if (!loadState.sourceFileLoaded || !isCurrentSourceStable()) return
         if (state.playbackPhase != MpvPlaybackPhase.PLAYING.wireValue || state.positionMs < 3000L) {
@@ -2488,7 +2598,9 @@ class MpvPlaybackController(
         }
 
         val now = SystemClock.uptimeMillis()
-        val dropFrameCount = currentPerformanceCounter("drop-frame-count")
+        // 真实存在的 mpv 属性是 frame-drop-count（VO 丢帧），不是 drop-frame-count——后者在本
+        // 构建里恒为 not-found，曾导致整个自适应降级形同虚设（4K60 HDR 无任何保护直接 ANR）。
+        val dropFrameCount = currentPerformanceCounter("frame-drop-count")
         val decoderDropFrameCount = currentPerformanceCounter("decoder-frame-drop-count")
         val mistimedFrameCount = currentPerformanceCounter("mistimed-frame-count")
         val voDelayedFrameCount = currentPerformanceCounter("vo-delayed-frame-count")
@@ -2523,32 +2635,125 @@ class MpvPlaybackController(
         val unstablePlayback =
             dropDelta >= FILTER_FALLBACK_DROP_THRESHOLD ||
                 mistimedDelta >= FILTER_FALLBACK_MISTIMED_THRESHOLD
-        if (!unstablePlayback) return
+        if (!unstablePlayback) {
+            // 出现一个正常窗就清零连续计数——只对"持续"卡顿动手,不被瞬时尖峰带偏。
+            consecutiveUnstableFallbackWindows = 0
+            return
+        }
 
-        val changed = advancedSettingsController.triggerAutomaticFilterFallback(
-            initialized = initialized,
-            available = mpv.isAvailable(),
-            source = source,
-        )
-        syncVideoOutputState()
-        if (!changed) return
-
-        autoFilterFallbackTriggeredForSource = true
-        Log.w(
+        consecutiveUnstableFallbackWindows += 1
+        Log.d(
             TAG,
-            "triggered automatic filter fallback dropDelta=$dropDelta mistimedDelta=$mistimedDelta source=[${source.debugSummary()}]",
+            "perf sample unstable window=$consecutiveUnstableFallbackWindows/$FILTER_FALLBACK_CONSECUTIVE_WINDOWS " +
+                "dropDelta=$dropDelta mistimedDelta=$mistimedDelta",
         )
-        updateState(
-            state.copy(
-                statusText = AUTO_FILTER_FALLBACK_STATUS,
-                error = null,
-            ),
-        )
+        if (consecutiveUnstableFallbackWindows < FILTER_FALLBACK_CONSECUTIVE_WINDOWS) return
+        consecutiveUnstableFallbackWindows = 0
+        escalatePerformanceFallback(dropDelta, mistimedDelta)
+    }
+
+    /**
+     * 自适应性能阶梯（反应式，强设备不掉帧就永不触发）：
+     *  - L0→L1（方案 B）：把视频渲染降到最省档（剥离增强 + 缩放强制 bilinear），宿主并关 AI 遮罩，toast。
+     *  - L1→L2（方案 C）：视频已最省仍掉帧，请求宿主压低弹幕负载（经 state 级别下发）。
+     *  - L2→L3（路线1）：仍掉帧 → 把 mpv 渲染后端 Vulkan→GLES 重载（避开与 Flutter Impeller 的双
+     *    Vulkan 显存争用），**保留 HDR 直通**。弱 Adreno 4K HDR 卡死多因双 Vulkan，退 GLES 常能直接播 HDR。
+     *  - L3→L4（方案 D，最后兜底）：退 GLES 仍掉帧才放弃 HDR，降为 HDR→SDR 映射（8bit 输出），
+     *    削掉 4K HDR 10bit 交换链 + libplacebo 大纹理分配导致的卡死/ANR 根因。
+     * 每升一级就重置采样窗口，给上一级的缓解措施留出生效时间，避免一次性连跳多级。
+     */
+    private fun escalatePerformanceFallback(dropDelta: Long, mistimedDelta: Long) {
+        when (performanceFallbackLevel) {
+            0 -> {
+                val changed = advancedSettingsController.escalateVideoPerformanceFallback(
+                    initialized = initialized,
+                    available = mpv.isAvailable(),
+                    source = source,
+                )
+                syncVideoOutputState()
+                // 即便属性下发个别失败，也置为已降级，避免在尖峰里反复重试。
+                performanceFallbackLevel = 1
+                Log.w(
+                    TAG,
+                    "perf fallback L1 (video) changed=$changed dropDelta=$dropDelta " +
+                        "mistimedDelta=$mistimedDelta scale=${currentMpvString("scale")} " +
+                        "cscale=${currentMpvString("cscale")} source=[${source.debugSummary()}]",
+                )
+                updateState(
+                    state.copy(
+                        statusText = AUTO_FILTER_FALLBACK_STATUS,
+                        performanceFallbackLevel = 1,
+                        error = null,
+                    ),
+                )
+            }
+            1 -> {
+                performanceFallbackLevel = 2
+                Log.w(
+                    TAG,
+                    "perf fallback L2 (danmaku) dropDelta=$dropDelta " +
+                        "mistimedDelta=$mistimedDelta source=[${source.debugSummary()}]",
+                )
+                updateState(
+                    state.copy(
+                        performanceFallbackLevel = 2,
+                        error = null,
+                    ),
+                )
+            }
+            2 -> {
+                // L3（路线1）：先试把 mpv 渲染后端 Vulkan→GLES（避开与 Flutter Impeller 的双
+                // Vulkan 显存争用），保留 HDR 直通——很多弱 Adreno 的 4K HDR 卡死根因是双 Vulkan，
+                // 退 GLES 后直通能跑就不必牺牲 HDR。需重载让 VO 在 GLES 下重建。已是 GLES 则跳过。
+                val switched = downgradeGpuContextToGles()
+                performanceFallbackLevel = 3
+                Log.w(
+                    TAG,
+                    "perf fallback L3 (vulkan->gles, keep HDR) switched=$switched dropDelta=$dropDelta " +
+                        "mistimedDelta=$mistimedDelta source=[${source.debugSummary()}]",
+                )
+                updateState(
+                    state.copy(
+                        performanceFallbackLevel = 3,
+                        error = null,
+                    ),
+                )
+                if (switched) reloadCurrentSource("perf: vulkan->gles to keep 4K HDR direct")
+            }
+            3 -> {
+                // L4（最后兜底）：退 GLES 仍掉帧，才放弃 HDR 直通，降为 HDR→SDR 映射。
+                val changed = videoOutputController.escalateColorPipelineToTonemap(
+                    initialized = initialized,
+                    available = mpv.isAvailable(),
+                )
+                syncVideoOutputState()
+                performanceFallbackLevel = 4
+                Log.w(
+                    TAG,
+                    "perf fallback L4 (hdr->sdr) changed=$changed dropDelta=$dropDelta " +
+                        "mistimedDelta=$mistimedDelta source=[${source.debugSummary()}]",
+                )
+                updateState(
+                    state.copy(
+                        performanceFallbackLevel = 4,
+                        error = null,
+                    ),
+                )
+            }
+        }
+        // 升级后重置窗口，下一级需要重新积累一窗掉帧。
+        lastFilterFallbackSampleUptimeMs = 0L
     }
 
     private fun clearVideoStreamFailure() {
         videoStreamLost = false
         videoStreamLossReason = null
+    }
+
+    private fun downgradeGpuContextToGles(): Boolean {
+        // 当前 VideoOutputController 没有公开 GPU backend 切换接口。
+        // 保守返回 false，让后续 HDR->SDR 映射 fallback 继续接管。
+        return false
     }
 
     private fun currentWeakNetworkSnapshot(): WeakNetworkBufferingSnapshot {
@@ -2613,12 +2818,13 @@ class MpvPlaybackController(
     }
 
     private fun resetAutomaticFilterFallbackMonitor() {
-        autoFilterFallbackTriggeredForSource = false
+        performanceFallbackLevel = 0
         lastFilterFallbackSampleUptimeMs = 0L
         lastDropFrameCount = 0L
         lastDecoderDropFrameCount = 0L
         lastMistimedFrameCount = 0L
         lastVoDelayedFrameCount = 0L
+        consecutiveUnstableFallbackWindows = 0
     }
 
     private fun resetWeakNetworkBuffering() {
@@ -2707,6 +2913,47 @@ class MpvPlaybackController(
             videoWidth <= 0L &&
             videoHeight <= 0L
     }
+
+    /**
+     * 解码/输出诊断快照（供轨道信息页排查用）：实际 hwdec、色彩管线、是否触发过自动回退、
+     * 音频输出路径（直通编码 / PCM 解码）、丢帧数、容器帧率。直接读 mpv 属性，缺失项为 null。
+     */
+    fun getPlaybackDiagnostics(): Map<String, Any?> {
+        val forcedHwdec = videoOutputController.forcedHwdecMode
+        val forcedPipeline = videoOutputController.forcedColorPipeline
+        val fallbackReasons = mutableListOf<String>()
+        if (forcedHwdec != null) fallbackReasons += "hwdec→$forcedHwdec"
+        if (forcedPipeline != null) fallbackReasons += "色彩→$forcedPipeline"
+        // 直通仅对 spdif 可位流的压缩编码生效（见 AudioPassthroughSupport.ALL_CODECS：
+        // ac3/eac3/dts/dts-hd/truehd）。FLAC/PCM/AAC/Opus 等即便配置开了直通也会被解码成 PCM，
+        // 故诊断按「设置开直通 且 当前轨编码本身能位流」上报，避免把解码中的 FLAC 误标「直通(flac)」。
+        val audioCodecName = currentMpvString("audio-codec-name")
+        val passthroughCapableCodec = audioCodecName?.lowercase()?.let { name ->
+            name in PASSTHROUGH_CAPABLE_CODECS || name.startsWith("dts")
+        } ?: false
+        val passthroughActive =
+            advancedSettingsController.isAudioPassthroughActive() && passthroughCapableCodec
+        return mapOf(
+            "hwdecCurrent" to currentMpvString("hwdec-current"),
+            "colorPipeline" to videoOutputController.activeColorPipeline.name,
+            "windowColorMode" to videoOutputController.currentWindowColorMode(),
+            "fallbackTriggered" to fallbackReasons.isNotEmpty(),
+            "fallbackReason" to fallbackReasons.joinToString(" / "),
+            "audioPassthrough" to passthroughActive,
+            "audioCodec" to audioCodecName,
+            "audioFormat" to currentMpvString("audio-params/format"),
+            "audioOut" to currentMpvString("current-ao"),
+            "audioChannels" to currentMpvString("audio-params/channels"),
+            "audioOutChannels" to currentMpvString("audio-out-params/channels"),
+            "audioChannels" to currentMpvString("audio-params/channels"),
+            "audioOutChannels" to currentMpvString("audio-out-params/channels"),
+            "containerFps" to (runCatching { mpv.getPropertyDouble("container-fps") }.getOrNull()),
+            "estimatedFps" to (runCatching { mpv.getPropertyDouble("estimated-vf-fps") }.getOrNull()),
+            "droppedFrames" to currentPerformanceCounter("frame-drop-count"),
+            "decoderDroppedFrames" to currentPerformanceCounter("decoder-frame-drop-count"),
+        )
+    }
+
 
     private fun currentMpvString(property: String): String? {
         return runCatching { mpv.getPropertyString(property) }

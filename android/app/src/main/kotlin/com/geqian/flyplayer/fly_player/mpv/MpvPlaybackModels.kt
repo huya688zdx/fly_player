@@ -131,6 +131,30 @@ data class MpvSource(
         return hdrGamut && bitDepth10Plus
     }
 
+    /**
+     * 疑似 Dolby Vision Profile 5（无 HDR10 兼容层，IPTPQc2）。这类在无 DV 解码器的设备上
+     * mediacodec 直出会绿/紫屏。从 codec/profile 串判断：含 DV 标识且 profile 标 5。
+     */
+    fun isDolbyVisionProfile5Like(): Boolean {
+        val codec = videoCodecName.lowercase(Locale.US)
+        val profile = videoProfile.lowercase(Locale.US)
+        val dolbyVisionLike =
+            codec.contains("dovi") ||
+                codec.contains("dvhe") ||
+                codec.contains("dvh1") ||
+                profile.contains("dolby vision") ||
+                profile.contains("dolbyvision")
+        if (!dolbyVisionLike) return false
+        // Profile 5 标识：dvhe.05 / dvh1.05 / "profile 5" / 单独的 ".05."。
+        return profile.contains("dvhe.05") ||
+            profile.contains("dvh1.05") ||
+            profile.contains(".05.") ||
+            profile.contains("profile 5") ||
+            profile.contains("profile5") ||
+            codec.contains("dvhe.05") ||
+            codec.contains("dvh1.05")
+    }
+
     fun isHevcLike(): Boolean {
         val codec = videoCodecName.lowercase(Locale.US)
         return codec.contains("hevc") ||
@@ -228,6 +252,10 @@ data class MpvPlayerState(
     val nativeProxySessionId: String? = null,
     val cacheResourceKey: String? = null,
     val positionSampleTimeNs: Long = 0L,
+    val speed: Double = 1.0,
+    // 自适应性能阶梯当前级别：0=未降级，1=视频已降画质（方案 B），2=并已请求压弹幕（方案 C）。
+    // 宿主据此 toast 提醒用户、并在 >=2 时降低弹幕负载。
+    val performanceFallbackLevel: Int = 0,
 ) {
     fun toMap(): Map<String, Any?> {
         return mapOf(
@@ -250,6 +278,8 @@ data class MpvPlayerState(
             "error" to error,
             "nativeProxySessionId" to nativeProxySessionId,
             "cacheResourceKey" to cacheResourceKey,
+            "speed" to speed,
+            "performanceFallbackLevel" to performanceFallbackLevel,
         )
     }
 }

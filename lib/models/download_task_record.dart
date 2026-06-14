@@ -68,6 +68,13 @@ class DownloadTaskRecord {
   final int createdAtMs;
   final int updatedAtMs;
 
+  /// TMDB 标识（`tm12345` 或纯数字）。下载时写入，离线时仍可用于弹幕 tmid 精确搜索。
+  final String tmdbId;
+
+  /// 剧集季号/集号。下载时写入，离线选集与弹幕集匹配用（playItem 离线拿不到时兜底）。
+  final int seasonNumber;
+  final int episodeNumber;
+
   const DownloadTaskRecord({
     required this.id,
     required this.remoteTaskId,
@@ -90,6 +97,9 @@ class DownloadTaskRecord {
     required this.errorMessage,
     required this.createdAtMs,
     required this.updatedAtMs,
+    this.tmdbId = '',
+    this.seasonNumber = 0,
+    this.episodeNumber = 0,
   });
 
   bool get isDownloaded => status == DownloadTaskStatus.downloaded;
@@ -119,6 +129,9 @@ class DownloadTaskRecord {
     String? errorMessage,
     int? createdAtMs,
     int? updatedAtMs,
+    String? tmdbId,
+    int? seasonNumber,
+    int? episodeNumber,
   }) {
     return DownloadTaskRecord(
       id: id ?? this.id,
@@ -142,6 +155,9 @@ class DownloadTaskRecord {
       errorMessage: errorMessage ?? this.errorMessage,
       createdAtMs: createdAtMs ?? this.createdAtMs,
       updatedAtMs: updatedAtMs ?? this.updatedAtMs,
+      tmdbId: tmdbId ?? this.tmdbId,
+      seasonNumber: seasonNumber ?? this.seasonNumber,
+      episodeNumber: episodeNumber ?? this.episodeNumber,
     );
   }
 
@@ -176,6 +192,9 @@ class DownloadTaskRecord {
       errorMessage: (json['errorMessage'] ?? '').toString(),
       createdAtMs: _asInt(json['createdAtMs']),
       updatedAtMs: _asInt(json['updatedAtMs']),
+      tmdbId: (json['tmdbId'] ?? '').toString(),
+      seasonNumber: _asInt(json['seasonNumber']),
+      episodeNumber: _asInt(json['episodeNumber']),
     );
   }
 
@@ -206,6 +225,9 @@ class DownloadTaskRecord {
       'errorMessage': errorMessage,
       'createdAtMs': createdAtMs,
       'updatedAtMs': updatedAtMs,
+      'tmdbId': tmdbId,
+      'seasonNumber': seasonNumber,
+      'episodeNumber': episodeNumber,
     };
   }
 

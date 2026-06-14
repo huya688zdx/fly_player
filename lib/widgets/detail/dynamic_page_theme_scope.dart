@@ -9,6 +9,7 @@ import '../../theme/app_theme.dart';
 import '../../theme/dynamic_theme_mapper.dart';
 import '../../theme/dynamic_theme_runtime_controller.dart';
 import '../../theme/dynamic_theme_seed_extractor.dart';
+import '../../ui/route_transition_gate.dart';
 
 typedef DynamicPageThemeBuilder =
     Widget Function(BuildContext context, Color? ambientTint);
@@ -72,8 +73,7 @@ class _GlobalSyncEntry {
   });
 }
 
-class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope>
-    with TickerProviderStateMixin {
+class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
   static final Map<String, int> _globalThemeOwnerCounts = <String, int>{};
   static final Set<String> _pendingGlobalClearPageKeys = <String>{};
   static final Map<String, _GlobalSyncEntry> _pendingGlobalSyncs =
@@ -84,9 +84,6 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope>
 
   DynamicThemeSeed? _seed;
   DynamicThemeSeed? _resolvedSeed;
-  Color? _ambientTint;
-  late final AnimationController _colorAnimController;
-  ColorTween? _colorTween;
   String _seedPageKey = '';
   String _seedImageUrl = '';
   int _requestVersion = 0;
@@ -102,10 +99,6 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope>
   @override
   void initState() {
     super.initState();
-    _colorAnimController = AnimationController(
-      duration: const Duration(milliseconds: 140),
-      vsync: this,
-    );
     _updateGlobalThemeOwnerRegistration();
     _debugLogScopeConfig('init');
     final cachedSeed = DynamicThemeRuntimeController.instance.cachedSeedFor(
@@ -174,15 +167,16 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope>
 
   @override
   void dispose() {
-    _colorAnimController.dispose();
     _resolveTimer?.cancel();
     _setGlobalThemeResolveHold(false);
-    final globalThemeKeyToClear =
-        _registeredGlobalThemeKey ?? _lastSyncedPageKey;
     _releaseGlobalThemeOwnerRegistration();
-    if (widget.syncGlobalTheme) {
-      _queueGlobalThemeClear(globalThemeKeyToClear, flushImmediate: true);
-    }
+    // Sticky runtime theme: do NOT clear the global theme on tear-down. Once a
+    // page has sampled a color it persists until another page samples a new one
+    // (or the app restarts). This means popping back to a page that does not
+    // sample (e.g. a season page) keeps the host on the last sampled color
+    // instead of resetting to the base theme. It also removes the synchronous
+    // post-frame flush + full theme-tree rebuild that previously ran during the
+    // pop animation, which was a source of dropped frames on page transitions.
     super.dispose();
   }
 
@@ -289,11 +283,7 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope>
       _syncGlobalRuntimeTheme(restored, allowResolveHold: false);
       return;
     }
-    if (_seed != restored) {
-      setState(() {
-        _seed = restored;
-      });
-    }
+    _applyResolvedSeedSetState(restored);
     _syncGlobalRuntimeTheme(restored, allowResolveHold: false);
   }
 
@@ -320,11 +310,7 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope>
         _syncGlobalRuntimeTheme(cached, allowResolveHold: false);
         return;
       }
-      if (_seed != cached && mounted) {
-        setState(() {
-          _seed = cached;
-        });
-      }
+      _applyResolvedSeedSetState(cached);
       _syncGlobalRuntimeTheme(cached, allowResolveHold: false);
       return;
     }
@@ -354,16 +340,41 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope>
             _syncGlobalRuntimeTheme(seed, allowResolveHold: false);
             return;
           }
-          if (_seed != seed) {
-            setState(() {
-              _seed = seed;
-              if (seed == null) {
-                _clearSeed();
-              }
-            });
-          }
+          _applyResolvedSeedSetState(seed);
           _syncGlobalRuntimeTheme(seed, allowResolveHold: false);
         });
+  }
+
+  // 异步解析得到的 seed 应用到本地（setState 触发 AnimatedTheme + tint 动画，P2）。
+  // 若本页正处于进入转场中，推迟到转场结束再 setState，避免与 enter 动画叠加。
+  // 注意：initState 命中缓存的同步路径不经此处——它直接赋值 _seed，使第一帧即终态。
+  void _applyResolvedSeedSetState(DynamicThemeSeed? seed) {
+    if (!mounted || _seed == seed) {
+      return;
+    }
+    if (RouteTransitionGate.isTransitioning(context)) {
+      unawaited(_applyResolvedSeedAfterTransition(seed));
+      return;
+    }
+    setState(() {
+      _seed = seed;
+      if (seed == null) {
+        _clearSeed();
+      }
+    });
+  }
+
+  Future<void> _applyResolvedSeedAfterTransition(DynamicThemeSeed? seed) async {
+    await RouteTransitionGate.of(context);
+    if (!mounted || _seed == seed) {
+      return;
+    }
+    setState(() {
+      _seed = seed;
+      if (seed == null) {
+        _clearSeed();
+      }
+    });
   }
 
   bool _shouldKeepPreviousSeedWhileResolving() {
@@ -387,6 +398,22 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope>
   void _setResolvedSeedForCurrentTarget(DynamicThemeSeed seed) {
     _resolvedSeed = seed;
     _markSeedForCurrentTarget();
+    _warmUpSeedScheme(seed);
+  }
+
+  // Warm the HCT-derived color schemes for this seed on an idle microtask so
+  // the build that applies the theme doesn't run the solver inside the frame.
+  void _warmUpSeedScheme(DynamicThemeSeed seed) {
+    scheduleMicrotask(() {
+      if (!mounted) {
+        return;
+      }
+      DynamicThemeMapper.warmUp(
+        baseColors: context.baseAppColors,
+        seed: seed,
+        intensity: widget.intensity,
+      );
+    });
   }
 
   void _clearResolvedSeed() {
@@ -511,10 +538,7 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope>
     _queueGlobalThemeClear(pageKey);
   }
 
-  void _queueGlobalThemeClear(
-    String pageKey, {
-    bool flushImmediate = false,
-  }) {
+  void _queueGlobalThemeClear(String pageKey, {bool flushImmediate = false}) {
     final normalizedPageKey = pageKey.trim();
     if (normalizedPageKey.isEmpty) {
       return;
@@ -544,11 +568,7 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope>
     _globalThemeSyncTimer?.cancel();
     _globalThemeSyncTimer = null;
     SchedulerBinding.instance.addPostFrameCallback((_) {
-      if (!_globalThemeSyncScheduled) {
-        return;
-      }
-      _globalThemeSyncScheduled = false;
-      _flushGlobalThemeSync();
+      _flushGlobalThemeSyncWhenStable();
     });
   }
 
@@ -561,18 +581,31 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope>
       () {
         _globalThemeSyncTimer = null;
         SchedulerBinding.instance.addPostFrameCallback((_) {
-          if (!_globalThemeSyncScheduled) {
-            return;
-          }
-          _globalThemeSyncScheduled = false;
-          _flushGlobalThemeSync();
+          _flushGlobalThemeSyncWhenStable();
         });
       },
     );
   }
 
-  void _flushGlobalThemeSync() {
-    final provider = _globalThemeSyncProvider ?? _themeProvider;
+  // 全局运行时主题同步会重建 MaterialApp.builder 之下整棵 App 树（P3）。若此刻有
+  // 路由正在转场（enter/exit），把 flush 推迟到下一帧重查，直到没有转场再执行，
+  // 避免整树重建落在 380ms 转场窗口内。进入与退出两条路径都经此收口。
+  static void _flushGlobalThemeSyncWhenStable() {
+    if (!_globalThemeSyncScheduled) {
+      return;
+    }
+    if (RouteTransitionGate.anyRouteTransitioning) {
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        _flushGlobalThemeSyncWhenStable();
+      });
+      return;
+    }
+    _globalThemeSyncScheduled = false;
+    _flushGlobalThemeSyncStatic();
+  }
+
+  static void _flushGlobalThemeSyncStatic() {
+    final provider = _globalThemeSyncProvider;
     if (provider == null) {
       _pendingGlobalClearPageKeys.clear();
       _pendingGlobalSyncs.clear();
@@ -581,7 +614,9 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope>
     final pendingClearPageKeys = _pendingGlobalClearPageKeys.toList(
       growable: false,
     );
-    final pendingSyncs = Map<String, _GlobalSyncEntry>.from(_pendingGlobalSyncs);
+    final pendingSyncs = Map<String, _GlobalSyncEntry>.from(
+      _pendingGlobalSyncs,
+    );
     debugPrint(
       '[THEME][SCOPE] flush clear=${pendingClearPageKeys.length} apply=${pendingSyncs.length}',
     );
@@ -694,58 +729,16 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope>
     return bundle;
   }
 
-  void _startAmbientTintAnimationTo(Color? target) {
-    final begin = _ambientTint;
-    if (Color.lerp(begin, target, 0) == Color.lerp(begin, target, 1.0)) {
-      _ambientTint = target;
-      _colorTween = null;
-      return;
-    }
-    _colorAnimController
-      ..removeListener(_onColorAnimTick)
-      ..removeStatusListener(_onColorAnimDone);
-    _colorTween = ColorTween(begin: begin, end: target);
-    _colorAnimController
-      ..reset()
-      ..forward();
-    _colorAnimController.addListener(_onColorAnimTick);
-    _colorAnimController.addStatusListener(_onColorAnimDone);
-  }
-
-  void _onColorAnimTick() {
-    if (mounted) setState(() {});
-  }
-
-  void _onColorAnimDone(AnimationStatus status) {
-    if (status == AnimationStatus.completed ||
-        status == AnimationStatus.dismissed) {
-      _ambientTint = _colorTween?.end;
-      _colorAnimController
-        ..removeListener(_onColorAnimTick)
-        ..removeStatusListener(_onColorAnimDone);
-    }
-  }
-
-  Color? _animatedAmbientTint() {
-    if (_colorTween == null) return _ambientTint;
-    return _colorTween!.animate(
-      CurvedAnimation(
-        parent: _colorAnimController,
-        curve: Curves.easeOutCubic,
-      ),
-    ).value;
-  }
-
   @override
   Widget build(BuildContext context) {
     final parentTheme = Theme.of(context);
     final baseColors = context.baseAppColors;
     final effectiveSeed = widget.enabled ? _seed : null;
-    final Color? targetAmbientTint;
+    final Color? ambientTint;
     final AppThemeColors effectiveColors;
     final ThemeData? effectiveTheme;
     if (effectiveSeed == null) {
-      targetAmbientTint = null;
+      ambientTint = null;
       effectiveColors = baseColors;
       effectiveTheme = null;
     } else {
@@ -754,36 +747,23 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope>
         baseColors: baseColors,
         seed: effectiveSeed,
       );
-      targetAmbientTint = bundle.ambientTint;
+      ambientTint = bundle.ambientTint;
       effectiveColors = bundle.effectiveColors;
       effectiveTheme = bundle.effectiveTheme;
     }
-    final currentAnimatedTarget = _colorTween?.end;
-    final shouldStartAmbientTintAnimation =
-        currentAnimatedTarget != targetAmbientTint &&
-        (targetAmbientTint != _ambientTint || currentAnimatedTarget != null);
-    // Only restart the tint animation when the target actually changes.
-    // Re-triggering the same target every build keeps the controller in a
-    // perpetual reset/forward loop and forces continuous frames while idle.
-    if (shouldStartAmbientTintAnimation) {
-      _startAmbientTintAnimationTo(targetAmbientTint);
-    }
-    final animatedTint = _animatedAmbientTint();
     final hasTheme = effectiveSeed != null;
+    // seed 已在转场结束后单次应用（Phase 1），ambientTint 随之一次性给定，不再做 140ms
+    // 过渡动画——旧的每 tick setState 重建整页（含全部 sliver）是进详情页掉帧的最大单点。
     Widget child = DynamicPageThemeSnapshot(
       hasDynamicTheme: hasTheme,
       effectiveColors: effectiveColors,
       child: Builder(
-        builder: (context) => widget.builder(context, animatedTint),
+        builder: (context) => widget.builder(context, ambientTint),
       ),
     );
     if (effectiveTheme != null) {
-      child = AnimatedTheme(
-        data: effectiveTheme,
-        duration: const Duration(milliseconds: 140),
-        curve: Curves.easeOutCubic,
-        child: child,
-      );
+      // 同理直接切 ThemeData，不再每帧 lerp 整套组件主题（旧 AnimatedTheme 140ms = P2）。
+      child = Theme(data: effectiveTheme, child: child);
     }
     return child;
   }

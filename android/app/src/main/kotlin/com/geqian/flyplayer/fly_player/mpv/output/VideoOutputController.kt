@@ -2,6 +2,7 @@ package com.geqian.flyplayer.fly_player.mpv
 
 import android.app.Activity
 import android.content.pm.ActivityInfo
+import android.media.MediaCodecList
 import android.os.Build
 import android.util.Log
 import android.view.Surface
@@ -56,6 +57,11 @@ class VideoOutputController(
     var activeColorPipeline = VideoColorPipeline.SDR
         private set
     private var advancedHdrMode = "auto"
+    private var toneMappingPreference = "auto"
+    // 会话级性能学习：一旦本会话因弱 GPU 4K HDR 触发过 L3（HDR 直通→映射），就记住——
+    // 之后同类内容（超高清 + HDR）直接从映射起步，不再每次重载都弹回 HDR 直通再卡死。
+    // 跟 URL 无关（代理源每次重解析 URL 会变，URL-gate 失效），按内容类判定。仅 onDispose 清。
+    private var sessionForceHdrTonemapForUltraHd = false
     private var compatibilityProfile = "default"
     private var filterCompatibleFramesRequired = false
     private var activeVideoOutputName = VIDEO_OUTPUT_NONE
@@ -83,6 +89,7 @@ class VideoOutputController(
         forceWindowEnabled = true
         activeAspectOverride = VIDEO_ASPECT_OVERRIDE_NONE
         activePanscan = 0.0
+        sessionForceHdrTonemapForUltraHd = false
         applyWindowColorMode(VideoColorPipeline.SDR)
     }
 
@@ -200,6 +207,16 @@ class VideoOutputController(
             return VIDEO_HWDEC_HDR_COPY
         }
         forcedHwdecMode?.let { return it }
+        // DV P5 无 DV 解码器：copy 出帧再走映射，避免直通 gralloc 绿/紫屏。
+        if (shouldForceDolbyVisionTonemap(source)) {
+            return VIDEO_HWDEC_HDR_COPY
+        }
+        // Mali GPU：改用 mediacodec-copy（解码帧拷回普通内存再常规上传），绕开 Mali 不认的
+        // gralloc 直通格式（尤其 10-bit HEVC 的 0x38/0x3b，会触发 BufferQueue 超时）。
+        // 多一次 CPU 拷贝，天玑 9200 无压力；作为 10-bit 内容的低成本保险。
+        if (deviceProfile.isLikelyMali) {
+            return VIDEO_HWDEC_HDR_COPY
+        }
         return if (shouldPreferHwdecCopy(source)) {
             VIDEO_HWDEC_HDR_COPY
         } else {
@@ -243,13 +260,26 @@ class VideoOutputController(
 
     fun preferredColorPipeline(source: MpvSource): VideoColorPipeline {
         forcedColorPipeline?.let { return it }
+        // Dolby Vision Profile 5（无 HDR10 兼容层）在无 DV 解码器的设备 mediacodec 直出会绿/紫屏，
+        // 强制走 HDR→SDR 映射（配合下面 hwdec mediacodec-copy）。
+        if (shouldForceDolbyVisionTonemap(source)) return VideoColorPipeline.HDR_TONEMAP_SDR
+        // 会话级学习：本设备已被证明扛不住 4K HDR 直通（触发过 L3），同类内容直接走映射，
+        // 否则重载会弹回直通→再卡死→再降级，无限循环。用户显式选「增强」会清除此学习。
+        if (sessionForceHdrTonemapForUltraHd && source.isHdrLikely() && source.isUltraHighResolution()) {
+            return VideoColorPipeline.HDR_TONEMAP_SDR
+        }
         when (advancedHdrMode) {
             "sdr_map", "conservative" -> return VideoColorPipeline.HDR_TONEMAP_SDR
             "enhanced" -> {
-                return if (displayProfile.supportsHdr) {
-                    VideoColorPipeline.HDR_DIRECT
-                } else {
-                    VideoColorPipeline.HDR_TONEMAP_SDR
+                // 增强：仅对 HDR 片源更激进地走直出（显示器支持则直出，否则映射）。
+                // SDR 片源不在此强转——不 return，落到下方 isHdrLikely 判定后归 SDR，
+                // 避免把 SDR 内容塞进 HDR 容器导致发灰/发暗。
+                if (source.isHdrLikely()) {
+                    return if (displayProfile.supportsHdr) {
+                        VideoColorPipeline.HDR_DIRECT
+                    } else {
+                        VideoColorPipeline.HDR_TONEMAP_SDR
+                    }
                 }
             }
         }
@@ -271,6 +301,11 @@ class VideoOutputController(
             }
         val changed = advancedHdrMode != normalized
         advancedHdrMode = normalized
+        // 用户显式要求 HDR 增强（直通）= 推翻自动学到的降级，清除会话 sticky，重新尝试直通。
+        if (normalized == "enhanced") {
+            sessionForceHdrTonemapForUltraHd = false
+            forcedColorPipeline = null
+        }
         if (changed && surfaceReady && surfaceAttached && currentSurfaceValid()) {
             ensureVideoOutputReady(
                 initialized = mpv.isCreated(),
@@ -280,6 +315,38 @@ class VideoOutputController(
         }
         return changed
     }
+
+    /**
+     * 色调映射算法偏好（仅 HDR→SDR 映射管线生效）。改变后若当前正走映射管线，直接热更新
+     * mpv `tone-mapping` 属性（无需重配整条管线）。
+     */
+    fun setToneMappingPreference(preference: String?): Boolean {
+        val normalized = normalizeToneMapping(preference)
+        val changed = toneMappingPreference != normalized
+        toneMappingPreference = normalized
+        if (changed && activeColorPipeline == VideoColorPipeline.HDR_TONEMAP_SDR) {
+            runCatching { mpv.setPropertyString("tone-mapping", resolvedToneMapping()) }
+        }
+        return changed
+    }
+
+    private fun normalizeToneMapping(preference: String?): String =
+        when (preference?.trim()?.lowercase(Locale.US)) {
+            "bt2390", "bt.2390" -> "bt2390"
+            "mobius" -> "mobius"
+            "hable" -> "hable"
+            "reinhard" -> "reinhard"
+            else -> "auto"
+        }
+
+    /** 偏好 → mpv `tone-mapping` 值。auto 沿用原默认 bt.2390，保持既有观感不变。 */
+    private fun resolvedToneMapping(): String =
+        when (toneMappingPreference) {
+            "mobius" -> "mobius"
+            "hable" -> "hable"
+            "reinhard" -> "reinhard"
+            else -> VIDEO_TONE_MAPPING
+        }
 
     fun setCompatibilityProfile(profile: String?): Boolean {
         val normalized =
@@ -476,6 +543,37 @@ class VideoOutputController(
             "forcing software decoder fallback after log=\"$lowerMessage\" source=[${source.debugSummary()}]",
         )
         return true
+    }
+
+    /**
+     * 反应式性能阶梯最后一档（方案 D）：4K HDR 在弱 GPU（如 Adreno 732）上，HDR 直通的
+     * 10bit/fp16 交换链 + libplacebo 大纹理分配会卡死（实测 slab 339ms slow）→ 解码输入饿死
+     * 数秒 → 音频欠载 → 主线程 binder 超时 → ANR 闪退。前两档（降画质 / 压弹幕）救不了，因为
+     * 瓶颈是显存/带宽不是缩放。这里把 HDR 直通降为 HDR→SDR 映射：输出 8bit（窗口退出
+     * COLOR_MODE_HDR）+ 关掉逐帧峰值检测的额外 compute，显著削减交换链与中间纹理开销。
+     *
+     * 仅当前正走 HDR 直通才有意义；SDR / 已是映射管线返回 false（瓶颈在别处，不做无谓改动）。
+     * 设 forcedColorPipeline 以便后续 surface 重挂/重配时维持映射，不回弹到直通。
+     */
+    fun escalateColorPipelineToTonemap(initialized: Boolean, available: Boolean): Boolean {
+        if (!initialized || !available) return false
+        if (activeColorPipeline != VideoColorPipeline.HDR_DIRECT) return false
+        forcedColorPipeline = VideoColorPipeline.HDR_TONEMAP_SDR
+        // 记住本设备扛不住 4K HDR 直通：后续同类内容/重载直接从映射起步（见 preferredColorPipeline）。
+        sessionForceHdrTonemapForUltraHd = true
+        return runCatching {
+            applyColorPipeline(VideoColorPipeline.HDR_TONEMAP_SDR)
+            applyWindowColorMode(VideoColorPipeline.HDR_TONEMAP_SDR)
+            // 弱 GPU 应急：关掉逐帧 HDR 峰值检测，省下额外 compute（映射观感影响极小）。
+            runCatching { mpv.setPropertyString("hdr-compute-peak", "no") }
+            Log.w(
+                VIDEO_OUTPUT_TAG,
+                "perf escalate color pipeline HDR_DIRECT -> HDR_TONEMAP_SDR (weak GPU 4K HDR)",
+            )
+            true
+        }.onFailure { error ->
+            lastErrorMessage = formatNativePlaybackError("hdr tonemap escalation", error)
+        }.getOrDefault(false)
     }
 
     fun currentWindowColorMode(): String {
@@ -678,7 +776,7 @@ class VideoOutputController(
                 mpv.setPropertyString("target-colorspace-hint", "auto")
                 mpv.setPropertyString("target-prim", VIDEO_TARGET_PRIM_SDR)
                 mpv.setPropertyString("target-trc", VIDEO_TARGET_TRC_SDR)
-                mpv.setPropertyString("tone-mapping", VIDEO_TONE_MAPPING)
+                mpv.setPropertyString("tone-mapping", resolvedToneMapping())
                 mpv.setPropertyString("gamut-mapping-mode", "clip")
             }
         }
@@ -689,6 +787,23 @@ class VideoOutputController(
         if (!deviceProfile.isLikelyMali) return false
         if (source.isHdrLikely()) return true
         return source.isHevcLike() && source.isUltraHighResolution()
+    }
+
+    /** 疑似 DV Profile 5 且设备无 DV 解码器 → 强制映射管线（绿/紫屏特判）。 */
+    private fun shouldForceDolbyVisionTonemap(source: MpvSource): Boolean {
+        if (!source.isDolbyVisionProfile5Like()) return false
+        return !deviceHasDolbyVisionDecoder
+    }
+
+    private val deviceHasDolbyVisionDecoder: Boolean by lazy {
+        runCatching {
+            MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.any { info ->
+                !info.isEncoder &&
+                    info.supportedTypes.any { it.equals("video/dolby-vision", ignoreCase = true) }
+            }
+        }.getOrDefault(false).also {
+            Log.d(VIDEO_OUTPUT_TAG, "deviceHasDolbyVisionDecoder=$it")
+        }
     }
 
     private fun isRiskyBufferFormatMessage(lowerMessage: String): Boolean {

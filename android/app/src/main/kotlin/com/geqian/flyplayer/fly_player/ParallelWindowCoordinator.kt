@@ -15,6 +15,7 @@ object ParallelWindowCoordinator {
     private const val KEY_SPLIT_RATIO_PRESET = "parallel_window_split_ratio_preset"
     private const val KEY_DEFAULT_PLAYBACK_FULLSCREEN = "parallel_window_default_playback_fullscreen"
     private const val KEY_IMMERSIVE_STATUS_BAR = "parallel_window_immersive_status_bar"
+    private const val KEY_LAST_NATIVE_PLAYBACK_SPLIT = "parallel_window_last_native_playback_split"
 
     @Volatile
     var lastBrowseSnapshot: HashMap<String, Any?>? = null
@@ -57,6 +58,15 @@ object ParallelWindowCoordinator {
 
     @Volatile
     private var immersiveStatusBar: Boolean = true
+
+    // 原生壳上次以分屏还是全屏退出，供下次进入"记住上次"决策。
+    @Volatile
+    private var lastNativePlaybackSplit: Boolean = false
+
+    // 原生壳「当前是否处于分屏」。独立于旧 splitPlayerVisible（后者是 PlayerActivity 分屏专用，
+    // 被 canOpenEmbeddedDetail/closeRightPane 等消费），原生壳绝不复用它，避免劫持那套机器。
+    @Volatile
+    private var nativeSplitPlayerVisible: Boolean = false
 
     // 只保留 Activity 的弱引用，避免 coordinator 把界面实例意外长时间持有住。
     @Volatile
@@ -144,6 +154,26 @@ object ParallelWindowCoordinator {
 
     fun immersiveStatusBar(): Boolean = immersiveStatusBar
 
+    fun isNativeSplitPlayerVisible(): Boolean = nativeSplitPlayerVisible
+
+    fun setNativeSplitPlayerVisible(visible: Boolean) {
+        nativeSplitPlayerVisible = visible
+    }
+
+    fun lastNativePlaybackSplit(): Boolean = lastNativePlaybackSplit
+
+    fun setLastNativePlaybackSplit(
+        context: Context,
+        split: Boolean,
+    ) {
+        lastNativePlaybackSplit = split
+        context
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_LAST_NATIVE_PLAYBACK_SPLIT, split)
+            .apply()
+    }
+
     fun preferredSecondaryPaneSide(): ParallelPaneSide =
         if (preferredPrimaryPaneSide == ParallelPaneSide.RIGHT) {
             ParallelPaneSide.LEFT
@@ -206,6 +236,7 @@ object ParallelWindowCoordinator {
         setSplitRatioPreset(prefs.getString(KEY_SPLIT_RATIO_PRESET, "balanced").orEmpty())
         defaultPlaybackFullscreen = prefs.getBoolean(KEY_DEFAULT_PLAYBACK_FULLSCREEN, true)
         immersiveStatusBar = prefs.getBoolean(KEY_IMMERSIVE_STATUS_BAR, true)
+        lastNativePlaybackSplit = prefs.getBoolean(KEY_LAST_NATIVE_PLAYBACK_SPLIT, false)
     }
 
     fun attachDetailHost(activity: DetailActivity) {
@@ -217,6 +248,20 @@ object ParallelWindowCoordinator {
     }
 
     fun currentDetailHost(): DetailActivity? = detailHostRef?.get()
+
+    // 原生壳分屏副栏（第二引擎的 DetailActivity）独立跟踪，与浏览详情 host 互不干扰。
+    @Volatile
+    private var splitDetailHostRef: WeakReference<DetailActivity>? = null
+
+    fun attachSplitDetailHost(activity: DetailActivity) {
+        splitDetailHostRef = attachHostReference(activity)
+    }
+
+    fun detachSplitDetailHost(activity: DetailActivity) {
+        splitDetailHostRef = detachHostReference(splitDetailHostRef, activity)
+    }
+
+    fun currentSplitDetailHost(): DetailActivity? = splitDetailHostRef?.get()
 
     fun attachPlaceholderHost(activity: PlaceholderActivity) {
         placeholderHostRef = attachHostReference(activity)

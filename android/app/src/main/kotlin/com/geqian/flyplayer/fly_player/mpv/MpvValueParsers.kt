@@ -44,6 +44,10 @@ fun sanitizeMpvIntProperty(property: String, value: Long?): Long? {
         "video-params/h",
         "video-out-params/w",
         "video-out-params/h" -> numeric.takeIf { it in 1L..16384L }
+        // VO 未就绪/属性不可读时 mpv-android JNI 会回垃圾大值（常是相邻内存指针，如 5e11）。
+        // 丢帧计数物理上不可能这么大（60fps 跑满一天才 ~5e6），超上限即判为无效。
+        "frame-drop-count",
+        "decoder-frame-drop-count" -> numeric.takeIf { it in 1L..100_000_000L }
         else -> numeric
     }
 }

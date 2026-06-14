@@ -7,6 +7,7 @@ import android.provider.OpenableColumns
 import android.util.Log
 import fi.iki.elonen.NanoHTTPD
 import okhttp3.Headers
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -34,6 +35,8 @@ import kotlin.concurrent.thread
 private const val PROXY_TAG = "FlyPlayerNativeProxy"
 private const val AUTHX_API_PREFIX = "/v/api/v1"
 private const val AUTHX_LOGIN_PATH = "$AUTHX_API_PREFIX/login"
+private const val AUTHX_PUBLIC_KEY = "NDzZTVxnRKP8Z0jXg1VAMonaG8akvh"
+private const val AUTHX_PUBLIC_SECRET = "16CCEB3D-AB42-077D-36A1-F355324E4237"
 private const val CHUNKED_PROXY_CHUNK_SIZE = 10L * 1024L * 1024L
 private const val EXTREME_PLAYBACK_DEMAND_CHUNK_SIZE = 2L * 1024L * 1024L
 private const val EXTREME_PLAYBACK_PREFETCH_IDLE_MS = 1500L
@@ -1509,7 +1512,7 @@ private fun buildSignedHeaders(
         builder["Range"] = range
     }
     if (shouldAttachAuthx(path) && authToken.isNotBlank()) {
-        builder["Authx"] = buildAuthxHeader(method, path, authToken)
+        builder["Authx"] = buildAuthxHeader(method, url, path)
     }
     return builder.build()
 }
@@ -1520,12 +1523,26 @@ private fun shouldAttachAuthx(path: String): Boolean {
     return path != AUTHX_LOGIN_PATH
 }
 
-private fun buildAuthxHeader(method: String, path: String, authToken: String): String {
+// 新版飞牛后端严格校验 Authx：md5("KEY_path_nonce_timestamp_payloadMd5_SECRET")。
+// GET 的 payload 是按 key 排序、值取解码原文的 query 串；代理转发无请求体，其余方法取空串。
+private fun buildAuthxHeader(method: String, url: HttpUrl?, path: String): String {
     val nonce = (100000 + SecureRandom().nextInt(900000)).toString()
     val timestamp = System.currentTimeMillis().toString()
-    val payload = "{}"
-    val normalizedMethod = method.uppercase(Locale.US)
-    val signBase = "$normalizedMethod|$path|$payload|$nonce|$timestamp|$authToken"
+    val payload = if (method.uppercase(Locale.US) == "GET" && url != null) {
+        url.queryParameterNames.sorted().mapNotNull { name ->
+            url.queryParameterValues(name).lastOrNull()?.let { "$name=$it" }
+        }.joinToString("&")
+    } else {
+        ""
+    }
+    val signBase = listOf(
+        AUTHX_PUBLIC_KEY,
+        path,
+        nonce,
+        timestamp,
+        md5(payload),
+        AUTHX_PUBLIC_SECRET,
+    ).joinToString("_")
     val sign = md5(signBase)
     return "nonce=$nonce&timestamp=$timestamp&sign=$sign"
 }

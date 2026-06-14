@@ -392,6 +392,9 @@ extension _MpvPlayerDanmakuMixin on _MpvPlayerPageState {
     }
   }
 
+  /// 最高优先级层：用户**手动选择过**的源（持久化的 activeSourceKey）。其次在离线播放下载
+  /// 文件、且没有手动源时，优先本地导入源（在线源此时拉不到）。其余优先级在
+  /// [_tryLoadPreferredDanmakuSource] 中按 本地导入 > 网络 > 本地下载 处理。
   Future<bool> _restoreSavedLocalDanmakuIfNeeded({int? requestToken}) async {
     final settings = _danmakuController.settings;
     if (!settings.enabled) return false;
@@ -410,8 +413,22 @@ extension _MpvPlayerDanmakuMixin on _MpvPlayerPageState {
           .cast<DanmakuSavedSource?>()
           .firstWhere((item) => item != null, orElse: () => null);
     }
-    if (_currentSourceIsDownloadedFile && activeSource?.isLocalFile != true) {
-      final localSource = _pickNewestReadableSavedLocalDanmakuSource();
+    // 手动选择过的源最高优先（重新确认其激活态）。随片下载缓存不算手动选择，即便历史数据
+    // 把它误设成 active 也跳过，让它落到网络之后的兜底（修复旧版强制激活下载源的遗留数据）。
+    if (activeSource != null && !activeSource.isDownloadedFile) {
+      final restored = await _restoreSavedDanmakuSource(
+        activeSource,
+        requestToken: requestToken,
+        markActive: true,
+      );
+      if (restored) return true;
+      await _loadSavedLocalDanmakuSources(requestToken: requestToken);
+    }
+    // 离线播放下载文件、无手动源：先本地导入（手动），再随片下载缓存兜底（在线源拉不到）。
+    if (_currentSourceIsDownloadedFile) {
+      final localSource =
+          _pickNewestReadableSavedLocalDanmakuSource() ??
+          _pickReadableDownloadedDanmakuSource();
       if (localSource != null) {
         final restored = await _restoreSavedDanmakuSource(
           localSource,
@@ -421,28 +438,16 @@ extension _MpvPlayerDanmakuMixin on _MpvPlayerPageState {
         await _loadSavedLocalDanmakuSources(requestToken: requestToken);
       }
     }
-    if (activeSource != null) {
-      final restored = await _restoreSavedDanmakuSource(
-        activeSource,
-        requestToken: requestToken,
-      );
-      if (restored) return true;
-      await _loadSavedLocalDanmakuSources(requestToken: requestToken);
-    }
-    final preferredType = settings.preferLocalSource
-        ? DanmakuSavedSourceType.localFile
-        : DanmakuSavedSourceType.danDanPlay;
-    final preferredSource = _pickNewestSavedDanmakuSourceOfType(preferredType);
-    if (preferredSource == null) return false;
-    return _restoreSavedDanmakuSource(
-      preferredSource,
-      requestToken: requestToken,
-    );
+    return false;
   }
 
+  /// 恢复一个已保存的弹幕源。[markActive]=true 才把它持久化为"手动选择的激活源"
+  /// （loadActiveSourceKey 的最高优先来源）；自动加载链一律 false，仅更新内存态用于 UI
+  /// 高亮，避免自动命中的网络源把用户手动选择/本地导入源挤掉。
   Future<bool> _restoreSavedDanmakuSource(
     DanmakuSavedSource source, {
     int? requestToken,
+    bool markActive = false,
   }) async {
     final mediaKey = _currentDanmakuMediaKey();
     try {
@@ -464,10 +469,12 @@ extension _MpvPlayerDanmakuMixin on _MpvPlayerPageState {
         await _flushNativeDanmakuRendererSync();
       }
       _activeDanmakuSourceKey = source.sourceKey;
-      await _danmakuSavedSourceStore.setActiveSourceKey(
-        mediaKey: mediaKey,
-        sourceKey: source.sourceKey,
-      );
+      if (markActive) {
+        await _danmakuSavedSourceStore.setActiveSourceKey(
+          mediaKey: mediaKey,
+          sourceKey: source.sourceKey,
+        );
+      }
       return true;
     } catch (error, stackTrace) {
       debugPrint(
@@ -510,6 +517,18 @@ extension _MpvPlayerDanmakuMixin on _MpvPlayerPageState {
         .where(
           (item) =>
               item.isLocalFile && _savedLocalDanmakuSourceLooksReadable(item),
+        )
+        .cast<DanmakuSavedSource?>()
+        .firstWhere((item) => item != null, orElse: () => null);
+  }
+
+  /// 随片下载缓存（一键下载，非手动导入）：优先级最低，仅离线兜底。
+  DanmakuSavedSource? _pickReadableDownloadedDanmakuSource() {
+    return _savedLocalDanmakuSources
+        .where(
+          (item) =>
+              item.isDownloadedFile &&
+              _savedLocalDanmakuSourceLooksReadable(item),
         )
         .cast<DanmakuSavedSource?>()
         .firstWhere((item) => item != null, orElse: () => null);
@@ -567,43 +586,58 @@ extension _MpvPlayerDanmakuMixin on _MpvPlayerPageState {
         !_isActiveDanmakuContext(requestToken, mediaKey)) {
       return false;
     }
+    // 手动选择过的源最高优先（含离线下载文件的本地兜底）。
     if (await _restoreSavedLocalDanmakuIfNeeded(requestToken: requestToken)) {
       return true;
     }
-    if (settings.preferLocalSource) {
-      final networkSaved = _pickNewestSavedDanmakuSourceOfType(
-        DanmakuSavedSourceType.danDanPlay,
+
+    // 本地导入源（用户主动导入/随片下载的本地弹幕文件）。
+    Future<bool> tryLocalImport() async {
+      final localImport =
+          _pickNewestReadableSavedLocalDanmakuSource() ??
+          _pickNewestSavedDanmakuSourceOfType(DanmakuSavedSourceType.localFile);
+      if (localImport == null) return false;
+      return _restoreSavedDanmakuSource(
+        localImport,
+        requestToken: requestToken,
       );
-      if (networkSaved != null &&
-          await _restoreSavedDanmakuSource(
-            networkSaved,
-            requestToken: requestToken,
-          )) {
-        return true;
-      }
+    }
+
+    // 网络源：在线自动匹配，拉到最新并覆盖旧的已保存（下载）缓存。
+    Future<bool> tryNetwork() async {
       if (!_danmakuAutoSearchAllowed) return false;
       return _tryLoadDanDanPlayComments(requestToken: requestToken);
     }
-    if (!_danmakuAutoSearchAllowed) {
-      final localSaved = _pickNewestSavedDanmakuSourceOfType(
-        DanmakuSavedSourceType.localFile,
-      );
-      if (localSaved != null) {
-        return _restoreSavedDanmakuSource(
-          localSaved,
-          requestToken: requestToken,
-        );
-      }
-      return false;
+
+    // 用户期望顺序：本地导入 > 网络 > 本地下载。preferLocalSource=false 时把网络提到本地导入前。
+    if (settings.preferLocalSource) {
+      if (await tryLocalImport()) return true;
+      if (await tryNetwork()) return true;
+    } else {
+      if (await tryNetwork()) return true;
+      if (await tryLocalImport()) return true;
     }
-    if (await _tryLoadDanDanPlayComments(requestToken: requestToken)) {
+
+    // 网络源兜底：之前保存的网络源（在线实时匹配失败/受限时回退到已保存条目）。
+    final networkSaved = _pickNewestSavedDanmakuSourceOfType(
+      DanmakuSavedSourceType.danDanPlay,
+    );
+    if (networkSaved != null &&
+        await _restoreSavedDanmakuSource(
+          networkSaved,
+          requestToken: requestToken,
+        )) {
       return true;
     }
-    final localSaved = _pickNewestSavedDanmakuSourceOfType(
-      DanmakuSavedSourceType.localFile,
-    );
-    if (localSaved != null) {
-      return _restoreSavedDanmakuSource(localSaved, requestToken: requestToken);
+
+    // 最低优先：随片下载缓存（一键下载）。网络全拿不到时离线兜底。
+    final downloadedBundle = _pickReadableDownloadedDanmakuSource();
+    if (downloadedBundle != null &&
+        await _restoreSavedDanmakuSource(
+          downloadedBundle,
+          requestToken: requestToken,
+        )) {
+      return true;
     }
     return false;
   }
@@ -675,13 +709,12 @@ extension _MpvPlayerDanmakuMixin on _MpvPlayerPageState {
         commentCount: result.comments.length,
         updatedAtMs: DateTime.now().millisecondsSinceEpoch,
       );
+      // 自动匹配命中：覆盖旧的已保存（下载）缓存即"网络拉到最新覆盖旧下载"，但**不**持久化
+      // 为激活源——自动命中不是手动选择，不应挤掉用户手动选择/本地导入源的最高优先。仅更新
+      // 内存态供 UI 高亮。
       await _danmakuSavedSourceStore.saveSource(savedSource);
       await _loadSavedLocalDanmakuSources(requestToken: requestToken);
       _activeDanmakuSourceKey = savedSource.sourceKey;
-      await _danmakuSavedSourceStore.setActiveSourceKey(
-        mediaKey: mediaKey,
-        sourceKey: savedSource.sourceKey,
-      );
       if (!mounted) return true;
       final successColor = context.appColors.success;
       _updatePlayerState(() {});

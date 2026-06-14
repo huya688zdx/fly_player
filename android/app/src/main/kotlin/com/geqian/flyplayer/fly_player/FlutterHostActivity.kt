@@ -70,6 +70,7 @@ abstract class FlutterHostActivity : FlutterActivity() {
     protected var mainHostChannel: MethodChannel? = null
     protected var runtimeThemeSyncChannel: MethodChannel? = null
     protected var sessionStateChannel: MethodChannel? = null
+    private var nativePlayerChannel: MethodChannel? = null
     private val methodChannelsWithHandlers = mutableListOf<MethodChannel>()
     private var playerImmersiveSystemBarsEnabled = false
     private var lastAppliedDecorFitsSystemWindows: Boolean? = null
@@ -200,6 +201,7 @@ abstract class FlutterHostActivity : FlutterActivity() {
         registerPlayerHostChannel(flutterEngine)
         registerPlayerHostStateChannel(flutterEngine)
         registerDetailHostChannel(flutterEngine)
+        registerNativePlayerChannel(flutterEngine)
         registerPlatformViewFactories(flutterEngine)
     }
 
@@ -208,6 +210,10 @@ abstract class FlutterHostActivity : FlutterActivity() {
             channel.setMethodCallHandler(null)
         }
         methodChannelsWithHandlers.clear()
+        nativePlayerChannel?.let {
+            com.geqian.flyplayer.fly_player.mpv.NativePlayerReverseBridge.detach(it)
+        }
+        nativePlayerChannel = null
         systemChannel = null
         detailHostChannel = null
         playerHostStateChannel = null
@@ -219,6 +225,56 @@ abstract class FlutterHostActivity : FlutterActivity() {
     private fun trackMethodChannelHandler(channel: MethodChannel) {
         methodChannelsWithHandlers.remove(channel)
         methodChannelsWithHandlers += channel
+    }
+
+    // 渐进原生化：Flutter 编排层解析好 source（+ 弹幕落临时文件）后，通过此 channel
+    // 启动纯原生播放壳 NativePlayerActivity（视频/弹幕/控制全原生，无 Hybrid Composition）。
+    private fun registerNativePlayerChannel(flutterEngine: FlutterEngine) {
+        createMethodChannel(flutterEngine, "fly_player/native_player").also { channel ->
+            trackMethodChannelHandler(channel)
+            nativePlayerChannel = channel
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "launch" -> {
+                        val loadArgs = call.argument<String>("loadArgs")
+                        if (loadArgs.isNullOrBlank()) {
+                            result.error("invalid_args", "missing loadArgs", null)
+                        } else {
+                            val intent =
+                                Intent(this, NativePlayerActivity::class.java).apply {
+                                    if (ParallelWindowCoordinator.isNativeSplitPlayerVisible()) {
+                                        // 分屏态：同栈复用前台原生壳 → onNewIntent 原地换片（副栏选片即走此路）。
+                                        addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                                        addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                                    } else {
+                                        // 全屏态：独立 task 强制全屏（维持原行为）。
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    putExtra(NativePlayerActivity.EXTRA_LOAD_ARGS, loadArgs)
+                                    call.argument<String>("danmakuFile")
+                                        ?.takeIf { it.isNotBlank() }
+                                        ?.let {
+                                            putExtra(NativePlayerActivity.EXTRA_DANMAKU_FILE, it)
+                                        }
+                                }
+                            startActivity(intent)
+                            result.success(null)
+                        }
+                    }
+                    "bindReentryHost" -> {
+                        com.geqian.flyplayer.fly_player.mpv.NativePlayerReverseBridge
+                            .attach(channel)
+                        result.success(null)
+                    }
+                    "unbindReentryHost" -> {
+                        com.geqian.flyplayer.fly_player.mpv.NativePlayerReverseBridge
+                            .detach(channel)
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        }
     }
 
     private fun registerSystemChannel(flutterEngine: FlutterEngine) {
@@ -911,6 +967,13 @@ abstract class FlutterHostActivity : FlutterActivity() {
         Log.d(logTag, message)
     }
 
+    /**
+     * 原生壳分屏副栏（独立第二引擎的 DetailActivity）：点条目时应在**本副栏内就地 push**，
+     * 而不是再启动新 DetailActivity（那会往"另一侧"再开一个分屏）。基类默认不处理；副栏重写。
+     */
+    protected open fun handleSplitSecondaryInPlace(routeName: String): Boolean = false
+
+
     protected open fun openEmbeddedDetail(
         itemGuid: String,
         seriesGuid: String = "",
@@ -934,6 +997,7 @@ abstract class FlutterHostActivity : FlutterActivity() {
             )
         }
         val route = routeBuilder.build().toString()
+        if (handleSplitSecondaryInPlace(route)) return true
         if (ParallelWindowCoordinator.isSplitPlayerVisible()) {
             ParallelWindowCoordinator.updateCurrentDetailItemGuid(normalizedGuid)
             ParallelWindowCoordinator.updateCurrentDetailRoute(route)
@@ -957,7 +1021,9 @@ abstract class FlutterHostActivity : FlutterActivity() {
 
     protected open fun openEmbeddedRoute(routeName: String): Boolean {
         val normalizedRoute = routeName.trim()
-        if (normalizedRoute.isEmpty() || !canOpenEmbeddedDetail()) return false
+        if (normalizedRoute.isEmpty()) return false
+        if (handleSplitSecondaryInPlace(normalizedRoute)) return true
+        if (!canOpenEmbeddedDetail()) return false
         if (ParallelWindowCoordinator.isSplitPlayerVisible()) {
             ParallelWindowCoordinator.updateCurrentDetailRoute(normalizedRoute)
             updateTrackedDetailFromRoute(normalizedRoute)
@@ -1028,7 +1094,7 @@ abstract class FlutterHostActivity : FlutterActivity() {
         val normalizedParentGuid = parentGuid.trim()
         val normalizedSeasonItem = seasonItem ?: hashMapOf()
         val seasonGuid = normalizedSeasonItem["guid"]?.toString()?.trim().orEmpty()
-        if (normalizedParentGuid.isEmpty() || seasonGuid.isEmpty() || !canOpenEmbeddedDetail()) {
+        if (normalizedParentGuid.isEmpty() || seasonGuid.isEmpty()) {
             return false
         }
         val route =
@@ -1044,6 +1110,8 @@ abstract class FlutterHostActivity : FlutterActivity() {
                     DetailRoutePayloadStore.putSeason(HashMap(normalizedSeasonItem)),
                 ).build()
                 .toString()
+        if (handleSplitSecondaryInPlace(route)) return true
+        if (!canOpenEmbeddedDetail()) return false
         if (ParallelWindowCoordinator.isSplitPlayerVisible()) {
             ParallelWindowCoordinator.updateCurrentDetailItemGuid(seasonGuid)
             ParallelWindowCoordinator.updateCurrentDetailRoute(route)
@@ -1236,6 +1304,17 @@ abstract class FlutterHostActivity : FlutterActivity() {
         hostRoleOverride()?.let { role ->
             context["hostRole"] = role.wireValue
         }
+        // Whether two engines are *concurrently visible* (split-pane player: video on
+        // one side, detail on the other) and can therefore write prefs underneath each
+        // other. NOT hasDetailEngine(): large screens warm the detail engine at launch
+        // and keep a DetailActivity in the back stack after you open detail then enter
+        // fullscreen playback, so both hasDetailEngine() and a create/destroy-scoped
+        // "detail pane active" flag stay true during plain fullscreen playback — which
+        // kept the costly prefs.reload() poll running every 1.5s on tablets (the top
+        // CPU-profile cost, stuttering danmaku). splitPlayerVisible is driven by
+        // PlayerActivity.applyLayoutModeState (true only in MODE_SPLIT), so it is false
+        // for fullscreen single-window playback and never leaks across that transition.
+        context["parallelEngineActive"] = ParallelWindowCoordinator.isSplitPlayerVisible()
         return context
     }
 

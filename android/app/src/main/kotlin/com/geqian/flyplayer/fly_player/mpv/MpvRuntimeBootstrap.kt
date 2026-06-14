@@ -6,7 +6,47 @@ import java.io.File
 
 private const val BOOTSTRAP_TAG = "FlyPlayerMpv"
 private const val BOOTSTRAP_VIDEO_OUTPUT_NONE = "null"
-private const val BOOTSTRAP_GPU_CONTEXT = "android"
+private const val BOOTSTRAP_GPU_CONTEXT_GLES = "android"
+private const val BOOTSTRAP_GPU_CONTEXT_VULKAN = "androidvk"
+
+/**
+ * GPU 后端选择。
+ *
+ * 默认 GLES（与 mpv 现状一致，零回归）。重新编译 libmpv（启用 androidvk Vulkan
+ * 上下文 + 链接 NDK libvulkan）后，把 [preferVulkan] 改为 true，即可让 mpv 与
+ * Impeller 同走 Vulkan，消除 GLES↔Vulkan 跨 API 开销。
+ *
+ * 若 Vulkan 视频输出初始化失败（例如当前 libmpv 尚未带 androidvk），会在
+ * MpvPlaybackController 的视频输出兜底恢复里自动退回 GLES（见 disableVulkanForSession），
+ * 不会黑屏——所以即使在旧库上把开关打开，也只是回退到当前行为。
+ */
+object MpvGpuBackend {
+    // mpv 一律走 GLES（gpu-context=android），不用 Vulkan。
+    // 原因：与 Flutter Impeller(Vulkan) 同进程跑两个独立 Vulkan 上下文会互相争用显存——
+    // 天玑 9200(Mali) 走 GLES 才稳；中端 Adreno(骁龙7+Gen3) 上 4K HDR 直通时 mpv-libplacebo
+    // 分配大纹理卡死(slab 339ms slow → 解码饿死 → ANR)，退 GLES 避开双 Vulkan 争用。
+    // 故全设备默认 GLES。（如需恢复 Vulkan，把此处改回 !isLikelyMali 即可。）
+    val preferVulkan: Boolean
+        get() = false
+
+    @Volatile
+    private var vulkanDisabledByFallback = false
+
+    val effectiveContext: String
+        get() = if (preferVulkan && !vulkanDisabledByFallback) {
+            BOOTSTRAP_GPU_CONTEXT_VULKAN
+        } else {
+            BOOTSTRAP_GPU_CONTEXT_GLES
+        }
+
+    val usingVulkan: Boolean
+        get() = effectiveContext == BOOTSTRAP_GPU_CONTEXT_VULKAN
+
+    /** Vulkan 视频输出起不来时调用：本进程内退回 GLES。 */
+    fun disableVulkanForSession() {
+        vulkanDisabledByFallback = true
+    }
+}
 private const val BOOTSTRAP_HWDEC_DEFAULT = "mediacodec,auto-safe"
 private const val BOOTSTRAP_SCALE = "spline36"
 private const val BOOTSTRAP_CSCALE = "catmull_rom"
@@ -69,7 +109,13 @@ class MpvRuntimeBootstrap(
                 mpv.setOptionString("icc-cache-dir", cacheDir.absolutePath)
                 configureSubtitleFonts(subtitleFontDir, preparedSubtitleFonts)
                 mpv.setOptionString("vo", BOOTSTRAP_VIDEO_OUTPUT_NONE)
-                mpv.setOptionString("gpu-context", BOOTSTRAP_GPU_CONTEXT)
+                mpv.setOptionString("gpu-context", MpvGpuBackend.effectiveContext)
+                if (MpvGpuBackend.usingVulkan) {
+                    mpv.setOptionString("gpu-api", "vulkan")
+                    Log.d(BOOTSTRAP_TAG, "gpu backend = vulkan (androidvk)")
+                } else {
+                    Log.d(BOOTSTRAP_TAG, "gpu backend = gles (android)")
+                }
                 mpv.setOptionString("hwdec", BOOTSTRAP_HWDEC_DEFAULT)
                 mpv.setOptionString("scale", BOOTSTRAP_SCALE)
                 mpv.setOptionString("cscale", BOOTSTRAP_CSCALE)

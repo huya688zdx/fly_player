@@ -65,7 +65,9 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
             RepaintBoundary(
               child: _buildVideoViewportLayer(_buildPlayerSurface()),
             ),
-            if (!widget.pictureInPictureActive && !listenVideoActive)
+            if (!widget.pictureInPictureActive &&
+                !listenVideoActive &&
+                !_useNativeDanmakuRenderer)
               RepaintBoundary(
                 child: _buildVideoViewportLayer(_buildDanmakuLayer()),
               ),
@@ -223,8 +225,7 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
           controller: _danmakuController,
           position: rawPlaybackPosition,
           paused:
-              sheetActive ||
-              value.playbackPhase != MpvPlaybackPhase.playing,
+              sheetActive || value.playbackPhase != MpvPlaybackPhase.playing,
           playbackSpeedFactor: _speedBoostActive ? 2.0 : 1.0,
           occlusionState: _controller.danmakuOcclusionState.value,
         );
@@ -503,10 +504,7 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
             visibleChapters.isEmpty ||
                 !(_controlsOverlayVisible || minimalSeekMode)
             ? -1
-            : _activeChapterIndexForPosition(
-                visibleChapters,
-                clampedPosition,
-              );
+            : _activeChapterIndexForPosition(visibleChapters, clampedPosition);
         return _buildBottomPanel(
           value: value,
           compactUi: compactUi,

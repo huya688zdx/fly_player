@@ -788,6 +788,11 @@ class MpvMediaSource {
       'isDefault': track.isDefault,
       'forced': track.forced,
       'isExternal': track.isExternal,
+      // extraFile/isBitmap 供原生壳复刻 Flutter 的字幕三态判定：
+      // extraFile==1（服务端转码/抽取出的外挂文件）走 sub-add；isBitmap/PGS/SUP
+      // 等位图字幕强制留在 mpv 内置轨（不可转文本）。
+      'extraFile': track.extraFile,
+      'isBitmap': track.isBitmap,
     };
   }
 

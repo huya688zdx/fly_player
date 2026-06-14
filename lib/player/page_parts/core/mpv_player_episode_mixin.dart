@@ -1636,15 +1636,20 @@ extension _MpvPlayerEpisodeMixin on _MpvPlayerPageState {
     DownloadTaskRecord record, {
     String seasonGuid = '',
   }) {
-    final poster =
-        [
-              ...record.posterUrls,
-              ...record.groupPosterUrls,
-              _currentPosterPath,
-              widget.source.posterPath,
-            ]
-            .map((value) => value.trim())
-            .firstWhere((value) => value.isNotEmpty, orElse: () => '');
+    // 离线选集优先用已落盘的本地封面（在线 URL 离线打不开）；都没有才退在线/source。
+    final localCover = DownloadTaskService.instance.resolveExistingLocalCover(
+      record,
+    );
+    final poster = localCover.isNotEmpty
+        ? localCover
+        : [
+                ...record.posterUrls,
+                ...record.groupPosterUrls,
+                _currentPosterPath,
+                widget.source.posterPath,
+              ]
+              .map((value) => value.trim())
+              .firstWhere((value) => value.isNotEmpty, orElse: () => '');
     final episodeNumber = _localDownloadedEpisodeNumberFor(record);
     return MediaLibraryItem(
       guid: record.itemGuid.trim().isNotEmpty

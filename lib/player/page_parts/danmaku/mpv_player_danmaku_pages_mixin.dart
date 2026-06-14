@@ -104,9 +104,11 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                 _DanmakuSliderRow(
                   label: '弹幕速度',
                   trailing: _danmakuSpeedLabel(),
-                  slider: _DanmakuDiscreteDotsSlider(
-                    values: danmakuSpeedPresets,
-                    value: nearestDanmakuSpeedPreset(settings.speed),
+                  slider: _DanmakuLineSlider(
+                    value: clampDanmakuSpeed(settings.speed),
+                    min: danmakuSpeedMin,
+                    max: danmakuSpeedMax,
+                    activeColor: context.appColors.accent,
                     onChanged: (value) {
                       unawaited(_setDanmakuSpeed(value));
                       drawer.refresh();
@@ -247,6 +249,19 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                         (current) => current.copyWith(avoidCenterArea: value),
                       ),
                     );
+                    drawer.refresh();
+                  },
+                ),
+                const SizedBox(height: 18),
+                _DanmakuSwitchRow(
+                  title: '原生弹幕渲染器（实验）',
+                  subtitle:
+                      '视频走独立硬件层、弹幕走原生绘制，二者分开互不抢 GPU，弹幕可'
+                      ' 120fps 丝滑（适合高码率/平板）；代价是二级菜单合成可能略卡。'
+                      '切换后需重新打开播放器才生效。',
+                  value: settings.useNativeRenderer,
+                  onChanged: (value) {
+                    unawaited(_setDanmakuUseNativeRenderer(value));
                     drawer.refresh();
                   },
                 ),
@@ -448,7 +463,7 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
   ) {
     final savedSources = _savedLocalDanmakuSources;
     final localSources = savedSources
-        .where((item) => item.isLocalFile)
+        .where((item) => !item.isDanDanPlay)
         .toList(growable: false);
     final networkSources = savedSources
         .where((item) => item.isDanDanPlay)

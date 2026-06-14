@@ -1831,6 +1831,36 @@ class FeiniuApi {
     }
   }
 
+  /// 下载封面图原始字节（带鉴权），供离线缓存。
+  ///
+  /// [posterPath] 是 NAS 相对图片路径（loadArgs.posterPath）。按 [ApiUrlHelper] 候选
+  /// 逐个尝试，首个成功即返回字节；全失败返回 null（断网时即如此，调用方静默回退网络 URL）。
+  Future<List<int>?> downloadImageBytes(
+    String posterPath, {
+    int width = 480,
+  }) async {
+    final raw = posterPath.trim();
+    if (raw.isEmpty) return null;
+    final candidates = ApiUrlHelper.imageCandidates(
+      nasProvider.baseUrl,
+      raw,
+      width: width,
+    );
+    for (final url in candidates) {
+      try {
+        final response = await _dio.get<List<int>>(
+          url,
+          options: Options(responseType: ResponseType.bytes),
+        );
+        final bytes = response.data ?? const <int>[];
+        if (bytes.isNotEmpty) return bytes;
+      } catch (_) {
+        // 该候选失败，试下一个。
+      }
+    }
+    return null;
+  }
+
   /// 搜索远程字幕候选。
   Future<RemoteSubtitleSearchResult> searchRemoteSubtitles({
     required String mediaGuid,
@@ -2048,6 +2078,7 @@ class FeiniuApi {
       headers['Authx'] = _buildAuthxHeaderFor(
         method: method,
         path: path,
+        queryParameters: uri?.queryParameters ?? const <String, String>{},
         body: body,
       );
     }
@@ -2619,11 +2650,16 @@ class FeiniuApi {
     return targetPort == basePort;
   }
 
-  // Authx is required by most protected endpoints and signs method/path/body.
+  // Authx is required by most protected endpoints. 新版后端严格校验签名：
+  // md5("KEY_path_nonce_timestamp_payloadMd5_SECRET")。
+  // GET 的 payload 是按 key 排序、值取解码原文的 query 串（k=v&k2=v2）；
+  // 非 GET 的 payload 必须与实际发送的请求体字节完全一致（null 时为空串）。
   String _buildAuthxHeader(RequestOptions options) {
+    final uri = options.uri;
     return _buildAuthxHeaderFor(
       method: options.method,
-      path: options.path,
+      path: uri.path,
+      queryParameters: uri.queryParameters,
       body: options.data,
     );
   }
@@ -2631,15 +2667,39 @@ class FeiniuApi {
   String _buildAuthxHeaderFor({
     required String method,
     required String path,
+    Map<String, String> queryParameters = const <String, String>{},
     dynamic body,
   }) {
     final nonce = _generateNonce();
     final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
-    final payload = _stableJson(body ?? <String, dynamic>{});
     final normalizedMethod = method.toUpperCase();
-    final token = nasProvider.token;
-    final signBase =
-        '$normalizedMethod|$path|$payload|$nonce|$timestamp|$token';
+    final String payloadMd5;
+    if (normalizedMethod == 'GET') {
+      final keys = queryParameters.keys.toList()..sort();
+      final canonicalQuery = keys
+          .map((key) => '$key=${queryParameters[key]}')
+          .join('&');
+      payloadMd5 = md5.convert(utf8.encode(canonicalQuery)).toString();
+    } else {
+      final String payload;
+      if (body == null) {
+        payload = '';
+      } else if (body is String) {
+        payload = body;
+      } else {
+        // 与 Dio 默认 transformer 的 json.encode 输出保持一致（保留插入序）。
+        payload = jsonEncode(body);
+      }
+      payloadMd5 = md5.convert(utf8.encode(payload)).toString();
+    }
+    final signBase = [
+      _publicAuthxKey,
+      path,
+      nonce,
+      timestamp,
+      payloadMd5,
+      _publicAuthxSecret,
+    ].join('_');
     final sign = md5.convert(utf8.encode(signBase)).toString();
     _apiVerboseLog(
       '[API][AUTHX] method=$normalizedMethod path=$path nonce=$nonce timestamp=$timestamp sign=$sign',

@@ -13,6 +13,7 @@ import android.graphics.RectF
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.text.TextPaint
 import android.util.AttributeSet
 import android.util.LruCache
@@ -227,6 +228,8 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
 ) : View(context, attrs) {
     companion object {
         private const val TAG = "FlyPlayerDanmaku"
+        // Plan B v2 occlusion debug logging (planb2 ...). Rate-limited in the draw path.
+        private const val OCCLUSION_DEBUG_LOG = true
         private const val DEFAULT_TARGET_FPS = 60
         private const val MIN_TARGET_FPS = 24
         private const val MAX_TARGET_FPS = 120
@@ -243,6 +246,7 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
         private const val SUBTITLE_RESERVED_AREA_RATIO = 0.16f
         private const val SCROLL_BASE_TRAVEL_MS = 4600f
         private const val STATIC_BASE_DURATION_MS = 3200f
+        // 滚动速度下限（px/ms），兼作时间线软同步增益；防止超窄视口/异常时长把速度算成 ~0。
         private const val DANMAKU_SPEED_MIN = 0.70f
         private const val DANMAKU_SPEED_MAX = 1.55f
         private const val DANMAKU_SPEED_STEP = (DANMAKU_SPEED_MAX - DANMAKU_SPEED_MIN) / 4f
@@ -427,10 +431,178 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
     private var settings = NativeDanmakuSettings()
     private var comments: List<NativeDanmakuComment> = emptyList()
     private var occlusion = NativeDanmakuOcclusionPayload()
+
+    // Between-sample mask motion extrapolation. The controller estimates global
+    // frame velocity (normalized units per ms); each draw we offset the mask by
+    // velocity * (time since the mask was anchored), so the mask follows motion
+    // instead of freezing until the next ~0.7s sample.
+    private var maskVelocityX = 0.0
+    private var maskVelocityY = 0.0
+    private var maskAnchorUptimeMs = 0L
+    // Gentler than before (was 900ms / 0.18): the old extrapolation over-slid the whole
+    // mask and felt "too strong". Capped tighter so motion tracking (when enabled) only
+    // nudges the mask forward to offset live-capture lag, without flying off.
+    private val maskExtrapMaxMs = 600L
+    private val maskExtrapMaxFraction = 0.08f
+
+    // Plan B: masks are precomputed AHEAD of playback and tagged with the video PTS
+    // (ms) they belong to. We buffer recent masks and, each draw, pick the one whose
+    // PTS matches the current playback time → the mask is synced to the frame, not
+    // lagging behind it. Bitmaps are copied (the controller recycles its own).
+    // Plan B v2: each buffered mask carries its OWN per-step velocity + sceneCut flag +
+    // the producer step it belongs to, so the renderer extrapolates with the velocity
+    // measured at that mask's moment (not a single controller-pushed global velocity)
+    // and never extrapolates across a scene cut.
+    private class MaskFrame(
+        val ptsMs: Long,
+        val bitmap: Bitmap,
+        val vxPerMs: Double,
+        val vyPerMs: Double,
+        val sceneCut: Boolean,
+        val stepMs: Long,
+    )
+
+    private val maskPtsBuffer = ArrayDeque<MaskFrame>()
+    private val maskPtsBufferCap = 12
+
+    // If the floor-selected mask is older than this, the mask is for the wrong moment —
+    // drawing it would occlude the wrong spot. Better to show nothing briefly. Plan B v2:
+    // tightened to ~1.5x the producer step (dynamic, updated on each push) since masks now
+    // arrive ~every 280ms; until the first PTS mask arrives it stays at the legacy 1100ms.
+    private var maskStaleMaxMs = 1100L
+
+    // Plan B (PTS-synced) is active once we've received a mask tagged with a video PTS.
+    // In this mode the draw path relies solely on the PTS buffer and must NOT fall back
+    // to the single latest mask (which would re-introduce the stale wrong-spot draw the
+    // staleness guard exists to prevent).
+    private var ptsMaskMode = false
+
+    // Phase 3 — 逐条弹幕防碎片 (per-comment draw-whole). DISABLED by default: real-device
+    // feedback showed "draw whole over the subject" reads as 压脸 (covers the face) and the
+    // per-frame classification flicker made comments blink. With the crisp carve (mask alpha
+    // aligned to the foreground threshold) the subject already shows through cleanly
+    // (穿透), so pure carving is preferred. >0 re-enables: comments overlapping the subject
+    // by ≥ this ratio are drawn AFTER the mask (uncarved) instead of carved. Tunable.
+    private val occlusionDrawWholeRatio = 0f
+    private val occlusionCoverageAlphaThreshold = 110 // mask alpha (0-255) counted as "subject"
+    private val occlusionCoverageSamplesX = 6
+    private val occlusionCoverageSamplesY = 3
+    private val drawWholeItems = ArrayList<ActiveDanmakuItem>()
+    private val occlusionContentRect = RectF()
+    // Cached ARGB pixels of the mask currently used for coverage sampling (extracted once
+    // per mask bitmap change, not per frame).
+    private var coverageMaskRef: Bitmap? = null
+    private var coveragePixels: IntArray? = null
+    private var coverageMaskW = 0
+    private var coverageMaskH = 0
+
+    // Plan B only: display aspect (w/h) of the raw video frame the mask came from. Used
+    // to map the full-frame mask onto the letterboxed video rect inside the view. 0 =
+    // unknown / live-capture path (mask already matches the rendered surface → full view).
+    private var occlusionVideoAspect = 0f
+
+    private fun pushMaskFrame(
+        ptsMs: Long,
+        vxPerMs: Double,
+        vyPerMs: Double,
+        sceneCut: Boolean,
+        stepMs: Long,
+        source: Bitmap,
+    ) {
+        if (source.isRecycled) return
+        val copy = runCatching { source.copy(Bitmap.Config.ARGB_8888, false) }.getOrNull() ?: return
+        maskPtsBuffer.addLast(MaskFrame(ptsMs, copy, vxPerMs, vyPerMs, sceneCut, stepMs))
+        while (maskPtsBuffer.size > maskPtsBufferCap) {
+            maskPtsBuffer.removeFirst().bitmap.takeIf { !it.isRecycled }?.recycle()
+        }
+        if (stepMs > 0L) {
+            maskStaleMaxMs = (stepMs * 3L / 2L).coerceAtLeast(360L)
+        }
+    }
+
+    // Plan B v2: FLOOR selection — the newest mask whose PTS is <= the current timeline.
+    // Picking the absolute-nearest could grab a FUTURE mask and occlude a spot the video
+    // hasn't reached yet. A future-only buffer (all PTS > t, e.g. right after a seek)
+    // yields null → draw nothing until the matching mask lands.
+    private fun selectMaskForTimeline(timelineMs: Long): MaskFrame? {
+        var best: MaskFrame? = null
+        for (frame in maskPtsBuffer) {
+            if (frame.bitmap.isRecycled) continue
+            if (frame.ptsMs > timelineMs) continue
+            if (best == null || frame.ptsMs > best.ptsMs) {
+                best = frame
+            }
+        }
+        // Too stale → wrong moment; skip rather than occlude the wrong spot.
+        if (best != null && timelineMs - best.ptsMs > maskStaleMaxMs) return null
+        return best
+    }
+
+    // E1: the current time t is bracketed by the buffered floor mask (PTS <= t) and the
+    // next mask (smallest PTS > floor). Drawing both at full alpha covers the subject's
+    // swept path t0→t1 → no "mask lags the moving person" feel, independent of velocity.
+    private class MaskBracket(val floor: MaskFrame, val next: MaskFrame?)
+
+    private fun selectMaskBracket(timelineMs: Long): MaskBracket? {
+        var floor: MaskFrame? = null
+        for (frame in maskPtsBuffer) {
+            if (frame.bitmap.isRecycled) continue
+            if (frame.ptsMs > timelineMs) continue
+            if (floor == null || frame.ptsMs > floor.ptsMs) floor = frame
+        }
+        val f = floor ?: return null
+        if (timelineMs - f.ptsMs > maskStaleMaxMs) return null
+        var next: MaskFrame? = null
+        for (frame in maskPtsBuffer) {
+            if (frame.bitmap.isRecycled) continue
+            if (frame.ptsMs <= f.ptsMs) continue
+            if (next == null || frame.ptsMs < next.ptsMs) next = frame
+        }
+        return MaskBracket(f, next)
+    }
+
+    private fun clearMaskPtsBuffer() {
+        for (frame in maskPtsBuffer) {
+            frame.bitmap.takeIf { !it.isRecycled }?.recycle()
+        }
+        maskPtsBuffer.clear()
+        // Drop the coverage cache; it may reference a now-recycled buffered mask.
+        coverageMaskRef = null
+    }
+
+    // E0 diagnostic: dErr (t - floorPts) is the floor-selection lag (expect 0..step);
+    // tMinusPos (danmaku timeline vs last pushed mpv position) reveals any constant
+    // soft-sync bias that would systematically offset selection (>80ms ⇒ add a constant
+    // compensation at selection). Rate-limited to ~1/s.
+    private var lastMaskBiasLogMs = 0L
+
+    private fun maybeLogMaskBias(timelineMs: Long, floor: MaskFrame?, next: MaskFrame?, unionDrawn: Boolean) {
+        if (!OCCLUSION_DEBUG_LOG) return
+        val now = SystemClock.uptimeMillis()
+        if (now - lastMaskBiasLogMs < 1000L) return
+        lastMaskBiasLogMs = now
+        var newest = Long.MIN_VALUE
+        for (f in maskPtsBuffer) {
+            if (!f.bitmap.isRecycled && f.ptsMs > newest) newest = f.ptsMs
+        }
+        val pos = lastKnownPositionMs.toLong()
+        Log.d(
+            TAG,
+            "planb2 draw t=$timelineMs pos=$pos tMinusPos=${timelineMs - pos} " +
+                "floorPts=${floor?.ptsMs ?: -1} nextPts=${next?.ptsMs ?: -1} " +
+                "dErr=${if (floor != null) timelineMs - floor.ptsMs else -1} union=$unionDrawn " +
+                "bufferAhead=${if (newest > Long.MIN_VALUE) newest - timelineMs else -1} buf=${maskPtsBuffer.size}",
+        )
+    }
     private var laneLayout = NativeDanmakuLaneLayout(FloatArray(0), FloatArray(0))
     private var effectiveDensityRatio = 1.0f
     private var topLaneAvailableAtMs = FloatArray(0)
     private var bottomLaneAvailableAtMs = FloatArray(0)
+    // 滚动弹幕「追及碰撞」检测的每轨道前车状态：上一条滚动弹幕的速度 / 起始时间 / 绘制宽度。
+    // 变速下后车可能追上前车，需用前车这些量判断本条进场后会不会追尾（见 findScrollLaneAntiCollision）。
+    private var topLaneLastSpeedPxPerMs = FloatArray(0)
+    private var topLaneLastStartMs = FloatArray(0)
+    private var topLaneLastDrawWidthPx = FloatArray(0)
     private var activeItems = ArrayList<ActiveDanmakuItem>()
     private var pendingScrollItems = ArrayList<PendingNativeScrollDanmaku>()
     private var pendingScrollIds = HashSet<String>()
@@ -618,6 +790,8 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
         val targetMs = positionMs.toFloat().coerceAtLeast(0f)
         val nowNs = currentAnimationClockNs(System.nanoTime())
         armSeekGuard(targetMs, nowNs)
+        // Buffered Plan B masks belong to the old timeline; drop them after a seek.
+        clearMaskPtsBuffer()
         lastKnownPositionMs = targetMs
         if (settings.enabled && comments.isNotEmpty()) {
             rebuildTimeline(targetMs, nowNs)
@@ -667,6 +841,9 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
         laneLayout = NativeDanmakuLaneLayout(FloatArray(0), FloatArray(0))
         topLaneAvailableAtMs = FloatArray(0)
         bottomLaneAvailableAtMs = FloatArray(0)
+        topLaneLastSpeedPxPerMs = FloatArray(0)
+        topLaneLastStartMs = FloatArray(0)
+        topLaneLastDrawWidthPx = FloatArray(0)
         lastKnownPositionMs = 0f
         timelineAnchorPositionMs = 0f
         timelineAnchorTimeNs = System.nanoTime()
@@ -721,6 +898,31 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post { setOcclusionState(state, runtimeMaskBitmap) }
             return
+        }
+        // Anchor mask motion extrapolation to this sample.
+        maskVelocityX = state.maskVelocityX
+        maskVelocityY = state.maskVelocityY
+        maskAnchorUptimeMs = SystemClock.uptimeMillis()
+        // Plan B: buffer the precomputed mask under its video PTS for PTS-synced draw.
+        // PTS mode tracks the CURRENT source: a mask carrying a PTS (>0) means Plan B
+        // (local); a mask without one means the live-capture path (network). Only flip
+        // when an actual mask is present so empty/cleared states don't toggle it.
+        if (runtimeMaskBitmap != null && !runtimeMaskBitmap.isRecycled) {
+            if (state.maskPtsMs > 0L) {
+                ptsMaskMode = true
+                occlusionVideoAspect = state.videoAspect.toFloat()
+                pushMaskFrame(
+                    ptsMs = state.maskPtsMs,
+                    vxPerMs = state.maskVelocityX,
+                    vyPerMs = state.maskVelocityY,
+                    sceneCut = state.maskSceneCut,
+                    stepMs = state.effectiveSampleIntervalMs,
+                    source = runtimeMaskBitmap,
+                )
+            } else {
+                ptsMaskMode = false
+                occlusionVideoAspect = 0f
+            }
         }
         applyOcclusionState(
             NativeDanmakuOcclusionPayload(
@@ -1129,12 +1331,21 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
         val viewportWidth = width.toFloat()
         val bitmapDrawStartedNs = System.nanoTime()
         var drawnItems = 0
+        // Phase 3: when masking, comments that sit mostly over the subject are deferred and
+        // drawn AFTER the mask pass (uncarved) so they aren't sliced into fragments.
+        val coverageMask = if (shouldDrawMask) maskCoverageContext(timelineMs) else null
+        val coverageReady = coverageMask != null && ensureCoveragePixels(coverageMask)
+        drawWholeItems.clear()
         for (item in activeItems) {
             val left = item.left(viewportWidth, timelineMs)
             if (left >= viewportWidth || left + item.bitmap.drawWidth <= 0f) {
                 continue
             }
             if (item.bitmap.bitmap.isRecycled) continue
+            if (coverageReady && itemMostlyOverSubject(item, timelineMs)) {
+                drawWholeItems.add(item)
+                continue
+            }
             canvas.drawBitmap(item.bitmap.bitmap, left, item.top, bitmapPaint)
             drawnItems += 1
         }
@@ -1143,6 +1354,13 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
         if (shouldDrawMask) {
             val maskDrawStartedNs = System.nanoTime()
             drawOcclusionMask(canvas)
+            // Draw the "mostly over subject" comments on top of the carved layer, whole.
+            for (item in drawWholeItems) {
+                if (item.bitmap.bitmap.isRecycled) continue
+                val left = item.left(viewportWidth, timelineMs)
+                canvas.drawBitmap(item.bitmap.bitmap, left, item.top, bitmapPaint)
+                drawnItems += 1
+            }
             canvas.restoreToCount(layerCount)
             maskCostNs = System.nanoTime() - maskDrawStartedNs
         }
@@ -1186,7 +1404,33 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
                 sourceKey = payload["sourceKey"]?.toString().orEmpty(),
             )
         val parsedComments =
-            if (payload.containsKey("comments")) {
+            if (payload.containsKey("commentsCompact")) {
+                // Flutter 编排层下发的紧凑格式：每条为数组 [id, timeMs, text, typeIndex, colorArgb]。
+                // 注意：必须先于 "comments" 分支判断——Flutter 只发 commentsCompact，缺这段弹幕永远进不了 overlay。
+                val rawCompact = payload["commentsCompact"] as? List<*> ?: emptyList<Any?>()
+                rawCompact.mapNotNull { entry ->
+                    val cols = entry as? List<*> ?: return@mapNotNull null
+                    if (cols.size < 5) return@mapNotNull null
+                    val text = cols[2]?.toString()?.trim().orEmpty()
+                    if (text.isEmpty()) return@mapNotNull null
+                    val timeMs = cols[1].toIntValue() ?: 0
+                    val type =
+                        when (cols[3].toIntValue() ?: 0) {
+                            1 -> NativeDanmakuType.TOP
+                            2 -> NativeDanmakuType.BOTTOM
+                            else -> NativeDanmakuType.SCROLL
+                        }
+                    NativeDanmakuComment(
+                        id =
+                            cols[0]?.toString()?.takeIf { it.isNotBlank() }
+                                ?: "$timeMs:${text.hashCode()}",
+                        timeMs = timeMs.coerceAtLeast(0),
+                        text = text,
+                        type = type,
+                        color = cols[4].toIntValue() ?: Color.WHITE,
+                    )
+                }.sortedBy { it.timeMs }
+            } else if (payload.containsKey("comments")) {
                 val rawComments = payload["comments"] as? List<*> ?: emptyList<Any?>()
                 rawComments.mapNotNull { entry ->
                     val raw = entry as? Map<*, *> ?: return@mapNotNull null
@@ -1299,6 +1543,9 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
             effectiveDensityRatio = settings.density.coerceIn(0.2f, 1.0f)
             topLaneAvailableAtMs = FloatArray(0)
             bottomLaneAvailableAtMs = FloatArray(0)
+            topLaneLastSpeedPxPerMs = FloatArray(0)
+            topLaneLastStartMs = FloatArray(0)
+            topLaneLastDrawWidthPx = FloatArray(0)
             return
         }
         laneLayout =
@@ -1309,6 +1556,9 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
         effectiveDensityRatio = computeEffectiveDensityRatio(laneLayout)
         topLaneAvailableAtMs = FloatArray(laneLayout.topTracks.size)
         bottomLaneAvailableAtMs = FloatArray(laneLayout.bottomOffsets.size)
+        topLaneLastSpeedPxPerMs = FloatArray(laneLayout.topTracks.size)
+        topLaneLastStartMs = FloatArray(laneLayout.topTracks.size)
+        topLaneLastDrawWidthPx = FloatArray(laneLayout.topTracks.size)
     }
 
     private fun buildLaneLayout(
@@ -1499,6 +1749,9 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
         duplicateWindow.clear()
         topLaneAvailableAtMs.fill(0f)
         bottomLaneAvailableAtMs.fill(0f)
+        topLaneLastSpeedPxPerMs.fill(0f)
+        topLaneLastStartMs.fill(0f)
+        topLaneLastDrawWidthPx.fill(0f)
         nextCommentIndex =
             lowerBoundCommentIndex(
                 max(0f, lastKnownPositionMs - MAX_LOOKBACK_MS).toInt(),
@@ -1509,6 +1762,9 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
     private fun relayoutActiveItems(timelineMs: Float) {
         topLaneAvailableAtMs.fill(0f)
         bottomLaneAvailableAtMs.fill(0f)
+        topLaneLastSpeedPxPerMs.fill(0f)
+        topLaneLastStartMs.fill(0f)
+        topLaneLastDrawWidthPx.fill(0f)
         if (activeItems.isEmpty()) {
             return
         }
@@ -1529,6 +1785,11 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
                     item.top = laneLayout.topTracks[item.laneIndex]
                     topLaneAvailableAtMs[item.laneIndex] =
                         max(topLaneAvailableAtMs[item.laneIndex], item.laneReleaseMs)
+                    if (item.type == NativeDanmakuType.SCROLL) {
+                        topLaneLastSpeedPxPerMs[item.laneIndex] = item.speedPxPerMs
+                        topLaneLastStartMs[item.laneIndex] = item.startMs
+                        topLaneLastDrawWidthPx[item.laneIndex] = item.bitmap.drawWidth
+                    }
                 }
                 NativeDanmakuType.BOTTOM -> {
                     if (item.laneIndex !in laneLayout.bottomOffsets.indices) {
@@ -1656,12 +1917,18 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
                     return NativeDanmakuAdmissionResult.BLOCKED
                 }
                 val bitmap = obtainBitmap(comment, textOverride)
-                val speedPxPerMs = currentScrollSpeedPxPerMs()
+                // 恒定「基础穿屏时长」→ 速度由 (视口宽 + 弹幕宽) / 时长 反推：弹幕越宽速度越快，
+                // 不同宽度弹幕呈现不同飘动速度（而非全局单一速度）。
+                val travelDurationMs = currentScrollBaseTravelDurationMs().coerceAtLeast(2000f)
+                val speedPxPerMs =
+                    ((width + bitmap.drawWidth) / travelDurationMs).coerceAtLeast(TIMELINE_SOFT_SYNC_GAIN)
                 val startMs = if (fromPending) timelineMs else comment.timeMs.toFloat()
                 val releaseAfterMs = (bitmap.drawWidth + currentItemGapPx()) / speedPxPerMs
-                val travelDurationMs = (width + bitmap.drawWidth) / speedPxPerMs
                 val laneIndex =
-                    findAvailableLane(topLaneAvailableAtMs, startMs)
+                    findScrollLaneAntiCollision(
+                        topLaneAvailableAtMs, topLaneLastSpeedPxPerMs,
+                        topLaneLastStartMs, topLaneLastDrawWidthPx, startMs, speedPxPerMs,
+                    )
                         ?: run {
                             if (!fromPending && queueOnBlocked && queuePendingScrollComment(comment, timelineMs)) {
                                 schedulerQueuedByTrackCount += 1
@@ -1670,7 +1937,11 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
                             schedulerBlockedByTrackCount += 1
                             return NativeDanmakuAdmissionResult.BLOCKED
                         }
-                topLaneAvailableAtMs[laneIndex] = startMs + releaseAfterMs
+                topLaneAvailableAtMs[laneIndex] =
+                    max(topLaneAvailableAtMs[laneIndex], startMs + releaseAfterMs)
+                topLaneLastSpeedPxPerMs[laneIndex] = speedPxPerMs
+                topLaneLastStartMs[laneIndex] = startMs
+                topLaneLastDrawWidthPx[laneIndex] = bitmap.drawWidth
                 val endMs = startMs + travelDurationMs
                 if (endMs <= timelineMs) {
                     return NativeDanmakuAdmissionResult.DROPPED
@@ -1701,6 +1972,9 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
                     findAvailableLane(topLaneAvailableAtMs, startMs)
                         ?: return NativeDanmakuAdmissionResult.BLOCKED
                 topLaneAvailableAtMs[laneIndex] = startMs + durationMs
+                // 静态顶部弹幕占用滚动共享的顶部轨道：把该轨道前车速度标记为 0，
+                // 后续滚动弹幕的追及碰撞会按「静态占位」分支只看 availableAtMs。
+                topLaneLastSpeedPxPerMs[laneIndex] = 0f
                 val endMs = startMs + durationMs
                 if (endMs <= timelineMs) {
                     return NativeDanmakuAdmissionResult.DROPPED
@@ -2019,8 +2293,38 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
             .coerceIn(MIN_MOTION_DURATION_SCALE, MAX_MOTION_DURATION_SCALE)
     }
 
-    private fun currentScrollSpeedPxPerMs(): Float {
-        return (width / currentScrollBaseTravelDurationMs()).coerceAtLeast(0.12f)
+    /**
+     * 滚动弹幕「追及碰撞」检测：返回一条不会与前车追尾的可用轨道，没有则 null。
+     * - 前车速度<=0（空轨道 / 静态占位）：availableAtMs 到点即空闲。
+     * - 本条更快(newSpeed>prevSpeed)：会追上前车，要求前车已行进足够久——前车宽 +
+     *   按速度差折算的安全等效宽度，全部按前车速度换算成时长。
+     * - 本条不快于前车：只需前车尾部 + 安全间距已离开入场点。
+     */
+    private fun findScrollLaneAntiCollision(
+        availableAtMs: FloatArray,
+        laneLastSpeedPxPerMs: FloatArray,
+        laneLastStartMs: FloatArray,
+        laneLastDrawWidthPx: FloatArray,
+        targetTimeMs: Float,
+        newSpeedPxPerMs: Float,
+    ): Int? {
+        val antiCollisionMarginPx = density * 20f
+        val viewportWidthPx = width.toFloat()
+        for (i in availableAtMs.indices) {
+            val prevSpeed = laneLastSpeedPxPerMs[i]
+            if (prevSpeed <= 0f) {
+                if (availableAtMs[i] <= targetTimeMs) return i
+            } else if (newSpeedPxPerMs > prevSpeed) {
+                val speedDiff = newSpeedPxPerMs - prevSpeed
+                val widthEquiv = ((viewportWidthPx + antiCollisionMarginPx) * speedDiff) / newSpeedPxPerMs
+                val minElapsedMs = (laneLastDrawWidthPx[i] + widthEquiv) / prevSpeed
+                if (targetTimeMs - laneLastStartMs[i] >= minElapsedMs) return i
+            } else {
+                val minElapsedMs = (laneLastDrawWidthPx[i] + antiCollisionMarginPx) / prevSpeed
+                if (targetTimeMs - laneLastStartMs[i] >= minElapsedMs) return i
+            }
+        }
+        return null
     }
 
     private fun currentScrollBaseTravelDurationMs(): Float {
@@ -2652,20 +2956,205 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
         }
     }
 
+    // Phase 3: returns the mask bitmap used for per-comment coverage and fills
+    // [occlusionContentRect] with the screen rect that mask maps onto (the letterboxed
+    // video area in PTS mode, or the displayed danmaku area in the live path). null when
+    // the split is disabled / no usable mask this frame.
+    private fun maskCoverageContext(timelineMs: Float): Bitmap? {
+        if (occlusionDrawWholeRatio <= 0f) return null
+        if (occlusion.mode != NativeDanmakuOcclusionMode.MASK) return null
+        val frame = selectMaskForTimeline(timelineMs.toLong())
+        val mask = if (ptsMaskMode) frame?.bitmap else (frame?.bitmap ?: currentMaskBitmap)
+        if (mask == null || mask.isRecycled) return null
+        val destinationCoverage = settings.displayAreaRatio.coerceIn(0.25f, 1.0f)
+        val visibleDestinationBottom =
+            ceil(height.toDouble() * destinationCoverage.toDouble())
+                .toFloat()
+                .coerceIn(1f, height.toFloat())
+        val destinationBottom =
+            (visibleDestinationBottom + partialMaskBoundaryBleedPx(destinationCoverage))
+                .coerceIn(1f, height.toFloat())
+        if (ptsMaskMode && occlusionVideoAspect > 0f) {
+            val viewAspect = width.toFloat() / height.toFloat()
+            if (occlusionVideoAspect > viewAspect) {
+                val ch = width.toFloat() / occlusionVideoAspect
+                val ct = (height.toFloat() - ch) / 2f
+                occlusionContentRect.set(0f, ct, width.toFloat(), ct + ch)
+            } else {
+                val cw = height.toFloat() * occlusionVideoAspect
+                val cl = (width.toFloat() - cw) / 2f
+                occlusionContentRect.set(cl, 0f, cl + cw, height.toFloat())
+            }
+        } else {
+            occlusionContentRect.set(0f, 0f, width.toFloat(), destinationBottom)
+        }
+        return mask
+    }
+
+    // Extract the mask's ARGB pixels once per bitmap change (not per frame) for fast
+    // per-comment alpha sampling.
+    private fun ensureCoveragePixels(mask: Bitmap): Boolean {
+        if (mask === coverageMaskRef && coveragePixels != null) return true
+        val w = mask.width
+        val h = mask.height
+        if (w <= 0 || h <= 0) return false
+        val px = coveragePixels?.takeIf { it.size == w * h } ?: IntArray(w * h)
+        val ok = runCatching { mask.getPixels(px, 0, w, 0, 0, w, h) }.isSuccess
+        if (!ok) return false
+        coveragePixels = px
+        coverageMaskRef = mask
+        coverageMaskW = w
+        coverageMaskH = h
+        return true
+    }
+
+    // True when the comment sits mostly over the subject → draw it whole (uncarved) so it
+    // isn't sliced into unreadable fragments.
+    private fun itemMostlyOverSubject(
+        item: ActiveDanmakuItem,
+        timelineMs: Float,
+    ): Boolean {
+        val px = coveragePixels ?: return false
+        val mw = coverageMaskW
+        val mh = coverageMaskH
+        if (mw <= 0 || mh <= 0) return false
+        val cl = occlusionContentRect.left
+        val ct = occlusionContentRect.top
+        val cw = occlusionContentRect.width()
+        val ch = occlusionContentRect.height()
+        if (cw <= 0f || ch <= 0f) return false
+        val itemLeft = item.left(width.toFloat(), timelineMs)
+        val itemTop = item.top
+        val itemW = item.bitmap.drawWidth
+        val itemH = item.bitmap.drawHeight
+        if (itemW <= 0f || itemH <= 0f) return false
+        val gx = occlusionCoverageSamplesX
+        val gy = occlusionCoverageSamplesY
+        var subject = 0
+        var total = 0
+        var iy = 0
+        while (iy < gy) {
+            val sy = itemTop + itemH * (iy + 0.5f) / gy
+            var ix = 0
+            while (ix < gx) {
+                val sx = itemLeft + itemW * (ix + 0.5f) / gx
+                total += 1
+                if (sx >= cl && sx < cl + cw && sy >= ct && sy < ct + ch) {
+                    val mx = (((sx - cl) / cw) * mw).toInt().coerceIn(0, mw - 1)
+                    val my = (((sy - ct) / ch) * mh).toInt().coerceIn(0, mh - 1)
+                    val alpha = (px[my * mw + mx] ushr 24) and 0xFF
+                    if (alpha >= occlusionCoverageAlphaThreshold) subject += 1
+                }
+                ix += 1
+            }
+            iy += 1
+        }
+        return total > 0 && subject.toFloat() / total.toFloat() >= occlusionDrawWholeRatio
+    }
+
+    // E1: draw one PTS mask mapped onto the letterboxed video rect (the mask is the RAW
+    // square video frame; the displayed video is centered+fit with bars). [offsetX/Y] is
+    // the motion-extrapolation nudge (0 for the bracket's "next" mask — it IS the future
+    // position). DST_OUT erases the danmaku layer under the subject.
+    private fun drawPtsMaskBitmap(
+        canvas: Canvas,
+        mask: Bitmap,
+        offsetX: Float,
+        offsetY: Float,
+        destinationBottom: Float,
+    ) {
+        val viewAspect = width.toFloat() / height.toFloat()
+        val contentLeft: Float
+        val contentTop: Float
+        val contentWidth: Float
+        val contentHeight: Float
+        if (occlusionVideoAspect > viewAspect) {
+            contentWidth = width.toFloat()
+            contentHeight = width.toFloat() / occlusionVideoAspect
+            contentLeft = 0f
+            contentTop = (height.toFloat() - contentHeight) / 2f
+        } else {
+            contentHeight = height.toFloat()
+            contentWidth = height.toFloat() * occlusionVideoAspect
+            contentLeft = (width.toFloat() - contentWidth) / 2f
+            contentTop = 0f
+        }
+        maskSrcRect.set(0, 0, mask.width, mask.height)
+        maskDstRect.set(
+            contentLeft + offsetX,
+            contentTop + offsetY,
+            contentLeft + contentWidth + offsetX,
+            contentTop + contentHeight + offsetY,
+        )
+        val restoreCount = canvas.save()
+        canvas.clipRect(0f, 0f, width.toFloat(), destinationBottom)
+        canvas.drawBitmap(mask, maskSrcRect, maskDstRect, maskPaintCrisp)
+        canvas.restoreToCount(restoreCount)
+    }
+
     private fun drawOcclusionMask(canvas: Canvas) {
         when (occlusion.mode) {
             NativeDanmakuOcclusionMode.MASK -> {
-                val currentMask = currentMaskBitmap ?: return
-                if (currentMask.isRecycled) return
+                val timelineMs = currentTimelineMs(System.nanoTime()).toLong()
                 val destinationCoverage = settings.displayAreaRatio.coerceIn(0.25f, 1.0f)
                 val visibleDestinationBottom =
                     ceil(height.toDouble() * destinationCoverage.toDouble())
                         .toFloat()
                         .coerceIn(1f, height.toFloat())
-                val boundaryBleedPx = partialMaskBoundaryBleedPx(destinationCoverage)
                 val destinationBottom =
-                    (visibleDestinationBottom + boundaryBleedPx)
+                    (visibleDestinationBottom + partialMaskBoundaryBleedPx(destinationCoverage))
                         .coerceIn(1f, height.toFloat())
+
+                // Plan B v2 (local): bracket dual-mask. Draw the floor mask (extrapolated by
+                // its own per-step velocity over t-pts, capped at one step) AND, at full
+                // alpha with no extrapolation, the next (future) mask. Their union covers the
+                // subject's swept path t0→t1 → the lag of a moving subject disappears without
+                // relying on velocity accuracy. NO cross-fade: partial alpha = ghost (the
+                // historical "半透明残留" pitfall) — both masks must be full alpha. Static
+                // shots reuse the same bitmap reference → next === floor → union auto-skips.
+                if (ptsMaskMode && occlusionVideoAspect > 0f) {
+                    val bracket = selectMaskBracket(timelineMs)
+                    if (bracket == null) {
+                        maybeLogMaskBias(timelineMs, null, null, false)
+                        return
+                    }
+                    val floor = bracket.floor
+                    if (floor.bitmap.isRecycled) return
+                    val extrapMs = (timelineMs - floor.ptsMs).coerceIn(0L, floor.stepMs.coerceAtLeast(1L))
+                    val maxOffX = width.toFloat() * maskExtrapMaxFraction
+                    val maxOffY = height.toFloat() * maskExtrapMaxFraction
+                    val offX =
+                        (floor.vxPerMs * extrapMs.toDouble() * width.toDouble())
+                            .toFloat()
+                            .coerceIn(-maxOffX, maxOffX)
+                    val offY =
+                        (floor.vyPerMs * extrapMs.toDouble() * height.toDouble())
+                            .toFloat()
+                            .coerceIn(-maxOffY, maxOffY)
+                    drawPtsMaskBitmap(canvas, floor.bitmap, offX, offY, destinationBottom)
+                    val next = bracket.next
+                    val unionDrawn =
+                        next != null &&
+                            !next.sceneCut &&
+                            !next.bitmap.isRecycled &&
+                            next.bitmap !== floor.bitmap
+                    if (unionDrawn) {
+                        drawPtsMaskBitmap(canvas, next!!.bitmap, 0f, 0f, destinationBottom)
+                    }
+                    maybeLogMaskBias(timelineMs, floor, next, unionDrawn)
+                    return
+                }
+
+                // Live-capture path (network): single mask, full-view mapping with a source
+                // crop, wall-clock extrapolation off the controller's global velocity.
+                val ptsFrame = selectMaskForTimeline(timelineMs)
+                val currentMask =
+                    if (ptsMaskMode) {
+                        ptsFrame?.bitmap ?: return
+                    } else {
+                        ptsFrame?.bitmap ?: currentMaskBitmap ?: return
+                    }
+                if (currentMask.isRecycled) return
                 val sourceCoverage = resolveMaskSourceCoverageRatio(
                     displayAreaRatio = (destinationBottom / height.toFloat()).coerceIn(0f, 1f),
                     captureAreaRatio = occlusion.captureAreaRatio,
@@ -2675,11 +3164,24 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
                         .toInt()
                         .coerceIn(1, currentMask.height)
                 maskSrcRect.set(0, 0, currentMask.width, sourceHeight)
+                val extrapMs =
+                    (SystemClock.uptimeMillis() - maskAnchorUptimeMs)
+                        .coerceIn(0L, maskExtrapMaxMs)
+                val maxOffX = width.toFloat() * maskExtrapMaxFraction
+                val maxOffY = height.toFloat() * maskExtrapMaxFraction
+                val maskOffsetX =
+                    (maskVelocityX * extrapMs.toDouble() * width.toDouble())
+                        .toFloat()
+                        .coerceIn(-maxOffX, maxOffX)
+                val maskOffsetY =
+                    (maskVelocityY * extrapMs.toDouble() * height.toDouble())
+                        .toFloat()
+                        .coerceIn(-maxOffY, maxOffY)
                 maskDstRect.set(
-                    0f,
-                    0f,
-                    width.toFloat(),
-                    destinationBottom,
+                    maskOffsetX,
+                    maskOffsetY,
+                    width.toFloat() + maskOffsetX,
+                    destinationBottom + maskOffsetY,
                 )
                 val restoreCount = canvas.save()
                 canvas.clipRect(0f, 0f, width.toFloat(), destinationBottom)
@@ -2812,5 +3314,6 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
     private fun clearMaskState() {
         cancelPendingMaskClear()
         clearLoadedMaskBitmap()
+        clearMaskPtsBuffer()
     }
 }

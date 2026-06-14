@@ -458,14 +458,16 @@ class _SavedDanmakuSourceTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final sourceTypeLabel = source.isDanDanPlay ? 'DanDanPlay' : '本地';
+    final sourceTypeLabel = source.isDanDanPlay
+        ? 'DanDanPlay'
+        : (source.isDownloadedFile ? '随片下载' : '本地导入');
     final colors = context.appColors;
     final sourceTypeColor = source.isDanDanPlay
         ? colors.success
         : colors.accent;
     final detail = source.detail.trim().isNotEmpty
         ? source.detail.trim()
-        : (source.isLocalFile
+        : (source.isFileBased
               ? source.sourceKey.split(Platform.pathSeparator).last
               : source.sourceKey);
     final subtitle = source.commentCount > 0

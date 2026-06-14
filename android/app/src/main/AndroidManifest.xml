@@ -20,12 +20,28 @@
         <meta-data
             android:name="android.supports_size_changes"
             android:value="true" />
+        <!-- 保留 Impeller-Vulkan：真机实测 Adreno/Mali 两台设备稳态 80–172fps、菜单合成顺滑。
+             不要加 ImpellerBackend=opengles（GLES 合成器在本机很慢，~27fps）。
+             低帧仅出现在启动阶段（载入 + AI 模型冷启动），靠预热 AI 模型解决，与渲染后端无关。
+             注：曾测 EnableImpeller=false(Skia 回退)，Mali 上仅略好、且 buffer-stall/raster
+             尖刺依旧（甚至更糟），证实卡顿不在 Flutter 渲染后端，而在视频解码缓冲路径
+             （hwdec 的 mali_gralloc 格式不匹配）——见 VideoOutputController 的 Mali 分支。 -->
         <meta-data
             android:name="io.flutter.embedding.android.EnableImpeller"
-            android:value="false" />
+            android:value="true" />
         <meta-data
             android:name="embedded"
             android:value="true" />
+        <!-- 原生播放壳截图分享用：把缓存/外部目录的截图文件以 content uri 授权给分享目标。 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.nativeplayer.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/native_player_file_paths" />
+        </provider>
         <property
             android:name="android.window.PROPERTY_ACTIVITY_EMBEDDING_SPLITS_ENABLED"
             android:value="true" />
@@ -125,6 +141,16 @@
                 android:resource="@style/PlayerNormalTheme" />
         </activity>
         <activity
+            android:name=".NativePlayerActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity="com.geqian.flyplayer.fly_player.nativeplayer"
+            android:theme="@style/PlayerLaunchTheme"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true" />
+        <activity
             android:name=".FullscreenPlayerActivity"
             android:exported="false"
             android:launchMode="singleTask"
@@ -186,6 +212,14 @@
             android:exported="false"
             android:foregroundServiceType="mediaPlayback"
             android:stopWithTask="false" />
+
+        <!-- 原生播放壳专用前台播放服务（锁屏/通知/蓝牙线控直达 playerSurface，不经 Flutter）。 -->
+        <service
+            android:name=".NativePlaybackMediaService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback"
+            android:stopWithTask="true" />
 
         <receiver
             android:name=".PlaybackCommandReceiver"

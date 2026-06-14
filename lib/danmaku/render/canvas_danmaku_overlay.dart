@@ -38,7 +38,7 @@ class _DanmakuOverlayState extends State<DanmakuOverlay> {
   static const int _massiveModeThreshold = 1200;
   static const double _subtitleReservedAreaRatio = 0.16;
   static const double _lineHeight = 1.0;
-  static const double _strokeWidth = 0.9;
+  static const double _strokeWidth = 1.5;
 
   open_danmaku.DanmakuController<DanmakuComment>? _renderer;
   bool _pendingPostFrameSync = false;

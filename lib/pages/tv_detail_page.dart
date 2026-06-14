@@ -14,6 +14,10 @@ import '../providers/app_theme_provider.dart';
 import '../providers/nas_provider.dart';
 import '../services/detail_runtime_cache.dart';
 import '../services/embedded_detail_launcher.dart';
+import '../services/native_player_bridge.dart';
+import '../services/native_reentry_support.dart';
+import '../services/native_player_bridge.dart';
+import '../services/native_reentry_support.dart';
 import '../theme/app_theme.dart';
 import '../theme/detail_tokens.dart';
 import '../ui/adaptive_detail_navigator.dart';
@@ -21,6 +25,8 @@ import '../ui/detail_presentation.dart';
 import '../ui/layout_adaptive.dart';
 import '../ui/player_pane_host_scope.dart';
 import '../ui/media_poster_card.dart';
+import '../ui/route_transition_gate.dart';
+import '../ui/route_transition_gate.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
 import '../utils/detail_top_tip.dart';
@@ -65,7 +71,6 @@ class _TvDetailPageState extends State<TvDetailPage>
   static const Duration _deferredSectionStartDelay = Duration(
     milliseconds: 180,
   );
-  static const Duration _deferredSectionStepDelay = Duration(milliseconds: 140);
   final ScrollController _scrollController = ScrollController();
   final ValueNotifier<double> _scrollOffsetNotifier = ValueNotifier<double>(0);
   static const Duration _favoriteTapCooldown = Duration(milliseconds: 900);
@@ -76,6 +81,7 @@ class _TvDetailPageState extends State<TvDetailPage>
   Map<String, dynamic> _detail = const {};
   bool _usedInitialDetail = false;
   List<MediaLibraryItem> _seasonItems = const [];
+  Object? _reentryToken;
   Map<int, String> _genresMapZhCn = const {};
   Map<String, String> _locateMapZhCn = const <String, String>{};
   PlayInfoData? _playInfo;
@@ -166,6 +172,10 @@ class _TvDetailPageState extends State<TvDetailPage>
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _scrollOffsetNotifier.dispose();
+    if (_reentryToken != null) {
+      NativePlayerBridge.unbindReentry(_reentryToken!);
+      _reentryToken = null;
+    }
     super.dispose();
   }
 
@@ -279,6 +289,10 @@ class _TvDetailPageState extends State<TvDetailPage>
         return;
       }
       final detail = await _loadItemDetail(api, widget.itemGuid);
+      if (!mounted) return;
+      // 把"骨架→正文"的整树替换推迟到转场结束后，避免它落在 380ms 转场窗口
+      // 中段与 enter 动画叠加（网络通常已慢于转场，此处多为即时 resolve）。
+      await RouteTransitionGate.of(context);
       if (!mounted) return;
       setState(() {
         _applyBaseDetail(detail);
@@ -399,6 +413,15 @@ class _TvDetailPageState extends State<TvDetailPage>
   void _startDeferredLoad() {
     _deferredTimer?.cancel();
     unawaited(_loadDeferredSections());
+    unawaited(_scheduleDescriptionReveal());
+  }
+
+  // 描述 pop 动画的 180ms 起始延迟永远等转场结束后再起，避免它落在 380ms
+  // 转场窗口中段。
+  Future<void> _scheduleDescriptionReveal() async {
+    await RouteTransitionGate.of(context);
+    if (!mounted) return;
+    _deferredTimer?.cancel();
     _deferredTimer = Timer(_deferredSectionStartDelay, () {
       if (!mounted) return;
       setState(() {
@@ -409,14 +432,41 @@ class _TvDetailPageState extends State<TvDetailPage>
     });
   }
 
+  // 出错时返回 null，让调用方决定是否跳过该段（区别于"成功但为空"）。
+  Future<T?> _guardSection<T>(Future<T> Function() task) async {
+    try {
+      return await task();
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _loadDeferredSections() async {
     if (_deferredLoadStarted || !mounted) return;
     _deferredLoadStarted = true;
     final api = FeiniuApi(context.read<NasProvider>());
 
-    try {
-      final seasonItems = await _loadSeasonItems(api, widget.itemGuid);
-      if (!mounted) return;
+    // IO 立即并发发起（不推迟网络），只把"应用到可见树"的 setState 推迟到转场
+    // 结束后。原先 genres/locate/playInfo 的 3×140ms 串行间隔删除，并发取后一次
+    // 性合并为单次 setState。
+    final seasonItemsFuture = _guardSection<List<MediaLibraryItem>>(
+      () => _loadSeasonItems(api, widget.itemGuid),
+    );
+    final genresFuture = _guardSection<Map<int, String>>(
+      () => api.getTagGenresMap(lan: 'zh-CN'),
+    );
+    final locateFuture = _guardSection<Map<String, String>>(
+      () => api.getTagIso3166Map(lan: 'zh-CN'),
+    );
+    final playInfoFuture = _guardSection<PlayInfoData?>(
+      () => _loadPlayInfoOrNull(api, widget.itemGuid),
+    );
+
+    final seasonItems = await seasonItemsFuture;
+    if (!mounted) return;
+    await RouteTransitionGate.of(context);
+    if (!mounted) return;
+    if (seasonItems != null) {
       seasonItems.sort((a, b) => a.seasonNumber.compareTo(b.seasonNumber));
       setState(() {
         _seasonItems = seasonItems;
@@ -427,37 +477,23 @@ class _TvDetailPageState extends State<TvDetailPage>
       if (seasonItems.isNotEmpty) {
         _seasonCardPopController.forward(from: 0);
       }
-    } catch (_) {
-      if (!mounted) return;
+    } else {
       setState(() {
         _seasonItemsResolved = true;
         _artworkReady = _descriptionVisible;
       });
     }
 
-    await Future<void>.delayed(_deferredSectionStepDelay);
+    final genres = await genresFuture;
+    final locate = await locateFuture;
+    final playInfo = await playInfoFuture;
     if (!mounted) return;
-    try {
-      final genres = await api.getTagGenresMap(lan: 'zh-CN');
-      if (!mounted) return;
-      setState(() => _genresMapZhCn = genres);
-    } catch (_) {}
-
-    await Future<void>.delayed(_deferredSectionStepDelay);
-    if (!mounted) return;
-    try {
-      final locateMap = await api.getTagIso3166Map(lan: 'zh-CN');
-      if (!mounted) return;
-      setState(() => _locateMapZhCn = locateMap);
-    } catch (_) {}
-
-    await Future<void>.delayed(_deferredSectionStepDelay);
-    if (!mounted) return;
-    try {
-      final playInfo = await _loadPlayInfoOrNull(api, widget.itemGuid);
-      if (!mounted || playInfo == null) return;
-      setState(() => _playInfo = playInfo);
-    } catch (_) {}
+    if (genres == null && locate == null && playInfo == null) return;
+    setState(() {
+      if (genres != null) _genresMapZhCn = genres;
+      if (locate != null) _locateMapZhCn = locate;
+      if (playInfo != null) _playInfo = playInfo;
+    });
   }
 
   int _asInt(dynamic value) => int.tryParse('$value') ?? 0;
@@ -864,10 +900,57 @@ class _TvDetailPageState extends State<TvDetailPage>
       final item = _detail['item'] is Map<String, dynamic>
           ? _detail['item'] as Map<String, dynamic>
           : _detail;
+      final seriesTitle = _title(item);
+      final nas = context.read<NasProvider>();
+      // 反向通道：剧详情进原生壳也接画质 + 续播回写（tv_detail 只有季列表、无单集列表，
+      // 故暂不提供选集 episodes）。原生壳画质切换回传当前集 guid → resolveForNative 重解析。
+      _reentryToken = NativePlayerBridge.bindReentry(
+        onResolvePlayback:
+            (
+              itemGuid, {
+              qualityIndex,
+              qualityMediaGuid,
+              startPositionMs,
+              subtitleGuid,
+              audioGuid,
+            }) async {
+              if (!mounted) return null;
+              return const TvSeasonPlaybackLauncher().resolveForNative(
+                context,
+                itemGuid: itemGuid,
+                seriesTitle: seriesTitle,
+                seriesGuid: widget.itemGuid,
+                qualityIndex: qualityIndex,
+                qualityMediaGuid: qualityMediaGuid,
+                startPositionMs: startPositionMs,
+                subtitleGuid: subtitleGuid,
+                audioGuid: audioGuid,
+              );
+            },
+        onRecordProgress: (progress) =>
+            NativeReentrySupport.recordProgress(nas, progress),
+        onResolveSubtitleFile: (guid, {format}) =>
+            NativeReentrySupport.resolveSubtitleFile(nas, guid, format: format),
+        onReloadServerSession:
+            (
+              currentLoadArgs, {
+              audioGuid,
+              subtitleGuid,
+              qualityIndex,
+              startPositionMs,
+            }) => NativeReentrySupport.reloadServerSession(
+              nas,
+              currentLoadArgs: currentLoadArgs,
+              audioGuid: audioGuid,
+              subtitleGuid: subtitleGuid,
+              qualityIndex: qualityIndex,
+              startPositionMs: startPositionMs,
+            ),
+      );
       final result = await const TvSeasonPlaybackLauncher().open(
         context,
         itemGuid: widget.itemGuid,
-        seriesTitle: _title(item),
+        seriesTitle: seriesTitle,
         seriesGuid: widget.itemGuid,
       );
       if (!mounted) return;
@@ -1191,6 +1274,13 @@ class _TvDetailPageState extends State<TvDetailPage>
                 _backdrops(item),
                 width: backdropRequestWidth,
               );
+        final heroLowResUrls = deferArtwork
+            ? const <String>[]
+            : ApiUrlHelper.imageCandidates(
+                provider.baseUrl,
+                _backdrops(item),
+                width: 360,
+              );
         final logoUrls = deferArtwork
             ? const <String>[]
             : ApiUrlHelper.imageCandidates(
@@ -1222,6 +1312,7 @@ class _TvDetailPageState extends State<TvDetailPage>
                 builder: (context, offset, _) {
                   return ImmersiveDetailBackground(
                     urls: heroUrls,
+                    lowResUrls: heroLowResUrls,
                     token: provider.token,
                     scrollOffset: offset,
                     posterHeight: posterHeight,
@@ -1235,7 +1326,6 @@ class _TvDetailPageState extends State<TvDetailPage>
                     enableBottomFade: false,
                     fadeStart: heroAdaptive.fadeStart,
                     fadeMid: heroAdaptive.fadeMid,
-                    useMonetTint: false,
                     overlayOpacity: 0.74,
                     maxScrollZoom: 1.38,
                     ambientTintOverride: ambientTint,

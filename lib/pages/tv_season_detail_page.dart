@@ -20,6 +20,9 @@ import '../providers/nas_provider.dart';
 import '../services/detail_runtime_cache.dart';
 import '../services/download_task_service.dart';
 import '../services/embedded_detail_launcher.dart';
+import '../services/native_player_bridge.dart';
+import '../services/native_player_bridge.dart';
+import '../services/native_reentry_support.dart';
 import '../theme/app_theme.dart';
 import '../theme/detail_tokens.dart';
 import '../theme/dynamic_theme_runtime_controller.dart';
@@ -27,6 +30,8 @@ import '../ui/adaptive_detail_navigator.dart';
 import '../ui/app_transitions.dart';
 import '../ui/detail_presentation.dart';
 import '../ui/player_pane_host_scope.dart';
+import '../ui/route_transition_gate.dart';
+import '../ui/route_transition_gate.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
 import '../utils/detail_top_tip.dart';
@@ -92,6 +97,9 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
   final TvSeasonDownloadSheetController _downloadSheetController =
       const TvSeasonDownloadSheetController();
   final DownloadTaskService _downloadTaskService = DownloadTaskService.instance;
+  // 本页下载态唯一出口是“整季是否已全部下载”这个 bool；缓存它以在下载任务变化时
+  // 跳过无关的全页重建（P7）。
+  bool? _seasonFullyDownloadedCache;
   final Map<String, dynamic> _localeMap = const <String, dynamic>{};
 
   bool get _isPane => widget.presentation == DetailPresentation.pane;
@@ -104,6 +112,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
   String _selectedEpisodeGuid = '';
   List<MediaLibraryItem> _seasonItems = const [];
   List<MediaLibraryItem> _episodeItems = const [];
+  Object? _reentryToken;
   List<PersonCredit> _personCredits = const [];
   Map<String, dynamic> _detail = const {};
   PlayInfoData? _playInfo;
@@ -185,11 +194,21 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     _scrollController.dispose();
     _scrollOffsetNotifier.dispose();
     TvSeasonDownloadSheetController.clearCache();
+    if (_reentryToken != null) {
+      NativePlayerBridge.unbindReentry(_reentryToken!);
+      _reentryToken = null;
+    }
     super.dispose();
   }
 
   void _handleDownloadTasksChanged() {
     if (!mounted) return;
+    // 下载服务在任意任务的每个进度 tick 都 notifyListeners；但本页只用到“整季是否全部下载”
+    // 这一个 bool（line ~2246 的 downloaded:），它只在某集状态类别变化时翻转、不随进度变。
+    // 故仅在该 bool 变化时整页 setState，避免详情页可见期间被无关下载进度每帧重建打满。
+    final fullyDownloaded = _isCurrentSeasonFullyDownloaded();
+    if (fullyDownloaded == _seasonFullyDownloadedCache) return;
+    _seasonFullyDownloadedCache = fullyDownloaded;
     setState(() {});
   }
 
@@ -647,18 +666,6 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     return widget.seasonItem.guid;
   }
 
-  String _seasonDynamicThemeImageUrl() {
-    final backdropPath = widget.backdropPath.trim();
-    if (backdropPath.isEmpty) {
-      return '';
-    }
-    final urls = _imageCandidates(backdropPath, width: 360);
-    if (urls.isEmpty) {
-      return '';
-    }
-    return urls.first;
-  }
-
   String _episodeDynamicThemeImageUrl(Map<String, dynamic> detail) {
     final item = _itemMap(detail);
     final candidates = <String>[
@@ -1101,6 +1108,10 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
       final playInfo = await playInfoFuture;
 
       if (!mounted || seq != _seasonLoadSeq) return;
+      // 首次进入（showLoading）时把"骨架→正文"整树替换推迟到转场结束后；
+      // 切季（showLoading=false）路由已稳定，gate 立即返回，无额外延迟。
+      await RouteTransitionGate.of(context);
+      if (!mounted || seq != _seasonLoadSeq) return;
       setState(() {
         _seasonItems = seasons;
         _selectedSeasonGuid = target;
@@ -1297,12 +1308,16 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         : _currentPlaybackEpisodeGuid();
     if (episodeGuid.isEmpty || _playPreparing) return;
     setState(() => _playPreparing = true);
+    // 进原生壳前绑定反向 handler：原生壳「选集」回到这里复用 launcher 解析新集，
+    // 退出/暂停回到这里写回进度（最近发起的 detail page 生效）。
+    _bindNativePlayerReentry();
     try {
       final result = await const TvSeasonPlaybackLauncher().open(
         context,
         itemGuid: episodeGuid,
         seriesTitle: widget.seriesTitle,
         seriesGuid: widget.parentGuid,
+        episodes: _nativeEpisodesPayload(),
       );
       if (!mounted) return;
       final nextEpisodeGuid = result?.itemGuid.trim().isNotEmpty == true
@@ -1328,6 +1343,94 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         _playPreparing = false;
       }
     }
+  }
+
+  /// 本季剧集映射成原生壳「选集」对话框所需的精简列表（随 loadArgs 透传）。
+  List<Map<String, dynamic>> _nativeEpisodesPayload() {
+    return <Map<String, dynamic>>[
+      for (var i = 0; i < _episodeItems.length; i++)
+        <String, dynamic>{
+          'itemGuid': _episodeItems[i].guid,
+          'episodeNumber': _episodeItems[i].episodeNumber,
+          'title': _episodeTitle(_episodeItems[i], i),
+          'shortLabel': _episodeShortLabel(_episodeItems[i], i),
+        },
+    ];
+  }
+
+  /// 绑定原生壳反向回调：选集 → 复用 launcher 原地换源；进度 → 写回 NAS。
+  void _bindNativePlayerReentry() {
+    final nas = context.read<NasProvider>();
+    _reentryToken = NativePlayerBridge.bindReentry(
+      onResolvePlayback:
+          (
+            itemGuid, {
+            audioGuid,
+            qualityIndex,
+            qualityMediaGuid,
+            startPositionMs,
+            subtitleGuid,
+          }) async {
+            if (!mounted) return null;
+            final resolved = await const TvSeasonPlaybackLauncher()
+                .resolveForNative(
+                  context,
+                  itemGuid: itemGuid,
+                  seriesTitle: widget.seriesTitle,
+                  seriesGuid: widget.parentGuid,
+                  episodes: _nativeEpisodesPayload(),
+                  audioGuid: audioGuid,
+                  qualityIndex: qualityIndex,
+                  qualityMediaGuid: qualityMediaGuid,
+                  startPositionMs: startPositionMs,
+                  subtitleGuid: subtitleGuid,
+                );
+            // 仅选集（无 qualityIndex、非字幕/音轨重载）更新选中集高亮；切画质/轨道保持当前集不动。
+            if (resolved != null &&
+                mounted &&
+                qualityIndex == null &&
+                subtitleGuid == null &&
+                audioGuid == null) {
+              setState(() {
+                _selectedEpisodeGuid = itemGuid;
+                _episodeRangeIndex = _rangeIndexForEpisodeGuid(
+                  _episodeItems,
+                  itemGuid,
+                );
+              });
+              unawaited(_refreshAfterPlayback(itemGuid));
+            }
+            return resolved;
+          },
+      onRecordProgress: _recordNativeProgress,
+      onResolveSubtitleFile: (guid, {format}) =>
+          NativeReentrySupport.resolveSubtitleFile(nas, guid, format: format),
+      onReloadServerSession:
+          (
+            currentLoadArgs, {
+            audioGuid,
+            subtitleGuid,
+            qualityIndex,
+            startPositionMs,
+          }) => NativeReentrySupport.reloadServerSession(
+            nas,
+            currentLoadArgs: currentLoadArgs,
+            audioGuid: audioGuid,
+            subtitleGuid: subtitleGuid,
+            qualityIndex: qualityIndex,
+            startPositionMs: startPositionMs,
+          ),
+    );
+  }
+
+  /// 原生壳回传的进度 → `recordPlayback`（含断网离线排队）。统一走
+  /// [NativeReentrySupport.recordProgress]，与其他播放入口同一套去重/重放逻辑。
+  Future<void> _recordNativeProgress(Map<String, dynamic> progress) async {
+    if (!mounted) return;
+    await NativeReentrySupport.recordProgress(
+      context.read<NasProvider>(),
+      progress,
+    );
   }
 
   Future<void> _toggleWatched() async {
@@ -1757,39 +1860,28 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
 
   @override
   Widget build(BuildContext context) {
-    final (
-      dynamicThemeEnabled: dynamicThemeEnabled,
-      dynamicThemeIntensity: dynamicThemeIntensity,
-    ) = context
-        .select<
-          AppThemeProvider,
-          ({
-            bool dynamicThemeEnabled,
-            AppDynamicThemeIntensity dynamicThemeIntensity,
-          })
-        >(
-          (themeProvider) => (
-            dynamicThemeEnabled: themeProvider.dynamicThemeEnabled,
-            dynamicThemeIntensity: themeProvider.dynamicThemeIntensity,
-          ),
+    final dynamicThemeIntensity = context
+        .select<AppThemeProvider, AppDynamicThemeIntensity>(
+          (themeProvider) => themeProvider.dynamicThemeIntensity,
         );
     final nasProvider = context.read<NasProvider>();
     final inPlayerPaneHost = PlayerPaneHostScope.maybeOf(context) != null;
-    final dynamicThemeImageUrl = _seasonDynamicThemeImageUrl();
     final dynamicThemeKey = _seasonDynamicThemeKey();
-    final syncGlobalTheme = dynamicThemeIntensity.allowsGlobalRuntimeThemeSync(
-      inPlayerPaneHost: inPlayerPaneHost,
-      isPane: _isPane,
-    );
 
     return DynamicPageThemeScope(
       pageKey: dynamicThemeKey,
-      imageUrl: dynamicThemeImageUrl,
+      imageUrl: '',
       token: nasProvider.token,
-      enabled: dynamicThemeEnabled,
-      allowLiveResolve: dynamicThemeImageUrl.isNotEmpty,
-      syncGlobalTheme: syncGlobalTheme,
-      deferLocalThemeApplyUntilGlobalSync: _isPane && syncGlobalTheme,
+      // Season pages never sample their own color. They display the sticky
+      // global runtime color carried over from whatever episode/detail page
+      // last sampled it, so popping back from an episode keeps the episode's
+      // color instead of switching to the season's own palette. enabled:false
+      // makes this scope produce no local seed and fall through to that global
+      // color (via context.appColors → AppRuntimeColorScope).
+      enabled: false,
+      allowLiveResolve: false,
+      syncGlobalTheme: false,
+      deferLocalThemeApplyUntilGlobalSync: false,
       intensity: dynamicThemeIntensity,
       builder: (context, ambientTint) {
         final colors = context.appColors;
@@ -1869,6 +1961,10 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
           widget.backdropPath,
           width: backdropRequestWidth,
         );
+        final backdropLowResUrls = _imageCandidates(
+          widget.backdropPath,
+          width: 360,
+        );
         final posterUrls = _imageCandidates(season.poster, width: 560);
         final expectedEpisodeCount = _expectedEpisodeCount();
         final episodeEntries = _episodeItemsResolved
@@ -1945,6 +2041,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                     builder: (context, offset, _) {
                       return ImmersiveDetailBackground(
                         urls: backdropUrls,
+                        lowResUrls: backdropLowResUrls,
                         token: provider.token,
                         scrollOffset: offset,
                         posterHeight: posterHeight,
@@ -1956,7 +2053,6 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                         enableBottomFade: true,
                         fadeStart: 0.16,
                         fadeMid: 0.42,
-                        useMonetTint: false,
                         ambientTintOverride: ambientTint,
                         bottomFadeTintColor: heroFogBase,
                         bottomFadeBackgroundColor: colors.backgroundBase,

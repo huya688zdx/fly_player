@@ -128,14 +128,17 @@ private const val DANMAKU_AI_CACHE_MASK_FILE_NAME = "mask.webp"
 private const val DANMAKU_AI_CACHE_FRAME_WRITE_INTERVAL_MS = 4000L
 private const val DANMAKU_AI_CACHE_WARM_START_DELAY_MS = 2500L
 private const val DANMAKU_AI_PLAYBACK_WARM_START_DELAY_MS = 1800L
-private const val DANMAKU_AI_HIGH_REFRESH_SAMPLE_INTERVAL_72HZ_MS = 650L
-private const val DANMAKU_AI_HIGH_REFRESH_SAMPLE_INTERVAL_90HZ_MS = 780L
-private const val DANMAKU_AI_HIGH_REFRESH_SAMPLE_INTERVAL_120HZ_MS = 900L
+private const val DANMAKU_AI_HIGH_REFRESH_SAMPLE_INTERVAL_72HZ_MS = 420L
+private const val DANMAKU_AI_HIGH_REFRESH_SAMPLE_INTERVAL_90HZ_MS = 440L
+private const val DANMAKU_AI_HIGH_REFRESH_SAMPLE_INTERVAL_120HZ_MS = 460L
 private const val DANMAKU_AI_CAPTURE_SLOW_LOG_THRESHOLD_MS = 24L
 private const val DANMAKU_AI_INFERENCE_SLOW_LOG_THRESHOLD_MS = 90L
 private const val DANMAKU_AI_TOTAL_SLOW_LOG_THRESHOLD_MS = 120L
 private const val DANMAKU_AI_SAMPLE_INTERVAL_BACKOFF_HEADROOM_MS = 120L
-private const val DANMAKU_AI_SAMPLE_INTERVAL_LATENCY_MULTIPLIER = 6.0
+// 1.3 (was 6.0): with the fast MNN path we want the sample interval to track
+// (latency + headroom), not 6x latency. 6x pinned the interval to MAX and added
+// ~1s of staleness lag. Sustainable rate = process time + small headroom.
+private const val DANMAKU_AI_SAMPLE_INTERVAL_LATENCY_MULTIPLIER = 1.3
 private const val DANMAKU_AI_UNAVAILABLE_REASON_CAPTURE_UNSUPPORTED = "capture_unsupported"
 private const val DANMAKU_AI_UNAVAILABLE_REASON_CAPTURE_BUDGET_UNSUPPORTED = "capture_budget_unsupported"
 private const val DANMAKU_AI_DETECTION_SCORE_THRESHOLD = 0.30f
@@ -182,6 +185,37 @@ private const val DANMAKU_AI_MULTI_SECONDARY_REFINE_MIN_BOX_COVERAGE = 0.06f
 private const val DANMAKU_AI_MULTI_SECONDARY_REFINE_MIN_BOX_IOU = 0.04f
 private const val DANMAKU_AI_CAPTURE_WIDTH = 320
 private const val DANMAKU_AI_CAPTURE_HEIGHT = 320
+// Phase 2: run the MNN segmenter (ISNet-anime) on the FULL captured frame and emit
+// its foreground directly — no PicoDet detection, no ROI cropping, no small-multi,
+// no PaddleSeg-tuned shape rejection. The model itself handles multi-person and
+// scenery rejection. This is what makes anime masking work (PicoDet can't see anime).
+private const val DANMAKU_AI_MNN_FULL_FRAME = true
+private const val DANMAKU_AI_MNN_MASK_THRESHOLD = 0.5f
+private const val DANMAKU_AI_MNN_MIN_FOREGROUND_RATIO = 0.012f
+// Only a near-full-screen subject (> this) is left unmasked. Raised from 0.55 so
+// medium/large close-ups still get masked (subject shows through = 穿透) instead of
+// flickering the mask off near the old boundary. (Pipeline path mirrors this + hysteresis.)
+private const val DANMAKU_AI_MNN_MAX_FOREGROUND_RATIO = 0.80f
+// Alpha-steepening knee for the subject mask. Probabilities >= HIGH become fully
+// opaque (interior fully erases danmaku — no faint imprint); [LOW,HIGH] is a thin
+// soft edge so the contour stays precise (no dilation/blockiness); < LOW is dropped.
+private const val DANMAKU_AI_MNN_MASK_EDGE_LOW = 0.40f
+// Full opacity at >= MASK_THRESHOLD (0.5) so subject pixels fully erase danmaku (no
+// semi-transparent ghost over low-confidence regions); [LOW,HIGH] stays a thin AA edge.
+private const val DANMAKU_AI_MNN_MASK_EDGE_HIGH = 0.50f
+// Static-scene skip thresholds. Mean per-cell luma diff (0-255) below this vs the last
+// inferred frame ⇒ treat as static and reuse the last mask. Forced re-infer cadence
+// bounds how long a (slowly drifting) scene can keep skipping.
+private const val DANMAKU_AI_STATIC_SKIP_LUMA_DIFF = 3.2f
+private const val DANMAKU_AI_STATIC_SKIP_MAX_CONSECUTIVE = 8
+// Plan B: local files are served by the DanmakuMaskPrecomputePipeline (decode-ahead,
+// PTS-synced). Network sources fall back to the live-capture path. This flag gates
+// planBActive(), which routes local sources to the pipeline.
+private const val DANMAKU_AI_PLAN_B = true
+// Global frame-motion estimation (for between-sample mask extrapolation).
+private const val DANMAKU_AI_MOTION_VEL_GRID_W = 48
+private const val DANMAKU_AI_MOTION_VEL_GRID_H = 27
+private const val DANMAKU_AI_MOTION_VEL_SEARCH = 6
 private const val DANMAKU_AI_BASE_INPUT_WIDTH_60HZ = 288
 private const val DANMAKU_AI_BASE_INPUT_WIDTH_90HZ = 256
 private const val DANMAKU_AI_BASE_INPUT_WIDTH_120HZ = 224
@@ -388,6 +422,20 @@ data class DanmakuDynamicOcclusionState(
     val degradationLevel: String,
     val effectiveSampleIntervalMs: Long,
     val effectiveInputWidth: Int,
+    // Estimated global frame motion (normalized units per ms) for between-sample
+    // mask extrapolation in the renderer. 0 = no motion.
+    val maskVelocityX: Double = 0.0,
+    val maskVelocityY: Double = 0.0,
+    // Plan B: video PTS (ms) this mask was computed for; overlay PTS-syncs to it. 0 = none.
+    val maskPtsMs: Long = 0L,
+    // Plan B v2: this mask starts a new scene (cut detected). The renderer won't
+    // extrapolate it (or across it). false = continuous with the previous mask.
+    val maskSceneCut: Boolean = false,
+    // Plan B: video display aspect (w/h) of the raw decoded frame the mask came from.
+    // The overlay maps the mask to the letterboxed video rect inside the view (the raw
+    // frame has no black bars; the displayed video does). 0 = none (live-capture path
+    // masks the rendered surface, which already includes bars → full-view mapping).
+    val videoAspect: Double = 0.0,
 ) {
     fun toMap(): Map<String, Any?> {
         return mapOf(
@@ -409,6 +457,11 @@ data class DanmakuDynamicOcclusionState(
             "degradationLevel" to degradationLevel,
             "effectiveSampleIntervalMs" to effectiveSampleIntervalMs,
             "effectiveInputWidth" to effectiveInputWidth,
+            "maskVelocityX" to maskVelocityX,
+            "maskVelocityY" to maskVelocityY,
+            "maskPtsMs" to maskPtsMs,
+            "maskSceneCut" to maskSceneCut,
+            "videoAspect" to videoAspect,
         )
     }
 
@@ -468,6 +521,10 @@ data class DanmakuDynamicOcclusionConfig(
     val inputHeight: Int,
     val displayAreaRatio: Float,
     val sampleAreaRatio: Float,
+    // Between-sample mask motion extrapolation (the mask "follows" estimated frame
+    // motion between AI samples). On the live-capture path the offset can feel too
+    // strong; this lets the user turn it off (mask just holds its last position).
+    val motionTrackingEnabled: Boolean,
 ) {
     companion object {
         val defaults =
@@ -483,6 +540,7 @@ data class DanmakuDynamicOcclusionConfig(
                 inputHeight = DANMAKU_AI_DEFAULT_INPUT_HEIGHT,
                 displayAreaRatio = 1.0f,
                 sampleAreaRatio = DANMAKU_AI_DEFAULT_SAMPLE_AREA_RATIO,
+                motionTrackingEnabled = true,
             )
 
         fun fromMap(raw: Map<String, Any?>): DanmakuDynamicOcclusionConfig {
@@ -518,6 +576,8 @@ data class DanmakuDynamicOcclusionConfig(
                     ((raw["sampleAreaRatio"]?.toDoubleValue()?.toFloat())
                         ?: defaults.sampleAreaRatio)
                         .coerceIn(0.1f, 1.0f),
+                motionTrackingEnabled =
+                    raw["motionTrackingEnabled"] as? Boolean ?: defaults.motionTrackingEnabled,
             )
         }
     }
@@ -994,6 +1054,13 @@ class DanmakuDynamicOcclusionController(
     private val context: Context,
     private val videoOutputTarget: VideoOutputTarget,
     private val stateListener: (DanmakuDynamicOcclusionState, Bitmap?) -> Unit,
+    // Plan B: current playback position in ms (mpv time-pos). -1 = unknown. Used to
+    // decode frames ahead of playback via DanmakuFrameExtractor instead of capturing
+    // the rendered surface. Default no-op keeps the Flutter PlatformView path working.
+    private val positionProviderMs: () -> Long = { -1L },
+    // Plan B v2: current playback speed (1.0 = normal). Scales the producer pipeline's
+    // lookahead window so masks stay ahead of playback at faster speeds.
+    private val playbackSpeedProvider: () -> Double = { 1.0 },
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val inferenceThread = HandlerThread("FlyPlayerDanmakuOcclusion").apply { start() }
@@ -1007,9 +1074,8 @@ class DanmakuDynamicOcclusionController(
     private val detectionRuntimeFactory =
         DanmakuDetectionRuntimeFactory(
             context = context,
-            paddleModelAssetDir = DANMAKU_AI_PADDLE_DETECTION_MODEL_ASSET_DIR,
+            paddleModelAssetDir = DANMAKU_AI_PADDLE_MODEL_ASSET_DIR,
         )
-
     @Volatile
     private var disposed = false
 
@@ -1018,6 +1084,12 @@ class DanmakuDynamicOcclusionController(
 
     @Volatile
     private var paused = true
+
+    @Volatile
+    private var externallyPaused = false
+
+    @Volatile
+    private var hasDanmakuOnScreen = true
 
     @Volatile
     private var sourceLoaded = false
@@ -1156,6 +1228,7 @@ class DanmakuDynamicOcclusionController(
         config = next
         if (!next.enabled) {
             stopSampling(clearPending = true)
+            releasePrecomputePipeline()
             releaseRuntime()
             clearRuntimeMaskState()
             emitState(DanmakuDynamicOcclusionState.disabled())
@@ -1204,9 +1277,34 @@ class DanmakuDynamicOcclusionController(
         evaluateSamplingState(resetStaleMask = !sourceLoaded || !surfaceReady)
     }
 
+    fun setExternallyPaused(value: Boolean) {
+        if (disposed || externallyPaused == value) return
+        val wasSamplingEligible = shouldSample()
+        externallyPaused = value
+        val samplingJustBecameEligible = !wasSamplingEligible && shouldSample()
+        if (samplingJustBecameEligible) {
+            armWarmStartDelay(DANMAKU_AI_PLAYBACK_WARM_START_DELAY_MS)
+        }
+        evaluateSamplingState(resetStaleMask = false)
+    }
+
+    fun setHasDanmakuOnScreen(value: Boolean) {
+        if (disposed || hasDanmakuOnScreen == value) return
+        val wasSamplingEligible = shouldSample()
+        hasDanmakuOnScreen = value
+        val samplingJustBecameEligible = !wasSamplingEligible && shouldSample()
+        if (samplingJustBecameEligible) {
+            armWarmStartDelay(DANMAKU_AI_PLAYBACK_WARM_START_DELAY_MS)
+        }
+        evaluateSamplingState(resetStaleMask = false)
+    }
+
     fun onSourceChanged(source: MpvSource) {
         if (disposed) return
         currentSource = source
+        // Plan B v2: pause the producer so it re-primes (and rebuilds its decoder for a
+        // new URL) on the next evaluateSamplingState; network sources keep it idle.
+        stopPrecomputePipeline()
         cacheRestoreEligible = true
         clearRuntimeMaskState()
         capturePending = false
@@ -1235,6 +1333,7 @@ class DanmakuDynamicOcclusionController(
         if (disposed) return
         disposed = true
         stopSampling(clearPending = true)
+        releasePrecomputePipeline()
         mainHandler.removeCallbacksAndMessages(null)
         inferenceHandler.removeCallbacksAndMessages(null)
         replaceRuntimeMaskBitmap(null)
@@ -1257,6 +1356,9 @@ class DanmakuDynamicOcclusionController(
         latestMaskAppliedAtUptimeMs = 0L
         replaceRuntimeMaskBitmap(null)
         consecutiveEmptyFrames = 0
+        // Force a fresh segmentation on the next sample (don't reuse a stale baseline).
+        lastInferredLumaGrid = null
+        consecutiveStaticSkips = 0
         previousFrameLumaSignature = null
         sceneCutRecoveryActive = false
         sceneCutBurstSamplesRemaining = 0
@@ -1272,7 +1374,6 @@ class DanmakuDynamicOcclusionController(
         consecutiveTrackedReuseSamples = 0
         smallMultiStickySamplesRemaining = 0
         lastTrackerReuseFallbackReason = null
-        resetPersonTracker()
         resetTrackerLifecycle(reason = "clear_state")
         resetPrimaryTargetMemory()
         clearSmallMultiTracks()
@@ -1407,6 +1508,7 @@ class DanmakuDynamicOcclusionController(
         val captureUnavailableReason = captureUnavailableReason()
         if (captureUnavailableReason != null) {
             stopSampling(clearPending = true)
+            stopPrecomputePipeline()
             if (resetStaleMask) {
                 clearRuntimeMaskState()
             }
@@ -1420,6 +1522,7 @@ class DanmakuDynamicOcclusionController(
         }
         if (!sourceLoaded || !surfaceReady || !videoOutputReady) {
             stopSampling(clearPending = true)
+            stopPrecomputePipeline()
             if (resetStaleMask) {
                 clearRuntimeMaskState()
             }
@@ -1428,9 +1531,26 @@ class DanmakuDynamicOcclusionController(
         }
         if (paused) {
             stopSampling(clearPending = false)
+            stopPrecomputePipeline()
             emitLatestMaskStateIfAvailable()
             return
         }
+        if (externallyPaused || !hasDanmakuOnScreen) {
+            stopSampling(clearPending = false)
+            stopPrecomputePipeline()
+            emitLatestMaskStateIfAvailable()
+            return
+        }
+        if (planBActive()) {
+            // Plan B v2: a dedicated producer pipeline drives decode-ahead + dense
+            // masks for local sources. The legacy per-sample loop is not used here.
+            stopSampling(clearPending = true)
+            ensurePrecomputePipeline().start()
+            return
+        }
+        // Non-Plan-B (network) source: ensure the pipeline is idle, fall through to
+        // the live-capture sampling loop.
+        stopPrecomputePipeline()
         val delayMs = (warmStartDelayUntilUptimeMs - SystemClock.uptimeMillis()).coerceAtLeast(0L)
         if (delayMs > 0L) {
             scheduleNextSample(delayMs = delayMs)
@@ -1473,10 +1593,9 @@ class DanmakuDynamicOcclusionController(
             if (disposed || !config.enabled) {
                 return@post
             }
-            ensureDetectionRuntime()
-            if (allowMaskRefinement()) {
-                ensureRuntime()
-            }
+            // Full-frame seg path (always on) needs no detector — just warm the seg
+            // runtime. (Local sources warm their own decoder inside the pipeline.)
+            ensureRuntime()
         }
     }
 
@@ -1493,7 +1612,13 @@ class DanmakuDynamicOcclusionController(
     }
 
     private fun shouldSample(): Boolean {
-        return config.enabled && sourceLoaded && surfaceReady && videoOutputReady && !paused
+        return config.enabled &&
+            sourceLoaded &&
+            surfaceReady &&
+            videoOutputReady &&
+            !paused &&
+            !externallyPaused &&
+            hasDanmakuOnScreen
     }
 
     private fun allowMaskRefinement(): Boolean {
@@ -2381,6 +2506,19 @@ class DanmakuDynamicOcclusionController(
     }
 
     private fun captureFrameAndInfer() {
+        // Live-capture path (network sources only — local sources are served by the
+        // DanmakuMaskPrecomputePipeline and never reach here). Masks are for the current
+        // frame, not a future PTS; clear any stale Plan B PTS so the overlay uses the
+        // extrapolation fallback (not the PTS buffer). Aspect=0 → overlay maps to full
+        // view (the rendered-surface mask already includes letterbox bars).
+        latestMaskPtsMs = 0L
+        currentPlanBVideoAspect = 0.0
+        // Live-capture path (network sources): masks are for the current frame, not a
+        // future PTS. Clear any stale Plan B PTS so the overlay uses the extrapolation
+        // fallback (not the PTS buffer). Aspect=0 → overlay maps to full view (the
+        // rendered-surface mask already includes letterbox bars).
+        latestMaskPtsMs = 0L
+        currentPlanBVideoAspect = 0.0
         val captureUnavailableReason = captureUnavailableReason()
         if (captureUnavailableReason != null) {
             stopSampling(clearPending = true)
@@ -2496,12 +2634,425 @@ class DanmakuDynamicOcclusionController(
         }
     }
 
+    // --- Global motion estimation for between-sample mask extrapolation ---
+    private var prevMotionLumaGrid: IntArray? = null
+    private var prevMotionLumaUptimeMs = 0L
+
+    // Static-scene skip: the luma grid at the last frame we actually ran segmentation
+    // on. If the current frame barely differs, the mask hasn't meaningfully changed —
+    // skip the (CPU-heavy, throttling-inducing) seg and keep the last mask. Re-infer at
+    // least every N skips so slow drift / a missed change can't freeze the mask forever.
+    private var lastInferredLumaGrid: IntArray? = null
+    private var consecutiveStaticSkips = 0
+
+    @Volatile
+    private var latestMaskVelocityX = 0.0
+
+    @Volatile
+    private var latestMaskVelocityY = 0.0
+
+    private fun updateGlobalMotionVelocity(
+        bitmap: Bitmap,
+        nowUptimeMs: Long,
+    ) {
+        updateGlobalMotionVelocity(sampleMotionLumaGrid(bitmap), nowUptimeMs)
+    }
+
+    private fun updateGlobalMotionVelocity(
+        grid: IntArray,
+        nowUptimeMs: Long,
+    ) {
+        val prev = prevMotionLumaGrid
+        val dt = nowUptimeMs - prevMotionLumaUptimeMs
+        if (prev != null && prev.size == grid.size && dt in 1L..1500L) {
+            val shift = estimateGlobalShift(prev, grid)
+            // content motion in normalized units per ms (positive dx = moved right)
+            val vx = (shift.first.toDouble() / DANMAKU_AI_MOTION_VEL_GRID_W.toDouble()) / dt.toDouble()
+            val vy = (shift.second.toDouble() / DANMAKU_AI_MOTION_VEL_GRID_H.toDouble()) / dt.toDouble()
+            latestMaskVelocityX = (latestMaskVelocityX * 0.4) + (vx * 0.6)
+            latestMaskVelocityY = (latestMaskVelocityY * 0.4) + (vy * 0.6)
+        } else {
+            latestMaskVelocityX = 0.0
+            latestMaskVelocityY = 0.0
+        }
+        prevMotionLumaGrid = grid
+        prevMotionLumaUptimeMs = nowUptimeMs
+    }
+
+    // Mean absolute per-cell luma difference between two equal-length grids (0-255).
+    private fun gridMeanAbsDiff(a: IntArray, b: IntArray): Float {
+        if (a.size != b.size || a.isEmpty()) return Float.MAX_VALUE
+        var sum = 0L
+        for (i in a.indices) {
+            sum += abs(a[i] - b[i])
+        }
+        return sum.toFloat() / a.size.toFloat()
+    }
+
+    private fun sampleMotionLumaGrid(bitmap: Bitmap): IntArray {
+        val w = DANMAKU_AI_MOTION_VEL_GRID_W
+        val h = DANMAKU_AI_MOTION_VEL_GRID_H
+        val scaled =
+            if (bitmap.width == w && bitmap.height == h) {
+                bitmap
+            } else {
+                Bitmap.createScaledBitmap(bitmap, w, h, true)
+            }
+        val pixels = IntArray(w * h)
+        scaled.getPixels(pixels, 0, w, 0, 0, w, h)
+        if (scaled !== bitmap && !scaled.isRecycled) {
+            scaled.recycle()
+        }
+        val luma = IntArray(w * h)
+        for (i in luma.indices) {
+            val c = pixels[i]
+            val r = (c ushr 16) and 0xFF
+            val g = (c ushr 8) and 0xFF
+            val b = c and 0xFF
+            luma[i] = ((r * 77) + (g * 150) + (b * 29)) shr 8
+        }
+        return luma
+    }
+
+    // Best (dx, dy) in grid samples aligning prev->curr content (positive dx = right).
+    private fun estimateGlobalShift(
+        prev: IntArray,
+        curr: IntArray,
+    ): Pair<Int, Int> {
+        val w = DANMAKU_AI_MOTION_VEL_GRID_W
+        val h = DANMAKU_AI_MOTION_VEL_GRID_H
+        val search = DANMAKU_AI_MOTION_VEL_SEARCH
+        var bestDx = 0
+        var bestDy = 0
+        var bestScore = Long.MAX_VALUE
+        val minCount = (w * h) / 2
+        for (dy in -search..search) {
+            for (dx in -search..search) {
+                var sad = 0L
+                var count = 0
+                var y = maxOf(0, -dy)
+                val yEnd = minOf(h, h - dy)
+                while (y < yEnd) {
+                    val prevRow = y * w
+                    val currRow = (y + dy) * w
+                    var x = maxOf(0, -dx)
+                    val xEnd = minOf(w, w - dx)
+                    while (x < xEnd) {
+                        val diff = prev[prevRow + x] - curr[currRow + (x + dx)]
+                        sad += if (diff >= 0) diff.toLong() else (-diff).toLong()
+                        count += 1
+                        x += 1
+                    }
+                    y += 1
+                }
+                if (count < minCount) {
+                    continue
+                }
+                val score = (sad * 256L / count.toLong()) + (abs(dx) + abs(dy)).toLong()
+                if (score < bestScore) {
+                    bestScore = score
+                    bestDx = dx
+                    bestDy = dy
+                }
+            }
+        }
+        return bestDx to bestDy
+    }
+
+
+    private fun recycleCaptureBitmapIfAsync(bitmap: Bitmap) {
+        if (bitmap !== latestRuntimeMaskBitmap &&
+            videoOutputTarget.supportsAsyncBitmapCapture &&
+            !bitmap.isRecycled
+        ) {
+            bitmap.recycle()
+        }
+    }
+
+    private fun buildFullFrameMaskResult(output: DanmakuSegmentationOutput): DanmakuMaskResult? {
+        val w = output.width
+        val h = output.height
+        val values = output.maskValues
+        if (w <= 0 || h <= 0 || values.size < w * h) {
+            return null
+        }
+        var foreground = 0
+        for (index in 0 until w * h) {
+            if (values[index] >= DANMAKU_AI_MNN_MASK_THRESHOLD) {
+                foreground += 1
+            }
+        }
+        val ratio = foreground.toFloat() / (w * h).toFloat()
+        if (ratio < DANMAKU_AI_MNN_MIN_FOREGROUND_RATIO) {
+            // Almost empty — scenery / no subject. Treat as empty result.
+            return null
+        }
+        if (ratio > DANMAKU_AI_MNN_MAX_FOREGROUND_RATIO) {
+            // Subject fills most of the screen (big close-up). Masking would hide
+            // nearly all danmaku — skip masking so danmaku stays readable.
+            return null
+        }
+        // Keep the model's precise contour, but steepen the alpha so the subject
+        // INTERIOR becomes fully opaque (the old soft 0.5-1.0 values only partially
+        // erased danmaku → faint imprint on the person). A thin soft band at the very
+        // edge ([LOW,HIGH]) is preserved so the outline stays precise, not dilated/blocky.
+        val mask = FloatArray(w * h)
+        val low = DANMAKU_AI_MNN_MASK_EDGE_LOW
+        val span = (DANMAKU_AI_MNN_MASK_EDGE_HIGH - low).coerceAtLeast(1e-4f)
+        for (index in 0 until w * h) {
+            mask[index] = ((values[index] - low) / span).coerceIn(0f, 1f)
+        }
+        return DanmakuMaskResult(
+            maskValues = mask,
+            maskWidth = w,
+            maskHeight = h,
+            normalizedRect = DanmakuNormalizedRect(x = 0f, y = 0f, width = 1f, height = 1f),
+            occlusionMode = DanmakuOcclusionMode.MASK,
+        )
+    }
+
+    // --- Plan B mask metadata (shared by the producer pipeline + live-capture path) ---
+    // PTS (video ms) the latest mask was computed for. The pipeline tags each mask so the
+    // overlay PTS-syncs to it; the live-capture path sets 0 (no PTS sync).
+    @Volatile
+    private var latestMaskPtsMs = 0L
+
+    // Video display aspect (w/h) attached to the most recent mask. >0 for pipeline masks
+    // (raw-frame mask → overlay maps it to the letterboxed video rect); 0 for the
+    // live-capture path (rendered surface already includes bars).
+    @Volatile
+    private var currentPlanBVideoAspect = 0.0
+
+    // Plan B (decode-ahead) only pays off for LOCAL files (in=88-260ms). For network
+    // streams (NAS proxy http/https), a 2nd HW decoder costs 1.5-2.5s per frame and
+    // contends with mpv — masks come out stale and get dropped. So Plan B is gated to
+    // local sources; network sources fall back to the live-capture (PixelCopy) path.
+    private fun planBActive(): Boolean {
+        if (!DANMAKU_AI_PLAN_B) return false
+        val url = currentSource?.url?.trim().orEmpty()
+        if (url.isEmpty()) return false
+        return url.startsWith("file://") || url.startsWith("/")
+    }
+
+
+
+    // --- Plan B v2: producer pipeline (dense decode-ahead masks) ---
+    // Replaces the per-sample runPlanBPrecompute scheduling for LOCAL sources. The
+    // pipeline owns its own decoder + seg runtime on a background thread and pushes a
+    // mask roughly every ~280ms of video time; we just forward each step to the overlay.
+    private var precomputePipeline: DanmakuMaskPrecomputePipeline? = null
+
+    private fun currentLocalDecodePath(): String? {
+        val raw = currentSource?.url?.takeIf { it.isNotBlank() } ?: return null
+        if (!(raw.startsWith("file://") || raw.startsWith("/"))) return null
+        return if (raw.startsWith("file://")) {
+            android.net.Uri.parse(raw).path ?: raw.removePrefix("file://")
+        } else {
+            raw
+        }
+    }
+
+    private fun ensurePrecomputePipeline(): DanmakuMaskPrecomputePipeline {
+        precomputePipeline?.let { return it }
+        val pipeline =
+            DanmakuMaskPrecomputePipeline(
+                runtimeFactory = runtimeFactory,
+                configProvider = { config },
+                positionMsProvider = positionProviderMs,
+                playbackSpeedProvider = playbackSpeedProvider,
+                localPathProvider = { currentLocalDecodePath() },
+                onStep = { step -> mainHandler.post { emitPipelineStep(step) } },
+            )
+        precomputePipeline = pipeline
+        return pipeline
+    }
+
+    private fun stopPrecomputePipeline() {
+        precomputePipeline?.pause()
+    }
+
+    private fun releasePrecomputePipeline() {
+        precomputePipeline?.release()
+        precomputePipeline = null
+    }
+
+    private fun emitPipelineStep(step: DanmakuMaskPrecomputePipeline.MaskStep) {
+        if (disposed) {
+            step.mask?.takeIf { !it.isRecycled }?.recycle()
+            return
+        }
+        val mask = step.mask
+        if (mask == null || mask.isRecycled) {
+            // Phase A: an empty step ages out via the overlay staleness guard. The
+            // renderer-side "clear without grace" handling of empty PTS samples lands
+            // in Phase B/C — for now we simply don't push it.
+            return
+        }
+        cancelPendingMaskGrace()
+        latestMaskPtsMs = step.ptsMs
+        currentPlanBVideoAspect = step.videoAspect
+        latestMaskVelocityX = step.vxPerMs
+        latestMaskVelocityY = step.vyPerMs
+        latestRect = DanmakuNormalizedRect(x = 0f, y = 0f, width = 1f, height = 1f)
+        latestTrackingRect = null
+        latestRectTrackingEligible = false
+        latestMaskWidth = step.maskWidth
+        latestMaskHeight = step.maskHeight
+        latestMaskTimestampMs = System.currentTimeMillis()
+        latestMaskAppliedAtUptimeMs = SystemClock.uptimeMillis()
+        consecutiveEmptyFrames = 0
+        replaceRuntimeMaskBitmap(mask)
+        emitState(
+            DanmakuDynamicOcclusionState(
+                enabled = true,
+                available = true,
+                backend = DanmakuAiBackend.PADDLE.wireValue,
+                occlusionMode = DanmakuOcclusionMode.MASK.wireValue,
+                updatedAtMs = latestMaskTimestampMs,
+                maskPath = null,
+                maskSignature = null,
+                maskWidth = step.maskWidth,
+                maskHeight = step.maskHeight,
+                framePath = null,
+                cacheHit = false,
+                captureAreaRatio = 1f,
+                normalizedRect = latestRect,
+                unavailableReason = null,
+                captureBackend = lastCaptureBackend,
+                degradationLevel = DanmakuOcclusionDegradationLevel.NONE.wireValue,
+                effectiveSampleIntervalMs = step.stepMs,
+                effectiveInputWidth = step.inputWidth,
+                // Plan B always forwards per-step velocity: the renderer caps it to one
+                // step (~280ms), so it can't over-slide. The "蒙版跟随运动"
+                // (motionTrackingEnabled) toggle exists to tame the LIVE/network path's
+                // stronger wall-clock extrapolation — it does not gate Plan B.
+                maskVelocityX = step.vxPerMs,
+                maskVelocityY = step.vyPerMs,
+                maskPtsMs = step.ptsMs,
+                maskSceneCut = step.sceneCut,
+                videoAspect = step.videoAspect,
+            ),
+            mask,
+        )
+    }
+
+
+    private fun runMnnFullFrameInference(
+        bitmap: Bitmap,
+        sampleId: Long,
+        captureLatencyMs: Long,
+    ) {
+        val startedAt = SystemClock.elapsedRealtime()
+        val runtime = ensureRuntime()
+        if (runtime == null) {
+            mainHandler.post {
+                processing = false
+                if (!disposed) {
+                    stopSampling(clearPending = true)
+                    emitUnavailableState(
+                        backend = currentBackendOrFallback(),
+                        keepEnabled = config.enabled,
+                    )
+                }
+                recycleCaptureBitmapIfAsync(bitmap)
+                finishSamplingCycle()
+            }
+            return
+        }
+        val inferenceBackend = runtime.backend
+        // Estimate global frame motion (for between-sample mask extrapolation in the
+        // renderer) before running segmentation, while we still hold the frame.
+        val lumaGrid = sampleMotionLumaGrid(bitmap)
+        updateGlobalMotionVelocity(lumaGrid, SystemClock.uptimeMillis())
+        // Static-scene skip: if the frame barely changed since the last segmentation and
+        // we already have a mask, skip the heavy seg and keep the current mask. This
+        // cuts sustained CPU load (the main cause of thermal throttling → stutter) on
+        // dialogue/static shots, which dominate.
+        val baseline = lastInferredLumaGrid
+        val isStatic =
+            baseline != null &&
+                latestMaskValues != null &&
+                consecutiveStaticSkips < DANMAKU_AI_STATIC_SKIP_MAX_CONSECUTIVE &&
+                gridMeanAbsDiff(baseline, lumaGrid) < DANMAKU_AI_STATIC_SKIP_LUMA_DIFF
+        if (isStatic) {
+            consecutiveStaticSkips += 1
+            mainHandler.post {
+                processing = false
+                recycleCaptureBitmapIfAsync(bitmap)
+                finishSamplingCycle()
+            }
+            return
+        }
+        consecutiveStaticSkips = 0
+        lastInferredLumaGrid = lumaGrid
+        val maskResult =
+            runCatching { buildFullFrameMaskResult(runtime.run(bitmap)) }
+                .getOrElse { error ->
+                    Log.w(DANMAKU_AI_TAG, "sample=$sampleId MNN full-frame seg failed", error)
+                    null
+                }
+        val inferenceLatencyMs = SystemClock.elapsedRealtime() - startedAt
+        val totalLatencyMs = captureLatencyMs + inferenceLatencyMs
+        maybeLogSamplingSlowPath(
+            sampleId = sampleId,
+            backend = inferenceBackend,
+            captureLatencyMs = captureLatencyMs,
+            inferenceLatencyMs = inferenceLatencyMs,
+            totalLatencyMs = totalLatencyMs,
+            reason = "mnn_full_frame",
+        )
+        if (Log.isLoggable(DANMAKU_AI_TAG, Log.DEBUG)) {
+            Log.d(
+                DANMAKU_AI_TAG,
+                "sample=$sampleId backend=${inferenceBackend.wireValue} mode=mnn_full_frame " +
+                    "captureMs=$captureLatencyMs inferenceMs=$inferenceLatencyMs totalMs=$totalLatencyMs " +
+                    "mask=${maskResult != null} " +
+                    "vx=${"%.5f".format(Locale.US, latestMaskVelocityX)} " +
+                    "vy=${"%.5f".format(Locale.US, latestMaskVelocityY)}",
+            )
+        }
+        mainHandler.post {
+            processing = false
+            if (disposed) {
+                recycleCaptureBitmapIfAsync(bitmap)
+                return@post
+            }
+            if (maskResult != null) {
+                applyMaskResult(
+                    backend = inferenceBackend,
+                    result = maskResult,
+                    trackingRect = null,
+                    frameBitmap = bitmap,
+                    latencyMs = totalLatencyMs,
+                    motionLumaSamples = IntArray(0),
+                    motionSampleWidth = 0,
+                    motionSampleHeight = 0,
+                    motionCompensation = null,
+                    updateTrackingState = false,
+                )
+            } else {
+                applyEmptyResult(
+                    sampleId = sampleId,
+                    backend = inferenceBackend,
+                    motionCompensationAttempted = false,
+                    allowMaskGrace = true,
+                )
+            }
+            recycleCaptureBitmapIfAsync(bitmap)
+            finishSamplingCycle()
+        }
+    }
+
     private fun runInference(
         bitmap: Bitmap,
         sampleId: Long,
         captureLatencyMs: Long,
         sampleAreaRatio: Float,
     ) {
+        if (DANMAKU_AI_MNN_FULL_FRAME) {
+            runMnnFullFrameInference(bitmap, sampleId, captureLatencyMs)
+            return
+        }
         val startedAt = SystemClock.elapsedRealtime()
         val detectionRuntime =
             ensureDetectionRuntime()
@@ -5652,6 +6203,35 @@ class DanmakuDynamicOcclusionController(
         }
     }
 
+    private fun expandSoftMask(
+        input: FloatArray,
+        output: FloatArray,
+        width: Int,
+        height: Int,
+        radius: Int,
+    ) {
+        val safeRadius = radius.coerceAtLeast(0)
+        if (safeRadius == 0) {
+            input.copyInto(output)
+            return
+        }
+        for (y in 0 until height) {
+            val top = max(0, y - safeRadius)
+            val bottom = minOf(height - 1, y + safeRadius)
+            for (x in 0 until width) {
+                val left = max(0, x - safeRadius)
+                val right = minOf(width - 1, x + safeRadius)
+                var value = 0f
+                for (sampleY in top..bottom) {
+                    for (sampleX in left..right) {
+                        value = max(value, input[(sampleY * width) + sampleX])
+                    }
+                }
+                output[(y * width) + x] = value
+            }
+        }
+    }
+
     private fun blurMask(
         input: FloatArray,
         output: FloatArray,
@@ -7310,7 +7890,7 @@ class DanmakuDynamicOcclusionController(
         latestRectTrackingEligible = updateTrackingState && result.normalizedRect != null
         latestTrackingRect =
             if (updateTrackingState) {
-                sanitizeTrackingRect(trackingRect ?: result.normalizedRect)
+                trackingRect ?: result.normalizedRect
             } else {
                 null
             }
@@ -7410,6 +7990,10 @@ class DanmakuDynamicOcclusionController(
                 degradationLevel = currentDegradationLevel().wireValue,
                 effectiveSampleIntervalMs = currentSampleIntervalMs(),
                 effectiveInputWidth = effectiveInputWidth(),
+                maskVelocityX = if (config.motionTrackingEnabled) latestMaskVelocityX else 0.0,
+                maskVelocityY = if (config.motionTrackingEnabled) latestMaskVelocityY else 0.0,
+                maskPtsMs = latestMaskPtsMs,
+                videoAspect = currentPlanBVideoAspect,
             ),
             runtimeMaskBitmap?.takeIf { result.occlusionMode == DanmakuOcclusionMode.MASK },
         )
@@ -7500,25 +8084,6 @@ class DanmakuDynamicOcclusionController(
             return
         }
         cancelPendingMaskGrace()
-    }
-
-    private fun handleBackendFailure(backend: DanmakuAiBackend) {
-        if (activeRuntime?.backend == backend || activeDetectionRuntime?.backend == backend) {
-            releaseRuntime()
-        }
-        overBudgetCount = 0
-        averageLatencyMs = 0.0
-        while (activeBackendIndex < config.preferredBackendOrder.size) {
-            if (config.preferredBackendOrder[activeBackendIndex] == backend) {
-                activeBackendIndex += 1
-                break
-            }
-            activeBackendIndex += 1
-        }
-        if (activeBackendIndex >= config.preferredBackendOrder.size) {
-            stopSampling(clearPending = true)
-            emitUnavailableState(backend = DanmakuAiBackend.DISABLED, keepEnabled = true)
-        }
     }
 
     private fun emitUnavailableState(
@@ -7638,57 +8203,38 @@ class DanmakuDynamicOcclusionController(
     private fun ensureDetectionRuntime(): DanmakuDetectionRuntime? {
         synchronized(runtimeLock) {
             activeDetectionRuntime?.let { return it }
-            if (!detectionRuntimeFactory.shouldAttempt(DanmakuAiBackend.PADDLE)) {
-                Log.d(
-                    DANMAKU_AI_TAG,
-                    "backend=paddle detector skipped device=${detectionRuntimeFactory.deviceSummary()}",
-                )
-                return null
-            }
-            val runtime =
-                runCatching {
-                    detectionRuntimeFactory.create(DanmakuAiBackend.PADDLE)
-                }.getOrElse { error ->
-                    Log.w(DANMAKU_AI_TAG, "backend=paddle detector init failed", error)
-                    null
+            while (activeBackendIndex < config.preferredBackendOrder.size) {
+                val backend = config.preferredBackendOrder[activeBackendIndex]
+                if (!detectionRuntimeFactory.shouldAttempt(backend)) {
+                    return null
                 }
-            if (runtime != null) {
-                activeDetectionRuntime = runtime
-                Log.d(
-                    DANMAKU_AI_TAG,
-                    "backend=paddle detector init success device=${detectionRuntimeFactory.deviceSummary()}",
-                )
+                val runtime =
+                    runCatching { detectionRuntimeFactory.create(backend) }.getOrNull()
+                if (runtime != null) {
+                    activeDetectionRuntime = runtime
+                    return runtime
+                }
+                activeBackendIndex += 1
             }
-            return runtime
         }
+        return null
     }
 
-    private fun expandSoftMask(
-        input: FloatArray,
-        output: FloatArray,
-        width: Int,
-        height: Int,
-        radius: Int,
-    ) {
-        for (y in 0 until height) {
-            val minY = max(0, y - radius)
-            val maxY = minOf(height - 1, y + radius)
-            for (x in 0 until width) {
-                val minX = max(0, x - radius)
-                val maxX = minOf(width - 1, x + radius)
-                var maxValue = 0f
-                for (sampleY in minY..maxY) {
-                    val rowOffset = sampleY * width
-                    for (sampleX in minX..maxX) {
-                        val value = input[rowOffset + sampleX]
-                        if (value > maxValue) {
-                            maxValue = value
-                        }
-                    }
-                }
-                output[(y * width) + x] = maxValue
-            }
+    private fun beginSceneCutRecovery(backend: DanmakuAiBackend) {
+        sceneCutRecoveryActive = true
+        sceneCutBurstSamplesRemaining = DANMAKU_AI_SCENE_CUT_BURST_SAMPLE_COUNT
+        stableMaskFramesSinceSceneCut = 0
+        pendingMaskGraceBackend = backend
+    }
+
+    private fun handleBackendFailure(backend: DanmakuAiBackend) {
+        synchronized(runtimeLock) {
+            activeRuntime?.takeIf { it.backend == backend }?.close()
+            if (activeRuntime?.backend == backend) activeRuntime = null
+            activeDetectionRuntime?.takeIf { it.backend == backend }?.close()
+            if (activeDetectionRuntime?.backend == backend) activeDetectionRuntime = null
         }
+        activeBackendIndex += 1
     }
 
     private fun releaseRuntime() {
@@ -7711,7 +8257,7 @@ class DanmakuDynamicOcclusionController(
         }
         latestRect = cached.normalizedRect
         latestRectTrackingEligible = cached.normalizedRect != null
-        latestTrackingRect = sanitizeTrackingRect(cached.normalizedRect)
+        latestTrackingRect = cached.normalizedRect
         latestMaskValues = null
         latestMaskWidth = cached.maskWidth
         latestMaskHeight = cached.maskHeight
@@ -7823,7 +8369,6 @@ class DanmakuDynamicOcclusionController(
 
     private fun currentBackendOrFallback(): DanmakuAiBackend {
         return activeRuntime?.backend
-            ?: activeDetectionRuntime?.backend
             ?: config.preferredBackendOrder.getOrNull(activeBackendIndex)
             ?: DanmakuAiBackend.DISABLED
     }
@@ -7872,39 +8417,4 @@ class DanmakuDynamicOcclusionController(
         }
     }
 
-    private fun beginSceneCutRecovery(backend: DanmakuAiBackend) {
-        sceneCutRecoveryActive = true
-        sceneCutBurstSamplesRemaining =
-            max(sceneCutBurstSamplesRemaining, DANMAKU_AI_SCENE_CUT_BURST_SAMPLE_COUNT)
-        stableMaskFramesSinceSceneCut = 0
-        clearMotionBurst()
-        latestRect = null
-        latestTrackingRect = null
-        latestRectTrackingEligible = false
-        latestMaskValues = null
-        latestMaskWidth = 0
-        latestMaskHeight = 0
-        latestMaskPath = null
-        latestMaskSignature = null
-        latestFramePath = null
-        latestMaskTimestampMs = 0L
-        replaceRuntimeMaskBitmap(null)
-        consecutiveEmptyFrames = 0
-        latestMotionReferenceFrame = null
-        previousMotionReferenceFrame = null
-        lastMotionCompensation = null
-        consecutiveMotionCompensationFailures = 0
-        consecutiveCompensatedFrames = 0
-        smallMultiStickySamplesRemaining = 0
-        resetTrackerLifecycle(reason = "scene_cut")
-        resetPrimaryTargetMemory()
-        clearSmallMultiTracks()
-        emitUnavailableState(backend = backend, keepEnabled = true)
-        if (shouldSample()) {
-            mainHandler.removeCallbacks(sampleRunnable)
-            samplingScheduled = false
-            nextEligibleSampleUptimeMs = SystemClock.uptimeMillis() + currentSampleIntervalMs()
-            scheduleNextSample()
-        }
-    }
 }

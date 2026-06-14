@@ -5,10 +5,11 @@ const List<double> danmakuDisplayAreaPresets = <double>[0.25, 0.50, 0.75, 1.0];
 
 const List<double> danmakuFontThicknessPresets = <double>[0.8, 1.0, 1.2, 1.4];
 
-const double danmakuSpeedMin = 0.70;
-const double danmakuSpeedMax = 1.55;
-const int danmakuSpeedDivisions = 4;
-const int danmakuRuntimeSpeedNotchOffset = 1;
+// speed 现在是"直接倍速"：1.0=正常、0.5=半速、2.0=2 倍，无级连续、跨度大、直观。
+const double danmakuSpeedMin = 0.5;
+const double danmakuSpeedMax = 2.0;
+const int danmakuSpeedDivisions = 6;
+const int danmakuRuntimeSpeedNotchOffset = 0;
 const double danmakuSpeedStep =
     (danmakuSpeedMax - danmakuSpeedMin) / danmakuSpeedDivisions;
 
@@ -58,14 +59,9 @@ double resolveDanmakuMotionSpeedFactor(
   double configuredSpeed, {
   int notchOffset = danmakuRuntimeSpeedNotchOffset,
 }) {
-  final runtimeSpeed = resolveDanmakuRuntimeSpeed(
-    configuredSpeed,
-    notchOffset: notchOffset,
-  );
-  if (runtimeSpeed >= 1.0) {
-    return 1.0 + ((runtimeSpeed - 1.0) * 0.55);
-  }
-  return 1.0 - ((1.0 - runtimeSpeed) * 0.45);
+  // 直接把配置速度当运动倍速（无 notch、无压缩映射）：1.0=正常，0.5=半速(更慢)，
+  // 2.0=2 倍(更快)。durationMs = baseMs / 倍速，故倍速越大穿屏越快。
+  return resolveDanmakuRuntimeSpeed(configuredSpeed, notchOffset: notchOffset);
 }
 
 int normalizeDanmakuFrameRateHz(int value) {
@@ -157,6 +153,12 @@ class DanmakuSettings {
   final int targetFrameRateHz;
   final int aiSampleIntervalMs;
   final int aiInputWidth;
+  // 弹幕渲染器：false=Flutter 层渲染(texture backend，二级界面顺、但和视频共享 Flutter
+  // raster，高码率/120Hz 下视频会挤占弹幕)；true=原生 Canvas 渲染(surface backend，视频
+  // 走 SurfaceFlinger 独立硬件层、和弹幕分开，弹幕可 120fps 丝滑，代价是二级界面走 HC
+  // 合成可能略卡)。切换需重开播放器生效(PlatformView backend 在会话内锁定，见
+  // _handlePlatformViewCreated)。
+  final bool useNativeRenderer;
 
   const DanmakuSettings({
     required this.enabled,
@@ -178,6 +180,7 @@ class DanmakuSettings {
     required this.targetFrameRateHz,
     required this.aiSampleIntervalMs,
     required this.aiInputWidth,
+    this.useNativeRenderer = false,
   });
 
   static const DanmakuSettings defaults = DanmakuSettings(
@@ -195,7 +198,7 @@ class DanmakuSettings {
     density: 1.0,
     fontScale: 1.0,
     fontThickness: 1.0,
-    speed: 0.85,
+    speed: 1.0,
     displayAreaRatio: 0.50,
     targetFrameRateHz: 60,
     aiSampleIntervalMs: 500,
@@ -223,6 +226,7 @@ class DanmakuSettings {
     int? aiSampleIntervalMs,
     int? aiInputWidth,
     String? aiPrecisionPreset,
+    bool? useNativeRenderer,
   }) {
     final nextAiInputWidth = aiInputWidth ?? this.aiInputWidth;
     final mappedAiInputWidth = aiPrecisionPreset != null
@@ -254,6 +258,7 @@ class DanmakuSettings {
       ),
       aiSampleIntervalMs: aiSampleIntervalMs ?? this.aiSampleIntervalMs,
       aiInputWidth: mappedAiInputWidth.clamp(minAiInputWidth, maxAiInputWidth),
+      useNativeRenderer: useNativeRenderer ?? this.useNativeRenderer,
     );
   }
 
@@ -293,6 +298,7 @@ class DanmakuSettings {
       'targetFrameRateHz': targetFrameRateHz,
       'aiSampleIntervalMs': aiSampleIntervalMs,
       'aiInputWidth': aiInputWidth,
+      'useNativeRenderer': useNativeRenderer,
     };
   }
 
@@ -334,6 +340,7 @@ class DanmakuSettings {
         defaults.aiSampleIntervalMs,
       ).clamp(minAiSampleIntervalMs, maxAiSampleIntervalMs),
       aiInputWidth: _readAiInputWidth(json),
+      useNativeRenderer: json['useNativeRenderer'] == true,
     );
   }
 

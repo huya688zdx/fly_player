@@ -513,7 +513,7 @@ class _DanmakuSeasonDetailScreenState
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final localSources = _sources
-        .where((source) => source.isLocalFile)
+        .where((source) => !source.isDanDanPlay)
         .toList(growable: false);
     final networkSources = _sources
         .where((source) => source.isDanDanPlay)
@@ -656,7 +656,7 @@ class _DanmakuDirectEntryScreenState extends State<_DanmakuDirectEntryScreen> {
               .where((source) => source.isDanDanPlay)
               .toList(growable: false);
           final localSources = group.sources
-              .where((source) => source.isLocalFile)
+              .where((source) => !source.isDanDanPlay)
               .toList(growable: false);
           return Container(
             decoration: BoxDecoration(

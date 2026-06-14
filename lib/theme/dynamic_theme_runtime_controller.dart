@@ -12,8 +12,9 @@ import 'dynamic_theme_seed_extractor.dart';
 class DynamicThemeRuntimeController {
   DynamicThemeRuntimeController._();
 
-  static const String _cacheVersion = 'dyn_v5';
-  static const String _persistentCacheVersion = 'dyn_page_seed_v1';
+  // v6 / v2：配合 Monet 式取色升级（互异色相分配 + 柔和 clamp），让页级 seed 缓存失效重算。
+  static const String _cacheVersion = 'dyn_v6';
+  static const String _persistentCacheVersion = 'dyn_page_seed_v2';
   static const String _persistentCachePrefsKey =
       'dynamic_theme_page_seed_cache_v1';
   static const int _maxSeedCacheEntries = 256;

@@ -23,10 +23,10 @@ dependencies:
   file_picker: ^10.3.2
   flutter_svg: ^2.0.10+1
   fl_chart: ^0.70.2
+  canvas_danmaku: ^0.3.1
   url_launcher: ^6.3.1
   palette_generator: ^0.3.3+6
   webview_flutter: ^4.13.1
-  canvas_danmaku: ^0.3.1
 
 dev_dependencies:
   flutter_test:

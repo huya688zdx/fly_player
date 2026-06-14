@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../services/parallel_host_bridge.dart';
 import '../services/runtime_theme_session_bridge.dart';
 import '../services/runtime_theme_sync_bridge.dart';
 import '../theme/app_theme.dart';
@@ -42,7 +43,10 @@ class AppThemeProvider extends ChangeNotifier {
   static const String _runtimeDynamicSessionIdKey =
       'app_theme_runtime_dynamic_session_id';
   static const String _themeRevisionKey = 'app_theme_revision';
-  static const Duration _syncInterval = Duration(milliseconds: 700);
+  // 跨并行窗口主题同步轮询间隔。每次 poll 都 prefs.reload()（重新 getAll+解码整个
+  // prefs map）——配合"大 blob 已移出 prefs"，单次解码已很便宜；间隔从 700ms 放宽到
+  // 1500ms 进一步减少无谓 reload（手机无并行窗口时本就用不上，少跑更好）。
+  static const Duration _syncInterval = Duration(milliseconds: 1500);
   static const Duration _runtimeMainClearGrace = Duration(milliseconds: 600);
   static _AppThemeBootstrapSnapshot? _bootstrapSnapshot;
 
@@ -81,6 +85,22 @@ class AppThemeProvider extends ChangeNotifier {
   int _runtimeMainClearHoldCount = 0;
   int _runtimeThemeApplyToken = 0;
   bool _disposed = false;
+  // Whether two engines are *concurrently visible* (split-pane player: video on one
+  // side, detail on the other) — only then can prefs change underneath us, so only
+  // then is the expensive prefs.reload() in the poll loop worth running. Sourced
+  // from the host's isSplitPlayerVisible(). NOTE: "is the detail engine warmed /
+  // alive / in the back stack" is NOT a valid proxy — large screens warm the detail
+  // engine at launch and keep a DetailActivity around after detail→fullscreen
+  // playback, so any engine-existence check stays true during plain fullscreen
+  // playback and kept reload() (the biggest CPU cost in the profile — it pulls the
+  // whole prefs map back over the platform channel and UTF8+StandardMessageCodec-
+  // decodes it every 1.5s, stuttering danmaku) running on tablets. splitPlayerVisible
+  // is false for fullscreen single-window playback (and all phones) and flips true
+  // only in MODE_SPLIT, without leaking across the transition. Defaults to false
+  // (skip reload) until known.
+  bool _prefsSharedAcrossEngines = false;
+  bool _hostRoleResolved = false;
+  int _pollTick = 0;
 
   AppThemeProvider() {
     final bootstrap = _bootstrapSnapshot;
@@ -90,7 +110,32 @@ class AppThemeProvider extends ChangeNotifier {
     }
     unawaited(_registerRuntimeThemeSyncHandler());
     load();
+    unawaited(_refreshPrefsSharingMode());
     _startSyncLoop();
+  }
+
+  // Resolves whether prefs are shared with another live engine by querying the
+  // host role. Only split-pane parallel windows (primary/secondary) share prefs
+  // and thus need the heavy reload() in the poll loop; a fullscreen/standalone
+  // host owns its prefs exclusively. Re-queried periodically from the poll loop
+  // so layout changes (fullscreen ↔ split) are picked up without extra wiring.
+  Future<void> _refreshPrefsSharingMode() async {
+    try {
+      final context = await ParallelHostBridge.getHostContext();
+      if (_disposed) return;
+      // Only reload when two engines are *concurrently visible* (split-pane player).
+      // parallelEngineActive now reflects isSplitPlayerVisible() (not mere engine
+      // warming/existence): false on phones, and false on tablets during plain
+      // fullscreen playback — it flips true only in MODE_SPLIT. This removes the
+      // per-1.5s reload() that dominated the CPU profile and stuttered danmaku on
+      // tablets (which warm the detail engine at launch and keep a DetailActivity in
+      // the back stack, so the old hasDetailEngine()/detail-pane proxies were always
+      // true there).
+      _prefsSharedAcrossEngines = context.parallelEngineActive;
+      _hostRoleResolved = true;
+    } catch (_) {
+      // Leave the previous value; default false means "skip reload".
+    }
   }
 
   bool get isReady => _isReady;
@@ -570,7 +615,34 @@ class AppThemeProvider extends ChangeNotifier {
     }
     if (visualChanged && !shouldDeferLocalNotify) {
       _isReady = true;
-      _publishRuntimeDynamicThemeToScope();
+      // If the seed's color schemes aren't cached yet, applying the theme would
+      // run the ~16ms HCT solver inside this frame (this is the host path that
+      // the per-scope warm-up doesn't cover — it showed up as the
+      // _startMicrotaskLoop → ColorScheme.fromSeed → Hct hot path on page open).
+      // Warm up off-frame first, then publish, so the apply frame is a pure
+      // cache hit.
+      final warm = DynamicThemeMapper.isWarm(
+        baseColors: selectedThemeBaseColors,
+        seed: seed,
+        intensity: _dynamicThemeIntensity,
+      );
+      if (warm) {
+        _publishRuntimeDynamicThemeToScope();
+      } else {
+        scheduleMicrotask(() {
+          if (_disposed) return;
+          DynamicThemeMapper.warmUp(
+            baseColors: selectedThemeBaseColors,
+            seed: seed,
+            intensity: _dynamicThemeIntensity,
+          );
+          if (_disposed) return;
+          // Only publish if this seed is still the active top theme.
+          if (_runtimeThemeApplyToken == applyToken) {
+            _publishRuntimeDynamicThemeToScope();
+          }
+        });
+      }
     }
     if (broadcastToMain) {
       if (kDebugMode) {
@@ -967,7 +1039,19 @@ class AppThemeProvider extends ChangeNotifier {
     if (_syncInProgress) return;
     _syncInProgress = true;
     try {
-      final prefs = await _obtainPrefs(refresh: true);
+      // Re-resolve host role occasionally so a fullscreen→split transition
+      // starts honoring reloads (and vice versa) without dedicated plumbing.
+      // Cheap channel call, throttled to ~every 8th poll (~12s) once known.
+      _pollTick++;
+      if (!_hostRoleResolved || _pollTick % 8 == 0) {
+        await _refreshPrefsSharingMode();
+      }
+      // Only pull the whole prefs map back over the platform channel when prefs
+      // can actually change underneath us (parallel split-pane). Otherwise read
+      // the in-memory copy — this engine is the sole writer, so its memory
+      // revision already matches _themeRevision and we early-return for free.
+      // This removes the ~100ms/1.5s reload() that dominated the CPU profile.
+      final prefs = await _obtainPrefs(refresh: _prefsSharedAcrossEngines);
       await _ensureRuntimeThemeSession(prefs);
       final nextRevision = prefs.getInt(_themeRevisionKey) ?? 0;
       if (nextRevision == _themeRevision) return;
