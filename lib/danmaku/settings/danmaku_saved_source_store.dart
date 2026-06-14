@@ -1,18 +1,30 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite/sqflite.dart' show getDatabasesPath;
 
 import '../models/danmaku_saved_source.dart';
 
 class DanmakuSavedSourceStore {
+  // 旧版本把保存源(实测 70KB)塞进 SharedPreferences → 每次 getInstance/reload 都解码
+  // 整个 prefs map（AppThemeProvider 每 1.5s reload 一次撞上即卡顿）。改文件存储 + 迁移。
   static const String _prefKey = 'player_danmaku_saved_sources_v1';
+  static const String _fileName = 'danmaku_saved_sources_v1.json';
   static const String _autoMatchBlockedByMediaKey = 'autoMatchBlockedByMedia';
   static final ValueNotifier<int> _revision = ValueNotifier<int>(0);
 
   const DanmakuSavedSourceStore();
 
   ValueListenable<int> get changes => _revision;
+
+  /// 启动时主动触发一次：把旧 SharedPreferences 里的 70KB blob 迁移到文件并删除该
+  /// prefs key，使 prefs map 从一开始就是干净的(不必等首次进播放器才懒迁移)。
+  Future<void> ensureMigratedFromPrefs() async {
+    await _readRaw();
+  }
 
   Future<List<DanmakuSavedSource>> loadAll() async {
     final payload = await _loadPayload();
@@ -196,35 +208,66 @@ class DanmakuSavedSourceStore {
   }
 
   Future<void> clearAll() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_prefKey);
+    try {
+      final file = await _file();
+      if (await file.exists()) await file.delete();
+    } catch (_) {}
+    unawaited(_purgeLegacyPref());
     _notifyChanged();
   }
 
+  static Future<String>? _pathFuture;
+  Future<File> _file() async {
+    final path = await (_pathFuture ??= () async {
+      final dir = await getDatabasesPath();
+      return '$dir/$_fileName';
+    }());
+    return File(path);
+  }
+
+  Map<String, dynamic> _emptyPayload() => <String, dynamic>{
+    'sources': <dynamic>[],
+    'activeByMedia': <String, dynamic>{},
+    _autoMatchBlockedByMediaKey: <String, dynamic>{},
+  };
+
   Future<Map<String, dynamic>> _loadPayload() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_prefKey) ?? '';
-    if (raw.trim().isEmpty) {
-      return <String, dynamic>{
-        'sources': <dynamic>[],
-        'activeByMedia': <String, dynamic>{},
-        _autoMatchBlockedByMediaKey: <String, dynamic>{},
-      };
-    }
+    final raw = await _readRaw();
+    if (raw == null || raw.trim().isEmpty) return _emptyPayload();
     final decoded = jsonDecode(raw);
-    if (decoded is! Map) {
-      return <String, dynamic>{
-        'sources': <dynamic>[],
-        'activeByMedia': <String, dynamic>{},
-        _autoMatchBlockedByMediaKey: <String, dynamic>{},
-      };
-    }
+    if (decoded is! Map) return _emptyPayload();
     return Map<String, dynamic>.from(decoded);
   }
 
+  /// 优先读文件；文件不存在则从旧 SharedPreferences 迁移一次并删除该 prefs 大 blob。
+  Future<String?> _readRaw() async {
+    final file = await _file();
+    if (await file.exists()) return file.readAsString();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final legacy = prefs.getString(_prefKey);
+      if (legacy != null && legacy.trim().isNotEmpty) {
+        await file.writeAsString(legacy, flush: true);
+      }
+      if (prefs.containsKey(_prefKey)) await prefs.remove(_prefKey);
+      return legacy;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _savePayload(Map<String, dynamic> payload) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefKey, jsonEncode(payload));
+    final file = await _file();
+    final tmp = File('${file.path}.tmp');
+    await tmp.writeAsString(jsonEncode(payload), flush: true);
+    await tmp.rename(file.path);
+  }
+
+  Future<void> _purgeLegacyPref() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.containsKey(_prefKey)) await prefs.remove(_prefKey);
+    } catch (_) {}
   }
 
   void _notifyChanged() {

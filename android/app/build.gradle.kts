@@ -61,7 +61,7 @@ android {
     }
 
     androidResources {
-        noCompress += listOf("pdmodel", "pdiparams", "pdiparams.info", "yaml", "yml")
+        noCompress += listOf("mnn")
     }
 
     buildFeatures {
@@ -92,6 +92,9 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
         buildConfigField("String", "DANDANPLAY_APP_ID", buildConfigString(danDanPlayAppId))
         buildConfigField("String", "DANDANPLAY_APP_SECRET", buildConfigString(danDanPlayAppSecret))
         buildConfigField(
@@ -114,6 +117,23 @@ android {
         }
     }
 
+    // 两个产品风味：
+    //   full —— 含 MNN 弹幕动态遮挡（ISNet-anime，~7MB 原生库 + ~88MB 模型）。
+    //   lite —— 不含遮挡，包体小 ~95MB；动态遮挡自动降级为不可用（不崩溃）。
+    // MNN 实现/模型/.so 按 sourceSet 隔离在 src/full，lite 用 src/lite 同 API 替身。
+    flavorDimensions += "paddle"
+    productFlavors {
+        create("full") {
+            dimension = "paddle"
+        }
+        create("lite") {
+            dimension = "paddle"
+            // 允许与 full 包共存于同一台设备，便于对比测试。
+            applicationIdSuffix = ".lite"
+            versionNameSuffix = "-lite"
+        }
+    }
+
     sourceSets {
         getByName("main") {
             if (mpvAndroidJniLibsDir != null) {
@@ -129,10 +149,13 @@ dependencies {
     implementation("androidx.documentfile:documentfile:1.0.1")
     implementation("androidx.media:media:1.7.0")
     implementation("androidx.palette:palette-ktx:1.0.0")
-    implementation("androidx.window:window:1.3.0")
+    implementation("androidx.window:window:1.5.0")
+    implementation("com.github.bumptech.glide:glide:4.16.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.nanohttpd:nanohttpd:2.3.1")
-    implementation(files("libs/fastdeploy-android-sdk-latest-dev.aar"))
+    // Paddle/FastDeploy 已移除（换成 MNN，原生库从 ~76MB 降到 ~7MB）。
+    // full flavor 的 MNN .so + 模型按 sourceSet 隔离在 src/full（jniLibs/assets），
+    // 无需在此声明依赖。
     testImplementation("junit:junit:4.13.2")
 }
 

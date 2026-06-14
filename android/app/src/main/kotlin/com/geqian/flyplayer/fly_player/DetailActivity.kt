@@ -11,6 +11,10 @@ import io.flutter.embedding.engine.FlutterEngine
 import org.json.JSONObject
 
 class DetailActivity : FlutterHostActivity() {
+    /** 本实例是否为原生壳分屏副栏（用第二引擎）。由启动 Intent 的 extra 决定，全生命周期不变。 */
+    private val useSplitEngine: Boolean
+        get() = intent?.getBooleanExtra(EXTRA_USE_SPLIT_ENGINE, false) == true
+
     private fun wrappedInitialRoute(routeName: String): String {
         return Uri
             .Builder()
@@ -21,6 +25,17 @@ class DetailActivity : FlutterHostActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        if (useSplitEngine) {
+            ParallelFlutterEngineRegistry.prepareSplitDetailRoute(
+                applicationContext,
+                intentToInitialRoute(intent),
+            )
+            super.onCreate(savedInstanceState)
+            // 分屏副栏：只登记到 split host，不污染浏览详情/右栏的跟踪。
+            ParallelWindowCoordinator.attachSplitDetailHost(this)
+            Log.d("NativePlayerSplit", "detail onCreate SPLIT branch attach this=${System.identityHashCode(this)}")
+            return
+        }
         ParallelFlutterEngineRegistry.prepareDetailRoute(
             applicationContext,
             intentToInitialRoute(intent),
@@ -32,6 +47,15 @@ class DetailActivity : FlutterHostActivity() {
     }
 
     override fun onNewIntent(intent: Intent) {
+        if (useSplitEngine) {
+            ParallelFlutterEngineRegistry.prepareSplitDetailRoute(
+                applicationContext,
+                intentToInitialRoute(intent),
+            )
+            super.onNewIntent(intent)
+            setIntent(intent)
+            return
+        }
         ParallelFlutterEngineRegistry.prepareDetailRoute(
             applicationContext,
             intentToInitialRoute(intent),
@@ -42,7 +66,11 @@ class DetailActivity : FlutterHostActivity() {
     }
 
     override fun onResume() {
-        ParallelFlutterEngineRegistry.resumeDetailEngine()
+        if (useSplitEngine) {
+            ParallelFlutterEngineRegistry.resumeSplitDetailEngine()
+        } else {
+            ParallelFlutterEngineRegistry.resumeDetailEngine()
+        }
         super.onResume()
     }
 
@@ -51,11 +79,19 @@ class DetailActivity : FlutterHostActivity() {
     }
 
     override fun provideFlutterEngine(context: Context): FlutterEngine? {
-        return ParallelFlutterEngineRegistry.detailEngine(context) ?: super.provideFlutterEngine(context)
+        return if (useSplitEngine) {
+            ParallelFlutterEngineRegistry.splitDetailEngine(context) ?: super.provideFlutterEngine(context)
+        } else {
+            ParallelFlutterEngineRegistry.detailEngine(context) ?: super.provideFlutterEngine(context)
+        }
     }
 
     override fun shouldDestroyEngineWithHost(): Boolean {
-        return !ParallelFlutterEngineRegistry.hasDetailEngine()
+        return if (useSplitEngine) {
+            !ParallelFlutterEngineRegistry.hasSplitDetailEngine()
+        } else {
+            !ParallelFlutterEngineRegistry.hasDetailEngine()
+        }
     }
 
     override fun getRenderMode(): RenderMode = RenderMode.texture
@@ -65,7 +101,9 @@ class DetailActivity : FlutterHostActivity() {
 
     override fun shouldSkipBaseFlutterEngineConfiguration(
         flutterEngine: FlutterEngine,
-    ): Boolean = ParallelFlutterEngineRegistry.isDetailEngine(flutterEngine)
+    ): Boolean =
+        ParallelFlutterEngineRegistry.isDetailEngine(flutterEngine) ||
+            ParallelFlutterEngineRegistry.isSplitDetailEngine(flutterEngine)
 
     override fun hostSurface(): String = "detail"
 
@@ -85,12 +123,51 @@ class DetailActivity : FlutterHostActivity() {
 
     override fun onDestroy() {
         if (isFinishing) {
-            ParallelWindowCoordinator.detachDetailHost(this)
-            ParallelWindowCoordinator.detachRightPaneHost(this)
-            ParallelWindowCoordinator.clearRightPane()
-            ParallelFlutterEngineRegistry.resetDetailRouteToPlaceholder()
+            if (useSplitEngine) {
+                // 保留副栏第二引擎(热)，仅重置为占位并暂停；下次进分屏复用、不冷启黑屏。
+                ParallelWindowCoordinator.detachSplitDetailHost(this)
+                ParallelFlutterEngineRegistry.resetSplitDetailRouteToPlaceholder()
+            } else {
+                ParallelWindowCoordinator.detachDetailHost(this)
+                ParallelWindowCoordinator.detachRightPaneHost(this)
+                ParallelWindowCoordinator.clearRightPane()
+                ParallelFlutterEngineRegistry.resetDetailRouteToPlaceholder()
+            }
         }
         super.onDestroy()
+    }
+
+    /** 分屏副栏：点条目时在本副栏 host 内就地 push（不启动新 Activity、不污染浏览详情状态）。 */
+    override fun handleSplitSecondaryInPlace(routeName: String): Boolean {
+        if (!useSplitEngine) return false
+        val normalizedRoute = routeName.trim()
+        if (normalizedRoute.isEmpty()) return false
+        Log.d("DetailActivity", "split secondary in-place route=$normalizedRoute")
+        detailHostChannel?.invokeMethod(
+            "replaceRoute",
+            mapOf("routeName" to normalizedRoute, "resetStack" to false),
+        )
+        return true
+    }
+
+    /** 分屏副栏：请求副栏在自己的导航栈里回退一层；回调 true=已回退，false=已在根(首页)。 */
+    fun requestPopInPane(onResult: (Boolean) -> Unit) {
+        val channel = detailHostChannel
+        if (channel == null) {
+            onResult(false)
+            return
+        }
+        channel.invokeMethod(
+            "popInPane",
+            null,
+            object : io.flutter.plugin.common.MethodChannel.Result {
+                override fun success(result: Any?) = onResult(result == true)
+
+                override fun error(code: String, message: String?, details: Any?) = onResult(false)
+
+                override fun notImplemented() = onResult(false)
+            },
+        )
     }
 
     fun replaceRouteInPlace(routeName: String): Boolean {
@@ -137,6 +214,8 @@ class DetailActivity : FlutterHostActivity() {
 
     companion object {
         private const val EXTRA_INITIAL_ROUTE = "initial_route"
+        // true → 用分屏副栏专用的第二个 Flutter 引擎（原生壳分屏用），与浏览详情引擎物理隔离。
+        const val EXTRA_USE_SPLIT_ENGINE = "use_split_engine"
 
         fun createIntent(
             context: Context,
@@ -151,6 +230,16 @@ class DetailActivity : FlutterHostActivity() {
                     .build()
                     .toString(),
             )
+        }
+
+        /** 原生壳分屏副栏：用第二引擎承载详情，避免抢占浏览详情引擎。 */
+        fun createSplitIntent(
+            context: Context,
+            routeName: String,
+        ): Intent {
+            return createRouteIntent(context, routeName).apply {
+                putExtra(EXTRA_USE_SPLIT_ENGINE, true)
+            }
         }
 
         fun createRouteIntent(

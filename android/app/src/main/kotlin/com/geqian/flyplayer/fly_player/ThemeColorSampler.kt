@@ -168,83 +168,124 @@ object ThemeColorSampler {
         return max(1, inSampleSize)
     }
 
+    // ---- Monet 式取色（评分 + 互异色相分配） ----
+    // 不再只取 Palette 的 vibrant/muted 几个固定 swatch、也不再用人工 hue-shift 凑深度。
+    // 而是对全部量化 swatch 做 Monet 式评分（彩度 × 人口权重，滤近灰/极端调），accent 取
+    // 最高分；selection/link 取与已选色相距离足够远的“真实图像色”，无第二色相时退回同色相
+    // 不同明度。4 个 seed 下游喂 ColorScheme.fromSeed（HCT 色调调和）。
+    private const val MIN_DISTINCT_HUE = 32f
+
+    private class ScoredSwatch(
+        val rgb: Int,
+        val hue: Float,
+        val saturation: Float,
+        val lightness: Float,
+        val population: Int,
+        val score: Double,
+    )
+
     private fun buildSeedMap(bitmap: Bitmap): Map<String, Any>? {
         val palette =
             Palette
                 .from(bitmap)
-                .maximumColorCount(16)
+                .maximumColorCount(24)
                 .clearFilters()
                 .generate()
 
-        val backgroundCandidate =
-            firstAccepted(
-                listOf(
-                    palette.darkVibrantSwatch?.rgb,
-                    palette.vibrantSwatch?.rgb,
-                    palette.dominantSwatch?.rgb,
-                    palette.mutedSwatch?.rgb,
+        val swatches = palette.swatches
+        if (swatches.isEmpty()) return null
+
+        var totalPopulation = 0.0
+        var weightedLuminance = 0.0
+        val scored = ArrayList<ScoredSwatch>(swatches.size)
+        for (swatch in swatches) {
+            val rgb = swatch.rgb
+            val hsl = FloatArray(3)
+            ColorUtils.colorToHSL(rgb, hsl)
+            val population = swatch.population
+            totalPopulation += population
+            weightedLuminance += relativeLuminance(rgb) * population
+            scored.add(
+                ScoredSwatch(
+                    rgb = rgb,
+                    hue = hsl[0],
+                    saturation = hsl[1],
+                    lightness = hsl[2],
+                    population = population,
+                    score = chromaScore(hsl[1], hsl[2], population),
                 ),
             )
-        val accentCandidate =
-            firstAccepted(
-                listOf(
-                    palette.vibrantSwatch?.rgb,
-                    palette.darkVibrantSwatch?.rgb,
-                    palette.lightVibrantSwatch?.rgb,
-                    palette.dominantSwatch?.rgb,
-                    palette.mutedSwatch?.rgb,
-                ),
-            )
+        }
+        scored.sortByDescending { it.score }
 
-        // When all swatches are filtered (dark/gray/bright images), fall back
-        // to the dominant color without filtering so every image gets a theme.
-        val fallback = palette.dominantSwatch?.rgb
-            ?: palette.vibrantSwatch?.rgb
-            ?: palette.mutedSwatch?.rgb
-        val baseCandidate = backgroundCandidate ?: accentCandidate ?: fallback ?: return null
-        val actionCandidate = accentCandidate ?: backgroundCandidate ?: fallback ?: return null
-        val preferLightSurface = preferLightSurface(baseCandidate)
+        // 人口加权亮度判定亮/暗表面（比单一 swatch 的 lightness 更稳，允许亮色海报出亮主题）。
+        val preferLightSurface =
+            totalPopulation > 0 && (weightedLuminance / totalPopulation) >= 0.60
 
-        val candidatesAreSame = baseCandidate == actionCandidate
-        val accentSource = if (candidatesAreSame) shiftHue(actionCandidate, 30f) else actionCandidate
-        val linkSource = if (candidatesAreSame) shiftHue(actionCandidate, -20f) else actionCandidate
+        // 背景基色：人口最多的 swatch（含灰），决定表面主调。
+        val dominant = swatches.maxByOrNull { it.population }!!.rgb
+
+        // accent：评分最高的有彩色；若全是近灰则退回 dominant。
+        val colorful = scored.filter { it.saturation >= 0.12f }
+        val accent = (colorful.firstOrNull() ?: scored.first()).rgb
+
+        // selection / link：优先取与已选“色相距离够远”的真实图像色；没有则退回同色相不同明度。
+        val accentHue = hueOf(accent)
+        val selectionSwatch =
+            colorful.firstOrNull { hueDistance(it.hue, accentHue) >= MIN_DISTINCT_HUE }
+        val selectionHue = selectionSwatch?.hue ?: accentHue
+        val linkSwatch =
+            colorful.firstOrNull {
+                hueDistance(it.hue, accentHue) >= MIN_DISTINCT_HUE &&
+                    hueDistance(it.hue, selectionHue) >= MIN_DISTINCT_HUE
+            }
+
+        val selectionSource = selectionSwatch?.rgb ?: tonalSibling(accent, -0.06f)
+        val linkSource = linkSwatch?.rgb ?: tonalSibling(accent, 0.10f)
 
         return mapOf(
-            "backgroundSeed" to backgroundSeedFor(baseCandidate, preferLightSurface),
-            "accentSeed" to accentSeedFor(accentSource),
-            "selectionSeed" to selectionSeedFor(accentSource),
+            "backgroundSeed" to backgroundSeedFor(dominant, preferLightSurface),
+            "accentSeed" to accentSeedFor(accent),
+            "selectionSeed" to selectionSeedFor(selectionSource),
             "linkSeed" to linkSeedFor(linkSource),
             "preferLightSurface" to preferLightSurface,
         )
     }
 
-    private fun firstAccepted(colors: List<Int?>): Int? {
-        for (color in colors) {
-            val normalized = normalizeCandidate(color) ?: continue
-            return normalized
-        }
-        return null
+    /// Monet 式评分：彩度（中明度处峰值）× 人口对数权重；近灰强罚、极端明暗弱罚。
+    private fun chromaScore(saturation: Float, lightness: Float, population: Int): Double {
+        val toneFalloff = 1.0 - (kotlin.math.abs(lightness - 0.5) * 0.7)
+        val chroma = saturation * toneFalloff
+        val popWeight = kotlin.math.ln(1.0 + population)
+        val grayPenalty = if (saturation < 0.10f) 0.12 else 1.0
+        val extremePenalty = if (lightness < 0.06f || lightness > 0.94f) 0.4 else 1.0
+        return chroma * popWeight * grayPenalty * extremePenalty
     }
 
-    private fun normalizeCandidate(color: Int?): Int? {
-        color ?: return null
+    private fun relativeLuminance(color: Int): Double {
+        val r = ((color shr 16) and 0xFF) / 255.0
+        val g = ((color shr 8) and 0xFF) / 255.0
+        val b = (color and 0xFF) / 255.0
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+    }
+
+    private fun hueOf(color: Int): Float {
         val hsl = FloatArray(3)
         ColorUtils.colorToHSL(color, hsl)
-        if (hsl[1] < 0.08f) return null
-        if (hsl[2] < 0.06f || hsl[2] > 0.90f) return null
+        return hsl[0]
+    }
 
-        val hue = hsl[0]
-        val isHarshRed = hue <= 10f || hue >= 350f
-        if (isHarshRed && hsl[1] > 0.72f) {
-            hsl[1] = 0.72f
-        }
+    private fun hueDistance(a: Float, b: Float): Float {
+        val diff = kotlin.math.abs(a - b) % 360f
+        return if (diff > 180f) 360f - diff else diff
+    }
+
+    /// 同色相、明度偏移的兄弟色（无第二色相时给 selection/link 用，比人工 hue-shift 更和谐）。
+    private fun tonalSibling(color: Int, deltaLightness: Float): Int {
+        val hsl = FloatArray(3)
+        ColorUtils.colorToHSL(color, hsl)
+        hsl[2] = clamp(hsl[2] + deltaLightness, 0.12f, 0.88f)
         return ColorUtils.HSLToColor(hsl)
-    }
-
-    private fun preferLightSurface(color: Int): Boolean {
-        val hsl = FloatArray(3)
-        ColorUtils.colorToHSL(color, hsl)
-        return hsl[2] >= 0.62f
     }
 
     private fun backgroundSeedFor(
@@ -257,16 +298,18 @@ object ThemeColorSampler {
             hsl[1] = clamp(hsl[1] * 0.42f, 0.08f, 0.22f)
             hsl[2] = clamp(hsl[2] * 0.92f, 0.74f, 0.90f)
         } else {
-            hsl[1] = clamp(hsl[1] * 0.84f, 0.18f, 0.54f)
+            // 柔和：暗表面彩度上限收一档，避免背景过浓。
+            hsl[1] = clamp(hsl[1] * 0.80f, 0.16f, 0.48f)
             hsl[2] = clamp((hsl[2] * 0.58f) + 0.02f, 0.18f, 0.36f)
         }
         return ColorUtils.HSLToColor(hsl)
     }
 
+    // 柔和舒适：强调/选中/链接的彩度上限整体收一档，长时间观看不刺眼。
     private fun accentSeedFor(color: Int): Int {
         val hsl = FloatArray(3)
         ColorUtils.colorToHSL(color, hsl)
-        hsl[1] = clamp(hsl[1], 0.22f, 0.58f)
+        hsl[1] = clamp(hsl[1], 0.20f, 0.50f)
         hsl[2] = clamp(hsl[2], 0.34f, 0.56f)
         return ColorUtils.HSLToColor(hsl)
     }
@@ -274,7 +317,7 @@ object ThemeColorSampler {
     private fun selectionSeedFor(color: Int): Int {
         val hsl = FloatArray(3)
         ColorUtils.colorToHSL(color, hsl)
-        hsl[1] = clamp(hsl[1], 0.24f, 0.62f)
+        hsl[1] = clamp(hsl[1], 0.22f, 0.52f)
         hsl[2] = clamp(hsl[2] - 0.02f, 0.30f, 0.52f)
         return ColorUtils.HSLToColor(hsl)
     }
@@ -282,7 +325,7 @@ object ThemeColorSampler {
     private fun linkSeedFor(color: Int): Int {
         val hsl = FloatArray(3)
         ColorUtils.colorToHSL(color, hsl)
-        hsl[1] = clamp(hsl[1], 0.20f, 0.54f)
+        hsl[1] = clamp(hsl[1], 0.18f, 0.48f)
         hsl[2] = clamp(hsl[2] + 0.08f, 0.42f, 0.64f)
         return ColorUtils.HSLToColor(hsl)
     }
@@ -292,12 +335,4 @@ object ThemeColorSampler {
         minValue: Float,
         maxValue: Float,
     ): Float = max(minValue, min(maxValue, value))
-
-    private fun shiftHue(color: Int, degrees: Float): Int {
-        val hsl = FloatArray(3)
-        ColorUtils.colorToHSL(color, hsl)
-        hsl[0] = (hsl[0] + degrees) % 360f
-        if (hsl[0] < 0f) hsl[0] += 360f
-        return ColorUtils.HSLToColor(hsl)
-    }
 }

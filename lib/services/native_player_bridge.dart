@@ -1,0 +1,264 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:flutter/services.dart';
+
+import '../danmaku/settings/danmaku_settings_store.dart';
+import '../providers/nas_provider.dart';
+import 'native_artwork_prefetch.dart';
+import 'native_danmaku_prefetch.dart';
+
+/// 启动纯原生播放壳（`NativePlayerActivity`）的桥。
+///
+/// 渐进原生化：Flutter 编排层（详情页 launcher）解析好 source、拉好弹幕后，用它把
+/// 播放交给原生壳——视频(SurfaceView) + 弹幕(原生 Canvas) + 控制(原生 View) 全在原生
+/// 层级，没有 Flutter overlay 的 Hybrid Composition，弹幕可 120fps 丝滑、二级界面不卡。
+class NativePlayerBridge {
+  const NativePlayerBridge._();
+
+  static const MethodChannel _channel = MethodChannel(
+    'fly_player/native_player',
+  );
+
+  /// 当前反向通道的持有者标识。bindReentry 是全局单 handler（最近注册的入口生效），
+  /// 用 token 让 unbindReentry 只清「自己仍是当前持有者」的情形，避免旧入口 dispose
+  /// 误清最新入口刚注册的 handler。
+  static Object? _activeBindToken;
+
+  /// 启动原生播放壳。
+  ///
+  /// - [loadArgs]：`MpvMediaSource.toMap()`，含 `url` 等，即 `controller.load` 的入参。
+  /// - [danmakuFilePath]：弹幕 payload 的临时 JSON 文件路径（可选）。弹幕量大，走文件
+  ///   而非 Intent extra，避开 Binder 的 `TransactionTooLarge`。
+  static Future<void> launch({
+    required Map<String, dynamic> loadArgs,
+    String? danmakuFilePath,
+    List<Map<String, dynamic>>? episodes,
+    Map<String, dynamic>? initialPlayInfo,
+    String? startSource,
+    int? introDurationSeconds,
+    int? outroDurationSeconds,
+    NasProvider? nas,
+  }) async {
+    // episodes 合并进 loadArgs（原生壳从 loadArgsMap["episodes"] 取，供本地弹"选集"
+    // 对话框，无需再反向请求列表）。不污染 source.toMap() 本身。
+    final mergedArgs = <String, dynamic>{
+      ...loadArgs,
+      if (episodes != null && episodes.isNotEmpty) 'episodes': episodes,
+      if (initialPlayInfo != null) 'initialPlayInfo': initialPlayInfo,
+      if (startSource != null) 'startSource': startSource,
+      if (introDurationSeconds != null)
+        'introDurationSeconds': introDurationSeconds,
+      if (outroDurationSeconds != null)
+        'outroDurationSeconds': outroDurationSeconds,
+    };
+    // 封面离线预取：把网络封面缓存为本地文件，原生壳优先取本地路径（纯听背景/海报、
+    // MediaSession 通知封面），断网也能显示。失败静默（原生回退网络 URL）。
+    await _mergeArtworkLocalPath(mergedArgs, nas);
+    await _channel.invokeMethod<void>('launch', <String, dynamic>{
+      'loadArgs': jsonEncode(mergedArgs),
+      if (danmakuFilePath != null && danmakuFilePath.isNotEmpty)
+        'danmakuFile': danmakuFilePath,
+    });
+  }
+
+  /// 绑定原生壳 → Flutter 的反向 handler。详情页 State 在发起原生壳前调用，注入「选集
+  /// 解析」「进度回写」两个回调（回调持 BuildContext / NasProvider）。最近一次绑定生效
+  /// （对齐 Kotlin 侧 host channel 的 attach 语义），State dispose 时 [unbindReentry]。
+  static Object bindReentry({
+    required Future<Map<String, dynamic>?> Function(
+      String itemGuid, {
+      int? qualityIndex,
+      String? qualityMediaGuid,
+      int? startPositionMs,
+      String? subtitleGuid,
+      String? audioGuid,
+    })
+    onResolvePlayback,
+    required Future<void> Function(Map<String, dynamic> progress)
+    onRecordProgress,
+    Future<String?> Function(String guid, {String? format})?
+    onResolveSubtitleFile,
+    Future<Map<String, dynamic>?> Function(
+      String currentLoadArgs, {
+      String? audioGuid,
+      String? subtitleGuid,
+      int? qualityIndex,
+      int? startPositionMs,
+    })?
+    onReloadServerSession,
+  }) {
+    final token = Object();
+    _activeBindToken = token;
+    _channel.setMethodCallHandler((call) async {
+      switch (call.method) {
+        case 'resolvePlayback':
+          final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          final guid = (args['itemGuid'] ?? '').toString();
+          if (guid.isEmpty) return null;
+          return await onResolvePlayback(
+            guid,
+            qualityIndex: (args['qualityIndex'] as num?)?.toInt(),
+            qualityMediaGuid: () {
+              final v = (args['qualityMediaGuid'] ?? '').toString().trim();
+              return v.isEmpty ? null : v;
+            }(),
+            startPositionMs: (args['startPositionMs'] as num?)?.toInt(),
+            // 字幕重载（转码/服务端托管）：带 key 即为 override，空串=关闭字幕；
+            // 不带 key（画质/选集）则 null=沿用服务端默认字幕。
+            subtitleGuid: args.containsKey('subtitleGuid')
+                ? (args['subtitleGuid'] ?? '').toString()
+                : null,
+            // 音轨重载（转码切音轨）：带 key 即 override；不带则沿用服务端默认音轨。
+            audioGuid: args.containsKey('audioGuid')
+                ? (args['audioGuid'] ?? '').toString()
+                : null,
+          );
+        case 'reloadServerSession':
+          if (onReloadServerSession == null) return null;
+          final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          final current = (args['loadArgs'] ?? '').toString();
+          if (current.isEmpty) return null;
+          return await onReloadServerSession(
+            current,
+            // 带 key 即 override：audioGuid 不空串；subtitleGuid 空串=关闭；
+            // qualityIndex 不带=保留当前画质。
+            audioGuid: args.containsKey('audioGuid')
+                ? (args['audioGuid'] ?? '').toString()
+                : null,
+            subtitleGuid: args.containsKey('subtitleGuid')
+                ? (args['subtitleGuid'] ?? '').toString()
+                : null,
+            qualityIndex: (args['qualityIndex'] as num?)?.toInt(),
+            startPositionMs: (args['startPositionMs'] as num?)?.toInt(),
+          );
+        case 'resolveSubtitleFile':
+          if (onResolveSubtitleFile == null) return null;
+          final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          final guid = (args['guid'] ?? '').toString().trim();
+          if (guid.isEmpty) return null;
+          final format = () {
+            final v = (args['format'] ?? '').toString().trim();
+            return v.isEmpty ? null : v;
+          }();
+          return await onResolveSubtitleFile(guid, format: format);
+        case 'recordProgress':
+          final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          await onRecordProgress(
+            args.map((key, value) => MapEntry(key.toString(), value)),
+          );
+          return null;
+        case 'searchDanmakuSource':
+          // 纯网络（DanDanPlay 检索），不依赖 State/context，直接处理。
+          final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          return await NativeDanmakuPrefetch.searchCandidates(
+            keyword: (args['keyword'] ?? '').toString(),
+            episodeNumber: (args['episodeNumber'] as num?)?.toInt() ?? 0,
+            tmdbId: (args['tmdbId'] ?? '').toString(),
+          );
+        case 'loadDanmakuEpisode':
+          final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          final episodeId = (args['episodeId'] as num?)?.toInt() ?? 0;
+          if (episodeId <= 0) return null;
+          return await NativeDanmakuPrefetch.importEpisodeToFile(
+            episodeId: episodeId,
+            animeTitle: (args['animeTitle'] ?? '').toString(),
+            episodeTitle: (args['episodeTitle'] ?? '').toString(),
+            episodeNumber: (args['episodeNumber'] as num?)?.toInt() ?? 0,
+          );
+        case 'importDanmakuFile':
+          // 原生壳已用 SAF 选好弹幕文件并拷到可读路径，这里解析并落 payload 文件回传。
+          final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          final path = (args['path'] ?? '').toString().trim();
+          if (path.isEmpty) return null;
+          return await NativeDanmakuPrefetch.importLocalFileToFile(path);
+        case 'setUseNativeRenderer':
+          // 原生壳「切换到 Flutter 播放器」出口：持久化关闭原生渲染器开关（该开关 UI 只在
+          // Flutter 播放器内，开启后每次播放都进原生壳，没有这个出口就回不去）。纯持久化、
+          // 不依赖 State/context，任何 host 绑定时都能处理。
+          final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          final enabled = args['enabled'] == true;
+          const store = DanmakuSettingsStore();
+          final current = await store.load();
+          await store.save(current.copyWith(useNativeRenderer: enabled));
+          return true;
+        default:
+          throw MissingPluginException('native_player reentry: ${call.method}');
+      }
+    });
+    // 通知 Kotlin：把"本 engine 的 channel"设为反向通道目标。多 host engine 下不能在
+    // engine 配置时 eager attach（会被最后配置的 engine 覆盖，导致 dispatch 落到没有
+    // reentry handler 的 engine → notImplemented）；必须由真正注册了 handler 的 engine
+    // 主动认领。
+    unawaited(_channel.invokeMethod<void>('bindReentryHost'));
+    return token;
+  }
+
+  /// 解绑反向通道。仅当 [token] 仍是当前持有者时才真正清除——避免旧入口 dispose 清掉
+  /// 后注册入口的 handler。launcher 内部注册的（捕获 nas、闭包不持 State）可不解绑。
+  static void unbindReentry(Object token) {
+    if (!identical(_activeBindToken, token)) return;
+    _activeBindToken = null;
+    unawaited(_channel.invokeMethod<void>('unbindReentryHost'));
+    _channel.setMethodCallHandler(null);
+  }
+
+  /// 灰度统一入口：读"原生渲染器"开关，开启则启动原生壳并返回 true（调用方据此
+  /// `return`、不再走 Flutter 播放器）；关闭则返回 false。所有播放入口都应在 push
+  /// Flutter 播放器前调用它，避免漏接某条路径。
+  static Future<bool> maybeLaunch(
+    Map<String, dynamic> loadArgs, {
+    String? danmakuFilePath,
+    List<Map<String, dynamic>>? episodes,
+    Map<String, dynamic>? initialPlayInfo,
+    String? startSource,
+    int? introDurationSeconds,
+    int? outroDurationSeconds,
+    NasProvider? nas,
+  }) async {
+    final settings = await const DanmakuSettingsStore().load();
+    if (!settings.useNativeRenderer) return false;
+    // 弹幕：详情页 engine 仍存活时，用 source 的媒体上下文做一次 DanDanPlay 自动匹配+
+    // 拉取，序列化落临时文件，随 Intent 传给原生壳。失败则无弹幕、不阻塞播放。
+    var resolvedDanmakuFile = danmakuFilePath;
+    if (resolvedDanmakuFile == null && settings.enabled) {
+      resolvedDanmakuFile = await NativeDanmakuPrefetch.resolveToFile(
+        seriesTitle: (loadArgs['seriesTitle'] ?? '').toString(),
+        seasonNumber: (loadArgs['seasonNumber'] as num?)?.toInt() ?? 0,
+        episodeNumber: (loadArgs['episodeNumber'] as num?)?.toInt() ?? 0,
+        tmdbId: (loadArgs['tmdbId'] ?? '').toString(),
+        settings: settings,
+        itemGuid: (loadArgs['itemGuid'] ?? '').toString(),
+        mediaGuid: (loadArgs['mediaGuid'] ?? '').toString(),
+        seasonGuid: (loadArgs['seasonGuid'] ?? '').toString(),
+      );
+    }
+    await launch(
+      loadArgs: loadArgs,
+      danmakuFilePath: resolvedDanmakuFile,
+      episodes: episodes,
+      initialPlayInfo: initialPlayInfo,
+      startSource: startSource,
+      introDurationSeconds: introDurationSeconds,
+      outroDurationSeconds: outroDurationSeconds,
+      nas: nas,
+    );
+    return true;
+  }
+
+  /// 把封面缓存为本地文件并写进 [args] 的 `posterLocalPath`。仅在有 [nas]（需鉴权下载）、
+  /// 有 `posterPath` 且尚未带本地路径时执行。任何失败都静默——原生壳回退网络 URL。
+  static Future<void> _mergeArtworkLocalPath(
+    Map<String, dynamic> args,
+    NasProvider? nas,
+  ) async {
+    if (nas == null) return;
+    final posterPath = (args['posterPath'] ?? '').toString().trim();
+    final existing = (args['posterLocalPath'] ?? '').toString().trim();
+    if (posterPath.isEmpty || existing.isNotEmpty) return;
+    final local = await NativeArtworkPrefetch.resolveToFile(nas, posterPath);
+    if (local != null && local.isNotEmpty) {
+      args['posterLocalPath'] = local;
+    }
+  }
+}

@@ -12,7 +12,75 @@ class DynamicThemeMapper {
   // variant, contrastLevel) tuple produces the identical scheme every time.
   static final LinkedHashMap<int, ColorScheme> _schemeCache =
       LinkedHashMap<int, ColorScheme>();
-  static const int _schemeCacheMaxSize = 16;
+  // Each sampled page warms two schemes (accent + background). 32 keeps a
+  // healthy window of recently visited pages resident so re-entering them is a
+  // pure cache hit with zero HCT solving.
+  static const int _schemeCacheMaxSize = 32;
+
+  /// Pre-computes (and caches) the [ColorScheme]s that [map]/[ambientTint] will
+  /// need for this seed, so the work happens off the render frame. Calling this
+  /// from an idle microtask right after a seed resolves means the subsequent
+  /// build that applies the theme hits the cache instead of running the
+  /// ~16ms HCT solver inside the frame — which showed up as a dropped frame on
+  /// page open in the CPU profile.
+  static void warmUp({
+    required AppThemeColors baseColors,
+    required DynamicThemeSeed seed,
+    required AppDynamicThemeIntensity intensity,
+  }) {
+    final brightness = _brightnessFor(baseColors);
+    _schemeFromSeed(
+      seedColor: seed.accentSeed,
+      brightness: brightness,
+      variant: _variantFor(intensity),
+      contrastLevel: _contrastLevelFor(intensity),
+    );
+    _schemeFromSeed(
+      seedColor: seed.backgroundSeed,
+      brightness: brightness,
+      variant: DynamicSchemeVariant.tonalSpot,
+      contrastLevel: -0.05,
+    );
+  }
+
+  /// True when both schemes [map] needs for this (base, seed, intensity) tuple
+  /// are already cached, so [map] will be a pure cache hit with no in-frame HCT
+  /// solving. Callers use this to decide whether they can apply the theme
+  /// synchronously this frame, or should warm up off-frame first.
+  static bool isWarm({
+    required AppThemeColors baseColors,
+    required DynamicThemeSeed seed,
+    required AppDynamicThemeIntensity intensity,
+  }) {
+    final brightness = _brightnessFor(baseColors);
+    return _isSchemeCached(
+          seedColor: seed.accentSeed,
+          brightness: brightness,
+          variant: _variantFor(intensity),
+          contrastLevel: _contrastLevelFor(intensity),
+        ) &&
+        _isSchemeCached(
+          seedColor: seed.backgroundSeed,
+          brightness: brightness,
+          variant: DynamicSchemeVariant.tonalSpot,
+          contrastLevel: -0.05,
+        );
+  }
+
+  static bool _isSchemeCached({
+    required Color seedColor,
+    required Brightness brightness,
+    required DynamicSchemeVariant variant,
+    required double contrastLevel,
+  }) {
+    final key = Object.hash(
+      seedColor.toARGB32(),
+      brightness.index,
+      variant.index,
+      (contrastLevel * 100).round(),
+    );
+    return _schemeCache.containsKey(key);
+  }
 
   static ColorScheme _schemeFromSeed({
     required Color seedColor,

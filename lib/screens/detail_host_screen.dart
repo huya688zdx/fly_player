@@ -286,13 +286,37 @@ class DetailHostScreenState extends State<DetailHostScreen> {
     _pushRoute(nextRoute);
   }
 
-  Future<void> _handleMethodCall(MethodCall call) async {
-    if (call.method != 'replaceRoute') return;
+  Future<Object?> _handleMethodCall(MethodCall call) async {
+    // 原生壳分屏：播放器侧返回键委派到副栏，让副栏先在自己导航栈里回退。
+    if (call.method == 'popInPane') {
+      return handleBack();
+    }
+    // 原生壳分屏复用引擎时：显式重建整条路由栈（如 [首页, 详情]），保证返回逐层回退。
+    if (call.method == 'setRouteStack') {
+      final raw = (call.arguments as Map?)?['routeNames'];
+      if (raw is List && raw.isNotEmpty) {
+        syncRouteStack(raw.map((e) => e.toString()).toList());
+      }
+      return null;
+    }
+    if (call.method != 'replaceRoute') return null;
     final arguments = call.arguments as Map?;
     final routeName = arguments?['routeName']?.toString().trim() ?? '';
     final resetStack = arguments?['resetStack'] == true;
-    if (!mounted || routeName.isEmpty) return;
+    if (!mounted || routeName.isEmpty) return null;
     _schedulePlatformRoute(routeName, resetStack: resetStack);
+    return null;
+  }
+
+  /// 统一的返回处理：先弹内层导航页，弹不动再回退到 root（如副栏回首页）。
+  /// 返回 true=已在 pane 内处理（不应收掉分屏/结束 host）；false=已在根，交由外层处理。
+  Future<bool> handleBack() async {
+    final navigator = _navigatorKey.currentState;
+    if (navigator != null && navigator.canPop()) {
+      navigator.pop();
+      return true;
+    }
+    return popInPane();
   }
 
   void _schedulePlatformRoute(String routeName, {required bool resetStack}) {
@@ -386,9 +410,17 @@ class DetailHostScreenState extends State<DetailHostScreen> {
         )
         .values
         .toList(growable: false);
-    return NavigatorPopHandler<Object?>(
-      onPopWithResult: (result) {
-        _navigatorKey.currentState?.pop(result);
+    final rootRoute = widget.rootRouteName?.trim().isNotEmpty == true
+        ? _normalizeRoute(widget.rootRouteName!)
+        : null;
+    // 设了 root 且当前不在 root → 返回键应先回退到 root（如副栏回首页），而不是结束本 host。
+    final canPopToRoot = rootRoute != null && currentRoute != rootRoute;
+    return PopScope<Object?>(
+      canPop: _routeStack.length <= 1 && !canPopToRoot,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        // 先弹内层页，弹不动则回退到 root（副栏回首页）；都不行才放行外层（收分屏）。
+        await handleBack();
       },
       child: ColoredBox(
         color: Theme.of(context).scaffoldBackgroundColor,

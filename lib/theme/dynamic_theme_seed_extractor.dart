@@ -1,12 +1,25 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:palette_generator/palette_generator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+class _ScoredSwatch {
+  final Color color;
+  final HSLColor hsl;
+  final double score;
+
+  const _ScoredSwatch({
+    required this.color,
+    required this.hsl,
+    required this.score,
+  });
+}
 
 @immutable
 class DynamicThemeSeed {
@@ -29,7 +42,8 @@ class DynamicThemeSeedExtractor {
   const DynamicThemeSeedExtractor._();
 
   static const int _maxSeedCacheEntries = 256;
-  static const String _persistentCacheVersion = 'dyn_seed_v1';
+  // v2：Monet 式评分 + 互异色相分配 + 柔和 clamp（旧 v1 缓存按 vibrant/muted+hue-shift，需失效）。
+  static const String _persistentCacheVersion = 'dyn_seed_v2';
   static const String _persistentCachePrefsKey = 'dynamic_theme_seed_cache_v1';
   static const Duration _persistDebounceDelay = Duration(milliseconds: 120);
   static const MethodChannel _themeSamplerChannel = MethodChannel(
@@ -170,21 +184,17 @@ class DynamicThemeSeedExtractor {
       }
     }
 
-    final future = _extractUncached(
-      imageUrl: imageUrl,
-      token: token,
-    ).timeout(
-      const Duration(seconds: 10),
-      onTimeout: () => null,
-    ).then((seed) {
-      if (normalizedImageKey.isNotEmpty) {
-        _inflight.remove(normalizedImageKey);
-        if (seed != null) {
-          _storeSeedCache(normalizedImageKey, seed);
-        }
-      }
-      return seed;
-    });
+    final future = _extractUncached(imageUrl: imageUrl, token: token)
+        .timeout(const Duration(seconds: 10), onTimeout: () => null)
+        .then((seed) {
+          if (normalizedImageKey.isNotEmpty) {
+            _inflight.remove(normalizedImageKey);
+            if (seed != null) {
+              _storeSeedCache(normalizedImageKey, seed);
+            }
+          }
+          return seed;
+        });
     if (normalizedImageKey.isNotEmpty) {
       _inflight[normalizedImageKey] = future;
     }
@@ -218,57 +228,119 @@ class DynamicThemeSeedExtractor {
                   'Trim-MC-token': token,
                 },
         ),
-        maximumColorCount: 16,
+        maximumColorCount: 24,
         size: const Size(220, 140),
       );
 
-      final backgroundCandidate = _firstAccepted(<Color?>[
-        palette.darkVibrantColor?.color,
-        palette.vibrantColor?.color,
-        palette.dominantColor?.color,
-        palette.mutedColor?.color,
-      ]);
-      final accentCandidate = _firstAccepted(<Color?>[
-        palette.vibrantColor?.color,
-        palette.darkVibrantColor?.color,
-        palette.lightVibrantColor?.color,
-        palette.dominantColor?.color,
-        palette.mutedColor?.color,
-      ]);
+      // Monet 式取色（与原生 ThemeColorSampler 同算法）：对全部量化 swatch 评分（彩度×人口），
+      // accent 取最高分；selection/link 取与已选色相距离够远的真实图像色，无第二色相则退回同
+      // 色相不同明度（不再用人工 hue-shift）。4 seed 下游喂 ColorScheme.fromSeed（HCT）。
+      final swatches = palette.paletteColors;
+      if (swatches.isEmpty) return null;
 
-      // When all swatches are filtered (dark/gray/bright images), fall back
-      // to the dominant color without filtering so every image gets a theme.
-      final fallback = _lastResortCandidate(palette);
-      final baseCandidate = backgroundCandidate ?? accentCandidate ?? fallback;
-      final actionCandidate = accentCandidate ?? backgroundCandidate ?? fallback;
-      if (baseCandidate == null || actionCandidate == null) {
-        return null;
+      var totalPopulation = 0.0;
+      var weightedLuminance = 0.0;
+      final scored = <_ScoredSwatch>[];
+      for (final pc in swatches) {
+        final hsl = HSLColor.fromColor(pc.color);
+        totalPopulation += pc.population;
+        weightedLuminance += _relativeLuminance(pc.color) * pc.population;
+        scored.add(
+          _ScoredSwatch(
+            color: pc.color,
+            hsl: hsl,
+            score: _chromaScore(hsl, pc.population),
+          ),
+        );
       }
-      final preferLightSurface = baseCandidate.lightness >= 0.62;
+      scored.sort((a, b) => b.score.compareTo(a.score));
 
-      // When both candidates resolve to the same swatch, apply a hue offset
-      // to accent/selection/link seeds so the theme has visual depth.
-      final candidatesAreSame = identical(baseCandidate, actionCandidate) ||
-          baseCandidate.toColor().toARGB32() == actionCandidate.toColor().toARGB32();
-      final accentSource = candidatesAreSame
-          ? _shiftHueHsl(actionCandidate, 30)
-          : actionCandidate;
+      final preferLightSurface =
+          totalPopulation > 0 && (weightedLuminance / totalPopulation) >= 0.60;
+
+      final dominant = swatches
+          .reduce((a, b) => a.population >= b.population ? a : b)
+          .color;
+      final colorful = scored
+          .where((s) => s.hsl.saturation >= 0.12)
+          .toList(growable: false);
+      final accent =
+          (colorful.isNotEmpty ? colorful.first : scored.first).color;
+      final accentHue = HSLColor.fromColor(accent).hue;
+
+      final selectionSwatch = _firstWhereOrNull(
+        colorful,
+        (s) => _hueDistance(s.hsl.hue, accentHue) >= _minDistinctHue,
+      );
+      final selectionHue = selectionSwatch?.hsl.hue ?? accentHue;
+      final linkSwatch = _firstWhereOrNull(
+        colorful,
+        (s) =>
+            _hueDistance(s.hsl.hue, accentHue) >= _minDistinctHue &&
+            _hueDistance(s.hsl.hue, selectionHue) >= _minDistinctHue,
+      );
+
+      final selectionSource =
+          selectionSwatch?.color ?? _tonalSibling(accent, -0.06);
+      final linkSource = linkSwatch?.color ?? _tonalSibling(accent, 0.10);
 
       return DynamicThemeSeed(
         backgroundSeed: _backgroundSeedForHsl(
-          baseCandidate,
+          HSLColor.fromColor(dominant),
           preferLightSurface: preferLightSurface,
         ),
-        accentSeed: _accentSeedForHsl(accentSource),
-        selectionSeed: _selectionSeedForHsl(accentSource),
-        linkSeed: _linkSeedForHsl(candidatesAreSame
-            ? _shiftHueHsl(actionCandidate, -20)
-            : actionCandidate),
+        accentSeed: _accentSeedForHsl(HSLColor.fromColor(accent)),
+        selectionSeed: _selectionSeedForHsl(
+          HSLColor.fromColor(selectionSource),
+        ),
+        linkSeed: _linkSeedForHsl(HSLColor.fromColor(linkSource)),
         preferLightSurface: preferLightSurface,
       );
     } catch (_) {
       return null;
     }
+  }
+
+  static const double _minDistinctHue = 32;
+
+  static double _chromaScore(HSLColor hsl, int population) {
+    final toneFalloff = 1.0 - ((hsl.lightness - 0.5).abs() * 0.7);
+    final chroma = hsl.saturation * toneFalloff;
+    final popWeight = math.log(1.0 + population);
+    final grayPenalty = hsl.saturation < 0.10 ? 0.12 : 1.0;
+    final extremePenalty = (hsl.lightness < 0.06 || hsl.lightness > 0.94)
+        ? 0.4
+        : 1.0;
+    return chroma * popWeight * grayPenalty * extremePenalty;
+  }
+
+  static double _relativeLuminance(Color color) {
+    final r = ((color.toARGB32() >> 16) & 0xFF) / 255.0;
+    final g = ((color.toARGB32() >> 8) & 0xFF) / 255.0;
+    final b = (color.toARGB32() & 0xFF) / 255.0;
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  }
+
+  static double _hueDistance(double a, double b) {
+    final diff = (a - b).abs() % 360;
+    return diff > 180 ? 360 - diff : diff;
+  }
+
+  static Color _tonalSibling(Color color, double deltaLightness) {
+    final hsl = HSLColor.fromColor(color);
+    return hsl
+        .withLightness((hsl.lightness + deltaLightness).clamp(0.12, 0.88))
+        .toColor();
+  }
+
+  static _ScoredSwatch? _firstWhereOrNull(
+    List<_ScoredSwatch> list,
+    bool Function(_ScoredSwatch) test,
+  ) {
+    for (final item in list) {
+      if (test(item)) return item;
+    }
+    return null;
   }
 
   static DynamicThemeSeed? _touchSeedCache(String normalizedImageKey) {
@@ -452,39 +524,6 @@ class DynamicThemeSeedExtractor {
     }
   }
 
-  static HSLColor? _firstAccepted(List<Color?> colors) {
-    for (final color in colors) {
-      final normalized = _normalizeCandidate(color);
-      if (normalized != null) return normalized;
-    }
-    return null;
-  }
-
-  /// Fallback when all palette swatches are filtered — use the dominant color
-  /// as-is so that every image (dark, gray, bright) still gets a dynamic theme.
-  static HSLColor? _lastResortCandidate(PaletteGenerator palette) {
-    final color = palette.dominantColor?.color ??
-        palette.vibrantColor?.color ??
-        palette.mutedColor?.color;
-    if (color == null) return null;
-    return HSLColor.fromColor(color);
-  }
-
-  static HSLColor? _normalizeCandidate(Color? color) {
-    if (color == null) return null;
-    var hsl = HSLColor.fromColor(color);
-    if (hsl.saturation < 0.08) return null;
-    if (hsl.lightness < 0.06 || hsl.lightness > 0.90) return null;
-
-    final hue = hsl.hue;
-    final isHarshRed = hue <= 10 || hue >= 350;
-    if (isHarshRed && hsl.saturation > 0.72) {
-      hsl = hsl.withSaturation(0.72);
-    }
-
-    return hsl;
-  }
-
   static Color _backgroundSeedForHsl(
     HSLColor hsl, {
     required bool preferLightSurface,
@@ -495,34 +534,32 @@ class DynamicThemeSeedExtractor {
           .withLightness((hsl.lightness * 0.92).clamp(0.74, 0.90))
           .toColor();
     }
+    // 柔和：暗表面彩度上限收一档。
     return hsl
-        .withSaturation((hsl.saturation * 0.84).clamp(0.18, 0.54))
+        .withSaturation((hsl.saturation * 0.80).clamp(0.16, 0.48))
         .withLightness(((hsl.lightness * 0.58) + 0.02).clamp(0.18, 0.36))
         .toColor();
   }
 
+  // 柔和舒适：强调/选中/链接彩度上限整体收一档（与原生 ThemeColorSampler 对齐）。
   static Color _accentSeedForHsl(HSLColor hsl) {
     return hsl
-        .withSaturation(hsl.saturation.clamp(0.22, 0.58))
+        .withSaturation(hsl.saturation.clamp(0.20, 0.50))
         .withLightness(hsl.lightness.clamp(0.34, 0.56))
         .toColor();
   }
 
   static Color _selectionSeedForHsl(HSLColor hsl) {
     return hsl
-        .withSaturation(hsl.saturation.clamp(0.24, 0.62))
+        .withSaturation(hsl.saturation.clamp(0.22, 0.52))
         .withLightness((hsl.lightness - 0.02).clamp(0.30, 0.52))
         .toColor();
   }
 
   static Color _linkSeedForHsl(HSLColor hsl) {
     return hsl
-        .withSaturation(hsl.saturation.clamp(0.20, 0.54))
+        .withSaturation(hsl.saturation.clamp(0.18, 0.48))
         .withLightness((hsl.lightness + 0.08).clamp(0.42, 0.64))
         .toColor();
-  }
-
-  static HSLColor _shiftHueHsl(HSLColor hsl, double degrees) {
-    return hsl.withHue((hsl.hue + degrees) % 360);
   }
 }
