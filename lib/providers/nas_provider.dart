@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/detail_runtime_cache.dart';
 import '../services/play_stats/play_stats.dart';
+import '../services/playback_progress_offline_queue.dart';
 import '../services/session_exit_bridge.dart';
 import '../theme/dynamic_theme_seed_extractor.dart';
 
@@ -79,6 +80,12 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
+    // 跨 isolate 同步登录态：分屏副栏是独立 Flutter 引擎(独立 isolate)，其
+    // SharedPreferences 在首次读取后会内存缓存。若副栏引擎在主引擎登录“之前”就被
+    // 预热(warmIfEligible)，它缓存的是空 token；主引擎随后登录只更新自己 isolate 的
+    // 缓存与磁盘 XML，副栏 isolate 不会自动感知 → 分屏唤起时仍判未登录、落到登录页。
+    // 故每次加载先 reload() 从磁盘重读，确保副栏被 resume 时拿到主引擎写入的最新会话。
+    await prefs.reload();
     final nextBaseUrl = prefs.getString('base_url') ?? '';
     var nextResolvedBaseUrl = prefs.getString('resolved_base_url') ?? '';
     final nextUserName = prefs.getString('user_name') ?? '';
@@ -109,6 +116,11 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     _cacheBootstrapSnapshot();
     if (changed) {
       notifyListeners();
+    }
+    // 启动 / 回前台（resumed 会重走 _loadSettings）时重放断网期间积压的进度。
+    // isConfigured 内部已判 token，未登录不动队列。
+    if (isConfigured) {
+      unawaited(PlaybackProgressOfflineQueue.flush(this));
     }
   }
 

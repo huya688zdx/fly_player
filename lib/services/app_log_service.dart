@@ -9,6 +9,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/app_exception.dart';
 import 'storage_access_service.dart';
 
+// compute() 入口：错误日志(实测 ~408KB)的 JSON 编/解码放进 isolate，不阻塞 UI 线程。
+String _encodeLogEntries(List<Map<String, dynamic>> list) => jsonEncode(list);
+List<Map<String, dynamic>>? _decodeLogEntries(String raw) {
+  final value = jsonDecode(raw);
+  if (value is! List) return null;
+  return value
+      .whereType<Map>()
+      .map((e) => e.cast<String, dynamic>())
+      .toList(growable: false);
+}
+
 /// 表示应用日志条目的严重级别。
 enum AppLogLevel { error, warning, info }
 
@@ -93,7 +104,11 @@ class AppLogService extends ChangeNotifier {
 
   static final AppLogService instance = AppLogService._();
 
+  // 旧版本把全部错误日志(实测 408KB)塞进 SharedPreferences → 每次 getInstance()
+  // 都要把整个 prefs map UTF8 解码，卡 UI 线程(实测占 prefs 解码 74%)。改为独立文件
+  // 存储 + isolate 编解码，彻底移出 prefs。_prefsKey 仅用于一次性迁移/清理。
   static const String _prefsKey = 'app_error_logs_v1';
+  static const String _logsFileName = 'fly_player_error_logs_v1.json';
   static const int _maxEntries = 200;
   static const int _maxCrashJournalBytes = 256 * 1024;
   static const String _runtimeCrashJournalFileName =
@@ -126,17 +141,14 @@ class AppLogService extends ChangeNotifier {
 
   Future<void> _loadFromStorage() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_prefsKey);
+      final raw = await _readPersistedRaw();
       if (raw == null || raw.trim().isEmpty) return;
-      final decoded = jsonDecode(raw);
-      if (decoded is! List) return;
+      final decoded = await compute(_decodeLogEntries, raw);
+      if (decoded == null) return;
       _entries
         ..clear()
         ..addAll(
           decoded
-              .whereType<Map>()
-              .map((value) => value.cast<String, dynamic>())
               .map(AppLogEntry.fromJson)
               .where((entry) => entry.message.trim().isNotEmpty),
         );
@@ -149,6 +161,30 @@ class AppLogService extends ChangeNotifier {
       _entries.clear();
     }
   }
+
+  /// 读持久化原文：优先文件；文件不存在则从旧 SharedPreferences **迁移一次**到文件，
+  /// 并删除该 prefs 大 blob（408KB，撑爆 prefs map 导致每次 getInstance 解码卡顿）。
+  Future<String?> _readPersistedRaw() async {
+    final file = _logsFile();
+    if (await file.exists()) {
+      return file.readAsString();
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final legacy = prefs.getString(_prefsKey);
+      if (legacy != null && legacy.trim().isNotEmpty) {
+        await file.writeAsString(legacy, flush: true);
+      }
+      if (prefs.containsKey(_prefsKey)) {
+        await prefs.remove(_prefsKey);
+      }
+      return legacy;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  File _logsFile() => File('${Directory.systemTemp.path}/$_logsFileName');
 
   /// 清空已保存的日志及关联崩溃日志文件。
   Future<void> clear() async {
@@ -279,11 +315,14 @@ class AppLogService extends ChangeNotifier {
 
   Future<void> _persist() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final encoded = jsonEncode(
-        _entries.map((entry) => entry.toJson()).toList(growable: false),
-      );
-      await prefs.setString(_prefsKey, encoded);
+      final list = _entries
+          .map((entry) => entry.toJson())
+          .toList(growable: false);
+      final encoded = await compute(_encodeLogEntries, list);
+      final file = _logsFile();
+      final tmp = File('${file.path}.tmp');
+      await tmp.writeAsString(encoded, flush: true);
+      await tmp.rename(file.path);
     } catch (_) {}
   }
 

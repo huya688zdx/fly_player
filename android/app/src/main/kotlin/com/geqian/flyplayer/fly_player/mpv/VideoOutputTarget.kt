@@ -107,6 +107,12 @@ class TextureViewVideoOutputTarget(
     private var waitingForFreshFrame = false
     private var reusableBitmap: Bitmap? = null
     private var reusableFocusedBitmap: Bitmap? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val captureThread = HandlerThread("FlyPlayerTextureCapture").apply { start() }
+    private val captureHandler = Handler(captureThread.looper)
+    private val nextCaptureRequestId = AtomicLong(0L)
+    private val cancelledCaptureRequestIds = HashSet<Long>()
+    private val cancelledCaptureRequestIdsLock = Any()
     private val restoreVisibilityRunnable =
         Runnable {
             restoreTextureVisibility()
@@ -129,8 +135,9 @@ class TextureViewVideoOutputTarget(
     override val supportsBitmapCapture: Boolean
         get() = true
 
+    // 后台抓帧：API 24+ 可用 PixelCopy 从视频 Surface 离屏读回，避免主线程 getBitmap。
     override val supportsAsyncBitmapCapture: Boolean
-        get() = false
+        get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
 
     override fun currentSurface(): Surface? = currentSurface
 
@@ -207,9 +214,154 @@ class TextureViewVideoOutputTarget(
         height: Int,
         sampleAreaRatio: Float,
         callback: (VideoOutputCapturedFrame?) -> Unit,
-    ): Long? = null
+    ): Long? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N || !textureView.isAvailable) {
+            return null
+        }
+        val surface = currentSurface?.takeIf { it.isValid } ?: return null
+        val requestId = nextCaptureRequestId.incrementAndGet()
+        val outputWidth = width.coerceAtLeast(1)
+        val outputHeight = height.coerceAtLeast(1)
+        val clampedRatio = sampleAreaRatio.coerceIn(0.1f, 1.0f)
+        val srcWidth = textureView.width.coerceAtLeast(1)
+        val srcHeight = textureView.height.coerceAtLeast(1)
+        val fullBitmap = Bitmap.createBitmap(srcWidth, srcHeight, Bitmap.Config.ARGB_8888)
+        val copyListener =
+            PixelCopy.OnPixelCopyFinishedListener { result ->
+                if (result == PixelCopy.SUCCESS) {
+                    val frame =
+                        runCatching {
+                            buildCroppedFrame(
+                                source = fullBitmap,
+                                outputWidth = outputWidth,
+                                outputHeight = outputHeight,
+                                sampleAreaRatio = clampedRatio,
+                                captureBackend = "texture_pixelcopy",
+                            )
+                        }.getOrNull()
+                    fullBitmap.recycle()
+                    deliverCaptureResult(requestId, frame, callback)
+                } else {
+                    fullBitmap.recycle()
+                    fallbackMainThreadCapture(
+                        requestId = requestId,
+                        outputWidth = outputWidth,
+                        outputHeight = outputHeight,
+                        sampleAreaRatio = clampedRatio,
+                        callback = callback,
+                    )
+                }
+            }
+        val dispatched =
+            runCatching {
+                PixelCopy.request(surface, fullBitmap, copyListener, captureHandler)
+            }.isSuccess
+        if (!dispatched) {
+            fullBitmap.recycle()
+            fallbackMainThreadCapture(
+                requestId = requestId,
+                outputWidth = outputWidth,
+                outputHeight = outputHeight,
+                sampleAreaRatio = clampedRatio,
+                callback = callback,
+            )
+        }
+        return requestId
+    }
 
     override fun cancelBitmapCapture(requestId: Long) {
+        synchronized(cancelledCaptureRequestIdsLock) {
+            cancelledCaptureRequestIds += requestId
+        }
+    }
+
+    private fun buildCroppedFrame(
+        source: Bitmap,
+        outputWidth: Int,
+        outputHeight: Int,
+        sampleAreaRatio: Float,
+        captureBackend: String,
+    ): VideoOutputCapturedFrame {
+        val output = Bitmap.createBitmap(outputWidth, outputHeight, Bitmap.Config.ARGB_8888)
+        val sourceHeight =
+            (source.height.toFloat() * sampleAreaRatio).toInt().coerceIn(1, source.height)
+        val canvas = Canvas(output)
+        canvas.drawColor(Color.BLACK)
+        canvas.drawBitmap(
+            source,
+            Rect(0, 0, source.width, sourceHeight),
+            Rect(0, 0, output.width, output.height),
+            android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG),
+        )
+        return VideoOutputCapturedFrame(
+            bitmap = output,
+            sampleAreaRatio = sampleAreaRatio,
+            captureBackend = captureBackend,
+            capturedAtUptimeMs = SystemClock.uptimeMillis(),
+        )
+    }
+
+    private fun fallbackMainThreadCapture(
+        requestId: Long,
+        outputWidth: Int,
+        outputHeight: Int,
+        sampleAreaRatio: Float,
+        callback: (VideoOutputCapturedFrame?) -> Unit,
+    ) {
+        mainHandler.post {
+            if (isCaptureCancelled(requestId)) {
+                return@post
+            }
+            val frame =
+                runCatching {
+                    if (!textureView.isAvailable) {
+                        return@runCatching null
+                    }
+                    val source =
+                        Bitmap.createBitmap(
+                            textureView.width.coerceAtLeast(1),
+                            textureView.height.coerceAtLeast(1),
+                            Bitmap.Config.ARGB_8888,
+                        )
+                    val captured = textureView.getBitmap(source)
+                    if (captured == null) {
+                        source.recycle()
+                        null
+                    } else {
+                        val output =
+                            buildCroppedFrame(
+                                source = captured,
+                                outputWidth = outputWidth,
+                                outputHeight = outputHeight,
+                                sampleAreaRatio = sampleAreaRatio,
+                                captureBackend = "texture_getbitmap",
+                            )
+                        captured.recycle()
+                        output
+                    }
+                }.getOrNull()
+            callback(frame)
+        }
+    }
+
+    private fun deliverCaptureResult(
+        requestId: Long,
+        frame: VideoOutputCapturedFrame?,
+        callback: (VideoOutputCapturedFrame?) -> Unit,
+    ) {
+        mainHandler.post {
+            if (isCaptureCancelled(requestId)) {
+                frame?.bitmap?.takeIf { !it.isRecycled }?.recycle()
+                return@post
+            }
+            callback(frame)
+        }
+    }
+
+    private fun isCaptureCancelled(requestId: Long): Boolean {
+        synchronized(cancelledCaptureRequestIdsLock) {
+            return cancelledCaptureRequestIds.remove(requestId)
+        }
     }
 
     override fun setListener(listener: VideoOutputTarget.Listener?) {
@@ -223,6 +375,11 @@ class TextureViewVideoOutputTarget(
         restoreTextureVisibility()
         releaseCurrentSurface()
         clearReusableBitmaps()
+        synchronized(cancelledCaptureRequestIdsLock) {
+            cancelledCaptureRequestIds.clear()
+        }
+        captureHandler.removeCallbacksAndMessages(null)
+        captureThread.quitSafely()
     }
 
     override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {

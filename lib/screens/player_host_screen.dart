@@ -724,12 +724,9 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
                     final detailContent = Listener(
                       behavior: HitTestBehavior.translucent,
                       onPointerDown: (_) {
-                        if (_activePane != _PlayerHostActivePane.detail &&
-                            mounted) {
-                          setState(
-                            () => _activePane = _PlayerHostActivePane.detail,
-                          );
-                        }
+                        // _activePane 不参与渲染，仅用于手势记录；
+                        // 直接赋值即可，避免无意义的整树（含播放器）重建。
+                        _activePane = _PlayerHostActivePane.detail;
                       },
                       child: SizedBox(
                         width: splitWidth,
@@ -761,6 +758,56 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
                         ),
                       ),
                     );
+                    // 重型子树（视频播放器、详情导航）在每次布局时只构建一次，
+                    // 不放进 AnimatedBuilder 的 builder 闭包里。窗格展开/收起动画
+                    // 期间，相同的 widget 实例会触发 Flutter 的 short-circuit，
+                    // 避免 MpvPlayerPage 与详情页每帧重建导致的掉帧。
+                    final playerPane = Expanded(
+                      child: Listener(
+                        behavior: HitTestBehavior.translucent,
+                        onPointerDown: (_) {
+                          // 同上：仅记录激活窗格，不触发重建。
+                          _activePane = _PlayerHostActivePane.player;
+                        },
+                        child: DecoratedBox(
+                          decoration: const BoxDecoration(color: Colors.black),
+                          child: KeyedSubtree(
+                            key: const ValueKey<String>('player-pane'),
+                            child: MpvPlayerPage(
+                              title: args.title,
+                              source: args.source,
+                              initialPlayInfo: args.initialPlayInfo,
+                              startSource: args.startSource,
+                              pictureInPictureActive: _pictureInPictureActive,
+                              onBackActionHandlerChanged: (handler) {
+                                _playerBackActionHandler = handler;
+                              },
+                              backDismissManager: _playerBackDismissManager,
+                              parallelLayoutToggleEnabled:
+                                  args.fromParallelHost,
+                              parallelLayoutMode: _layoutMode,
+                              interceptSystemBack: false,
+                              onParallelLayoutModeChanged: (nextMode) async {
+                                await _setLayoutMode(
+                                  nextMode,
+                                  activePane: _PlayerHostActivePane.player,
+                                  syncPlatform: true,
+                                );
+                              },
+                              onCloseRequested: (result) async {
+                                await _finishPlayer(
+                                  result: result,
+                                  force: true,
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                    final detailPaneContent = RepaintBoundary(
+                      child: detailContent,
+                    );
                     return AnimatedBuilder(
                       animation: _paneTransition,
                       builder: (context, _) {
@@ -770,65 +817,22 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
                         final detailPaneWidth = reserveDetailPaneSpace
                             ? splitWidth * reveal
                             : 0.0;
-                        final playerPane = Expanded(
-                          child: Listener(
-                            behavior: HitTestBehavior.translucent,
-                            onPointerDown: (_) {
-                              if (_activePane != _PlayerHostActivePane.player &&
-                                  mounted) {
-                                setState(
-                                  () => _activePane =
-                                      _PlayerHostActivePane.player,
-                                );
-                              }
-                            },
-                            child: DecoratedBox(
-                              decoration: const BoxDecoration(
-                                color: Colors.black,
-                              ),
-                              child: KeyedSubtree(
-                                key: const ValueKey<String>('player-pane'),
-                                child: MpvPlayerPage(
-                                  title: args.title,
-                                  source: args.source,
-                                  initialPlayInfo: args.initialPlayInfo,
-                                  startSource: args.startSource,
-                                  pictureInPictureActive:
-                                      _pictureInPictureActive,
-                                  onBackActionHandlerChanged: (handler) {
-                                    _playerBackActionHandler = handler;
-                                  },
-                                  backDismissManager: _playerBackDismissManager,
-                                  parallelLayoutToggleEnabled:
-                                      args.fromParallelHost,
-                                  parallelLayoutMode: _layoutMode,
-                                  interceptSystemBack: false,
-                                  onParallelLayoutModeChanged:
-                                      (nextMode) async {
-                                        await _setLayoutMode(
-                                          nextMode,
-                                          activePane:
-                                              _PlayerHostActivePane.player,
-                                          syncPlatform: true,
-                                        );
-                                      },
-                                  onCloseRequested: (result) async {
-                                    await _finishPlayer(
-                                      result: result,
-                                      force: true,
-                                    );
-                                  },
-                                ),
-                              ),
-                            ),
-                          ),
-                        );
+                        // The outer box width still animates so the player
+                        // pane expands/contracts smoothly via the Row. But the
+                        // detail content is given a FIXED splitWidth via
+                        // OverflowBox, so the heavy detail subtree lays out once
+                        // (at its final width) and is merely clipped/translated
+                        // during the transition — instead of relaying out the
+                        // whole tree (and re-running flushSemantics geometry,
+                        // which dominated the CPU profile) every animation frame.
                         final detailPane = SizedBox(
                           width: detailPaneWidth,
                           child: IgnorePointer(
                             ignoring: reveal < 0.98,
                             child: ClipRect(
-                              child: Align(
+                              child: OverflowBox(
+                                minWidth: splitWidth,
+                                maxWidth: splitWidth,
                                 alignment: playbackPrimaryOnLeft
                                     ? Alignment.centerLeft
                                     : Alignment.centerRight,
@@ -840,9 +844,7 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
                                           (playbackPrimaryOnLeft ? 24 : -24),
                                       0,
                                     ),
-                                    child: RepaintBoundary(
-                                      child: detailContent,
-                                    ),
+                                    child: detailPaneContent,
                                   ),
                                 ),
                               ),

@@ -1,22 +1,22 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 
-import '../api/feiniu_api.dart';
+import '../controllers/item_playback_launcher.dart';
+import '../controllers/local_download_source_resolver.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../models/download_task_record.dart';
 import '../models/play_info.dart';
-import '../models/playback_stream.dart';
-import '../models/stream_track_data.dart';
 import '../player/controllers/mpv_player_controller.dart';
 import '../player/mpv_player_page.dart';
 import '../providers/nas_provider.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../services/download_task_service.dart';
+import '../services/native_player_bridge.dart';
+import '../services/native_reentry_support.dart';
 import '../services/play_stats/play_stats.dart';
 import '../theme/app_theme.dart';
 import '../ui/app_transitions.dart';
@@ -24,10 +24,6 @@ import '../ui/capability_badge_mapper.dart';
 import '../ui/media_detail_components.dart';
 import '../utils/async_action_guard.dart';
 import '../utils/app_top_tip.dart';
-import '../utils/play_detail_track_selector.dart';
-import '../utils/player_artwork_path_resolver.dart';
-import '../utils/playback_resume_position_resolver.dart';
-import '../utils/player_title_formatter.dart';
 
 enum DownloadListTab { downloaded, downloading }
 
@@ -626,6 +622,7 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
   final Set<String> _selectedRecordIds = <String>{};
   bool _editing = false;
   String? _playLaunchingRecordId;
+  Object? _reentryToken;
 
   @override
   void initState() {
@@ -636,6 +633,10 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
   @override
   void dispose() {
     _topTip.dispose();
+    if (_reentryToken != null) {
+      NativePlayerBridge.unbindReentry(_reentryToken!);
+      _reentryToken = null;
+    }
     super.dispose();
   }
 
@@ -673,175 +674,63 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
         settleDuration: const Duration(milliseconds: 500),
         action: () async {
           final navigator = Navigator.of(context);
-          final path = record.filePath.trim();
-          if (path.isEmpty || !File(path).existsSync()) {
-            _topTip.show(
-              context,
-              message: l10n.downloadLocalFileMissing,
-              color: colors.warning,
-            );
+          final provider = context.read<NasProvider>();
+          final resolved = await _resolveLocalSource(record, provider);
+          if (resolved == null) {
+            if (mounted) {
+              _topTip.show(
+                context,
+                message: l10n.downloadLocalFileMissing,
+                color: colors.warning,
+              );
+            }
             return;
           }
-          final provider = context.read<NasProvider>();
-          final api = FeiniuApi(provider);
+          final source = resolved.source;
+          final initialPlayInfo = resolved.playInfo;
+          final title = resolved.title;
           final canUseEmbeddedHost = provider.isConfigured;
-          final fallbackTitle = _playerTitleForRecord(record);
-          final normalizedItemGuid = record.itemGuid.trim();
-          PlayInfoData? initialPlayInfo;
-          StreamTrackData? trackData;
-          PlaybackStreamData? playbackStream;
-          try {
-            initialPlayInfo = await api.getPlayInfo(normalizedItemGuid);
-          } catch (_) {}
-          final resolvedMediaGuid = record.mediaGuid.trim().isNotEmpty
-              ? record.mediaGuid.trim()
-              : (initialPlayInfo?.mediaGuid.trim().isNotEmpty == true
-                    ? initialPlayInfo!.mediaGuid.trim()
-                    : normalizedItemGuid);
-          try {
-            trackData = await api.getStreamTrackData(normalizedItemGuid);
-          } catch (_) {}
-          try {
-            if (resolvedMediaGuid.isNotEmpty) {
-              playbackStream = await api.getPlaybackStream(resolvedMediaGuid);
-            }
-          } catch (_) {}
-          final playItem = initialPlayInfo?.item;
-          final title = playItem == null
-              ? fallbackTitle
-              : formatPlayerTitleFromPlayItem(
-                  playItem,
-                  fallbackTitle: fallbackTitle,
-                );
-          final trackVideo = resolvedMediaGuid.isEmpty
-              ? null
-              : trackData?.videoForMedia(resolvedMediaGuid);
-          final playbackVideo = playbackStream?.videoStream;
-          final mergedQualities = mergePlaybackQualitiesWithStreamTrackData(
-            playbackStream?.qualities ?? const <PlaybackQualityOption>[],
-            trackData,
-          );
-          final fallbackAudioTracks = record.audioTracks;
-          final audioTracks = playbackStream?.audioStreams.isNotEmpty == true
-              ? playbackStream!.audioStreams
-              : (resolvedMediaGuid.isEmpty
-                    ? fallbackAudioTracks
-                    : trackData?.audiosForMedia(resolvedMediaGuid) ??
-                          fallbackAudioTracks);
-          final selectedAudio = PlayDetailTrackSelector.selectedOrFirstAudio(
-            selectedAudioGuid: initialPlayInfo?.audioGuid ?? '',
-            audioTracks: audioTracks,
-          );
-          final fallbackSubtitleTracks = record.subtitleTracks;
-          final subtitleTracks =
-              playbackStream?.subtitleStreams.isNotEmpty == true
-              ? PlayDetailTrackSelector.mergeSubtitleTracks(
-                  primaryTracks: playbackStream!.subtitleStreams,
-                  extraTracks: resolvedMediaGuid.isEmpty
-                      ? fallbackSubtitleTracks
-                      : trackData?.subtitlesForMedia(resolvedMediaGuid) ??
-                            fallbackSubtitleTracks,
-                )
-              : (resolvedMediaGuid.isEmpty
-                    ? fallbackSubtitleTracks
-                    : trackData?.subtitlesForMedia(resolvedMediaGuid) ??
-                          fallbackSubtitleTracks);
-          final selectedSubtitle =
-              PlayDetailTrackSelector.selectedOrFirstSubtitle(
-                selectedSubtitleGuid: initialPlayInfo?.subtitleGuid ?? '',
-                subtitleTracks: subtitleTracks,
-              );
-          final embeddedSubtitleTrackIndex =
-              PlayDetailTrackSelector.embeddedSubtitleTrackIndex(
-                selectedSubtitle: selectedSubtitle,
-                subtitleTracks: subtitleTracks,
-              );
-          final networkDurationSeconds = playItem?.duration ?? 0;
-          final watchedSeconds = initialPlayInfo == null
-              ? 0
-              : (initialPlayInfo.ts > 0
-                    ? initialPlayInfo.ts
-                    : playItem?.watchedTs ?? 0);
-          final networkCompleted =
-              initialPlayInfo != null &&
-              networkDurationSeconds > 0 &&
-              ((networkDurationSeconds - watchedSeconds) <= 0 ||
-                  playItem?.isWatched == 1);
-          final resume = await PlaybackResumePositionResolver.resolve(
-            videoIds: <String>[
-              playItem?.guid ?? '',
-              normalizedItemGuid,
-              record.itemGuid,
-              record.id,
-            ],
-            durationSeconds: networkDurationSeconds,
-            networkPositionSeconds: watchedSeconds,
-            networkPositionAvailable: initialPlayInfo != null,
-            networkCompleted: networkCompleted,
-          );
-          final durationSeconds = resume.effectiveDurationSeconds;
-          final source = MpvMediaSource.localFile(
-            filePath: path,
-            itemGuid: playItem?.guid.trim().isNotEmpty == true
-                ? playItem!.guid.trim()
-                : normalizedItemGuid,
-            seriesGuid: initialPlayInfo?.grandGuid.trim() ?? '',
-            seasonGuid: initialPlayInfo?.parentGuid.trim().isNotEmpty == true
-                ? initialPlayInfo!.parentGuid.trim()
-                : record.groupId.trim(),
-            posterPath: playItem == null
-                ? (record.posterUrls.isNotEmpty
-                      ? record.posterUrls.first
-                      : (record.groupPosterUrls.isNotEmpty
-                            ? record.groupPosterUrls.first
-                            : ''))
-                : resolvePlayerArtworkPathForPlayItem(playItem),
-            mediaGuid: resolvedMediaGuid,
-            mediaType: playItem?.type ?? '',
-            ancestorName: playItem?.ancestorName ?? '',
-            videoGuid: trackVideo?.guid.trim().isNotEmpty == true
-                ? trackVideo!.guid.trim()
-                : (playbackVideo?.guid.trim().isNotEmpty == true
-                      ? playbackVideo!.guid.trim()
-                      : resolvedMediaGuid),
-            title: title,
-            seriesTitle: (playItem?.tvTitle ?? '').trim().isNotEmpty
-                ? playItem!.tvTitle.trim()
-                : record.groupTitle.trim(),
-            seasonNumber: playItem?.seasonNumber ?? 0,
-            tmdbId: playItem?.trimId ?? '',
-            episodeNumber: playItem?.episodeNumber ?? 0,
-            startPosition: resume.position,
-            audioTrackGuid: selectedAudio?.guid ?? initialPlayInfo?.audioGuid,
-            subtitleTrackIndex: embeddedSubtitleTrackIndex,
-            subtitleTrackGuid: initialPlayInfo?.subtitleGuid,
-            resolution: record.resolution.trim().isNotEmpty
-                ? record.resolution.trim()
-                : (playbackVideo?.resolutionType.trim().isNotEmpty == true
-                      ? playbackVideo!.resolutionType.trim()
-                      : trackVideo?.resolutionType ?? ''),
-            bitrate: playbackVideo?.bps ?? trackVideo?.bps ?? 0,
-            durationSeconds: durationSeconds,
-            videoWidth: playbackVideo?.width ?? trackVideo?.width ?? 0,
-            videoHeight: playbackVideo?.height ?? trackVideo?.height ?? 0,
-            videoCodecName:
-                playbackVideo?.codecName ?? trackVideo?.codecName ?? '',
-            videoProfile: playbackVideo?.profile ?? trackVideo?.profile ?? '',
-            colorSpace:
-                playbackVideo?.colorSpace ?? trackVideo?.colorSpace ?? '',
-            colorTransfer:
-                playbackVideo?.colorTransfer ?? trackVideo?.colorTransfer ?? '',
-            colorPrimaries:
-                playbackVideo?.colorPrimaries ??
-                trackVideo?.colorPrimaries ??
-                '',
-            bitDepth: playbackVideo?.bitDepth ?? trackVideo?.bitDepth ?? 0,
-            audioTracks: audioTracks,
-            subtitleTracks: subtitleTracks,
-            qualities: mergedQualities,
-            playbackSpeed: 1.0,
-          );
+          final nativeEpisodes = await _nativeEpisodesPayload(provider, source);
 
+          if (!mounted) return;
+          // 下载管理入口也走统一反向通道：已下载集优先本地，未下载集有网时走 NAS。
+          // 同一份 episodes 会随每次换源回传，避免选集面板退化成单集。
+          _reentryToken = NativePlayerBridge.bindReentry(
+            onResolvePlayback:
+                (
+                  itemGuid, {
+                  qualityIndex,
+                  qualityMediaGuid,
+                  startPositionMs,
+                  subtitleGuid,
+                  audioGuid,
+                }) => const ItemPlaybackLauncher().resolveForNative(
+                  provider,
+                  itemGuid: itemGuid,
+                  fallbackTitle: title,
+                  qualityIndex: qualityIndex,
+                  qualityMediaGuid: qualityMediaGuid,
+                  startPositionMs: startPositionMs,
+                  subtitleGuid: subtitleGuid,
+                  audioGuid: audioGuid,
+                  episodes: nativeEpisodes.isEmpty ? null : nativeEpisodes,
+                ),
+            onRecordProgress: (progress) =>
+                NativeReentrySupport.recordProgress(provider, progress),
+            onResolveSubtitleFile: (guid, {format}) =>
+                NativeReentrySupport.resolveSubtitleFile(
+                  provider,
+                  guid,
+                  format: format,
+                ),
+          );
+          if (await NativePlayerBridge.maybeLaunch(
+            source.toMap(),
+            episodes: nativeEpisodes,
+            nas: provider,
+          )) {
+            return;
+          }
           if (!mounted) return;
           if (canUseEmbeddedHost) {
             final embeddedResult =
@@ -877,19 +766,69 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
     }
   }
 
+  Future<List<Map<String, dynamic>>> _nativeEpisodesPayload(
+    NasProvider provider,
+    MpvMediaSource source,
+  ) async {
+    final seasonGuid = source.seasonGuid.trim();
+    if (provider.isConfigured && seasonGuid.isNotEmpty) {
+      final episodes = await const ItemPlaybackLauncher().loadSeasonEpisodes(
+        provider,
+        seasonGuid,
+      );
+      if (episodes.isNotEmpty) return episodes;
+    }
+    return _groupEpisodesPayload();
+  }
+
   String _playerTitleForRecord(DownloadTaskRecord record) {
-    final groupTitle = record.groupTitle.trim();
-    final recordTitle = DownloadTaskService.instance
+    final fallback = localDownloadRecordTitle(record).trim();
+    var title = DownloadTaskService.instance
         .displayTitleForRecord(record)
         .trim();
-    if (recordTitle.isEmpty) {
-      return groupTitle.isNotEmpty ? groupTitle : record.fileName.trim();
+    if (title.isEmpty) title = fallback;
+    final groupTitle = record.groupTitle.trim();
+    if (groupTitle.isNotEmpty && title.startsWith(groupTitle)) {
+      title = title.substring(groupTitle.length).trim();
     }
-    if (groupTitle.isEmpty || recordTitle.startsWith(groupTitle)) {
-      return recordTitle;
-    }
-    return '$groupTitle $recordTitle';
+    title = title
+        .replaceFirst(RegExp('^\\u7b2c\\s*\\d+\\s*\\u5b63\\s*'), '')
+        .replaceFirst(RegExp('^\\u7b2c\\s*\\d+\\s*\\u96c6\\s*'), '')
+        .trim();
+    return title.isNotEmpty ? title : fallback;
   }
+
+  /// 断网或 NAS 拉整季失败时的回退列表：只展示本组已下载集。
+  /// 标题只保留单集标题，原生壳负责拼接「第 N 集」。
+  List<Map<String, dynamic>> _groupEpisodesPayload() {
+    final service = DownloadTaskService.instance;
+    final records = service.recordsForGroup(
+      widget.groupId,
+      status: DownloadTaskStatus.downloaded,
+    );
+    return <Map<String, dynamic>>[
+      for (final record in records)
+        <String, dynamic>{
+          'itemGuid': record.itemGuid.trim().isNotEmpty
+              ? record.itemGuid.trim()
+              : record.id,
+          'episodeNumber': record.episodeNumber,
+          'title': _playerTitleForRecord(record),
+          // 离线选集封面：用已下载的本地 cover（file://，原生壳解码后 Glide 加载）。
+          // 此前这里完全没带 poster → 从下载页进原生壳的选集一直没有图。
+          'poster': service.resolveExistingLocalCover(record),
+          'downloaded': true,
+        },
+    ];
+  }
+
+  Future<({MpvMediaSource source, PlayInfoData? playInfo, String title})?>
+  _resolveLocalSource(
+    DownloadTaskRecord record,
+    NasProvider nas, {
+    int? startPositionMs,
+  }) =>
+      resolveLocalDownloadSource(record, nas, startPositionMs: startPositionMs);
 
   @override
   Widget build(BuildContext context) {
@@ -1402,9 +1341,7 @@ class _DownloadRecordRow extends StatelessWidget {
     final trailingMeta = isTranscoding
         ? ''
         : (isActive
-              ? (record.totalBytes > 0
-                    ? _formatBytes(record.totalBytes)
-                    : '')
+              ? (record.totalBytes > 0 ? _formatBytes(record.totalBytes) : '')
               : (record.durationText.trim().isEmpty
                     ? record.resolution
                     : record.durationText));
@@ -1422,9 +1359,7 @@ class _DownloadRecordRow extends StatelessWidget {
               : _formatBytes(record.downloadedBytes));
     final statusLabel = isPaused
         ? l10n.downloadPaused
-        : (isTranscoding
-              ? l10n.downloadTranscoding
-              : l10n.downloadDownloading);
+        : (isTranscoding ? l10n.downloadTranscoding : l10n.downloadDownloading);
     final statusColor = isPaused
         ? colors.textMuted
         : (isTranscoding ? colors.warning : colors.selectionStrong);
@@ -1433,11 +1368,15 @@ class _DownloadRecordRow extends StatelessWidget {
       debugPrint('[DL] UI handlePause id=${record.id}');
       DownloadTaskService.instance.pauseDownload(provider, record.id);
     }
+
     void handleResume() {
       final provider = Provider.of<NasProvider>(context, listen: false);
-      debugPrint('[DL] UI handleResume id=${record.id} status=${record.status.storageValue}');
+      debugPrint(
+        '[DL] UI handleResume id=${record.id} status=${record.status.storageValue}',
+      );
       DownloadTaskService.instance.resumeDownload(provider, record.id);
     }
+
     void handleDelete() {
       showModalBottomSheet<bool>(
         context: context,
@@ -1496,8 +1435,7 @@ class _DownloadRecordRow extends StatelessWidget {
                       const SizedBox(width: 14),
                       Expanded(
                         child: FilledButton(
-                          onPressed: () =>
-                              Navigator.of(sheetContext).pop(true),
+                          onPressed: () => Navigator.of(sheetContext).pop(true),
                           style: FilledButton.styleFrom(
                             minimumSize: const Size.fromHeight(56),
                             backgroundColor: sheetColors.danger,
@@ -1524,6 +1462,7 @@ class _DownloadRecordRow extends StatelessWidget {
         }
       });
     }
+
     final child = AnimatedContainer(
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeOutCubic,
@@ -1636,7 +1575,9 @@ class _DownloadRecordRow extends StatelessWidget {
                           minHeight: 3,
                           backgroundColor: colors.borderSubtle,
                           valueColor: AlwaysStoppedAnimation<Color>(
-                            isPaused ? colors.textMuted : colors.selectionStrong,
+                            isPaused
+                                ? colors.textMuted
+                                : colors.selectionStrong,
                           ),
                         ),
                       ),

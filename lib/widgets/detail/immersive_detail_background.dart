@@ -1,36 +1,17 @@
-import 'dart:collection';
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:palette_generator/palette_generator.dart';
 
 import '../../theme/app_theme.dart';
-import '../../theme/dynamic_theme_seed_extractor.dart';
-
-const int _maxImmersiveTintCacheEntries = 24;
-final LinkedHashMap<String, Color?> _immersiveTintCache =
-    LinkedHashMap<String, Color?>();
-
-Color? _cachedImmersiveTint(String url) {
-  final hadEntry = _immersiveTintCache.containsKey(url);
-  final cached = _immersiveTintCache.remove(url);
-  if (hadEntry) {
-    _immersiveTintCache[url] = cached;
-  }
-  return cached;
-}
-
-void _storeImmersiveTint(String url, Color? tint) {
-  _immersiveTintCache.remove(url);
-  _immersiveTintCache[url] = tint;
-  while (_immersiveTintCache.length > _maxImmersiveTintCacheEntries) {
-    _immersiveTintCache.remove(_immersiveTintCache.keys.first);
-  }
-}
 
 class ImmersiveDetailBackground extends StatefulWidget {
   final List<String> urls;
+
+  /// 低清占位图候选（通常是取色用的 ~360px 小图，多数已在缓存）。在大图 decode/raster
+  /// 完成前先铺底，避免详情进入时 hero 区有 ~90ms 空白单帧（首次大图 raster 尖峰）。
+  /// 大图就绪后由其 frameBuilder 淡入覆盖在低清之上。为空则退回原行为。
+  final List<String> lowResUrls;
   final String token;
   final double scrollOffset;
   final double posterHeight;
@@ -45,7 +26,6 @@ class ImmersiveDetailBackground extends StatefulWidget {
   final double fadeMid;
 
   final bool fillGapsWithImage;
-  final bool useMonetTint;
   final Color? ambientTintOverride;
   final Color? bottomFadeTintColor;
   final Color? bottomFadeBackgroundColor;
@@ -59,6 +39,7 @@ class ImmersiveDetailBackground extends StatefulWidget {
   const ImmersiveDetailBackground({
     super.key,
     required this.urls,
+    this.lowResUrls = const <String>[],
     required this.token,
     required this.scrollOffset,
     required this.posterHeight,
@@ -69,7 +50,6 @@ class ImmersiveDetailBackground extends StatefulWidget {
     this.fadeStart = 0.58,
     this.fadeMid = 0.82,
     this.fillGapsWithImage = false,
-    this.useMonetTint = false,
     this.ambientTintOverride,
     this.bottomFadeTintColor,
     this.bottomFadeBackgroundColor,
@@ -87,26 +67,95 @@ class ImmersiveDetailBackground extends StatefulWidget {
 
 class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
   int _index = 0;
-  Color? _monetTint;
-  String _tintUrl = '';
 
-  @override
-  void initState() {
-    super.initState();
-    _refreshMonetTint();
+  // Cached image subtrees. Rebuilt only when their inputs (urls/token/index/
+  // fit/alignment/gap flags) change — never on scroll. The scroll parallax
+  // rebuilds the cheap Transform/Stack layers every frame, but the expensive
+  // Image.network + LayoutBuilder subtrees are reused as identical widget
+  // instances, which Flutter short-circuits — no per-frame image rebuild.
+  String _imageLayersSig = '';
+  Widget? _mainImageLayer;
+  Widget? _gapImageLayer;
+  Widget? _blurImageLayer;
+  Widget? _lowResImageLayer;
+
+  void _ensureImageLayers({
+    required bool isAndroid,
+    required bool enableGapBlur,
+  }) {
+    final sig = <Object?>[
+      widget.urls.join(''),
+      widget.token,
+      _index,
+      widget.imageFit,
+      widget.imageAlignment,
+      widget.fillGapsWithImage,
+      widget.lowResUrls.join(''),
+      isAndroid,
+      enableGapBlur,
+    ].join('|');
+    if (sig == _imageLayersSig && _mainImageLayer != null) {
+      return;
+    }
+    _imageLayersSig = sig;
+    // 低清铺底层：仅在大图 decode/raster 完成前可见，大图淡入后被其不透明像素覆盖。
+    // 取低清候选首选项，立即显示、不淡入（小图解码快，多数已在取色缓存里）。
+    final lowResUrl = widget.lowResUrls.isNotEmpty
+        ? widget.lowResUrls.first
+        : '';
+    _lowResImageLayer = (lowResUrl.isNotEmpty && widget.token.trim().isNotEmpty)
+        ? _LowResBackgroundImage(
+            url: lowResUrl,
+            token: widget.token,
+            fit: widget.imageFit,
+            alignment: widget.imageAlignment,
+          )
+        : null;
+    _mainImageLayer = _BackgroundImage(
+      urls: widget.urls,
+      token: widget.token,
+      index: _index,
+      fit: widget.imageFit,
+      alignment: widget.imageAlignment,
+      onErrorNext: _nextFallbackImage,
+    );
+    _gapImageLayer = (widget.fillGapsWithImage && isAndroid)
+        ? Opacity(
+            opacity: 0.38,
+            child: _BackgroundImage(
+              urls: widget.urls,
+              token: widget.token,
+              index: _index,
+              fit: BoxFit.cover,
+              alignment: widget.imageAlignment,
+              onErrorNext: _nextFallbackImage,
+            ),
+          )
+        : null;
+    _blurImageLayer = enableGapBlur
+        ? Opacity(
+            opacity: 0.72,
+            child: ImageFiltered(
+              imageFilter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+              child: _BackgroundImage(
+                urls: widget.urls,
+                token: widget.token,
+                index: _index,
+                fit: BoxFit.cover,
+                alignment: widget.imageAlignment,
+                onErrorNext: _nextFallbackImage,
+              ),
+            ),
+          )
+        : null;
   }
 
   @override
   void didUpdateWidget(covariant ImmersiveDetailBackground oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!listEquals(oldWidget.urls, widget.urls) ||
-        oldWidget.useMonetTint != widget.useMonetTint ||
-        oldWidget.ambientTintOverride != widget.ambientTintOverride ||
         oldWidget.token != widget.token) {
       _index = 0;
-      _monetTint = null;
-      _tintUrl = '';
-      _refreshMonetTint();
     }
   }
 
@@ -167,20 +216,24 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
 
     final bottomFadeBackground =
         widget.bottomFadeBackgroundColor ?? colors.backgroundBase;
+    // tint 来源已统一为调用方（DynamicPageThemeScope）传入的 ambientTintOverride /
+    // bottomFadeTintColor；本组件内部不再自取 monet tint（已删）。
     final bottomFadeTint =
         widget.bottomFadeTintColor ??
         widget.ambientTintOverride ??
-        _monetTint ??
         (isLightSurface ? colors.backgroundElevated : colors.overlayScrim);
     final bottomFogColor = Color.alphaBlend(
       bottomFadeTint.withValues(alpha: isLightSurface ? 0.42 : 0.56),
       bottomFadeBackground,
     );
+
     final baseScrimAlpha =
         ((widget.enableBottomFade ? 0.0 : (isLightSurface ? 0.0 : 0.03))) *
         overlayOpacity;
 
     final heroImageHeight = expandedHeroHeight + parallaxMax + 80;
+
+    _ensureImageLayers(isAndroid: isAndroid, enableGapBlur: enableGapBlur);
 
     return RepaintBoundary(
       child: Stack(
@@ -204,47 +257,19 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          if (enableGapBlur)
-                            Opacity(
-                              opacity: 0.72,
-                              child: ImageFiltered(
-                                imageFilter: ImageFilter.blur(
-                                  sigmaX: 10,
-                                  sigmaY: 10,
-                                ),
-                                child: _BackgroundImage(
-                                  urls: widget.urls,
-                                  token: widget.token,
-                                  index: _index,
-                                  fit: BoxFit.cover,
-                                  alignment: widget.imageAlignment,
-                                  onErrorNext: _nextFallbackImage,
-                                ),
-                              ),
-                            ),
-                          if (widget.fillGapsWithImage && isAndroid)
-                            Opacity(
-                              opacity: 0.38,
-                              child: _BackgroundImage(
-                                urls: widget.urls,
-                                token: widget.token,
-                                index: _index,
-                                fit: BoxFit.cover,
-                                alignment: widget.imageAlignment,
-                                onErrorNext: _nextFallbackImage,
-                              ),
+                          if (_blurImageLayer != null) _blurImageLayer!,
+                          if (_gapImageLayer != null) _gapImageLayer!,
+                          // 低清铺底，与主图同一 Transform.scale 对齐，垫在主图之下。
+                          if (_lowResImageLayer != null)
+                            Transform.scale(
+                              scale: widget.imageScale * scrollZoom,
+                              alignment: widget.imageAlignment,
+                              child: _lowResImageLayer,
                             ),
                           Transform.scale(
                             scale: widget.imageScale * scrollZoom,
                             alignment: widget.imageAlignment,
-                            child: _BackgroundImage(
-                              urls: widget.urls,
-                              token: widget.token,
-                              index: _index,
-                              fit: widget.imageFit,
-                              alignment: widget.imageAlignment,
-                              onErrorNext: _nextFallbackImage,
-                            ),
+                            child: _mainImageLayer,
                           ),
                         ],
                       ),
@@ -325,77 +350,7 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
   void _nextFallbackImage() {
     if (_index + 1 < widget.urls.length) {
       setState(() => _index += 1);
-      _refreshMonetTint();
     }
-  }
-
-  Future<void> _refreshMonetTint() async {
-    if (widget.ambientTintOverride != null ||
-        !widget.useMonetTint ||
-        widget.urls.isEmpty ||
-        _index >= widget.urls.length) {
-      if (_monetTint != null && mounted) {
-        setState(() => _monetTint = null);
-      }
-      return;
-    }
-
-    final url = widget.urls[_index];
-    if (_tintUrl == url && _monetTint != null) return;
-    if (_immersiveTintCache.containsKey(url)) {
-      final cachedTint = _cachedImmersiveTint(url);
-      if (!mounted || _tintUrl == url && _monetTint == cachedTint) return;
-      _tintUrl = url;
-      setState(() => _monetTint = cachedTint);
-      return;
-    }
-
-    _tintUrl = url;
-    final requestedUrl = url;
-
-    try {
-      Color? tint;
-      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-        final seed = await DynamicThemeSeedExtractor.extract(
-          imageUrl: requestedUrl,
-          token: widget.token,
-        );
-        tint = seed == null ? null : _deriveTintColor(seed.backgroundSeed);
-      }
-      tint ??= await _extractTintWithPalette(requestedUrl);
-      _storeImmersiveTint(requestedUrl, tint);
-      if (!mounted || _tintUrl != requestedUrl) return;
-      setState(() => _monetTint = tint);
-    } catch (_) {
-      _storeImmersiveTint(requestedUrl, null);
-      if (mounted && _tintUrl == requestedUrl) {
-        setState(() => _monetTint = null);
-      }
-    }
-  }
-
-  Future<Color?> _extractTintWithPalette(String url) async {
-    final palette = await PaletteGenerator.fromImageProvider(
-      NetworkImage(
-        url,
-        headers: {'Authorization': widget.token, 'Trim-MC-token': widget.token},
-      ),
-      maximumColorCount: 14,
-      size: const Size(220, 140),
-    );
-
-    final seed =
-        palette.darkVibrantColor?.color ??
-        palette.dominantColor?.color ??
-        palette.mutedColor?.color;
-    return seed == null ? null : _deriveTintColor(seed);
-  }
-
-  Color _deriveTintColor(Color seed) {
-    var hsl = HSLColor.fromColor(seed);
-    hsl = hsl.withSaturation((hsl.saturation * 0.45).clamp(0.08, 0.28));
-    hsl = hsl.withLightness((hsl.lightness * 0.45).clamp(0.10, 0.22));
-    return hsl.toColor();
   }
 }
 
@@ -465,6 +420,37 @@ class _BackgroundImage extends StatelessWidget {
           },
         );
       },
+    );
+  }
+}
+
+/// 低清铺底图：在大图就绪前先显示的小图（~360px）。不淡入、立即显示，解码开销极小；
+/// 失败则透明（让底色透出）。垫在主图之下，主图淡入后被其不透明像素覆盖。
+class _LowResBackgroundImage extends StatelessWidget {
+  final String url;
+  final String token;
+  final BoxFit fit;
+  final Alignment alignment;
+
+  const _LowResBackgroundImage({
+    required this.url,
+    required this.token,
+    required this.fit,
+    required this.alignment,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.network(
+      url,
+      fit: fit,
+      alignment: alignment,
+      filterQuality: FilterQuality.low,
+      gaplessPlayback: true,
+      // 低清只需小尺寸解码，省内存与上传开销。
+      cacheWidth: 480,
+      headers: {'Authorization': token, 'Trim-MC-token': token},
+      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
     );
   }
 }

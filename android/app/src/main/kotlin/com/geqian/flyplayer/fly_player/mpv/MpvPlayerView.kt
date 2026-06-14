@@ -144,8 +144,10 @@ class MpvPlayerView(
         rootViewFrameRateProbe?.stop(reason = "dispose")
         videoTargetFrameRateProbe?.stop(reason = "dispose")
         videoOutputTarget.setListener(null)
-        // Avoid blocking PlatformView teardown on the UI thread during back navigation.
-        controller.dispose()
+        // The Android surface must outlive mpv's detach/stop sequence. Releasing
+        // TextureView first can leave MediaCodec/Flutter tearing down a surface
+        // that mpv still owns, which is reproducible as a crash on the next play.
+        controller.disposeBlocking()
         nativeDanmakuOverlayView?.release()
         videoOutputTarget.release()
     }
@@ -281,6 +283,18 @@ class MpvPlayerView(
             }
             "setDanmakuOcclusionConfig" -> {
                 result.success(controller.setDanmakuOcclusionConfig(methodArgumentsMap(call)))
+            }
+            "setDanmakuOcclusionSamplingPaused" -> {
+                val args = methodArgumentsMap(call)
+                result.success(
+                    controller.setDanmakuOcclusionSamplingPaused(args["paused"] == true),
+                )
+            }
+            "setDanmakuHasOnScreenComments" -> {
+                val args = methodArgumentsMap(call)
+                result.success(
+                    controller.setDanmakuHasOnScreenComments(args["hasComments"] == true),
+                )
             }
             "setDanmakuPayload",
             "setNativeDanmakuPayload" -> {

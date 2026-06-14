@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import 'danmaku/settings/danmaku_saved_source_store.dart';
 import 'l10n/generated/app_localizations.dart';
 import 'models/media_item.dart';
 import 'models/media_library_item.dart';
@@ -30,6 +31,7 @@ import 'screens/search_screen.dart';
 import 'screens/screenshot_preview_screen.dart';
 import 'services/app_log_service.dart';
 import 'services/detail_route_payload_store.dart';
+import 'services/gpu_profile_bridge.dart';
 import 'services/main_host_bridge.dart';
 import 'screens/settings_destination_routes.dart';
 import 'theme/app_theme.dart';
@@ -37,14 +39,22 @@ import 'theme/dynamic_theme_runtime_controller.dart';
 import 'theme/dynamic_theme_seed_extractor.dart';
 import 'ui/adaptive_text.dart';
 import 'ui/app_transitions.dart';
+import 'ui/route_transition_gate.dart';
 import 'utils/private_network_http_overrides.dart';
 
 void main() {
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+      // Phase 4.3：默认 ImageCache 上限 100MB 偏小——详情页 hero 背景最高 1440px
+      // (单张解码后 ~4-5MB) 叠加首页海报墙，进出详情/滚动时 hero 反复被驱逐再 decode。
+      // 提到 256MB 给足缓存余量，减少重复解码尖峰。注意真机需核内存占用。
+      PaintingBinding.instance.imageCache.maximumSizeBytes = 256 << 20; // 256MB
       await AppLogService.instance.initialize();
       _FrameTimingLogger.install();
+      // 启动即把遗留在 SharedPreferences 的大 blob 迁出，使 prefs map 从一开始就干净
+      // （否则弹幕源 70KB 要等首次进播放器才懒迁移，期间主题轮询 reload 仍解码它）。
+      unawaited(const DanmakuSavedSourceStore().ensureMigratedFromPrefs());
       FlutterError.onError = (details) {
         FlutterError.presentError(details);
         debugPrint('[APP][FLUTTER_ERROR] ${details.exceptionAsString()}');
@@ -85,6 +95,7 @@ class _FrameTimingLogger {
   _FrameTimingLogger._();
 
   static const int _summaryFrameCount = 120;
+  static const int _windowFrameCount = 90;
   static const int _slowFrameMicros = 16667;
   static const int _jankyFrameMicros = 33333;
   static bool _installed = false;
@@ -97,6 +108,18 @@ class _FrameTimingLogger {
   static int _maxTotalMicros = 0;
   static int _maxBuildMicros = 0;
   static int _maxRasterMicros = 0;
+  // 窗口标记：markWindow(label) 之后单独汇总接下来 _windowFrameCount 帧，
+  // 用于把某次路由 push/pop 的转场窗口从滚动统计里切出来对比（Phase 0 基线工具）。
+  static String? _windowLabel;
+  static int _windowFrames = 0;
+  static int _windowSlowFrames = 0;
+  static int _windowJankyFrames = 0;
+  static int _windowBuildMicros = 0;
+  static int _windowRasterMicros = 0;
+  static int _windowTotalMicros = 0;
+  static int _windowMaxTotalMicros = 0;
+  static int _windowMaxBuildMicros = 0;
+  static int _windowMaxRasterMicros = 0;
   static final String _source = _resolveSource();
 
   static void install() {
@@ -106,6 +129,28 @@ class _FrameTimingLogger {
     _installed = true;
     WidgetsBinding.instance.addTimingsCallback(_handleTimings);
     debugPrint('[PERF][FRAME][$_source] timings enabled');
+  }
+
+  /// 标记一个测量窗口：此后 [_windowFrameCount] 帧单独汇总，输出
+  /// `[PERF][FRAME][WINDOW][label]`。若上一个窗口尚未填满即被新标记覆盖，
+  /// 先把已采集的部分 flush 掉再开新窗口。
+  static void markWindow(String label) {
+    if (!_installed || kReleaseMode) {
+      return;
+    }
+    if (_windowLabel != null && _windowFrames > 0) {
+      _flushWindowSummary();
+    }
+    _windowLabel = label;
+    _windowFrames = 0;
+    _windowSlowFrames = 0;
+    _windowJankyFrames = 0;
+    _windowBuildMicros = 0;
+    _windowRasterMicros = 0;
+    _windowTotalMicros = 0;
+    _windowMaxTotalMicros = 0;
+    _windowMaxBuildMicros = 0;
+    _windowMaxRasterMicros = 0;
   }
 
   static void _handleTimings(List<FrameTiming> timings) {
@@ -135,10 +180,53 @@ class _FrameTimingLogger {
           '[PERF][FRAME][$_source] jank total=${_ms(totalMicros)} build=${_ms(buildMicros)} raster=${_ms(rasterMicros)}',
         );
       }
+      if (_windowLabel != null) {
+        _windowFrames++;
+        _windowBuildMicros += buildMicros;
+        _windowRasterMicros += rasterMicros;
+        _windowTotalMicros += totalMicros;
+        if (totalMicros > _windowMaxTotalMicros) {
+          _windowMaxTotalMicros = totalMicros;
+        }
+        if (buildMicros > _windowMaxBuildMicros) {
+          _windowMaxBuildMicros = buildMicros;
+        }
+        if (rasterMicros > _windowMaxRasterMicros) {
+          _windowMaxRasterMicros = rasterMicros;
+        }
+        if (totalMicros > _slowFrameMicros) {
+          _windowSlowFrames++;
+        }
+        if (totalMicros > _jankyFrameMicros) {
+          _windowJankyFrames++;
+        }
+        if (_windowFrames >= _windowFrameCount) {
+          _flushWindowSummary();
+        }
+      }
       if (_frames >= _summaryFrameCount) {
         _flushSummary();
       }
     }
+  }
+
+  static void _flushWindowSummary() {
+    final label = _windowLabel;
+    if (label == null || _windowFrames == 0) {
+      _windowLabel = null;
+      return;
+    }
+    final avgBuild = _windowBuildMicros / _windowFrames;
+    final avgRaster = _windowRasterMicros / _windowFrames;
+    final avgTotal = _windowTotalMicros / _windowFrames;
+    debugPrint(
+      '[PERF][FRAME][WINDOW][$label] frames=$_windowFrames '
+      'slow60=$_windowSlowFrames jank30=$_windowJankyFrames '
+      'avgBuild=${_ms(avgBuild)} maxBuild=${_ms(_windowMaxBuildMicros)} '
+      'avgRaster=${_ms(avgRaster)} maxRaster=${_ms(_windowMaxRasterMicros)} '
+      'avgTotal=${_ms(avgTotal)} maxTotal=${_ms(_windowMaxTotalMicros)}',
+    );
+    _windowLabel = null;
   }
 
   static void _flushSummary() {
@@ -191,6 +279,39 @@ class _FrameTimingLogger {
       return 'detail route=$normalizedRoute';
     }
     return 'main route=$normalizedRoute';
+  }
+}
+
+/// 在路由 push/pop 时给 [_FrameTimingLogger] 打窗口标记，把转场期间的帧
+/// 从滚动统计里单独切出来（Phase 0 基线工具，仅 debug 生效）。
+class _PerfNavigatorObserver extends NavigatorObserver {
+  _PerfNavigatorObserver();
+
+  static String _label(Route<dynamic>? route) {
+    final name = route?.settings.name?.trim();
+    if (name == null || name.isEmpty) {
+      return 'unknown';
+    }
+    final path = Uri.tryParse(name)?.path;
+    return path == null || path.isEmpty ? name : path;
+  }
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    super.didPush(route, previousRoute);
+    if (route is PageRoute) {
+      _FrameTimingLogger.markWindow('push ${_label(route)}');
+    }
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    super.didPop(route, previousRoute);
+    if (route is PageRoute) {
+      _FrameTimingLogger.markWindow(
+        'pop ${_label(route)}->${_label(previousRoute)}',
+      );
+    }
   }
 }
 
@@ -251,6 +372,7 @@ class FlyPlayerApp extends StatelessWidget {
                 localizationsDelegates: AppLocalizations.localizationsDelegates,
                 supportedLocales: AppLocalizations.supportedLocales,
                 theme: AppThemeBuilder.buildFromColors(materialThemeColors),
+                navigatorObservers: _appNavigatorObservers,
                 builder: (context, child) {
                   if (child == null) return const SizedBox.shrink();
                   final media = MediaQuery.of(context);
@@ -276,6 +398,13 @@ class FlyPlayerApp extends StatelessWidget {
     );
   }
 }
+
+final List<NavigatorObserver> _appNavigatorObservers = <NavigatorObserver>[
+  // 转场闸门：始终安装（含 release），它驱动 RouteTransitionGate 的全局转场标志。
+  RouteTransitionGate.observer,
+  // 帧率窗口标记：仅 debug。
+  if (!kReleaseMode) _PerfNavigatorObserver(),
+];
 
 String _initialRouteName() {
   final route = PlatformDispatcher.instance.defaultRouteName.trim();
@@ -308,7 +437,14 @@ Route<dynamic> _buildRoute(RouteSettings settings) {
   }
   if (uri != null && uri.path == '/detail/host') {
     return AppTransitions.splitPaneHostRoute<void>(
-      DetailHostRoute(initialRouteName: uri.queryParameters['route'] ?? '/'),
+      DetailHostRoute(
+        initialRouteName: uri.queryParameters['route'] ?? '/',
+        // root：副栏可回退到的根路由（如原生壳分屏副栏 root=/screen/home，
+        // 使返回键先回首页浏览，而不是直接收掉分屏）。
+        rootRouteName: uri.queryParameters['root']?.trim().isNotEmpty == true
+            ? uri.queryParameters['root']!.trim()
+            : null,
+      ),
       settings: settings,
     );
   }
@@ -539,13 +675,21 @@ class DetailItemRoute extends StatelessWidget {
 
 class DetailHostRoute extends StatelessWidget {
   final String initialRouteName;
+  final String? rootRouteName;
 
-  const DetailHostRoute({super.key, required this.initialRouteName});
+  const DetailHostRoute({
+    super.key,
+    required this.initialRouteName,
+    this.rootRouteName,
+  });
 
   @override
   Widget build(BuildContext context) {
     return _ProviderGate(
-      child: DetailHostScreen(initialRouteName: initialRouteName),
+      child: DetailHostScreen(
+        initialRouteName: initialRouteName,
+        rootRouteName: rootRouteName,
+      ),
     );
   }
 }
@@ -788,6 +932,9 @@ class _MainNavigationState extends State<MainNavigation> {
   void initState() {
     super.initState();
     unawaited(MainHostBridge.setMethodCallHandler(_handleMainHostMethodCall));
+    // 预取 GPU 画像并缓存：供播放器在创建视频平台视图前决定 texture/surface 后端
+    // （Mali 走 SurfaceView）。此处 engine 已就绪、system channel 已注册。
+    unawaited(GpuProfileBridge.ensureLoaded());
   }
 
   @override

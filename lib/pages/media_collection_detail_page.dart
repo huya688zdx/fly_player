@@ -20,6 +20,7 @@ import '../theme/detail_tokens.dart';
 import '../ui/adaptive_detail_navigator.dart';
 import '../ui/detail_presentation.dart';
 import '../ui/player_pane_host_scope.dart';
+import '../ui/route_transition_gate.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
 import '../utils/detail_top_tip.dart';
@@ -122,6 +123,9 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
         sortColumn: _normalizeSortColumn(setting?.sortField),
         sortType: _normalizeSortType(setting?.sortType),
       );
+      if (!mounted) return;
+      // 把"骨架→正文"整树替换推迟到转场结束后，避免落在 380ms 转场窗口中段。
+      await RouteTransitionGate.of(context);
       if (!mounted) return;
       setState(() {
         _applyDetail(detail);

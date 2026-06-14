@@ -23,8 +23,18 @@ import '../player/mpv_player_page.dart';
 import '../player/controllers/player_source_controller.dart';
 import '../providers/app_theme_provider.dart';
 import '../providers/nas_provider.dart';
+import '../danmaku/settings/danmaku_settings_store.dart';
+import '../controllers/item_playback_launcher.dart';
+import '../danmaku/settings/danmaku_settings_store.dart';
+import '../controllers/item_playback_launcher.dart';
 import '../services/app_log_service.dart';
 import '../services/detail_runtime_cache.dart';
+import '../services/native_danmaku_prefetch.dart';
+import '../services/native_player_bridge.dart';
+import '../services/native_reentry_support.dart';
+import '../services/native_danmaku_prefetch.dart';
+import '../services/native_player_bridge.dart';
+import '../services/native_reentry_support.dart';
 import '../services/download_task_service.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../theme/app_theme.dart';
@@ -34,6 +44,8 @@ import '../ui/app_transitions.dart';
 import '../ui/capability_badge_mapper.dart';
 import '../ui/detail_presentation.dart';
 import '../ui/player_pane_host_scope.dart';
+import '../ui/route_transition_gate.dart';
+import '../ui/route_transition_gate.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/async_action_guard.dart';
 import '../utils/app_error_reporter.dart';
@@ -91,16 +103,20 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   static const Duration _actionsPopDuration = Duration(milliseconds: 300);
   static const Duration _descriptionPopDuration = Duration(milliseconds: 320);
   static const Duration _asyncContentFadeDuration = Duration(milliseconds: 120);
-  static const Duration _phase2Delay = Duration(milliseconds: 420);
+  // Entrance pacing. Tightened so the page feels responsive: the description
+  // and deferred sections (credits/file/video/links) appear noticeably sooner
+  // and step in closer together, instead of trickling in over ~1s.
   static const Duration _deferredSectionStartDelay = Duration(
-    milliseconds: 560,
+    milliseconds: 320,
   );
-  static const Duration _deferredSectionStepDelay = Duration(milliseconds: 180);
+  static const Duration _deferredSectionStepDelay = Duration(milliseconds: 110);
   final ScrollController _scrollController = ScrollController();
   final ValueNotifier<double> _scrollOffsetNotifier = ValueNotifier<double>(0);
   final PlayDetailDownloadSheetController _downloadSheetController =
       const PlayDetailDownloadSheetController();
   final DownloadTaskService _downloadTaskService = DownloadTaskService.instance;
+  // 当前 item 已下载记录的签名，用于在下载任务变化时跳过无关的全页重建（P7）。
+  String? _downloadedRecordSignatureForCurrentItem;
   static const Duration _favoriteTapCooldown = Duration(milliseconds: 900);
   static const Duration _watchedTapCooldown = Duration(milliseconds: 900);
 
@@ -192,6 +208,33 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       return 180.0;
     }
     return screenSize.width > screenSize.height ? 150.0 : 160.0;
+  }
+
+  // Unified one-shot entrance animation for deferred detail sections (credits,
+  // file info, video info, links). Mirrors the description block's pop (fade +
+  // slide-up + subtle scale) so every section reveals consistently instead of
+  // snapping in. Driven by TweenAnimationBuilder so each section animates once
+  // on first build without needing its own AnimationController.
+  Widget _sectionReveal({required Widget child}) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0.0, end: 1.0),
+      duration: _descriptionPopDuration,
+      curve: Curves.easeOutCubic,
+      builder: (context, t, child) {
+        return Opacity(
+          opacity: t.clamp(0.0, 1.0),
+          child: Transform.translate(
+            offset: Offset(0, (1 - t) * 10),
+            child: Transform.scale(
+              scale: 0.97 + (0.03 * t),
+              alignment: Alignment.topCenter,
+              child: child,
+            ),
+          ),
+        );
+      },
+      child: child,
+    );
   }
 
   Widget _asyncFadeSwitcher(Widget child, {required Object switchKey}) {
@@ -323,6 +366,16 @@ class _PlayDetailPageState extends State<PlayDetailPage>
 
   void _handleDownloadTasksChanged() {
     if (!mounted) return;
+    // 下载服务在任意任务的每个进度 tick 都 notifyListeners；但本页只关心“当前 item 是否有
+    // 已下载可用记录”（PlayActionBar 的已下载角标 + FileInfoSection 切到本地文件）。该记录
+    // 只在下载完成/消失/换文件时变化，不随进度变。故仅在签名变化时才整页 setState，避免
+    // 详情页可见期间被无关下载进度的每帧重建打满（PlayActionBar 另有局部 AnimatedBuilder 兜底）。
+    final record = _downloadedRecordForCurrentItem();
+    final signature = record == null
+        ? null
+        : '${record.id}|${record.filePath}|${record.status}';
+    if (signature == _downloadedRecordSignatureForCurrentItem) return;
+    _downloadedRecordSignatureForCurrentItem = signature;
     setState(() {});
   }
 
@@ -418,26 +471,28 @@ class _PlayDetailPageState extends State<PlayDetailPage>
 
   int _asInt(dynamic value) => int.tryParse('$value') ?? 0;
 
-  String _heroPathForItemMap(Map<String, dynamic> item) {
-    final type = (item['type'] ?? '').toString().trim().toLowerCase();
-    final backdrops = (item['backdrops'] ?? item['backdrop'] ?? '')
-        .toString()
-        .trim();
-    final posters = (item['posters'] ?? item['poster'] ?? '').toString().trim();
-    final stillPath = (item['still_path'] ?? '').toString().trim();
-
-    if (type == 'episode') {
-      if (posters.isNotEmpty) return posters;
-      if (stillPath.isNotEmpty) return stillPath;
-      return backdrops;
-    }
-    if (backdrops.isNotEmpty) return backdrops;
-    if (stillPath.isNotEmpty) return stillPath;
-    return posters;
-  }
-
   String _heroPathForPlayItem(PlayItem item) {
     return resolvePlayerArtworkPathForPlayItem(item);
+  }
+
+  // Unified hero artwork path used by the persistent background layer (the one
+  // that lives outside the loading↔ready crossFade). Prefers loaded data, then
+  // the initial detail map passed in on navigation, so the backdrop is known on
+  // the very first frame and never has to reload when _loading flips to false.
+  String _persistentHeroPath() {
+    // Only use the loaded data's artwork, via the SAME resolver the ready
+    // branch uses. We deliberately do NOT fall back to initialItemDetail here:
+    // its artwork resolver can disagree with the loaded item (e.g. a movie
+    // showing an episode-style still), which produced a visible "wrong image
+    // then correct image" flash on open. While loading we return '' (base color
+    // only); when data arrives the backdrop loads once (empty → correct = a
+    // single fade-in, not a swap), so there's no flash and the layer still
+    // persists across loading→ready without rebuilding.
+    final data = _data;
+    if (data == null) {
+      return '';
+    }
+    return _heroPathForPlayItem(data.item);
   }
 
   String _paneEpisodeThemeBackdropFallback() {
@@ -573,11 +628,13 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       unawaited(_loadPhase2(api: api, info: info));
 
       // Pre-fetch download qualities so the download sheet opens instantly.
-      unawaited(_prefetchDownloadQualities(
-        api: api,
-        itemGuid: _currentItemGuid,
-        playItem: info.item,
-      ));
+      unawaited(
+        _prefetchDownloadQualities(
+          api: api,
+          itemGuid: _currentItemGuid,
+          playItem: info.item,
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -621,7 +678,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     required FeiniuApi api,
     required PlayInfoData info,
   }) async {
-    await Future<void>.delayed(_phase2Delay);
     if (!mounted || _playerRouteActive) return;
     try {
       final genresMapFuture = api
@@ -653,6 +709,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       final languageMap = await languageMapFuture;
       if (!mounted || _playerRouteActive) return;
       MediaLanguageMapper.mergeLanguageMap(languageMap);
+      // 轨道/地区数据就绪后等转场结束再应用，避免转场窗口内的整树重建。
+      await RouteTransitionGate.of(context);
+      if (!mounted || _playerRouteActive) return;
       setState(() {
         _streamTrackData = trackData;
         _streamOptions = streams;
@@ -1305,6 +1364,96 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       settleDuration: const Duration(milliseconds: 500),
       action: () async {
         if (!mounted) return;
+        // 灰度：原生渲染器开启时走纯原生播放壳（无 Hybrid Composition，弹幕丝滑）。
+        // 直接 launch + return，不触碰 _playerRouteActive/try-finally 状态机。
+        final danmakuSettings = await const DanmakuSettingsStore().load();
+        if (danmakuSettings.useNativeRenderer) {
+          if (!mounted) return;
+          // 反向通道：电影/单视频用 ItemPlaybackLauncher 重解析画质 + 续播回写（无选集）。
+          // 本地外部视频无 NAS 上下文，resolver 自然返回 null/进度回写跳过，降级不影响播放。
+          final nas = context.read<NasProvider>();
+          // Bug fix(继续观看无选集 + 无弹幕)：episode 类型加载整季集列表供原生壳
+          // 选集对话框使用；同时改为 launch + 手动弹幕预取（原 launch 不预取弹幕）。
+          List<Map<String, dynamic>> episodes = const [];
+          final seasonGuid = source.seasonGuid.trim();
+          if (source.mediaType.toLowerCase() == 'episode' &&
+              seasonGuid.isNotEmpty) {
+            try {
+              episodes = await const ItemPlaybackLauncher().loadSeasonEpisodes(
+                nas,
+                seasonGuid,
+              );
+            } catch (_) {}
+          }
+          // 弹幕预取(danmakuSettings 已在外层加载)。
+          String? danmakuFile;
+          if (danmakuSettings.enabled) {
+            danmakuFile = await NativeDanmakuPrefetch.resolveToFile(
+              seriesTitle: source.seriesTitle,
+              seasonNumber: source.seasonNumber,
+              episodeNumber: source.episodeNumber,
+              tmdbId: source.tmdbId,
+              settings: danmakuSettings,
+              itemGuid: source.itemGuid,
+              mediaGuid: source.mediaGuid,
+              seasonGuid: source.seasonGuid,
+            );
+          }
+          // Bug 1 fix(选集消失)：捕获 episodes 进闭包，切集时回传给 resolver 合并进
+          // loadArgs["episodes"]，保证每次换源后原生壳选集数据不丢。
+          final capturedEpisodes = episodes;
+          NativePlayerBridge.bindReentry(
+            onResolvePlayback:
+                (
+                  itemGuid, {
+                  qualityIndex,
+                  qualityMediaGuid,
+                  startPositionMs,
+                  subtitleGuid,
+                  audioGuid,
+                }) => const ItemPlaybackLauncher().resolveForNative(
+                  nas,
+                  itemGuid: itemGuid,
+                  qualityIndex: qualityIndex,
+                  qualityMediaGuid: qualityMediaGuid,
+                  startPositionMs: startPositionMs,
+                  subtitleGuid: subtitleGuid,
+                  audioGuid: audioGuid,
+                  episodes: capturedEpisodes.isEmpty ? null : capturedEpisodes,
+                ),
+            onRecordProgress: (progress) =>
+                NativeReentrySupport.recordProgress(nas, progress),
+            onResolveSubtitleFile: (guid, {format}) =>
+                NativeReentrySupport.resolveSubtitleFile(
+                  nas,
+                  guid,
+                  format: format,
+                ),
+            onReloadServerSession:
+                (
+                  currentLoadArgs, {
+                  audioGuid,
+                  subtitleGuid,
+                  qualityIndex,
+                  startPositionMs,
+                }) => NativeReentrySupport.reloadServerSession(
+                  nas,
+                  currentLoadArgs: currentLoadArgs,
+                  audioGuid: audioGuid,
+                  subtitleGuid: subtitleGuid,
+                  qualityIndex: qualityIndex,
+                  startPositionMs: startPositionMs,
+                ),
+          );
+          await NativePlayerBridge.launch(
+            loadArgs: source.toMap(),
+            danmakuFilePath: danmakuFile,
+            episodes: episodes.isEmpty ? null : episodes,
+            nas: nas,
+          );
+          return;
+        }
+        if (!mounted) return;
         final navigator = Navigator.of(context);
         _playerRouteActive = true;
         _deferredSectionTimer?.cancel();
@@ -1656,7 +1805,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           width: 720,
         ),
         localeMap: _localeMap,
-        itemDetail: PlayDetailDownloadSheetController.cachedItemDetail(itemGuid),
+        itemDetail: PlayDetailDownloadSheetController.cachedItemDetail(
+          itemGuid,
+        ),
       ),
     );
   }
@@ -1737,145 +1888,168 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       intensity: dynamicThemeIntensity,
       builder: (context, ambientTint) {
         final colors = context.appColors;
+        // Persistent background layer — lives OUTSIDE the loading↔ready
+        // crossFade so the backdrop image is never rebuilt/reloaded (and never
+        // double-fades) when _loading flips. It reads the live scroll offset so
+        // parallax still works once the ready content scrolls.
+        final persistentProvider = context.read<NasProvider>();
+        final persistentMedia = MediaQuery.of(context);
+        final persistentBackdropWidth =
+            (_isPane
+                    ? persistentMedia.size.width *
+                          persistentMedia.devicePixelRatio *
+                          1.2
+                    : 1200.0)
+                .clamp(720.0, 1200.0)
+                .round();
+        final persistentHeroPath = _persistentHeroPath();
+        final persistentHeroUrls = persistentHeroPath.isEmpty
+            ? const <String>[]
+            : ApiUrlHelper.imageCandidates(
+                persistentProvider.baseUrl,
+                persistentHeroPath,
+                width: persistentBackdropWidth,
+              );
+        final persistentPosterHeight = _backdropHeroHeight(
+          persistentMedia.size,
+        );
+        final persistentImageAlignment = _backdropImageAlignment(
+          persistentMedia.size,
+        );
+        final persistentImageScale = _backdropImageScale(persistentMedia.size);
+        final persistentBackground = ValueListenableBuilder<double>(
+          valueListenable: _scrollOffsetNotifier,
+          builder: (context, offset, _) {
+            return ImmersiveDetailBackground(
+              urls: persistentHeroUrls,
+              lowResUrls: persistentHeroPath.isEmpty
+                  ? const <String>[]
+                  : ApiUrlHelper.imageCandidates(
+                      persistentProvider.baseUrl,
+                      persistentHeroPath,
+                      width: 360,
+                    ),
+              token: persistentProvider.token,
+              scrollOffset: offset,
+              posterHeight: persistentPosterHeight,
+              imageScale: persistentImageScale,
+              imageFit: BoxFit.cover,
+              imageAlignment: persistentImageAlignment,
+              parallaxFactor: 1.0,
+              overlayOpacity: 0.62,
+              ambientTintOverride: ambientTint,
+            );
+          },
+        );
         late final Widget pageBody;
         if (_loading) {
           final initial = widget.initialItemDetail;
           if (initial == null) {
             pageBody = DetailLoadingSkeleton(presentation: widget.presentation);
           } else {
-          final provider = context.read<NasProvider>();
-          final media = MediaQuery.of(context);
-          final backdropRequestWidth =
-              (_isPane
-                      ? media.size.width * media.devicePixelRatio * 1.2
-                      : 1200.0)
-                  .clamp(720.0, 1200.0)
-                  .round();
-          final logoRequestWidth =
-              (_isPane ? media.size.width * media.devicePixelRatio : 1200.0)
-                  .clamp(480.0, 1200.0)
-                  .round();
-          final rawItem = initial['item'];
-          final item = rawItem is Map<String, dynamic> ? rawItem : initial;
-          final heroUrls = deferHeroArtwork
-              ? const <String>[]
-              : ApiUrlHelper.imageCandidates(
-                  provider.baseUrl,
-                  _heroPathForItemMap(item),
-                  width: backdropRequestWidth,
-                );
-          final initialItemType = (item['type'] ?? '')
-              .toString()
-              .trim()
-              .toLowerCase();
-          final fallbackTitle = formatPlayerTitle(
-            seriesTitle: (item['tv_title'] ?? '').toString().trim().isNotEmpty
-                ? (item['tv_title'] ?? '').toString()
-                : (item['display_title'] ?? item['title'] ?? '').toString(),
-            episodeTitle: (item['title'] ?? '').toString(),
-            seasonNumber: _asInt(item['season_number']),
-            episodeNumber: _asInt(item['episode_number']),
-            fallbackTitle: (item['display_title'] ?? item['title'] ?? '')
-                .toString(),
-          );
-          final initialEpisodeTitle = (item['title'] ?? '').toString().trim();
-          final initialDisplayTitle =
-              (item['display_title'] ?? item['title'] ?? '').toString().trim();
-          final title =
-              initialItemType == 'episode' && initialEpisodeTitle.isNotEmpty
-              ? initialEpisodeTitle
-              : (initialDisplayTitle.isNotEmpty
-                    ? initialDisplayTitle
-                    : fallbackTitle);
-          final logoUrls = deferAuxiliaryArtwork
-              ? const <String>[]
-              : ApiUrlHelper.imageCandidates(
-                  provider.baseUrl,
-                  (item['logos'] ?? '').toString(),
-                  width: logoRequestWidth,
-                );
-          final episodeHeroSubtitle =
-              ((item['type'] ?? '').toString().trim().toLowerCase() ==
-                  'episode')
-              ? [
-                  if ((item['tv_title'] ?? '').toString().trim().isNotEmpty)
-                    (item['tv_title'] ?? '').toString().trim(),
-                  if (_asInt(item['season_number']) == 0)
-                    _t('layout.subheading.season.special', 'Special')
-                  else if (_asInt(item['season_number']) > 0)
-                    _t(
-                      'layout.subheading.season.number',
-                      'Season {number}',
-                      params: {'number': _asInt(item['season_number'])},
-                    ),
-                  if (_asInt(item['episode_number']) > 0)
-                    _t(
-                      'layout.subheading.episode.number',
-                      'Episode {number}',
-                      params: {'number': _asInt(item['episode_number'])},
-                    ),
-                ].join(' · ')
-              : '';
-          final initialHeroTitleChild = initialItemType != 'episode'
-              ? (deferAuxiliaryArtwork
-                    ? const SizedBox.shrink()
-                    : (logoUrls.isNotEmpty
-                          ? DetailHeroLogoTitle(
-                              urls: logoUrls,
-                              token: provider.token,
-                              fallbackTitle: title,
-                              maxHeight: 112,
-                              maxWidth:
-                                  media.size.width -
-                                  (DetailTokens.screenHorizontalPadding * 2),
-                              fallbackFontSize: 28,
-                            )
-                          : null))
-              : null;
-          final posterHeight = _backdropHeroHeight(media.size);
-          final imageAlignment = _backdropImageAlignment(media.size);
-          final imageScale = _backdropImageScale(media.size);
-          final layout = DetailLayoutSolver.solve(
-            screenSize: media.size,
-            safePadding: media.padding,
-            posterHeight: posterHeight,
-          );
-          pageBody = Scaffold(
-            backgroundColor: colors.backgroundBase,
-            body: Stack(
-              fit: StackFit.expand,
-              children: [
-                ImmersiveDetailBackground(
-                  urls: heroUrls,
-                  token: provider.token,
-                  scrollOffset: 0,
-                  posterHeight: posterHeight,
-                  imageScale: imageScale,
-                  imageFit: BoxFit.cover,
-                  imageAlignment: imageAlignment,
-                  parallaxFactor: 1.0,
-                  overlayOpacity: 0.62,
-                  ambientTintOverride: ambientTint,
-                ),
-                CustomScrollView(
-                  physics: const NeverScrollableScrollPhysics(),
-                  slivers: [
-                    SliverToBoxAdapter(
-                      child: DetailHeroOverlay(
-                        height: layout.infoStart,
-                        title: title,
-                        subtitle: episodeHeroSubtitle,
-                        titleFontSize: initialItemType == 'episode' ? 28 : null,
-                        bottomInset: initialItemType == 'episode' ? 20 : 36,
-                        useSoftGradient: true,
-                        titleChild: initialHeroTitleChild,
+            final provider = context.read<NasProvider>();
+            final media = MediaQuery.of(context);
+            final logoRequestWidth =
+                (_isPane ? media.size.width * media.devicePixelRatio : 1200.0)
+                    .clamp(480.0, 1200.0)
+                    .round();
+            final rawItem = initial['item'];
+            final item = rawItem is Map<String, dynamic> ? rawItem : initial;
+            final initialItemType = (item['type'] ?? '')
+                .toString()
+                .trim()
+                .toLowerCase();
+            final fallbackTitle = formatPlayerTitle(
+              seriesTitle: (item['tv_title'] ?? '').toString().trim().isNotEmpty
+                  ? (item['tv_title'] ?? '').toString()
+                  : (item['display_title'] ?? item['title'] ?? '').toString(),
+              episodeTitle: (item['title'] ?? '').toString(),
+              seasonNumber: _asInt(item['season_number']),
+              episodeNumber: _asInt(item['episode_number']),
+              fallbackTitle: (item['display_title'] ?? item['title'] ?? '')
+                  .toString(),
+            );
+            final initialEpisodeTitle = (item['title'] ?? '').toString().trim();
+            final initialDisplayTitle =
+                (item['display_title'] ?? item['title'] ?? '')
+                    .toString()
+                    .trim();
+            final title =
+                initialItemType == 'episode' && initialEpisodeTitle.isNotEmpty
+                ? initialEpisodeTitle
+                : (initialDisplayTitle.isNotEmpty
+                      ? initialDisplayTitle
+                      : fallbackTitle);
+            final logoUrls = deferAuxiliaryArtwork
+                ? const <String>[]
+                : ApiUrlHelper.imageCandidates(
+                    provider.baseUrl,
+                    (item['logos'] ?? '').toString(),
+                    width: logoRequestWidth,
+                  );
+            final episodeHeroSubtitle =
+                ((item['type'] ?? '').toString().trim().toLowerCase() ==
+                    'episode')
+                ? [
+                    if ((item['tv_title'] ?? '').toString().trim().isNotEmpty)
+                      (item['tv_title'] ?? '').toString().trim(),
+                    if (_asInt(item['season_number']) == 0)
+                      _t('layout.subheading.season.special', 'Special')
+                    else if (_asInt(item['season_number']) > 0)
+                      _t(
+                        'layout.subheading.season.number',
+                        'Season {number}',
+                        params: {'number': _asInt(item['season_number'])},
                       ),
+                    if (_asInt(item['episode_number']) > 0)
+                      _t(
+                        'layout.subheading.episode.number',
+                        'Episode {number}',
+                        params: {'number': _asInt(item['episode_number'])},
+                      ),
+                  ].join(' · ')
+                : '';
+            final initialHeroTitleChild = initialItemType != 'episode'
+                ? (deferAuxiliaryArtwork
+                      ? const SizedBox.shrink()
+                      : (logoUrls.isNotEmpty
+                            ? DetailHeroLogoTitle(
+                                urls: logoUrls,
+                                token: provider.token,
+                                fallbackTitle: title,
+                                maxHeight: 112,
+                                maxWidth:
+                                    media.size.width -
+                                    (DetailTokens.screenHorizontalPadding * 2),
+                                fallbackFontSize: 28,
+                              )
+                            : null))
+                : null;
+            final posterHeight = _backdropHeroHeight(media.size);
+            final layout = DetailLayoutSolver.solve(
+              screenSize: media.size,
+              safePadding: media.padding,
+              posterHeight: posterHeight,
+            );
+            pageBody = Scaffold(
+              backgroundColor: Colors.transparent,
+              body: CustomScrollView(
+                physics: const NeverScrollableScrollPhysics(),
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: DetailHeroOverlay(
+                      height: layout.infoStart,
+                      title: title,
+                      subtitle: episodeHeroSubtitle,
+                      titleFontSize: initialItemType == 'episode' ? 28 : null,
+                      bottomInset: initialItemType == 'episode' ? 20 : 36,
+                      useSoftGradient: true,
+                      titleChild: initialHeroTitleChild,
                     ),
-                  ],
-                ),
-              ],
-            ),
-          );
+                  ),
+                ],
+              ),
+            );
           }
         } else if (_error != null || _data == null) {
           pageBody = Scaffold(
@@ -1890,602 +2064,589 @@ class _PlayDetailPageState extends State<PlayDetailPage>
             ),
           );
         } else {
+          final provider = context.read<NasProvider>();
+          final data = _data!;
+          final item = data.item;
+          final media = MediaQuery.of(context);
+          final screenSize = media.size;
+          final logoRequestWidth =
+              (_isPane ? screenSize.width * media.devicePixelRatio : 1200.0)
+                  .clamp(480.0, 1200.0)
+                  .round();
 
-        final provider = context.read<NasProvider>();
-        final data = _data!;
-        final item = data.item;
-        final media = MediaQuery.of(context);
-        final screenSize = media.size;
-        final backdropRequestWidth =
-            (_isPane ? screenSize.width * media.devicePixelRatio * 1.2 : 1200.0)
-                .clamp(720.0, 1200.0)
-                .round();
-        final logoRequestWidth =
-            (_isPane ? screenSize.width * media.devicePixelRatio : 1200.0)
-                .clamp(480.0, 1200.0)
-                .round();
+          final posterHeight = _backdropHeroHeight(screenSize);
+          final layout = DetailLayoutSolver.solve(
+            screenSize: screenSize,
+            safePadding: media.padding,
+            posterHeight: posterHeight,
+          );
 
-        final posterHeight = _backdropHeroHeight(screenSize);
-        final imageAlignment = _backdropImageAlignment(screenSize);
-        final imageScale = _backdropImageScale(screenSize);
-        final layout = DetailLayoutSolver.solve(
-          screenSize: screenSize,
-          safePadding: media.padding,
-          posterHeight: posterHeight,
-        );
-
-        final collapseRange =
-            (layout.infoStart - media.padding.top - kToolbarHeight).clamp(
-              1.0,
-              layout.infoStart,
-            );
-        final heroUrls = deferHeroArtwork
-            ? const <String>[]
-            : ApiUrlHelper.imageCandidates(
-                provider.baseUrl,
-                _heroPathForPlayItem(item),
-                width: backdropRequestWidth,
+          final collapseRange =
+              (layout.infoStart - media.padding.top - kToolbarHeight).clamp(
+                1.0,
+                layout.infoStart,
               );
 
-        final selectedOption =
-            (_selectedStreamIndex != null &&
-                _selectedStreamIndex! >= 0 &&
-                _selectedStreamIndex! < _streamOptions.length)
-            ? _streamOptions[_selectedStreamIndex!]
-            : null;
+          final selectedOption =
+              (_selectedStreamIndex != null &&
+                  _selectedStreamIndex! >= 0 &&
+                  _selectedStreamIndex! < _streamOptions.length)
+              ? _streamOptions[_selectedStreamIndex!]
+              : null;
 
-        final effectiveDuration =
-            (selectedOption != null && selectedOption.duration > 0)
-            ? selectedOption.duration
-            : item.duration;
-        final sourceTs = data.ts > 0 ? data.ts : item.watchedTs;
-        final effectiveTs = sourceTs.clamp(0, effectiveDuration);
-        final remainSeconds = (effectiveDuration - effectiveTs).clamp(
-          0,
-          effectiveDuration,
-        );
-        final playbackCompleted =
-            effectiveDuration > 0 &&
-            (remainSeconds <= 0 || _watched || item.isWatched == 1);
-        final showProgress = effectiveTs > 0 && remainSeconds > 0;
+          final effectiveDuration =
+              (selectedOption != null && selectedOption.duration > 0)
+              ? selectedOption.duration
+              : item.duration;
+          final sourceTs = data.ts > 0 ? data.ts : item.watchedTs;
+          final effectiveTs = sourceTs.clamp(0, effectiveDuration);
+          final remainSeconds = (effectiveDuration - effectiveTs).clamp(
+            0,
+            effectiveDuration,
+          );
+          final playbackCompleted =
+              effectiveDuration > 0 &&
+              (remainSeconds <= 0 || _watched || item.isWatched == 1);
+          final showProgress = effectiveTs > 0 && remainSeconds > 0;
 
-        final resolvedPlayText = playbackCompleted
-            ? _t('player.play.replay', 'Replay')
-            : effectiveTs > 0
-            ? _t('player.play.continuePlay', 'Continue playing')
-            : _t('player.play.play', 'Play');
-        final metaLineA = PlayDetailFormatters.metaLineA(
-          item,
-          genreMap: _genresMapZhCn,
-          locateMap: _locateMapZhCn,
-        );
-        final metaLineB = [
-          PlayDetailFormatters.formatDuration(effectiveDuration),
-          item.ancestorName,
-        ].where((e) => e.isNotEmpty).join(' / ');
+          final resolvedPlayText = playbackCompleted
+              ? _t('player.play.replay', 'Replay')
+              : effectiveTs > 0
+              ? _t('player.play.continuePlay', 'Continue playing')
+              : _t('player.play.play', 'Play');
+          final metaLineA = PlayDetailFormatters.metaLineA(
+            item,
+            genreMap: _genresMapZhCn,
+            locateMap: _locateMapZhCn,
+          );
+          final metaLineB = [
+            PlayDetailFormatters.formatDuration(effectiveDuration),
+            item.ancestorName,
+          ].where((e) => e.isNotEmpty).join(' / ');
 
-        final resolutionOptions = _streamOptions
-            .map((e) => e.label)
-            .where((e) => e.trim().isNotEmpty)
-            .toList();
-        final showResolutionSelector = resolutionOptions.length > 1;
+          final resolutionOptions = _streamOptions
+              .map((e) => e.label)
+              .where((e) => e.trim().isNotEmpty)
+              .toList();
+          final showResolutionSelector = resolutionOptions.length > 1;
 
-        final itemType = item.type.trim().toLowerCase();
-        final detailTitle =
-            (itemType == 'episode' && item.title.trim().isNotEmpty)
-            ? item.title.trim()
-            : item.displayTitle;
-        final heroInfoBlockReservedHeight = _heroInfoBlockReservedHeight(
-          screenSize,
-          canPlay: item.canPlay == 1,
-        );
-        final reserveHeroInfoBlockHeight =
-            _isPane || !_heroAsyncSectionsResolved;
-        final logoUrls = deferAuxiliaryArtwork
-            ? const <String>[]
-            : ApiUrlHelper.imageCandidates(
-                provider.baseUrl,
-                item.logos,
-                width: logoRequestWidth,
-              );
-        final heroTitleChild = itemType != 'episode'
-            ? (deferAuxiliaryArtwork
-                  ? const SizedBox.shrink()
-                  : (logoUrls.isNotEmpty
-                        ? DetailHeroLogoTitle(
-                            urls: logoUrls,
-                            token: provider.token,
-                            fallbackTitle: detailTitle,
-                            maxHeight: 112,
-                            maxWidth:
-                                screenSize.width -
-                                (DetailTokens.screenHorizontalPadding * 2),
-                          )
-                        : null))
-            : null;
-        final episodeHeroSubtitle = _episodeHeroSubtitle(item);
+          final itemType = item.type.trim().toLowerCase();
+          final detailTitle =
+              (itemType == 'episode' && item.title.trim().isNotEmpty)
+              ? item.title.trim()
+              : item.displayTitle;
+          final heroInfoBlockReservedHeight = _heroInfoBlockReservedHeight(
+            screenSize,
+            canPlay: item.canPlay == 1,
+          );
+          final reserveHeroInfoBlockHeight =
+              _isPane || !_heroAsyncSectionsResolved;
+          final logoUrls = deferAuxiliaryArtwork
+              ? const <String>[]
+              : ApiUrlHelper.imageCandidates(
+                  provider.baseUrl,
+                  item.logos,
+                  width: logoRequestWidth,
+                );
+          final heroTitleChild = itemType != 'episode'
+              ? (deferAuxiliaryArtwork
+                    ? const SizedBox.shrink()
+                    : (logoUrls.isNotEmpty
+                          ? DetailHeroLogoTitle(
+                              urls: logoUrls,
+                              token: provider.token,
+                              fallbackTitle: detailTitle,
+                              maxHeight: 112,
+                              maxWidth:
+                                  screenSize.width -
+                                  (DetailTokens.screenHorizontalPadding * 2),
+                            )
+                          : null))
+              : null;
+          final episodeHeroSubtitle = _episodeHeroSubtitle(item);
 
-        String? selectedKey;
-        if (_selectedStreamIndex != null &&
-            _selectedStreamIndex! >= 0 &&
-            _selectedStreamIndex! < resolutionOptions.length) {
-          selectedKey =
-              '${_selectedStreamIndex!}:${resolutionOptions[_selectedStreamIndex!]}';
-        }
+          String? selectedKey;
+          if (_selectedStreamIndex != null &&
+              _selectedStreamIndex! >= 0 &&
+              _selectedStreamIndex! < resolutionOptions.length) {
+            selectedKey =
+                '${_selectedStreamIndex!}:${resolutionOptions[_selectedStreamIndex!]}';
+          }
 
-        final capabilityLabels = () {
-          if (selectedOption != null) {
+          final capabilityLabels = () {
+            if (selectedOption != null) {
+              return <String>[
+                    selectedOption.resolutionType,
+                    selectedOption.colorRangeType,
+                    _currentAudioTypeForBadges(),
+                  ]
+                  .map(CapabilityBadgeMapper.normalize)
+                  .where((e) => e.isNotEmpty)
+                  .toList();
+            }
             return <String>[
-                  selectedOption.resolutionType,
-                  selectedOption.colorRangeType,
-                  _currentAudioTypeForBadges(),
+                  ...item.resolutions,
+                  ...item.colorRanges,
+                  ...item.audioTypes,
                 ]
                 .map(CapabilityBadgeMapper.normalize)
                 .where((e) => e.isNotEmpty)
+                .toSet()
                 .toList();
-          }
-          return <String>[
-                ...item.resolutions,
-                ...item.colorRanges,
-                ...item.audioTypes,
-              ]
-              .map(CapabilityBadgeMapper.normalize)
-              .where((e) => e.isNotEmpty)
-              .toSet()
-              .toList();
-        }();
-        final subtitleTracks = _currentSubtitleTracks();
-        final audioTracks = _currentAudioTracks();
-        final showSubtitleArrow = subtitleTracks.isNotEmpty;
-        final showAudioArrow = audioTracks.length > 1;
-        final subtitleLabel =
-            PlayDetailTrackSelector.subtitleLabelForCurrentMedia(
-              selectedSubtitleGuid: _selectedSubtitleGuid,
-              subtitleTracks: subtitleTracks,
-              l10n: AppLocalizations.of(context),
-            );
-        final audioLabel = PlayDetailTrackSelector.audioLabelForCurrentMedia(
-          selectedAudioGuid: _selectedAudioGuid,
-          audioTracks: audioTracks,
-          selectedOption: selectedOption,
-          l10n: AppLocalizations.of(context),
-        );
+          }();
+          final subtitleTracks = _currentSubtitleTracks();
+          final audioTracks = _currentAudioTracks();
+          final showSubtitleArrow = subtitleTracks.isNotEmpty;
+          final showAudioArrow = audioTracks.length > 1;
+          final subtitleLabel =
+              PlayDetailTrackSelector.subtitleLabelForCurrentMedia(
+                selectedSubtitleGuid: _selectedSubtitleGuid,
+                subtitleTracks: subtitleTracks,
+                l10n: AppLocalizations.of(context),
+              );
+          final audioLabel = PlayDetailTrackSelector.audioLabelForCurrentMedia(
+            selectedAudioGuid: _selectedAudioGuid,
+            audioTracks: audioTracks,
+            selectedOption: selectedOption,
+            l10n: AppLocalizations.of(context),
+          );
 
-        final currentMediaGuid = _currentStreamOption()?.mediaGuid ?? '';
-        final localDownloadRecord = _downloadedRecordForCurrentItem();
-        final localDownloadedFile = _localDownloadedFileInfo(
-          localDownloadRecord,
-        );
-        final currentFile =
-            localDownloadedFile ??
-            ((currentMediaGuid.isNotEmpty)
-                ? _streamTrackData?.fileForMedia(currentMediaGuid)
-                : null);
-        final currentVideo = (currentMediaGuid.isNotEmpty)
-            ? _streamTrackData?.videoForMedia(currentMediaGuid)
-            : null;
-        final currentAudio = PlayDetailTrackSelector.selectedOrFirstAudio(
-          selectedAudioGuid: _selectedAudioGuid,
-          audioTracks: audioTracks,
-        );
-        final currentSubtitle = PlayDetailTrackSelector.selectedOrFirstSubtitle(
-          selectedSubtitleGuid: _selectedSubtitleGuid,
-          subtitleTracks: subtitleTracks,
-        );
-        final creditItems = _personCredits
-            .map(
-              (e) => CreditPersonItem(
-                personGuid: e.personGuid,
-                name: e.displayName,
-                subtitle: e.displaySubTitle,
-                imageUrls: deferAuxiliaryArtwork
-                    ? const <String>[]
-                    : ApiUrlHelper.personImageCandidates(
-                        provider.baseUrl,
-                        e.profilePath,
-                        width: 180,
-                      ),
-              ),
-            )
-            .toList();
-
-        pageBody = Scaffold(
-          backgroundColor: colors.backgroundBase,
-          body: Stack(
-            fit: StackFit.expand,
-            children: [
-              ValueListenableBuilder<double>(
-                valueListenable: _scrollOffsetNotifier,
-                builder: (context, offset, _) {
-                  return ImmersiveDetailBackground(
-                    urls: heroUrls,
-                    token: provider.token,
-                    scrollOffset: offset,
-                    posterHeight: posterHeight,
-                    imageScale: imageScale,
-                    imageFit: BoxFit.cover,
-                    imageAlignment: imageAlignment,
-                    parallaxFactor: 1.0,
-                    overlayOpacity: 0.62,
-                    ambientTintOverride: ambientTint,
-                  );
-                },
-              ),
-              CustomScrollView(
-                controller: _scrollController,
-                physics: const BouncingScrollPhysics(
-                  parent: AlwaysScrollableScrollPhysics(),
+          final currentMediaGuid = _currentStreamOption()?.mediaGuid ?? '';
+          final localDownloadRecord = _downloadedRecordForCurrentItem();
+          final localDownloadedFile = _localDownloadedFileInfo(
+            localDownloadRecord,
+          );
+          final currentFile =
+              localDownloadedFile ??
+              ((currentMediaGuid.isNotEmpty)
+                  ? _streamTrackData?.fileForMedia(currentMediaGuid)
+                  : null);
+          final currentVideo = (currentMediaGuid.isNotEmpty)
+              ? _streamTrackData?.videoForMedia(currentMediaGuid)
+              : null;
+          final currentAudio = PlayDetailTrackSelector.selectedOrFirstAudio(
+            selectedAudioGuid: _selectedAudioGuid,
+            audioTracks: audioTracks,
+          );
+          final currentSubtitle =
+              PlayDetailTrackSelector.selectedOrFirstSubtitle(
+                selectedSubtitleGuid: _selectedSubtitleGuid,
+                subtitleTracks: subtitleTracks,
+              );
+          final creditItems = _personCredits
+              .map(
+                (e) => CreditPersonItem(
+                  personGuid: e.personGuid,
+                  name: e.displayName,
+                  subtitle: e.displaySubTitle,
+                  imageUrls: deferAuxiliaryArtwork
+                      ? const <String>[]
+                      : ApiUrlHelper.personImageCandidates(
+                          provider.baseUrl,
+                          e.profilePath,
+                          width: 180,
+                        ),
                 ),
-                slivers: [
-                  SliverToBoxAdapter(
-                    child: FadeTransition(
-                      opacity: _headerTitleOpacity,
-                      child: DetailHeroOverlay(
-                        height: layout.infoStart,
-                        title: detailTitle,
-                        subtitle: episodeHeroSubtitle,
-                        titleFontSize: itemType == 'episode' ? 28 : null,
-                        bottomInset: itemType == 'episode' ? 20 : 36,
-                        useSoftGradient: true,
-                        titleChild: heroTitleChild,
+              )
+              .toList();
+
+          pageBody = Scaffold(
+            backgroundColor: Colors.transparent,
+            body: Stack(
+              fit: StackFit.expand,
+              children: [
+                CustomScrollView(
+                  controller: _scrollController,
+                  physics: const BouncingScrollPhysics(
+                    parent: AlwaysScrollableScrollPhysics(),
+                  ),
+                  slivers: [
+                    SliverToBoxAdapter(
+                      child: FadeTransition(
+                        opacity: _headerTitleOpacity,
+                        child: DetailHeroOverlay(
+                          height: layout.infoStart,
+                          title: detailTitle,
+                          subtitle: episodeHeroSubtitle,
+                          titleFontSize: itemType == 'episode' ? 28 : null,
+                          bottomInset: itemType == 'episode' ? 20 : 36,
+                          useSoftGradient: true,
+                          titleChild: heroTitleChild,
+                        ),
                       ),
                     ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: Container(
-                      color: colors.backgroundBase,
-                      padding: const EdgeInsets.fromLTRB(
-                        DetailTokens.screenHorizontalPadding,
-                        8,
-                        DetailTokens.screenHorizontalPadding,
-                        10,
-                      ),
-                      child: AnimatedSize(
-                        duration: _asyncContentFadeDuration,
-                        curve: Curves.easeOut,
-                        alignment: Alignment.topCenter,
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                            minHeight: reserveHeroInfoBlockHeight
-                                ? heroInfoBlockReservedHeight
-                                : 0.0,
-                          ),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              FadeTransition(
-                                opacity: _headerMetaOpacity,
-                                child: _asyncFadeSwitcher(
-                                  DetailMetaLines(
-                                    metaLineA: metaLineA,
-                                    metaLineB: metaLineB,
-                                  ),
-                                  switchKey: 'meta:$metaLineA|$metaLineB',
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              FadeTransition(
-                                opacity: _headerSelectorOpacity,
-                                child: _asyncFadeSwitcher(
-                                  DetailSelectorRow(
-                                    subtitleLabel: subtitleLabel,
-                                    audioLabel: audioLabel,
-                                    capabilityLabels: capabilityLabels,
-                                    showSubtitleArrow: showSubtitleArrow,
-                                    showAudioArrow: showAudioArrow,
-                                    subtitleExpanded: _subtitleSelectorExpanded,
-                                    audioExpanded: _audioSelectorExpanded,
-                                    onSubtitleTap: showSubtitleArrow
-                                        ? () => _showSubtitleSheet(context)
-                                        : null,
-                                    onAudioTap: showAudioArrow
-                                        ? () => _showAudioSheet(context)
-                                        : null,
-                                  ),
-                                  switchKey:
-                                      'selector:$subtitleLabel|$audioLabel|${capabilityLabels.join(",")}',
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              AnimatedBuilder(
-                                animation: _actionsPopController,
-                                builder: (context, child) {
-                                  return Opacity(
-                                    opacity: _actionsOpacity.value,
-                                    child: Transform.translate(
-                                      offset: Offset(
-                                        0,
-                                        _actionsTranslateY.value,
-                                      ),
-                                      child: Transform.scale(
-                                        scale: _actionsScale.value,
-                                        alignment: Alignment.topCenter,
-                                        child: child,
-                                      ),
+                    SliverToBoxAdapter(
+                      child: Container(
+                        color: colors.backgroundBase,
+                        padding: const EdgeInsets.fromLTRB(
+                          DetailTokens.screenHorizontalPadding,
+                          8,
+                          DetailTokens.screenHorizontalPadding,
+                          10,
+                        ),
+                        child: AnimatedSize(
+                          duration: _asyncContentFadeDuration,
+                          curve: Curves.easeOut,
+                          alignment: Alignment.topCenter,
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              minHeight: reserveHeroInfoBlockHeight
+                                  ? heroInfoBlockReservedHeight
+                                  : 0.0,
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                FadeTransition(
+                                  opacity: _headerMetaOpacity,
+                                  child: _asyncFadeSwitcher(
+                                    DetailMetaLines(
+                                      metaLineA: metaLineA,
+                                      metaLineB: metaLineB,
                                     ),
-                                  );
-                                },
-                                child: AnimatedBuilder(
-                                  animation: _downloadTaskService,
-                                  builder: (context, _) {
-                                    final downloaded =
-                                        _downloadedRecordForCurrentItem() !=
-                                        null;
-                                    return PlayActionBar(
-                                      progress: PlayDetailFormatters.progress(
-                                        effectiveDuration,
-                                        effectiveTs,
+                                    switchKey: 'meta:$metaLineA|$metaLineB',
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                FadeTransition(
+                                  opacity: _headerSelectorOpacity,
+                                  child: _asyncFadeSwitcher(
+                                    DetailSelectorRow(
+                                      subtitleLabel: subtitleLabel,
+                                      audioLabel: audioLabel,
+                                      capabilityLabels: capabilityLabels,
+                                      showSubtitleArrow: showSubtitleArrow,
+                                      showAudioArrow: showAudioArrow,
+                                      subtitleExpanded:
+                                          _subtitleSelectorExpanded,
+                                      audioExpanded: _audioSelectorExpanded,
+                                      onSubtitleTap: showSubtitleArrow
+                                          ? () => _showSubtitleSheet(context)
+                                          : null,
+                                      onAudioTap: showAudioArrow
+                                          ? () => _showAudioSheet(context)
+                                          : null,
+                                    ),
+                                    switchKey:
+                                        'selector:$subtitleLabel|$audioLabel|${capabilityLabels.join(",")}',
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                AnimatedBuilder(
+                                  animation: _actionsPopController,
+                                  builder: (context, child) {
+                                    return Opacity(
+                                      opacity: _actionsOpacity.value,
+                                      child: Transform.translate(
+                                        offset: Offset(
+                                          0,
+                                          _actionsTranslateY.value,
+                                        ),
+                                        child: Transform.scale(
+                                          scale: _actionsScale.value,
+                                          alignment: Alignment.topCenter,
+                                          child: child,
+                                        ),
                                       ),
-                                      remainText:
-                                          PlayDetailFormatters.remainText(
-                                            effectiveDuration,
-                                            effectiveTs,
-                                          ),
-                                      showProgress: showProgress,
-                                      primaryText: resolvedPlayText,
-                                      primaryEnabled: item.canPlay == 1,
-                                      liked: _liked,
-                                      watched: _watched,
-                                      downloaded: downloaded,
-                                      onPrimaryTap: _openPlayer,
-                                      onLikeTap: _toggleFavorite,
-                                      onDownloadTap: _handleDownloadTap,
-                                      onWatchedTap: _toggleWatched,
                                     );
                                   },
+                                  child: AnimatedBuilder(
+                                    animation: _downloadTaskService,
+                                    builder: (context, _) {
+                                      final downloaded =
+                                          _downloadedRecordForCurrentItem() !=
+                                          null;
+                                      return PlayActionBar(
+                                        progress: PlayDetailFormatters.progress(
+                                          effectiveDuration,
+                                          effectiveTs,
+                                        ),
+                                        remainText:
+                                            PlayDetailFormatters.remainText(
+                                              effectiveDuration,
+                                              effectiveTs,
+                                            ),
+                                        showProgress: showProgress,
+                                        primaryText: resolvedPlayText,
+                                        primaryEnabled: item.canPlay == 1,
+                                        liked: _liked,
+                                        watched: _watched,
+                                        downloaded: downloaded,
+                                        onPrimaryTap: _openPlayer,
+                                        onLikeTap: _toggleFavorite,
+                                        onDownloadTap: _handleDownloadTap,
+                                        onWatchedTap: _toggleWatched,
+                                      );
+                                    },
+                                  ),
                                 ),
-                              ),
-                              AnimatedBuilder(
-                                animation: _actionsPopController,
-                                builder: (context, child) {
-                                  return Opacity(
-                                    opacity: showResolutionSelector
-                                        ? _resolutionOpacity.value
-                                        : 1.0,
-                                    child: Transform.translate(
-                                      offset: Offset(
-                                        0,
-                                        showResolutionSelector
-                                            ? _resolutionTranslateY.value
-                                            : 0,
+                                AnimatedBuilder(
+                                  animation: _actionsPopController,
+                                  builder: (context, child) {
+                                    return Opacity(
+                                      opacity: showResolutionSelector
+                                          ? _resolutionOpacity.value
+                                          : 1.0,
+                                      child: Transform.translate(
+                                        offset: Offset(
+                                          0,
+                                          showResolutionSelector
+                                              ? _resolutionTranslateY.value
+                                              : 0,
+                                        ),
+                                        child: Transform.scale(
+                                          scale: showResolutionSelector
+                                              ? _resolutionScale.value
+                                              : 1.0,
+                                          alignment: Alignment.topCenter,
+                                          child: child,
+                                        ),
                                       ),
-                                      child: Transform.scale(
-                                        scale: showResolutionSelector
-                                            ? _resolutionScale.value
-                                            : 1.0,
-                                        alignment: Alignment.topCenter,
-                                        child: child,
-                                      ),
+                                    );
+                                  },
+                                  child: _asyncFadeSwitcher(
+                                    showResolutionSelector
+                                        ? DetailResolutionSection(
+                                            options: resolutionOptions,
+                                            selected: selectedKey,
+                                            onSelected: (index) {
+                                              setState(() {
+                                                _selectedStreamIndex = index;
+                                                _syncTrackSelectionForCurrentMedia();
+                                              });
+                                            },
+                                          )
+                                        : const SizedBox.shrink(),
+                                    switchKey:
+                                        'resolution:${showResolutionSelector ? resolutionOptions.join(",") : "empty"}|$selectedKey',
+                                  ),
+                                ),
+                                if (item.playError.isNotEmpty) ...[
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    _t(
+                                      'player.playbackError.playError',
+                                      'Playback error: {error}',
+                                      params: {'error': item.playError},
                                     ),
-                                  );
-                                },
-                                child: _asyncFadeSwitcher(
-                                  showResolutionSelector
-                                      ? DetailResolutionSection(
-                                          options: resolutionOptions,
-                                          selected: selectedKey,
-                                          onSelected: (index) {
-                                            setState(() {
-                                              _selectedStreamIndex = index;
-                                              _syncTrackSelectionForCurrentMedia();
-                                            });
-                                          },
-                                        )
-                                      : const SizedBox.shrink(),
-                                  switchKey:
-                                      'resolution:${showResolutionSelector ? resolutionOptions.join(",") : "empty"}|$selectedKey',
-                                ),
-                              ),
-                              if (item.playError.isNotEmpty) ...[
-                                const SizedBox(height: 12),
-                                Text(
-                                  _t(
-                                    'player.playbackError.playError',
-                                    'Playback error: {error}',
-                                    params: {'error': item.playError},
+                                    style: const TextStyle(
+                                      color: Colors.redAccent,
+                                    ),
                                   ),
-                                  style: const TextStyle(
-                                    color: Colors.redAccent,
-                                  ),
-                                ),
+                                ],
                               ],
-                            ],
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: AnimatedBuilder(
-                      animation: _descriptionPopController,
-                      builder: (context, child) {
-                        return Opacity(
-                          opacity: _descriptionVisible
-                              ? _descriptionOpacity.value
-                              : 0,
-                          child: Transform.translate(
-                            offset: Offset(
-                              0,
-                              _descriptionVisible
-                                  ? _descriptionTranslateY.value
-                                  : 10,
-                            ),
-                            child: Transform.scale(
-                              scale: _descriptionVisible
-                                  ? _descriptionScale.value
-                                  : 0.97,
-                              alignment: Alignment.topCenter,
-                              child: child,
-                            ),
-                          ),
-                        );
-                      },
-                      child: Container(
-                        color: colors.backgroundBase,
-                        padding: EdgeInsets.fromLTRB(
-                          DetailTokens.screenHorizontalPadding,
-                          4,
-                          DetailTokens.screenHorizontalPadding,
-                          media.padding.bottom + 18,
-                        ),
-                        child: DetailDescriptionSection(
-                          text: item.overview,
-                          onMoreTap: () {
-                            LongTextOverlayPage.show(
-                              context,
-                              title: detailTitle,
-                              sectionTitle: _t(
-                                'layout.details.overview.overview',
-                                'Overview',
+                    SliverToBoxAdapter(
+                      child: AnimatedBuilder(
+                        animation: _descriptionPopController,
+                        builder: (context, child) {
+                          return Opacity(
+                            opacity: _descriptionVisible
+                                ? _descriptionOpacity.value
+                                : 0,
+                            child: Transform.translate(
+                              offset: Offset(
+                                0,
+                                _descriptionVisible
+                                    ? _descriptionTranslateY.value
+                                    : 10,
                               ),
-                              content: item.overview,
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (_creditsVisible && creditItems.isNotEmpty)
-                    SliverToBoxAdapter(
-                      child: Container(
-                        color: colors.backgroundBase,
-                        padding: const EdgeInsets.fromLTRB(
-                          DetailTokens.screenHorizontalPadding,
-                          8,
-                          DetailTokens.screenHorizontalPadding,
-                          20,
-                        ),
-                        child: CreditsSection(
-                          title: _t(
-                            'layout.details.castAndCrew.title',
-                            'Cast and crew',
-                          ),
-                          items: creditItems,
-                          token: provider.token,
-                          onTap: _openCreditPerson,
-                        ),
-                      ),
-                    ),
-                  if (_fileInfoVisible)
-                    SliverToBoxAdapter(
-                      child: Container(
-                        color: colors.backgroundBase,
-                        padding: const EdgeInsets.fromLTRB(
-                          DetailTokens.screenHorizontalPadding,
-                          8,
-                          DetailTokens.screenHorizontalPadding,
-                          20,
-                        ),
-                        child: FileInfoSection(
-                          file: currentFile,
-                          authorizedDirs: _authorizedDirs,
-                          title: _t(
-                            'layout.details.fileInfo.title',
-                            'File info',
-                          ),
-                          locationLabel: _t(
-                            'layout.details.fileInfo.location',
-                            'File location',
-                          ),
-                          sizeLabel: _t(
-                            'layout.details.fileInfo.size',
-                            'File size',
-                          ),
-                          createdAtLabel: _t(
-                            'layout.details.fileInfo.createdAt',
-                            'File created at',
-                          ),
-                          addedAtLabel: _t(
-                            'layout.details.fileInfo.addedAt',
-                            'Added at',
-                          ),
-                          toggleToFriendlyLabel: _t(
-                            'layout.details.fileInfo.convert',
-                            'Convert',
-                          ),
-                          toggleToRawLabel: '/vol',
-                        ),
-                      ),
-                    ),
-                  if (_videoInfoVisible)
-                    SliverToBoxAdapter(
-                      child: Container(
-                        color: colors.backgroundBase,
-                        padding: const EdgeInsets.fromLTRB(
-                          DetailTokens.screenHorizontalPadding,
-                          8,
-                          DetailTokens.screenHorizontalPadding,
-                          20,
-                        ),
-                        child: VideoInfoSection(
-                          video: currentVideo,
-                          audio: currentAudio,
-                          subtitle: currentSubtitle,
-                          onViewAll: () => _showMediaInfoDetail(context),
-                        ),
-                      ),
-                    ),
-                  if (_linkVisible &&
-                      (_imdbId.trim().isNotEmpty || _trimId.trim().isNotEmpty))
-                    SliverToBoxAdapter(
-                      child: Container(
-                        color: colors.backgroundBase,
-                        padding: const EdgeInsets.fromLTRB(
-                          DetailTokens.screenHorizontalPadding,
-                          8,
-                          DetailTokens.screenHorizontalPadding,
-                          24,
-                        ),
-                        child: LinkSection(
-                          imdbId: _imdbId,
-                          tmdbId: _trimId,
-                          onImdbTap: _openImdb,
-                          onTmdbTap: _openTmdb,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-              ValueListenableBuilder<double>(
-                valueListenable: _scrollOffsetNotifier,
-                builder: (context, offset, _) {
-                  final collapseT = (offset / collapseRange).clamp(0.0, 1.0);
-                  final centerTitleOpacity = ((collapseT - 0.84) / 0.12).clamp(
-                    0.0,
-                    1.0,
-                  );
-                  return DetailFloatingTopBar(
-                    onBack: () => unawaited(
-                      EmbeddedDetailLauncher.closeHostOrPop(context),
-                    ),
-                    onMore: () => unawaited(
-                      showDetailMoreActionsSheet(
-                        context,
-                        pageKey: dynamicThemeKey,
-                        pageTitle: detailTitle,
-                        suggestedThemeName: context
-                            .read<AppThemeProvider>()
-                            .nextSavedThemeNameFromBase(
-                              _suggestedThemeNameBase(item, detailTitle),
+                              child: Transform.scale(
+                                scale: _descriptionVisible
+                                    ? _descriptionScale.value
+                                    : 0.97,
+                                alignment: Alignment.topCenter,
+                                child: child,
+                              ),
                             ),
-                        clearRuntimeBroadcastToMain: !inPlayerPaneHost,
+                          );
+                        },
+                        child: Container(
+                          color: colors.backgroundBase,
+                          padding: EdgeInsets.fromLTRB(
+                            DetailTokens.screenHorizontalPadding,
+                            4,
+                            DetailTokens.screenHorizontalPadding,
+                            media.padding.bottom + 18,
+                          ),
+                          child: DetailDescriptionSection(
+                            text: item.overview,
+                            onMoreTap: () {
+                              LongTextOverlayPage.show(
+                                context,
+                                title: detailTitle,
+                                sectionTitle: _t(
+                                  'layout.details.overview.overview',
+                                  'Overview',
+                                ),
+                                content: item.overview,
+                              );
+                            },
+                          ),
+                        ),
                       ),
                     ),
-                    title: detailTitle,
-                    titleOpacity: centerTitleOpacity,
-                    showBack: true,
-                  );
-                },
-              ),
-            ],
-          ),
-        );
+                    if (_creditsVisible && creditItems.isNotEmpty)
+                      SliverToBoxAdapter(
+                        child: _sectionReveal(
+                          child: Container(
+                            color: colors.backgroundBase,
+                            padding: const EdgeInsets.fromLTRB(
+                              DetailTokens.screenHorizontalPadding,
+                              8,
+                              DetailTokens.screenHorizontalPadding,
+                              20,
+                            ),
+                            child: CreditsSection(
+                              title: _t(
+                                'layout.details.castAndCrew.title',
+                                'Cast and crew',
+                              ),
+                              items: creditItems,
+                              token: provider.token,
+                              onTap: _openCreditPerson,
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (_fileInfoVisible)
+                      SliverToBoxAdapter(
+                        child: _sectionReveal(
+                          child: Container(
+                            color: colors.backgroundBase,
+                            padding: const EdgeInsets.fromLTRB(
+                              DetailTokens.screenHorizontalPadding,
+                              8,
+                              DetailTokens.screenHorizontalPadding,
+                              20,
+                            ),
+                            child: FileInfoSection(
+                              file: currentFile,
+                              authorizedDirs: _authorizedDirs,
+                              title: _t(
+                                'layout.details.fileInfo.title',
+                                'File info',
+                              ),
+                              locationLabel: _t(
+                                'layout.details.fileInfo.location',
+                                'File location',
+                              ),
+                              sizeLabel: _t(
+                                'layout.details.fileInfo.size',
+                                'File size',
+                              ),
+                              createdAtLabel: _t(
+                                'layout.details.fileInfo.createdAt',
+                                'File created at',
+                              ),
+                              addedAtLabel: _t(
+                                'layout.details.fileInfo.addedAt',
+                                'Added at',
+                              ),
+                              toggleToFriendlyLabel: _t(
+                                'layout.details.fileInfo.convert',
+                                'Convert',
+                              ),
+                              toggleToRawLabel: '/vol',
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (_videoInfoVisible)
+                      SliverToBoxAdapter(
+                        child: _sectionReveal(
+                          child: Container(
+                            color: colors.backgroundBase,
+                            padding: const EdgeInsets.fromLTRB(
+                              DetailTokens.screenHorizontalPadding,
+                              8,
+                              DetailTokens.screenHorizontalPadding,
+                              20,
+                            ),
+                            child: VideoInfoSection(
+                              video: currentVideo,
+                              audio: currentAudio,
+                              subtitle: currentSubtitle,
+                              onViewAll: () => _showMediaInfoDetail(context),
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (_linkVisible &&
+                        (_imdbId.trim().isNotEmpty ||
+                            _trimId.trim().isNotEmpty))
+                      SliverToBoxAdapter(
+                        child: _sectionReveal(
+                          child: Container(
+                            color: colors.backgroundBase,
+                            padding: const EdgeInsets.fromLTRB(
+                              DetailTokens.screenHorizontalPadding,
+                              8,
+                              DetailTokens.screenHorizontalPadding,
+                              24,
+                            ),
+                            child: LinkSection(
+                              imdbId: _imdbId,
+                              tmdbId: _trimId,
+                              onImdbTap: _openImdb,
+                              onTmdbTap: _openTmdb,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                ValueListenableBuilder<double>(
+                  valueListenable: _scrollOffsetNotifier,
+                  builder: (context, offset, _) {
+                    final collapseT = (offset / collapseRange).clamp(0.0, 1.0);
+                    final centerTitleOpacity = ((collapseT - 0.84) / 0.12)
+                        .clamp(0.0, 1.0);
+                    return DetailFloatingTopBar(
+                      onBack: () => unawaited(
+                        EmbeddedDetailLauncher.closeHostOrPop(context),
+                      ),
+                      onMore: () => unawaited(
+                        showDetailMoreActionsSheet(
+                          context,
+                          pageKey: dynamicThemeKey,
+                          pageTitle: detailTitle,
+                          suggestedThemeName: context
+                              .read<AppThemeProvider>()
+                              .nextSavedThemeNameFromBase(
+                                _suggestedThemeNameBase(item, detailTitle),
+                              ),
+                          clearRuntimeBroadcastToMain: !inPlayerPaneHost,
+                        ),
+                      ),
+                      title: detailTitle,
+                      titleOpacity: centerTitleOpacity,
+                      showBack: true,
+                    );
+                  },
+                ),
+              ],
+            ),
+          );
         }
-        return AppTransitions.crossFadeSwitch(
-          switchKey: 'detail-${_loading ? 'loading' : 'ready'}',
-          duration: AppTransitions.switchDuration,
-          child: pageBody,
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            // Persistent backdrop: stays mounted across loading→ready so it
+            // never reloads or double-fades. Only the foreground content
+            // crossfades on top of it.
+            RepaintBoundary(child: persistentBackground),
+            AppTransitions.crossFadeSwitch(
+              switchKey: 'detail-${_loading ? 'loading' : 'ready'}',
+              duration: AppTransitions.switchDuration,
+              child: pageBody,
+            ),
+          ],
         );
       },
     );

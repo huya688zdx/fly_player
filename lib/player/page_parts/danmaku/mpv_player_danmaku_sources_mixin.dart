@@ -197,6 +197,11 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
         comments: result.comments,
       );
       _activeDanmakuSourceKey = sourceKey;
+      // 手动导入即手动选择：持久化为激活源（最高优先），下次播放沿用。
+      await _danmakuSavedSourceStore.setActiveSourceKey(
+        mediaKey: _currentDanmakuMediaKey(),
+        sourceKey: sourceKey,
+      );
       await _danmakuSavedSourceStore.saveSource(
         DanmakuSavedSource(
           type: DanmakuSavedSourceType.localFile,
@@ -285,6 +290,11 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
         comments: result.comments,
       );
       _activeDanmakuSourceKey = source.sourceKey;
+      // 手动点选已保存源即手动选择：持久化为激活源（最高优先）。
+      await _danmakuSavedSourceStore.setActiveSourceKey(
+        mediaKey: source.mediaKey,
+        sourceKey: source.sourceKey,
+      );
       await _updateDanmakuSettings(
         (current) => current.copyWith(enabled: true),
       );

@@ -816,24 +816,28 @@ class PlayerFloatingLockButton extends StatelessWidget {
         opacity: visible ? 1 : 0,
         duration: kPlayerOverlayFadeDuration,
         curve: Curves.easeOutCubic,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(compact ? 16 : 18),
-            boxShadow: <BoxShadow>[
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.22),
-                blurRadius: compact ? 12 : 14,
-                offset: const Offset(0, 6),
+        // 把带模糊阴影的内容缓存成独立图层，淡入时只对图层做透明度合成，
+        // 避免每帧重算模糊阴影（这是 AnimatedOpacity 的官方高效路径）。
+        child: RepaintBoundary(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(compact ? 16 : 18),
+              boxShadow: <BoxShadow>[
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.22),
+                  blurRadius: compact ? 12 : 14,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: _PlayerTopGlassButtonShell(
+              compact: compact,
+              active: locked,
+              onPressed: onPressed,
+              child: Icon(
+                locked ? Icons.lock_rounded : Icons.lock_open_rounded,
+                size: compact ? 18 : 20,
               ),
-            ],
-          ),
-          child: _PlayerTopGlassButtonShell(
-            compact: compact,
-            active: locked,
-            onPressed: onPressed,
-            child: Icon(
-              locked ? Icons.lock_rounded : Icons.lock_open_rounded,
-              size: compact ? 18 : 20,
             ),
           ),
         ),

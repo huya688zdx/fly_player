@@ -1,5 +1,6 @@
 package com.geqian.flyplayer.fly_player.mpv
 
+import android.content.Context
 import android.os.SystemClock
 import android.util.Log
 
@@ -9,9 +10,19 @@ private const val ADVANCED_SETTINGS_DUPLICATE_APPLY_WINDOW_MS = 1500L
 class MpvAdvancedSettingsController(
     private val mpv: MpvFacade,
     private val videoOutputController: VideoOutputController,
+    private val context: Context,
 ) {
     private var settings: Map<String, String> = emptyMap()
     private var automaticFilterFallbackActive = false
+    // 性能阶梯第 1 级（视频）：剥离增强后仍掉帧时置位，把缩放强制到最省的 bilinear。
+    // balanced 的 spline36 chroma 在 4K60 HDR 上正是中端 GPU 撑不住的元凶。
+    private var adaptiveScaleDowngradeActive = false
+    // 会话级性能学习：触发过缩放降挡后记住——之后超高清内容直接从 bilinear 起步，
+    // 避免重载（恢复/seek 重解析）后又回 balanced→再卡→再降，重复 climb。仅控制器销毁随之消失，
+    // resetTransientOverrides（每次 load 都调）不清它，故能跨重载存活。
+    private var sessionScaleDowngradeForUltraHd = false
+    // 位流直通初始化失败后置位：本次播放强制走解码（apply 里 passthrough 让位给软件链）。
+    private var audioPassthroughFallbackActive = false
     private var lastApplyFingerprint: String = ""
     private var lastApplyUptimeMs: Long = 0L
     private var lastApplySucceeded = false
@@ -58,7 +69,7 @@ class MpvAdvancedSettingsController(
         var success = true
         success = applyDeband(adaptiveFilterBypass) && success
         success = applyVideoFilters(adaptiveFilterBypass) && success
-        success = applyScaleProfile(adaptiveFilterBypass) && success
+        success = applyScaleProfile(adaptiveFilterBypass, source) && success
         success = applyFrameInterpolation(adaptiveFilterBypass, source) && success
         success = applyVideoSync(adaptiveFilterBypass, source) && success
         success = applyCacheProfile(source) && success
@@ -79,6 +90,36 @@ class MpvAdvancedSettingsController(
 
     fun resetTransientOverrides() {
         automaticFilterFallbackActive = false
+        adaptiveScaleDowngradeActive = false
+        audioPassthroughFallbackActive = false
+    }
+
+    /** 当前是否处于位流直通输出（on 强制，或 auto 且设备支持，且未触发失败回退）。 */
+    fun isAudioPassthroughActive(): Boolean {
+        if (audioPassthroughFallbackActive) return false
+        return resolvePassthroughCodecs().isNotEmpty()
+    }
+
+    /**
+     * 直通初始化失败回退：置位后下次 apply 走解码链。仅在「当前应直通」时才算触发，返回是否变更。
+     * 由 [MpvPlaybackController] 的日志钩子在探测到 spdif/AudioTrack 初始化失败时调用。
+     */
+    fun triggerAudioPassthroughFallback(): Boolean {
+        if (audioPassthroughFallbackActive) return false
+        if (resolvePassthroughCodecs().isEmpty()) return false
+        audioPassthroughFallbackActive = true
+        Log.w(ADVANCED_SETTINGS_TAG, "audio passthrough init failed → fallback to decoded output")
+        return true
+    }
+
+    /** 解析当前应下发的 spdif 编码集（off / 设备不支持 / 已回退 → 空串）。 */
+    private fun resolvePassthroughCodecs(): String {
+        if (audioPassthroughFallbackActive) return ""
+        return when (settings["audio_passthrough"] ?: "off") {
+            "on" -> AudioPassthroughSupport.ALL_CODECS
+            "auto" -> AudioPassthroughSupport.supportedSpdifCodecs(context)
+            else -> ""
+        }
     }
 
     private fun buildApplyFingerprint(source: MpvSource): String {
@@ -89,6 +130,9 @@ class MpvAdvancedSettingsController(
         return listOf(
             normalizedSettings,
             automaticFilterFallbackActive.toString(),
+            adaptiveScaleDowngradeActive.toString(),
+            sessionScaleDowngradeForUltraHd.toString(),
+            audioPassthroughFallbackActive.toString(),
             source.isRemoteHttpSource().toString(),
             source.isUltraHighResolution().toString(),
             source.bitrate.toString(),
@@ -114,6 +158,32 @@ class MpvAdvancedSettingsController(
         automaticFilterFallbackActive = true
         val applied = apply(initialized, available, source)
         return applied || automaticFilterFallbackActive
+    }
+
+    /** 视频性能阶梯是否还有可降的空间（增强未全剥离，或缩放还没降到 fast）。 */
+    fun canEscalateVideoPerformanceFallback(): Boolean =
+        !automaticFilterFallbackActive || !adaptiveScaleDowngradeActive
+
+    /**
+     * 性能阶梯（视频级，对应方案 B）：检测到持续掉帧时一次性把渲染降到最省——剥离全部
+     * 增强（deband/sharpen/denoise/插帧/quality 缩放）并把缩放强制 bilinear。这是 4K/高码率
+     * HDR 在中端 GPU 上唯一能救回实时性的杠杆，不依赖 [hasHeavyVideoEnhancementsEnabled]
+     * （默认 balanced 也要能降）。返回是否产生了实际变化。
+     */
+    fun escalateVideoPerformanceFallback(
+        initialized: Boolean,
+        available: Boolean,
+        source: MpvSource,
+    ): Boolean {
+        if (!canEscalateVideoPerformanceFallback()) return false
+        automaticFilterFallbackActive = true
+        adaptiveScaleDowngradeActive = true
+        // 记住缩放降挡，跨重载存活（仅对超高清内容生效，见 applyScaleProfile）。
+        if (source.isUltraHighResolution()) sessionScaleDowngradeForUltraHd = true
+        // 返回"是否真的改了渲染状态"(标志由 false→true),而非 apply 的聚合成功值——后者会
+        // 被无关子步骤(如 vf 下发)拉成 false，误报成"没降级"。缩放降挡是无条件下发的。
+        apply(initialized, available, source)
+        return true
     }
 
     private fun applyDeband(adaptiveFilterBypass: Boolean): Boolean {
@@ -174,13 +244,16 @@ class MpvAdvancedSettingsController(
         return deinterlaceSuccess && vfSuccess
     }
 
-    private fun applyScaleProfile(adaptiveFilterBypass: Boolean): Boolean {
+    private fun applyScaleProfile(adaptiveFilterBypass: Boolean, source: MpvSource): Boolean {
         val requestedProfile = settings["scale_profile"] ?: "balanced"
         val profile =
-            if (adaptiveFilterBypass && requestedProfile == "quality") {
-                "balanced"
-            } else {
-                requestedProfile
+            when {
+                // 性能阶梯第 1 级：强制最省缩放（即便用户选的是 balanced/quality）。
+                adaptiveScaleDowngradeActive -> "fast"
+                // 会话已学到的降挡：重载后超高清内容仍直接走最省缩放，不重新 climb。
+                sessionScaleDowngradeForUltraHd && source.isUltraHighResolution() -> "fast"
+                adaptiveFilterBypass && requestedProfile == "quality" -> "balanced"
+                else -> requestedProfile
             }
         val scale =
             when (profile) {
@@ -197,6 +270,9 @@ class MpvAdvancedSettingsController(
     }
 
     private fun applyHdrMode(source: MpvSource): Boolean {
+        // 色调映射算法（仅 HDR→SDR 映射管线生效）。先于 HDR 模式下发，setAdvancedHdrMode 内部
+        // 若触发重配会一并用上新偏好。
+        videoOutputController.setToneMappingPreference(settings["tone_mapping"])
         videoOutputController.setAdvancedHdrMode(settings["hdr_mode"], source)
         return true
     }
@@ -295,9 +371,32 @@ class MpvAdvancedSettingsController(
     }
 
     private fun applyAudioProcessing(): Boolean {
+        // 位流直通（杜比/DTS）：与软件滤镜/EQ/混音互斥——清空 af、声道交给功放、volume 还原 100，
+        // 由功放/电视解码。off / 设备不支持 / 已回退时为空串，走下方常规解码链。
+        val passthroughCodecs = resolvePassthroughCodecs()
+        if (passthroughCodecs.isNotEmpty()) {
+            return runCatching {
+                mpv.setPropertyString("audio-spdif", passthroughCodecs)
+                mpv.setPropertyString("af", "")
+                mpv.setPropertyString("audio-channels", "auto")
+                mpv.setPropertyInt("volume-max", 100L)
+                mpv.setPropertyInt("volume", 100L)
+                Log.d(ADVANCED_SETTINGS_TAG, "audio passthrough active spdif=$passthroughCodecs")
+                true
+            }.getOrDefault(false)
+        }
+        // 非直通：确保清空 spdif（从直通切回 / 回退时），再走软件解码 + 滤镜链。
+        runCatching { mpv.setPropertyString("audio-spdif", "") }
         val highFidelityEnabled = (settings["audio_high_fidelity"] ?: "off") == "on"
+        // 手机端杜比全景声/空间音频：用户没强制立体声时，若系统 Spatializer 可用，输出原生多声道
+        // （降级链 7.1→5.1→stereo），让 Android 把 Atmos 声床虚拟化到喇叭/耳机。否则系统拿到的是
+        // 提前下混的立体声，空间音频无声床可虚拟化。
+        val spatialMultichannel =
+            settings["channel_mix"] != "stereo" &&
+                AudioSpatializerSupport.prefersMultichannelOutput(context)
         val channelMix =
             when {
+                spatialMultichannel -> "7.1,5.1,stereo"
                 highFidelityEnabled -> "auto-safe"
                 settings["channel_mix"] == "stereo" -> "stereo"
                 settings["channel_mix"] == "surround" -> "5.1"
@@ -325,6 +424,9 @@ class MpvAdvancedSettingsController(
             mpv.setPropertyInt("volume-max", volumeMax)
             mpv.setPropertyInt("volume", volumeMax)
             mpv.setPropertyString("af", afFilters.joinToString(","))
+            if (spatialMultichannel) {
+                Log.d(ADVANCED_SETTINGS_TAG, "spatial audio: multichannel output channels=$channelMix")
+            }
             true
         }.getOrDefault(false)
     }
