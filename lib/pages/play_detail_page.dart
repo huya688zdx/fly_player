@@ -380,7 +380,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   }
 
   DownloadTaskRecord? _downloadedRecordForCurrentItem() {
-    return _downloadTaskService.downloadedRecordForItem(_currentItemGuid);
+    return _downloadTaskService.downloadedRecordForItem(
+      _currentItemGuid,
+      mediaGuid: _currentStreamOption()?.mediaGuid ?? '',
+    );
   }
 
   StreamFileInfo? _localDownloadedFileInfo(DownloadTaskRecord? record) {

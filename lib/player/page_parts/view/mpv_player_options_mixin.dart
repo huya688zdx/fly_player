@@ -248,6 +248,7 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
   ) {
     return DownloadTaskService.instance.downloadedRecordForItem(
       _currentItemGuid,
+      mediaGuid: quality.mediaGuid,
       resolution: _qualityLabel(quality),
     );
   }

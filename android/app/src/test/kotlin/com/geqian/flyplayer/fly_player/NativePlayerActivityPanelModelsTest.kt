@@ -259,4 +259,49 @@ class NativePlayerActivityPanelModelsTest {
         assertEquals(false, nativePanelShouldStartAutoNextCountdown(false, true))
         assertEquals(false, nativePanelShouldStartAutoNextCountdown(true, false))
     }
+
+    @Test
+    fun episodeVersionsRequireMultipleMediaGuids() {
+        val singleVersion = listOf(
+            mapOf<String, Any?>("mediaGuid" to "m1", "resolution" to "1080P", "bitrate" to 8_000_000),
+            mapOf<String, Any?>("mediaGuid" to "m1", "resolution" to "720P", "bitrate" to 4_000_000),
+        )
+        val multiVersion = listOf(
+            mapOf<String, Any?>("mediaGuid" to "m1", "resolution" to "1080P", "bitrate" to 8_000_000),
+            mapOf<String, Any?>("mediaGuid" to "m2", "resolution" to "1080P", "bitrate" to 7_000_000),
+        )
+
+        assertEquals(emptyList<NativeEpisodeVersionEntry>(), nativePanelEpisodeVersionEntries(singleVersion))
+        assertEquals(2, nativePanelEpisodeVersionEntries(multiVersion).size)
+    }
+
+    @Test
+    fun episodeVersionsKeepOriginalOrHighestBitratePerMediaGuid() {
+        val qualities = listOf(
+            mapOf<String, Any?>(
+                "mediaGuid" to "m1",
+                "resolution" to "720P",
+                "bitrate" to 4_000_000,
+                "source" to "serverSession",
+            ),
+            mapOf<String, Any?>(
+                "mediaGuid" to "m1",
+                "resolution" to "1080P",
+                "bitrate" to 8_000_000,
+                "source" to "originalProxy",
+            ),
+            mapOf<String, Any?>(
+                "mediaGuid" to "m2",
+                "resolution" to "1080P",
+                "bitrate" to 7_000_000,
+                "source" to "serverSession",
+            ),
+        )
+
+        val versions = nativePanelEpisodeVersionEntries(qualities)
+
+        assertEquals(2, versions.size)
+        assertEquals(1, versions[0].sourceIndex)
+        assertEquals("1080P · 原画 · 8 Mbps", nativePanelEpisodeVersionSummary(versions[0].quality))
+    }
 }

@@ -26,6 +26,8 @@ import android.os.Bundle
 import android.util.Rational
 import android.util.Log
 import android.util.TypedValue
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
 import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
@@ -233,6 +235,57 @@ internal fun nativePanelQualityTierLabel(rank: Int): String {
         rank > 0 -> "${rank}P"
         else -> ""
     }
+}
+
+internal data class NativeEpisodeVersionEntry(
+    val sourceIndex: Int,
+    val mediaGuid: String,
+    val quality: Map<String, Any?>,
+)
+
+internal fun nativePanelEpisodeVersionEntries(
+    qualities: List<Map<String, Any?>>,
+): List<NativeEpisodeVersionEntry> {
+    val bestByMediaGuid = LinkedHashMap<String, NativeEpisodeVersionEntry>()
+    for ((index, quality) in qualities.withIndex()) {
+        val mediaGuid = quality["mediaGuid"]?.toString()?.trim().orEmpty()
+        if (mediaGuid.isEmpty()) continue
+        val current = NativeEpisodeVersionEntry(index, mediaGuid, quality)
+        val existing = bestByMediaGuid[mediaGuid]
+        if (existing == null || nativePanelPreferEpisodeVersionQuality(current.quality, existing.quality)) {
+            bestByMediaGuid[mediaGuid] = current
+        }
+    }
+    return bestByMediaGuid.values.toList().takeIf { it.size > 1 }.orEmpty()
+}
+
+internal fun nativePanelEpisodeVersionSummary(quality: Map<String, Any?>): String {
+    val resolution = quality["resolution"]?.toString()?.trim().orEmpty()
+        .ifEmpty { nativePanelQualityTierLabel(nativePanelQualityTierRank(quality["resolution"]?.toString())) }
+        .ifEmpty { "版本" }
+    val source = when (quality["source"]?.toString()) {
+        "originalProxy" -> "原画"
+        "directLink" -> "直链"
+        "serverSession" -> "转码"
+        else -> if (nativePanelTruthy(quality["isDefault"])) "原画" else ""
+    }
+    val bitrate = nativePanelQualityBitrate(quality).takeIf { it > 0 }?.let {
+        "${String.format("%.0f", it / 1_000_000.0)} Mbps"
+    }.orEmpty()
+    return listOf(resolution, source, bitrate).filter { it.isNotEmpty() }.joinToString(" · ")
+}
+
+private fun nativePanelPreferEpisodeVersionQuality(
+    candidate: Map<String, Any?>,
+    current: Map<String, Any?>,
+): Boolean {
+    val candidateDefault = nativePanelTruthy(candidate["isDefault"])
+    val currentDefault = nativePanelTruthy(current["isDefault"])
+    if (candidateDefault != currentDefault) return candidateDefault
+    val candidateOriginal = candidate["source"]?.toString() == "originalProxy"
+    val currentOriginal = current["source"]?.toString() == "originalProxy"
+    if (candidateOriginal != currentOriginal) return candidateOriginal
+    return nativePanelQualityBitrate(candidate) > nativePanelQualityBitrate(current)
 }
 
 internal data class NativeWeakNetworkQualityRecommendation(
@@ -514,6 +567,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private var currentEpisodeRangeIndex = -1
     private var episodeViewMode = 1
     private var customQualityTabTitle = ""
+    private var expandedEpisodeVersionGuid: String? = null
 
     private var controlsVisible = true
     private var userSeeking = false
@@ -591,6 +645,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private lateinit var batteryLabel: TextView
     private lateinit var networkLabel: TextView
     private var batteryReceiverRegistered = false
+    // OnBackInvokedCallback（API 33+）；用 Any? 持有，避免旧设备类加载该 API 类型。
+    private var backInvokedCallback: Any? = null
     private var inPipMode = false
 
     private var danmakuEnabled = true
@@ -1670,6 +1726,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
         applyLoadArgs(loadArgs, danmakuPayload)
         scheduleControlsAutoHide()
+        registerBackHandler()
         maybeAutoEnterSplit()
     }
 
@@ -2744,6 +2801,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             return
         }
         currentEpisodeRangeIndex = -1 // 每次打开按当前集重算分页
+        expandedEpisodeVersionGuid = null
         togglePanel(PanelPage(title) { buildEpisodePanelContent() })
     }
 
@@ -2801,6 +2859,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
                 tabBtn.setOnClickListener {
                     currentEpisodeRangeIndex = i
+                    expandedEpisodeVersionGuid = null
                     renderTopPanel()
                 }
                 tabLayout.addView(tabBtn, params)
@@ -2816,10 +2875,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val startIdx = currentEpisodeRangeIndex * rangeSize
         val endIdx = ((currentEpisodeRangeIndex + 1) * rangeSize).coerceAtMost(episodes.size)
         val visibleEpisodes = episodes.subList(startIdx, endIdx)
+        val versionEntries = nativePanelEpisodeVersionEntries(qualityList())
 
         for (episode in visibleEpisodes) {
             val guid = episode["itemGuid"]?.toString().orEmpty()
             val isSelected = guid == currentGuid
+            val canExpandVersions = isSelected && versionEntries.isNotEmpty()
+            val versionsExpanded = expandedEpisodeVersionGuid == guid && canExpandVersions
 
             val itemView = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -2834,6 +2896,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 }
                 isClickable = true
                 setOnClickListener {
+                    if (expandedEpisodeVersionGuid != null) {
+                        expandedEpisodeVersionGuid = null
+                        renderTopPanel()
+                        return@setOnClickListener
+                    }
                     if (guid != currentGuid) {
                         requestEpisode(guid)
                         hidePanel()
@@ -2889,14 +2956,37 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             }
             infoLayout.addView(epTitle)
 
+            val metaRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
             val durationText = formatTime((episode["duration"] as? Number)?.toLong()?.times(1000) ?: 0L)
-            val epDuration = TextView(this).apply {
+            metaRow.addView(TextView(this).apply {
                 text = durationText
                 setTextColor(0xFFAAAAAA.toInt())
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            if (canExpandVersions) {
+                metaRow.addView(TextView(this).apply {
+                    text = if (versionsExpanded) "收起" else "多版本"
+                    setTextColor(ACCENT)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                    setPadding(dp(10), dp(4), dp(10), dp(4))
+                    gravity = Gravity.CENTER
+                    background = GradientDrawable().apply {
+                        cornerRadius = dp(8).toFloat()
+                        setColor(if (versionsExpanded) 0x243A82F7 else Color.TRANSPARENT)
+                        setStroke(dp(1), ACCENT)
+                    }
+                    isClickable = true
+                    setOnClickListener {
+                        expandedEpisodeVersionGuid = if (versionsExpanded) null else guid
+                        renderTopPanel()
+                    }
+                })
             }
-            infoLayout.addView(epDuration, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
+            infoLayout.addView(metaRow, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(6) })
 
@@ -2918,9 +3008,76 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
             itemView.addView(infoLayout, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
             listContainer.addView(itemView)
+            if (versionsExpanded) {
+                listContainer.addView(buildEpisodeVersionExpansion(versionEntries))
+            }
             listContainer.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
         }
         panelContent.addView(listContainer)
+    }
+
+    private fun buildEpisodeVersionExpansion(
+        entries: List<NativeEpisodeVersionEntry>,
+    ): View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(172), dp(2), dp(16), dp(10))
+            for ((index, entry) in entries.withIndex()) {
+                val selected = qualityMatchesCurrentPlayback(entry.quality)
+                addView(
+                    LinearLayout(context).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        background = panelTileBackground(selected)
+                        setPadding(dp(12), dp(10), dp(12), dp(10))
+                        isClickable = true
+                        setOnClickListener {
+                            expandedEpisodeVersionGuid = null
+                            if (selected) {
+                                renderTopPanel()
+                            } else {
+                                hidePanel()
+                                requestQuality(entry.sourceIndex, "正在切换版本…")
+                            }
+                        }
+                        addView(
+                            LinearLayout(context).apply {
+                                orientation = LinearLayout.VERTICAL
+                                addView(TextView(context).apply {
+                                    text = "版本 ${index + 1}"
+                                    setTextColor(if (selected) ACCENT else Color.WHITE)
+                                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                                })
+                                addView(TextView(context).apply {
+                                    text = nativePanelEpisodeVersionSummary(entry.quality)
+                                    setTextColor(if (selected) ACCENT else TEXT_DIM)
+                                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                                    maxLines = 1
+                                    ellipsize = android.text.TextUtils.TruncateAt.END
+                                    setPadding(0, dp(2), 0, 0)
+                                })
+                            },
+                            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
+                        )
+                        if (selected) {
+                            addView(TextView(context).apply {
+                                text = "✓"
+                                setTextColor(ACCENT)
+                                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                            })
+                        }
+                    },
+                    LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                    ).apply {
+                        if (index > 0) topMargin = dp(6)
+                    },
+                )
+            }
+        }
     }
 
     private fun showSpeedPicker() {
@@ -3918,6 +4075,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
      * 重建 Activity（onDestroy+releaseMpv+重建 mpv），连续切集时 mpv/surface 交叠会闪退。
      */
     private fun requestEpisode(itemGuid: String) {
+        expandedEpisodeVersionGuid = null
         showNetworkLoadingHint("正在切换…")
         cancelControlsAutoHide()
         NativePlayerReverseBridge.dispatch(
@@ -6476,23 +6634,54 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     // ---- 返回键 ----
 
     /**
-     * 系统返回键分层处理，避免误退出播放：
+     * 返回键分层处理，避免误退出播放：
      *  1. 二级面板打开 → 在面板内回退一层 / 关闭面板。
      *  2. 锁定态 → 吞掉返回键，仅亮出锁按钮提示先解锁，绝不退出。
-     *  3. 其余 → 默认行为（退出播放）。
+     *  3. 其余 → 退出播放。
+     *
+     * 返回 true 表示已消费（不退出）。targetSdk≥35 的设备默认走预测式返回
+     * （OnBackInvokedCallback），onBackPressed() 不再被调用，故两条路径都接到这里。
      */
-    @Suppress("DEPRECATION")
-    override fun onBackPressed() {
+    private fun consumeBackEvent(): Boolean {
         if (panelVisible) {
             if (panelStack.size > 1) popPanel() else hidePanel()
-            return
+            return true
         }
         if (isLocked) {
             setControlsVisible(true)
             showTransientHint("已锁定，点按锁图标解锁")
-            return
+            return true
         }
+        return false
+    }
+
+    /** 旧设备（API < 33，或未启用预测式返回）走经典 onBackPressed。 */
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() {
+        if (consumeBackEvent()) return
         super.onBackPressed()
+    }
+
+    /** 新设备（API ≥ 33，targetSdk≥35 默认启用）需主动注册返回回调，否则返回键直接退出。 */
+    private fun registerBackHandler() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (backInvokedCallback != null) return
+        val callback = OnBackInvokedCallback {
+            if (!consumeBackEvent()) finish()
+        }
+        backInvokedCallback = callback
+        onBackInvokedDispatcher.registerOnBackInvokedCallback(
+            OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+            callback,
+        )
+    }
+
+    private fun unregisterBackHandler() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        (backInvokedCallback as? OnBackInvokedCallback)?.let {
+            onBackInvokedDispatcher.unregisterOnBackInvokedCallback(it)
+        }
+        backInvokedCallback = null
     }
 
     // ---- 生命周期 ----
@@ -6563,6 +6752,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         cancelAutoNext()
         unregisterBatteryReceiver()
         unregisterNetworkMonitor()
+        unregisterBackHandler()
         if (this::resumeCard.isInitialized) resumeCard.removeCallbacks(resumeHideRunnable)
         if (this::playerSurface.isInitialized) {
             playerSurface.release()

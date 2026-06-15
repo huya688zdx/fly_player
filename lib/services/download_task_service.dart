@@ -42,6 +42,47 @@ class DownloadStartResult {
   const DownloadStartResult({required this.state, required this.record});
 }
 
+DownloadTaskRecord? selectDownloadedRecordForItem(
+  Iterable<DownloadTaskRecord> records,
+  String itemGuid, {
+  String mediaGuid = '',
+  String resolution = '',
+  required bool Function(DownloadTaskRecord record) isAvailable,
+}) {
+  final normalizedItemGuid = itemGuid.trim();
+  final normalizedMediaGuid = mediaGuid.trim();
+  final normalizedResolution = resolution.trim().toLowerCase();
+  if (normalizedItemGuid.isEmpty) return null;
+
+  bool matchesBase(DownloadTaskRecord record) {
+    if (record.itemGuid != normalizedItemGuid) return false;
+    if (!isAvailable(record)) return false;
+    if (normalizedResolution.isNotEmpty &&
+        record.resolution.trim().toLowerCase() != normalizedResolution) {
+      return false;
+    }
+    return true;
+  }
+
+  if (normalizedMediaGuid.isNotEmpty) {
+    for (final record in records) {
+      if (!matchesBase(record)) continue;
+      if (record.mediaGuid.trim() == normalizedMediaGuid) return record;
+    }
+    return null;
+  }
+
+  for (final record in records) {
+    if (matchesBase(record)) return record;
+  }
+  if (normalizedResolution.isEmpty) return null;
+  for (final record in records) {
+    if (record.itemGuid != normalizedItemGuid) continue;
+    if (isAvailable(record)) return record;
+  }
+  return null;
+}
+
 /// 描述离线下载恢复扫描的统计结果。
 class DownloadRecoveryResult {
   final int scannedVideoCount;
@@ -282,26 +323,16 @@ class DownloadTaskService extends ChangeNotifier {
   /// 查询指定条目及清晰度对应的已下载记录。
   DownloadTaskRecord? downloadedRecordForItem(
     String itemGuid, {
+    String mediaGuid = '',
     String resolution = '',
   }) {
-    final normalizedItemGuid = itemGuid.trim();
-    final normalizedResolution = resolution.trim().toLowerCase();
-    if (normalizedItemGuid.isEmpty) return null;
-    for (final record in _records) {
-      if (record.itemGuid != normalizedItemGuid) continue;
-      if (!_isDownloadedRecordAvailable(record)) continue;
-      if (normalizedResolution.isNotEmpty &&
-          record.resolution.trim().toLowerCase() != normalizedResolution) {
-        continue;
-      }
-      return record;
-    }
-    if (normalizedResolution.isEmpty) return null;
-    for (final record in _records) {
-      if (record.itemGuid != normalizedItemGuid) continue;
-      if (_isDownloadedRecordAvailable(record)) return record;
-    }
-    return null;
+    return selectDownloadedRecordForItem(
+      _records,
+      itemGuid,
+      mediaGuid: mediaGuid,
+      resolution: resolution,
+      isAvailable: _isDownloadedRecordAvailable,
+    );
   }
 
   /// 返回指定条目的全部已下载记录。
