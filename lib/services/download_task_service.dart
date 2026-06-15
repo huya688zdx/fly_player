@@ -162,6 +162,12 @@ class DownloadTaskService extends ChangeNotifier {
 
   final List<DownloadTaskRecord> _records = <DownloadTaskRecord>[];
   final Map<String, CancelToken> _cancelTokens = <String, CancelToken>{};
+
+  /// 正在创建中的下载任务（按 条目+版本+清晰度 去重）。
+  /// 用于把快速重复点击折叠到同一个在途任务上，避免双击生成两个服务端任务、
+  /// 两个下载目录（文件夹「拉屎」）以及多余的暂停任务。
+  final Map<String, Future<DownloadStartResult>> _inFlightStarts =
+      <String, Future<DownloadStartResult>>{};
   final Map<String, int> _downloadSpeedBytesPerSecond = <String, int>{};
   final Map<String, _DownloadProgressSample> _downloadProgressSamples =
       <String, _DownloadProgressSample>{};
@@ -877,24 +883,37 @@ class DownloadTaskService extends ChangeNotifier {
         .toList(growable: false);
     if (targets.isEmpty) return 0;
 
+    final remainingGroupDirectories = _records
+        .where(
+          (record) =>
+              !targets.any((target) => target.id == record.id) &&
+              record.filePath.trim().isNotEmpty,
+        )
+        .map((record) => _recoveredGroupDirectoryForVideo(record.filePath).path)
+        .toSet();
+    final affectedGroupDirectories = <String>{};
+
     for (final record in targets) {
       _cancelTokens.remove(record.id)?.cancel();
       _clearDownloadSpeed(record.id);
       _stopDownloadTaskProgressPolling(record.id);
       final path = record.filePath.trim();
-      if (path.isNotEmpty) {
-        final file = File(path);
-        if (file.existsSync()) {
-          try {
-            await file.delete();
-          } catch (_) {}
-        }
-      }
+      if (path.isEmpty) continue;
+      affectedGroupDirectories.add(_recoveredGroupDirectoryForVideo(path).path);
+      // 取消下载只删了视频文件会残留专属目录 / .part / 封面（文件夹「拉屎」），
+      // 这里与已下载项删除一致：清掉断点文件并递归删除整个记录目录。
+      await _deleteIfExists(File('$path.part'));
+      await _deleteRecordArtifacts(record);
     }
 
     _records.removeWhere(
       (record) => targets.any((target) => target.id == record.id),
     );
+    for (final groupDirectory in affectedGroupDirectories) {
+      if (remainingGroupDirectories.contains(groupDirectory)) continue;
+      await _deleteSharedGroupArtwork(groupDirectory);
+      await _deleteEmptyDirectoriesUpward(Directory(groupDirectory));
+    }
     _sortRecords();
     notifyListeners();
     await _persist();
@@ -914,7 +933,50 @@ class DownloadTaskService extends ChangeNotifier {
   }
 
   /// 创建或复用离线下载任务，并返回启动结果。
+  ///
+  /// 同一 条目+版本+清晰度 的并发调用会折叠到同一个在途任务上：快速双击
+  /// 「下载」不会再生成两个服务端任务 / 两个下载目录。
   Future<DownloadStartResult> startDownload({
+    required NasProvider provider,
+    required String itemGuid,
+    required String resolution,
+    String mediaGuid = '',
+    required String title,
+    required String groupId,
+    required String groupTitle,
+    required String durationText,
+    required List<String> posterUrls,
+    List<String> groupPosterUrls = const <String>[],
+    SubtitleTrackOption? preferredSubtitleTrack,
+    String preferredSubtitleGuid = '',
+  }) {
+    final dedupKey =
+        '${itemGuid.trim()}|${mediaGuid.trim()}|${resolution.trim().toLowerCase()}';
+    final inFlight = _inFlightStarts[dedupKey];
+    if (inFlight != null) return inFlight;
+    final future = _runStartDownload(
+      provider: provider,
+      itemGuid: itemGuid,
+      resolution: resolution,
+      mediaGuid: mediaGuid,
+      title: title,
+      groupId: groupId,
+      groupTitle: groupTitle,
+      durationText: durationText,
+      posterUrls: posterUrls,
+      groupPosterUrls: groupPosterUrls,
+      preferredSubtitleTrack: preferredSubtitleTrack,
+      preferredSubtitleGuid: preferredSubtitleGuid,
+    );
+    _inFlightStarts[dedupKey] = future;
+    return future.whenComplete(() {
+      if (identical(_inFlightStarts[dedupKey], future)) {
+        _inFlightStarts.remove(dedupKey);
+      }
+    });
+  }
+
+  Future<DownloadStartResult> _runStartDownload({
     required NasProvider provider,
     required String itemGuid,
     required String resolution,
