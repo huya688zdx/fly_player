@@ -310,6 +310,13 @@ class NativePlayerActivityPanelModelsTest {
     }
 
     @Test
+    fun bitrateLabelKeepsFractionInsteadOfRoundingToZero() {
+        assertEquals("0.64 Mbps", nativePanelBitrateLabel(640_000))
+        assertEquals("0.99 Mbps", nativePanelBitrateLabel(999_999))
+        assertEquals("17 Mbps", nativePanelBitrateLabel(17_000_000))
+    }
+
+    @Test
     fun episodeVersionTitleUsesSourceFileNameWhenPresent() {
         assertEquals(
             "BDRip.mkv",
