@@ -136,6 +136,56 @@ internal fun nativePanelSubtitleSummary(
     return selected?.let(::nativePanelTrackLabel) ?: "未选择"
 }
 
+internal fun nativePanelSubtitleCanRemove(track: Map<String, Any?>): Boolean {
+    val guid = track["guid"]?.toString()?.trim()?.lowercase().orEmpty()
+    return guid.startsWith("local:") ||
+        nativePanelTruthy(track["isExternal"]) ||
+        nativePanelTruthy(track["extraFile"])
+}
+
+internal fun nativePanelSubtitleDisplayTitle(track: Map<String, Any?>): String {
+    val rawLanguage = track["language"]?.toString().orEmpty()
+    val language = nativePanelLanguageName(rawLanguage)
+        .takeUnless { it == "未知" }
+        .orEmpty()
+    val title = track["title"]?.toString()?.trim().orEmpty()
+    val base = when {
+        language.isNotEmpty() -> language
+        title.isNotEmpty() -> title
+        else -> "字幕"
+    }
+    val suffix = when {
+        nativePanelSubtitleCanRemove(track) -> "外挂"
+        nativePanelTruthy(track["isDefault"]) -> "默认"
+        else -> ""
+    }
+    return if (suffix.isNotEmpty()) "$base-$suffix" else base
+}
+
+internal fun nativePanelSubtitleDisplaySubtitle(track: Map<String, Any?>): String {
+    val format = (
+        track["format"]?.toString()?.trim()
+            ?: ""
+        ).ifEmpty { track["codecName"]?.toString()?.trim().orEmpty() }
+        .uppercase()
+    val language = nativePanelLanguageName(track["language"]?.toString().orEmpty())
+        .takeUnless { it == "未知" }
+        .orEmpty()
+    val parts = listOf(format, language).filter { it.isNotEmpty() }
+    return parts.joinToString("  ").ifEmpty {
+        track["title"]?.toString()?.trim().orEmpty()
+    }
+}
+
+private fun nativePanelTruthy(value: Any?): Boolean {
+    return when (value) {
+        is Boolean -> value
+        is Number -> value.toInt() == 1
+        is String -> value == "1" || value.equals("true", ignoreCase = true)
+        else -> false
+    }
+}
+
 internal fun nativePanelQualitySummary(
     playbackMode: String?,
     currentResolution: String?,
@@ -148,6 +198,205 @@ internal fun nativePanelQualitySummary(
         ?.getOrNull(1)
         ?.toIntOrNull()
     return if (vertical != null && vertical > 0) "${vertical}P" else "原画"
+}
+
+/**
+ * 画质档位等级：把分辨率（可为 "4k"/"4K HDR"/"1080P"/"1920x1080" 等）归一到竖直像素档。
+ * 主面板据此把同档位合并（4k 与 4K HDR 同为 2160 档收成一张卡）、按档位排序与高亮。
+ * 无法识别返回 0。
+ */
+internal fun nativePanelQualityTierRank(resolution: String?): Int {
+    val raw = resolution?.trim().orEmpty()
+    if (raw.isEmpty()) return 0
+    val lower = raw.lowercase()
+    // 形如 1920x1080 / 3840×2160：取较小一侧作为竖直分辨率。
+    Regex("""(\d{2,5})\s*[x×]\s*(\d{2,5})""").find(lower)?.let { m ->
+        val a = m.groupValues[1].toIntOrNull() ?: 0
+        val b = m.groupValues[2].toIntOrNull() ?: 0
+        if (a > 0 && b > 0) return minOf(a, b)
+    }
+    Regex("""(\d{3,4})""").find(lower)?.value?.toIntOrNull()?.let { return it }
+    return when {
+        lower.contains("8k") || lower.contains("4320") -> 4320
+        lower.contains("4k") || lower.contains("2160") -> 2160
+        lower.contains("2k") || lower.contains("1440") -> 1440
+        else -> 0
+    }
+}
+
+/** 档位等级 → 主面板卡片显示名：2160→"4k"、4320→"8k"、1440→"2k"，其余 "<rank>P"，未知为空。 */
+internal fun nativePanelQualityTierLabel(rank: Int): String {
+    return when {
+        rank >= 4320 -> "8k"
+        rank == 2160 -> "4k"
+        rank in 1430..1450 -> "2k"
+        rank > 0 -> "${rank}P"
+        else -> ""
+    }
+}
+
+internal data class NativeWeakNetworkQualityRecommendation(
+    val qualityIndex: Int,
+    val qualityLabel: String,
+    val details: String,
+)
+
+internal fun nativePanelRecommendWeakNetworkQuality(
+    qualities: List<Map<String, Any?>>,
+    currentQuality: Map<String, Any?>,
+    networkSpeedBytesPerSecond: Long,
+    estimatedResumeWaitMs: Long? = null,
+): NativeWeakNetworkQualityRecommendation? {
+    if (qualities.isEmpty()) return null
+    val sorted = qualities.withIndex().sortedWith { left, right ->
+        nativePanelCompareQualityPreference(left.value, right.value)
+    }
+    val target = nativePanelBestWeakNetworkTarget(
+        sorted = sorted,
+        currentQuality = currentQuality,
+        networkSpeedBytesPerSecond = networkSpeedBytesPerSecond,
+    ) ?: return null
+    if (nativePanelSameQuality(target.value, currentQuality)) return null
+
+    val currentBitrate = nativePanelQualityBitrate(currentQuality)
+    val targetBitrate = nativePanelQualityBitrate(target.value)
+    if (currentBitrate <= 0 || targetBitrate <= 0) return null
+    if (targetBitrate > (currentBitrate * 0.8).toLong()) return null
+
+    return NativeWeakNetworkQualityRecommendation(
+        qualityIndex = target.index,
+        qualityLabel = nativePanelWeakNetworkQualityLabel(target.value),
+        details = nativePanelWeakNetworkDetails(
+            networkSpeedBytesPerSecond = networkSpeedBytesPerSecond,
+            estimatedResumeWaitMs = estimatedResumeWaitMs,
+        ),
+    )
+}
+
+internal fun nativePanelShouldStartAutoNextCountdown(
+    autoPlayEnabled: Boolean,
+    hasNextEpisode: Boolean,
+): Boolean = autoPlayEnabled && hasNextEpisode
+
+private fun nativePanelBestWeakNetworkTarget(
+    sorted: List<IndexedValue<Map<String, Any?>>>,
+    currentQuality: Map<String, Any?>,
+    networkSpeedBytesPerSecond: Long,
+): IndexedValue<Map<String, Any?>>? {
+    if (networkSpeedBytesPerSecond > 0) {
+        val maxSafeBitrateBitsPerSecond = (networkSpeedBytesPerSecond * 8 * 0.9).toLong()
+        for (entry in sorted) {
+            val bitrate = nativePanelQualityBitrate(entry.value)
+            if (bitrate <= 0 || bitrate > maxSafeBitrateBitsPerSecond) continue
+            return if (nativePanelSameQuality(entry.value, currentQuality)) null else entry
+        }
+    }
+
+    val currentIndex = sorted.indexOfFirst { nativePanelSameQuality(it.value, currentQuality) }
+    val currentBitrate = nativePanelQualityBitrate(currentQuality)
+    if (currentIndex >= 0) {
+        for (index in currentIndex + 1 until sorted.size) {
+            val candidate = sorted[index]
+            val bitrate = nativePanelQualityBitrate(candidate.value)
+            if (bitrate <= 0) continue
+            if (currentBitrate > 0 && bitrate >= currentBitrate) continue
+            return candidate
+        }
+    }
+    if (currentBitrate > 0) {
+        return sorted.firstOrNull {
+            val bitrate = nativePanelQualityBitrate(it.value)
+            bitrate > 0 && bitrate < currentBitrate
+        }
+    }
+    return sorted.asReversed().firstOrNull {
+        nativePanelQualityBitrate(it.value) > 0 &&
+            !nativePanelSameQuality(it.value, currentQuality)
+    }
+}
+
+private fun nativePanelCompareQualityPreference(
+    left: Map<String, Any?>,
+    right: Map<String, Any?>,
+): Int {
+    val leftBitrate = nativePanelQualityBitrate(left)
+    val rightBitrate = nativePanelQualityBitrate(right)
+    if (leftBitrate != rightBitrate) return rightBitrate.compareTo(leftBitrate)
+
+    val leftRank = nativePanelQualityTierRank(left["resolution"]?.toString())
+    val rightRank = nativePanelQualityTierRank(right["resolution"]?.toString())
+    if (leftRank != rightRank) return rightRank.compareTo(leftRank)
+
+    val leftOriginal = left["source"]?.toString() == "originalProxy"
+    val rightOriginal = right["source"]?.toString() == "originalProxy"
+    if (leftOriginal != rightOriginal) return if (leftOriginal) -1 else 1
+
+    val leftDefault = nativePanelTruthy(left["isDefault"])
+    val rightDefault = nativePanelTruthy(right["isDefault"])
+    if (leftDefault != rightDefault) return if (rightDefault) 1 else -1
+
+    return left["resolution"]?.toString().orEmpty()
+        .compareTo(right["resolution"]?.toString().orEmpty())
+}
+
+private fun nativePanelSameQuality(
+    left: Map<String, Any?>,
+    right: Map<String, Any?>,
+): Boolean {
+    return left["source"]?.toString().orEmpty() == right["source"]?.toString().orEmpty() &&
+        left["mediaGuid"]?.toString().orEmpty() == right["mediaGuid"]?.toString().orEmpty() &&
+        left["videoGuid"]?.toString().orEmpty() == right["videoGuid"]?.toString().orEmpty() &&
+        left["resolution"]?.toString().orEmpty() == right["resolution"]?.toString().orEmpty() &&
+        nativePanelQualityBitrate(left) == nativePanelQualityBitrate(right) &&
+        nativePanelNullableInt(left["directLinkQualityIndex"]) ==
+            nativePanelNullableInt(right["directLinkQualityIndex"])
+}
+
+private fun nativePanelWeakNetworkQualityLabel(quality: Map<String, Any?>): String {
+    val rank = nativePanelQualityTierRank(quality["resolution"]?.toString())
+    return nativePanelQualityTierLabel(rank).ifEmpty {
+        quality["resolution"]?.toString()?.trim().orEmpty().ifEmpty { "较低画质" }
+    }
+}
+
+private fun nativePanelWeakNetworkDetails(
+    networkSpeedBytesPerSecond: Long,
+    estimatedResumeWaitMs: Long?,
+): String {
+    val speed = nativePanelSpeedLabel(networkSpeedBytesPerSecond)
+    if (estimatedResumeWaitMs == null) return "当前网速 $speed"
+    val seconds = ((estimatedResumeWaitMs.coerceAtLeast(1L) + 999L) / 1000L).coerceAtLeast(1L)
+    return "当前网速 $speed · 预计恢复 ${seconds}秒"
+}
+
+private fun nativePanelSpeedLabel(bytesPerSecond: Long): String {
+    if (bytesPerSecond <= 0) return "-- KB/s"
+    val kb = 1024.0
+    val mb = kb * 1024.0
+    if (bytesPerSecond >= mb.toLong()) {
+        val value = bytesPerSecond / mb
+        val digits = if (value >= 10) 0 else 1
+        return "${String.format("%.${digits}f", value)} MB/s"
+    }
+    val value = bytesPerSecond / kb
+    val digits = if (value >= 100) 0 else 1
+    return "${String.format("%.${digits}f", value)} KB/s"
+}
+
+private fun nativePanelQualityBitrate(quality: Map<String, Any?>): Long {
+    return when (val raw = quality["bitrate"]) {
+        is Number -> raw.toLong()
+        is String -> raw.toLongOrNull() ?: 0L
+        else -> 0L
+    }
+}
+
+private fun nativePanelNullableInt(value: Any?): Int? {
+    return when (value) {
+        is Number -> value.toInt()
+        is String -> value.toIntOrNull()
+        else -> null
+    }
 }
 
 internal fun nativePanelResolveImageUrl(path: String?, videoUrl: String?): String {
@@ -264,7 +513,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private var panelIsSheet = false
     private var currentEpisodeRangeIndex = -1
     private var episodeViewMode = 1
-    private var customQualityTabResNum = -1
+    private var customQualityTabTitle = ""
 
     private var controlsVisible = true
     private var userSeeking = false
@@ -340,6 +589,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
     }
     private lateinit var batteryLabel: TextView
+    private lateinit var networkLabel: TextView
+    private var batteryReceiverRegistered = false
     private var inPipMode = false
 
     private var danmakuEnabled = true
@@ -369,6 +620,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private lateinit var autoNextCard: LinearLayout
     private lateinit var autoNextText: TextView
     private lateinit var weakNetCard: LinearLayout
+    private lateinit var weakNetTitle: TextView
+    private lateinit var weakNetSubtitle: TextView
     private var offlineBanner: View? = null
     private lateinit var completedOverlay: FrameLayout
     private lateinit var completedTitle: TextView
@@ -381,6 +634,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private var autoNextActive = false
     private var completionActive = false
     private var weakNetDismissed = false
+    private var weakNetSuggestedQualityIndex: Int? = null
+    private var weakNetSuggestedQualityLabel = ""
+    private var autoPlayEnabled = true
     private var introOutroEnabled = true
     private var introMaxMin = 3
     private var outroMaxMin = 4
@@ -964,6 +1220,22 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (this::batteryLabel.isInitialized) {
             batteryLabel.text = if (batteryLevel >= 0) "$batteryLevel%" else "--%"
         }
+        updateNetworkInfo()
+    }
+
+    /** 顶栏右上角网络状态：WiFi / 移动网络 / 以太网 / 无网络。 */
+    private fun updateNetworkInfo() {
+        if (!this::networkLabel.isInitialized) return
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        val caps = cm?.activeNetwork?.let { cm.getNetworkCapabilities(it) }
+        val hasInternet = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        networkLabel.text = when {
+            caps == null || !hasInternet -> "无网络"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "WiFi"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "移动网络"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "以太网"
+            else -> "已连接"
+        }
     }
 
     private fun applyFullscreenOrientation() {
@@ -1480,6 +1752,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             setIconActive(abButton, false)
         }
         weakNetDismissed = false
+        weakNetSuggestedQualityIndex = null
+        weakNetSuggestedQualityLabel = ""
         chaptersFetched = false
         chapterFetchAttempt = 0
         chapterPositionsMs = emptyList()
@@ -1829,10 +2103,17 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
         sysInfoRow.addView(sysSpacer)
 
-        batteryLabel = TextView(this).apply {
+        networkLabel = TextView(this).apply {
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
             setPadding(dp(6), 0, 0, 0)
+        }
+        sysInfoRow.addView(networkLabel)
+
+        batteryLabel = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            setPadding(dp(10), 0, 0, 0)
         }
         sysInfoRow.addView(batteryLabel)
         updateSystemInfo()
@@ -2820,6 +3101,44 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         )
     }
 
+    private fun currentQualityForWeakNetwork(): Map<String, Any?> {
+        qualityList().firstOrNull { qualityMatchesCurrentPlayback(it) }?.let { return it }
+        return mapOf(
+            "mediaGuid" to loadArgsMap["mediaGuid"],
+            "videoGuid" to loadArgsMap["videoGuid"],
+            "resolution" to loadArgsMap["resolution"],
+            "bitrate" to loadArgsMap["bitrate"],
+            "directLinkQualityIndex" to loadArgsMap["directLinkQualityIndex"],
+        )
+    }
+
+    private fun qualityMatchesCurrentPlayback(quality: Map<String, Any?>): Boolean {
+        val qualityDirectIndex = nativePanelNullableInt(quality["directLinkQualityIndex"])
+        val currentDirectIndex = nativePanelNullableInt(loadArgsMap["directLinkQualityIndex"])
+        if (qualityDirectIndex != null && currentDirectIndex != null) {
+            return qualityDirectIndex == currentDirectIndex
+        }
+
+        val qualityMediaGuid = quality["mediaGuid"]?.toString()?.trim().orEmpty()
+        val currentMediaGuid = loadArgsMap["mediaGuid"]?.toString()?.trim().orEmpty()
+        val qualityVideoGuid = quality["videoGuid"]?.toString()?.trim().orEmpty()
+        val currentVideoGuid = loadArgsMap["videoGuid"]?.toString()?.trim().orEmpty()
+        if (qualityMediaGuid.isNotEmpty() && currentMediaGuid.isNotEmpty() &&
+            qualityVideoGuid.isNotEmpty() && currentVideoGuid.isNotEmpty()
+        ) {
+            return qualityMediaGuid == currentMediaGuid && qualityVideoGuid == currentVideoGuid
+        }
+
+        val qualityResolution = quality["resolution"]?.toString()?.trim().orEmpty()
+        val currentResolution = loadArgsMap["resolution"]?.toString()?.trim().orEmpty()
+        if (qualityResolution.isEmpty() || currentResolution.isEmpty()) return false
+        val sameResolution =
+            nativePanelQualityTierRank(qualityResolution) == nativePanelQualityTierRank(currentResolution)
+        if (!sameResolution) return false
+        val currentBitrate = nativePanelQualityBitrate(loadArgsMap)
+        return currentBitrate <= 0L || nativePanelQualityBitrate(quality) == currentBitrate
+    }
+
     private fun showPlaybackControlPanel() {
         togglePanel(PanelPage("播放控制") { buildPlaybackControlRootPage() })
     }
@@ -2846,12 +3165,25 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         )
         addPanelRow(
             panelPrimaryTile(
-                title = "画质",
+                title = "视频质量",
                 subtitle = "切换原画或服务端转码清晰度",
                 trailing = currentQualitySummary(),
             ) {
-                pushPanel(PanelPage("画质") { buildQualityPanelPage() })
+                pushPanel(PanelPage("视频质量") { buildQualityPanelPage() })
             },
+        )
+        addPanelRow(
+            panelCardGroup(
+                panelToggle(
+                    label = "连续播放",
+                    value = autoPlayEnabled,
+                    subtitle = "当前集结束前 5 秒提示并自动进入下一集",
+                ) { enabled ->
+                    autoPlayEnabled = enabled
+                    persistPlaybackBehavior()
+                    if (!enabled) cancelAutoNext()
+                },
+            ),
         )
         addPanelRow(
             panelPrimaryTile(
@@ -2915,21 +3247,155 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun showSubtitlePanel() {
-        val tracks = trackList("subtitleTracks")
-        val current = selectedSubtitleGuidForPanel()
-        val items = ArrayList<PanelItem>()
-        items.add(PanelItem("关闭", selected = current.isEmpty()) { selectSubtitleFromPanel("") })
-        for (track in tracks) {
+        togglePanel(PanelPage("字幕") { buildSubtitlePanelPage() })
+    }
+
+    private fun buildSubtitlePanelPage() {
+        addPanelRow(subtitlePanelActionRow())
+        addPanelRow(panelSectionHeader("字幕列表"))
+        addPanelRow(
+            subtitlePanelTrackRow(
+                title = "关闭",
+                subtitle = "",
+                selected = selectedSubtitleGuidForPanel().isEmpty(),
+                removable = false,
+                onClick = { selectSubtitleFromPanel("") },
+            ),
+        )
+        for (track in trackList("subtitleTracks")) {
             val guid = track["guid"]?.toString().orEmpty()
-            items.add(
-                PanelItem(nativePanelTrackLabel(track), selected = guid.isNotEmpty() && guid == current) {
-                    selectSubtitleFromPanel(guid)
-                },
+            val selected = guid.isNotEmpty() && guid == selectedSubtitleGuidForPanel()
+            addPanelRow(
+                subtitlePanelTrackRow(
+                    title = nativePanelSubtitleDisplayTitle(track),
+                    subtitle = nativePanelSubtitleDisplaySubtitle(track),
+                    selected = selected,
+                    removable = nativePanelSubtitleCanRemove(track),
+                    onClick = { selectSubtitleFromPanel(guid) },
+                ),
             )
         }
-        // 顶部「调节」入口 → 字幕延迟 / 位置 / 字号页（对齐原版 showUnifiedPanel）。
-        showUnifiedPanel("字幕", items, "调节") {
-            pushPanel(PanelPage("字幕调节") { buildSubtitleStylePage() })
+    }
+
+    private fun subtitlePanelActionRow(): View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dp(10))
+            addView(View(context), LinearLayout.LayoutParams(0, 1, 1f))
+            addView(subtitlePanelTextButton("⚙  调整") {
+                pushPanel(PanelPage("字幕调节") { buildSubtitleStylePage() })
+            })
+            addView(subtitlePanelTextButton("+  添加", filled = true) {
+                showTransientHint("本地字幕导入待接入")
+            }, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { leftMargin = dp(8) })
+        }
+    }
+
+    private fun subtitlePanelTextButton(
+        label: String,
+        filled: Boolean = false,
+        onClick: () -> Unit,
+    ): TextView {
+        return TextView(this).apply {
+            text = label
+            setTextColor(if (filled) Color.WHITE else ACCENT)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setPadding(dp(14), dp(9), dp(14), dp(9))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(12).toFloat()
+                setColor(if (filled) 0x663A82F7 else Color.TRANSPARENT)
+                if (!filled) setStroke(dp(1), 0x00000000)
+            }
+            isClickable = true
+            setOnClickListener { onClick() }
+        }
+    }
+
+    private fun subtitlePanelTrackRow(
+        title: String,
+        subtitle: String,
+        selected: Boolean,
+        removable: Boolean,
+        onClick: () -> Unit,
+    ): View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = dp(14).toFloat()
+                setColor(if (selected) 0x665B7790 else 0xD93A484E.toInt())
+                setStroke(dp(if (selected) 2 else 0), if (selected) 0xFFD7EAFF.toInt() else Color.TRANSPARENT)
+            }
+            setPadding(dp(16), dp(13), dp(16), dp(13))
+            isClickable = true
+            setOnClickListener { onClick() }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { bottomMargin = dp(10) }
+
+            if (selected) {
+                addView(subtitlePanelCheckMark(), LinearLayout.LayoutParams(dp(36), dp(36)).apply {
+                    rightMargin = dp(14)
+                })
+            } else {
+                addView(View(context), LinearLayout.LayoutParams(dp(50), 1))
+            }
+
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(TextView(context).apply {
+                    text = title
+                    setTextColor(Color.WHITE)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                })
+                if (subtitle.isNotEmpty()) {
+                    addView(TextView(context).apply {
+                        text = subtitle
+                        setTextColor(0xCCFFFFFF.toInt())
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                        typeface = android.graphics.Typeface.DEFAULT_BOLD
+                        maxLines = 1
+                        ellipsize = android.text.TextUtils.TruncateAt.END
+                        setPadding(0, dp(3), 0, 0)
+                    })
+                }
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
+            if (removable) {
+                addView(ImageButton(context).apply {
+                    setImageResource(android.R.drawable.ic_menu_delete)
+                    setColorFilter(0xCCFFFFFF.toInt())
+                    background = itemRippleBackground()
+                    setPadding(dp(8), dp(8), dp(8), dp(8))
+                    setOnClickListener { showTransientHint("字幕删除待接入") }
+                }, LinearLayout.LayoutParams(dp(42), dp(42)).apply {
+                    leftMargin = dp(8)
+                })
+            }
+        }
+    }
+
+    private fun subtitlePanelCheckMark(): TextView {
+        return TextView(this).apply {
+            text = "✓"
+            setTextColor(0xFF8FA7C5.toInt())
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+            gravity = Gravity.CENTER
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(0xFFD5E1F0.toInt())
+            }
         }
     }
 
@@ -2946,21 +3412,71 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun showQualityPanel() {
-        togglePanel(PanelPage("画质") { buildQualityPanelPage() })
+        togglePanel(PanelPage("视频质量") { buildQualityPanelPage() })
     }
 
     private fun buildQualityPanelPage() {
-        val qualities = qualityList()
-        if (qualities.isEmpty()) {
+        val visible = visibleQualityEntries()
+        if (visible.isEmpty()) {
             addPanelRow(panelEmptyState("暂无可用画质"))
             return
         }
         val currentRes = loadArgsMap["resolution"]?.toString()?.trim().orEmpty()
-        val entries = qualityDisplayEntries(qualities)
-        if (entries.size < qualities.size) {
+        // 主面板按档位合并：4k 与 4K HDR 同档收成一张卡（对齐官方，4K HDR 仅在自定义里）。
+        val entries = qualityMainTierEntries(visible)
+        if (visible.size > entries.size) {
             addPanelRow(buildQualityCustomEntryRow())
         }
-        addPanelRow(buildQualityGrid(entries, currentRes))
+        addPanelRow(
+            buildQualityGrid(
+                entries,
+                selectedOf = { qualityTierMatchesCurrent(it.quality, currentRes) },
+                titleOf = { qualityTierCardTitle(it.quality) },
+            ),
+        )
+    }
+
+    /**
+     * 当前播放模式下应展示的画质档（保留原始下标，切档要用 `sourceIndex`）：
+     * 直链模式丢服务端转码档，其余模式丢直链档（对齐 Flutter visibleQualityOptionsForCurrentMode），
+     * originalProxy 原画两种模式都保留。过滤后为空则回退全部，避免误删到空列表。
+     */
+    private fun visibleQualityEntries(): List<QualityPanelEntry> {
+        val all = qualityList().mapIndexed { index, quality -> QualityPanelEntry(index, quality) }
+        val directLinkMode = loadArgsMap["playbackMode"]?.toString() == "directLinkQuality"
+        val filtered = all.filter { entry ->
+            when (entry.quality["source"]?.toString()) {
+                "serverSession" -> !directLinkMode
+                "directLink" -> directLinkMode
+                else -> true
+            }
+        }
+        return filtered.ifEmpty { all }
+    }
+
+    /**
+     * 同 tab 内按码率去重：同码率多档（原画直链 vs 转码）只留一张，去掉“两张一模一样”的卡。
+     * 优先保留当前正在播的那一档（保证它在列表里且能高亮），否则按 原画>原画代理>码率 取首选。
+     */
+    private fun dedupQualityEntriesByBitrate(entries: List<QualityPanelEntry>): List<QualityPanelEntry> {
+        val best = LinkedHashMap<Int, QualityPanelEntry>()
+        for (entry in entries) {
+            val key = qualityBitrateValue(entry.quality)
+            val existing = best[key]
+            if (existing == null) {
+                best[key] = entry
+                continue
+            }
+            val entryCurrent = qualityMatchesCurrentPlayback(entry.quality)
+            val existingCurrent = qualityMatchesCurrentPlayback(existing.quality)
+            val prefer = if (entryCurrent != existingCurrent) {
+                entryCurrent
+            } else {
+                shouldPreferQualityCard(entry.quality, existing.quality)
+            }
+            if (prefer) best[key] = entry
+        }
+        return best.values.toList()
     }
 
     private fun buildQualityCustomEntryRow(): View {
@@ -2969,49 +3485,56 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             gravity = Gravity.END or Gravity.CENTER_VERTICAL
             setPadding(0, 0, 0, dp(12))
             addView(TextView(context).apply {
-                text = "自定义 ›"
+                text = "⚙  自定义"
                 setTextColor(ACCENT)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
                 setPadding(dp(8), dp(6), dp(8), dp(6))
                 isClickable = true
                 setOnClickListener {
-                    customQualityTabResNum = -1
-                    pushPanel(PanelPage("自定义画质") { buildCustomQualityPanelPage() })
+                    customQualityTabTitle = ""
+                    pushPanel(PanelPage("视频质量") { buildCustomQualityPanelPage() })
                 }
             })
         }
     }
 
     private fun buildCustomQualityPanelPage() {
-        val qualities = qualityList()
-        if (qualities.isEmpty()) {
+        val visible = visibleQualityEntries()
+        if (visible.isEmpty()) {
             addPanelRow(panelEmptyState("暂无可用画质"))
             return
         }
-        val byRes = qualities.withIndex().groupBy { qualityDisplayTitle(it.value) }
-        val resTitles = byRes.keys.sortedWith(compareByDescending { qualityResolutionSortValue(it) })
+        // 自定义页保留逐分辨率标签（4k 与 4K HDR 是两个独立 tab），并按真实档位降序（4k 最前）。
+        val byRes = visible.groupBy { qualityDisplayTitle(it.quality) }
+        val resTitles = byRes.keys.sortedWith(
+            compareByDescending<String> { nativePanelQualityTierRank(it) }.thenBy { it },
+        )
         if (resTitles.isEmpty()) {
             addPanelRow(panelEmptyState("暂无可用画质"))
             return
         }
         val currentRes = loadArgsMap["resolution"]?.toString()?.trim().orEmpty()
-        val currentTitle = qualityDisplayTitle(mapOf("resolution" to currentRes))
-        if (customQualityTabResNum <= 0 ||
-            resTitles.none { qualityResolutionSortValue(it) == customQualityTabResNum }
-        ) {
-            customQualityTabResNum = qualityResolutionSortValue(currentTitle)
-                .takeIf { value -> value > 0 && resTitles.contains(currentTitle) }
-                ?: qualityResolutionSortValue(resTitles.first())
+        val currentTierRank = nativePanelQualityTierRank(currentRes)
+        // tab 身份用标题字符串本身，避免 "4k" 与 "4K HDR" 数字档相同而互相抢选。
+        if (customQualityTabTitle.isEmpty() || resTitles.none { it == customQualityTabTitle }) {
+            customQualityTabTitle = resTitles.firstOrNull {
+                currentTierRank > 0 && nativePanelQualityTierRank(it) == currentTierRank
+            } ?: resTitles.first()
         }
-        val selectedTitle = resTitles.firstOrNull {
-            qualityResolutionSortValue(it) == customQualityTabResNum
-        } ?: resTitles.first()
+        val selectedTitle = customQualityTabTitle
         addPanelRow(buildQualityTabRow(resTitles, selectedTitle))
         addPanelRow(panelSpacer(18))
-        val selectedEntries = byRes[selectedTitle].orEmpty()
-            .sortedByDescending { qualityBitrateValue(it.value) }
-            .map { QualityPanelEntry(it.index, it.value) }
-        addPanelRow(buildQualityGrid(selectedEntries, currentRes))
+        // 同码率去重后按码率降序：原画(最高码率)在前，去掉重复的同码率卡。
+        val selectedEntries = dedupQualityEntriesByBitrate(byRes[selectedTitle].orEmpty())
+            .sortedByDescending { qualityBitrateValue(it.quality) }
+        addPanelRow(
+            buildQualityGrid(
+                selectedEntries,
+                // 精确定位当前档：同分辨率/同码率有多档（原画直链 vs 转码），只比 resolution 会多张高亮。
+                selectedOf = { qualityMatchesCurrentPlayback(it.quality) },
+                titleOf = { qualityDisplayTitle(it.quality) },
+            ),
+        )
     }
 
     private fun buildQualityTabRow(
@@ -3028,7 +3551,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         for ((index, title) in resTitles.withIndex()) {
             row.addView(
                 qualityTabButton(title, title == selectedTitle) {
-                    customQualityTabResNum = qualityResolutionSortValue(title)
+                    customQualityTabTitle = title
                     renderTopPanel()
                 },
                 LinearLayout.LayoutParams(
@@ -3064,39 +3587,50 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
     }
 
-    private fun qualityDisplayEntries(qualities: List<Map<String, Any?>>): List<QualityPanelEntry> {
-        val bestByRes = LinkedHashMap<String, QualityPanelEntry>()
-        for ((index, quality) in qualities.withIndex()) {
-            val key = qualityDisplayTitle(quality)
-            val candidate = QualityPanelEntry(index, quality)
-            val existing = bestByRes[key]
-            if (existing == null || shouldPreferQualityCard(candidate.quality, existing.quality)) {
-                bestByRes[key] = candidate
+    /** 主面板条目：按档位（竖直分辨率）合并，每档取原画/最高码率那一档，并按档位降序（4k 最前）。 */
+    private fun qualityMainTierEntries(entries: List<QualityPanelEntry>): List<QualityPanelEntry> {
+        val bestByTier = LinkedHashMap<Int, QualityPanelEntry>()
+        for (entry in entries) {
+            val rank = nativePanelQualityTierRank(entry.quality["resolution"]?.toString())
+            val existing = bestByTier[rank]
+            if (existing == null || shouldPreferQualityCard(entry.quality, existing.quality)) {
+                bestByTier[rank] = entry
             }
         }
-        return bestByRes.values.sortedWith(
-            compareByDescending<QualityPanelEntry> { qualityResolutionSortValue(qualityDisplayTitle(it.quality)) }
-                .thenByDescending { qualityBitrateValue(it.quality) },
-        )
+        return bestByTier.values.sortedByDescending {
+            nativePanelQualityTierRank(it.quality["resolution"]?.toString())
+        }
+    }
+
+    /** 主面板卡片标题：档位名（2160→"4k"），无法识别时回退到原始分辨率标签。 */
+    private fun qualityTierCardTitle(quality: Map<String, Any?>): String {
+        val rank = nativePanelQualityTierRank(quality["resolution"]?.toString())
+        return nativePanelQualityTierLabel(rank).ifEmpty { qualityDisplayTitle(quality) }
     }
 
     private fun shouldPreferQualityCard(
         candidate: Map<String, Any?>,
         current: Map<String, Any?>,
     ): Boolean {
-        if (candidate["isDefault"] == true && current["isDefault"] != true) return true
-        val cBitrate = qualityBitrateValue(candidate)
-        val oldBitrate = qualityBitrateValue(current)
-        return cBitrate > oldBitrate
+        // 原画(isDefault) > 原画代理(originalProxy) > 高码率，保证同码率去重时留下「原画」那一档。
+        val candDefault = candidate["isDefault"] == true
+        val curDefault = current["isDefault"] == true
+        if (candDefault != curDefault) return candDefault
+        val candOriginal = candidate["source"]?.toString() == "originalProxy"
+        val curOriginal = current["source"]?.toString() == "originalProxy"
+        if (candOriginal != curOriginal) return candOriginal
+        return qualityBitrateValue(candidate) > qualityBitrateValue(current)
     }
 
     private fun buildQualityGrid(
         entries: List<QualityPanelEntry>,
-        currentRes: String,
+        selectedOf: (QualityPanelEntry) -> Boolean,
+        titleOf: (QualityPanelEntry) -> String,
     ): View {
+        val rows = entries.chunked(2)
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            for (rowEntries in entries.chunked(2)) {
+            for ((rowIndex, rowEntries) in rows.withIndex()) {
                 val row = LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
                 }
@@ -3104,7 +3638,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     row.addView(
                         qualityGridCard(
                             entry = entry,
-                            selected = qualityMatchesCurrent(entry.quality, currentRes),
+                            selected = selectedOf(entry),
+                            title = titleOf(entry),
                         ),
                         LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                             if (index % 2 == 1) leftMargin = dp(10)
@@ -3124,7 +3659,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT,
-                    ).apply { bottomMargin = dp(12) },
+                    ).apply {
+                        // 行间距与列间距统一 10dp；最后一行不留尾部空白。
+                        if (rowIndex < rows.lastIndex) bottomMargin = dp(10)
+                    },
                 )
             }
         }
@@ -3133,17 +3671,17 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun qualityGridCard(
         entry: QualityPanelEntry,
         selected: Boolean,
+        title: String,
     ): View {
         val quality = entry.quality
-        return LinearLayout(this).apply {
+        val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            background = panelTileBackground(selected)
-            isClickable = true
-            minimumHeight = dp(60)
-            setPadding(dp(10), dp(12), dp(10), dp(12))
+            background = qualityCardBackground(selected)
+            minimumHeight = dp(56)
+            setPadding(dp(12), dp(12), dp(12), dp(12))
             addView(TextView(context).apply {
-                text = qualityDisplayTitle(quality)
+                text = title
                 setTextColor(if (selected) ACCENT else Color.WHITE)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -3154,32 +3692,91 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             addView(TextView(context).apply {
                 text = qualityDisplaySubtitle(quality)
                 setTextColor(if (selected) ACCENT else TEXT_DIM)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                 gravity = Gravity.CENTER
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
-                setPadding(0, dp(3), 0, 0)
+                setPadding(0, dp(2), 0, 0)
             })
+        }
+        // 整卡套一层 FrameLayout：点击挂在外层，「原画」浮标 isClickable=false 不抢事件，
+        // 确保每张卡（含原画 4k）都能稳定点中——修原 4k 卡点击无反应。
+        return FrameLayout(this).apply {
+            isClickable = true
+            addView(
+                content,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                ),
+            )
+            if (quality["isDefault"] == true) {
+                addView(
+                    qualityOriginalBadge(),
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                        FrameLayout.LayoutParams.WRAP_CONTENT,
+                    ).apply {
+                        gravity = Gravity.TOP or Gravity.END
+                        topMargin = dp(6)
+                        rightMargin = dp(6)
+                    },
+                )
+            }
             setOnClickListener {
                 hidePanel()
-                requestQuality(entry.sourceIndex)
+                // 点当前档只关面板（对齐官方），切换才走重载。
+                if (!selected) requestQuality(entry.sourceIndex)
             }
         }
     }
 
-    private fun qualityMatchesCurrent(quality: Map<String, Any?>, currentRes: String): Boolean {
-        val resolution = quality["resolution"]?.toString()?.trim().orEmpty()
-        return currentRes.isNotEmpty() &&
-            resolution.equals(currentRes, ignoreCase = true)
+    /** 画质卡背景：比通用 tile 更圆润(10dp)，选中时蓝色填充 + 2dp 强调描边。 */
+    private fun qualityCardBackground(selected: Boolean): GradientDrawable {
+        return GradientDrawable().apply {
+            cornerRadius = dp(10).toFloat()
+            setColor(if (selected) ITEM_SELECTED_BG else 0x14FFFFFF)
+            setStroke(dp(if (selected) 2 else 1), if (selected) ACCENT else GLASS_STROKE)
+        }
     }
 
+    /** 「原画」浮标徽章：卡片右上角小圆角标签，不参与点击。 */
+    private fun qualityOriginalBadge(): View {
+        return TextView(this).apply {
+            text = "原画"
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+            gravity = Gravity.CENTER
+            isClickable = false
+            setPadding(dp(6), dp(2), dp(6), dp(2))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(6).toFloat()
+                setColor(0xCC000000.toInt())
+                setStroke(dp(1), GLASS_STROKE)
+            }
+        }
+    }
+
+    /** 主面板高亮：按档位（竖直分辨率）匹配当前播放分辨率，"3840x2160"/"4k" 都归到 2160 档。 */
+    private fun qualityTierMatchesCurrent(quality: Map<String, Any?>, currentRes: String): Boolean {
+        if (currentRes.isEmpty()) return false
+        val curRank = nativePanelQualityTierRank(currentRes)
+        val qRank = nativePanelQualityTierRank(quality["resolution"]?.toString())
+        return curRank > 0 && curRank == qRank
+    }
+
+    /** 自定义页标题/标签：WxH→竖直P，文字标签（4k/4K HDR/1080P）保留原文以区分，纯数字补 P。 */
     private fun qualityDisplayTitle(quality: Map<String, Any?>): String {
-        val resNum = qualityResNum(quality)
-        return if (resNum > 0) "${resNum}P" else qualityLabel(quality)
-    }
-
-    private fun qualityResolutionSortValue(label: String): Int {
-        return Regex("(\\d{3,4})").find(label)?.value?.toIntOrNull() ?: -1
+        val resolution = quality["resolution"]?.toString()?.trim().orEmpty()
+        if (resolution.isEmpty()) return "画质"
+        val lower = resolution.lowercase()
+        Regex("""(\d{2,5})\s*[x×]\s*(\d{2,5})""").find(lower)?.let { m ->
+            val a = m.groupValues[1].toIntOrNull() ?: 0
+            val b = m.groupValues[2].toIntOrNull() ?: 0
+            if (a > 0 && b > 0) return "${minOf(a, b)}P"
+        }
+        if (resolution.any { it.isLetter() }) return resolution
+        return "${resolution}P"
     }
 
     private fun qualityBitrateValue(quality: Map<String, Any?>): Int {
@@ -3189,11 +3786,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun qualityDisplaySubtitle(quality: Map<String, Any?>): String {
-        val parts = ArrayList<String>()
-        if (quality["isDefault"] == true) parts.add("原画")
+        // 「原画」已移到浮标徽章，副标题只保留码率。
         val bitrate = qualityBitrateValue(quality)
-        if (bitrate > 0) parts.add("${(bitrate / 1_000_000.0).let { String.format("%.0f", it) }} Mbps")
-        return parts.joinToString(" · ").ifEmpty { qualityPanelSubtitle(quality) }
+        if (bitrate > 0) {
+            return "${String.format("%.0f", bitrate / 1_000_000.0)} Mbps"
+        }
+        return qualityPanelSubtitle(quality)
     }
 
     private fun trackPanelSubtitle(track: Map<String, Any?>): String {
@@ -3406,7 +4004,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     /** 切画质：重解析当前集的指定档，带当前播放位置保持进度，原地换源。 */
-    private fun requestQuality(qualityIndex: Int) {
+    private fun requestQuality(qualityIndex: Int, hint: String = "正在切换画质…") {
         val itemGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
         if (itemGuid.isEmpty()) {
             showTransientHint("无法切换画质")
@@ -3427,7 +4025,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             selectedAudioGuid,
             selectedSubtitleGuid,
             qualityIndex,
-            "正在切换画质…",
+            hint,
         )
     }
 
@@ -3559,18 +4157,35 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         )
 
         // 弱网建议（左下，更高）
+        weakNetTitle = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+        weakNetSubtitle = TextView(this).apply {
+            setTextColor(TEXT_DIM)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setPadding(0, dp(2), 0, 0)
+        }
         weakNetCard = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             background = pillBackground()
             setPadding(dp(14), dp(10), dp(14), dp(10))
             visibility = View.GONE
-            addView(TextView(context).apply {
-                text = "网络较弱，已自动降速缓冲"
-                setTextColor(Color.WHITE)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(weakNetTitle)
+                addView(weakNetSubtitle)
             })
-            addView(promptButton("知道了", ACCENT, false) {
+            addView(promptButton("切换", ACCENT, false) {
+                weakNetSuggestedQualityIndex?.let { index ->
+                    weakNetDismissed = true
+                    weakNetCard.visibility = View.GONE
+                    requestQuality(index, "网络较慢，正在切换到 $weakNetSuggestedQualityLabel…")
+                }
+            })
+            addView(promptButton("忽略", TEXT_DIM, false) {
                 weakNetDismissed = true; weakNetCard.visibility = View.GONE
             })
         }
@@ -3711,6 +4326,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         return idx in 0 until (episodes.size - 1)
     }
 
+    private fun isInsideAutoNextPromptWindow(state: MpvPlayerState): Boolean {
+        if (state.durationMs <= 0L || state.positionMs <= 0L) return false
+        val remainingMs = state.durationMs - state.positionMs
+        return remainingMs in 1L..5_000L
+    }
+
     private fun startAutoNextCountdown() {
         autoNextActive = true
         autoNextSeconds = 5
@@ -3752,6 +4373,33 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         cancelAutoNext()
     }
 
+    private fun updateWeakNetworkSuggestion(state: MpvPlayerState) {
+        if (!this::weakNetCard.isInitialized) return
+        if (!state.weakNetworkMode || weakNetDismissed || completionActive || networkOffline) {
+            weakNetSuggestedQualityIndex = null
+            weakNetSuggestedQualityLabel = ""
+            weakNetCard.visibility = View.GONE
+            return
+        }
+        val recommendation = nativePanelRecommendWeakNetworkQuality(
+            qualities = qualityList(),
+            currentQuality = currentQualityForWeakNetwork(),
+            networkSpeedBytesPerSecond = state.networkSpeedBytesPerSecond,
+            estimatedResumeWaitMs = state.estimatedResumeWaitMs,
+        )
+        if (recommendation == null) {
+            weakNetSuggestedQualityIndex = null
+            weakNetSuggestedQualityLabel = ""
+            weakNetCard.visibility = View.GONE
+            return
+        }
+        weakNetSuggestedQualityIndex = recommendation.qualityIndex
+        weakNetSuggestedQualityLabel = recommendation.qualityLabel
+        weakNetTitle.text = "网络较慢，建议切换到 ${recommendation.qualityLabel}"
+        weakNetSubtitle.text = recommendation.details
+        weakNetCard.visibility = View.VISIBLE
+    }
+
     /** 由 [applyState] 驱动：加载转圈 / 自动连播·完成 / 弱网建议。 */
     private fun updateOverlays(state: MpvPlayerState) {
         val showLoading = !state.nativeLibLoaded ||
@@ -3760,23 +4408,28 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             state.error != null
         loadingSpinner.visibility = if (showLoading && !completionActive) View.VISIBLE else View.GONE
 
-        // 播放完成：有下一集→倒计时连播；否则→完成遮罩。
-        if (state.playbackPhase == MpvPlaybackPhase.ENDED.wireValue) {
-            if (hasNextEpisode()) {
+        // 连续播放：最后 5 秒先弹倒计时；ENDED 仍做兜底，避免采样错过片尾窗口。
+        val hasNext = hasNextEpisode()
+        val shouldAutoNext = nativePanelShouldStartAutoNextCountdown(autoPlayEnabled, hasNext)
+        val playbackEnded = state.playbackPhase == MpvPlaybackPhase.ENDED.wireValue
+        val shouldShowAutoNext =
+            shouldAutoNext && (isInsideAutoNextPromptWindow(state) || playbackEnded)
+        when {
+            shouldShowAutoNext -> {
+                if (completionActive) completedOverlay.visibility = View.GONE
+                completionActive = false
                 if (!autoNextActive) startAutoNextCountdown()
-            } else if (!completionActive) {
-                showCompletedOverlay()
             }
-        } else if (completionActive || autoNextActive) {
-            clearCompletion()
+            playbackEnded -> {
+                if (!completionActive) showCompletedOverlay()
+            }
+            completionActive || autoNextActive -> {
+                clearCompletion()
+            }
         }
 
         // 弱网建议
-        if (state.weakNetworkMode && !weakNetDismissed && !completionActive) {
-            weakNetCard.visibility = View.VISIBLE
-        } else if (!state.weakNetworkMode) {
-            weakNetCard.visibility = View.GONE
-        }
+        updateWeakNetworkSuggestion(state)
 
         // 片头片尾跳过提示
         updateIntroOutroSkip(state)
@@ -3873,6 +4526,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun postNetworkState(offline: Boolean) {
         rootContainer.post {
+            // 网络类型可能在仍联网时切换（WiFi↔移动），顶栏标签需无条件刷新。
+            updateNetworkInfo()
             if (networkOffline == offline) return@post
             networkOffline = offline
             // 恢复联网时重置「已知道了」，下次断网横幅可再次出现。
@@ -4189,6 +4844,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         aspectMode = misc["aspect"]?.toString() ?: "fit"
         pipAutoEnter = (misc["pipAutoEnter"] as? Boolean) ?: true
         refreshRateSwitch = (misc["refreshRateSwitch"] as? Boolean) ?: false
+        val behavior = settingsStore.loadMap(
+            NativePlayerSettingsStore.KEY_PLAYBACK_BEHAVIOR,
+            linkedMapOf("autoPlayEnabled" to true),
+        )
+        autoPlayEnabled = (behavior["autoPlayEnabled"] as? Boolean) ?: true
         val io = settingsStore.loadMap(
             NativePlayerSettingsStore.KEY_INTRO_OUTRO,
             linkedMapOf(
@@ -4254,6 +4914,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             "pipAutoEnter" to pipAutoEnter,
             "refreshRateSwitch" to refreshRateSwitch,
         ),
+    )
+
+    private fun persistPlaybackBehavior() = settingsStore.saveMap(
+        NativePlayerSettingsStore.KEY_PLAYBACK_BEHAVIOR,
+        linkedMapOf<String, Any?>("autoPlayEnabled" to autoPlayEnabled),
     )
 
     private fun persistIntroOutro() = settingsStore.saveMap(
@@ -5776,19 +6441,27 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun setControlsVisible(visible: Boolean) {
         controlsVisible = visible
-        val target = if (visible) 1f else 0f
+        // 锁定态下主控制栏（顶栏/底栏）始终隐藏，只有侧边锁按钮跟随显隐。
+        val showChrome = visible && !isLocked
         for (chrome in arrayOf(topBar, bottomBar)) {
-            chrome.animate().cancel()
-            if (visible && chrome.visibility != View.VISIBLE) {
-                chrome.visibility = View.VISIBLE
-            }
-            chrome.animate()
-                .alpha(target)
-                .setDuration(CHROME_FADE_MS)
-                .withEndAction { if (!visible) chrome.visibility = View.GONE }
-                .start()
+            animateChromeVisibility(chrome, showChrome)
+        }
+        if (this::lockButton.isInitialized) {
+            animateChromeVisibility(lockButton, visible)
         }
         if (visible) scheduleControlsAutoHide() else cancelControlsAutoHide()
+    }
+
+    private fun animateChromeVisibility(view: View, visible: Boolean) {
+        view.animate().cancel()
+        if (visible && view.visibility != View.VISIBLE) {
+            view.visibility = View.VISIBLE
+        }
+        view.animate()
+            .alpha(if (visible) 1f else 0f)
+            .setDuration(CHROME_FADE_MS)
+            .withEndAction { if (!visible) view.visibility = View.GONE }
+            .start()
     }
 
     private fun scheduleControlsAutoHide() {
@@ -5800,7 +6473,55 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         bottomBar.removeCallbacks(hideControlsRunnable)
     }
 
+    // ---- 返回键 ----
+
+    /**
+     * 系统返回键分层处理，避免误退出播放：
+     *  1. 二级面板打开 → 在面板内回退一层 / 关闭面板。
+     *  2. 锁定态 → 吞掉返回键，仅亮出锁按钮提示先解锁，绝不退出。
+     *  3. 其余 → 默认行为（退出播放）。
+     */
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() {
+        if (panelVisible) {
+            if (panelStack.size > 1) popPanel() else hidePanel()
+            return
+        }
+        if (isLocked) {
+            setControlsVisible(true)
+            showTransientHint("已锁定，点按锁图标解锁")
+            return
+        }
+        super.onBackPressed()
+    }
+
     // ---- 生命周期 ----
+
+    override fun onStart() {
+        super.onStart()
+        registerBatteryReceiver()
+        // 顶栏可见时回前台，刷新一次电量/网络（网络回调可能在后台被合并丢失）。
+        updateSystemInfo()
+    }
+
+    override fun onStop() {
+        unregisterBatteryReceiver()
+        super.onStop()
+    }
+
+    /** 注册电量监听（粘性广播，注册即回当前电量，顶栏立刻显示真实百分比）。 */
+    private fun registerBatteryReceiver() {
+        if (batteryReceiverRegistered) return
+        runCatching {
+            registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        }.onSuccess { batteryReceiverRegistered = true }
+    }
+
+    private fun unregisterBatteryReceiver() {
+        if (!batteryReceiverRegistered) return
+        runCatching { unregisterReceiver(batteryReceiver) }
+        batteryReceiverRegistered = false
+    }
 
     override fun onPause() {
         // back/finish/切后台都会经过 onPause，覆盖退出场景：把当前进度写回 NAS。
@@ -5840,6 +6561,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     override fun onDestroy() {
         cancelControlsAutoHide()
         cancelAutoNext()
+        unregisterBatteryReceiver()
+        unregisterNetworkMonitor()
         if (this::resumeCard.isInitialized) resumeCard.removeCallbacks(resumeHideRunnable)
         if (this::playerSurface.isInitialized) {
             playerSurface.release()

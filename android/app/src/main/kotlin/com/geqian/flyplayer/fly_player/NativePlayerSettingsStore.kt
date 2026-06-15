@@ -51,6 +51,7 @@ class NativePlayerSettingsStore(context: Context) {
         const val KEY_AUDIO_ADJUST = "audio_adjust"
         const val KEY_OCCLUSION = "occlusion_config"
         const val KEY_INTRO_OUTRO = "intro_outro"
+        const val KEY_PLAYBACK_BEHAVIOR = "playback_behavior"
         const val KEY_VIDEO_MISC = "video_misc"
         const val KEY_DANMAKU = "danmaku_settings"
         const val KEY_SCREENSHOT = "screenshot"
