@@ -620,6 +620,7 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
   final AppTopTip _topTip = AppTopTip();
   late final DownloadListTab _selectedTab = widget.initialTab;
   final Set<String> _selectedRecordIds = <String>{};
+  final Set<String> _expandedVersionGroupKeys = <String>{};
   bool _editing = false;
   String? _playLaunchingRecordId;
   Object? _reentryToken;
@@ -806,8 +807,11 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
       widget.groupId,
       status: DownloadTaskStatus.downloaded,
     );
+    final groupedRecords = _groupRecordsByItem(
+      records,
+    ).map((group) => group.records.first).toList(growable: false);
     return <Map<String, dynamic>>[
-      for (final record in records)
+      for (final record in groupedRecords)
         <String, dynamic>{
           'itemGuid': record.itemGuid.trim().isNotEmpty
               ? record.itemGuid.trim()
@@ -820,6 +824,36 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
           'downloaded': true,
         },
     ];
+  }
+
+  List<_DownloadRecordVersionGroupData> _groupRecordsByItem(
+    List<DownloadTaskRecord> records,
+  ) {
+    final groups = <_DownloadRecordVersionGroupData>[];
+    final indexByKey = <String, int>{};
+    for (final record in records) {
+      final key = _recordVersionGroupKey(record);
+      final index = indexByKey[key];
+      if (index == null) {
+        indexByKey[key] = groups.length;
+        groups.add(
+          _DownloadRecordVersionGroupData(key, <DownloadTaskRecord>[record]),
+        );
+      } else {
+        groups[index].records.add(record);
+      }
+    }
+    return groups;
+  }
+
+  String _recordVersionGroupKey(DownloadTaskRecord record) {
+    final itemGuid = record.itemGuid.trim();
+    if (itemGuid.isNotEmpty) return 'item:$itemGuid';
+    final title = DownloadTaskService.instance
+        .displayTitleForRecord(record)
+        .trim();
+    if (title.isNotEmpty) return 'title:$title';
+    return 'record:${record.id}';
   }
 
   Future<({MpvMediaSource source, PlayInfoData? playInfo, String title})?>
@@ -863,8 +897,17 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
             _selectedRecordIds.removeWhere(
               (id) => !records.any((record) => record.id == id),
             );
+            _expandedVersionGroupKeys.removeWhere(
+              (key) => !_groupRecordsByItem(
+                records,
+              ).any((group) => group.key == key && group.records.length > 1),
+            );
             final selectedCount = _selectedRecordIds.length;
             final launchingRecordId = _playLaunchingRecordId;
+            final recordVersionGroups =
+                _selectedTab == DownloadListTab.downloaded && !_editing
+                ? _groupRecordsByItem(records)
+                : const <_DownloadRecordVersionGroupData>[];
 
             return Column(
               children: <Widget>[
@@ -937,6 +980,61 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
                               fontSize: 16,
                             ),
                           ),
+                        )
+                      : _selectedTab == DownloadListTab.downloaded && !_editing
+                      ? ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
+                          itemCount: recordVersionGroups.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 18),
+                          itemBuilder: (context, index) {
+                            final group = recordVersionGroups[index];
+                            final lead = group.records.first;
+                            final expanded = _expandedVersionGroupKeys.contains(
+                              group.key,
+                            );
+                            if (group.records.length <= 1) {
+                              return _DownloadRecordRow(
+                                key: ValueKey<String>(lead.id),
+                                record: lead,
+                                token: token,
+                                busy: launchingRecordId == lead.id,
+                                dimmed:
+                                    launchingRecordId != null &&
+                                    launchingRecordId != lead.id,
+                                onLongPress: launchingRecordId != null
+                                    ? null
+                                    : () => _handleRecordLongPress(lead.id),
+                                onTap: launchingRecordId != null
+                                    ? null
+                                    : () => _playDownloadedRecord(lead),
+                              );
+                            }
+                            return _DownloadRecordVersionGroup(
+                              key: ValueKey<String>('versions:${group.key}'),
+                              records: group.records,
+                              token: token,
+                              expanded: expanded,
+                              busyRecordId: launchingRecordId,
+                              onToggle: () {
+                                setState(() {
+                                  if (expanded) {
+                                    _expandedVersionGroupKeys.remove(group.key);
+                                  } else {
+                                    _expandedVersionGroupKeys.add(group.key);
+                                  }
+                                });
+                              },
+                              onRecordTap: (record) {
+                                if (launchingRecordId != null) return;
+                                _playDownloadedRecord(record);
+                              },
+                              onRecordLongPress: (record) {
+                                if (launchingRecordId != null) return;
+                                _handleRecordLongPress(record.id);
+                              },
+                            );
+                          },
                         )
                       : ListView.separated(
                           padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
@@ -1147,6 +1245,164 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
   }
 }
 
+class _DownloadRecordVersionGroupData {
+  final String key;
+  final List<DownloadTaskRecord> records;
+
+  const _DownloadRecordVersionGroupData(this.key, this.records);
+}
+
+class _DownloadRecordVersionGroup extends StatelessWidget {
+  final List<DownloadTaskRecord> records;
+  final String token;
+  final bool expanded;
+  final String? busyRecordId;
+  final VoidCallback onToggle;
+  final ValueChanged<DownloadTaskRecord> onRecordTap;
+  final ValueChanged<DownloadTaskRecord> onRecordLongPress;
+
+  const _DownloadRecordVersionGroup({
+    super.key,
+    required this.records,
+    required this.token,
+    required this.expanded,
+    required this.busyRecordId,
+    required this.onToggle,
+    required this.onRecordTap,
+    required this.onRecordLongPress,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final lead = records.first;
+    final colors = context.appColors;
+    return Column(
+      children: <Widget>[
+        _DownloadRecordRow(
+          record: lead,
+          token: token,
+          busy: busyRecordId == lead.id,
+          dimmed: busyRecordId != null && busyRecordId != lead.id,
+          onLongPress: () => onRecordLongPress(lead),
+          onTap: () => onRecordTap(lead),
+          trailingAction: _VersionToggleButton(
+            expanded: expanded,
+            count: records.length,
+            onTap: onToggle,
+          ),
+        ),
+        AnimatedSize(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: expanded
+              ? Container(
+                  margin: const EdgeInsets.only(top: 12),
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                  decoration: BoxDecoration(
+                    color: colors.surface.withValues(alpha: 0.52),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: colors.borderSubtle),
+                  ),
+                  child: Column(
+                    children: <Widget>[
+                      for (int index = 0; index < records.length; index++) ...[
+                        _DownloadRecordRow(
+                          key: ValueKey<String>('version-${records[index].id}'),
+                          record: records[index],
+                          token: token,
+                          titleOverride: _versionTitle(records[index]),
+                          busy: busyRecordId == records[index].id,
+                          dimmed:
+                              busyRecordId != null &&
+                              busyRecordId != records[index].id,
+                          onLongPress: () => onRecordLongPress(records[index]),
+                          onTap: () => onRecordTap(records[index]),
+                        ),
+                        if (index != records.length - 1)
+                          const SizedBox(height: 12),
+                      ],
+                    ],
+                  ),
+                )
+              : const SizedBox.shrink(),
+        ),
+      ],
+    );
+  }
+
+  String _versionTitle(DownloadTaskRecord record) {
+    final fileName = record.fileName.trim();
+    if (fileName.isNotEmpty) return fileName;
+    final resolution = record.resolution.trim();
+    if (resolution.isNotEmpty) return resolution;
+    return DownloadTaskService.instance.displayTitleForRecord(record);
+  }
+}
+
+class _VersionToggleButton extends StatelessWidget {
+  final bool expanded;
+  final int count;
+  final VoidCallback onTap;
+
+  const _VersionToggleButton({
+    required this.expanded,
+    required this.count,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: expanded
+              ? colors.selection.withValues(alpha: 0.18)
+              : colors.surfaceStrong.withValues(alpha: 0.7),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: expanded ? colors.selectionStrong : colors.borderSubtle,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              '多版本',
+              style: TextStyle(
+                color: expanded ? colors.selectionStrong : colors.textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(width: 5),
+            Text(
+              '$count',
+              style: TextStyle(
+                color: colors.textMuted,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(width: 2),
+            Icon(
+              expanded
+                  ? Icons.keyboard_arrow_up_rounded
+                  : Icons.keyboard_arrow_down_rounded,
+              size: 16,
+              color: expanded ? colors.selectionStrong : colors.textMuted,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _DownloadGroupCard extends StatelessWidget {
   final DownloadTaskGroup group;
   final String token;
@@ -1296,6 +1552,8 @@ class _DownloadRecordRow extends StatelessWidget {
   final bool editing;
   final bool selected;
   final VoidCallback? onSelectToggle;
+  final Widget? trailingAction;
+  final String? titleOverride;
 
   const _DownloadRecordRow({
     super.key,
@@ -1309,6 +1567,8 @@ class _DownloadRecordRow extends StatelessWidget {
     this.editing = false,
     this.selected = false,
     this.onSelectToggle,
+    this.trailingAction,
+    this.titleOverride,
   });
 
   @override
@@ -1508,7 +1768,11 @@ class _DownloadRecordRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
-                    DownloadTaskService.instance.displayTitleForRecord(record),
+                    titleOverride?.trim().isNotEmpty == true
+                        ? titleOverride!.trim()
+                        : DownloadTaskService.instance.displayTitleForRecord(
+                            record,
+                          ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -1629,6 +1893,10 @@ class _DownloadRecordRow extends StatelessWidget {
                               color: colors.selectionStrong,
                             ),
                           ),
+                        ],
+                        if (trailingAction != null) ...<Widget>[
+                          const SizedBox(width: 10),
+                          trailingAction!,
                         ],
                       ],
                     ),

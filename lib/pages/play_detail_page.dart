@@ -1783,6 +1783,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       return;
     }
     final subtitleTracks = _currentSubtitleTracks();
+    final selectedOption = _currentStreamOption();
     final selectedSubtitle = PlayDetailTrackSelector.selectedOrFirstSubtitle(
       selectedSubtitleGuid: _selectedSubtitleGuid?.trim().isNotEmpty == true
           ? _selectedSubtitleGuid
@@ -1811,6 +1812,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         itemDetail: PlayDetailDownloadSheetController.cachedItemDetail(
           itemGuid,
         ),
+        playItemGuid: selectedOption?.mediaGuid,
+        selectedMediaGuid: selectedOption?.mediaGuid ?? '',
+        selectedResolution: selectedOption?.resolutionType ?? '',
       ),
     );
   }

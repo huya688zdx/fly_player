@@ -19,7 +19,8 @@ import '../widgets/detail/tv_season_download_sheet.dart';
 /// 负责展示详情页的单条目下载面板。
 class PlayDetailDownloadSheetController {
   static final DetailTopTip _topTip = DetailTopTip();
-  static final Map<String, List<String>> _cachedQualities = <String, List<String>>{};
+  static final Map<String, List<String>> _cachedQualities =
+      <String, List<String>>{};
   static final Map<String, Map<String, dynamic>> _cachedItemDetails =
       <String, Map<String, dynamic>>{};
 
@@ -37,7 +38,10 @@ class PlayDetailDownloadSheetController {
     final key = itemGuid.trim();
     if (key.isEmpty || _cachedQualities.containsKey(key)) return;
     try {
-      final qualities = await api.getDownloadResolutionOptions(key, lan: 'zh-CN');
+      final qualities = await api.getDownloadResolutionOptions(
+        key,
+        lan: 'zh-CN',
+      );
       if (qualities.isNotEmpty) {
         _cachedQualities[key] = qualities;
       }
@@ -72,6 +76,8 @@ class PlayDetailDownloadSheetController {
     Map<String, dynamic> localeMap = const <String, dynamic>{},
     Map<String, dynamic>? itemDetail,
     String? playItemGuid,
+    String selectedMediaGuid = '',
+    String selectedResolution = '',
   }) async {
     final l10n = AppLocalizations.of(context);
     final actionKey = 'play_detail_download_sheet:${itemGuid.trim()}';
@@ -91,7 +97,10 @@ class PlayDetailDownloadSheetController {
       action: () async {
         try {
           await downloadService.initialize();
-          final detail = itemDetail ?? _cachedItemDetails[itemGuid] ?? await api.getItemDetail(itemGuid);
+          final detail =
+              itemDetail ??
+              _cachedItemDetails[itemGuid] ??
+              await api.getItemDetail(itemGuid);
           if (!context.mounted) return;
 
           final itemMap = _detailItem(detail);
@@ -104,7 +113,13 @@ class PlayDetailDownloadSheetController {
             parentGuid,
             l10n,
           );
-          final effectivePlayItemGuid = playItemGuid ??
+          final preferredMediaGuid = selectedMediaGuid.trim().isNotEmpty
+              ? selectedMediaGuid.trim()
+              : (playItemGuid?.trim().isNotEmpty == true
+                    ? playItemGuid!.trim()
+                    : null);
+          final effectivePlayItemGuid =
+              preferredMediaGuid ??
               await _resolveDownloadResolutionGuid(
                 api,
                 requestedItemGuid: itemGuid,
@@ -119,7 +134,8 @@ class PlayDetailDownloadSheetController {
             return;
           }
 
-          final qualities = _cachedQualities[resolutionGuid] ??
+          final qualities =
+              _cachedQualities[resolutionGuid] ??
               await api.getDownloadResolutionOptions(
                 resolutionGuid,
                 lan: 'zh-CN',
@@ -130,7 +146,17 @@ class PlayDetailDownloadSheetController {
             return;
           }
 
-          final sourceResolution = _sourceResolution(itemMap, item);
+          final sourceResolution = selectedResolution.trim().isNotEmpty
+              ? selectedResolution.trim()
+              : _sourceResolution(itemMap, item);
+          final autoSelectedHighestQuality =
+              sourceResolution.trim().isNotEmpty &&
+              qualities.every(
+                (quality) => !_isSameQuality(quality, sourceResolution),
+              );
+          if (autoSelectedHighestQuality) {
+            _showTopTip(context, '该影片无所选画质，已自动选择最高画质下载', colors.warning);
+          }
           final posterUrls = previewUrls.isNotEmpty
               ? previewUrls
               : _posterUrls(provider.baseUrl, item);
@@ -154,6 +180,7 @@ class PlayDetailDownloadSheetController {
                       downloaded: downloadService.hasDownloadedResolution(
                         itemGuid,
                         quality,
+                        mediaGuid: preferredMediaGuid ?? '',
                       ),
                     ),
                   ),
@@ -165,11 +192,15 @@ class PlayDetailDownloadSheetController {
             downloadedLabel: l10n.downloadDownloaded,
             pausedLabel: l10n.downloadPaused,
             openListLabel: l10n.downloadOpenList,
-            primaryActionState: downloadService.actionStateForItem(itemGuid),
+            primaryActionState: downloadService.actionStateForItemVersion(
+              itemGuid,
+              mediaGuid: preferredMediaGuid ?? '',
+            ),
           );
 
-          final payloadNotifier =
-              ValueNotifier<TvSeasonDownloadSheetPayload>(payload);
+          final payloadNotifier = ValueNotifier<TvSeasonDownloadSheetPayload>(
+            payload,
+          );
           await TvSeasonDownloadSheet.show(
             context,
             payloadNotifier: payloadNotifier,
@@ -179,6 +210,7 @@ class PlayDetailDownloadSheetController {
                   provider: provider,
                   itemGuid: itemGuid,
                   resolution: selectedQuality,
+                  mediaGuid: preferredMediaGuid ?? '',
                   title: _recordTitle(item, l10n),
                   groupId: groupMeta.id,
                   groupTitle: groupMeta.title,
