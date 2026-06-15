@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fly_player/models/download_task_record.dart';
+import 'package:fly_player/models/stream_list_option.dart';
 import 'package:fly_player/models/stream_track_data.dart';
 import 'package:fly_player/services/download_task_service.dart';
 
@@ -112,5 +113,34 @@ void main() {
 
     expect(wrongVersion, isNull);
     expect(selectedVersion, downloadedRecord);
+  });
+
+  test('download stream selection prefers selected media version', () {
+    const firstVersion = StreamListOption(
+      mediaGuid: 'media-first',
+      videoGuid: 'video-first',
+      resolutionType: '1080P SDR',
+      colorRangeType: 'SDR',
+      audioType: '',
+      audioLanguage: '',
+      duration: 0,
+    );
+    const selectedVersion = StreamListOption(
+      mediaGuid: 'media-selected',
+      videoGuid: 'video-selected',
+      resolutionType: '1080P SDR',
+      colorRangeType: 'SDR',
+      audioType: '',
+      audioLanguage: '',
+      duration: 0,
+    );
+
+    final result = selectDownloadStreamOption(
+      const <StreamListOption>[firstVersion, selectedVersion],
+      resolution: '1080P SDR',
+      mediaGuid: 'media-selected',
+    );
+
+    expect(result, selectedVersion);
   });
 }

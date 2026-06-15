@@ -83,6 +83,38 @@ DownloadTaskRecord? selectDownloadedRecordForItem(
   return null;
 }
 
+/// 根据目标清晰度和媒体版本选择下载流。
+StreamListOption? selectDownloadStreamOption(
+  List<StreamListOption> options, {
+  required String resolution,
+  String mediaGuid = '',
+}) {
+  final normalizedResolution = resolution.trim().toLowerCase();
+  final normalizedMediaGuid = mediaGuid.trim();
+
+  bool matchesResolution(StreamListOption option) {
+    return normalizedResolution.isEmpty ||
+        option.resolutionType.trim().toLowerCase() == normalizedResolution;
+  }
+
+  if (normalizedMediaGuid.isNotEmpty) {
+    for (final option in options) {
+      if (option.mediaGuid.trim() == normalizedMediaGuid &&
+          matchesResolution(option)) {
+        return option;
+      }
+    }
+    for (final option in options) {
+      if (option.mediaGuid.trim() == normalizedMediaGuid) return option;
+    }
+  }
+
+  for (final option in options) {
+    if (matchesResolution(option)) return option;
+  }
+  return options.isNotEmpty ? options.first : null;
+}
+
 /// 描述离线下载恢复扫描的统计结果。
 class DownloadRecoveryResult {
   final int scannedVideoCount;
@@ -267,11 +299,28 @@ class DownloadTaskService extends ChangeNotifier {
 
   /// 计算指定条目当前在下载入口上的动作状态。
   DownloadActionState actionStateForItem(String itemGuid) {
+    return actionStateForItemVersion(itemGuid);
+  }
+
+  DownloadActionState actionStateForItemVersion(
+    String itemGuid, {
+    String mediaGuid = '',
+  }) {
     final normalized = itemGuid.trim();
+    final normalizedMediaGuid = mediaGuid.trim();
     if (normalized.isEmpty) return DownloadActionState.idle;
+
+    bool matchesItem(DownloadTaskRecord record) {
+      if (record.itemGuid != normalized) return false;
+      if (normalizedMediaGuid.isNotEmpty &&
+          record.mediaGuid.trim() != normalizedMediaGuid) {
+        return false;
+      }
+      return true;
+    }
+
     final downloaded = _records.firstWhere(
-      (record) =>
-          record.itemGuid == normalized && _isDownloadedRecordAvailable(record),
+      (record) => matchesItem(record) && _isDownloadedRecordAvailable(record),
       orElse: () => _emptyRecord,
     );
     if (downloaded != _emptyRecord) {
@@ -279,7 +328,7 @@ class DownloadTaskService extends ChangeNotifier {
     }
     final downloading = _records.firstWhere(
       (record) =>
-          record.itemGuid == normalized &&
+          matchesItem(record) &&
           record.status == DownloadTaskStatus.downloading,
       orElse: () => _emptyRecord,
     );
@@ -288,8 +337,7 @@ class DownloadTaskService extends ChangeNotifier {
     }
     final paused = _records.firstWhere(
       (record) =>
-          record.itemGuid == normalized &&
-          record.status == DownloadTaskStatus.paused,
+          matchesItem(record) && record.status == DownloadTaskStatus.paused,
       orElse: () => _emptyRecord,
     );
     if (paused != _emptyRecord) {
@@ -297,8 +345,7 @@ class DownloadTaskService extends ChangeNotifier {
     }
     final failed = _records.firstWhere(
       (record) =>
-          record.itemGuid == normalized &&
-          record.status == DownloadTaskStatus.failed,
+          matchesItem(record) && record.status == DownloadTaskStatus.failed,
       orElse: () => _emptyRecord,
     );
     if (failed != _emptyRecord) {
@@ -433,14 +480,23 @@ class DownloadTaskService extends ChangeNotifier {
   }
 
   /// 判断指定条目是否已存在目标清晰度的离线副本。
-  bool hasDownloadedResolution(String itemGuid, String resolution) {
+  bool hasDownloadedResolution(
+    String itemGuid,
+    String resolution, {
+    String mediaGuid = '',
+  }) {
     final normalizedItemGuid = itemGuid.trim();
+    final normalizedMediaGuid = mediaGuid.trim();
     final normalizedResolution = _normalizeResolutionKey(resolution);
     if (normalizedItemGuid.isEmpty || normalizedResolution.isEmpty) {
       return false;
     }
     for (final record in _records) {
       if (record.itemGuid != normalizedItemGuid) continue;
+      if (normalizedMediaGuid.isNotEmpty &&
+          record.mediaGuid.trim() != normalizedMediaGuid) {
+        continue;
+      }
       if (!_isDownloadedRecordAvailable(record)) continue;
       if (_normalizeResolutionKey(record.resolution) == normalizedResolution) {
         return true;
@@ -862,6 +918,7 @@ class DownloadTaskService extends ChangeNotifier {
     required NasProvider provider,
     required String itemGuid,
     required String resolution,
+    String mediaGuid = '',
     required String title,
     required String groupId,
     required String groupTitle,
@@ -875,6 +932,7 @@ class DownloadTaskService extends ChangeNotifier {
 
     final normalizedItemGuid = itemGuid.trim();
     final normalizedResolution = resolution.trim();
+    final normalizedMediaGuid = mediaGuid.trim();
     if (normalizedItemGuid.isEmpty || normalizedResolution.isEmpty) {
       throw AppException.api(
         action: 'download start',
@@ -884,6 +942,7 @@ class DownloadTaskService extends ChangeNotifier {
 
     final existingDownloaded = _findLatestRecord(
       itemGuid: normalizedItemGuid,
+      mediaGuid: normalizedMediaGuid,
       resolution: normalizedResolution,
       status: DownloadTaskStatus.downloaded,
     );
@@ -898,6 +957,7 @@ class DownloadTaskService extends ChangeNotifier {
 
     final existingDownloading = _findLatestRecord(
       itemGuid: normalizedItemGuid,
+      mediaGuid: normalizedMediaGuid,
       resolution: normalizedResolution,
       status: DownloadTaskStatus.downloading,
     );
@@ -909,6 +969,7 @@ class DownloadTaskService extends ChangeNotifier {
     }
     final existingPaused = _findLatestRecord(
       itemGuid: normalizedItemGuid,
+      mediaGuid: normalizedMediaGuid,
       resolution: normalizedResolution,
       status: DownloadTaskStatus.paused,
     );
@@ -924,6 +985,7 @@ class DownloadTaskService extends ChangeNotifier {
     final matchedOption = _pickStreamOption(
       streamData.options,
       resolution: normalizedResolution,
+      mediaGuid: normalizedMediaGuid,
     );
 
     // Use the matched stream option for metadata (file info, subtitles, etc.)
@@ -1051,9 +1113,7 @@ class DownloadTaskService extends ChangeNotifier {
     _upsertRecord(record, persistImmediately: true);
     _clearDownloadSpeed(record.id);
     unawaited(_prefetchDanmakuForDownload(provider: provider, record: record));
-    final sourceResolution = streamData.options.isNotEmpty
-        ? streamData.options.first.resolutionType
-        : null;
+    final sourceResolution = metadataOption?.resolutionType;
     final needsTranscode = _shouldPollTaskProgressForResolution(
       record.resolution,
       sourceResolution: sourceResolution,
@@ -4236,14 +4296,13 @@ class DownloadTaskService extends ChangeNotifier {
   StreamListOption? _pickStreamOption(
     List<StreamListOption> options, {
     required String resolution,
+    String mediaGuid = '',
   }) {
-    final normalizedResolution = resolution.trim().toLowerCase();
-    for (final option in options) {
-      if (option.resolutionType.trim().toLowerCase() == normalizedResolution) {
-        return option;
-      }
-    }
-    return options.isNotEmpty ? options.first : null;
+    return selectDownloadStreamOption(
+      options,
+      resolution: resolution,
+      mediaGuid: mediaGuid,
+    );
   }
 
   Future<String> _buildDownloadFilePath({
@@ -5414,11 +5473,15 @@ class DownloadTaskService extends ChangeNotifier {
     required String itemGuid,
     required String resolution,
     required DownloadTaskStatus status,
+    String mediaGuid = '',
   }) {
+    final normalizedMediaGuid = mediaGuid.trim();
     try {
       return _records.firstWhere(
         (record) =>
             record.itemGuid == itemGuid &&
+            (normalizedMediaGuid.isEmpty ||
+                record.mediaGuid.trim() == normalizedMediaGuid) &&
             record.resolution.trim().toLowerCase() ==
                 resolution.trim().toLowerCase() &&
             record.status == status,
