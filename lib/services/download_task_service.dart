@@ -1567,18 +1567,43 @@ class DownloadTaskService extends ChangeNotifier {
       raf = await partFile.open(mode: FileMode.append);
       var lastPersistedBytes = startingOffset;
 
-      final response = await dio.get<ResponseBody>(
-        downloadUrl,
-        cancelToken: cancelToken,
-        options: Options(
-          headers: headers,
-          responseType: ResponseType.stream,
-          followRedirects: false,
-          receiveTimeout: const Duration(hours: 2),
-          sendTimeout: const Duration(seconds: 30),
-          validateStatus: (status) => status == 200 || status == 206,
-        ),
-      );
+      // 服务端下载任务在 createDownloadTask 之后可能需要片刻才就绪；过早请求会拿到
+      // 非 200/206 状态，旧逻辑会把任务直接打成「暂停」——表现为下载源画质时一进去
+      // 就是暂停、要手动点继续。这里对首个连接做有限次重试，让任务就绪后自动开始，
+      // 同时若任务在此期间被暂停/删除则立即放弃，不会卡死。
+      Response<ResponseBody>? response;
+      Object? lastConnectError;
+      for (var attempt = 0; attempt < 5; attempt++) {
+        try {
+          response = await dio.get<ResponseBody>(
+            downloadUrl,
+            cancelToken: cancelToken,
+            options: Options(
+              headers: headers,
+              responseType: ResponseType.stream,
+              followRedirects: false,
+              receiveTimeout: const Duration(hours: 2),
+              sendTimeout: const Duration(seconds: 30),
+              validateStatus: (status) => status == 200 || status == 206,
+            ),
+          );
+          break;
+        } catch (error) {
+          if (error is DioException && CancelToken.isCancel(error)) rethrow;
+          lastConnectError = error;
+          final current = _recordById(record.id);
+          if (current == null ||
+              current.status != DownloadTaskStatus.downloading) {
+            rethrow;
+          }
+          await Future<void>.delayed(
+            Duration(milliseconds: 800 * (attempt + 1)),
+          );
+        }
+      }
+      if (response == null) {
+        throw lastConnectError ?? Exception('download connection failed');
+      }
       final stream = response.data!.stream;
       await for (final chunk in stream) {
         await raf.writeFrom(chunk);

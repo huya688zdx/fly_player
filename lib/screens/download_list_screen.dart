@@ -1332,11 +1332,18 @@ class _DownloadRecordVersionGroup extends StatelessWidget {
   }
 
   String _versionTitle(DownloadTaskRecord record) {
+    // 多版本行用文件名区分不同媒体版本；缺文件名时回退到标题(+清晰度)，
+    // 而不是只显示一个裸分辨率数字。
     final fileName = record.fileName.trim();
     if (fileName.isNotEmpty) return fileName;
+    final title = DownloadTaskService.instance
+        .displayTitleForRecord(record)
+        .trim();
     final resolution = record.resolution.trim();
-    if (resolution.isNotEmpty) return resolution;
-    return DownloadTaskService.instance.displayTitleForRecord(record);
+    if (title.isNotEmpty) {
+      return resolution.isNotEmpty ? '$title · $resolution' : title;
+    }
+    return resolution;
   }
 }
 
