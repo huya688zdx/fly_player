@@ -302,6 +302,25 @@ class NativePlayerActivityPanelModelsTest {
 
         assertEquals(2, versions.size)
         assertEquals(1, versions[0].sourceIndex)
-        assertEquals("1080P · 原画 · 8 Mbps", nativePanelEpisodeVersionSummary(versions[0].quality))
+        // 副标题不再写来源，改为 分辨率 · 视频时长 · 码率。
+        assertEquals(
+            "1080P · 24:42 · 8 Mbps",
+            nativePanelEpisodeVersionSummary(versions[0].quality, "24:42"),
+        )
+    }
+
+    @Test
+    fun episodeVersionTitleUsesSourceFileNameWhenPresent() {
+        assertEquals(
+            "BDRip.mkv",
+            nativePanelEpisodeVersionTitle(
+                mapOf<String, Any?>("fileName" to "BDRip.mkv"),
+                0,
+            ),
+        )
+        assertEquals(
+            "版本 2",
+            nativePanelEpisodeVersionTitle(mapOf<String, Any?>(), 1),
+        )
     }
 }

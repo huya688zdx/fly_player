@@ -259,20 +259,24 @@ internal fun nativePanelEpisodeVersionEntries(
     return bestByMediaGuid.values.toList().takeIf { it.size > 1 }.orEmpty()
 }
 
-internal fun nativePanelEpisodeVersionSummary(quality: Map<String, Any?>): String {
+/** 版本卡标题：优先源文件名，缺失时回退「版本 N」。 */
+internal fun nativePanelEpisodeVersionTitle(quality: Map<String, Any?>, index: Int): String {
+    val fileName = quality["fileName"]?.toString()?.trim().orEmpty()
+    return fileName.ifEmpty { "版本 ${index + 1}" }
+}
+
+/** 版本卡副标题：分辨率 · 视频时长 · 码率（不再写来源「转码/原画」）。 */
+internal fun nativePanelEpisodeVersionSummary(
+    quality: Map<String, Any?>,
+    durationLabel: String = "",
+): String {
     val resolution = quality["resolution"]?.toString()?.trim().orEmpty()
         .ifEmpty { nativePanelQualityTierLabel(nativePanelQualityTierRank(quality["resolution"]?.toString())) }
         .ifEmpty { "版本" }
-    val source = when (quality["source"]?.toString()) {
-        "originalProxy" -> "原画"
-        "directLink" -> "直链"
-        "serverSession" -> "转码"
-        else -> if (nativePanelTruthy(quality["isDefault"])) "原画" else ""
-    }
     val bitrate = nativePanelQualityBitrate(quality).takeIf { it > 0 }?.let {
         "${String.format("%.0f", it / 1_000_000.0)} Mbps"
     }.orEmpty()
-    return listOf(resolution, source, bitrate).filter { it.isNotEmpty() }.joinToString(" · ")
+    return listOf(resolution, durationLabel.trim(), bitrate).filter { it.isNotEmpty() }.joinToString(" · ")
 }
 
 private fun nativePanelPreferEpisodeVersionQuality(
@@ -555,6 +559,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private lateinit var statusLabel: TextView
     private lateinit var speedButton: TextView
     private lateinit var qualityButton: TextView
+    private lateinit var episodeEntryButton: TextView
     private lateinit var displayModeButton: ImageButton
 
     private lateinit var panelContainer: FrameLayout
@@ -863,6 +868,45 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             cornerRadius = dp(8).toFloat()
             setColor(if (selected) ITEM_SELECTED_BG else 0x1FFFFFFF)
             setStroke(dp(1), if (selected) ACCENT else GLASS_STROKE)
+        }
+    }
+
+    private fun versionGroupBackground(): GradientDrawable {
+        return GradientDrawable().apply {
+            cornerRadius = dp(16).toFloat()
+            setColor(0xB01C1C1C.toInt())
+            setStroke(dp(1), 0x22FFFFFF)
+        }
+    }
+
+    private fun versionCardBackground(selected: Boolean): GradientDrawable {
+        return GradientDrawable().apply {
+            cornerRadius = dp(13).toFloat()
+            setColor(if (selected) 0x263A82F7 else 0x12FFFFFF)
+            setStroke(dp(if (selected) 2 else 1), if (selected) 0xCC3A82F7.toInt() else 0x18FFFFFF)
+        }
+    }
+
+    private fun versionAccentBar(selected: Boolean): View {
+        return View(this).apply {
+            background = GradientDrawable().apply {
+                cornerRadius = dp(2).toFloat()
+                setColor(if (selected) ACCENT else Color.TRANSPARENT)
+            }
+        }
+    }
+
+    private fun versionSelectedBadge(): View {
+        return TextView(this).apply {
+            text = "✓"
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(ACCENT)
+            }
         }
     }
 
@@ -1787,6 +1831,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (this::titleLabel.isInitialized) titleLabel.text = mediaTitle
         // 切画质/换源后刷新画质入口按钮文案（之前只在构建时设一次，切完不变）。
         if (this::qualityButton.isInitialized) qualityButton.text = currentQualityLabel()
+        refreshEpisodeEntryButton()
         playerSurface.load(loadArgs)
         val effectiveDanmaku = danmakuPayload
             ?: if (intent?.getBooleanExtra(EXTRA_DANMAKU_TEST, false) == true) {
@@ -2403,7 +2448,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
         // 右侧功能键
         controlRow.addView(makeEntryButton("重载") { reloadCurrentSource() })
-        controlRow.addView(makeEntryButton("选集") { showEpisodePanel() })
+        // 选集/多版本入口：多集→「选集」；单集(电影)有多版本→「多版本」；单集单版本→隐藏。
+        episodeEntryButton = makeEntryButton("选集") { onEpisodeEntryClick() }
+        controlRow.addView(episodeEntryButton)
+        refreshEpisodeEntryButton()
 
         speedButton = makeEntryButton("1.0x") { showSpeedPicker() }
         controlRow.addView(speedButton)
@@ -2813,6 +2861,72 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         } else "选集"
     }
 
+    /** 入口模式：0=选集(多集)，1=多版本(单集且有>1版本)，2=隐藏(单集且≤1版本)。 */
+    private fun episodeEntryMode(): Int {
+        if (episodeList().size > 1) return 0
+        return if (nativePanelEpisodeVersionEntries(qualityList()).size > 1) 1 else 2
+    }
+
+    private fun onEpisodeEntryClick() {
+        when (episodeEntryMode()) {
+            0 -> showEpisodePanel()
+            1 -> showVersionPanel()
+            else -> {}
+        }
+    }
+
+    /** 按当前剧集/版本情况刷新控制栏入口按钮的文案与显隐。 */
+    private fun refreshEpisodeEntryButton() {
+        if (!this::episodeEntryButton.isInitialized) return
+        when (episodeEntryMode()) {
+            0 -> {
+                episodeEntryButton.text = "选集"
+                episodeEntryButton.visibility = View.VISIBLE
+            }
+            1 -> {
+                episodeEntryButton.text = "多版本"
+                episodeEntryButton.visibility = View.VISIBLE
+            }
+            else -> episodeEntryButton.visibility = View.GONE
+        }
+    }
+
+    /** 单集(电影)多版本时的独立「多版本」面板。 */
+    private fun showVersionPanel() {
+        val versions = nativePanelEpisodeVersionEntries(qualityList())
+        if (versions.size <= 1) {
+            showTransientHint("无多版本")
+            return
+        }
+        val title = "多版本"
+        if (panelVisible && panelStack.size == 1 && panelStack.lastOrNull()?.title == title) {
+            hidePanel()
+            return
+        }
+        expandedEpisodeVersionGuid = null
+        togglePanel(PanelPage(title) { buildVersionPanelContent(versions) })
+    }
+
+    private fun buildVersionPanelContent(entries: List<NativeEpisodeVersionEntry>) {
+        val durationLabel = formatTime(currentEpisodeDurationMs())
+        addPanelRow(
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(4), dp(6), dp(4), 0)
+                addView(buildVersionGroup(entries, durationLabel))
+            },
+        )
+    }
+
+    private fun currentEpisodeDurationMs(): Long {
+        val currentGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
+        val ep = episodeList().firstOrNull { it["itemGuid"]?.toString() == currentGuid }
+        val seconds = (ep?.get("duration") as? Number)?.toLong()
+            ?: (loadArgsMap["durationSeconds"] as? Number)?.toLong()
+            ?: 0L
+        return seconds * 1000
+    }
+
     private fun buildEpisodePanelContent() {
         val episodes = episodeList()
         val currentGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
@@ -2954,41 +3068,44 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 maxLines = 2
                 ellipsize = android.text.TextUtils.TruncateAt.END
             }
-            infoLayout.addView(epTitle)
-
-            val metaRow = LinearLayout(this).apply {
+            // 标题行铺满：标题占满左侧，「多版本」按钮上移到右上角与标题同排。
+            val titleRow = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
+                addView(
+                    epTitle,
+                    LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
+                )
+                if (canExpandVersions) {
+                    addView(
+                        buildVersionToggleButton(versionsExpanded, guid),
+                        LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                        ).apply { leftMargin = dp(8) },
+                    )
+                }
             }
+            infoLayout.addView(
+                titleRow,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ),
+            )
+
             val durationText = formatTime((episode["duration"] as? Number)?.toLong()?.times(1000) ?: 0L)
-            metaRow.addView(TextView(this).apply {
-                text = durationText
-                setTextColor(0xFFAAAAAA.toInt())
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-            if (canExpandVersions) {
-                metaRow.addView(TextView(this).apply {
-                    text = if (versionsExpanded) "收起" else "多版本"
-                    setTextColor(ACCENT)
+            infoLayout.addView(
+                TextView(this).apply {
+                    text = durationText
+                    setTextColor(0xFFAAAAAA.toInt())
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                    setPadding(dp(10), dp(4), dp(10), dp(4))
-                    gravity = Gravity.CENTER
-                    background = GradientDrawable().apply {
-                        cornerRadius = dp(8).toFloat()
-                        setColor(if (versionsExpanded) 0x243A82F7 else Color.TRANSPARENT)
-                        setStroke(dp(1), ACCENT)
-                    }
-                    isClickable = true
-                    setOnClickListener {
-                        expandedEpisodeVersionGuid = if (versionsExpanded) null else guid
-                        renderTopPanel()
-                    }
-                })
-            }
-            infoLayout.addView(metaRow, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(6) })
+                },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).apply { topMargin = dp(6) },
+            )
 
             val watched = (episode["watched"] as? Number)?.toInt() ?: 0
             val statusStr = if (isSelected) "播放中.." else if (watched == 1) "已观看" else ""
@@ -3009,71 +3126,128 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             itemView.addView(infoLayout, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
             listContainer.addView(itemView)
             if (versionsExpanded) {
-                listContainer.addView(buildEpisodeVersionExpansion(versionEntries))
+                listContainer.addView(buildEpisodeVersionExpansion(versionEntries, durationText))
             }
             listContainer.addView(View(this), LinearLayout.LayoutParams(1, dp(4)))
         }
         panelContent.addView(listContainer)
     }
 
+    /** 「多版本」切换按钮：展开/收起共用同一文案「多版本」（不再切成「收起」）。 */
+    private fun buildVersionToggleButton(expanded: Boolean, guid: String): View {
+        return TextView(this).apply {
+            text = "多版本"
+            setTextColor(ACCENT)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setPadding(dp(10), dp(4), dp(10), dp(4))
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                cornerRadius = dp(8).toFloat()
+                setColor(if (expanded) 0x243A82F7 else Color.TRANSPARENT)
+                setStroke(dp(1), ACCENT)
+            }
+            isClickable = true
+            setOnClickListener {
+                expandedEpisodeVersionGuid = if (expanded) null else guid
+                renderTopPanel()
+            }
+        }
+    }
+
     private fun buildEpisodeVersionExpansion(
         entries: List<NativeEpisodeVersionEntry>,
+        durationLabel: String,
     ): View {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(172), dp(2), dp(16), dp(10))
+            // 铺满整行（与剧集行同样 16dp 边距），不再缩进到缩略图右侧。
+            setPadding(dp(16), dp(8), dp(16), dp(14))
+            addView(buildVersionGroup(entries, durationLabel))
+        }
+    }
+
+    /** 版本卡：标题为源文件名（过长跑马灯滚动），副标题为 分辨率·时长·码率；点击切换该版本。 */
+    private fun buildVersionGroup(
+        entries: List<NativeEpisodeVersionEntry>,
+        durationLabel: String,
+    ): View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = versionGroupBackground()
+            setPadding(dp(10), dp(10), dp(10), dp(10))
             for ((index, entry) in entries.withIndex()) {
-                val selected = qualityMatchesCurrentPlayback(entry.quality)
                 addView(
-                    LinearLayout(context).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        gravity = Gravity.CENTER_VERTICAL
-                        background = panelTileBackground(selected)
-                        setPadding(dp(12), dp(10), dp(12), dp(10))
-                        isClickable = true
-                        setOnClickListener {
-                            expandedEpisodeVersionGuid = null
-                            if (selected) {
-                                renderTopPanel()
-                            } else {
-                                hidePanel()
-                                requestQuality(entry.sourceIndex, "正在切换版本…")
-                            }
-                        }
-                        addView(
-                            LinearLayout(context).apply {
-                                orientation = LinearLayout.VERTICAL
-                                addView(TextView(context).apply {
-                                    text = "版本 ${index + 1}"
-                                    setTextColor(if (selected) ACCENT else Color.WHITE)
-                                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-                                    typeface = android.graphics.Typeface.DEFAULT_BOLD
-                                })
-                                addView(TextView(context).apply {
-                                    text = nativePanelEpisodeVersionSummary(entry.quality)
-                                    setTextColor(if (selected) ACCENT else TEXT_DIM)
-                                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-                                    maxLines = 1
-                                    ellipsize = android.text.TextUtils.TruncateAt.END
-                                    setPadding(0, dp(2), 0, 0)
-                                })
-                            },
-                            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
-                        )
-                        if (selected) {
-                            addView(TextView(context).apply {
-                                text = "✓"
-                                setTextColor(ACCENT)
-                                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-                                typeface = android.graphics.Typeface.DEFAULT_BOLD
-                            })
-                        }
-                    },
+                    buildVersionCard(entry, index, durationLabel),
                     LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT,
                     ).apply {
-                        if (index > 0) topMargin = dp(6)
+                        if (index > 0) topMargin = dp(10)
+                    },
+                )
+            }
+        }
+    }
+
+    private fun buildVersionCard(
+        entry: NativeEpisodeVersionEntry,
+        index: Int,
+        durationLabel: String,
+    ): View {
+        val selected = qualityMatchesCurrentPlayback(entry.quality)
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = versionCardBackground(selected)
+            minimumHeight = dp(72)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            isClickable = true
+            setOnClickListener {
+                expandedEpisodeVersionGuid = null
+                if (selected) {
+                    renderTopPanel()
+                } else {
+                    hidePanel()
+                    requestQuality(entry.sourceIndex, "正在切换版本…")
+                }
+            }
+            addView(
+                versionAccentBar(selected),
+                LinearLayout.LayoutParams(dp(3), dp(42)).apply {
+                    rightMargin = dp(12)
+                },
+            )
+            addView(
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(TextView(context).apply {
+                        text = nativePanelEpisodeVersionTitle(entry.quality, index)
+                        setTextColor(Color.WHITE)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                        typeface = android.graphics.Typeface.DEFAULT_BOLD
+                        // 源文件名过长时跑马灯横向滚动。
+                        setSingleLine(true)
+                        ellipsize = android.text.TextUtils.TruncateAt.MARQUEE
+                        marqueeRepeatLimit = -1
+                        setHorizontallyScrolling(true)
+                        isSelected = true
+                    })
+                    addView(TextView(context).apply {
+                        text = nativePanelEpisodeVersionSummary(entry.quality, durationLabel)
+                        setTextColor(if (selected) 0xFFD6E6FF.toInt() else TEXT_DIM)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+                        maxLines = 1
+                        ellipsize = android.text.TextUtils.TruncateAt.END
+                        setPadding(0, dp(4), 0, 0)
+                    })
+                },
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
+            )
+            if (selected) {
+                addView(
+                    versionSelectedBadge(),
+                    LinearLayout.LayoutParams(dp(24), dp(24)).apply {
+                        leftMargin = dp(12)
                     },
                 )
             }
@@ -3353,15 +3527,30 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             },
         )
         addPanelRow(panelSectionHeader("更多"))
-        addPanelRow(
-            panelPrimaryTile(
-                title = "选集",
-                subtitle = "在当前季内切换剧集",
-                trailing = episodePanelTitle(),
-            ) {
-                pushPanel(PanelPage(episodePanelTitle()) { buildEpisodePanelContent() })
-            },
-        )
+        when (episodeEntryMode()) {
+            0 -> addPanelRow(
+                panelPrimaryTile(
+                    title = "选集",
+                    subtitle = "在当前季内切换剧集",
+                    trailing = episodePanelTitle(),
+                ) {
+                    pushPanel(PanelPage(episodePanelTitle()) { buildEpisodePanelContent() })
+                },
+            )
+            1 -> {
+                val versions = nativePanelEpisodeVersionEntries(qualityList())
+                addPanelRow(
+                    panelPrimaryTile(
+                        title = "多版本",
+                        subtitle = "切换该视频的不同版本",
+                        trailing = "${versions.size} 个版本",
+                    ) {
+                        pushPanel(PanelPage("多版本") { buildVersionPanelContent(versions) })
+                    },
+                )
+            }
+            // 2 -> 单集单版本：不展示该入口
+        }
         addPanelRow(
             panelPrimaryTile(
                 title = "高级设置",
@@ -3799,7 +3988,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                             title = titleOf(entry),
                         ),
                         LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                            if (index % 2 == 1) leftMargin = dp(10)
+                            if (index % 2 == 1) leftMargin = dp(14)
                         },
                     )
                 }
@@ -3807,7 +3996,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     row.addView(
                         View(context),
                         LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                            leftMargin = dp(10)
+                            leftMargin = dp(14)
                         },
                     )
                 }
@@ -3818,7 +4007,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                         LinearLayout.LayoutParams.WRAP_CONTENT,
                     ).apply {
                         // 行间距与列间距统一 10dp；最后一行不留尾部空白。
-                        if (rowIndex < rows.lastIndex) bottomMargin = dp(10)
+                        if (rowIndex < rows.lastIndex) bottomMargin = dp(14)
                     },
                 )
             }
@@ -3835,12 +4024,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             background = qualityCardBackground(selected)
-            minimumHeight = dp(56)
-            setPadding(dp(12), dp(12), dp(12), dp(12))
+            minimumHeight = dp(68)
+            setPadding(dp(14), dp(14), dp(14), dp(14))
             addView(TextView(context).apply {
                 text = title
                 setTextColor(if (selected) ACCENT else Color.WHITE)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
                 maxLines = 1
@@ -3849,11 +4038,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             addView(TextView(context).apply {
                 text = qualityDisplaySubtitle(quality)
                 setTextColor(if (selected) ACCENT else TEXT_DIM)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
                 gravity = Gravity.CENTER
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
-                setPadding(0, dp(2), 0, 0)
+                setPadding(0, dp(4), 0, 0)
             })
         }
         // 整卡套一层 FrameLayout：点击挂在外层，「原画」浮标 isClickable=false 不抢事件，
@@ -3891,9 +4080,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     /** 画质卡背景：比通用 tile 更圆润(10dp)，选中时蓝色填充 + 2dp 强调描边。 */
     private fun qualityCardBackground(selected: Boolean): GradientDrawable {
         return GradientDrawable().apply {
-            cornerRadius = dp(10).toFloat()
-            setColor(if (selected) ITEM_SELECTED_BG else 0x14FFFFFF)
-            setStroke(dp(if (selected) 2 else 1), if (selected) ACCENT else GLASS_STROKE)
+            cornerRadius = dp(13).toFloat()
+            setColor(if (selected) 0x263A82F7 else 0x12FFFFFF)
+            setStroke(dp(if (selected) 2 else 1), if (selected) 0xCC3A82F7.toInt() else 0x18FFFFFF)
         }
     }
 

@@ -347,6 +347,9 @@ class PlaybackQualityOption {
   final PlaybackQualitySource source;
   final int? directLinkQualityIndex;
 
+  /// 源文件名（来自 StreamTrackData 的 file_name），用于「多版本」卡片展示。
+  final String sourceFileName;
+
   const PlaybackQualityOption({
     required this.mediaGuid,
     required this.videoGuid,
@@ -355,7 +358,21 @@ class PlaybackQualityOption {
     required this.isDefault,
     required this.source,
     required this.directLinkQualityIndex,
+    this.sourceFileName = '',
   });
+
+  /// 返回带上源文件名的副本（其余字段不变）。
+  PlaybackQualityOption withSourceFileName(String name) =>
+      PlaybackQualityOption(
+        mediaGuid: mediaGuid,
+        videoGuid: videoGuid,
+        resolution: resolution,
+        bitrate: bitrate,
+        isDefault: isDefault,
+        source: source,
+        directLinkQualityIndex: directLinkQualityIndex,
+        sourceFileName: name,
+      );
 
   factory PlaybackQualityOption.fromJson(
     Map<String, dynamic> json, {
@@ -380,6 +397,7 @@ class PlaybackQualityOption {
           (source == PlaybackQualitySource.directLink
               ? fallbackDirectLinkQualityIndex
               : null),
+      sourceFileName: (json['file_name'] ?? json['fileName'] ?? '').toString(),
     );
   }
 
@@ -409,7 +427,19 @@ List<PlaybackQualityOption> mergePlaybackQualitiesWithStreamTrackData(
     return List<PlaybackQualityOption>.from(playbackQualities);
   }
 
-  final merged = List<PlaybackQualityOption>.from(playbackQualities);
+  // 用 mediaGuid 对应的源文件名补全已有档（「多版本」卡片要展示源文件名）。
+  String fileNameFor(String mediaGuid) =>
+      trackData.fileForMedia(mediaGuid)?.fileName.trim() ?? '';
+
+  final merged = <PlaybackQualityOption>[];
+  for (final quality in playbackQualities) {
+    if (quality.sourceFileName.isNotEmpty) {
+      merged.add(quality);
+      continue;
+    }
+    final name = fileNameFor(quality.mediaGuid);
+    merged.add(name.isEmpty ? quality : quality.withSourceFileName(name));
+  }
   final seenKeys = merged.map((quality) => quality.dedupKey).toSet();
 
   for (final option in trackData.options) {
@@ -425,6 +455,7 @@ List<PlaybackQualityOption> mergePlaybackQualitiesWithStreamTrackData(
       isDefault: 0,
       source: PlaybackQualitySource.serverSession,
       directLinkQualityIndex: null,
+      sourceFileName: fileNameFor(option.mediaGuid),
     );
     if (seenKeys.add(quality.dedupKey)) {
       merged.add(quality);
