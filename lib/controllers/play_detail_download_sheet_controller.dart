@@ -104,7 +104,10 @@ class PlayDetailDownloadSheetController {
           if (!context.mounted) return;
 
           final itemMap = _detailItem(detail);
-          final groupMeta = await _resolveGroupMeta(
+          // 分组信息只有真正点「下载」时才需要，却会对父级再发一次网络请求。
+          // 不要 await 它来阻塞面板显示，改为后台解析、点击下载时再 await，
+          // 避免点下载图标后面板要等一两秒才弹出。
+          final groupMetaFuture = _resolveGroupMeta(
             api,
             provider.baseUrl,
             detail,
@@ -206,6 +209,7 @@ class PlayDetailDownloadSheetController {
             payloadNotifier: payloadNotifier,
             onDownloadTap: (selectedQuality) async {
               try {
+                final groupMeta = await groupMetaFuture;
                 final result = await downloadService.startDownload(
                   provider: provider,
                   itemGuid: itemGuid,
