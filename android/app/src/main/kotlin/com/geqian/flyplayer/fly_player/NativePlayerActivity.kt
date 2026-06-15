@@ -3195,6 +3195,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         durationLabel: String,
     ): View {
         val selected = qualityMatchesCurrentPlayback(entry.quality)
+        val marqueeTargets = mutableListOf<TextView>()
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -3210,6 +3211,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     hidePanel()
                     requestQuality(entry.sourceIndex, "正在切换版本…")
                 }
+            }
+            setOnTouchListener { _, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> marqueeTargets.forEach { it.isSelected = true }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> marqueeTargets.forEach { it.isSelected = false }
+                }
+                false
             }
             addView(
                 versionAccentBar(selected),
@@ -3230,7 +3238,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                         ellipsize = android.text.TextUtils.TruncateAt.MARQUEE
                         marqueeRepeatLimit = -1
                         setHorizontallyScrolling(true)
-                        isSelected = true
+                        isSelected = false
+                        marqueeTargets += this
                     })
                     addView(TextView(context).apply {
                         text = nativePanelEpisodeVersionSummary(entry.quality, durationLabel)
@@ -3829,7 +3838,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.END or Gravity.CENTER_VERTICAL
-            setPadding(0, 0, 0, dp(12))
+            setPadding(0, 0, 0, dp(16))
             addView(TextView(context).apply {
                 text = "⚙  自定义"
                 setTextColor(ACCENT)
@@ -3850,8 +3859,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             addPanelRow(panelEmptyState("暂无可用画质"))
             return
         }
-        // 自定义页保留逐分辨率标签（4k 与 4K HDR 是两个独立 tab），并按真实档位降序（4k 最前）。
-        val byRes = visible.groupBy { qualityDisplayTitle(it.quality) }
+        // 自定义页按归一化档位分标签（4k 与 4K HDR 仍是两个独立 tab，但同档 SDR 变体合一），按真实档位降序（4k 最前）。
+        val byRes = visible.groupBy { qualityTabKey(it.quality) }
         val resTitles = byRes.keys.sortedWith(
             compareByDescending<String> { nativePanelQualityTierRank(it) }.thenBy { it },
         )
@@ -3869,7 +3878,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
         val selectedTitle = customQualityTabTitle
         addPanelRow(buildQualityTabRow(resTitles, selectedTitle))
-        addPanelRow(panelSpacer(18))
+        addPanelRow(panelSpacer(22))
         // 同码率去重后按码率降序：原画(最高码率)在前，去掉重复的同码率卡。
         val selectedEntries = dedupQualityEntriesByBitrate(byRes[selectedTitle].orEmpty())
             .sortedByDescending { qualityBitrateValue(it.quality) }
@@ -3878,7 +3887,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 selectedEntries,
                 // 精确定位当前档：同分辨率/同码率有多档（原画直链 vs 转码），只比 resolution 会多张高亮。
                 selectedOf = { qualityMatchesCurrentPlayback(it.quality) },
-                titleOf = { qualityDisplayTitle(it.quality) },
+                // 卡片标题用归一化档位键，同一档内多码率卡靠副标题（X Mbps）区分，避免 "1080p" 大小写不一致。
+                titleOf = { qualityTabKey(it.quality) },
             ),
         )
     }
@@ -3904,7 +3914,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                 ).apply {
-                    if (index < resTitles.lastIndex) rightMargin = dp(8)
+                    if (index < resTitles.lastIndex) rightMargin = dp(12)
                 },
             )
         }
@@ -3920,12 +3930,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         return TextView(this).apply {
             text = title
             setTextColor(if (selected) Color.WHITE else TEXT_DIM)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14.5f)
             typeface = if (selected) android.graphics.Typeface.DEFAULT_BOLD else android.graphics.Typeface.DEFAULT
             gravity = Gravity.CENTER
-            setPadding(dp(16), dp(8), dp(16), dp(8))
+            minHeight = dp(44)
+            setPadding(dp(18), dp(10), dp(18), dp(10))
             background = GradientDrawable().apply {
-                cornerRadius = dp(8).toFloat()
+                cornerRadius = dp(11).toFloat()
                 setColor(if (selected) ACCENT else TRACK_BG)
             }
             isClickable = true
@@ -3988,7 +3999,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                             title = titleOf(entry),
                         ),
                         LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                            if (index % 2 == 1) leftMargin = dp(14)
+                            if (index % 2 == 1) leftMargin = dp(18)
                         },
                     )
                 }
@@ -3996,7 +4007,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     row.addView(
                         View(context),
                         LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                            leftMargin = dp(14)
+                            leftMargin = dp(18)
                         },
                     )
                 }
@@ -4007,7 +4018,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                         LinearLayout.LayoutParams.WRAP_CONTENT,
                     ).apply {
                         // 行间距与列间距统一 10dp；最后一行不留尾部空白。
-                        if (rowIndex < rows.lastIndex) bottomMargin = dp(14)
+                        if (rowIndex < rows.lastIndex) bottomMargin = dp(18)
                     },
                 )
             }
@@ -4024,8 +4035,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             background = qualityCardBackground(selected)
-            minimumHeight = dp(68)
-            setPadding(dp(14), dp(14), dp(14), dp(14))
+            minimumHeight = dp(76)
+            setPadding(dp(16), dp(16), dp(16), dp(16))
             addView(TextView(context).apply {
                 text = title
                 setTextColor(if (selected) ACCENT else Color.WHITE)
@@ -4109,6 +4120,27 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val curRank = nativePanelQualityTierRank(currentRes)
         val qRank = nativePanelQualityTierRank(quality["resolution"]?.toString())
         return curRank > 0 && curRank == qRank
+    }
+
+    /**
+     * 自定义页 tab 归并键：同一档位（同竖直分辨率）合成一个标签，
+     * 只有 HDR/HDR10/HDR10+/DV(杜比视界) 这类动态范围才单列；SDR/普通一律收进基础档。
+     * 这样同一个 1080p SDR 文件被三处造出的 "1080"/"1080p"/"1080P SDR" 会合成一个 "1080P" 标签，
+     * 避免出现三个一样的 1080 tab（对齐官方）。
+     */
+    private fun qualityTabKey(quality: Map<String, Any?>): String {
+        val resolution = quality["resolution"]?.toString()?.trim().orEmpty()
+        val tierLabel = nativePanelQualityTierLabel(nativePanelQualityTierRank(resolution))
+            .ifEmpty { qualityDisplayTitle(quality) }
+        val lower = resolution.lowercase()
+        val dynamicRange = when {
+            lower.contains("dolby") || Regex("""\bdv\b""").containsMatchIn(lower) -> "DV"
+            lower.contains("hdr10+") -> "HDR10+"
+            lower.contains("hdr10") -> "HDR10"
+            lower.contains("hdr") -> "HDR"
+            else -> ""
+        }
+        return if (dynamicRange.isEmpty()) tierLabel else "$tierLabel $dynamicRange"
     }
 
     /** 自定义页标题/标签：WxH→竖直P，文字标签（4k/4K HDR/1080P）保留原文以区分，纯数字补 P。 */
