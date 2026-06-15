@@ -97,99 +97,37 @@ class PlayDetailDownloadSheetController {
       action: () async {
         try {
           await downloadService.initialize();
-          final detail =
-              itemDetail ??
-              _cachedItemDetails[itemGuid] ??
-              await api.getItemDetail(itemGuid);
           if (!context.mounted) return;
 
-          final itemMap = _detailItem(detail);
-          // 分组信息只有真正点「下载」时才需要，却会对父级再发一次网络请求。
-          // 不要 await 它来阻塞面板显示，改为后台解析、点击下载时再 await，
-          // 避免点下载图标后面板要等一两秒才弹出。
-          final groupMetaFuture = _resolveGroupMeta(
-            api,
-            provider.baseUrl,
-            detail,
-            itemMap,
-            item,
-            parentGuid,
-            l10n,
-          );
           final preferredMediaGuid = selectedMediaGuid.trim().isNotEmpty
               ? selectedMediaGuid.trim()
               : (playItemGuid?.trim().isNotEmpty == true
                     ? playItemGuid!.trim()
                     : null);
-          final effectivePlayItemGuid =
-              preferredMediaGuid ??
-              await _resolveDownloadResolutionGuid(
-                api,
-                requestedItemGuid: itemGuid,
-                detail: detail,
-                itemMap: itemMap,
-                playItem: item,
-              );
-          final resolutionGuid = effectivePlayItemGuid;
-          if (!context.mounted) return;
-          if (resolutionGuid.isEmpty) {
-            _showTopTip(context, l10n.downloadNoResources, colors.warning);
-            return;
-          }
-
-          final qualities =
-              _cachedQualities[resolutionGuid] ??
-              await api.getDownloadResolutionOptions(
-                resolutionGuid,
-                lan: 'zh-CN',
-              );
-          if (!context.mounted) return;
-          if (qualities.isEmpty) {
-            _showTopTip(context, l10n.downloadNoQuality, colors.warning);
-            return;
-          }
-
-          final sourceResolution = selectedResolution.trim().isNotEmpty
-              ? selectedResolution.trim()
-              : _sourceResolution(itemMap, item);
-          final autoSelectedHighestQuality =
-              sourceResolution.trim().isNotEmpty &&
-              qualities.every(
-                (quality) => !_isSameQuality(quality, sourceResolution),
-              );
-          if (autoSelectedHighestQuality) {
-            _showTopTip(context, '该影片无所选画质，已自动选择最高画质下载', colors.warning);
-          }
           final posterUrls = previewUrls.isNotEmpty
               ? previewUrls
               : _posterUrls(provider.baseUrl, item);
-          final payload = TvSeasonDownloadSheetPayload(
+          final knownResolution = selectedResolution.trim();
+
+          // 先用已知信息（标题、封面、当前清晰度）立即弹出面板；清晰度全列表、
+          // 分组信息走后台加载，避免点下载图标后要等网络请求才弹窗。
+          final initialPayload = TvSeasonDownloadSheetPayload(
             sheetTitle: l10n.downloadSelectItem,
             qualityLabel: l10n.downloadQuality,
             qualitySheetTitle: l10n.downloadSelectQuality,
             itemTitle: _buildTitle(item, l10n),
             posterUrls: posterUrls,
             token: provider.token,
-            posterBadgeLabel: _posterBadgeLabel(sourceResolution),
-            qualityOptions: qualities
-                .map(
-                  (quality) => TvSeasonDownloadQualityOption(
-                    value: quality,
-                    label: _qualityLabel(quality, l10n),
-                    hint: _downloadQualityHint(
-                      l10n: l10n,
-                      sourceResolution: sourceResolution,
-                      quality: quality,
-                      downloaded: downloadService.hasDownloadedResolution(
-                        itemGuid,
-                        quality,
-                        mediaGuid: preferredMediaGuid ?? '',
-                      ),
+            posterBadgeLabel: _posterBadgeLabel(knownResolution),
+            qualityOptions: knownResolution.isEmpty
+                ? const <TvSeasonDownloadQualityOption>[]
+                : <TvSeasonDownloadQualityOption>[
+                    TvSeasonDownloadQualityOption(
+                      value: knownResolution,
+                      label: _qualityLabel(knownResolution, l10n),
                     ),
-                  ),
-                )
-                .toList(growable: false),
-            initialQuality: _initialQuality(qualities, sourceResolution),
+                  ],
+            initialQuality: knownResolution,
             downloadLabel: l10n.downloadDownload,
             downloadingLabel: l10n.downloadDownloading,
             downloadedLabel: l10n.downloadDownloaded,
@@ -200,16 +138,139 @@ class PlayDetailDownloadSheetController {
               mediaGuid: preferredMediaGuid ?? '',
             ),
           );
-
           final payloadNotifier = ValueNotifier<TvSeasonDownloadSheetPayload>(
-            payload,
+            initialPayload,
           );
+
+          // 后台解析：详情（命中缓存则同步可得）→ 分组信息 + 完整清晰度列表，
+          // 完成后整体替换 payload。groupMeta 用 Completer 暴露给下载回调。
+          final groupMetaCompleter = Completer<_DownloadGroupMeta>();
+          void completeGroupMetaFallback() {
+            if (groupMetaCompleter.isCompleted) return;
+            groupMetaCompleter.complete(
+              _DownloadGroupMeta(
+                id: item.guid.trim().isNotEmpty
+                    ? item.guid.trim()
+                    : itemGuid.trim(),
+                title: _groupTitle(item, l10n),
+                posterUrls: posterUrls,
+              ),
+            );
+          }
+
+          unawaited(() async {
+            try {
+              final detail =
+                  itemDetail ??
+                  _cachedItemDetails[itemGuid] ??
+                  await api.getItemDetail(itemGuid);
+              final itemMap = _detailItem(detail);
+              unawaited(
+                _resolveGroupMeta(
+                  api,
+                  provider.baseUrl,
+                  detail,
+                  itemMap,
+                  item,
+                  parentGuid,
+                  l10n,
+                ).then((meta) {
+                  if (!groupMetaCompleter.isCompleted) {
+                    groupMetaCompleter.complete(meta);
+                  }
+                }),
+              );
+
+              final effectivePlayItemGuid =
+                  preferredMediaGuid ??
+                  await _resolveDownloadResolutionGuid(
+                    api,
+                    requestedItemGuid: itemGuid,
+                    detail: detail,
+                    itemMap: itemMap,
+                    playItem: item,
+                  );
+              final resolutionGuid = effectivePlayItemGuid;
+              if (resolutionGuid.isEmpty) {
+                payloadNotifier.value = payloadNotifier.value.copyWith(
+                  loadingError: true,
+                );
+                completeGroupMetaFallback();
+                return;
+              }
+
+              final qualities =
+                  _cachedQualities[resolutionGuid] ??
+                  await api.getDownloadResolutionOptions(
+                    resolutionGuid,
+                    lan: 'zh-CN',
+                  );
+              if (qualities.isEmpty) {
+                payloadNotifier.value = payloadNotifier.value.copyWith(
+                  loadingError: true,
+                );
+                completeGroupMetaFallback();
+                return;
+              }
+
+              final sourceResolution = knownResolution.isNotEmpty
+                  ? knownResolution
+                  : _sourceResolution(itemMap, item);
+              payloadNotifier.value = TvSeasonDownloadSheetPayload(
+                sheetTitle: l10n.downloadSelectItem,
+                qualityLabel: l10n.downloadQuality,
+                qualitySheetTitle: l10n.downloadSelectQuality,
+                itemTitle: _buildTitle(item, l10n),
+                posterUrls: posterUrls,
+                token: provider.token,
+                posterBadgeLabel: _posterBadgeLabel(sourceResolution),
+                qualityOptions: qualities
+                    .map(
+                      (quality) => TvSeasonDownloadQualityOption(
+                        value: quality,
+                        label: _qualityLabel(quality, l10n),
+                        hint: _downloadQualityHint(
+                          l10n: l10n,
+                          sourceResolution: sourceResolution,
+                          quality: quality,
+                          downloaded: downloadService.hasDownloadedResolution(
+                            itemGuid,
+                            quality,
+                            mediaGuid: preferredMediaGuid ?? '',
+                          ),
+                        ),
+                      ),
+                    )
+                    .toList(growable: false),
+                initialQuality: _initialQuality(qualities, sourceResolution),
+                downloadLabel: l10n.downloadDownload,
+                downloadingLabel: l10n.downloadDownloading,
+                downloadedLabel: l10n.downloadDownloaded,
+                pausedLabel: l10n.downloadPaused,
+                openListLabel: l10n.downloadOpenList,
+                primaryActionState: downloadService.actionStateForItemVersion(
+                  itemGuid,
+                  mediaGuid: preferredMediaGuid ?? '',
+                ),
+              );
+            } catch (_) {
+              payloadNotifier.value = payloadNotifier.value.copyWith(
+                loadingError: true,
+              );
+              completeGroupMetaFallback();
+            }
+          }());
+
           await TvSeasonDownloadSheet.show(
             context,
             payloadNotifier: payloadNotifier,
             onDownloadTap: (selectedQuality) async {
               try {
-                final groupMeta = await groupMetaFuture;
+                if (selectedQuality.trim().isEmpty) {
+                  _showTopTip(context, l10n.downloadNoQuality, colors.warning);
+                  return;
+                }
+                final groupMeta = await groupMetaCompleter.future;
                 final result = await downloadService.startDownload(
                   provider: provider,
                   itemGuid: itemGuid,
