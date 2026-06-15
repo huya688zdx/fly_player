@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fly_player/models/download_task_record.dart';
 import 'package:fly_player/models/stream_track_data.dart';
+import 'package:fly_player/services/download_task_service.dart';
 
 void main() {
   test('DownloadTaskRecord round-trips audio and subtitle tracks', () {
@@ -69,5 +70,47 @@ void main() {
     expect(decoded.subtitleTracks.first.guid, 'local:file:///tmp/demo.ass');
     expect(decoded.subtitleTracks.first.title, 'demo.zh.ass');
     expect(decoded.subtitleTracks.first.language, 'zho');
+  });
+
+  test('downloaded lookup respects the selected media version', () {
+    const downloadedRecord = DownloadTaskRecord(
+      id: 'record-downloaded',
+      remoteTaskId: 'remote-downloaded',
+      itemGuid: 'item-1',
+      mediaGuid: 'media-downloaded',
+      groupId: 'group-1',
+      groupTitle: 'Group',
+      title: 'Episode',
+      durationText: '24m',
+      posterUrls: <String>[],
+      groupPosterUrls: <String>[],
+      resolution: '1080P SDR',
+      fileName: 'episode-a.mkv',
+      filePath: '/tmp/episode-a.mkv',
+      totalBytes: 1024,
+      downloadedBytes: 1024,
+      status: DownloadTaskStatus.downloaded,
+      errorMessage: '',
+      createdAtMs: 1,
+      updatedAtMs: 2,
+    );
+
+    final wrongVersion = selectDownloadedRecordForItem(
+      const <DownloadTaskRecord>[downloadedRecord],
+      'item-1',
+      mediaGuid: 'media-online',
+      resolution: '1080P SDR',
+      isAvailable: (_) => true,
+    );
+    final selectedVersion = selectDownloadedRecordForItem(
+      const <DownloadTaskRecord>[downloadedRecord],
+      'item-1',
+      mediaGuid: 'media-downloaded',
+      resolution: '1080P SDR',
+      isAvailable: (_) => true,
+    );
+
+    expect(wrongVersion, isNull);
+    expect(selectedVersion, downloadedRecord);
   });
 }
