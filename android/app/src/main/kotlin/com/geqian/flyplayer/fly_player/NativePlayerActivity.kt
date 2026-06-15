@@ -55,6 +55,8 @@ import com.bumptech.glide.load.resource.bitmap.CenterCrop
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners
 import org.json.JSONArray
 import org.json.JSONObject
+import java.math.BigDecimal
+import java.math.RoundingMode
 import kotlin.math.abs
 
 private val nativePanelLanguageNameMap = mapOf(
@@ -265,6 +267,15 @@ internal fun nativePanelEpisodeVersionTitle(quality: Map<String, Any?>, index: I
     return fileName.ifEmpty { "版本 ${index + 1}" }
 }
 
+internal fun nativePanelBitrateLabel(bitrateBitsPerSecond: Long): String {
+    if (bitrateBitsPerSecond <= 0L) return ""
+    val mbps = BigDecimal.valueOf(bitrateBitsPerSecond)
+        .divide(BigDecimal.valueOf(1_000_000L), 2, RoundingMode.DOWN)
+        .stripTrailingZeros()
+        .toPlainString()
+    return "${if (mbps == "0") "<0.01" else mbps} Mbps"
+}
+
 /** 版本卡副标题：分辨率 · 视频时长 · 码率（不再写来源「转码/原画」）。 */
 internal fun nativePanelEpisodeVersionSummary(
     quality: Map<String, Any?>,
@@ -274,7 +285,7 @@ internal fun nativePanelEpisodeVersionSummary(
         .ifEmpty { nativePanelQualityTierLabel(nativePanelQualityTierRank(quality["resolution"]?.toString())) }
         .ifEmpty { "版本" }
     val bitrate = nativePanelQualityBitrate(quality).takeIf { it > 0 }?.let {
-        "${String.format("%.0f", it / 1_000_000.0)} Mbps"
+        nativePanelBitrateLabel(it)
     }.orEmpty()
     return listOf(resolution, durationLabel.trim(), bitrate).filter { it.isNotEmpty() }.joinToString(" · ")
 }
@@ -4167,7 +4178,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         // 「原画」已移到浮标徽章，副标题只保留码率。
         val bitrate = qualityBitrateValue(quality)
         if (bitrate > 0) {
-            return "${String.format("%.0f", bitrate / 1_000_000.0)} Mbps"
+            return nativePanelBitrateLabel(bitrate.toLong())
         }
         return qualityPanelSubtitle(quality)
     }
