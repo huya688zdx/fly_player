@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -22,7 +24,8 @@ Future<T?> showAppActionSheet<T>(
   required List<AppActionSheetOption<T>> options,
   String? cancelText,
 }) async {
-  await HapticFeedback.mediumImpact();
+  // 震动 fire-and-forget，不阻塞弹窗弹出。
+  unawaited(HapticFeedback.mediumImpact());
   if (!context.mounted) return null;
 
   return showModalBottomSheet<T>(
