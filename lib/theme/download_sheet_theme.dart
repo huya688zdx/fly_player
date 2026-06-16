@@ -93,7 +93,21 @@ class DownloadSheetThemeData {
   }
 }
 
+// 上一次构造的 (colors, theme) 缓存。`downloadSheetTheme` 在下载弹窗里被每个子 widget
+// （行/海报/tab/清晰度 tile）各调一次，30 行可达 60+ 次；`fromColors` 是 ~22 次颜色运算
+// （含 estimateBrightnessForColor），不缓存会全压在弹窗首帧。同一帧内 appColors 返回同一
+// identical 对象，故按 identical 命中即可把 60+ 次重算降为 1 次。UI 单线程，无并发风险。
+AppThemeColors? _cachedDownloadSheetColors;
+DownloadSheetThemeData? _cachedDownloadSheetTheme;
+
 extension DownloadSheetThemeBuildContextX on BuildContext {
-  DownloadSheetThemeData get downloadSheetTheme =>
-      DownloadSheetThemeData.fromColors(appColors);
+  DownloadSheetThemeData get downloadSheetTheme {
+    final colors = appColors;
+    if (_cachedDownloadSheetTheme == null ||
+        !identical(_cachedDownloadSheetColors, colors)) {
+      _cachedDownloadSheetColors = colors;
+      _cachedDownloadSheetTheme = DownloadSheetThemeData.fromColors(colors);
+    }
+    return _cachedDownloadSheetTheme!;
+  }
 }
