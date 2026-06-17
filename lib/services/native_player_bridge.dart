@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 
 import '../danmaku/settings/danmaku_settings_store.dart';
+import '../player/stores/mpv_settings_store.dart';
 import '../providers/nas_provider.dart';
 import 'native_artwork_prefetch.dart';
 import 'native_danmaku_prefetch.dart';
@@ -52,6 +53,16 @@ class NativePlayerBridge {
       if (outroDurationSeconds != null)
         'outroDurationSeconds': outroDurationSeconds,
     };
+    // MPV 画质/画面调整：注入 Flutter「MPV播放器设置」页的当前值（含快速预设/保存预设的应用
+    // 结果）。原生壳是独立 task、读不到本地引擎的 SharedPreferences，靠这里随 payload 带过去，
+    // 据此覆盖本地镜像 → 设置页的改动在原生播放直接生效（原生壳内改动经反向通道回写，双向同步）。
+    try {
+      final mpvBundle = await const MpvSettingsStore().loadBundle();
+      mergedArgs['mpvAdvancedSettings'] = mpvBundle.settings;
+      mergedArgs['videoAdjustments'] = mpvBundle.videoAdjustments;
+    } catch (_) {
+      // 读取失败则不注入，原生壳回退到自身已存的镜像。
+    }
     // 封面离线预取：把网络封面缓存为本地文件，原生壳优先取本地路径（纯听背景/海报、
     // MediaSession 通知封面），断网也能显示。失败静默（原生回退网络 URL）。
     await _mergeArtworkLocalPath(mergedArgs, nas);
@@ -87,6 +98,14 @@ class NativePlayerBridge {
       int? startPositionMs,
     })?
     onReloadServerSession,
+    Future<Map<String, dynamic>?> Function(
+      String currentLoadArgs, {
+      String? seasonGuid,
+    })?
+    onLoadEpisodePickerData,
+    Future<Map<String, dynamic>?> Function(String seasonGuid)?
+    onLoadSeasonEpisodes,
+    Future<bool> Function(String viewType)? onSetEpisodePickerViewType,
   }) {
     final token = Object();
     _activeBindToken = token;
@@ -131,6 +150,27 @@ class NativePlayerBridge {
                 : null,
             qualityIndex: (args['qualityIndex'] as num?)?.toInt(),
             startPositionMs: (args['startPositionMs'] as num?)?.toInt(),
+          );
+        case 'loadEpisodePickerData':
+          if (onLoadEpisodePickerData == null) return null;
+          final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          final current = (args['loadArgs'] ?? '').toString();
+          if (current.isEmpty) return null;
+          return await onLoadEpisodePickerData(
+            current,
+            seasonGuid: (args['seasonGuid'] ?? '').toString(),
+          );
+        case 'loadSeasonEpisodes':
+          if (onLoadSeasonEpisodes == null) return null;
+          final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          final seasonGuid = (args['seasonGuid'] ?? '').toString().trim();
+          if (seasonGuid.isEmpty) return null;
+          return await onLoadSeasonEpisodes(seasonGuid);
+        case 'setEpisodePickerViewType':
+          if (onSetEpisodePickerViewType == null) return false;
+          final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          return await onSetEpisodePickerViewType(
+            (args['viewType'] ?? '').toString(),
           );
         case 'resolveSubtitleFile':
           if (onResolveSubtitleFile == null) return null;
@@ -181,6 +221,31 @@ class NativePlayerBridge {
           const store = DanmakuSettingsStore();
           final current = await store.load();
           await store.save(current.copyWith(useNativeRenderer: enabled));
+          return true;
+        case 'persistMpvAdvanced':
+          // 原生壳内改了画质/解码/EQ 等高级设置 → 回写 Flutter 全局 MPV 设置，使两端同步、
+          // 下次进设置页/Flutter 播放器都是最新值。纯持久化（savePatch 自带白名单过滤）。
+          final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          final patch = <String, String>{};
+          args.forEach((key, value) {
+            if (value != null) patch[key.toString()] = value.toString();
+          });
+          if (patch.isNotEmpty) {
+            await const MpvSettingsStore().savePatch(patch);
+          }
+          return true;
+        case 'persistVideoAdjustments':
+          // 原生壳内改了亮度/对比度等画面调整 → 回写 Flutter 全局设置（saveVideoAdjustments
+          // 自带 key 白名单 + 归一化）。
+          final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          final adjustments = <String, double>{};
+          args.forEach((key, value) {
+            final asDouble = (value as num?)?.toDouble();
+            if (asDouble != null) adjustments[key.toString()] = asDouble;
+          });
+          if (adjustments.isNotEmpty) {
+            await const MpvSettingsStore().saveVideoAdjustments(adjustments);
+          }
           return true;
         default:
           throw MissingPluginException('native_player reentry: ${call.method}');

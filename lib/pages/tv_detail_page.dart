@@ -946,6 +946,19 @@ class _TvDetailPageState extends State<TvDetailPage>
               qualityIndex: qualityIndex,
               startPositionMs: startPositionMs,
             ),
+        onLoadEpisodePickerData: (currentLoadArgs, {seasonGuid}) =>
+            NativeReentrySupport.loadEpisodePickerData(
+              nas,
+              currentLoadArgs: currentLoadArgs,
+              seasonGuid: seasonGuid ?? '',
+            ),
+        onLoadSeasonEpisodes: (seasonGuid) =>
+            NativeReentrySupport.loadSeasonEpisodes(
+              nas,
+              seasonGuid: seasonGuid,
+            ),
+        onSetEpisodePickerViewType: (viewType) =>
+            NativeReentrySupport.setEpisodePickerViewType(nas, viewType),
       );
       final result = await const TvSeasonPlaybackLauncher().open(
         context,

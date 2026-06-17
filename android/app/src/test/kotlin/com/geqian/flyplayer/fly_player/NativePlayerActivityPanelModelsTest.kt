@@ -5,6 +5,57 @@ import org.junit.Test
 
 class NativePlayerActivityPanelModelsTest {
     @Test
+    fun episodeViewModeMapsFeiniuPlaylistViewTypes() {
+        assertEquals(0, nativePanelEpisodeViewModeFromType("card"))
+        assertEquals(1, nativePanelEpisodeViewModeFromType("button"))
+        assertEquals(0, nativePanelEpisodeViewModeFromType(null))
+        assertEquals("card", nativePanelPlaylistViewTypeFromEpisodeMode(0))
+        assertEquals("button", nativePanelPlaylistViewTypeFromEpisodeMode(1))
+    }
+
+    @Test
+    fun episodePickerDataSelectsRequestedSeasonWhenPresent() {
+        val data = nativePanelEpisodePickerData(
+            selectedSeasonGuid = "s2",
+            viewType = "button",
+            seasons = listOf(
+                mapOf<String, Any?>("seasonGuid" to "s1", "seasonLabel" to "第1季"),
+                mapOf<String, Any?>("seasonGuid" to "s2", "seasonLabel" to "第2季"),
+            ),
+            episodes = listOf(
+                mapOf<String, Any?>("itemGuid" to "e1", "episodeNumber" to 1),
+            ),
+            fallbackEpisodes = emptyList(),
+        )
+
+        assertEquals("s2", data.selectedSeasonGuid)
+        assertEquals(1, data.viewMode)
+        assertEquals(true, data.seasons[1]["selected"])
+        assertEquals("e1", data.episodes[0]["itemGuid"])
+    }
+
+    @Test
+    fun episodePickerDataFallsBackToExistingEpisodes() {
+        val data = nativePanelEpisodePickerData(
+            selectedSeasonGuid = "",
+            viewType = "card",
+            seasons = emptyList(),
+            episodes = emptyList(),
+            fallbackEpisodes = listOf(
+                mapOf<String, Any?>(
+                    "itemGuid" to "cached",
+                    "seasonGuid" to "cachedSeason",
+                    "episodeNumber" to 3,
+                ),
+            ),
+        )
+
+        assertEquals("cachedSeason", data.selectedSeasonGuid)
+        assertEquals(0, data.viewMode)
+        assertEquals("cached", data.episodes[0]["itemGuid"])
+    }
+
+    @Test
     fun audioSummaryUsesSelectedGuid() {
         val tracks = listOf(
             mapOf<String, Any?>("guid" to "a1", "title" to "AAC", "language" to "zh"),

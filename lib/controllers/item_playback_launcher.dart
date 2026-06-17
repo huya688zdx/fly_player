@@ -141,6 +141,16 @@ class ItemPlaybackLauncher {
             qualityIndex: qualityIndex,
             startPositionMs: startPositionMs,
           ),
+      onLoadEpisodePickerData: (currentLoadArgs, {seasonGuid}) =>
+          NativeReentrySupport.loadEpisodePickerData(
+            nas,
+            currentLoadArgs: currentLoadArgs,
+            seasonGuid: seasonGuid ?? '',
+          ),
+      onLoadSeasonEpisodes: (seasonGuid) =>
+          NativeReentrySupport.loadSeasonEpisodes(nas, seasonGuid: seasonGuid),
+      onSetEpisodePickerViewType: (viewType) =>
+          NativeReentrySupport.setEpisodePickerViewType(nas, viewType),
     );
   }
 
@@ -250,10 +260,16 @@ class ItemPlaybackLauncher {
   }) async {
     final api = FeiniuApi(nas);
     final playInfo = await api.getPlayInfo(itemGuid);
+    // 多版本切换：带 qualityMediaGuid 时按该版本媒体取流（原画 + 该版本字幕/音轨），
+    // 否则用条目默认媒体 playInfo.mediaGuid。切版本不再回退到默认媒体的原画/字幕。
+    final normalizedQualityMediaGuid = qualityMediaGuid?.trim() ?? '';
+    final effectiveMediaGuid = normalizedQualityMediaGuid.isNotEmpty
+        ? normalizedQualityMediaGuid
+        : playInfo.mediaGuid;
     if (startFromBeginning) {
       await api.resetPlaybackRecord(
         itemGuid: playInfo.item.guid,
-        mediaGuid: playInfo.mediaGuid,
+        mediaGuid: effectiveMediaGuid,
       );
     }
     StreamTrackData? trackData;
@@ -272,7 +288,7 @@ class ItemPlaybackLauncher {
         ),
       );
     }
-    final playbackStream = await api.getPlaybackStream(playInfo.mediaGuid);
+    final playbackStream = await api.getPlaybackStream(effectiveMediaGuid);
     final mergedQualities = mergePlaybackQualitiesWithStreamTrackData(
       playbackStream.qualities,
       trackData,
@@ -280,12 +296,21 @@ class ItemPlaybackLauncher {
     // Bug 2 fix(版本相同)：优先用 qualityMediaGuid 在 mergedQualities 里 match，
     // 避免 qualityIndex 在 NAS 重新拉取时顺序不同导致选错版本。
     PlaybackQualityOption? initialQuality;
-    final normalizedQualityMediaGuid = qualityMediaGuid?.trim() ?? '';
     if (normalizedQualityMediaGuid.isNotEmpty) {
+      // 切版本优先选该版本的原画档（isDefault/原画代理），保证走原画而不是转码档。
       for (final q in mergedQualities) {
-        if (q.mediaGuid.trim() == normalizedQualityMediaGuid) {
+        if (q.mediaGuid.trim() == normalizedQualityMediaGuid &&
+            (q.isDefault == 1 || q.isOriginalProxy)) {
           initialQuality = q;
           break;
+        }
+      }
+      if (initialQuality == null) {
+        for (final q in mergedQualities) {
+          if (q.mediaGuid.trim() == normalizedQualityMediaGuid) {
+            initialQuality = q;
+            break;
+          }
         }
       }
     }
@@ -308,7 +333,7 @@ class ItemPlaybackLauncher {
     );
     final subtitleTracks = PlayDetailTrackSelector.mergeSubtitleTracks(
       primaryTracks: playbackStream.subtitleStreams,
-      extraTracks: trackData?.subtitlesForMedia(playInfo.mediaGuid) ?? const [],
+      extraTracks: trackData?.subtitlesForMedia(effectiveMediaGuid) ?? const [],
     );
     // 字幕重载（原生壳转码切字幕）：overrideSubtitleGuid 非空覆盖服务端默认；
     // 空串=显式关闭（不可走 selectedOrFirst，否则会回退到第一条）；null=沿用默认。
@@ -377,8 +402,8 @@ class ItemPlaybackLauncher {
     final initialPlayback = await const PlayerSourceController()
         .buildInitialPlaybackResult(
           api: api,
-          directUrl: api.getStreamUrl(playInfo.mediaGuid),
-          mediaGuid: playInfo.mediaGuid,
+          directUrl: api.getStreamUrl(effectiveMediaGuid),
+          mediaGuid: effectiveMediaGuid,
           videoGuid: playbackVideoGuid,
           playbackStream: playbackStream,
           quality: initialQuality,
