@@ -263,6 +263,7 @@ class MpvSettingsCatalog {
   static const String deinterlaceKey = 'deinterlace';
   static const String scaleProfileKey = 'scale_profile';
   static const String hdrModeKey = 'hdr_mode';
+  static const String toneMappingKey = 'tone_mapping';
   static const String frameInterpolationKey = 'frame_interpolation';
   static const String videoSyncKey = 'video_sync';
   static const String cacheProfileKey = 'cache_profile';
@@ -274,6 +275,7 @@ class MpvSettingsCatalog {
   static const String audioLimiterKey = 'audio_limiter';
   static const String audioBassBoostKey = 'audio_bass_boost';
   static const String audioVoiceEnhanceKey = 'audio_voice_enhance';
+  static const String audioPassthroughKey = 'audio_passthrough';
   static const String audioEqBand60Key = 'audio_eq_band_60';
   static const String audioEqBand170Key = 'audio_eq_band_170';
   static const String audioEqBand310Key = 'audio_eq_band_310';
@@ -319,6 +321,7 @@ class MpvSettingsCatalog {
     deinterlaceKey: 'auto',
     scaleProfileKey: 'balanced',
     hdrModeKey: 'auto',
+    toneMappingKey: 'auto',
     frameInterpolationKey: 'off',
     videoSyncKey: 'auto',
     cacheProfileKey: 'default',
@@ -330,6 +333,7 @@ class MpvSettingsCatalog {
     audioLimiterKey: 'off',
     audioBassBoostKey: 'off',
     audioVoiceEnhanceKey: 'off',
+    audioPassthroughKey: 'off',
     audioEqBand60Key: '0',
     audioEqBand170Key: '0',
     audioEqBand310Key: '0',
@@ -354,6 +358,7 @@ class MpvSettingsCatalog {
     deinterlaceKey,
     scaleProfileKey,
     hdrModeKey,
+    toneMappingKey,
     frameInterpolationKey,
     videoSyncKey,
     cacheProfileKey,
@@ -369,6 +374,7 @@ class MpvSettingsCatalog {
     audioLimiterKey,
     audioBassBoostKey,
     audioVoiceEnhanceKey,
+    audioPassthroughKey,
     audioEqBand60Key,
     audioEqBand170Key,
     audioEqBand310Key,
@@ -704,6 +710,40 @@ class MpvSettingsCatalog {
       ],
     ),
     MpvSettingDefinition(
+      key: toneMappingKey,
+      title: 'Tone mapping',
+      shortTitle: 'Tone',
+      description: 'Choose the HDR-to-SDR tone-mapping curve.',
+      helperLabel: 'Tone mapping',
+      options: <MpvSettingOption>[
+        MpvSettingOption(
+          value: 'auto',
+          label: 'Auto',
+          description: 'Let mpv pick a suitable curve.',
+        ),
+        MpvSettingOption(
+          value: 'bt2390',
+          label: 'BT.2390',
+          description: 'Standard reference curve, balanced.',
+        ),
+        MpvSettingOption(
+          value: 'mobius',
+          label: 'Mobius',
+          description: 'Preserve mid-tones, gentle highlight roll-off.',
+        ),
+        MpvSettingOption(
+          value: 'hable',
+          label: 'Hable',
+          description: 'Filmic look, stronger contrast.',
+        ),
+        MpvSettingOption(
+          value: 'reinhard',
+          label: 'Reinhard',
+          description: 'Simple, softer highlights.',
+        ),
+      ],
+    ),
+    MpvSettingDefinition(
       key: frameInterpolationKey,
       title: 'Frame Interpolation',
       shortTitle: 'Interpolation',
@@ -1017,6 +1057,31 @@ class MpvSettingsCatalog {
       ],
     ),
     MpvSettingDefinition(
+      key: audioPassthroughKey,
+      title: 'Passthrough (Dolby/DTS)',
+      shortTitle: 'Passthrough',
+      description:
+          'Send compressed audio bitstream to an external decoder/receiver.',
+      helperLabel: 'Passthrough',
+      options: <MpvSettingOption>[
+        MpvSettingOption(
+          value: 'off',
+          label: 'Off',
+          description: 'Decode locally (most compatible).',
+        ),
+        MpvSettingOption(
+          value: 'auto',
+          label: 'Auto',
+          description: 'Pass through when the device supports it.',
+        ),
+        MpvSettingOption(
+          value: 'on',
+          label: 'On',
+          description: 'Force bitstream passthrough.',
+        ),
+      ],
+    ),
+    MpvSettingDefinition(
       key: compatibilityKey,
       title: 'Compatibility',
       shortTitle: 'Compatibility',
@@ -1167,6 +1232,11 @@ class MpvSettingsCatalog {
           subtitle: 'Adjust HDR mapping and tone',
         ),
         MpvSettingCategoryEntry(
+          key: toneMappingKey,
+          title: 'Tone mapping',
+          subtitle: 'Pick the HDR-to-SDR tone curve',
+        ),
+        MpvSettingCategoryEntry(
           key: frameInterpolationKey,
           title: 'Frame interpolation',
           subtitle: 'Improve motion smoothness with higher cost',
@@ -1243,6 +1313,11 @@ class MpvSettingsCatalog {
           key: channelMixKey,
           title: 'Channel mix',
           subtitle: 'Control multichannel output preference',
+        ),
+        MpvSettingCategoryEntry(
+          key: audioPassthroughKey,
+          title: 'Passthrough',
+          subtitle: 'Bitstream Dolby/DTS to an external decoder',
         ),
       ],
     ),

@@ -323,6 +323,91 @@ class NativeDanmakuPrefetch {
     }
   }
 
+  /// 列出某媒体在 Flutter 弹幕源库（`DanmakuSavedSourceStore`）里的已保存源，供原生壳
+  /// 弹幕源面板合并显示。原生侧自有一套 prefs（`danmaku_sources_v1`），与此库**互不相通**：
+  /// 随片下载/在线自动匹配注册的源只落在这里，原生面板原本看不到，故走反向通道拉过来。
+  /// mediaKey 由本类 [_buildMediaKey] 统一计算（原生侧无法复刻该格式），原生只需透传媒体身份。
+  static Future<List<Map<String, dynamic>>> listSavedSources({
+    String itemGuid = '',
+    String mediaGuid = '',
+    String seasonGuid = '',
+    int seasonNumber = 0,
+    int episodeNumber = 0,
+    String seriesTitle = '',
+  }) async {
+    try {
+      const store = DanmakuSavedSourceStore();
+      final mediaKey = _buildMediaKey(
+        itemGuid: itemGuid,
+        mediaGuid: mediaGuid,
+        seasonGuid: seasonGuid,
+        seasonNumber: seasonNumber,
+        episodeNumber: episodeNumber,
+        seriesTitle: seriesTitle,
+      );
+      if (mediaKey.isEmpty) return const <Map<String, dynamic>>[];
+      final sources = await store.loadForMedia(mediaKey);
+      final activeKey =
+          (await store.loadActiveSourceKey(mediaKey))?.trim() ?? '';
+      return <Map<String, dynamic>>[
+        for (final s in sources)
+          <String, dynamic>{
+            'sourceKey': s.sourceKey,
+            'type': s.type.name, // localFile | danDanPlay | downloadedFile
+            'label': s.label,
+            'detail': s.detail,
+            'commentCount': s.commentCount,
+            'updatedAtMs': s.updatedAtMs,
+            'active': activeKey.isNotEmpty && s.sourceKey == activeKey,
+          },
+      ];
+    } catch (_) {
+      return const <Map<String, dynamic>>[];
+    }
+  }
+
+  /// 按 sourceKey 把 Flutter 弹幕源库里的某条源加载成 payload 文件（供原生壳点选应用）。
+  /// 用户在面板里手动点选即视为「选定」，顺手设为 active 让下次播放优先复用（随片下载源
+  /// 例外：[resolveToFile] 故意不把 downloadedFile 当 active 最高优先，这里设了也无副作用）。
+  static Future<Map<String, dynamic>?> loadSavedSourceToFile({
+    required String sourceKey,
+    String itemGuid = '',
+    String mediaGuid = '',
+    String seasonGuid = '',
+    int seasonNumber = 0,
+    int episodeNumber = 0,
+    String seriesTitle = '',
+  }) async {
+    try {
+      if (sourceKey.trim().isEmpty) return null;
+      const store = DanmakuSavedSourceStore();
+      final mediaKey = _buildMediaKey(
+        itemGuid: itemGuid,
+        mediaGuid: mediaGuid,
+        seasonGuid: seasonGuid,
+        seasonNumber: seasonNumber,
+        episodeNumber: episodeNumber,
+        seriesTitle: seriesTitle,
+      );
+      if (mediaKey.isEmpty) return null;
+      final sources = await store.loadForMedia(mediaKey);
+      DanmakuSavedSource? match;
+      for (final s in sources) {
+        if (s.sourceKey == sourceKey) {
+          match = s;
+          break;
+        }
+      }
+      if (match == null) return null;
+      final path = await _loadSavedSourceToFile(match);
+      if (path == null) return null;
+      await store.setActiveSourceKey(mediaKey: mediaKey, sourceKey: sourceKey);
+      return <String, dynamic>{'danmakuFile': path, 'sourceKey': sourceKey};
+    } catch (_) {
+      return null;
+    }
+  }
+
   static DanDanPlayResolver _buildResolver() => DanDanPlayResolver(
     DanDanPlayApi(
       appId: DanDanPlayConfig.appId,
