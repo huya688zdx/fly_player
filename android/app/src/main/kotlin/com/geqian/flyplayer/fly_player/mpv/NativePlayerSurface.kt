@@ -231,6 +231,12 @@ class NativePlayerSurface(
         return controller.setListenVideoMode(enabled)
     }
 
+    /** 熄屏继续播放音频开关（全局设置），透传 controller。 */
+    fun setKeepAudioWhenScreenOff(enabled: Boolean) {
+        if (released) return
+        controller.setKeepAudioWhenScreenOff(enabled)
+    }
+
     fun getChapters(): List<Map<String, Any?>> {
         if (released) return emptyList()
         return controller.getChapters()

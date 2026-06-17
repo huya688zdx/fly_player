@@ -97,6 +97,8 @@ class MpvPlaybackController(
     private var initialized = false
     private var propertiesObserved = false
     private var resumeAfterSurfaceRestore = false
+    // 熄屏继续播放音频（全局设置）：开启后看视频熄屏/锁屏也只停画面、不停声音。
+    private var keepAudioWhenScreenOff = false
     private val deviceProfile = detectDeviceProfile()
     private var surfaceAttached = false
     private var videoOutputReady = false
@@ -318,6 +320,11 @@ class MpvPlaybackController(
     fun getTrackSnapshotMap(): Map<String, Any?> {
         if (disposed) return emptyMap()
         return callOnPlaybackThread { buildTrackSnapshotMap() }
+    }
+
+    /** 熄屏继续播放音频开关（全局设置）：开启后看视频熄屏/锁屏不暂停，仅停画面、保留声音。 */
+    fun setKeepAudioWhenScreenOff(enabled: Boolean) {
+        keepAudioWhenScreenOff = enabled
     }
 
     fun setListenVideoMode(enabled: Boolean): Map<String, Any?> {
@@ -1180,13 +1187,20 @@ class MpvPlaybackController(
             if (state.positionMs > 0L) {
                 restoreCoordinator.onSeekQueued(state.positionMs)
             }
-            val pausedForSurfaceLoss = if (initialized && mpv.isAvailable() && wasPlaying) {
-                runCatching {
-                    mpv.setPropertyBoolean("pause", true)
-                }.getOrDefault(false)
-            } else {
-                false
-            }
+            // 听视频模式、或用户开了「熄屏继续播放音频」：熄屏/锁屏丢 surface 时不暂停，
+            // 音频继续后台播放——否则一黑屏就静音，「听视频」失去意义。
+            // 其余（看视频且未开此设置）仍按原行为暂停省电，亮屏复原时自动续播。
+            val keepAudioOnSurfaceLoss =
+                source.listenVideoModeEnabled || state.listenVideoModeEnabled ||
+                    keepAudioWhenScreenOff
+            val pausedForSurfaceLoss =
+                if (!keepAudioOnSurfaceLoss && initialized && mpv.isAvailable() && wasPlaying) {
+                    runCatching {
+                        mpv.setPropertyBoolean("pause", true)
+                    }.getOrDefault(false)
+                } else {
+                    false
+                }
             resumeAfterSurfaceRestore = wasPlaying && pausedForSurfaceLoss
             pendingAutoResumeAfterSurfaceRestore = false
             sessionGate.onSurfaceLost()
