@@ -1447,6 +1447,20 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                   qualityIndex: qualityIndex,
                   startPositionMs: startPositionMs,
                 ),
+            onLoadEpisodePickerData: (currentLoadArgs, {seasonGuid}) =>
+                NativeReentrySupport.loadEpisodePickerData(
+                  nas,
+                  currentLoadArgs: currentLoadArgs,
+                  seasonGuid: seasonGuid ?? '',
+                  fallbackEpisodes: capturedEpisodes,
+                ),
+            onLoadSeasonEpisodes: (seasonGuid) =>
+                NativeReentrySupport.loadSeasonEpisodes(
+                  nas,
+                  seasonGuid: seasonGuid,
+                ),
+            onSetEpisodePickerViewType: (viewType) =>
+                NativeReentrySupport.setEpisodePickerViewType(nas, viewType),
           );
           await NativePlayerBridge.launch(
             loadArgs: source.toMap(),

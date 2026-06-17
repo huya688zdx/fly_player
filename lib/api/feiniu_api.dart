@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
@@ -1524,8 +1525,43 @@ class FeiniuApi {
     return setUserDataValue(key, jsonEncode(value), mdbGuid: mdbGuid);
   }
 
-  /// 读取播放列表视图类型偏好。
+  /// 与原生壳共享的本地视图偏好键。shared_preferences 落盘为 `flutter.playlist_view_type`，
+  /// 原生壳 NativePlayerActivity 直接读同一文件同一键——三端共用一份、不漂移。
+  static const String _playlistViewTypePrefKey = 'playlist_view_type';
+
+  /// 读取播放列表视图类型偏好（本地优先）。
+  ///
+  /// 命中本地缓存即刻返回（开播/打开选集面板秒级正确，不等网络），同时后台异步刷新服务端
+  /// 偏好回写本地，使下次取到最新；无本地缓存时退回服务端并写入本地。
   Future<String?> getPlaylistViewType() async {
+    final cached = await _readLocalPlaylistViewType();
+    if (cached != null) {
+      // 后台对齐服务端，不阻塞本次返回。
+      unawaited(
+        _fetchServerPlaylistViewType().then((server) {
+          if (server != null) _writeLocalPlaylistViewType(server);
+        }),
+      );
+      return cached;
+    }
+    final server = await _fetchServerPlaylistViewType();
+    if (server != null) await _writeLocalPlaylistViewType(server);
+    return server;
+  }
+
+  /// 保存播放列表视图类型偏好：本地即时写入（供秒级恢复）+ 写穿服务端。
+  Future<bool> setPlaylistViewType(String viewType) async {
+    if (viewType != 'button' && viewType != 'card') {
+      debugPrint('[API][USER_DATA] unsupported playlist view type=$viewType');
+      return false;
+    }
+    await _writeLocalPlaylistViewType(viewType);
+    return setUserDataJsonValue('playlist:setting', <String, dynamic>{
+      'view_type': viewType,
+    });
+  }
+
+  Future<String?> _fetchServerPlaylistViewType() async {
     final setting = await getUserDataJsonValue('playlist:setting');
     final viewType = setting?['view_type']?.toString().trim();
     if (viewType == 'button' || viewType == 'card') {
@@ -1534,15 +1570,23 @@ class FeiniuApi {
     return null;
   }
 
-  /// 保存播放列表视图类型偏好。
-  Future<bool> setPlaylistViewType(String viewType) {
-    if (viewType != 'button' && viewType != 'card') {
-      debugPrint('[API][USER_DATA] unsupported playlist view type=$viewType');
-      return Future<bool>.value(false);
+  Future<String?> _readLocalPlaylistViewType() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final v = prefs.getString(_playlistViewTypePrefKey)?.trim();
+      return (v == 'button' || v == 'card') ? v : null;
+    } catch (_) {
+      return null;
     }
-    return setUserDataJsonValue('playlist:setting', <String, dynamic>{
-      'view_type': viewType,
-    });
+  }
+
+  Future<void> _writeLocalPlaylistViewType(String viewType) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_playlistViewTypePrefKey, viewType);
+    } catch (_) {
+      // 本地缓存写失败不影响服务端真值。
+    }
   }
 
   /// 获取标签接口的原始数据。
