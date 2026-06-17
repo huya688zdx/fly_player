@@ -1420,6 +1420,17 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
             qualityIndex: qualityIndex,
             startPositionMs: startPositionMs,
           ),
+      onLoadEpisodePickerData: (currentLoadArgs, {seasonGuid}) =>
+          NativeReentrySupport.loadEpisodePickerData(
+            nas,
+            currentLoadArgs: currentLoadArgs,
+            seasonGuid: seasonGuid ?? '',
+            fallbackEpisodes: _nativeEpisodesPayload(),
+          ),
+      onLoadSeasonEpisodes: (seasonGuid) =>
+          NativeReentrySupport.loadSeasonEpisodes(nas, seasonGuid: seasonGuid),
+      onSetEpisodePickerViewType: (viewType) =>
+          NativeReentrySupport.setEpisodePickerViewType(nas, viewType),
     );
   }
 

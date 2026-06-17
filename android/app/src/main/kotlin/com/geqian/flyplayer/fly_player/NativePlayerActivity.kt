@@ -39,6 +39,7 @@ import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.PopupWindow
 import android.widget.SeekBar
 import android.widget.TextView
 import androidx.core.view.ViewCompat
@@ -525,6 +526,56 @@ internal fun nativePanelEpisodeLabel(episode: Map<String, Any?>): String {
  *   adb shell am start -n com.geqian.flyplayer.fly_player/.NativePlayerActivity \
  *     --es loadArgs '{"url":"<可直接播放的URL>","startPositionMs":0,"loadNonce":1}'
  */
+internal const val NATIVE_EPISODE_VIEW_MODE_LIST = 0
+internal const val NATIVE_EPISODE_VIEW_MODE_GRID = 1
+
+internal fun nativePanelEpisodeViewModeFromType(viewType: String?): Int {
+    return if (viewType?.trim() == "button") {
+        NATIVE_EPISODE_VIEW_MODE_GRID
+    } else {
+        NATIVE_EPISODE_VIEW_MODE_LIST
+    }
+}
+
+internal fun nativePanelPlaylistViewTypeFromEpisodeMode(mode: Int): String {
+    return if (mode == NATIVE_EPISODE_VIEW_MODE_GRID) "button" else "card"
+}
+
+internal data class NativeEpisodePickerData(
+    val selectedSeasonGuid: String,
+    val viewMode: Int,
+    val seasons: List<Map<String, Any?>>,
+    val episodes: List<Map<String, Any?>>,
+)
+
+internal fun nativePanelEpisodePickerData(
+    selectedSeasonGuid: String,
+    viewType: String?,
+    seasons: List<Map<String, Any?>>,
+    episodes: List<Map<String, Any?>>,
+    fallbackEpisodes: List<Map<String, Any?>>,
+): NativeEpisodePickerData {
+    val resolvedEpisodes = if (episodes.isNotEmpty()) episodes else fallbackEpisodes
+    val explicitSeasonGuid = selectedSeasonGuid.trim()
+    val fallbackSeasonGuid = resolvedEpisodes.firstOrNull()?.let {
+        (it["seasonGuid"] ?: it["parentGuid"])?.toString()?.trim().orEmpty()
+    }.orEmpty()
+    val resolvedSeasonGuid = explicitSeasonGuid.ifEmpty { fallbackSeasonGuid }
+    val normalizedSeasons = seasons.map { season ->
+        val guid = (season["seasonGuid"] ?: season["guid"])?.toString()?.trim().orEmpty()
+        LinkedHashMap<String, Any?>(season).apply {
+            this["seasonGuid"] = guid
+            this["selected"] = guid.isNotEmpty() && guid == resolvedSeasonGuid
+        }
+    }
+    return NativeEpisodePickerData(
+        selectedSeasonGuid = resolvedSeasonGuid,
+        viewMode = nativePanelEpisodeViewModeFromType(viewType),
+        seasons = normalizedSeasons,
+        episodes = resolvedEpisodes,
+    )
+}
+
 class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     companion object {
@@ -556,6 +607,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         private val TEXT_DIM = 0xA6FFFFFF.toInt() // 次要文字（~65% 白）
         private val PANEL_BG = 0xCC000000.toInt()
         private val ITEM_SELECTED_BG = 0x333A82F7.toInt()
+        // 与 Flutter shared_preferences 共享的播放列表视图偏好键（plugin 自带 `flutter.` 前缀）。
+        private const val SHARED_PLAYLIST_VIEW_TYPE_KEY = "flutter.playlist_view_type"
     }
 
     private lateinit var playerSurface: NativePlayerSurface
@@ -576,12 +629,24 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private lateinit var panelContainer: FrameLayout
     private lateinit var panelContent: LinearLayout
     private lateinit var panelTitle: TextView
+    private lateinit var panelSeasonSelector: TextView
     private lateinit var panelBackButton: ImageButton
+    private lateinit var panelHeaderActions: LinearLayout
     private val panelStack = ArrayDeque<PanelPage>()
     private var panelVisible = false
     private var panelIsSheet = false
     private var currentEpisodeRangeIndex = -1
-    private var episodeViewMode = 1
+    private var episodeViewMode = NATIVE_EPISODE_VIEW_MODE_LIST
+    private var episodePanelLoading = false
+    private var episodePanelSelectedSeasonGuid = ""
+    private var episodePanelSeriesTitle = ""
+    private var episodePanelEpisodes: List<Map<String, Any?>> = emptyList()
+    private var episodePanelSeasons: List<Map<String, Any?>> = emptyList()
+    private var episodePanelLoadToken = 0
+    // 选集面板按季缓存（seasonGuid → 该季剧集）：起播后台预取填充，切季时命中即瞬时切换。
+    private val seasonEpisodesCache = HashMap<String, List<Map<String, Any?>>>()
+    // 单次预取守卫：每路 source（applyLoadArgs）只在首帧后启动一次全季预取。
+    private var episodePickerPrefetchStarted = false
     private var customQualityTabTitle = ""
     private var expandedEpisodeVersionGuid: String? = null
 
@@ -677,9 +742,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private var screenshotIncludeSubtitles = true
     private var screenshotSaveMode = "library"
-    private var screenshotPreviewOverlay: View? = null
-    private lateinit var screenshotPreviewImage: ImageView
-    private var lastScreenshotPath: String? = null
 
     private lateinit var abButton: View
     private var abRepeatMode = 0
@@ -735,7 +797,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val action: () -> Unit,
     )
 
-    private data class PanelPage(val title: String, val build: () -> Unit)
+    private data class PanelPage(
+        val title: String,
+        val headerActions: () -> List<View> = { emptyList() },
+        // 标题旁的可点击「选季」chip 文案（返回 null 隐藏）。用 lambda 以便每次 render
+        // 反映最新选中季（预取/切季后自动更新）。
+        val seasonSelectorLabel: () -> String? = { null },
+        // 点击季 chip 的回调，入参为 chip 视图，作为下拉窗锚点。
+        val onSeasonSelectorClick: ((View) -> Unit)? = null,
+        val build: () -> Unit,
+    )
 
     private data class QualityPanelEntry(
         val sourceIndex: Int,
@@ -779,8 +850,38 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun renderTopPanel(animateDir: Int = 0) {
         val page = panelStack.lastOrNull() ?: return
         if (this::panelTitle.isInitialized) panelTitle.text = page.title
+        if (this::panelSeasonSelector.isInitialized) {
+            // 仅在非子页（无返回栈）展示季 chip；子页（如多版本）退栈语义不应叠加选季。
+            val label = if (panelStack.size == 1) page.seasonSelectorLabel() else null
+            if (label != null) {
+                panelSeasonSelector.text = seasonSelectorSpan(label)
+                panelSeasonSelector.visibility = View.VISIBLE
+                panelSeasonSelector.setOnClickListener { view ->
+                    page.onSeasonSelectorClick?.invoke(view)
+                }
+            } else {
+                panelSeasonSelector.visibility = View.GONE
+                panelSeasonSelector.setOnClickListener(null)
+            }
+        }
         if (this::panelBackButton.isInitialized) {
             panelBackButton.visibility = if (panelStack.size > 1) View.VISIBLE else View.GONE
+        }
+        if (this::panelHeaderActions.isInitialized) {
+            panelHeaderActions.removeAllViews()
+            val actions = page.headerActions()
+            panelHeaderActions.visibility = if (actions.isEmpty()) View.GONE else View.VISIBLE
+            for ((index, action) in actions.withIndex()) {
+                panelHeaderActions.addView(
+                    action,
+                    LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                    ).apply {
+                        if (index > 0) leftMargin = dp(10)
+                    },
+                )
+            }
         }
         if (!this::panelContent.isInitialized) return
         panelContent.removeAllViews()
@@ -1047,6 +1148,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun panelSpacer(heightDp: Int): View {
         return View(this).apply {
+            minimumHeight = dp(heightDp)
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dp(heightDp),
@@ -1126,6 +1228,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         value: Float,
         steps: Int = 100,
         format: (Float) -> String = { String.format("%.0f", it) },
+        onCommit: ((Float) -> Unit)? = null,
         onChange: (Float) -> Unit,
     ): View {
         val span = (max - min).takeIf { it > 0f } ?: 1f
@@ -1175,7 +1278,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                             cancelControlsAutoHide()
                         }
 
-                        override fun onStopTrackingTouch(sb: SeekBar) = Unit
+                        override fun onStopTrackingTouch(sb: SeekBar) {
+                            onCommit?.invoke(min + (sb.progress.toFloat() / steps) * span)
+                        }
                     })
                 },
                 LinearLayout.LayoutParams(
@@ -1759,6 +1864,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
         settingsStore = NativePlayerSettingsStore(this)
         restorePersistedSettings()
+        // 选集视图模式本地优先：开播即按上次偏好（宫格/列表）渲染，不必等服务端 viewType 回包，
+        // 消除「点开是列表、过一会跳成宫格」的视图跳变。读的是与 Flutter 共享的同一份本地缓存
+        // （FlutterSharedPreferences 文件），三端（原生壳/Flutter 播放器/详情页）统一、不漂移。
+        episodeViewMode = nativePanelEpisodeViewModeFromType(loadSharedPlaylistViewType())
 
         // 系统媒体集成：音频焦点 + 拔耳机暂停 + 命令路由（命令直达 playerSurface，不经 Flutter）。
         audioFocus = NativePlaybackAudioFocusController(
@@ -1838,6 +1947,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         pendingInitialSubtitle = true
         pendingPersistedSettings = true // 换源后首帧就绪时重套已存的 mpv/画面/字幕样式设置
         refreshRateApplied = false // 换源后按新片 fps 重新匹配刷新率
+        // 换源/切集后选集预取作废：清空按季缓存、复位守卫，待新片首帧后重新预取。
+        seasonEpisodesCache.clear()
+        episodePickerPrefetchStarted = false
         lastRecordedTs = -1L
         if (this::titleLabel.isInitialized) titleLabel.text = mediaTitle
         // 切画质/换源后刷新画质入口按钮文案（之前只在构建时设一次，切完不变）。
@@ -2522,14 +2634,58 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 setOnClickListener { popPanel() }
             }
             header.addView(panelBackButton, LinearLayout.LayoutParams(dp(34), dp(28)))
+            // 标题改为 wrap_content + 单行省略，让出空间给紧邻的「选季」chip。
             panelTitle = TextView(context).apply {
                 setTextColor(Color.WHITE)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
+                isSingleLine = true
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                maxWidth = (panelWidthPx() * 0.55f).toInt()
             }
             header.addView(
                 panelTitle,
-                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ),
+            )
+            // 标题旁的「选季」chip：低饱和强调色药丸 + 细描边 + ▾ 下拉三角，克制而明确可点；
+            // 默认隐藏，仅多季时显示。
+            panelSeasonSelector = TextView(context).apply {
+                setTextColor(0xFFEAF1FF.toInt())
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(12), dp(5), dp(11), dp(5))
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(13).toFloat()
+                    setColor(0x1F3A82F7) // ~12% 强调色填充，低调
+                    setStroke(dp(1), 0x593A82F7) // ~35% 强调色细描边
+                }
+                isClickable = true
+                visibility = View.GONE
+            }
+            header.addView(
+                panelSeasonSelector,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).apply { leftMargin = dp(8) },
+            )
+            // 撑开，把右侧功能键推到边缘。
+            header.addView(View(context), LinearLayout.LayoutParams(0, 1, 1f))
+            panelHeaderActions = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                visibility = View.GONE
+            }
+            header.addView(
+                panelHeaderActions,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ),
             )
             layout.addView(header)
 
@@ -2693,12 +2849,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             ),
         )
         if (result["success"] == true) {
-            val path = result["path"]?.toString().orEmpty()
-            if (path.isNotEmpty()) {
-                showScreenshotPreview(path)
-            } else {
-                showTransientHint("已保存截图")
-            }
+            // 截图后只提示是否保存，不再进入预览/分享页面。
+            showTransientHint("已保存截图")
         } else {
             showTransientHint(
                 when (result["code"]?.toString()) {
@@ -2707,93 +2859,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 },
             )
         }
-    }
-
-    private fun showScreenshotPreview(path: String) {
-        lastScreenshotPath = path
-        val overlay = screenshotPreviewOverlay ?: buildScreenshotPreviewOverlay().also {
-            screenshotPreviewOverlay = it
-            rootContainer.addView(
-                it,
-                FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                ),
-            )
-        }
-        screenshotPreviewImage?.let { Glide.with(this).load(path).fitCenter().into(it) }
-        overlay.visibility = View.VISIBLE
-        overlay.bringToFront()
-        setControlsVisible(false)
-    }
-
-    private fun buildScreenshotPreviewOverlay(): View {
-        val wp = FrameLayout.LayoutParams.WRAP_CONTENT
-        return FrameLayout(this).apply {
-            setBackgroundColor(0xE6000000.toInt())
-            isClickable = true
-            visibility = View.GONE
-            setOnClickListener { hideScreenshotPreview() } // 点空白关闭
-
-            val card = LinearLayout(context).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER_HORIZONTAL
-                isClickable = true // 吞掉卡片内点击，不触发关闭
-            }
-            screenshotPreviewImage = ImageView(context).apply {
-                adjustViewBounds = true
-                scaleType = ImageView.ScaleType.FIT_CENTER
-                clipToOutline = true
-                outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
-                background = GradientDrawable().apply {
-                    setColor(0xFF111111.toInt()); cornerRadius = dp(12).toFloat()
-                }
-            }
-            card.addView(
-                screenshotPreviewImage,
-                LinearLayout.LayoutParams(wp, wp).apply { topMargin = dp(40) },
-            )
-            val btnRow = LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER
-                setPadding(0, dp(20), 0, 0)
-                addView(promptButton("分享", ACCENT, true) { shareLastScreenshot() })
-                addView(View(context), LinearLayout.LayoutParams(dp(16), 1))
-                addView(promptButton("完成", Color.WHITE, true) { hideScreenshotPreview() })
-            }
-            card.addView(btnRow)
-            addView(card, FrameLayout.LayoutParams(wp, wp).apply { gravity = Gravity.CENTER })
-        }
-    }
-
-    private fun hideScreenshotPreview() {
-        screenshotPreviewOverlay?.visibility = View.GONE
-    }
-
-    private fun shareLastScreenshot() {
-        val path = lastScreenshotPath
-        if (path.isNullOrEmpty()) return
-        val uri = runCatching {
-            if (path.startsWith("content://")) {
-                android.net.Uri.parse(path)
-            } else {
-                androidx.core.content.FileProvider.getUriForFile(
-                    this, "$packageName.fileprovider", java.io.File(path),
-                )
-            }
-        }.getOrNull()
-        if (uri == null) {
-            showTransientHint("无法分享该截图")
-            return
-        }
-        runCatching {
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                type = "image/*"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            startActivity(Intent.createChooser(intent, "分享截图"))
-        }.onFailure { showTransientHint("无法分享该截图") }
     }
 
     private fun toggleAbRepeat() {
@@ -2850,10 +2915,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun showEpisodePanel() {
-        if (episodeList().isEmpty()) {
-            showTransientHint("无选集信息")
-            return
-        }
+        episodePanelEpisodes = episodeList()
+        episodePanelSelectedSeasonGuid = loadArgsMap["seasonGuid"]?.toString().orEmpty()
+        episodePanelSeriesTitle = loadArgsMap["seriesTitle"]?.toString().orEmpty()
         val title = episodePanelTitle()
         if (panelVisible && panelStack.size == 1 && panelStack.lastOrNull()?.title == title) {
             hidePanel()
@@ -2861,18 +2925,399 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
         currentEpisodeRangeIndex = -1 // 每次打开按当前集重算分页
         expandedEpisodeVersionGuid = null
-        togglePanel(PanelPage(title) { buildEpisodePanelContent() })
+        togglePanel(
+            PanelPage(
+                title = title,
+                headerActions = { buildEpisodePanelHeaderActions() },
+                seasonSelectorLabel = {
+                    if (episodePanelSeasons.size > 1) currentSeasonLabel() else null
+                },
+                onSeasonSelectorClick = { anchor -> showSeasonDropdown(anchor) },
+            ) { buildEpisodePanelContent() },
+        )
+        // 已预取则不再显示 loading（避免跳变）；仍做一次静默刷新以更新观看状态等。
+        val prefetched = episodePickerPrefetchStarted &&
+            (episodePanelSeasons.isNotEmpty() || seasonEpisodesCache.isNotEmpty())
+        requestEpisodePickerData(
+            seasonGuid = null,
+            showLoading = !prefetched && episodePanelEpisodes.isEmpty(),
+        )
+    }
+
+    /** 当前选中季的展示文案（无季信息时回退 loadArgs 的季号）。 */
+    private fun currentSeasonLabel(): String {
+        val current = episodePanelSeasons.firstOrNull {
+            it["seasonGuid"]?.toString().orEmpty() == episodePanelSelectedSeasonGuid
+        }
+        return current?.let { nativePanelSeasonLabel(it) }
+            ?: (loadArgsMap["seasonNumber"] as? Number)?.toInt()?.takeIf { it > 0 }
+                ?.let { "第${it}季" }
+            ?: "选季"
     }
 
     private fun episodePanelTitle(): String {
-        val sTitle = loadArgsMap["seriesTitle"]?.toString().orEmpty()
+        val sTitle = episodePanelSeriesTitle.ifEmpty { loadArgsMap["seriesTitle"]?.toString().orEmpty() }
+        if (sTitle.isEmpty()) return "选集"
+        // 多季时季由标题旁的 chip 展示，标题只保留系列名，避免重复。
+        if (episodePanelSeasons.size > 1) return sTitle
+        val selectedSeason = episodePanelSeasons.firstOrNull {
+            it["seasonGuid"]?.toString().orEmpty() == episodePanelSelectedSeasonGuid
+        }
+        val sLabel = selectedSeason?.let { nativePanelSeasonLabel(it) }.orEmpty()
         val sNum = (loadArgsMap["seasonNumber"] as? Number)?.toInt() ?: 0
-        return if (sTitle.isNotEmpty()) {
-            if (sNum > 0) "$sTitle · 第${sNum}季" else sTitle
-        } else "选集"
+        return when {
+            sLabel.isNotEmpty() -> "$sTitle · $sLabel"
+            sNum > 0 -> "$sTitle · 第${sNum}季"
+            else -> sTitle
+        }
+    }
+
+    /** 季 chip 文案：季名 + 文末略小、降透明度的 ▾ 下拉三角（作可点指示）。 */
+    private fun seasonSelectorSpan(label: String): CharSequence {
+        val full = "$label  ▾"
+        return android.text.SpannableString(full).apply {
+            setSpan(
+                android.text.style.RelativeSizeSpan(0.82f),
+                label.length,
+                full.length,
+                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+            setSpan(
+                android.text.style.ForegroundColorSpan(0xCC9DC0FF.toInt()),
+                label.length,
+                full.length,
+                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+        }
     }
 
     /** 入口模式：0=选集(多集)，1=多版本(单集且有>1版本)，2=隐藏(单集且≤1版本)。 */
+    private fun buildEpisodePanelHeaderActions(): List<View> {
+        // 选季已移到标题旁的 chip；右上角只保留宫格/列表视图切换。
+        return listOf(buildEpisodeModeToggleButton())
+    }
+
+    private fun buildEpisodeModeToggleButton(): View {
+        return ImageButton(this).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(18).toFloat()
+                setColor(0x33000000)
+            }
+            setPadding(dp(7), dp(7), dp(7), dp(7))
+            setImageResource(
+                if (episodeViewMode == NATIVE_EPISODE_VIEW_MODE_GRID) {
+                    R.drawable.ic_player_episode_list
+                } else {
+                    R.drawable.ic_player_episode_grid
+                },
+            )
+            setColorFilter(Color.WHITE)
+            isClickable = true
+            contentDescription = if (episodeViewMode == NATIVE_EPISODE_VIEW_MODE_GRID) "切换为列表" else "切换为宫格"
+            setOnClickListener {
+                val previous = episodeViewMode
+                episodeViewMode = if (episodeViewMode == NATIVE_EPISODE_VIEW_MODE_GRID) {
+                    NATIVE_EPISODE_VIEW_MODE_LIST
+                } else {
+                    NATIVE_EPISODE_VIEW_MODE_GRID
+                }
+                currentEpisodeRangeIndex = -1
+                expandedEpisodeVersionGuid = null
+                renderTopPanel()
+                persistEpisodeViewMode(previous, episodeViewMode)
+            }
+        }
+    }
+
+    /** 点击标题旁季 chip：在其正下方弹出锚定下拉窗选季（取代旧的二级面板）。 */
+    private fun showSeasonDropdown(anchor: View) {
+        if (episodePanelSeasons.size <= 1) return
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(14).toFloat()
+                setColor(0xF21E1E1E.toInt())
+                setStroke(dp(1), 0x24FFFFFF)
+            }
+        }
+        val popup = PopupWindow(
+            column,
+            (anchor.width.coerceAtLeast(dp(200))).coerceAtMost(panelWidthPx() - dp(24)),
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply {
+            isFocusable = true // 点外部关闭
+            isOutsideTouchable = true
+            elevation = dp(8).toFloat()
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+        }
+        for (season in episodePanelSeasons) {
+            val guid = season["seasonGuid"]?.toString().orEmpty()
+            val selected = guid.isNotEmpty() && guid == episodePanelSelectedSeasonGuid
+            val row = TextView(this).apply {
+                text = nativePanelSeasonLabel(season) + if (selected) "    ✓" else ""
+                setTextColor(if (selected) ACCENT else Color.WHITE)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                typeface = if (selected) {
+                    android.graphics.Typeface.DEFAULT_BOLD
+                } else {
+                    android.graphics.Typeface.DEFAULT
+                }
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(16), dp(12), dp(16), dp(12))
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(10).toFloat()
+                    setColor(if (selected) ITEM_SELECTED_BG else Color.TRANSPARENT)
+                }
+                isClickable = true
+                setOnClickListener {
+                    popup.dismiss()
+                    if (guid.isNotEmpty() && guid != episodePanelSelectedSeasonGuid) {
+                        switchSeason(guid)
+                    }
+                }
+            }
+            column.addView(
+                row,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).apply { if (column.childCount > 0) topMargin = dp(4) },
+            )
+        }
+        popup.showAsDropDown(anchor, 0, dp(4))
+    }
+
+    /**
+     * 就地切季：命中按季缓存则**同步**切换、零等待；未命中用轻量接口拉该季剧集（单次请求），
+     * 乐观切换 + 短暂加载态，返回后落地并缓存。
+     */
+    private fun switchSeason(seasonGuid: String) {
+        val cached = seasonEpisodesCache[seasonGuid]
+        if (cached != null && cached.isNotEmpty()) {
+            episodePanelLoading = false
+            applySeasonEpisodesToPanel(seasonGuid, cached)
+            return
+        }
+        // 未缓存：乐观切到目标季并显示加载，用轻量接口（单次 getEpisodeList）拉取。
+        episodePanelLoading = true
+        episodePanelSelectedSeasonGuid = seasonGuid
+        episodePanelEpisodes = emptyList()
+        currentEpisodeRangeIndex = -1
+        expandedEpisodeVersionGuid = null
+        if (panelVisible && panelStack.size == 1) {
+            val page = panelStack.removeLast()
+            panelStack.addLast(page.copy(title = episodePanelTitle()))
+        }
+        if (panelVisible) renderTopPanel()
+        dispatchSeasonEpisodes(seasonGuid) { episodes ->
+            if (episodes.isNotEmpty()) seasonEpisodesCache[seasonGuid] = episodes
+            // 用户可能在等待期间又切了别的季：只在仍停留在本季时落地。
+            if (episodePanelSelectedSeasonGuid != seasonGuid) return@dispatchSeasonEpisodes
+            episodePanelLoading = false
+            if (episodes.isEmpty()) {
+                if (panelVisible) renderTopPanel()
+                showTransientHint("无选集信息")
+                return@dispatchSeasonEpisodes
+            }
+            applySeasonEpisodesToPanel(seasonGuid, episodes)
+        }
+    }
+
+    /** 把某季剧集应用到可见面板（更新选中季、列表、标题/chip；切到播放季时回写 loadArgs）。 */
+    private fun applySeasonEpisodesToPanel(
+        seasonGuid: String,
+        episodes: List<Map<String, Any?>>,
+    ) {
+        episodePanelSelectedSeasonGuid = seasonGuid
+        episodePanelEpisodes = episodes
+        currentEpisodeRangeIndex = -1
+        expandedEpisodeVersionGuid = null
+        // 仅当切到正在播放季时才回写 loadArgs 的剧集列表（保持上一集/下一集语义），
+        // 与 applyEpisodePickerData 的守卫一致；浏览其它季不动播放上下文。
+        if (seasonGuid == loadArgsMap["seasonGuid"]?.toString().orEmpty() && episodes.isNotEmpty()) {
+            loadArgsMap = HashMap(loadArgsMap).apply { put("episodes", episodes) }
+        }
+        if (panelVisible && panelStack.size == 1) {
+            val page = panelStack.removeLast()
+            panelStack.addLast(page.copy(title = episodePanelTitle()))
+        }
+        if (panelVisible) renderTopPanel()
+    }
+
+    private fun nativePanelSeasonLabel(season: Map<String, Any?>): String {
+        val name = season["seasonName"]?.toString()?.trim().orEmpty()
+        if (name.isNotEmpty()) return name
+        val label = season["seasonLabel"]?.toString()?.trim().orEmpty()
+        if (label.isNotEmpty()) return label
+        val number = (season["seasonNumber"] as? Number)?.toInt() ?: 0
+        return if (number > 0) "第${number}季" else "季"
+    }
+
+    private fun requestEpisodePickerData(seasonGuid: String?, showLoading: Boolean) {
+        val token = ++episodePanelLoadToken
+        if (showLoading) {
+            episodePanelLoading = true
+            if (panelVisible) renderTopPanel()
+        }
+        val args = mutableMapOf<String, Any?>(
+            "loadArgs" to JSONObject(loadArgsMap).toString(),
+        )
+        if (!seasonGuid.isNullOrEmpty()) {
+            args["seasonGuid"] = seasonGuid
+        }
+        NativePlayerReverseBridge.dispatch(
+            method = "loadEpisodePickerData",
+            args = args,
+            onResult = { result -> runOnUiThread { applyEpisodePickerData(result, token) } },
+            onError = {
+                runOnUiThread {
+                    if (token != episodePanelLoadToken) return@runOnUiThread
+                    episodePanelLoading = false
+                    if (episodePanelEpisodes.isEmpty()) showTransientHint("无选集信息")
+                    if (panelVisible) renderTopPanel()
+                }
+            },
+        )
+    }
+
+    /**
+     * 起播后台预取：首帧后启动一次。
+     *
+     * 第一步用 `loadEpisodePickerData` 拉**当前季**完整数据（viewType + 季列表 + 当前季剧集）
+     * → 点开「选集」即就绪、季 chip 可用、无跳变。返回拿到季列表后，第二步用**轻量**接口
+     * `loadSeasonEpisodes`（单次 getEpisodeList）**并行**预取其它季剧集，只写缓存 → 切季近乎即时。
+     *
+     * 轻量接口避免了旧「全季预取」每季都重复拉 viewType/季列表的冗余，所以这次并行预取很快、
+     * 不再是长耗时网络风暴。
+     */
+    private fun prefetchEpisodePickerData() {
+        // 守卫 episodePickerPrefetchStarted 由排程处置位；这里只判内容是否需要预取。
+        if (episodeList().size <= 1) return // 单集/电影无需预取
+        val token = ++episodePanelLoadToken
+        val args = mutableMapOf<String, Any?>(
+            "loadArgs" to JSONObject(loadArgsMap).toString(),
+        )
+        NativePlayerReverseBridge.dispatch(
+            method = "loadEpisodePickerData",
+            args = args,
+            onResult = { result ->
+                runOnUiThread {
+                    applyEpisodePickerData(result, token)
+                    prefetchOtherSeasonsLight()
+                }
+            },
+            // 预取失败静默：用户点开时仍会按需请求。
+            onError = {},
+        )
+    }
+
+    /** 季列表已知后，用轻量接口并行预取其它未缓存季的剧集，只写缓存。 */
+    private fun prefetchOtherSeasonsLight() {
+        if (episodePanelSeasons.size <= 1) return
+        for (season in episodePanelSeasons) {
+            val guid = season["seasonGuid"]?.toString()?.takeIf { it.isNotEmpty() } ?: continue
+            if (guid in seasonEpisodesCache) continue
+            dispatchSeasonEpisodes(guid) { episodes ->
+                if (episodes.isNotEmpty()) seasonEpisodesCache[guid] = episodes
+            }
+        }
+    }
+
+    /** 轻量拉取某季剧集（单次 getEpisodeList），结果回到 UI 线程交给 [onLoaded]。 */
+    private fun dispatchSeasonEpisodes(
+        seasonGuid: String,
+        onLoaded: (List<Map<String, Any?>>) -> Unit,
+    ) {
+        NativePlayerReverseBridge.dispatch(
+            method = "loadSeasonEpisodes",
+            args = mapOf("seasonGuid" to seasonGuid),
+            onResult = { result ->
+                runOnUiThread {
+                    val map = result as? Map<*, *>
+                    onLoaded(parseNativePanelMaps(map?.get("episodes")))
+                }
+            },
+            onError = { runOnUiThread { onLoaded(emptyList()) } },
+        )
+    }
+
+    private fun applyEpisodePickerData(result: Any?, token: Int) {
+        if (token != episodePanelLoadToken) return
+        val map = result as? Map<*, *>
+        val data = nativePanelEpisodePickerData(
+            selectedSeasonGuid = map?.get("selectedSeasonGuid")?.toString().orEmpty(),
+            viewType = map?.get("viewType")?.toString(),
+            seasons = parseNativePanelMaps(map?.get("seasons")),
+            episodes = parseNativePanelMaps(map?.get("episodes")),
+            fallbackEpisodes = episodePanelEpisodes.ifEmpty { episodeList() },
+        )
+        episodePanelLoading = false
+        episodePanelSelectedSeasonGuid = data.selectedSeasonGuid
+        episodePanelSeriesTitle = map?.get("seriesTitle")?.toString()?.takeIf { it.isNotEmpty() }
+            ?: episodePanelSeriesTitle
+        episodeViewMode = data.viewMode
+        persistEpisodeViewModeLocal(data.viewMode) // 与服务端偏好对齐，下次开播即时恢复
+        episodePanelSeasons = data.seasons
+        episodePanelEpisodes = data.episodes
+        // 顺带把当前季剧集写入按季缓存，供后续切季瞬时命中（懒加载已访问季的复用）。
+        if (data.selectedSeasonGuid.isNotEmpty() && data.episodes.isNotEmpty()) {
+            seasonEpisodesCache[data.selectedSeasonGuid] = data.episodes
+        }
+        currentEpisodeRangeIndex = -1
+        expandedEpisodeVersionGuid = null
+        if (data.selectedSeasonGuid == loadArgsMap["seasonGuid"]?.toString().orEmpty() && data.episodes.isNotEmpty()) {
+            loadArgsMap = HashMap(loadArgsMap).apply { put("episodes", data.episodes) }
+        }
+        refreshEpisodeEntryButton()
+        if (panelVisible && panelStack.size == 1) {
+            val page = panelStack.removeLast()
+            panelStack.addLast(page.copy(title = episodePanelTitle()))
+        }
+        if (panelVisible) renderTopPanel()
+    }
+
+    private fun parseNativePanelMaps(raw: Any?): List<Map<String, Any?>> {
+        val list = raw as? List<*> ?: return emptyList()
+        return list.mapNotNull { item ->
+            @Suppress("UNCHECKED_CAST")
+            item as? Map<String, Any?>
+        }
+    }
+
+    private fun persistEpisodeViewMode(previous: Int, next: Int) {
+        if (previous == next) return
+        persistEpisodeViewModeLocal(next) // 本地镜像即时落盘，下次开播秒级恢复
+        NativePlayerReverseBridge.dispatch(
+            method = "setEpisodePickerViewType",
+            args = mapOf("viewType" to nativePanelPlaylistViewTypeFromEpisodeMode(next)),
+        )
+    }
+
+    /**
+     * 把当前视图模式写入与 Flutter 共享的本地缓存（FlutterSharedPreferences 文件，
+     * 键 `flutter.playlist_view_type`），三端共用一份、不漂移；同时各路径仍写穿服务端。
+     */
+    private fun persistEpisodeViewModeLocal(mode: Int) {
+        saveSharedPlaylistViewType(nativePanelPlaylistViewTypeFromEpisodeMode(mode))
+    }
+
+    private val flutterSharedPrefs by lazy {
+        getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+    }
+
+    /** 读 Flutter shared_preferences 写入的播放列表视图偏好（card/button），无则 null。 */
+    private fun loadSharedPlaylistViewType(): String? =
+        runCatching { flutterSharedPrefs.getString(SHARED_PLAYLIST_VIEW_TYPE_KEY, null) }
+            .getOrNull()
+
+    private fun saveSharedPlaylistViewType(viewType: String) {
+        runCatching {
+            flutterSharedPrefs.edit().putString(SHARED_PLAYLIST_VIEW_TYPE_KEY, viewType).apply()
+        }
+    }
+
     private fun episodeEntryMode(): Int {
         if (episodeList().size > 1) return 0
         return if (nativePanelEpisodeVersionEntries(qualityList()).size > 1) 1 else 2
@@ -2939,8 +3384,42 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun buildEpisodePanelContent() {
-        val episodes = episodeList()
+        val episodes = episodePanelEpisodes.ifEmpty { episodeList() }
         val currentGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
+
+        // 切季/首拉进行中（已清空当前列表）显示加载态；用 episodePanelEpisodes 本身判空，
+        // 不走 episodeList() 回退，避免切季时误显示"正在播放季"的旧列表。
+        if (episodePanelLoading && episodePanelEpisodes.isEmpty()) {
+            panelContent.addView(
+                TextView(this).apply {
+                    text = "加载中..."
+                    setTextColor(TEXT_DIM)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                    gravity = Gravity.CENTER
+                },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(180),
+                ),
+            )
+            return
+        }
+
+        if (episodes.isEmpty()) {
+            panelContent.addView(
+                TextView(this).apply {
+                    text = "无选集信息"
+                    setTextColor(TEXT_DIM)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                    gravity = Gravity.CENTER
+                },
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dp(180),
+                ),
+            )
+            return
+        }
 
         val rangeSize = 30
         val rangeCount = (episodes.size + rangeSize - 1) / rangeSize
@@ -3000,6 +3479,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val startIdx = currentEpisodeRangeIndex * rangeSize
         val endIdx = ((currentEpisodeRangeIndex + 1) * rangeSize).coerceAtMost(episodes.size)
         val visibleEpisodes = episodes.subList(startIdx, endIdx)
+        if (episodeViewMode == NATIVE_EPISODE_VIEW_MODE_GRID) {
+            panelContent.addView(buildEpisodeGridContent(visibleEpisodes, currentGuid))
+            return
+        }
         val versionEntries = nativePanelEpisodeVersionEntries(qualityList())
 
         for (episode in visibleEpisodes) {
@@ -3144,6 +3627,99 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         panelContent.addView(listContainer)
     }
 
+    private fun buildEpisodeGridContent(
+        episodes: List<Map<String, Any?>>,
+        currentGuid: String,
+    ): View {
+        val grid = android.widget.GridLayout(this).apply {
+            columnCount = 6
+            setPadding(dp(16), dp(2), dp(16), dp(16))
+        }
+        for ((index, episode) in episodes.withIndex()) {
+            val guid = episode["itemGuid"]?.toString().orEmpty()
+            val selected = guid.isNotEmpty() && guid == currentGuid
+            val watched = (episode["watched"] as? Number)?.toInt() == 1
+            val tile = TextView(this).apply {
+                text = episodeGridLabel(episode, index)
+                setTextColor(Color.WHITE)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                maxLines = 1
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(10).toFloat()
+                    setColor(if (selected) ITEM_SELECTED_BG else 0x1AFFFFFF)
+                    if (selected) setStroke(dp(1), ACCENT)
+                }
+            }
+            // 单元格用 FrameLayout 承载：底图 tile + 右下角「已观看」小勾（播放中不叠勾）。
+            val cell = FrameLayout(this).apply {
+                addView(
+                    tile,
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                    ),
+                )
+                if (watched && !selected) {
+                    addView(
+                        buildWatchedBadge(),
+                        FrameLayout.LayoutParams(
+                            dp(16),
+                            dp(16),
+                            Gravity.BOTTOM or Gravity.END,
+                        ).apply {
+                            bottomMargin = dp(5)
+                            rightMargin = dp(5)
+                        },
+                    )
+                }
+                isClickable = true
+                setOnClickListener {
+                    if (guid.isNotEmpty() && guid != currentGuid) {
+                        requestEpisode(guid)
+                        hidePanel()
+                    }
+                }
+            }
+            grid.addView(
+                cell,
+                android.widget.GridLayout.LayoutParams().apply {
+                    width = dp(58)
+                    height = dp(58)
+                    setMargins(dp(4), dp(4), dp(4), dp(8))
+                },
+            )
+        }
+        return grid
+    }
+
+    /** 宫格单元格右下角的「已观看」小勾徽标。 */
+    private fun buildWatchedBadge(): View {
+        return TextView(this).apply {
+            text = "✓"
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+            background = GradientDrawable().apply {
+                cornerRadius = dp(5).toFloat()
+                setColor(ACCENT)
+            }
+        }
+    }
+
+    private fun episodeGridLabel(episode: Map<String, Any?>, index: Int): String {
+        val shortLabel = episode["shortLabel"]?.toString()?.trim().orEmpty()
+        if (shortLabel.isNotEmpty()) {
+            val number = Regex("\\d+").find(shortLabel)?.value
+            return number ?: shortLabel.take(3)
+        }
+        val number = (episode["episodeNumber"] as? Number)?.toInt() ?: 0
+        return if (number > 0) number.toString() else (index + 1).toString()
+    }
+
     /** 「多版本」切换按钮：展开/收起共用同一文案「多版本」（不再切成「收起」）。 */
     private fun buildVersionToggleButton(expanded: Boolean, guid: String): View {
         return TextView(this).apply {
@@ -3220,7 +3796,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     renderTopPanel()
                 } else {
                     hidePanel()
-                    requestQuality(entry.sourceIndex, "正在切换版本…")
+                    // 切版本要按该版本 mediaGuid 重解析（原画 + 该版本字幕），不能在当前流里切转码档。
+                    requestVersion(entry.mediaGuid)
                 }
             }
             setOnTouchListener { _, event ->
@@ -3287,22 +3864,19 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun showUnifiedPanel(title: String, items: List<PanelItem>, headerActionLabel: String? = null, headerActionOnClick: (() -> Unit)? = null) {
-        togglePanel(PanelPage(title) {
-            if (headerActionLabel != null && headerActionOnClick != null) {
-                // 如果有 header action，直接作为内容页的一部分加上（比如“调节”按钮）
-                val actionBtn = TextView(this).apply {
-                    text = headerActionLabel
-                    setTextColor(ACCENT)
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-                    setPadding(dp(16), dp(8), dp(16), dp(16))
-                    gravity = Gravity.END
-                    isClickable = true
-                    setOnClickListener { headerActionOnClick() }
-                }
-                panelContent.addView(actionBtn)
-            }
-            buildItemList(items)
-        })
+        togglePanel(
+            PanelPage(
+                title = title,
+                build = { buildItemList(items) },
+                headerActions = {
+                    if (headerActionLabel != null && headerActionOnClick != null) {
+                        listOf(panelHeaderTextButton(headerActionLabel) { headerActionOnClick() })
+                    } else {
+                        emptyList()
+                    }
+                },
+            ),
+        )
     }
 
     private fun buildItemList(items: List<PanelItem>) {
@@ -3310,15 +3884,34 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         panelContent.addView(panelCardGroup(*views))
     }
 
-    private fun makeListItem(item: PanelItem): TextView {
-        return TextView(this).apply {
-            text = item.title
-            setTextColor(if (item.selected) ACCENT else Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            setPadding(dp(16), dp(16), dp(16), dp(16))
+    private fun makeListItem(item: PanelItem): View {
+        val subtitle = item.subtitle?.trim().orEmpty()
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(if (subtitle.isNotEmpty()) 66 else 56)
+            setPadding(dp(18), dp(12), dp(18), dp(12))
             background = itemRippleBackground()
             isClickable = true
             setOnClickListener { item.action() }
+            addView(TextView(context).apply {
+                text = item.title
+                setTextColor(if (item.selected) ACCENT else Color.WHITE)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15.5f)
+                typeface = if (item.selected) android.graphics.Typeface.DEFAULT_BOLD else android.graphics.Typeface.DEFAULT
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            })
+            if (subtitle.isNotEmpty()) {
+                addView(TextView(context).apply {
+                    text = subtitle
+                    setTextColor(TEXT_DIM)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                    setPadding(0, dp(5), 0, 0)
+                })
+            }
         }
     }
 
@@ -3590,7 +4183,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val current = selectedAudioGuidForPanel()
         val items = tracks.mapIndexed { i, track ->
             val guid = track["guid"]?.toString().orEmpty()
-            PanelItem(nativePanelTrackLabel(track), selected = guid.isNotEmpty() && guid == current) {
+            PanelItem(
+                nativePanelTrackLabel(track),
+                subtitle = trackPanelSubtitle(track),
+                selected = guid.isNotEmpty() && guid == current,
+            ) {
                 selectAudioFromPanel(i + 1, guid)
             }
         }
@@ -3613,55 +4210,51 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun showSubtitlePanel() {
-        togglePanel(PanelPage("字幕") { buildSubtitlePanelPage() })
+        togglePanel(
+            PanelPage(
+                title = "字幕",
+                build = { buildSubtitlePanelPage() },
+                headerActions = {
+                    listOf(
+                        panelHeaderTextButton("⚙  调整") {
+                            pushPanel(PanelPage("字幕调节") { buildSubtitleStylePage() })
+                        },
+                        panelHeaderTextButton("+  添加", filled = true) {
+                            showTransientHint("本地字幕导入待接入")
+                        },
+                    )
+                },
+            ),
+        )
     }
 
     private fun buildSubtitlePanelPage() {
-        addPanelRow(subtitlePanelActionRow())
         addPanelRow(panelSectionHeader("字幕列表"))
-        addPanelRow(
+        val rows = mutableListOf<View>()
+        rows +=
             subtitlePanelTrackRow(
                 title = "关闭",
                 subtitle = "",
                 selected = selectedSubtitleGuidForPanel().isEmpty(),
                 removable = false,
                 onClick = { selectSubtitleFromPanel("") },
-            ),
-        )
+            )
         for (track in trackList("subtitleTracks")) {
             val guid = track["guid"]?.toString().orEmpty()
             val selected = guid.isNotEmpty() && guid == selectedSubtitleGuidForPanel()
-            addPanelRow(
+            rows +=
                 subtitlePanelTrackRow(
                     title = nativePanelSubtitleDisplayTitle(track),
                     subtitle = nativePanelSubtitleDisplaySubtitle(track),
                     selected = selected,
                     removable = nativePanelSubtitleCanRemove(track),
                     onClick = { selectSubtitleFromPanel(guid) },
-                ),
-            )
+                )
         }
+        addPanelRow(panelCardGroup(*rows.toTypedArray()))
     }
 
-    private fun subtitlePanelActionRow(): View {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, 0, 0, dp(10))
-            addView(View(context), LinearLayout.LayoutParams(0, 1, 1f))
-            addView(subtitlePanelTextButton("⚙  调整") {
-                pushPanel(PanelPage("字幕调节") { buildSubtitleStylePage() })
-            })
-            addView(subtitlePanelTextButton("+  添加", filled = true) {
-                showTransientHint("本地字幕导入待接入")
-            }, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-            ).apply { leftMargin = dp(8) })
-        }
-    }
-
-    private fun subtitlePanelTextButton(
+    private fun panelHeaderTextButton(
         label: String,
         filled: Boolean = false,
         onClick: () -> Unit,
@@ -3669,14 +4262,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         return TextView(this).apply {
             text = label
             setTextColor(if (filled) Color.WHITE else ACCENT)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            setPadding(dp(14), dp(9), dp(14), dp(9))
+            minHeight = dp(36)
+            setPadding(dp(13), dp(8), dp(13), dp(8))
             background = GradientDrawable().apply {
-                cornerRadius = dp(12).toFloat()
-                setColor(if (filled) 0x663A82F7 else Color.TRANSPARENT)
-                if (!filled) setStroke(dp(1), 0x00000000)
+                cornerRadius = dp(11).toFloat()
+                setColor(if (filled) 0xCC2F74D8.toInt() else 0x143A82F7)
+                setStroke(dp(1), if (filled) 0x333A82F7 else 0x443A82F7)
             }
             isClickable = true
             setOnClickListener { onClick() }
@@ -3693,46 +4287,34 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = GradientDrawable().apply {
-                cornerRadius = dp(14).toFloat()
-                setColor(if (selected) 0x665B7790 else 0xD93A484E.toInt())
-                setStroke(dp(if (selected) 2 else 0), if (selected) 0xFFD7EAFF.toInt() else Color.TRANSPARENT)
-            }
-            setPadding(dp(16), dp(13), dp(16), dp(13))
+            background = itemRippleBackground()
+            minimumHeight = dp(if (subtitle.isNotEmpty()) 66 else 56)
+            setPadding(dp(18), dp(12), dp(16), dp(12))
             isClickable = true
             setOnClickListener { onClick() }
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
-            ).apply { bottomMargin = dp(10) }
-
-            if (selected) {
-                addView(subtitlePanelCheckMark(), LinearLayout.LayoutParams(dp(36), dp(36)).apply {
-                    rightMargin = dp(14)
-                })
-            } else {
-                addView(View(context), LinearLayout.LayoutParams(dp(50), 1))
-            }
+            )
 
             addView(LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 addView(TextView(context).apply {
                     text = title
-                    setTextColor(Color.WHITE)
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    setTextColor(if (selected) ACCENT else Color.WHITE)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 15.5f)
+                    typeface = if (selected) android.graphics.Typeface.DEFAULT_BOLD else android.graphics.Typeface.DEFAULT
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
                 })
                 if (subtitle.isNotEmpty()) {
                     addView(TextView(context).apply {
                         text = subtitle
-                        setTextColor(0xCCFFFFFF.toInt())
-                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                        typeface = android.graphics.Typeface.DEFAULT_BOLD
+                        setTextColor(TEXT_DIM)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
                         maxLines = 1
                         ellipsize = android.text.TextUtils.TruncateAt.END
-                        setPadding(0, dp(3), 0, 0)
+                        setPadding(0, dp(5), 0, 0)
                     })
                 }
             }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
@@ -3740,27 +4322,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             if (removable) {
                 addView(ImageButton(context).apply {
                     setImageResource(android.R.drawable.ic_menu_delete)
-                    setColorFilter(0xCCFFFFFF.toInt())
+                    setColorFilter(TEXT_DIM)
                     background = itemRippleBackground()
                     setPadding(dp(8), dp(8), dp(8), dp(8))
                     setOnClickListener { showTransientHint("字幕删除待接入") }
                 }, LinearLayout.LayoutParams(dp(42), dp(42)).apply {
-                    leftMargin = dp(8)
+                    leftMargin = dp(10)
                 })
-            }
-        }
-    }
-
-    private fun subtitlePanelCheckMark(): TextView {
-        return TextView(this).apply {
-            text = "✓"
-            setTextColor(0xFF8FA7C5.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
-            gravity = Gravity.CENTER
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(0xFFD5E1F0.toInt())
             }
         }
     }
@@ -3809,15 +4377,26 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
      */
     private fun visibleQualityEntries(): List<QualityPanelEntry> {
         val all = qualityList().mapIndexed { index, quality -> QualityPanelEntry(index, quality) }
+        // 只保留当前版本（同 mediaGuid）这个文件的画质：其它版本（不同 mediaGuid，来自 trackData 合并）
+        // 交给「多版本」选择器，别把别的版本的码率混进画质面板。空 mediaGuid 是当前流的转码档，保留。
+        val currentMediaGuid = loadArgsMap["mediaGuid"]?.toString()?.trim().orEmpty()
+        val currentVersion = if (currentMediaGuid.isEmpty()) {
+            all
+        } else {
+            all.filter { entry ->
+                val guid = entry.quality["mediaGuid"]?.toString()?.trim().orEmpty()
+                guid.isEmpty() || guid == currentMediaGuid
+            }.ifEmpty { all }
+        }
         val directLinkMode = loadArgsMap["playbackMode"]?.toString() == "directLinkQuality"
-        val filtered = all.filter { entry ->
+        val filtered = currentVersion.filter { entry ->
             when (entry.quality["source"]?.toString()) {
                 "serverSession" -> !directLinkMode
                 "directLink" -> directLinkMode
                 else -> true
             }
         }
-        return filtered.ifEmpty { all }
+        return filtered.ifEmpty { currentVersion }
     }
 
     /**
@@ -3849,12 +4428,18 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.END or Gravity.CENTER_VERTICAL
-            setPadding(0, 0, 0, dp(16))
+            setPadding(0, 0, 0, dp(18))
             addView(TextView(context).apply {
                 text = "⚙  自定义"
                 setTextColor(ACCENT)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                setPadding(dp(8), dp(6), dp(8), dp(6))
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                setPadding(dp(12), dp(7), dp(12), dp(7))
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(10).toFloat()
+                    setColor(0x143A82F7)
+                    setStroke(dp(1), 0x443A82F7)
+                }
                 isClickable = true
                 setOnClickListener {
                     customQualityTabTitle = ""
@@ -3889,7 +4474,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
         val selectedTitle = customQualityTabTitle
         addPanelRow(buildQualityTabRow(resTitles, selectedTitle))
-        addPanelRow(panelSpacer(22))
+        addPanelRow(panelSpacer(42))
         // 同码率去重后按码率降序：原画(最高码率)在前，去掉重复的同码率卡。
         val selectedEntries = dedupQualityEntriesByBitrate(byRes[selectedTitle].orEmpty())
             .sortedByDescending { qualityBitrateValue(it.quality) }
@@ -3911,6 +4496,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val scrollView = android.widget.HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             overScrollMode = View.OVER_SCROLL_NEVER
+            clipToPadding = false
+            setPadding(0, 0, dp(6), 0)
         }
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -3925,7 +4512,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                 ).apply {
-                    if (index < resTitles.lastIndex) rightMargin = dp(12)
+                    if (index < resTitles.lastIndex) rightMargin = dp(24)
                 },
             )
         }
@@ -3941,14 +4528,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         return TextView(this).apply {
             text = title
             setTextColor(if (selected) Color.WHITE else TEXT_DIM)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14.5f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             typeface = if (selected) android.graphics.Typeface.DEFAULT_BOLD else android.graphics.Typeface.DEFAULT
             gravity = Gravity.CENTER
-            minHeight = dp(44)
-            setPadding(dp(18), dp(10), dp(18), dp(10))
+            minHeight = dp(50)
+            minWidth = dp(116)
+            setPadding(dp(22), dp(12), dp(22), dp(12))
             background = GradientDrawable().apply {
-                cornerRadius = dp(11).toFloat()
-                setColor(if (selected) ACCENT else TRACK_BG)
+                cornerRadius = dp(14).toFloat()
+                setColor(if (selected) ACCENT else 0x22FFFFFF)
+                setStroke(dp(1), if (selected) 0x663A82F7 else 0x1FFFFFFF)
             }
             isClickable = true
             setOnClickListener { onClick() }
@@ -4010,7 +4599,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                             title = titleOf(entry),
                         ),
                         LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                            if (index % 2 == 1) leftMargin = dp(18)
+                            if (index % 2 == 1) leftMargin = dp(24)
                         },
                     )
                 }
@@ -4018,7 +4607,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     row.addView(
                         View(context),
                         LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                            leftMargin = dp(18)
+                            leftMargin = dp(24)
                         },
                     )
                 }
@@ -4028,8 +4617,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT,
                     ).apply {
-                        // 行间距与列间距统一 10dp；最后一行不留尾部空白。
-                        if (rowIndex < rows.lastIndex) bottomMargin = dp(18)
+                        // 行间距比列间距略大，避免上下两行卡片贴太紧；最后一行不留尾部空白。
+                        if (rowIndex < rows.lastIndex) bottomMargin = dp(30)
                     },
                 )
             }
@@ -4046,12 +4635,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             background = qualityCardBackground(selected)
-            minimumHeight = dp(76)
-            setPadding(dp(16), dp(16), dp(16), dp(16))
+            minimumHeight = dp(104)
+            setPadding(dp(20), dp(22), dp(20), dp(22))
             addView(TextView(context).apply {
                 text = title
                 setTextColor(if (selected) ACCENT else Color.WHITE)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER
                 maxLines = 1
@@ -4059,12 +4648,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             })
             addView(TextView(context).apply {
                 text = qualityDisplaySubtitle(quality)
-                setTextColor(if (selected) ACCENT else TEXT_DIM)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+                setTextColor(if (selected) 0xFF8EB7FF.toInt() else TEXT_DIM)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
                 gravity = Gravity.CENTER
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
-                setPadding(0, dp(4), 0, 0)
+                setPadding(0, dp(9), 0, 0)
             })
         }
         // 整卡套一层 FrameLayout：点击挂在外层，「原画」浮标 isClickable=false 不抢事件，
@@ -4086,8 +4675,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                         FrameLayout.LayoutParams.WRAP_CONTENT,
                     ).apply {
                         gravity = Gravity.TOP or Gravity.END
-                        topMargin = dp(6)
-                        rightMargin = dp(6)
+                        topMargin = dp(8)
+                        rightMargin = dp(8)
                     },
                 )
             }
@@ -4102,9 +4691,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     /** 画质卡背景：比通用 tile 更圆润(10dp)，选中时蓝色填充 + 2dp 强调描边。 */
     private fun qualityCardBackground(selected: Boolean): GradientDrawable {
         return GradientDrawable().apply {
-            cornerRadius = dp(13).toFloat()
-            setColor(if (selected) 0x263A82F7 else 0x12FFFFFF)
-            setStroke(dp(if (selected) 2 else 1), if (selected) 0xCC3A82F7.toInt() else 0x18FFFFFF)
+            cornerRadius = dp(16).toFloat()
+            setColor(if (selected) 0x243A82F7 else 0x18FFFFFF)
+            setStroke(dp(if (selected) 2 else 1), if (selected) ACCENT else 0x22FFFFFF)
         }
     }
 
@@ -4116,11 +4705,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
             gravity = Gravity.CENTER
             isClickable = false
-            setPadding(dp(6), dp(2), dp(6), dp(2))
+            setPadding(dp(7), dp(3), dp(7), dp(3))
             background = GradientDrawable().apply {
-                cornerRadius = dp(6).toFloat()
-                setColor(0xCC000000.toInt())
-                setStroke(dp(1), GLASS_STROKE)
+                cornerRadius = dp(8).toFloat()
+                setColor(0xD9141414.toInt())
+                setStroke(dp(1), 0x2AFFFFFF)
             }
         }
     }
@@ -4313,6 +4902,38 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         NativePlayerReverseBridge.dispatch(
             method = "resolvePlayback",
             args = mapOf("itemGuid" to itemGuid),
+            onResult = { result -> runOnUiThread { applyEpisodeResult(result) } },
+            onError = {
+                runOnUiThread {
+                    showTransientHint("切换失败，请返回重试")
+                    scheduleControlsAutoHide()
+                }
+            },
+        )
+    }
+
+    /**
+     * 切版本：按版本 mediaGuid 走 resolvePlayback 重新解析该版本媒体（原画 + 该版本字幕/音轨），
+     * 保留当前播放位置。不能走 reloadServerSession——那条只在当前流的 qualities 里按转码档切，
+     * 切到别版本会播转码且沿用旧版本字幕。
+     */
+    private fun requestVersion(mediaGuid: String, hint: String = "正在切换版本…") {
+        val itemGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
+        if (itemGuid.isEmpty() || mediaGuid.isEmpty()) {
+            showTransientHint("无法切换版本")
+            scheduleControlsAutoHide()
+            return
+        }
+        expandedEpisodeVersionGuid = null
+        showNetworkLoadingHint(hint)
+        cancelControlsAutoHide()
+        NativePlayerReverseBridge.dispatch(
+            method = "resolvePlayback",
+            args = mapOf(
+                "itemGuid" to itemGuid,
+                "qualityMediaGuid" to mediaGuid,
+                "startPositionMs" to playerSurface.state.positionMs,
+            ),
             onResult = { result -> runOnUiThread { applyEpisodeResult(result) } },
             onError = {
                 runOnUiThread {
@@ -5210,6 +5831,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         settingsStore.loadMap(NativePlayerSettingsStore.KEY_VIDEO_ADJUST, videoAdjust).let {
             videoAdjust.clear(); videoAdjust.putAll(it)
         }
+        // Flutter「MPV播放器设置」页（含快速预设/保存预设的应用结果）是画质与画面调整的单一
+        // 数据源：启动 payload 注入的值覆盖本地镜像并回写本地，使设置页改动直接在原生壳生效。
+        // 白名单合并：只认 mpvAdvanced/videoAdjust 里已存在的 key（tone_mapping、audio_passthrough
+        // 等原生独有键不在 Flutter 目录中，注入里没有 → 保留本地值，不被清掉）。
+        applyInjectedMpvSettings()
         settingsStore.loadMap(NativePlayerSettingsStore.KEY_OCCLUSION, occlusionConfig).let {
             occlusionConfig.clear(); occlusionConfig.putAll(it)
         }
@@ -5284,6 +5910,43 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun persistVideoAdjust() =
         settingsStore.saveMap(NativePlayerSettingsStore.KEY_VIDEO_ADJUST, videoAdjust)
 
+    /** 启动注入的 Flutter 全局 MPV 设置 → 覆盖本地镜像并回写本地，使设置页改动在原生壳生效。 */
+    private fun applyInjectedMpvSettings() {
+        (loadArgsMap["mpvAdvancedSettings"] as? Map<*, *>)?.let { injected ->
+            var changed = false
+            for ((k, v) in injected) {
+                val key = k?.toString() ?: continue
+                if (v != null && mpvAdvanced.containsKey(key)) {
+                    mpvAdvanced[key] = v.toString(); changed = true
+                }
+            }
+            if (changed) persistMpvAdvanced()
+        }
+        (loadArgsMap["videoAdjustments"] as? Map<*, *>)?.let { injected ->
+            var changed = false
+            for ((k, v) in injected) {
+                val key = k?.toString() ?: continue
+                if (v is Number && videoAdjust.containsKey(key)) {
+                    videoAdjust[key] = v.toDouble(); changed = true
+                }
+            }
+            if (changed) persistVideoAdjust()
+        }
+    }
+
+    /** mpv 高级设置改动后：下发内核(可选) + 本地落盘 + 回写 Flutter 全局设置（与设置页同步）。 */
+    private fun commitMpvAdvanced(pushKernel: Boolean = true) {
+        if (pushKernel) playerSurface.setMpvAdvancedSettings(mapOf("settings" to mpvAdvanced))
+        persistMpvAdvanced()
+        NativePlayerReverseBridge.dispatch("persistMpvAdvanced", mpvAdvanced.toMap())
+    }
+
+    /** 画面调整改动后：本地落盘 + 回写 Flutter（内核下发由调用方按需做，拖动时避免每帧回写）。 */
+    private fun commitVideoAdjust() {
+        persistVideoAdjust()
+        NativePlayerReverseBridge.dispatch("persistVideoAdjustments", videoAdjust.toMap())
+    }
+
     private fun persistOcclusion() =
         settingsStore.saveMap(NativePlayerSettingsStore.KEY_OCCLUSION, occlusionConfig)
 
@@ -5326,7 +5989,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         )
         for ((key, label) in fields) {
             val cur = (videoAdjust[key] as? Number)?.toFloat() ?: 0f
-            addPanelRow(panelSlider(label, -100f, 100f, cur, steps = 200, format = { String.format("%+.0f", it) }) { v ->
+            addPanelRow(panelSlider(
+                label, -100f, 100f, cur, steps = 200, format = { String.format("%+.0f", it) },
+                onCommit = { commitVideoAdjust() },
+            ) { v ->
                 videoAdjust[key] = v.toDouble()
                 playerSurface.setVideoAdjustments(mapOf("settings" to videoAdjust))
             })
@@ -5334,6 +6000,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         addPanelRow(panelActionRow("重置画面") {
             for (k in videoAdjust.keys.toList()) videoAdjust[k] = 0.0
             playerSurface.setVideoAdjustments(mapOf("settings" to videoAdjust))
+            commitVideoAdjust()
             renderTopPanel()
         })
     }
@@ -5395,19 +6062,20 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun buildEqualizerPage() {
         val sliders = eqBands.map { (key, label) ->
             val cur = (mpvAdvanced[key] as? String)?.toFloatOrNull() ?: 0f
-            panelSlider("${label}Hz", -12f, 12f, cur, steps = 48, format = { String.format("%+.1f dB", it) }) { v ->
+            panelSlider(
+                "${label}Hz", -12f, 12f, cur, steps = 48, format = { String.format("%+.1f dB", it) },
+                onCommit = { commitMpvAdvanced(pushKernel = false) },
+            ) { v ->
                 val stepped = (Math.round(v / 0.5f) * 0.5f).coerceIn(-12f, 12f)
                 mpvAdvanced[key] = String.format("%.1f", stepped)
                 mpvAdvanced["audio_eq"] = "custom"
                 playerSurface.setMpvAdvancedSettings(mapOf("settings" to mpvAdvanced))
-                persistMpvAdvanced()
             }
         }.toTypedArray()
         addPanelRow(panelCardGroup(*sliders))
         addPanelRow(panelCardGroup(panelActionRow("重置均衡器") {
             for ((key, _) in eqBands) mpvAdvanced[key] = "0"
-            playerSurface.setMpvAdvancedSettings(mapOf("settings" to mpvAdvanced))
-            persistMpvAdvanced()
+            commitMpvAdvanced()
             renderTopPanel()
         }))
     }
@@ -5468,7 +6136,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 return@panelSegment
             }
             mpvAdvanced[key] = opts[i].second
-            playerSurface.setMpvAdvancedSettings(mapOf("settings" to mpvAdvanced))
+            commitMpvAdvanced()
             renderTopPanel()
         }
         if (disabled) view.alpha = 0.4f
@@ -6532,6 +7200,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (state.visualPlaybackReady && refreshRateSwitch && !refreshRateApplied) {
             refreshRateApplied = true
             applyPreferredDisplayMode("first-frame")
+        }
+        // 首帧后启动选集轻量预取（仅当前季一次请求）：略延迟让开播先稳定，但远短于旧的全季预取。
+        // 标记位在此处置位（兼作"已排程"守卫，防止后续状态回调重复 post）。
+        if (state.visualPlaybackReady && !episodePickerPrefetchStarted) {
+            episodePickerPrefetchStarted = true
+            bottomBar.postDelayed({ prefetchEpisodePickerData() }, 400L)
         }
         updateOverlays(state)
         updateProgressMarkers()
