@@ -711,10 +711,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     // duck 前缓存的 mpv 输出音量，焦点恢复时还原。
     private var duckSavedVolume = 100.0
     // 划走自动进 PIP 开关（video_misc 持久化），API31+ setAutoEnterEnabled / <31 onUserLeaveHint。
-    private var pipAutoEnter = true
+    // 默认关：离开应用不自动进小窗，只有手动点小窗按钮才进；用户可在设置里开启「划走自动小窗」。
+    private var pipAutoEnter = false
     private var mediaSessionStarted = false
-    // 仅在播放态变化时刷新会话/通知/PIP 参数，避免每帧重建前台通知。
+    // 仅在播放态/标题/可切集变化时刷新会话/通知，避免每帧重建前台通知；进度按 ~1s 节流刷新。
     private var lastMediaPlaying: Boolean? = null
+    private var lastMediaTitle: String = ""
+    private var lastMediaCanNext: Boolean = false
+    private var lastMediaPushElapsedMs = 0L
 
     private var isLocked = false
     private lateinit var lockButton: ImageButton
@@ -5759,6 +5763,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private var audioDelaySec = 0.0
     private var decoderHardware = true
     private var aspectMode = "fit"
+    // 熄屏继续播放音频（video_misc 持久化，默认关）：开启后看视频熄屏/锁屏只停画面、不停声音。
+    private var keepAudioWhenScreenOff = false
     // 真刷新率切换（video_misc 持久化，默认关）：按视频 fps 选最接近的 display mode，离开恢复。
     private var refreshRateSwitch = false
     private var refreshRateApplied = false
@@ -6002,13 +6008,19 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             NativePlayerSettingsStore.KEY_VIDEO_MISC,
             linkedMapOf(
                 "decoderHardware" to true, "aspect" to "fit",
-                "pipAutoEnter" to true, "refreshRateSwitch" to false,
+                "pipAutoEnter" to false, "refreshRateSwitch" to false,
+                "keepAudioWhenScreenOff" to false,
             ),
         )
         decoderHardware = (misc["decoderHardware"] as? Boolean) ?: true
         aspectMode = misc["aspect"]?.toString() ?: "fit"
-        pipAutoEnter = (misc["pipAutoEnter"] as? Boolean) ?: true
+        pipAutoEnter = (misc["pipAutoEnter"] as? Boolean) ?: false
         refreshRateSwitch = (misc["refreshRateSwitch"] as? Boolean) ?: false
+        keepAudioWhenScreenOff = (misc["keepAudioWhenScreenOff"] as? Boolean) ?: false
+        // 轻量标志，无需等内核就绪，立即下发（熄屏可能发生在首帧之前）。
+        if (this::playerSurface.isInitialized) {
+            playerSurface.setKeepAudioWhenScreenOff(keepAudioWhenScreenOff)
+        }
         val behavior = settingsStore.loadMap(
             NativePlayerSettingsStore.KEY_PLAYBACK_BEHAVIOR,
             linkedMapOf("autoPlayEnabled" to true),
@@ -6195,6 +6207,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             "aspect" to aspectMode,
             "pipAutoEnter" to pipAutoEnter,
             "refreshRateSwitch" to refreshRateSwitch,
+            "keepAudioWhenScreenOff" to keepAudioWhenScreenOff,
         ),
     )
 
@@ -6335,6 +6348,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 },
                 panelSegment("划走自动小窗", listOf("开", "关"), if (pipAutoEnter) 0 else 1) { i ->
                     pipAutoEnter = i == 0; persistVideoMisc()
+                },
+                panelSegment("熄屏继续播放音频", listOf("开", "关"), if (keepAudioWhenScreenOff) 0 else 1) { i ->
+                    keepAudioWhenScreenOff = i == 0
+                    playerSurface.setKeepAudioWhenScreenOff(keepAudioWhenScreenOff)
+                    persistVideoMisc()
                 },
                 panelSegment("匹配刷新率", listOf("开", "关"), if (refreshRateSwitch) 0 else 1) { i ->
                     refreshRateSwitch = i == 0; persistVideoMisc()
@@ -7597,8 +7615,33 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             episodePickerPrefetchStarted = true
             bottomBar.postDelayed({ prefetchEpisodePickerData() }, 400L)
         }
+        maybeUpdateMediaSession(state)
         updateOverlays(state)
         updateProgressMarkers()
+    }
+
+    /**
+     * 把当前播放状态推给前台媒体服务（锁屏/通知栏/蓝牙线控控制）。
+     * 节流：播停/标题/可切集变化即时推；其余仅每 ~1s 刷新一次进度，避免每帧重建前台通知。
+     * 首帧就绪后才首次启动（startForegroundService 必须在前台发起，此时 Activity 仍可见）。
+     */
+    private fun maybeUpdateMediaSession(state: MpvPlayerState) {
+        if (!mediaSessionStarted && !state.visualPlaybackReady) return
+        if (!this::audioFocus.isInitialized) return
+        val title = mediaTitle.ifEmpty { loadArgsMap["seriesTitle"]?.toString().orEmpty() }
+        if (title.isEmpty()) return
+        val canNext = hasNextEpisode()
+        val now = android.os.SystemClock.elapsedRealtime()
+        val changed = lastMediaPlaying != !state.paused ||
+            lastMediaTitle != title ||
+            lastMediaCanNext != canNext
+        if (!mediaSessionStarted || changed || now - lastMediaPushElapsedMs >= 1000L) {
+            lastMediaPlaying = !state.paused
+            lastMediaTitle = title
+            lastMediaCanNext = canNext
+            lastMediaPushElapsedMs = now
+            updateMediaSession(state)
+        }
     }
 
     /**
@@ -8049,6 +8092,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         unregisterBatteryReceiver()
         unregisterNetworkMonitor()
         unregisterBackHandler()
+        // 退出即收掉前台媒体服务（锁屏/通知栏控制），不让通知与服务在后台滞留。
+        if (mediaSessionStarted) NativePlaybackMediaService.stop(this)
         if (this::resumeCard.isInitialized) resumeCard.removeCallbacks(resumeHideRunnable)
         if (this::playerSurface.isInitialized) {
             playerSurface.release()
