@@ -148,6 +148,7 @@
             android:theme="@style/PlayerLaunchTheme"
             android:supportsPictureInPicture="true"
             android:resizeableActivity="true"
+            android:autoRemoveFromRecents="true"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true" />
         <activity
