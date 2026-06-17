@@ -585,6 +585,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         const val EXTRA_DANMAKU_FILE = "danmakuFile"
         const val EXTRA_DANMAKU_TEST = "danmakuTest"
         const val REQUEST_PICK_DANMAKU = 4201
+        const val REQUEST_PICK_SUBTITLE = 4202
+        // 弹幕「从文件导入」只接受弹幕评论文件（弹弹/B站 XML、JSON）。
+        val DANMAKU_IMPORT_EXTENSIONS = setOf("xml", "json")
+        // 外挂字幕导入仅接受 mpv 能直接 sub-add 的文本字幕格式。
+        val SUBTITLE_IMPORT_EXTENSIONS = setOf("srt", "ass", "ssa", "vtt", "sub", "ttml")
         const val CONTROLS_AUTO_HIDE_MS = 3500L
         const val CHROME_FADE_MS = 220L
         const val TRANSIENT_HINT_MS = 1200L
@@ -1936,6 +1941,53 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         setControlsVisible(true)
     }
 
+    override fun onResume() {
+        super.onResume()
+        // 前台恢复（从设置页/Flutter 播放器等返回）时主动拉一次 Flutter 全局 MPV 设置，
+        // 让「只在启动注入」之外的外部改动也即时生效。带 diff 守卫，无变化不重下发内核。
+        pullGlobalMpvSettingsOnResume()
+    }
+
+    private fun pullGlobalMpvSettingsOnResume() {
+        if (!this::playerSurface.isInitialized) return
+        NativePlayerReverseBridge.dispatch(
+            method = "loadPlayerGlobalSettings",
+            args = emptyMap(),
+            onResult = { res -> runOnUiThread { applyPulledMpvSettings(res) } },
+            onError = {},
+        )
+    }
+
+    /** 套用恢复时拉到的全局 MPV/画面设置；仅在与当前镜像有差异时下发内核 + 落盘。 */
+    private fun applyPulledMpvSettings(res: Any?) {
+        if (!this::playerSurface.isInitialized) return
+        val map = res as? Map<*, *> ?: return
+        var mpvChanged = false
+        (map["mpvAdvancedSettings"] as? Map<*, *>)?.let { s ->
+            for ((k, v) in s) {
+                val key = k?.toString() ?: continue
+                if (v != null && mpvAdvanced.containsKey(key) && mpvAdvanced[key] != v.toString()) {
+                    mpvAdvanced[key] = v.toString(); mpvChanged = true
+                }
+            }
+        }
+        var vaChanged = false
+        (map["videoAdjustments"] as? Map<*, *>)?.let { va ->
+            for ((k, v) in va) {
+                val key = k?.toString() ?: continue
+                if (v is Number && videoAdjust.containsKey(key) && videoAdjust[key] != v.toDouble()) {
+                    videoAdjust[key] = v.toDouble(); vaChanged = true
+                }
+            }
+        }
+        if (mpvChanged) {
+            playerSurface.setMpvAdvancedSettings(mapOf("settings" to mpvAdvanced)); persistMpvAdvanced()
+        }
+        if (vaChanged) {
+            playerSurface.setVideoAdjustments(mapOf("settings" to videoAdjust)); persistVideoAdjust()
+        }
+    }
+
     /** onCreate 与 onNewIntent 共用：装载（或换）一路 source + 弹幕，并刷新标题/上下文。 */
     private fun applyLoadArgs(loadArgs: Map<String, Any?>, danmakuPayload: Map<String, Any?>?) {
         reportProgress() // 切集前先把上一集进度写回（首次 onCreate 时 duration=0 自动跳过）
@@ -1951,6 +2003,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         seasonEpisodesCache.clear()
         episodePickerPrefetchStarted = false
         lastRecordedTs = -1L
+        flutterDanmakuSources = null // 切集后 Flutter 弹幕源列表作废，进面板时按新集重拉
         if (this::titleLabel.isInitialized) titleLabel.text = mediaTitle
         // 切画质/换源后刷新画质入口按钮文案（之前只在构建时设一次，切完不变）。
         if (this::qualityButton.isInitialized) qualityButton.text = currentQualityLabel()
@@ -4220,7 +4273,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                             pushPanel(PanelPage("字幕调节") { buildSubtitleStylePage() })
                         },
                         panelHeaderTextButton("+  添加", filled = true) {
-                            showTransientHint("本地字幕导入待接入")
+                            pickLocalSubtitleFile()
                         },
                     )
                 },
@@ -4249,6 +4302,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     selected = selected,
                     removable = nativePanelSubtitleCanRemove(track),
                     onClick = { selectSubtitleFromPanel(guid) },
+                    onRemove = if (isLocalSubtitleGuid(guid)) {
+                        { removeLocalSubtitle(guid) }
+                    } else {
+                        null
+                    },
                 )
         }
         addPanelRow(panelCardGroup(*rows.toTypedArray()))
@@ -4283,6 +4341,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         selected: Boolean,
         removable: Boolean,
         onClick: () -> Unit,
+        onRemove: (() -> Unit)? = null,
     ): View {
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -4325,7 +4384,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     setColorFilter(TEXT_DIM)
                     background = itemRippleBackground()
                     setPadding(dp(8), dp(8), dp(8), dp(8))
-                    setOnClickListener { showTransientHint("字幕删除待接入") }
+                    setOnClickListener {
+                        if (onRemove != null) onRemove() else showTransientHint("字幕删除待接入")
+                    }
                 }, LinearLayout.LayoutParams(dp(42), dp(42)).apply {
                     leftMargin = dp(10)
                 })
@@ -4335,7 +4396,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun selectSubtitleFromPanel(guid: String) {
         selectedSubtitleGuid = guid
-        if (isServerManagedPlayback()) {
+        // 本地外挂字幕走 mpv sub-add，与转码流无关——即便服务端托管也直接本地加载，
+        // 不能丢给 requestServerReload（飞牛侧不认识 local: guid）。
+        if (isServerManagedPlayback() && !isLocalSubtitleGuid(guid)) {
             hidePanel()
             requestServerReload(selectedAudioGuidForPanel(), guid, null, "正在切换字幕...")
         } else {
@@ -4343,6 +4406,92 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             hidePanel()
             scheduleControlsAutoHide()
         }
+    }
+
+    private fun isLocalSubtitleGuid(guid: String): Boolean =
+        guid.trim().lowercase().startsWith("local:sub:")
+
+    /** 外挂字幕「+添加」：SAF 选字幕文件 → 校验格式 → 拷到缓存 → 注入轨道列表并加载。 */
+    private fun pickLocalSubtitleFile() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            putExtra(
+                Intent.EXTRA_MIME_TYPES,
+                arrayOf("application/x-subrip", "text/vtt", "text/plain", "*/*"),
+            )
+        }
+        runCatching { startActivityForResult(intent, REQUEST_PICK_SUBTITLE) }
+            .onFailure { showTransientHint("无法打开文件选择器") }
+    }
+
+    private fun importSubtitleFromUri(uri: android.net.Uri) {
+        val name = queryDisplayName(uri) ?: "subtitle.srt"
+        val ext = name.substringAfterLast('.', "").lowercase()
+        if (ext !in SUBTITLE_IMPORT_EXTENSIONS) {
+            showTransientHint("仅支持 SRT / ASS / SSA / VTT / SUB 字幕")
+            return
+        }
+        runCatching {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        showCenterHint("导入字幕中…")
+        Thread {
+            val path = copyUriToCache(uri)
+            runOnUiThread {
+                hideCenterHint()
+                if (path == null) {
+                    showTransientHint("读取文件失败")
+                    return@runOnUiThread
+                }
+                addLocalSubtitleTrack(label = name.substringBeforeLast('.', name), format = ext, path = path)
+            }
+        }.start()
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun addLocalSubtitleTrack(label: String, format: String, path: String) {
+        val guid = "local:sub:${System.currentTimeMillis()}"
+        val track = mapOf<String, Any?>(
+            "guid" to guid,
+            "title" to label,
+            "format" to format,
+            "isExternal" to true,
+        )
+        val tracks = (loadArgsMap["subtitleTracks"] as? List<*>)?.toMutableList() ?: mutableListOf()
+        tracks.add(track)
+        val files = (loadArgsMap["localSubtitleFiles"] as? Map<String, Any?>)?.toMutableMap()
+            ?: mutableMapOf()
+        files[guid] = path
+        loadArgsMap = HashMap(loadArgsMap).apply {
+            put("subtitleTracks", tracks)
+            put("localSubtitleFiles", files)
+        }
+        selectedSubtitleGuid = guid
+        playerSurface.setExternalSubtitleFile(path)
+        renderTopPanel()
+        showTransientHint("字幕已加载")
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun removeLocalSubtitle(guid: String) {
+        val tracks = (loadArgsMap["subtitleTracks"] as? List<*>)
+            ?.mapNotNull { it as? Map<String, Any?> }
+            ?.filterNot { it["guid"]?.toString() == guid }
+            ?: emptyList()
+        val files = (loadArgsMap["localSubtitleFiles"] as? Map<String, Any?>)
+            ?.filterKeys { it != guid }
+            ?: emptyMap()
+        loadArgsMap = HashMap(loadArgsMap).apply {
+            put("subtitleTracks", tracks)
+            put("localSubtitleFiles", files)
+        }
+        if (selectedSubtitleGuid == guid) {
+            selectedSubtitleGuid = ""
+            playerSurface.setSubtitleTrack(null, null)
+        }
+        renderTopPanel()
+        showTransientHint("已删除字幕")
     }
 
     private fun showQualityPanel() {
@@ -5881,7 +6030,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         )
         screenshotIncludeSubtitles = (shot["includeSubtitles"] as? Boolean) ?: false
         screenshotSaveMode = shot["saveMode"]?.toString() ?: "gallery"
-        applyPersistedDanmakuPrefs()
+        applyPersistedDanmakuPrefs()      // 先读本地缓存兜底
+        applyInjectedDanmakuSettings()    // 再用 Flutter 注入覆盖（单一事实源）
     }
 
     private fun persistScreenshot() = settingsStore.saveMap(
@@ -5945,6 +6095,85 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun commitVideoAdjust() {
         persistVideoAdjust()
         NativePlayerReverseBridge.dispatch("persistVideoAdjustments", videoAdjust.toMap())
+    }
+
+    // ---- Flutter「保存预设」（画质/音频）：原生壳选择并套用，写入由 Flutter 全局完成 ----
+
+    /** 拉取 Flutter 已保存预设并弹出选择子页。kind = "picture" | "audio"。 */
+    private fun showSavedMpvPresetPicker(kind: String) {
+        showCenterHint("加载预设…")
+        NativePlayerReverseBridge.dispatch(
+            method = "listSavedMpvPresets",
+            args = mapOf("kind" to kind),
+            onResult = { res ->
+                runOnUiThread {
+                    hideCenterHint()
+                    val list = (res as? List<*>)?.mapNotNull { it as? Map<String, Any?> }
+                        ?: emptyList()
+                    if (list.isEmpty()) {
+                        showTransientHint("暂无已保存预设，请先在设置页保存")
+                        return@runOnUiThread
+                    }
+                    pushPanel(
+                        PanelPage(if (kind == "audio") "音频预设" else "画质预设") {
+                            buildSavedPresetListPage(kind, list)
+                        },
+                    )
+                }
+            },
+            onError = { runOnUiThread { hideCenterHint(); showTransientHint("预设加载失败") } },
+        )
+    }
+
+    private fun buildSavedPresetListPage(kind: String, list: List<Map<String, Any?>>) {
+        addPanelRow(panelSectionHeader("已保存预设"))
+        val rows = list.map { p ->
+            val id = p["id"]?.toString().orEmpty()
+            val name = p["name"]?.toString()?.takeIf { it.isNotEmpty() } ?: "预设"
+            val desc = p["description"]?.toString().orEmpty()
+            panelNavRow(name, desc) { applySavedMpvPreset(kind, id) }
+        }
+        addPanelRow(panelCardGroup(*rows.toTypedArray()))
+    }
+
+    private fun applySavedMpvPreset(kind: String, id: String) {
+        if (id.isEmpty()) return
+        showCenterHint("应用预设…")
+        NativePlayerReverseBridge.dispatch(
+            method = "applySavedMpvPreset",
+            args = mapOf("kind" to kind, "id" to id),
+            onResult = { res ->
+                runOnUiThread {
+                    hideCenterHint()
+                    val bundle = res as? Map<String, Any?>
+                    if (bundle == null) { showTransientHint("应用预设失败"); return@runOnUiThread }
+                    applyPresetBundle(bundle)
+                    popPanel() // 退出预设列表回到画质/音频页
+                    showTransientHint("已应用预设")
+                }
+            },
+            onError = { runOnUiThread { hideCenterHint(); showTransientHint("应用预设失败") } },
+        )
+    }
+
+    /** 套用 Flutter 回传的预设 bundle 到本地镜像 + 内核 + 本地落盘。Flutter 已存全局，无需回写。 */
+    private fun applyPresetBundle(bundle: Map<String, Any?>) {
+        (bundle["settings"] as? Map<*, *>)?.let { s ->
+            for ((k, v) in s) {
+                val key = k?.toString() ?: continue
+                if (v != null && mpvAdvanced.containsKey(key)) mpvAdvanced[key] = v.toString()
+            }
+        }
+        (bundle["videoAdjustments"] as? Map<*, *>)?.let { va ->
+            for ((k, v) in va) {
+                val key = k?.toString() ?: continue
+                if (v is Number && videoAdjust.containsKey(key)) videoAdjust[key] = v.toDouble()
+            }
+        }
+        playerSurface.setMpvAdvancedSettings(mapOf("settings" to mpvAdvanced))
+        playerSurface.setVideoAdjustments(mapOf("settings" to videoAdjust))
+        persistMpvAdvanced()
+        persistVideoAdjust()
     }
 
     private fun persistOcclusion() =
@@ -6025,6 +6254,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         addPanelRow(panelCardGroup(panelSlider("音频延迟", -10f, 10f, audioDelaySec.toFloat(), steps = 200, format = { String.format("%+.1f s", it) }) { v ->
             audioDelaySec = v.toDouble(); playerSurface.setAudioDelay(audioDelaySec); persistAudioAdjust()
         }))
+        addPanelRow(panelSectionHeader("快速预设"))
+        addPanelRow(panelCardGroup(panelNavRow("应用已保存的音频预设") {
+            showSavedMpvPresetPicker("audio")
+        }))
         addPanelRow(panelSectionHeader("直通输出"))
         addPanelRow(panelCardGroup(
             advancedSegment("直通输出(杜比/DTS)", "audio_passthrough", listOf("关" to "off", "自动" to "auto", "开" to "on")),
@@ -6084,6 +6317,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val aspectOpts = listOf(
             "自适应" to "fit", "填充" to "fill", "4:3" to "4:3", "16:9" to "16:9", "21:9" to "21:9",
         )
+        addPanelRow(panelSectionHeader("快速预设"))
+        addPanelRow(panelCardGroup(panelNavRow("应用已保存的画质预设") {
+            showSavedMpvPresetPicker("picture")
+        }))
         addPanelRow(panelSectionHeader("解码 / 画面"))
         addPanelRow(
             panelCardGroup(
@@ -6287,12 +6524,28 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
     }
 
-    /** 把已存的弹幕显示偏好覆盖回镜像（用户偏好优先于 payload 自带的显示设置）。 */
+    /** 把已存的弹幕显示偏好覆盖回镜像（本地缓存，与 Flutter 经回写保持一致；启动注入未带时兜底）。 */
     private fun applyPersistedDanmakuPrefs() {
         val defaults = LinkedHashMap<String, Any?>()
         for (k in danmakuPrefKeys) defaults[k] = danmakuSettings[k]
         val saved = settingsStore.loadMap(NativePlayerSettingsStore.KEY_DANMAKU, defaults)
         for (k in danmakuPrefKeys) danmakuSettings[k] = saved[k]
+    }
+
+    /**
+     * 启动注入的 Flutter 全局弹幕显示偏好 → 覆盖本地镜像并回写本地缓存，使设置页改动在原生
+     * 壳生效。与 MPV 的 [applyInjectedMpvSettings] 同模式：Flutter 弹幕设置是单一事实源，
+     * 原生壳内改动经反向通道回写，双向同步。白名单只认 danmakuPrefKeys。
+     */
+    private fun applyInjectedDanmakuSettings() {
+        val injected = loadArgsMap["danmakuDisplaySettings"] as? Map<*, *> ?: return
+        var changed = false
+        for (k in danmakuPrefKeys) {
+            val v = injected[k] ?: continue
+            danmakuSettings[k] = v
+            changed = true
+        }
+        if (changed) persistDanmakuSettings(writeBack = false) // 注入已是 Flutter 值，无需再回写
     }
 
     /**
@@ -6308,10 +6561,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         return merged
     }
 
-    private fun persistDanmakuSettings() {
+    private fun persistDanmakuSettings(writeBack: Boolean = true) {
         val sub = LinkedHashMap<String, Any?>()
         for (k in danmakuPrefKeys) if (danmakuSettings.containsKey(k)) sub[k] = danmakuSettings[k]
         settingsStore.saveMap(NativePlayerSettingsStore.KEY_DANMAKU, sub)
+        // 回写 Flutter 全局弹幕设置（单一事实源），使设置页/Flutter 播放器同步。
+        if (writeBack) NativePlayerReverseBridge.dispatch("persistDanmakuSettings", sub)
     }
 
     private fun applyDanmakuSettings(persist: Boolean = true) {
@@ -6469,17 +6724,95 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             panelNavRow("从文件导入") { pickLocalDanmakuFile() },
         ))
         addPanelRow(panelSectionHeader("已保存来源"))
+        ensureFlutterDanmakuSourcesLoaded()
         val saved = loadDanmakuSourcesForCurrent()
-        if (saved.isEmpty()) {
+        // 原生源身份集合，用于去重 Flutter 侧重复的在线源（同 episodeId 的 dandan）。
+        val nativeIdentities = saved
+            .map { danmakuSourceIdentity(it.type, it.episodeId, it.uri) }
+            .toHashSet()
+        val flutterRows = (flutterDanmakuSources ?: emptyList())
+            .filterNot { src ->
+                // dandanplay 在线源去重：Flutter sourceKey="dandan:<id>"，与原生 identity 同形。
+                val key = src["sourceKey"]?.toString().orEmpty()
+                key.isNotEmpty() && nativeIdentities.contains(key)
+            }
+        val rows = mutableListOf<View>()
+        rows += saved.map { danmakuSavedSourceRow(it) }
+        rows += flutterRows.map { flutterDanmakuSourceRow(it) }
+        if (rows.isEmpty()) {
+            val loading = flutterDanmakuSourcesLoading
             addPanelRow(panelCardGroup(TextView(this).apply {
-                text = "暂无已保存来源"
+                text = if (loading) "加载中…" else "暂无已保存来源"
                 setTextColor(TEXT_DIM)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
                 setPadding(dp(16), dp(16), dp(16), dp(16))
             }))
             return
         }
-        addPanelRow(panelCardGroup(*saved.map { danmakuSavedSourceRow(it) }.toTypedArray()))
+        addPanelRow(panelCardGroup(*rows.toTypedArray()))
+    }
+
+    /** Flutter 弹幕源库的行：随片下载/在线/本地导入。点击经反向通道加载 payload 并应用。 */
+    private fun flutterDanmakuSourceRow(src: Map<String, Any?>): View {
+        val sourceKey = src["sourceKey"]?.toString().orEmpty()
+        val type = src["type"]?.toString().orEmpty()
+        val label = src["label"]?.toString()?.takeIf { it.isNotEmpty() } ?: "弹幕源"
+        val active = src["active"] == true
+        val count = (src["commentCount"] as? Number)?.toInt() ?: 0
+        val typeText = when (type) {
+            "downloadedFile" -> "随片下载"
+            "danDanPlay" -> "弹弹play 在线"
+            else -> "本地导入"
+        }
+        val subtitle = buildString {
+            append(typeText)
+            if (count > 0) append(" · $count 条")
+            if (active) append(" · 当前生效")
+        }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = itemRippleBackground()
+            isClickable = true
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            setOnClickListener { applyFlutterDanmakuSource(sourceKey) }
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(TextView(context).apply {
+                    text = label
+                    setTextColor(if (active) ACCENT else Color.WHITE)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                })
+                addView(TextView(context).apply {
+                    text = subtitle
+                    setTextColor(TEXT_DIM)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                    setPadding(0, dp(3), 0, 0)
+                })
+            }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        }
+    }
+
+    private fun applyFlutterDanmakuSource(sourceKey: String) {
+        if (sourceKey.isEmpty()) return
+        showCenterHint("加载弹幕中…")
+        NativePlayerReverseBridge.dispatch(
+            method = "loadSavedDanmakuSource",
+            args = HashMap(danmakuMediaArgs()).apply { put("sourceKey", sourceKey) },
+            onResult = { res ->
+                runOnUiThread {
+                    // Flutter 源已在自家库登记，不重复写原生 prefs；清空缓存以便下次进页刷新 active。
+                    pendingDanmakuSource = null
+                    flutterDanmakuSources = null
+                    applyDanmakuLoadResult(res)
+                }
+            },
+            onError = {
+                runOnUiThread { hideCenterHint(); showTransientHint("弹幕加载失败") }
+            },
+        )
     }
 
     /** 已保存弹幕源行：标题 + 来源类型判断（弹弹play 在线 / 本地文件），点击重应用、✖ 删除。 */
@@ -6611,13 +6944,28 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQUEST_PICK_DANMAKU || resultCode != Activity.RESULT_OK) return
+        if (resultCode != Activity.RESULT_OK) return
         val uri = data?.data ?: return
+        when (requestCode) {
+            REQUEST_PICK_DANMAKU -> handlePickedDanmakuFile(uri)
+            REQUEST_PICK_SUBTITLE -> importSubtitleFromUri(uri)
+        }
+    }
+
+    private fun handlePickedDanmakuFile(uri: android.net.Uri) {
+        // 格式校验：弹幕只认弹弹/B站 XML、JSON。其它文件（图片、视频、随便选的）直接拦下，
+        // 不再丢给 Flutter 解析后退回误导性的"没有弹幕数据"。
+        val name = queryDisplayName(uri) ?: ""
+        val ext = name.substringAfterLast('.', "").lowercase()
+        if (ext !in DANMAKU_IMPORT_EXTENSIONS) {
+            showTransientHint("仅支持 XML / JSON 弹幕文件")
+            return
+        }
         // 取持久 URI 读权限，"已保存来源"重启后仍可重读该文件。
         runCatching {
             contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        val label = queryDisplayName(uri) ?: "本地弹幕"
+        val label = name.ifEmpty { "本地弹幕" }
         pendingDanmakuSource = DanmakuSource(
             mediaKey = danmakuMediaKey(), type = "local", label = label,
             episodeId = 0, animeTitle = "", episodeTitle = "", episodeNumber = 0,
@@ -6660,6 +7008,48 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     )
 
     private var pendingDanmakuSource: DanmakuSource? = null
+
+    // Flutter 弹幕源库（随片下载/在线自动匹配注册的源）的缓存：null=未拉取，非null=已拉到。
+    // 与原生 prefs 的「已保存来源」分属两套存储，弹幕源面板合并展示二者。
+    private var flutterDanmakuSources: List<Map<String, Any?>>? = null
+    private var flutterDanmakuSourcesLoading = false
+
+    /** 透传给 Flutter 的媒体身份（让 Flutter 用自己的 _buildMediaKey 算 mediaKey）。 */
+    private fun danmakuMediaArgs(): Map<String, Any?> = mapOf(
+        "itemGuid" to loadArgsMap["itemGuid"]?.toString().orEmpty(),
+        "mediaGuid" to loadArgsMap["mediaGuid"]?.toString().orEmpty(),
+        "seasonGuid" to loadArgsMap["seasonGuid"]?.toString().orEmpty(),
+        "seasonNumber" to ((loadArgsMap["seasonNumber"] as? Number)?.toInt() ?: 0),
+        // 用 loadArgs 原始集号：与 launcher 解析弹幕时算 mediaKey 的口径一致，
+        // 不能用会回退到标题解析的 currentEpisodeNumber()，否则可能算出对不上的 key。
+        "episodeNumber" to ((loadArgsMap["episodeNumber"] as? Number)?.toInt() ?: 0),
+        "seriesTitle" to loadArgsMap["seriesTitle"]?.toString().orEmpty(),
+    )
+
+    /** 进弹幕源页时拉一次 Flutter 弹幕源库；拿到后仅当仍停在该页时刷新。 */
+    private fun ensureFlutterDanmakuSourcesLoaded() {
+        if (flutterDanmakuSources != null || flutterDanmakuSourcesLoading) return
+        flutterDanmakuSourcesLoading = true
+        NativePlayerReverseBridge.dispatch(
+            method = "listSavedDanmakuSources",
+            args = danmakuMediaArgs(),
+            onResult = { res ->
+                runOnUiThread {
+                    flutterDanmakuSourcesLoading = false
+                    flutterDanmakuSources = (res as? List<*>)
+                        ?.mapNotNull { it as? Map<String, Any?> }
+                        ?: emptyList()
+                    if (panelStack.lastOrNull()?.title == "弹幕源") renderTopPanel()
+                }
+            },
+            onError = {
+                runOnUiThread {
+                    flutterDanmakuSourcesLoading = false
+                    flutterDanmakuSources = emptyList()
+                }
+            },
+        )
+    }
 
     private fun danmakuMediaKey(): String {
         val item = loadArgsMap["itemGuid"]?.toString()?.trim().orEmpty()

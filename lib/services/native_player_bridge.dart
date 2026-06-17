@@ -63,6 +63,28 @@ class NativePlayerBridge {
     } catch (_) {
       // 读取失败则不注入，原生壳回退到自身已存的镜像。
     }
+    // 弹幕显示偏好：同样以 Flutter 全局设置为单一事实源注入原生壳（透明度/密度/字号/速度/
+    // 区域/帧率/按类型屏蔽…）。原生壳内改动经反向通道 persistDanmakuSettings 回写，双向同步。
+    try {
+      final danmaku = await const DanmakuSettingsStore().load();
+      mergedArgs['danmakuDisplaySettings'] = <String, Object?>{
+        'opacity': danmaku.opacity,
+        'density': danmaku.density,
+        'fontScale': danmaku.fontScale,
+        'fontThickness': danmaku.fontThickness,
+        'speed': danmaku.speed,
+        'displayAreaRatio': danmaku.displayAreaRatio,
+        'targetFrameRateHz': danmaku.targetFrameRateHz,
+        'scrollEnabled': danmaku.scrollEnabled,
+        'topEnabled': danmaku.topEnabled,
+        'bottomEnabled': danmaku.bottomEnabled,
+        'colorEnabled': danmaku.colorEnabled,
+        'hideDuplicate': danmaku.hideDuplicate,
+        'avoidSubtitleArea': danmaku.avoidSubtitleArea,
+      };
+    } catch (_) {
+      // 读取失败则不注入，原生壳回退到自身已存的镜像。
+    }
     // 封面离线预取：把网络封面缓存为本地文件，原生壳优先取本地路径（纯听背景/海报、
     // MediaSession 通知封面），断网也能显示。失败静默（原生回退网络 URL）。
     await _mergeArtworkLocalPath(mergedArgs, nas);
@@ -212,6 +234,31 @@ class NativePlayerBridge {
           final path = (args['path'] ?? '').toString().trim();
           if (path.isEmpty) return null;
           return await NativeDanmakuPrefetch.importLocalFileToFile(path);
+        case 'listSavedDanmakuSources':
+          // 原生壳弹幕源面板合并显示 Flutter 弹幕源库（随片下载/在线自动匹配注册的源）。
+          final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          return await NativeDanmakuPrefetch.listSavedSources(
+            itemGuid: (args['itemGuid'] ?? '').toString(),
+            mediaGuid: (args['mediaGuid'] ?? '').toString(),
+            seasonGuid: (args['seasonGuid'] ?? '').toString(),
+            seasonNumber: (args['seasonNumber'] as num?)?.toInt() ?? 0,
+            episodeNumber: (args['episodeNumber'] as num?)?.toInt() ?? 0,
+            seriesTitle: (args['seriesTitle'] ?? '').toString(),
+          );
+        case 'loadSavedDanmakuSource':
+          // 用户在原生面板点选某条 Flutter 弹幕源 → 按 sourceKey 加载成 payload 回传。
+          final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          final sourceKey = (args['sourceKey'] ?? '').toString().trim();
+          if (sourceKey.isEmpty) return null;
+          return await NativeDanmakuPrefetch.loadSavedSourceToFile(
+            sourceKey: sourceKey,
+            itemGuid: (args['itemGuid'] ?? '').toString(),
+            mediaGuid: (args['mediaGuid'] ?? '').toString(),
+            seasonGuid: (args['seasonGuid'] ?? '').toString(),
+            seasonNumber: (args['seasonNumber'] as num?)?.toInt() ?? 0,
+            episodeNumber: (args['episodeNumber'] as num?)?.toInt() ?? 0,
+            seriesTitle: (args['seriesTitle'] ?? '').toString(),
+          );
         case 'setUseNativeRenderer':
           // 原生壳「切换到 Flutter 播放器」出口：持久化关闭原生渲染器开关（该开关 UI 只在
           // Flutter 播放器内，开启后每次播放都进原生壳，没有这个出口就回不去）。纯持久化、
@@ -247,6 +294,80 @@ class NativePlayerBridge {
             await const MpvSettingsStore().saveVideoAdjustments(adjustments);
           }
           return true;
+        case 'persistDanmakuSettings':
+          // 原生壳内改了弹幕显示偏好 → 回写 Flutter 全局弹幕设置，使设置页/Flutter 播放器
+          // 同步。savePatch 只认显示偏好键，不动 enabled/source/AI 等。
+          final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          final patch = <String, Object?>{};
+          args.forEach((key, value) {
+            if (value != null) patch[key.toString()] = value;
+          });
+          if (patch.isNotEmpty) {
+            await const DanmakuSettingsStore().savePatch(patch);
+          }
+          return true;
+        case 'loadPlayerGlobalSettings':
+          // 原生壳前台恢复时主动拉最新的 Flutter 全局设置（MPV/画面/弹幕），让在别处（设置页/
+          // Flutter 播放器）的改动回到原生壳即时生效，而非只在启动注入那一刻。
+          final mpvBundle = await const MpvSettingsStore().loadBundle();
+          final danmaku = await const DanmakuSettingsStore().load();
+          return <String, dynamic>{
+            'mpvAdvancedSettings': mpvBundle.settings,
+            'videoAdjustments': mpvBundle.videoAdjustments,
+            'danmakuDisplaySettings': <String, Object?>{
+              'opacity': danmaku.opacity,
+              'density': danmaku.density,
+              'fontScale': danmaku.fontScale,
+              'fontThickness': danmaku.fontThickness,
+              'speed': danmaku.speed,
+              'displayAreaRatio': danmaku.displayAreaRatio,
+              'targetFrameRateHz': danmaku.targetFrameRateHz,
+              'scrollEnabled': danmaku.scrollEnabled,
+              'topEnabled': danmaku.topEnabled,
+              'bottomEnabled': danmaku.bottomEnabled,
+              'colorEnabled': danmaku.colorEnabled,
+              'hideDuplicate': danmaku.hideDuplicate,
+              'avoidSubtitleArea': danmaku.avoidSubtitleArea,
+            },
+          };
+        case 'listSavedMpvPresets':
+          // 原生壳画质/音频抽屉里列出 Flutter「保存预设」供选择。
+          final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          final kind = (args['kind'] ?? 'picture').toString() == 'audio'
+              ? SavedMpvPresetKind.audio
+              : SavedMpvPresetKind.picture;
+          final presets = await const MpvSettingsStore().loadSavedPresets(kind);
+          return <Map<String, dynamic>>[
+            for (final p in presets)
+              <String, dynamic>{
+                'id': p.id,
+                'name': p.name,
+                'description': p.description,
+              },
+          ];
+        case 'applySavedMpvPreset':
+          // 应用某保存预设：写入 Flutter 全局设置（单一事实源）并把结果 bundle 回传原生壳套用。
+          final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          final id = (args['id'] ?? '').toString().trim();
+          if (id.isEmpty) return null;
+          final kind = (args['kind'] ?? 'picture').toString() == 'audio'
+              ? SavedMpvPresetKind.audio
+              : SavedMpvPresetKind.picture;
+          const store = MpvSettingsStore();
+          final presets = await store.loadSavedPresets(kind);
+          SavedMpvPreset? match;
+          for (final p in presets) {
+            if (p.id == id) {
+              match = p;
+              break;
+            }
+          }
+          if (match == null) return null;
+          final bundle = await store.applySavedPreset(match);
+          return <String, dynamic>{
+            'settings': bundle.settings,
+            'videoAdjustments': bundle.videoAdjustments,
+          };
         default:
           throw MissingPluginException('native_player reentry: ${call.method}');
       }

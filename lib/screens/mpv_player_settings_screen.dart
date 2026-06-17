@@ -148,6 +148,7 @@ class _MpvPlayerSettingsDestinationScreenState
       MpvSettingsCatalog.deinterlaceKey => l10n.mpvSettingDeinterlaceTitle,
       MpvSettingsCatalog.scaleProfileKey => l10n.mpvSettingScaleProfileTitle,
       MpvSettingsCatalog.hdrModeKey => l10n.mpvSettingHdrModeTitle,
+      MpvSettingsCatalog.toneMappingKey => l10n.mpvSettingToneMappingTitle,
       MpvSettingsCatalog.frameInterpolationKey =>
         l10n.mpvSettingFrameInterpolationTitle,
       MpvSettingsCatalog.videoSyncKey => l10n.mpvSettingVideoSyncTitle,
@@ -163,6 +164,8 @@ class _MpvPlayerSettingsDestinationScreenState
         l10n.mpvSettingAudioBassBoostTitle,
       MpvSettingsCatalog.audioVoiceEnhanceKey =>
         l10n.mpvSettingAudioVoiceEnhanceTitle,
+      MpvSettingsCatalog.audioPassthroughKey =>
+        l10n.mpvSettingAudioPassthroughTitle,
       MpvSettingsCatalog.channelMixKey => l10n.mpvSettingChannelMixTitle,
       MpvSettingsCatalog.compatibilityKey => l10n.mpvSettingCompatibilityTitle,
       _ => l10n.mpvGenericSettingTitle,
@@ -178,6 +181,7 @@ class _MpvPlayerSettingsDestinationScreenState
       MpvSettingsCatalog.deinterlaceKey => l10n.mpvSettingDeinterlaceSubtitle,
       MpvSettingsCatalog.scaleProfileKey => l10n.mpvSettingScaleProfileSubtitle,
       MpvSettingsCatalog.hdrModeKey => l10n.mpvSettingHdrModeSubtitle,
+      MpvSettingsCatalog.toneMappingKey => l10n.mpvSettingToneMappingSubtitle,
       MpvSettingsCatalog.frameInterpolationKey =>
         l10n.mpvSettingFrameInterpolationSubtitle,
       MpvSettingsCatalog.videoSyncKey => l10n.mpvSettingVideoSyncSubtitle,
@@ -193,6 +197,8 @@ class _MpvPlayerSettingsDestinationScreenState
         l10n.mpvSettingAudioBassBoostSubtitle,
       MpvSettingsCatalog.audioVoiceEnhanceKey =>
         l10n.mpvSettingAudioVoiceEnhanceSubtitle,
+      MpvSettingsCatalog.audioPassthroughKey =>
+        l10n.mpvSettingAudioPassthroughSubtitle,
       MpvSettingsCatalog.channelMixKey => l10n.mpvSettingChannelMixSubtitle,
       MpvSettingsCatalog.compatibilityKey =>
         l10n.mpvSettingCompatibilitySubtitle,
@@ -649,6 +655,7 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
       MpvSettingsCatalog.deinterlaceKey => l10n.mpvSettingDeinterlaceTitle,
       MpvSettingsCatalog.scaleProfileKey => l10n.mpvSettingScaleProfileTitle,
       MpvSettingsCatalog.hdrModeKey => l10n.mpvSettingHdrModeTitle,
+      MpvSettingsCatalog.toneMappingKey => l10n.mpvSettingToneMappingTitle,
       MpvSettingsCatalog.frameInterpolationKey =>
         l10n.mpvSettingFrameInterpolationTitle,
       MpvSettingsCatalog.videoSyncKey => l10n.mpvSettingVideoSyncTitle,
@@ -664,6 +671,8 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
         l10n.mpvSettingAudioBassBoostTitle,
       MpvSettingsCatalog.audioVoiceEnhanceKey =>
         l10n.mpvSettingAudioVoiceEnhanceTitle,
+      MpvSettingsCatalog.audioPassthroughKey =>
+        l10n.mpvSettingAudioPassthroughTitle,
       MpvSettingsCatalog.channelMixKey => l10n.mpvSettingChannelMixTitle,
       MpvSettingsCatalog.compatibilityKey => l10n.mpvSettingCompatibilityTitle,
       _ => l10n.mpvGenericSettingTitle,
@@ -679,6 +688,7 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
       MpvSettingsCatalog.deinterlaceKey => l10n.mpvSettingDeinterlaceSubtitle,
       MpvSettingsCatalog.scaleProfileKey => l10n.mpvSettingScaleProfileSubtitle,
       MpvSettingsCatalog.hdrModeKey => l10n.mpvSettingHdrModeSubtitle,
+      MpvSettingsCatalog.toneMappingKey => l10n.mpvSettingToneMappingSubtitle,
       MpvSettingsCatalog.frameInterpolationKey =>
         l10n.mpvSettingFrameInterpolationSubtitle,
       MpvSettingsCatalog.videoSyncKey => l10n.mpvSettingVideoSyncSubtitle,
@@ -694,6 +704,8 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
         l10n.mpvSettingAudioBassBoostSubtitle,
       MpvSettingsCatalog.audioVoiceEnhanceKey =>
         l10n.mpvSettingAudioVoiceEnhanceSubtitle,
+      MpvSettingsCatalog.audioPassthroughKey =>
+        l10n.mpvSettingAudioPassthroughSubtitle,
       MpvSettingsCatalog.channelMixKey => l10n.mpvSettingChannelMixSubtitle,
       MpvSettingsCatalog.compatibilityKey =>
         l10n.mpvSettingCompatibilitySubtitle,
