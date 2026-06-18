@@ -1807,8 +1807,8 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox>
     unawaited(_setSystemChromeVisible(chromeVisible));
   }
 
-  // 下拉关闭：仅在未放大时启用，且只响应「向下」拖动；向上不移动图片，
-  // 避免出现把图片拖到屏幕上方卡住的情况。
+  // 拖拽关闭：未放大时启用，上下两个方向都可以拖、都能触发关闭。
+  // 永不卡住的保证来自 build() 里的 Listener 兜底（见 _handlePointerFinished）。
   void _handleDismissStart(DragStartDetails details) {
     _dragResetController.stop();
     _dragBackAnim = null;
@@ -1819,8 +1819,7 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox>
     if (!_dragging) {
       return;
     }
-    final next = _dragOffset.value + details.delta.dy;
-    _dragOffset.value = next < 0 ? 0 : next;
+    _dragOffset.value += details.delta.dy;
   }
 
   void _handleDismissEnd(DragEndDetails details) {
@@ -1828,16 +1827,7 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox>
       return;
     }
     _dragging = false;
-    final offset = _dragOffset.value;
-    final velocity = details.velocity.pixelsPerSecond.dy;
-    final shouldDismiss =
-        offset > _dismissDistance ||
-        (offset > 12 && velocity > _dismissVelocity);
-    if (shouldDismiss) {
-      Navigator.of(context).maybePop();
-      return;
-    }
-    _animateDragBack();
+    _resolveDrag(velocity: details.velocity.pixelsPerSecond.dy);
   }
 
   // 手势被取消（如被 photo_view 抢走或指针取消）也要回弹，否则图片会卡在偏移处。
@@ -1846,6 +1836,35 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox>
       return;
     }
     _dragging = false;
+    _resolveDrag(velocity: 0);
+  }
+
+  // 兜底：无论手势竞技场把竖向拖拽判给了谁，指针抬起/取消时 Listener 一定能收到。
+  // 这里延后一帧——给 GestureDetector 的 onVerticalDragEnd 先处理的机会；若一帧后
+  // 仍处于拖拽态，说明 end 回调被吞掉了，由这里强制收尾，确保图片不会卡在偏移处。
+  void _handlePointerFinished(PointerEvent event) {
+    if (!_dragging) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_dragging) {
+        return;
+      }
+      _dragging = false;
+      _resolveDrag(velocity: 0);
+    });
+  }
+
+  // 根据当前偏移与速度决定关闭还是回弹（上下方向对称）。
+  void _resolveDrag({required double velocity}) {
+    final offset = _dragOffset.value;
+    final shouldDismiss =
+        offset.abs() > _dismissDistance ||
+        (offset.abs() > 12 && velocity.abs() > _dismissVelocity);
+    if (shouldDismiss) {
+      Navigator.of(context).maybePop();
+      return;
+    }
     _animateDragBack();
   }
 
@@ -2035,40 +2054,45 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox>
             child: Stack(
               children: <Widget>[
                 Positioned.fill(
-                  child: ValueListenableBuilder<double>(
-                    valueListenable: _dragOffset,
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.translucent,
-                      onVerticalDragStart: _isZoomed
-                          ? null
-                          : _handleDismissStart,
-                      onVerticalDragUpdate: _isZoomed
-                          ? null
-                          : _handleDismissUpdate,
-                      onVerticalDragEnd: _isZoomed ? null : _handleDismissEnd,
-                      onVerticalDragCancel: _isZoomed
-                          ? null
-                          : _handleDismissCancel,
-                      child: _buildGallery(),
-                    ),
-                    builder: (context, dragOffset, child) {
-                      final dragFraction = (dragOffset.abs() / 360).clamp(
-                        0.0,
-                        1.0,
-                      );
-                      final entranceScale = 0.92 + 0.08 * routeValue;
-                      final dragScale = 1 - dragFraction * 0.12;
-                      return Opacity(
-                        opacity: routeValue * (1 - dragFraction * 0.35),
-                        child: Transform.translate(
-                          offset: Offset(0, dragOffset),
-                          child: Transform.scale(
-                            scale: dragScale * entranceScale,
-                            child: child,
+                  child: Listener(
+                    behavior: HitTestBehavior.translucent,
+                    onPointerUp: _handlePointerFinished,
+                    onPointerCancel: _handlePointerFinished,
+                    child: ValueListenableBuilder<double>(
+                      valueListenable: _dragOffset,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.translucent,
+                        onVerticalDragStart: _isZoomed
+                            ? null
+                            : _handleDismissStart,
+                        onVerticalDragUpdate: _isZoomed
+                            ? null
+                            : _handleDismissUpdate,
+                        onVerticalDragEnd: _isZoomed ? null : _handleDismissEnd,
+                        onVerticalDragCancel: _isZoomed
+                            ? null
+                            : _handleDismissCancel,
+                        child: _buildGallery(),
+                      ),
+                      builder: (context, dragOffset, child) {
+                        final dragFraction = (dragOffset.abs() / 360).clamp(
+                          0.0,
+                          1.0,
+                        );
+                        final entranceScale = 0.92 + 0.08 * routeValue;
+                        final dragScale = 1 - dragFraction * 0.12;
+                        return Opacity(
+                          opacity: routeValue * (1 - dragFraction * 0.35),
+                          child: Transform.translate(
+                            offset: Offset(0, dragOffset),
+                            child: Transform.scale(
+                              scale: dragScale * entranceScale,
+                              child: child,
+                            ),
                           ),
-                        ),
-                      );
-                    },
+                        );
+                      },
+                    ),
                   ),
                 ),
                 Positioned(
