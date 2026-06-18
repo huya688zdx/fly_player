@@ -58,6 +58,8 @@ class ScreenshotSettingsStore {
 
   Future<ScreenshotSettingsData> load() async {
     final prefs = await SharedPreferences.getInstance();
+    // 原生播放器会直接写入同一份 FlutterSharedPreferences，这里先刷新以读到其改动。
+    await prefs.reload();
     final includeSubtitles =
         prefs.getBool(includeSubtitlesKey) ?? defaultIncludeSubtitles;
     final rawSavePathMode =

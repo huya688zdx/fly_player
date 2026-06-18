@@ -54,7 +54,6 @@ class NativePlayerSettingsStore(context: Context) {
         const val KEY_PLAYBACK_BEHAVIOR = "playback_behavior"
         const val KEY_VIDEO_MISC = "video_misc"
         const val KEY_DANMAKU = "danmaku_settings"
-        const val KEY_SCREENSHOT = "screenshot"
         const val KEY_BOOKMARKS = "bookmarks_v1"
         const val KEY_DANMAKU_SOURCES = "danmaku_sources_v1"
     }
