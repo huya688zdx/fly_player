@@ -17,12 +17,15 @@ internal class ScreenshotLibraryController(
                 ?.walkTopDown()
                 ?.filter { it.isFile && isImageFile(it.name) }
                 ?.forEach { file ->
+                    val format = ScreenshotImageFormatInspector.inspectFile(file)
                     items +=
                         mapOf(
                             "id" to "file:${file.absolutePath}",
                             "name" to file.name,
                             "sourceKind" to source.kind,
                             "locationLabel" to source.locationLabel,
+                            "formatKind" to format.formatKind,
+                            "isHdr" to format.isHdr,
                             "sizeBytes" to file.length().coerceAtLeast(0L),
                             "modifiedAtMs" to file.lastModified().coerceAtLeast(0L),
                             "isScoped" to false,

@@ -412,7 +412,16 @@ abstract class FlutterHostActivity : FlutterActivity() {
                         result.success(true)
                     }
                     "listScreenshotLibrary" -> {
-                        result.success(screenshotLibraryController.listLibrary(hasFileAccess()))
+                        // 列表需对 JPEG 解码探测 Ultra HDR，放后台线程跑，避免阻塞主线程/ANR。
+                        val includePublic = hasFileAccess()
+                        Thread {
+                            val library = runCatching {
+                                screenshotLibraryController.listLibrary(includePublic)
+                            }.getOrDefault(emptyList())
+                            runOnUiThread {
+                                runCatching { result.success(library) }
+                            }
+                        }.start()
                     }
                     "readScreenshotFileBytes" -> {
                         val sourceKind = call.argument<String>("sourceKind").orEmpty()
