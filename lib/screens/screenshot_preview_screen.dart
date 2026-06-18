@@ -1856,10 +1856,23 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox>
         offset.abs() > _dismissDistance ||
         (offset.abs() > 12 && velocity.abs() > _dismissVelocity);
     if (shouldDismiss) {
-      Navigator.of(context).maybePop();
+      _dismiss();
       return;
     }
     _animateDragBack();
+  }
+
+  // 关闭预览：在 App 内是被 push 上来的页面，直接 pop；
+  // 而从原生截图库打开时，本页是独立 Activity（FullscreenScreenshotActivity）里
+  // Flutter 引擎的根路由，canPop() 为 false、maybePop() 会空转——必须用
+  // SystemNavigator.pop() 通知宿主 Activity 结束，否则拖拽到位却关不掉、图片卡住。
+  void _dismiss() {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+    } else {
+      SystemNavigator.pop();
+    }
   }
 
   // 平滑回弹到原位：由常驻在 controller 上的监听驱动，避免 stop() 时误归零。
@@ -2106,7 +2119,7 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox>
                           children: <Widget>[
                             _LightboxButton(
                               icon: Icons.close_rounded,
-                              onPressed: () => Navigator.of(context).pop(),
+                              onPressed: _dismiss,
                             ),
                             const SizedBox(width: 10),
                             Expanded(
