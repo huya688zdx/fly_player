@@ -129,12 +129,23 @@ internal class ScreenshotDirectoryAccessController(
                         } else {
                             0L
                         }
+                    val documentUri =
+                        DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
+                    val format =
+                        ScreenshotImageFormatInspector.inspectUri(
+                            contentResolver = contentResolver,
+                            uri = documentUri,
+                            displayName = displayName,
+                            mimeType = mimeType,
+                        )
                     entries +=
                         mapOf(
                             "id" to "custom:$documentId",
                             "name" to displayName,
                             "sourceKind" to "custom",
                             "locationLabel" to directoryLabel,
+                            "formatKind" to format.formatKind,
+                            "isHdr" to format.isHdr,
                             "sizeBytes" to sizeBytes,
                             "modifiedAtMs" to modifiedAtMs,
                             "isScoped" to true,
