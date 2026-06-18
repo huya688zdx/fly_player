@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../l10n/generated/app_localizations.dart';
+import '../player/mpv_settings_l10n.dart';
 import '../player/stores/mpv_settings_store.dart';
 import '../providers/app_locale_provider.dart';
 import '../providers/app_theme_provider.dart';
@@ -88,9 +89,9 @@ class AppSettingsScreen extends StatelessWidget {
                     subtitle: l10n.languageSystemSubtitle,
                     onSelected: () {
                       unawaited(
-                        sheetContext
-                            .read<AppLocaleProvider>()
-                            .setMode(AppLocaleMode.system),
+                        sheetContext.read<AppLocaleProvider>().setMode(
+                          AppLocaleMode.system,
+                        ),
                       );
                       Navigator.of(sheetContext).pop();
                     },
@@ -102,9 +103,9 @@ class AppSettingsScreen extends StatelessWidget {
                     subtitle: l10n.languageZhCNSubtitle,
                     onSelected: () {
                       unawaited(
-                        sheetContext
-                            .read<AppLocaleProvider>()
-                            .setMode(AppLocaleMode.zhCN),
+                        sheetContext.read<AppLocaleProvider>().setMode(
+                          AppLocaleMode.zhCN,
+                        ),
                       );
                       Navigator.of(sheetContext).pop();
                     },
@@ -398,7 +399,7 @@ class AppSettingsScreen extends StatelessWidget {
       ),
     ];
 
-    for (final definition in MpvSettingsCatalog.definitions) {
+    for (final definition in MpvSettingsL10n.definitions(l10n)) {
       entries.add(
         SettingsSearchEntry(
           id: 'mpv:${definition.key}',
@@ -583,8 +584,7 @@ class AppSettingsScreen extends StatelessWidget {
                                   icon: Icons.language_rounded,
                                   title: l10n.settingsLanguageTitle,
                                   subtitle:
-                                      localeProvider.mode ==
-                                          AppLocaleMode.zhCN
+                                      localeProvider.mode == AppLocaleMode.zhCN
                                       ? l10n.settingsLanguageSubtitleZhCN
                                       : l10n.settingsLanguageSubtitleSystem,
                                   onTap: () {

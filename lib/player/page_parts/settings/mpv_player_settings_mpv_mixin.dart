@@ -1477,7 +1477,17 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
           )
         : MpvSettingsCatalog.activeBuiltInAudioPreset(_mpvSettings);
     final baseName = basePreset != null && basePreset.id != 'off'
-        ? basePreset.label
+        ? (kind == SavedMpvPresetKind.picture
+              ? MpvSettingsL10n.picturePresetLabel(
+                  l10n,
+                  basePreset.id,
+                  fallback: basePreset.label,
+                )
+              : MpvSettingsL10n.audioPresetLabel(
+                  l10n,
+                  basePreset.id,
+                  fallback: basePreset.label,
+                ))
         : MpvSettingsL10n.presetDefaultBaseName(l10n, kind);
     return _mpvSettingsStore.nextSavedPresetNameFromBase(kind, baseName);
   }
