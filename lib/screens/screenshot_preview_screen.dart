@@ -1726,18 +1726,10 @@ class _ScreenshotLightboxRoute extends PageRouteBuilder<void> {
         reverseTransitionDuration: AppTransitions.routeExit,
         pageBuilder: (context, animation, secondaryAnimation) =>
             builder(context),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          final curved = CurvedAnimation(
-            parent: animation,
-            curve: Curves.easeOutCubic,
-            reverseCurve: Curves.easeInCubic,
-          );
-          final scale = Tween<double>(begin: 0.96, end: 1).animate(curved);
-          return FadeTransition(
-            opacity: curved,
-            child: ScaleTransition(scale: scale, child: child),
-          );
-        },
+        // 入场/出场动画在页面内部按路由动画驱动（黑底常驻、仅内容淡入缩放），
+        // 这里不再整棵树淡入，避免起始帧透出底层浅色页面造成「白闪」。
+        transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+            child,
       );
 }
 
@@ -1751,11 +1743,13 @@ class _ScreenshotLightbox extends StatefulWidget {
   State<_ScreenshotLightbox> createState() => _ScreenshotLightboxState();
 }
 
-class _ScreenshotLightboxState extends State<_ScreenshotLightbox> {
+class _ScreenshotLightboxState extends State<_ScreenshotLightbox>
+    with SingleTickerProviderStateMixin {
   static const double _dismissDistance = 132;
   static const double _dismissVelocity = 820;
 
   late final PageController _pageController;
+  late final AnimationController _dragResetController;
   late int _index;
   bool _chromeVisible = true;
   bool _chromeHiddenByZoom = false;
@@ -1768,6 +1762,10 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox> {
     super.initState();
     _index = widget.initialIndex;
     _pageController = PageController(initialPage: widget.initialIndex);
+    _dragResetController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 240),
+    );
     unawaited(_setSystemChromeVisible(true));
   }
 
@@ -1775,6 +1773,7 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox> {
   void dispose() {
     unawaited(_setSystemChromeVisible(true));
     _pageController.dispose();
+    _dragResetController.dispose();
     _dragOffset.dispose();
     super.dispose();
   }
@@ -1821,6 +1820,7 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox> {
 
   // 下拉关闭：仅在未放大时启用，纵向拖动由 photo_view 让位给本层手势。
   void _handleDismissStart(DragStartDetails details) {
+    _dragResetController.stop();
     _dragging = true;
   }
 
@@ -1845,7 +1845,35 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox> {
       Navigator.of(context).maybePop();
       return;
     }
-    _dragOffset.value = 0;
+    _animateDragBack();
+  }
+
+  // 手势被取消（如被 photo_view 抢走或指针取消）也要回弹，否则图片会卡在偏移处。
+  void _handleDismissCancel() {
+    if (!_dragging) {
+      return;
+    }
+    _dragging = false;
+    _animateDragBack();
+  }
+
+  // 平滑回弹到原位，而不是瞬间跳变。
+  void _animateDragBack() {
+    final start = _dragOffset.value;
+    if (start == 0) {
+      return;
+    }
+    final animation = Tween<double>(begin: start, end: 0).animate(
+      CurvedAnimation(parent: _dragResetController, curve: Curves.easeOutCubic),
+    );
+    void listener() => _dragOffset.value = animation.value;
+    animation.addListener(listener);
+    _dragResetController
+      ..reset()
+      ..forward().whenComplete(() {
+        animation.removeListener(listener);
+        _dragOffset.value = 0;
+      });
   }
 
   Widget _buildGallery() {
@@ -2014,41 +2042,42 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox> {
             end: Offset.zero,
           ).evaluate(overlayAnimation);
 
+          final routeValue = overlayAnimation.value;
           return ColoredBox(
-            color: Colors.black.withValues(
-              alpha: 0.96 * overlayAnimation.value,
-            ),
+            // 黑底常驻（不随入场动画淡入），入场/出场只淡入淡出内容，避免白闪。
+            color: Colors.black,
             child: Stack(
               children: <Widget>[
                 Positioned.fill(
                   child: ValueListenableBuilder<double>(
                     valueListenable: _dragOffset,
-                    child: FadeTransition(
-                      opacity: overlayAnimation,
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.translucent,
-                        onVerticalDragStart: _isZoomed
-                            ? null
-                            : _handleDismissStart,
-                        onVerticalDragUpdate: _isZoomed
-                            ? null
-                            : _handleDismissUpdate,
-                        onVerticalDragEnd: _isZoomed ? null : _handleDismissEnd,
-                        child: _buildGallery(),
-                      ),
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onVerticalDragStart: _isZoomed
+                          ? null
+                          : _handleDismissStart,
+                      onVerticalDragUpdate: _isZoomed
+                          ? null
+                          : _handleDismissUpdate,
+                      onVerticalDragEnd: _isZoomed ? null : _handleDismissEnd,
+                      onVerticalDragCancel: _isZoomed
+                          ? null
+                          : _handleDismissCancel,
+                      child: _buildGallery(),
                     ),
                     builder: (context, dragOffset, child) {
                       final dragFraction = (dragOffset.abs() / 360).clamp(
                         0.0,
                         1.0,
                       );
+                      final entranceScale = 0.97 + 0.03 * routeValue;
                       final dragScale = 1 - dragFraction * 0.12;
                       return Opacity(
-                        opacity: 1 - dragFraction * 0.35,
+                        opacity: routeValue * (1 - dragFraction * 0.35),
                         child: Transform.translate(
                           offset: Offset(0, dragOffset),
                           child: Transform.scale(
-                            scale: dragScale,
+                            scale: dragScale * entranceScale,
                             child: child,
                           ),
                         ),
