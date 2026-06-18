@@ -1,8 +1,12 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:photo_view/photo_view.dart';
+import 'package:photo_view/photo_view_gallery.dart';
 
 import '../l10n/generated/app_localizations.dart';
 import '../services/storage_access_service.dart';
@@ -1748,26 +1752,30 @@ class _ScreenshotLightbox extends StatefulWidget {
 }
 
 class _ScreenshotLightboxState extends State<_ScreenshotLightbox> {
-  late final PageController _controller;
+  static const double _dismissDistance = 132;
+  static const double _dismissVelocity = 820;
+
+  late final PageController _pageController;
   late int _index;
   bool _chromeVisible = true;
-  bool _pageLocked = false;
-  bool _zoomLocked = false;
-  bool _gestureLocked = false;
   bool _chromeHiddenByZoom = false;
+  bool _isZoomed = false;
+  bool _dragging = false;
+  final ValueNotifier<double> _dragOffset = ValueNotifier<double>(0);
 
   @override
   void initState() {
     super.initState();
     _index = widget.initialIndex;
-    _controller = PageController(initialPage: widget.initialIndex);
+    _pageController = PageController(initialPage: widget.initialIndex);
     unawaited(_setSystemChromeVisible(true));
   }
 
   @override
   void dispose() {
     unawaited(_setSystemChromeVisible(true));
-    _controller.dispose();
+    _pageController.dispose();
+    _dragOffset.dispose();
     super.dispose();
   }
 
@@ -1786,6 +1794,97 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox> {
       }
     });
     unawaited(_setSystemChromeVisible(next));
+  }
+
+  // 缩放状态变化：放大时自动隐藏顶部/底部信息条，复位后还原。
+  void _handleScaleStateChanged(PhotoViewScaleState state) {
+    final zoomed = state != PhotoViewScaleState.initial;
+    if (zoomed == _isZoomed) {
+      return;
+    }
+    var chromeVisible = _chromeVisible;
+    var chromeHiddenByZoom = _chromeHiddenByZoom;
+    if (zoomed && chromeVisible) {
+      chromeVisible = false;
+      chromeHiddenByZoom = true;
+    } else if (!zoomed && chromeHiddenByZoom) {
+      chromeVisible = true;
+      chromeHiddenByZoom = false;
+    }
+    setState(() {
+      _isZoomed = zoomed;
+      _chromeVisible = chromeVisible;
+      _chromeHiddenByZoom = chromeHiddenByZoom;
+    });
+    unawaited(_setSystemChromeVisible(chromeVisible));
+  }
+
+  // 下拉关闭：仅在未放大时启用，纵向拖动由 photo_view 让位给本层手势。
+  void _handleDismissStart(DragStartDetails details) {
+    _dragging = true;
+  }
+
+  void _handleDismissUpdate(DragUpdateDetails details) {
+    if (!_dragging) {
+      return;
+    }
+    _dragOffset.value += details.delta.dy;
+  }
+
+  void _handleDismissEnd(DragEndDetails details) {
+    if (!_dragging) {
+      return;
+    }
+    _dragging = false;
+    final offset = _dragOffset.value;
+    final velocity = details.velocity.pixelsPerSecond.dy;
+    final shouldDismiss =
+        offset.abs() > _dismissDistance ||
+        (offset.abs() > 12 && velocity.abs() > _dismissVelocity);
+    if (shouldDismiss) {
+      Navigator.of(context).maybePop();
+      return;
+    }
+    _dragOffset.value = 0;
+  }
+
+  Widget _buildGallery() {
+    return PhotoViewGallery.builder(
+      pageController: _pageController,
+      itemCount: widget.items.length,
+      onPageChanged: (index) => setState(() => _index = index),
+      scrollPhysics: const ClampingScrollPhysics(),
+      backgroundDecoration: const BoxDecoration(color: Colors.transparent),
+      scaleStateChangedCallback: _handleScaleStateChanged,
+      loadingBuilder: (context, event) => const Center(
+        child: SizedBox(
+          width: 30,
+          height: 30,
+          child: CircularProgressIndicator(
+            strokeWidth: 2.4,
+            color: Colors.white,
+          ),
+        ),
+      ),
+      builder: (context, index) {
+        final pageItem = widget.items[index];
+        return PhotoViewGalleryPageOptions(
+          imageProvider: _ScreenshotImageProvider(pageItem),
+          initialScale: PhotoViewComputedScale.contained,
+          minScale: PhotoViewComputedScale.contained,
+          maxScale: PhotoViewComputedScale.contained * 5,
+          filterQuality: FilterQuality.medium,
+          onTapUp: (context, details, value) => _toggleChrome(),
+          errorBuilder: (context, error, stackTrace) => const Center(
+            child: Icon(
+              Icons.broken_image_outlined,
+              color: Colors.white30,
+              size: 52,
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _showInfo() {
@@ -1922,60 +2021,39 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox> {
             child: Stack(
               children: <Widget>[
                 Positioned.fill(
-                  child: FadeTransition(
-                    opacity: overlayAnimation,
-                    child: PageView.builder(
-                      controller: _controller,
-                      physics: _pageLocked
-                          ? const NeverScrollableScrollPhysics()
-                          : const PageScrollPhysics(),
-                      itemCount: widget.items.length,
-                      onPageChanged: (value) => setState(() => _index = value),
-                      itemBuilder: (context, index) {
-                        final pageItem = widget.items[index];
-                        return _LightboxImageViewport(
-                          key: ValueKey<String>(pageItem.id),
-                          item: pageItem,
-                          onTap: _toggleChrome,
-                          onDismissed: () => Navigator.of(context).maybePop(),
-                          onInteractionLockChanged: (locked) {
-                            if (_gestureLocked == locked) {
-                              return;
-                            }
-                            setState(() {
-                              _gestureLocked = locked;
-                              _pageLocked = _zoomLocked || _gestureLocked;
-                            });
-                          },
-                          onZoomChanged: (zoomed) {
-                            final shouldAutoHide = zoomed && _chromeVisible;
-                            final shouldAutoRestore =
-                                !zoomed && _chromeHiddenByZoom;
-                            if (_zoomLocked == zoomed &&
-                                !shouldAutoHide &&
-                                !shouldAutoRestore) {
-                              return;
-                            }
-                            setState(() {
-                              _zoomLocked = zoomed;
-                              _pageLocked = _zoomLocked || _gestureLocked;
-                              if (shouldAutoHide) {
-                                _chromeVisible = false;
-                                _chromeHiddenByZoom = true;
-                              } else if (shouldAutoRestore) {
-                                _chromeVisible = true;
-                                _chromeHiddenByZoom = false;
-                              }
-                            });
-                            if (shouldAutoHide) {
-                              unawaited(_setSystemChromeVisible(false));
-                            } else if (shouldAutoRestore) {
-                              unawaited(_setSystemChromeVisible(true));
-                            }
-                          },
-                        );
-                      },
+                  child: ValueListenableBuilder<double>(
+                    valueListenable: _dragOffset,
+                    child: FadeTransition(
+                      opacity: overlayAnimation,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.translucent,
+                        onVerticalDragStart: _isZoomed
+                            ? null
+                            : _handleDismissStart,
+                        onVerticalDragUpdate: _isZoomed
+                            ? null
+                            : _handleDismissUpdate,
+                        onVerticalDragEnd: _isZoomed ? null : _handleDismissEnd,
+                        child: _buildGallery(),
+                      ),
                     ),
+                    builder: (context, dragOffset, child) {
+                      final dragFraction = (dragOffset.abs() / 360).clamp(
+                        0.0,
+                        1.0,
+                      );
+                      final dragScale = 1 - dragFraction * 0.12;
+                      return Opacity(
+                        opacity: 1 - dragFraction * 0.35,
+                        child: Transform.translate(
+                          offset: Offset(0, dragOffset),
+                          child: Transform.scale(
+                            scale: dragScale,
+                            child: child,
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ),
                 Positioned(
@@ -2142,309 +2220,58 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox> {
   }
 }
 
-class _LightboxImageViewport extends StatefulWidget {
+// 截图图片提供者：统一处理授权目录（字节）与本地文件，供 photo_view 解码缩放。
+class _ScreenshotImageProvider extends ImageProvider<_ScreenshotImageProvider> {
   final ScreenshotLibraryItem item;
-  final VoidCallback onTap;
-  final VoidCallback onDismissed;
-  final ValueChanged<bool> onZoomChanged;
-  final ValueChanged<bool> onInteractionLockChanged;
 
-  const _LightboxImageViewport({
-    super.key,
-    required this.item,
-    required this.onTap,
-    required this.onDismissed,
-    required this.onZoomChanged,
-    required this.onInteractionLockChanged,
-  });
+  const _ScreenshotImageProvider(this.item);
 
   @override
-  State<_LightboxImageViewport> createState() => _LightboxImageViewportState();
-}
-
-class _LightboxImageViewportState extends State<_LightboxImageViewport>
-    with SingleTickerProviderStateMixin {
-  late final TransformationController _transformController;
-  late final AnimationController _zoomAnimationController;
-  Animation<Matrix4>? _zoomAnimation;
-  late final Future<_ScreenshotMetadata> _metadataFuture;
-  TapDownDetails? _doubleTapDetails;
-  Offset _dragOffset = Offset.zero;
-  bool _isDraggingToDismiss = false;
-  bool _isZoomed = false;
-  bool _interactionLocked = false;
-  int _activePointerCount = 0;
-  Offset? _lastInteractionFocalPoint;
-
-  @override
-  void initState() {
-    super.initState();
-    _transformController = TransformationController();
-    _metadataFuture = _ScreenshotMetadataLoader.instance.load(widget.item);
-    _zoomAnimationController =
-        AnimationController(
-          vsync: this,
-          duration: const Duration(milliseconds: 220),
-        )..addListener(() {
-          final animation = _zoomAnimation;
-          if (animation == null) return;
-          _transformController.value = animation.value;
-        });
-    _transformController.addListener(_handleTransformChanged);
+  Future<_ScreenshotImageProvider> obtainKey(ImageConfiguration configuration) {
+    return SynchronousFuture<_ScreenshotImageProvider>(this);
   }
 
   @override
-  void dispose() {
-    _transformController
-      ..removeListener(_handleTransformChanged)
-      ..dispose();
-    _zoomAnimationController.dispose();
-    super.dispose();
-  }
-
-  void _handleTransformChanged() {
-    final zoomed = _transformController.value.getMaxScaleOnAxis() > 1.02;
-    if (_isZoomed == zoomed) return;
-    _isZoomed = zoomed;
-    widget.onZoomChanged(zoomed);
-  }
-
-  void _setInteractionLocked(bool locked) {
-    if (_interactionLocked == locked) return;
-    _interactionLocked = locked;
-    widget.onInteractionLockChanged(locked);
-  }
-
-  void _animateTo(Matrix4 target) {
-    _zoomAnimationController.stop();
-    _zoomAnimation =
-        Matrix4Tween(begin: _transformController.value, end: target).animate(
-          CurvedAnimation(
-            parent: _zoomAnimationController,
-            curve: Curves.easeOutCubic,
-            reverseCurve: Curves.easeInCubic,
-          ),
-        );
-    _zoomAnimationController
-      ..reset()
-      ..forward();
-  }
-
-  void _handleDoubleTapDown(TapDownDetails details) {
-    _doubleTapDetails = details;
-  }
-
-  void _handleDoubleTap(_ScreenshotMetadata metadata, Size viewportSize) {
-    if (_isZoomed) {
-      _animateTo(Matrix4.identity());
-      return;
-    }
-    final details = _doubleTapDetails;
-    if (details == null) {
-      _animateTo(Matrix4.identity()..scaleByDouble(2.2, 2.2, 1, 1));
-      return;
-    }
-    final position = details.localPosition;
-    const scale = 2.2;
-    final target = _buildZoomTarget(
-      viewportSize: viewportSize,
-      metadata: metadata,
-      focalPoint: position,
-      scale: scale,
+  ImageStreamCompleter loadImage(
+    _ScreenshotImageProvider key,
+    ImageDecoderCallback decode,
+  ) {
+    return MultiFrameImageStreamCompleter(
+      codec: _loadCodec(decode),
+      scale: 1.0,
+      debugLabel: item.pathOrIdentifier,
     );
-    _animateTo(target);
   }
 
-  Matrix4 _buildZoomTarget({
-    required Size viewportSize,
-    required _ScreenshotMetadata metadata,
-    required Offset focalPoint,
-    required double scale,
-  }) {
-    if (viewportSize.isEmpty || !metadata.hasDimensions) {
-      return Matrix4.identity()..scaleByDouble(scale, scale, 1, 1);
-    }
-    final fitted = applyBoxFit(
-      BoxFit.contain,
-      Size(metadata.width!.toDouble(), metadata.height!.toDouble()),
-      viewportSize,
-    );
-    final imageRect = Alignment.center.inscribe(
-      fitted.destination,
-      Offset.zero & viewportSize,
-    );
-    final clampedPoint = Offset(
-      focalPoint.dx.clamp(imageRect.left, imageRect.right),
-      focalPoint.dy.clamp(imageRect.top, imageRect.bottom),
-    );
-    final normalizedX = (clampedPoint.dx - imageRect.left) / imageRect.width;
-    final normalizedY = (clampedPoint.dy - imageRect.top) / imageRect.height;
-    final targetX =
-        viewportSize.width / 2 -
-        (imageRect.left + imageRect.width * normalizedX) * scale;
-    final targetY =
-        viewportSize.height / 2 -
-        (imageRect.top + imageRect.height * normalizedY) * scale;
-    final minX = viewportSize.width - viewportSize.width * scale;
-    final minY = viewportSize.height - viewportSize.height * scale;
-
-    return Matrix4.identity()
-      ..translateByDouble(targetX.clamp(minX, 0), targetY.clamp(minY, 0), 0, 1)
-      ..scaleByDouble(scale, scale, 1, 1);
-  }
-
-  void _handlePointerDown(PointerDownEvent event) {
-    _activePointerCount += 1;
-    if (_activePointerCount > 1) {
-      _setInteractionLocked(true);
-      if (_isDraggingToDismiss || _dragOffset != Offset.zero) {
-        setState(() {
-          _isDraggingToDismiss = false;
-          _dragOffset = Offset.zero;
-        });
+  Future<ui.Codec> _loadCodec(ImageDecoderCallback decode) async {
+    Uint8List? bytes;
+    if (item.isScoped) {
+      bytes = await StorageAccessService.readScreenshotFileBytes(
+        sourceKind: item.sourceKind,
+        pathOrIdentifier: item.pathOrIdentifier,
+      );
+    } else {
+      final file = File(item.pathOrIdentifier);
+      if (await file.exists()) {
+        bytes = await file.readAsBytes();
       }
     }
-  }
-
-  void _handlePointerUpOrCancel(PointerEvent event) {
-    if (_activePointerCount > 0) {
-      _activePointerCount -= 1;
+    if (bytes == null || bytes.isEmpty) {
+      throw StateError(
+        'Screenshot bytes unavailable: ${item.pathOrIdentifier}',
+      );
     }
-    if (_activePointerCount <= 1 && !_isDraggingToDismiss && !_isZoomed) {
-      _setInteractionLocked(false);
-    }
-  }
-
-  void _handleInteractionStart(ScaleStartDetails details) {
-    _lastInteractionFocalPoint = details.focalPoint;
-    if (_activePointerCount > 1 || _isZoomed) {
-      _setInteractionLocked(true);
-      if (_isDraggingToDismiss || _dragOffset != Offset.zero) {
-        setState(() {
-          _isDraggingToDismiss = false;
-          _dragOffset = Offset.zero;
-        });
-      }
-      return;
-    }
-    _setInteractionLocked(true);
-    _isDraggingToDismiss = true;
-  }
-
-  void _handleInteractionUpdate(ScaleUpdateDetails details) {
-    if (_activePointerCount > 1 || details.pointerCount > 1 || _isZoomed) {
-      _setInteractionLocked(true);
-      if (_isDraggingToDismiss || _dragOffset != Offset.zero) {
-        setState(() {
-          _isDraggingToDismiss = false;
-          _dragOffset = Offset.zero;
-        });
-      }
-      _lastInteractionFocalPoint = details.focalPoint;
-      return;
-    }
-    if (!_isDraggingToDismiss) {
-      _lastInteractionFocalPoint = details.focalPoint;
-      return;
-    }
-    final previous = _lastInteractionFocalPoint;
-    _lastInteractionFocalPoint = details.focalPoint;
-    if (previous == null) return;
-    final delta = details.focalPoint - previous;
-    setState(() {
-      _dragOffset += Offset(delta.dx * 0.1, delta.dy);
-    });
-  }
-
-  void _handleInteractionEnd(ScaleEndDetails details) {
-    _lastInteractionFocalPoint = null;
-    if (!_isDraggingToDismiss) {
-      if (_activePointerCount <= 1 && !_isZoomed) {
-        _setInteractionLocked(false);
-      }
-      return;
-    }
-    _isDraggingToDismiss = false;
-    final shouldDismiss =
-        _dragOffset.dy.abs() > 96 ||
-        details.velocity.pixelsPerSecond.dy.abs() > 700;
-    _setInteractionLocked(false);
-    if (shouldDismiss) {
-      widget.onDismissed();
-      return;
-    }
-    setState(() => _dragOffset = Offset.zero);
+    final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+    return decode(buffer);
   }
 
   @override
-  Widget build(BuildContext context) {
-    final dragFraction = (_dragOffset.dy.abs() / 320).clamp(0.0, 1.0);
-    final dragScale = 1 - dragFraction * 0.12;
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final viewportSize = constraints.biggest;
-        return FutureBuilder<_ScreenshotMetadata>(
-          future: _metadataFuture,
-          builder: (context, snapshot) {
-            final metadata = snapshot.data ?? const _ScreenshotMetadata.empty();
-            final imageChild = metadata.hasDimensions
-                ? FittedBox(
-                    fit: BoxFit.contain,
-                    child: SizedBox(
-                      width: metadata.width!.toDouble(),
-                      height: metadata.height!.toDouble(),
-                      child: _ScreenshotImage(
-                        item: widget.item,
-                        fit: BoxFit.fill,
-                      ),
-                    ),
-                  )
-                : _ScreenshotImage(item: widget.item, fit: BoxFit.contain);
-            return Listener(
-              behavior: HitTestBehavior.translucent,
-              onPointerDown: _handlePointerDown,
-              onPointerUp: _handlePointerUpOrCancel,
-              onPointerCancel: _handlePointerUpOrCancel,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: widget.onTap,
-                onDoubleTapDown: _handleDoubleTapDown,
-                onDoubleTap: () => _handleDoubleTap(metadata, viewportSize),
-                child: Center(
-                  child: AnimatedContainer(
-                    duration: _isDraggingToDismiss
-                        ? Duration.zero
-                        : const Duration(milliseconds: 220),
-                    curve: Curves.easeOutCubic,
-                    transform: Matrix4.identity()
-                      ..translateByDouble(_dragOffset.dx, _dragOffset.dy, 0, 1)
-                      ..scaleByDouble(dragScale, dragScale, 1, 1),
-                    child: InteractiveViewer(
-                      transformationController: _transformController,
-                      constrained: false,
-                      clipBehavior: Clip.none,
-                      boundaryMargin: const EdgeInsets.all(240),
-                      minScale: 1.0,
-                      maxScale: 5.0,
-                      onInteractionStart: _handleInteractionStart,
-                      onInteractionUpdate: _handleInteractionUpdate,
-                      onInteractionEnd: _handleInteractionEnd,
-                      child: SizedBox(
-                        width: viewportSize.width,
-                        height: viewportSize.height,
-                        child: Center(child: imageChild),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
+  bool operator ==(Object other) {
+    return other is _ScreenshotImageProvider && other.item.id == item.id;
   }
+
+  @override
+  int get hashCode => item.id.hashCode;
 }
 
 class _LightboxButton extends StatelessWidget {
