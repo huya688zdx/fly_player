@@ -614,6 +614,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         private val ITEM_SELECTED_BG = 0x333A82F7.toInt()
         // 与 Flutter shared_preferences 共享的播放列表视图偏好键（plugin 自带 `flutter.` 前缀）。
         private const val SHARED_PLAYLIST_VIEW_TYPE_KEY = "flutter.playlist_view_type"
+        // 截图保存设置同样与 Flutter 端共享同一份偏好，避免两端各存一套漂移。
+        private const val SHARED_SCREENSHOT_SAVE_MODE_KEY = "flutter.screenshot_save_path_mode"
+        private const val SHARED_SCREENSHOT_INCLUDE_SUBTITLES_KEY =
+            "flutter.screenshot_include_subtitles"
+        private const val SCREENSHOT_DEFAULT_SAVE_MODE = "pictures"
     }
 
     private lateinit var playerSurface: NativePlayerSurface
@@ -749,8 +754,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private lateinit var listenTitleLabel: TextView
     private lateinit var listenSubtitleLabel: TextView
 
-    private var screenshotIncludeSubtitles = true
-    private var screenshotSaveMode = "library"
+    private var screenshotIncludeSubtitles = false
+    private var screenshotSaveMode = SCREENSHOT_DEFAULT_SAVE_MODE
 
     private lateinit var abButton: View
     private var abRepeatMode = 0
@@ -3375,6 +3380,40 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
     }
 
+    private val screenshotDirectoryController by lazy {
+        ScreenshotDirectoryAccessController(this)
+    }
+
+    /** 读 Flutter 端写入的截图保存位置（pictures/dcim/app_pictures/custom），无则默认相册。 */
+    private fun loadSharedScreenshotSaveMode(): String =
+        runCatching { flutterSharedPrefs.getString(SHARED_SCREENSHOT_SAVE_MODE_KEY, null) }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() }
+            ?: SCREENSHOT_DEFAULT_SAVE_MODE
+
+    private fun loadSharedScreenshotIncludeSubtitles(): Boolean =
+        runCatching {
+            flutterSharedPrefs.getBoolean(SHARED_SCREENSHOT_INCLUDE_SUBTITLES_KEY, false)
+        }.getOrDefault(false)
+
+    private fun saveSharedScreenshotSaveMode(mode: String) {
+        runCatching {
+            flutterSharedPrefs.edit().putString(SHARED_SCREENSHOT_SAVE_MODE_KEY, mode).apply()
+        }
+    }
+
+    private fun saveSharedScreenshotIncludeSubtitles(value: Boolean) {
+        runCatching {
+            flutterSharedPrefs.edit()
+                .putBoolean(SHARED_SCREENSHOT_INCLUDE_SUBTITLES_KEY, value)
+                .apply()
+        }
+    }
+
+    private fun screenshotCustomDirectoryConfigured(): Boolean =
+        runCatching { screenshotDirectoryController.hasConfiguredDirectory() }
+            .getOrDefault(false)
+
     private fun episodeEntryMode(): Int {
         if (episodeList().size > 1) return 0
         return if (nativePanelEpisodeVersionEntries(qualityList()).size > 1) 1 else 2
@@ -5946,10 +5985,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun buildScreenshotSettingsPage() {
+        // 选项与取值同 Flutter 端「截图设置」保持一致，确保两端相互映射。
         val saveOpts = listOf(
-            "相册" to "gallery",
+            "相册" to "pictures",
             "DCIM" to "dcim",
             "应用目录" to "app_pictures",
+            "自定义" to "custom",
         )
         addPanelRow(
             panelCardGroup(
@@ -5958,8 +5999,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     saveOpts.map { it.first },
                     saveOpts.indexOfFirst { it.second == screenshotSaveMode }.coerceAtLeast(0),
                 ) { index ->
-                    screenshotSaveMode = saveOpts[index].second
-                    persistScreenshot()
+                    val mode = saveOpts[index].second
+                    // 自定义目录由 App 设置里授权选择，原生壳内无法新增授权，未配置时提示并回退。
+                    if (mode == "custom" && !screenshotCustomDirectoryConfigured()) {
+                        showTransientHint("请先在 App 设置里选择自定义截图目录")
+                    } else {
+                        screenshotSaveMode = mode
+                        persistScreenshot()
+                    }
                     renderTopPanel()
                 },
                 panelToggle(
@@ -6036,22 +6083,17 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         introMaxMin = (io["introMaxMin"] as? Number)?.toInt() ?: 2
         outroMaxMin = (io["outroMaxMin"] as? Number)?.toInt() ?: 2
         skipCountdownSec = (io["skipCountdownSec"] as? Number)?.toInt() ?: 5
-        val shot = settingsStore.loadMap(
-            NativePlayerSettingsStore.KEY_SCREENSHOT,
-            linkedMapOf("includeSubtitles" to false, "saveMode" to "gallery"),
-        )
-        screenshotIncludeSubtitles = (shot["includeSubtitles"] as? Boolean) ?: false
-        screenshotSaveMode = shot["saveMode"]?.toString() ?: "gallery"
+        // 截图设置与 Flutter 端共享同一份偏好（FlutterSharedPreferences），两端互通不漂移。
+        screenshotIncludeSubtitles = loadSharedScreenshotIncludeSubtitles()
+        screenshotSaveMode = loadSharedScreenshotSaveMode()
         applyPersistedDanmakuPrefs()      // 先读本地缓存兜底
         applyInjectedDanmakuSettings()    // 再用 Flutter 注入覆盖（单一事实源）
     }
 
-    private fun persistScreenshot() = settingsStore.saveMap(
-        NativePlayerSettingsStore.KEY_SCREENSHOT,
-        linkedMapOf<String, Any?>(
-            "includeSubtitles" to screenshotIncludeSubtitles, "saveMode" to screenshotSaveMode,
-        ),
-    )
+    private fun persistScreenshot() {
+        saveSharedScreenshotSaveMode(screenshotSaveMode)
+        saveSharedScreenshotIncludeSubtitles(screenshotIncludeSubtitles)
+    }
 
     /** 首帧就绪后把已存设置真正下发内核（每次换源重套，因 mpv 重载会复位属性）。 */
     private fun pushPersistedSettings() {
