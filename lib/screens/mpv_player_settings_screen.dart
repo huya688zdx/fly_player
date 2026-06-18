@@ -1476,7 +1476,17 @@ class _MpvCustomPresetScreenState extends State<_MpvCustomPresetScreen> {
     final l10n = AppLocalizations.of(context);
     final builtInPreset = _activeBuiltInPreset();
     final baseName = builtInPreset != null && builtInPreset.id != 'off'
-        ? builtInPreset.label
+        ? (widget.kind == SavedMpvPresetKind.picture
+              ? MpvSettingsL10n.picturePresetLabel(
+                  l10n,
+                  builtInPreset.id,
+                  fallback: builtInPreset.label,
+                )
+              : MpvSettingsL10n.audioPresetLabel(
+                  l10n,
+                  builtInPreset.id,
+                  fallback: builtInPreset.label,
+                ))
         : MpvSettingsL10n.presetDefaultBaseName(l10n, widget.kind);
     return _store.nextSavedPresetNameFromBase(widget.kind, baseName);
   }
