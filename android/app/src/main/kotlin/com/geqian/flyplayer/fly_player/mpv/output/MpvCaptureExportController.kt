@@ -28,6 +28,10 @@ internal class MpvCaptureExportController(
         const val CAPTURE_CUSTOM_DIR_REQUIRED_CODE = "custom_directory_required"
         const val CAPTURE_CUSTOM_DIR_UNAVAILABLE_CODE = "custom_directory_unavailable"
         const val MAX_CAPTURE_STEM_LENGTH = 96
+        // HDR 截图临时回退用的 SDR 目标色彩（与 VideoOutputController 的 SDR tone-map 一致）。
+        const val SCREENSHOT_TARGET_PRIM_SDR = "bt.709"
+        const val SCREENSHOT_TARGET_TRC_SDR = "bt.1886"
+        const val SCREENSHOT_TONE_MAPPING = "bt.2390"
     }
 
     fun captureFrame(
@@ -53,15 +57,17 @@ internal class MpvCaptureExportController(
             )
         val tempFile = File(context.cacheDir, "fly_player_frame_$stamp.jpg")
         val commandSuccess =
-            runCatching {
-                mpv.command(
-                    arrayOf(
-                        "screenshot-to-file",
-                        tempFile.absolutePath,
-                        if (includeSubtitles) "subtitles" else "video",
-                    ),
-                ) >= 0
-            }.getOrDefault(false)
+            withSdrScreenshotTarget {
+                runCatching {
+                    mpv.command(
+                        arrayOf(
+                            "screenshot-to-file",
+                            tempFile.absolutePath,
+                            if (includeSubtitles) "subtitles" else "video",
+                        ),
+                    ) >= 0
+                }.getOrDefault(false)
+            }
         if (!commandSuccess || !tempFile.exists() || tempFile.length() <= 0L) {
             tempFile.delete()
             return mapOf(
@@ -84,6 +90,45 @@ internal class MpvCaptureExportController(
                 "code" to saveResult.code,
             )
         }
+    }
+
+    /**
+     * mpv 截图沿用当前输出目标色彩。若正在 HDR 直通（target 为 HDR/PQ），截图写进 8-bit
+     * JPEG 会发灰失真。这里仅当当前帧为 HDR 源时，临时把目标切到 SDR + tone-mapping，
+     * 截完恢复，保证落地的截图色彩正确（SDR/DCI、HDR_TONEMAP_SDR 模式下为无害的同值重设）。
+     */
+    private fun <T> withSdrScreenshotTarget(block: () -> T): T {
+        if (!isCurrentFrameHdr()) {
+            return block()
+        }
+        val savedPrim = mpv.getPropertyString("target-prim")
+        val savedTrc = mpv.getPropertyString("target-trc")
+        val savedHint = mpv.getPropertyString("target-colorspace-hint")
+        val savedTone = mpv.getPropertyString("tone-mapping")
+        val savedGamut = mpv.getPropertyString("gamut-mapping-mode")
+        return try {
+            mpv.setPropertyString("target-colorspace-hint", "no")
+            mpv.setPropertyString("target-prim", SCREENSHOT_TARGET_PRIM_SDR)
+            mpv.setPropertyString("target-trc", SCREENSHOT_TARGET_TRC_SDR)
+            mpv.setPropertyString("tone-mapping", SCREENSHOT_TONE_MAPPING)
+            mpv.setPropertyString("gamut-mapping-mode", "clip")
+            block()
+        } finally {
+            // 恢复成原值（含 auto），避免改动残留影响后续直通显示。
+            savedPrim?.let { mpv.setPropertyString("target-prim", it) }
+            savedTrc?.let { mpv.setPropertyString("target-trc", it) }
+            savedHint?.let { mpv.setPropertyString("target-colorspace-hint", it) }
+            savedTone?.let { mpv.setPropertyString("tone-mapping", it) }
+            savedGamut?.let { mpv.setPropertyString("gamut-mapping-mode", it) }
+        }
+    }
+
+    private fun isCurrentFrameHdr(): Boolean {
+        val gamma = mpv.getPropertyString("video-params/gamma")
+            ?.trim()
+            ?.lowercase()
+            .orEmpty()
+        return gamma == "pq" || gamma == "hlg" || gamma == "st2084"
     }
 
     private fun saveCapturedFrame(
