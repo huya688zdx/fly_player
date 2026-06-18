@@ -554,6 +554,12 @@ class _ScreenshotPreviewScreenState extends State<ScreenshotPreviewScreen> {
       }
     }
 
+    // 先把首图解码进缓存，避免开场动画期间还在加载、图片「啪」地蹦出来。
+    if (mounted) {
+      await precacheImage(_ScreenshotImageProvider(item), context);
+    }
+    if (!mounted) return;
+
     await rootNavigator.push<void>(
       _ScreenshotLightboxRoute(
         builder: (_) => _ScreenshotLightbox(
@@ -1661,57 +1667,33 @@ class _MetaPill extends StatelessWidget {
   }
 }
 
-class _ScreenshotImage extends StatefulWidget {
+// 统一走 _ScreenshotImageProvider：缩略图与全屏预览共享同一份解码缓存，
+// 这样点开预览时首图能命中缓存、即时显示，入场动画才作用在真实图片上。
+class _ScreenshotImage extends StatelessWidget {
   final ScreenshotLibraryItem item;
   final BoxFit fit;
 
   const _ScreenshotImage({required this.item, required this.fit});
 
   @override
-  State<_ScreenshotImage> createState() => _ScreenshotImageState();
-}
-
-class _ScreenshotImageState extends State<_ScreenshotImage> {
-  Future<Uint8List?>? _bytesFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.item.isScoped) {
-      _bytesFuture = StorageAccessService.readScreenshotFileBytes(
-        sourceKind: widget.item.sourceKind,
-        pathOrIdentifier: widget.item.pathOrIdentifier,
-      );
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-
-    if (!widget.item.isScoped) {
-      return Image.file(
-        File(widget.item.pathOrIdentifier),
-        fit: widget.fit,
-        errorBuilder: (_, __, ___) => ColoredBox(color: colors.surfaceStrong),
-      );
-    }
-
-    return FutureBuilder<Uint8List?>(
-      future: _bytesFuture,
-      builder: (context, snapshot) {
-        if (snapshot.hasData && snapshot.data!.isNotEmpty) {
-          return Image.memory(
-            snapshot.data!,
-            fit: widget.fit,
-            gaplessPlayback: true,
-          );
+    return Image(
+      image: _ScreenshotImageProvider(item),
+      fit: fit,
+      gaplessPlayback: true,
+      frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+        if (wasSynchronouslyLoaded) {
+          return child;
         }
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return Center(child: CircularProgressIndicator(color: colors.accent));
-        }
-        return ColoredBox(color: colors.surfaceStrong);
+        return AnimatedOpacity(
+          opacity: frame == null ? 0 : 1,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+          child: child,
+        );
       },
+      errorBuilder: (_, __, ___) => ColoredBox(color: colors.surfaceStrong),
     );
   }
 }
@@ -1756,16 +1738,23 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox>
   bool _isZoomed = false;
   bool _dragging = false;
   final ValueNotifier<double> _dragOffset = ValueNotifier<double>(0);
+  Animation<double>? _dragBackAnim;
 
   @override
   void initState() {
     super.initState();
     _index = widget.initialIndex;
     _pageController = PageController(initialPage: widget.initialIndex);
-    _dragResetController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 240),
-    );
+    _dragResetController =
+        AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 240),
+        )..addListener(() {
+          final anim = _dragBackAnim;
+          if (anim != null) {
+            _dragOffset.value = anim.value;
+          }
+        });
     unawaited(_setSystemChromeVisible(true));
   }
 
@@ -1818,9 +1807,11 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox>
     unawaited(_setSystemChromeVisible(chromeVisible));
   }
 
-  // 下拉关闭：仅在未放大时启用，纵向拖动由 photo_view 让位给本层手势。
+  // 下拉关闭：仅在未放大时启用，且只响应「向下」拖动；向上不移动图片，
+  // 避免出现把图片拖到屏幕上方卡住的情况。
   void _handleDismissStart(DragStartDetails details) {
     _dragResetController.stop();
+    _dragBackAnim = null;
     _dragging = true;
   }
 
@@ -1828,7 +1819,8 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox>
     if (!_dragging) {
       return;
     }
-    _dragOffset.value += details.delta.dy;
+    final next = _dragOffset.value + details.delta.dy;
+    _dragOffset.value = next < 0 ? 0 : next;
   }
 
   void _handleDismissEnd(DragEndDetails details) {
@@ -1839,8 +1831,8 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox>
     final offset = _dragOffset.value;
     final velocity = details.velocity.pixelsPerSecond.dy;
     final shouldDismiss =
-        offset.abs() > _dismissDistance ||
-        (offset.abs() > 12 && velocity.abs() > _dismissVelocity);
+        offset > _dismissDistance ||
+        (offset > 12 && velocity > _dismissVelocity);
     if (shouldDismiss) {
       Navigator.of(context).maybePop();
       return;
@@ -1857,23 +1849,17 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox>
     _animateDragBack();
   }
 
-  // 平滑回弹到原位，而不是瞬间跳变。
+  // 平滑回弹到原位：由常驻在 controller 上的监听驱动，避免 stop() 时误归零。
   void _animateDragBack() {
     final start = _dragOffset.value;
     if (start == 0) {
+      _dragBackAnim = null;
       return;
     }
-    final animation = Tween<double>(begin: start, end: 0).animate(
+    _dragBackAnim = Tween<double>(begin: start, end: 0).animate(
       CurvedAnimation(parent: _dragResetController, curve: Curves.easeOutCubic),
     );
-    void listener() => _dragOffset.value = animation.value;
-    animation.addListener(listener);
-    _dragResetController
-      ..reset()
-      ..forward().whenComplete(() {
-        animation.removeListener(listener);
-        _dragOffset.value = 0;
-      });
+    _dragResetController.forward(from: 0);
   }
 
   Widget _buildGallery() {
@@ -2070,7 +2056,7 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox>
                         0.0,
                         1.0,
                       );
-                      final entranceScale = 0.97 + 0.03 * routeValue;
+                      final entranceScale = 0.92 + 0.08 * routeValue;
                       final dragScale = 1 - dragFraction * 0.12;
                       return Opacity(
                         opacity: routeValue * (1 - dragFraction * 0.35),
