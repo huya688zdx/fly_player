@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:photo_view/photo_view.dart';
@@ -1739,6 +1740,7 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox>
   bool _dragging = false;
   final ValueNotifier<double> _dragOffset = ValueNotifier<double>(0);
   Animation<double>? _dragBackAnim;
+  VelocityTracker? _dragVelocityTracker;
 
   @override
   void initState() {
@@ -1808,7 +1810,11 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox>
   }
 
   // 拖拽关闭：未放大时启用，上下两个方向都可以拖、都能触发关闭。
-  // 永不卡住的保证来自 build() 里的 Listener 兜底（见 _handlePointerFinished）。
+  //
+  // 拖拽的「开始/移动」沿用 GestureDetector（它能自动让出水平翻页、缩放手势），
+  // 但「收尾」完全交给 build() 里的 Listener —— Listener 不进手势竞技场，
+  // onPointerUp/onPointerCancel 一定会回调，photo_view 抢不走，图片永不卡住。
+  // 速度也用自己的 VelocityTracker 计算，不再依赖 onVerticalDragEnd。
   void _handleDismissStart(DragStartDetails details) {
     _dragResetController.stop();
     _dragBackAnim = null;
@@ -1822,37 +1828,25 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox>
     _dragOffset.value += details.delta.dy;
   }
 
-  void _handleDismissEnd(DragEndDetails details) {
-    if (!_dragging) {
-      return;
-    }
-    _dragging = false;
-    _resolveDrag(velocity: details.velocity.pixelsPerSecond.dy);
+  void _handlePointerDown(PointerDownEvent event) {
+    _dragVelocityTracker = VelocityTracker.withKind(event.kind)
+      ..addPosition(event.timeStamp, event.position);
   }
 
-  // 手势被取消（如被 photo_view 抢走或指针取消）也要回弹，否则图片会卡在偏移处。
-  void _handleDismissCancel() {
-    if (!_dragging) {
-      return;
-    }
-    _dragging = false;
-    _resolveDrag(velocity: 0);
+  void _handlePointerMove(PointerMoveEvent event) {
+    _dragVelocityTracker?.addPosition(event.timeStamp, event.position);
   }
 
-  // 兜底：无论手势竞技场把竖向拖拽判给了谁，指针抬起/取消时 Listener 一定能收到。
-  // 这里延后一帧——给 GestureDetector 的 onVerticalDragEnd 先处理的机会；若一帧后
-  // 仍处于拖拽态，说明 end 回调被吞掉了，由这里强制收尾，确保图片不会卡在偏移处。
+  // 指针抬起/取消的兜底收尾：只要拖拽过就在这里结算，确保不会卡在偏移处。
   void _handlePointerFinished(PointerEvent event) {
+    final tracker = _dragVelocityTracker;
+    _dragVelocityTracker = null;
     if (!_dragging) {
       return;
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_dragging) {
-        return;
-      }
-      _dragging = false;
-      _resolveDrag(velocity: 0);
-    });
+    _dragging = false;
+    final velocity = tracker?.getVelocity().pixelsPerSecond.dy ?? 0;
+    _resolveDrag(velocity: velocity);
   }
 
   // 根据当前偏移与速度决定关闭还是回弹（上下方向对称）。
@@ -2056,6 +2050,8 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox>
                 Positioned.fill(
                   child: Listener(
                     behavior: HitTestBehavior.translucent,
+                    onPointerDown: _handlePointerDown,
+                    onPointerMove: _handlePointerMove,
                     onPointerUp: _handlePointerFinished,
                     onPointerCancel: _handlePointerFinished,
                     child: ValueListenableBuilder<double>(
@@ -2068,10 +2064,6 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox>
                         onVerticalDragUpdate: _isZoomed
                             ? null
                             : _handleDismissUpdate,
-                        onVerticalDragEnd: _isZoomed ? null : _handleDismissEnd,
-                        onVerticalDragCancel: _isZoomed
-                            ? null
-                            : _handleDismissCancel,
                         child: _buildGallery(),
                       ),
                       builder: (context, dragOffset, child) {
