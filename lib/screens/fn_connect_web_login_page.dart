@@ -8,6 +8,59 @@ import '../api/feiniu_api.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/login_error_resolver.dart';
 
+class FnConnectWebLoginEntry {
+  static const String officialPrimaryHost = '5ddd.com';
+  static const String officialSecondaryHost = 'fnos.net';
+
+  final String initialUrl;
+  final String officialUrl;
+  final List<String> cookieHosts;
+
+  const FnConnectWebLoginEntry({
+    required this.initialUrl,
+    required this.officialUrl,
+    required this.cookieHosts,
+  });
+
+  bool get usesRelayEntry => initialUrl != officialUrl;
+
+  static FnConnectWebLoginEntry resolve({
+    required String fnConnectId,
+    required List<String> relayHosts,
+  }) {
+    final normalizedFnId = fnConnectId.trim();
+    final officialUrl = 'https://$officialPrimaryHost/$normalizedFnId';
+    final relayUrl = relayHosts
+        .map(_originFromRelayHost)
+        .firstWhere((value) => value.isNotEmpty, orElse: () => '');
+    final relayHost = relayUrl.isEmpty ? '' : Uri.parse(relayUrl).host;
+    final hosts = <String>{
+      if (relayHost.isNotEmpty) relayHost,
+      officialPrimaryHost,
+      officialSecondaryHost,
+    }.toList(growable: false);
+
+    return FnConnectWebLoginEntry(
+      initialUrl: relayUrl.isNotEmpty ? relayUrl : officialUrl,
+      officialUrl: officialUrl,
+      cookieHosts: hosts,
+    );
+  }
+
+  static String _originFromRelayHost(String rawHost) {
+    final trimmed = rawHost.trim();
+    if (trimmed.isEmpty) return '';
+    final candidate = trimmed.contains('://') ? trimmed : 'https://$trimmed';
+    final uri = Uri.tryParse(candidate);
+    if (uri == null || uri.host.isEmpty) return '';
+    return Uri(
+      scheme: uri.scheme.isEmpty ? 'https' : uri.scheme,
+      host: uri.host,
+      port: uri.hasPort ? uri.port : null,
+    ).toString().replaceAll(RegExp(r'/$'), '');
+  }
+}
+
 class FnConnectWebLoginPageResult {
   final LoginWithBaseUrlResult? loginResult;
   final String? errorMessage;
@@ -25,12 +78,14 @@ class FnConnectWebLoginPage extends StatefulWidget {
   final String fnConnectId;
   final String userName;
   final String password;
+  final List<String> relayHosts;
 
   const FnConnectWebLoginPage({
     super.key,
     required this.fnConnectId,
     required this.userName,
     required this.password,
+    this.relayHosts = const <String>[],
   });
 
   @override
@@ -39,27 +94,30 @@ class FnConnectWebLoginPage extends StatefulWidget {
 
 class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
   static const String _bridgeName = 'FnConnectBridge';
-  static const String _relayEntryHost = '5ddd.com';
 
   final WebViewCookieManager _cookieManager = WebViewCookieManager();
 
+  late final FnConnectWebLoginEntry _entry;
   late final WebViewController _controller;
 
   bool _isReady = false;
   bool _isClosing = false;
   bool _isFetchingOauthConfig = false;
   bool _isExchangingCode = false;
+  bool _didFallbackToOfficialEntry = false;
   int _progress = 0;
   String _statusText = 'Opening FN Connect...';
   String _cookieString = '';
   String _resolvedBaseUrl = '';
   String _lastSigninUrl = '';
 
-  String get _entryUrl => 'https://$_relayEntryHost/${widget.fnConnectId}';
-
   @override
   void initState() {
     super.initState();
+    _entry = FnConnectWebLoginEntry.resolve(
+      fnConnectId: widget.fnConnectId,
+      relayHosts: widget.relayHosts,
+    );
     _controller = WebViewController();
     unawaited(_initialize());
   }
@@ -97,6 +155,10 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
           },
           onWebResourceError: (error) {
             if ((error.isForMainFrame ?? false) && mounted && !_isClosing) {
+              if (_entry.usesRelayEntry && !_didFallbackToOfficialEntry) {
+                unawaited(_fallbackToOfficialEntry());
+                return;
+              }
               setState(() {
                 _statusText = error.description;
               });
@@ -113,18 +175,30 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
           unawaited(_handleBridgeMessage(message.message));
         },
       );
-      await _cookieManager.setCookie(
-        const WebViewCookie(
-          name: 'mode',
-          value: 'relay',
-          domain: _relayEntryHost,
-          path: '/',
-        ),
-      );
-      await _controller.loadRequest(Uri.parse(_entryUrl));
+      await _setRelayCookiesForEntryHosts();
+      await _controller.loadRequest(Uri.parse(_entry.initialUrl));
     } catch (error) {
       _completeFailure(LoginErrorResolver.resolve(error));
     }
+  }
+
+  Future<void> _setRelayCookiesForEntryHosts() async {
+    for (final host in _entry.cookieHosts) {
+      await _cookieManager.setCookie(
+        WebViewCookie(name: 'mode', value: 'relay', domain: host, path: '/'),
+      );
+    }
+  }
+
+  Future<void> _fallbackToOfficialEntry() async {
+    if (_isClosing || _didFallbackToOfficialEntry) return;
+    _didFallbackToOfficialEntry = true;
+    if (mounted) {
+      setState(() {
+        _statusText = 'Loading ${_friendlyUrl(_entry.officialUrl)}';
+      });
+    }
+    await _controller.loadRequest(Uri.parse(_entry.officialUrl));
   }
 
   Future<void> _injectBridgeScript() async {

@@ -290,6 +290,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           fnConnectId: fnConnectId,
           userName: userName,
           password: password,
+          relayHosts:
+              error.diagnostic.discovery?.relayHosts ?? const <String>[],
         ),
         fullscreenDialog: true,
       ),
@@ -584,9 +586,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                                       ),
                                     ),
                                   )
-                                : Text(
-                                    l10n.connectionLogin,
-                                  ),
+                                : Text(l10n.connectionLogin),
                           ),
                         ),
                         const SizedBox(height: 10),
