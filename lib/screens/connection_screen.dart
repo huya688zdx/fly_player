@@ -13,8 +13,21 @@ import '../utils/app_exception.dart';
 import '../utils/detail_top_tip.dart';
 import '../utils/login_error_resolver.dart';
 import '../services/login_history_store.dart';
+import '../services/fn_connect_web_session_service.dart';
 import 'download_list_screen.dart';
 import 'fn_connect_web_login_page.dart';
+import '../utils/app_confirm_dialog.dart';
+
+String effectivePersistedBaseUrlForLogin({
+  required String sourceBaseUrl,
+  required LoginWithBaseUrlResult loginResult,
+}) {
+  final resolvedBaseUrl = loginResult.resolvedBaseUrl.trim();
+  if (loginResult.usedFnConnect && resolvedBaseUrl.isNotEmpty) {
+    return resolvedBaseUrl;
+  }
+  return sourceBaseUrl;
+}
 
 class ConnectionScreen extends StatefulWidget {
   const ConnectionScreen({super.key});
@@ -192,9 +205,15 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     required String password,
     required LoginWithBaseUrlResult loginResult,
   }) async {
+    final persistedBaseUrl = effectivePersistedBaseUrlForLogin(
+      sourceBaseUrl: sourceBaseUrl,
+      loginResult: loginResult,
+    );
     await context.read<NasProvider>().updateSettings(
-      baseUrl: sourceBaseUrl,
-      resolvedBaseUrl: loginResult.resolvedBaseUrl,
+      baseUrl: persistedBaseUrl,
+      resolvedBaseUrl: loginResult.usedFnConnect
+          ? ''
+          : loginResult.resolvedBaseUrl,
       userName: userName,
       password: password,
       rememberPassword: _rememberPassword,
@@ -257,6 +276,46 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       _rememberPassword = selected.rememberPassword;
       _useHttps = _looksLikeHttps(selected.baseUrl);
     });
+  }
+
+  Future<void> _resetFnConnectWebLoginState() async {
+    if (_isSubmitting) return;
+    final confirmed = await showAppConfirmDialog(
+      context,
+      title: '重新登录 FN Connect',
+      content: '将清除 FN Connect 网页登录态，并退出当前连接。服务器地址、用户名和已记住的密码会保留，之后可重新发起网页登录。',
+      cancelText: '取消',
+      confirmText: '清除并重新登录',
+      confirmColor: context.appColors.warning,
+    );
+    if (!mounted || !confirmed) return;
+    setState(() {
+      _isSubmitting = true;
+    });
+    try {
+      await FnConnectWebSessionService.clearLoginState();
+      if (mounted) {
+        await context.read<NasProvider>().logout();
+      }
+      if (!mounted) return;
+      _showTopTip('已清除 FN Connect 网页登录态，请重新登录', context.appColors.accent);
+    } catch (error, stackTrace) {
+      await AppErrorReporter.report(
+        error,
+        action: 'clear fn connect web login state',
+        source: 'connection_screen',
+        stackTrace: stackTrace,
+        fallbackKind: AppExceptionKind.transient,
+      );
+      if (!mounted) return;
+      _showTopTip('清除 FN Connect 网页登录态失败，请重试', context.appColors.danger);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
+      }
+    }
   }
 
   Future<void> _openDownloadedData() async {
@@ -591,22 +650,56 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                         ),
                         const SizedBox(height: 10),
                         Center(
-                          child: TextButton(
-                            onPressed: _openDownloadedData,
-                            style: TextButton.styleFrom(
-                              foregroundColor: const Color(0xFF8FA6C7),
-                              minimumSize: Size.zero,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 6,
+                          child: Wrap(
+                            alignment: WrapAlignment.center,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            spacing: 10,
+                            runSpacing: 2,
+                            children: [
+                              TextButton(
+                                onPressed: _openDownloadedData,
+                                style: TextButton.styleFrom(
+                                  foregroundColor: const Color(0xFF8FA6C7),
+                                  minimumSize: Size.zero,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 6,
+                                  ),
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                  textStyle: theme.textTheme.bodySmall
+                                      ?.copyWith(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                ),
+                                child: Text(l10n.connectionOpenDownloads),
                               ),
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              textStyle: theme.textTheme.bodySmall?.copyWith(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
+                              TextButton(
+                                onPressed: _isSubmitting
+                                    ? null
+                                    : _resetFnConnectWebLoginState,
+                                style: TextButton.styleFrom(
+                                  foregroundColor: const Color(0xFFB6A06A),
+                                  disabledForegroundColor: const Color(
+                                    0xFF5D5A52,
+                                  ),
+                                  minimumSize: Size.zero,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 6,
+                                  ),
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                  textStyle: theme.textTheme.bodySmall
+                                      ?.copyWith(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                ),
+                                child: const Text('重新登录 FN Connect'),
                               ),
-                            ),
-                            child: Text(l10n.connectionOpenDownloads),
+                            ],
                           ),
                         ),
                       ],

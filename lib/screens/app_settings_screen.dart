@@ -8,12 +8,18 @@ import '../player/mpv_settings_l10n.dart';
 import '../player/stores/mpv_settings_store.dart';
 import '../providers/app_locale_provider.dart';
 import '../providers/app_theme_provider.dart';
+import '../providers/nas_provider.dart';
 import '../providers/parallel_window_settings_provider.dart';
 import '../services/embedded_detail_launcher.dart';
+import '../services/fn_connect_web_session_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_theme_l10n.dart';
 import '../ui/adaptive_text.dart';
 import '../ui/app_transitions.dart';
+import '../utils/app_confirm_dialog.dart';
+import '../utils/app_error_reporter.dart';
+import '../utils/app_exception.dart';
+import '../utils/app_top_tip.dart';
 import 'mpv_player_settings_screen.dart';
 import 'screenshot_settings_screen.dart';
 import 'settings_search_screen.dart';
@@ -117,6 +123,43 @@ class AppSettingsScreen extends StatelessWidget {
         );
       },
     );
+  }
+
+  Future<void> _resetFnConnectWebLoginState(BuildContext context) async {
+    final confirmed = await showAppConfirmDialog(
+      context,
+      title: '重新登录 FN Connect',
+      content: '将清除 FN Connect 网页登录态，并退出当前连接。服务器地址、用户名和已记住的密码会保留，之后可重新发起网页登录。',
+      cancelText: '取消',
+      confirmText: '清除并重新登录',
+      confirmColor: context.appColors.warning,
+    );
+    if (!context.mounted || !confirmed) return;
+
+    try {
+      await FnConnectWebSessionService.clearLoginState();
+      if (!context.mounted) return;
+      AppTopTip().show(
+        context,
+        message: '已清除 FN Connect 网页登录态，请重新登录',
+        color: context.appColors.accent,
+      );
+      await context.read<NasProvider>().logout();
+    } catch (error, stackTrace) {
+      await AppErrorReporter.report(
+        error,
+        action: 'clear fn connect web login state',
+        source: 'app_settings_screen',
+        stackTrace: stackTrace,
+        fallbackKind: AppExceptionKind.transient,
+      );
+      if (!context.mounted) return;
+      AppTopTip().show(
+        context,
+        message: '清除 FN Connect 网页登录态失败，请重试',
+        color: context.appColors.danger,
+      );
+    }
   }
 
   Future<void> _openSettingsSearch(
@@ -250,6 +293,22 @@ class AppSettingsScreen extends StatelessWidget {
         keywords: _keywords(l10n.settingsLogKeywords),
         onSelect: () =>
             _openSettingsDestination(context, SettingsDestinationRoutes.logs),
+      ),
+      SettingsSearchEntry(
+        id: 'fn_connect_relogin',
+        title: '重新登录 FN Connect',
+        subtitle: '清除 FN Connect 网页登录态并退出当前连接',
+        location: l10n.settingsLocationRoot,
+        keywords: const <String>[
+          'FN Connect',
+          'fnos',
+          '飞牛',
+          '网页',
+          '网页登录态',
+          '重新登录',
+          '远程访问',
+        ],
+        onSelect: () => _resetFnConnectWebLoginState(context),
       ),
       SettingsSearchEntry(
         id: 'bookmark_manager',
@@ -689,6 +748,17 @@ class AppSettingsScreen extends StatelessWidget {
                                         context,
                                         SettingsDestinationRoutes.logs,
                                       ),
+                                    );
+                                  },
+                                ),
+                                const _SettingsGroupDivider(),
+                                _SettingsEntryTile(
+                                  icon: Icons.cloud_sync_outlined,
+                                  title: '重新登录 FN Connect',
+                                  subtitle: '清除网页登录态并退出当前连接',
+                                  onTap: () {
+                                    unawaited(
+                                      _resetFnConnectWebLoginState(context),
                                     );
                                   },
                                 ),
