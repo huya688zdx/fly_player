@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -115,8 +113,7 @@ class TvSeasonDownloadSheet extends StatefulWidget {
     void Function(String episodeGuid, String quality)? onEpisodeDownloadTap,
     required VoidCallback onOpenDownloadListTap,
   }) async {
-    // 震动 fire-and-forget，不阻塞弹窗弹出（await 会让 sheet 推迟一个平台通道往返）。
-    unawaited(HapticFeedback.mediumImpact());
+    await HapticFeedback.mediumImpact();
     if (!context.mounted) return;
     await showModalBottomSheet<void>(
       context: context,
@@ -380,20 +377,22 @@ class _TvSeasonDownloadSheetState extends State<TvSeasonDownloadSheet> {
                 )
               else
                 Flexible(
-                  child: _DownloadEpisodeListSection(
-                    ranges: episodeRanges,
-                    selectedRangeIndex: safeRangeIndex,
-                    onRangeSelected: (index) {
-                      setState(() => _selectedRangeIndex = index);
-                    },
-                    visibleEntries: visibleEntries,
-                    token: payload.token,
-                    downloadLabel: payload.downloadLabel,
-                    downloadingLabel: payload.downloadingLabel,
-                    downloadedLabel: payload.downloadedLabel,
-                    pausedLabel: payload.pausedLabel,
-                    actionStates: _localActionStates,
-                    onEpisodeDownloadTap: _handleEpisodeDownloadTap,
+                  child: SingleChildScrollView(
+                    child: _DownloadEpisodeListSection(
+                      ranges: episodeRanges,
+                      selectedRangeIndex: safeRangeIndex,
+                      onRangeSelected: (index) {
+                        setState(() => _selectedRangeIndex = index);
+                      },
+                      visibleEntries: visibleEntries,
+                      token: payload.token,
+                      downloadLabel: payload.downloadLabel,
+                      downloadingLabel: payload.downloadingLabel,
+                      downloadedLabel: payload.downloadedLabel,
+                      pausedLabel: payload.pausedLabel,
+                      actionStates: _localActionStates,
+                      onEpisodeDownloadTap: _handleEpisodeDownloadTap,
+                    ),
                   ),
                 ),
               const SizedBox(height: 16),
@@ -572,54 +571,33 @@ class _DownloadEpisodeListSection extends StatelessWidget {
     required this.onEpisodeDownloadTap,
   });
 
-  // 行高恒定：Container(padding 12×2=24) + 内部 SizedBox(height 72) = 96，加行间距 14 = 110。
-  // 用固定 itemExtent 让 ListView 懒加载（不必测量全部行）；ConstrainedBox 夹一层 maxHeight=
-  // 内容总高，使少集时列表自适应收缩、不留空白，多集时落到 Flexible 给的剩余空间内滚动。
-  static const double _rowExtent = 110;
-
   @override
   Widget build(BuildContext context) {
-    final hasTabs = ranges.length > 1;
-    final listContentHeight = visibleEntries.length * _rowExtent;
     return Column(
-      mainAxisSize: MainAxisSize.min,
       children: [
-        if (hasTabs) ...[
+        if (ranges.length > 1)
           _DownloadRangeTabs(
             ranges: ranges,
             selectedIndex: selectedRangeIndex,
             onTap: onRangeSelected,
           ),
-          const SizedBox(height: 14),
-        ],
-        Flexible(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxHeight: listContentHeight),
-            child: ListView.builder(
-              padding: EdgeInsets.zero,
-              itemExtent: _rowExtent,
-              itemCount: visibleEntries.length,
-              itemBuilder: (context, i) {
-                final entry = visibleEntries[i];
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 14),
-                  child: _DownloadEpisodeRow(
-                    key: ValueKey<String>(entry.guid),
-                    entry: entry,
-                    token: token,
-                    downloadLabel: downloadLabel,
-                    downloadingLabel: downloadingLabel,
-                    downloadedLabel: downloadedLabel,
-                    pausedLabel: pausedLabel,
-                    actionState:
-                        actionStates[entry.guid] ?? DownloadActionState.idle,
-                    onDownloadTap: () => onEpisodeDownloadTap(entry.guid),
-                  ),
-                );
-              },
-            ),
+        if (ranges.length > 1) const SizedBox(height: 14),
+        for (int i = 0; i < visibleEntries.length; i++) ...[
+          _DownloadEpisodeRow(
+            key: ValueKey<String>(visibleEntries[i].guid),
+            entry: visibleEntries[i],
+            token: token,
+            downloadLabel: downloadLabel,
+            downloadingLabel: downloadingLabel,
+            downloadedLabel: downloadedLabel,
+            pausedLabel: pausedLabel,
+            actionState:
+                actionStates[visibleEntries[i].guid] ??
+                DownloadActionState.idle,
+            onDownloadTap: () => onEpisodeDownloadTap(visibleEntries[i].guid),
           ),
-        ),
+          if (i != visibleEntries.length - 1) const SizedBox(height: 14),
+        ],
       ],
     );
   }

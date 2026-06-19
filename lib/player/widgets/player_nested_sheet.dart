@@ -200,20 +200,13 @@ class _PlayerNestedSheetHostState<T> extends State<_PlayerNestedSheetHost<T>> {
       initialPageId: widget.initialPageId,
       closeWithResult: (result) =>
           AppSheetTransitions.close<T>(context, result),
-    )..addListener(_handleControllerChanged);
+    );
   }
 
   @override
   void dispose() {
-    _controller.removeListener(_handleControllerChanged);
     _controller.dispose();
     super.dispose();
-  }
-
-  void _handleControllerChanged() {
-    if (mounted) {
-      setState(() {});
-    }
   }
 
   @override
@@ -225,16 +218,10 @@ class _PlayerNestedSheetHostState<T> extends State<_PlayerNestedSheetHost<T>> {
     final sheetHeight = isLandscape
         ? null
         : math.max(300.0, media.size.height * 0.45);
-    final currentPage = _pageById[_controller.currentPageId];
-    if (currentPage == null) {
-      throw FlutterError(
-        'Missing nested sheet page: ${_controller.currentPageId}',
-      );
-    }
-    final activeKey = ValueKey<String>(
-      '${_controller.currentPageId}:${_controller.version}',
-    );
 
+    // 外壳（barrier / 定位 / 背景）保持静态：仅在尺寸或主题变化时重建。
+    // 页面切换与 refresh() 通过下方的 ListenableBuilder 只重建内容子树，
+    // 避免每次点击层级都重建整张抽屉的外壳。
     return Material(
       color: Colors.transparent,
       child: Stack(
@@ -264,30 +251,9 @@ class _PlayerNestedSheetHostState<T> extends State<_PlayerNestedSheetHost<T>> {
                   ),
                 ),
                 child: ClipRect(
-                  child: AnimatedSwitcher(
-                    duration: AppMotion.sheetTransition,
-                    switchInCurve: AppMotion.sheetEnterCurve,
-                    switchOutCurve: AppMotion.sheetExitCurve,
-                    layoutBuilder: (currentChild, previousChildren) {
-                      return currentChild ??
-                          (previousChildren.isNotEmpty
-                              ? previousChildren.last
-                              : const SizedBox.shrink());
-                    },
-                    transitionBuilder: (child, animation) {
-                      return _buildPageTransition(
-                        child: child,
-                        animation: animation,
-                        isCurrent: child.key == activeKey,
-                        isForward: _controller.isForward,
-                      );
-                    },
-                    child: KeyedSubtree(
-                      key: activeKey,
-                      child: RepaintBoundary(
-                        child: currentPage.builder(context, _controller),
-                      ),
-                    ),
+                  child: ListenableBuilder(
+                    listenable: _controller,
+                    builder: (context, _) => _buildAnimatedContent(context),
                   ),
                 ),
               ),
@@ -295,7 +261,44 @@ class _PlayerNestedSheetHostState<T> extends State<_PlayerNestedSheetHost<T>> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildAnimatedContent(BuildContext context) {
+    final currentPage = _pageById[_controller.currentPageId];
+    if (currentPage == null) {
+      throw FlutterError(
+        'Missing nested sheet page: ${_controller.currentPageId}',
       );
+    }
+    final activeKey = ValueKey<String>(
+      '${_controller.currentPageId}:${_controller.version}',
+    );
+    return AnimatedSwitcher(
+      duration: AppMotion.nestedSheetPageTransition,
+      switchInCurve: AppMotion.sheetEnterCurve,
+      switchOutCurve: AppMotion.sheetExitCurve,
+      layoutBuilder: (currentChild, previousChildren) {
+        return currentChild ??
+            (previousChildren.isNotEmpty
+                ? previousChildren.last
+                : const SizedBox.shrink());
+      },
+      transitionBuilder: (child, animation) {
+        return _buildPageTransition(
+          child: child,
+          animation: animation,
+          isCurrent: child.key == activeKey,
+          isForward: _controller.isForward,
+        );
+      },
+      child: KeyedSubtree(
+        key: activeKey,
+        child: RepaintBoundary(
+          child: currentPage.builder(context, _controller),
+        ),
+      ),
+    );
   }
 
   Widget _buildPageTransition({
@@ -366,7 +369,8 @@ class _NestedPageTransitionState extends State<_NestedPageTransition> {
   void didUpdateWidget(covariant _NestedPageTransition oldWidget) {
     super.didUpdateWidget(oldWidget);
     final animationChanged = oldWidget.animation != widget.animation;
-    final paramsChanged = oldWidget.isCurrent != widget.isCurrent ||
+    final paramsChanged =
+        oldWidget.isCurrent != widget.isCurrent ||
         oldWidget.isForward != widget.isForward;
     if (animationChanged) {
       _curved.dispose();
@@ -402,6 +406,12 @@ class _NestedPageTransitionState extends State<_NestedPageTransition> {
 
   @override
   Widget build(BuildContext context) {
-    return SlideTransition(position: _offset, child: widget.child);
+    // 关键：进/出页面都做淡入淡出。AnimatedSwitcher 会让退出页的动画反向
+    // (1→0)，所以同一个 _curved 既能让进入页淡入、又能让退出页淡出，
+    // 退出页不再保持全不透明，避免转场期间两张整页 + 视频纹理三层叠加过绘。
+    return FadeTransition(
+      opacity: _curved,
+      child: SlideTransition(position: _offset, child: widget.child),
+    );
   }
 }
