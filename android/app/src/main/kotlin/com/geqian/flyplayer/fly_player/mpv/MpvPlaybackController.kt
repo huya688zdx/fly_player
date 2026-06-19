@@ -45,6 +45,13 @@ private const val PERFORMANCE_FALLBACK_MAX_LEVEL = 4
 private const val SURFACE_TRANSITION_GRACE_MS = 2500L
 private const val VISUAL_PLAYBACK_PROGRESS_FALLBACK_MS = 900L
 private const val ENABLE_MPV_VERBOSE_LOGS = false
+// mpv 错误/警告级日志转发到 Flutter 应用内日志的去重窗口与单条上限，避免高频 log 灌爆
+// MethodChannel 与日志列表。同一 "prefix|message" 在窗口内只上报一次。
+private const val LOG_FORWARD_DEDUP_WINDOW_MS = 15000L
+private const val LOG_FORWARD_MAX_MESSAGE_CHARS = 1000
+// 属性探测类噪声(如 chapter-list/0/time not found)对排障无价值，转发前过滤掉。
+private val LOG_FORWARD_BENIGN_PATTERNS =
+    listOf("property not found", "property unavailable", "property not available")
 private const val DEFAULT_SUBTITLE_POSITION = 92
 private val VISUAL_PLAYBACK_RESET_STATUSES =
     setOf(
@@ -2488,7 +2495,51 @@ class MpvPlaybackController(
                     ),
                 )
             }
+            maybeForwardLogToFlutter(prefix, level, message, lowerMessage)
         }
+    }
+
+    // 同一 playbackThread 内访问，无需额外同步。键=prefix|message，值=上次转发时刻。
+    private val forwardedLogTimestamps =
+        object : LinkedHashMap<String, Long>(32, 0.75f, false) {
+            override fun removeEldestEntry(
+                eldest: MutableMap.MutableEntry<String, Long>,
+            ): Boolean = size > 64
+        }
+
+    /**
+     * 把 mpv 的 error/warn 级日志(level<=2)经反向通道送进 Flutter 应用内日志，使设置→日志
+     * 界面能看到原生播放内核的报错。过滤属性探测噪声、去重并限长；无 host 绑定时 dispatch
+     * 自行降级丢弃，不影响播放。
+     */
+    private fun maybeForwardLogToFlutter(
+        prefix: String,
+        level: Int,
+        message: String,
+        lowerMessage: String,
+    ) {
+        if (level > 2 || message.isEmpty()) return
+        if (LOG_FORWARD_BENIGN_PATTERNS.any { lowerMessage.contains(it) }) return
+        val key = "$prefix|$message"
+        val now = SystemClock.elapsedRealtime()
+        val last = forwardedLogTimestamps[key]
+        if (last != null && now - last < LOG_FORWARD_DEDUP_WINDOW_MS) return
+        forwardedLogTimestamps[key] = now
+        val trimmed =
+            if (message.length > LOG_FORWARD_MAX_MESSAGE_CHARS) {
+                message.substring(0, LOG_FORWARD_MAX_MESSAGE_CHARS) + "…"
+            } else {
+                message
+            }
+        NativePlayerReverseBridge.dispatch(
+            "recordNativeLog",
+            mapOf(
+                "level" to if (level <= 1) "error" else "warning",
+                "source" to "mpv",
+                "prefix" to prefix,
+                "message" to trimmed,
+            ),
+        )
     }
 
     private fun maybeMarkVisualPlaybackReady(lowerMessage: String) {

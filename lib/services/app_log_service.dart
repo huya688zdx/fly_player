@@ -127,6 +127,22 @@ class AppLogService extends ChangeNotifier {
 
   AppLogEntry? get latestEntry => _entries.isEmpty ? null : _entries.first;
 
+  /// 是否存在可导出的内容：内存条目，或磁盘上的崩溃 journal 文件非空。
+  /// 用于导出按钮放行——避免「只有原生崩溃、无 Dart 条目」时被误判为无日志。
+  bool get hasExportableLogs {
+    if (_entries.isNotEmpty) return true;
+    return _crashJournalHasContent(_runtimeCrashJournalFile()) ||
+        _crashJournalHasContent(_nativeCrashJournalFile());
+  }
+
+  bool _crashJournalHasContent(File file) {
+    try {
+      return file.existsSync() && file.readAsStringSync().trim().isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// 初始化日志服务并从本地存储恢复历史记录。
   Future<void> initialize() {
     if (_initialized) return Future<void>.value();
@@ -142,24 +158,154 @@ class AppLogService extends ChangeNotifier {
   Future<void> _loadFromStorage() async {
     try {
       final raw = await _readPersistedRaw();
-      if (raw == null || raw.trim().isEmpty) return;
-      final decoded = await compute(_decodeLogEntries, raw);
-      if (decoded == null) return;
-      _entries
-        ..clear()
-        ..addAll(
-          decoded
-              .map(AppLogEntry.fromJson)
-              .where((entry) => entry.message.trim().isNotEmpty),
-        );
-      _entries.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-      if (_entries.length > _maxEntries) {
-        _entries.removeRange(_maxEntries, _entries.length);
+      if (raw != null && raw.trim().isNotEmpty) {
+        final decoded = await compute(_decodeLogEntries, raw);
+        if (decoded != null) {
+          _entries
+            ..clear()
+            ..addAll(
+              decoded
+                  .map(AppLogEntry.fromJson)
+                  .where((entry) => entry.message.trim().isNotEmpty),
+            );
+          _entries.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+          if (_entries.length > _maxEntries) {
+            _entries.removeRange(_maxEntries, _entries.length);
+          }
+          notifyListeners();
+        }
       }
-      notifyListeners();
     } catch (_) {
       _entries.clear();
     }
+    // JSON 主存只保存 Dart 侧条目；原生崩溃(Kotlin UncaughtExceptionHandler)与被硬
+    // 崩溃截断、未来得及异步 _persist 的 runtime 条目都只落在崩溃日志文件里。这里把
+    // 两个 journal 解析合并进 _entries，让设置→日志界面能直接看到原生崩溃。
+    await _mergeCrashJournals();
+  }
+
+  /// 解析原生 / runtime 崩溃日志文件，去重后并入内存日志列表。
+  Future<void> _mergeCrashJournals() async {
+    final merged = <AppLogEntry>[
+      ..._parseCrashJournalFile(_nativeCrashJournalFile()),
+      ..._parseCrashJournalFile(_runtimeCrashJournalFile()),
+    ];
+    if (merged.isEmpty) return;
+    final keys = _entries.map(_dedupKey).toSet();
+    var added = false;
+    for (final entry in merged) {
+      if (keys.add(_dedupKey(entry))) {
+        _entries.add(entry);
+        added = true;
+      }
+    }
+    if (!added) return;
+    _entries.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    if (_entries.length > _maxEntries) {
+      _entries.removeRange(_maxEntries, _entries.length);
+    }
+    notifyListeners();
+    // 持久化到 JSON 主存，使其在 journal 触顶轮换(256KB 清空)后仍存活。
+    unawaited(_persist());
+  }
+
+  // 崩溃 journal 与 _entries 时间精度不同(journal 仅到秒)，用「级别+秒级时间+消息」
+  // 作为去重键；runtime journal 多为 _entries 的镜像，借此过滤掉重复项。
+  String _dedupKey(AppLogEntry entry) =>
+      '${entry.level.name}|${_formatTimestamp(entry.timestamp)}|${entry.message.trim()}';
+
+  List<AppLogEntry> _parseCrashJournalFile(File file) {
+    try {
+      if (!file.existsSync()) return const <AppLogEntry>[];
+      final content = file.readAsStringSync();
+      if (content.trim().isEmpty) return const <AppLogEntry>[];
+      return _parseCrashJournal(content);
+    } catch (_) {
+      return const <AppLogEntry>[];
+    }
+  }
+
+  // journal 块以 "[级别] 时间戳 ..." 行开头(Kotlin 用 [native])；消息可能多行，故以
+  // header 行而非空行切块，避免多行消息被截断。
+  static final RegExp _journalHeaderPattern = RegExp(
+    r'^\[(error|warning|info|native)\]\s+'
+    r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(?:\s+(.*))?$',
+  );
+
+  List<AppLogEntry> _parseCrashJournal(String content) {
+    final blocks = <List<String>>[];
+    List<String>? current;
+    for (final raw in content.split('\n')) {
+      final line = raw.endsWith('\r') ? raw.substring(0, raw.length - 1) : raw;
+      if (_journalHeaderPattern.hasMatch(line)) {
+        current = <String>[line];
+        blocks.add(current);
+      } else {
+        current?.add(line);
+      }
+    }
+    final result = <AppLogEntry>[];
+    for (var i = 0; i < blocks.length; i++) {
+      final entry = _parseCrashJournalBlock(blocks[i], i);
+      if (entry != null) result.add(entry);
+    }
+    return result;
+  }
+
+  AppLogEntry? _parseCrashJournalBlock(List<String> block, int index) {
+    if (block.isEmpty) return null;
+    final header = _journalHeaderPattern.firstMatch(block.first);
+    if (header == null) return null;
+    final timestamp = DateTime.tryParse(
+      header.group(2)!.replaceFirst(' ', 'T'),
+    );
+    if (timestamp == null) return null;
+    final tag = header.group(1)!;
+    final rest = header.group(3)?.trim() ?? '';
+    final isNative = tag == 'native';
+    final level = isNative
+        ? AppLogLevel.error
+        : AppLogLevel.values.firstWhere(
+            (value) => value.name == tag,
+            orElse: () => AppLogLevel.error,
+          );
+    final source = isNative ? 'native' : (rest.isEmpty ? 'app' : rest);
+
+    final messageLines = <String>[];
+    final stackLines = <String>[];
+    final detailParts = <String>[if (isNative && rest.isNotEmpty) rest];
+    var inStack = false;
+    for (var i = 1; i < block.length; i++) {
+      final line = block[i];
+      if (inStack) {
+        stackLines.add(line);
+        continue;
+      }
+      if (line == 'stackTrace:') {
+        inStack = true;
+        continue;
+      }
+      final detail = RegExp(r'^details:\s?(.*)$').firstMatch(line);
+      if (detail != null) {
+        final value = detail.group(1)?.trim() ?? '';
+        if (value.isNotEmpty) detailParts.add(value);
+        continue;
+      }
+      messageLines.add(line);
+    }
+
+    final message = messageLines.join('\n').trim();
+    if (message.isEmpty) return null;
+    final stack = stackLines.join('\n').trim();
+    return AppLogEntry(
+      id: 'journal_${timestamp.microsecondsSinceEpoch}_$index',
+      timestamp: timestamp,
+      level: level,
+      source: source,
+      message: message,
+      details: detailParts.isEmpty ? null : detailParts.join(' | '),
+      stackTraceText: stack.isEmpty ? null : stack,
+    );
   }
 
   /// 读持久化原文：优先文件；文件不存在则从旧 SharedPreferences **迁移一次**到文件，
