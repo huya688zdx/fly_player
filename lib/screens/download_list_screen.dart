@@ -93,7 +93,7 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
 
   Future<void> _handleGroupLongPress(String groupId) async {
     if (_selectedTab != DownloadListTab.downloaded) return;
-    unawaited(HapticFeedback.mediumImpact());
+    await HapticFeedback.mediumImpact();
     if (!mounted) return;
     setState(() {
       _editing = true;
@@ -643,7 +643,7 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
 
   Future<void> _handleRecordLongPress(String recordId) async {
     if (_selectedTab != DownloadListTab.downloaded) return;
-    unawaited(HapticFeedback.mediumImpact());
+    await HapticFeedback.mediumImpact();
     if (!mounted) return;
     setState(() {
       _editing = true;

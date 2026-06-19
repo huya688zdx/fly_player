@@ -602,14 +602,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         // 配色对齐 app 主题（默认蓝 accent，与 Flutter 播放器进度条同色）。
         // 含符号位的 ARGB 字面量是 Long，须 .toInt()，故用 val 而非 const val。
         private val ACCENT = 0xFF3A82F7.toInt()
-        private val SCRIM_TOP = 0xB3000000.toInt() // 顶部信息栏渐变起点
-        private val SCRIM_BOTTOM = 0xCC000000.toInt() // 底部控制条渐变终点
-        private val PILL_BG = 0x99000000.toInt() // 中央提示/状态药丸底色
-        private const val GLASS_BG = 0x3D000000 // 毛玻璃按钮底色（~24% 黑）
-        private const val GLASS_STROKE = 0x24FFFFFF // 毛玻璃按钮描边（~14% 白）
-        private const val TRACK_BG = 0x1FFFFFFF // 进度条底槽（~12% 白）
-        private const val TRACK_BUFFERED = 0x40FFFFFF // 缓冲进度（~25% 白）
-        private val TEXT_DIM = 0xA6FFFFFF.toInt() // 次要文字（~65% 白）
+        private val SCRIM_TOP = 0x8A000000.toInt() // 顶部信息栏渐变起点
+        private val SCRIM_BOTTOM = 0xD6000000.toInt() // 底部控制条渐变终点
+        private val PILL_BG = 0xB0060A10.toInt() // 中央提示/状态药丸底色
+        private const val GLASS_BG = 0x66081018 // 毛玻璃按钮底色（~40% 深蓝黑）
+        private const val GLASS_STROKE = 0x2EFFFFFF // 毛玻璃按钮描边
+        private const val TRACK_BG = 0x24FFFFFF // 进度条底槽
+        private const val TRACK_BUFFERED = 0x52FFFFFF // 缓冲进度
+        private val TEXT_DIM = 0xB8FFFFFF.toInt() // 次要文字
+        private val ACCENT_SOFT = 0x333A82F7
         private val PANEL_BG = 0xCC000000.toInt()
         private val ITEM_SELECTED_BG = 0x333A82F7.toInt()
         // 与 Flutter shared_preferences 共享的播放列表视图偏好键（plugin 自带 `flutter.` 前缀）。
@@ -634,6 +635,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private lateinit var speedButton: TextView
     private lateinit var qualityButton: TextView
     private lateinit var episodeEntryButton: TextView
+    private var episodeEntryDivider: View? = null
     private lateinit var displayModeButton: ImageButton
 
     private lateinit var panelContainer: FrameLayout
@@ -1442,7 +1444,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val color = if (active) ACCENT else Color.WHITE
         when (btn) {
             is ImageButton -> btn.setColorFilter(color)
-            is TextView -> btn.setTextColor(color)
+            is TextView -> {
+                btn.setTextColor(color)
+                if (this::danmakuToggleButton.isInitialized && btn === danmakuToggleButton) {
+                    btn.background = subtlePressBackground()
+                }
+            }
         }
     }
 
@@ -1478,6 +1485,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun splitSupported(): Boolean {
         if (Build.VERSION.SDK_INT < 32) return false
+        // 手机（smallestWidth < 600dp）即使系统报 SPLIT_AVAILABLE 也不该分屏：屏太窄，
+        // ActivityEmbedding 会把副栏盖满、把播放器挤到后台。手机上按钮退化为横竖屏切换。
+        if (!isTablet()) return false
         return runCatching {
             androidx.window.embedding.SplitController.getInstance(this).splitSupportStatus ==
                 androidx.window.embedding.SplitController.SplitSupportStatus.SPLIT_AVAILABLE
@@ -2275,7 +2285,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
         // 侧边锁定按钮
         lockButton = ImageButton(this).apply {
-            background = glassBackground()
+            background = subtlePressBackground()
             setImageResource(R.drawable.ic_player_lock_open)
             setColorFilter(Color.WHITE)
             setPadding(dp(10), dp(10), dp(10), dp(10))
@@ -2318,12 +2328,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             // 只取稳定的刘海/挖孔 inset。导航栏 inset 在全屏↔分屏 resize 过渡里会瞬时跳变(出现又被
             // 沉浸式隐藏)，若底栏跟它走，进度条就会上下抖一下；播放器本就隐藏系统栏，故底栏改用 cutout。
             val cutout = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
-            topBar.setPadding(dp(12) + cutout.left, dp(10) + cutout.top, dp(12) + cutout.right, dp(14))
+            topBar.setPadding(dp(18) + cutout.left, dp(12) + cutout.top, dp(18) + cutout.right, dp(18))
             bottomBar.setPadding(
-                dp(18) + cutout.left,
-                dp(10),
-                dp(18) + cutout.right,
-                dp(12) + cutout.bottom,
+                dp(22) + cutout.left,
+                dp(14),
+                dp(22) + cutout.right,
+                dp(18) + cutout.bottom,
             )
             // 面板右侧补齐 cutout
             panelContainer.setPadding(0, 0, bars.right, 0)
@@ -2365,7 +2375,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = scrimBackground(GradientDrawable.Orientation.TOP_BOTTOM, SCRIM_TOP)
-            setPadding(dp(12), dp(10), dp(12), dp(14))
+            setPadding(dp(18), dp(12), dp(18), dp(18))
             isClickable = true
         }
 
@@ -2379,9 +2389,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val timeView = android.widget.TextClock(this).apply {
             format12Hour = "HH:mm"
             format24Hour = "HH:mm"
-            setTextColor(Color.WHITE)
+            setTextColor(TEXT_DIM)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
+            includeFontPadding = false
         }
         sysInfoRow.addView(timeView)
 
@@ -2391,15 +2402,17 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         sysInfoRow.addView(sysSpacer)
 
         networkLabel = TextView(this).apply {
-            setTextColor(Color.WHITE)
+            setTextColor(TEXT_DIM)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            includeFontPadding = false
             setPadding(dp(6), 0, 0, 0)
         }
         sysInfoRow.addView(networkLabel)
 
         batteryLabel = TextView(this).apply {
-            setTextColor(Color.WHITE)
+            setTextColor(TEXT_DIM)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            includeFontPadding = false
             setPadding(dp(10), 0, 0, 0)
         }
         sysInfoRow.addView(batteryLabel)
@@ -2408,7 +2421,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         container.addView(sysInfoRow, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
 
         // 间距
-        container.addView(View(this), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(8)))
+        container.addView(View(this), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(10)))
 
         // --- 2. 标题与操作栏 (底部) ---
         val mainRow = LinearLayout(this).apply {
@@ -2417,14 +2430,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
 
         val backButton = ImageButton(this).apply {
-            background = glassBackground()
+            background = subtlePressBackground()
             setImageResource(R.drawable.ic_player_arrow_back)
             setColorFilter(Color.WHITE)
             scaleType = android.widget.ImageView.ScaleType.CENTER_INSIDE
-            setPadding(dp(8), dp(8), dp(8), dp(8))
+            setPadding(dp(10), dp(10), dp(10), dp(10))
             setOnClickListener { finish() }
         }
-        mainRow.addView(backButton, LinearLayout.LayoutParams(dp(38), dp(38)))
+        mainRow.addView(backButton, LinearLayout.LayoutParams(dp(42), dp(42)))
 
         // 状态标签组
         val statusLayout = LinearLayout(this).apply {
@@ -2439,11 +2452,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 text = "已下载"
                 setTextColor(Color.WHITE)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+                includeFontPadding = false
                 background = GradientDrawable().apply {
-                    setColor(0x33FFFFFF)
-                    cornerRadius = dp(4).toFloat()
+                    setColor(ACCENT_SOFT)
+                    cornerRadius = dp(999).toFloat()
                 }
-                setPadding(dp(6), dp(2), dp(6), dp(2))
+                setPadding(dp(8), dp(3), dp(8), dp(3))
             }
             statusLayout.addView(chip)
             statusLayout.addView(View(this), dp(8), 1)
@@ -2451,10 +2465,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
         titleLabel = TextView(this).apply {
             setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
+            includeFontPadding = false
 
             // 构建标题：剧集名 + 季 + 集
             val sTitle = loadArgsMap["seriesTitle"]?.toString().orEmpty()
@@ -2476,6 +2491,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val iconActions = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), 0, 0, 0)
         }
 
         // 小窗（画中画）：仅手机显示，平板隐藏；系统不支持 PIP 也隐藏。
@@ -2504,7 +2520,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = scrimBackground(GradientDrawable.Orientation.BOTTOM_TOP, SCRIM_BOTTOM)
-            setPadding(dp(18), dp(10), dp(18), dp(12))
+            setPadding(dp(22), dp(14), dp(22), dp(18))
             isClickable = true
         }
 
@@ -2522,7 +2538,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             progressDrawable = buildSeekBarTrack()
             thumb = buildSeekBarThumb()
             splitTrack = false
-            setPadding(dp(12), dp(12), dp(12), dp(12))
+            thumbOffset = dp(8)
+            setPadding(dp(12), dp(14), dp(12), dp(14))
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
                     if (fromUser && lastDurationMs > 0) {
@@ -2568,7 +2585,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
         progressRow.addView(
             seekWrap,
-            LinearLayout.LayoutParams(0, dp(40), 1f),
+            LinearLayout.LayoutParams(0, dp(44), 1f),
         )
 
         durationLabel = makeTimeLabel("00:00", Color.WHITE)
@@ -2576,15 +2593,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
         // 全屏/分屏（或横竖屏）切换按钮：紧贴时长右侧。
         displayModeButton = ImageButton(this).apply {
-            background = null
+            background = subtlePressBackground()
             setColorFilter(Color.WHITE)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
-            setPadding(dp(6), dp(6), dp(6), dp(6))
+            setPadding(dp(9), dp(9), dp(9), dp(9))
             setOnClickListener { onDisplayModeButtonClick() }
         }
         progressRow.addView(
             displayModeButton,
-            LinearLayout.LayoutParams(dp(40), dp(40)).apply { leftMargin = dp(4) },
+            LinearLayout.LayoutParams(dp(38), dp(38)).apply { leftMargin = dp(8) },
         )
         refreshDisplayModeButton()
 
@@ -2594,58 +2611,87 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val controlRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(2), 0, 0)
         }
 
         // 播放按钮
         playPauseButton = ImageButton(this).apply {
-            background = null
+            background = subtlePressBackground()
             setImageResource(R.drawable.ic_player_play)
-            setColorFilter(Color.WHITE)
+            setColorFilter(ACCENT)
             scaleType = android.widget.ImageView.ScaleType.CENTER_INSIDE
+            setPadding(dp(8), dp(8), dp(8), dp(8))
             setOnClickListener { togglePlayPause() }
         }
-        controlRow.addView(playPauseButton, LinearLayout.LayoutParams(dp(48), dp(48)))
+        controlRow.addView(playPauseButton, LinearLayout.LayoutParams(dp(50), dp(50)))
 
         // 下一集按钮
         val nextButton = ImageButton(this).apply {
-            background = null
+            background = subtlePressBackground()
             setImageResource(R.drawable.ic_player_next)
             scaleType = android.widget.ImageView.ScaleType.CENTER_INSIDE
             setColorFilter(Color.WHITE)
+            setPadding(dp(9), dp(9), dp(9), dp(9))
             setOnClickListener { playNextEpisode() }
         }
-        controlRow.addView(nextButton, LinearLayout.LayoutParams(dp(48), dp(48)))
+        controlRow.addView(nextButton, LinearLayout.LayoutParams(dp(42), dp(42)).apply { leftMargin = dp(8) })
 
         // 弹幕开关 (对应截图底栏左侧图标)
         danmakuToggleButton = TextView(this).apply {
             text = "弹幕"
             setTextColor(if (danmakuEnabled) ACCENT else Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            includeFontPadding = false
             gravity = Gravity.CENTER
-            setPadding(dp(10), dp(10), dp(10), dp(10))
+            background = subtlePressBackground()
+            setPadding(dp(12), dp(8), dp(12), dp(8))
             isClickable = true
             setOnClickListener { setDanmakuEnabled(!danmakuEnabled) }
         }
-        controlRow.addView(danmakuToggleButton)
+        controlRow.addView(
+            danmakuToggleButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { leftMargin = dp(10) },
+        )
 
         // 占位撑开
         controlRow.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
 
-        // 右侧功能键
-        controlRow.addView(makeEntryButton("重载") { reloadCurrentSource() })
+        // 右侧功能键：统一收进一条轻量控制条，避免一排独立胶囊抢画面。
+        val actionStrip = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = null
+            setPadding(0, 0, 0, 0)
+        }
+        val episodeSpacer = controlActionSpacer()
+        episodeEntryDivider = episodeSpacer
+        fun addActionButton(view: TextView) {
+            if (actionStrip.childCount > 0) {
+                actionStrip.addView(controlActionSpacer())
+            }
+            actionStrip.addView(view)
+        }
+
+        addActionButton(makeEntryButton("重载") { reloadCurrentSource() })
         // 选集/多版本入口：多集→「选集」；单集(电影)有多版本→「多版本」；单集单版本→隐藏。
         episodeEntryButton = makeEntryButton("选集") { onEpisodeEntryClick() }
-        controlRow.addView(episodeEntryButton)
+        actionStrip.addView(episodeSpacer)
+        actionStrip.addView(episodeEntryButton)
         refreshEpisodeEntryButton()
 
         speedButton = makeEntryButton("1.0x") { showSpeedPicker() }
-        controlRow.addView(speedButton)
+        addActionButton(speedButton)
 
-        controlRow.addView(makeEntryButton("音轨") { showAudioPanel() })
-        controlRow.addView(makeEntryButton("字幕") { showSubtitlePanel() })
+        addActionButton(makeEntryButton("音轨") { showAudioPanel() })
+        addActionButton(makeEntryButton("字幕") { showSubtitlePanel() })
 
         qualityButton = makeEntryButton(currentQualityLabel()) { showQualityPanel() }
-        controlRow.addView(qualityButton)
+        addActionButton(qualityButton)
+        controlRow.addView(actionStrip)
 
         bar.addView(
             controlRow,
@@ -2765,13 +2811,43 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun makeIconButton(text: String, onClick: () -> Unit): View {
+        val iconRes = when (text) {
+            "小窗" -> R.drawable.ic_player_pip
+            "听视频" -> R.drawable.ic_player_listen_video
+            "截图" -> R.drawable.ic_player_screenshot
+            "弹幕设置" -> R.drawable.ic_player_danmaku_settings
+            "更多" -> R.drawable.ic_player_more
+            else -> 0
+        }
+        if (iconRes != 0) {
+            return ImageButton(this).apply {
+                contentDescription = text
+                background = subtlePressBackground()
+                setImageResource(iconRes)
+                setColorFilter(Color.WHITE)
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+                setPadding(dp(9), dp(9), dp(9), dp(9))
+                isClickable = true
+                layoutParams = LinearLayout.LayoutParams(dp(38), dp(38)).apply {
+                    leftMargin = dp(8)
+                }
+                setOnClickListener { onClick() }
+            }
+        }
         return TextView(this).apply {
             this.text = text
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            includeFontPadding = false
             gravity = Gravity.CENTER
-            setPadding(dp(12), dp(8), dp(12), dp(8))
+            background = subtlePressBackground()
+            setPadding(dp(11), dp(8), dp(11), dp(8))
             isClickable = true
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                dp(38),
+            ).apply { leftMargin = dp(8) }
             setOnClickListener { onClick() }
         }
     }
@@ -3434,12 +3510,17 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             0 -> {
                 episodeEntryButton.text = "选集"
                 episodeEntryButton.visibility = View.VISIBLE
+                episodeEntryDivider?.visibility = View.VISIBLE
             }
             1 -> {
                 episodeEntryButton.text = "多版本"
                 episodeEntryButton.visibility = View.VISIBLE
+                episodeEntryDivider?.visibility = View.VISIBLE
             }
-            else -> episodeEntryButton.visibility = View.GONE
+            else -> {
+                episodeEntryButton.visibility = View.GONE
+                episodeEntryDivider?.visibility = View.GONE
+            }
         }
     }
 
@@ -4087,7 +4168,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun makeTimeLabel(text: String, color: Int): TextView {
         return TextView(this).apply {
             setTextColor(color)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            includeFontPadding = false
+            minWidth = dp(44)
+            gravity = Gravity.CENTER
             this.text = text
         }
     }
@@ -4104,14 +4189,17 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             text = label
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            includeFontPadding = false
             gravity = Gravity.CENTER
-            background = glassBackground()
-            setPadding(dp(12), dp(7), dp(12), dp(7))
+            background = subtlePressBackground()
+            minWidth = dp(48)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
             isClickable = true
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-            ).apply { leftMargin = dp(8) }
+                dp(34),
+            )
             setOnClickListener { onClick() }
         }
     }
@@ -7476,15 +7564,35 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun pillBackground(): GradientDrawable = GradientDrawable().apply {
         shape = GradientDrawable.RECTANGLE
-        cornerRadius = dp(10).toFloat()
+        cornerRadius = dp(16).toFloat()
         setColor(PILL_BG)
     }
 
-    private fun glassBackground(): GradientDrawable = GradientDrawable().apply {
+    private fun glassBackground(
+        cornerDp: Int = 14,
+        fillColor: Int = GLASS_BG,
+    ): GradientDrawable = GradientDrawable().apply {
         shape = GradientDrawable.RECTANGLE
-        cornerRadius = dp(12).toFloat()
-        setColor(GLASS_BG)
-        setStroke(maxOf(1, dp(1)), GLASS_STROKE)
+        cornerRadius = dp(cornerDp).toFloat()
+        setColor(fillColor)
+    }
+
+    private fun controlActionSpacer(): View {
+        return View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(12), 1)
+        }
+    }
+
+    private fun subtlePressBackground(): android.graphics.drawable.Drawable {
+        return android.graphics.drawable.StateListDrawable().apply {
+            val pressed = GradientDrawable().apply {
+                cornerRadius = dp(12).toFloat()
+                setColor(0x22FFFFFF)
+            }
+            val normal = android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)
+            addState(intArrayOf(android.R.attr.state_pressed), pressed)
+            addState(intArrayOf(), normal)
+        }
     }
 
     private fun scrimBackground(
@@ -7492,17 +7600,17 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         edgeColor: Int,
     ): GradientDrawable = GradientDrawable(
         orientation,
-        intArrayOf(edgeColor, Color.TRANSPARENT),
+        intArrayOf(edgeColor, 0x66000000, Color.TRANSPARENT),
     )
 
     private fun trackPiece(color: Int): GradientDrawable = GradientDrawable().apply {
         shape = GradientDrawable.RECTANGLE
-        cornerRadius = dp(2).toFloat()
+        cornerRadius = dp(999).toFloat()
         setColor(color)
     }
 
     private fun buildSeekBarTrack(): LayerDrawable {
-        val trackH = dp(4)
+        val trackH = dp(3)
         val bg = trackPiece(TRACK_BG)
         val buffered = ClipDrawable(
             trackPiece(TRACK_BUFFERED),
@@ -7524,7 +7632,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun buildSeekBarThumb(): GradientDrawable = GradientDrawable().apply {
         shape = GradientDrawable.OVAL
         setColor(Color.WHITE)
-        setSize(dp(13), dp(13))
+        setSize(dp(16), dp(16))
     }
 
     // ---- 状态 → UI ----
