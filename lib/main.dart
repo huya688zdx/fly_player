@@ -39,6 +39,7 @@ import 'theme/dynamic_theme_runtime_controller.dart';
 import 'theme/dynamic_theme_seed_extractor.dart';
 import 'ui/adaptive_text.dart';
 import 'ui/app_transitions.dart';
+import 'ui/media_poster_card.dart';
 import 'ui/route_transition_gate.dart';
 import 'utils/private_network_http_overrides.dart';
 
@@ -72,6 +73,8 @@ void main() {
       HttpOverrides.global = PrivateNetworkHttpOverrides();
       await DynamicThemeSeedExtractor.warmUpPersistentCache();
       await DynamicThemeRuntimeController.instance.warmUpPersistentCache();
+      // 预热海报卡 SVG 角标/徽章，削平首屏滚动时的解析尖峰（不阻塞启动）。
+      unawaited(MediaPosterCard.precacheBadgeIcons());
       ErrorWidget.builder = (_) {
         return Material(
           color: AppThemePalette.fallback.backgroundBase,
