@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 
 /// DanDanPlay 请求错误码。
@@ -115,7 +116,7 @@ class DanDanPlayApi {
           if (episode != null) 'episode': episode,
           if (tmdbId != null) 'tmdbId': tmdbId,
         },
-        options: Options(headers: _buildHeaders(secret)),
+        options: Options(headers: _buildHeaders(secret, path)),
       ),
     );
     _throwIfBusinessError(response.data);
@@ -136,7 +137,7 @@ class DanDanPlayApi {
           if (withRelated) 'withRelated': 'true',
         },
         options: Options(
-          headers: _buildHeaders(secret),
+          headers: _buildHeaders(secret, path),
           responseType: ResponseType.plain,
         ),
       ),
@@ -191,7 +192,7 @@ class DanDanPlayApi {
         );
   }
 
-  Map<String, String> _buildHeaders(String secret) {
+  Map<String, String> _buildHeaders(String secret, String path) {
     final normalizedAppId = appId.trim();
     final normalizedSecret = secret.trim();
     if (normalizedAppId.isEmpty || normalizedSecret.isEmpty) {
@@ -200,9 +201,17 @@ class DanDanPlayApi {
         message: 'DanDanPlay AppId / AppSecret is not configured.',
       );
     }
+    // 弹弹 Play 开放平台鉴权：X-AppId + X-Timestamp + X-Signature。
+    // 签名 = base64(sha256(appId + timestamp + apiPath + appSecret))，
+    // timestamp 为当前 Unix 秒，apiPath 为不含 query 的请求路径（如 /api/v2/search/episodes）。
+    final timestamp = (DateTime.now().millisecondsSinceEpoch ~/ 1000)
+        .toString();
+    final raw = '$normalizedAppId$timestamp$path$normalizedSecret';
+    final signature = base64.encode(sha256.convert(utf8.encode(raw)).bytes);
     return <String, String>{
       'X-AppId': normalizedAppId,
-      'X-AppSecret': normalizedSecret,
+      'X-Timestamp': timestamp,
+      'X-Signature': signature,
     };
   }
 

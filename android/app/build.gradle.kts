@@ -39,9 +39,9 @@ fun buildConfigString(value: String): String {
 
 val danDanPlayAppId = resolveSecretConfig("DANDANPLAY_APP_ID", "mgfbs9knmv")
 val danDanPlayAppSecret =
-    resolveSecretConfig("DANDANPLAY_APP_SECRET", "9XHIIK2RB9mh9YvUF8V9JECahuP9kG39")
+    resolveSecretConfig("DANDANPLAY_APP_SECRET", "***REMOVED-DANDANPLAY-SECRET***")
 val danDanPlayAppSecretFallback =
-    resolveSecretConfig("DANDANPLAY_APP_SECRET_FALLBACK", "IBhGjXBXSqspI6UPN5Rwr5mmf3JeqJx2")
+    resolveSecretConfig("DANDANPLAY_APP_SECRET_FALLBACK", "***REMOVED-DANDANPLAY-SECRET***")
 val debugKeystoreFile = rootProject.file("../.look/debug.keystore")
 
 android {

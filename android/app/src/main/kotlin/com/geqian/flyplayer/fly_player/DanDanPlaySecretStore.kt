@@ -62,10 +62,19 @@ class DanDanPlaySecretStore(private val context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
             return
         }
-        if (configFile.exists()) {
-            return
-        }
         val buildConfig = readInjectedBuildConfig() ?: return
+        if (configFile.exists()) {
+            // 自愈：缓存凭据与当前 BuildConfig 一致就沿用；不一致（如曾用错误密钥构建运行过，
+            // 旧值已加密落盘）则删旧缓存按当前 BuildConfig 重建，避免旧错值一直被使用导致签名失败。
+            val stored = loadStoredConfig(allowRebootstrap = false)
+            if (stored != null &&
+                stored.appId == buildConfig.appId &&
+                stored.appSecrets == buildConfig.appSecrets
+            ) {
+                return
+            }
+            clearConfig()
+        }
         val encryptedAppId = encrypt(buildConfig.appId)
         val payload =
             JSONObject()
