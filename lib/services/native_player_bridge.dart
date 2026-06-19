@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../danmaku/settings/danmaku_settings_store.dart';
 import '../player/stores/mpv_settings_store.dart';
 import '../providers/nas_provider.dart';
+import 'app_log_service.dart';
 import 'native_artwork_prefetch.dart';
 import 'native_danmaku_prefetch.dart';
 
@@ -210,6 +211,23 @@ class NativePlayerBridge {
             args.map((key, value) => MapEntry(key.toString(), value)),
           );
           return null;
+        case 'recordNativeLog':
+          // 原生 mpv 内核的 error/warn 级日志 → 写进应用内日志，使设置→日志界面能看到
+          // 播放内核报错。纯记录，不依赖 State/context。
+          final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          final message = (args['message'] ?? '').toString().trim();
+          if (message.isEmpty) return null;
+          final prefix = (args['prefix'] ?? '').toString().trim();
+          final source = (args['source'] ?? 'mpv').toString().trim();
+          await AppLogService.instance.record(
+            level: (args['level'] ?? 'error').toString() == 'warning'
+                ? AppLogLevel.warning
+                : AppLogLevel.error,
+            error: message,
+            source: source.isEmpty ? 'mpv' : source,
+            details: prefix.isEmpty ? null : 'prefix=$prefix',
+          );
+          return true;
         case 'searchDanmakuSource':
           // 纯网络（DanDanPlay 检索），不依赖 State/context，直接处理。
           final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
