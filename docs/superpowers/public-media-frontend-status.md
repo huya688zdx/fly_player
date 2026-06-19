@@ -10,21 +10,39 @@
 
 ## 负责人约定
 
-- Codex：架构边界、样板代码、最终集成、测试收口、提交。
-- Claude：调用点清单、字段映射表、mapper 测试、简单页面迁移草案。
+- Claude：主实现。负责公共模型、`MediaBackend` 接口、`FeiniuMediaBackend`、Provider、页面迁移框架和主要代码。
+- Codex：审查收口。负责架构漏洞排查、测试补充、小逻辑修复、边界问题、验证命令、提交检查。
 - User：确认阶段范围，决定是否扩大到详情页或播放器。
+
+## Claude 上下文压缩规则
+
+Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者上下文偏长时，需要停止继续执行，并回答：
+
+```text
+建议现在压缩上下文。以下是可用于压缩后的继续摘要：
+1. 当前目标：
+2. 已阅读文档：
+3. 已完成任务：
+4. 修改过的文件：
+5. 提交状态：
+6. 测试结果：
+7. 下一步：
+8. 明确不要做：
+```
+
+用户完成压缩或新开窗口后，再继续下一个 Task。
 
 ## 总进度
 
 | 阶段 | 状态 | 负责人 | 提交 | 验证 |
 | --- | --- | --- | --- | --- |
 | Phase 0: 设计和协作基线 | 完成 | Codex | 本次文档提交 | 文档自查通过 |
-| Phase 1: 公共模型和 Feiniu mapper | 未开始 | Codex 或 Claude |  | 单元测试 |
-| Phase 2: FeiniuMediaBackend 和 Provider | 未开始 | Codex |  | 单元测试 + analyze |
-| Phase 3: 首页迁移样板 | 未开始 | Codex |  | 首页测试 + 手动验证 |
-| Phase 4: 分类页和搜索页迁移 | 未开始 | Claude 草案，Codex 集成 |  | 页面测试 + 手动验证 |
-| Phase 5: 详情页迁移 | 未开始 | Codex |  | 电影/剧集详情手动验证 |
-| Phase 6: 播放入口迁移 | 未开始 | Codex |  | 播放、音轨、字幕验证 |
+| Phase 1: 公共模型和 Feiniu mapper | 未开始 | Claude 主实现，Codex 审查 |  | 单元测试 |
+| Phase 2: FeiniuMediaBackend 和 Provider | 未开始 | Claude 主实现，Codex 审查 |  | 单元测试 + analyze |
+| Phase 3: 首页迁移样板 | 未开始 | Claude 主实现，Codex 验证 |  | 首页测试 + 手动验证 |
+| Phase 4: 分类页和搜索页迁移 | 未开始 | Claude 主实现，Codex 审查 |  | 页面测试 + 手动验证 |
+| Phase 5: 详情页迁移 | 未开始 | Claude 主实现，Codex 审查 |  | 电影/剧集详情手动验证 |
+| Phase 6: 播放入口迁移 | 未开始 | Claude 主实现，Codex 深审 |  | 播放、音轨、字幕验证 |
 
 ## 当前可执行任务
 
@@ -33,18 +51,19 @@
 - [x] 写共享状态看板。
 - [ ] 用户确认是否按 Phase 1 开始实施。
 
-## Claude 可先做的独立任务
+## Claude 下一步任务
 
-- [ ] 扫描所有直接调用 `FeiniuApi(` 的文件，整理到本文档“调用点清单”。
-- [ ] 扫描页面使用 `MediaItem` / `MediaLibraryItem` 字段的位置，整理字段依赖表。
-- [ ] 根据计划 Task 3 编写 `feiniu_media_mappers_test.dart` 草案。
-- [ ] 标记哪些调用点属于飞牛专属能力，不能公共化。
+- [ ] 等用户确认后，从实施计划 Task 1 开始主实现。
+- [ ] 每完成一个 Task，运行计划里的对应测试。
+- [ ] 每完成一个 Task，更新本文档状态、测试结果、提交 hash。
+- [ ] 上下文偏长时输出压缩摘要并停止继续执行。
 
 ## Codex 下一步任务
 
-- [ ] 等用户确认后执行计划 Task 1。
-- [ ] 每个 Task 完成后跑对应测试。
-- [ ] 每个 Task 完成后更新本文档状态并提交。
+- [ ] 检查 Claude 已完成的 Task。
+- [ ] 查找公共模型泄漏、UI 分支、Provider 生命周期、测试缺口、夹带文件等问题。
+- [ ] 只做小范围修复或补测试。
+- [ ] 跑相关测试和 `flutter analyze`，把审查结果写回本文档。
 
 ## 调用点清单
 

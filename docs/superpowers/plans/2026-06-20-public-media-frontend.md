@@ -10,6 +10,35 @@
 
 ---
 
+## 协作分工
+
+后续执行采用 “Claude 主实现，Codex 审查收口”。
+
+- Claude：负责公共模型、接口、飞牛适配器、Provider、页面迁移框架和主要代码实现。
+- Codex：负责审查 Claude 的改动、找架构漏洞、补测试、小范围修复、跑验证命令和最终提交检查。
+- Claude 每完成一个 Task，必须更新 `docs/superpowers/public-media-frontend-status.md`，写明提交 hash、测试命令和下一步建议。
+- Codex 审查时优先检查公共模型是否泄漏飞牛/Emby 私有字段、UI 是否出现 `if (isEmby)`、是否夹带无关文件、测试是否覆盖核心映射。
+- 双方不要同时修改同一个文件；如果确实需要，先在状态看板写明当前文件归属。
+- 第一阶段仍然不接入 Emby API。
+
+## Claude 上下文压缩要求
+
+Claude Code 不会自动压缩上下文。Claude 完成一个 Task 或上下文偏长时，应停止继续执行并输出：
+
+```text
+建议现在压缩上下文。以下是可用于压缩后的继续摘要：
+1. 当前目标：
+2. 已阅读文档：
+3. 已完成任务：
+4. 修改过的文件：
+5. 提交状态：
+6. 测试结果：
+7. 下一步：
+8. 明确不要做：
+```
+
+用户完成压缩或新开窗口后，再继续下一个 Task。
+
 ## 文件结构
 
 - Create: `lib/media_backend/media_backend_kind.dart`
@@ -42,6 +71,10 @@
   - 使用 fake API 或 mapper 层测试验证适配器输出。
 
 ## Task 1: 公共后端类型和能力模型
+
+**主负责人:** Claude
+
+**审查负责人:** Codex
 
 **Files:**
 - Create: `lib/media_backend/media_backend_kind.dart`
@@ -121,6 +154,10 @@ git commit -m "feat: add media backend capabilities"
 ```
 
 ## Task 2: 公共首页模型
+
+**主负责人:** Claude
+
+**审查负责人:** Codex
 
 **Files:**
 - Create: `lib/media_backend/media_image_ref.dart`
@@ -257,6 +294,10 @@ git commit -m "feat: add public media frontend models"
 
 ## Task 3: Feiniu mapper
 
+**主负责人:** Claude
+
+**审查负责人:** Codex
+
 **Files:**
 - Create: `lib/media_backend/feiniu/feiniu_media_mappers.dart`
 - Test: `test/media_backend/feiniu_media_mappers_test.dart`
@@ -371,6 +412,10 @@ git commit -m "feat: map Feiniu media models to public frontend models"
 ```
 
 ## Task 4: MediaBackend 接口和飞牛适配器
+
+**主负责人:** Claude
+
+**审查负责人:** Codex
 
 **Files:**
 - Create: `lib/media_backend/media_backend.dart`
@@ -494,6 +539,10 @@ git commit -m "feat: add Feiniu media backend adapter"
 
 ## Task 5: Provider 注入，不迁移页面
 
+**主负责人:** Claude
+
+**审查负责人:** Codex
+
 **Files:**
 - Create: `lib/providers/media_backend_provider.dart`
 - Modify: `lib/main.dart`
@@ -544,6 +593,10 @@ git commit -m "feat: provide media backend abstraction"
 ```
 
 ## Task 6: 首页迁移样板
+
+**主负责人:** Claude
+
+**审查负责人:** Codex
 
 **Files:**
 - Modify: `lib/screens/media_list_screen.dart`
@@ -601,6 +654,10 @@ git commit -m "refactor: load home media through media backend"
 
 ## Task 7: 更新共享状态看板
 
+**主负责人:** 执行当前 Task 的模型
+
+**审查负责人:** Codex
+
 **Files:**
 - Modify: `docs/superpowers/public-media-frontend-status.md`
 
@@ -626,4 +683,3 @@ git commit -m "docs: update public media frontend status"
 - [ ] 首页视觉表现没有变化。
 - [ ] 飞牛登录、FN Connect、下载入口保持原状。
 - [ ] 每个完成任务都有提交 hash 写入状态看板。
-
