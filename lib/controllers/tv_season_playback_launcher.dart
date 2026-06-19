@@ -215,6 +215,12 @@ class TvSeasonPlaybackLauncher {
   }) async {
     final api = FeiniuApi(provider);
     final playInfo = await api.getPlayInfo(itemGuid);
+    // 多版本切换：带 qualityMediaGuid 时按该版本媒体取流（原画 + 该版本字幕/音轨），
+    // 否则用条目默认媒体 playInfo.mediaGuid。
+    final normalizedQualityMediaGuid = qualityMediaGuid?.trim() ?? '';
+    final effectiveMediaGuid = normalizedQualityMediaGuid.isNotEmpty
+        ? normalizedQualityMediaGuid
+        : playInfo.mediaGuid;
     StreamTrackData? trackData;
     try {
       trackData = await api.getStreamTrackData(itemGuid);
@@ -231,18 +237,27 @@ class TvSeasonPlaybackLauncher {
         ),
       );
     }
-    final playbackStream = await api.getPlaybackStream(playInfo.mediaGuid);
+    final playbackStream = await api.getPlaybackStream(effectiveMediaGuid);
     final mergedQualities = mergePlaybackQualitiesWithStreamTrackData(
       playbackStream.qualities,
       trackData,
     );
     PlaybackQualityOption? initialQuality;
-    final normalizedQualityMediaGuid = qualityMediaGuid?.trim() ?? '';
     if (normalizedQualityMediaGuid.isNotEmpty) {
+      // 切版本优先选该版本的原画档（isDefault/原画代理），保证走原画而不是转码档。
       for (final quality in mergedQualities) {
-        if (quality.mediaGuid.trim() == normalizedQualityMediaGuid) {
+        if (quality.mediaGuid.trim() == normalizedQualityMediaGuid &&
+            (quality.isDefault == 1 || quality.isOriginalProxy)) {
           initialQuality = quality;
           break;
+        }
+      }
+      if (initialQuality == null) {
+        for (final quality in mergedQualities) {
+          if (quality.mediaGuid.trim() == normalizedQualityMediaGuid) {
+            initialQuality = quality;
+            break;
+          }
         }
       }
     }
@@ -264,7 +279,7 @@ class TvSeasonPlaybackLauncher {
     );
     final subtitleTracks = PlayDetailTrackSelector.mergeSubtitleTracks(
       primaryTracks: playbackStream.subtitleStreams,
-      extraTracks: trackData?.subtitlesForMedia(playInfo.mediaGuid) ?? const [],
+      extraTracks: trackData?.subtitlesForMedia(effectiveMediaGuid) ?? const [],
     );
     final selectedSubtitle = overrideSubtitleGuid == null
         ? PlayDetailTrackSelector.selectedOrFirstSubtitle(
@@ -333,8 +348,8 @@ class TvSeasonPlaybackLauncher {
     final initialPlayback = await const PlayerSourceController()
         .buildInitialPlaybackResult(
           api: api,
-          directUrl: api.getStreamUrl(playInfo.mediaGuid),
-          mediaGuid: playInfo.mediaGuid,
+          directUrl: api.getStreamUrl(effectiveMediaGuid),
+          mediaGuid: effectiveMediaGuid,
           videoGuid: playbackVideoGuid,
           playbackStream: playbackStream,
           quality: initialQuality,
