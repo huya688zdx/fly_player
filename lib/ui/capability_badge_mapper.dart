@@ -18,6 +18,21 @@ class CapabilityBadgeMapper {
     return s;
   }
 
+  /// 全部可能用到的徽章 SVG 资产，供启动时预缓存 flutter_svg picture，
+  /// 避免首次滚入海报时在 UI 线程同步解析造成 build 尖峰。
+  static const List<String> allBadgeAssets = <String>[
+    'assets/icons/badge_4k.svg',
+    'assets/icons/badge_1080.svg',
+    'assets/icons/badge_720.svg',
+    'assets/icons/badge_480.svg',
+    'assets/icons/badge_sdr.svg',
+    'assets/icons/badge_hdr.svg',
+    'assets/icons/icons-dts.svg',
+    'assets/icons/a-dolbyatmos.svg',
+    'assets/icons/Dolby_Vision.svg',
+    'assets/icons/badge_stereo.svg',
+  ];
+
   static String? badgeAsset(String normalizedLabel) {
     switch (normalizedLabel) {
       case '4K':

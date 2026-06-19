@@ -45,57 +45,79 @@ class MediaPosterCard extends StatelessWidget {
     this.onLongPress,
   });
 
+  /// 启动时预热海报卡用到的 SVG（已观看角标 + 清晰度/音轨徽章）。flutter_svg
+  /// 首次渲染才解析并缓存 picture，预缓存可把这次解析从首屏滚动路径挪到启动，
+  /// 削平首次滚入时的 UI 线程 build 尖峰。失败静默忽略，不影响启动。
+  static Future<void> precacheBadgeIcons() async {
+    final assets = <String>[
+      'assets/icons/watched_selected.svg',
+      ...CapabilityBadgeMapper.allBadgeAssets,
+    ];
+    for (final asset in assets) {
+      try {
+        final loader = SvgAssetLoader(asset);
+        await svg.cache.putIfAbsent(
+          loader.cacheKey(null),
+          () => loader.loadBytes(null),
+        );
+      } catch (_) {
+        // 单个图标预热失败不阻断其余项
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final posterArea = heroTag == null || heroTag!.isEmpty
         ? _buildPosterArea()
         : Hero(tag: heroTag!, child: _buildPosterArea());
-    return RepaintBoundary(
-      child: InkWell(
-        onTap: onTap,
-        onLongPress: onLongPress,
-        borderRadius: BorderRadius.circular(10),
-        child: SizedBox(
-          width: double.infinity,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (expandImageToFit)
-                Expanded(
-                  child: SizedBox(width: double.infinity, child: posterArea),
-                )
-              else
-                SizedBox(width: double.infinity, child: posterArea),
-              const SizedBox(height: 3),
-              SizedBox(
-                width: double.infinity,
-                child: Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: colors.textPrimary,
-                    fontSize: titleFontSize,
-                    fontWeight: FontWeight.w700,
-                  ),
+    // 注意：本卡片始终被宿主 ListView/SliverGrid 以 addRepaintBoundaries:true
+    // 自动包裹一层 RepaintBoundary，故此处不再额外包裹，避免每卡多出一个冗余
+    // 合成层（首页横向行滚动时会放大 raster 合成开销）。
+    return InkWell(
+      onTap: onTap,
+      onLongPress: onLongPress,
+      borderRadius: BorderRadius.circular(10),
+      child: SizedBox(
+        width: double.infinity,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (expandImageToFit)
+              Expanded(
+                child: SizedBox(width: double.infinity, child: posterArea),
+              )
+            else
+              SizedBox(width: double.infinity, child: posterArea),
+            const SizedBox(height: 3),
+            SizedBox(
+              width: double.infinity,
+              child: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: colors.textPrimary,
+                  fontSize: titleFontSize,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
-              SizedBox(
-                width: double.infinity,
-                child: Text(
-                  subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: colors.textMuted,
-                    fontSize: subtitleFontSize,
-                    fontWeight: FontWeight.w700,
-                  ),
+            ),
+            SizedBox(
+              width: double.infinity,
+              child: Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: colors.textMuted,
+                  fontSize: subtitleFontSize,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -305,22 +327,35 @@ class _PosterImageState extends State<_PosterImage> {
     final url = widget.urls[_index];
     return LayoutBuilder(
       builder: (context, constraints) {
-        final dpr = MediaQuery.of(context).devicePixelRatio;
+        // devicePixelRatioOf 只订阅 dpr 这一项，避免每张卡因无关的 MediaQuery
+        // 变化（键盘、安全区等）被牵连重建。
+        final dpr = MediaQuery.devicePixelRatioOf(context);
         final cacheW = constraints.maxWidth.isFinite
             ? (constraints.maxWidth * dpr).round().clamp(120, 1200)
             : null;
-        // Only constrain cacheWidth, NOT cacheHeight.
-        // When both are set, Flutter decodes the image into a fixed-size box,
-        // which destroys the original aspect ratio and causes poster stretching
-        // or cropping when the image aspect doesn't match the container.
-        return Image.network(
-          url,
+        final cacheH = constraints.maxHeight.isFinite
+            ? (constraints.maxHeight * dpr).round().clamp(120, 1800)
+            : null;
+        // 同时给宽和高设上限，避免高图被解码成超大纹理——新行滚入时纹理
+        // 上传会占用 raster 线程，正是观测到的 maxRaster 尖峰来源。用
+        // ResizeImagePolicy.fit 在限制框内等比缩放，不会像默认 exact 策略那样
+        // 压扁画面破坏宽高比（最终显示仍由外层 BoxFit + 圆角裁剪负责）。
+        ImageProvider provider = NetworkImage(url, headers: _headers);
+        if (cacheW != null || cacheH != null) {
+          provider = ResizeImage(
+            provider,
+            width: cacheW,
+            height: cacheH,
+            policy: ResizeImagePolicy.fit,
+            allowUpscaling: false,
+          );
+        }
+        return Image(
+          image: provider,
           fit: widget.fit,
           alignment: Alignment.center,
           filterQuality: FilterQuality.none,
           gaplessPlayback: true,
-          cacheWidth: cacheW,
-          headers: _headers,
           frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
             final loaded = wasSynchronouslyLoaded || frame != null;
             if (loaded) return child;
