@@ -38,10 +38,12 @@ fun buildConfigString(value: String): String {
 }
 
 val danDanPlayAppId = resolveSecretConfig("DANDANPLAY_APP_ID", "mgfbs9knmv")
+// 密钥不再硬编码：从 local.properties / .look/local.properties / 环境变量注入。
+// 本地构建请在 android/local.properties 配置 DANDANPLAY_APP_SECRET(_FALLBACK)。
 val danDanPlayAppSecret =
-    resolveSecretConfig("DANDANPLAY_APP_SECRET", "***REMOVED-DANDANPLAY-SECRET***")
+    resolveSecretConfig("DANDANPLAY_APP_SECRET", "")
 val danDanPlayAppSecretFallback =
-    resolveSecretConfig("DANDANPLAY_APP_SECRET_FALLBACK", "***REMOVED-DANDANPLAY-SECRET***")
+    resolveSecretConfig("DANDANPLAY_APP_SECRET_FALLBACK", "")
 val debugKeystoreFile = rootProject.file("../.look/debug.keystore")
 
 android {
