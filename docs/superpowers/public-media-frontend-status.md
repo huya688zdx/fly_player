@@ -91,6 +91,16 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 - [ ] Task 5: MediaBackendProvider 注入 main.dart
 - [ ] Task 6: 首页 media_list_screen 迁移样板
 
+## Codex 审查记录
+
+- 2026-06-20 Task 1~4 审查：
+  - 审查提交：`ef6405c`、`f40f06a`、`e97112b`、`3986ef5`、`937af46`
+  - 结论：已提交的公共模型、Feiniu mapper、`MediaBackend` 接口和 `FeiniuMediaBackend` 适配器未发现阻塞问题；未发现 UI 中新增 `if (isEmby)`；未发现接入 Emby API；`FeiniuMediaBackend` 目前保持为薄适配层，没有夹带 UI 业务逻辑。
+  - 风险 1：`test/media_backend/feiniu_media_backend_test.dart` 当前只验证 capabilities，没有实际覆盖 `FeiniuMediaBackend` 对 `FeiniuApi` 的转发、分页参数和 mapper 输出。Task 5/6 迁移页面前，建议补一个可测试的 API seam，或让适配器依赖更小的协议接口。
+  - 风险 2：`MediaImageRef` 已有 headers 字段，但 Task 3/4 的 Feiniu mapper/adapter 目前输出空 headers。首页或详情页改为直接消费公共图片引用前，需要在 Feiniu 适配层补齐 NAS 图片鉴权 headers，避免迁移后封面预热/展示丢 token。
+  - 工作区检查：`git diff --cached --name-only` 为空；当前仍有大量非本任务未提交改动，Codex 未回滚、未暂存、未夹带。
+  - 验证：`flutter test test/media_backend/ --concurrency=1` → PASS；`flutter analyze lib/media_backend/` → No issues；`flutter analyze` → FAIL（38 条，均不在 `lib/media_backend`，包含既有/其它工作区文件的 duplicate import、unused、prefer_const 等）。
+
 ## Claude 下一步任务
 
 - [ ] 等用户确认后，从实施计划 Task 1 开始主实现。
