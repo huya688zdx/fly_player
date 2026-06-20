@@ -107,8 +107,15 @@ class FeiniuMediaBackend implements MediaBackend {
     } catch (_) {
       // 演职员失败不阻断详情展示（复刻详情页 best-effort 语义）。
     }
-    final genresMap = await api.getTagGenresMap(lan: 'zh-CN');
-    final regionNames = await api.getTagIso3166Map(lan: 'zh-CN');
+    // 题材 / 地区字典 best-effort：失败回空 map，详情仍可看（题材退化为原始 id），
+    // 复刻旧 play_detail_page 的 `.catchError((_) => const {})` 降级，避免字典请求
+    // 失败让整个详情打不开。
+    final genresMap = await api
+        .getTagGenresMap(lan: 'zh-CN')
+        .catchError((_) => const <int, String>{});
+    final regionNames = await api
+        .getTagIso3166Map(lan: 'zh-CN')
+        .catchError((_) => const <String, String>{});
     return mapFeiniuItemDetail(
       info,
       genresMap: genresMap,
