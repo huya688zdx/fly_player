@@ -7,7 +7,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api/feiniu_api.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../media_backend/media_item_card.dart';
 import '../models/media_library_item.dart';
+import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../theme/app_theme.dart';
@@ -46,7 +48,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Timer? _debounceTimer;
   Map<String, dynamic> _localeMap = <String, dynamic>{};
-  List<MediaLibraryItem> _results = const <MediaLibraryItem>[];
+  List<MediaItemCard> _results = const <MediaItemCard>[];
   List<String> _history = const <String>[];
   String _query = '';
   bool _isSearching = false;
@@ -143,7 +145,7 @@ class _SearchScreenState extends State<SearchScreen> {
       _query = value;
       _error = null;
       if (trimmed.isEmpty) {
-        _results = const <MediaLibraryItem>[];
+        _results = const <MediaItemCard>[];
         _isSearching = false;
       }
     });
@@ -163,9 +165,10 @@ class _SearchScreenState extends State<SearchScreen> {
       _error = null;
     });
     try {
-      final results = await FeiniuApi(
-        context.read<NasProvider>(),
-      ).searchList(trimmed);
+      final results = await context
+          .read<MediaBackendProvider>()
+          .backend
+          .searchItems(trimmed);
       if (!mounted || trimmed != _controller.text.trim()) return;
       setState(() {
         _results = results;
@@ -186,46 +189,80 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _replaceSearchItemLocally(
-    String itemGuid,
-    MediaLibraryItem Function(MediaLibraryItem item) transform,
+    String itemId,
+    MediaItemCard Function(MediaItemCard item) transform,
   ) {
     if (!mounted) return;
     setState(() {
       _results = _results
-          .map((item) => item.guid == itemGuid ? transform(item) : item)
+          .map((item) => item.id == itemId ? transform(item) : item)
           .toList(growable: false);
     });
   }
 
-  Future<void> _showPosterItemActions(MediaLibraryItem item) async {
+  Future<void> _showPosterItemActions(MediaItemCard item) async {
+    final actionItem = _cardToActionItem(item);
     await const MediaItemActionSheetController().show(
       context,
-      item: item,
-      title: MediaItemActionSheetController.defaultTitle(item),
+      item: actionItem,
+      title: MediaItemActionSheetController.defaultTitle(actionItem),
       localeMap: _localeMap,
       favoriteOnly: _isPersonItem(item),
-      initialWatched: item.watched == 1,
+      initialWatched: item.watched,
       onChanged: (state) {
         _replaceSearchItemLocally(
-          item.guid,
-          (current) => current.copyWith(watched: state.watched ? 1 : 0),
+          item.id,
+          (current) => current.copyWith(watched: state.watched),
         );
       },
     );
   }
 
-  bool _isPersonItem(MediaLibraryItem item) {
+  /// 动作面板仅消费 guid / watched / type / season&episode 编号与标题字段，
+  /// 这里按公共卡片回填一个最小 [MediaLibraryItem] 喂面板，避免在搜索页保留飞牛模型。
+  /// 仅限本文件使用，不向外扩散。
+  MediaLibraryItem _cardToActionItem(MediaItemCard card) {
+    return MediaLibraryItem(
+      guid: card.id,
+      title: card.title,
+      tvTitle: card.secondaryTitle,
+      type: card.type,
+      poster: card.primaryImage.url,
+      releaseDate: '',
+      firstAirDate: '',
+      lastAirDate: '',
+      voteAverage: '',
+      overview: '',
+      watched: card.watched ? 1 : 0,
+      watchedTs: 0,
+      ts: 0,
+      duration: 0,
+      seasonNumber: card.seasonNumber,
+      episodeNumber: card.episodeNumber,
+      numberOfSeasons: 0,
+      numberOfEpisodes: 0,
+      localNumberOfSeasons: 0,
+      localNumberOfEpisodes: 0,
+      parentGuid: '',
+      parentTitle: '',
+      ancestorGuid: '',
+      ancestorName: '',
+      path: '',
+    );
+  }
+
+  bool _isPersonItem(MediaItemCard item) {
     return item.type.trim().toLowerCase() == 'person';
   }
 
-  bool _isEpisodeItem(MediaLibraryItem item) {
+  bool _isEpisodeItem(MediaItemCard item) {
     return item.type.trim().toLowerCase() == 'episode';
   }
 
-  Future<void> _openItemDetail(MediaLibraryItem item) async {
-    if (item.guid.trim().isEmpty) return;
+  Future<void> _openItemDetail(MediaItemCard item) async {
+    if (item.id.trim().isEmpty) return;
     await AsyncActionGuard.run<void>(
-      'search_detail:${item.type.trim().toLowerCase()}:${item.guid.trim()}',
+      'search_detail:${item.type.trim().toLowerCase()}:${item.id.trim()}',
       settleDuration: const Duration(milliseconds: 450),
       action: () async {
         await _saveHistoryEntry(_controller.text);
@@ -234,7 +271,7 @@ class _SearchScreenState extends State<SearchScreen> {
           await Navigator.of(context).push(
             AppTransitions.leftToRightPageTurnRoute(
               PersonDetailScreen(
-                personGuid: item.guid,
+                personGuid: item.id,
                 initialName: item.displayTitle,
                 initialLocaleMap: _localeMap,
               ),
@@ -247,13 +284,13 @@ class _SearchScreenState extends State<SearchScreen> {
         try {
           initialDetail = await FeiniuApi(
             provider,
-          ).getItemDetail(item.guid).timeout(const Duration(milliseconds: 240));
+          ).getItemDetail(item.id).timeout(const Duration(milliseconds: 240));
         } catch (_) {}
         if (!mounted) return;
         await Navigator.of(context).push(
           AppTransitions.leftToRightPageTurnRoute(
             PlayDetailScreen(
-              itemGuid: item.guid,
+              itemGuid: item.id,
               heroTag: null,
               initialItemDetail: initialDetail,
             ),
@@ -267,7 +304,7 @@ class _SearchScreenState extends State<SearchScreen> {
     return date.length >= 4 ? date.substring(0, 4) : '';
   }
 
-  String _personSubtitle(MediaLibraryItem item) {
+  String _personSubtitle(MediaItemCard item) {
     final count = item.numberOfItem;
     if (count > 0) {
       return _t(
@@ -279,7 +316,7 @@ class _SearchScreenState extends State<SearchScreen> {
     return _t('common.other.empty', '\u6ca1\u6709\u5185\u5bb9');
   }
 
-  String _cardSubtitle(MediaLibraryItem item) {
+  String _cardSubtitle(MediaItemCard item) {
     if (_isPersonItem(item)) {
       return _personSubtitle(item);
     }
@@ -443,11 +480,11 @@ class _SearchScreenState extends State<SearchScreen> {
             itemCount: _results.length,
             itemBuilder: (context, index) {
               final item = _results[index];
-              final rating = double.tryParse(item.voteAverage);
+              final rating = double.tryParse(item.rating);
               return MediaPosterCard(
                 urls: _posterCandidates(
                   provider.baseUrl,
-                  item.poster,
+                  item.primaryImage.url,
                   width: layout.categoryGridRequestWidth,
                 ),
                 token: provider.token,
@@ -455,7 +492,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 subtitle: _cardSubtitle(item),
                 rating: rating,
                 resolutions: item.resolutions,
-                watched: item.watched == 1,
+                watched: item.watched,
                 imageHeight: layout.categoryGridImageHeight,
                 titleFontSize: layout.homePosterTitleFontSize,
                 subtitleFontSize: layout.homePosterSubtitleFontSize,
