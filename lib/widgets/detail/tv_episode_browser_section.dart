@@ -8,6 +8,7 @@ import '../../theme/app_theme.dart';
 import '../../theme/detail_tokens.dart';
 import '../../ui/app_transitions.dart';
 import '../../ui/media_detail_components.dart';
+import '../common/liquid_glass.dart';
 import 'capability_badge.dart';
 
 class TvEpisodeBrowserSection extends StatelessWidget {
@@ -81,13 +82,7 @@ class TvEpisodeBrowserSection extends StatelessWidget {
                 ),
                 const Spacer(),
                 DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: colors.surfaceStrong.withValues(alpha: 0.86),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: colors.borderSubtle.withValues(alpha: 0.9),
-                    ),
-                  ),
+                  decoration: liquidGlassDecoration(context, radius: 12),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,
@@ -255,12 +250,13 @@ class _RangeChips extends StatelessWidget {
               duration: AppTransitions.switchDuration,
               curve: Curves.easeOutCubic,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: selected ? colors.selectionSoft : colors.surface,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: selected ? colors.selection : colors.chipBorder,
-                ),
+              decoration: liquidGlassDecoration(
+                context,
+                radius: 10,
+                tone: selected
+                    ? LiquidGlassTone.accent
+                    : LiquidGlassTone.neutral,
+                selected: selected,
               ),
               child: Text(
                 '$start - $end',

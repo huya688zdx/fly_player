@@ -4,6 +4,7 @@ import '../../../l10n/generated/app_localizations.dart';
 import '../../../providers/app_theme_provider.dart';
 import '../../../theme/app_theme.dart';
 import '../../../theme/app_theme_l10n.dart';
+import '../../../theme/glass_quality.dart';
 import '../../../ui/adaptive_text.dart';
 import 'theme_settings_helpers.dart';
 
@@ -487,10 +488,11 @@ class ThemeSettingsDynamicThemePanel extends StatelessWidget {
                   children: visibleIntensities
                       .map(
                         (intensity) => ThemeSettingsColorOptionChip(
-                          label: AppThemeL10n.dynamicThemeIntensitySettingsTitle(
-                            l10n,
-                            intensity,
-                          ),
+                          label:
+                              AppThemeL10n.dynamicThemeIntensitySettingsTitle(
+                                l10n,
+                                intensity,
+                              ),
                           swatchColor: provider.backgroundPreviewColor,
                           selected:
                               enabled &&
@@ -527,6 +529,50 @@ class ThemeSettingsDynamicThemePanel extends StatelessWidget {
                   style: TextStyle(
                     color: colors.textMuted,
                     fontSize: AdaptiveText.roleSize(12.2),
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Divider(height: 1, color: colors.borderSubtle),
+                const SizedBox(height: 14),
+                Text(
+                  '玻璃质感',
+                  style: TextStyle(
+                    color: colors.textPrimary,
+                    fontSize: AdaptiveText.roleSize(13.8),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '导航条、详情按钮、版本标签、弹层等界面的玻璃风格挡位。',
+                  style: TextStyle(
+                    color: colors.textMuted,
+                    fontSize: AdaptiveText.roleSize(12.8),
+                    height: 1.45,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: LiquidGlassLevel.values
+                      .map(
+                        (level) => ThemeSettingsColorOptionChip(
+                          label: level.title,
+                          swatchColor: provider.accentPreviewColor,
+                          selected: provider.glassLevel == level,
+                          onTap: () => provider.setGlassLevel(level),
+                        ),
+                      )
+                      .toList(growable: false),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  provider.glassLevel.description,
+                  style: TextStyle(
+                    color: colors.textSecondary,
+                    fontSize: AdaptiveText.roleSize(12.8),
                     height: 1.4,
                   ),
                 ),

@@ -3,6 +3,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../theme/app_theme.dart';
 import '../../theme/detail_tokens.dart';
+import '../common/liquid_glass.dart';
 
 enum DetailIconButtonStyle { top, circle }
 
@@ -41,25 +42,23 @@ class DetailIconButton extends StatelessWidget {
         ? selectedIconAsset!
         : iconAsset;
 
-    final background = isTop
-        ? colors.surface.withValues(alpha: 0.36)
-        : ((selected && !isHeart)
-              ? colors.accent
-              : colors.backgroundElevated.withValues(alpha: 0.82));
+    final accentSelected = selected && !isHeart;
+    // 顶栏按钮压在 hero 图上 → 用更实的 strong 玻璃保证可读；其余用中性玻璃。
+    final tone = accentSelected
+        ? LiquidGlassTone.accent
+        : (isTop ? LiquidGlassTone.strong : LiquidGlassTone.neutral);
 
-    final border = isTop ? colors.borderStrong : colors.borderStrong;
-
-    return InkWell(
+    return LiquidGlass(
+      radius: radius,
+      tone: tone,
+      selected: accentSelected,
+      sheen: false,
+      // 液态挡位下圆形按钮转真实背景模糊；其余挡位退化为静态磨砂。
+      blurSigma: 16,
       onTap: onTap,
-      borderRadius: BorderRadius.circular(radius),
-      child: Container(
+      child: SizedBox(
         width: size,
         height: size,
-        decoration: BoxDecoration(
-          color: background,
-          borderRadius: BorderRadius.circular(radius),
-          border: Border.all(color: border),
-        ),
         child: Center(
           child: (isHeart && selected)
               ? Icon(Icons.favorite, color: colors.danger, size: 24)

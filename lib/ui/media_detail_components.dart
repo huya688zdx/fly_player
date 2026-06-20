@@ -6,6 +6,8 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../l10n/generated/app_localizations.dart';
 import '../theme/app_theme.dart';
+import '../utils/nas_image_headers.dart';
+import '../widgets/common/liquid_glass.dart';
 import 'app_transitions.dart';
 
 class DetailHeroImage extends StatefulWidget {
@@ -78,19 +80,17 @@ class _DetailHeroImageState extends State<DetailHeroImage> {
                   gaplessPlayback: true,
                   cacheWidth: cacheW,
                   cacheHeight: cacheH,
-                  headers: {
-                    'Authorization': widget.token,
-                    'Trim-MC-token': widget.token,
-                  },
-                  frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-                    if (wasSynchronouslyLoaded) return child;
-                    return AnimatedOpacity(
-                      opacity: frame == null ? 0 : 1,
-                      duration: const Duration(milliseconds: 180),
-                      curve: Curves.easeOut,
-                      child: child,
-                    );
-                  },
+                  headers: nasImageHeaders(widget.token, url: url),
+                  frameBuilder:
+                      (context, child, frame, wasSynchronouslyLoaded) {
+                        if (wasSynchronouslyLoaded) return child;
+                        return AnimatedOpacity(
+                          opacity: frame == null ? 0 : 1,
+                          duration: const Duration(milliseconds: 180),
+                          curve: Curves.easeOut,
+                          child: child,
+                        );
+                      },
                   errorBuilder: (_, error, ___) =>
                       _fallbackOrPlaceholder(currentUrl: url, error: error),
                 ),
@@ -194,54 +194,68 @@ class DetailPrimaryPlayButton extends StatelessWidget {
             ),
           );
 
-    return FilledButton(
-      onPressed: enabled ? onTap ?? () {} : null,
-      style: FilledButton.styleFrom(
-        minimumSize: const Size.fromHeight(52),
-        backgroundColor: resolvedBackgroundColor,
-        foregroundColor: resolvedForegroundColor,
-        disabledBackgroundColor: resolvedBackgroundColor.withValues(
-          alpha: 0.32,
-        ),
-        elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          if (useCircularPlayIcon)
-            Container(
-              width: 24,
-              height: 24,
-              decoration: BoxDecoration(
-                color: colors.textPrimary,
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: SvgPicture.asset(
-                  'assets/icons/play.svg',
-                  width: 11,
-                  height: 11,
-                  colorFilter: ColorFilter.mode(
-                    resolvedBackgroundColor,
-                    BlendMode.srcIn,
-                  ),
+    return SizedBox(
+      height: 52,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(28),
+        child: Stack(
+          fit: StackFit.expand,
+          children: <Widget>[
+            FilledButton(
+              onPressed: enabled ? onTap ?? () {} : null,
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(52),
+                backgroundColor: resolvedBackgroundColor,
+                foregroundColor: resolvedForegroundColor,
+                disabledBackgroundColor: resolvedBackgroundColor.withValues(
+                  alpha: 0.32,
+                ),
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(28),
                 ),
               ),
-            )
-          else
-            SvgPicture.asset(
-              'assets/icons/play.svg',
-              width: 18,
-              height: 18,
-              colorFilter: ColorFilter.mode(
-                resolvedForegroundColor,
-                BlendMode.srcIn,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (useCircularPlayIcon)
+                    Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: colors.textPrimary,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: SvgPicture.asset(
+                          'assets/icons/play.svg',
+                          width: 11,
+                          height: 11,
+                          colorFilter: ColorFilter.mode(
+                            resolvedBackgroundColor,
+                            BlendMode.srcIn,
+                          ),
+                        ),
+                      ),
+                    )
+                  else
+                    SvgPicture.asset(
+                      'assets/icons/play.svg',
+                      width: 18,
+                      height: 18,
+                      colorFilter: ColorFilter.mode(
+                        resolvedForegroundColor,
+                        BlendMode.srcIn,
+                      ),
+                    ),
+                  const SizedBox(width: 8),
+                  animatedLabel,
+                ],
               ),
             ),
-          const SizedBox(width: 8),
-          animatedLabel,
-        ],
+            const IgnorePointer(child: LiquidGlassSheen(radius: 28)),
+          ],
+        ),
       ),
     );
   }
@@ -279,24 +293,16 @@ class DetailRoundIconButton extends StatelessWidget {
     final iconAsset = selected && selectedAsset != null
         ? selectedAsset!
         : asset;
-    return InkWell(
+    return LiquidGlass(
+      radius: 26,
+      tone: selected ? LiquidGlassTone.accent : LiquidGlassTone.neutral,
+      selected: selected,
+      sheen: false,
+      blurSigma: 16,
       onTap: onTap,
-      borderRadius: BorderRadius.circular(26),
-      child: Container(
+      child: SizedBox(
         width: 52,
         height: 52,
-        decoration: BoxDecoration(
-          color: selected
-              ? (selectedBackgroundColor ?? colors.selection)
-              : (backgroundColor ??
-                    colors.backgroundElevated.withValues(alpha: 0.82)),
-          borderRadius: BorderRadius.circular(26),
-          border: Border.all(
-            color: selected
-                ? (selectedBorderColor ?? colors.selection)
-                : (borderColor ?? colors.borderStrong),
-          ),
-        ),
         child: Center(
           child: SvgPicture.asset(
             iconAsset,
@@ -371,37 +377,37 @@ class DetailTagChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    return Container(
-      height: compact ? 28 : 36,
+    return LiquidGlass(
+      radius: compact ? 9 : 12,
+      tone: selected ? LiquidGlassTone.accent : LiquidGlassTone.neutral,
+      selected: selected,
+      sheen: false,
+      blurSigma: compact ? 12 : 14,
       padding: EdgeInsets.symmetric(horizontal: compact ? 10 : 12),
-      decoration: BoxDecoration(
-        color: selected ? colors.selectionSoft : colors.chipBackground,
-        borderRadius: BorderRadius.circular(compact ? 9 : 12),
-        border: Border.all(
-          color: selected ? colors.selection : colors.chipBorder,
-          width: selected ? 1.4 : 1,
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: selected ? colors.selectionStrong : colors.chipText,
-              fontSize: compact ? 11 : 12,
-              fontWeight: FontWeight.w600,
+      child: SizedBox(
+        height: compact ? 28 : 36,
+        // 用 Row(min) 纵向居中，避免 Center 在松约束下横向撑满导致 chip 全宽换行。
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: selected ? colors.selectionStrong : colors.chipText,
+                fontSize: compact ? 11 : 12,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-          ),
-          if (hasDropdown) ...[
-            SizedBox(width: compact ? 4 : 6),
-            Icon(
-              Icons.keyboard_arrow_down,
-              size: compact ? 14 : 16,
-              color: colors.textSecondary,
-            ),
+            if (hasDropdown) ...[
+              SizedBox(width: compact ? 4 : 6),
+              Icon(
+                Icons.keyboard_arrow_down,
+                size: compact ? 14 : 16,
+                color: colors.textSecondary,
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

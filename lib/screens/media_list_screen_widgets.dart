@@ -128,9 +128,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
       onRefresh: _fetchHomeData,
       child: CustomScrollView(
         cacheExtent: _scrollCacheExtent,
-        physics: const AlwaysScrollableScrollPhysics(
-          parent: ReducedOverscrollPhysics(topOverscrollFraction: 0.5),
-        ),
+        physics: const ClampingScrollPhysics(),
         slivers: <Widget>[
           SliverPadding(
             padding: EdgeInsets.fromLTRB(
@@ -456,40 +454,29 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     VoidCallback? onTap,
   }) {
     final colors = context.appColors;
-    final child = Container(
-      height: 58,
-      decoration: BoxDecoration(
-        color: hasRuntimeDynamicTheme ? colors.surfaceStrong : colors.surface,
-        borderRadius: BorderRadius.circular(10),
-        border: hasRuntimeDynamicTheme
-            ? Border.all(color: colors.borderSubtle, width: 0.8)
-            : null,
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: <Widget>[
-          Text(
-            label,
-            style: TextStyle(color: colors.textPrimary, fontSize: 13),
-          ),
-          Text(
-            '$value',
-            style: TextStyle(
-              color: colors.textPrimary,
-              fontWeight: FontWeight.bold,
-              fontSize: 18,
+    // hasRuntimeDynamicTheme 保留以兼容调用方；玻璃外观对两种主题一致。
+    return LiquidGlass(
+      radius: 10,
+      onTap: onTap,
+      child: SizedBox(
+        height: 58,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            Text(
+              label,
+              style: TextStyle(color: colors.textPrimary, fontSize: 13),
             ),
-          ),
-        ],
-      ),
-    );
-    if (onTap == null) return child;
-    return Material(
-      type: MaterialType.transparency,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: child,
+            Text(
+              '$value',
+              style: TextStyle(
+                color: colors.textPrimary,
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -610,108 +597,240 @@ class _CategoryPosterCard extends StatelessWidget {
     final colors = context.appColors;
     final isLightSurface = colors.backgroundBase.computeLuminance() >= 0.58;
     final normalized = posterUrls.take(3).toList();
+    final radius = BorderRadius.circular(16);
+
+    // iOS26 磨砂玻璃：半透明磨砂基底 + 镜面高光 + 发丝边。
+    // 不用 BackdropFilter（实时模糊在滚动区逐帧重算、很掉帧），改用半透明
+    // 渐变模拟玻璃；因此基底比真模糊版略实一点，才能读出“玻璃”质感。
+    final glassFill = isLightSurface
+        ? Colors.white.withValues(alpha: 0.42)
+        : Colors.white.withValues(alpha: 0.16);
+    final glassEdge = isLightSurface
+        ? Colors.white.withValues(alpha: 0.70)
+        : Colors.white.withValues(alpha: 0.16);
+    final bottomVeil = isLightSurface
+        ? colors.backgroundBase.withValues(alpha: 0.12)
+        : colors.backgroundBase.withValues(alpha: 0.30);
 
     return RepaintBoundary(
-      child: Material(
-        type: MaterialType.transparency,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(10),
-          child: Container(
-            width: cardWidth,
-            decoration: BoxDecoration(
-              color: colors.surface,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: colors.borderSubtle, width: 0.8),
-            ),
-            clipBehavior: Clip.hardEdge,
-            child: Stack(
-              children: <Widget>[
-                Positioned.fill(
-                  child: Container(
-                    color: colors.backgroundElevated,
-                    padding: const EdgeInsets.fromLTRB(6, 8, 6, 24),
-                    child: Center(
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: List.generate(normalized.length, (index) {
-                          return Padding(
-                            padding: EdgeInsets.only(
-                              right: index == normalized.length - 1 ? 0 : 2,
-                            ),
-                            child: SizedBox(
-                              width: miniPosterWidth,
-                              height: miniPosterHeight,
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(3),
-                                clipBehavior: Clip.hardEdge,
-                                child: _PosterImage(
-                                  urls: normalized[index],
-                                  token: token,
-                                  lightweight: lightweight,
-                                  fallback: Container(
-                                    color: colors.surfaceStrong,
-                                  ),
-                                ),
+      child: SizedBox(
+        width: cardWidth,
+        child: ClipRRect(
+          borderRadius: radius,
+          // 静态磨砂渐变模拟玻璃：卡片成为可缓存的静态层，滚动时不再逐帧模糊。
+          child: Material(
+            type: MaterialType.transparency,
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: radius,
+              child: Ink(
+                decoration: BoxDecoration(
+                  borderRadius: radius,
+                  border: Border.all(color: glassEdge, width: 0.8),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: <Color>[
+                      Colors.white.withValues(
+                        alpha: isLightSurface ? 0.50 : 0.22,
+                      ),
+                      glassFill,
+                      colors.accentSoft.withValues(
+                        alpha: isLightSurface ? 0.14 : 0.09,
+                      ),
+                    ],
+                  ),
+                ),
+                child: Stack(
+                  children: <Widget>[
+                    // 左上镜面高光，模拟玻璃对光的反射。
+                    Positioned.fill(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: RadialGradient(
+                            center: const Alignment(-0.78, -0.95),
+                            radius: 1.3,
+                            colors: <Color>[
+                              Colors.white.withValues(
+                                alpha: isLightSurface ? 0.38 : 0.14,
                               ),
-                            ),
-                          );
-                        }),
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned.fill(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: <Color>[
-                          Colors.transparent,
-                          Colors.transparent,
-                          (isLightSurface
-                                  ? colors.backgroundElevated
-                                  : colors.overlayScrim)
-                              .withValues(alpha: 0.08),
-                          (isLightSurface
-                                  ? colors.backgroundBase
-                                  : colors.overlayScrim)
-                              .withValues(alpha: isLightSurface ? 0.42 : 0.46),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: 8,
-                  right: 8,
-                  bottom: 7,
-                  child: Text(
-                    title,
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textScaler: const TextScaler.linear(1.0),
-                    style: TextStyle(
-                      color: colors.textPrimary,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      height: 1.05,
-                      shadows: const <Shadow>[
-                        Shadow(
-                          color: Color(0xB0000000),
-                          blurRadius: 6,
-                          offset: Offset(0, 1),
+                              Colors.transparent,
+                            ],
+                          ),
                         ),
-                      ],
+                      ),
                     ),
-                  ),
+                    // 海报簇（轻微倾斜叠放，每张带玻璃描边）。
+                    Positioned.fill(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(10, 10, 10, 30),
+                        child: Center(
+                          child: _PosterCluster(
+                            posterUrls: normalized,
+                            token: token,
+                            lightweight: lightweight,
+                            miniPosterWidth: miniPosterWidth,
+                            miniPosterHeight: miniPosterHeight,
+                            fallbackColor: colors.surfaceStrong.withValues(
+                              alpha: isLightSurface ? 0.30 : 0.18,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    // 底部柔化，保证标题清晰可读。
+                    Positioned.fill(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            stops: const <double>[0.0, 0.6, 1.0],
+                            colors: <Color>[
+                              Colors.transparent,
+                              Colors.transparent,
+                              bottomVeil,
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    // 顶沿发丝高光，强化玻璃边缘的清脆感。
+                    Positioned(
+                      left: 1,
+                      right: 1,
+                      top: 1,
+                      child: Container(
+                        height: 1,
+                        decoration: BoxDecoration(
+                          borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(16),
+                          ),
+                          color: Colors.white.withValues(
+                            alpha: isLightSurface ? 0.60 : 0.24,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      left: 8,
+                      right: 8,
+                      bottom: 8,
+                      child: Text(
+                        title,
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textScaler: const TextScaler.linear(1.0),
+                        style: TextStyle(
+                          color: colors.textPrimary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          height: 1.05,
+                          shadows: <Shadow>[
+                            Shadow(
+                              color: colors.backgroundBase.withValues(
+                                alpha: isLightSurface ? 0.28 : 0.46,
+                              ),
+                              blurRadius: 5,
+                              offset: const Offset(0, 1),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 分类卡内的海报簇：1~3 张迷你海报，轻微倾斜叠放，每张带玻璃描边。
+class _PosterCluster extends StatelessWidget {
+  final List<List<String>> posterUrls;
+  final String token;
+  final bool lightweight;
+  final double miniPosterWidth;
+  final double miniPosterHeight;
+  final Color fallbackColor;
+
+  const _PosterCluster({
+    required this.posterUrls,
+    required this.token,
+    required this.lightweight,
+    required this.miniPosterWidth,
+    required this.miniPosterHeight,
+    required this.fallbackColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (posterUrls.isEmpty) {
+      return SizedBox(
+        width: miniPosterWidth,
+        height: miniPosterHeight,
+        child: _GlassMiniPoster(child: ColoredBox(color: fallbackColor)),
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(posterUrls.length, (index) {
+        final tilt = posterUrls.length == 1
+            ? 0.0
+            : (index.isEven ? -0.018 : 0.018);
+        return Padding(
+          padding: EdgeInsets.only(
+            right: index == posterUrls.length - 1 ? 0 : 5,
+          ),
+          child: Transform.rotate(
+            angle: tilt,
+            child: SizedBox(
+              width: miniPosterWidth,
+              height: miniPosterHeight,
+              child: _GlassMiniPoster(
+                child: _PosterImage(
+                  urls: posterUrls[index],
+                  token: token,
+                  lightweight: lightweight,
+                  fallback: ColoredBox(color: fallbackColor),
+                ),
+              ),
+            ),
+          ),
+        );
+      }),
+    );
+  }
+}
+
+/// 迷你海报的玻璃描边外框，圆角 + 半透明白边。
+class _GlassMiniPoster extends StatelessWidget {
+  final Widget child;
+
+  const _GlassMiniPoster({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final isLightSurface = colors.backgroundBase.computeLuminance() >= 0.58;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: isLightSurface ? 0.48 : 0.18),
+          width: 0.6,
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(5),
+        clipBehavior: Clip.hardEdge,
+        child: child,
       ),
     );
   }
@@ -779,13 +898,6 @@ class _PosterImage extends StatefulWidget {
 class _PosterImageState extends State<_PosterImage> {
   int _index = 0;
   bool _fallbackScheduled = false;
-  late Map<String, String> _headers;
-
-  @override
-  void initState() {
-    super.initState();
-    _headers = _imageHeaders(widget.token);
-  }
 
   @override
   void didUpdateWidget(covariant _PosterImage oldWidget) {
@@ -793,9 +905,6 @@ class _PosterImageState extends State<_PosterImage> {
     if (!listEquals(oldWidget.urls, widget.urls)) {
       _index = 0;
       _fallbackScheduled = false;
-    }
-    if (oldWidget.token != widget.token) {
-      _headers = _imageHeaders(widget.token);
     }
   }
 
@@ -821,7 +930,7 @@ class _PosterImageState extends State<_PosterImage> {
         return Image.network(
           current,
           fit: BoxFit.cover,
-          headers: _headers,
+          headers: nasImageHeaders(widget.token, url: current),
           filterQuality: FilterQuality.none,
           gaplessPlayback: true,
           cacheWidth: cacheWidth,
@@ -869,8 +978,4 @@ class _PosterImageState extends State<_PosterImage> {
       });
     });
   }
-}
-
-Map<String, String> _imageHeaders(String token) {
-  return <String, String>{'Authorization': token, 'Trim-MC-token': token};
 }

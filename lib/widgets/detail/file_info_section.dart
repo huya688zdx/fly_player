@@ -4,6 +4,7 @@ import '../../l10n/generated/app_localizations.dart';
 import '../../models/authorized_dir_entry.dart';
 import '../../models/stream_track_data.dart';
 import '../../theme/app_theme.dart';
+import '../common/liquid_glass.dart';
 
 class FileInfoSection extends StatefulWidget {
   final StreamFileInfo? file;
@@ -60,19 +61,11 @@ class _FileInfoSectionState extends State<FileInfoSection> {
           ),
         ),
         const SizedBox(height: 14),
-        Container(
-          width: double.infinity,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [colors.surfaceStrong, colors.surface],
-            ),
-            borderRadius: BorderRadius.circular(20),
-          ),
+        LiquidGlass(
+          radius: 20,
           padding: const EdgeInsets.fromLTRB(22, 18, 22, 18),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _RowBlock(
                 label: widget.locationLabel ?? l10n.fileInfoLocationLabel,

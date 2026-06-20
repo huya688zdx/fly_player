@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/stream_track_data.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/media_language_mapper.dart';
+import '../common/liquid_glass.dart';
 
 class VideoInfoSection extends StatelessWidget {
   final VideoStreamInfo? video;
@@ -21,15 +22,9 @@ class VideoInfoSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final isLightSurface = colors.backgroundBase.computeLuminance() >= 0.58;
     if (video == null && audio == null && subtitle == null) {
       return const SizedBox.shrink();
     }
-
-    final panelColor = Color.alphaBlend(
-      colors.surfaceStrong.withValues(alpha: isLightSurface ? 0.10 : 0.16),
-      colors.backgroundElevated,
-    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -43,18 +38,11 @@ class VideoInfoSection extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
-        Container(
-          decoration: BoxDecoration(
-            color: panelColor,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: colors.borderSubtle.withValues(
-                alpha: isLightSurface ? 0.58 : 0.80,
-              ),
-            ),
-          ),
+        LiquidGlass(
+          radius: 18,
           padding: const EdgeInsets.fromLTRB(18, 16, 18, 10),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _InfoRow(
                 icon: Icons.videocam_rounded,

@@ -2439,8 +2439,11 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                                             },
                                           )
                                         : const SizedBox.shrink(),
+                                    // 仅在「选项集合 / 是否显示」变化时淡入淡出；
+                                    // 切换选中项不应触发整条 chip 的交叉淡变（会"闪"），
+                                    // 故 switchKey 不含 selectedKey——选中态在原子树内就地更新。
                                     switchKey:
-                                        'resolution:${showResolutionSelector ? resolutionOptions.join(",") : "empty"}|$selectedKey',
+                                        'resolution:${showResolutionSelector ? resolutionOptions.join(",") : "empty"}',
                                   ),
                                 ),
                                 if (item.playError.isNotEmpty) ...[
