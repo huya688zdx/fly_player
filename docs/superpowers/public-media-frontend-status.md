@@ -4,9 +4,9 @@
 
 ## 当前阶段
 
-阶段：Phase 1 进行中，用户已确认按实施计划从 Task 1 开始主实现。
+阶段：Phase 5 调研评估完成，进入详情页公共模型设计前置阶段。
 
-目标：建立公共模型、Feiniu mapper、MediaBackend 接口和适配器（Task 1~4），保持飞牛体验不退化。
+目标：基于 Emby 官方 API 形状评估详情页迁移边界，先设计公共详情模型和飞牛 mapper，不直接接入 Emby API，不迁移播放入口。
 
 ## 负责人约定
 
@@ -51,7 +51,7 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 | Phase 3: 首页迁移样板 | 部分完成（catalogs+summary 已迁移，待手动验证） | Claude 主实现，Codex 验证 | 模型扩展: 1ff413b / 9e012b7；首页迁移: 180e8c0 | 首页单测通过；`flutter run` 手动验证待做 |
 | Phase 4: 搜索页迁移（统一 MediaItemCard） | 完成（搜索页已验收通过；分类页滤镜体系另立设计、本期不动） | Claude 主实现，Codex 审查 | 设计 c849e2a / 模型 fa878ba / mapper 013d2fe / 收口 a68c95e / 搜索页 a8adf76 | media_backend 11 PASS + analyze；用户已验收通过（2026-06-20） |
 | Phase 4.5: 分类页 filter 抽象 | 完成（分类页已迁到 schema 驱动 + queryCatalogItems + localizer；Codex 审查通过；用户实机验证通过 2026-06-20） | Claude 主实现，Codex 审查 | Task5-1: 38e3315 / Task5-2: 1dcedda / Task5-3: 15a3853 / Task5-4: 9b06e3d+5b6ea4b / Codex小修: 085d051 | media_backend+localizer 41 PASS + analyze（分类页 No issues）；用户已实机验收通过 |
-| Phase 5: 详情页迁移 | 未开始（评估：~7790 行 UI、30 处 FeiniuApi、裸 Map，宜等接 Emby 时连同字段形状一起设计） | Claude 主实现，Codex 审查 |  | 电影/剧集详情手动验证 |
+| Phase 5: 详情页迁移 | 调研评估完成（官方 Emby API 形状已查证；建议先做公共详情模型 + Feiniu mapper，再迁页面；播放入口留 Phase 6） | Claude 主实现，Codex 审查 | 调研: 756f2eb | 文档自查；未改业务代码 |
 | Phase 6: 播放入口迁移 | 未开始 | Claude 主实现，Codex 深审 |  | 播放、音轨、字幕验证 |
 
 ## 当前可执行任务
@@ -298,6 +298,14 @@ class MediaItemCardPage { List<MediaItemCard> items; int total; }   // 复用 Me
   - 风险/后续：当前仍需 `flutter run` 登录飞牛人工验证筛选/排序/翻页、type 锁定入口、三种视图、动作面板和详情跳转。图片 headers、详情页公共模型、播放入口不属于 Phase 4.5 范围。
   - 工作区检查：审查前 `git status --short` 仅剩未跟踪 `HANDOFF.md`；Codex 小修提交前 `git diff --cached --name-only` 仅包含 `lib/screens/category_items_screen.dart`，未夹带其它文件。
   - 验证：`flutter test test/media_backend/feiniu_filter_mappers_test.dart` → 13 PASS；`flutter test test/media_backend/ test/ui/catalog_filter_localizer_test.dart --concurrency=1` → 41 PASS；`flutter analyze lib/screens/category_items_screen.dart lib/media_backend test/media_backend lib/ui/catalog_filter_localizer.dart test/ui/catalog_filter_localizer_test.dart` → No issues；`flutter analyze` → FAIL（17 条，均不在 Phase 4.5 相关文件，主要为既有 duplicate import、unused、prefer_const、use_build_context_synchronously）。
+- 2026-06-21 Phase 5 Emby 官方 API 形状调研：
+  - 调研提交：`756f2eb`
+  - 文档：`docs/superpowers/research/2026-06-21-emby-api-shape.md`
+  - 结论：Emby 官方 REST API 可以支撑继续做公共媒体前端抽象；列表/搜索/分类主要落在 `GET /Users/{UserId}/Items`，详情落在 `GET /Users/{UserId}/Items/{Id}`，剧集季/集落在 `GET /Shows/{Id}/Seasons` / `GET /Shows/{Id}/Episodes`，图片走 ImageService，播放信息走 `GET /Items/{Id}/PlaybackInfo`。
+  - 架构判断：Phase 5 不宜直接把详情页改成读 Emby 或 `Map<String,dynamic>`；应先定义公共 `MediaDetail` / `MediaSeasonSummary` / `MediaEpisodeSummary` 等模型，再写 Feiniu mapper 和 `MediaBackend` 详情接口。页面迁移时保留下载、动作面板、播放入口等飞牛专属能力；播放入口继续留到 Phase 6。
+  - 风险：`play_detail_page.dart`、`tv_detail_page.dart`、`item_playback_launcher.dart` 仍混有大量 `FeiniuApi`、`PlayInfoData`、`StreamTrackData` 和裸 Map。若一次性迁移，会把详情展示、播放、音轨/字幕、下载和 Emby DTO 绑定到同一批改动里。
+  - 工作区检查：调研提交前暂存区仅包含新增研究文档；未修改 `lib/` 代码；工作区仍有未跟踪 `HANDOFF.md`，与本任务无关、未暂存。
+  - 下一步建议：先写 Phase 5 设计文档和实施计划；不新增 `EmbyApi` 代码；如有真实 Emby 测试服，仅用官方 API Browser 或只读 curl 抓脱敏样本，严禁提交 token/server/user。
 
 ## Claude 下一步任务
 
