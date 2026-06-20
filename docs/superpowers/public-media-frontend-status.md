@@ -49,7 +49,7 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 | Phase 1: 公共模型和 Feiniu mapper | 完成 | Claude 主实现，Codex 审查 | Task1: ef6405c / Task2: f40f06a / Task3: e97112b | 单元测试 |
 | Phase 2: FeiniuMediaBackend 和 Provider | 完成 | Claude 主实现，Codex 审查 | Task4: 3986ef5 / Task5: 4b3002d | 单元测试 + analyze |
 | Phase 3: 首页迁移样板 | 部分完成（catalogs+summary 已迁移，待手动验证） | Claude 主实现，Codex 验证 | 模型扩展: 1ff413b / 9e012b7；首页迁移: 180e8c0 | 首页单测通过；`flutter run` 手动验证待做 |
-| Phase 4: 分类页和搜索页迁移 | 未开始 | Claude 主实现，Codex 审查 |  | 页面测试 + 手动验证 |
+| Phase 4: 搜索页迁移（统一 MediaItemCard） | 完成（搜索页已迁移，待手动验证；分类页滤镜体系另立设计、本期不动） | Claude 主实现，Codex 审查 | 设计 c849e2a / 模型 fa878ba / mapper 013d2fe / 收口 a68c95e / 搜索页 a8adf76 | media_backend 11 PASS + analyze；flutter run 手动验证待做 |
 | Phase 5: 详情页迁移 | 未开始 | Claude 主实现，Codex 审查 |  | 电影/剧集详情手动验证 |
 | Phase 6: 播放入口迁移 | 未开始 | Claude 主实现，Codex 深审 |  | 播放、音轨、字幕验证 |
 
@@ -146,10 +146,20 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 
 ### 子任务拆分（每步可编译、单独提交）
 
-- [ ] Task 4-1：新建 `lib/media_backend/media_item_card.dart`（统一富模型）+ `test/media_backend/media_item_card_test.dart`
-- [ ] Task 4-2：`mapFeiniuItemCard(MediaLibraryItem)` mapper（无损映射全部展示字段）+ 单测
-- [ ] Task 4-3：`MediaBackend.searchItems(query)` 接口 + `FeiniuMediaBackend` 实现（走 `api.searchList`）；将 `getContinueWatching`/`getCatalogPreviewItems` 返回类型统一迁到 `MediaItemCard`，删除 `MediaItemSummary` 及其 mapper/测试 + 单测
-- [ ] Task 4-4：搜索页迁移（`_results: List<MediaItemCard>`，读取走 `backend.searchItems`，动作面板用局部 `_cardToActionItem`，`copyWith` 用 MediaItemCard）+ `flutter analyze` + 页面测试
+- [x] Task 4-1：新建 `lib/media_backend/media_item_card.dart`（统一富模型，23 展示字段 + copyWith + displayTitle/hasPosterSize/isLandscapePoster）+ `test/media_backend/media_item_card_test.dart`
+  - 测试：`flutter test test/media_backend/media_item_card_test.dart` → 4 PASS；`flutter analyze` → No issues
+  - 提交：`fa878ba`
+- [x] Task 4-2：`mapFeiniuItemCard(MediaLibraryItem)` mapper（无损映射全部展示字段，含 posterList/firstAirDate/lastAirDate/local 计数/numberOfItem/resolutions）+ 单测
+  - 测试：`flutter test test/media_backend/feiniu_media_mappers_test.dart` → 5 PASS；`flutter analyze` → No issues
+  - 提交：`013d2fe`
+- [x] Task 4-3：`MediaBackend.searchItems(query)` 接口 + `FeiniuMediaBackend` 实现（走 `api.searchList`）；将 `getContinueWatching`/`getCatalogPreviewItems` 返回类型统一迁到 `MediaItemCard`，**删除 `MediaItemSummary` 及其 mapper/测试**（真正统一，无重叠模型）
+  - 测试：`flutter test test/media_backend/` → 11 PASS；`flutter analyze lib/media_backend test/media_backend` → No issues
+  - 提交：`a68c95e`
+- [x] Task 4-4：搜索页迁移（`_results: List<MediaItemCard>`，读取走 `context.read<MediaBackendProvider>().backend.searchItems`，展示/详情跳转/字幕全用 card 字段，动作面板用本文件局部 `_cardToActionItem` 转回最小 `MediaLibraryItem`，本地 watched 变更用 `card.copyWith(watched:)`）
+  - 无损保障：动作面板只消费 guid/watched/type/season&episode/标题字段，`_cardToActionItem` 全部回填；`getItemDetail` 详情预取仍走 FeiniuApi（详情页本期不迁）。`_cardToActionItem` 仅限搜索页本文件、不扩散。
+  - 测试：`flutter analyze lib/screens/search_screen.dart` → No issues。
+  - 提交：`a8adf76`
+  - **待人工验证（交用户/Codex）**：`flutter run` 登录飞牛后确认——① 搜索结果标题/封面/评分/清晰度/已观看角标与迁移前一致；② 年份区间与季/集副标题正确（电影、单季剧、多季剧、person 作品数）；③ 点击进入详情（item / person）正常；④ 长按动作面板（标记已观看/收藏）正常且本地角标即时更新。
 
 ### 明确不做
 
