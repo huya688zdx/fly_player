@@ -47,8 +47,8 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 | --- | --- | --- | --- | --- |
 | Phase 0: 设计和协作基线 | 完成 | Codex | 本次文档提交 | 文档自查通过 |
 | Phase 1: 公共模型和 Feiniu mapper | 完成 | Claude 主实现，Codex 审查 | Task1: ef6405c / Task2: f40f06a / Task3: e97112b | 单元测试 |
-| Phase 2: FeiniuMediaBackend 和 Provider | 进行中 | Claude 主实现，Codex 审查 | Task4: 3986ef5 / Task5: 4b3002d | 单元测试 + analyze |
-| Phase 3: 首页迁移样板 | 未开始 | Claude 主实现，Codex 验证 |  | 首页测试 + 手动验证 |
+| Phase 2: FeiniuMediaBackend 和 Provider | 完成 | Claude 主实现，Codex 审查 | Task4: 3986ef5 / Task5: 4b3002d | 单元测试 + analyze |
+| Phase 3: 首页迁移样板 | 部分完成（catalogs+summary 已迁移，待手动验证） | Claude 主实现，Codex 验证 | 模型扩展: 1ff413b / 9e012b7；首页迁移: 180e8c0 | 首页单测通过；`flutter run` 手动验证待做 |
 | Phase 4: 分类页和搜索页迁移 | 未开始 | Claude 主实现，Codex 审查 |  | 页面测试 + 手动验证 |
 | Phase 5: 详情页迁移 | 未开始 | Claude 主实现，Codex 审查 |  | 电影/剧集详情手动验证 |
 | Phase 6: 播放入口迁移 | 未开始 | Claude 主实现，Codex 深审 |  | 播放、音轨、字幕验证 |
@@ -105,12 +105,27 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
   - 测试：`feiniu_media_mappers_test.dart` 新增「无损往返」用例。`flutter test test/media_backend/` → 8 PASS；`flutter analyze lib/media_backend/` → No issues。
   - 边界：`posterList`/`meta` 等首页未直接消费的字段不进公共模型，避免泄漏后端私有结构。
 
-- [ ] Task 6: 首页 media_list_screen 迁移样板（待实施）
-  - 已具备无损前提：`MediaItemSummary` 扩展完成后，公共模型可无损转回 `MediaLibraryItem` 首页展示字段。
-  - 计划做法：`_fetchHomeData()`/`_backgroundRefresh()` 改用 `context.read<MediaBackendProvider>().backend`，公共模型经本地临时转换函数转回旧模型喂现有 UI；转换函数仅限本文件，不扩散。
-  - 注意 1（main.dart 同款隔离）：`media_list_screen.dart` 工作区已有无关未提交改动（hunk 在 line 27/214-226/311-323/563-572），需 `git stash push -- <file>` 隔离后再改、提交、`git stash pop`；但本文件未提交改动与改动点更接近，pop 前需确认无冲突。
-  - 注意 2（Codex 风险 2 图片 headers）：本任务把公共模型转回旧模型，图片仍走旧 NAS 鉴权路径，`MediaImageRef.headers` 留空不影响；待页面直接消费公共图片引用时再在适配层补 headers。
-  - 注意 3（Codex 风险 / Task5 审查）：`MediaBackendProvider.backend` 每次读取新建 `FeiniuApi`，首页若频繁读取建议先缓存 backend 实例，避免重复创建 Dio。
+### 第二次建议调整（已被用户确认采纳 — 2026-06-20）：Task 6 缩小范围
+
+- 背景：Task 6 实施时进一步发现，**即使按 Option A 扩展了 `MediaItemSummary`，首页 item/继续观看链路仍无法无损迁移**。审计 `media_list_screen.dart` + `media_list_screen_widgets.dart` 发现还读取精简模型不携带的字段：
+  - `item.ts`/`item.watchedTs`（386、705）= **续播进度/位置**，丢失会破坏继续观看续播。
+  - `firstAirDate`/`lastAirDate`（620-624）= 年份区间。
+  - `localNumberOfSeasons`/`localNumberOfEpisodes`（630-634）= 季/集角标（优先本地计数）。
+  - `resolutions`（widgets:541）= 清晰度角标（4K/1080p）。
+  - 要全部覆盖需把公共模型膨胀成 `MediaLibraryItem` 克隆，直接违反规格「公共模型必须小而稳定/不搬私有字段」。
+- 用户决策：选 **Option B — 缩小 Task 6 范围**。本期只迁移**无损链路**，富 item 模型留待后续连同 Emby 形状一起设计。
+
+- [x] Task 6: 首页 catalogs + summary 迁移到 MediaBackend（缩小范围版）
+  - 改动文件：`lib/screens/media_list_screen.dart`（工作区此前的无关改动已被 `83319eb` 提交并入分支，文件回到干净状态，**无需 stash 隔离**，仅提交本文件）。
+  - 做法：`_fetchHomeData()`/`_backgroundRefresh()` 用 `context.read<MediaBackendProvider>().backend`，`getCatalogs()`（分类）+ `getHomeSummary()`（概要）走 backend；`getPlayList()`（继续观看）和 `getItemsByCategoryGuid()`（分类条目）**仍走 FeiniuApi**。公共 `MediaCatalog` 经本文件内 `static _catalogToMediaItem()` 转回 `MediaItem` 喂现有 UI；转换函数仅限本文件，不扩散。`_refreshContinueWatching()`(337) 未动。
+  - 无损保障：为避免分类条缩略图退化（主机最多叠 2 张海报，原读 `category.posters` 列表），先给 `MediaCatalog` 补 `posters: List<MediaImageRef>`（提交 `9e012b7`），转回时完整还原 `posters`+`path`。catalog→MediaItem 仅丢 `meta`，已核实任何分类消费端（`CategoryItemsScreen` 只用 id+name、`/screen/category` 路由接收端、首页分类条）均未使用 `meta`。
+  - 测试：`flutter analyze lib/screens/media_list_screen.dart` → No issues；`flutter test test/home_scroll_physics_test.dart test/main_navigation_layout_test.dart` → PASS；`flutter test test/media_backend/` → 9 PASS。
+  - 提交：模型扩展 `9e012b7`、首页迁移 `180e8c0`。
+  - **待人工验证（交用户/Codex）**：`flutter run` 登录飞牛后确认——① 首页分类条标题/缩略图（含 2 张叠图）与迁移前一致；② 继续观看进度条/续播位置正常（仍走 FeiniuApi，预期不变）；③ 分类预览与点击进入分类页正常；④ 后台刷新（`_backgroundRefresh`）不改变可见数据。
+  - 遗留/下一步建议：
+    - 富 item 公共模型（含续播进度 resumePosition、清晰度、年份区间、本地季集计数）留到后续阶段，最好连同 Emby 实际字段一起设计，避免现在按飞牛形状定型。
+    - Codex 风险 2（`MediaImageRef.headers` 为空）：本期图片仍走旧 NAS 鉴权路径，未受影响；待页面直接消费公共图片引用时再在适配层补 headers。
+    - Codex Task5 审查：`MediaBackendProvider.backend` 每次读取新建 `FeiniuApi`/`FeiniuMediaBackend`，首页每次刷新会各读 1 次；建议后续在 Provider 内缓存 backend 实例或按 NAS 会话变更重建，避免重复创建 Dio。
 
 ## Codex 审查记录
 
