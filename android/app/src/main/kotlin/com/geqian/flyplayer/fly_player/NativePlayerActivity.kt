@@ -23,6 +23,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
 import android.os.Bundle
+import android.text.TextUtils
 import android.util.Rational
 import android.util.Log
 import android.util.TypedValue
@@ -345,7 +346,37 @@ internal fun nativePanelRecommendWeakNetworkQuality(
 internal fun nativePanelShouldStartAutoNextCountdown(
     autoPlayEnabled: Boolean,
     hasNextEpisode: Boolean,
-): Boolean = autoPlayEnabled && hasNextEpisode
+    episodeSwitchInFlight: Boolean = false,
+    suppressedForCurrent: Boolean = false,
+): Boolean = autoPlayEnabled &&
+    hasNextEpisode &&
+    !episodeSwitchInFlight &&
+    !suppressedForCurrent
+
+internal fun nativePanelShouldShowCompletedOverlay(
+    autoPlayEnabled: Boolean,
+    hasNextEpisode: Boolean,
+    playbackEnded: Boolean,
+    insideCompletionWindow: Boolean,
+    positionMs: Long,
+    durationMs: Long,
+): Boolean {
+    if (playbackEnded) return true
+    if (autoPlayEnabled && hasNextEpisode) return false
+    if (durationMs <= 0L || positionMs <= 0L) return false
+    val endThresholdMs = (durationMs - 1_000L).coerceAtLeast(0L)
+    return positionMs >= endThresholdMs
+}
+
+internal fun nativePanelLoadArgsForEpisodeSwitch(
+    loadArgs: Map<String, Any?>,
+    autoPlayAfterLoad: Boolean,
+): Map<String, Any?> {
+    if (!autoPlayAfterLoad) return loadArgs
+    return LinkedHashMap(loadArgs).apply {
+        this["startPaused"] = false
+    }
+}
 
 private fun nativePanelBestWeakNetworkTarget(
     sorted: List<IndexedValue<Map<String, Any?>>>,
@@ -528,6 +559,10 @@ internal fun nativePanelEpisodeLabel(episode: Map<String, Any?>): String {
  */
 internal const val NATIVE_EPISODE_VIEW_MODE_LIST = 0
 internal const val NATIVE_EPISODE_VIEW_MODE_GRID = 1
+internal const val NATIVE_PLAYER_AUTO_ROTATE_PREF_KEY = "flutter.player_auto_rotate_enabled"
+internal const val NATIVE_PLAYER_AUTO_PLAY_PREF_KEY = "flutter.player_auto_play_enabled"
+internal const val NATIVE_PLAYER_NEXT_EPISODE_PRELOAD_PREF_KEY =
+    "flutter.player_next_episode_preload_enabled"
 
 internal fun nativePanelEpisodeViewModeFromType(viewType: String?): Int {
     return if (viewType?.trim() == "button") {
@@ -540,6 +575,11 @@ internal fun nativePanelEpisodeViewModeFromType(viewType: String?): Int {
 internal fun nativePanelPlaylistViewTypeFromEpisodeMode(mode: Int): String {
     return if (mode == NATIVE_EPISODE_VIEW_MODE_GRID) "button" else "card"
 }
+
+internal fun nativePanelCanPreloadNextEpisode(
+    autoPlayEnabled: Boolean,
+    nextEpisodePreloadEnabled: Boolean,
+): Boolean = autoPlayEnabled && nextEpisodePreloadEnabled
 
 internal data class NativeEpisodePickerData(
     val selectedSeasonGuid: String,
@@ -636,9 +676,19 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private lateinit var qualityButton: TextView
     private lateinit var episodeEntryButton: TextView
     private var episodeEntryDivider: View? = null
+    // 竖屏精简：以下控件随朝向显隐（顶栏次要图标 + 底栏溢出入口），见 applyOrientationToControls()。
+    private var pipButton: View? = null
+    private var screenshotButton: View? = null
+    private var danmakuQuickButton: View? = null
+    private var audioEntryButton: TextView? = null
+    private var subtitleEntryButton: TextView? = null
+    private var audioEntrySpacer: View? = null
+    private var subtitleEntrySpacer: View? = null
+    private var qualityEntrySpacer: View? = null
     private lateinit var displayModeButton: ImageButton
 
     private lateinit var panelContainer: FrameLayout
+    private lateinit var panelScrollView: MaxHeightScrollView
     private lateinit var panelContent: LinearLayout
     private lateinit var panelTitle: TextView
     private lateinit var panelSeasonSelector: TextView
@@ -649,6 +699,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private var panelIsSheet = false
     private var currentEpisodeRangeIndex = -1
     private var episodeViewMode = NATIVE_EPISODE_VIEW_MODE_LIST
+    // 用户本次会话手动切过宫格/列表：置位后不再让在途 loadEpisodePickerData 回包覆盖该选择，
+    // 避免「确认前手动切换→确认完成后被服务端旧值改回」的跳变。换源时复位。
+    private var episodeViewModeUserDirty = false
     private var episodePanelLoading = false
     private var episodePanelSelectedSeasonGuid = ""
     private var episodePanelSeriesTitle = ""
@@ -659,6 +712,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private val seasonEpisodesCache = HashMap<String, List<Map<String, Any?>>>()
     // 单次预取守卫：每路 source（applyLoadArgs）只在首帧后启动一次全季预取。
     private var episodePickerPrefetchStarted = false
+    // 已成功落地过一次完整的选集数据（季列表/视图/剧集）。此后 loadEpisodePickerData 的回包
+    // 只做增量（同步当前季观看状态），不再整包覆盖，从源头规避「在途回包改回本地状态」竞态。
+    private var episodePickerLoadedOnce = false
     private var customQualityTabTitle = ""
     private var expandedEpisodeVersionGuid: String? = null
 
@@ -774,7 +830,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private lateinit var weakNetSubtitle: TextView
     private var offlineBanner: View? = null
     private lateinit var completedOverlay: FrameLayout
+    private lateinit var completedPosterImage: ImageView
     private lateinit var completedTitle: TextView
+    private lateinit var completedNextButton: TextView
     private var networkOffline = false
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var offlineBannerDismissed = false
@@ -782,11 +840,18 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private var autoNextTicker: Runnable? = null
     private var autoNextSeconds = 0
     private var autoNextActive = false
+    private var autoNextSuppressedItemGuid = ""
     private var completionActive = false
+    private var episodeSwitchInFlight = false
+    private var nextEpisodePreloadGuid = ""
+    private var nextEpisodePreloadInFlight = false
+    private var nextEpisodePreloadResult: Any? = null
     private var weakNetDismissed = false
     private var weakNetSuggestedQualityIndex: Int? = null
     private var weakNetSuggestedQualityLabel = ""
+    private var autoRotateEnabled = true
     private var autoPlayEnabled = true
+    private var nextEpisodePreloadEnabled = false
     private var introOutroEnabled = true
     private var introMaxMin = 3
     private var outroMaxMin = 4
@@ -919,30 +984,74 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         return (screenWidth * 0.45f).toInt().coerceIn(dp(360), dp(520))
     }
 
+    /** 竖屏底部弹窗高度上限：不超过屏高 82%，长面板（设置）封顶后内部滚动。 */
+    private fun panelSheetCapPx(): Int =
+        (window.decorView.height * 0.82f).toInt().coerceAtLeast(dp(280))
+
+    /** 竖屏底部弹窗背景：顶部圆角的深色卡片。 */
+    private fun bottomSheetBackground(): GradientDrawable = GradientDrawable().apply {
+        setColor(0xF2141414.toInt())
+        val r = dp(18).toFloat()
+        cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+    }
+
     private fun showPanelContainer() {
         if (!this::panelContainer.isInitialized) return
         setControlsVisible(false)
         panelVisible = true
         panelContainer.visibility = View.VISIBLE
-        val w = panelWidthPx()
-        panelContainer.layoutParams.width = w
-        panelContainer.requestLayout()
-        panelContainer.translationX = w.toFloat()
-        panelContainer.animate()
-            .translationX(0f)
-            .setDuration(CHROME_FADE_MS)
-            .start()
+        val lp = panelContainer.layoutParams as FrameLayout.LayoutParams
+        if (isPortrait()) {
+            // 竖屏：底部弹窗，高度随内容自适应（限高后滚动），从屏幕下沿上滑。
+            val cap = panelSheetCapPx()
+            // 限高扣掉标题栏与内边距，使整窗（含 chrome）大致落在 cap 内。
+            panelScrollView.maxHeightPx = (cap - dp(108)).coerceAtLeast(dp(160))
+            panelScrollView.layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
+            lp.width = FrameLayout.LayoutParams.MATCH_PARENT
+            lp.height = FrameLayout.LayoutParams.WRAP_CONTENT
+            lp.gravity = Gravity.BOTTOM
+            panelContainer.layoutParams = lp
+            panelContainer.background = bottomSheetBackground()
+            panelContainer.requestLayout()
+            panelContainer.translationX = 0f
+            // 高度此刻未测得，用 cap 作为起始下移量保证完全在屏外起滑。
+            panelContainer.translationY = cap.toFloat()
+            panelContainer.animate().translationY(0f).setDuration(CHROME_FADE_MS).start()
+        } else {
+            // 横屏：右侧面板按权重铺满全高（不限高），从屏幕右沿左滑。
+            panelScrollView.maxHeightPx = Int.MAX_VALUE
+            panelScrollView.layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f,
+            )
+            val w = panelWidthPx()
+            lp.width = w
+            lp.height = FrameLayout.LayoutParams.MATCH_PARENT
+            lp.gravity = Gravity.END
+            panelContainer.layoutParams = lp
+            panelContainer.background = android.graphics.drawable.ColorDrawable(0xF2141414.toInt())
+            panelContainer.requestLayout()
+            panelContainer.translationY = 0f
+            panelContainer.translationX = w.toFloat()
+            panelContainer.animate().translationX(0f).setDuration(CHROME_FADE_MS).start()
+        }
     }
 
     private fun hidePanel() {
         if (!panelVisible || !this::panelContainer.isInitialized) return
         panelVisible = false
         panelStack.clear()
-        panelContainer.animate()
-            .translationX(panelContainer.width.toFloat())
+        val anim = panelContainer.animate()
             .setDuration(CHROME_FADE_MS)
             .withEndAction { panelContainer.visibility = View.GONE }
-            .start()
+        if (isPortrait()) {
+            anim.translationY(panelContainer.height.toFloat())
+        } else {
+            anim.translationX(panelContainer.width.toFloat())
+        }
+        anim.start()
         scheduleControlsAutoHide()
     }
 
@@ -1311,16 +1420,18 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         label: String,
         value: Boolean,
         subtitle: String? = null,
+        enabled: Boolean = true,
         onChange: (Boolean) -> Unit,
     ): View {
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = itemRippleBackground()
+            background = if (enabled) itemRippleBackground() else null
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
             )
+            alpha = if (enabled) 1f else 0.45f
             setPadding(dp(16), dp(12), dp(16), dp(12))
             val textContainer = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
@@ -1372,7 +1483,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                         rightMargin = dp(4)
                     },
                 )
+                isEnabled = enabled
                 setOnClickListener {
+                    if (!enabled) return@setOnClickListener
                     state = !state
                     (track.background as GradientDrawable).setColor(if (state) ACCENT else 0x44FFFFFF)
                     (thumb.layoutParams as FrameLayout.LayoutParams).gravity =
@@ -1382,7 +1495,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 }
             }
             addView(toggleBox)
-            isClickable = true
+            isClickable = enabled
+            isEnabled = enabled
             setOnClickListener { toggleBox.performClick() }
         }
     }
@@ -1477,11 +1591,35 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun applyFullscreenOrientation() {
         requestedOrientation =
-            if (isTablet()) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            if (autoRotateEnabled) {
+                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            } else {
+                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            }
     }
 
     private fun isTablet(): Boolean = resources.configuration.smallestScreenWidthDp >= 600
+
+    private fun isPortrait(): Boolean =
+        resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+
+    /**
+     * 按朝向显隐控制层的次要入口：竖屏窄屏空间有限，精简顶栏次要图标（小窗/截图/AB/弹幕设置）
+     * 与底栏溢出入口（音轨/字幕/画质，竖屏改从「更多」设置进入），避免拥挤与裁剪。横屏全显。
+     */
+    private fun applyOrientationToControls() {
+        val secondaryVis = if (isPortrait()) View.GONE else View.VISIBLE
+        pipButton?.visibility = secondaryVis
+        screenshotButton?.visibility = secondaryVis
+        danmakuQuickButton?.visibility = secondaryVis
+        if (this::abButton.isInitialized) abButton.visibility = secondaryVis
+        audioEntrySpacer?.visibility = secondaryVis
+        audioEntryButton?.visibility = secondaryVis
+        subtitleEntrySpacer?.visibility = secondaryVis
+        subtitleEntryButton?.visibility = secondaryVis
+        qualityEntrySpacer?.visibility = secondaryVis
+        if (this::qualityButton.isInitialized) qualityButton.visibility = secondaryVis
+    }
 
     private fun splitSupported(): Boolean {
         if (Build.VERSION.SDK_INT < 32) return false
@@ -1631,16 +1769,21 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         Log.d("NativePlayerSplit", "collapseSplitForPip finished detail pane")
     }
 
-    private fun playNextEpisode() {
-        val episodes = episodeList()
-        val currentGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
-        val currentIndex = episodes.indexOfFirst { it["itemGuid"]?.toString() == currentGuid }
-        if (currentIndex != -1 && currentIndex < episodes.size - 1) {
-            val nextGuid = episodes[currentIndex + 1]["itemGuid"]?.toString().orEmpty()
-            requestEpisode(nextGuid)
+    private fun playNextEpisode(autoPlayAfterLoad: Boolean = true) {
+        val nextGuid = nextEpisodeGuidOrNull()
+        if (nextGuid != null) {
+            requestEpisode(nextGuid, autoPlayAfterLoad = autoPlayAfterLoad)
         } else {
             showTransientHint("已经是最后一集了")
         }
+    }
+
+    private fun nextEpisodeGuidOrNull(): String? {
+        val episodes = episodeList()
+        val currentGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
+        val currentIndex = episodes.indexOfFirst { it["itemGuid"]?.toString() == currentGuid }
+        if (currentIndex == -1 || currentIndex >= episodes.size - 1) return null
+        return episodes[currentIndex + 1]["itemGuid"]?.toString()?.takeIf { it.isNotEmpty() }
     }
 
     private fun setDanmakuEnabled(enabled: Boolean) {
@@ -1769,6 +1912,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun currentArtwork(): Pair<String, String> {
+        val localPoster = loadArgsMap["posterLocalPath"]?.toString()?.trim().orEmpty()
+        if (localPoster.isNotEmpty()) return localPoster to ""
         val guid = loadArgsMap["itemGuid"]?.toString().orEmpty()
         val ep = episodeList().firstOrNull { it["itemGuid"]?.toString() == guid }
         val epPoster = resolveImageUrl(ep?.get("poster")?.toString())
@@ -1782,13 +1927,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         return poster to auth
     }
 
-    private fun refreshListenArtwork() {
-        if (!this::listenPosterImage.isInitialized || !this::listenBackdropImage.isInitialized) return
-        val (artUrl, artAuth) = currentArtwork()
-        listenTitleLabel.text = mediaTitle.ifEmpty { loadArgsMap["seriesTitle"]?.toString().orEmpty() }
-        listenSubtitleLabel.text = mediaSubtitle()
-        if (artUrl.isEmpty()) return
-        val model: Any = if (artAuth.isNotEmpty()) {
+    private fun artworkGlideModel(artUrl: String, artAuth: String): Any {
+        return if (artAuth.isNotEmpty()) {
             com.bumptech.glide.load.model.GlideUrl(
                 artUrl,
                 com.bumptech.glide.load.model.LazyHeaders.Builder()
@@ -1799,6 +1939,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         } else {
             artUrl
         }
+    }
+
+    private fun refreshListenArtwork() {
+        if (!this::listenPosterImage.isInitialized || !this::listenBackdropImage.isInitialized) return
+        val (artUrl, artAuth) = currentArtwork()
+        listenTitleLabel.text = mediaTitle.ifEmpty { loadArgsMap["seriesTitle"]?.toString().orEmpty() }
+        listenSubtitleLabel.text = mediaSubtitle()
+        if (artUrl.isEmpty()) return
+        val model = artworkGlideModel(artUrl, artAuth)
         Glide.with(this).load(model).transform(CenterCrop(), RoundedCorners(dp(12))).into(listenPosterImage)
         Glide.with(this).load(model).centerCrop().into(listenBackdropImage)
     }
@@ -1811,6 +1960,23 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 .mapNotNull { (it["timeMs"] as? Number)?.toLong() }
         }
         view.invalidate()
+    }
+
+    /**
+     * 可限高的 ScrollView：内容矮时按内容自适应高度，超过 [maxHeightPx] 才封顶并滚动。
+     * 竖屏底部弹窗用它让面板高度随内容收缩（短面板不再留大片空白），同时设上限避免占满全屏。
+     * maxHeightPx 为 [Int.MAX_VALUE] 时不限高（横屏右侧面板按权重铺满，行为同普通 ScrollView）。
+     */
+    private class MaxHeightScrollView(context: Context) : android.widget.ScrollView(context) {
+        var maxHeightPx: Int = Int.MAX_VALUE
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val spec = if (maxHeightPx in 1 until Int.MAX_VALUE) {
+                MeasureSpec.makeMeasureSpec(maxHeightPx, MeasureSpec.AT_MOST)
+            } else {
+                heightMeasureSpec
+            }
+            super.onMeasure(widthMeasureSpec, spec)
+        }
     }
 
     private inner class ProgressMarkerView(context: Context) : View(context) {
@@ -2021,6 +2187,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         // 换源/切集后选集预取作废：清空按季缓存、复位守卫，待新片首帧后重新预取。
         seasonEpisodesCache.clear()
         episodePickerPrefetchStarted = false
+        episodePickerLoadedOnce = false // 换源：新内容需重新完整落地选集数据
+        episodeViewModeUserDirty = false // 换源：新内容按服务端/本地偏好重新决定视图
         lastRecordedTs = -1L
         flutterDanmakuSources = null // 切集后 Flutter 弹幕源列表作废，进面板时按新集重拉
         if (this::titleLabel.isInitialized) titleLabel.text = mediaTitle
@@ -2051,6 +2219,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         weakNetDismissed = false
         weakNetSuggestedQualityIndex = null
         weakNetSuggestedQualityLabel = ""
+        autoNextSuppressedItemGuid = ""
+        clearNextEpisodePreload()
         chaptersFetched = false
         chapterFetchAttempt = 0
         chapterPositionsMs = emptyList()
@@ -2097,6 +2267,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         enableImmersiveMode()
         // 分屏→全屏 bounds 变化在此落地：回全屏后恢复遮罩（分屏期间已暂挂）。
         syncOcclusionWithSplitState()
+        // 旋转后按新朝向精简/恢复控制层次要入口。
+        applyOrientationToControls()
         // 面板开着时旋转：按新朝向重新锚定（竖屏底部/横屏右侧），内容保留。
         if (panelVisible) showPanelContainer()
     }
@@ -2328,15 +2500,22 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             // 只取稳定的刘海/挖孔 inset。导航栏 inset 在全屏↔分屏 resize 过渡里会瞬时跳变(出现又被
             // 沉浸式隐藏)，若底栏跟它走，进度条就会上下抖一下；播放器本就隐藏系统栏，故底栏改用 cutout。
             val cutout = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
-            topBar.setPadding(dp(18) + cutout.left, dp(12) + cutout.top, dp(18) + cutout.right, dp(18))
+            // 横屏单侧刘海会把控制层整体推向另一侧（"太偏右"）。两侧统一取最大值对称留白，
+            // 控制层始终居中对称；竖屏 cutout.left/right 通常为 0，不受影响。
+            val sideInset = maxOf(cutout.left, cutout.right)
+            topBar.setPadding(dp(18) + sideInset, dp(12) + cutout.top, dp(18) + sideInset, dp(18))
             bottomBar.setPadding(
-                dp(22) + cutout.left,
+                dp(22) + sideInset,
                 dp(14),
-                dp(22) + cutout.right,
+                dp(22) + sideInset,
                 dp(18) + cutout.bottom,
             )
-            // 面板右侧补齐 cutout
-            panelContainer.setPadding(0, 0, bars.right, 0)
+            // 面板补齐安全区：竖屏底部弹窗补底部，横屏右侧面板补右侧 cutout。
+            if (isPortrait()) {
+                panelContainer.setPadding(0, 0, 0, bars.bottom)
+            } else {
+                panelContainer.setPadding(0, 0, bars.right, 0)
+            }
             insets
         }
 
@@ -2368,6 +2547,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             }
             true
         }
+        // 首次按当前朝向精简控制层（顶栏/底栏次要入口）。
+        applyOrientationToControls()
         return rootContainer
     }
 
@@ -2494,19 +2675,19 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             setPadding(dp(8), 0, 0, 0)
         }
 
-        // 小窗（画中画）：仅手机显示，平板隐藏；系统不支持 PIP 也隐藏。
+        // 小窗（画中画）：仅手机显示，平板隐藏；系统不支持 PIP 也隐藏。竖屏再隐藏（见下）。
         if (pipSupported() && !isTablet()) {
-            iconActions.addView(makeIconButton("小窗") { enterPip() })
+            pipButton = makeIconButton("小窗") { enterPip() }.also { iconActions.addView(it) }
         }
         listenButton = makeIconButton("听视频") { toggleAudioMode() }
         iconActions.addView(listenButton)
-        iconActions.addView(makeIconButton("截图") { takeScreenshot() })
+        screenshotButton = makeIconButton("截图") { takeScreenshot() }.also { iconActions.addView(it) }
         abButton = makeIconButton("AB") { toggleAbRepeat() }
         iconActions.addView(abButton)
         // 弹幕设置：Flutter 顶栏即有的直达入口（不止在设置抽屉里）。
-        iconActions.addView(makeIconButton("弹幕设置") {
+        danmakuQuickButton = makeIconButton("弹幕设置") {
             togglePanel(PanelPage("弹幕设置") { buildDanmakuSettingsPage() })
-        })
+        }.also { iconActions.addView(it) }
         iconActions.addView(makeIconButton("更多") { showSettingsRoot() })
 
         mainRow.addView(iconActions)
@@ -2686,11 +2867,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         speedButton = makeEntryButton("1.0x") { showSpeedPicker() }
         addActionButton(speedButton)
 
-        addActionButton(makeEntryButton("音轨") { showAudioPanel() })
-        addActionButton(makeEntryButton("字幕") { showSubtitlePanel() })
-
+        // 音轨/字幕/画质：横屏常驻底栏；竖屏窄屏放不下且会被裁，改为隐藏并从「更多」设置进入。
+        // 显式持有按钮与其前置分隔，竖屏整段连同间距一起收起（避免遗留空白）。
+        audioEntrySpacer = controlActionSpacer().also { actionStrip.addView(it) }
+        audioEntryButton = makeEntryButton("音轨") { showAudioPanel() }.also { actionStrip.addView(it) }
+        subtitleEntrySpacer = controlActionSpacer().also { actionStrip.addView(it) }
+        subtitleEntryButton = makeEntryButton("字幕") { showSubtitlePanel() }.also { actionStrip.addView(it) }
+        qualityEntrySpacer = controlActionSpacer().also { actionStrip.addView(it) }
         qualityButton = makeEntryButton(currentQualityLabel()) { showQualityPanel() }
-        addActionButton(qualityButton)
+        actionStrip.addView(qualityButton)
         controlRow.addView(actionStrip)
 
         bar.addView(
@@ -2797,13 +2982,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             )
             layout.addView(header)
 
-            val scrollView = android.widget.ScrollView(context).apply {
+            val scrollView = MaxHeightScrollView(context).apply {
                 isVerticalScrollBarEnabled = false
             }
+            panelScrollView = scrollView
             panelContent = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
             }
             scrollView.addView(panelContent)
+            // 初始按横屏权重铺满；竖屏在 showPanelContainer 改为限高自适应。
             layout.addView(scrollView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
 
             addView(layout)
@@ -3160,6 +3347,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 } else {
                     NATIVE_EPISODE_VIEW_MODE_GRID
                 }
+                episodeViewModeUserDirty = true // 锁定用户选择，挡掉在途回包的覆盖
                 currentEpisodeRangeIndex = -1
                 expandedEpisodeVersionGuid = null
                 renderTopPanel()
@@ -3232,6 +3420,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
      * 乐观切换 + 短暂加载态，返回后落地并缓存。
      */
     private fun switchSeason(seasonGuid: String) {
+        // 作废任何在途的 loadEpisodePickerData（如打开面板时的静默刷新）：它只用 token 守卫，
+        // 不 bump 的话其回调会把 selectedSeasonGuid 重置回正在播放季 → 切季后"跳回去"。
+        ++episodePanelLoadToken
         val cached = seasonEpisodesCache[seasonGuid]
         if (cached != null && cached.isNotEmpty()) {
             episodePanelLoading = false
@@ -3392,11 +3583,21 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             fallbackEpisodes = episodePanelEpisodes.ifEmpty { episodeList() },
         )
         episodePanelLoading = false
+        // 已完整落地过一次：本次回包仅做增量（同步当前季观看状态），不覆盖用户可能已改的
+        // 选中季 / 视图 / 分页 / 展开等状态——从源头规避「在途回包改回本地状态」整类竞态。
+        if (episodePickerLoadedOnce) {
+            applyEpisodePickerRefresh(data)
+            return
+        }
+        episodePickerLoadedOnce = true
         episodePanelSelectedSeasonGuid = data.selectedSeasonGuid
         episodePanelSeriesTitle = map?.get("seriesTitle")?.toString()?.takeIf { it.isNotEmpty() }
             ?: episodePanelSeriesTitle
-        episodeViewMode = data.viewMode
-        persistEpisodeViewModeLocal(data.viewMode) // 与服务端偏好对齐，下次开播即时恢复
+        // 用户本次已手动切过视图：尊重本地选择，不被（可能更早发出的）回包改回。
+        if (!episodeViewModeUserDirty) {
+            episodeViewMode = data.viewMode
+            persistEpisodeViewModeLocal(data.viewMode) // 与服务端偏好对齐，下次开播即时恢复
+        }
         episodePanelSeasons = data.seasons
         episodePanelEpisodes = data.episodes
         // 顺带把当前季剧集写入按季缓存，供后续切季瞬时命中（懒加载已访问季的复用）。
@@ -3412,6 +3613,42 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (panelVisible && panelStack.size == 1) {
             val page = panelStack.removeLast()
             panelStack.addLast(page.copy(title = episodePanelTitle()))
+        }
+        if (panelVisible) renderTopPanel()
+    }
+
+    /**
+     * 增量刷新：仅把回包里**当前季**的观看状态合并进现有列表，其余一概不动。
+     * 回包对应"正在播放季"；若用户已切去浏览别的季（季不匹配）则不合并，仅重绘。
+     */
+    private fun applyEpisodePickerRefresh(data: NativeEpisodePickerData) {
+        if (data.episodes.isEmpty() ||
+            data.selectedSeasonGuid != episodePanelSelectedSeasonGuid
+        ) {
+            if (panelVisible) renderTopPanel()
+            return
+        }
+        val watchedByGuid = HashMap<String, Any?>()
+        for (ep in data.episodes) {
+            val guid = ep["itemGuid"]?.toString().orEmpty()
+            if (guid.isNotEmpty()) watchedByGuid[guid] = ep["watched"]
+        }
+        var changed = false
+        val merged = episodePanelEpisodes.map { ep ->
+            val guid = ep["itemGuid"]?.toString().orEmpty()
+            if (watchedByGuid.containsKey(guid) && ep["watched"] != watchedByGuid[guid]) {
+                changed = true
+                HashMap(ep).apply { this["watched"] = watchedByGuid[guid] }
+            } else {
+                ep
+            }
+        }
+        if (changed) {
+            episodePanelEpisodes = merged
+            seasonEpisodesCache[data.selectedSeasonGuid] = merged
+            if (data.selectedSeasonGuid == loadArgsMap["seasonGuid"]?.toString().orEmpty()) {
+                loadArgsMap = HashMap(loadArgsMap).apply { put("episodes", merged) }
+            }
         }
         if (panelVisible) renderTopPanel()
     }
@@ -3454,6 +3691,19 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         runCatching {
             flutterSharedPrefs.edit().putString(SHARED_PLAYLIST_VIEW_TYPE_KEY, viewType).apply()
         }
+    }
+
+    private fun loadSharedBoolean(key: String, defaultValue: Boolean): Boolean =
+        runCatching {
+            if (flutterSharedPrefs.contains(key)) {
+                flutterSharedPrefs.getBoolean(key, defaultValue)
+            } else {
+                defaultValue
+            }
+        }.getOrDefault(defaultValue)
+
+    private fun saveSharedBoolean(key: String, value: Boolean) {
+        runCatching { flutterSharedPrefs.edit().putBoolean(key, value).apply() }
     }
 
     private val screenshotDirectoryController by lazy {
@@ -3787,14 +4037,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
                     gravity = Gravity.END
                 }
+                // 不用竖直权重：窄屏标题占两行时权重会把状态文字压成 0 高导致被裁。
                 infoLayout.addView(statusText, LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT,
-                    1f
-                ).apply { gravity = Gravity.BOTTOM })
+                ).apply { topMargin = dp(6) })
             }
 
-            itemView.addView(infoLayout, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
+            // infoLayout 高度随内容自适应，行高由标题+时长+状态决定，缩略图较矮时不撑高。
+            itemView.addView(infoLayout, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
             listContainer.addView(itemView)
             if (versionsExpanded) {
                 listContainer.addView(buildEpisodeVersionExpansion(versionEntries, durationText))
@@ -3808,9 +4059,21 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         episodes: List<Map<String, Any?>>,
         currentGuid: String,
     ): View {
+        // 列数随面板宽度自适应：手机窄面板少列(避免裁剪)、平板宽面板多列(避免一行太空)。
+        // 单元格用 0 宽 + 列权重(FILL) 均分整行，无论列数估算是否精确都不会溢出裁剪。
+        val gridPadding = dp(16)
+        // 竖屏底部弹窗为全屏宽（扣面板内边距 20+20）；横屏取右侧面板宽。
+        val sheetInnerWidth = if (isPortrait()) window.decorView.width - dp(40) else panelWidthPx()
+        val available = (sheetInnerWidth - gridPadding * 2).coerceAtLeast(dp(200))
+        val columns = (available / dp(64)).coerceIn(4, 8)
         val grid = android.widget.GridLayout(this).apply {
-            columnCount = 6
-            setPadding(dp(16), dp(2), dp(16), dp(16))
+            columnCount = columns
+            setPadding(gridPadding, dp(2), gridPadding, dp(16))
+            // 必须铺满面板宽度，列权重才有可分配的余量(WRAP_CONTENT 会使权重列塌缩为 0 宽)。
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
         }
         for ((index, episode) in episodes.withIndex()) {
             val guid = episode["itemGuid"]?.toString().orEmpty()
@@ -3862,8 +4125,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             grid.addView(
                 cell,
                 android.widget.GridLayout.LayoutParams().apply {
-                    width = dp(58)
-                    height = dp(58)
+                    width = 0 // 由列权重 FILL 均分整行宽度
+                    height = dp(54)
+                    columnSpec = android.widget.GridLayout.spec(
+                        android.widget.GridLayout.UNDEFINED,
+                        android.widget.GridLayout.FILL,
+                        1f,
+                    )
                     setMargins(dp(4), dp(4), dp(4), dp(8))
                 },
             )
@@ -4303,13 +4571,50 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         addPanelRow(
             panelCardGroup(
                 panelToggle(
-                    label = "连续播放",
+                    label = "自动旋转",
+                    value = autoRotateEnabled,
+                    subtitle = "跟随系统方向自动切换",
+                ) { enabled ->
+                    autoRotateEnabled = enabled
+                    persistPlaybackBehavior()
+                    applyFullscreenOrientation()
+                    renderTopPanel()
+                },
+                panelToggle(
+                    label = "自动连播",
                     value = autoPlayEnabled,
-                    subtitle = "当前集结束前 5 秒提示并自动进入下一集",
+                    subtitle = if (autoPlayEnabled) {
+                        "当前集结束前 5 秒提示并自动进入下一集"
+                    } else {
+                        "关闭后播放完成停留当前集"
+                    },
                 ) { enabled ->
                     autoPlayEnabled = enabled
                     persistPlaybackBehavior()
-                    if (!enabled) cancelAutoNext()
+                    if (!enabled) {
+                        cancelAutoNext()
+                        clearNextEpisodePreload()
+                    }
+                    renderTopPanel()
+                },
+                panelToggle(
+                    label = "下一级预加载",
+                    value = nativePanelCanPreloadNextEpisode(
+                        autoPlayEnabled,
+                        nextEpisodePreloadEnabled,
+                    ),
+                    subtitle = if (autoPlayEnabled) {
+                        if (nextEpisodePreloadEnabled) "提前准备下一集，减少切集等待"
+                        else "关闭后保持原本的自动连播切集方式"
+                    } else {
+                        "需先开启自动连播"
+                    },
+                    enabled = autoPlayEnabled,
+                ) { enabled ->
+                    nextEpisodePreloadEnabled = enabled
+                    persistPlaybackBehavior()
+                    if (!enabled) clearNextEpisodePreload()
+                    renderTopPanel()
                 },
             ),
         )
@@ -5175,16 +5480,30 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
      * mpv 实例上 `applyLoadArgs` 原地换源。不走 startActivity——singleTask 跨 task 重启会
      * 重建 Activity（onDestroy+releaseMpv+重建 mpv），连续切集时 mpv/surface 交叠会闪退。
      */
-    private fun requestEpisode(itemGuid: String) {
+    private fun requestEpisode(itemGuid: String, autoPlayAfterLoad: Boolean = true) {
         expandedEpisodeVersionGuid = null
+        episodeSwitchInFlight = true
+        clearCompletion()
+        if (itemGuid == nextEpisodePreloadGuid && nextEpisodePreloadResult != null) {
+            val result = nextEpisodePreloadResult
+            clearNextEpisodePreload()
+            applyEpisodeResult(result, autoPlayAfterLoad = autoPlayAfterLoad)
+            setControlsVisible(true)
+            return
+        }
         showNetworkLoadingHint("正在切换…")
         cancelControlsAutoHide()
         NativePlayerReverseBridge.dispatch(
             method = "resolvePlayback",
             args = mapOf("itemGuid" to itemGuid),
-            onResult = { result -> runOnUiThread { applyEpisodeResult(result) } },
+            onResult = { result ->
+                runOnUiThread {
+                    applyEpisodeResult(result, autoPlayAfterLoad = autoPlayAfterLoad)
+                }
+            },
             onError = {
                 runOnUiThread {
+                    episodeSwitchInFlight = false
                     showTransientHint("切换失败，请返回重试")
                     scheduleControlsAutoHide()
                 }
@@ -5217,6 +5536,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             onResult = { result -> runOnUiThread { applyEpisodeResult(result) } },
             onError = {
                 runOnUiThread {
+                    episodeSwitchInFlight = false
                     showTransientHint("切换失败，请返回重试")
                     scheduleControlsAutoHide()
                 }
@@ -5225,11 +5545,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     @Suppress("UNCHECKED_CAST")
-    private fun applyEpisodeResult(result: Any?) {
+    private fun applyEpisodeResult(result: Any?, autoPlayAfterLoad: Boolean = false) {
         val map = result as? Map<String, Any?>
         val loadArgs = (map?.get("loadArgs") as? String)
             ?.let { runCatching { jsonObjectToMap(JSONObject(it)) }.getOrNull() }
         if (loadArgs == null || loadArgs["url"]?.toString().isNullOrEmpty()) {
+            episodeSwitchInFlight = false
             showTransientHint("切换失败，请返回重试")
             scheduleControlsAutoHide()
             return
@@ -5241,7 +5562,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     jsonObjectToMap(JSONObject(java.io.File(it).readText()))
                 }.getOrNull()
             }
-        applyLoadArgs(loadArgs, danmakuPayload)
+        val effectiveLoadArgs = nativePanelLoadArgsForEpisodeSwitch(loadArgs, autoPlayAfterLoad)
+        applyLoadArgs(effectiveLoadArgs, danmakuPayload)
+        if (autoPlayAfterLoad) playWithFocus()
         setControlsVisible(true)
     }
 
@@ -5438,7 +5761,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             setPadding(dp(14), dp(10), dp(14), dp(10))
             visibility = View.GONE
             addView(autoNextText)
-            addView(promptButton("取消", ACCENT, false) { cancelAutoNext() })
+            addView(promptButton("取消", ACCENT, false) { cancelAutoNext(suppressCurrentItem = true) })
         }
         layer.addView(
             autoNextCard,
@@ -5488,15 +5811,37 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         )
 
         // 播放完成（全屏遮罩）
+        completedPosterImage = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            background = GradientDrawable().apply {
+                cornerRadius = dp(16).toFloat()
+                setColor(0xFF171D28.toInt())
+            }
+        }
         completedTitle = TextView(this).apply {
             setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            setPadding(0, dp(18), 0, 0)
+        }
+        completedNextButton = promptButton("下一集", Color.WHITE, true) {
+            clearCompletion()
+            playNextEpisode()
         }
         val completedCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
+            addView(FrameLayout(context).apply {
+                addView(
+                    completedPosterImage,
+                    FrameLayout.LayoutParams(dp(232), dp(132)).apply {
+                        gravity = Gravity.CENTER
+                    },
+                )
+            })
             addView(completedTitle)
             addView(LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -5505,7 +5850,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 addView(promptButton("重播", ACCENT, true) {
                     clearCompletion(); playerSurface.seek(0); playWithFocus()
                 })
-                addView(View(context), LinearLayout.LayoutParams(dp(16), 1))
+                addView(View(context), LinearLayout.LayoutParams(dp(12), 1))
+                addView(completedNextButton)
+                addView(View(context), LinearLayout.LayoutParams(dp(12), 1))
                 addView(promptButton("返回", Color.WHITE, true) { finish() })
             })
         }
@@ -5611,10 +5958,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun hasNextEpisode(): Boolean {
-        val episodes = episodeList()
-        val cur = loadArgsMap["itemGuid"]?.toString().orEmpty()
-        val idx = episodes.indexOfFirst { it["itemGuid"]?.toString() == cur }
-        return idx in 0 until (episodes.size - 1)
+        return nextEpisodeGuidOrNull() != null
     }
 
     private fun isInsideAutoNextPromptWindow(state: MpvPlayerState): Boolean {
@@ -5644,7 +5988,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         autoNextCard.post(ticker)
     }
 
-    private fun cancelAutoNext() {
+    private fun cancelAutoNext(suppressCurrentItem: Boolean = false) {
+        if (suppressCurrentItem) {
+            autoNextSuppressedItemGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
+        }
         autoNextActive = false
         autoNextTicker?.let { autoNextCard.removeCallbacks(it) }
         autoNextTicker = null
@@ -5653,7 +6000,18 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun showCompletedOverlay() {
         completionActive = true
-        completedTitle.text = mediaTitle
+        completedTitle.text = mediaTitle.ifEmpty { loadArgsMap["seriesTitle"]?.toString().orEmpty() }
+        completedNextButton.visibility =
+            if (autoPlayEnabled && hasNextEpisode()) View.VISIBLE else View.GONE
+        val (artUrl, artAuth) = currentArtwork()
+        if (artUrl.isNotEmpty()) {
+            Glide.with(this)
+                .load(artworkGlideModel(artUrl, artAuth))
+                .transform(CenterCrop(), RoundedCorners(dp(16)))
+                .into(completedPosterImage)
+        } else {
+            completedPosterImage.setImageDrawable(null)
+        }
         completedOverlay.visibility = View.VISIBLE
         loadingSpinner.visibility = View.GONE
     }
@@ -5698,20 +6056,49 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             (!state.visualPlaybackReady && state.error == null) ||
             state.error != null
         loadingSpinner.visibility = if (showLoading && !completionActive) View.VISIBLE else View.GONE
+        val playbackEnded = state.playbackPhase == MpvPlaybackPhase.ENDED.wireValue
+
+        if (episodeSwitchInFlight) {
+            if (completionActive || autoNextActive) clearCompletion()
+            if (state.error != null || (state.visualPlaybackReady && !state.buffering && !playbackEnded)) {
+                episodeSwitchInFlight = false
+            } else {
+                return
+            }
+        }
 
         // 连续播放：最后 5 秒先弹倒计时；ENDED 仍做兜底，避免采样错过片尾窗口。
         val hasNext = hasNextEpisode()
-        val shouldAutoNext = nativePanelShouldStartAutoNextCountdown(autoPlayEnabled, hasNext)
-        val playbackEnded = state.playbackPhase == MpvPlaybackPhase.ENDED.wireValue
+        val currentItemGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
+        val autoNextSuppressedForCurrent =
+            currentItemGuid.isNotEmpty() && currentItemGuid == autoNextSuppressedItemGuid
+        val shouldAutoNext =
+            nativePanelShouldStartAutoNextCountdown(
+                autoPlayEnabled,
+                hasNext,
+                episodeSwitchInFlight = episodeSwitchInFlight,
+                suppressedForCurrent = autoNextSuppressedForCurrent,
+            )
+        val insideCompletionWindow = isInsideAutoNextPromptWindow(state)
         val shouldShowAutoNext =
-            shouldAutoNext && (isInsideAutoNextPromptWindow(state) || playbackEnded)
+            shouldAutoNext && (insideCompletionWindow || playbackEnded)
+        val shouldShowCompleted =
+            nativePanelShouldShowCompletedOverlay(
+                autoPlayEnabled = autoPlayEnabled,
+                hasNextEpisode = hasNext,
+                playbackEnded = playbackEnded,
+                insideCompletionWindow = insideCompletionWindow,
+                positionMs = state.positionMs,
+                durationMs = state.durationMs,
+            )
         when {
             shouldShowAutoNext -> {
                 if (completionActive) completedOverlay.visibility = View.GONE
                 completionActive = false
+                preloadNextEpisodeIfNeeded()
                 if (!autoNextActive) startAutoNextCountdown()
             }
-            playbackEnded -> {
+            shouldShowCompleted -> {
                 if (!completionActive) showCompletedOverlay()
             }
             completionActive || autoNextActive -> {
@@ -5954,6 +6341,17 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun buildSettingsRoot() {
+        // 竖屏下底栏隐藏了音轨/字幕/画质入口，这里补一段直达，保证仍可访问。
+        if (isPortrait()) {
+            addPanelRow(panelSectionHeader("音画"))
+            addPanelRow(
+                panelCardGroup(
+                    panelNavRow("音轨") { showAudioPanel() },
+                    panelNavRow("字幕") { showSubtitlePanel() },
+                    panelNavRow("画质", currentQualityLabel()) { showQualityPanel() },
+                ),
+            )
+        }
         addPanelRow(panelSectionHeader("画面"))
         addPanelRow(
             panelCardGroup(
@@ -5977,6 +6375,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             ),
         )
         addPanelRow(panelSectionHeader("播放"))
+        addPanelRow(
+            panelCardGroup(
+                panelNavRow("播放行为", playbackBehaviorSummary()) {
+                    pushPanel(PanelPage("播放行为") { buildPlaybackBehaviorSettingsPage() })
+                },
+            ),
+        )
         if (chapterList.isNotEmpty()) {
             addPanelRow(
                 panelCardGroup(
@@ -6008,6 +6413,63 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             ),
         )
         addPanelRow(panelCardGroup(panelActionRow("切换到 Flutter 播放器") { switchToFlutterPlayer() }))
+    }
+
+    private fun playbackBehaviorSummary(): String {
+        return if (autoPlayEnabled) "连播开" else "连播关"
+    }
+
+    private fun buildPlaybackBehaviorSettingsPage() {
+        addPanelRow(
+            panelCardGroup(
+                panelToggle(
+                    label = "自动旋转",
+                    value = autoRotateEnabled,
+                    subtitle = "跟随系统方向自动切换",
+                ) { enabled ->
+                    autoRotateEnabled = enabled
+                    persistPlaybackBehavior()
+                    applyFullscreenOrientation()
+                    renderTopPanel()
+                },
+                panelToggle(
+                    label = "自动连播",
+                    value = autoPlayEnabled,
+                    subtitle = if (autoPlayEnabled) {
+                        "当前集结束前 5 秒提示并自动进入下一集"
+                    } else {
+                        "关闭后播放完成停留当前集"
+                    },
+                ) { enabled ->
+                    autoPlayEnabled = enabled
+                    persistPlaybackBehavior()
+                    if (!enabled) {
+                        cancelAutoNext()
+                        clearNextEpisodePreload()
+                    }
+                    renderTopPanel()
+                },
+                panelToggle(
+                    label = "下一级预加载",
+                    value = nativePanelCanPreloadNextEpisode(
+                        autoPlayEnabled,
+                        nextEpisodePreloadEnabled,
+                    ),
+                    subtitle = if (autoPlayEnabled) {
+                        if (nextEpisodePreloadEnabled) "提前准备下一集，减少切集等待"
+                        else "关闭后保持原本的自动连播切集方式"
+                    } else {
+                        "需先开启自动连播"
+                    },
+                    enabled = autoPlayEnabled,
+                ) { enabled ->
+                    nextEpisodePreloadEnabled = enabled
+                    persistPlaybackBehavior()
+                    if (!enabled) clearNextEpisodePreload()
+                    renderTopPanel()
+                },
+            ),
+        )
     }
 
     private fun buildChapterPage() {
@@ -6160,7 +6622,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             NativePlayerSettingsStore.KEY_PLAYBACK_BEHAVIOR,
             linkedMapOf("autoPlayEnabled" to true),
         )
-        autoPlayEnabled = (behavior["autoPlayEnabled"] as? Boolean) ?: true
+        autoRotateEnabled = loadSharedBoolean(NATIVE_PLAYER_AUTO_ROTATE_PREF_KEY, true)
+        autoPlayEnabled = loadSharedBoolean(
+            NATIVE_PLAYER_AUTO_PLAY_PREF_KEY,
+            (behavior["autoPlayEnabled"] as? Boolean) ?: true,
+        )
+        nextEpisodePreloadEnabled = loadSharedBoolean(
+            NATIVE_PLAYER_NEXT_EPISODE_PRELOAD_PREF_KEY,
+            false,
+        )
+        applyFullscreenOrientation()
         val io = settingsStore.loadMap(
             NativePlayerSettingsStore.KEY_INTRO_OUTRO,
             linkedMapOf(
@@ -6341,10 +6812,52 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         ),
     )
 
-    private fun persistPlaybackBehavior() = settingsStore.saveMap(
-        NativePlayerSettingsStore.KEY_PLAYBACK_BEHAVIOR,
-        linkedMapOf<String, Any?>("autoPlayEnabled" to autoPlayEnabled),
-    )
+    private fun persistPlaybackBehavior() {
+        saveSharedBoolean(NATIVE_PLAYER_AUTO_ROTATE_PREF_KEY, autoRotateEnabled)
+        saveSharedBoolean(NATIVE_PLAYER_AUTO_PLAY_PREF_KEY, autoPlayEnabled)
+        saveSharedBoolean(
+            NATIVE_PLAYER_NEXT_EPISODE_PRELOAD_PREF_KEY,
+            nextEpisodePreloadEnabled,
+        )
+        settingsStore.saveMap(
+            NativePlayerSettingsStore.KEY_PLAYBACK_BEHAVIOR,
+            linkedMapOf<String, Any?>("autoPlayEnabled" to autoPlayEnabled),
+        )
+    }
+
+    private fun preloadNextEpisodeIfNeeded() {
+        if (!nativePanelCanPreloadNextEpisode(autoPlayEnabled, nextEpisodePreloadEnabled)) return
+        val nextGuid = nextEpisodeGuidOrNull() ?: return
+        if (nextGuid == nextEpisodePreloadGuid && (nextEpisodePreloadInFlight || nextEpisodePreloadResult != null)) {
+            return
+        }
+        nextEpisodePreloadGuid = nextGuid
+        nextEpisodePreloadInFlight = true
+        nextEpisodePreloadResult = null
+        NativePlayerReverseBridge.dispatch(
+            method = "resolvePlayback",
+            args = mapOf("itemGuid" to nextGuid),
+            onResult = { result ->
+                runOnUiThread {
+                    if (nextEpisodePreloadGuid == nextGuid) {
+                        nextEpisodePreloadResult = result
+                        nextEpisodePreloadInFlight = false
+                    }
+                }
+            },
+            onError = {
+                runOnUiThread {
+                    if (nextEpisodePreloadGuid == nextGuid) clearNextEpisodePreload()
+                }
+            },
+        )
+    }
+
+    private fun clearNextEpisodePreload() {
+        nextEpisodePreloadGuid = ""
+        nextEpisodePreloadInFlight = false
+        nextEpisodePreloadResult = null
+    }
 
     private fun persistIntroOutro() = settingsStore.saveMap(
         NativePlayerSettingsStore.KEY_INTRO_OUTRO,
