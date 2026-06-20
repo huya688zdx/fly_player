@@ -127,6 +127,31 @@ void main() {
       expect(request.tags!['genres'], isA<int>());
     });
 
+    test('decade 数值回填为 int，Recent 等非数值保持字符串', () {
+      final numeric = mapMediaQueryToItemListRequest(
+        const MediaCatalogQuery(
+          catalogId: 'c',
+          selection: {
+            'decade': ['2020'],
+          },
+        ),
+      );
+      // 与原生 _buildRequest 一致：飞牛年代是 int，发 int 而非 "2020" 字符串。
+      expect(numeric.tags!['decade'], 2020);
+      expect(numeric.tags!['decade'], isA<int>());
+
+      final recent = mapMediaQueryToItemListRequest(
+        const MediaCatalogQuery(
+          catalogId: 'c',
+          selection: {
+            'decade': ['Recent'],
+          },
+        ),
+      );
+      expect(recent.tags!['decade'], 'Recent');
+      expect(recent.tags!['decade'], isA<String>());
+    });
+
     test('recognition_status / watched 保持字符串', () {
       final request = mapMediaQueryToItemListRequest(
         const MediaCatalogQuery(
