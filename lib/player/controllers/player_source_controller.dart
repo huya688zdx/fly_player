@@ -713,12 +713,11 @@ class PlayerSourceController {
         headers: <String, String>{},
       );
     }
-    final headers =
-        headersOverride ??
-        api.buildPlaybackHeadersForUrl(
-          resolvedUrl,
-          includeInitialRangeHeader: false,
-        );
+    final headers = api.buildPlaybackHeadersForUrl(
+      resolvedUrl,
+      includeInitialRangeHeader: false,
+      extraHeaders: headersOverride ?? const <String, String>{},
+    );
     if (forceNativeProxy) {
       return PlayerPlayableSource(
         proxySessionId: null,

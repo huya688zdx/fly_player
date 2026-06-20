@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/generated/app_localizations.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/nas_image_headers.dart';
 import 'mpv_player_widgets.dart';
 
 const Duration kPlayerOverlayFadeDuration = Duration(milliseconds: 180);
@@ -1004,10 +1005,7 @@ class _PlayerCompletionPosterState extends State<_PlayerCompletionPoster> {
         : Image.network(
             widget.urls[_urlIndex],
             fit: BoxFit.cover,
-            headers: <String, String>{
-              'Authorization': widget.token,
-              'Trim-MC-token': widget.token,
-            },
+            headers: nasImageHeaders(widget.token, url: widget.urls[_urlIndex]),
             errorBuilder: (context, error, stackTrace) {
               if (_urlIndex + 1 < widget.urls.length) {
                 WidgetsBinding.instance.addPostFrameCallback((_) {
