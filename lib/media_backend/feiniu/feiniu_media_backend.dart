@@ -1,4 +1,5 @@
 import '../../api/feiniu_api.dart';
+import '../filter/media_catalog_filter.dart';
 import '../media_backend.dart';
 import '../media_backend_capabilities.dart';
 import '../media_catalog.dart';
@@ -53,5 +54,33 @@ class FeiniuMediaBackend implements MediaBackend {
   Future<List<MediaItemCard>> searchItems(String query) async {
     final items = await api.searchList(query);
     return items.map(mapFeiniuItemCard).toList(growable: false);
+  }
+
+  @override
+  Future<MediaCatalogFilterSchema> getCatalogFilterSchema(
+    String catalogId,
+  ) async {
+    final hasAncestor = catalogId.trim().isNotEmpty;
+    final tagOptions = await api.getTagList(
+      ancestorGuid: hasAncestor ? catalogId : '',
+      isFavorite: 0,
+    );
+    final genresMap = await api.getTagGenresMap(lan: 'zh-CN');
+    final regionNames = await api.getTagIso3166Map(lan: 'zh-CN');
+    return mapFeiniuFilterSchema(
+      tagOptions: tagOptions,
+      genresMap: genresMap,
+      regionNames: regionNames,
+    );
+  }
+
+  @override
+  Future<MediaItemCardPage> queryCatalogItems(MediaCatalogQuery query) async {
+    final request = mapMediaQueryToItemListRequest(query);
+    final page = await api.getItemsPageByRequest(request);
+    return MediaItemCardPage(
+      items: page.items.map(mapFeiniuItemCard).toList(growable: false),
+      total: page.total,
+    );
   }
 }

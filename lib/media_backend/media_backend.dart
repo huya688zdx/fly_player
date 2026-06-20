@@ -1,3 +1,4 @@
+import 'filter/media_catalog_filter.dart';
 import 'media_backend_capabilities.dart';
 import 'media_catalog.dart';
 import 'media_item_card.dart';
@@ -28,4 +29,10 @@ abstract class MediaBackend {
 
   /// 按关键字搜索条目。
   Future<List<MediaItemCard>> searchItems(String query);
+
+  /// 某个媒体库的可筛选 / 可排序 schema（维度、选项、数据字典）。
+  Future<MediaCatalogFilterSchema> getCatalogFilterSchema(String catalogId);
+
+  /// 按筛选条件分页查询某个媒体库的条目。
+  Future<MediaItemCardPage> queryCatalogItems(MediaCatalogQuery query);
 }
