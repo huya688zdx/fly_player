@@ -11,6 +11,8 @@ import '../controllers/media_item_action_sheet_controller.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../models/media_item.dart';
 import '../models/media_library_item.dart';
+import '../media_backend/media_catalog.dart';
+import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
 import '../services/download_task_service.dart';
 import '../services/embedded_detail_launcher.dart';
@@ -151,6 +153,21 @@ class _MediaListScreenState extends State<MediaListScreen> {
     _fetchHomeData();
   }
 
+  // 过渡期本地转换：把公共 [MediaCatalog] 还原成首页现有 UI 使用的 [MediaItem]。
+  // 仅限本文件，不扩散；待整页迁移到公共模型后移除。posters/path 完整保留，
+  // 保证分类条缩略图与迁移前一致。
+  static MediaItem _catalogToMediaItem(MediaCatalog catalog) {
+    return MediaItem(
+      id: catalog.id,
+      name: catalog.title,
+      type: catalog.type,
+      path: catalog.primaryImage.url,
+      posters: catalog.posters
+          .map((image) => image.url)
+          .toList(growable: false),
+    );
+  }
+
   Future<void> _fetchHomeData() async {
     debugPrint('[UI][HOME] start loading home data');
     final usingSpinner = !_loadingFromCache;
@@ -164,14 +181,19 @@ class _MediaListScreenState extends State<MediaListScreen> {
     try {
       final provider = context.read<NasProvider>();
       final api = FeiniuApi(provider);
+      final backend = context.read<MediaBackendProvider>().backend;
 
-      // Fetch categories, summary, and play list in parallel.
+      // 分类入口和首页概要走公共 MediaBackend（无损）；继续观看和分类条目这一
+      // 阶段仍走 FeiniuApi，因为公共条目模型尚未携带它们的富字段（续播进度、
+      // 清晰度角标、本地季/集计数）。
       final parallelResults = await Future.wait([
-        api.getMediaList(),
-        api.getMediaSummary(),
+        backend.getCatalogs(),
+        backend.getHomeSummary(),
         api.getPlayList(),
       ]);
-      final categories = parallelResults[0] as List<MediaItem>;
+      final categories = (parallelResults[0] as List<MediaCatalog>)
+          .map(_catalogToMediaItem)
+          .toList();
       final summary = parallelResults[1] as Map<String, dynamic>;
       final playList = parallelResults[2] as List<MediaLibraryItem>;
       const localeMap = <String, dynamic>{};
@@ -246,14 +268,17 @@ class _MediaListScreenState extends State<MediaListScreen> {
 
     try {
       final api = FeiniuApi(provider);
+      final backend = context.read<MediaBackendProvider>().backend;
 
-      // Fetch categories and summary in parallel.
+      // 分类入口和概要走公共 MediaBackend；继续观看仍走 FeiniuApi（需续播进度）。
       final parallelResults = await Future.wait([
-        api.getMediaList(),
-        api.getMediaSummary(),
+        backend.getCatalogs(),
+        backend.getHomeSummary(),
         api.getPlayList(forceRefresh: true),
       ]);
-      final categories = parallelResults[0] as List<MediaItem>;
+      final categories = (parallelResults[0] as List<MediaCatalog>)
+          .map(_catalogToMediaItem)
+          .toList();
       final summary = parallelResults[1] as Map<String, dynamic>;
       final playList = parallelResults[2] as List<MediaLibraryItem>;
 
