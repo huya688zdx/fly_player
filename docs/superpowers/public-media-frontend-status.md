@@ -142,6 +142,13 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
   - 补测：新增 `test/media_backend/media_backend_provider_test.dart`，验证 provider 使用当前 `NasProvider` 暴露 Feiniu 后端能力；测试中等待 `NasProvider` 异步初始化完成后再释放，避免测试清理阶段误触已 dispose provider。
   - 仍需关注：`MediaBackendProvider.backend` 每次读取都会创建新的 `FeiniuApi`/`FeiniuMediaBackend`；如果 Task 6 页面频繁读取 backend，建议改为缓存实例或在 Provider 内按 NAS 会话变更重建，避免重复创建 Dio。
   - 验证：`flutter test test/media_backend/media_backend_provider_test.dart` → PASS；`flutter analyze test/media_backend/media_backend_provider_test.dart` → No issues；`flutter test test/media_backend/ --concurrency=1` → 7 PASS。
+- 2026-06-20 Task 6 审查：
+  - 审查提交：`1ff413b`、`9e012b7`、`180e8c0`、`746eb8e`
+  - 结论：缩小范围后的 Task 6 未发现阻塞问题。`media_list_screen.dart` 仅把首页分类入口和概要改为通过 `MediaBackendProvider.backend` 获取；继续观看、分类预览和 `_refreshContinueWatching()` 仍保留 `FeiniuApi`，与“富 item 链路暂不迁移”的决策一致。
+  - 架构检查：未发现 UI 中新增 `if (isEmby)`；未接入 Emby API；`MediaCatalog -> MediaItem` 过渡转换仅存在于 `media_list_screen.dart`，未扩散到其它文件；`MediaCatalog.posters` 属于前端展示概念，用于保持首页分类叠图无损，不是飞牛私有字段。
+  - 风险/后续：`MediaItemSummary` 在 `1ff413b` 先扩展了一批展示字段，随后 Task 6 又缩小为不迁移富 item 链路；这些字段目前暂时未被首页使用，建议后续继续以 Emby 实际字段一起校准，避免公共模型继续向 `MediaLibraryItem` 形状膨胀。`MediaBackendProvider.backend` 仍是每次读取新建实例，Task 6 每次加载会读取一次，暂无阻塞，但后续迁移更多页面前仍建议缓存。
+  - 工作区检查：`git diff --cached --name-only` 为空；`lib/media_backend`、`test/media_backend`、`lib/screens/media_list_screen.dart`、本状态文档在审查前均无未提交改动；其它大量未提交文件与本次审查无关，Codex 未回滚、未暂存、未夹带。
+  - 验证：`flutter analyze lib/screens/media_list_screen.dart` → No issues；`flutter test test/home_scroll_physics_test.dart test/main_navigation_layout_test.dart --concurrency=1` → PASS；`flutter test test/media_backend/ --concurrency=1` → 9 PASS；`flutter analyze` → FAIL（19 条，均不在 Task 6 相关文件，主要为既有 duplicate import、unused、prefer_const、use_build_context_synchronously）。
 
 ## Claude 下一步任务
 
