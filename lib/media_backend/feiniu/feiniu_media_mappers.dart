@@ -144,8 +144,11 @@ MediaCatalogFilterSchema mapFeiniuFilterSchema({
 
 /// 把公共筛选查询回填为飞牛 [ItemListRequest]。
 ///
-/// 类型回填规则与原生分类页一致：`type` 进 [ItemListRequest.typeTags]（空选择
-/// 时回退到全类型）；`genres` 还原为 int；其余维度按字符串原样提交。
+/// 类型回填规则与原生分类页 `_buildRequest` 一致：`type` 进 [ItemListRequest.typeTags]
+/// （空选择时回退到全类型）；`genres` / `decade` 还原为数值（飞牛 `getTagList` 下发的
+/// genre id 与年代均为 int，原生分类页直接发 int 而非字符串，转字符串会改变 `/item/list`
+/// 线格式，故此处对可解析为整数的值还原为 int，`Recent` 等非数值年代保持字符串）；
+/// 其余维度按字符串原样提交（`recognition_status` / `watched` 原生分类页本就显式字符串化）。
 ItemListRequest mapMediaQueryToItemListRequest(MediaCatalogQuery query) {
   final selection = query.selection;
 
@@ -155,14 +158,17 @@ ItemListRequest mapMediaQueryToItemListRequest(MediaCatalogQuery query) {
       : const <String>['Movie', 'TV', 'Directory', 'Video'];
 
   final tags = <String, dynamic>{};
-  final genres = selection['genres'];
-  if (genres != null && genres.isNotEmpty) {
-    final first = genres.first;
-    tags['genres'] = int.tryParse(first) ?? first;
+  // genres / decade：飞牛后端按 int 下发与回填，数值原样转 int 保持线格式无损。
+  const numericKeys = <String>['genres', 'decade'];
+  for (final key in numericKeys) {
+    final values = selection[key];
+    if (values != null && values.isNotEmpty) {
+      final first = values.first;
+      tags[key] = int.tryParse(first) ?? first;
+    }
   }
   const passthroughKeys = <String>[
     'locate',
-    'decade',
     'resolution',
     'color_range',
     'audio_type',
