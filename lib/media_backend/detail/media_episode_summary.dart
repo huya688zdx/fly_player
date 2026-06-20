@@ -1,0 +1,32 @@
+import '../media_image_ref.dart';
+
+/// 剧集详情页的选集列表条目。后端中立，只承载选集所需的展示信息。
+class MediaEpisodeSummary {
+  final String id;
+  final String title;
+  final int seasonNumber;
+  final int episodeNumber;
+  final String overview;
+  final String airDate;
+  final int durationSeconds;
+
+  /// 已看展示态快照。
+  final bool watched;
+
+  /// 续播位置（秒）。
+  final int resumePositionSeconds;
+  final MediaImageRef primaryImage;
+
+  const MediaEpisodeSummary({
+    required this.id,
+    required this.title,
+    required this.seasonNumber,
+    required this.episodeNumber,
+    required this.primaryImage,
+    this.overview = '',
+    this.airDate = '',
+    this.durationSeconds = 0,
+    this.watched = false,
+    this.resumePositionSeconds = 0,
+  });
+}
