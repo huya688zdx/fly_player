@@ -5,6 +5,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../models/download_task_record.dart';
 import '../../models/tv_episode_browser_models.dart';
 import '../../theme/app_theme.dart';
+import '../common/liquid_glass.dart';
 import '../../theme/download_sheet_theme.dart';
 import '../../ui/capability_badge_mapper.dart';
 import '../../ui/media_detail_components.dart';
@@ -473,11 +474,7 @@ class _DownloadSingleCard extends StatelessWidget {
         : Icons.download_rounded;
     return Container(
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: sheetTheme.cardBackground,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: sheetTheme.cardBorder),
-      ),
+      decoration: liquidGlassDecoration(context, radius: 16),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -617,15 +614,10 @@ class _DownloadRangeTabs extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final sheetTheme = context.downloadSheetTheme;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: sheetTheme.cardBackground,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: sheetTheme.cardBorder),
-      ),
+      decoration: liquidGlassDecoration(context, radius: 14),
       child: Wrap(
         spacing: 16,
         runSpacing: 10,
@@ -703,11 +695,7 @@ class _DownloadEpisodeRow extends StatelessWidget {
         : Icons.download_rounded;
     return Container(
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: sheetTheme.cardBackground,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: sheetTheme.cardBorder),
-      ),
+      decoration: liquidGlassDecoration(context, radius: 16),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -933,17 +921,11 @@ class _DownloadQualityOptionTile extends StatelessWidget {
       borderRadius: BorderRadius.circular(12),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
-        decoration: BoxDecoration(
-          color: selected
-              ? sheetTheme.optionSelectedBackground
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: selected
-                ? sheetTheme.optionSelectedBorderColor
-                : sheetTheme.optionBorderColor,
-            width: selected ? 1.4 : 1,
-          ),
+        decoration: liquidGlassDecoration(
+          context,
+          radius: 12,
+          tone: selected ? LiquidGlassTone.accent : LiquidGlassTone.neutral,
+          selected: selected,
         ),
         child: Row(
           children: [

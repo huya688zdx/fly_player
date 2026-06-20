@@ -27,9 +27,10 @@ import '../utils/async_action_guard.dart';
 import '../utils/app_confirm_dialog.dart';
 import '../utils/app_exception.dart';
 import '../utils/app_top_tip.dart';
-import '../utils/reduced_overscroll_physics.dart';
 import '../widgets/common/app_action_sheet.dart';
 import '../widgets/common/app_error_state.dart';
+import '../widgets/common/liquid_glass.dart';
+import '../utils/nas_image_headers.dart';
 import 'category_items_screen.dart';
 import 'favorite_items_screen.dart';
 import 'person_detail_screen.dart';
@@ -214,12 +215,14 @@ class _MediaListScreenState extends State<MediaListScreen> {
       });
 
       // Persist to cache.
-      unawaited(HomeDataCache.save(
-        categories: categories,
-        itemsByCategory: itemsByCategory,
-        mediaSummary: summary,
-        continueWatching: continueWatching,
-      ));
+      unawaited(
+        HomeDataCache.save(
+          categories: categories,
+          itemsByCategory: itemsByCategory,
+          mediaSummary: summary,
+          continueWatching: continueWatching,
+        ),
+      );
     } catch (error) {
       debugPrint('[UI][HOME] load failed $error');
       if (!mounted) return;
@@ -311,12 +314,14 @@ class _MediaListScreenState extends State<MediaListScreen> {
       }
 
       // Always update cache with fresh data.
-      unawaited(HomeDataCache.save(
-        categories: categories,
-        itemsByCategory: itemsByCategory,
-        mediaSummary: summary,
-        continueWatching: continueWatching,
-      ));
+      unawaited(
+        HomeDataCache.save(
+          categories: categories,
+          itemsByCategory: itemsByCategory,
+          mediaSummary: summary,
+          continueWatching: continueWatching,
+        ),
+      );
     } catch (error) {
       debugPrint('[UI][HOME] background refresh failed: $error');
       if (!mounted) return;
@@ -563,10 +568,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
             precacheImage(
               NetworkImage(
                 warmupUrls.first,
-                headers: <String, String>{
-                  'Authorization': provider.token,
-                  'Trim-MC-token': provider.token,
-                },
+                headers: nasImageHeaders(provider.token, url: warmupUrls.first),
               ),
               navigator.context,
             ).timeout(const Duration(milliseconds: 140)).catchError((

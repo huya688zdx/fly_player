@@ -38,6 +38,7 @@ import 'screens/settings_destination_routes.dart';
 import 'theme/app_theme.dart';
 import 'theme/dynamic_theme_runtime_controller.dart';
 import 'theme/dynamic_theme_seed_extractor.dart';
+import 'theme/glass_quality.dart';
 import 'ui/adaptive_text.dart';
 import 'ui/app_transitions.dart';
 import 'ui/media_poster_card.dart';
@@ -993,29 +994,254 @@ class _MainNavigationState extends State<MainNavigation> {
   @override
   Widget build(BuildContext context) {
     const pages = <Widget>[MediaListScreen(), AppSettingsScreen()];
-    final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
 
     return Scaffold(
+      extendBody: true,
       body: IndexedStack(index: _selectedTab.tabIndex, children: pages),
-      bottomNavigationBar: BottomNavigationBar(
-        backgroundColor: colors.navBarBackground,
-        selectedItemColor: colors.selectionStrong,
-        unselectedItemColor: colors.textMuted,
+      bottomNavigationBar: _LiquidGlassBottomNavigation(
         currentIndex: _selectedTab.tabIndex,
-        onTap: (index) {
-          unawaited(_handleNavigationTap(index));
-        },
-        items: <BottomNavigationBarItem>[
-          BottomNavigationBarItem(
-            icon: const Icon(Icons.movie),
-            label: l10n.navMovies,
-          ),
-          BottomNavigationBarItem(
-            icon: const Icon(Icons.settings_rounded),
+        onTap: (index) => unawaited(_handleNavigationTap(index)),
+        destinations: <_LiquidGlassNavDestination>[
+          _LiquidGlassNavDestination(icon: Icons.movie, label: l10n.navMovies),
+          _LiquidGlassNavDestination(
+            icon: Icons.settings_rounded,
             label: l10n.navSettings,
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _LiquidGlassNavDestination {
+  final IconData icon;
+  final String label;
+
+  const _LiquidGlassNavDestination({required this.icon, required this.label});
+}
+
+class _LiquidGlassBottomNavigation extends StatelessWidget {
+  final int currentIndex;
+  final ValueChanged<int> onTap;
+  final List<_LiquidGlassNavDestination> destinations;
+
+  const _LiquidGlassBottomNavigation({
+    required this.currentIndex,
+    required this.onTap,
+    required this.destinations,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final isLightSurface = colors.backgroundBase.computeLuminance() >= 0.58;
+    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
+    final safeIndex = currentIndex.clamp(0, destinations.length - 1);
+    final horizontalPadding = MediaQuery.sizeOf(context).width >= 700
+        ? 96.0
+        : 38.0;
+    final bottomPadding = bottomInset + 8 < 10 ? 10.0 : bottomInset + 8;
+    final inactive = colors.textMuted.withValues(alpha: 0.86);
+    final active = colors.selectionStrong;
+
+    return Material(
+      type: MaterialType.transparency,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          horizontalPadding,
+          8,
+          horizontalPadding,
+          bottomPadding,
+        ),
+        child: SizedBox(
+          height: 72,
+          child: ValueListenableBuilder<LiquidGlassLevel>(
+            valueListenable: liquidGlassLevel,
+            builder: (context, level, child) {
+              final bool blur = level.usesRealBlur;
+              // 液态挡位：真实背景模糊 + 更通透的底色，让身后内容折射出来。
+              // 其余挡位：去掉 BackdropFilter，用较实的半透明底色伪磨砂（零开销）。
+              Widget surface = DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(36),
+                  border: Border.all(
+                    color: Colors.white.withValues(
+                      alpha: isLightSurface ? 0.58 : (blur ? 0.22 : 0.16),
+                    ),
+                    width: 0.8,
+                  ),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: <Color>[
+                      Colors.white.withValues(
+                        alpha: blur
+                            ? (isLightSurface ? 0.42 : 0.12)
+                            : (isLightSurface ? 0.66 : 0.18),
+                      ),
+                      colors.navBarBackground.withValues(
+                        alpha: blur
+                            ? (isLightSurface ? 0.60 : 0.42)
+                            : (isLightSurface ? 0.90 : 0.84),
+                      ),
+                      colors.accentSoft.withValues(
+                        alpha: isLightSurface ? 0.22 : 0.16,
+                      ),
+                    ],
+                  ),
+                ),
+                child: child,
+              );
+              if (blur) {
+                surface = BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+                  child: surface,
+                );
+              }
+              return ClipRRect(
+                borderRadius: BorderRadius.circular(36),
+                child: surface,
+              );
+            },
+            child: Stack(
+              fit: StackFit.expand,
+              children: <Widget>[
+                Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: RadialGradient(
+                        center: const Alignment(-0.86, -1.08),
+                        radius: 1.1,
+                        colors: <Color>[
+                          Colors.white.withValues(
+                            alpha: isLightSurface ? 0.58 : 0.22,
+                          ),
+                          Colors.transparent,
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                AnimatedAlign(
+                  duration: const Duration(milliseconds: 260),
+                  curve: Curves.easeOutCubic,
+                  alignment: destinations.length <= 1
+                      ? Alignment.center
+                      : Alignment(
+                          -1.0 + safeIndex * (2.0 / (destinations.length - 1)),
+                          0,
+                        ),
+                  child: FractionallySizedBox(
+                    widthFactor: 1 / destinations.length,
+                    heightFactor: 1,
+                    child: Padding(
+                      padding: const EdgeInsets.all(7),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(31),
+                          border: Border.all(
+                            color: Colors.white.withValues(
+                              alpha: isLightSurface ? 0.80 : 0.22,
+                            ),
+                            width: 0.8,
+                          ),
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: <Color>[
+                              Colors.white.withValues(
+                                alpha: isLightSurface ? 0.84 : 0.24,
+                              ),
+                              Color.alphaBlend(
+                                active.withValues(alpha: 0.16),
+                                colors.surface.withValues(
+                                  alpha: isLightSurface ? 0.56 : 0.30,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Row(
+                  children: List.generate(destinations.length, (index) {
+                    final selected = index == safeIndex;
+                    return Expanded(
+                      child: _LiquidGlassNavItem(
+                        destination: destinations[index],
+                        selected: selected,
+                        activeColor: active,
+                        inactiveColor: inactive,
+                        onTap: () => onTap(index),
+                      ),
+                    );
+                  }),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LiquidGlassNavItem extends StatelessWidget {
+  final _LiquidGlassNavDestination destination;
+  final bool selected;
+  final Color activeColor;
+  final Color inactiveColor;
+  final VoidCallback onTap;
+
+  const _LiquidGlassNavItem({
+    required this.destination,
+    required this.selected,
+    required this.activeColor,
+    required this.inactiveColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? activeColor : inactiveColor;
+    return Semantics(
+      selected: selected,
+      button: true,
+      label: destination.label,
+      child: InkResponse(
+        onTap: onTap,
+        radius: 44,
+        containedInkWell: true,
+        highlightShape: BoxShape.rectangle,
+        child: AnimatedDefaultTextStyle(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          style: TextStyle(
+            color: color,
+            fontSize: selected ? 13 : 12,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+            height: 1.0,
+          ),
+          child: IconTheme(
+            data: IconThemeData(color: color, size: selected ? 30 : 28),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                Icon(destination.icon),
+                const SizedBox(height: 5),
+                Text(
+                  destination.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textScaler: const TextScaler.linear(1.0),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

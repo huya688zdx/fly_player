@@ -11,6 +11,7 @@ import '../services/runtime_theme_sync_bridge.dart';
 import '../theme/app_theme.dart';
 import '../theme/dynamic_theme_mapper.dart';
 import '../theme/dynamic_theme_seed_extractor.dart';
+import '../theme/glass_quality.dart';
 
 class AppThemeProvider extends ChangeNotifier {
   static const String _presetKey = 'app_theme_preset';
@@ -24,6 +25,7 @@ class AppThemeProvider extends ChangeNotifier {
   static const String _customLinkColorKey = 'app_theme_custom_link';
   static const String _dynamicThemeModeKey = 'app_theme_dynamic_mode';
   static const String _dynamicThemeIntensityKey = 'app_theme_dynamic_intensity';
+  static const String _glassLevelKey = 'app_theme_glass_level';
   static const String _themeSourceTypeKey = 'app_theme_source_type';
   static const String _activeSavedThemeIdKey =
       'app_theme_active_saved_theme_id';
@@ -62,6 +64,7 @@ class AppThemeProvider extends ChangeNotifier {
   AppDynamicThemeMode _dynamicThemeMode = AppDynamicThemeMode.off;
   AppDynamicThemeIntensity _dynamicThemeIntensity =
       AppDynamicThemeIntensity.medium;
+  LiquidGlassLevel _glassLevel = LiquidGlassLevel.frosted;
   AppThemeSourceType _themeSourceType = AppThemeSourceType.preset;
   String _activeSavedThemeId = '';
   List<SavedCustomTheme> _savedThemes = const <SavedCustomTheme>[];
@@ -150,6 +153,7 @@ class AppThemeProvider extends ChangeNotifier {
   Color? get customLinkColor => _customLinkColor;
   AppDynamicThemeMode get dynamicThemeMode => _dynamicThemeMode;
   AppDynamicThemeIntensity get dynamicThemeIntensity => _dynamicThemeIntensity;
+  LiquidGlassLevel get glassLevel => _glassLevel;
   AppThemeSourceType get themeSourceType => _themeSourceType;
   String get activeSavedThemeId => _activeSavedThemeId;
   List<SavedCustomTheme> get savedThemes =>
@@ -570,6 +574,15 @@ class AppThemeProvider extends ChangeNotifier {
     _dynamicThemeIntensity = value;
     await _persist(
       (prefs) => prefs.setString(_dynamicThemeIntensityKey, value.storageValue),
+    );
+  }
+
+  Future<void> setGlassLevel(LiquidGlassLevel value) async {
+    if (_glassLevel == value && _isReady) return;
+    _glassLevel = value;
+    liquidGlassLevel.value = value;
+    await _persist(
+      (prefs) => prefs.setString(_glassLevelKey, value.storageValue),
     );
   }
 
@@ -1200,6 +1213,10 @@ class AppThemeProvider extends ChangeNotifier {
     _dynamicThemeIntensity = AppDynamicThemeIntensityX.fromStorageValue(
       prefs.getString(_dynamicThemeIntensityKey),
     );
+    _glassLevel = LiquidGlassLevelX.fromStorageValue(
+      prefs.getString(_glassLevelKey),
+    );
+    liquidGlassLevel.value = _glassLevel;
     _themeSourceType = AppThemeSourceTypeX.fromStorageValue(
       prefs.getString(_themeSourceTypeKey),
     );
@@ -1257,6 +1274,8 @@ class AppThemeProvider extends ChangeNotifier {
     _customLinkColor = snapshot.customLinkColor;
     _dynamicThemeMode = snapshot.dynamicThemeMode;
     _dynamicThemeIntensity = snapshot.dynamicThemeIntensity;
+    _glassLevel = snapshot.glassLevel;
+    liquidGlassLevel.value = _glassLevel;
     _themeSourceType = snapshot.themeSourceType;
     _activeSavedThemeId = snapshot.activeSavedThemeId;
     _savedThemes = snapshot.savedThemes;
@@ -1285,6 +1304,7 @@ class AppThemeProvider extends ChangeNotifier {
       customLinkColor: _customLinkColor,
       dynamicThemeMode: _dynamicThemeMode,
       dynamicThemeIntensity: _dynamicThemeIntensity,
+      glassLevel: _glassLevel,
       themeSourceType: _themeSourceType,
       activeSavedThemeId: _activeSavedThemeId,
       savedThemes: List<SavedCustomTheme>.from(_savedThemes),
@@ -1433,6 +1453,7 @@ class _AppThemeBootstrapSnapshot {
   final Color? customLinkColor;
   final AppDynamicThemeMode dynamicThemeMode;
   final AppDynamicThemeIntensity dynamicThemeIntensity;
+  final LiquidGlassLevel glassLevel;
   final AppThemeSourceType themeSourceType;
   final String activeSavedThemeId;
   final List<SavedCustomTheme> savedThemes;
@@ -1455,6 +1476,7 @@ class _AppThemeBootstrapSnapshot {
     required this.customLinkColor,
     required this.dynamicThemeMode,
     required this.dynamicThemeIntensity,
+    required this.glassLevel,
     required this.themeSourceType,
     required this.activeSavedThemeId,
     required this.savedThemes,
