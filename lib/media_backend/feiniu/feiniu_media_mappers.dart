@@ -11,6 +11,9 @@ MediaCatalog mapFeiniuCatalog(MediaItem item) {
     title: item.name,
     type: item.type ?? '',
     primaryImage: MediaImageRef(url: item.path ?? ''),
+    posters: item.posters
+        .map((path) => MediaImageRef(url: path))
+        .toList(growable: false),
   );
 }
 

@@ -7,10 +7,15 @@ class MediaCatalog {
   final String type;
   final MediaImageRef primaryImage;
 
+  /// 入口封面图集合。首页分类条会叠展示前若干张（飞牛主机上最多 2 张），
+  /// 为空时回退 [primaryImage]。属于前端展示概念，各后端在适配层填充。
+  final List<MediaImageRef> posters;
+
   const MediaCatalog({
     required this.id,
     required this.title,
     required this.type,
     required this.primaryImage,
+    this.posters = const <MediaImageRef>[],
   });
 }

@@ -15,6 +15,21 @@ void main() {
     expect(catalog.primaryImage.url, '/p.jpg');
   });
 
+  test('maps Feiniu MediaItem poster list to MediaCatalog posters', () {
+    final catalog = mapFeiniuCatalog(
+      MediaItem(
+        id: 'cat-2',
+        name: '剧集',
+        type: 'Series',
+        path: '/a.jpg',
+        posters: const ['/a.jpg', '/b.jpg'],
+      ),
+    );
+
+    // 分类条最多叠展示 2 张封面，列表顺序需原样保留以保证视觉一致。
+    expect(catalog.posters.map((e) => e.url).toList(), ['/a.jpg', '/b.jpg']);
+  });
+
   test('maps Feiniu MediaLibraryItem to MediaItemSummary', () {
     final item = mapFeiniuItemSummary(
       MediaLibraryItem(
