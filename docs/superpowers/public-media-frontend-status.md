@@ -50,7 +50,7 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 | Phase 2: FeiniuMediaBackend 和 Provider | 完成 | Claude 主实现，Codex 审查 | Task4: 3986ef5 / Task5: 4b3002d | 单元测试 + analyze |
 | Phase 3: 首页迁移样板 | 部分完成（catalogs+summary 已迁移，待手动验证） | Claude 主实现，Codex 验证 | 模型扩展: 1ff413b / 9e012b7；首页迁移: 180e8c0 | 首页单测通过；`flutter run` 手动验证待做 |
 | Phase 4: 搜索页迁移（统一 MediaItemCard） | 完成（搜索页已验收通过；分类页滤镜体系另立设计、本期不动） | Claude 主实现，Codex 审查 | 设计 c849e2a / 模型 fa878ba / mapper 013d2fe / 收口 a68c95e / 搜索页 a8adf76 | media_backend 11 PASS + analyze；用户已验收通过（2026-06-20） |
-| Phase 4.5: 分类页 filter 抽象 | Task 5-3 已完成并经 Codex 审查（backend schema/query + UI localizer 已落盘；分类页 UI 迁移未开始） | Claude 主实现，Codex 审查 | Task5-1: 38e3315 / Task5-2: 1dcedda / Task5-3: 15a3853 / Codex审查: 00b132e | media_backend 28 PASS + localizer 12 PASS + analyze；分类页查询/筛选/排序手动验证待 Task 5-4 |
+| Phase 4.5: 分类页 filter 抽象 | Task 5-3 已完成并经 Codex 审查（backend schema/query + UI localizer 已落盘；分类页 UI 迁移未开始） | Claude 主实现，Codex 审查 | Task5-1: 38e3315 / Task5-2: 1dcedda / Task5-3: 15a3853 / Codex审查: c681618 | media_backend 28 PASS + localizer 12 PASS + analyze；分类页查询/筛选/排序手动验证待 Task 5-4 |
 | Phase 5: 详情页迁移 | 未开始（评估：~7790 行 UI、30 处 FeiniuApi、裸 Map，宜等接 Emby 时连同字段形状一起设计） | Claude 主实现，Codex 审查 |  | 电影/剧集详情手动验证 |
 | Phase 6: 播放入口迁移 | 未开始 | Claude 主实现，Codex 深审 |  | 播放、音轨、字幕验证 |
 
