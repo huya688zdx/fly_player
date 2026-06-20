@@ -65,8 +65,10 @@ class MediaDetail {
   final int resumePositionSeconds;
 
   final MediaExternalIds externalIds;
-  final List<MediaDetailPerson> cast;
-  final List<MediaDetailPerson> crew;
+
+  /// 演职员（扁平列表，复刻详情页"演职员"合并区）。每人用 [MediaDetailPerson.department]
+  /// 区分 cast / crew，调用方需要分区时自行按 department 过滤（兼容 Emby `People[].Type`）。
+  final List<MediaDetailPerson> people;
 
   const MediaDetail({
     required this.id,
@@ -98,8 +100,7 @@ class MediaDetail {
     this.favorite = false,
     this.resumePositionSeconds = 0,
     this.externalIds = const MediaExternalIds(),
-    this.cast = const <MediaDetailPerson>[],
-    this.crew = const <MediaDetailPerson>[],
+    this.people = const <MediaDetailPerson>[],
   });
 
   /// 优先副标题，其次主标题，二者皆空时回退占位（复刻飞牛 displayTitle 语义）。
@@ -142,8 +143,7 @@ class MediaDetail {
     bool? favorite,
     int? resumePositionSeconds,
     MediaExternalIds? externalIds,
-    List<MediaDetailPerson>? cast,
-    List<MediaDetailPerson>? crew,
+    List<MediaDetailPerson>? people,
   }) {
     return MediaDetail(
       id: id ?? this.id,
@@ -177,8 +177,7 @@ class MediaDetail {
       resumePositionSeconds:
           resumePositionSeconds ?? this.resumePositionSeconds,
       externalIds: externalIds ?? this.externalIds,
-      cast: cast ?? this.cast,
-      crew: crew ?? this.crew,
+      people: people ?? this.people,
     );
   }
 }

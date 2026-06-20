@@ -27,7 +27,7 @@ void main() {
       favorite: true,
       resumePositionSeconds: 600,
       externalIds: MediaExternalIds(tmdbId: 'tt-trim', imdbId: 'tt123'),
-      cast: <MediaDetailPerson>[
+      people: <MediaDetailPerson>[
         MediaDetailPerson(
           id: 'p-1',
           name: '演员甲',
@@ -69,8 +69,8 @@ void main() {
       expect(detail.resumePositionSeconds, 600);
       expect(detail.externalIds.tmdbId, 'tt-trim');
       expect(detail.externalIds.imdbId, 'tt123');
-      expect(detail.cast.single.name, '演员甲');
-      expect(detail.cast.single.department, 'cast');
+      expect(detail.people.single.name, '演员甲');
+      expect(detail.people.single.department, 'cast');
     });
 
     test('可选字段缺省为空 / 0 / false', () {
@@ -92,8 +92,7 @@ void main() {
       expect(minimal.resumePositionSeconds, 0);
       expect(minimal.externalIds.tmdbId, '');
       expect(minimal.externalIds.imdbId, '');
-      expect(minimal.cast, isEmpty);
-      expect(minimal.crew, isEmpty);
+      expect(minimal.people, isEmpty);
     });
 
     test('copyWith 仅改目标字段', () {
@@ -103,7 +102,7 @@ void main() {
       // 其它字段保持。
       expect(updated.id, 'item-1');
       expect(updated.displayTitle, '剧集副标题');
-      expect(updated.cast.single.name, '演员甲');
+      expect(updated.people.single.name, '演员甲');
       expect(updated.externalIds.imdbId, 'tt123');
     });
   });
