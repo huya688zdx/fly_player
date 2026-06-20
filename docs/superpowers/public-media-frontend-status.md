@@ -189,6 +189,13 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
   - 风险/后续：`MediaItemSummary` 在 `1ff413b` 先扩展了一批展示字段，随后 Task 6 又缩小为不迁移富 item 链路；这些字段目前暂时未被首页使用，建议后续继续以 Emby 实际字段一起校准，避免公共模型继续向 `MediaLibraryItem` 形状膨胀。`MediaBackendProvider.backend` 仍是每次读取新建实例，Task 6 每次加载会读取一次，暂无阻塞，但后续迁移更多页面前仍建议缓存。
   - 工作区检查：`git diff --cached --name-only` 为空；`lib/media_backend`、`test/media_backend`、`lib/screens/media_list_screen.dart`、本状态文档在审查前均无未提交改动；其它大量未提交文件与本次审查无关，Codex 未回滚、未暂存、未夹带。
   - 验证：`flutter analyze lib/screens/media_list_screen.dart` → No issues；`flutter test test/home_scroll_physics_test.dart test/main_navigation_layout_test.dart --concurrency=1` → PASS；`flutter test test/media_backend/ --concurrency=1` → 9 PASS；`flutter analyze` → FAIL（19 条，均不在 Task 6 相关文件，主要为既有 duplicate import、unused、prefer_const、use_build_context_synchronously）。
+- 2026-06-20 Phase 4 审查：
+  - 审查提交：`c849e2a`、`fa878ba`、`013d2fe`、`a68c95e`、`a8adf76`、`3789e0c`
+  - 结论：未发现阻塞问题。`MediaItemCard` 覆盖搜索/分类卡片展示字段，字段命名保持后端中立；`mapFeiniuItemCard` 只在适配层搬运飞牛字段；搜索结果读取已从 `FeiniuApi.searchList` 迁到 `MediaBackend.searchItems`。
+  - 架构检查：未发现搜索页新增 `if (isEmby)` 或 Emby API；`search_screen.dart` 剩余 `FeiniuApi.getItemDetail` 仅用于详情页本期未迁移的预取入口，动作面板 `_cardToActionItem` 局部回转只在本文件内使用，未扩散。分类页仍保留飞牛 API，符合“分类页滤镜体系另立设计、本期不动”的范围。
+  - 风险/后续：`MediaItemCard` 已包含较完整的富卡片字段，后续迁移分类页时不要继续按飞牛筛选/排序字段膨胀模型，应单独设计查询/filter 抽象。`FeiniuMediaBackend.searchItems` 仍缺少可替换 fake seam，适配器转发行为主要靠 mapper 单测和页面分析兜底。
+  - 工作区检查：`git diff --cached --name-only` 为空；`lib/media_backend`、`test/media_backend`、`lib/screens/search_screen.dart`、本状态文档在审查前均无未提交改动；其它未提交工作区文件与本次审查无关，Codex 未回滚、未暂存、未夹带。
+  - 验证：`flutter test test/media_backend/ --concurrency=1` → 11 PASS；`flutter analyze lib/media_backend test/media_backend lib/screens/search_screen.dart` → No issues；`flutter analyze lib/screens/search_screen.dart` → No issues；`flutter analyze` → FAIL（19 条，均不在 Phase 4 相关文件，主要为既有 duplicate import、unused、prefer_const、use_build_context_synchronously）。
 
 ## Claude 下一步任务
 
