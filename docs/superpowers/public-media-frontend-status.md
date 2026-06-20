@@ -62,7 +62,7 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 | Phase 3: 首页迁移样板 | 部分完成（catalogs+summary 已迁移，待手动验证） | Claude 主实现，Codex 验证 | 模型扩展: 1ff413b / 9e012b7；首页迁移: 180e8c0 | 首页单测通过；`flutter run` 手动验证待做 |
 | Phase 4: 搜索页迁移（统一 MediaItemCard） | 完成（搜索页已验收通过；分类页滤镜体系另立设计、本期不动） | Claude 主实现，Codex 审查 | 设计 c849e2a / 模型 fa878ba / mapper 013d2fe / 收口 a68c95e / 搜索页 a8adf76 | media_backend 11 PASS + analyze；用户已验收通过（2026-06-20） |
 | Phase 4.5: 分类页 filter 抽象 | 完成（分类页已迁到 schema 驱动 + queryCatalogItems + localizer；Codex 审查通过；用户实机验证通过 2026-06-20） | Claude 主实现，Codex 审查 | Task5-1: 38e3315 / Task5-2: 1dcedda / Task5-3: 15a3853 / Task5-4: 9b06e3d+5b6ea4b / Codex小修: 085d051 | media_backend+localizer 41 PASS + analyze（分类页 No issues）；用户已实机验收通过 |
-| Phase 5: 详情页迁移 | 设计 + 实施计划完成（公共详情模型边界、飞牛能力暂留页面侧范围、Task 拆分均已落文档；待用户确认从 Task 1 开始实现） | Claude 主实现，Codex 审查 | 调研: 756f2eb / 设计+计划: 本次提交 | 文档自查；未改业务代码 |
+| Phase 5: 详情页迁移 | 模型/mapper/backend 骨架完成（Task 1~3，可单测覆盖、已提交）；页面迁移（Task 4 电影详情 / Task 5 剧集季集）未开始，需实机验证 | Claude 主实现，Codex 审查 | 调研: 756f2eb / 设计+计划: e2c6d94 / Task1: c2fffa6+c60292c / Task2: 87c3377 / Task3: dd8630d | media_backend 47 PASS + analyze（No issues）；页面迁移待 flutter run 验证 |
 | Phase 6: 播放入口迁移 | 未开始 | Claude 主实现，Codex 深审 |  | 播放、音轨、字幕验证 |
 
 ## 当前可执行任务
@@ -323,6 +323,15 @@ class MediaItemCardPage { List<MediaItemCard> items; int total; }   // 复用 Me
   - 边界结论：公共 `MediaDetail`/`MediaSeasonSummary`/`MediaEpisodeSummary`/`MediaDetailPerson`/`MediaExternalIds` 只收展示半；播放接线（mediaGuid/轨道/canPlay/playConfig）+ 下载 + 片头片尾 + 动作写回 + FN Connect + 续播写回留页面侧（Phase 6 / 飞牛专属）。题材/地区在适配层翻好（非双轨）。
   - 未改业务代码；仅新增两份文档 + 本看板更新。
   - 下一步：等用户确认，从计划 Task 1（公共详情模型 + 单测）开始主实现，每步单独提交。
+- 2026-06-21 Phase 5 Task 1~3 实现（模型/mapper/backend 骨架，Claude 主实现）：
+  - Task 1（公共详情模型）：新建 `lib/media_backend/detail/media_detail.dart`（`MediaDetail`+`MediaExternalIds`+`MediaDetailPerson`，含 `displayTitle`+`copyWith`）、`media_season_summary.dart`、`media_episode_summary.dart` + `test/media_backend/media_detail_models_test.dart`（6 PASS）。提交 `c2fffa6`。
+    - 实现中修正：审计发现详情页演职员是**扁平** `_personCredits`（渲染"Cast and crew"合并区），故把模型 cast/crew 拆分改为单一 `people` 列表（每人带 `department` 区分，兼容 Emby `People[].Type`），反映真实消费。提交 `c60292c`。
+  - Task 2（飞牛 detail mapper）：新建 `lib/media_backend/feiniu/feiniu_detail_mappers.dart`（`mapFeiniuItemDetail`/`mapFeiniuSeason`/`mapFeiniuEpisode`）+ `test/media_backend/feiniu_detail_mappers_test.dart`（7 PASS）。提交 `87c3377`。
+    - 关键映射：`PlayInfoData`→`MediaDetail` **只搬展示半**；题材/地区在适配层翻好（`genresMap`/`iso3166Map`，未命中原样回退、地区大写查表）；`info.ts`→续播；`item.trimId`→tmdbId、`imdbId` 由调用方传入；演职员 `PersonCredit`→扁平 `people`（name 空回退 originalName，role/job 保留）。
+  - Task 3（backend 详情接口）：`MediaBackend` 新增 `getItemDetail`/`getItemSeasons`/`getSeasonEpisodes`；`FeiniuMediaBackend` 实现（`getItemDetail` 装配 `getPlayInfo`+`getItemDetail`(取 imdbId)+`getPersonList`(best-effort)+字典）。imdb 提取助手 `extractFeiniuImdbId` 放 mapper 层避免 backend 反向依赖 UI 控制器 + `test/media_backend/feiniu_detail_backend_test.dart`（3 PASS）。提交 `dd8630d`。
+  - 验证：`flutter test test/media_backend/ --concurrency=1` → 47 PASS；`flutter analyze lib/media_backend test/media_backend` → No issues。
+  - 数据来源审计（真实）：详情页数据 = `getPlayInfo`(→PlayInfoData) + `getItemDetail`(→Map，仅取 imdb/trim) + `getPersonList`(→PersonCredit) + `getStreamTrackData`(轨道，Phase 6) + 字典。
+  - 下一步：Task 4 电影详情入口壳层迁移（改 `lib/pages/play_detail_page.dart` 只读展示区数据来源，播放/轨道/下载/动作面板/片头片尾保留飞牛）——属页面级改动，需 `flutter run` 实机验证，建议先经用户/Codex 确认切口后再动。
 
 ## Claude 下一步任务
 
