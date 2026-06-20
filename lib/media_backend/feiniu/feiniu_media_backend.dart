@@ -1,9 +1,15 @@
 import '../../api/feiniu_api.dart';
+import '../../api/person_list_request.dart';
+import '../../models/person_credit.dart';
+import '../detail/media_detail.dart';
+import '../detail/media_episode_summary.dart';
+import '../detail/media_season_summary.dart';
 import '../filter/media_catalog_filter.dart';
 import '../media_backend.dart';
 import '../media_backend_capabilities.dart';
 import '../media_catalog.dart';
 import '../media_item_card.dart';
+import 'feiniu_detail_mappers.dart';
 import 'feiniu_media_mappers.dart';
 
 /// 飞牛后端适配器：内部调用现有 [FeiniuApi]，把飞牛模型映射为公共模型。
@@ -82,5 +88,45 @@ class FeiniuMediaBackend implements MediaBackend {
       items: page.items.map(mapFeiniuItemCard).toList(growable: false),
       total: page.total,
     );
+  }
+
+  /// 演职员分页参数，复刻详情页 data loader 的取数口径。
+  static const PersonListRequest _creditsRequest = PersonListRequest(
+    page: 1,
+    pageSize: 200,
+  );
+
+  @override
+  Future<MediaDetail> getItemDetail(String itemId) async {
+    final info = await api.getPlayInfo(itemId);
+    final rawDetail = await api.getItemDetail(itemId);
+    final imdbId = extractFeiniuImdbId(rawDetail);
+    var credits = const <PersonCredit>[];
+    try {
+      credits = await api.getPersonList(itemId, request: _creditsRequest);
+    } catch (_) {
+      // 演职员失败不阻断详情展示（复刻详情页 best-effort 语义）。
+    }
+    final genresMap = await api.getTagGenresMap(lan: 'zh-CN');
+    final regionNames = await api.getTagIso3166Map(lan: 'zh-CN');
+    return mapFeiniuItemDetail(
+      info,
+      genresMap: genresMap,
+      regionNames: regionNames,
+      credits: credits,
+      imdbId: imdbId,
+    );
+  }
+
+  @override
+  Future<List<MediaSeasonSummary>> getItemSeasons(String seriesId) async {
+    final seasons = await api.getSeasonList(seriesId);
+    return seasons.map(mapFeiniuSeason).toList(growable: false);
+  }
+
+  @override
+  Future<List<MediaEpisodeSummary>> getSeasonEpisodes(String seasonId) async {
+    final episodes = await api.getEpisodeList(seasonId);
+    return episodes.map(mapFeiniuEpisode).toList(growable: false);
   }
 }

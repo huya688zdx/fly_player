@@ -1,3 +1,6 @@
+import 'detail/media_detail.dart';
+import 'detail/media_episode_summary.dart';
+import 'detail/media_season_summary.dart';
 import 'filter/media_catalog_filter.dart';
 import 'media_backend_capabilities.dart';
 import 'media_catalog.dart';
@@ -35,4 +38,13 @@ abstract class MediaBackend {
 
   /// 按筛选条件分页查询某个媒体库的条目。
   Future<MediaItemCardPage> queryCatalogItems(MediaCatalogQuery query);
+
+  /// 单个条目的详情（展示信息）。不含播放接线（轨道 / 句柄 / 直链），那些留播放入口。
+  Future<MediaDetail> getItemDetail(String itemId);
+
+  /// 剧集的季列表。
+  Future<List<MediaSeasonSummary>> getItemSeasons(String seriesId);
+
+  /// 某一季的选集列表。
+  Future<List<MediaEpisodeSummary>> getSeasonEpisodes(String seasonId);
 }

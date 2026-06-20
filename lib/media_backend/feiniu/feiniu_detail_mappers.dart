@@ -91,6 +91,21 @@ MediaEpisodeSummary mapFeiniuEpisode(MediaLibraryItem item) {
   );
 }
 
+/// 从飞牛 `getItemDetail` 返回的 Map 中提取 IMDb 标识。
+///
+/// `imdb_id` 既可能在顶层，也可能嵌在 `item` 下（复刻详情页 data loader 语义）。
+/// 放在适配层，避免后端适配器反向依赖 UI 控制器。
+String extractFeiniuImdbId(Map<String, dynamic> detail) {
+  final direct = (detail['imdb_id'] ?? '').toString().trim();
+  if (direct.isNotEmpty) return direct;
+  final item = detail['item'];
+  if (item is Map<String, dynamic>) {
+    final nested = (item['imdb_id'] ?? '').toString().trim();
+    if (nested.isNotEmpty) return nested;
+  }
+  return '';
+}
+
 String _regionLabel(String code, Map<String, String> regionNames) {
   return regionNames[code] ?? regionNames[code.toUpperCase()] ?? code;
 }
