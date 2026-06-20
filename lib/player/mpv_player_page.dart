@@ -52,6 +52,7 @@ import '../utils/app_error_reporter.dart';
 import '../utils/app_exception.dart';
 import '../utils/back_dismiss_manager.dart';
 import '../utils/media_language_mapper.dart';
+import '../utils/nas_image_headers.dart';
 import '../utils/player_title_formatter.dart';
 import '../utils/playback_resume_position_resolver.dart';
 import '../utils/play_detail_track_selector.dart';
@@ -568,9 +569,10 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
   late final Listenable _controlsChromeLayerListenable = Listenable.merge(
     <Listenable>[_gestureController.seekListenable, _overlayState],
   );
-  late final Listenable _bottomChromeListenable = Listenable.merge(
-    <Listenable>[_gestureController.seekListenable, _overlayState],
-  );
+  late final Listenable _bottomChromeListenable = Listenable.merge(<Listenable>[
+    _gestureController.seekListenable,
+    _overlayState,
+  ]);
   late final Listenable _performanceOverlayListenable = Listenable.merge(
     <Listenable>[
       _performanceOverlayStatsNotifier,
