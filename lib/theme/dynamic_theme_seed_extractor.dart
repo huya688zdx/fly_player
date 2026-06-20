@@ -9,6 +9,8 @@ import 'package:flutter/services.dart';
 import 'package:palette_generator/palette_generator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../utils/nas_image_headers.dart';
+
 class _ScoredSwatch {
   final Color color;
   final HSLColor hsl;
@@ -219,15 +221,7 @@ class DynamicThemeSeedExtractor {
       }
 
       final palette = await PaletteGenerator.fromImageProvider(
-        NetworkImage(
-          imageUrl,
-          headers: token.trim().isEmpty
-              ? const <String, String>{}
-              : <String, String>{
-                  'Authorization': token,
-                  'Trim-MC-token': token,
-                },
-        ),
+        NetworkImage(imageUrl, headers: nasImageHeaders(token, url: imageUrl)),
         maximumColorCount: 24,
         size: const Size(220, 140),
       );

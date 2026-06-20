@@ -9,6 +9,7 @@ import '../../ui/capability_badge_mapper.dart';
 import '../../ui/layout_adaptive.dart';
 import '../../ui/media_poster_card.dart';
 import '../../utils/api_url_helper.dart';
+import '../../utils/nas_image_headers.dart';
 
 class MediaCollectionBrowserSliver extends StatelessWidget {
   final List<MediaLibraryItem> items;
@@ -212,7 +213,7 @@ class _ListThumb extends StatelessWidget {
     return Image.network(
       urls.first,
       fit: BoxFit.cover,
-      headers: <String, String>{'Authorization': token, 'Trim-MC-token': token},
+      headers: nasImageHeaders(token, url: urls.first),
       errorBuilder: (_, __, ___) {
         return Container(
           color: colors.surfaceStrong,

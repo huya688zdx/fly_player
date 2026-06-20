@@ -3,6 +3,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../theme/app_theme.dart';
 import '../../ui/capability_badge_mapper.dart';
+import '../../utils/nas_image_headers.dart';
 
 class MediaLibraryListTile extends StatelessWidget {
   final List<String> urls;
@@ -161,10 +162,7 @@ class _ListThumb extends StatelessWidget {
           filterQuality: FilterQuality.none,
           cacheWidth: cacheWidth,
           cacheHeight: cacheHeight,
-          headers: <String, String>{
-            'Authorization': token,
-            'Trim-MC-token': token,
-          },
+          headers: nasImageHeaders(token, url: urls.first),
           errorBuilder: (_, __, ___) {
             return Container(
               color: colors.surfaceStrong,

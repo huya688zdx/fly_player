@@ -27,6 +27,7 @@ import '../utils/api_url_helper.dart';
 import '../utils/app_localization_lookup.dart';
 import '../utils/app_exception.dart';
 import '../utils/imdb_launcher.dart';
+import '../utils/nas_image_headers.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/detail/detail_header.dart';
 import '../widgets/detail/detail_more_actions_sheet.dart';
@@ -914,10 +915,7 @@ class _PersonProfileImageState extends State<_PersonProfileImage> {
           filterQuality: FilterQuality.low,
           cacheWidth: cacheWidth,
           cacheHeight: cacheHeight,
-          headers: <String, String>{
-            'Authorization': widget.token,
-            'Trim-MC-token': widget.token,
-          },
+          headers: nasImageHeaders(widget.token, url: currentUrl),
           errorBuilder: (_, error, ___) {
             if (_index + 1 < widget.urls.length) {
               final nextUrl = widget.urls[_index + 1];
