@@ -50,7 +50,7 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 | Phase 2: FeiniuMediaBackend 和 Provider | 完成 | Claude 主实现，Codex 审查 | Task4: 3986ef5 / Task5: 4b3002d | 单元测试 + analyze |
 | Phase 3: 首页迁移样板 | 部分完成（catalogs+summary 已迁移，待手动验证） | Claude 主实现，Codex 验证 | 模型扩展: 1ff413b / 9e012b7；首页迁移: 180e8c0 | 首页单测通过；`flutter run` 手动验证待做 |
 | Phase 4: 搜索页迁移（统一 MediaItemCard） | 完成（搜索页已验收通过；分类页滤镜体系另立设计、本期不动） | Claude 主实现，Codex 审查 | 设计 c849e2a / 模型 fa878ba / mapper 013d2fe / 收口 a68c95e / 搜索页 a8adf76 | media_backend 11 PASS + analyze；用户已验收通过（2026-06-20） |
-| Phase 4.5: 分类页 filter 抽象 | Task 5-3 已完成并经 Codex 审查（backend schema/query + UI localizer 已落盘；分类页 UI 迁移未开始） | Claude 主实现，Codex 审查 | Task5-1: 38e3315 / Task5-2: 1dcedda / Task5-3: 15a3853 / Codex审查: c681618 | media_backend 28 PASS + localizer 12 PASS + analyze；分类页查询/筛选/排序手动验证待 Task 5-4 |
+| Phase 4.5: 分类页 filter 抽象 | Task 5-4 已完成（分类页已迁到 schema 驱动 + queryCatalogItems + localizer；待 flutter run 手动验证） | Claude 主实现，Codex 审查 | Task5-1: 38e3315 / Task5-2: 1dcedda / Task5-3: 15a3853 / Task5-4: 9b06e3d+5b6ea4b | media_backend+localizer 41 PASS + analyze（分类页 No issues）；分类页查询/筛选/排序 flutter run 手动验证待做 |
 | Phase 5: 详情页迁移 | 未开始（评估：~7790 行 UI、30 处 FeiniuApi、裸 Map，宜等接 Emby 时连同字段形状一起设计） | Claude 主实现，Codex 审查 |  | 电影/剧集详情手动验证 |
 | Phase 6: 播放入口迁移 | 未开始 | Claude 主实现，Codex 深审 |  | 播放、音轨、字幕验证 |
 
@@ -221,7 +221,18 @@ class MediaItemCardPage { List<MediaItemCard> items; int total; }   // 复用 Me
   - 无损保障：所有 l10n 走与分类页相同的 `AppLocalizations` getter，单测用 `l10n.xxx` 作断言基准（而非硬编码中文），保证与分类页显示同源同步；适配层不改、`lib/media_backend` Task 5-2 逻辑不动。
   - 测试：`flutter test test/ui/catalog_filter_localizer_test.dart` → 12 PASS；`flutter test test/media_backend/ --concurrency=1` → 28 PASS（未受影响）；`flutter analyze lib/media_backend test/media_backend lib/ui/catalog_filter_localizer.dart test/ui/catalog_filter_localizer_test.dart` → No issues。
   - 提交：`15a3853`
-- [ ] Task 5-4：分类页 `category_items_screen` 迁移（schema 驱动维度渲染 + `queryCatalogItems` 查询 + localizer）；`getUserListSetting` 视图偏好仍走飞牛 + analyze + 手动验证
+- [x] Task 5-4：分类页 `category_items_screen` 迁移（schema 驱动维度渲染 + `queryCatalogItems` 查询 + localizer）；`getUserListSetting` 视图偏好仍走飞牛 + analyze + 手动验证
+  - 改动文件：`lib/media_backend/feiniu/feiniu_media_mappers.dart`（decade 修复）、`test/media_backend/feiniu_filter_mappers_test.dart`、`lib/screens/category_items_screen.dart`
+  - **先修 Task 5-2 回归（提交 `9b06e3d`）**：`mapMediaQueryToItemListRequest` 原把 decade 走字符串 passthrough，但原生 `_buildRequest` 直接发 `getTagList` 下发的 int 年份（fixture `decades:[2020]` 为 int 证实），转字符串会改变 `/item/list` 线格式、可能让年代筛选回归。改为 decade 数值还原 int（与 genres 一致），`Recent` 等非数值保持字符串。新增单测覆盖。
+  - 分类页迁移（提交 `5b6ea4b`）：
+    - `_loadMeta` 改调 `backend.getCatalogFilterSchema(catalogId)` 拿维度 + genre/地区字典；`getUserListSetting` 视图/排序偏好仍走 `FeiniuApi`。
+    - 9 个 `Set<dynamic> _selectedX` + `_buildRequest` → 统一 `Map<String,Set<String>> _selection` + `_buildQuery()` 产 `MediaCatalogQuery`；查询走 `backend.queryCatalogItems` 返回 `MediaItemCard`。
+    - 筛选弹窗改为遍历 `_schema.dimensions` 的 schema 驱动渲染；维度标题 / 选项文案 / 排序文案 / 筛选摘要全部走 `CatalogFilterLocalizer`，删除页内 8 个飞牛 labeler（保留 `_resolutionLabel` 仅供卡片角标）。
+    - 条目模型 `MediaLibraryItem` → `MediaItemCard`（复刻搜索页 Task 4-4）；动作面板用页内局部 `_cardToActionItem` 回填最小 `MediaLibraryItem`，本地 watched 变更用 `card.copyWith(watched:)`；详情预取 `getItemDetail` 仍走 `FeiniuApi`。
+  - 无损保障：`_buildQuery`→mapper 产出的 `ItemListRequest` 与原生 `_buildRequest` 逐字段对齐（type 进 typeTags / 空回退全类型；genres、decade 发 int；recognition_status、watched 及其余维度字符串；排序/分页透传；`exclude_grouped_video` 默认 1）。type 锁定、续播/收藏动作、清晰度角标、年份区间与季集副标题均保留。
+  - 测试：`flutter test test/media_backend/feiniu_filter_mappers_test.dart` → 13 PASS；`flutter test test/media_backend/ test/ui/catalog_filter_localizer_test.dart --concurrency=1` → 41 PASS；`flutter analyze lib/screens/category_items_screen.dart` → No issues；`flutter analyze`（全量）→ 17 条，全部在无关旧文件（play_detail_page/tv_detail_page duplicate import、download_list unused 等），分类页 / media_backend / localizer 均无问题。
+  - 提交：decade 修复 `9b06e3d` / 分类页迁移 `5b6ea4b`
+  - **待人工验证（交用户/Codex）**：`flutter run` 登录飞牛进分类页确认——① 各维度筛选项文案与迁移前一致；② 筛选/排序/翻页结果与原生一致（尤其年代筛选发 int）；③ 卡片标题/副标题/评分/清晰度/已观看角标、三种视图布局正常；④ 长按动作面板（收藏/已观看切换）与本地角标更新正常；⑤ 点击进入详情、type 锁定入口（如「电影」聚合）正常；⑥ 视图偏好（getUserListSetting/setUserListSetting）仍生效。
 
 ### 明确不做
 
