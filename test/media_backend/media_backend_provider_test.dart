@@ -30,4 +30,47 @@ void main() {
       expect(backend.capabilities.kind, MediaBackendKind.feiniu);
     },
   );
+
+  testWidgets('reuses one backend instance within the same NAS session', (
+    tester,
+  ) async {
+    final nasProvider = NasProvider();
+    await nasProvider.updateSettings(
+      baseUrl: 'http://nas-a',
+      userName: 'u',
+      password: 'p',
+    );
+    await tester.pump();
+
+    final provider = MediaBackendProvider(nasProvider);
+    addTearDown(provider.dispose);
+    addTearDown(nasProvider.dispose);
+
+    expect(provider.backend, same(provider.backend));
+  });
+
+  testWidgets('rebuilds backend when the NAS base url changes', (tester) async {
+    final nasProvider = NasProvider();
+    await nasProvider.updateSettings(
+      baseUrl: 'http://nas-a',
+      userName: 'u',
+      password: 'p',
+    );
+    await tester.pump();
+
+    final provider = MediaBackendProvider(nasProvider);
+    addTearDown(provider.dispose);
+    addTearDown(nasProvider.dispose);
+
+    final first = provider.backend;
+
+    await nasProvider.updateSettings(
+      baseUrl: 'http://nas-b',
+      userName: 'u',
+      password: 'p',
+    );
+    await tester.pump();
+
+    expect(provider.backend, isNot(same(first)));
+  });
 }
