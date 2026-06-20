@@ -241,6 +241,13 @@ class MediaItemCardPage { List<MediaItemCard> items; int total; }   // 复用 Me
   - 风险/后续：`MediaItemCard` 已包含较完整的富卡片字段，后续迁移分类页时不要继续按飞牛筛选/排序字段膨胀模型，应单独设计查询/filter 抽象。`FeiniuMediaBackend.searchItems` 仍缺少可替换 fake seam，适配器转发行为主要靠 mapper 单测和页面分析兜底。
   - 工作区检查：`git diff --cached --name-only` 为空；`lib/media_backend`、`test/media_backend`、`lib/screens/search_screen.dart`、本状态文档在审查前均无未提交改动；其它未提交工作区文件与本次审查无关，Codex 未回滚、未暂存、未夹带。
   - 验证：`flutter test test/media_backend/ --concurrency=1` → 11 PASS；`flutter analyze lib/media_backend test/media_backend lib/screens/search_screen.dart` → No issues；`flutter analyze lib/screens/search_screen.dart` → No issues；`flutter analyze` → FAIL（19 条，均不在 Phase 4 相关文件，主要为既有 duplicate import、unused、prefer_const、use_build_context_synchronously）。
+- 2026-06-20 Phase 4.5 Task 5-1 审查：
+  - 审查提交：`ccc058d`、`38e3315`
+  - 结论：filter 公共模型未发现阻塞问题。`MediaFilterDimensionKind`、`MediaFilterOption`、`MediaCatalogFilterSchema`、`MediaCatalogQuery`、`MediaItemCardPage` 均保持纯数据结构；没有接入 Emby API，也没有把飞牛 API 调用放进公共模型。
+  - 架构检查：双轨 label 设计落在 `kind/value/label` 与 `genreNames/regionNames` 字典上，适合后续 UI localizer 接管文案；`MediaItemCardPage` 复用 `MediaItemCard`，没有新增第二套条目模型。公共模型中出现的 `genres`/`locate`/`create_time` 等目前主要在注释和默认值中，未绑定具体 Feiniu 类。
+  - 风险/后续：`MediaCatalogQuery.sortField` 默认 `create_time` 带飞牛字段味道，虽然后续 schema 会下发可用排序字段，但 Task 5-2/5-4 最好由调用方或 schema 显式给默认排序，避免公共层默认值固化飞牛命名。
+  - 工作区检查：`git diff --cached --name-only` 为空；`lib/media_backend`、`test/media_backend`、本状态文档在审查前除本次文档更新外无未提交改动；其它未提交文件与本次审查无关，Codex 未回滚、未暂存、未夹带。
+  - 验证：`flutter test test/media_backend/ --concurrency=1` → 16 PASS；`flutter analyze lib/media_backend test/media_backend` → No issues；`flutter analyze` → FAIL（19 条，均不在 Phase 4.5 Task 5-1 相关文件）。单独并行启动 `flutter test test/media_backend/media_catalog_filter_test.dart` 曾因 Flutter startup/native-assets 锁超时，但该测试已在整组串行测试中通过。
 
 ## Claude 下一步任务
 
