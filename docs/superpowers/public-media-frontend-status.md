@@ -50,7 +50,7 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 | Phase 2: FeiniuMediaBackend 和 Provider | 完成 | Claude 主实现，Codex 审查 | Task4: 3986ef5 / Task5: 4b3002d | 单元测试 + analyze |
 | Phase 3: 首页迁移样板 | 部分完成（catalogs+summary 已迁移，待手动验证） | Claude 主实现，Codex 验证 | 模型扩展: 1ff413b / 9e012b7；首页迁移: 180e8c0 | 首页单测通过；`flutter run` 手动验证待做 |
 | Phase 4: 搜索页迁移（统一 MediaItemCard） | 完成（搜索页已验收通过；分类页滤镜体系另立设计、本期不动） | Claude 主实现，Codex 审查 | 设计 c849e2a / 模型 fa878ba / mapper 013d2fe / 收口 a68c95e / 搜索页 a8adf76 | media_backend 11 PASS + analyze；用户已验收通过（2026-06-20） |
-| Phase 4.5: 分类页 filter 抽象 | 设计中（用户已定方向：双轨 label + 不纳入视图偏好） | Claude 主实现，Codex 审查 |  | 分类页查询/筛选/排序手动验证 |
+| Phase 4.5: 分类页 filter 抽象 | Task 5-2 已完成（backend schema/query 已落盘；分类页 UI 迁移未开始） | Claude 主实现，Codex 审查 | Task5-1: 38e3315 / Task5-2: 1dcedda | media_backend 28 PASS + analyze；分类页查询/筛选/排序手动验证待 Task 5-4 |
 | Phase 5: 详情页迁移 | 未开始（评估：~7790 行 UI、30 处 FeiniuApi、裸 Map，宜等接 Emby 时连同字段形状一起设计） | Claude 主实现，Codex 审查 |  | 电影/剧集详情手动验证 |
 | Phase 6: 播放入口迁移 | 未开始 | Claude 主实现，Codex 深审 |  | 播放、音轨、字幕验证 |
 
@@ -202,8 +202,13 @@ class MediaItemCardPage { List<MediaItemCard> items; int total; }   // 复用 Me
 
 ### Task 拆分（每步可编译、单独提交）
 
-- [ ] Task 5-1：filter 公共模型（上述 7 个类/枚举）+ 单测
-- [ ] Task 5-2：backend 接口 `getCatalogFilterSchema`/`queryCatalogItems` + `FeiniuMediaBackend` 实现（含 selection→ItemListRequest 类型回填）+ 单测
+- [x] Task 5-1：filter 公共模型（上述 7 个类/枚举）+ 单测
+- [x] Task 5-2：backend 接口 `getCatalogFilterSchema`/`queryCatalogItems` + `FeiniuMediaBackend` 实现（含 selection→ItemListRequest 类型回填）+ 单测
+  - 改动文件：`lib/media_backend/media_backend.dart`、`lib/media_backend/feiniu/feiniu_media_backend.dart`、`lib/media_backend/feiniu/feiniu_media_mappers.dart`、`test/media_backend/feiniu_filter_mappers_test.dart`
+  - 做法：`MediaBackend` 新增 filter schema 与分类查询接口；`FeiniuMediaBackend` 仅作为适配层调用 `getTagList`、`getTagGenresMap`、`getTagIso3166Map` 和 `getItemsPageByRequest`；selection→`ItemListRequest` 的飞牛字段回填集中在 `feiniu_media_mappers.dart`。
+  - 无损保障：`type` 进入 `typeTags`，空选择回退 `Movie/TV/Directory/Video`；`genres` 回填为 int；`recognition_status`、`watched` 及其它维度保持字符串原样；schema 中 `decade`/`resolution` 的选项源键继续取飞牛复数 `decades`/`resolutions`。
+  - 测试：`flutter test test/media_backend/feiniu_filter_mappers_test.dart` → 12 PASS；`flutter test test/media_backend/ --concurrency=1` → 28 PASS；`flutter analyze lib\media_backend test\media_backend` → No issues。
+  - 提交：`1dcedda`
 - [ ] Task 5-3：UI 层 `CatalogFilterLocalizer`（按 kind+value+schema 字典+l10n 出 label，复用现有 labeler）+ 单测
 - [ ] Task 5-4：分类页 `category_items_screen` 迁移（schema 驱动维度渲染 + `queryCatalogItems` 查询 + localizer）；`getUserListSetting` 视图偏好仍走飞牛 + analyze + 手动验证
 
@@ -248,6 +253,13 @@ class MediaItemCardPage { List<MediaItemCard> items; int total; }   // 复用 Me
   - 风险/后续：`MediaCatalogQuery.sortField` 默认 `create_time` 带飞牛字段味道，虽然后续 schema 会下发可用排序字段，但 Task 5-2/5-4 最好由调用方或 schema 显式给默认排序，避免公共层默认值固化飞牛命名。
   - 工作区检查：`git diff --cached --name-only` 为空；`lib/media_backend`、`test/media_backend`、本状态文档在审查前除本次文档更新外无未提交改动；其它未提交文件与本次审查无关，Codex 未回滚、未暂存、未夹带。
   - 验证：`flutter test test/media_backend/ --concurrency=1` → 16 PASS；`flutter analyze lib/media_backend test/media_backend` → No issues；`flutter analyze` → FAIL（19 条，均不在 Phase 4.5 Task 5-1 相关文件）。单独并行启动 `flutter test test/media_backend/media_catalog_filter_test.dart` 曾因 Flutter startup/native-assets 锁超时，但该测试已在整组串行测试中通过。
+- 2026-06-20 Phase 4.5 Task 5-2 审查与收口：
+  - 实现提交：`1dcedda`
+  - 结论：未发现阻塞问题。公共 `MediaBackend` 只新增 schema/query 两个分类筛选能力；公共模型仍为纯数据结构，未出现飞牛/Emby 私有模型泄漏；未接入 Emby API；未在 UI 中新增 `if (isEmby)`。
+  - 架构检查：`FeiniuMediaBackend` 保持薄适配层，只负责调用现有 FeiniuApi 并把结果交给 mapper；飞牛专属的 selection→`ItemListRequest` 字段转换集中在 `feiniu_media_mappers.dart`，未扩散到页面。`type` 默认回退、`genres` int 化、`recognition_status`/`watched` 字符串化、`decades/resolutions` 源键到 `decade/resolution` 提交键均已用单测覆盖。
+  - 风险/后续：排序字段 `create_time`、`release_date`、`title`、`vote_average` 仍是 Feiniu 当前分类页字段，作为 Feiniu schema 下发可接受；Task 5-4 迁移分类页时应从 schema/页面状态显式选择排序，不要在 UI 里硬编码后端类型分支。图片 headers、播放入口和视图偏好仍未进入本 Task 范围。
+  - 工作区检查：实现提交前 `git diff --cached --name-only` 仅包含 `lib/media_backend/media_backend.dart`、`lib/media_backend/feiniu/feiniu_media_backend.dart`、`lib/media_backend/feiniu/feiniu_media_mappers.dart`、`test/media_backend/feiniu_filter_mappers_test.dart`；其它大量未提交工作区文件与本次收口无关，Codex 未回滚、未暂存、未夹带。
+  - 验证：`flutter test test/media_backend/feiniu_filter_mappers_test.dart` → 12 PASS；`flutter test test/media_backend/ --concurrency=1` → 28 PASS；`flutter analyze lib\media_backend test\media_backend` → No issues；`flutter analyze` → FAIL（19 条，均不在 Task 5-2 相关文件，主要为既有 duplicate import、unused、prefer_const、use_build_context_synchronously）。
 
 ## Claude 下一步任务
 
