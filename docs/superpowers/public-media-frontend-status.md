@@ -106,6 +106,12 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
   - 风险 2：`MediaImageRef` 已有 headers 字段，但 Task 3/4 的 Feiniu mapper/adapter 目前输出空 headers。首页或详情页改为直接消费公共图片引用前，需要在 Feiniu 适配层补齐 NAS 图片鉴权 headers，避免迁移后封面预热/展示丢 token。
   - 工作区检查：`git diff --cached --name-only` 为空；当前仍有大量非本任务未提交改动，Codex 未回滚、未暂存、未夹带。
   - 验证：`flutter test test/media_backend/ --concurrency=1` → PASS；`flutter analyze lib/media_backend/` → No issues；`flutter analyze` → FAIL（38 条，均不在 `lib/media_backend`，包含既有/其它工作区文件的 duplicate import、unused、prefer_const 等）。
+- 2026-06-20 Task 5 审查：
+  - 审查提交：`4b3002d`
+  - 结论：`MediaBackendProvider` 注入位置正确，未迁移页面，未新增 UI 后端分支；`ChangeNotifierProxyProvider` 当前依赖同一个 `NasProvider` 实例，生命周期暂无阻塞问题。
+  - 补测：新增 `test/media_backend/media_backend_provider_test.dart`，验证 provider 使用当前 `NasProvider` 暴露 Feiniu 后端能力；测试中等待 `NasProvider` 异步初始化完成后再释放，避免测试清理阶段误触已 dispose provider。
+  - 仍需关注：`MediaBackendProvider.backend` 每次读取都会创建新的 `FeiniuApi`/`FeiniuMediaBackend`；如果 Task 6 页面频繁读取 backend，建议改为缓存实例或在 Provider 内按 NAS 会话变更重建，避免重复创建 Dio。
+  - 验证：`flutter test test/media_backend/media_backend_provider_test.dart` → PASS；`flutter analyze test/media_backend/media_backend_provider_test.dart` → No issues；`flutter test test/media_backend/ --concurrency=1` → 7 PASS。
 
 ## Claude 下一步任务
 
