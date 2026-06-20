@@ -149,6 +149,22 @@ void main() {
       expect(detail.localNumberOfEpisodes, 8);
     });
 
+    test('续播位置：ts>0 用 ts，ts==0 回退 watchedTs', () {
+      final withTs = mapFeiniuItemDetail(
+        buildInfo(itemOverrides: <String, dynamic>{'watched_ts': 999}, ts: 600),
+        genresMap: const <int, String>{},
+        regionNames: const <String, String>{},
+      );
+      expect(withTs.resumePositionSeconds, 600);
+
+      final fallback = mapFeiniuItemDetail(
+        buildInfo(itemOverrides: <String, dynamic>{'watched_ts': 999}, ts: 0),
+        genresMap: const <int, String>{},
+        regionNames: const <String, String>{},
+      );
+      expect(fallback.resumePositionSeconds, 999);
+    });
+
     test('演职员映射为扁平 people（role / job 保留）', () {
       final detail = mapFeiniuItemDetail(
         buildInfo(),
@@ -200,6 +216,7 @@ void main() {
     int localNumberOfEpisodes = 0,
     int watched = 0,
     int ts = 0,
+    int watchedTs = 0,
     int duration = 0,
     String overview = '',
     String releaseDate = '',
@@ -216,7 +233,7 @@ void main() {
       voteAverage: '',
       overview: overview,
       watched: watched,
-      watchedTs: 0,
+      watchedTs: watchedTs,
       ts: ts,
       duration: duration,
       seasonNumber: seasonNumber,
@@ -280,5 +297,17 @@ void main() {
     expect(episode.watched, isTrue);
     expect(episode.resumePositionSeconds, 120);
     expect(episode.primaryImage.url, '/still.jpg');
+  });
+
+  test('mapFeiniuEpisode 续播：ts==0 回退 watchedTs', () {
+    final fallback = mapFeiniuEpisode(
+      buildLibraryItem(type: 'Episode', ts: 0, watchedTs: 888),
+    );
+    expect(fallback.resumePositionSeconds, 888);
+
+    final withTs = mapFeiniuEpisode(
+      buildLibraryItem(type: 'Episode', ts: 120, watchedTs: 888),
+    );
+    expect(withTs.resumePositionSeconds, 120);
   });
 }

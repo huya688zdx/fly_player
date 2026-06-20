@@ -57,7 +57,8 @@ MediaDetail mapFeiniuItemDetail(
     colorRanges: item.colorRanges,
     watched: item.isWatched != 0,
     favorite: item.isFavorite != 0,
-    resumePositionSeconds: info.ts,
+    // 续播位置：ts 为 0 时回退 watchedTs，复刻详情页 `ts > 0 ? ts : watchedTs`。
+    resumePositionSeconds: info.ts > 0 ? info.ts : item.watchedTs,
     externalIds: MediaExternalIds(tmdbId: item.trimId, imdbId: imdbId),
     people: credits.map(_mapCredit).toList(growable: false),
   );
@@ -86,7 +87,8 @@ MediaEpisodeSummary mapFeiniuEpisode(MediaLibraryItem item) {
     airDate: item.releaseDate,
     durationSeconds: item.duration,
     watched: item.watched != 0,
-    resumePositionSeconds: item.ts,
+    // 续播位置：ts 为 0 时回退 watchedTs，复刻选集列表 `ts > 0 ? ts : watchedTs`。
+    resumePositionSeconds: item.ts > 0 ? item.ts : item.watchedTs,
     primaryImage: MediaImageRef(url: item.poster),
   );
 }
