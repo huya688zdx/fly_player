@@ -4,9 +4,9 @@
 
 ## 当前阶段
 
-阶段：Phase 0，文档和协作基线已完成，等待用户确认是否开始 Phase 1。
+阶段：Phase 1 进行中，用户已确认按实施计划从 Task 1 开始主实现。
 
-目标：先建立公共前端抽象的设计、实施计划和可勾选状态看板，不改业务代码。
+目标：建立公共模型、Feiniu mapper、MediaBackend 接口和适配器（Task 1~4），保持飞牛体验不退化。
 
 ## 负责人约定
 
@@ -46,7 +46,7 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 | 阶段 | 状态 | 负责人 | 提交 | 验证 |
 | --- | --- | --- | --- | --- |
 | Phase 0: 设计和协作基线 | 完成 | Codex | 本次文档提交 | 文档自查通过 |
-| Phase 1: 公共模型和 Feiniu mapper | 未开始 | Claude 主实现，Codex 审查 |  | 单元测试 |
+| Phase 1: 公共模型和 Feiniu mapper | 进行中 | Claude 主实现，Codex 审查 | Task1: ef6405c | 单元测试 |
 | Phase 2: FeiniuMediaBackend 和 Provider | 未开始 | Claude 主实现，Codex 审查 |  | 单元测试 + analyze |
 | Phase 3: 首页迁移样板 | 未开始 | Claude 主实现，Codex 验证 |  | 首页测试 + 手动验证 |
 | Phase 4: 分类页和搜索页迁移 | 未开始 | Claude 主实现，Codex 审查 |  | 页面测试 + 手动验证 |
@@ -58,7 +58,18 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 - [x] 写公共媒体前端设计文档。
 - [x] 写第一阶段实施计划。
 - [x] 写共享状态看板。
-- [ ] 用户确认是否按 Phase 1 开始实施。
+- [x] 用户确认按 Phase 1 开始实施。
+
+## Phase 1 任务进度（Claude 主实现）
+
+- [x] Task 1: 公共后端类型和能力模型
+  - 新建 `lib/media_backend/media_backend_kind.dart`、`lib/media_backend/media_backend_capabilities.dart`、`test/media_backend/media_backend_capabilities_test.dart`
+  - 测试：`flutter test test/media_backend/media_backend_capabilities_test.dart` → PASS
+  - 提交：`ef6405c`
+  - 下一步：Claude 执行 Task 2（公共首页模型 MediaImageRef / MediaCatalog / MediaItemSummary）
+- [ ] Task 2: 公共首页模型
+- [ ] Task 3: Feiniu mapper
+- [ ] Task 4: MediaBackend 接口和飞牛适配器
 
 ## Claude 下一步任务
 
