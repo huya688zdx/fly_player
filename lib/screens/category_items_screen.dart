@@ -48,7 +48,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   static const int _pageSize = 50;
   static const double _loadMoreTriggerOffset = 360;
 
-  static const List<String> _sortColumns = <String>[
+  static const List<String> _fallbackSortColumns = <String>[
     'create_time',
     'release_date',
     'title',
@@ -84,6 +84,14 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     l10n: AppLocalizations.of(context),
     schema: _schema,
   );
+
+  List<String> get _sortColumns {
+    final schemaFields = _schema.sortOptions
+        .map((option) => option.field.trim())
+        .where((field) => field.isNotEmpty)
+        .toList(growable: false);
+    return schemaFields.isNotEmpty ? schemaFields : _fallbackSortColumns;
+  }
 
   double _viewportCacheExtent(BuildContext context) {
     final factor = widget.secondaryHost ? 0.7 : 1.0;
