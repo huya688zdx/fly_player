@@ -126,7 +126,7 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
   - 遗留/下一步建议：
     - 富 item 公共模型（含续播进度 resumePosition、清晰度、年份区间、本地季集计数）留到后续阶段，最好连同 Emby 实际字段一起设计，避免现在按飞牛形状定型。
     - Codex 风险 2（`MediaImageRef.headers` 为空）：本期图片仍走旧 NAS 鉴权路径，未受影响；待页面直接消费公共图片引用时再在适配层补 headers。
-    - Codex Task5 审查：`MediaBackendProvider.backend` 每次读取新建 `FeiniuApi`/`FeiniuMediaBackend`，首页每次刷新会各读 1 次；建议后续在 Provider 内缓存 backend 实例或按 NAS 会话变更重建，避免重复创建 Dio。
+    - ~~Codex Task5 审查：`MediaBackendProvider.backend` 每次读取新建 `FeiniuApi`/`FeiniuMediaBackend`，首页每次刷新会各读 1 次；建议后续在 Provider 内缓存 backend 实例或按 NAS 会话变更重建，避免重复创建 Dio。~~ **已收尾（提交 `9a55927`）**：`MediaBackendProvider` 按 `nasProvider.baseUrl` 缓存 backend 实例（FeiniuApi 构造时把 baseUrl 烤进 Dio，token 拦截器每请求动态读取；故缓存键取 baseUrl），同会话内多页面复用同一实例并连带复用 FeiniuApi 标签/题材共享缓存，baseUrl 变更（重登/FN Connect 切换/登出清 resolvedBaseUrl）时才重建。新增缓存复用 + baseUrl 变更重建两条单测。`flutter test test/media_backend/ --concurrency=1` → 31 PASS；`flutter analyze lib/providers/media_backend_provider.dart test/media_backend/media_backend_provider_test.dart` → No issues。
 
 ## Phase 4 设计决策与任务进度（Claude 主实现）
 
