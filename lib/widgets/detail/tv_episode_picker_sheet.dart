@@ -8,6 +8,7 @@ import '../../models/tv_episode_picker_mode.dart';
 import '../../theme/app_theme.dart';
 import '../../ui/app_transitions.dart';
 import '../../ui/media_detail_components.dart';
+import '../common/liquid_glass.dart';
 
 typedef TvEpisodePickerLoader =
     Future<TvEpisodePickerPayload> Function(String seasonGuid);
@@ -310,16 +311,13 @@ class _TvEpisodePickerSheetBodyState extends State<_TvEpisodePickerSheetBody> {
                             horizontal: 16,
                             vertical: 8,
                           ),
-                          decoration: BoxDecoration(
-                            color: selected
-                                ? colors.selectionSoft
-                                : colors.surfaceStrong,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                              color: selected
-                                  ? colors.selection
-                                  : Colors.transparent,
-                            ),
+                          decoration: liquidGlassDecoration(
+                            context,
+                            radius: 10,
+                            tone: selected
+                                ? LiquidGlassTone.accent
+                                : LiquidGlassTone.neutral,
+                            selected: selected,
                           ),
                           child: Text(
                             '$start - $end',
@@ -445,12 +443,13 @@ class _EpisodeListView extends StatelessWidget {
           borderRadius: BorderRadius.circular(14),
           child: Container(
             padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: colors.surface,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: entry.selected ? colors.selection : colors.borderSubtle,
-              ),
+            decoration: liquidGlassDecoration(
+              context,
+              radius: 14,
+              tone: entry.selected
+                  ? LiquidGlassTone.accent
+                  : LiquidGlassTone.neutral,
+              selected: entry.selected,
             ),
             child: Row(
               children: [
@@ -540,12 +539,13 @@ class _EpisodeGridView extends StatelessWidget {
               child: AnimatedContainer(
                 duration: AppTransitions.switchDuration,
                 curve: Curves.easeOutCubic,
-                decoration: BoxDecoration(
-                  color: colors.surface,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: selected ? colors.selection : colors.borderSubtle,
-                  ),
+                decoration: liquidGlassDecoration(
+                  context,
+                  radius: 12,
+                  tone: selected
+                      ? LiquidGlassTone.accent
+                      : LiquidGlassTone.neutral,
+                  selected: selected,
                 ),
                 child: Stack(
                   children: [

@@ -25,6 +25,7 @@ import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
 import '../utils/detail_top_tip.dart';
 import '../widgets/common/app_error_state.dart';
+import '../widgets/common/liquid_glass.dart';
 import '../widgets/detail/detail_loading_skeleton.dart';
 import '../widgets/detail/dynamic_page_theme_scope.dart';
 import '../widgets/detail/detail_more_actions_sheet.dart';
@@ -1282,9 +1283,10 @@ class _TopBarIconButton extends StatelessWidget {
       child: Container(
         width: 36,
         height: 36,
-        decoration: BoxDecoration(
-          color: colors.surfaceSubtle.withValues(alpha: 0.72),
-          borderRadius: BorderRadius.circular(18),
+        decoration: liquidGlassDecoration(
+          context,
+          radius: 18,
+          tone: LiquidGlassTone.strong,
         ),
         child: Icon(icon, color: colors.textPrimary, size: 20),
       ),
@@ -1303,11 +1305,7 @@ class _CollectionToolButton extends StatelessWidget {
     required this.onTap,
   });
 
-  static const Color _activeBackground = Color(0x332F8CFF);
-  static const Color _activeBorder = Color(0xFF3A82F7);
   static const Color _activeIcon = Color(0xFFE5F0FF);
-  static const Color _inactiveBackground = Color(0xFF101A27);
-  static const Color _inactiveBorder = Color(0xFF26364A);
   static const Color _inactiveIcon = Color(0xFFB7C6D8);
 
   @override
@@ -1318,10 +1316,11 @@ class _CollectionToolButton extends StatelessWidget {
       child: Container(
         width: 40,
         height: 40,
-        decoration: BoxDecoration(
-          color: active ? _activeBackground : _inactiveBackground,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: active ? _activeBorder : _inactiveBorder),
+        decoration: liquidGlassDecoration(
+          context,
+          radius: 12,
+          tone: active ? LiquidGlassTone.accent : LiquidGlassTone.neutral,
+          selected: active,
         ),
         child: Icon(
           icon,
