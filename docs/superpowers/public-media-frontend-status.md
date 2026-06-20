@@ -50,7 +50,7 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 | Phase 2: FeiniuMediaBackend 和 Provider | 完成 | Claude 主实现，Codex 审查 | Task4: 3986ef5 / Task5: 4b3002d | 单元测试 + analyze |
 | Phase 3: 首页迁移样板 | 部分完成（catalogs+summary 已迁移，待手动验证） | Claude 主实现，Codex 验证 | 模型扩展: 1ff413b / 9e012b7；首页迁移: 180e8c0 | 首页单测通过；`flutter run` 手动验证待做 |
 | Phase 4: 搜索页迁移（统一 MediaItemCard） | 完成（搜索页已验收通过；分类页滤镜体系另立设计、本期不动） | Claude 主实现，Codex 审查 | 设计 c849e2a / 模型 fa878ba / mapper 013d2fe / 收口 a68c95e / 搜索页 a8adf76 | media_backend 11 PASS + analyze；用户已验收通过（2026-06-20） |
-| Phase 4.5: 分类页 filter 抽象 | Task 5-4 已完成并经 Codex 审查（分类页已迁到 schema 驱动 + queryCatalogItems + localizer；待 flutter run 手动验证） | Claude 主实现，Codex 审查 | Task5-1: 38e3315 / Task5-2: 1dcedda / Task5-3: 15a3853 / Task5-4: 9b06e3d+5b6ea4b / Codex小修: 085d051 | media_backend+localizer 41 PASS + analyze（分类页 No issues）；分类页查询/筛选/排序 flutter run 手动验证待做 |
+| Phase 4.5: 分类页 filter 抽象 | 完成（分类页已迁到 schema 驱动 + queryCatalogItems + localizer；Codex 审查通过；用户实机验证通过 2026-06-20） | Claude 主实现，Codex 审查 | Task5-1: 38e3315 / Task5-2: 1dcedda / Task5-3: 15a3853 / Task5-4: 9b06e3d+5b6ea4b / Codex小修: 085d051 | media_backend+localizer 41 PASS + analyze（分类页 No issues）；用户已实机验收通过 |
 | Phase 5: 详情页迁移 | 未开始（评估：~7790 行 UI、30 处 FeiniuApi、裸 Map，宜等接 Emby 时连同字段形状一起设计） | Claude 主实现，Codex 审查 |  | 电影/剧集详情手动验证 |
 | Phase 6: 播放入口迁移 | 未开始 | Claude 主实现，Codex 深审 |  | 播放、音轨、字幕验证 |
 
@@ -232,7 +232,7 @@ class MediaItemCardPage { List<MediaItemCard> items; int total; }   // 复用 Me
   - 无损保障：`_buildQuery`→mapper 产出的 `ItemListRequest` 与原生 `_buildRequest` 逐字段对齐（type 进 typeTags / 空回退全类型；genres、decade 发 int；recognition_status、watched 及其余维度字符串；排序/分页透传；`exclude_grouped_video` 默认 1）。type 锁定、续播/收藏动作、清晰度角标、年份区间与季集副标题均保留。
   - 测试：`flutter test test/media_backend/feiniu_filter_mappers_test.dart` → 13 PASS；`flutter test test/media_backend/ test/ui/catalog_filter_localizer_test.dart --concurrency=1` → 41 PASS；`flutter analyze lib/screens/category_items_screen.dart` → No issues；`flutter analyze`（全量）→ 17 条，全部在无关旧文件（play_detail_page/tv_detail_page duplicate import、download_list unused 等），分类页 / media_backend / localizer 均无问题。
   - 提交：decade 修复 `9b06e3d` / 分类页迁移 `5b6ea4b`
-  - **待人工验证（交用户/Codex）**：`flutter run` 登录飞牛进分类页确认——① 各维度筛选项文案与迁移前一致；② 筛选/排序/翻页结果与原生一致（尤其年代筛选发 int）；③ 卡片标题/副标题/评分/清晰度/已观看角标、三种视图布局正常；④ 长按动作面板（收藏/已观看切换）与本地角标更新正常；⑤ 点击进入详情、type 锁定入口（如「电影」聚合）正常；⑥ 视图偏好（getUserListSetting/setUserListSetting）仍生效。
+  - **实机验证（用户 2026-06-20 确认通过）**：分类页各维度筛选项文案、筛选/排序/翻页结果（含年代筛选发 int）、卡片标题/副标题/评分/清晰度/已观看角标与三种视图、长按动作面板与本地角标更新、详情跳转与 type 锁定入口、视图偏好均与迁移前一致。
 
 ### 明确不做
 
