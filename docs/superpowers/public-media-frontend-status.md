@@ -50,7 +50,8 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 | Phase 2: FeiniuMediaBackend 和 Provider | 完成 | Claude 主实现，Codex 审查 | Task4: 3986ef5 / Task5: 4b3002d | 单元测试 + analyze |
 | Phase 3: 首页迁移样板 | 部分完成（catalogs+summary 已迁移，待手动验证） | Claude 主实现，Codex 验证 | 模型扩展: 1ff413b / 9e012b7；首页迁移: 180e8c0 | 首页单测通过；`flutter run` 手动验证待做 |
 | Phase 4: 搜索页迁移（统一 MediaItemCard） | 完成（搜索页已验收通过；分类页滤镜体系另立设计、本期不动） | Claude 主实现，Codex 审查 | 设计 c849e2a / 模型 fa878ba / mapper 013d2fe / 收口 a68c95e / 搜索页 a8adf76 | media_backend 11 PASS + analyze；用户已验收通过（2026-06-20） |
-| Phase 5: 详情页迁移 | 未开始 | Claude 主实现，Codex 审查 |  | 电影/剧集详情手动验证 |
+| Phase 4.5: 分类页 filter 抽象 | 设计中（用户已定方向：双轨 label + 不纳入视图偏好） | Claude 主实现，Codex 审查 |  | 分类页查询/筛选/排序手动验证 |
+| Phase 5: 详情页迁移 | 未开始（评估：~7790 行 UI、30 处 FeiniuApi、裸 Map，宜等接 Emby 时连同字段形状一起设计） | Claude 主实现，Codex 审查 |  | 电影/剧集详情手动验证 |
 | Phase 6: 播放入口迁移 | 未开始 | Claude 主实现，Codex 深审 |  | 播放、音轨、字幕验证 |
 
 ## 当前可执行任务
@@ -166,6 +167,50 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 - 不碰分类页滤镜/排序/标签体系（飞牛专属，另立设计）。
 - 不在 UI 写 `if (isEmby)`；不接 Emby API。
 - `_cardToActionItem` 局部转换仅限搜索页本文件，不扩散。
+
+## Phase 4.5 分类页 filter 抽象设计与任务进度（Claude 主实现）
+
+### 设计讨论结论（用户已确认 — 2026-06-20）
+
+- 用户选「分类页 filter 抽象」优先于详情页迁移（详情页评估：~7790 行 UI、30 处 `FeiniuApi(`、裸 `Map`，宜等 Emby 形状一起设计）。
+- 现状审计：分类页查询 = `ItemListRequest`（ancestorGuid/page/pageSize/sortColumn/sortType/typeTags/tags）；9 维度（type/genres/locate/decade/resolution/color_range/audio_type/recognition_status/watched）；排序 create_time/release_date/title/vote_average × ASC/DESC；选项来自 `getTagList` + `getTagGenresMap`(id→名) + `getTagIso3166Map`(code→名)；视图偏好 `getUserListSetting/setUserListSetting`。
+- 决策 1（本地化归属）→ **双轨 label**。决策 2（视图偏好）→ **不纳入**（viewType/sort 偏好留飞牛 API，filter 抽象只聚焦查询）。
+
+### 双轨 label 机制
+
+- 职责划分：backend 负责**结构 + 后端数据字典**，UI 负责 **l10n 文案 + 渲染**，维度的 `kind` 是桥梁。
+  - `MediaFilterOption{value, label}`：`plain` 类（已可直接显示，如 color_range）适配层填好 `label`；需 app 文案的维度（genre id / ISO code / 枚举 token）`label` 留空、`value=raw`，UI 按 `kind`+`value` 本地化。
+  - genre 名（id→名）、region 名（code→名）是**后端数据**（非 l10n），随 schema 下发（`genreNames`/`regionNames`），UI localizer 用它们 + app l10n 合成 label。
+  - 枚举类（decade/resolution/audioType/recognitionStatus/watched/mediaType）文案走 app l10n（复用 `category_items_screen` 现有 labeler）。
+
+### 公共模型（`lib/media_backend/filter/`）
+
+```
+enum MediaFilterDimensionKind { plain, genre, region, decade, resolution, audioType, colorRange, recognitionStatus, watched, mediaType }
+class MediaFilterOption { String value; String label; }
+class MediaFilterDimension { String key; MediaFilterDimensionKind kind; List<MediaFilterOption> options; bool multiSelect; }
+class MediaSortOption { String field; }            // label 走 UI l10n
+class MediaCatalogFilterSchema { List<MediaFilterDimension> dimensions; List<MediaSortOption> sortOptions; Map<String,String> genreNames; Map<String,String> regionNames; }
+class MediaCatalogQuery { String catalogId; Map<String,List<String>> selection; String sortField; String sortType; int page; int pageSize; }
+class MediaItemCardPage { List<MediaItemCard> items; int total; }   // 复用 MediaItemCard
+```
+
+### backend 方法
+
+- `getCatalogFilterSchema(catalogId)` → schema（适配层合成 getTagList + genresMap + iso3166Map + 静态维度 type/decade/watched）。
+- `queryCatalogItems(MediaCatalogQuery)` → MediaItemCardPage（适配层把 selection 转回 `ItemListRequest`：genres→int、recognition_status/watched→`'$v'`、type→typeTags；调 `getItemsPageByRequest`，map `MediaItemCard`）。
+
+### Task 拆分（每步可编译、单独提交）
+
+- [ ] Task 5-1：filter 公共模型（上述 7 个类/枚举）+ 单测
+- [ ] Task 5-2：backend 接口 `getCatalogFilterSchema`/`queryCatalogItems` + `FeiniuMediaBackend` 实现（含 selection→ItemListRequest 类型回填）+ 单测
+- [ ] Task 5-3：UI 层 `CatalogFilterLocalizer`（按 kind+value+schema 字典+l10n 出 label，复用现有 labeler）+ 单测
+- [ ] Task 5-4：分类页 `category_items_screen` 迁移（schema 驱动维度渲染 + `queryCatalogItems` 查询 + localizer）；`getUserListSetting` 视图偏好仍走飞牛 + analyze + 手动验证
+
+### 明确不做
+
+- viewType/sort 视图偏好留飞牛 API，不纳入本次抽象。
+- 不接 Emby；UI 不写 `if(isEmby)`；适配层 selection→飞牛 tags 的类型转换仅限适配层。
 
 ## Codex 审查记录
 
