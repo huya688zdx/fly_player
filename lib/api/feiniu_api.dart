@@ -435,6 +435,11 @@ class FeiniuApi {
             options.headers['Authorization'] = nasProvider.token;
             options.headers['Trim-MC-token'] = nasProvider.token;
           }
+          if (shouldUseRelayModeCookieForBaseUrl(options.baseUrl)) {
+            options.headers['Cookie'] = _mergeRelayCookie(
+              options.headers['Cookie']?.toString() ?? '',
+            );
+          }
           if (_shouldAttachAuthx(options.path)) {
             options.headers['Authx'] = _buildAuthxHeader(options);
           }
@@ -513,6 +518,14 @@ class FeiniuApi {
   /// 根据用户输入的地址或 FN Connect 标识完成登录。
   ///
   /// 返回值里会带上最终可直连的 baseUrl，后续应保存这个地址而不是原始输入。
+  static bool shouldUseRelayModeCookieForBaseUrl(String rawBaseUrl) {
+    final normalizedBaseUrl = ApiUrlHelper.normalizeBaseUrl(rawBaseUrl);
+    final uri = Uri.tryParse(normalizedBaseUrl);
+    if (uri == null || uri.host.isEmpty) return false;
+    final host = uri.host.toLowerCase();
+    return host == 'fnos.net' || host.endsWith('.fnos.net');
+  }
+
   static Future<LoginWithBaseUrlResult> loginWithBaseUrl({
     required String baseUrl,
     required String userName,
@@ -2116,6 +2129,11 @@ class FeiniuApi {
         'Range': 'bytes=0-',
       ...extraHeaders,
     };
+    if (shouldAttachNasAuth && shouldUseRelayModeCookieForBaseUrl(url)) {
+      headers['Cookie'] = _mergeRelayCookie(
+        headers['Cookie']?.toString() ?? '',
+      );
+    }
 
     final path = uri?.path ?? '';
     if (shouldAttachNasAuth && _shouldAttachAuthx(path)) {
