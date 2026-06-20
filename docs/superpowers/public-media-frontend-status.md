@@ -46,7 +46,7 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 | 阶段 | 状态 | 负责人 | 提交 | 验证 |
 | --- | --- | --- | --- | --- |
 | Phase 0: 设计和协作基线 | 完成 | Codex | 本次文档提交 | 文档自查通过 |
-| Phase 1: 公共模型和 Feiniu mapper | 进行中 | Claude 主实现，Codex 审查 | Task1: ef6405c / Task2: f40f06a | 单元测试 |
+| Phase 1: 公共模型和 Feiniu mapper | 完成 | Claude 主实现，Codex 审查 | Task1: ef6405c / Task2: f40f06a / Task3: e97112b | 单元测试 |
 | Phase 2: FeiniuMediaBackend 和 Provider | 未开始 | Claude 主实现，Codex 审查 |  | 单元测试 + analyze |
 | Phase 3: 首页迁移样板 | 未开始 | Claude 主实现，Codex 验证 |  | 首页测试 + 手动验证 |
 | Phase 4: 分类页和搜索页迁移 | 未开始 | Claude 主实现，Codex 审查 |  | 页面测试 + 手动验证 |
@@ -72,7 +72,12 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
   - 测试：`flutter test test/media_backend/media_frontend_models_test.dart` → PASS
   - 提交：`f40f06a`
   - 下一步：Claude 执行 Task 3（Feiniu mapper，将 MediaItem/MediaLibraryItem 映射到公共模型）
-- [ ] Task 3: Feiniu mapper
+- [x] Task 3: Feiniu mapper
+  - 新建 `lib/media_backend/feiniu/feiniu_media_mappers.dart`、`test/media_backend/feiniu_media_mappers_test.dart`
+  - 已核对真实模型：`MediaItem(id/name/type?/path?)`、`MediaLibraryItem.displayTitle`（tvTitle 为空回退 title），与计划假设一致
+  - 测试：`flutter test test/media_backend/feiniu_media_mappers_test.dart` → PASS
+  - 提交：`e97112b`
+  - 下一步：Claude 执行 Task 4（MediaBackend 接口 + FeiniuMediaBackend 适配器）
 - [ ] Task 4: MediaBackend 接口和飞牛适配器
 
 ## Claude 下一步任务
