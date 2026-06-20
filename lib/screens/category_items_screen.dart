@@ -5,16 +5,19 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../api/feiniu_api.dart';
-import '../api/item_list_request.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../media_backend/filter/media_catalog_filter.dart';
+import '../media_backend/media_item_card.dart';
 import '../models/media_collection_view_type.dart';
 import '../models/media_item.dart';
 import '../models/media_library_item.dart';
+import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_detail_navigator.dart';
+import '../ui/catalog_filter_localizer.dart';
 import '../ui/detail_presentation.dart';
 import '../ui/layout_adaptive.dart';
 import '../ui/media_poster_card.dart';
@@ -51,7 +54,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     'title',
     'vote_average',
   ];
-  List<MediaLibraryItem> _items = [];
+  List<MediaItemCard> _items = const <MediaItemCard>[];
   int _total = 0;
   int _currentPage = 1;
   bool _hasMore = true;
@@ -66,23 +69,21 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   String _sortType = 'DESC';
   MediaCollectionViewType _viewType = MediaCollectionViewType.verticalPoster;
 
-  Map<String, List<dynamic>> _tagOptions = {};
-  Map<int, String> _genresFromApi = {};
-  Map<String, String> _locateFromApi = {};
+  /// 后端下发的筛选 / 排序 schema（含 genre / 地区数据字典）。
+  MediaCatalogFilterSchema _schema = const MediaCatalogFilterSchema();
   Map<String, dynamic> _localeMap = {};
 
-  Set<String> _selectedType = {};
-  Set<dynamic> _selectedGenres = {};
-  Set<dynamic> _selectedLocate = {};
-  Set<dynamic> _selectedDecades = {};
-  Set<dynamic> _selectedResolutions = {};
-  Set<dynamic> _selectedColorRange = {};
-  Set<dynamic> _selectedAudioType = {};
-  Set<dynamic> _selectedRecognitionStatus = {};
-  Set<dynamic> _selectedWatched = {};
+  /// 维度 key → 选中的原始 value 集合（飞牛各维度单选，集合至多一个元素）。
+  final Map<String, Set<String>> _selection = <String, Set<String>>{};
 
   DetailPresentation get _detailPresentation =>
       widget.secondaryHost ? DetailPresentation.pane : DetailPresentation.page;
+
+  /// 按当前 l10n + schema 构造筛选文案本地化器（schema 变更后自动反映）。
+  CatalogFilterLocalizer get _filterLocalizer => CatalogFilterLocalizer(
+    l10n: AppLocalizations.of(context),
+    schema: _schema,
+  );
 
   double _viewportCacheExtent(BuildContext context) {
     final factor = widget.secondaryHost ? 0.7 : 1.0;
@@ -98,9 +99,6 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
-    if (widget.initialTypeTags != null && widget.initialTypeTags!.isNotEmpty) {
-      _selectedType = widget.initialTypeTags!.toSet();
-    }
     _initLoad();
   }
 
@@ -133,6 +131,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     if (_metaLoaded) return;
     final provider = context.read<NasProvider>();
     final api = FeiniuApi(provider);
+    final backend = context.read<MediaBackendProvider>().backend;
     final hasAncestor = widget.category.id.trim().isNotEmpty;
     UserListSetting? setting;
     if (hasAncestor) {
@@ -140,24 +139,16 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
         setting = await api.getUserListSetting(widget.category.id);
       } catch (_) {}
     }
-    Map<String, List<dynamic>> tags = const <String, List<dynamic>>{};
+    var schema = const MediaCatalogFilterSchema();
     try {
-      tags = await api.getTagList(
-        ancestorGuid: hasAncestor ? widget.category.id : '',
-        isFavorite: 0,
-      );
+      schema = await backend.getCatalogFilterSchema(widget.category.id);
     } catch (_) {}
-    final genresMap = await api.getTagGenresMap(lan: 'zh-CN');
-    final locateMap = await api.getTagIso3166Map(lan: 'zh-CN');
-    const localeMap = <String, dynamic>{};
 
     if (!mounted) return;
     setState(() {
       _metaLoaded = true;
-      _tagOptions = tags;
-      _genresFromApi = genresMap;
-      _locateFromApi = locateMap;
-      _localeMap = localeMap;
+      _schema = schema;
+      _localeMap = const <String, dynamic>{};
       if (setting != null) {
         _sortColumn = setting.sortField;
         _sortType = setting.sortType == 'ASC' ? 'ASC' : 'DESC';
@@ -177,9 +168,8 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     });
 
     try {
-      final api = FeiniuApi(context.read<NasProvider>());
-      final request = _buildRequest(page: 1);
-      final page = await api.getItemsPageByRequest(request);
+      final backend = context.read<MediaBackendProvider>().backend;
+      final page = await backend.queryCatalogItems(_buildQuery(page: 1));
 
       if (!mounted) return;
       setState(() {
@@ -203,73 +193,92 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   }
 
   void _replaceItemLocally(
-    String itemGuid,
-    MediaLibraryItem Function(MediaLibraryItem item) transform,
+    String itemId,
+    MediaItemCard Function(MediaItemCard item) transform,
   ) {
     if (!mounted) return;
     setState(() {
       _items = _items
-          .map((item) => item.guid == itemGuid ? transform(item) : item)
+          .map((item) => item.id == itemId ? transform(item) : item)
           .toList(growable: false);
     });
   }
 
-  Future<void> _showPosterItemActions(MediaLibraryItem item) async {
+  Future<void> _showPosterItemActions(MediaItemCard item) async {
+    final actionItem = _cardToActionItem(item);
     await const MediaItemActionSheetController().show(
       context,
-      item: item,
-      title: MediaItemActionSheetController.defaultTitle(item),
+      item: actionItem,
+      title: MediaItemActionSheetController.defaultTitle(actionItem),
       localeMap: _localeMap,
       favoriteOnly: _isPersonItem(item),
-      initialWatched: item.watched == 1,
+      initialWatched: item.watched,
       onChanged: (state) {
         _replaceItemLocally(
-          item.guid,
-          (current) => current.copyWith(watched: state.watched ? 1 : 0),
+          item.id,
+          (current) => current.copyWith(watched: state.watched),
         );
       },
     );
   }
 
-  ItemListRequest _buildRequest({required int page}) {
-    final effectiveType = _typeLocked
+  /// 动作面板仅消费 guid / watched / type / season&episode 编号与标题字段，
+  /// 这里按公共卡片回填一个最小 [MediaLibraryItem] 喂面板，避免在分类页保留飞牛模型。
+  /// 仅限本文件使用，不向外扩散（复刻搜索页 Task 4-4 模式）。
+  MediaLibraryItem _cardToActionItem(MediaItemCard card) {
+    return MediaLibraryItem(
+      guid: card.id,
+      title: card.title,
+      tvTitle: card.secondaryTitle,
+      type: card.type,
+      poster: card.primaryImage.url,
+      releaseDate: '',
+      firstAirDate: '',
+      lastAirDate: '',
+      voteAverage: '',
+      overview: '',
+      watched: card.watched ? 1 : 0,
+      watchedTs: 0,
+      ts: 0,
+      duration: 0,
+      seasonNumber: card.seasonNumber,
+      episodeNumber: card.episodeNumber,
+      numberOfSeasons: 0,
+      numberOfEpisodes: 0,
+      localNumberOfSeasons: 0,
+      localNumberOfEpisodes: 0,
+      parentGuid: '',
+      parentTitle: '',
+      ancestorGuid: '',
+      ancestorName: '',
+      path: '',
+    );
+  }
+
+  /// 把当前选择回填为公共分类查询；type 锁定时用锁定类型，否则用用户选择
+  /// （空选择交由适配层回退到全类型）。
+  MediaCatalogQuery _buildQuery({required int page}) {
+    final selection = <String, List<String>>{};
+    final typeValues = _typeLocked
         ? _lockedTypeTags
-        : (_selectedType.isNotEmpty
-              ? _selectedType.toList()
-              : const ['Movie', 'TV', 'Directory', 'Video']);
-    final tags = <String, dynamic>{'type': effectiveType};
-    if (_selectedGenres.isNotEmpty) {
-      tags['genres'] = _selectedGenres.first;
+        : (_selection['type']?.toList(growable: false) ?? const <String>[]);
+    if (typeValues.isNotEmpty) {
+      selection['type'] = List<String>.from(typeValues);
     }
-    if (_selectedLocate.isNotEmpty) {
-      tags['locate'] = _selectedLocate.first;
-    }
-    if (_selectedDecades.isNotEmpty) {
-      tags['decade'] = _selectedDecades.first;
-    }
-    if (_selectedResolutions.isNotEmpty) {
-      tags['resolution'] = _selectedResolutions.first;
-    }
-    if (_selectedColorRange.isNotEmpty) {
-      tags['color_range'] = _selectedColorRange.first;
-    }
-    if (_selectedAudioType.isNotEmpty) {
-      tags['audio_type'] = _selectedAudioType.first;
-    }
-    if (_selectedRecognitionStatus.isNotEmpty) {
-      tags['recognition_status'] = '${_selectedRecognitionStatus.first}';
-    }
-    if (_selectedWatched.isNotEmpty) {
-      tags['watched'] = '${_selectedWatched.first}';
+    for (final entry in _selection.entries) {
+      if (entry.key == 'type') continue;
+      if (entry.value.isNotEmpty) {
+        selection[entry.key] = entry.value.toList(growable: false);
+      }
     }
 
-    return ItemListRequest(
-      ancestorGuid: widget.category.id,
+    return MediaCatalogQuery(
+      catalogId: widget.category.id,
+      selection: selection,
+      sortField: _sortColumn,
+      sortType: _sortType,
       page: page,
       pageSize: _pageSize,
-      sortColumn: _sortColumn,
-      sortType: _sortType,
-      tags: tags,
     );
   }
 
@@ -292,10 +301,8 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
 
     try {
       final nextPage = _currentPage + 1;
-      final request = _buildRequest(page: nextPage);
-      final page = await FeiniuApi(
-        context.read<NasProvider>(),
-      ).getItemsPageByRequest(request);
+      final backend = context.read<MediaBackendProvider>().backend;
+      final page = await backend.queryCatalogItems(_buildQuery(page: nextPage));
 
       if (!mounted) return;
       setState(() {
@@ -314,13 +321,13 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     }
   }
 
-  Future<void> _openItemDetail(MediaLibraryItem item, {String? heroTag}) async {
-    if (item.guid.trim().isEmpty) return;
+  Future<void> _openItemDetail(MediaItemCard item, {String? heroTag}) async {
+    if (item.id.trim().isEmpty) return;
     if (_isPersonItem(item)) {
       await AdaptiveDetailNavigator.open<void>(
         context,
         AdaptiveDetailRequest.person(
-          personGuid: item.guid,
+          personGuid: item.id,
           initialName: item.displayTitle,
           initialLocaleMap: _localeMap,
         ),
@@ -333,13 +340,13 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     try {
       initialDetail = await FeiniuApi(
         context.read<NasProvider>(),
-      ).getItemDetail(item.guid).timeout(const Duration(milliseconds: 240));
+      ).getItemDetail(item.id).timeout(const Duration(milliseconds: 240));
     } catch (_) {}
     if (!mounted) return;
     await AdaptiveDetailNavigator.open<void>(
       context,
       AdaptiveDetailRequest.item(
-        itemGuid: item.guid,
+        itemGuid: item.id,
         heroTag: heroTag,
         initialItemDetail: initialDetail,
       ),
@@ -349,13 +356,15 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
 
   List<String> _posterCandidates(
     String baseUrl,
-    MediaLibraryItem item, {
+    MediaItemCard item, {
     int width = 400,
     bool preferDirectPath = false,
   }) {
     final paths = <String>[
-      if (item.poster.trim().isNotEmpty) item.poster.trim(),
-      ...item.posterList.where((path) => path.trim().isNotEmpty),
+      if (item.primaryImage.url.trim().isNotEmpty) item.primaryImage.url.trim(),
+      ...item.posters
+          .map((ref) => ref.url)
+          .where((path) => path.trim().isNotEmpty),
     ];
     final unique = <String>{};
     final ordered = <String>[];
@@ -376,17 +385,17 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
         .toList(growable: false);
   }
 
-  bool _isPersonItem(MediaLibraryItem item) {
+  bool _isPersonItem(MediaItemCard item) {
     return item.type.trim().toLowerCase() == 'person';
   }
 
-  bool _isEpisodeItem(MediaLibraryItem item) {
+  bool _isEpisodeItem(MediaItemCard item) {
     return item.type.trim().toLowerCase() == 'episode';
   }
 
   String _year(String date) => date.length >= 4 ? date.substring(0, 4) : '';
 
-  String _cardSubtitle(MediaLibraryItem item) {
+  String _cardSubtitle(MediaItemCard item) {
     final start = item.firstAirDate.isNotEmpty
         ? item.firstAirDate
         : item.releaseDate;
@@ -420,6 +429,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     return period;
   }
 
+  /// 卡片清晰度角标文案（去掉尾部 p；与筛选 localizer 的 resolution 语义一致）。
   String _resolutionLabel(String value) {
     final text = value.trim();
     final match = RegExp(
@@ -434,33 +444,18 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   }
 
   String get _filterSummaryLabel {
+    final localizer = _filterLocalizer;
     final parts = <String>[];
-    if (_selectedGenres.isNotEmpty) {
-      parts.add(_genreLabel(_selectedGenres.first));
-    }
-    if (_selectedLocate.isNotEmpty) {
-      parts.add(_locateLabel(_selectedLocate.first));
-    }
-    if (_selectedDecades.isNotEmpty) {
-      parts.add(_decadeLabel(_selectedDecades.first));
-    }
-    if (_selectedColorRange.isNotEmpty) {
-      parts.add(_selectedColorRange.first.toString());
-    }
-    if (_selectedResolutions.isNotEmpty) {
-      parts.add(_resolutionLabel(_selectedResolutions.first.toString()));
-    }
-    if (_selectedAudioType.isNotEmpty) {
-      parts.add(_audioLabel(_selectedAudioType.first));
-    }
-    if (_selectedRecognitionStatus.isNotEmpty) {
-      parts.add(_recognitionStatusLabel(_selectedRecognitionStatus.first));
-    }
-    if (_selectedWatched.isNotEmpty) {
-      parts.add(_watchedLabel(_selectedWatched.first));
-    }
-    if (!_typeLocked && _selectedType.isNotEmpty && _selectedType.length < 4) {
-      parts.add(_typeLabel(_selectedType.first));
+    for (final dim in _schema.dimensions) {
+      final sel = _selection[dim.key];
+      if (sel == null || sel.isEmpty) continue;
+      if (dim.key == 'type' && (_typeLocked || sel.length >= 4)) continue;
+      final value = sel.first;
+      final option = dim.options.firstWhere(
+        (o) => o.value == value,
+        orElse: () => MediaFilterOption(value: value),
+      );
+      parts.add(localizer.optionLabel(dim, option));
     }
     if (parts.isEmpty) {
       return _t('layout.list.filter.filterButton', 'Filter');
@@ -468,112 +463,22 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     return parts.join(' / ');
   }
 
-  String _genreLabel(dynamic value) {
-    if (value is int) {
-      return _genresFromApi[value] ?? value.toString();
-    }
-    return value.toString();
-  }
-
-  String _locateLabel(dynamic value) {
-    final code = value.toString().toUpperCase();
-    return _locateFromApi[code] ?? value.toString();
-  }
-
-  String _audioLabel(dynamic value) {
-    final raw = value.toString();
-    switch (raw) {
-      case 'DolbySurround':
-        return _t('stream.audio.audioSpecs.dolbySurround', 'Dolby Surround');
-      case 'DolbyAtmos':
-        return _t('stream.audio.audioSpecs.dolbyAtmos', 'Dolby Atmos');
-      case 'DTS':
-        return _t('stream.audio.audioSpecs.dts', 'DTS');
-      case 'Stereo':
-        return _t('stream.audio.audioSpecs.stereo', 'Stereo');
-      case 'Others':
-        return _t('stream.audio.audioSpecs.others', 'Other');
-      default:
-        return raw;
-    }
-  }
-
-  String _decadeLabel(dynamic value) {
-    final raw = value.toString();
-    if (raw == 'Recent') {
-      return _t('layout.list.filter.decade.Recent', 'This year');
-    }
-    return raw;
-  }
-
-  String _typeLabel(String value) {
-    switch (value) {
-      case 'Movie':
-        return _t('layout.list.filter.type.movie', 'Movies');
-      case 'TV':
-        return _t('layout.list.filter.type.tv', 'TV');
-      case 'Directory':
-        return _t('common.resourceType.directory', 'Directory');
-      case 'Video':
-        return _t('common.resourceType.video', 'Video');
-      default:
-        return value;
-    }
-  }
-
-  String _recognitionStatusLabel(dynamic value) {
-    final code = int.tryParse(value.toString()) ?? 0;
-    if (code == 1) {
-      return _t('layout.list.filter.recognitionStatus.1', 'Unmatched');
-    }
-    if (code == 2) {
-      return _t('layout.list.filter.recognitionStatus.2', 'Matched');
-    }
-    if (code == 3) {
-      return _t('layout.list.filter.recognitionStatus.3', 'NFO matched');
-    }
-    return value.toString();
-  }
-
-  String _watchedLabel(dynamic value) {
-    final code = int.tryParse(value.toString()) ?? -1;
-    if (code == 1) return _t('layout.list.filter.watched.1', 'Watched');
-    if (code == 0) return _t('layout.list.filter.watched.0', 'Unwatched');
-    return value.toString();
-  }
-
-  String get _sortLabel {
-    return _sortLabelFor(_sortColumn);
-  }
-
-  String _sortLabelFor(String column) {
-    switch (column) {
-      case 'create_time':
-        return _t('layout.list.sort.sortField.createTime', 'By added date');
-      case 'release_date':
-        return _t('layout.list.sort.sortField.releaseDate', 'By release year');
-      case 'title':
-        return _t('layout.list.sort.sortField.title', 'By title');
-      case 'vote_average':
-        return _t('layout.list.sort.sortField.voteAverage', 'By rating');
-      default:
-        return _t('layout.list.sort.sortField.createTime', 'By added date');
-    }
-  }
+  String get _sortLabel => _filterLocalizer.sortLabel(_sortColumn);
 
   IconData get _sortArrow =>
       _sortType == 'ASC' ? Icons.arrow_upward : Icons.arrow_downward;
 
-  bool get _hasActiveFilters =>
-      _selectedGenres.isNotEmpty ||
-      _selectedLocate.isNotEmpty ||
-      _selectedDecades.isNotEmpty ||
-      _selectedResolutions.isNotEmpty ||
-      _selectedColorRange.isNotEmpty ||
-      _selectedAudioType.isNotEmpty ||
-      _selectedRecognitionStatus.isNotEmpty ||
-      _selectedWatched.isNotEmpty ||
-      (!_typeLocked && _selectedType.isNotEmpty && _selectedType.length < 4);
+  bool get _hasActiveFilters {
+    for (final entry in _selection.entries) {
+      if (entry.value.isEmpty) continue;
+      if (entry.key == 'type') {
+        if (!_typeLocked && entry.value.length < 4) return true;
+        continue;
+      }
+      return true;
+    }
+    return false;
+  }
 
   Future<void> _openLayoutSheet() async {
     final next = await MediaCollectionLayoutSheet.show(
@@ -631,7 +536,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                     minVerticalPadding: 0,
                     visualDensity: const VisualDensity(vertical: -1),
                     title: Text(
-                      _sortLabelFor(column),
+                      _filterLocalizer.sortLabel(column),
                       style: TextStyle(
                         color: column == _sortColumn
                             ? colors.textPrimary
@@ -690,16 +595,14 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     if (!_metaLoaded) await _loadMeta();
     if (!mounted) return;
     final colors = context.appColors;
+    final localizer = _filterLocalizer;
 
-    final tempType = Set<String>.from(_selectedType);
-    final tempGenres = Set<dynamic>.from(_selectedGenres);
-    final tempLocate = Set<dynamic>.from(_selectedLocate);
-    final tempDecades = Set<dynamic>.from(_selectedDecades);
-    final tempResolutions = Set<dynamic>.from(_selectedResolutions);
-    final tempColorRange = Set<dynamic>.from(_selectedColorRange);
-    final tempAudioType = Set<dynamic>.from(_selectedAudioType);
-    final tempRecognition = Set<dynamic>.from(_selectedRecognitionStatus);
-    final tempWatched = Set<dynamic>.from(_selectedWatched);
+    // 复制当前选择，弹窗内编辑，确认后回写。
+    final temp = <String, Set<String>>{
+      for (final entry in _selection.entries)
+        entry.key: Set<String>.from(entry.value),
+    };
+    Set<String> tempFor(String key) => temp.putIfAbsent(key, () => <String>{});
 
     await showModalBottomSheet<void>(
       context: context,
@@ -738,17 +641,17 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
               );
             }
 
-            Widget section(
-              String title,
-              List<dynamic> values,
-              Set<dynamic> selected,
-              String Function(dynamic) labeler,
-            ) {
-              if (values.isEmpty) return const SizedBox.shrink();
+            Widget section(MediaFilterDimension dimension) {
+              if (dimension.key == 'type' && _typeLocked) {
+                return const SizedBox.shrink();
+              }
+              final options = dimension.options;
+              if (options.isEmpty) return const SizedBox.shrink();
+              final selected = tempFor(dimension.key);
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: _bold12),
+                  Text(localizer.dimensionTitle(dimension), style: _bold12),
                   const SizedBox(height: 8),
                   Wrap(
                     children: [
@@ -757,17 +660,17 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                         selected.isEmpty,
                         () => setModal(() => selected.clear()),
                       ),
-                      for (final v in values)
+                      for (final option in options)
                         chip(
-                          labeler(v),
-                          selected.contains(v),
+                          localizer.optionLabel(dimension, option),
+                          selected.contains(option.value),
                           () => setModal(() {
-                            if (selected.contains(v)) {
+                            if (selected.contains(option.value)) {
                               selected.clear();
                             } else {
                               selected
                                 ..clear()
-                                ..add(v);
+                                ..add(option.value);
                             }
                           }),
                         ),
@@ -810,90 +713,8 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                       Expanded(
                         child: ListView(
                           children: [
-                            if (!_typeLocked)
-                              section(
-                                _t(
-                                  'layout.list.filter.tagMap.type',
-                                  'Media type',
-                                ),
-                                const ['Movie', 'TV'],
-                                tempType,
-                                (v) => v == 'Movie'
-                                    ? _t(
-                                        'layout.list.filter.type.movie',
-                                        'Movies',
-                                      )
-                                    : _t('layout.list.filter.type.tv', 'TV'),
-                              ),
-                            section(
-                              _t('layout.list.filter.tagMap.genres', 'Genre'),
-                              _tagOptions['genres'] ?? const [],
-                              tempGenres,
-                              _genreLabel,
-                            ),
-                            section(
-                              _t(
-                                'layout.list.filter.tagMap.locate',
-                                'Country and region',
-                              ),
-                              _tagOptions['locate'] ?? const [],
-                              tempLocate,
-                              _locateLabel,
-                            ),
-                            section(
-                              _t(
-                                'layout.list.filter.tagMap.decade',
-                                'Release year',
-                              ),
-                              _tagOptions['decades'] ?? const [],
-                              tempDecades,
-                              _decadeLabel,
-                            ),
-                            section(
-                              _t(
-                                'layout.list.filter.tagMap.resolution',
-                                'Resolution',
-                              ),
-                              _tagOptions['resolutions'] ?? const [],
-                              tempResolutions,
-                              (v) => _resolutionLabel('$v'),
-                            ),
-                            section(
-                              _t(
-                                'layout.list.filter.tagMap.color_range',
-                                'Video range',
-                              ),
-                              _tagOptions['color_range'] ?? const [],
-                              tempColorRange,
-                              (v) => '$v',
-                            ),
-                            section(
-                              _t(
-                                'layout.list.filter.tagMap.audio_type',
-                                'Audio spec',
-                              ),
-                              _tagOptions['audio_type'] ?? const [],
-                              tempAudioType,
-                              _audioLabel,
-                            ),
-                            section(
-                              _t(
-                                'layout.list.filter.tagMap.recognition_status',
-                                'Match status',
-                              ),
-                              _tagOptions['recognition_status'] ?? const [],
-                              tempRecognition,
-                              _recognitionStatusLabel,
-                            ),
-                            section(
-                              _t(
-                                'layout.list.filter.tagMap.watched',
-                                'Watched status',
-                              ),
-                              const [1, 0],
-                              tempWatched,
-                              _watchedLabel,
-                            ),
+                            for (final dimension in _schema.dimensions)
+                              section(dimension),
                           ],
                         ),
                       ),
@@ -903,17 +724,9 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                             child: OutlinedButton(
                               onPressed: () {
                                 setModal(() {
-                                  tempType
-                                    ..clear()
-                                    ..addAll(_lockedTypeTags);
-                                  tempGenres.clear();
-                                  tempLocate.clear();
-                                  tempDecades.clear();
-                                  tempResolutions.clear();
-                                  tempColorRange.clear();
-                                  tempAudioType.clear();
-                                  tempRecognition.clear();
-                                  tempWatched.clear();
+                                  for (final values in temp.values) {
+                                    values.clear();
+                                  }
                                 });
                               },
                               style: OutlinedButton.styleFrom(
@@ -935,17 +748,14 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                               onPressed: () {
                                 Navigator.of(context).pop();
                                 setState(() {
-                                  _selectedType = _typeLocked
-                                      ? _lockedTypeTags.toSet()
-                                      : tempType;
-                                  _selectedGenres = tempGenres;
-                                  _selectedLocate = tempLocate;
-                                  _selectedDecades = tempDecades;
-                                  _selectedResolutions = tempResolutions;
-                                  _selectedColorRange = tempColorRange;
-                                  _selectedAudioType = tempAudioType;
-                                  _selectedRecognitionStatus = tempRecognition;
-                                  _selectedWatched = tempWatched;
+                                  _selection
+                                    ..clear()
+                                    ..addAll(<String, Set<String>>{
+                                      for (final entry in temp.entries)
+                                        entry.key: Set<String>.from(
+                                          entry.value,
+                                        ),
+                                    });
                                 });
                                 _fetch();
                               },
@@ -1120,7 +930,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                       onTap: () => _openItemDetail(
                         item,
                         heroTag:
-                            'category_${widget.category.id}_${item.guid}_$index',
+                            'category_${widget.category.id}_${item.id}_$index',
                       ),
                       onLongPress: () => _showPosterItemActions(item),
                       onMoreTap: () => _showPosterItemActions(item),
@@ -1163,7 +973,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                           width: 720,
                           preferDirectPath: true,
                         );
-                        final rating = double.tryParse(item.voteAverage);
+                        final rating = double.tryParse(item.rating);
                         final resolutions = item.resolutions
                             .map(_resolutionLabel)
                             .where((e) => e.isNotEmpty)
@@ -1179,7 +989,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                               : null,
                           rating: rating,
                           resolutions: resolutions,
-                          watched: item.watched == 1,
+                          watched: item.watched,
                           imageHeight: imageHeight,
                           titleFontSize: layout.homePosterTitleFontSize,
                           subtitleFontSize: layout.homePosterSubtitleFontSize,
@@ -1187,11 +997,11 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                           imageFit: BoxFit.contain,
                           autoFitByImageAspect: false,
                           heroTag:
-                              'category_${widget.category.id}_${item.guid}_$index',
+                              'category_${widget.category.id}_${item.id}_$index',
                           onTap: () => _openItemDetail(
                             item,
                             heroTag:
-                                'category_${widget.category.id}_${item.guid}_$index',
+                                'category_${widget.category.id}_${item.id}_$index',
                           ),
                           onLongPress: () => _showPosterItemActions(item),
                         );
@@ -1223,7 +1033,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                       item,
                       width: layout.categoryGridRequestWidth,
                     );
-                    final rating = double.tryParse(item.voteAverage);
+                    final rating = double.tryParse(item.rating);
                     final resolutions = item.resolutions
                         .map(_resolutionLabel)
                         .where((e) => e.isNotEmpty)
@@ -1236,7 +1046,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                       subtitle: _cardSubtitle(item),
                       rating: rating,
                       resolutions: resolutions,
-                      watched: item.watched == 1,
+                      watched: item.watched,
                       imageHeight: layout.categoryGridImageHeight,
                       titleFontSize: layout.homePosterTitleFontSize,
                       subtitleFontSize: layout.homePosterSubtitleFontSize,
@@ -1245,11 +1055,11 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                           ? BoxFit.contain
                           : BoxFit.cover,
                       heroTag:
-                          'category_${widget.category.id}_${item.guid}_$index',
+                          'category_${widget.category.id}_${item.id}_$index',
                       onTap: () => _openItemDetail(
                         item,
                         heroTag:
-                            'category_${widget.category.id}_${item.guid}_$index',
+                            'category_${widget.category.id}_${item.id}_$index',
                       ),
                       onLongPress: () => _showPosterItemActions(item),
                     );
