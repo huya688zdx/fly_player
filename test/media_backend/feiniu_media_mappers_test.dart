@@ -51,4 +51,54 @@ void main() {
     expect(item.watched, isTrue);
     expect(item.durationSeconds, 123);
   });
+
+  test('preserves episode display fields for lossless round-trip', () {
+    final item = mapFeiniuItemSummary(
+      MediaLibraryItem(
+        guid: 'ep-1',
+        title: '剧集 B',
+        tvTitle: '第 3 集',
+        type: 'Episode',
+        poster: '/ep.jpg',
+        posterWidth: 1000,
+        posterHeight: 1500,
+        releaseDate: '2024-01-02',
+        firstAirDate: '',
+        lastAirDate: '',
+        voteAverage: '8.5',
+        overview: '',
+        watched: 0,
+        watchedTs: 0,
+        ts: 0,
+        duration: 2400,
+        seasonNumber: 2,
+        episodeNumber: 3,
+        numberOfSeasons: 4,
+        numberOfEpisodes: 12,
+        localNumberOfSeasons: 0,
+        localNumberOfEpisodes: 0,
+        parentGuid: '',
+        parentTitle: '',
+        ancestorGuid: '',
+        ancestorName: '',
+        path: '',
+      ),
+    );
+
+    // 副标题优先（复刻飞牛 displayTitle 回退语义），原始 title 仍保留。
+    expect(item.title, '剧集 B');
+    expect(item.secondaryTitle, '第 3 集');
+    expect(item.displayTitle, '第 3 集');
+    // 首页卡片所需展示字段不丢失。
+    expect(item.rating, '8.5');
+    expect(item.releaseDate, '2024-01-02');
+    expect(item.seasonNumber, 2);
+    expect(item.episodeNumber, 3);
+    expect(item.numberOfSeasons, 4);
+    expect(item.numberOfEpisodes, 12);
+    expect(item.posterWidth, 1000);
+    expect(item.posterHeight, 1500);
+    expect(item.isLandscapePoster, isFalse);
+    expect(item.watched, isFalse);
+  });
 }
