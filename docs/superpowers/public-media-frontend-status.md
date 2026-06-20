@@ -47,7 +47,7 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 | --- | --- | --- | --- | --- |
 | Phase 0: 设计和协作基线 | 完成 | Codex | 本次文档提交 | 文档自查通过 |
 | Phase 1: 公共模型和 Feiniu mapper | 完成 | Claude 主实现，Codex 审查 | Task1: ef6405c / Task2: f40f06a / Task3: e97112b | 单元测试 |
-| Phase 2: FeiniuMediaBackend 和 Provider | 未开始 | Claude 主实现，Codex 审查 |  | 单元测试 + analyze |
+| Phase 2: FeiniuMediaBackend 和 Provider | 进行中 | Claude 主实现，Codex 审查 | Task4: 3986ef5 | 单元测试 + analyze |
 | Phase 3: 首页迁移样板 | 未开始 | Claude 主实现，Codex 验证 |  | 首页测试 + 手动验证 |
 | Phase 4: 分类页和搜索页迁移 | 未开始 | Claude 主实现，Codex 审查 |  | 页面测试 + 手动验证 |
 | Phase 5: 详情页迁移 | 未开始 | Claude 主实现，Codex 审查 |  | 电影/剧集详情手动验证 |
@@ -78,7 +78,18 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
   - 测试：`flutter test test/media_backend/feiniu_media_mappers_test.dart` → PASS
   - 提交：`e97112b`
   - 下一步：Claude 执行 Task 4（MediaBackend 接口 + FeiniuMediaBackend 适配器）
-- [ ] Task 4: MediaBackend 接口和飞牛适配器
+- [x] Task 4: MediaBackend 接口和飞牛适配器
+  - 新建 `lib/media_backend/media_backend.dart`、`lib/media_backend/feiniu/feiniu_media_backend.dart`、`test/media_backend/feiniu_media_backend_test.dart`
+  - 已核对 FeiniuApi 方法签名一致：`getMediaList()`、`getMediaSummary()`、`getPlayList({forceRefresh})`、`getItemsByCategoryGuid(guid,{page,limit})`
+  - 测试：`flutter test test/media_backend/` → 6 PASS；`flutter analyze lib/media_backend/` → No issues
+  - 提交：`3986ef5`
+  - 下一步：Claude 执行 Task 5（Provider 注入 main.dart，不迁移页面）
+
+## Phase 2 任务进度（Claude 主实现）
+
+- [x] Task 4: 见上（接口 + 飞牛适配器）
+- [ ] Task 5: MediaBackendProvider 注入 main.dart
+- [ ] Task 6: 首页 media_list_screen 迁移样板
 
 ## Claude 下一步任务
 
