@@ -127,6 +127,36 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
     - Codex 风险 2（`MediaImageRef.headers` 为空）：本期图片仍走旧 NAS 鉴权路径，未受影响；待页面直接消费公共图片引用时再在适配层补 headers。
     - Codex Task5 审查：`MediaBackendProvider.backend` 每次读取新建 `FeiniuApi`/`FeiniuMediaBackend`，首页每次刷新会各读 1 次；建议后续在 Provider 内缓存 backend 实例或按 NAS 会话变更重建，避免重复创建 Dio。
 
+## Phase 4 设计决策与任务进度（Claude 主实现）
+
+### 设计讨论结论（用户已确认 — 2026-06-20）
+
+- 背景：用户确认进入 Phase 4「富 item 公共模型」设计讨论。审计了 `category_items_screen.dart` 和 `search_screen.dart` 两个目标页的真实字段消费。
+- 字段审计（搜索/分类卡片消费的 `MediaLibraryItem` 字段合集）：`guid`/`displayTitle`/`type`、`poster`+`posterList`、`posterWidth/Height`、`voteAverage`、`watched`、`resolutions`、`firstAirDate/releaseDate/lastAirDate`（年份区间）、`localNumberOfSeasons/Episodes`+`numberOf...`+`episodeNumber`（季/集角标，本地计数优先）、`numberOfItem`（person 作品数）。这些全是**后端中立的卡片展示概念**，Emby 卡片同样具备，可干净定型。
+- 两处硬耦合（不属于「模型」问题，本期不强行抽象）：
+  1. **动作面板** `MediaItemActionSheetController.show(item: MediaLibraryItem)`：审计确认其对 item 仅消费 `guid`、`watched`、以及 `defaultTitle()` 用的 `type`/`seasonNumber`/`episodeNumber`/`tvTitle`/`title`——**全在富模型覆盖范围内**。搜索页迁移时用本文件内局部 `_cardToActionItem(MediaItemCard)` 转回最小 `MediaLibraryItem` 喂面板，无损、不扩散（复刻 Task 6 模式）。
+  2. **分类页滤镜/排序/标签体系**（`ItemListRequest` 带 genres/locate(ISO3166)/decade/resolution/color_range/audio_type/recognition_status + 排序列 + getUserListSetting）：深度飞牛形状、与 Emby 差异极大，是另一套 filter 查询抽象，**本期不动，另立设计**。
+- 用户决策：
+  1. 模型形状 → **统一 `MediaItemCard`**（home/search/category 卡片共用一个富模型）。`MediaItemSummary` 当前仅挂在 `MediaBackend.getContinueWatching`/`getCatalogPreviewItems`（Task 6 决定暂不调用），页面零消费，可安全演进/替换为 `MediaItemCard`，不留两个重叠模型。
+  2. Phase 4 范围 → **仅搜索页先行**。分类页滤镜体系另立设计、本期不迁。
+
+### MediaItemCard 字段清单（统一富模型）
+
+`id` / `title` / `secondaryTitle` / `type` / `primaryImage` / `posters[]` / `backdropImage` / `durationSeconds` / `watched` / `rating` / `releaseDate` / `firstAirDate` / `lastAirDate` / `seasonNumber` / `episodeNumber` / `numberOfSeasons` / `numberOfEpisodes` / `localNumberOfSeasons` / `localNumberOfEpisodes` / `numberOfItem` / `posterWidth` / `posterHeight` / `resolutions[]`；getter：`displayTitle`（副标题优先回退）/`hasPosterSize`/`isLandscapePoster`；含 `copyWith()`（搜索页本地 watched 变更需要）。
+
+### 子任务拆分（每步可编译、单独提交）
+
+- [ ] Task 4-1：新建 `lib/media_backend/media_item_card.dart`（统一富模型）+ `test/media_backend/media_item_card_test.dart`
+- [ ] Task 4-2：`mapFeiniuItemCard(MediaLibraryItem)` mapper（无损映射全部展示字段）+ 单测
+- [ ] Task 4-3：`MediaBackend.searchItems(query)` 接口 + `FeiniuMediaBackend` 实现（走 `api.searchList`）；将 `getContinueWatching`/`getCatalogPreviewItems` 返回类型统一迁到 `MediaItemCard`，删除 `MediaItemSummary` 及其 mapper/测试 + 单测
+- [ ] Task 4-4：搜索页迁移（`_results: List<MediaItemCard>`，读取走 `backend.searchItems`，动作面板用局部 `_cardToActionItem`，`copyWith` 用 MediaItemCard）+ `flutter analyze` + 页面测试
+
+### 明确不做
+
+- 不碰分类页滤镜/排序/标签体系（飞牛专属，另立设计）。
+- 不在 UI 写 `if (isEmby)`；不接 Emby API。
+- `_cardToActionItem` 局部转换仅限搜索页本文件，不扩散。
+
 ## Codex 审查记录
 
 - 2026-06-20 Task 1~4 审查：
