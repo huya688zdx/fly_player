@@ -4,9 +4,20 @@
 
 ## 当前阶段
 
-阶段：Phase 5 调研评估完成，进入详情页公共模型设计前置阶段。
+阶段：Phase 5 设计 + 实施计划完成，待用户确认从 Task 1（公共详情模型）开始实现。
 
 目标：基于 Emby 官方 API 形状评估详情页迁移边界，先设计公共详情模型和飞牛 mapper，不直接接入 Emby API，不迁移播放入口。
+
+设计文档：`docs/superpowers/specs/2026-06-21-public-media-detail-design.md`（公共详情模型边界 + 飞牛能力暂留页面侧范围）。
+实施计划：`docs/superpowers/plans/2026-06-21-public-media-detail.md`（Task 1 模型 → Task 2 mapper → Task 3 backend 接口 → Task 4 电影详情壳层 → Task 5 剧集季/集 → Task 6 人物详情 → Task 7 看板）。
+
+### Phase 5 设计要点（关键边界）
+
+- 公共 `MediaDetail` 只收 `PlayItem` 的**展示半**（标题/简介/海报背景/评分/年份时长/季集编号/题材地区/角标/已看收藏续播快照/外部 ID/演职员）。
+- `PlayItem` 的**播放半**（`mediaGuid`/`videoGuid`/`audioGuid`/`subtitleGuid`/`canPlay`/`playError`/`playConfig` + `StreamTrackData` 轨道）**留页面侧 → Phase 6**。
+- 暂留页面侧的飞牛能力：播放入口、轨道选择、片头片尾、下载、动作面板写回（收藏/已看，模型只带展示态快照）、FN Connect、续播写回。
+- 题材/地区走"翻好"路线（适配层用 `genresMap`/`iso3166Map` 直接出显示文案），与 Phase 4.5 分类页双轨 label 不同——详情页纯只读、无筛选交互，不需要 value/label 双轨。
+- `MediaBackend.getItemDetail` 返回 `MediaDetail`，**不返回 `Map`**；与 `FeiniuApi.getItemDetail` 同名不同返回类型属正常分层。
 
 ## 负责人约定
 
@@ -51,7 +62,7 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 | Phase 3: 首页迁移样板 | 部分完成（catalogs+summary 已迁移，待手动验证） | Claude 主实现，Codex 验证 | 模型扩展: 1ff413b / 9e012b7；首页迁移: 180e8c0 | 首页单测通过；`flutter run` 手动验证待做 |
 | Phase 4: 搜索页迁移（统一 MediaItemCard） | 完成（搜索页已验收通过；分类页滤镜体系另立设计、本期不动） | Claude 主实现，Codex 审查 | 设计 c849e2a / 模型 fa878ba / mapper 013d2fe / 收口 a68c95e / 搜索页 a8adf76 | media_backend 11 PASS + analyze；用户已验收通过（2026-06-20） |
 | Phase 4.5: 分类页 filter 抽象 | 完成（分类页已迁到 schema 驱动 + queryCatalogItems + localizer；Codex 审查通过；用户实机验证通过 2026-06-20） | Claude 主实现，Codex 审查 | Task5-1: 38e3315 / Task5-2: 1dcedda / Task5-3: 15a3853 / Task5-4: 9b06e3d+5b6ea4b / Codex小修: 085d051 | media_backend+localizer 41 PASS + analyze（分类页 No issues）；用户已实机验收通过 |
-| Phase 5: 详情页迁移 | 调研评估完成（官方 Emby API 形状已查证；建议先做公共详情模型 + Feiniu mapper，再迁页面；播放入口留 Phase 6） | Claude 主实现，Codex 审查 | 调研: 756f2eb | 文档自查；未改业务代码 |
+| Phase 5: 详情页迁移 | 设计 + 实施计划完成（公共详情模型边界、飞牛能力暂留页面侧范围、Task 拆分均已落文档；待用户确认从 Task 1 开始实现） | Claude 主实现，Codex 审查 | 调研: 756f2eb / 设计+计划: 本次提交 | 文档自查；未改业务代码 |
 | Phase 6: 播放入口迁移 | 未开始 | Claude 主实现，Codex 深审 |  | 播放、音轨、字幕验证 |
 
 ## 当前可执行任务
@@ -306,6 +317,12 @@ class MediaItemCardPage { List<MediaItemCard> items; int total; }   // 复用 Me
   - 风险：`play_detail_page.dart`、`tv_detail_page.dart`、`item_playback_launcher.dart` 仍混有大量 `FeiniuApi`、`PlayInfoData`、`StreamTrackData` 和裸 Map。若一次性迁移，会把详情展示、播放、音轨/字幕、下载和 Emby DTO 绑定到同一批改动里。
   - 工作区检查：调研提交前暂存区仅包含新增研究文档；未修改 `lib/` 代码；工作区仍有未跟踪 `HANDOFF.md`，与本任务无关、未暂存。
   - 下一步建议：先写 Phase 5 设计文档和实施计划；不新增 `EmbyApi` 代码；如有真实 Emby 测试服，仅用官方 API Browser 或只读 curl 抓脱敏样本，严禁提交 token/server/user。
+- 2026-06-21 Phase 5 设计 + 实施计划：
+  - 文档：设计 `docs/superpowers/specs/2026-06-21-public-media-detail-design.md`、计划 `docs/superpowers/plans/2026-06-21-public-media-detail.md`。
+  - 实地审计（已核对代码）：`getItemDetail`→`Map`（`item` 键解析 `PlayItem`，聚合 `PlayInfoData`）；`PlayItem` 33 字段切分为"展示半/播放半"；`getSeasonList`/`getEpisodeList`→`List<MediaLibraryItem>`；`getPersonDetail`→`PersonDetailProfile`；首屏聚合在 `play_detail_data_loader.dart` 的 `PlayDetailInitialData`。
+  - 边界结论：公共 `MediaDetail`/`MediaSeasonSummary`/`MediaEpisodeSummary`/`MediaDetailPerson`/`MediaExternalIds` 只收展示半；播放接线（mediaGuid/轨道/canPlay/playConfig）+ 下载 + 片头片尾 + 动作写回 + FN Connect + 续播写回留页面侧（Phase 6 / 飞牛专属）。题材/地区在适配层翻好（非双轨）。
+  - 未改业务代码；仅新增两份文档 + 本看板更新。
+  - 下一步：等用户确认，从计划 Task 1（公共详情模型 + 单测）开始主实现，每步单独提交。
 
 ## Claude 下一步任务
 
