@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../theme/app_theme.dart';
+import '../../utils/nas_image_headers.dart';
 
 class ImmersiveDetailBackground extends StatefulWidget {
   final List<String> urls;
@@ -396,7 +397,7 @@ class _BackgroundImage extends StatelessWidget {
           filterQuality: isAndroid ? FilterQuality.low : FilterQuality.medium,
           gaplessPlayback: true,
           cacheWidth: cacheWidth,
-          headers: {'Authorization': token, 'Trim-MC-token': token},
+          headers: nasImageHeaders(token, url: currentUrl),
           frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
             if (wasSynchronouslyLoaded) {
               return child;
@@ -449,7 +450,7 @@ class _LowResBackgroundImage extends StatelessWidget {
       gaplessPlayback: true,
       // 低清只需小尺寸解码，省内存与上传开销。
       cacheWidth: 480,
-      headers: {'Authorization': token, 'Trim-MC-token': token},
+      headers: nasImageHeaders(token, url: url),
       errorBuilder: (_, __, ___) => const SizedBox.shrink(),
     );
   }

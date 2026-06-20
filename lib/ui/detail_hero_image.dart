@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../utils/api_url_helper.dart';
+import '../utils/nas_image_headers.dart';
 
 /// 详情页 hero 背景图的统一构造口（URL / cacheWidth / ImageProvider）。
 ///
@@ -40,10 +41,7 @@ class DetailHeroImage {
   }) {
     if (url.trim().isEmpty || token.trim().isEmpty) return null;
     return ResizeImage(
-      NetworkImage(
-        url,
-        headers: {'Authorization': token, 'Trim-MC-token': token},
-      ),
+      NetworkImage(url, headers: nasImageHeaders(token, url: url)),
       width: cacheWidth,
     );
   }

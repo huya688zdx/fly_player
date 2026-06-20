@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../theme/app_theme.dart';
+import '../../utils/nas_image_headers.dart';
 
 class CreditPersonItem {
   final String personGuid;
@@ -209,10 +210,7 @@ class _CreditAvatarState extends State<_CreditAvatar> {
           filterQuality: FilterQuality.low,
           gaplessPlayback: true,
           cacheWidth: cacheW,
-          headers: {
-            'Authorization': widget.token,
-            'Trim-MC-token': widget.token,
-          },
+          headers: nasImageHeaders(widget.token, url: widget.urls[_index]),
           frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
             if (wasSynchronouslyLoaded) return child;
             return AnimatedOpacity(

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../theme/app_theme.dart';
+import '../utils/nas_image_headers.dart';
 import 'capability_badge_mapper.dart';
 
 class MediaPosterCard extends StatelessWidget {
@@ -296,13 +297,6 @@ class _PosterImage extends StatefulWidget {
 class _PosterImageState extends State<_PosterImage> {
   int _index = 0;
   bool _fallbackScheduled = false;
-  late Map<String, String> _headers;
-
-  @override
-  void initState() {
-    super.initState();
-    _headers = _imageHeaders(widget.token);
-  }
 
   @override
   void didUpdateWidget(covariant _PosterImage oldWidget) {
@@ -310,9 +304,6 @@ class _PosterImageState extends State<_PosterImage> {
     if (!listEquals(oldWidget.urls, widget.urls)) {
       _index = 0;
       _fallbackScheduled = false;
-    }
-    if (oldWidget.token != widget.token) {
-      _headers = _imageHeaders(widget.token);
     }
   }
 
@@ -340,7 +331,10 @@ class _PosterImageState extends State<_PosterImage> {
         // 上传会占用 raster 线程，正是观测到的 maxRaster 尖峰来源。用
         // ResizeImagePolicy.fit 在限制框内等比缩放，不会像默认 exact 策略那样
         // 压扁画面破坏宽高比（最终显示仍由外层 BoxFit + 圆角裁剪负责）。
-        ImageProvider provider = NetworkImage(url, headers: _headers);
+        ImageProvider provider = NetworkImage(
+          url,
+          headers: nasImageHeaders(widget.token, url: url),
+        );
         if (cacheW != null || cacheH != null) {
           provider = ResizeImage(
             provider,
@@ -395,8 +389,4 @@ class _PosterImageState extends State<_PosterImage> {
       });
     });
   }
-}
-
-Map<String, String> _imageHeaders(String token) {
-  return <String, String>{'Authorization': token, 'Trim-MC-token': token};
 }
