@@ -2,7 +2,7 @@ import '../../api/feiniu_api.dart';
 import '../media_backend.dart';
 import '../media_backend_capabilities.dart';
 import '../media_catalog.dart';
-import '../media_item_summary.dart';
+import '../media_item_card.dart';
 import 'feiniu_media_mappers.dart';
 
 /// 飞牛后端适配器：内部调用现有 [FeiniuApi]，把飞牛模型映射为公共模型。
@@ -28,15 +28,15 @@ class FeiniuMediaBackend implements MediaBackend {
   Future<Map<String, dynamic>> getHomeSummary() => api.getMediaSummary();
 
   @override
-  Future<List<MediaItemSummary>> getContinueWatching({
+  Future<List<MediaItemCard>> getContinueWatching({
     bool forceRefresh = false,
   }) async {
     final items = await api.getPlayList(forceRefresh: forceRefresh);
-    return items.map(mapFeiniuItemSummary).toList(growable: false);
+    return items.map(mapFeiniuItemCard).toList(growable: false);
   }
 
   @override
-  Future<List<MediaItemSummary>> getCatalogPreviewItems(
+  Future<List<MediaItemCard>> getCatalogPreviewItems(
     String catalogId, {
     int page = 1,
     int limit = 30,
@@ -46,6 +46,12 @@ class FeiniuMediaBackend implements MediaBackend {
       page: page,
       limit: limit,
     );
-    return items.map(mapFeiniuItemSummary).toList(growable: false);
+    return items.map(mapFeiniuItemCard).toList(growable: false);
+  }
+
+  @override
+  Future<List<MediaItemCard>> searchItems(String query) async {
+    final items = await api.searchList(query);
+    return items.map(mapFeiniuItemCard).toList(growable: false);
   }
 }

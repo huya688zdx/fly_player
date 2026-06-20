@@ -1,6 +1,6 @@
 import 'media_backend_capabilities.dart';
 import 'media_catalog.dart';
-import 'media_item_summary.dart';
+import 'media_item_card.dart';
 
 /// 公共媒体后端接口。
 ///
@@ -17,14 +17,15 @@ abstract class MediaBackend {
   Future<Map<String, dynamic>> getHomeSummary();
 
   /// 继续观看列表。
-  Future<List<MediaItemSummary>> getContinueWatching({
-    bool forceRefresh = false,
-  });
+  Future<List<MediaItemCard>> getContinueWatching({bool forceRefresh = false});
 
   /// 某个媒体库的预览条目。
-  Future<List<MediaItemSummary>> getCatalogPreviewItems(
+  Future<List<MediaItemCard>> getCatalogPreviewItems(
     String catalogId, {
     int page = 1,
     int limit = 30,
   });
+
+  /// 按关键字搜索条目。
+  Future<List<MediaItemCard>> searchItems(String query);
 }
