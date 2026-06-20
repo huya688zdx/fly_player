@@ -94,8 +94,23 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
   - 验证：`flutter analyze lib/main.dart lib/providers/media_backend_provider.dart` → No issues；pop 后 `flutter analyze lib/main.dart` → No issues，无冲突标记
   - 提交：`4b3002d`
   - 下一步：Claude 执行 Task 6（首页 media_list_screen 迁移样板）
-- [ ] Task 6: 首页 media_list_screen 迁移样板
-  - 应对 Codex 风险 2：按计划 Task 6 把公共模型临时转回旧 `MediaItem`/`MediaLibraryItem`，图片仍走旧 NAS 鉴权路径，`MediaImageRef.headers` 留空不影响本任务；待页面真正直接消费公共图片引用时（后续阶段）再在飞牛适配层补 headers
+### 建议调整（已被用户确认采纳 — 2026-06-20）
+
+- 背景：Task 6 准备阶段发现**计划与规格冲突**。计划 Task 6 让首页改调 `backend` 后把公共模型「转回」旧 `MediaItem`/`MediaLibraryItem`，但原 `MediaItemSummary` 刻意精简，缺少首页卡片实际消费的字段：`media_list_screen.dart` 用到 `seasonNumber`/`episodeNumber`(674/675/690/691/637)、`numberOfSeasons`/`numberOfEpisodes`(632/635/636)、`releaseDate`(622)，`media_list_screen_widgets.dart` 用到 `voteAverage`(540)。精简模型转回旧模型会让这些字段归零，违反规格「首页视觉表现没有变化」。
+- 用户决策：选 **Option A — 扩展公共条目模型**（后端中立展示字段），而非缩小迁移范围或暂停。
+- 已实施（提交 `1ff413b`）：
+  - `MediaItemSummary` 新增后端中立展示字段：`secondaryTitle`、`rating`、`seasonNumber`、`episodeNumber`、`numberOfSeasons`、`numberOfEpisodes`、`releaseDate`、`posterWidth`、`posterHeight`；新增 `displayTitle`(副标题优先回退)/`hasPosterSize`/`isLandscapePoster` getter。新字段均为可选带默认，向后兼容已有用例与 Codex 测试。
+  - 类型选择：`rating`/`releaseDate` 保留 String 原样，季集数/海报宽高用 int，确保 Task 6「转回旧模型」对首页展示字段**无损**。
+  - `mapFeiniuItemSummary`：`title` 改回原始 `title` + 新增 `secondaryTitle=tvTitle`，由公共 `displayTitle` getter 复刻飞牛回退语义；并填入全部新展示字段。
+  - 测试：`feiniu_media_mappers_test.dart` 新增「无损往返」用例。`flutter test test/media_backend/` → 8 PASS；`flutter analyze lib/media_backend/` → No issues。
+  - 边界：`posterList`/`meta` 等首页未直接消费的字段不进公共模型，避免泄漏后端私有结构。
+
+- [ ] Task 6: 首页 media_list_screen 迁移样板（待实施）
+  - 已具备无损前提：`MediaItemSummary` 扩展完成后，公共模型可无损转回 `MediaLibraryItem` 首页展示字段。
+  - 计划做法：`_fetchHomeData()`/`_backgroundRefresh()` 改用 `context.read<MediaBackendProvider>().backend`，公共模型经本地临时转换函数转回旧模型喂现有 UI；转换函数仅限本文件，不扩散。
+  - 注意 1（main.dart 同款隔离）：`media_list_screen.dart` 工作区已有无关未提交改动（hunk 在 line 27/214-226/311-323/563-572），需 `git stash push -- <file>` 隔离后再改、提交、`git stash pop`；但本文件未提交改动与改动点更接近，pop 前需确认无冲突。
+  - 注意 2（Codex 风险 2 图片 headers）：本任务把公共模型转回旧模型，图片仍走旧 NAS 鉴权路径，`MediaImageRef.headers` 留空不影响；待页面直接消费公共图片引用时再在适配层补 headers。
+  - 注意 3（Codex 风险 / Task5 审查）：`MediaBackendProvider.backend` 每次读取新建 `FeiniuApi`，首页若频繁读取建议先缓存 backend 实例，避免重复创建 Dio。
 
 ## Codex 审查记录
 
