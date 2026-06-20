@@ -8,21 +8,27 @@ import '../api/feiniu_api.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../utils/login_error_resolver.dart';
 
+class FnConnectWebLoginSessionPolicy {
+  static const bool preserveCookiesByDefault = true;
+
+  const FnConnectWebLoginSessionPolicy._();
+}
+
 class FnConnectWebLoginEntry {
   static const String officialPrimaryHost = '5ddd.com';
   static const String officialSecondaryHost = 'fnos.net';
 
   final String initialUrl;
   final String officialUrl;
+  final List<String> relayBaseUrls;
   final List<String> cookieHosts;
 
   const FnConnectWebLoginEntry({
     required this.initialUrl,
     required this.officialUrl,
+    required this.relayBaseUrls,
     required this.cookieHosts,
   });
-
-  bool get usesRelayEntry => initialUrl != officialUrl;
 
   static FnConnectWebLoginEntry resolve({
     required String fnConnectId,
@@ -30,19 +36,21 @@ class FnConnectWebLoginEntry {
   }) {
     final normalizedFnId = fnConnectId.trim();
     final officialUrl = 'https://$officialPrimaryHost/$normalizedFnId';
-    final relayUrl = relayHosts
+    final relayBaseUrls = relayHosts
         .map(_originFromRelayHost)
-        .firstWhere((value) => value.isNotEmpty, orElse: () => '');
-    final relayHost = relayUrl.isEmpty ? '' : Uri.parse(relayUrl).host;
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
     final hosts = <String>{
-      if (relayHost.isNotEmpty) relayHost,
+      for (final relayUrl in relayBaseUrls) Uri.parse(relayUrl).host,
       officialPrimaryHost,
       officialSecondaryHost,
     }.toList(growable: false);
 
     return FnConnectWebLoginEntry(
-      initialUrl: relayUrl.isNotEmpty ? relayUrl : officialUrl,
+      initialUrl: officialUrl,
       officialUrl: officialUrl,
+      relayBaseUrls: relayBaseUrls,
       cookieHosts: hosts,
     );
   }
@@ -104,7 +112,6 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
   bool _isClosing = false;
   bool _isFetchingOauthConfig = false;
   bool _isExchangingCode = false;
-  bool _didFallbackToOfficialEntry = false;
   int _progress = 0;
   String _statusText = 'Opening FN Connect...';
   String _cookieString = '';
@@ -124,7 +131,9 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
 
   Future<void> _initialize() async {
     try {
-      await _cookieManager.clearCookies();
+      if (!FnConnectWebLoginSessionPolicy.preserveCookiesByDefault) {
+        await _cookieManager.clearCookies();
+      }
       await _controller.setJavaScriptMode(JavaScriptMode.unrestricted);
       await _controller.setBackgroundColor(const Color(0xFF08111A));
       await _controller.setNavigationDelegate(
@@ -155,10 +164,6 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
           },
           onWebResourceError: (error) {
             if ((error.isForMainFrame ?? false) && mounted && !_isClosing) {
-              if (_entry.usesRelayEntry && !_didFallbackToOfficialEntry) {
-                unawaited(_fallbackToOfficialEntry());
-                return;
-              }
               setState(() {
                 _statusText = error.description;
               });
@@ -176,6 +181,9 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
         },
       );
       await _setRelayCookiesForEntryHosts();
+      if (await _tryNavigateToSigninFromRelayConfig()) {
+        return;
+      }
       await _controller.loadRequest(Uri.parse(_entry.initialUrl));
     } catch (error) {
       _completeFailure(LoginErrorResolver.resolve(error));
@@ -190,15 +198,24 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
     }
   }
 
-  Future<void> _fallbackToOfficialEntry() async {
-    if (_isClosing || _didFallbackToOfficialEntry) return;
-    _didFallbackToOfficialEntry = true;
-    if (mounted) {
+  Future<bool> _tryNavigateToSigninFromRelayConfig() async {
+    if (_entry.relayBaseUrls.isEmpty || _isClosing) return false;
+    for (final baseUrl in _entry.relayBaseUrls) {
+      if (!mounted || _isClosing) return false;
       setState(() {
-        _statusText = 'Loading ${_friendlyUrl(_entry.officialUrl)}';
+        _statusText = 'Requesting FN Connect authorization...';
       });
+      try {
+        final config = await FeiniuApi.fetchFnConnectOauthConfig(
+          baseUrl: baseUrl,
+          cookie: 'mode=relay',
+        );
+        _cookieString = 'mode=relay';
+        await _navigateToSignin(baseUrl: config.baseUrl, appId: config.appId);
+        return true;
+      } catch (_) {}
     }
-    await _controller.loadRequest(Uri.parse(_entry.officialUrl));
+    return false;
   }
 
   Future<void> _injectBridgeScript() async {
@@ -236,15 +253,41 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
     }
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
+    input.dispatchEvent(new Event('blur', { bubbles: true }));
+  }
+
+  function normalizedText(element) {
+    return String(
+      (element && (
+        element.innerText ||
+        element.textContent ||
+        element.placeholder ||
+        element.name ||
+        element.id ||
+        element.autocomplete ||
+        element.getAttribute && element.getAttribute('aria-label')
+      )) || ''
+    ).trim().toLowerCase();
+  }
+
+  function findInput(candidates, patterns) {
+    for (let i = 0; i < candidates.length; i += 1) {
+      const input = candidates[i];
+      const text = normalizedText(input);
+      for (let j = 0; j < patterns.length; j += 1) {
+        if (text.indexOf(patterns[j]) !== -1) {
+          return input;
+        }
+      }
+    }
+    return null;
   }
 
   function findText(elements, patterns) {
     for (let i = 0; i < elements.length; i += 1) {
-      const text = String(
-        elements[i].innerText || elements[i].textContent || ''
-      ).trim();
+      const text = normalizedText(elements[i]);
       for (let j = 0; j < patterns.length; j += 1) {
-        if (text.indexOf(patterns[j]) !== -1) {
+        if (text.indexOf(patterns[j].toLowerCase()) !== -1) {
           return elements[i];
         }
       }
@@ -255,13 +298,18 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
   function autoLogin() {
     if (window.location.href.indexOf('/login') === -1) return;
     setTimeout(() => {
+      const inputs = Array.from(document.querySelectorAll('input'));
       const userInput =
           document.querySelector('#username') ||
           document.querySelector('input[name="username"]') ||
+          document.querySelector('input[autocomplete="username"]') ||
+          findInput(inputs, ['username', 'user', 'account', 'login', '\\u7528\\u6237', '\\u8d26\\u53f7']) ||
           document.querySelector('input[type="text"]');
       const passInput =
           document.querySelector('#password') ||
           document.querySelector('input[name="password"]') ||
+          document.querySelector('input[autocomplete="current-password"]') ||
+          findInput(inputs, ['password', 'passwd', 'pass', '\\u5bc6\\u7801']) ||
           document.querySelector('input[type="password"]');
       if (userInput && AUTO_LOGIN_USER) {
         triggerInput(userInput, AUTO_LOGIN_USER);
@@ -274,9 +322,9 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
             document.querySelector('button[type="submit"]') ||
             findText(
               document.querySelectorAll('button'),
-              ['\\u767b\\u5f55', 'Login', 'Sign in']
+              ['\\u767b\\u5f55', 'Login', 'Sign in', 'Sign In']
             );
-        if (submit) {
+        if (submit && !submit.disabled && submit.getAttribute('aria-disabled') !== 'true') {
           submit.click();
         }
       }, 250);
@@ -392,6 +440,9 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
           url: '/v/api/v1/sys/config',
           body: text || ''
         });
+        if (String(text || '').indexOf('nas_oauth') === -1) {
+          window.__flyFnConnectSysConfigRequested = false;
+        }
       })
       .catch(() => {
         window.__flyFnConnectSysConfigRequested = false;
@@ -403,6 +454,16 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
   autoLogin();
   autoAuthorize();
   setTimeout(fetchSysConfigOnce, 800);
+  let tickCount = 0;
+  const tickTimer = setInterval(() => {
+    tickCount += 1;
+    autoLogin();
+    autoAuthorize();
+    fetchSysConfigOnce();
+    if (tickCount >= 160) {
+      clearInterval(tickTimer);
+    }
+  }, 750);
 })();
 ''';
   }
