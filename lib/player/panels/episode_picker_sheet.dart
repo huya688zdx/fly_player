@@ -12,6 +12,7 @@ import '../../theme/app_theme.dart';
 import '../../ui/app_sheet_transitions.dart';
 import '../../ui/app_transitions.dart';
 import '../../utils/api_url_helper.dart';
+import '../../utils/nas_image_headers.dart';
 
 class EpisodePickerSheetItem {
   final String id;
@@ -561,9 +562,9 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
     final visibleItems = ranges.isEmpty
         ? const <EpisodePickerSheetItem>[]
         : ranges[safeRangeIndex];
-    final devicePixelRatio = MediaQuery.devicePixelRatioOf(context)
-        .clamp(1.0, 3.0)
-        .toDouble();
+    final devicePixelRatio = MediaQuery.devicePixelRatioOf(
+      context,
+    ).clamp(1.0, 3.0).toDouble();
 
     final seriesTitle = widget.seriesTitle.trim();
     final currentSeasonLabel = _seasonData.seasonLabel.trim();
@@ -591,228 +592,222 @@ class _EpisodePickerDialogState extends State<_EpisodePickerDialog> {
             width: isWide ? width : null,
             height: sheetHeight,
             child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Color.alphaBlend(
-                    colors.surface.withValues(alpha: isWide ? 0.9 : 0.95),
-                    colors.overlayScrim.withValues(alpha: isWide ? 0.24 : 0.36),
-                  ),
+              decoration: BoxDecoration(
+                color: Color.alphaBlend(
+                  colors.surface.withValues(alpha: isWide ? 0.9 : 0.95),
+                  colors.overlayScrim.withValues(alpha: isWide ? 0.24 : 0.36),
                 ),
-                child: GestureDetector(
-                  behavior: HitTestBehavior.translucent,
-                  onTap: null,
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(
-                      isWide ? (compactWide ? 16 : 20) : 16,
-                      isWide
-                          ? math.max(media.padding.top, compactWide ? 12 : 16)
-                          : 12,
-                      isWide ? (compactWide ? 12 : 16) : 16,
-                      isWide
-                          ? math.max(
-                              media.padding.bottom,
-                              compactWide ? 12 : 16,
-                            )
-                          : math.max(media.padding.bottom, 12),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (!isWide)
-                          Center(
-                            child: Container(
-                              width: 36,
-                              height: 4,
-                              margin: const EdgeInsets.only(bottom: 14),
-                              decoration: BoxDecoration(
-                                color: colors.borderStrong,
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                            ),
-                          ),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: _EpisodePickerHeader(
-                                seriesTitle: seriesTitle,
-                                seasonLabel: currentSeasonLabel,
-                                seasonCountLabel: _seasonCountLabel(context),
-                                hasSeasonSwitcher: _hasSeasonSwitcher(),
-                                seasonLoading: _seasonLoading || _warmupLoading,
-                                onTap: _hasSeasonSwitcher()
-                                    ? _showSeasonMenu
-                                    : null,
-                                colors: colors,
-                                fallbackHeading: plainHeading.isEmpty
-                                    ? widget.barrierTitle
-                                    : plainHeading,
-                                compactWide: compactWide,
-                                isWide: isWide,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            IconButton(
-                              onPressed: _modeUpdating ? null : _toggleMode,
-                              splashRadius: 22,
-                              icon: AnimatedSwitcher(
-                                duration: AppTransitions.switchDuration,
-                                switchInCurve: Curves.easeOutCubic,
-                                switchOutCurve: Curves.easeOutCubic,
-                                child: _modeUpdating
-                                    ? SizedBox(
-                                        key: const ValueKey<String>('saving'),
-                                        width: 20,
-                                        height: 20,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: colors.accent,
-                                        ),
-                                      )
-                                    : Icon(
-                                        key: ValueKey<TvEpisodePickerMode>(
-                                          _mode,
-                                        ),
-                                        _mode == TvEpisodePickerMode.list
-                                            ? Icons.grid_view_rounded
-                                            : Icons.view_list_rounded,
-                                        color: colors.textSecondary,
-                                      ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        if (ranges.length > 1)
-                          Container(
-                            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+              ),
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: null,
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    isWide ? (compactWide ? 16 : 20) : 16,
+                    isWide
+                        ? math.max(media.padding.top, compactWide ? 12 : 16)
+                        : 12,
+                    isWide ? (compactWide ? 12 : 16) : 16,
+                    isWide
+                        ? math.max(media.padding.bottom, compactWide ? 12 : 16)
+                        : math.max(media.padding.bottom, 12),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (!isWide)
+                        Center(
+                          child: Container(
+                            width: 36,
+                            height: 4,
+                            margin: const EdgeInsets.only(bottom: 14),
                             decoration: BoxDecoration(
-                              color: colors.surface,
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: SingleChildScrollView(
-                              key: ValueKey<String>(
-                                'ranges-$_selectedSeasonGuid-${ranges.length}',
-                              ),
-                              scrollDirection: Axis.horizontal,
-                              physics: const BouncingScrollPhysics(),
-                              child: Row(
-                                children: [
-                                  for (
-                                    int index = 0;
-                                    index < ranges.length;
-                                    index++
-                                  ) ...[
-                                    if (index > 0) const SizedBox(width: 8),
-                                    () {
-                                      final start =
-                                          index * widget.rangeSize + 1;
-                                      final end =
-                                          start + ranges[index].length - 1;
-                                      final selected = index == safeRangeIndex;
-                                      return GestureDetector(
-                                        onTap: () => _setRangeIndex(index),
-                                        child: DecoratedBox(
-                                          decoration: BoxDecoration(
-                                            color: selected
-                                                ? colors.selectionSoft
-                                                : colors.surfaceStrong,
-                                            borderRadius: BorderRadius.circular(10),
-                                          ),
-                                          child: Padding(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 14,
-                                              vertical: 8,
-                                            ),
-                                            child: Text(
-                                              '$start-$end',
-                                              style: TextStyle(
-                                                color: selected
-                                                    ? colors.selectionStrong
-                                                    : colors.textSecondary,
-                                                fontSize: 15,
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      );
-                                    }(),
-                                  ],
-                                ],
-                              ),
+                              color: colors.borderStrong,
+                              borderRadius: BorderRadius.circular(999),
                             ),
                           ),
-                        if (ranges.length > 1) const SizedBox(height: 10),
-                        Expanded(
-                          child: AnimatedSwitcher(
-                            duration: AppTransitions.contentSwitchDuration,
-                            switchInCurve: Curves.easeOutCubic,
-                            switchOutCurve: Curves.easeOutCubic,
-                            child:
-                                (_seasonLoading || _warmupLoading) &&
-                                    visibleItems.isEmpty
-                                ? Center(
-                                    child: SizedBox(
-                                      width: 24,
-                                      height: 24,
+                        ),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: _EpisodePickerHeader(
+                              seriesTitle: seriesTitle,
+                              seasonLabel: currentSeasonLabel,
+                              seasonCountLabel: _seasonCountLabel(context),
+                              hasSeasonSwitcher: _hasSeasonSwitcher(),
+                              seasonLoading: _seasonLoading || _warmupLoading,
+                              onTap: _hasSeasonSwitcher()
+                                  ? _showSeasonMenu
+                                  : null,
+                              colors: colors,
+                              fallbackHeading: plainHeading.isEmpty
+                                  ? widget.barrierTitle
+                                  : plainHeading,
+                              compactWide: compactWide,
+                              isWide: isWide,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          IconButton(
+                            onPressed: _modeUpdating ? null : _toggleMode,
+                            splashRadius: 22,
+                            icon: AnimatedSwitcher(
+                              duration: AppTransitions.switchDuration,
+                              switchInCurve: Curves.easeOutCubic,
+                              switchOutCurve: Curves.easeOutCubic,
+                              child: _modeUpdating
+                                  ? SizedBox(
+                                      key: const ValueKey<String>('saving'),
+                                      width: 20,
+                                      height: 20,
                                       child: CircularProgressIndicator(
-                                        strokeWidth: 2.2,
+                                        strokeWidth: 2,
                                         color: colors.accent,
                                       ),
+                                    )
+                                  : Icon(
+                                      key: ValueKey<TvEpisodePickerMode>(_mode),
+                                      _mode == TvEpisodePickerMode.list
+                                          ? Icons.grid_view_rounded
+                                          : Icons.view_list_rounded,
+                                      color: colors.textSecondary,
                                     ),
-                                  )
-                                : visibleItems.isEmpty
-                                ? _EmptySheetState(
-                                    text: AppLocalizations.of(
-                                      context,
-                                    ).playerNoEpisodes,
-                                  )
-                                : _mode == TvEpisodePickerMode.list
-                                ? _EpisodeListView(
-                                    key: ValueKey<String>(
-                                      'list-$safeRangeIndex-${visibleItems.length}-$_selectedSeasonGuid',
-                                    ),
-                                    controller: _scrollController,
-                                    scrollTargetId: _preferredItemId(),
-                                    scrollTargetKey: _scrollTargetItemKey,
-                                    items: visibleItems,
-                                    baseUrl: widget.baseUrl,
-                                    token: widget.token,
-                                    devicePixelRatio: devicePixelRatio,
-                                    onTap: (itemId) =>
-                                        AppSheetTransitions.close(
-                                          context,
-                                          EpisodePickerSheetResult(
-                                            seasonGuid: _selectedSeasonGuid,
-                                            itemId: itemId,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      if (ranges.length > 1)
+                        Container(
+                          padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                          decoration: BoxDecoration(
+                            color: colors.surface,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: SingleChildScrollView(
+                            key: ValueKey<String>(
+                              'ranges-$_selectedSeasonGuid-${ranges.length}',
+                            ),
+                            scrollDirection: Axis.horizontal,
+                            physics: const BouncingScrollPhysics(),
+                            child: Row(
+                              children: [
+                                for (
+                                  int index = 0;
+                                  index < ranges.length;
+                                  index++
+                                ) ...[
+                                  if (index > 0) const SizedBox(width: 8),
+                                  () {
+                                    final start = index * widget.rangeSize + 1;
+                                    final end =
+                                        start + ranges[index].length - 1;
+                                    final selected = index == safeRangeIndex;
+                                    return GestureDetector(
+                                      onTap: () => _setRangeIndex(index),
+                                      child: DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          color: selected
+                                              ? colors.selectionSoft
+                                              : colors.surfaceStrong,
+                                          borderRadius: BorderRadius.circular(
+                                            10,
                                           ),
                                         ),
-                                  )
-                                : _EpisodeGridView(
-                                    key: ValueKey<String>(
-                                      'grid-$safeRangeIndex-${visibleItems.length}-$_selectedSeasonGuid',
-                                    ),
-                                    controller: _scrollController,
-                                    scrollTargetId: _preferredItemId(),
-                                    scrollTargetKey: _scrollTargetItemKey,
-                                    items: visibleItems,
-                                    devicePixelRatio: devicePixelRatio,
-                                    onTap: (itemId) =>
-                                        AppSheetTransitions.close(
-                                          context,
-                                          EpisodePickerSheetResult(
-                                            seasonGuid: _selectedSeasonGuid,
-                                            itemId: itemId,
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 14,
+                                            vertical: 8,
+                                          ),
+                                          child: Text(
+                                            '$start-$end',
+                                            style: TextStyle(
+                                              color: selected
+                                                  ? colors.selectionStrong
+                                                  : colors.textSecondary,
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w600,
+                                            ),
                                           ),
                                         ),
-                                  ),
+                                      ),
+                                    );
+                                  }(),
+                                ],
+                              ],
+                            ),
                           ),
                         ),
-                      ],
-                    ),
+                      if (ranges.length > 1) const SizedBox(height: 10),
+                      Expanded(
+                        child: AnimatedSwitcher(
+                          duration: AppTransitions.contentSwitchDuration,
+                          switchInCurve: Curves.easeOutCubic,
+                          switchOutCurve: Curves.easeOutCubic,
+                          child:
+                              (_seasonLoading || _warmupLoading) &&
+                                  visibleItems.isEmpty
+                              ? Center(
+                                  child: SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.2,
+                                      color: colors.accent,
+                                    ),
+                                  ),
+                                )
+                              : visibleItems.isEmpty
+                              ? _EmptySheetState(
+                                  text: AppLocalizations.of(
+                                    context,
+                                  ).playerNoEpisodes,
+                                )
+                              : _mode == TvEpisodePickerMode.list
+                              ? _EpisodeListView(
+                                  key: ValueKey<String>(
+                                    'list-$safeRangeIndex-${visibleItems.length}-$_selectedSeasonGuid',
+                                  ),
+                                  controller: _scrollController,
+                                  scrollTargetId: _preferredItemId(),
+                                  scrollTargetKey: _scrollTargetItemKey,
+                                  items: visibleItems,
+                                  baseUrl: widget.baseUrl,
+                                  token: widget.token,
+                                  devicePixelRatio: devicePixelRatio,
+                                  onTap: (itemId) => AppSheetTransitions.close(
+                                    context,
+                                    EpisodePickerSheetResult(
+                                      seasonGuid: _selectedSeasonGuid,
+                                      itemId: itemId,
+                                    ),
+                                  ),
+                                )
+                              : _EpisodeGridView(
+                                  key: ValueKey<String>(
+                                    'grid-$safeRangeIndex-${visibleItems.length}-$_selectedSeasonGuid',
+                                  ),
+                                  controller: _scrollController,
+                                  scrollTargetId: _preferredItemId(),
+                                  scrollTargetKey: _scrollTargetItemKey,
+                                  items: visibleItems,
+                                  devicePixelRatio: devicePixelRatio,
+                                  onTap: (itemId) => AppSheetTransitions.close(
+                                    context,
+                                    EpisodePickerSheetResult(
+                                      seasonGuid: _selectedSeasonGuid,
+                                      itemId: itemId,
+                                    ),
+                                  ),
+                                ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
+            ),
           ),
         ],
       ),
@@ -1135,7 +1130,9 @@ class _EpisodeGridView extends StatelessWidget {
                 onTap: () => onTap(item.id),
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: item.selected ? colors.selectionSoft : colors.surface,
+                    color: item.selected
+                        ? colors.selectionSoft
+                        : colors.surface,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Stack(
@@ -1199,55 +1196,58 @@ class _EpisodeListTile extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.all(10),
           child: Row(
-              children: [
-                _EpisodePoster(
-                  baseUrl: baseUrl,
-                  token: token,
-                  posterPath: item.posterPath,
-                  showCurrentMarker: item.selected || item.isPlaying,
-                  devicePixelRatio: devicePixelRatio,
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        item.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: colors.textPrimary,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                        ),
+            children: [
+              _EpisodePoster(
+                baseUrl: baseUrl,
+                token: token,
+                posterPath: item.posterPath,
+                showCurrentMarker: item.selected || item.isPlaying,
+                devicePixelRatio: devicePixelRatio,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      item.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: colors.textPrimary,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        item.durationLabel,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: colors.textSecondary, fontSize: 13),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      item.durationLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: colors.textSecondary,
+                        fontSize: 13,
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 12),
-                Text(
-                  item.statusLabel,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: item.statusColor,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                item.statusLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: item.statusColor,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
+      ),
     );
   }
 }
@@ -1330,11 +1330,7 @@ class _EpisodeCompletedBadge extends StatelessWidget {
           bottomRight: Radius.circular(12),
         ),
       ),
-      child: Icon(
-        Icons.check_rounded,
-        size: 8,
-        color: colors.textSecondary,
-      ),
+      child: Icon(Icons.check_rounded, size: 8, color: colors.textSecondary),
     );
   }
 }
@@ -1358,10 +1354,20 @@ class _PosterNowPlayingIndicatorState extends State<_PosterNowPlayingIndicator>
   static const double _minBarHeight = _badgeHeight * 0.24;
   static const double _maxBarHeight = _badgeHeight * 0.92;
   static const List<double> _waveSeeds = <double>[
-    0.03, 0.41, 0.17, 0.76, 0.29, 0.63,
+    0.03,
+    0.41,
+    0.17,
+    0.76,
+    0.29,
+    0.63,
   ];
   static const List<double> _waveSpeed = <double>[
-    1.05, 0.82, 1.27, 0.91, 1.18, 0.74,
+    1.05,
+    0.82,
+    1.27,
+    0.91,
+    1.18,
+    0.74,
   ];
   static const int _barCount = 6;
 
@@ -1424,7 +1430,8 @@ class _WaveformBarPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    const totalBarsWidth = _PosterNowPlayingIndicatorState._barCount *
+    const totalBarsWidth =
+        _PosterNowPlayingIndicatorState._barCount *
             (_PosterNowPlayingIndicatorState._barWidth +
                 _PosterNowPlayingIndicatorState._barSpacing) -
         _PosterNowPlayingIndicatorState._barSpacing;
@@ -1433,18 +1440,17 @@ class _WaveformBarPainter extends CustomPainter {
     final paint = Paint();
 
     for (int i = 0; i < _PosterNowPlayingIndicatorState._barCount; i++) {
-      final phase = (animationValue *
-              _PosterNowPlayingIndicatorState._waveSpeed[i] +
-          _PosterNowPlayingIndicatorState._waveSeeds[i]) %
+      final phase =
+          (animationValue * _PosterNowPlayingIndicatorState._waveSpeed[i] +
+              _PosterNowPlayingIndicatorState._waveSeeds[i]) %
           1.0;
       final secondaryPhase =
           (animationValue *
                   (_PosterNowPlayingIndicatorState._waveSpeed[i] * 1.7) +
               _PosterNowPlayingIndicatorState._waveSeeds[i] * 0.73) %
-              1.0;
+          1.0;
       final primaryWave = 0.5 + 0.5 * math.sin(phase * math.pi * 2);
-      final secondaryWave =
-          0.5 + 0.5 * math.cos(secondaryPhase * math.pi * 2);
+      final secondaryWave = 0.5 + 0.5 * math.cos(secondaryPhase * math.pi * 2);
       final mixedWave = (primaryWave * 0.68) + (secondaryWave * 0.32);
       final barHeight = lerpDouble(
         _PosterNowPlayingIndicatorState._minBarHeight,
@@ -1453,7 +1459,10 @@ class _WaveformBarPainter extends CustomPainter {
       )!;
 
       final barX =
-          startX + i * (_PosterNowPlayingIndicatorState._barWidth + _PosterNowPlayingIndicatorState._barSpacing);
+          startX +
+          i *
+              (_PosterNowPlayingIndicatorState._barWidth +
+                  _PosterNowPlayingIndicatorState._barSpacing);
       final barY = size.height - barHeight;
       final barRect = RRect.fromLTRBR(
         barX,
@@ -1467,23 +1476,27 @@ class _WaveformBarPainter extends CustomPainter {
       paint
         ..color = Colors.black.withValues(alpha: 0.18)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
-      canvas.drawRRect(
-        barRect.shift(const Offset(0, 1)),
-        paint,
-      );
+      canvas.drawRRect(barRect.shift(const Offset(0, 1)), paint);
 
       // Draw gradient bar
       paint
         ..maskFilter = null
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: <Color>[
-            Colors.white.withValues(alpha: 0.98),
-            barColors[i],
-          ],
-        ).createShader(Rect.fromLTWH(barX, barY,
-            _PosterNowPlayingIndicatorState._barWidth, barHeight));
+        ..shader =
+            LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: <Color>[
+                Colors.white.withValues(alpha: 0.98),
+                barColors[i],
+              ],
+            ).createShader(
+              Rect.fromLTWH(
+                barX,
+                barY,
+                _PosterNowPlayingIndicatorState._barWidth,
+                barHeight,
+              ),
+            );
       canvas.drawRRect(barRect, paint);
     }
   }
@@ -1558,21 +1571,24 @@ class _EpisodePosterImageState extends State<_EpisodePosterImage> {
     _localCheckPath = current;
     _localFileExists = null;
     final generation = ++_localCheckGeneration;
-    localFile.exists().then((exists) {
-      if (!mounted) return;
-      if (generation != _localCheckGeneration) return;
-      if (_localCheckPath != current) return;
-      setState(() {
-        _localFileExists = exists;
-      });
-    }).catchError((_) {
-      if (!mounted) return;
-      if (generation != _localCheckGeneration) return;
-      if (_localCheckPath != current) return;
-      setState(() {
-        _localFileExists = false;
-      });
-    });
+    localFile
+        .exists()
+        .then((exists) {
+          if (!mounted) return;
+          if (generation != _localCheckGeneration) return;
+          if (_localCheckPath != current) return;
+          setState(() {
+            _localFileExists = exists;
+          });
+        })
+        .catchError((_) {
+          if (!mounted) return;
+          if (generation != _localCheckGeneration) return;
+          if (_localCheckPath != current) return;
+          setState(() {
+            _localFileExists = false;
+          });
+        });
   }
 
   void _invalidateLocalCheck() {
@@ -1628,11 +1644,6 @@ class _EpisodePosterImageState extends State<_EpisodePosterImage> {
       );
     }
 
-    final headers = <String, String>{
-      'Authorization': widget.token,
-      'Trim-MC-token': widget.token,
-    };
-
     return Image.network(
       current,
       fit: BoxFit.cover,
@@ -1641,7 +1652,7 @@ class _EpisodePosterImageState extends State<_EpisodePosterImage> {
       cacheHeight: widget.cacheHeight,
       filterQuality: FilterQuality.none,
       gaplessPlayback: true,
-      headers: headers,
+      headers: nasImageHeaders(widget.token, url: current),
       frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
         final loaded = wasSynchronouslyLoaded || frame != null;
         if (loaded) return child;

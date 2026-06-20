@@ -89,7 +89,7 @@ extension _MpvPlayerSystemSessionMixin on _MpvPlayerPageState {
     final safeDurationMs = duration.inMilliseconds.clamp(0, 1 << 31);
     final artworkUrls = _resolveSystemPlaybackArtworkUrls();
     final artworkUrl = artworkUrls.isNotEmpty ? artworkUrls.first : '';
-    final artworkHeaders = _resolveSystemPlaybackArtworkHeaders();
+    final artworkHeaders = _resolveSystemPlaybackArtworkHeaders(artworkUrl);
     final albumTitle = _resolveSystemPlaybackAlbumTitle();
     final artist = _resolveSystemPlaybackArtist(subtitle);
     final description = _resolveSystemPlaybackDescription();
@@ -369,13 +369,11 @@ extension _MpvPlayerSystemSessionMixin on _MpvPlayerPageState {
     return normalized.startsWith('file://') || normalized.startsWith('/');
   }
 
-  Map<String, String> _resolveSystemPlaybackArtworkHeaders() {
-    final headers = <String, String>{};
+  Map<String, String> _resolveSystemPlaybackArtworkHeaders(String artworkUrl) {
     final token = context.read<NasProvider>().token.trim();
-    if (token.isNotEmpty) {
-      headers['Authorization'] = token;
-      headers['Trim-MC-token'] = token;
-    }
+    final headers = Map<String, String>.of(
+      nasImageHeaders(token, url: artworkUrl),
+    );
     for (final entry in _currentHeaders.entries) {
       final key = entry.key.trim();
       final value = entry.value.trim();
