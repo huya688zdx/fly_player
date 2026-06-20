@@ -46,7 +46,7 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 | 阶段 | 状态 | 负责人 | 提交 | 验证 |
 | --- | --- | --- | --- | --- |
 | Phase 0: 设计和协作基线 | 完成 | Codex | 本次文档提交 | 文档自查通过 |
-| Phase 1: 公共模型和 Feiniu mapper | 进行中 | Claude 主实现，Codex 审查 | Task1: ef6405c | 单元测试 |
+| Phase 1: 公共模型和 Feiniu mapper | 进行中 | Claude 主实现，Codex 审查 | Task1: ef6405c / Task2: f40f06a | 单元测试 |
 | Phase 2: FeiniuMediaBackend 和 Provider | 未开始 | Claude 主实现，Codex 审查 |  | 单元测试 + analyze |
 | Phase 3: 首页迁移样板 | 未开始 | Claude 主实现，Codex 验证 |  | 首页测试 + 手动验证 |
 | Phase 4: 分类页和搜索页迁移 | 未开始 | Claude 主实现，Codex 审查 |  | 页面测试 + 手动验证 |
@@ -67,7 +67,11 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
   - 测试：`flutter test test/media_backend/media_backend_capabilities_test.dart` → PASS
   - 提交：`ef6405c`
   - 下一步：Claude 执行 Task 2（公共首页模型 MediaImageRef / MediaCatalog / MediaItemSummary）
-- [ ] Task 2: 公共首页模型
+- [x] Task 2: 公共首页模型
+  - 新建 `lib/media_backend/media_image_ref.dart`、`media_catalog.dart`、`media_item_summary.dart`、`test/media_backend/media_frontend_models_test.dart`
+  - 测试：`flutter test test/media_backend/media_frontend_models_test.dart` → PASS
+  - 提交：`f40f06a`
+  - 下一步：Claude 执行 Task 3（Feiniu mapper，将 MediaItem/MediaLibraryItem 映射到公共模型）
 - [ ] Task 3: Feiniu mapper
 - [ ] Task 4: MediaBackend 接口和飞牛适配器
 
