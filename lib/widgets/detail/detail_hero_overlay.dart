@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../theme/app_theme.dart';
 import '../../theme/detail_tokens.dart';
+import '../../utils/nas_image_headers.dart';
 import 'detail_info_block.dart';
 
 class DetailHeroOverlay extends StatelessWidget {
@@ -27,7 +28,8 @@ class DetailHeroOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final themeColors = context.appColors;
-    final isLightSurface = themeColors.backgroundBase.computeLuminance() >= 0.58;
+    final isLightSurface =
+        themeColors.backgroundBase.computeLuminance() >= 0.58;
     final colors = useSoftGradient
         ? isLightSurface
               ? [
@@ -167,10 +169,7 @@ class _DetailHeroLogoTitleState extends State<DetailHeroLogoTitle> {
         fit: BoxFit.contain,
         alignment: Alignment.centerLeft,
         filterQuality: FilterQuality.medium,
-        headers: <String, String>{
-          'Authorization': widget.token,
-          'Trim-MC-token': widget.token,
-        },
+        headers: nasImageHeaders(widget.token, url: url),
         frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
           if (wasSynchronouslyLoaded) return child;
           return AnimatedOpacity(

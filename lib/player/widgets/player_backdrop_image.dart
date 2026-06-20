@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../../utils/nas_image_headers.dart';
+
 class PlayerArtworkImage extends StatefulWidget {
   final List<String> urls;
   final String token;
@@ -78,7 +80,7 @@ class _PlayerArtworkImageState extends State<PlayerArtworkImage> {
       fit: widget.fit,
       alignment: widget.alignment,
       filterQuality: widget.filterQuality,
-      headers: _networkHeaders(),
+      headers: _networkHeaders(currentUrl),
       errorBuilder: (context, error, stackTrace) =>
           _buildErrorFallback(context),
     );
@@ -94,12 +96,12 @@ class _PlayerArtworkImageState extends State<PlayerArtworkImage> {
     return widget.fallback ?? const ColoredBox(color: Color(0xFF050608));
   }
 
-  Map<String, String>? _networkHeaders() {
+  Map<String, String>? _networkHeaders(String url) {
     final token = widget.token.trim();
     if (token.isEmpty) {
       return null;
     }
-    return <String, String>{'Authorization': token, 'Trim-MC-token': token};
+    return nasImageHeaders(token, url: url);
   }
 
   File? _resolveLocalFile(String rawUrl) {
