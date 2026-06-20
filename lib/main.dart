@@ -14,6 +14,7 @@ import 'models/media_item.dart';
 import 'models/media_library_item.dart';
 import 'providers/app_locale_provider.dart';
 import 'providers/app_theme_provider.dart';
+import 'providers/media_backend_provider.dart';
 import 'providers/nas_provider.dart';
 import 'providers/parallel_window_settings_provider.dart';
 import 'screens/app_settings_screen.dart';
@@ -356,6 +357,12 @@ class FlyPlayerApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => NasProvider()),
+        ChangeNotifierProxyProvider<NasProvider, MediaBackendProvider>(
+          create: (context) =>
+              MediaBackendProvider(context.read<NasProvider>()),
+          update: (context, nas, previous) =>
+              previous ?? MediaBackendProvider(nas),
+        ),
         ChangeNotifierProvider(create: (_) => ParallelWindowSettingsProvider()),
         ChangeNotifierProvider(create: (_) => AppThemeProvider()),
         ChangeNotifierProvider(create: (_) => AppLocaleProvider()),
