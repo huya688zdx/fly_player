@@ -50,7 +50,7 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 | Phase 2: FeiniuMediaBackend 和 Provider | 完成 | Claude 主实现，Codex 审查 | Task4: 3986ef5 / Task5: 4b3002d | 单元测试 + analyze |
 | Phase 3: 首页迁移样板 | 部分完成（catalogs+summary 已迁移，待手动验证） | Claude 主实现，Codex 验证 | 模型扩展: 1ff413b / 9e012b7；首页迁移: 180e8c0 | 首页单测通过；`flutter run` 手动验证待做 |
 | Phase 4: 搜索页迁移（统一 MediaItemCard） | 完成（搜索页已验收通过；分类页滤镜体系另立设计、本期不动） | Claude 主实现，Codex 审查 | 设计 c849e2a / 模型 fa878ba / mapper 013d2fe / 收口 a68c95e / 搜索页 a8adf76 | media_backend 11 PASS + analyze；用户已验收通过（2026-06-20） |
-| Phase 4.5: 分类页 filter 抽象 | Task 5-3 已完成（backend schema/query + UI localizer 已落盘；分类页 UI 迁移未开始） | Claude 主实现，Codex 审查 | Task5-1: 38e3315 / Task5-2: 1dcedda / Task5-3: 15a3853 | media_backend 28 PASS + localizer 12 PASS + analyze；分类页查询/筛选/排序手动验证待 Task 5-4 |
+| Phase 4.5: 分类页 filter 抽象 | Task 5-3 已完成并经 Codex 审查（backend schema/query + UI localizer 已落盘；分类页 UI 迁移未开始） | Claude 主实现，Codex 审查 | Task5-1: 38e3315 / Task5-2: 1dcedda / Task5-3: 15a3853 / Codex审查: 00b132e | media_backend 28 PASS + localizer 12 PASS + analyze；分类页查询/筛选/排序手动验证待 Task 5-4 |
 | Phase 5: 详情页迁移 | 未开始（评估：~7790 行 UI、30 处 FeiniuApi、裸 Map，宜等接 Emby 时连同字段形状一起设计） | Claude 主实现，Codex 审查 |  | 电影/剧集详情手动验证 |
 | Phase 6: 播放入口迁移 | 未开始 | Claude 主实现，Codex 深审 |  | 播放、音轨、字幕验证 |
 
@@ -271,6 +271,13 @@ class MediaItemCardPage { List<MediaItemCard> items; int total; }   // 复用 Me
   - 风险/后续：排序字段 `create_time`、`release_date`、`title`、`vote_average` 仍是 Feiniu 当前分类页字段，作为 Feiniu schema 下发可接受；Task 5-4 迁移分类页时应从 schema/页面状态显式选择排序，不要在 UI 里硬编码后端类型分支。图片 headers、播放入口和视图偏好仍未进入本 Task 范围。
   - 工作区检查：实现提交前 `git diff --cached --name-only` 仅包含 `lib/media_backend/media_backend.dart`、`lib/media_backend/feiniu/feiniu_media_backend.dart`、`lib/media_backend/feiniu/feiniu_media_mappers.dart`、`test/media_backend/feiniu_filter_mappers_test.dart`；其它大量未提交工作区文件与本次收口无关，Codex 未回滚、未暂存、未夹带。
   - 验证：`flutter test test/media_backend/feiniu_filter_mappers_test.dart` → 12 PASS；`flutter test test/media_backend/ --concurrency=1` → 28 PASS；`flutter analyze lib\media_backend test\media_backend` → No issues；`flutter analyze` → FAIL（19 条，均不在 Task 5-2 相关文件，主要为既有 duplicate import、unused、prefer_const、use_build_context_synchronously）。
+- 2026-06-20 Phase 4.5 Task 5-3 审查：
+  - 审查提交：`15a3853`、`34bfed1`
+  - 结论：未发现阻塞问题。`CatalogFilterLocalizer` 放在 `lib/ui/`，依赖 `AppLocalizations` 与 `MediaCatalogFilterSchema`，没有把 UI/l10n 依赖反灌进 `lib/media_backend`；未接入 Emby API，未在 UI 中新增 `if (isEmby)` 或运行时后端分支。
+  - 架构检查：localizer 按 `MediaFilterDimensionKind` 处理 `plain`、genre、region、decade、resolution、audioType、colorRange、recognitionStatus、watched、mediaType，并提供 `dimensionTitle` 与 `sortLabel`，可供 Task 5-4 复用，避免分类页迁移时继续散落 labeler。对照 `category_items_screen` 现有 `_resolutionLabel`、`_audioLabel`、`_decadeLabel`、`_typeLabel`、`_recognitionStatusLabel`、`_watchedLabel`、`_sortLabelFor`，语义一致。
+  - 风险/后续：Task 5-4 使用时仍需确认筛选摘要、弹窗标题、排序菜单和未知值回退全部改为走 localizer；当前 Task 5-3 只提供工具类，不迁移页面，因此还没有人工 UI 验证。
+  - 工作区检查：审查时 `git diff --cached --name-only` 为空；`git status --short` 仅剩未跟踪 `HANDOFF.md`，与本次审查无关，Codex 未暂存、未提交。
+  - 验证：`flutter test test/ui/catalog_filter_localizer_test.dart` → 12 PASS；`flutter test test/media_backend/ --concurrency=1` → 28 PASS；`flutter analyze lib\media_backend test\media_backend lib\ui\catalog_filter_localizer.dart test\ui\catalog_filter_localizer_test.dart` → No issues；`flutter analyze` → FAIL（17 条，均不在 Task 5-3 相关文件，主要为既有 duplicate import、unused、prefer_const、use_build_context_synchronously）。
 
 ## Claude 下一步任务
 
