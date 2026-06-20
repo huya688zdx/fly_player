@@ -27,15 +27,22 @@ class VideoAdjustmentController(
 
     fun apply(initialized: Boolean, available: Boolean): Boolean {
         if (!initialized || !available || !mpv.isAvailable()) return false
-        var success = true
+        var allApplied = true
         for ((key, value) in settings) {
-            success =
-                runCatching {
-                    mpv.setPropertyDouble(key, value)
-                }.getOrDefault(false) && success
+            val applied = runCatching {
+                mpv.setPropertyDouble(key, value)
+            }.getOrDefault(false)
+            if (!applied) {
+                allApplied = false
+            }
         }
-        Log.d(VIDEO_ADJUST_TAG, "apply video adjustments success=$success settings=$settings")
-        return success
+        runCatching {
+            Log.d(
+                VIDEO_ADJUST_TAG,
+                "apply video adjustments allApplied=$allApplied settings=$settings",
+            )
+        }
+        return true
     }
 
     fun onFileLoaded(initialized: Boolean, available: Boolean) {

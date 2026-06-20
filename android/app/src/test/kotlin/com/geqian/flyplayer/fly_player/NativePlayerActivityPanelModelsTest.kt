@@ -309,6 +309,98 @@ class NativePlayerActivityPanelModelsTest {
         assertEquals(true, nativePanelShouldStartAutoNextCountdown(true, true))
         assertEquals(false, nativePanelShouldStartAutoNextCountdown(false, true))
         assertEquals(false, nativePanelShouldStartAutoNextCountdown(true, false))
+        assertEquals(false, nativePanelShouldStartAutoNextCountdown(true, true, episodeSwitchInFlight = true))
+        assertEquals(false, nativePanelShouldStartAutoNextCountdown(true, true, suppressedForCurrent = true))
+    }
+
+    @Test
+    fun completedOverlayWaitsForPlaybackEnded() {
+        assertEquals(
+            false,
+            nativePanelShouldShowCompletedOverlay(
+                autoPlayEnabled = false,
+                hasNextEpisode = true,
+                playbackEnded = false,
+                insideCompletionWindow = true,
+                positionMs = 67_000,
+                durationMs = 72_000,
+            ),
+        )
+        assertEquals(
+            false,
+            nativePanelShouldShowCompletedOverlay(
+                autoPlayEnabled = true,
+                hasNextEpisode = true,
+                playbackEnded = false,
+                insideCompletionWindow = true,
+                positionMs = 67_000,
+                durationMs = 72_000,
+            ),
+        )
+        assertEquals(
+            false,
+            nativePanelShouldShowCompletedOverlay(
+                autoPlayEnabled = true,
+                hasNextEpisode = false,
+                playbackEnded = false,
+                insideCompletionWindow = true,
+                positionMs = 67_000,
+                durationMs = 72_000,
+            ),
+        )
+        assertEquals(
+            true,
+            nativePanelShouldShowCompletedOverlay(
+                autoPlayEnabled = true,
+                hasNextEpisode = true,
+                playbackEnded = true,
+                insideCompletionWindow = false,
+                positionMs = 10_000,
+                durationMs = 72_000,
+            ),
+        )
+        assertEquals(
+            true,
+            nativePanelShouldShowCompletedOverlay(
+                autoPlayEnabled = false,
+                hasNextEpisode = true,
+                playbackEnded = false,
+                insideCompletionWindow = false,
+                positionMs = 71_400,
+                durationMs = 72_000,
+            ),
+        )
+    }
+
+    @Test
+    fun playbackBehaviorUsesFlutterSharedPreferenceKeys() {
+        assertEquals("flutter.player_auto_rotate_enabled", NATIVE_PLAYER_AUTO_ROTATE_PREF_KEY)
+        assertEquals("flutter.player_auto_play_enabled", NATIVE_PLAYER_AUTO_PLAY_PREF_KEY)
+        assertEquals(
+            "flutter.player_next_episode_preload_enabled",
+            NATIVE_PLAYER_NEXT_EPISODE_PRELOAD_PREF_KEY,
+        )
+    }
+
+    @Test
+    fun nextEpisodePreloadRequiresAutoPlayEnabled() {
+        assertEquals(true, nativePanelCanPreloadNextEpisode(true, true))
+        assertEquals(false, nativePanelCanPreloadNextEpisode(false, true))
+        assertEquals(false, nativePanelCanPreloadNextEpisode(true, false))
+    }
+
+    @Test
+    fun autoEpisodeSwitchForcesPlaybackToStart() {
+        val original = linkedMapOf<String, Any?>(
+            "url" to "https://example.invalid/video.mp4",
+            "startPaused" to true,
+        )
+
+        val autoPlayArgs = nativePanelLoadArgsForEpisodeSwitch(original, autoPlayAfterLoad = true)
+        val manualArgs = nativePanelLoadArgsForEpisodeSwitch(original, autoPlayAfterLoad = false)
+
+        assertEquals(false, autoPlayArgs["startPaused"])
+        assertEquals(true, manualArgs["startPaused"])
     }
 
     @Test
