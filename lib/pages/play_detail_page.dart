@@ -130,9 +130,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   /// 公共详情展示快照（Phase 5 详情页迁移）：由页面已加载的 [_data] / 题材·地区字典 /
   /// 演职员 / imdb 在进程内构造，零额外网络。渐进加载下随各阶段重建（见 [_rebuildDetail]）。
   ///
-  /// Task 1 仅铺垫构造（build 闭包仍读旧源、零行为变化）；Task 2 展示区迁移时消费它，
-  /// 届时移除本 ignore。
-  // ignore: unused_field
   MediaDetail? _detail;
   late String _currentItemGuid;
   List<PersonCredit> _personCredits = const [];
@@ -2117,6 +2114,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           final provider = context.read<NasProvider>();
           final data = _data!;
           final item = data.item;
+          // 展示快照（Phase 5 详情页迁移）：与 _data 同 setState 构造，_data 非空即非空。
+          // 本期仅迁可证逐字段等价的展示项；题材行/演职员/角标/播放态仍读旧源（各有等价坑或属播放半）。
+          final detail = _detail!;
           final media = MediaQuery.of(context);
           final screenSize = media.size;
           final logoRequestWidth =
@@ -2181,10 +2181,15 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           final showResolutionSelector = resolutionOptions.length > 1;
 
           final itemType = item.type.trim().toLowerCase();
+          // 复刻 PlayItem.displayTitle 语义（tvTitle 非空优先，否则 title），逐字段等价：
+          // detail.title==item.title、detail.secondaryTitle==item.tvTitle。不走 MediaDetail.
+          // displayTitle 以避免其「皆空回退 'Unknown'」与旧 ''（空串）的差异。
           final detailTitle =
-              (itemType == 'episode' && item.title.trim().isNotEmpty)
-              ? item.title.trim()
-              : item.displayTitle;
+              (itemType == 'episode' && detail.title.trim().isNotEmpty)
+              ? detail.title.trim()
+              : (detail.secondaryTitle.trim().isNotEmpty
+                    ? detail.secondaryTitle.trim()
+                    : detail.title);
           final heroInfoBlockReservedHeight = _heroInfoBlockReservedHeight(
             screenSize,
             canPlay: item.canPlay == 1,
@@ -2195,7 +2200,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               ? const <String>[]
               : ApiUrlHelper.imageCandidates(
                   provider.baseUrl,
-                  item.logos,
+                  detail.logoImage.url, // == item.logos（逐字段等价）
                   width: logoRequestWidth,
                 );
           final heroTitleChild = itemType != 'episode'
@@ -2528,7 +2533,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                             media.padding.bottom + 18,
                           ),
                           child: DetailDescriptionSection(
-                            text: item.overview,
+                            text: detail.overview,
                             onMoreTap: () {
                               LongTextOverlayPage.show(
                                 context,
@@ -2537,7 +2542,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                                   'layout.details.overview.overview',
                                   'Overview',
                                 ),
-                                content: item.overview,
+                                content: detail.overview,
                               );
                             },
                           ),
