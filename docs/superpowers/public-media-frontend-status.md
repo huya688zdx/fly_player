@@ -65,7 +65,7 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 | Phase 4: 搜索页迁移（统一 MediaItemCard） | 完成（搜索页已验收通过；分类页滤镜体系另立设计、本期不动） | Claude 主实现，Codex 审查 | 设计 c849e2a / 模型 fa878ba / mapper 013d2fe / 收口 a68c95e / 搜索页 a8adf76 | media_backend 11 PASS + analyze；用户已验收通过（2026-06-20） |
 | Phase 4.5: 分类页 filter 抽象 | 完成（分类页已迁到 schema 驱动 + queryCatalogItems + localizer；Codex 审查通过；用户实机验证通过 2026-06-20） | Claude 主实现，Codex 审查 | Task5-1: 38e3315 / Task5-2: 1dcedda / Task5-3: 15a3853 / Task5-4: 9b06e3d+5b6ea4b / Codex小修: 085d051 | media_backend+localizer 41 PASS + analyze（分类页 No issues）；用户已实机验收通过 |
 | Phase 5: 详情页迁移 | 骨架完成（Task 1~3 + Codex 修复，已提交、可单测）；页面迁移（Task 4/5）调查后**暂缓**——无干净增量切口，建议连同 Emby 一起做 | Claude 主实现，Codex 审查 | 调研: 756f2eb / 设计+计划: e2c6d94 / Task1: c2fffa6+c60292c / Task2: 87c3377 / Task3: dd8630d / Codex修复: 63a91f7+8452fd7 | media_backend 52 PASS + analyze（No issues）；页面迁移暂缓（见下） |
-| Phase 6: 播放入口迁移 | 设计中（先做播放后端骨架，不迁播放器深层） | Claude 主实现，Codex 深审 | 设计/计划待提交 | playback 模型/mapper/backend 单测 + analyze |
+| Phase 6: 播放入口迁移 | 设计中（先做播放后端骨架，不迁播放器深层） | Claude 主实现，Codex 深审 | 设计/计划: a0f340c | playback 模型/mapper/backend 单测 + analyze |
 
 ## 当前可执行任务
 
