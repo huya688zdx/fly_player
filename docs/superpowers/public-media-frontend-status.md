@@ -4,7 +4,9 @@
 
 ## 当前阶段
 
-阶段：Phase 6 **播放入口抽象设计**（用户 2026-06-21 确认开始）。Phase 5 公共详情骨架已收口；当前只设计播放后端骨架（公共 playback bundle + 飞牛 mapper + `MediaBackend.getPlayback`），不接 Emby API，不迁移播放器深层逻辑。
+阶段：Phase 6 **播放后端骨架第一阶段交付收口**（用户 2026-06-21）。Phase 5 公共详情骨架已收口；Phase 6 播放后端骨架（公共 playback bundle + selector + 飞牛 mapper + `MediaBackend.getPlayback`）Task 1~4 已实现、可单测、已提交。不接 Emby API，不迁移播放器深层逻辑。
+
+**launcher 迁移（把 `ItemPlaybackLauncher` / `TvSeasonPlaybackLauncher` 切到 `getPlayback` + 桥接器装配 `MpvMediaSource`）留 Phase 6 下一子阶段**，需 Codex 深审后再开。后端层已为 Emby 就绪：将来写 `EmbyMediaBackend.getPlayback` 即可，公共播放模型无需改动。
 
 Phase 6 第一阶段目标是把 `ItemPlaybackLauncher` / `TvSeasonPlaybackLauncher` 中重复的飞牛播放解析事实先抽象成公共 bundle：播放源、画质候选、音轨/字幕候选、默认选择、续播位置、headers 和后端会话句柄。入口控制器、`MpvMediaSource` 装配、本地下载优先、原生壳反向通道和播放进度写回暂不迁移。
 
@@ -65,7 +67,7 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 | Phase 4: 搜索页迁移（统一 MediaItemCard） | 完成（搜索页已验收通过；分类页滤镜体系另立设计、本期不动） | Claude 主实现，Codex 审查 | 设计 c849e2a / 模型 fa878ba / mapper 013d2fe / 收口 a68c95e / 搜索页 a8adf76 | media_backend 11 PASS + analyze；用户已验收通过（2026-06-20） |
 | Phase 4.5: 分类页 filter 抽象 | 完成（分类页已迁到 schema 驱动 + queryCatalogItems + localizer；Codex 审查通过；用户实机验证通过 2026-06-20） | Claude 主实现，Codex 审查 | Task5-1: 38e3315 / Task5-2: 1dcedda / Task5-3: 15a3853 / Task5-4: 9b06e3d+5b6ea4b / Codex小修: 085d051 | media_backend+localizer 41 PASS + analyze（分类页 No issues）；用户已实机验收通过 |
 | Phase 5: 详情页迁移 | 骨架完成（Task 1~3 + Codex 修复，已提交、可单测）；页面迁移（Task 4/5）调查后**暂缓**——无干净增量切口，建议连同 Emby 一起做 | Claude 主实现，Codex 审查 | 调研: 756f2eb / 设计+计划: e2c6d94 / Task1: c2fffa6+c60292c / Task2: 87c3377 / Task3: dd8630d / Codex修复: 63a91f7+8452fd7 | media_backend 52 PASS + analyze（No issues）；页面迁移暂缓（见下） |
-| Phase 6: 播放入口迁移 | 设计中（先做播放后端骨架，不迁播放器深层） | Claude 主实现，Codex 深审 | 设计/计划: a0f340c | playback 模型/mapper/backend 单测 + analyze |
+| Phase 6: 播放入口迁移 | 播放后端骨架第一阶段完成（Task 1~4，已提交、可单测）；launcher 迁移留下一子阶段，需 Codex 深审 | Claude 主实现，Codex 深审 | 设计/计划: a0f340c+72b1c17 / Task1 模型: 4fd3bc2 / Task2 selector: b591e92 / Task3 mapper: 09700cb / Task4 backend: d0e3b60 | media_backend 73 PASS + analyze（No issues） |
 
 ## 当前可执行任务
 
@@ -251,6 +253,29 @@ class MediaItemCardPage { List<MediaItemCard> items; int total; }   // 复用 Me
 
 - viewType/sort 视图偏好留飞牛 API，不纳入本次抽象。
 - 不接 Emby；UI 不写 `if(isEmby)`；适配层 selection→飞牛 tags 的类型转换仅限适配层。
+
+## Phase 6 任务进度（Claude 主实现，Codex 深审）
+
+播放后端骨架第一阶段：公共播放模型 + selector + 飞牛 mapper + `MediaBackend.getPlayback`。**全程不构造 `MpvMediaSource`、不导航、不触播放器深层 mixin。**
+
+- [x] Task 1: 公共播放模型
+  - 新建 `lib/media_backend/playback/media_playback.dart`（`MediaPlaybackRequest`/`Bundle`/`Source`/`Quality`/`Track`/`Session` + 3 枚举），全 `const`，字段名中立（无 `mediaGuid`/`videoGuid`/`Feiniu`/`Emby`）。
+  - 测试：`test/media_backend/media_playback_models_test.dart` → 2 PASS；`flutter analyze` No issues。
+  - 提交：`4fd3bc2`
+- [x] Task 2: 公共播放选择器
+  - 新建 `lib/media_backend/playback/media_playback_selectors.dart`：`selectPlaybackQuality`（id > index > default > first）、`selectPlaybackTrack`（explicitlyDisabled → null > preferred > default > first），纯函数。
+  - 测试：`media_playback_selectors_test.dart` → 4 PASS；analyze No issues。
+  - 提交：`b591e92`
+- [x] Task 3: 飞牛播放 mapper
+  - 新建 `lib/media_backend/feiniu/feiniu_playback_mappers.dart`：`mapFeiniuPlaybackQualities` / `mapFeiniuAudioTracks` / `mapFeiniuSubtitleTracks` / `mapFeiniuPlaybackSource`。飞牛 `media_guid`/`video_guid`/`guid` 只在适配层内部映射为中立 id；字幕三态（embedded / external / 双标志 local）忠实复刻 `local_subtitle_bundle` 签名；headers 由 `responseHeaders` 派生 + 显式 headers 覆盖 + `requestUserAgent` 兜底。
+  - 测试：`feiniu_playback_mappers_test.dart` → 9 PASS；全套件 67 PASS；analyze No issues。
+  - 提交：`09700cb`
+- [x] Task 4: `MediaBackend.getPlayback` 接口 + 飞牛编排
+  - `MediaBackend` 加 `getPlayback(MediaPlaybackRequest)`；`FeiniuMediaBackend.getPlayback` 复刻 `ItemPlaybackLauncher._resolve()` 的编排（`effectiveSourceId = qualityId ?? mediaGuid`、`startFromBeginning` 时 `resetPlaybackRecord`、best-effort `getStreamTrackData`、`getPlaybackStream` + `mergePlaybackQualitiesWithStreamTrackData`、Task 2/3 selector/mapper、`PlaybackResumePositionResolver`（`ts>0?ts:watchedTs`）），但去掉 `MpvMediaSource`/`PlayerSourceController`/导航；字幕额外内联 guid 去重（避免引入 l10n 依赖）。
+  - 测试：`feiniu_playback_backend_test.dart`（fake seam）→ 6 PASS；全套件 73 PASS；`flutter analyze lib/media_backend test/media_backend` No issues。
+  - 提交：`d0e3b60`
+
+**下一子阶段（留待，需 Codex 深审后开）**：新增桥接器 `MediaPlaybackBundle + 飞牛 raw facts → PlayerSourceController.buildInitialPlaybackResult → MpvMediaSource`（放 `lib/controllers/` 或 `lib/player/controllers/`，不放 `lib/media_backend/`），再把 `ItemPlaybackLauncher` / `TvSeasonPlaybackLauncher` 切到 `getPlayback`。本地下载优先、原生壳反向重载、弹幕预取、进度写回随该阶段处理。需 `flutter run` 实机验证全部播放路径。
 
 ## Codex 审查记录
 
