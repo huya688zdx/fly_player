@@ -4,7 +4,9 @@
 
 ## 当前阶段
 
-阶段：Phase 5 设计 + 实施计划完成，待用户确认从 Task 1（公共详情模型）开始实现。
+阶段：Phase 5 **骨架交付收口**（用户 2026-06-21 选 A）。公共详情模型 + 飞牛 mapper + `MediaBackend` 详情接口已完成、Codex 已审、52 PASS；**页面迁移（Task 4/5）暂缓**，待真正接 Emby 时由第二后端倒逼出展示/播放分层再连同下游一起迁。
+
+后端层已为 Emby 就绪：将来写 `EmbyMediaBackend` 实现 `getItemDetail`/`getItemSeasons`/`getSeasonEpisodes` 三接口即可，公共详情模型无需改动。
 
 目标：基于 Emby 官方 API 形状评估详情页迁移边界，先设计公共详情模型和飞牛 mapper，不直接接入 Emby API，不迁移播放入口。
 
@@ -347,9 +349,9 @@ class MediaItemCardPage { List<MediaItemCard> items; int total; }   // 复用 Me
 
 ## Claude 下一步任务
 
-- [ ] 等用户确认后，从实施计划 Task 1 开始主实现。
-- [ ] 每完成一个 Task，运行计划里的对应测试。
-- [ ] 每完成一个 Task，更新本文档状态、测试结果、提交 hash。
+- [x] Phase 5 骨架（Task 1~3 + Codex 修复）完成并收口（用户 2026-06-21 选 A）。
+- [ ] Phase 5 页面迁移（Task 4/5）暂缓，等真正接 Emby 时再做（届时连同下游 `tv_season_detail_page` / 播放路径一起设计）。
+- [ ] 待用户确认下一个方向（Phase 6 播放入口 / Emby 接入 / 其它）后再开新 Task。
 - [ ] 每完成一个小任务且测试通过后，立即单独提交。
 - [ ] 上下文偏长时输出压缩摘要并停止继续执行。
 
