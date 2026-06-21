@@ -17,6 +17,8 @@ import '../models/play_info.dart';
 import '../models/person_credit.dart';
 import '../models/stream_list_option.dart';
 import '../models/stream_track_data.dart';
+import '../media_backend/detail/media_detail.dart';
+import '../media_backend/feiniu/feiniu_detail_mappers.dart';
 import 'long_text_overlay_page.dart';
 import '../player/controllers/mpv_player_controller.dart';
 import '../player/mpv_player_page.dart';
@@ -124,6 +126,14 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   bool get _useRuntimeCache => _isPane;
 
   PlayInfoData? _data;
+
+  /// 公共详情展示快照（Phase 5 详情页迁移）：由页面已加载的 [_data] / 题材·地区字典 /
+  /// 演职员 / imdb 在进程内构造，零额外网络。渐进加载下随各阶段重建（见 [_rebuildDetail]）。
+  ///
+  /// Task 1 仅铺垫构造（build 闭包仍读旧源、零行为变化）；Task 2 展示区迁移时消费它，
+  /// 届时移除本 ignore。
+  // ignore: unused_field
+  MediaDetail? _detail;
   late String _currentItemGuid;
   List<PersonCredit> _personCredits = const [];
   List<StreamListOption> _streamOptions = const [];
@@ -623,6 +633,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         _watched = info.item.isWatched == 1;
         _imdbId = _extractInitialImdbId();
         _trimId = _extractInitialTrimId();
+        _rebuildDetail();
         _loading = false;
       });
       _startEntryAnimations();
@@ -661,6 +672,26 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     final initial = widget.initialItemDetail;
     if (initial == null) return '';
     return PlayDetailDataLoader.extractTrimId(initial);
+  }
+
+  /// 用页面当前已加载的数据在进程内构造公共详情展示快照 [_detail]，零额外网络。
+  ///
+  /// 渐进加载下随各阶段数据到达调用：首屏拿到 [_data] 后即可建（此时题材/地区字典与
+  /// 演职员可能尚空 → 题材名回退原 id、演职员为空），Phase 2 字典就绪、deferred 演职员
+  /// 就绪后重建即补齐。复用 [mapFeiniuItemDetail]（纯函数），不触网、不改播放路径。
+  void _rebuildDetail() {
+    final info = _data;
+    if (info == null) {
+      _detail = null;
+      return;
+    }
+    _detail = mapFeiniuItemDetail(
+      info,
+      genresMap: _genresMapZhCn,
+      regionNames: _locateMapZhCn,
+      credits: _personCredits,
+      imdbId: _imdbId,
+    );
   }
 
   void _startEntryAnimations() {
@@ -729,6 +760,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         );
         _genresMapZhCn = genresMap;
         _locateMapZhCn = locateMap;
+        _rebuildDetail();
       });
     } catch (error, stackTrace) {
       unawaited(
@@ -767,6 +799,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       setState(() {
         _personCredits = people;
         _creditsVisible = people.isNotEmpty;
+        _rebuildDetail();
       });
     } catch (_) {}
 
@@ -1575,6 +1608,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       _watched = refreshed.info.item.isWatched == 1;
       _imdbId = refreshed.imdbId;
       _trimId = refreshed.trimId;
+      _rebuildDetail();
     });
     _restoreContentVisibilityAfterPlayerExit();
   }
