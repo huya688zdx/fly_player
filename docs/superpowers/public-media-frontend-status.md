@@ -6,7 +6,7 @@
 
 阶段：Phase 5 **骨架交付收口**（用户 2026-06-21 选 A）。公共详情模型 + 飞牛 mapper + `MediaBackend` 详情接口已完成、Codex 已审、52 PASS；**页面迁移（Task 4/5）暂缓**，待真正接 Emby 时由第二后端倒逼出展示/播放分层再连同下游一起迁。
 
-后端层已为 Emby 就绪：将来写 `EmbyMediaBackend` 实现 `getItemDetail`/`getItemSeasons`/`getSeasonEpisodes` 三接口即可，公共详情模型无需改动。
+后端层已具备 Emby 接入骨架：将来写 `EmbyMediaBackend` 实现 `getItemDetail`/`getItemSeasons`/`getSeasonEpisodes` 三接口即可先跑通适配层；真正迁移详情页时仍需按第二后端与旧 UI 字段再校准公共季/集展示模型。
 
 目标：基于 Emby 官方 API 形状评估详情页迁移边界，先设计公共详情模型和飞牛 mapper，不直接接入 Emby API，不迁移播放入口。
 
@@ -346,6 +346,10 @@ class MediaItemCardPage { List<MediaItemCard> items; int total; }   // 复用 Me
   - **Task 5 `tv_detail_page.dart`（1478~1553 季卡片）**：季卡片本身较独立（读 `season.voteAverage/poster/resolutions/watched/guid`），但 `onTap` 把原始 `initialSeasonItems: _seasonItems`（`List<MediaLibraryItem>`）透传给下游 `tv_season_detail_page`。把 `_seasonItems` 换成 `MediaSeasonSummary` 会破坏下游页面契约，涟漪到另一文件。
   - 结论：与 Emby 调研建议一致（详情页迁移宜等接 Emby 时连同字段形状一起做）。**骨架（公共详情模型 + mapper + backend 接口，52 PASS、Codex 已审）作为 Phase 5 交付，页面迁移暂缓**，等 Phase 6 播放入口或 Emby 接入时，由第二后端倒逼出真正的展示/播放分层，再连同下游一起迁。
   - 备选（若坚持现在迁页面）：只能走「页面并行持有 `MediaDetail`(展示)+`PlayInfoData`(播放)」的大改，需逐字段替换 build 闭包并 `flutter run` 反复验证；当前单后端下该改动只是增加间接层、收益有限。
+- 2026-06-21 Phase 5 收口 Codex 复审：
+  - 复审结论：Task 1~3 的公共详情骨架未发现新的阻塞问题；上次 Codex 提出的续播回退与字典 best-effort 已由 `63a91f7` 修复，backend 编排测试已由 `8452fd7` 补上。
+  - 验证：`flutter test test/media_backend/ --concurrency=1` → 52 PASS；`flutter analyze lib/media_backend test/media_backend` → No issues；`git status --short` 仅剩未跟踪 `HANDOFF.md`。
+  - Follow-up：既然 Task 4/5 页面迁移暂缓，Phase 5 可以作为“公共详情后端骨架”收口；但不要过度声明“公共详情模型无需改动”。旧 `tv_detail_page` 季卡片仍消费 `voteAverage`、`resolutions`、`watched`、`releaseDate/episodeCount` 等中立展示字段，而当前 `MediaSeasonSummary` 只有 id/title/seasonNumber/count/image。未来真正迁页面或接 Emby 时，应先校准 `MediaSeasonSummary` 字段，再动 UI。
 
 ## Claude 下一步任务
 
