@@ -62,7 +62,7 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 | Phase 3: 首页迁移样板 | 部分完成（catalogs+summary 已迁移，待手动验证） | Claude 主实现，Codex 验证 | 模型扩展: 1ff413b / 9e012b7；首页迁移: 180e8c0 | 首页单测通过；`flutter run` 手动验证待做 |
 | Phase 4: 搜索页迁移（统一 MediaItemCard） | 完成（搜索页已验收通过；分类页滤镜体系另立设计、本期不动） | Claude 主实现，Codex 审查 | 设计 c849e2a / 模型 fa878ba / mapper 013d2fe / 收口 a68c95e / 搜索页 a8adf76 | media_backend 11 PASS + analyze；用户已验收通过（2026-06-20） |
 | Phase 4.5: 分类页 filter 抽象 | 完成（分类页已迁到 schema 驱动 + queryCatalogItems + localizer；Codex 审查通过；用户实机验证通过 2026-06-20） | Claude 主实现，Codex 审查 | Task5-1: 38e3315 / Task5-2: 1dcedda / Task5-3: 15a3853 / Task5-4: 9b06e3d+5b6ea4b / Codex小修: 085d051 | media_backend+localizer 41 PASS + analyze（分类页 No issues）；用户已实机验收通过 |
-| Phase 5: 详情页迁移 | 模型/mapper/backend 骨架完成（Task 1~3，可单测覆盖、已提交）；页面迁移（Task 4 电影详情 / Task 5 剧集季集）未开始，需实机验证 | Claude 主实现，Codex 审查 | 调研: 756f2eb / 设计+计划: e2c6d94 / Task1: c2fffa6+c60292c / Task2: 87c3377 / Task3: dd8630d | media_backend 47 PASS + analyze（No issues）；页面迁移待 flutter run 验证 |
+| Phase 5: 详情页迁移 | 骨架完成（Task 1~3 + Codex 修复，已提交、可单测）；页面迁移（Task 4/5）调查后**暂缓**——无干净增量切口，建议连同 Emby 一起做 | Claude 主实现，Codex 审查 | 调研: 756f2eb / 设计+计划: e2c6d94 / Task1: c2fffa6+c60292c / Task2: 87c3377 / Task3: dd8630d / Codex修复: 63a91f7+8452fd7 | media_backend 52 PASS + analyze（No issues）；页面迁移暂缓（见下） |
 | Phase 6: 播放入口迁移 | 未开始 | Claude 主实现，Codex 深审 |  | 播放、音轨、字幕验证 |
 
 ## 当前可执行任务
@@ -338,6 +338,12 @@ class MediaItemCardPage { List<MediaItemCard> items; int total; }   // 复用 Me
   - **P1 字典阻断详情（已修，提交 `63a91f7`）**：`getItemDetail` 直接 await 题材/地区字典，任一失败会让整个详情打不开；旧 `play_detail_page.dart:687-694` 实为 `.catchError((_) => const {})` 降级。改：字典 best-effort，失败回空 map（与演职员 best-effort 一致），详情仍可看、题材退化为原始 id。
   - **P2 orchestration 无真实覆盖（已补，提交 `8452fd7`）**：原仅测 `extractFeiniuImdbId`。新增 `_FakeFeiniuApi extends FeiniuApi`（覆写 `getPlayInfo`/`getItemDetail`/`getPersonList`/字典/`getSeasonList`/`getEpisodeList`，构造只配 Dio、无网络）+ 3 条编排测试：getItemDetail 正确装配 playInfo+imdb+credits+字典并传 mapper、字典失败 best-effort 详情仍可读、季/集转发映射。注：本 fake seam 当前仅覆盖 detail 三方法；searchItems/queryCatalogItems 等其余适配器方法的 fake 覆盖仍是横切缺口，建议后续统一为整个 `FeiniuMediaBackend` 设计一次可注入 seam。
   - 验证：`flutter test test/media_backend/ --concurrency=1` → 52 PASS；`flutter analyze lib/media_backend test/media_backend` → No issues。
+- 2026-06-21 Phase 5 Task 4/5 切口调查结论（Claude，未改业务代码）：
+  - 动手前审计两个目标页的展示数据流，确认**没有干净的增量切口**，强行迁移风险高且无法在本会话实机验证：
+  - **Task 4 `play_detail_page.dart`（2110~2273 build 闭包）**：展示字段与播放态在同一闭包内交错计算——`detailTitle`(2155) 依赖 `item.type/title/displayTitle`；`metaLineA`(2138) 走 `PlayDetailFormatters.metaLineA(item, genreMap:_genresMapZhCn, locateMap:_locateMapZhCn)`；能力角标(2197) 在 `selectedOption`(播放态) 与 `item.resolutions/colorRanges/audioTypes` 间二选一；`creditItems`(2257) 由 `_personCredits` 构造。把展示改读 `MediaDetail` 必然触碰 `selectedOption`/`_streamOptions`/轨道/下载记录等播放耦合代码。且页面已自行加载 `_genresMapZhCn`(686) 与完整 `PlayInfoData`，并行再取一份 `MediaDetail` 会重复请求；让 loader 产出 `MediaDetail` 则要改控制器与播放路径。
+  - **Task 5 `tv_detail_page.dart`（1478~1553 季卡片）**：季卡片本身较独立（读 `season.voteAverage/poster/resolutions/watched/guid`），但 `onTap` 把原始 `initialSeasonItems: _seasonItems`（`List<MediaLibraryItem>`）透传给下游 `tv_season_detail_page`。把 `_seasonItems` 换成 `MediaSeasonSummary` 会破坏下游页面契约，涟漪到另一文件。
+  - 结论：与 Emby 调研建议一致（详情页迁移宜等接 Emby 时连同字段形状一起做）。**骨架（公共详情模型 + mapper + backend 接口，52 PASS、Codex 已审）作为 Phase 5 交付，页面迁移暂缓**，等 Phase 6 播放入口或 Emby 接入时，由第二后端倒逼出真正的展示/播放分层，再连同下游一起迁。
+  - 备选（若坚持现在迁页面）：只能走「页面并行持有 `MediaDetail`(展示)+`PlayInfoData`(播放)」的大改，需逐字段替换 build 闭包并 `flutter run` 反复验证；当前单后端下该改动只是增加间接层、收益有限。
 
 ## Claude 下一步任务
 
