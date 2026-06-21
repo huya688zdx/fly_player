@@ -106,9 +106,10 @@ class ItemPlaybackLauncher {
             startPositionMs,
             subtitleGuid,
             audioGuid,
-            // 单条目无选集，序号继承不适用；声明以匹配桥接器函数类型。
+            // 单条目无选集，序号/画质继承不适用；声明以匹配桥接器函数类型。
             audioTrackIndex,
             subtitleTrackIndex,
+            preferredQualityResolution,
           }) => resolveForNative(
             nas,
             itemGuid: itemGuid,

@@ -705,9 +705,10 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
                   startPositionMs,
                   subtitleGuid,
                   audioGuid,
-                  // 下载列表单条目路径本期不接序号继承；声明以匹配桥接器函数类型。
+                  // 下载列表单条目路径本期不接序号/画质继承；声明以匹配桥接器函数类型。
                   audioTrackIndex,
                   subtitleTrackIndex,
+                  preferredQualityResolution,
                 }) => const ItemPlaybackLauncher().resolveForNative(
                   provider,
                   itemGuid: itemGuid,
