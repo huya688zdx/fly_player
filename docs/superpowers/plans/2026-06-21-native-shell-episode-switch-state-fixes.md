@@ -111,3 +111,49 @@ return <String, dynamic>{'loadArgs': jsonEncode(newArgs)};
 3. **缺陷 A** 待定：用户暂未要求，先复现加日志定位再决定；涉及 native 状态层，与 Codex 协调。
 
 每个缺陷独立提交；提交前查 `git status --short` / `git diff --cached --name-only`，不夹带 `HANDOFF.md` 与工作区里 Codex 的 `MpvPlaybackController.kt`。
+
+---
+
+## 实施记录
+
+### 缺陷 C —— 已完成（待实机验证）
+
+- `NativeReentrySupport.reloadServerSession` 重载后并回 `episodes`，抽成纯静态
+  `preserveEpisodesForServerReload(previousLoadArgs, reloadedLoadArgs)`，从重载前 `raw`
+  取 `episodes` 补进新 source map。
+- 审计结论：只有 `episodes` 是「选集/下一集」依赖的非 `MpvMediaSource` 透传键；`itemGuid`/
+  `seasonGuid`/`seriesGuid`/季集号等都是 source 字段、`toMap` 自带，无需额外保留。
+- 测试：`test/services/native_reentry_support_test.dart` 3 PASS（并回 / 无 episodes 不写空键 /
+  空列表不并回）。`flutter analyze` 干净。
+- 提交：`24d51e4`。
+
+### 缺陷 B —— 已完成（待实机验证，按轨道序号继承）
+
+- **B1 公共层** `6ff6509`：`MediaPlaybackRequest` 加中立 `preferredAudioTrackIndex` /
+  `preferredSubtitleTrackIndex`；`selectPlaybackTrack` 优先级改为
+  `explicitlyDisabled → preferredTrackId(显式guid) → preferredTrackIndex(序号) → fallbackTrackId(服务端默认) → isDefault → first`，
+  序号继承压过服务端默认、越界回退默认；`getPlayback` 两处调用拆出 `fallbackTrackId`（保持
+  open 现状行为）。selector 单测 +5。
+- **B2 Flutter 接线** `4dcb55b`：`TvSeasonPlaybackLauncher.resolveForNative/_resolveWithProvider`
+  + 桥接器 `onResolvePlayback` + 两个 TV 页面回调串起 `audioTrackIndex`/`subtitleTrackIndex`；
+  字幕 `-1` = 继承「关闭」（映射 `subtitleTrackExplicitlyDisabled`），`>=0` = 继承序号。
+  单条目/电影/下载三个 `onResolvePlayback` 闭包补声明两参数以匹配桥接器函数类型（本期不接继承）。
+  切集高亮判定（查 `audioGuid/subtitleGuid/qualityIndex`）不受影响——继承走新 index 参数、不动这三者。
+- **B3 原生壳** `8812333`：`NativePlayerActivity` 加 `inheritAudioTrackIndex()`（找不到→不带）/
+  `inheritSubtitleTrackIndex()`（关闭→-1；本地字幕/找不到→不带）/ `episodeResolveArgs(itemGuid)`；
+  `requestEpisode` 与 `preloadNextEpisodeIfNeeded` 的 `resolvePlayback` 均改用 `episodeResolveArgs`
+  带上当前序号；`selectAudioFromPanel`/`selectSubtitleFromPanel` 切轨时 `clearNextEpisodePreload()`，
+  避免预取按旧序号过期。`gradlew :app:compileLiteDebugKotlin` BUILD SUCCESSFUL（仅历史警告）。
+- 序号对齐依据：native `audioTracks/subtitleTracks` 列表顺序 = Flutter 用 `playbackStream` 构造
+  候选的顺序（同源 mapper），故跨集下标一致。
+- 已知小限制：预取命中后若用户在极短窗口内再改轨，已由切轨清预取覆盖；多数路径无碍。
+
+### 缺陷 A —— 未动（用户暂未要求）
+
+待用户要求后，先复现 + 加 `buffering`/`visualPlaybackReady` 时间线日志定位，再改 overlay 判定。
+
+## 实机验证清单（交用户）
+
+- C：切画质后「选集」仍在、「下一集」可用、连播倒计时正常。
+- B：切下一集后音轨/字幕序号与上一集一致（例：音轨 3 字幕 2 → 仍 3/2）；新集缺该序号回默认；
+  上一集关字幕则下一集仍关闭；自动连播（含预取命中）同样继承；切轨后再连播用新选择。
