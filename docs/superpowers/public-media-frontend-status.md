@@ -479,6 +479,20 @@ class MediaItemCardPage { List<MediaItemCard> items; int total; }   // 复用 Me
   - 验证：`flutter test test/media_backend/ --concurrency=1` → 52 PASS；`flutter analyze lib/media_backend test/media_backend` → No issues；`git status --short` 仅剩未跟踪 `HANDOFF.md`。
   - Follow-up：既然 Task 4/5 页面迁移暂缓，Phase 5 可以作为“公共详情后端骨架”收口；但不要过度声明“公共详情模型无需改动”。旧 `tv_detail_page` 季卡片仍消费 `voteAverage`、`resolutions`、`watched`、`releaseDate/episodeCount` 等中立展示字段，而当前 `MediaSeasonSummary` 只有 id/title/seasonNumber/count/image。未来真正迁页面或接 Emby 时，应先校准 `MediaSeasonSummary` 字段，再动 UI。
 
+### Phase 5 续：电影详情页迁移（**已用户实机验证，待 Codex 深审** — 2026-06-22）
+
+> 设计 `specs/2026-06-22-public-media-detail-page-migration-design.md`（含 §5.1 实测等价坑记录）、计划 `plans/2026-06-22-public-media-detail-page-migration.md`。用户 2026-06-22 选「先做详情页」（接 Emby 前置）。
+
+- 背景：Task 4/5 当初暂缓主因之一是「页面已加载 `PlayInfoData`，并行取 `MediaDetail` 会重复请求」。**实测已不成立**：`play_detail_page` 已持 `_data`(PlayInfoData) + `_personCredits` + `_genresMapZhCn`/`_locateMapZhCn` + imdb——正是 `mapFeiniuItemDetail` 全部入参，可**页面侧进程内零网络构造** `_detail`。
+- 范围：**仅电影/单集 `play_detail_page` 展示区**，且只迁可证逐字段等价的「数据」字段；显示逻辑（飞牛口味）经 UI 层 presenter 迁或留飞牛路径。tv_detail / 人物详情 / 图片 headers 单列后续。
+- [x] Task 1：进程内构造 `MediaDetail? _detail`（`_rebuildDetail()` 随渐进加载各阶段 + refresh 重建），build 闭包仍读旧源 → **零行为变化**。提交 `6eb11d6`。
+- [x] Task 2：标题/简介/logo 迁 `_detail`。`detailTitle` **内联复刻** `tvTitle 优先`，绕开 `MediaDetail.displayTitle`「皆空回退 'Unknown'」与旧 `''` 的差异。提交 `1fc6fb7`。
+- [x] 演职员迁移：新建 `lib/ui/credit_person_presenter.dart`（类比 Phase 4.5 `CatalogFilterLocalizer`），在 `MediaDetailPerson` 上**逐字复刻** `PersonCredit.displayName`（空回退「未知」）/`displaySubTitle`（角色 `饰 X` / 职务 director→导演 等）；`creditItems` 改读 `detail.people`。presenter 7 PASS。提交 `1197e76`。
+- 实测发现（设计 §5.1）：详情页**显示逻辑**多处带飞牛口味，分三类——A 零等价坑已迁（标题/简介/logo/演职员）；B 带坑/缺字段留飞牛或待 Emby（`metaLineA` genre「丢弃未知」vs 模型「保留未知」、`ancestorName`/`stillPath` 模型无此字段）；C 播放半/交互态不迁（清晰度等角标与 `selectedOption` 二选一、已看收藏按钮/进度/playError）。
+- [x] **用户实机验证通过（2026-06-22）**：标题/简介（含展开）/logo 标题图/演职员（名字·副标题·头像，含导演编剧文案与「未知」回退）均与迁移前一致。
+- 验证：`flutter test test/ui/credit_person_presenter_test.dart` → 7 PASS；详情 mapper/模型 15 PASS；全量 `flutter analyze` → 17 条历史无关项（零新增，`_detail` 已消费无 unused_field）。
+- 结论：MediaDetail **数据层**已可零网络供页面消费（证明切口）；剩余 B/C 类显示逻辑按需推进或留待 Emby 倒逼。**待 Codex 深审收口。**
+
 ## Claude 下一步任务
 
 - [x] Phase 5 骨架（Task 1~3 + Codex 修复）完成并收口（用户 2026-06-21 选 A）。
