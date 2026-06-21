@@ -332,6 +332,12 @@ class MediaItemCardPage { List<MediaItemCard> items; int total; }   // 复用 Me
   - 验证：`flutter test test/media_backend/ --concurrency=1` → 47 PASS；`flutter analyze lib/media_backend test/media_backend` → No issues。
   - 数据来源审计（真实）：详情页数据 = `getPlayInfo`(→PlayInfoData) + `getItemDetail`(→Map，仅取 imdb/trim) + `getPersonList`(→PersonCredit) + `getStreamTrackData`(轨道，Phase 6) + 字典。
   - 下一步：Task 4 电影详情入口壳层迁移（改 `lib/pages/play_detail_page.dart` 只读展示区数据来源，播放/轨道/下载/动作面板/片头片尾保留飞牛）——属页面级改动，需 `flutter run` 实机验证，建议先经用户/Codex 确认切口后再动。
+- 2026-06-21 Phase 5 Task 1~3 Codex 审查 + 修复（Claude 修）：
+  - Codex 提 3 条（2×P1 已核实为真并修，1×P2 已补测）：
+  - **P1 续播回退（已修，提交 `63a91f7`）**：mapper 只取裸 `info.ts`/`item.ts`，但 `play_detail_page.dart:1054/1245/2122` 实为 `ts > 0 ? ts : item.watchedTs`、`tv_season_detail_page.dart:511/522` 实为 `episode.ts > 0 ? episode.ts : episode.watchedTs`。`ts==0 && watchedTs>0` 时会丢续播。改：`MediaDetail.resumePositionSeconds = info.ts>0 ? info.ts : item.watchedTs`；`MediaEpisodeSummary = item.ts>0 ? item.ts : item.watchedTs`。补 2 条 mapper 单测。
+  - **P1 字典阻断详情（已修，提交 `63a91f7`）**：`getItemDetail` 直接 await 题材/地区字典，任一失败会让整个详情打不开；旧 `play_detail_page.dart:687-694` 实为 `.catchError((_) => const {})` 降级。改：字典 best-effort，失败回空 map（与演职员 best-effort 一致），详情仍可看、题材退化为原始 id。
+  - **P2 orchestration 无真实覆盖（已补，提交 `8452fd7`）**：原仅测 `extractFeiniuImdbId`。新增 `_FakeFeiniuApi extends FeiniuApi`（覆写 `getPlayInfo`/`getItemDetail`/`getPersonList`/字典/`getSeasonList`/`getEpisodeList`，构造只配 Dio、无网络）+ 3 条编排测试：getItemDetail 正确装配 playInfo+imdb+credits+字典并传 mapper、字典失败 best-effort 详情仍可读、季/集转发映射。注：本 fake seam 当前仅覆盖 detail 三方法；searchItems/queryCatalogItems 等其余适配器方法的 fake 覆盖仍是横切缺口，建议后续统一为整个 `FeiniuMediaBackend` 设计一次可注入 seam。
+  - 验证：`flutter test test/media_backend/ --concurrency=1` → 52 PASS；`flutter analyze lib/media_backend test/media_backend` → No issues。
 
 ## Claude 下一步任务
 
