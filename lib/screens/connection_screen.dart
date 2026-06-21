@@ -1,9 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../api/emby_api.dart';
 import '../api/feiniu_api.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../media_backend/media_backend_kind.dart';
+import '../media_backend/session/media_backend_connection.dart';
+import '../providers/backend_session_provider.dart';
 import '../providers/nas_provider.dart';
+import '../services/media_backend_connection_store.dart';
 import '../theme/app_theme.dart';
 import '../ui/app_transitions.dart';
 import '../utils/action_rate_limiter.dart';
@@ -32,7 +39,9 @@ String effectivePersistedBaseUrlForLogin({
 }
 
 class ConnectionScreen extends StatefulWidget {
-  const ConnectionScreen({super.key});
+  const ConnectionScreen({super.key, this.embyApi});
+
+  final EmbyApi? embyApi;
 
   @override
   State<ConnectionScreen> createState() => _ConnectionScreenState();
@@ -57,6 +66,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   bool _obscureEmbyPassword = true;
   bool _isSubmitting = false;
   List<LoginHistoryEntry> _historyEntries = const <LoginHistoryEntry>[];
+  String _embyConnectionStatus = '';
 
   @override
   void initState() {
@@ -68,6 +78,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     _rememberPassword = provider.rememberPassword;
     _useHttps = _looksLikeHttps(provider.sourceBaseUrl);
     _loadLoginHistory();
+    unawaited(_loadStoredBackendConnection());
   }
 
   @override
@@ -93,6 +104,24 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   void _showTopTip(String message, Color color) {
     if (!mounted || message.trim().isEmpty) return;
     _topTip.show(context, message: message, color: color);
+  }
+
+  Future<void> _loadStoredBackendConnection() async {
+    final snapshot = await MediaBackendConnectionStore.load();
+    final embyConnection = snapshot.connectionFor(MediaBackendKind.emby);
+    if (!mounted || embyConnection == null) return;
+    setState(() {
+      if (snapshot.activeKind == MediaBackendKind.emby) {
+        _selectedBackend = _ConnectionBackend.emby;
+      }
+      if (_embyBaseUrlController.text.trim().isEmpty) {
+        _embyBaseUrlController.text = embyConnection.serverUrl;
+      }
+      if (_embyUserNameController.text.trim().isEmpty) {
+        _embyUserNameController.text = embyConnection.userName;
+      }
+      _embyConnectionStatus = _formatEmbyConnectionStatus(embyConnection);
+    });
   }
 
   Future<void> _reportAndShowLoginError(
@@ -129,6 +158,13 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     final userName = _embyUserNameController.text.trim();
     final password = _embyPasswordController.text;
 
+    if (_isSubmitting || _submitLimiter.shouldBlock()) {
+      _showTopTip(
+        AppLocalizations.of(context).connectionOperationFailedRetryLater,
+        const Color(0xFFB8860B),
+      );
+      return;
+    }
     if (baseUrl.isEmpty) {
       _showTopTip('请输入 Emby 服务器地址', context.appColors.danger);
       return;
@@ -148,8 +184,56 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       return;
     }
 
-    _embyBaseUrlController.text = baseUrl;
-    _showTopTip('Emby 连接验证将在下一阶段开放', context.appColors.accent);
+    setState(() {
+      _isSubmitting = true;
+      _embyBaseUrlController.text = baseUrl;
+    });
+
+    try {
+      final result = await (widget.embyApi ?? EmbyApi()).authenticateByName(
+        serverUrl: baseUrl,
+        userName: userName,
+        password: password,
+      );
+      if (result.accessToken.trim().isEmpty || result.userId.trim().isEmpty) {
+        throw AppException.api(
+          action: 'emby login',
+          message: 'Emby 登录返回的会话信息不完整',
+        );
+      }
+      final connection = MediaBackendConnection(
+        kind: MediaBackendKind.emby,
+        serverUrl: result.serverUrl,
+        displayName: result.serverName,
+        userName: result.userName,
+        userId: result.userId,
+        accessToken: result.accessToken,
+        rememberSecret: true,
+        updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
+      );
+      await (_backendSessionProvider()?.saveActive(connection) ??
+          MediaBackendConnectionStore.saveActive(connection));
+      if (!mounted) return;
+      setState(() {
+        _embyBaseUrlController.text = connection.serverUrl;
+        _embyUserNameController.text = connection.userName;
+        _embyPasswordController.clear();
+        _embyConnectionStatus = _formatEmbyConnectionStatus(connection);
+      });
+      _showTopTip('Emby 连接已验证，媒体浏览将在后续阶段开放', context.appColors.accent);
+    } catch (error, stackTrace) {
+      await _reportAndShowLoginError(
+        error,
+        stackTrace: stackTrace,
+        details: 'emby_login',
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
+      }
+    }
   }
 
   Future<void> _submitWithUnifiedErrors() async {
@@ -497,15 +581,33 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   String _normalizeEmbyBaseUrlInput(String raw) {
-    final trimmed = raw.trim();
-    if (trimmed.isEmpty) return '';
-    final withScheme = trimmed.contains('://') ? trimmed : 'http://$trimmed';
+    final normalized = EmbyApi.normalizeServerUrl(raw);
+    if (normalized.isEmpty) return '';
     try {
-      final uri = Uri.parse(withScheme);
+      final uri = Uri.parse(normalized);
       if (uri.host.isEmpty) return '';
-      return ApiUrlHelper.normalizeBaseUrl(uri.toString());
+      return normalized;
     } catch (_) {
       return '';
+    }
+  }
+
+  String _formatEmbyConnectionStatus(MediaBackendConnection connection) {
+    final name = connection.displayName.trim().isNotEmpty
+        ? connection.displayName.trim()
+        : connection.serverUrl.trim();
+    final user = connection.userName.trim();
+    if (user.isEmpty) {
+      return '已连接 Emby：$name';
+    }
+    return '已连接 Emby：$name · $user';
+  }
+
+  BackendSessionProvider? _backendSessionProvider() {
+    try {
+      return context.read<BackendSessionProvider>();
+    } on ProviderNotFoundException {
+      return null;
     }
   }
 
@@ -778,9 +880,19 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             height: 1.35,
           ),
         ),
+        if (_embyConnectionStatus.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Text(
+            _embyConnectionStatus,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: const Color(0xFF8FB7FF),
+              height: 1.35,
+            ),
+          ),
+        ],
         const SizedBox(height: 18),
         _SubmitButton(
-          isSubmitting: false,
+          isSubmitting: _isSubmitting,
           label: '验证 Emby 连接',
           onPressed: _verifyEmbyConnection,
         ),
