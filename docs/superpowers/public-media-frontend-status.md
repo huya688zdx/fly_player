@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-阶段：Phase 6 **桥接子阶段 B-3 TV launcher 迁移代码完成，待用户实机验证**（用户 2026-06-21 选方案 B 分步）。Phase 5 详情骨架、Phase 6 播放后端骨架（Task 1~4）、桥接 B-1、B-2 单条目 launcher 迁移均已收口（Codex 深审通过 `b0b37ae`/`0eb9484`；B-2 用户实机验证通过）。
+阶段：Phase 6 **桥接子阶段 B-4 原生壳反向重载收口完成，用户实机验证通过、待 Codex 深审**（用户 2026-06-21 选 B-4 设计先行）。Phase 5 详情骨架、Phase 6 播放后端骨架（Task 1~4）、桥接 B-1、B-2 单条目 launcher、B-3 TV launcher 迁移均已收口（Codex 深审通过 `b0b37ae`/`0eb9484`；B-2/B-3 用户实机验证通过）。B-4 把反向通道 `reloadServerSession`（转码态切轨/切画质）经中立 `MediaSessionReloadIntent` 收口，reload 内核与 Kotlin channel 协议零改动。
 
 ### 2026-06-21 登录页后端选择 + Emby 入口设计
 
@@ -81,7 +81,7 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 | Phase 4: 搜索页迁移（统一 MediaItemCard） | 完成（搜索页已验收通过；分类页滤镜体系另立设计、本期不动） | Claude 主实现，Codex 审查 | 设计 c849e2a / 模型 fa878ba / mapper 013d2fe / 收口 a68c95e / 搜索页 a8adf76 | media_backend 11 PASS + analyze；用户已验收通过（2026-06-20） |
 | Phase 4.5: 分类页 filter 抽象 | 完成（分类页已迁到 schema 驱动 + queryCatalogItems + localizer；Codex 审查通过；用户实机验证通过 2026-06-20） | Claude 主实现，Codex 审查 | Task5-1: 38e3315 / Task5-2: 1dcedda / Task5-3: 15a3853 / Task5-4: 9b06e3d+5b6ea4b / Codex小修: 085d051 | media_backend+localizer 41 PASS + analyze（分类页 No issues）；用户已实机验收通过 |
 | Phase 5: 详情页迁移 | 骨架完成（Task 1~3 + Codex 修复，已提交、可单测）；页面迁移（Task 4/5）调查后**暂缓**——无干净增量切口，建议连同 Emby 一起做 | Claude 主实现，Codex 审查 | 调研: 756f2eb / 设计+计划: e2c6d94 / Task1: c2fffa6+c60292c / Task2: 87c3377 / Task3: dd8630d / Codex修复: 63a91f7+8452fd7 | media_backend 52 PASS + analyze（No issues）；页面迁移暂缓（见下） |
-| Phase 6: 播放入口迁移 | 后端骨架（Task 1~4）+ 桥接 **B-1** 完成；**B-2** 单条目 launcher 已切桥接器并实机验证通过；**B-3** TV launcher 已切桥接器（代码完成，待用户实机验证） | Claude 主实现，Codex 深审 | 骨架: 4fd3bc2/b591e92/09700cb/d0e3b60 + Codex修复 b0b37ae / 桥接: d80d8e0+5196882 / B-1: 8cc205b+cd3b4bd / B-2 launcher: 99d338d / 字幕修复: 85e50ab+354ff77+a56aa82+0426617 / B-3 设计: abb85a1 / B-3 字段: 3acbc69 / B-3 launcher: e567e8a | media_backend+player+playback 82 PASS（B-3 新增 4 条）+ 全量 analyze（仅 17 条历史无关项，零新增）；B-2 实机通过；B-3 待用户实机验证 |
+| Phase 6: 播放入口迁移 | 后端骨架（Task 1~4）+ 桥接 **B-1** 完成；**B-2** 单条目 launcher、**B-3** TV launcher 已切桥接器并实机验证通过；**B-4** 反向重载（reloadServerSession）经中立 `MediaSessionReloadIntent` 收口、实机验证通过、待 Codex 深审 | Claude 主实现，Codex 深审 | 骨架: 4fd3bc2/b591e92/09700cb/d0e3b60 + Codex修复 b0b37ae / 桥接: d80d8e0+5196882 / B-1: 8cc205b+cd3b4bd / B-2 launcher: 99d338d / 字幕修复: 85e50ab+354ff77+a56aa82+0426617 / B-3 设计: abb85a1 / B-3 字段: 3acbc69 / B-3 launcher: e567e8a / B-4 设计: d1514b0+47e55b1 / B-4 模型: 1fdd347 / B-4 收口: 31bed50 | media_backend+player+services 106 PASS（B-4 新增 14 条）+ 全量 analyze（仅 17 条历史无关项，零新增）；B-2/B-3/B-4 实机通过 |
 
 ## 当前可执行任务
 
@@ -347,6 +347,23 @@ class MediaItemCardPage { List<MediaItemCard> items; int total; }   // 复用 Me
   - 架构检查：公共 playback 字段仍保持中立命名，飞牛 raw facts 只在 `FeiniuPlaybackContext` 与桥接器内部使用；未新增 Emby API；未发现 UI `if (isEmby)`；`FeiniuMediaBackend` 未引入导航、`BuildContext`、`NativePlayerBridge` 或播放器页面。历史详情页/TV 页仍保留多处 `FeiniuApi` 用于详情、动作、视图偏好等非本阶段范围。
   - 验证：`flutter test test\media_backend\feiniu_playback_backend_test.dart test\media_backend\media_playback_selectors_test.dart test\player\feiniu_playback_source_bridge_test.dart test\services\native_reentry_support_test.dart` → 30 PASS；`flutter analyze lib\controllers\tv_season_playback_launcher.dart lib\controllers\item_playback_launcher.dart lib\media_backend lib\player\controllers\feiniu_playback_source_bridge.dart lib\services\native_player_bridge.dart lib\services\native_reentry_support.dart test\media_backend test\player\feiniu_playback_source_bridge_test.dart test\services\native_reentry_support_test.dart` → No issues；全量 `flutter analyze` → 17 条历史无关项（duplicate import、unused、prefer_const、use_build_context_synchronously 等），本次相关文件无新增。
   - 工作区检查：审查时 `git status --short` 仍有未提交 `android/app/src/main/kotlin/com/geqian/flyplayer/fly_player/mpv/MpvPlaybackController.kt`（性能计数器采样/日志降噪改动）和未跟踪 `HANDOFF.md`，均未由 Codex 暂存或回滚；后续提交 B-3 状态/修复时需只 stage 本任务相关文件。
+
+### 桥接子阶段 B-4（原生壳反向重载收口，**已用户实机验证通过 2026-06-21**）
+
+> 设计 `specs/2026-06-21-public-media-playback-reverse-reload-design.md`（含 Codex 审查补充 §7）、计划 `plans/2026-06-21-public-media-playback-reverse-reload.md`。
+
+- 背景：反向通道两条「播放解析」路径中，`resolvePlayback`（选集/切版本）已经 B-2/B-3 走 getPlayback+桥接器；但 `reloadServerSession`（转码态切音轨/字幕/画质）仍直接调 `PlayerSourceController.reloadServerPlaySession`、**绕过 MediaBackend**，是抽象外孤儿。B-4 给它补中立切口。
+- 方案选型：选**薄收口**（方案 A），不把 `reloadServerPlaySession` 内核搬进 `media_backend`（方案 B 留给真正接 Emby 时由第二后端倒逼）——内核是 player 层 +Feiniu+mpv 强耦合、且 reload 输入/输出都是 `MpvMediaSource`，天然属 player/reentry 桥接层。
+- Codex 设计审查两处修正已落实：① `MediaSessionReloadIntent` 的 `null` 语义是「保留**当前选择**」（对齐 `request.audioGuid ?? snapshot.audioGuid`），模型注释与单测均按此口径，避免把「切画质保留当前音轨/字幕」测反；② Emby 复用表述为「intent/channel seam 可复用」，不承诺 UI 零改动（接 Emby 仍需 provider/factory 选 reload 桥接实现，只是不在 UI 写 `if (isEmby)`）。
+- [x] B-4 Task 1：中立 `MediaSessionReloadIntent` 模型（`audioTrackId`/`subtitleTrackId`/`subtitleDisabled`/`qualityIndex`/`startPosition`，全 const、中立命名）+ `test/media_backend/media_session_reload_test.dart`（6 PASS）。**无调用方 → 零行为变化。** 提交 `1fdd347`。
+- [x] B-4 Task 2：反向重载路径改吃中立意图。
+  - `NativeReentrySupport.reloadServerSession` 正名为「飞牛反向重载桥接器」（reload 路径上 `FeiniuPlaybackSourceBridge` 的对位物），签名从 4 个松散参数收成 `MediaSessionReloadIntent intent`。
+  - 按 Codex §7 建议抽纯映射函数 `resolveReloadRequestParams(intent, {qualityCount, currentStartPosition}) → ReloadRequestParams`：`audioTrackId==null`→保留当前音轨、`subtitleTrackId==null && !subtitleDisabled`→保留当前字幕、`subtitleDisabled`→空串关闭、`qualityIndex` 越界→回落保留当前画质、`startPosition==null`→沿用当前续播位。**不 fake FeiniuApi 即钉住 B-4 最易回归语义。**
+  - `native_player_bridge` 的 `onReloadServerSession` 函数类型收成 `(currentLoadArgs, intent)`，channel args（带 key=override/空串=关闭/不带=保留）在 Dart 入口组装中立意图；**Kotlin channel 协议、reload 内核零改动**。4 处页面闭包（tv_season/tv_detail/play_detail/item_launcher）改吃 intent。
+  - **行为保持**：意图→`PlayerServerReloadRequest` 映射与旧代码逐字段等价，无回归面。
+  - 验证：reload 相关 16 PASS；`test/media_backend/ test/services/ test/player/ --concurrency=1` → 106 PASS；全量 `flutter analyze` → 17 条历史无关项（零新增）。提交 `31bed50`（pathspec 仅 7 文件，未夹带 Codex 并行的 login-backend 文档）。
+- [x] **用户实机验证通过（2026-06-21）**：原生壳转码态切音轨（画质/字幕不变）、切字幕、关字幕、切画质（保留音轨/字幕）、续播位不丢、选集面板不清空，均确认正常。
+- 待 Codex 深审收口。
 
 ### Phase 6 后端骨架 Codex 深审（历史记录）
 
