@@ -59,6 +59,18 @@ class MediaPlaybackRequest {
   /// 表示关闭，避免公共层把关闭误当默认。
   final bool subtitleTrackExplicitlyDisabled;
 
+  /// 发起播放的系列上下文标识；为空表示由后端从条目自身推导。
+  ///
+  /// 来自调用方（剧集/季页面）已知的系列 id——飞牛映射到剧集 series guid，
+  /// Emby 映射到 series id。桥接装配时显式值优先于后端推导值。
+  final String seriesId;
+
+  /// 若该条目已播放完成，本次是否从头开始。
+  ///
+  /// 默认 `false`：保留后端解析出的网络续播位置（如电影/单条目）。剧集场景下
+  /// 置 `true`，使「已看完的一集」重新点播时回到开头，而非停在结尾。
+  final bool restartWhenCompleted;
+
   const MediaPlaybackRequest({
     required this.itemId,
     this.fallbackTitle = '',
@@ -69,6 +81,8 @@ class MediaPlaybackRequest {
     this.audioTrackId,
     this.subtitleTrackId,
     this.subtitleTrackExplicitlyDisabled = false,
+    this.seriesId = '',
+    this.restartWhenCompleted = false,
   });
 }
 

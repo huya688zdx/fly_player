@@ -91,7 +91,11 @@ class FeiniuPlaybackSourceBridge {
     return MpvMediaSource(
       loadNonce: createMpvLoadNonce(),
       itemGuid: item.guid,
-      seriesGuid: playInfo.grandGuid.trim(),
+      // 显式 seriesId（剧集/季页面已知）优先，回退条目自身 grandGuid；Item 路径不传 →
+      // 空 → 回退 grandGuid，与 B-2 行为一致。
+      seriesGuid: request.seriesId.trim().isNotEmpty
+          ? request.seriesId.trim()
+          : playInfo.grandGuid.trim(),
       seasonGuid: playInfo.parentGuid,
       posterPath: resolvePlayerArtworkPathForPlayItem(item),
       mediaGuid: initialPlayback.mediaGuid,
