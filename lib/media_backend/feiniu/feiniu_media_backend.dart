@@ -190,9 +190,9 @@ class FeiniuMediaBackend implements MediaBackend {
     final audioTracks = mapFeiniuAudioTracks(playbackStream.audioStreams);
     final selectedAudio = selectPlaybackTrack(
       tracks: audioTracks,
-      preferredTrackId: request.audioTrackId?.trim().isNotEmpty == true
-          ? request.audioTrackId
-          : playInfo.audioGuid,
+      preferredTrackId: request.audioTrackId,
+      preferredTrackIndex: request.preferredAudioTrackIndex,
+      fallbackTrackId: playInfo.audioGuid,
     );
 
     final mergedSubtitleStreams = _mergeSubtitleStreams(
@@ -202,9 +202,9 @@ class FeiniuMediaBackend implements MediaBackend {
     final subtitleTracks = mapFeiniuSubtitleTracks(mergedSubtitleStreams);
     final selectedSubtitle = selectPlaybackTrack(
       tracks: subtitleTracks,
-      preferredTrackId: request.subtitleTrackId?.trim().isNotEmpty == true
-          ? request.subtitleTrackId
-          : playInfo.subtitleGuid,
+      preferredTrackId: request.subtitleTrackId,
+      preferredTrackIndex: request.preferredSubtitleTrackIndex,
+      fallbackTrackId: playInfo.subtitleGuid,
       explicitlyDisabled: request.subtitleTrackExplicitlyDisabled,
     );
 
