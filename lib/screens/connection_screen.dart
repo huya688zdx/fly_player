@@ -18,6 +18,8 @@ import 'download_list_screen.dart';
 import 'fn_connect_web_login_page.dart';
 import '../utils/app_confirm_dialog.dart';
 
+enum _ConnectionBackend { feiniu, emby }
+
 String effectivePersistedBaseUrlForLogin({
   required String sourceBaseUrl,
   required LoginWithBaseUrlResult loginResult,
@@ -40,14 +42,19 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   final TextEditingController _baseUrlController = TextEditingController();
   final TextEditingController _userNameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _embyBaseUrlController = TextEditingController();
+  final TextEditingController _embyUserNameController = TextEditingController();
+  final TextEditingController _embyPasswordController = TextEditingController();
   final DetailTopTip _topTip = DetailTopTip();
   final ActionRateLimiter _submitLimiter = ActionRateLimiter(
     cooldown: const Duration(milliseconds: 900),
   );
 
+  _ConnectionBackend _selectedBackend = _ConnectionBackend.feiniu;
   bool _rememberPassword = true;
   bool _useHttps = false;
   bool _obscurePassword = true;
+  bool _obscureEmbyPassword = true;
   bool _isSubmitting = false;
   List<LoginHistoryEntry> _historyEntries = const <LoginHistoryEntry>[];
 
@@ -69,6 +76,9 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     _baseUrlController.dispose();
     _userNameController.dispose();
     _passwordController.dispose();
+    _embyBaseUrlController.dispose();
+    _embyUserNameController.dispose();
+    _embyPasswordController.dispose();
     super.dispose();
   }
 
@@ -103,7 +113,43 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   Future<void> _submit() async {
-    await _submitWithUnifiedErrors();
+    switch (_selectedBackend) {
+      case _ConnectionBackend.feiniu:
+        await _submitWithUnifiedErrors();
+        return;
+      case _ConnectionBackend.emby:
+        await _verifyEmbyConnection();
+        return;
+    }
+  }
+
+  Future<void> _verifyEmbyConnection() async {
+    FocusScope.of(context).unfocus();
+    final baseUrl = _normalizeEmbyBaseUrlInput(_embyBaseUrlController.text);
+    final userName = _embyUserNameController.text.trim();
+    final password = _embyPasswordController.text;
+
+    if (baseUrl.isEmpty) {
+      _showTopTip('请输入 Emby 服务器地址', context.appColors.danger);
+      return;
+    }
+    if (userName.isEmpty) {
+      _showTopTip(
+        AppLocalizations.of(context).connectionUserNameRequired,
+        context.appColors.danger,
+      );
+      return;
+    }
+    if (password.isEmpty) {
+      _showTopTip(
+        AppLocalizations.of(context).connectionPasswordRequired,
+        context.appColors.danger,
+      );
+      return;
+    }
+
+    _embyBaseUrlController.text = baseUrl;
+    _showTopTip('Emby 连接验证将在下一阶段开放', context.appColors.accent);
   }
 
   Future<void> _submitWithUnifiedErrors() async {
@@ -450,6 +496,19 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     }
   }
 
+  String _normalizeEmbyBaseUrlInput(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return '';
+    final withScheme = trimmed.contains('://') ? trimmed : 'http://$trimmed';
+    try {
+      final uri = Uri.parse(withScheme);
+      if (uri.host.isEmpty) return '';
+      return ApiUrlHelper.normalizeBaseUrl(uri.toString());
+    } catch (_) {
+      return '';
+    }
+  }
+
   bool _looksLikeHttps(String value) {
     final uri = Uri.tryParse(value.trim());
     return uri?.scheme.toLowerCase() == 'https';
@@ -501,207 +560,20 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                       children: [
                         const SizedBox(height: 12),
                         _LogoHeader(title: l10n.connectionAppName),
-                        const SizedBox(height: 36),
-                        _GlassField(
-                          controller: _baseUrlController,
-                          hintText: 'http://192.168.6.120:5666',
-                          keyboardType: TextInputType.url,
-                          textInputAction: TextInputAction.next,
-                          autofillHints: const <String>[AutofillHints.url],
-                          suffix: IconButton(
-                            onPressed: _showLoginHistorySheet,
-                            icon: Icon(
-                              Icons.history_rounded,
-                              color: _historyEntries.isEmpty
-                                  ? const Color(0xFF58687C)
-                                  : const Color(0xFF7C8DA5),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        _GlassField(
-                          controller: _userNameController,
-                          hintText: l10n.connectionUserNameHint,
-                          textInputAction: TextInputAction.next,
-                          autofillHints: const <String>[AutofillHints.username],
-                        ),
-                        const SizedBox(height: 14),
-                        _GlassField(
-                          controller: _passwordController,
-                          hintText: l10n.connectionPasswordHint,
-                          obscureText: _obscurePassword,
-                          textInputAction: TextInputAction.done,
-                          autofillHints: const <String>[AutofillHints.password],
-                          onSubmitted: (_) => _submit(),
-                          suffix: IconButton(
-                            onPressed: () {
-                              setState(() {
-                                _obscurePassword = !_obscurePassword;
-                              });
-                            },
-                            icon: Icon(
-                              _obscurePassword
-                                  ? Icons.visibility_off_outlined
-                                  : Icons.visibility_outlined,
-                              color: const Color(0xFF7C8DA5),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            InkWell(
-                              borderRadius: BorderRadius.circular(999),
-                              onTap: () {
-                                setState(() {
-                                  _rememberPassword = !_rememberPassword;
-                                });
-                              },
-                              child: Row(
-                                children: [
-                                  SizedBox(
-                                    width: 28,
-                                    height: 28,
-                                    child: Checkbox(
-                                      value: _rememberPassword,
-                                      onChanged: (value) {
-                                        setState(() {
-                                          _rememberPassword = value ?? false;
-                                        });
-                                      },
-                                      side: const BorderSide(
-                                        color: Color(0xFF4D5C6F),
-                                      ),
-                                      fillColor:
-                                          WidgetStateProperty.resolveWith(
-                                            (states) =>
-                                                states.contains(
-                                                  WidgetState.selected,
-                                                )
-                                                ? const Color(0xFF2D74D9)
-                                                : Colors.transparent,
-                                          ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    l10n.connectionRememberLogin,
-                                    style: theme.textTheme.bodyMedium?.copyWith(
-                                      color: const Color(0xFFB3C0D4),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 22),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _SettingRow(
-                                label: l10n.connectionHttpsAccess,
-                              ),
-                            ),
-                            Switch(
-                              value: _useHttps,
-                              onChanged: _toggleHttps,
-                              activeThumbColor: Colors.white,
-                              activeTrackColor: const Color(0xFF2D74D9),
-                              inactiveThumbColor: Colors.white,
-                              inactiveTrackColor: const Color(0xFF415064),
-                            ),
-                          ],
+                        const SizedBox(height: 28),
+                        _BackendSelector(
+                          selected: _selectedBackend,
+                          onChanged: (backend) {
+                            setState(() {
+                              _selectedBackend = backend;
+                            });
+                          },
                         ),
                         const SizedBox(height: 18),
-                        SizedBox(
-                          height: 64,
-                          child: ElevatedButton(
-                            onPressed: _isSubmitting ? null : _submit,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF2D74D9),
-                              foregroundColor: Colors.white,
-                              disabledBackgroundColor: const Color(0xFF1E4B89),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(18),
-                              ),
-                              elevation: 0,
-                              textStyle: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            child: _isSubmitting
-                                ? SizedBox(
-                                    width: 22,
-                                    height: 22,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2.2,
-                                      valueColor:
-                                          const AlwaysStoppedAnimation<Color>(
-                                            Colors.white,
-                                          ),
-                                      backgroundColor: Colors.white.withValues(
-                                        alpha: 0.18,
-                                      ),
-                                    ),
-                                  )
-                                : Text(l10n.connectionLogin),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Center(
-                          child: Wrap(
-                            alignment: WrapAlignment.center,
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            spacing: 10,
-                            runSpacing: 2,
-                            children: [
-                              TextButton(
-                                onPressed: _openDownloadedData,
-                                style: TextButton.styleFrom(
-                                  foregroundColor: const Color(0xFF8FA6C7),
-                                  minimumSize: Size.zero,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 6,
-                                  ),
-                                  tapTargetSize:
-                                      MaterialTapTargetSize.shrinkWrap,
-                                  textStyle: theme.textTheme.bodySmall
-                                      ?.copyWith(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                ),
-                                child: Text(l10n.connectionOpenDownloads),
-                              ),
-                              TextButton(
-                                onPressed: _isSubmitting
-                                    ? null
-                                    : _resetFnConnectWebLoginState,
-                                style: TextButton.styleFrom(
-                                  foregroundColor: const Color(0xFFB6A06A),
-                                  disabledForegroundColor: const Color(
-                                    0xFF5D5A52,
-                                  ),
-                                  minimumSize: Size.zero,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 6,
-                                  ),
-                                  tapTargetSize:
-                                      MaterialTapTargetSize.shrinkWrap,
-                                  textStyle: theme.textTheme.bodySmall
-                                      ?.copyWith(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                ),
-                                child: const Text('重新登录 FN Connect'),
-                              ),
-                            ],
-                          ),
-                        ),
+                        if (_selectedBackend == _ConnectionBackend.feiniu)
+                          _buildFeiniuForm(theme, l10n)
+                        else
+                          _buildEmbyForm(theme, l10n),
                       ],
                     ),
                   ),
@@ -710,6 +582,349 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildFeiniuForm(ThemeData theme, AppLocalizations l10n) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _GlassField(
+          controller: _baseUrlController,
+          hintText: 'http://192.168.6.120:5666',
+          keyboardType: TextInputType.url,
+          textInputAction: TextInputAction.next,
+          autofillHints: const <String>[AutofillHints.url],
+          suffix: IconButton(
+            onPressed: _showLoginHistorySheet,
+            icon: Icon(
+              Icons.history_rounded,
+              color: _historyEntries.isEmpty
+                  ? const Color(0xFF58687C)
+                  : const Color(0xFF7C8DA5),
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        _GlassField(
+          controller: _userNameController,
+          hintText: l10n.connectionUserNameHint,
+          textInputAction: TextInputAction.next,
+          autofillHints: const <String>[AutofillHints.username],
+        ),
+        const SizedBox(height: 14),
+        _GlassField(
+          controller: _passwordController,
+          hintText: l10n.connectionPasswordHint,
+          obscureText: _obscurePassword,
+          textInputAction: TextInputAction.done,
+          autofillHints: const <String>[AutofillHints.password],
+          onSubmitted: (_) => _submit(),
+          suffix: IconButton(
+            onPressed: () {
+              setState(() {
+                _obscurePassword = !_obscurePassword;
+              });
+            },
+            icon: Icon(
+              _obscurePassword
+                  ? Icons.visibility_off_outlined
+                  : Icons.visibility_outlined,
+              color: const Color(0xFF7C8DA5),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            InkWell(
+              borderRadius: BorderRadius.circular(999),
+              onTap: () {
+                setState(() {
+                  _rememberPassword = !_rememberPassword;
+                });
+              },
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: Checkbox(
+                      value: _rememberPassword,
+                      onChanged: (value) {
+                        setState(() {
+                          _rememberPassword = value ?? false;
+                        });
+                      },
+                      side: const BorderSide(color: Color(0xFF4D5C6F)),
+                      fillColor: WidgetStateProperty.resolveWith(
+                        (states) => states.contains(WidgetState.selected)
+                            ? const Color(0xFF2D74D9)
+                            : Colors.transparent,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    l10n.connectionRememberLogin,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: const Color(0xFFB3C0D4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 22),
+        Row(
+          children: [
+            Expanded(child: _SettingRow(label: l10n.connectionHttpsAccess)),
+            Switch(
+              value: _useHttps,
+              onChanged: _toggleHttps,
+              activeThumbColor: Colors.white,
+              activeTrackColor: const Color(0xFF2D74D9),
+              inactiveThumbColor: Colors.white,
+              inactiveTrackColor: const Color(0xFF415064),
+            ),
+          ],
+        ),
+        const SizedBox(height: 18),
+        _SubmitButton(
+          isSubmitting: _isSubmitting,
+          label: l10n.connectionLogin,
+          onPressed: _isSubmitting ? null : _submit,
+        ),
+        const SizedBox(height: 10),
+        Center(
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 10,
+            runSpacing: 2,
+            children: [
+              TextButton(
+                onPressed: _openDownloadedData,
+                style: _footerButtonStyle(
+                  theme,
+                  foregroundColor: const Color(0xFF8FA6C7),
+                ),
+                child: Text(l10n.connectionOpenDownloads),
+              ),
+              TextButton(
+                onPressed: _isSubmitting ? null : _resetFnConnectWebLoginState,
+                style: _footerButtonStyle(
+                  theme,
+                  foregroundColor: const Color(0xFFB6A06A),
+                  disabledForegroundColor: const Color(0xFF5D5A52),
+                  fontWeight: FontWeight.w600,
+                ),
+                child: const Text('重新登录 FN Connect'),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmbyForm(ThemeData theme, AppLocalizations l10n) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _GlassField(
+          controller: _embyBaseUrlController,
+          hintText: 'Emby 服务器地址',
+          keyboardType: TextInputType.url,
+          textInputAction: TextInputAction.next,
+          autofillHints: const <String>[AutofillHints.url],
+        ),
+        const SizedBox(height: 14),
+        _GlassField(
+          controller: _embyUserNameController,
+          hintText: l10n.connectionUserNameHint,
+          textInputAction: TextInputAction.next,
+          autofillHints: const <String>[AutofillHints.username],
+        ),
+        const SizedBox(height: 14),
+        _GlassField(
+          controller: _embyPasswordController,
+          hintText: l10n.connectionPasswordHint,
+          obscureText: _obscureEmbyPassword,
+          textInputAction: TextInputAction.done,
+          autofillHints: const <String>[AutofillHints.password],
+          onSubmitted: (_) => _submit(),
+          suffix: IconButton(
+            onPressed: () {
+              setState(() {
+                _obscureEmbyPassword = !_obscureEmbyPassword;
+              });
+            },
+            icon: Icon(
+              _obscureEmbyPassword
+                  ? Icons.visibility_off_outlined
+                  : Icons.visibility_outlined,
+              color: const Color(0xFF7C8DA5),
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        Text(
+          '当前只加入 Emby 登录入口；验证通过后仍不会接入媒体列表、详情或播放。',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: const Color(0xFF9EADBE),
+            height: 1.35,
+          ),
+        ),
+        const SizedBox(height: 18),
+        _SubmitButton(
+          isSubmitting: false,
+          label: '验证 Emby 连接',
+          onPressed: _verifyEmbyConnection,
+        ),
+      ],
+    );
+  }
+
+  ButtonStyle _footerButtonStyle(
+    ThemeData theme, {
+    required Color foregroundColor,
+    Color? disabledForegroundColor,
+    FontWeight fontWeight = FontWeight.w500,
+  }) {
+    return TextButton.styleFrom(
+      foregroundColor: foregroundColor,
+      disabledForegroundColor: disabledForegroundColor,
+      minimumSize: Size.zero,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      textStyle: theme.textTheme.bodySmall?.copyWith(
+        fontSize: 13,
+        fontWeight: fontWeight,
+      ),
+    );
+  }
+}
+
+class _BackendSelector extends StatelessWidget {
+  const _BackendSelector({required this.selected, required this.onChanged});
+
+  final _ConnectionBackend selected;
+  final ValueChanged<_ConnectionBackend> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFF182331),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFF2D3948)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(4),
+        child: Row(
+          children: [
+            Expanded(
+              child: _BackendSelectorButton(
+                label: '飞牛 NAS',
+                selected: selected == _ConnectionBackend.feiniu,
+                onTap: () => onChanged(_ConnectionBackend.feiniu),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: _BackendSelectorButton(
+                label: 'Emby',
+                selected: selected == _ConnectionBackend.emby,
+                onTap: () => onChanged(_ConnectionBackend.emby),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BackendSelectorButton extends StatelessWidget {
+  const _BackendSelectorButton({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? const Color(0xFF2D74D9) : Colors.transparent,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: selected ? Colors.white : const Color(0xFF9FB0C7),
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SubmitButton extends StatelessWidget {
+  const _SubmitButton({
+    required this.isSubmitting,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final bool isSubmitting;
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SizedBox(
+      height: 64,
+      child: ElevatedButton(
+        onPressed: onPressed,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFF2D74D9),
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: const Color(0xFF1E4B89),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          elevation: 0,
+          textStyle: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        child: isSubmitting
+            ? SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.2,
+                  valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                  backgroundColor: Colors.white.withValues(alpha: 0.18),
+                ),
+              )
+            : Text(label),
       ),
     );
   }
