@@ -245,5 +245,34 @@ void main() {
       expect(source.subtitleTrackIndex, isNull);
       expect(source.subtitleTrackGuid, 'sub-1');
     });
+
+    test('seriesId 为空：seriesGuid 回退 grandGuid（保 B-2 单条目现状）', () async {
+      final api = await makeApi();
+      final context = buildContext(api, selectedSubtitle: null);
+
+      final source = await const FeiniuPlaybackSourceBridge().assemble(
+        request: const MediaPlaybackRequest(itemId: 'item-1'),
+        bundle: buildBundle(),
+        context: context,
+      );
+
+      expect(source.seriesGuid, 'series-1');
+    });
+
+    test('显式 seriesId：seriesGuid 取覆盖值优先于 grandGuid', () async {
+      final api = await makeApi();
+      final context = buildContext(api, selectedSubtitle: null);
+
+      final source = await const FeiniuPlaybackSourceBridge().assemble(
+        request: const MediaPlaybackRequest(
+          itemId: 'item-1',
+          seriesId: 'series-override',
+        ),
+        bundle: buildBundle(),
+        context: context,
+      );
+
+      expect(source.seriesGuid, 'series-override');
+    });
   });
 }

@@ -229,12 +229,21 @@ class FeiniuMediaBackend implements MediaBackend {
         ? 0
         : request.resumePosition?.inSeconds ??
               (playInfo.ts > 0 ? playInfo.ts : playInfo.item.watchedTs);
+    // restartWhenCompleted（剧集场景）：已看完的一集重新点播回到开头，复刻 TV launcher 的
+    // `networkCompleted: playbackCompleted` + 默认归零。默认 false 时维持单条目「永不归零」。
+    final durationSeconds = playInfo.item.duration;
+    final networkCompleted =
+        request.restartWhenCompleted &&
+        durationSeconds > 0 &&
+        ((durationSeconds - networkPositionSeconds) <= 0 ||
+            playInfo.item.isWatched == 1);
     final resume = await PlaybackResumePositionResolver.resolve(
       videoIds: <String>[playInfo.item.guid, request.itemId],
-      durationSeconds: playInfo.item.duration,
+      durationSeconds: durationSeconds,
       networkPositionSeconds: networkPositionSeconds,
       networkPositionAvailable: true,
-      resetCompletedToBeginning: false,
+      networkCompleted: networkCompleted,
+      resetCompletedToBeginning: request.restartWhenCompleted,
     );
 
     final item = playInfo.item;
