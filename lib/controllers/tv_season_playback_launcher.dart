@@ -112,6 +112,7 @@ class TvSeasonPlaybackLauncher {
     String? audioGuid,
     int? audioTrackIndex,
     int? subtitleTrackIndex,
+    String? preferredQualityResolution,
   }) async {
     return AsyncActionGuard.run<Map<String, dynamic>?>(
       'tv_season_resolve:${itemGuid.trim()}',
@@ -169,6 +170,7 @@ class TvSeasonPlaybackLauncher {
           overrideAudioGuid: audioGuid,
           audioTrackIndex: audioTrackIndex,
           subtitleTrackIndex: subtitleTrackIndex,
+          preferredQualityResolution: preferredQualityResolution,
         );
         if (resolved == null) return null;
         final loadArgs = <String, dynamic>{
@@ -212,6 +214,7 @@ class TvSeasonPlaybackLauncher {
     String? overrideAudioGuid,
     int? audioTrackIndex,
     int? subtitleTrackIndex,
+    String? preferredQualityResolution,
   }) async {
     // B-3：季/集播放解析改走后端中立 getPlayback + 飞牛桥接器装配 MpvMediaSource。
     // 与 B-2 单条目共用桥接器；TV 特有的两点经中立 request 字段表达：
@@ -244,6 +247,7 @@ class TvSeasonPlaybackLauncher {
           (subtitleTrackIndex != null && subtitleTrackIndex >= 0)
           ? subtitleTrackIndex
           : null,
+      preferredQualityResolution: preferredQualityResolution ?? '',
     );
 
     final backend = FeiniuMediaBackend(FeiniuApi(provider));

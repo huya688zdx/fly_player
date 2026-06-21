@@ -109,6 +109,7 @@ class NativePlayerBridge {
       String? audioGuid,
       int? audioTrackIndex,
       int? subtitleTrackIndex,
+      String? preferredQualityResolution,
     })
     onResolvePlayback,
     required Future<void> Function(Map<String, dynamic> progress)
@@ -160,6 +161,13 @@ class NativePlayerBridge {
             // 切集按序号继承轨道（Bug B）：native 传当前音轨/字幕序号；字幕 -1=继承「关闭」。
             audioTrackIndex: (args['audioTrackIndex'] as num?)?.toInt(),
             subtitleTrackIndex: (args['subtitleTrackIndex'] as num?)?.toInt(),
+            // 切集按分辨率继承画质：native（转码态）传当前分辨率；空=不继承，走默认梯度。
+            preferredQualityResolution: () {
+              final v = (args['preferredQualityResolution'] ?? '')
+                  .toString()
+                  .trim();
+              return v.isEmpty ? null : v;
+            }(),
           );
         case 'reloadServerSession':
           if (onReloadServerSession == null) return null;
