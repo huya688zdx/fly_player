@@ -1414,9 +1414,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                   startPositionMs,
                   subtitleGuid,
                   audioGuid,
-                  // 单条目 launcher 本期不接序号继承；声明以匹配桥接器函数类型。
+                  // 单条目 launcher 本期不接序号/画质继承；声明以匹配桥接器函数类型。
                   audioTrackIndex,
                   subtitleTrackIndex,
+                  preferredQualityResolution,
                 }) => const ItemPlaybackLauncher().resolveForNative(
                   nas,
                   itemGuid: itemGuid,
