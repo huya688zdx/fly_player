@@ -275,6 +275,7 @@ class FeiniuMediaBackend implements MediaBackend {
         mergedSubtitleStreams,
         selectedSubtitle,
       ),
+      mergedQualities: mergedQualities,
       subtitleTracks: mergedSubtitleStreams,
       effectiveSourceId: effectiveSourceId,
       videoTrackId: videoTrackId,
