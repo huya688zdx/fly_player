@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../api/feiniu_api.dart';
+import '../media_backend/playback/media_session_reload.dart';
 import '../models/media_library_item.dart';
 import '../player/controllers/mpv_player_controller.dart';
 import '../player/controllers/player_source_controller.dart';
@@ -159,14 +160,6 @@ class NativeReentrySupport {
     }
   }
 
-  /// 原生壳「转码流切音轨/字幕/画质」反向链路：复用播放器 [PlayerSourceController.
-  /// reloadServerPlaySession]——服务端按所选音轨+字幕+画质重新出流，**保留**未指定的项
-  /// （切音轨不动画质、切画质保留音轨/字幕），而不是 `_resolve` 那条会重挑画质（默认回
-  /// 1080p）的从头解析路径。
-  ///
-  /// 入参 [currentLoadArgs] 为原生壳当前完整 loadArgs（即上次回传的 source.toMap），据此
-  /// 重建当前态快照；[audioGuid]/[subtitleGuid] 为 null 时保留当前（subtitleGuid 空串=关闭）；
-  /// [qualityIndex] 为 null 时保留当前画质。回传新 source 的 loadArgs，原生原地换源。
   static List<Map<String, dynamic>> _episodesFromLoadArgs(
     Map<String, dynamic> loadArgs,
   ) {
@@ -336,13 +329,47 @@ class NativeReentrySupport {
     return candidates.isNotEmpty ? candidates.first : '';
   }
 
+  /// 把中立 [MediaSessionReloadIntent] 映射为 reloadServerPlaySession 所需的飞牛参数。
+  ///
+  /// 纯函数，不触网、不碰 reload 内核——便于单测钉住 B-4 最易回归的语义：
+  /// - `audioTrackId == null` → `audioGuid == null`（内核 `?? snapshot.audioGuid` 保留当前音轨）；
+  /// - `subtitleTrackId == null && !subtitleDisabled` → `subtitleGuid == null`（保留当前字幕）；
+  /// - `subtitleDisabled == true` → `subtitleGuid == ''`（关闭字幕）；
+  /// - `qualityIndex == null` 或越界 → `qualityIndex == null`（保留当前画质，不崩溃）；
+  /// - `startPosition == null` → 沿用 [currentStartPosition]（当前续播位）。
+  static ReloadRequestParams resolveReloadRequestParams(
+    MediaSessionReloadIntent intent, {
+    required int qualityCount,
+    required Duration currentStartPosition,
+  }) {
+    final idx = intent.qualityIndex;
+    final resolvedQualityIndex = (idx != null && idx >= 0 && idx < qualityCount)
+        ? idx
+        : null;
+    return ReloadRequestParams(
+      audioGuid: intent.audioTrackId,
+      subtitleGuid: intent.subtitleDisabled ? '' : intent.subtitleTrackId,
+      qualityIndex: resolvedQualityIndex,
+      startPosition: intent.startPosition ?? currentStartPosition,
+    );
+  }
+
+  /// 飞牛「反向重载桥接器」：原生壳转码/服务端托管态切音轨/字幕/画质的反向链路。
+  ///
+  /// 它是 reload 路径上 [FeiniuPlaybackSourceBridge] 的对位物——消费中立
+  /// [MediaSessionReloadIntent] + 当前 [MpvMediaSource]（[currentLoadArgs]，即上次回传的
+  /// `source.toMap()`），调播放器 [PlayerSourceController.reloadServerPlaySession] 内核，
+  /// 产出新 [MpvMediaSource] 的 loadArgs，原生原地换源。内核按所选项重出流、**保留未指定项**
+  /// （切音轨不动画质、切画质保留音轨/字幕），不是 `_resolve` 那条会重挑画质的从头解析路径。
+  ///
+  /// [intent] 的 `null` 一律表示「保留当前选择」（见 [MediaSessionReloadIntent]）：飞牛私有
+  /// guid 名只在本桥接器内部经 [resolveReloadRequestParams] 映射，对齐中立请求纪律。
+  /// Emby 复用：channel 协议与 [MediaSessionReloadIntent] 不变，接 Emby 时由 provider/factory
+  /// 选 Emby 的 reload 桥接实现消费同一 intent，UI 不写 `if (isEmby)`。
   static Future<Map<String, dynamic>?> reloadServerSession(
     NasProvider nas, {
     required String currentLoadArgs,
-    String? audioGuid,
-    String? subtitleGuid,
-    int? qualityIndex,
-    int? startPositionMs,
+    required MediaSessionReloadIntent intent,
   }) async {
     if (currentLoadArgs.trim().isEmpty) return null;
     final MpvMediaSource source;
@@ -358,7 +385,7 @@ class NativeReentrySupport {
     // 切画质（qualityIndex != null）任意模式都走这里——reloadServerPlaySession 会按所选档
     // 重建会话/直链并正确产出分辨率与音轨；只有「非 serverManaged 的纯切音轨/字幕」不该来
     // （那种本地 mpv 切轨即可，原生侧也不会调到这条）。
-    if (qualityIndex == null && !source.playbackMode.isServerManaged) {
+    if (intent.qualityIndex == null && !source.playbackMode.isServerManaged) {
       return null;
     }
 
@@ -384,15 +411,15 @@ class NativeReentrySupport {
       playbackMode: source.playbackMode,
       serverFallbackSubtitleGuids: const <String>{},
     );
-    final selectedQuality =
-        (qualityIndex != null &&
-            qualityIndex >= 0 &&
-            qualityIndex < source.qualities.length)
-        ? source.qualities[qualityIndex]
+    final params = resolveReloadRequestParams(
+      intent,
+      qualityCount: source.qualities.length,
+      currentStartPosition: source.startPosition,
+    );
+    final selectedQuality = params.qualityIndex != null
+        ? source.qualities[params.qualityIndex!]
         : null;
-    final startPos = startPositionMs != null
-        ? Duration(milliseconds: startPositionMs)
-        : source.startPosition;
+    final startPos = params.startPosition;
 
     final PlayerServerReloadResult result;
     try {
@@ -400,8 +427,8 @@ class NativeReentrySupport {
         api: api,
         snapshot: snapshot,
         request: PlayerServerReloadRequest(
-          audioGuid: audioGuid,
-          subtitleGuid: subtitleGuid,
+          audioGuid: params.audioGuid,
+          subtitleGuid: params.subtitleGuid,
           quality: selectedQuality,
           startPosition: startPos,
         ),
@@ -511,4 +538,27 @@ class NativeReentrySupport {
     if (supported.contains(normalized)) return normalized;
     return 'srt';
   }
+}
+
+/// [NativeReentrySupport.resolveReloadRequestParams] 的产物：把中立重载意图落成飞牛
+/// reload 内核所需的具体参数（飞牛私有 guid 名只在桥接器内部出现）。
+class ReloadRequestParams {
+  const ReloadRequestParams({
+    required this.audioGuid,
+    required this.subtitleGuid,
+    required this.qualityIndex,
+    required this.startPosition,
+  });
+
+  /// 传给内核的音轨 guid；`null` = 保留当前音轨。
+  final String? audioGuid;
+
+  /// 传给内核的字幕 guid；`null` = 保留当前，`''` = 关闭字幕。
+  final String? subtitleGuid;
+
+  /// 已校验的画质下标；`null` = 保留当前画质（含越界回落）。
+  final int? qualityIndex;
+
+  /// 起播位置（已应用「保留当前续播位」回退）。
+  final Duration startPosition;
 }

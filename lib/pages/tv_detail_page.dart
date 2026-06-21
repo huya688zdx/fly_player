@@ -937,20 +937,11 @@ class _TvDetailPageState extends State<TvDetailPage>
             NativeReentrySupport.recordProgress(nas, progress),
         onResolveSubtitleFile: (guid, {format}) =>
             NativeReentrySupport.resolveSubtitleFile(nas, guid, format: format),
-        onReloadServerSession:
-            (
-              currentLoadArgs, {
-              audioGuid,
-              subtitleGuid,
-              qualityIndex,
-              startPositionMs,
-            }) => NativeReentrySupport.reloadServerSession(
+        onReloadServerSession: (currentLoadArgs, intent) =>
+            NativeReentrySupport.reloadServerSession(
               nas,
               currentLoadArgs: currentLoadArgs,
-              audioGuid: audioGuid,
-              subtitleGuid: subtitleGuid,
-              qualityIndex: qualityIndex,
-              startPositionMs: startPositionMs,
+              intent: intent,
             ),
         onLoadEpisodePickerData: (currentLoadArgs, {seasonGuid}) =>
             NativeReentrySupport.loadEpisodePickerData(
