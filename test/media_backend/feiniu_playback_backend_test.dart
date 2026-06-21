@@ -335,5 +335,46 @@ void main() {
       ).getPlayback(const MediaPlaybackRequest(itemId: 'item-1'))).bundle;
       expect(bundle2.startPosition, const Duration(seconds: 120));
     });
+
+    test('restartWhenCompleted=true 且已看完（ts>=duration）→ 起播归零', () async {
+      final teardown = <Object>[];
+      final nas = buildNas(teardown);
+      addTearDown(() {
+        for (final n in teardown) {
+          (n as NasProvider).dispose();
+        }
+      });
+
+      final api = _FakePlaybackApi(nas)
+        ..itemDuration = 3000
+        ..playInfoTs = 3000;
+      final bundle = (await FeiniuMediaBackend(api).getPlayback(
+        const MediaPlaybackRequest(
+          itemId: 'item-1',
+          restartWhenCompleted: true,
+        ),
+      )).bundle;
+
+      expect(bundle.startPosition, Duration.zero);
+    });
+
+    test('restartWhenCompleted=false（默认）且已看完 → 维持网络位（保 B-2 单条目现状）', () async {
+      final teardown = <Object>[];
+      final nas = buildNas(teardown);
+      addTearDown(() {
+        for (final n in teardown) {
+          (n as NasProvider).dispose();
+        }
+      });
+
+      final api = _FakePlaybackApi(nas)
+        ..itemDuration = 3000
+        ..playInfoTs = 3000;
+      final bundle = (await FeiniuMediaBackend(
+        api,
+      ).getPlayback(const MediaPlaybackRequest(itemId: 'item-1'))).bundle;
+
+      expect(bundle.startPosition, const Duration(seconds: 3000));
+    });
   });
 }
