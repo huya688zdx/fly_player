@@ -4521,12 +4521,18 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         return if (idx >= 0) idx else null
     }
 
-    /** 切集 resolvePlayback 入参：itemGuid + 当前音轨/字幕序号（用于跨集继承）。 */
+    /** 切集 resolvePlayback 入参：itemGuid + 当前音轨/字幕序号 + 当前分辨率（用于跨集继承）。 */
     private fun episodeResolveArgs(itemGuid: String): Map<String, Any?> {
         val args = HashMap<String, Any?>()
         args["itemGuid"] = itemGuid
         inheritAudioTrackIndex()?.let { args["audioTrackIndex"] = it }
         inheritSubtitleTrackIndex()?.let { args["subtitleTrackIndex"] = it }
+        // 画质继承：仅转码态带上当前分辨率，下一集选同分辨率转码档（找不到回默认）。原画/直链
+        // 态不带——Flutter 默认画质梯度本就偏向直链/原画，避免误把原画错配成转码档。
+        if (isServerManagedPlayback()) {
+            val res = loadArgsMap["resolution"]?.toString()?.trim().orEmpty()
+            if (res.isNotEmpty()) args["preferredQualityResolution"] = res
+        }
         return args
     }
 
