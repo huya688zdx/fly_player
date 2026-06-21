@@ -12,12 +12,15 @@ import 'media_playback.dart';
 /// - `qualityId` 非空且命中 → 用同 source 的原画 / 默认档，找不到再用同 source 第一档
 ///   （复刻入口控制器切版本时优先原画的口径）。
 /// - `qualityIndex` 在范围内 → 用它。
+/// - `preferredResolution` 非空且命中（分辨率字符串相等）→ 用第一条匹配档（跨集继承
+///   「当前分辨率」，如 1080p 转码档；找不到则回退默认梯度，对齐「找不到回默认」）。
 /// - 否则按入口控制器初始画质口径回退：直链默认档 → 任意直链档 → 原画档 →
 ///   第一个默认档 → 第一档，列表为空则 `null`。
 MediaPlaybackQuality? selectPlaybackQuality({
   required List<MediaPlaybackQuality> qualities,
   String? qualityId,
   int? qualityIndex,
+  String? preferredResolution,
 }) {
   if (qualities.isEmpty) return null;
 
@@ -39,6 +42,13 @@ MediaPlaybackQuality? selectPlaybackQuality({
       qualityIndex >= 0 &&
       qualityIndex < qualities.length) {
     return qualities[qualityIndex];
+  }
+
+  final res = preferredResolution?.trim() ?? '';
+  if (res.isNotEmpty) {
+    for (final quality in qualities) {
+      if (quality.resolution.trim() == res) return quality;
+    }
   }
 
   for (final quality in qualities) {
