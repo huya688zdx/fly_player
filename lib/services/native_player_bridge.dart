@@ -107,6 +107,8 @@ class NativePlayerBridge {
       int? startPositionMs,
       String? subtitleGuid,
       String? audioGuid,
+      int? audioTrackIndex,
+      int? subtitleTrackIndex,
     })
     onResolvePlayback,
     required Future<void> Function(Map<String, dynamic> progress)
@@ -155,6 +157,9 @@ class NativePlayerBridge {
             audioGuid: args.containsKey('audioGuid')
                 ? (args['audioGuid'] ?? '').toString()
                 : null,
+            // 切集按序号继承轨道（Bug B）：native 传当前音轨/字幕序号；字幕 -1=继承「关闭」。
+            audioTrackIndex: (args['audioTrackIndex'] as num?)?.toInt(),
+            subtitleTrackIndex: (args['subtitleTrackIndex'] as num?)?.toInt(),
           );
         case 'reloadServerSession':
           if (onReloadServerSession == null) return null;

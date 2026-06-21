@@ -110,6 +110,8 @@ class TvSeasonPlaybackLauncher {
     int? startPositionMs,
     String? subtitleGuid,
     String? audioGuid,
+    int? audioTrackIndex,
+    int? subtitleTrackIndex,
   }) async {
     return AsyncActionGuard.run<Map<String, dynamic>?>(
       'tv_season_resolve:${itemGuid.trim()}',
@@ -165,6 +167,8 @@ class TvSeasonPlaybackLauncher {
           qualityMediaGuid: qualityMediaGuid,
           overrideSubtitleGuid: subtitleGuid,
           overrideAudioGuid: audioGuid,
+          audioTrackIndex: audioTrackIndex,
+          subtitleTrackIndex: subtitleTrackIndex,
         );
         if (resolved == null) return null;
         final loadArgs = <String, dynamic>{
@@ -206,6 +210,8 @@ class TvSeasonPlaybackLauncher {
     String? qualityMediaGuid,
     String? overrideSubtitleGuid,
     String? overrideAudioGuid,
+    int? audioTrackIndex,
+    int? subtitleTrackIndex,
   }) async {
     // B-3：季/集播放解析改走后端中立 getPlayback + 飞牛桥接器装配 MpvMediaSource。
     // 与 B-2 单条目共用桥接器；TV 特有的两点经中立 request 字段表达：
@@ -214,6 +220,8 @@ class TvSeasonPlaybackLauncher {
     // seriesTitle 同时充当 title 与 seriesTitle 字段回退，映射到 request.fallbackTitle。
     // 本地下载优先仍在 resolveForNative()；页面侧反向通道 / 弹幕预取 / 选集均不变。
     // overrideSubtitleGuid 三态映射到公共 request：null=默认，''=显式关闭，其余=指定轨。
+    // 切集按序号继承轨道（Bug B）：native 传当前音轨/字幕序号；字幕 -1 = 继承「关闭」。
+    final inheritSubtitleOff = subtitleTrackIndex == -1;
     final request = MediaPlaybackRequest(
       itemId: itemGuid,
       fallbackTitle: seriesTitle,
@@ -226,7 +234,16 @@ class TvSeasonPlaybackLauncher {
           (overrideSubtitleGuid != null && overrideSubtitleGuid.isNotEmpty)
           ? overrideSubtitleGuid
           : null,
-      subtitleTrackExplicitlyDisabled: overrideSubtitleGuid == '',
+      subtitleTrackExplicitlyDisabled:
+          overrideSubtitleGuid == '' || inheritSubtitleOff,
+      preferredAudioTrackIndex:
+          (audioTrackIndex != null && audioTrackIndex >= 0)
+          ? audioTrackIndex
+          : null,
+      preferredSubtitleTrackIndex:
+          (subtitleTrackIndex != null && subtitleTrackIndex >= 0)
+          ? subtitleTrackIndex
+          : null,
     );
 
     final backend = FeiniuMediaBackend(FeiniuApi(provider));
