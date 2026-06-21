@@ -11,6 +11,11 @@ class TrackSelectionController(
         private const val DEFAULT_SUBTITLE_POSITION = 92
         private const val MAX_TRACK_SCAN_COUNT = 64
         private const val EMPTY_TRACK_SCAN_BREAK_THRESHOLD = 8
+        // mpv `track-list/*` 在轨道列表被改写的瞬间会脏读：`track-list/count` 返回垃圾
+        // 大值、`track-list/$index/id` 返回越界/未初始化的巨大值（实测出现过 3324941）。
+        // 真实轨道 id 是从 1 顺序分配的小整数，远小于此上界；超出则判为脏读直接丢弃，
+        // 绝不把它当作有效轨道号去 setPropertyInt("sid")（否则 mpv 报 -4，字幕切换失败/卡转圈）。
+        private const val MAX_PLAUSIBLE_TRACK_ID = 256
         private const val BOGUS_PURGE_RETRY_COOLDOWN_MS = 1800L
         // 同一外挂字幕路径在该窗口内被反复要求重挂时跳过 purge+sub-add，打断
         // 「内嵌 PGS/SUP 轨选择」与「服务端外挂 .ass 重挂」互相覆盖的振荡风暴。
@@ -277,9 +282,13 @@ class TrackSelectionController(
             if (!external) continue
             val trackId = runCatching { mpv.getPropertyInt("track-list/$index/id") }
                 .getOrDefault(0L)
-                .toInt()
-            if (trackId > 0) {
-                externalIds += trackId
+            if (trackId in 1..MAX_PLAUSIBLE_TRACK_ID.toLong()) {
+                externalIds += trackId.toInt()
+            } else if (trackId != 0L) {
+                Log.d(
+                    "FlyPlayerMpv",
+                    "drop bogus external subtitle purge id=$trackId index=$index",
+                )
             }
         }
         if (externalIds.isNotEmpty()) {
@@ -319,7 +328,9 @@ class TrackSelectionController(
                         "FlyPlayerMpv",
                         "skip bogus external subtitle reuse scan count=$count afterEmptyStreak=$emptyStreak",
                     )
-                    break
+                    // 脏读扫描整体不可信：此刻读到的 id 也可能是垃圾值。丢弃已收集的部分结果，
+                    // 宁可返回空（退回到下面的 purge+sub-add 重挂路径），也不要把垃圾 id 设给 sid。
+                    return emptyList()
                 }
                 continue
             }
@@ -351,9 +362,13 @@ class TrackSelectionController(
             if (!pathMatches && !titleMatches) continue
             val trackId = runCatching { mpv.getPropertyInt("track-list/$index/id") }
                 .getOrDefault(0L)
-                .toInt()
-            if (trackId > 0) {
-                trackIds += trackId
+            if (trackId in 1..MAX_PLAUSIBLE_TRACK_ID.toLong()) {
+                trackIds += trackId.toInt()
+            } else if (trackId != 0L) {
+                Log.d(
+                    "FlyPlayerMpv",
+                    "drop bogus external subtitle track id=$trackId index=$index",
+                )
             }
         }
         return trackIds
