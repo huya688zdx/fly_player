@@ -150,3 +150,41 @@ class MediaSessionReloadIntent {
 - 不动原生 Kotlin 侧 channel 协议（仍发 guid/index）；不碰 `MpvPlaybackController.kt`、
   不夹带 `HANDOFF.md`。
 - 不改下载、本地播放、play stats。
+
+## 7. Codex 审查补充（2026-06-21）
+
+设计方向可执行：B-4 选择“薄收口”而不是把 `reloadServerPlaySession` 搬入
+`media_backend`，符合当前边界。当前真实代码里，`reloadServerSession` 的输入是
+`MpvMediaSource.toMap()`，输出也是新的 `MpvMediaSource` loadArgs；它天然属于
+player/reentry 桥接层，不宜反灌到公共 backend。
+
+但实施前需要修正两处语义表述，避免后续代码和测试写歪：
+
+1. **字幕/音轨 null 语义应是“保留当前选择”，不是“保留服务端默认”。**
+   `PlayerSourceController.reloadServerPlaySession` 当前真实行为是：
+   `request.audioGuid ?? snapshot.audioGuid`、`request.subtitleGuid ?? snapshot.subtitleGuid`。
+   因此 `MediaSessionReloadIntent.audioTrackId == null` 表示保留当前音轨，
+   `subtitleTrackId == null && subtitleDisabled == false` 表示保留当前字幕选择。
+   只有 `subtitleDisabled == true` 才表示显式关闭字幕。Task 1 的模型注释和单测应按
+   “当前选择”口径写，不能写成“服务端默认”，否则会把“切画质保留当前音轨/字幕”
+   这个关键回归点测反。
+
+2. **Emby 复用应表述为“intent/channel seam 可复用”，不要承诺 UI 零改动。**
+   B-4 后，Dart channel 入口会统一产出 `MediaSessionReloadIntent`，这确实让
+   原生侧协议和意图模型可复用；但页面闭包仍会调用具体 reload bridge。未来接 Emby 时，
+   仍需要由 provider/factory 选择 `Feiniu` 或 `Emby` 的 reload bridge 实现，不能简单说
+   “UI / 反向通道零改动”。更准确的边界是：Kotlin channel 协议不变、intent 模型不变；
+   Flutter 页面接线最多只换后端 bridge/provider，不在 UI 写 `if (isEmby)`。
+
+建议 Task 2 顺手抽一个很小的纯映射函数，例如把 `MediaSessionReloadIntent` +
+`MpvMediaSource` 映射为 `PlayerServerReloadRequest` 所需的
+`audioGuid/subtitleGuid/quality/startPosition`，用于覆盖：
+
+- `audioTrackId == null` 时沿用 source 当前音轨；
+- `subtitleTrackId == null && !subtitleDisabled` 时沿用 source 当前字幕；
+- `subtitleDisabled == true` 时传空串关闭字幕；
+- `qualityIndex == null` 时保留当前画质；
+- `qualityIndex` 越界时不崩溃并回落为保留当前画质；
+- `startPosition == null` 时沿用 source 当前起播位。
+
+这样可以在不 fake `FeiniuApi`、不触碰 reload 内核的前提下，把 B-4 最容易回归的语义钉住。
