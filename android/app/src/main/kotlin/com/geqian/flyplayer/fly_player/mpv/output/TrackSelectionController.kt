@@ -12,6 +12,9 @@ class TrackSelectionController(
         private const val MAX_TRACK_SCAN_COUNT = 64
         private const val EMPTY_TRACK_SCAN_BREAK_THRESHOLD = 8
         private const val BOGUS_PURGE_RETRY_COOLDOWN_MS = 1800L
+        // 同一外挂字幕路径在该窗口内被反复要求重挂时跳过 purge+sub-add，打断
+        // 「内嵌 PGS/SUP 轨选择」与「服务端外挂 .ass 重挂」互相覆盖的振荡风暴。
+        private const val EXTERNAL_SUBTITLE_READD_COOLDOWN_MS = 1500L
     }
 
     private var pendingAudioDelay = 0.0
@@ -26,6 +29,8 @@ class TrackSelectionController(
     private var pendingPreferExternalSubtitle: Boolean = false
     private var pendingSubtitleGuid: String? = null
     private var lastBogusPurgeAbortElapsedMs: Long = 0L
+    private var lastExternalSubAddPath: String? = null
+    private var lastExternalSubAddElapsedMs: Long = 0L
 
     fun onLoadRequested(source: MpvSource) {
         purgeExternalSubtitleTracks()
@@ -41,6 +46,9 @@ class TrackSelectionController(
         pendingPreferExternalSubtitle = source.preferExternalSubtitle
         pendingSubtitleGuid = source.subtitleTrackGuid
         pendingExternalSubtitlePath = null
+        // 新源：清掉重挂冷却记忆，避免跨集复用同一 .ass 路径时误跳过首次挂载。
+        lastExternalSubAddPath = null
+        lastExternalSubAddElapsedMs = 0L
     }
 
     fun onSubtitleTrackSelectedManually() {
@@ -124,6 +132,22 @@ class TrackSelectionController(
             pendingExternalSubtitlePath = null
             return true
         }
+        // 振荡保护：同一外挂路径刚 sub-add 过、却又（被竞争的内嵌轨选择 purge 后）要求重挂，
+        // 说明正处于「PGS/SUP 内嵌 ↔ 外挂 .ass」互相覆盖的 ping-pong。冷却窗口内不再
+        // purge+sub-add，清掉 pending 让竞争中的内嵌选择先稳定，避免反复 sub-add 抖动/卡顿。
+        val now = SystemClock.elapsedRealtime()
+        if (
+            path == lastExternalSubAddPath &&
+            lastExternalSubAddElapsedMs > 0L &&
+            now - lastExternalSubAddElapsedMs < EXTERNAL_SUBTITLE_READD_COOLDOWN_MS
+        ) {
+            Log.d(
+                "FlyPlayerMpv",
+                "skip external subtitle re-add within cooldown ms=${now - lastExternalSubAddElapsedMs} path=$path",
+            )
+            pendingExternalSubtitlePath = null
+            return false
+        }
         val success = runCatching {
             purgeExternalSubtitleTracks(force = true)
             Log.d("FlyPlayerMpv", "sub-add path=$path")
@@ -141,6 +165,8 @@ class TrackSelectionController(
         if (success) {
             activeExternalSubtitlePath = path
             pendingExternalSubtitlePath = null
+            lastExternalSubAddPath = path
+            lastExternalSubAddElapsedMs = SystemClock.elapsedRealtime()
         }
         return success
     }
