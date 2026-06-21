@@ -66,6 +66,38 @@ status doc 记录的暂缓两大主因：
 
 > tv_detail / 人物详情 / 图片 headers 不在本计划，单列后续。
 
+## 5.1 实现中发现的等价坑（2026-06-22，实测记录）
+
+实现 Task 1/2 时枚举 build 闭包，发现详情页的**显示逻辑**多处带飞牛口味，直接换 `_detail`
+会引入细微行为差异。据此把展示字段分三类：
+
+**A. 零等价坑、已迁（Task 2 `1fc6fb7`）**
+- `detailTitle`：迁 `_detail`，但**内联复刻** `tvTitle 优先` 逻辑，绕开 `MediaDetail.displayTitle`
+  （后者「皆空回退 `'Unknown'`」与旧 `''` 不同）。
+- `overview`、`logoImage.url`：逐字段等价直迁。
+
+**B. 带等价坑 / 缺模型字段 → 需 UI 层 presenter 或留飞牛路径**
+- **演职员**：`creditItems` 用 `PersonCredit.displayName`（皆空回退「未知」，mapper 的 `name`
+  回退空串）+ `displaySubTitle`（飞牛专属 job→中文 映射：director→导演 等）。这些是**显示逻辑**，
+  不应进中立模型。Emby-ready 做法：在 `lib/ui/` 加 `CreditPersonPresenter`（类比 Phase 4.5
+  `CatalogFilterLocalizer`），在 `MediaDetailPerson.name/role/department` 上**复刻**displayName/
+  displaySubTitle 语义；creditItems 经 presenter 读 `_detail.people`。中等任务，Emby 复用同一 presenter。
+- **题材/地区行 `metaLineA`**：`genreNamesFromIds` **丢弃字典查不到的题材**，mapper 的
+  `genreLabels` 把未知 id 保留成数字串——直接换会在缺字典时显示数字。且 `metaLineB` 用
+  `ancestorName`，`MediaDetail` 无此字段。→ 留飞牛路径；Emby 分支自建 metaLine（Emby 直接返回
+  题材名，无未知 id 问题），不阻塞。
+- **海报/背景主题路径** `_dynamicThemePathForPlayItem`：用 `stillPath`（`MediaDetail` 无此字段）
+  且签名吃 `PlayItem`。→ 留飞牛路径（若要迁需给模型补 stillPath，宜与 Emby 一起定）。
+
+**C. 播放半 / 交互态 → 不迁（本设计范围外）**
+- 能力角标（清晰度/音频/色域）：与 `selectedOption`（播放态）二选一，属 Task 3 / 播放半。
+- 已看/收藏按钮、进度条、`playError`：交互态 / 播放逻辑。
+
+> 结论：MediaDetail **数据**已可零网络供页面消费（A 类已证），但页面的**显示逻辑**（displayName/
+> displaySubTitle/displayTitle/metaLine genre 处理）是飞牛口味，干净迁移需 UI 层 presenter（B 类）
+> 或与 Emby 共同定字段（stillPath/ancestorName）。这与「详情页深层显示宜连同 Emby 一起做」的
+> 原判一致——A 类清掉证明了切口，B/C 类按需推进或留待 Emby。
+
 ## 6. 测试与验证
 
 - mapper 已有单测（Phase 5）覆盖字段映射；本期页面侧构造可加一条「页面输入 → detail 展示字段」纯断言（不触网）。
