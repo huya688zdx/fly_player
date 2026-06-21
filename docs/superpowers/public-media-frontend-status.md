@@ -6,6 +6,16 @@
 
 阶段：Phase 6 **桥接子阶段 B-3 TV launcher 迁移代码完成，待用户实机验证**（用户 2026-06-21 选方案 B 分步）。Phase 5 详情骨架、Phase 6 播放后端骨架（Task 1~4）、桥接 B-1、B-2 单条目 launcher 迁移均已收口（Codex 深审通过 `b0b37ae`/`0eb9484`；B-2 用户实机验证通过）。
 
+### 2026-06-21 登录页后端选择 + Emby 入口设计
+
+本次 Codex 只做审计、设计和计划，不改业务代码。审计确认当前首次启动门禁在 `lib/main.dart` `_ProviderGate`，唯一配置源是 `NasProvider.isConfigured`；飞牛账号保存于 SharedPreferences 旧 key：`base_url`、`resolved_base_url`、`user_name`、`password`、`token`、`remember_password`；登录页 `ConnectionScreen` 直接调用 `FeiniuApi.loginWithBaseUrl()`，成功后写 `NasProvider.updateSettings()`；`MediaBackendProvider` 目前固定创建 `FeiniuMediaBackend(FeiniuApi(nasProvider))`。
+
+新设计文档：`docs/superpowers/specs/2026-06-21-public-media-login-backend-design.md`。推荐路线是新增中立 `MediaBackendConnection` / `BackendSessionProvider` / connection store，保留 `NasProvider` 作为飞牛兼容壳；登录页允许显式选择 Feiniu / Emby，但业务页面继续只依赖 provider/factory 和 `MediaBackend`，不散落 `if (isEmby)`。Emby 第一阶段仅允许做用户名密码认证和服务器信息的只读连接验证，不接媒体列表、详情、播放、字幕、下载或 playback check-in。
+
+实施计划：`docs/superpowers/plans/2026-06-21-public-media-login-backend.md`。计划顺序已按“登录页面兼容优先”调整为：先补飞牛登录页兼容护栏 -> 中立连接模型 -> connection store 兼容旧飞牛 prefs -> `BackendSessionProvider` -> 登录历史 v2 -> 登录页 selector -> Emby 只读验证 -> 设置页连接管理 -> `MediaBackendProvider` factory 收口。每步单独测试、单独提交；严禁提交真实 server/token/userId/password，也不得夹带当前工作区已有的 `MpvPlaybackController.kt` 未提交改动和 `HANDOFF.md`。
+
+用户补充确认：本阶段重点是**登录页面兼容**。后续执行时应先用测试锁住飞牛登录页默认表单、历史记录、HTTPS 开关、FN Connect、记住密码、下载入口、错误提示和登出重登行为，再添加任何 Emby 入口或验证逻辑。
+
 **B-2 已把 `ItemPlaybackLauncher._resolve()`（仅单条目）切到 `getPlayback` + `FeiniuPlaybackSourceBridge`**（`99d338d`，−225/+29 行）：`open()` 与 `resolveForNative()` 共用的 `_resolve()` 内部网络解析逻辑全部换成「build `MediaPlaybackRequest` → `backend.getPlayback` → 桥接器 assemble」，返回形状 `(source, playInfo, title)` 不变。**本地下载优先（在 `resolveForNative()`）、TV launcher、原生壳反向通道注册、弹幕预取、进度写回均未改动。** 全量 `flutter analyze` 仅 17 条历史无关项，launcher 与新文件零新增问题；`test/media_backend/ test/player/` + playback 测试 93 PASS。
 
 **B-2 已由用户实机验证通过（2026-06-21）**：单条目默认播放、续播位、画质切换、音轨切换、字幕关闭/切换、外部字幕、原生壳重载均确认与迁移前一致。TV launcher 仍走旧路径（本期不迁）。
