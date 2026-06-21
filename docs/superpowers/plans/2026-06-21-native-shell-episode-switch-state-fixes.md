@@ -148,6 +148,24 @@ return <String, dynamic>{'loadArgs': jsonEncode(newArgs)};
   候选的顺序（同源 mapper），故跨集下标一致。
 - 已知小限制：预取命中后若用户在极短窗口内再改轨，已由切轨清预取覆盖；多数路径无碍。
 
+### 画质继承（用户追加：分辨率也要继承到下一集）—— 已完成（待实机验证）
+
+> 用户：「画质选择也要继承到下一集」。按分辨率继承（与轨道序号继承同思路）。
+
+- 可行性核实：`PlayerSourceController.buildInitialPlaybackResult` 对 serverSession 画质会
+  `createServerPlaySession`（player_source_controller.dart:308-342），故经 getPlayback+桥接器
+  的解析路径能正确产出转码画质——非旧「弃用」路径。
+- **Q1 公共层** `bb4d0c0`：`MediaPlaybackRequest` 加中立 `preferredQualityResolution`（默认 ''）；
+  `selectPlaybackQuality` 在 qualityId/qualityIndex 之后、默认梯度之前加「分辨率匹配」分支
+  （命中返回该档，否则回默认梯度）。selector 单测 +3。
+- **Q2 Flutter 接线** `bf65248`：launcher + 桥接器 `onResolvePlayback` + 两个 TV 页面回调串起
+  `preferredQualityResolution`；三个单条目闭包补声明。切集高亮判定不受影响（新参数不在判定项内）。
+- **Q3 原生壳** `cd52da9`：`episodeResolveArgs` 仅在 `isServerManagedPlayback()`（转码态）带上
+  `loadArgsMap["resolution"]`；原画/直链态不带——Flutter 默认画质梯度本就偏向直链/原画，避免把
+  原画错配成转码档。`compileLiteDebugKotlin` BUILD SUCCESSFUL。
+- 设计取舍：只在转码态继承精确分辨率；原画/直链态走默认梯度（≈原画）。分辨率字符串两端同源
+  （飞牛 quality.resolution），做 trim 相等匹配；若实机发现格式不一致再改数值归一。
+
 ### 缺陷 A —— 未动（用户暂未要求）
 
 待用户要求后，先复现 + 加 `buffering`/`visualPlaybackReady` 时间线日志定位，再改 overlay 判定。
@@ -157,3 +175,4 @@ return <String, dynamic>{'loadArgs': jsonEncode(newArgs)};
 - C：切画质后「选集」仍在、「下一集」可用、连播倒计时正常。
 - B：切下一集后音轨/字幕序号与上一集一致（例：音轨 3 字幕 2 → 仍 3/2）；新集缺该序号回默认；
   上一集关字幕则下一集仍关闭；自动连播（含预取命中）同样继承；切轨后再连播用新选择。
+- 画质：转码态（如 1080p）切下一集仍为同分辨率；新集无该分辨率回默认；原画态切集仍≈原画。
