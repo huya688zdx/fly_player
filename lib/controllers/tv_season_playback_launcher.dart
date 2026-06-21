@@ -5,6 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../api/feiniu_api.dart';
+import '../media_backend/feiniu/feiniu_media_backend.dart';
+import '../media_backend/feiniu/feiniu_playback_context.dart';
+import '../media_backend/playback/media_playback.dart';
+import '../player/controllers/feiniu_playback_source_bridge.dart';
 import '../controllers/local_download_source_resolver.dart';
 import '../controllers/play_detail_data_loader.dart';
 import '../danmaku/settings/danmaku_settings_store.dart';
@@ -12,23 +16,13 @@ import '../services/download_task_service.dart';
 import '../services/native_danmaku_prefetch.dart';
 import '../services/native_player_bridge.dart';
 import '../models/play_info.dart';
-import '../models/playback_stream.dart';
 import '../player/controllers/mpv_player_controller.dart';
 import '../player/mpv_player_page.dart';
-import '../player/controllers/player_source_controller.dart';
 import '../providers/nas_provider.dart';
-import '../services/app_log_service.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../services/play_stats/play_stats.dart';
 import '../ui/app_transitions.dart';
-import '../utils/app_error_reporter.dart';
-import '../utils/app_exception.dart';
 import '../utils/async_action_guard.dart';
-import '../utils/player_artwork_path_resolver.dart';
-import '../utils/playback_resume_position_resolver.dart';
-import '../utils/player_title_formatter.dart';
-import '../utils/play_detail_track_selector.dart';
-import '../models/stream_track_data.dart';
 
 /// 负责从季度列表上下文拉起播放器。
 class TvSeasonPlaybackLauncher {
@@ -213,216 +207,38 @@ class TvSeasonPlaybackLauncher {
     String? overrideSubtitleGuid,
     String? overrideAudioGuid,
   }) async {
-    final api = FeiniuApi(provider);
-    final playInfo = await api.getPlayInfo(itemGuid);
-    // 多版本切换：带 qualityMediaGuid 时按该版本媒体取流（原画 + 该版本字幕/音轨），
-    // 否则用条目默认媒体 playInfo.mediaGuid。
-    final normalizedQualityMediaGuid = qualityMediaGuid?.trim() ?? '';
-    final effectiveMediaGuid = normalizedQualityMediaGuid.isNotEmpty
-        ? normalizedQualityMediaGuid
-        : playInfo.mediaGuid;
-    StreamTrackData? trackData;
-    try {
-      trackData = await api.getStreamTrackData(itemGuid);
-    } catch (error, stackTrace) {
-      unawaited(
-        AppErrorReporter.report(
-          error,
-          action: 'load stream track data',
-          source: 'tv_season_playback_launcher',
-          stackTrace: stackTrace,
-          fallbackKind: AppExceptionKind.noData,
-          level: AppLogLevel.warning,
-          details: 'itemGuid=$itemGuid',
-        ),
-      );
-    }
-    final playbackStream = await api.getPlaybackStream(effectiveMediaGuid);
-    final mergedQualities = mergePlaybackQualitiesWithStreamTrackData(
-      playbackStream.qualities,
-      trackData,
-    );
-    PlaybackQualityOption? initialQuality;
-    if (normalizedQualityMediaGuid.isNotEmpty) {
-      // 切版本优先选该版本的原画档（isDefault/原画代理），保证走原画而不是转码档。
-      for (final quality in mergedQualities) {
-        if (quality.mediaGuid.trim() == normalizedQualityMediaGuid &&
-            (quality.isDefault == 1 || quality.isOriginalProxy)) {
-          initialQuality = quality;
-          break;
-        }
-      }
-      if (initialQuality == null) {
-        for (final quality in mergedQualities) {
-          if (quality.mediaGuid.trim() == normalizedQualityMediaGuid) {
-            initialQuality = quality;
-            break;
-          }
-        }
-      }
-    }
-    if (initialQuality == null &&
-        qualityIndex != null &&
-        qualityIndex >= 0 &&
-        qualityIndex < mergedQualities.length) {
-      initialQuality = mergedQualities[qualityIndex];
-    }
-    initialQuality ??= PlayerSourceController.preferredInitialQuality(
-      mergedQualities,
-    );
-
-    final selectedAudio = PlayDetailTrackSelector.selectedOrFirstAudio(
-      selectedAudioGuid: overrideAudioGuid?.trim().isNotEmpty == true
-          ? overrideAudioGuid
-          : playInfo.audioGuid,
-      audioTracks: playbackStream.audioStreams,
-    );
-    final subtitleTracks = PlayDetailTrackSelector.mergeSubtitleTracks(
-      primaryTracks: playbackStream.subtitleStreams,
-      extraTracks: trackData?.subtitlesForMedia(effectiveMediaGuid) ?? const [],
-    );
-    final selectedSubtitle = overrideSubtitleGuid == null
-        ? PlayDetailTrackSelector.selectedOrFirstSubtitle(
-            selectedSubtitleGuid: playInfo.subtitleGuid,
-            subtitleTracks: subtitleTracks,
-          )
-        : overrideSubtitleGuid.isEmpty
-        ? null
-        : PlayDetailTrackSelector.selectedOrFirstSubtitle(
-            selectedSubtitleGuid: overrideSubtitleGuid,
-            subtitleTracks: subtitleTracks,
-          );
-
-    final playbackVideoGuid =
-        initialQuality?.videoGuid.trim().isNotEmpty == true
-        ? initialQuality!.videoGuid.trim()
-        : (playbackStream.videoStream?.guid.trim().isNotEmpty == true
-              ? playbackStream.videoStream!.guid.trim()
-              : playInfo.videoGuid.trim());
-    final playbackResolution =
-        initialQuality?.isDirectLink == true &&
-            initialQuality!.resolution.trim().isNotEmpty
-        ? initialQuality.resolution.trim()
-        : (playbackStream.videoStream?.resolutionType.trim().isNotEmpty == true
-              ? playbackStream.videoStream!.resolutionType.trim()
-              : '');
-    final playbackBitrate = initialQuality?.isDirectLink == true
-        ? initialQuality!.bitrate
-        : (playbackStream.videoStream?.bps ?? 0);
-    final preferExternalSubtitle =
-        selectedSubtitle != null &&
-        (selectedSubtitle.isExternal == 1 ||
-            selectedSubtitle.extraFile == 1 ||
-            selectedSubtitle.guid.startsWith('local:'));
-    final embeddedSubtitleTrackIndex =
-        selectedSubtitle == null || preferExternalSubtitle
-        ? null
-        : () {
-            final embeddedTracks = subtitleTracks
-                .where((track) {
-                  if (track.guid.trim().isEmpty) return false;
-                  if (track.guid.startsWith('local:')) return false;
-                  return track.isExternal != 1 && track.extraFile != 1;
-                })
-                .toList(growable: false);
-            final ordinal = embeddedTracks.indexWhere(
-              (track) => track.guid == selectedSubtitle.guid,
-            );
-            if (ordinal < 0) return null;
-            return ordinal + 1;
-          }();
-
-    final effectiveDuration = playInfo.item.duration;
-    final sourceTs = playInfo.ts > 0 ? playInfo.ts : playInfo.item.watchedTs;
-    final playbackCompleted =
-        effectiveDuration > 0 &&
-        ((effectiveDuration - sourceTs) <= 0 || playInfo.item.isWatched == 1);
-    final resume = await PlaybackResumePositionResolver.resolve(
-      videoIds: <String>[playInfo.item.guid, itemGuid],
-      durationSeconds: effectiveDuration,
-      networkPositionSeconds: sourceTs,
-      networkPositionAvailable: true,
-      networkCompleted: playbackCompleted,
-    );
-    final effectiveTs = resume.position.inSeconds;
-    final initialPlayback = await const PlayerSourceController()
-        .buildInitialPlaybackResult(
-          api: api,
-          directUrl: api.getStreamUrl(effectiveMediaGuid),
-          mediaGuid: effectiveMediaGuid,
-          videoGuid: playbackVideoGuid,
-          playbackStream: playbackStream,
-          quality: initialQuality,
-          selectedAudio: selectedAudio,
-          selectedSubtitle: selectedSubtitle,
-          startPosition: Duration(seconds: effectiveTs),
-        );
-    final playableSource = initialPlayback.playableSource;
-    final resolvedStartPosition =
-        !playableSource.reliableSeek && effectiveTs > 0
-        ? Duration.zero
-        : resume.position;
-    final title = formatPlayerTitleFromPlayItem(
-      playInfo.item,
+    // B-3：季/集播放解析改走后端中立 getPlayback + 飞牛桥接器装配 MpvMediaSource。
+    // 与 B-2 单条目共用桥接器；TV 特有的两点经中立 request 字段表达：
+    //   - seriesId：调用方显式剧集 guid 优先（桥接器回退 grandGuid）；
+    //   - restartWhenCompleted=true：已看完的一集重新点播回到开头。
+    // seriesTitle 同时充当 title 与 seriesTitle 字段回退，映射到 request.fallbackTitle。
+    // 本地下载优先仍在 resolveForNative()；页面侧反向通道 / 弹幕预取 / 选集均不变。
+    // overrideSubtitleGuid 三态映射到公共 request：null=默认，''=显式关闭，其余=指定轨。
+    final request = MediaPlaybackRequest(
+      itemId: itemGuid,
       fallbackTitle: seriesTitle,
-    );
-
-    final source = MpvMediaSource(
-      loadNonce: createMpvLoadNonce(),
-      itemGuid: playInfo.item.guid,
-      seriesGuid: seriesGuid.trim().isNotEmpty
-          ? seriesGuid.trim()
-          : playInfo.grandGuid.trim(),
-      seasonGuid: playInfo.parentGuid,
-      posterPath: resolvePlayerArtworkPathForPlayItem(playInfo.item),
-      mediaGuid: initialPlayback.mediaGuid,
-      mediaType: playInfo.item.type,
-      ancestorName: playInfo.item.ancestorName,
-      videoGuid: initialPlayback.videoGuid,
-      directLinkQualityIndex: initialQuality?.isDirectLink == true
-          ? initialQuality!.directLinkQualityIndex
+      seriesId: seriesGuid,
+      restartWhenCompleted: true,
+      qualityIndex: qualityIndex,
+      qualityId: qualityMediaGuid,
+      audioTrackId: overrideAudioGuid,
+      subtitleTrackId:
+          (overrideSubtitleGuid != null && overrideSubtitleGuid.isNotEmpty)
+          ? overrideSubtitleGuid
           : null,
-      videoWidth: playbackStream.videoStream?.width ?? 0,
-      videoHeight: playbackStream.videoStream?.height ?? 0,
-      proxySessionId: playableSource.proxySessionId,
-      playLink: initialPlayback.playLink,
-      serverSessionHlsTimeSeconds: initialPlayback.serverSessionHlsTimeSeconds,
-      url: playableSource.url,
-      headers: playableSource.headers,
-      title: title,
-      seriesTitle: playInfo.item.tvTitle.trim().isNotEmpty
-          ? playInfo.item.tvTitle.trim()
-          : seriesTitle,
-      seasonNumber: playInfo.item.seasonNumber,
-      tmdbId: playInfo.item.trimId,
-      episodeNumber: playInfo.item.episodeNumber,
-      startPosition: resolvedStartPosition,
-      audioTrackIndex: selectedAudio?.index,
-      subtitleTrackIndex: embeddedSubtitleTrackIndex,
-      audioTrackGuid: selectedAudio?.guid ?? playInfo.audioGuid,
-      subtitleTrackGuid:
-          selectedSubtitle?.guid ??
-          (overrideSubtitleGuid ?? playInfo.subtitleGuid),
-      resolution: playbackResolution,
-      bitrate: playbackBitrate,
-      durationSeconds: effectiveDuration,
-      videoCodecName: playbackStream.videoStream?.codecName ?? '',
-      videoProfile: playbackStream.videoStream?.profile ?? '',
-      colorSpace: playbackStream.videoStream?.colorSpace ?? '',
-      colorTransfer: playbackStream.videoStream?.colorTransfer ?? '',
-      colorPrimaries: playbackStream.videoStream?.colorPrimaries ?? '',
-      bitDepth: playbackStream.videoStream?.bitDepth ?? 0,
-      preferExternalSubtitle: preferExternalSubtitle,
-      forceNativeProxy: playableSource.forceNativeProxy,
-      reliableSeek: playableSource.reliableSeek,
-      seekProbeSummary: playableSource.seekProbeSummary,
-      playbackMode: initialPlayback.playbackMode,
-      playbackSpeed: 1.0,
-      audioTracks: playbackStream.audioStreams,
-      subtitleTracks: subtitleTracks,
-      qualities: mergedQualities,
+      subtitleTrackExplicitlyDisabled: overrideSubtitleGuid == '',
     );
 
-    return (source: source, playInfo: playInfo, title: title);
+    final backend = FeiniuMediaBackend(FeiniuApi(provider));
+    final resolution = await backend.getPlayback(request);
+    final context = resolution.backendContext;
+    if (context is! FeiniuPlaybackContext) return null;
+
+    final source = await const FeiniuPlaybackSourceBridge().assemble(
+      request: request,
+      bundle: resolution.bundle,
+      context: context,
+    );
+    return (source: source, playInfo: context.playInfo, title: source.title);
   }
 }
