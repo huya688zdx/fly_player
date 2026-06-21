@@ -306,6 +306,19 @@ class MediaItemCardPage { List<MediaItemCard> items; int total; }   // 复用 Me
   - `a56aa82`：外挂字幕按 track ordinal 解析，规避 mpv 脏读 track id。
   - `0426617`：手动重选 bitmap 字幕（PGS/SUP）时保持 embedded，不误走外挂路径；补 `NativePlayerActivityPanelModelsTest`。
 
+### 桥接子阶段 B-3（TV launcher 迁移，**设计阶段**，未动业务代码）
+
+> 设计 `specs/2026-06-21-public-media-playback-tv-launcher-design.md`、计划 `plans/2026-06-21-public-media-playback-tv-launcher.md`。
+
+- [x] B-3 调查 + 设计 + 计划（Claude，只读审计，未改业务代码）
+  - 审计 `TvSeasonPlaybackLauncher._resolveWithProvider`（205~427）vs B-2 backend `getPlayback` + 桥接器 `assemble`：除两处缺口外**逐字段口径一致**（effectiveSourceId / 画质 selector / 音轨 / 字幕三态 / preferExternal / videoTrackId 回退链 / 续播 `videoIds=[item.guid, itemGuid]` / resolvedStartPosition / MpvMediaSource 其余字段）。
+  - **缺口 1（seriesGuid 显式覆盖）**：TV 是「显式 seriesGuid 优先，回退 grandGuid」，桥接器写死 `playInfo.grandGuid`。方案：`MediaPlaybackRequest` 加中立 `seriesId`（默认 ''），桥接器 `seriesGuid = request.seriesId非空 ? : grandGuid`；Item 默认空 → 回退 grandGuid，B-2 零变化。
+  - **缺口 2（已看完→从头重播）**：TV 传 `networkCompleted: playbackCompleted`（reset 默认 true）→ 已看完归零重播；backend 是 `resetCompletedToBeginning: false`、永不归零。git 核对 `99d338d^:391`：Item launcher 迁移前**本就** `reset:false` 无 completed → backend 对 Item 忠实、无回归；**TV 与 Item 本来不同**。方案：`MediaPlaybackRequest` 加中立 `restartWhenCompleted`（默认 false=Item 现状），backend 据此分流续播归零语义。
+  - seriesTitle/title fallback **无缺口**：TV 的 seriesTitle 同时是 title 与 seriesTitle 字段回退，与桥接器对 `request.fallbackTitle` 两处用法对应，迁移时把 seriesTitle 当 fallbackTitle 传入即可。
+  - TV 反向通道在**页面侧**（`tv_detail_page.dart:907` / `tv_season_detail_page.dart:1363`），不在 launcher 内 → 与 Item 不同，B-3 只迁 launcher 内部解析、不碰页面。
+  - 计划 Task：①补两中立字段 + 桥接器/backend 分流（不碰 launcher，默认值保 B-2 不变）→ ②`_resolveWithProvider` 切桥接器 → ③看板 + 实机验证。
+  - 提交：设计 + 计划 + 本看板更新（hash 见提交后回填）。**下一步等用户/Codex 确认设计后再进 Task 1。**
+
 ### Phase 6 后端骨架 Codex 深审（历史记录）
 
 - 2026-06-21 Phase 6 Task 1~4 Codex 深审：
