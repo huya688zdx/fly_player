@@ -23,6 +23,17 @@ void main() {
     isDefault: false,
     delivery: MediaPlaybackDeliveryKind.serverSession,
   );
+  const directLink = MediaPlaybackQuality(
+    id: 'direct-link',
+    sourceId: 'source-a',
+    videoTrackId: 'video-direct',
+    label: '1080p direct',
+    resolution: '1080p',
+    bitrate: 8000000,
+    isDefault: false,
+    delivery: MediaPlaybackDeliveryKind.directLink,
+    directLinkIndex: 0,
+  );
 
   test('quality id wins over index', () {
     final selected = selectPlaybackQuality(
@@ -32,6 +43,15 @@ void main() {
     );
 
     expect(selected, transcoded);
+  });
+
+  test('quality id for a source prefers original/default over direct link', () {
+    final selected = selectPlaybackQuality(
+      qualities: const [directLink, original],
+      qualityId: 'source-a',
+    );
+
+    expect(selected, original);
   });
 
   test('quality index is used when id is absent', () {
@@ -50,6 +70,17 @@ void main() {
 
     expect(selected, original);
   });
+
+  test(
+    'direct link is preferred before non-direct default for initial playback',
+    () {
+      final selected = selectPlaybackQuality(
+        qualities: const [original, directLink],
+      );
+
+      expect(selected, directLink);
+    },
+  );
 
   test('subtitle can be explicitly disabled', () {
     const subtitle = MediaPlaybackTrack(

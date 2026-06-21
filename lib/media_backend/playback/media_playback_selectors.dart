@@ -9,9 +9,11 @@ import 'media_playback.dart';
 /// 选择画质候选。
 ///
 /// 规则（优先级从高到低）：
-/// - `qualityId` 非空且命中 → 用它（优先于下标）。
+/// - `qualityId` 非空且命中 → 用同 source 的原画 / 默认档，找不到再用同 source 第一档
+///   （复刻入口控制器切版本时优先原画的口径）。
 /// - `qualityIndex` 在范围内 → 用它。
-/// - 否则回退到第一个 `isDefault == true`，再否则第一个，列表为空则 `null`。
+/// - 否则按入口控制器初始画质口径回退：直链默认档 → 任意直链档 → 原画档 →
+///   第一个默认档 → 第一档，列表为空则 `null`。
 MediaPlaybackQuality? selectPlaybackQuality({
   required List<MediaPlaybackQuality> qualities,
   String? qualityId,
@@ -21,9 +23,16 @@ MediaPlaybackQuality? selectPlaybackQuality({
 
   final id = qualityId?.trim() ?? '';
   if (id.isNotEmpty) {
+    MediaPlaybackQuality? firstMatched;
     for (final quality in qualities) {
-      if (quality.id == id) return quality;
+      if (quality.id != id && quality.sourceId != id) continue;
+      firstMatched ??= quality;
+      if (quality.isDefault ||
+          quality.delivery == MediaPlaybackDeliveryKind.original) {
+        return quality;
+      }
     }
+    if (firstMatched != null) return firstMatched;
   }
 
   if (qualityIndex != null &&
@@ -32,6 +41,20 @@ MediaPlaybackQuality? selectPlaybackQuality({
     return qualities[qualityIndex];
   }
 
+  for (final quality in qualities) {
+    if (quality.delivery == MediaPlaybackDeliveryKind.directLink &&
+        quality.isDefault) {
+      return quality;
+    }
+  }
+  for (final quality in qualities) {
+    if (quality.delivery == MediaPlaybackDeliveryKind.directLink) {
+      return quality;
+    }
+  }
+  for (final quality in qualities) {
+    if (quality.delivery == MediaPlaybackDeliveryKind.original) return quality;
+  }
   for (final quality in qualities) {
     if (quality.isDefault) return quality;
   }
