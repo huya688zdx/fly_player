@@ -1436,20 +1436,11 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                   guid,
                   format: format,
                 ),
-            onReloadServerSession:
-                (
-                  currentLoadArgs, {
-                  audioGuid,
-                  subtitleGuid,
-                  qualityIndex,
-                  startPositionMs,
-                }) => NativeReentrySupport.reloadServerSession(
+            onReloadServerSession: (currentLoadArgs, intent) =>
+                NativeReentrySupport.reloadServerSession(
                   nas,
                   currentLoadArgs: currentLoadArgs,
-                  audioGuid: audioGuid,
-                  subtitleGuid: subtitleGuid,
-                  qualityIndex: qualityIndex,
-                  startPositionMs: startPositionMs,
+                  intent: intent,
                 ),
             onLoadEpisodePickerData: (currentLoadArgs, {seasonGuid}) =>
                 NativeReentrySupport.loadEpisodePickerData(

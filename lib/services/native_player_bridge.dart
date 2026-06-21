@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 
 import '../danmaku/settings/danmaku_settings_store.dart';
+import '../media_backend/playback/media_session_reload.dart';
 import '../player/stores/mpv_settings_store.dart';
 import '../providers/nas_provider.dart';
 import 'app_log_service.dart';
@@ -117,12 +118,9 @@ class NativePlayerBridge {
     Future<String?> Function(String guid, {String? format})?
     onResolveSubtitleFile,
     Future<Map<String, dynamic>?> Function(
-      String currentLoadArgs, {
-      String? audioGuid,
-      String? subtitleGuid,
-      int? qualityIndex,
-      int? startPositionMs,
-    })?
+      String currentLoadArgs,
+      MediaSessionReloadIntent intent,
+    )?
     onReloadServerSession,
     Future<Map<String, dynamic>?> Function(
       String currentLoadArgs, {
@@ -174,18 +172,30 @@ class NativePlayerBridge {
           final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
           final current = (args['loadArgs'] ?? '').toString();
           if (current.isEmpty) return null;
+          // 把 channel 的「带 key=override / 空串=关闭 / 不带=保留」语义组装成中立意图：
+          // audioGuid 带 key→切音轨，不带→保留；subtitleGuid 空串→关闭，非空→切轨，
+          // 不带→保留；qualityIndex 不带→保留当前画质。
+          final hasSubtitle = args.containsKey('subtitleGuid');
+          final subtitleValue = hasSubtitle
+              ? (args['subtitleGuid'] ?? '').toString()
+              : null;
+          final startMs = (args['startPositionMs'] as num?)?.toInt();
           return await onReloadServerSession(
             current,
-            // 带 key 即 override：audioGuid 不空串；subtitleGuid 空串=关闭；
-            // qualityIndex 不带=保留当前画质。
-            audioGuid: args.containsKey('audioGuid')
-                ? (args['audioGuid'] ?? '').toString()
-                : null,
-            subtitleGuid: args.containsKey('subtitleGuid')
-                ? (args['subtitleGuid'] ?? '').toString()
-                : null,
-            qualityIndex: (args['qualityIndex'] as num?)?.toInt(),
-            startPositionMs: (args['startPositionMs'] as num?)?.toInt(),
+            MediaSessionReloadIntent(
+              audioTrackId: args.containsKey('audioGuid')
+                  ? (args['audioGuid'] ?? '').toString()
+                  : null,
+              subtitleTrackId:
+                  (subtitleValue != null && subtitleValue.isNotEmpty)
+                  ? subtitleValue
+                  : null,
+              subtitleDisabled: subtitleValue == '',
+              qualityIndex: (args['qualityIndex'] as num?)?.toInt(),
+              startPosition: startMs != null
+                  ? Duration(milliseconds: startMs)
+                  : null,
+            ),
           );
         case 'loadEpisodePickerData':
           if (onLoadEpisodePickerData == null) return null;
