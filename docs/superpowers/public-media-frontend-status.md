@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-阶段：Phase 6 **桥接子阶段 B-3 TV launcher 迁移设计完成，待实现**（用户 2026-06-21 选方案 B 分步）。Phase 5 详情骨架、Phase 6 播放后端骨架（Task 1~4）、桥接 B-1、B-2 单条目 launcher 迁移均已收口（Codex 深审通过 `b0b37ae`/`0eb9484`；B-2 用户实机验证通过）。
+阶段：Phase 6 **桥接子阶段 B-3 TV launcher 迁移代码完成，待用户实机验证**（用户 2026-06-21 选方案 B 分步）。Phase 5 详情骨架、Phase 6 播放后端骨架（Task 1~4）、桥接 B-1、B-2 单条目 launcher 迁移均已收口（Codex 深审通过 `b0b37ae`/`0eb9484`；B-2 用户实机验证通过）。
 
 **B-2 已把 `ItemPlaybackLauncher._resolve()`（仅单条目）切到 `getPlayback` + `FeiniuPlaybackSourceBridge`**（`99d338d`，−225/+29 行）：`open()` 与 `resolveForNative()` 共用的 `_resolve()` 内部网络解析逻辑全部换成「build `MediaPlaybackRequest` → `backend.getPlayback` → 桥接器 assemble」，返回形状 `(source, playInfo, title)` 不变。**本地下载优先（在 `resolveForNative()`）、TV launcher、原生壳反向通道注册、弹幕预取、进度写回均未改动。** 全量 `flutter analyze` 仅 17 条历史无关项，launcher 与新文件零新增问题；`test/media_backend/ test/player/` + playback 测试 93 PASS。
 
@@ -71,7 +71,7 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 | Phase 4: 搜索页迁移（统一 MediaItemCard） | 完成（搜索页已验收通过；分类页滤镜体系另立设计、本期不动） | Claude 主实现，Codex 审查 | 设计 c849e2a / 模型 fa878ba / mapper 013d2fe / 收口 a68c95e / 搜索页 a8adf76 | media_backend 11 PASS + analyze；用户已验收通过（2026-06-20） |
 | Phase 4.5: 分类页 filter 抽象 | 完成（分类页已迁到 schema 驱动 + queryCatalogItems + localizer；Codex 审查通过；用户实机验证通过 2026-06-20） | Claude 主实现，Codex 审查 | Task5-1: 38e3315 / Task5-2: 1dcedda / Task5-3: 15a3853 / Task5-4: 9b06e3d+5b6ea4b / Codex小修: 085d051 | media_backend+localizer 41 PASS + analyze（分类页 No issues）；用户已实机验收通过 |
 | Phase 5: 详情页迁移 | 骨架完成（Task 1~3 + Codex 修复，已提交、可单测）；页面迁移（Task 4/5）调查后**暂缓**——无干净增量切口，建议连同 Emby 一起做 | Claude 主实现，Codex 审查 | 调研: 756f2eb / 设计+计划: e2c6d94 / Task1: c2fffa6+c60292c / Task2: 87c3377 / Task3: dd8630d / Codex修复: 63a91f7+8452fd7 | media_backend 52 PASS + analyze（No issues）；页面迁移暂缓（见下） |
-| Phase 6: 播放入口迁移 | 后端骨架（Task 1~4）+ 桥接 **B-1** 完成；**B-2** 单条目 launcher 已切桥接器并实机验证通过；**B-3** TV launcher 迁移设计完成、待实现 | Claude 主实现，Codex 深审 | 骨架: 4fd3bc2/b591e92/09700cb/d0e3b60 + Codex修复 b0b37ae / 桥接: d80d8e0+5196882 / B-1: 8cc205b+cd3b4bd / B-2 launcher: 99d338d / 字幕修复: 85e50ab+354ff77+a56aa82+0426617 / B-3 设计: abb85a1 | media_backend+player+playback 93 PASS + 全量 analyze（仅 17 条历史无关项）；B-2 用户实机验证通过；B-3 文档待执行 |
+| Phase 6: 播放入口迁移 | 后端骨架（Task 1~4）+ 桥接 **B-1** 完成；**B-2** 单条目 launcher 已切桥接器并实机验证通过；**B-3** TV launcher 已切桥接器（代码完成，待用户实机验证） | Claude 主实现，Codex 深审 | 骨架: 4fd3bc2/b591e92/09700cb/d0e3b60 + Codex修复 b0b37ae / 桥接: d80d8e0+5196882 / B-1: 8cc205b+cd3b4bd / B-2 launcher: 99d338d / 字幕修复: 85e50ab+354ff77+a56aa82+0426617 / B-3 设计: abb85a1 / B-3 字段: 3acbc69 / B-3 launcher: e567e8a | media_backend+player+playback 82 PASS（B-3 新增 4 条）+ 全量 analyze（仅 17 条历史无关项，零新增）；B-2 实机通过；B-3 待用户实机验证 |
 
 ## 当前可执行任务
 
@@ -306,7 +306,7 @@ class MediaItemCardPage { List<MediaItemCard> items; int total; }   // 复用 Me
   - `a56aa82`：外挂字幕按 track ordinal 解析，规避 mpv 脏读 track id。
   - `0426617`：手动重选 bitmap 字幕（PGS/SUP）时保持 embedded，不误走外挂路径；补 `NativePlayerActivityPanelModelsTest`。
 
-### 桥接子阶段 B-3（TV launcher 迁移，**设计阶段**，未动业务代码）
+### 桥接子阶段 B-3（TV launcher 迁移，**代码完成、待用户实机验证**）
 
 > 设计 `specs/2026-06-21-public-media-playback-tv-launcher-design.md`、计划 `plans/2026-06-21-public-media-playback-tv-launcher.md`。
 
@@ -319,6 +319,19 @@ class MediaItemCardPage { List<MediaItemCard> items; int total; }   // 复用 Me
   - 计划 Task：①补两中立字段 + 桥接器/backend 分流（不碰 launcher，默认值保 B-2 不变）→ ②`_resolveWithProvider` 切桥接器 → ③看板 + 实机验证。
   - 提交：`abb85a1`。**下一步等用户/Codex 确认设计后再进 Task 1。**
   - Codex 审查（2026-06-21）：设计可执行，未发现阻塞问题。两个前置补洞均对应真实代码差异：①桥接器当前只用 `playInfo.grandGuid`，TV 旧路径支持调用方显式 `seriesGuid` 覆盖；②backend 当前固定 `resetCompletedToBeginning:false`，忠实保留 Item/B-2 行为，但 TV 旧路径会对已看完集归零重播。计划 Task 1 先补 `seriesId` / `restartWhenCompleted` 且默认值保持 B-2 不变，风险控制合理；Task 2 再迁 `_resolveWithProvider`，不碰页面侧反向通道、本地下载、弹幕预取、选集和进度写回，范围合适。
+
+- [x] B-3 Task 1: 补两个中立 request 字段 + 桥接器/backend 分流（**未碰任何 launcher**）
+  - `MediaPlaybackRequest` 加可选中立字段 `seriesId`（默认 `''`）、`restartWhenCompleted`（默认 `false`）。
+  - 桥接器 `seriesGuid` 装配改为 `request.seriesId非空 ? : playInfo.grandGuid`；Item 默认空 → 回退 grandGuid，**B-2 零变化**。
+  - `getPlayback` 续播分流：`restartWhenCompleted==false`（默认）维持现状 `resetCompletedToBeginning:false`（Item 永不归零）；`true` 时算 `completed = duration>0 && ((duration - networkPos)<=0 || isWatched==1)`，传 `networkCompleted: completed, resetCompletedToBeginning: true`。
+  - 测试：桥接器 +2（显式 seriesId 覆盖 / 空回退 grandGuid）、backend +2（restartWhenCompleted 已看完→归零 / 默认 false→维持网络位）。`flutter test test/media_backend/ test/player/ --concurrency=1` → 82 PASS；`flutter analyze lib/media_backend lib/player/controllers/feiniu_playback_source_bridge.dart test/media_backend test/player` → No issues。
+  - 提交：`3acbc69`
+- [x] B-3 Task 2: `TvSeasonPlaybackLauncher._resolveWithProvider` 切桥接器
+  - `_resolveWithProvider`（旧 205~427）内部网络解析整体替换为：build `MediaPlaybackRequest`（`fallbackTitle: seriesTitle`、`seriesId: seriesGuid`、`restartWhenCompleted: true`、画质/音轨/字幕三态同 B-2）→ `FeiniuMediaBackend(FeiniuApi(provider)).getPlayback` → `FeiniuPlaybackSourceBridge().assemble`，返回 `(source, playInfo, title)` 形状不变。`open()` / `resolveForNative()` 两出口无需改。
+  - **未改动**：`open()` 原生壳 `maybeLaunch(episodes)`、`resolveForNative()` 本地下载优先 + 弹幕预取 + loadArgs、页面侧反向通道（`tv_detail_page` / `tv_season_detail_page`）、进度写回、TV 选集。删除 10 个因 body 抽走未用的 import。
+  - 验证：`flutter analyze lib/controllers/tv_season_playback_launcher.dart` → No issues；全量 `flutter analyze` → 17 条历史无关项（与基线一致、零新增）。
+  - 提交：`e567e8a`
+- [ ] **待用户实机验证（B-3）**：`flutter run` 登录飞牛后验证 TV 季/集——① 默认播放、续播位；② **已看完的一集重新点播是否从头开始**（缺口 2 重点）；③ 画质切换 / 音轨切换 / 字幕关闭与切换 / 外部字幕；④ 原生壳选集 + 连续切集换源（不闪退）；⑤ 原生壳画质切换回传（`resolveForNative`）；⑥ 剧集标题 / 季集副标题、`seriesGuid`/`seasonGuid` 关联（选集与反向通道读取 `source.toMap()` 不变）。验证通过后交 Codex 深审收口。
 
 ### Phase 6 后端骨架 Codex 深审（历史记录）
 
