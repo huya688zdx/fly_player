@@ -473,4 +473,53 @@ class NativePlayerActivityPanelModelsTest {
             nativePanelEpisodeVersionTitle(mapOf<String, Any?>(), 1),
         )
     }
+
+    @Test
+    fun bitmapSubtitleStaysEmbeddedEvenWhenFlaggedExternal() {
+        // 复刻 SUP 切换 bug：服务端把内嵌 PGS/SUP 位图轨额外抽取并标成 isExternal/extraFile，
+        // 但位图只能作为内嵌轨播放——必须判为「不走外挂文件」，否则切到它会误下发错误 .ass。
+        assertEquals(
+            false,
+            nativeSubtitleUsesExternalFile(
+                mapOf<String, Any?>(
+                    "guid" to "pgs1",
+                    "codecName" to "hdmv_pgs_subtitle",
+                    "isBitmap" to 1,
+                    "isExternal" to 1,
+                    "extraFile" to 1,
+                ),
+            ),
+        )
+        assertEquals(
+            false,
+            nativeSubtitleUsesExternalFile(
+                mapOf<String, Any?>("guid" to "sup1", "format" to "sup", "extraFile" to 1),
+            ),
+        )
+    }
+
+    @Test
+    fun textSubtitleUsesExternalFileOnlyWhenFlaggedOrLocal() {
+        // 普通内嵌文本字幕（ass，无外挂标志）→ 走内嵌轨。
+        assertEquals(
+            false,
+            nativeSubtitleUsesExternalFile(
+                mapOf<String, Any?>("guid" to "ass1", "format" to "ass"),
+            ),
+        )
+        // 服务端抽取的外挂文本字幕（extraFile/isExternal）→ 走外挂文件。
+        assertEquals(
+            true,
+            nativeSubtitleUsesExternalFile(
+                mapOf<String, Any?>("guid" to "ass2", "format" to "ass", "extraFile" to 1),
+            ),
+        )
+        // 用户「+添加」的本地字幕（local: guid）→ 始终走外挂文件。
+        assertEquals(
+            true,
+            nativeSubtitleUsesExternalFile(
+                mapOf<String, Any?>("guid" to "local:sub:123", "format" to "srt"),
+            ),
+        )
+    }
 }

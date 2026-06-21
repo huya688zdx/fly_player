@@ -149,6 +149,33 @@ internal fun nativePanelSubtitleCanRemove(track: Map<String, Any?>): Boolean {
         nativePanelTruthy(track["extraFile"])
 }
 
+/**
+ * 决定某条字幕轨该走「内嵌轨选择」(setSubtitleTrack) 还是「外挂文件 sub-add」
+ * (setExternalSubtitleFile)。
+ *
+ * 关键：位图字幕（PGS/SUP/VobSub）在 mpv 里**只能作为内嵌轨播放**——服务端即便把它额外
+ * 抽取并标成 isExternal/extraFile，resolveSubtitleFile 也无法把位图变成可 sub-add 的文本
+ * .ass。因此位图判断必须**优先于** isExternal/extraFile 标志，否则手动切到 SUP/PGS 会误走
+ * 外挂路径下发错误字幕（表现为切 SUP 失败、或切回 SUP 掉成别的字幕）。
+ * 用户「+添加」的本地字幕（local: guid）则始终走外挂文件。
+ */
+internal fun nativeSubtitleUsesExternalFile(track: Map<String, Any?>): Boolean {
+    val guid = track["guid"]?.toString()?.trim()?.lowercase().orEmpty()
+    if (guid.startsWith("local:")) return true
+    val format = track["format"]?.toString()?.trim()?.lowercase().orEmpty()
+    val codec = track["codecName"]?.toString()?.trim()?.lowercase().orEmpty()
+    val isBitmapLike = nativePanelTruthy(track["isBitmap"]) ||
+        format.contains("pgs") ||
+        format.contains("sup") ||
+        codec.contains("pgs") ||
+        codec.contains("sup") ||
+        codec.contains("hdmv_pgs") ||
+        codec.contains("dvd_subtitle") ||
+        codec.contains("vobsub")
+    if (isBitmapLike) return false
+    return nativePanelTruthy(track["isExternal"]) || nativePanelTruthy(track["extraFile"])
+}
+
 internal fun nativePanelSubtitleDisplayTitle(track: Map<String, Any?>): String {
     val rawLanguage = track["language"]?.toString().orEmpty()
     val language = nativePanelLanguageName(rawLanguage)
@@ -1811,11 +1838,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun applySubtitleByGuid(guid: String) {
         if (isServerManagedPlayback()) {
             selectedSubtitleGuid = guid
+            Log.d(TAG, "applySubtitleByGuid serverManaged reload guid=$guid")
             requestServerReload(selectedAudioGuid, guid, null, "正在切换字幕...")
             return
         }
         if (guid.isEmpty()) {
             selectedSubtitleGuid = ""
+            Log.d(TAG, "applySubtitleByGuid off (sid=no)")
             playerSurface.setSubtitleTrack(null, null)
             return
         }
@@ -1825,6 +1854,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             val sid = if (!useExternal) ++embeddedSid else -1
             if (track["guid"]?.toString() != guid) continue
             selectedSubtitleGuid = guid
+            Log.d(
+                TAG,
+                "applySubtitleByGuid match guid=$guid useExternal=$useExternal sid=$sid " +
+                    "isBitmap=${subtitleIntFlag(track, "isBitmap")} " +
+                    "isExternal=${subtitleIntFlag(track, "isExternal")} " +
+                    "extraFile=${subtitleIntFlag(track, "extraFile")} " +
+                    "format=${track["format"]} codec=${track["codecName"]}",
+            )
             if (useExternal) {
                 selectExternalSubtitle(track)
             } else {
@@ -1832,6 +1869,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             }
             return
         }
+        Log.w(TAG, "applySubtitleByGuid no track matched guid=$guid")
     }
 
     private fun subtitleIntFlag(track: Map<String, Any?>, key: String): Boolean {
@@ -1843,28 +1881,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
     }
 
-    private fun subtitleShouldPreferEmbeddedTrack(track: Map<String, Any?>): Boolean {
-        val guid = track["guid"]?.toString()?.trim()?.lowercase().orEmpty()
-        if (guid.startsWith("local:")) return false
-        if (subtitleIntFlag(track, "isExternal") || subtitleIntFlag(track, "extraFile")) return false
-        if (subtitleIntFlag(track, "isBitmap")) return true
-        val format = track["format"]?.toString()?.trim()?.lowercase().orEmpty()
-        val codec = track["codecName"]?.toString()?.trim()?.lowercase().orEmpty()
-        return format.contains("pgs") ||
-            format.contains("sup") ||
-            codec.contains("pgs") ||
-            codec.contains("sup") ||
-            codec.contains("hdmv_pgs") ||
-            codec.contains("dvd_subtitle") ||
-            codec.contains("vobsub")
-    }
-
-    private fun subtitleShouldUseExternalFile(track: Map<String, Any?>): Boolean {
-        if (subtitleShouldPreferEmbeddedTrack(track)) return false
-        if (subtitleIntFlag(track, "isExternal") || subtitleIntFlag(track, "extraFile")) return true
-        val guid = track["guid"]?.toString()?.trim()?.lowercase().orEmpty()
-        return guid.startsWith("local:")
-    }
+    private fun subtitleShouldUseExternalFile(track: Map<String, Any?>): Boolean =
+        nativeSubtitleUsesExternalFile(track)
 
     @Suppress("UNCHECKED_CAST")
     private fun localSubtitleFilePath(guid: String): String? {
