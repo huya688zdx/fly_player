@@ -63,13 +63,21 @@ MediaPlaybackQuality? selectPlaybackQuality({
 
 /// 选择音轨 / 字幕候选。
 ///
-/// 规则：
+/// 规则（优先级从高到低）：
 /// - `explicitlyDisabled == true` → `null`（用于显式关闭字幕）。
-/// - `preferredTrackId` 非空且命中 → 用它。
+/// - `preferredTrackId`（显式 guid）非空且命中 → 用它。
+/// - `preferredTrackIndex` 在范围内 → 用第 N 条（跨集按序号继承「当前第几条轨道」）。
+/// - `fallbackTrackId`（服务端默认 guid）非空且命中 → 用它。
 /// - 否则回退到第一个 `isDefault == true`，再否则第一个，列表为空则 `null`。
+///
+/// `preferredTrackId` 表达「用户显式指定的某条轨道」，`fallbackTrackId` 表达「后端给的
+/// 默认轨道」——两者分开，使按序号继承（[preferredTrackIndex]）能压过服务端默认，而显式
+/// 指定仍最高优先。序号越界时自然落到默认，对齐「找不到对应序号就回默认」。
 MediaPlaybackTrack? selectPlaybackTrack({
   required List<MediaPlaybackTrack> tracks,
   String? preferredTrackId,
+  int? preferredTrackIndex,
+  String? fallbackTrackId,
   bool explicitlyDisabled = false,
 }) {
   if (explicitlyDisabled) return null;
@@ -79,6 +87,19 @@ MediaPlaybackTrack? selectPlaybackTrack({
   if (id.isNotEmpty) {
     for (final track in tracks) {
       if (track.id == id) return track;
+    }
+  }
+
+  if (preferredTrackIndex != null &&
+      preferredTrackIndex >= 0 &&
+      preferredTrackIndex < tracks.length) {
+    return tracks[preferredTrackIndex];
+  }
+
+  final fallbackId = fallbackTrackId?.trim() ?? '';
+  if (fallbackId.isNotEmpty) {
+    for (final track in tracks) {
+      if (track.id == fallbackId) return track;
     }
   }
 
