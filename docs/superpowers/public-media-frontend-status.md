@@ -4,22 +4,22 @@
 
 ## 当前阶段
 
-阶段：Phase 5 **骨架交付收口**（用户 2026-06-21 选 A）。公共详情模型 + 飞牛 mapper + `MediaBackend` 详情接口已完成、Codex 已审、52 PASS；**页面迁移（Task 4/5）暂缓**，待真正接 Emby 时由第二后端倒逼出展示/播放分层再连同下游一起迁。
+阶段：Phase 6 **播放入口抽象设计**（用户 2026-06-21 确认开始）。Phase 5 公共详情骨架已收口；当前只设计播放后端骨架（公共 playback bundle + 飞牛 mapper + `MediaBackend.getPlayback`），不接 Emby API，不迁移播放器深层逻辑。
 
-后端层已具备 Emby 接入骨架：将来写 `EmbyMediaBackend` 实现 `getItemDetail`/`getItemSeasons`/`getSeasonEpisodes` 三接口即可先跑通适配层；真正迁移详情页时仍需按第二后端与旧 UI 字段再校准公共季/集展示模型。
+Phase 6 第一阶段目标是把 `ItemPlaybackLauncher` / `TvSeasonPlaybackLauncher` 中重复的飞牛播放解析事实先抽象成公共 bundle：播放源、画质候选、音轨/字幕候选、默认选择、续播位置、headers 和后端会话句柄。入口控制器、`MpvMediaSource` 装配、本地下载优先、原生壳反向通道和播放进度写回暂不迁移。
 
-目标：基于 Emby 官方 API 形状评估详情页迁移边界，先设计公共详情模型和飞牛 mapper，不直接接入 Emby API，不迁移播放入口。
+目标：基于 Emby 官方 PlaybackInfo / HLS / playback check-in 形状评估播放入口边界，先落设计和实施计划，再按小任务执行公共播放模型与飞牛适配层。
 
-设计文档：`docs/superpowers/specs/2026-06-21-public-media-detail-design.md`（公共详情模型边界 + 飞牛能力暂留页面侧范围）。
-实施计划：`docs/superpowers/plans/2026-06-21-public-media-detail.md`（Task 1 模型 → Task 2 mapper → Task 3 backend 接口 → Task 4 电影详情壳层 → Task 5 剧集季/集 → Task 6 人物详情 → Task 7 看板）。
+设计文档：`docs/superpowers/specs/2026-06-21-public-media-playback-design.md`（公共播放 bundle 边界 + Emby 官方播放形状约束 + 飞牛适配层范围）。
+实施计划：`docs/superpowers/plans/2026-06-21-public-media-playback.md`（Task 1 模型 → Task 2 selector → Task 3 飞牛 mapper → Task 4 backend 接口 → Task 5 看板）。
 
-### Phase 5 设计要点（关键边界）
+### Phase 6 设计要点（关键边界）
 
-- 公共 `MediaDetail` 只收 `PlayItem` 的**展示半**（标题/简介/海报背景/评分/年份时长/季集编号/题材地区/角标/已看收藏续播快照/外部 ID/演职员）。
-- `PlayItem` 的**播放半**（`mediaGuid`/`videoGuid`/`audioGuid`/`subtitleGuid`/`canPlay`/`playError`/`playConfig` + `StreamTrackData` 轨道）**留页面侧 → Phase 6**。
-- 暂留页面侧的飞牛能力：播放入口、轨道选择、片头片尾、下载、动作面板写回（收藏/已看，模型只带展示态快照）、FN Connect、续播写回。
-- 题材/地区走"翻好"路线（适配层用 `genresMap`/`iso3166Map` 直接出显示文案），与 Phase 4.5 分类页双轨 label 不同——详情页纯只读、无筛选交互，不需要 value/label 双轨。
-- `MediaBackend.getItemDetail` 返回 `MediaDetail`，**不返回 `Map`**；与 `FeiniuApi.getItemDetail` 同名不同返回类型属正常分层。
+- 公共播放模型只表达后端中立播放事实，不出现 `mediaGuid` / `videoGuid` / `audioGuid` / `subtitleGuid` 字段名；飞牛私有 id 只在适配层内部映射为 `sourceId` / `videoTrackId` / `audioTrackId` / `subtitleTrackId`。
+- `MediaBackend.getPlayback(MediaPlaybackRequest)` 返回 `MediaPlaybackBundle`，**不返回 `MpvMediaSource`**；mpv 装配留控制器 / player 层。
+- `FeiniuMediaBackend` 只编排飞牛 API 和 mapper，不碰 `Navigator`、`BuildContext`、`NativePlayerBridge` 或播放器页面。
+- Emby 官方 `PlaybackInfoResponse.MediaSources`、HLS stop、playback check-in 证明播放生命周期应独立设计；第一阶段只建模型和飞牛骨架，不实现 Emby。
+- 本地下载优先、原生壳反向重载、弹幕预取、播放进度写回暂留现有 launcher，避免一次性重构播放器深层逻辑。
 
 ## 负责人约定
 
@@ -65,7 +65,7 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 | Phase 4: 搜索页迁移（统一 MediaItemCard） | 完成（搜索页已验收通过；分类页滤镜体系另立设计、本期不动） | Claude 主实现，Codex 审查 | 设计 c849e2a / 模型 fa878ba / mapper 013d2fe / 收口 a68c95e / 搜索页 a8adf76 | media_backend 11 PASS + analyze；用户已验收通过（2026-06-20） |
 | Phase 4.5: 分类页 filter 抽象 | 完成（分类页已迁到 schema 驱动 + queryCatalogItems + localizer；Codex 审查通过；用户实机验证通过 2026-06-20） | Claude 主实现，Codex 审查 | Task5-1: 38e3315 / Task5-2: 1dcedda / Task5-3: 15a3853 / Task5-4: 9b06e3d+5b6ea4b / Codex小修: 085d051 | media_backend+localizer 41 PASS + analyze（分类页 No issues）；用户已实机验收通过 |
 | Phase 5: 详情页迁移 | 骨架完成（Task 1~3 + Codex 修复，已提交、可单测）；页面迁移（Task 4/5）调查后**暂缓**——无干净增量切口，建议连同 Emby 一起做 | Claude 主实现，Codex 审查 | 调研: 756f2eb / 设计+计划: e2c6d94 / Task1: c2fffa6+c60292c / Task2: 87c3377 / Task3: dd8630d / Codex修复: 63a91f7+8452fd7 | media_backend 52 PASS + analyze（No issues）；页面迁移暂缓（见下） |
-| Phase 6: 播放入口迁移 | 未开始 | Claude 主实现，Codex 深审 |  | 播放、音轨、字幕验证 |
+| Phase 6: 播放入口迁移 | 设计中（先做播放后端骨架，不迁播放器深层） | Claude 主实现，Codex 深审 | 设计/计划待提交 | playback 模型/mapper/backend 单测 + analyze |
 
 ## 当前可执行任务
 
