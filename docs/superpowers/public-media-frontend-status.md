@@ -4,11 +4,11 @@
 
 ## 当前阶段
 
-阶段：Phase 6 **桥接子阶段 B-2 代码完成、待实机验证**（用户 2026-06-21 选方案 B 分步）。Phase 5 详情骨架、Phase 6 播放后端骨架（Task 1~4）、桥接 B-1 均已收口（Codex 深审通过 `b0b37ae`/`0eb9484`）。
+阶段：Phase 6 **桥接子阶段 B-2 实机验证通过**（用户 2026-06-21 选方案 B 分步）。Phase 5 详情骨架、Phase 6 播放后端骨架（Task 1~4）、桥接 B-1 均已收口（Codex 深审通过 `b0b37ae`/`0eb9484`）。
 
 **B-2 已把 `ItemPlaybackLauncher._resolve()`（仅单条目）切到 `getPlayback` + `FeiniuPlaybackSourceBridge`**（`99d338d`，−225/+29 行）：`open()` 与 `resolveForNative()` 共用的 `_resolve()` 内部网络解析逻辑全部换成「build `MediaPlaybackRequest` → `backend.getPlayback` → 桥接器 assemble」，返回形状 `(source, playInfo, title)` 不变。**本地下载优先（在 `resolveForNative()`）、TV launcher、原生壳反向通道注册、弹幕预取、进度写回均未改动。** 全量 `flutter analyze` 仅 17 条历史无关项，launcher 与新文件零新增问题；`test/media_backend/ test/player/` + playback 测试 93 PASS。
 
-⚠ **B-2 待用户 `flutter run` 实机验证后才收口**：单条目默认播放、续播位、画质切换、音轨切换、字幕关闭/切换、外部字幕、原生壳重载，需逐项确认与迁移前一致。TV launcher 仍走旧路径（本期不迁）。
+**B-2 已由用户实机验证通过（2026-06-21）**：单条目默认播放、续播位、画质切换、音轨切换、字幕关闭/切换、外部字幕、原生壳重载均确认与迁移前一致。TV launcher 仍走旧路径（本期不迁）。
 
 后端层已为 Emby 就绪：将来写 `EmbyMediaBackend.getPlayback`（附 Emby 上下文）+ `EmbyPlaybackSourceBridge` 即可，中立层无需改动。设计/计划：`specs/2026-06-21-public-media-playback-bridge-design.md`、`plans/2026-06-21-public-media-playback-bridge.md`。
 
@@ -71,7 +71,7 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 | Phase 4: 搜索页迁移（统一 MediaItemCard） | 完成（搜索页已验收通过；分类页滤镜体系另立设计、本期不动） | Claude 主实现，Codex 审查 | 设计 c849e2a / 模型 fa878ba / mapper 013d2fe / 收口 a68c95e / 搜索页 a8adf76 | media_backend 11 PASS + analyze；用户已验收通过（2026-06-20） |
 | Phase 4.5: 分类页 filter 抽象 | 完成（分类页已迁到 schema 驱动 + queryCatalogItems + localizer；Codex 审查通过；用户实机验证通过 2026-06-20） | Claude 主实现，Codex 审查 | Task5-1: 38e3315 / Task5-2: 1dcedda / Task5-3: 15a3853 / Task5-4: 9b06e3d+5b6ea4b / Codex小修: 085d051 | media_backend+localizer 41 PASS + analyze（分类页 No issues）；用户已实机验收通过 |
 | Phase 5: 详情页迁移 | 骨架完成（Task 1~3 + Codex 修复，已提交、可单测）；页面迁移（Task 4/5）调查后**暂缓**——无干净增量切口，建议连同 Emby 一起做 | Claude 主实现，Codex 审查 | 调研: 756f2eb / 设计+计划: e2c6d94 / Task1: c2fffa6+c60292c / Task2: 87c3377 / Task3: dd8630d / Codex修复: 63a91f7+8452fd7 | media_backend 52 PASS + analyze（No issues）；页面迁移暂缓（见下） |
-| Phase 6: 播放入口迁移 | 后端骨架（Task 1~4）+ 桥接 **B-1** 完成；**B-2** 单条目 launcher 已切桥接器、**代码完成待实机验证** | Claude 主实现，Codex 深审 | 骨架: 4fd3bc2/b591e92/09700cb/d0e3b60 + Codex修复 b0b37ae / 桥接: d80d8e0+5196882 / B-1: 8cc205b+cd3b4bd / B-2 launcher: 99d338d | media_backend+player+playback 93 PASS + 全量 analyze（仅 17 条历史无关项）；**B-2 待实机** |
+| Phase 6: 播放入口迁移 | 后端骨架（Task 1~4）+ 桥接 **B-1** 完成；**B-2** 单条目 launcher 已切桥接器并实机验证通过；后续补了原生字幕轨道稳定性修复 | Claude 主实现，Codex 深审 | 骨架: 4fd3bc2/b591e92/09700cb/d0e3b60 + Codex修复 b0b37ae / 桥接: d80d8e0+5196882 / B-1: 8cc205b+cd3b4bd / B-2 launcher: 99d338d / 字幕修复: 85e50ab+354ff77+a56aa82+0426617 | media_backend+player+playback 93 PASS + 全量 analyze（仅 17 条历史无关项）；B-2 用户实机验证通过 |
 
 ## 当前可执行任务
 
@@ -292,14 +292,19 @@ class MediaItemCardPage { List<MediaItemCard> items; int total; }   // 复用 Me
   - 验证：`test/player/feiniu_playback_source_bridge_test.dart` 3 PASS（原画路径字段一致 / 显式关字幕落空串 / 外挂字幕 preferExternal）；`test/media_backend/ test/player/` 78 PASS；analyze No issues。
   - 提交：`cd3b4bd`
 
-### 桥接子阶段 B-2（单条目 launcher 灰度迁移，代码完成、待实机验证）
+### 桥接子阶段 B-2（单条目 launcher 灰度迁移，已实机验证通过）
 
 - [x] B-2: `ItemPlaybackLauncher._resolve()` 切 `getPlayback` + 桥接器
   - `_resolve()` 内部（261~479 旧逻辑）整体替换为：build `MediaPlaybackRequest`（含 overrideSubtitleGuid 三态映射 null/''/guid）→ `FeiniuMediaBackend(FeiniuApi(nas)).getPlayback(request)` → `FeiniuPlaybackSourceBridge().assemble(request, bundle, context)`，返回 `(source, playInfo, title)` 形状不变。`open()` / `resolveForNative()` 两出口无需改。
   - **未改动**：`resolveForNative()` 的本地下载优先分支、`_bindReentry` 原生反向通道、弹幕预取、进度写回、TV launcher。删除 10 个因 body 抽走而未用的 import。
   - 验证：launcher `flutter analyze` No issues；全量 analyze 仅 17 条历史无关项（play_detail_page/tv_detail_page 重复导入等）；`test/media_backend/ test/player/` + playback 测试 93 PASS。
   - 提交：`99d338d`
-  - ⚠ **待用户 `flutter run` 实机验证**：单条目默认播放 / 续播位 / 画质切换 / 音轨切换 / 字幕关闭与切换 / 外部字幕 / 原生壳重载，逐项确认与迁移前一致后才收口。TV launcher 本期不迁。
+  - **用户实机验证通过（2026-06-21）**：单条目默认播放 / 续播位 / 画质切换 / 音轨切换 / 字幕关闭与切换 / 外部字幕 / 原生壳重载，均确认与迁移前一致。TV launcher 本期不迁。
+- [x] B-2 后续原生字幕稳定性修复
+  - `85e50ab`：给 PGS / 外挂字幕重加 oscillation 加 cooldown，避免反复 remove/add。
+  - `354ff77`：拒绝复用 / 清理外挂字幕时的 bogus mpv track id，并补 `TrackSelectionControllerTest`；`android/app/build.gradle.kts` 增加对应测试依赖 / 配置。
+  - `a56aa82`：外挂字幕按 track ordinal 解析，规避 mpv 脏读 track id。
+  - `0426617`：手动重选 bitmap 字幕（PGS/SUP）时保持 embedded，不误走外挂路径；补 `NativePlayerActivityPanelModelsTest`。
 
 ### Phase 6 后端骨架 Codex 深审（历史记录）
 
