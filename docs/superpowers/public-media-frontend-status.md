@@ -277,6 +277,13 @@ class MediaItemCardPage { List<MediaItemCard> items; int total; }   // 复用 Me
 
 **下一子阶段（留待，需 Codex 深审后开）**：新增桥接器 `MediaPlaybackBundle + 飞牛 raw facts → PlayerSourceController.buildInitialPlaybackResult → MpvMediaSource`（放 `lib/controllers/` 或 `lib/player/controllers/`，不放 `lib/media_backend/`），再把 `ItemPlaybackLauncher` / `TvSeasonPlaybackLauncher` 切到 `getPlayback`。本地下载优先、原生壳反向重载、弹幕预取、进度写回随该阶段处理。需 `flutter run` 实机验证全部播放路径。
 
+- 2026-06-21 Phase 6 Task 1~4 Codex 深审：
+  - 审查范围：`lib/media_backend/playback/media_playback.dart`、`media_playback_selectors.dart`、`lib/media_backend/feiniu/feiniu_playback_mappers.dart`、`lib/media_backend/feiniu/feiniu_media_backend.dart`、对应 `test/media_backend/*playback*`。
+  - 结论：公共 playback 模型未发现飞牛/Emby 私有字段进入公开命名；`FeiniuMediaBackend.getPlayback` 未构造 `MpvMediaSource`，未引入 `BuildContext`/导航/`NativePlayerBridge`/播放器页面；没有 UI `if (isEmby)` 或 Emby API 接入。`getPlayback` 当前仍是“后端播放事实 bundle”，不是最终 mpv load 参数，桥接阶段必须继续由 player/controller 层调用 `PlayerSourceController.buildInitialPlaybackResult`。
+  - Codex 小修提交：`b0b37ae`。修复点：`selectPlaybackQuality` 原先 fallback 为“第一个 default”，与旧入口 `PlayerSourceController.preferredInitialQuality` 的“直链 default → 任意直链 → 原画 → default → first”不一致；且 `qualityId` 命中同 source 多档时会选列表第一档，旧入口切版本会优先该 source 的原画/default。已改 selector 并补 2 条回归测试。
+  - 验证：`flutter test test\media_backend\media_playback_selectors_test.dart` → 6 PASS；`flutter test test\media_backend\ --concurrency=1` → 75 PASS；`flutter analyze lib\media_backend test\media_backend` → No issues。
+  - 桥接建议：可以开下一子阶段，但应先做“桥接器 + 单条目 launcher 灰度迁移”，不要一次性迁 `TvSeasonPlaybackLauncher`、本地下载、原生反向重载全部路径；桥接器必须明确使用 bundle 的 raw/selected facts 重新调用 `PlayerSourceController.buildInitialPlaybackResult`，不要直接信任 `MediaPlaybackSource.url` 是最终可播 URL。
+
 ## Codex 审查记录
 
 - 2026-06-20 Task 1~4 审查：
