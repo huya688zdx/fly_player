@@ -13,9 +13,11 @@ import '../media_backend_capabilities.dart';
 import '../media_catalog.dart';
 import '../media_item_card.dart';
 import '../playback/media_playback.dart';
+import '../playback/media_playback_resolution.dart';
 import '../playback/media_playback_selectors.dart';
 import 'feiniu_detail_mappers.dart';
 import 'feiniu_media_mappers.dart';
+import 'feiniu_playback_context.dart';
 import 'feiniu_playback_mappers.dart';
 
 /// 飞牛后端适配器：内部调用现有 [FeiniuApi]，把飞牛模型映射为公共模型。
@@ -144,7 +146,9 @@ class FeiniuMediaBackend implements MediaBackend {
   }
 
   @override
-  Future<MediaPlaybackBundle> getPlayback(MediaPlaybackRequest request) async {
+  Future<MediaPlaybackResolution> getPlayback(
+    MediaPlaybackRequest request,
+  ) async {
     final playInfo = await api.getPlayInfo(request.itemId);
     // 多版本切换：带 qualityId 时按该版本媒体取流，否则用条目默认媒体 mediaGuid。
     // 复刻 ItemPlaybackLauncher 的 effectiveMediaGuid 口径。
@@ -234,7 +238,7 @@ class FeiniuMediaBackend implements MediaBackend {
     );
 
     final item = playInfo.item;
-    return MediaPlaybackBundle(
+    final bundle = MediaPlaybackBundle(
       itemId: item.guid,
       title: item.title.trim().isNotEmpty ? item.title : request.fallbackTitle,
       itemType: item.type,
@@ -258,6 +262,26 @@ class FeiniuMediaBackend implements MediaBackend {
       subtitleTracks: subtitleTracks,
       session: const MediaPlaybackSession(),
     );
+
+    // 不透明后端上下文：装入桥接器装配 MpvMediaSource 所需的飞牛 raw facts，
+    // 单次网络（这里的 playbackStream / 选中 raw 档都已取过）。raw 结构不进 bundle。
+    final context = FeiniuPlaybackContext(
+      api: api,
+      playInfo: playInfo,
+      playbackStream: playbackStream,
+      selectedQuality: rawSelectedQuality,
+      selectedAudio: _rawAudioFor(playbackStream.audioStreams, selectedAudio),
+      selectedSubtitle: _rawSubtitleFor(
+        mergedSubtitleStreams,
+        selectedSubtitle,
+      ),
+      subtitleTracks: mergedSubtitleStreams,
+      effectiveSourceId: effectiveSourceId,
+      videoTrackId: videoTrackId,
+      directUrl: api.getStreamUrl(effectiveSourceId),
+    );
+
+    return MediaPlaybackResolution(bundle: bundle, backendContext: context);
   }
 
   /// 回找公共画质对应的飞牛原始档（按 mediaGuid + directLinkQualityIndex 匹配）。
@@ -271,6 +295,30 @@ class FeiniuMediaBackend implements MediaBackend {
           quality.directLinkQualityIndex == selected.directLinkIndex) {
         return quality;
       }
+    }
+    return null;
+  }
+
+  /// 回找公共音轨对应的飞牛原始档（按 guid 匹配）。
+  AudioTrackOption? _rawAudioFor(
+    List<AudioTrackOption> rawTracks,
+    MediaPlaybackTrack? selected,
+  ) {
+    if (selected == null) return null;
+    for (final track in rawTracks) {
+      if (track.guid == selected.id) return track;
+    }
+    return null;
+  }
+
+  /// 回找公共字幕对应的飞牛原始档（按 guid 匹配）。
+  SubtitleTrackOption? _rawSubtitleFor(
+    List<SubtitleTrackOption> rawTracks,
+    MediaPlaybackTrack? selected,
+  ) {
+    if (selected == null) return null;
+    for (final track in rawTracks) {
+      if (track.guid == selected.id) return track;
     }
     return null;
   }
