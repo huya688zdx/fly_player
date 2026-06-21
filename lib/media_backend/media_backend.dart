@@ -5,6 +5,7 @@ import 'filter/media_catalog_filter.dart';
 import 'media_backend_capabilities.dart';
 import 'media_catalog.dart';
 import 'media_item_card.dart';
+import 'playback/media_playback.dart';
 
 /// 公共媒体后端接口。
 ///
@@ -47,4 +48,9 @@ abstract class MediaBackend {
 
   /// 某一季的选集列表。
   Future<List<MediaEpisodeSummary>> getSeasonEpisodes(String seasonId);
+
+  /// 解析播放所需的后端中立 bundle（播放源 / 画质 / 轨道 / 续播 / 会话句柄）。
+  ///
+  /// 不构造 `MpvMediaSource`，不导航、不触播放器深层逻辑——那些留播放入口的桥接层。
+  Future<MediaPlaybackBundle> getPlayback(MediaPlaybackRequest request);
 }

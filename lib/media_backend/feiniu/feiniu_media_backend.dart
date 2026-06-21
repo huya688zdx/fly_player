@@ -1,6 +1,9 @@
 import '../../api/feiniu_api.dart';
 import '../../api/person_list_request.dart';
 import '../../models/person_credit.dart';
+import '../../models/playback_stream.dart';
+import '../../models/stream_track_data.dart';
+import '../../utils/playback_resume_position_resolver.dart';
 import '../detail/media_detail.dart';
 import '../detail/media_episode_summary.dart';
 import '../detail/media_season_summary.dart';
@@ -9,8 +12,11 @@ import '../media_backend.dart';
 import '../media_backend_capabilities.dart';
 import '../media_catalog.dart';
 import '../media_item_card.dart';
+import '../playback/media_playback.dart';
+import '../playback/media_playback_selectors.dart';
 import 'feiniu_detail_mappers.dart';
 import 'feiniu_media_mappers.dart';
+import 'feiniu_playback_mappers.dart';
 
 /// 飞牛后端适配器：内部调用现有 [FeiniuApi]，把飞牛模型映射为公共模型。
 ///
@@ -135,5 +141,155 @@ class FeiniuMediaBackend implements MediaBackend {
   Future<List<MediaEpisodeSummary>> getSeasonEpisodes(String seasonId) async {
     final episodes = await api.getEpisodeList(seasonId);
     return episodes.map(mapFeiniuEpisode).toList(growable: false);
+  }
+
+  @override
+  Future<MediaPlaybackBundle> getPlayback(MediaPlaybackRequest request) async {
+    final playInfo = await api.getPlayInfo(request.itemId);
+    // 多版本切换：带 qualityId 时按该版本媒体取流，否则用条目默认媒体 mediaGuid。
+    // 复刻 ItemPlaybackLauncher 的 effectiveMediaGuid 口径。
+    final qualityId = request.qualityId?.trim() ?? '';
+    final effectiveSourceId = qualityId.isNotEmpty
+        ? qualityId
+        : playInfo.mediaGuid;
+
+    if (request.startFromBeginning) {
+      await api.resetPlaybackRecord(
+        itemGuid: playInfo.item.guid,
+        mediaGuid: effectiveSourceId,
+      );
+    }
+
+    // best-effort：轨道字典失败不阻断播放（复刻 launcher 的 try/catch 降级）。
+    StreamTrackData? trackData;
+    try {
+      trackData = await api.getStreamTrackData(request.itemId);
+    } catch (_) {
+      trackData = null;
+    }
+
+    final playbackStream = await api.getPlaybackStream(effectiveSourceId);
+    final mergedQualities = mergePlaybackQualitiesWithStreamTrackData(
+      playbackStream.qualities,
+      trackData,
+    );
+
+    final qualities = mapFeiniuPlaybackQualities(mergedQualities);
+    final selectedQuality = selectPlaybackQuality(
+      qualities: qualities,
+      qualityId: request.qualityId,
+      qualityIndex: request.qualityIndex,
+    );
+    // 回找选中画质对应的飞牛原始档，用于 source 的投递方式与视频轨。
+    final rawSelectedQuality = _rawQualityFor(mergedQualities, selectedQuality);
+
+    final audioTracks = mapFeiniuAudioTracks(playbackStream.audioStreams);
+    final selectedAudio = selectPlaybackTrack(
+      tracks: audioTracks,
+      preferredTrackId: request.audioTrackId?.trim().isNotEmpty == true
+          ? request.audioTrackId
+          : playInfo.audioGuid,
+    );
+
+    final mergedSubtitleStreams = _mergeSubtitleStreams(
+      primary: playbackStream.subtitleStreams,
+      extra: trackData?.subtitlesForMedia(effectiveSourceId) ?? const [],
+    );
+    final subtitleTracks = mapFeiniuSubtitleTracks(mergedSubtitleStreams);
+    final selectedSubtitle = selectPlaybackTrack(
+      tracks: subtitleTracks,
+      preferredTrackId: request.subtitleTrackId?.trim().isNotEmpty == true
+          ? request.subtitleTrackId
+          : playInfo.subtitleGuid,
+      explicitlyDisabled: request.subtitleTrackExplicitlyDisabled,
+    );
+
+    final videoTrackId = rawSelectedQuality?.videoGuid.trim().isNotEmpty == true
+        ? rawSelectedQuality!.videoGuid.trim()
+        : (playbackStream.videoStream?.guid.trim().isNotEmpty == true
+              ? playbackStream.videoStream!.guid.trim()
+              : playInfo.videoGuid.trim());
+
+    final source = mapFeiniuPlaybackSource(
+      sourceId: effectiveSourceId,
+      videoTrackId: videoTrackId,
+      playbackStream: playbackStream,
+      selectedQuality: rawSelectedQuality,
+      candidateUrl: api.getStreamUrl(effectiveSourceId),
+      headers: const <String, String>{},
+    );
+
+    // 续播位置：复刻 launcher 的网络优先口径——startFromBeginning 归零，
+    // 否则 request.resumePosition ?? (ts > 0 ? ts : item.watchedTs)。
+    final networkPositionSeconds = request.startFromBeginning
+        ? 0
+        : request.resumePosition?.inSeconds ??
+              (playInfo.ts > 0 ? playInfo.ts : playInfo.item.watchedTs);
+    final resume = await PlaybackResumePositionResolver.resolve(
+      videoIds: <String>[playInfo.item.guid, request.itemId],
+      durationSeconds: playInfo.item.duration,
+      networkPositionSeconds: networkPositionSeconds,
+      networkPositionAvailable: true,
+      resetCompletedToBeginning: false,
+    );
+
+    final item = playInfo.item;
+    return MediaPlaybackBundle(
+      itemId: item.guid,
+      title: item.title.trim().isNotEmpty ? item.title : request.fallbackTitle,
+      itemType: item.type,
+      seriesId: playInfo.grandGuid.trim(),
+      seasonId: playInfo.parentGuid,
+      seriesTitle: item.tvTitle.trim().isNotEmpty
+          ? item.tvTitle.trim()
+          : request.fallbackTitle.trim(),
+      seasonNumber: item.seasonNumber,
+      episodeNumber: item.episodeNumber,
+      posterUrl: item.posters,
+      tmdbId: item.trimId,
+      durationSeconds: item.duration,
+      startPosition: resume.position,
+      selectedSource: source,
+      selectedQuality: selectedQuality,
+      selectedAudioTrack: selectedAudio,
+      selectedSubtitleTrack: selectedSubtitle,
+      qualities: qualities,
+      audioTracks: audioTracks,
+      subtitleTracks: subtitleTracks,
+      session: const MediaPlaybackSession(),
+    );
+  }
+
+  /// 回找公共画质对应的飞牛原始档（按 mediaGuid + directLinkQualityIndex 匹配）。
+  PlaybackQualityOption? _rawQualityFor(
+    List<PlaybackQualityOption> rawQualities,
+    MediaPlaybackQuality? selected,
+  ) {
+    if (selected == null) return null;
+    for (final quality in rawQualities) {
+      if (quality.mediaGuid == selected.sourceId &&
+          quality.directLinkQualityIndex == selected.directLinkIndex) {
+        return quality;
+      }
+    }
+    return null;
+  }
+
+  /// 合并主字幕流与轨道字典里的额外字幕，按 guid 去重（复刻
+  /// PlayDetailTrackSelector.mergeSubtitleTracks 的纯去重逻辑，不引入 l10n 依赖）。
+  List<SubtitleTrackOption> _mergeSubtitleStreams({
+    required List<SubtitleTrackOption> primary,
+    required List<SubtitleTrackOption> extra,
+  }) {
+    if (primary.isEmpty) return List<SubtitleTrackOption>.from(extra);
+    if (extra.isEmpty) return List<SubtitleTrackOption>.from(primary);
+    final merged = <SubtitleTrackOption>[];
+    final seenGuids = <String>{};
+    for (final track in <SubtitleTrackOption>[...primary, ...extra]) {
+      final guid = track.guid.trim();
+      if (guid.isEmpty || !seenGuids.add(guid)) continue;
+      merged.add(track);
+    }
+    return merged;
   }
 }
