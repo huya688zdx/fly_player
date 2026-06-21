@@ -44,6 +44,7 @@ import '../theme/detail_tokens.dart';
 import '../ui/adaptive_detail_navigator.dart';
 import '../ui/app_transitions.dart';
 import '../ui/capability_badge_mapper.dart';
+import '../ui/credit_person_presenter.dart';
 import '../ui/detail_presentation.dart';
 import '../ui/player_pane_host_scope.dart';
 import '../ui/route_transition_gate.dart';
@@ -2288,17 +2289,20 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                 selectedSubtitleGuid: _selectedSubtitleGuid,
                 subtitleTracks: subtitleTracks,
               );
-          final creditItems = _personCredits
+          // 演职员读公共详情快照 detail.people；显示文案经 CreditPersonPresenter 复刻飞牛
+          // displayName/displaySubTitle 语义（显示逻辑留 UI 层、不进中立模型）。
+          // detail.people 与 _personCredits 同源（_rebuildDetail 用 credits: _personCredits）。
+          final creditItems = detail.people
               .map(
                 (e) => CreditPersonItem(
-                  personGuid: e.personGuid,
-                  name: e.displayName,
-                  subtitle: e.displaySubTitle,
+                  personGuid: e.id,
+                  name: CreditPersonPresenter.displayName(e),
+                  subtitle: CreditPersonPresenter.displaySubTitle(e),
                   imageUrls: deferAuxiliaryArtwork
                       ? const <String>[]
                       : ApiUrlHelper.personImageCandidates(
                           provider.baseUrl,
-                          e.profilePath,
+                          e.avatar.url, // == PersonCredit.profilePath（逐字段等价）
                           width: 180,
                         ),
                 ),
