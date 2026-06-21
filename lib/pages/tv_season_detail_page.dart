@@ -1369,6 +1369,8 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
             qualityMediaGuid,
             startPositionMs,
             subtitleGuid,
+            audioTrackIndex,
+            subtitleTrackIndex,
           }) async {
             if (!mounted) return null;
             final resolved = await const TvSeasonPlaybackLauncher()
@@ -1383,6 +1385,8 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                   qualityMediaGuid: qualityMediaGuid,
                   startPositionMs: startPositionMs,
                   subtitleGuid: subtitleGuid,
+                  audioTrackIndex: audioTrackIndex,
+                  subtitleTrackIndex: subtitleTrackIndex,
                 );
             // 仅选集（无 qualityIndex、非字幕/音轨重载）更新选中集高亮；切画质/轨道保持当前集不动。
             if (resolved != null &&

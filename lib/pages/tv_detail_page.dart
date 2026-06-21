@@ -913,6 +913,8 @@ class _TvDetailPageState extends State<TvDetailPage>
               startPositionMs,
               subtitleGuid,
               audioGuid,
+              audioTrackIndex,
+              subtitleTrackIndex,
             }) async {
               if (!mounted) return null;
               return const TvSeasonPlaybackLauncher().resolveForNative(
@@ -925,6 +927,8 @@ class _TvDetailPageState extends State<TvDetailPage>
                 startPositionMs: startPositionMs,
                 subtitleGuid: subtitleGuid,
                 audioGuid: audioGuid,
+                audioTrackIndex: audioTrackIndex,
+                subtitleTrackIndex: subtitleTrackIndex,
               );
             },
         onRecordProgress: (progress) =>
