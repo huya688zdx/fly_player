@@ -183,6 +183,7 @@ class FeiniuMediaBackend implements MediaBackend {
       qualities: qualities,
       qualityId: request.qualityId,
       qualityIndex: request.qualityIndex,
+      preferredResolution: request.preferredQualityResolution,
     );
     // 回找选中画质对应的飞牛原始档，用于 source 的投递方式与视频轨。
     final rawSelectedQuality = _rawQualityFor(mergedQualities, selectedQuality);

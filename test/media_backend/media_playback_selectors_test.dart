@@ -82,6 +82,37 @@ void main() {
     },
   );
 
+  group('selectPlaybackQuality 分辨率继承 (画质跨集继承)', () {
+    test('preferredResolution 命中转码档：跨集沿用当前分辨率', () {
+      final selected = selectPlaybackQuality(
+        qualities: const [original, transcoded],
+        preferredResolution: '1080p',
+      );
+
+      expect(selected, transcoded);
+    });
+
+    test('preferredResolution 找不到：回退默认画质梯度', () {
+      final selected = selectPlaybackQuality(
+        qualities: const [original, transcoded],
+        preferredResolution: '480p',
+      );
+
+      // 默认梯度：无直链 → 原画档优先。
+      expect(selected, original);
+    });
+
+    test('qualityId/qualityIndex 优先于 preferredResolution', () {
+      final selected = selectPlaybackQuality(
+        qualities: const [original, transcoded],
+        qualityIndex: 0,
+        preferredResolution: '1080p',
+      );
+
+      expect(selected, original);
+    });
+  });
+
   test('subtitle can be explicitly disabled', () {
     const subtitle = MediaPlaybackTrack(
       id: 'subtitle-1',

@@ -81,6 +81,10 @@ class MediaPlaybackRequest {
   /// `subtitleTrackExplicitlyDisabled` 表达「关闭字幕」的继承。
   final int? preferredSubtitleTrackIndex;
 
+  /// 按分辨率继承画质：优先选择候选列表中分辨率匹配的档（跨集沿用「当前分辨率」，如
+  /// 1080p 转码档）。为空或找不到时回退默认画质梯度。`qualityId`/`qualityIndex` 优先。
+  final String preferredQualityResolution;
+
   const MediaPlaybackRequest({
     required this.itemId,
     this.fallbackTitle = '',
@@ -95,6 +99,7 @@ class MediaPlaybackRequest {
     this.restartWhenCompleted = false,
     this.preferredAudioTrackIndex,
     this.preferredSubtitleTrackIndex,
+    this.preferredQualityResolution = '',
   });
 }
 
