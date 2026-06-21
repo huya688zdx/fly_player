@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-阶段：Phase 6 **桥接子阶段 B-4 原生壳反向重载收口完成，用户实机验证通过、待 Codex 深审**（用户 2026-06-21 选 B-4 设计先行）。Phase 5 详情骨架、Phase 6 播放后端骨架（Task 1~4）、桥接 B-1、B-2 单条目 launcher、B-3 TV launcher 迁移均已收口（Codex 深审通过 `b0b37ae`/`0eb9484`；B-2/B-3 用户实机验证通过）。B-4 把反向通道 `reloadServerSession`（转码态切轨/切画质）经中立 `MediaSessionReloadIntent` 收口，reload 内核与 Kotlin channel 协议零改动。
+阶段：Phase 6 **桥接子阶段 B-4 原生壳反向重载收口完成，用户实机验证通过、Codex 深审通过**（用户 2026-06-21 选 B-4 设计先行）。Phase 5 详情骨架、Phase 6 播放后端骨架（Task 1~4）、桥接 B-1、B-2 单条目 launcher、B-3 TV launcher 迁移均已收口（Codex 深审通过 `b0b37ae`/`0eb9484`；B-2/B-3 用户实机验证通过）。B-4 把反向通道 `reloadServerSession`（转码态切轨/切画质）经中立 `MediaSessionReloadIntent` 收口，reload 内核与 Kotlin channel 协议零改动。
 
 ### 2026-06-21 登录页后端选择 + Emby 入口设计
 
@@ -15,6 +15,8 @@
 实施计划：`docs/superpowers/plans/2026-06-21-public-media-login-backend.md`。计划顺序已按“登录页面兼容优先”调整为：先补飞牛登录页兼容护栏 -> 中立连接模型 -> connection store 兼容旧飞牛 prefs -> `BackendSessionProvider` -> 登录历史 v2 -> 登录页 selector -> Emby 只读验证 -> 设置页连接管理 -> `MediaBackendProvider` factory 收口。每步单独测试、单独提交；严禁提交真实 server/token/userId/password，也不得夹带当前工作区已有的 `MpvPlaybackController.kt` 未提交改动和 `HANDOFF.md`。
 
 用户补充确认：本阶段重点是**登录页面兼容**。后续执行时应先用测试锁住飞牛登录页默认表单、历史记录、HTTPS 开关、FN Connect、记住密码、下载入口、错误提示和登出重登行为，再添加任何 Emby 入口或验证逻辑。
+
+实现切片（Codex）：登录页已先补飞牛兼容护栏，再加入 Feiniu / Emby 后端选择 UI。Feiniu 分支保留原登录表单、历史、HTTPS、FN Connect、下载入口和 `_submitWithUnifiedErrors()` 流程；Emby 分支新增独立 server/user/password 表单和“验证 Emby 连接”按钮，目前只做受限占位提示，不写 prefs、不接媒体列表、详情或播放。验证：`flutter test test/connection_login_persistence_test.dart test/screens/connection_feiniu_compatibility_test.dart test/screens/connection_backend_selection_test.dart` → 5 PASS；`flutter analyze lib/screens/connection_screen.dart test/connection_login_persistence_test.dart test/screens/connection_feiniu_compatibility_test.dart test/screens/connection_backend_selection_test.dart` → No issues。
 
 **B-2 已把 `ItemPlaybackLauncher._resolve()`（仅单条目）切到 `getPlayback` + `FeiniuPlaybackSourceBridge`**（`99d338d`，−225/+29 行）：`open()` 与 `resolveForNative()` 共用的 `_resolve()` 内部网络解析逻辑全部换成「build `MediaPlaybackRequest` → `backend.getPlayback` → 桥接器 assemble」，返回形状 `(source, playInfo, title)` 不变。**本地下载优先（在 `resolveForNative()`）、TV launcher、原生壳反向通道注册、弹幕预取、进度写回均未改动。** 全量 `flutter analyze` 仅 17 条历史无关项，launcher 与新文件零新增问题；`test/media_backend/ test/player/` + playback 测试 93 PASS。
 
@@ -81,7 +83,7 @@ Claude Code 不会自动压缩上下文。Claude 完成一个 Task 后，或者�
 | Phase 4: 搜索页迁移（统一 MediaItemCard） | 完成（搜索页已验收通过；分类页滤镜体系另立设计、本期不动） | Claude 主实现，Codex 审查 | 设计 c849e2a / 模型 fa878ba / mapper 013d2fe / 收口 a68c95e / 搜索页 a8adf76 | media_backend 11 PASS + analyze；用户已验收通过（2026-06-20） |
 | Phase 4.5: 分类页 filter 抽象 | 完成（分类页已迁到 schema 驱动 + queryCatalogItems + localizer；Codex 审查通过；用户实机验证通过 2026-06-20） | Claude 主实现，Codex 审查 | Task5-1: 38e3315 / Task5-2: 1dcedda / Task5-3: 15a3853 / Task5-4: 9b06e3d+5b6ea4b / Codex小修: 085d051 | media_backend+localizer 41 PASS + analyze（分类页 No issues）；用户已实机验收通过 |
 | Phase 5: 详情页迁移 | 骨架完成（Task 1~3 + Codex 修复，已提交、可单测）；页面迁移（Task 4/5）调查后**暂缓**——无干净增量切口，建议连同 Emby 一起做 | Claude 主实现，Codex 审查 | 调研: 756f2eb / 设计+计划: e2c6d94 / Task1: c2fffa6+c60292c / Task2: 87c3377 / Task3: dd8630d / Codex修复: 63a91f7+8452fd7 | media_backend 52 PASS + analyze（No issues）；页面迁移暂缓（见下） |
-| Phase 6: 播放入口迁移 | 后端骨架（Task 1~4）+ 桥接 **B-1** 完成；**B-2** 单条目 launcher、**B-3** TV launcher 已切桥接器并实机验证通过；**B-4** 反向重载（reloadServerSession）经中立 `MediaSessionReloadIntent` 收口、实机验证通过、待 Codex 深审 | Claude 主实现，Codex 深审 | 骨架: 4fd3bc2/b591e92/09700cb/d0e3b60 + Codex修复 b0b37ae / 桥接: d80d8e0+5196882 / B-1: 8cc205b+cd3b4bd / B-2 launcher: 99d338d / 字幕修复: 85e50ab+354ff77+a56aa82+0426617 / B-3 设计: abb85a1 / B-3 字段: 3acbc69 / B-3 launcher: e567e8a / B-4 设计: d1514b0+47e55b1 / B-4 模型: 1fdd347 / B-4 收口: 31bed50 | media_backend+player+services 106 PASS（B-4 新增 14 条）+ 全量 analyze（仅 17 条历史无关项，零新增）；B-2/B-3/B-4 实机通过 |
+| Phase 6: 播放入口迁移 | 后端骨架（Task 1~4）+ 桥接 **B-1** 完成；**B-2** 单条目 launcher、**B-3** TV launcher 已切桥接器并实机验证通过；**B-4** 反向重载（reloadServerSession）经中立 `MediaSessionReloadIntent` 收口、实机验证通过、Codex 深审通过 | Claude 主实现，Codex 深审 | 骨架: 4fd3bc2/b591e92/09700cb/d0e3b60 + Codex修复 b0b37ae / 桥接: d80d8e0+5196882 / B-1: 8cc205b+cd3b4bd / B-2 launcher: 99d338d / 字幕修复: 85e50ab+354ff77+a56aa82+0426617 / B-3 设计: abb85a1 / B-3 字段: 3acbc69 / B-3 launcher: e567e8a / B-4 设计: d1514b0+47e55b1 / B-4 模型: 1fdd347 / B-4 收口: 31bed50 | media_backend+player+services 106 PASS（B-4 新增 14 条）+ 全量 analyze（仅 17 条历史无关项，零新增）；B-2/B-3/B-4 实机通过 |
 
 ## 当前可执行任务
 
@@ -363,7 +365,11 @@ class MediaItemCardPage { List<MediaItemCard> items; int total; }   // 复用 Me
   - **行为保持**：意图→`PlayerServerReloadRequest` 映射与旧代码逐字段等价，无回归面。
   - 验证：reload 相关 16 PASS；`test/media_backend/ test/services/ test/player/ --concurrency=1` → 106 PASS；全量 `flutter analyze` → 17 条历史无关项（零新增）。提交 `31bed50`（pathspec 仅 7 文件，未夹带 Codex 并行的 login-backend 文档）。
 - [x] **用户实机验证通过（2026-06-21）**：原生壳转码态切音轨（画质/字幕不变）、切字幕、关字幕、切画质（保留音轨/字幕）、续播位不丢、选集面板不清空，均确认正常。
-- 待 Codex 深审收口。
+- Codex 深审（2026-06-21）：未发现 B-4 阻塞问题。公共 `MediaSessionReloadIntent` 只含 `audioTrackId` / `subtitleTrackId` / `subtitleDisabled` / `qualityIndex` / `startPosition`，无飞牛/Emby 私有字段；Dart channel 仍兼容 Kotlin 旧协议，只在 `native_player_bridge` 入口把 `audioGuid` / `subtitleGuid` 组装为中立意图；飞牛 guid 落回 `PlayerServerReloadRequest` 的逻辑集中在 `NativeReentrySupport.resolveReloadRequestParams`，未进入 UI 或公共模型。
+  - 架构检查：`NativeReentrySupport.reloadServerSession` 仍是薄桥接层，继续复用既有 `PlayerSourceController.reloadServerPlaySession` 内核并保留 `episodes`，未新增 Emby API、未新增 UI `if (isEmby)`，4 处页面/launcher 仅改闭包签名为 `(currentLoadArgs, intent)`。B-4 没有改 Kotlin channel 协议，也没有重构播放器深层逻辑。
+  - 验证：`flutter test test\media_backend\media_session_reload_test.dart test\services\native_reentry_support_test.dart` → 16 PASS；`flutter test test\media_backend\ test\services\ test\player\ --concurrency=1` → 106 PASS；`flutter analyze lib\media_backend\playback\media_session_reload.dart lib\services\native_reentry_support.dart lib\services\native_player_bridge.dart test\media_backend\media_session_reload_test.dart test\services\native_reentry_support_test.dart` → No issues。
+  - 页面级 analyze 说明：`flutter analyze lib\media_backend\playback\media_session_reload.dart lib\services\native_reentry_support.dart lib\services\native_player_bridge.dart lib\controllers\item_playback_launcher.dart lib\pages\play_detail_page.dart lib\pages\tv_detail_page.dart lib\pages\tv_season_detail_page.dart test\media_backend\media_session_reload_test.dart test\services\native_reentry_support_test.dart` 仍报 9 条 duplicate import warning，均位于 `play_detail_page.dart` / `tv_detail_page.dart` import 区，且在 B-4 基线 `47e55b1` 已存在，不是 B-4 新增。
+  - 工作区检查：审查时 `git status --short` 还有未提交 `android/app/src/main/kotlin/com/geqian/flyplayer/fly_player/mpv/MpvPlaybackController.kt`、`lib/screens/connection_screen.dart`、`test/connection_login_persistence_test.dart`、未跟踪 `test/screens/` 和 `HANDOFF.md`；均非本次 B-4 审查产物，Codex 未回滚、未暂存、未夹带。
 
 ### Phase 6 后端骨架 Codex 深审（历史记录）
 
