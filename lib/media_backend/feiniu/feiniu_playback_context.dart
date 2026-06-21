@@ -24,6 +24,9 @@ class FeiniuPlaybackContext implements MediaPlaybackBackendContext {
   final AudioTrackOption? selectedAudio;
   final SubtitleTrackOption? selectedSubtitle;
 
+  /// 合并轨道字典后的原始画质列表（装进 MpvMediaSource.qualities，供画质切换 UI）。
+  final List<PlaybackQualityOption> mergedQualities;
+
   /// 合并后的字幕轨（用于内嵌字幕序号计算）。
   final List<SubtitleTrackOption> subtitleTracks;
 
@@ -41,6 +44,7 @@ class FeiniuPlaybackContext implements MediaPlaybackBackendContext {
     required this.selectedQuality,
     required this.selectedAudio,
     required this.selectedSubtitle,
+    required this.mergedQualities,
     required this.subtitleTracks,
     required this.effectiveSourceId,
     required this.videoTrackId,
