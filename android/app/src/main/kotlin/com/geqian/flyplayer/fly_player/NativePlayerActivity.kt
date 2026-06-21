@@ -4500,6 +4500,36 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         return selectedSubtitleGuid
     }
 
+    // 切集按序号继承轨道（Bug B）：把「当前正在播放的是第几条轨道」带给 Flutter，下一集取
+    // 同序号，越界/找不到则回退默认。序号取自当前集 audioTracks/subtitleTracks 列表下标，与
+    // Flutter 用 playbackStream 构造的候选顺序同源，故跨集对齐。
+
+    /** 当前音轨序号（0 基）；选不到则返回 null（不继承，Flutter 回退默认）。 */
+    private fun inheritAudioTrackIndex(): Int? {
+        val guid = selectedAudioGuidForPanel()
+        if (guid.isEmpty()) return null
+        val idx = trackList("audioTracks").indexOfFirst { it["guid"]?.toString() == guid }
+        return idx.takeIf { it >= 0 }
+    }
+
+    /** 当前字幕序号：关闭=-1（继承「关闭」）；设备本地字幕/找不到=null（不继承，回退默认）。 */
+    private fun inheritSubtitleTrackIndex(): Int? {
+        val guid = selectedSubtitleGuidForPanel()
+        if (guid.isEmpty()) return -1
+        if (guid.startsWith("local:")) return null
+        val idx = trackList("subtitleTracks").indexOfFirst { it["guid"]?.toString() == guid }
+        return if (idx >= 0) idx else null
+    }
+
+    /** 切集 resolvePlayback 入参：itemGuid + 当前音轨/字幕序号（用于跨集继承）。 */
+    private fun episodeResolveArgs(itemGuid: String): Map<String, Any?> {
+        val args = HashMap<String, Any?>()
+        args["itemGuid"] = itemGuid
+        inheritAudioTrackIndex()?.let { args["audioTrackIndex"] = it }
+        inheritSubtitleTrackIndex()?.let { args["subtitleTrackIndex"] = it }
+        return args
+    }
+
     private fun currentAudioSummary(): String {
         return nativePanelAudioSummary(trackList("audioTracks"), selectedAudioGuidForPanel())
     }
@@ -4706,6 +4736,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun selectAudioFromPanel(index: Int, guid: String) {
         selectedAudioGuid = guid
+        // 轨道变了：已预取的下一集是按旧序号解析的，清掉让其按新序号重取（Bug B 序号继承）。
+        clearNextEpisodePreload()
         if (isServerManagedPlayback()) {
             hidePanel()
             requestServerReload(guid, selectedSubtitleGuidForPanel(), null, "正在切换音轨...")
@@ -4850,6 +4882,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun selectSubtitleFromPanel(guid: String) {
         selectedSubtitleGuid = guid
+        // 轨道变了：清掉按旧序号预取的下一集，使其按新选择重取（Bug B 序号继承）。
+        clearNextEpisodePreload()
         // 本地外挂字幕走 mpv sub-add，与转码流无关——即便服务端托管也直接本地加载，
         // 不能丢给 requestServerReload（飞牛侧不认识 local: guid）。
         if (isServerManagedPlayback() && !isLocalSubtitleGuid(guid)) {
@@ -5513,7 +5547,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         cancelControlsAutoHide()
         NativePlayerReverseBridge.dispatch(
             method = "resolvePlayback",
-            args = mapOf("itemGuid" to itemGuid),
+            args = episodeResolveArgs(itemGuid),
             onResult = { result ->
                 runOnUiThread {
                     applyEpisodeResult(result, autoPlayAfterLoad = autoPlayAfterLoad)
@@ -6854,7 +6888,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         nextEpisodePreloadResult = null
         NativePlayerReverseBridge.dispatch(
             method = "resolvePlayback",
-            args = mapOf("itemGuid" to nextGuid),
+            // 预取也带当前序号，使自动连播命中预取时仍继承轨道。切轨时会清掉预取重取，避免序号过期。
+            args = episodeResolveArgs(nextGuid),
             onResult = { result ->
                 runOnUiThread {
                     if (nextEpisodePreloadGuid == nextGuid) {
