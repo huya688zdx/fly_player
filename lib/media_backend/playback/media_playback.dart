@@ -71,6 +71,16 @@ class MediaPlaybackRequest {
   /// 置 `true`，使「已看完的一集」重新点播时回到开头，而非停在结尾。
   final bool restartWhenCompleted;
 
+  /// 按序号继承音轨：优先选择候选列表中第 N 条音轨（跨集沿用「当前第几条音轨」）。
+  ///
+  /// 用于剧集切集时把当前选中的音轨序号带到下一集；越界或为空时不生效，回退服务端
+  /// 默认。`audioTrackId`（显式 guid）优先于本字段。
+  final int? preferredAudioTrackIndex;
+
+  /// 按序号继承字幕：优先选择候选列表中第 N 条字幕。语义同 [preferredAudioTrackIndex]；
+  /// `subtitleTrackExplicitlyDisabled` 表达「关闭字幕」的继承。
+  final int? preferredSubtitleTrackIndex;
+
   const MediaPlaybackRequest({
     required this.itemId,
     this.fallbackTitle = '',
@@ -83,6 +93,8 @@ class MediaPlaybackRequest {
     this.subtitleTrackExplicitlyDisabled = false,
     this.seriesId = '',
     this.restartWhenCompleted = false,
+    this.preferredAudioTrackIndex,
+    this.preferredSubtitleTrackIndex,
   });
 }
 

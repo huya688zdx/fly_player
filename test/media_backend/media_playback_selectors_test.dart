@@ -102,4 +102,73 @@ void main() {
 
     expect(selected, isNull);
   });
+
+  group('selectPlaybackTrack 序号继承 (Bug B)', () {
+    const a0 = MediaPlaybackTrack(
+      id: 'audio-jpn',
+      kind: MediaPlaybackTrackKind.audio,
+      language: 'jpn',
+      isDefault: true,
+    );
+    const a1 = MediaPlaybackTrack(
+      id: 'audio-chi',
+      kind: MediaPlaybackTrackKind.audio,
+      language: 'chi',
+    );
+    const a2 = MediaPlaybackTrack(
+      id: 'audio-eng',
+      kind: MediaPlaybackTrackKind.audio,
+      language: 'eng',
+    );
+
+    test('preferredTrackIndex 命中：取第 N 条（跨集沿用序号）', () {
+      final selected = selectPlaybackTrack(
+        tracks: const [a0, a1, a2],
+        preferredTrackIndex: 2,
+        // 服务端默认是第 0 条，但序号继承应压过它。
+        fallbackTrackId: 'audio-jpn',
+      );
+
+      expect(selected, a2);
+    });
+
+    test('preferredTrackIndex 越界：回退服务端默认（找不到对应序号回默认）', () {
+      final selected = selectPlaybackTrack(
+        tracks: const [a0, a1],
+        preferredTrackIndex: 5,
+        fallbackTrackId: 'audio-chi',
+      );
+
+      expect(selected, a1);
+    });
+
+    test('显式 preferredTrackId 优先于序号', () {
+      final selected = selectPlaybackTrack(
+        tracks: const [a0, a1, a2],
+        preferredTrackId: 'audio-eng',
+        preferredTrackIndex: 0,
+      );
+
+      expect(selected, a2);
+    });
+
+    test('无序号无显式：fallback 默认 guid 命中（保持原有 open 行为）', () {
+      final selected = selectPlaybackTrack(
+        tracks: const [a0, a1, a2],
+        fallbackTrackId: 'audio-chi',
+      );
+
+      expect(selected, a1);
+    });
+
+    test('序号继承压过 fallback：preferredIndex 0 而默认是第 1 条', () {
+      final selected = selectPlaybackTrack(
+        tracks: const [a0, a1, a2],
+        preferredTrackIndex: 0,
+        fallbackTrackId: 'audio-chi',
+      );
+
+      expect(selected, a0);
+    });
+  });
 }
