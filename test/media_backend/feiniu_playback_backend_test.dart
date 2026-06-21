@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/api/feiniu_api.dart';
 import 'package:fly_player/media_backend/feiniu/feiniu_media_backend.dart';
+import 'package:fly_player/media_backend/feiniu/feiniu_playback_context.dart';
 import 'package:fly_player/media_backend/playback/media_playback.dart';
 import 'package:fly_player/models/play_info.dart';
 import 'package:fly_player/models/playback_stream.dart';
@@ -187,9 +188,10 @@ void main() {
         final api = _FakePlaybackApi(nas);
         final backend = FeiniuMediaBackend(api);
 
-        final bundle = await backend.getPlayback(
+        final resolution = await backend.getPlayback(
           const MediaPlaybackRequest(itemId: 'item-1'),
         );
+        final bundle = resolution.bundle;
 
         expect(api.trackDataCalled, isTrue);
         expect(api.playbackStreamMediaGuid, 'media-default');
@@ -204,6 +206,20 @@ void main() {
         expect(bundle.subtitleTracks.single.id, 'sub-1');
         expect(bundle.selectedAudioTrack?.id, 'audio-1');
         expect(bundle.selectedSubtitleTrack?.id, 'sub-1');
+
+        // 不透明后端上下文：持飞牛 raw facts，且这些 raw 结构不进中立 bundle。
+        final context = resolution.backendContext;
+        expect(context, isA<FeiniuPlaybackContext>());
+        final feiniuContext = context as FeiniuPlaybackContext;
+        expect(feiniuContext.effectiveSourceId, 'media-default');
+        expect(feiniuContext.videoTrackId, 'video-default');
+        expect(
+          feiniuContext.playbackStream.responseHeaders.cookieHeader,
+          'sess=abc',
+        );
+        expect(feiniuContext.selectedQuality?.mediaGuid, 'media-default');
+        expect(feiniuContext.selectedAudio?.guid, 'audio-1');
+        expect(feiniuContext.selectedSubtitle?.guid, 'sub-1');
       },
     );
 
@@ -220,12 +236,12 @@ void main() {
         final api = _FakePlaybackApi(nas);
         final backend = FeiniuMediaBackend(api);
 
-        final bundle = await backend.getPlayback(
+        final bundle = (await backend.getPlayback(
           const MediaPlaybackRequest(
             itemId: 'item-1',
             startFromBeginning: true,
           ),
-        );
+        )).bundle;
 
         expect(api.resetItemGuid, 'item-1');
         expect(api.resetMediaGuid, 'media-default');
@@ -244,9 +260,9 @@ void main() {
       final api = _FakePlaybackApi(nas, failTrackData: true);
       final backend = FeiniuMediaBackend(api);
 
-      final bundle = await backend.getPlayback(
+      final bundle = (await backend.getPlayback(
         const MediaPlaybackRequest(itemId: 'item-1'),
-      );
+      )).bundle;
 
       expect(api.trackDataCalled, isTrue);
       expect(bundle.selectedSource.id, 'media-default');
@@ -263,9 +279,9 @@ void main() {
       final api = _FakePlaybackApi(nas);
       final backend = FeiniuMediaBackend(api);
 
-      final bundle = await backend.getPlayback(
+      final bundle = (await backend.getPlayback(
         const MediaPlaybackRequest(itemId: 'item-1', qualityId: 'media-alt'),
-      );
+      )).bundle;
 
       expect(api.playbackStreamMediaGuid, 'media-alt');
       expect(bundle.selectedSource.id, 'media-alt');
@@ -282,12 +298,12 @@ void main() {
       final api = _FakePlaybackApi(nas);
       final backend = FeiniuMediaBackend(api);
 
-      final bundle = await backend.getPlayback(
+      final bundle = (await backend.getPlayback(
         const MediaPlaybackRequest(
           itemId: 'item-1',
           subtitleTrackExplicitlyDisabled: true,
         ),
-      );
+      )).bundle;
 
       expect(bundle.selectedSubtitleTrack, isNull);
       // 字幕候选仍在列表里，只是没有默认选中。
@@ -306,17 +322,17 @@ void main() {
       final api = _FakePlaybackApi(nas)
         ..playInfoTs = 600
         ..itemWatchedTs = 120;
-      final bundle = await FeiniuMediaBackend(
+      final bundle = (await FeiniuMediaBackend(
         api,
-      ).getPlayback(const MediaPlaybackRequest(itemId: 'item-1'));
+      ).getPlayback(const MediaPlaybackRequest(itemId: 'item-1'))).bundle;
       expect(bundle.startPosition, const Duration(seconds: 600));
 
       final api2 = _FakePlaybackApi(nas)
         ..playInfoTs = 0
         ..itemWatchedTs = 120;
-      final bundle2 = await FeiniuMediaBackend(
+      final bundle2 = (await FeiniuMediaBackend(
         api2,
-      ).getPlayback(const MediaPlaybackRequest(itemId: 'item-1'));
+      ).getPlayback(const MediaPlaybackRequest(itemId: 'item-1'))).bundle;
       expect(bundle2.startPosition, const Duration(seconds: 120));
     });
   });
