@@ -11,11 +11,6 @@ class TrackSelectionController(
         private const val DEFAULT_SUBTITLE_POSITION = 92
         private const val MAX_TRACK_SCAN_COUNT = 64
         private const val EMPTY_TRACK_SCAN_BREAK_THRESHOLD = 8
-        // mpv `track-list/*` 在轨道列表被改写的瞬间会脏读：`track-list/count` 返回垃圾
-        // 大值、`track-list/$index/id` 返回越界/未初始化的巨大值（实测出现过 3324941）。
-        // 真实轨道 id 是从 1 顺序分配的小整数，远小于此上界；超出则判为脏读直接丢弃，
-        // 绝不把它当作有效轨道号去 setPropertyInt("sid")（否则 mpv 报 -4，字幕切换失败/卡转圈）。
-        private const val MAX_PLAUSIBLE_TRACK_ID = 256
         private const val BOGUS_PURGE_RETRY_COOLDOWN_MS = 1800L
         // 同一外挂字幕路径在该窗口内被反复要求重挂时跳过 purge+sub-add，打断
         // 「内嵌 PGS/SUP 轨选择」与「服务端外挂 .ass 重挂」互相覆盖的振荡风暴。
@@ -242,6 +237,8 @@ class TrackSelectionController(
         if (count <= 0) return
         val externalIds = mutableListOf<Int>()
         var emptyStreak = 0
+        // 同 findExternalSubtitleTrackIds：用字幕序号当作 sid/sub-remove 目标，绕开脏读 id。
+        var subtitleOrdinal = 0
         for (index in 0 until count) {
             val type = runCatching { mpv.getPropertyString("track-list/$index/type") }
                 .getOrNull()
@@ -266,6 +263,7 @@ class TrackSelectionController(
             }
             emptyStreak = 0
             if (type != "sub") continue
+            subtitleOrdinal += 1
             val externalPath = runCatching {
                 mpv.getPropertyString("track-list/$index/external-filename")
             }
@@ -280,21 +278,13 @@ class TrackSelectionController(
                     ?.let { it == "yes" || it == "true" || it == "1" }
                     ?: false)
             if (!external) continue
-            val trackId = runCatching { mpv.getPropertyInt("track-list/$index/id") }
-                .getOrDefault(0L)
-            if (trackId in 1..MAX_PLAUSIBLE_TRACK_ID.toLong()) {
-                externalIds += trackId.toInt()
-            } else if (trackId != 0L) {
-                Log.d(
-                    "FlyPlayerMpv",
-                    "drop bogus external subtitle purge id=$trackId index=$index",
-                )
-            }
+            externalIds += subtitleOrdinal
         }
         if (externalIds.isNotEmpty()) {
             lastBogusPurgeAbortElapsedMs = 0L
         }
-        for (trackId in externalIds) {
+        // 降序移除：sub-remove 会让后续字幕轨的序号前移，先移除大序号可保证小序号仍有效。
+        for (trackId in externalIds.sortedDescending()) {
             runCatching {
                 mpv.command(arrayOf("sub-remove", trackId.toString()))
             }
@@ -311,6 +301,10 @@ class TrackSelectionController(
         if (count <= 0) return emptyList()
         val trackIds = mutableListOf<Int>()
         var emptyStreak = 0
+        // mpv 的 sid 等于「同类型字幕轨里的 1-based 顺序号」，与 `track-list/$index/id`
+        // 等价，但后者在轨道列表改写瞬间会脏读出越界垃圾值。这里按 readRuntimeTrackEntries
+        // 的做法用字幕序号代替，彻底绕开脏读 id。
+        var subtitleOrdinal = 0
         for (index in 0 until count) {
             val type = runCatching { mpv.getPropertyString("track-list/$index/type") }
                 .getOrNull()
@@ -326,16 +320,17 @@ class TrackSelectionController(
                 ) {
                     Log.d(
                         "FlyPlayerMpv",
-                        "skip bogus external subtitle reuse scan count=$count afterEmptyStreak=$emptyStreak",
+                        "skip bogus external subtitle reuse scan count=$count afterEmptyStreak=$emptyStreak found=${trackIds.size}",
                     )
-                    // 脏读扫描整体不可信：此刻读到的 id 也可能是垃圾值。丢弃已收集的部分结果，
-                    // 宁可返回空（退回到下面的 purge+sub-add 重挂路径），也不要把垃圾 id 设给 sid。
-                    return emptyList()
+                    // 中止即列表结尾/脏读边界：保留已按字幕序号收集的有效结果（序号不会是垃圾），
+                    // 已找到的外挂轨可直接复用，避免误丢后又重复 sub-add。
+                    break
                 }
                 continue
             }
             emptyStreak = 0
             if (type != "sub") continue
+            subtitleOrdinal += 1
             val externalPath = runCatching {
                 mpv.getPropertyString("track-list/$index/external-filename")
             }
@@ -360,16 +355,8 @@ class TrackSelectionController(
                 normalizedExternalPath == normalizedPath
             val titleMatches = title.isNotEmpty() && title == fallbackTitle
             if (!pathMatches && !titleMatches) continue
-            val trackId = runCatching { mpv.getPropertyInt("track-list/$index/id") }
-                .getOrDefault(0L)
-            if (trackId in 1..MAX_PLAUSIBLE_TRACK_ID.toLong()) {
-                trackIds += trackId.toInt()
-            } else if (trackId != 0L) {
-                Log.d(
-                    "FlyPlayerMpv",
-                    "drop bogus external subtitle track id=$trackId index=$index",
-                )
-            }
+            // 用字幕序号作为 sid（避开脏读的 track-list/$index/id）。
+            trackIds += subtitleOrdinal
         }
         return trackIds
     }

@@ -3,57 +3,32 @@ package com.geqian.flyplayer.fly_player.mpv
 import android.content.Context
 import android.view.Surface
 import `is`.xyz.mpv.MPVLib
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TrackSelectionControllerTest {
     /**
-     * 复刻 error.log 3841-3848 的脏读现场：mpv 在轨道列表改写瞬间，`track-list/count`
-     * 返回垃圾大值、匹配到的外挂字幕轨 `id` 读出越界垃圾值 3324941。修复后该垃圾 id
-     * 必须被丢弃，绝不能被 setPropertyInt("sid", ...) 设进去（否则 mpv 报 -4，
-     * 用户看到字幕切换失败 / 一直转圈）。
+     * 复刻 error.log 7678-7689 的脏读现场：外挂字幕轨真实存在（第 3 条字幕），但
+     * `track-list/count` 被读成垃圾大值、`track-list/$index/id` 读出越界垃圾 481040129029。
+     * 修复后必须用「字幕序号」而非脏读的 id 复用该外挂轨——即 setPropertyInt("sid", 3)，
+     * 而不是放弃复用去重复 sub-add（旧 bug 导致切换失败 / 一直转圈）。
      */
     @Test
-    fun applyPendingExternalSubtitleDropsBogusTrackIdInsteadOfSettingSid() {
+    fun reuseFindsExternalSubtitleByOrdinalDespiteBogusId() {
         val path = "/data/code_cache/fly_player_sub_548d27ce.ass"
         val fake = FakeTrackListFacade(
-            trackListCount = 64L, // 脏读：真实只有 3 轨，count 被读成垃圾大值
+            trackListCount = 64L, // 脏读：count 虚高
             tracks = mapOf(
                 0 to mapOf("type" to "video"),
                 1 to mapOf("type" to "audio"),
-                2 to mapOf(
+                2 to mapOf("type" to "sub", "id" to "1"), // 内嵌 PGS（第 1 条字幕）
+                3 to mapOf("type" to "sub", "id" to "2"), // 内嵌 ass（第 2 条字幕）
+                4 to mapOf(
                     "type" to "sub",
                     "external-filename" to path,
-                    "id" to "3324941", // 脏读：越界垃圾轨道号
-                ),
-            ),
-        )
-        val controller = TrackSelectionController(fake)
-
-        controller.queueExternalSubtitle(path, initialized = true)
-        controller.applyPendingExternalSubtitle()
-
-        val bogusSidSet = fake.setIntCalls.any { it.first == "sid" && it.second == 3324941L }
-        assertFalse("绝不能把脏读的垃圾轨道号设给 sid", bogusSidSet)
-        // 回退到 purge+sub-add 重挂路径：应发出该外挂字幕的 sub-add 命令。
-        val subAdded = fake.commands.any { it.firstOrNull() == "sub-add" && it.contains(path) }
-        assertTrue("复用被丢弃后应回退到 sub-add 重挂外挂字幕", subAdded)
-    }
-
-    /** 合法的小轨道号仍应被正常复用（不要误杀正常路径）。 */
-    @Test
-    fun applyPendingExternalSubtitleReusesPlausibleTrackId() {
-        val path = "/data/code_cache/fly_player_sub_plausible.ass"
-        val fake = FakeTrackListFacade(
-            trackListCount = 4L,
-            tracks = mapOf(
-                0 to mapOf("type" to "video"),
-                1 to mapOf("type" to "audio"),
-                2 to mapOf(
-                    "type" to "sub",
-                    "external-filename" to path,
-                    "id" to "3",
+                    "id" to "481040129029", // 脏读：越界垃圾 id，必须被忽略
                 ),
             ),
         )
@@ -62,14 +37,67 @@ class TrackSelectionControllerTest {
         controller.queueExternalSubtitle(path, initialized = true)
         val applied = controller.applyPendingExternalSubtitle()
 
-        assertTrue("合法外挂字幕轨应被复用", applied)
+        assertTrue("应按字幕序号复用已加载的外挂字幕轨", applied)
         assertTrue(
-            "复用应把 sid 设为该轨道号 3",
+            "外挂是第 3 条字幕 → sid 应设为 3（序号），而非脏读 id",
             fake.setIntCalls.any { it.first == "sid" && it.second == 3L },
         )
         assertFalse(
-            "复用命中时不应再 sub-add",
+            "绝不能把脏读的垃圾 id 设给 sid",
+            fake.setIntCalls.any { it.first == "sid" && it.second == 481040129029L },
+        )
+        assertFalse(
+            "复用命中时不应再 sub-add（否则产生重复轨/振荡）",
             fake.commands.any { it.firstOrNull() == "sub-add" },
+        )
+    }
+
+    /** 外挂字幕是唯一字幕轨时，序号为 1 → sid=1。 */
+    @Test
+    fun reuseSingleExternalSubtitleUsesOrdinalOne() {
+        val path = "/data/code_cache/fly_player_sub_single.ass"
+        val fake = FakeTrackListFacade(
+            trackListCount = 3L,
+            tracks = mapOf(
+                0 to mapOf("type" to "video"),
+                1 to mapOf("type" to "audio"),
+                2 to mapOf("type" to "sub", "external-filename" to path, "id" to "999999999"),
+            ),
+        )
+        val controller = TrackSelectionController(fake)
+
+        controller.queueExternalSubtitle(path, initialized = true)
+        val applied = controller.applyPendingExternalSubtitle()
+
+        assertTrue(applied)
+        assertEquals(
+            listOf("sid" to 1L),
+            fake.setIntCalls.filter { it.first == "sid" },
+        )
+        assertFalse(fake.commands.any { it.firstOrNull() == "sub-add" })
+    }
+
+    /** 外挂字幕尚未加载时，复用扫描应为空并回退到 sub-add 重挂。 */
+    @Test
+    fun fallsBackToSubAddWhenExternalNotLoaded() {
+        val path = "/data/code_cache/fly_player_sub_missing.ass"
+        val fake = FakeTrackListFacade(
+            trackListCount = 3L,
+            tracks = mapOf(
+                0 to mapOf("type" to "video"),
+                1 to mapOf("type" to "audio"),
+                2 to mapOf("type" to "sub", "id" to "1"), // 仅有内嵌字幕，非目标外挂
+            ),
+        )
+        val controller = TrackSelectionController(fake)
+
+        controller.queueExternalSubtitle(path, initialized = true)
+        val applied = controller.applyPendingExternalSubtitle()
+
+        assertTrue(applied)
+        assertTrue(
+            "未命中复用应回退到 sub-add 重挂外挂字幕",
+            fake.commands.any { it.firstOrNull() == "sub-add" && it.contains(path) },
         )
     }
 
