@@ -34,5 +34,20 @@ void main() {
         'nas.example.com:5667',
       );
     });
+
+    test('普通直连登录保存源地址，作为飞牛兼容基线', () {
+      const result = LoginWithBaseUrlResult(
+        token: 'fake-feiniu-token',
+        resolvedBaseUrl: 'https://nas.example.test:5667',
+      );
+
+      expect(
+        effectivePersistedBaseUrlForLogin(
+          sourceBaseUrl: 'nas.example.test:5667',
+          loginResult: result,
+        ),
+        'nas.example.test:5667',
+      );
+    });
   });
 }
