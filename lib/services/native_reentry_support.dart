@@ -346,8 +346,9 @@ class NativeReentrySupport {
   }) async {
     if (currentLoadArgs.trim().isEmpty) return null;
     final MpvMediaSource source;
+    final Map<String, dynamic> raw;
     try {
-      final raw = (jsonDecode(currentLoadArgs) as Map).map(
+      raw = (jsonDecode(currentLoadArgs) as Map).map(
         (key, value) => MapEntry(key.toString(), value),
       );
       source = MpvMediaSource.fromMap(raw);
@@ -446,7 +447,28 @@ class NativeReentrySupport {
       clearSubtitleTrackIndex: true,
       preferExternalSubtitle: false,
     );
-    return <String, dynamic>{'loadArgs': jsonEncode(newSource.toMap())};
+    final newArgs = preserveEpisodesForServerReload(raw, newSource.toMap());
+    return <String, dynamic>{'loadArgs': jsonEncode(newArgs)};
+  }
+
+  /// 服务端会话重载（切画质/切轨道）后并回 `episodes`。
+  ///
+  /// `episodes` 不是 [MpvMediaSource] 字段，`fromMap→copyWith→toMap` 会把它丢掉；但它是
+  /// 原生壳「选集 / 下一集」的唯一数据源（`NativePlayerActivity.episodeList()` 读
+  /// `loadArgs["episodes"]`）。切画质走本路径后若不并回，原生壳选集面板会清空、连播失效
+  /// （Bug C）。选集/切版本走 `resolvePlayback` 不丢，是因为那条由 launcher 始终带齐 episodes。
+  ///
+  /// [previousLoadArgs] 为重载前完整 loadArgs（含 episodes），[reloadedLoadArgs] 为
+  /// 重载产出的新 source map。原地补键并返回同一 map。
+  static Map<String, dynamic> preserveEpisodesForServerReload(
+    Map<String, dynamic> previousLoadArgs,
+    Map<String, dynamic> reloadedLoadArgs,
+  ) {
+    final episodes = previousLoadArgs['episodes'];
+    if (episodes is List && episodes.isNotEmpty) {
+      reloadedLoadArgs['episodes'] = episodes;
+    }
+    return reloadedLoadArgs;
   }
 
   /// 原生壳选中 NAS 外挂字幕 → 下载文本落临时文件 → 返回路径，供原生壳 `sub-add`。
