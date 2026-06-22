@@ -518,6 +518,165 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     return urls;
   }
 
+  static String _neutralYear(String releaseDate) {
+    final value = releaseDate.trim();
+    if (value.length >= 4 && int.tryParse(value.substring(0, 4)) != null) {
+      return value.substring(0, 4);
+    }
+    return '';
+  }
+
+  /// 中立后端(Emby)展示体:与飞牛页同一批组件(背景在页级已铺、此处为 hero + 信息块 +
+  /// 描述 + 演职员),数据全来自中立 [_detail]。播放入口为占位(能力门控,本切片不做 Emby
+  /// 播放);演职员点击在中立态暂不跳转(Emby 人物详情后续切片)。
+  Widget _buildNeutralBody(AppThemeColors colors) {
+    final detail = _detail!;
+    final media = MediaQuery.of(context);
+    final screenSize = media.size;
+    final posterHeight = _backdropHeroHeight(screenSize);
+    final layout = DetailLayoutSolver.solve(
+      screenSize: screenSize,
+      safePadding: media.padding,
+      posterHeight: posterHeight,
+    );
+
+    final title = detail.title.trim().isNotEmpty
+        ? detail.title.trim()
+        : detail.displayTitle;
+    final logoUrl = detail.logoImage.url;
+    final logoChild = logoUrl.isNotEmpty
+        ? DetailHeroLogoTitle(
+            urls: <String>[logoUrl],
+            token: '',
+            fallbackTitle: title,
+            maxHeight: 112,
+            maxWidth:
+                screenSize.width - (DetailTokens.screenHorizontalPadding * 2),
+            fallbackFontSize: 28,
+          )
+        : null;
+
+    final metaLineA = <String>[
+      ...detail.genreLabels,
+      ...detail.regionLabels,
+    ].map((e) => e.trim()).where((e) => e.isNotEmpty).join(' / ');
+    final year = _neutralYear(detail.releaseDate);
+    final metaLineB = <String>[
+      if (year.isNotEmpty) year,
+      if (detail.durationSeconds > 0)
+        PlayDetailFormatters.formatDuration(detail.durationSeconds),
+      if (detail.rating.trim().isNotEmpty) '⭐ ${detail.rating.trim()}',
+    ].join(' / ');
+
+    final creditItems = detail.people
+        .map(
+          (p) => CreditPersonItem(
+            personGuid: p.id,
+            name: CreditPersonPresenter.displayName(p),
+            subtitle: CreditPersonPresenter.displaySubTitle(p),
+            imageUrls: p.avatar.isNotEmpty
+                ? <String>[p.avatar.url]
+                : const <String>[],
+          ),
+        )
+        .toList();
+
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: CustomScrollView(
+        controller: _scrollController,
+        physics: const BouncingScrollPhysics(
+          parent: AlwaysScrollableScrollPhysics(),
+        ),
+        slivers: [
+          SliverToBoxAdapter(
+            child: DetailHeroOverlay(
+              height: layout.infoStart,
+              title: title,
+              subtitle: '',
+              bottomInset: 36,
+              useSoftGradient: true,
+              titleChild: logoChild,
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: Container(
+              color: colors.backgroundBase,
+              padding: const EdgeInsets.fromLTRB(
+                DetailTokens.screenHorizontalPadding,
+                8,
+                DetailTokens.screenHorizontalPadding,
+                10,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  DetailMetaLines(metaLineA: metaLineA, metaLineB: metaLineB),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: null,
+                      icon: const Icon(Icons.play_arrow),
+                      label: const Text('播放功能即将到来'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (detail.overview.trim().isNotEmpty)
+            SliverToBoxAdapter(
+              child: Container(
+                color: colors.backgroundBase,
+                padding: EdgeInsets.fromLTRB(
+                  DetailTokens.screenHorizontalPadding,
+                  4,
+                  DetailTokens.screenHorizontalPadding,
+                  media.padding.bottom + 18,
+                ),
+                child: DetailDescriptionSection(
+                  text: detail.overview.trim(),
+                  onMoreTap: () {
+                    LongTextOverlayPage.show(
+                      context,
+                      title: title,
+                      sectionTitle: _t(
+                        'layout.details.overview.overview',
+                        'Overview',
+                      ),
+                      content: detail.overview.trim(),
+                    );
+                  },
+                ),
+              ),
+            ),
+          if (creditItems.isNotEmpty)
+            SliverToBoxAdapter(
+              child: Container(
+                color: colors.backgroundBase,
+                padding: const EdgeInsets.fromLTRB(
+                  DetailTokens.screenHorizontalPadding,
+                  8,
+                  DetailTokens.screenHorizontalPadding,
+                  20,
+                ),
+                child: CreditsSection(
+                  title: _t(
+                    'layout.details.castAndCrew.title',
+                    'Cast and crew',
+                  ),
+                  items: creditItems,
+                  token: '',
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   String _paneEpisodeThemeBackdropFallback() {
     final initial = widget.initialItemDetail;
     if (initial == null) {
@@ -2166,6 +2325,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               ),
             );
           }
+        } else if (_neutralDisplayOnly && _detail != null && _error == null) {
+          // 中立后端(Emby)展示体:复用本页 hero/meta/描述/演职员组件,从 _detail 渲染。
+          pageBody = _buildNeutralBody(colors);
         } else if (_error != null || _data == null) {
           pageBody = Scaffold(
             backgroundColor: colors.backgroundBase,
