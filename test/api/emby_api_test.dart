@@ -167,6 +167,54 @@ void main() {
     expect(items, isEmpty);
   });
 
+  test('getItemCount：Limit=0 + IncludeItemTypes，取 TotalRecordCount', () async {
+    late RequestOptions captured;
+    final adapter = _FakeDioAdapter((options) {
+      captured = options;
+      return const _JsonResponse(<String, Object?>{
+        'Items': <Object?>[],
+        'TotalRecordCount': 34,
+      });
+    });
+    final api = EmbyApi(dio: Dio(BaseOptions())..httpClientAdapter = adapter);
+
+    final count = await api.getItemCount(
+      serverUrl: 'https://emby.example.test',
+      userId: 'user-1',
+      accessToken: 'tok',
+      includeItemTypes: 'Movie',
+    );
+
+    expect(captured.method, 'GET');
+    expect(captured.uri.path, '/Users/user-1/Items');
+    expect(captured.uri.queryParameters['api_key'], 'tok');
+    expect(captured.uri.queryParameters['Limit'], '0');
+    expect(captured.uri.queryParameters['Recursive'], 'true');
+    expect(captured.uri.queryParameters['IncludeItemTypes'], 'Movie');
+    expect(count, 34);
+  });
+
+  test('getItemCount：favoritesOnly → Filters=IsFavorite', () async {
+    late RequestOptions captured;
+    final adapter = _FakeDioAdapter((options) {
+      captured = options;
+      return const _JsonResponse(<String, Object?>{'TotalRecordCount': 5});
+    });
+    final api = EmbyApi(dio: Dio(BaseOptions())..httpClientAdapter = adapter);
+
+    final count = await api.getItemCount(
+      serverUrl: 'https://emby.example.test',
+      userId: 'user-1',
+      accessToken: 'tok',
+      favoritesOnly: true,
+      includeItemTypes: 'Movie,Series',
+    );
+
+    expect(captured.uri.queryParameters['Filters'], 'IsFavorite');
+    expect(captured.uri.queryParameters['IncludeItemTypes'], 'Movie,Series');
+    expect(count, 5);
+  });
+
   test(
     'getItem 拼 /Users/{uid}/Items/{id} + api_key/Fields，返回单条目 Map',
     () async {
