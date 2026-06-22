@@ -53,8 +53,41 @@ class EmbyMediaBackend implements MediaBackend {
   }
 
   @override
-  Future<Map<String, dynamic>> getHomeSummary() async =>
-      const <String, dynamic>{};
+  Future<Map<String, dynamic>> getHomeSummary() async {
+    // Emby 无专用计数端点；用 /Items 的 TotalRecordCount（Limit=0 不拉条目体）按类型并行取数。
+    // total=电影+电视剧（对齐“全部影视”）；other 首光阶段恒 0（尚无非影视计数口径）。
+    final counts = await Future.wait(<Future<int>>[
+      api.getItemCount(
+        serverUrl: _serverUrl,
+        userId: _userId,
+        accessToken: _token,
+        includeItemTypes: 'Movie',
+      ),
+      api.getItemCount(
+        serverUrl: _serverUrl,
+        userId: _userId,
+        accessToken: _token,
+        includeItemTypes: 'Series',
+      ),
+      api.getItemCount(
+        serverUrl: _serverUrl,
+        userId: _userId,
+        accessToken: _token,
+        includeItemTypes: 'Movie,Series',
+        favoritesOnly: true,
+      ),
+    ]);
+    final movie = counts[0];
+    final tv = counts[1];
+    final favorite = counts[2];
+    return <String, dynamic>{
+      'total': movie + tv,
+      'movie': movie,
+      'tv': tv,
+      'favorite': favorite,
+      'other': 0,
+    };
+  }
 
   @override
   Future<List<MediaItemCard>> getContinueWatching({
