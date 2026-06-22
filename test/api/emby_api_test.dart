@@ -75,6 +75,97 @@ void main() {
     expect(result.userId, 'user-id');
     expect(result.userName, 'Alice');
   });
+
+  test('getUserViews 拼 /Users/{uid}/Views + api_key，解析 Items', () async {
+    late RequestOptions captured;
+    final adapter = _FakeDioAdapter((options) {
+      captured = options;
+      return const _JsonResponse(<String, Object?>{
+        'Items': <Object?>[
+          <String, Object?>{
+            'Id': 'lib-1',
+            'Name': '电影',
+            'CollectionType': 'movies',
+          },
+          <String, Object?>{
+            'Id': 'lib-2',
+            'Name': '剧集',
+            'CollectionType': 'tvshows',
+          },
+        ],
+      });
+    });
+    final api = EmbyApi(dio: Dio(BaseOptions())..httpClientAdapter = adapter);
+
+    final views = await api.getUserViews(
+      serverUrl: 'https://emby.example.test/',
+      userId: 'user-1',
+      accessToken: 'tok',
+    );
+
+    expect(captured.method, 'GET');
+    expect(captured.uri.path, '/Users/user-1/Views');
+    expect(captured.uri.queryParameters['api_key'], 'tok');
+    expect(views, hasLength(2));
+    expect(views[0]['Id'], 'lib-1');
+    expect(views[1]['CollectionType'], 'tvshows');
+  });
+
+  test('getItems 带 ParentId/Limit/Fields 查询，解析 Items', () async {
+    late RequestOptions captured;
+    final adapter = _FakeDioAdapter((options) {
+      captured = options;
+      return const _JsonResponse(<String, Object?>{
+        'Items': <Object?>[
+          <String, Object?>{'Id': 'item-1', 'Name': '影片甲', 'Type': 'Movie'},
+        ],
+        'TotalRecordCount': 1,
+      });
+    });
+    final api = EmbyApi(dio: Dio(BaseOptions())..httpClientAdapter = adapter);
+
+    final items = await api.getItems(
+      serverUrl: 'https://emby.example.test',
+      userId: 'user-1',
+      accessToken: 'tok',
+      parentId: 'lib-1',
+      limit: 20,
+      fields: 'Overview,PrimaryImageAspectRatio',
+    );
+
+    expect(captured.uri.path, '/Users/user-1/Items');
+    expect(captured.uri.queryParameters['api_key'], 'tok');
+    expect(captured.uri.queryParameters['ParentId'], 'lib-1');
+    expect(captured.uri.queryParameters['Limit'], '20');
+    expect(
+      captured.uri.queryParameters['Fields'],
+      'Overview,PrimaryImageAspectRatio',
+    );
+    expect(items, hasLength(1));
+    expect(items[0]['Id'], 'item-1');
+  });
+
+  test('getItems 继续观看：isResumable → Filters=IsResumable', () async {
+    late RequestOptions captured;
+    final adapter = _FakeDioAdapter((options) {
+      captured = options;
+      return const _JsonResponse(<String, Object?>{'Items': <Object?>[]});
+    });
+    final api = EmbyApi(dio: Dio(BaseOptions())..httpClientAdapter = adapter);
+
+    final items = await api.getItems(
+      serverUrl: 'https://emby.example.test',
+      userId: 'user-1',
+      accessToken: 'tok',
+      isResumable: true,
+      recursive: true,
+      limit: 12,
+    );
+
+    expect(captured.uri.queryParameters['Filters'], 'IsResumable');
+    expect(captured.uri.queryParameters['Recursive'], 'true');
+    expect(items, isEmpty);
+  });
 }
 
 class _JsonResponse {
