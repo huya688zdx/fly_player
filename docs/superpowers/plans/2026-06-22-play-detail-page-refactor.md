@@ -102,10 +102,22 @@
       深嵌在播放半身的 `AnimatedSize`/`ConstrainedBox`/`Column`(与 `DetailSelectorRow`/`PlayActionBar` 同列),
       不是可分离 sliver;中立 meta 是独立 `Container` + 占位播放按钮。两者结构不同,meta 收敛留到最后一步
       (成功分支吃 null `_data`)一并处理。
-  - ⏳ **最后一步 待做**:成功分支吃 null `_data`(播放半身全 `_data!=null` 守卫、meta 区与中立合流)→
-    删 `_neutralDisplayOnly`/`_buildNeutralBody`。**这是改飞牛渲染路径的最大一步,务必逐像素核对**。
+  - 🛑 **最后一步 暂缓(用户拍板 A,2026-06-23 收口)**:成功分支吃 null `_data`(播放半身全 `_data!=null`
+    守卫、meta 区与中立合流)→ 删 `_neutralDisplayOnly`/`_buildNeutralBody`。**不做**,原因:去重大头已被步骤
+    1–3 拿到(hero/描述/演职员/链接全是共享 builder),`_buildNeutralBody` 仅剩 meta + 占位按钮约 25 行;
+    而这一步要改飞牛主渲染路径 ~370 行(`item` 非空引用约 50 处可空化 + 全守卫)、不可逆(删旧路)、违反
+    "飞牛逐像素不变"概率最高,收益是可维护性非 perf。**risk≫benefit,保留中立体**。若日后要做须单独会话 +
+    逐像素核对。
 
 阶段二每步只做一块、单测/实机核对飞牛不变,再提交。
+
+## S2-6 收口状态(2026-06-23)
+
+公有化目标已达成:Emby 复用真详情页,展示区(hero/meta/描述/演职员/链接/文件视频信息)与飞牛同源组件;
+飞牛主路径全程逐像素不变、实机已验。**剩余唯一未做项=合并双渲染路的最后一步,用户拍板暂缓(见上)**。
+本轮另完成的 Emby 完善(均独立提交、飞牛不回归):首页计数 `a0e9625`、去横幅 `be44475`、详情分屏进入 +
+会话竞态兜底 `c887ff6`、续播只显真实在看 `f2da556`、续播分隔符 `7ba06be`、IMDB/TMDB 链接 `f7e8de6`、
+文件/视频信息 `fafdf8f`、区块顺序 `33ea7eb`。
 
 ## 约束(全程)
 
