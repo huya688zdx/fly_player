@@ -360,11 +360,17 @@ class FlyPlayerApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => NasProvider()),
         ChangeNotifierProvider(create: (_) => BackendSessionProvider()),
-        ChangeNotifierProxyProvider<NasProvider, MediaBackendProvider>(
-          create: (context) =>
-              MediaBackendProvider(context.read<NasProvider>()),
-          update: (context, nas, previous) =>
-              previous ?? MediaBackendProvider(nas),
+        ChangeNotifierProxyProvider2<
+          NasProvider,
+          BackendSessionProvider,
+          MediaBackendProvider
+        >(
+          create: (context) => MediaBackendProvider(
+            context.read<NasProvider>(),
+            context.read<BackendSessionProvider>(),
+          ),
+          update: (context, nas, session, previous) =>
+              previous ?? MediaBackendProvider(nas, session),
         ),
         ChangeNotifierProvider(create: (_) => ParallelWindowSettingsProvider()),
         ChangeNotifierProvider(create: (_) => AppThemeProvider()),
