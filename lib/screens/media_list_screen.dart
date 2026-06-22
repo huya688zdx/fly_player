@@ -15,6 +15,7 @@ import '../media_backend/media_backend.dart';
 import '../media_backend/media_backend_kind.dart';
 import '../media_backend/media_catalog.dart';
 import '../media_backend/media_item_card.dart';
+import '../media_backend/session/media_backend_connection.dart';
 import '../providers/backend_session_provider.dart';
 import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
@@ -544,6 +545,18 @@ class _MediaListScreenState extends State<MediaListScreen> {
       confirmText: _t('common.actions.default.default', 'Confirm'),
     );
     if (!mounted || !confirmed) return;
+    final session = context.read<BackendSessionProvider>();
+    if (session.currentKind == MediaBackendKind.emby) {
+      // 退出 Emby：把当前后端切回飞牛态（NAS 未配置则 gate 回登录页），避免用户被困在
+      // Emby 首页。用现有 saveActive，不碰 Codex 的会话内部；与登录后端会话登出收口待协调。
+      await session.saveActive(
+        const MediaBackendConnection(
+          kind: MediaBackendKind.feiniu,
+          serverUrl: '',
+        ),
+      );
+      return;
+    }
     await context.read<NasProvider>().logout();
   }
 
