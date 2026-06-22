@@ -81,12 +81,16 @@ class EmbyMediaBackend implements MediaBackend {
     int page = 1,
     int limit = 30,
   }) async {
+    // Recursive + IncludeItemTypes：把库下的文件夹/合集拍平，直接出影片/剧集本身
+    // （否则首页预览会显示无封面的中间文件夹，而非真正的条目）。
     final items = await api.getItems(
       serverUrl: _serverUrl,
       userId: _userId,
       accessToken: _token,
       parentId: catalogId,
       limit: limit,
+      recursive: true,
+      includeItemTypes: 'Movie,Series',
       fields: _cardFields,
     );
     return items

@@ -117,6 +117,7 @@ class EmbyApi {
     int? limit,
     bool isResumable = false,
     bool recursive = false,
+    String includeItemTypes = '',
     String fields = '',
     String sortBy = '',
     String sortOrder = '',
@@ -128,6 +129,8 @@ class EmbyApi {
       if (limit != null) 'Limit': limit,
       if (isResumable) 'Filters': 'IsResumable',
       if (recursive) 'Recursive': true,
+      if (includeItemTypes.trim().isNotEmpty)
+        'IncludeItemTypes': includeItemTypes.trim(),
       if (fields.trim().isNotEmpty) 'Fields': fields.trim(),
       if (sortBy.trim().isNotEmpty) 'SortBy': sortBy.trim(),
       if (sortOrder.trim().isNotEmpty) 'SortOrder': sortOrder.trim(),

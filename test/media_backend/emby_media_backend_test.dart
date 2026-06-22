@@ -11,6 +11,8 @@ class _FakeEmbyApi extends EmbyApi {
   final List<Map<String, Object?>> items;
   String? lastParentId;
   bool lastIsResumable = false;
+  bool lastRecursive = false;
+  String lastIncludeItemTypes = '';
 
   @override
   Future<List<Map<String, Object?>>> getUserViews({
@@ -28,12 +30,15 @@ class _FakeEmbyApi extends EmbyApi {
     int? limit,
     bool isResumable = false,
     bool recursive = false,
+    String includeItemTypes = '',
     String fields = '',
     String sortBy = '',
     String sortOrder = '',
   }) async {
     lastParentId = parentId;
     lastIsResumable = isResumable;
+    lastRecursive = recursive;
+    lastIncludeItemTypes = includeItemTypes;
     return items;
   }
 }
@@ -86,6 +91,9 @@ void main() {
     final backend = EmbyMediaBackend(api: api, connection: connection);
     final items = await backend.getCatalogPreviewItems('lib-1', limit: 10);
     expect(api.lastParentId, 'lib-1');
+    // 拍平库下文件夹、直出影片/剧集（否则首页显示无封面的中间文件夹）。
+    expect(api.lastRecursive, isTrue);
+    expect(api.lastIncludeItemTypes, 'Movie,Series');
     expect(items, hasLength(1));
     expect(items[0].id, 'item-1');
   });
