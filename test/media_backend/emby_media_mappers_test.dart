@@ -99,4 +99,111 @@ void main() {
       expect(card.primaryImage.isEmpty, isTrue);
     });
   });
+
+  group('mapEmbyItemDetail', () {
+    test('影片详情：标题/简介/题材/时长/评分/外部 ID/图片/演职员', () {
+      final detail = mapEmbyItemDetail(
+        <String, Object?>{
+          'Id': 'm-1',
+          'Name': '银翼杀手 2049',
+          'Type': 'Movie',
+          'Overview': '简介文本',
+          'RunTimeTicks': 9840000000000, // 984000 秒 = 16400 分
+          'CommunityRating': 8.0,
+          'PremiereDate': '2017-10-06T00:00:00.0000000Z',
+          'Genres': <Object?>['科幻', '剧情'],
+          'ProductionLocations': <Object?>['美国'],
+          'ImageTags': <String, Object?>{'Primary': 'p1', 'Logo': 'lg1'},
+          'BackdropImageTags': <Object?>['b1'],
+          'ProviderIds': <String, Object?>{
+            'Tmdb': '335984',
+            'Imdb': 'tt1856101',
+          },
+          'UserData': <String, Object?>{
+            'Played': true,
+            'IsFavorite': true,
+            'PlaybackPositionTicks': 6000000000, // 600 秒
+          },
+          'People': <Object?>[
+            <String, Object?>{
+              'Id': 'pp-1',
+              'Name': 'Ryan Gosling',
+              'Role': 'K',
+              'Type': 'Actor',
+              'PrimaryImageTag': 'av1',
+            },
+            <String, Object?>{
+              'Id': 'pp-2',
+              'Name': 'Denis Villeneuve',
+              'Type': 'Director',
+            },
+            <String, Object?>{'Id': 'pp-3', 'Name': '', 'Type': 'Actor'},
+          ],
+        },
+        serverUrl: serverUrl,
+        token: token,
+      );
+
+      expect(detail.id, 'm-1');
+      expect(detail.type, 'Movie');
+      expect(detail.title, '银翼杀手 2049');
+      expect(detail.overview, '简介文本');
+      expect(detail.genreLabels, <String>['科幻', '剧情']);
+      expect(detail.regionLabels, <String>['美国']);
+      expect(detail.durationSeconds, 984000);
+      expect(detail.runtimeMinutes, 16400);
+      expect(detail.rating, '8.0');
+      expect(detail.releaseDate, '2017-10-06T00:00:00.0000000Z');
+      expect(detail.externalIds.tmdbId, '335984');
+      expect(detail.externalIds.imdbId, 'tt1856101');
+      expect(detail.watched, isTrue);
+      expect(detail.favorite, isTrue);
+      expect(detail.resumePositionSeconds, 600);
+      expect(
+        detail.primaryImage.url,
+        'https://emby.example.test/Items/m-1/Images/Primary?tag=p1&api_key=tok',
+      );
+      expect(
+        detail.logoImage.url,
+        'https://emby.example.test/Items/m-1/Images/Logo?tag=lg1&api_key=tok',
+      );
+      expect(
+        detail.backdropImage.url,
+        'https://emby.example.test/Items/m-1/Images/Backdrop?tag=b1&api_key=tok',
+      );
+      // 无名演职员被剔除；其余保留顺序、department=Type。
+      expect(detail.people, hasLength(2));
+      expect(detail.people[0].name, 'Ryan Gosling');
+      expect(detail.people[0].role, 'K');
+      expect(detail.people[0].department, 'Actor');
+      expect(
+        detail.people[0].avatar.url,
+        'https://emby.example.test/Items/pp-1/Images/Primary?tag=av1&api_key=tok',
+      );
+      expect(detail.people[1].name, 'Denis Villeneuve');
+      expect(detail.people[1].department, 'Director');
+      expect(detail.people[1].avatar.isEmpty, isTrue);
+    });
+
+    test('缺图缺人缺外部 ID：空态降级不报错，年份回退 ProductionYear', () {
+      final detail = mapEmbyItemDetail(
+        <String, Object?>{
+          'Id': 'm-2',
+          'Name': '某电影',
+          'Type': 'Movie',
+          'ProductionYear': 1999,
+        },
+        serverUrl: serverUrl,
+        token: token,
+      );
+      expect(detail.releaseDate, '1999');
+      expect(detail.primaryImage.isEmpty, isTrue);
+      expect(detail.logoImage.isEmpty, isTrue);
+      expect(detail.genreLabels, isEmpty);
+      expect(detail.people, isEmpty);
+      expect(detail.externalIds.tmdbId, isEmpty);
+      expect(detail.externalIds.imdbId, isEmpty);
+      expect(detail.watched, isFalse);
+    });
+  });
 }
