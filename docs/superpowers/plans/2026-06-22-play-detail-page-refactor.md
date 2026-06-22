@@ -88,16 +88,16 @@
   - ✅ **步骤1 演职员 sliver(`a7ec510`)**:抽 `_buildCreditsSliver`(复刻飞牛树:`_sectionReveal` +
     `Container` 内边距 + `CreditsSection`;`colors` 由调用方传 builder 作用域值——`DynamicPageThemeScope`
     改写子树主题,不可在 helper 内重取)。飞牛逐字节等价;Emby 顺带获得同一入场动画(统一)。
-    门控留调用点。**待实机**:飞牛演职员区逐像素不变。
+    门控留调用点。**实机已过(2026-06-23,飞牛详情页与改前无差别)**。
   - ✅ **步骤2 描述 sliver(`2445ad8`)**:抽 `_buildDescriptionSliver`(复刻飞牛树:`_descriptionPopController`
     的 `AnimatedBuilder` 入场 + `Container` 内边距 + `DetailDescriptionSection`;`text` 同时喂正文与「展开全文」
     浮层内容,`colors` 由调用方传 builder 作用域值)。飞牛逐字节等价(传未 trim 的 `detail.overview` +
     `overlayTitle: detailTitle`、无门控恒显);Emby 顺带获得控制器入场(call site 保留 `if(overview.trim().isNotEmpty)`
-    空判 + 传已 trim 文案 + `overlayTitle: title`)。analyze 净。**待实机**:飞牛描述区逐像素不变。
+    空判 + 传已 trim 文案 + `overlayTitle: title`)。analyze 净。**实机已过(2026-06-23,飞牛不变)**。
   - ✅ **步骤3 hero sliver(`3376424`)**:抽 `_buildHeroSliver`(复刻飞牛树:`FadeTransition(_headerTitleOpacity)`
     入场 + `DetailHeroOverlay`,`useSoftGradient: true` 恒定)。飞牛逐字节等价(剧集态 `titleFontSize`/小
     `bottomInset`/副标题照传);Emby 顺带获得标题淡入(`_headerFadeController` 在中立加载路径已 `forward`)。
-    analyze 净。**待实机**:飞牛 hero 逐像素不变。
+    analyze 净。**实机已过(2026-06-23,飞牛 hero 不变)**。
     - **注**:**meta 行不在本步**——飞牛 meta(`FadeTransition(_headerMetaOpacity)` + `_asyncFadeSwitcher`)
       深嵌在播放半身的 `AnimatedSize`/`ConstrainedBox`/`Column`(与 `DetailSelectorRow`/`PlayActionBar` 同列),
       不是可分离 sliver;中立 meta 是独立 `Container` + 占位播放按钮。两者结构不同,meta 收敛留到最后一步
