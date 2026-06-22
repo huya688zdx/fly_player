@@ -1,37 +1,56 @@
 import 'package:flutter/foundation.dart';
 
+import '../api/emby_api.dart';
 import '../api/feiniu_api.dart';
+import '../media_backend/emby/emby_media_backend.dart';
 import '../media_backend/feiniu/feiniu_media_backend.dart';
 import '../media_backend/media_backend.dart';
+import '../media_backend/media_backend_kind.dart';
+import 'backend_session_provider.dart';
 import 'nas_provider.dart';
 
 /// 向页面提供当前 [MediaBackend] 实例。
 ///
-/// 第一阶段固定返回飞牛适配器；未来根据配置切换后端时，只改这里，
-/// 页面无需感知后端类型。
+/// 按当前后端会话路由：[BackendSessionProvider.currentKind] 为 `emby` 且连接已认证时
+/// 返回 [EmbyMediaBackend]；否则（飞牛 / 无会话层）返回 [FeiniuMediaBackend]。页面只读
+/// `backend`，无需感知后端类型，也不写 `if (isEmby)`。
 ///
-/// 按 NAS 会话缓存 backend 实例：[FeiniuApi] 在构造时把 `nasProvider.baseUrl`
-/// 烤进内部 Dio（token 在拦截器里每次请求动态读取，无需重建），所以缓存键取
-/// `baseUrl`——同一会话内多页面频繁读取 `backend` 复用同一实例（连带复用
-/// FeiniuApi 内的标签 / 题材等共享缓存），baseUrl 变更（重登 / FN Connect 切换 /
-/// 登出清除 resolvedBaseUrl）时才重建，避免重复创建 Dio。
+/// 按会话身份缓存 backend 实例（缓存键 = kind + 身份）：飞牛取 `nasProvider.baseUrl`
+/// （FeiniuApi 把 baseUrl 烤进 Dio、token 拦截器每请求动态读取，故 baseUrl 变更才重建）；
+/// Emby 取 serverUrl + accessToken。同一会话内多页面复用同一实例，会话切换时才重建。
 class MediaBackendProvider extends ChangeNotifier {
   final NasProvider nasProvider;
 
-  MediaBackendProvider(this.nasProvider);
+  /// 后端会话来源；为 `null`（无会话层，如单元测试）时固定走飞牛，保持历史行为。
+  final BackendSessionProvider? sessionProvider;
+
+  MediaBackendProvider(this.nasProvider, [this.sessionProvider]);
 
   MediaBackend? _cachedBackend;
-  String? _cachedBaseUrl;
+  String? _cachedKey;
 
   MediaBackend get backend {
-    final baseUrl = nasProvider.baseUrl;
-    final cached = _cachedBackend;
-    if (cached != null && _cachedBaseUrl == baseUrl) {
-      return cached;
+    final session = sessionProvider;
+    final connection = session?.currentConnection;
+    if (session != null &&
+        session.currentKind == MediaBackendKind.emby &&
+        connection != null &&
+        connection.isAuthenticated) {
+      final key = 'emby:${connection.serverUrl}:${connection.accessToken}';
+      final cached = _cachedBackend;
+      if (cached != null && _cachedKey == key) return cached;
+      final created = EmbyMediaBackend(api: EmbyApi(), connection: connection);
+      _cachedBackend = created;
+      _cachedKey = key;
+      return created;
     }
+
+    final key = 'feiniu:${nasProvider.baseUrl}';
+    final cached = _cachedBackend;
+    if (cached != null && _cachedKey == key) return cached;
     final created = FeiniuMediaBackend(FeiniuApi(nasProvider));
     _cachedBackend = created;
-    _cachedBaseUrl = baseUrl;
+    _cachedKey = key;
     return created;
   }
 }
