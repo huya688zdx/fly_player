@@ -120,6 +120,10 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       if (_embyUserNameController.text.trim().isEmpty) {
         _embyUserNameController.text = embyConnection.userName;
       }
+      if (embyConnection.rememberSecret &&
+          _embyPasswordController.text.isEmpty) {
+        _embyPasswordController.text = embyConnection.secret;
+      }
       _embyConnectionStatus = _formatEmbyConnectionStatus(embyConnection);
     });
   }
@@ -208,6 +212,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         userName: result.userName,
         userId: result.userId,
         accessToken: result.accessToken,
+        secret: password,
         rememberSecret: true,
         updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
       );
@@ -217,7 +222,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       setState(() {
         _embyBaseUrlController.text = connection.serverUrl;
         _embyUserNameController.text = connection.userName;
-        _embyPasswordController.clear();
+        _embyPasswordController.text = connection.secret;
         _embyConnectionStatus = _formatEmbyConnectionStatus(connection);
       });
       _showTopTip('Emby 连接已验证，媒体浏览将在后续阶段开放', context.appColors.accent);
@@ -597,10 +602,11 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         ? connection.displayName.trim()
         : connection.serverUrl.trim();
     final user = connection.userName.trim();
+    final prefix = connection.isAuthenticated ? '已连接 Emby' : '已保存 Emby';
     if (user.isEmpty) {
-      return '已连接 Emby：$name';
+      return '$prefix：$name';
     }
-    return '已连接 Emby：$name · $user';
+    return '$prefix：$name · $user';
   }
 
   BackendSessionProvider? _backendSessionProvider() {
@@ -874,7 +880,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         ),
         const SizedBox(height: 14),
         Text(
-          '当前只加入 Emby 登录入口；验证通过后仍不会接入媒体列表、详情或播放。',
+          'Emby 登录后进入媒体首页；详情与播放能力按当前阶段开放。',
           style: theme.textTheme.bodySmall?.copyWith(
             color: const Color(0xFF9EADBE),
             height: 1.35,

@@ -41,7 +41,19 @@ class MediaBackendConnectionStore {
   static Future<MediaBackendConnectionSnapshot> load({
     SharedPreferences? prefs,
   }) async {
-    final targetPrefs = prefs ?? await SharedPreferences.getInstance();
+    final SharedPreferences targetPrefs;
+    if (prefs != null) {
+      // 调用方显式传入（保存路径 / 单测）：由其掌控实例，不在此重读磁盘。
+      targetPrefs = prefs;
+    } else {
+      targetPrefs = await SharedPreferences.getInstance();
+      // 跨 isolate 同步当前后端：分屏副栏是独立 Flutter 引擎（独立 isolate），其
+      // SharedPreferences 首读后会内存缓存。若副栏引擎在主引擎切换后端“之前”被预热，
+      // 它缓存的是旧 activeKind/连接；主引擎随后切换只更新自己 isolate 的缓存与磁盘，
+      // 副栏不会自动感知 → 副栏会用旧后端路由（如主已切回飞牛、副仍判 Emby，飞牛 item
+      // 查 Emby 报 noData）。与 NasProvider._loadSettings 一致：先 reload() 从磁盘重读。
+      await targetPrefs.reload();
+    }
     final connections = _readConnections(targetPrefs);
     final legacyFeiniu = _readLegacyFeiniuConnection(targetPrefs);
     final mergedConnections = _mergeLegacyFeiniu(connections, legacyFeiniu);
@@ -61,7 +73,36 @@ class MediaBackendConnectionStore {
     SharedPreferences? prefs,
   }) async {
     final targetPrefs = prefs ?? await SharedPreferences.getInstance();
-    final snapshot = await load(prefs: targetPrefs);
+    final connections = await _connectionsWith(connection, prefs: targetPrefs);
+
+    await targetPrefs.setString(activeKindKey, connection.kind.name);
+    await targetPrefs.setString(
+      connectionsKey,
+      jsonEncode(
+        connections.map((item) => item.toJson()).toList(growable: false),
+      ),
+    );
+  }
+
+  static Future<void> saveConnection(
+    MediaBackendConnection connection, {
+    SharedPreferences? prefs,
+  }) async {
+    final targetPrefs = prefs ?? await SharedPreferences.getInstance();
+    final connections = await _connectionsWith(connection, prefs: targetPrefs);
+    await targetPrefs.setString(
+      connectionsKey,
+      jsonEncode(
+        connections.map((item) => item.toJson()).toList(growable: false),
+      ),
+    );
+  }
+
+  static Future<List<MediaBackendConnection>> _connectionsWith(
+    MediaBackendConnection connection, {
+    required SharedPreferences prefs,
+  }) async {
+    final snapshot = await load(prefs: prefs);
     final connections = <MediaBackendConnection>[];
     var replaced = false;
     for (final current in snapshot.connections) {
@@ -75,14 +116,7 @@ class MediaBackendConnectionStore {
     if (!replaced) {
       connections.add(connection);
     }
-
-    await targetPrefs.setString(activeKindKey, connection.kind.name);
-    await targetPrefs.setString(
-      connectionsKey,
-      jsonEncode(
-        connections.map((item) => item.toJson()).toList(growable: false),
-      ),
-    );
+    return connections;
   }
 
   static MediaBackendKind? _readActiveKind(SharedPreferences prefs) {

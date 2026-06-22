@@ -76,4 +76,48 @@ void main() {
     expect(snapshot.activeKind, MediaBackendKind.feiniu);
     expect(snapshot.activeConnection.serverUrl, 'https://new-nas.example.test');
   });
+
+  test(
+    'saving stored Emby connection can clear token without activating Emby',
+    () async {
+      await MediaBackendConnectionStore.saveActive(
+        const MediaBackendConnection(
+          kind: MediaBackendKind.emby,
+          serverUrl: 'https://emby.example.test',
+          displayName: 'Emby Home',
+          userName: 'bob',
+          userId: 'emby-user',
+          accessToken: 'emby-token',
+          secret: 'password',
+        ),
+      );
+      await MediaBackendConnectionStore.saveActive(
+        const MediaBackendConnection(
+          kind: MediaBackendKind.feiniu,
+          serverUrl: '',
+        ),
+      );
+
+      await MediaBackendConnectionStore.saveConnection(
+        const MediaBackendConnection(
+          kind: MediaBackendKind.emby,
+          serverUrl: 'https://emby.example.test',
+          displayName: 'Emby Home',
+          userName: 'bob',
+          secret: 'password',
+        ),
+      );
+
+      final snapshot = await MediaBackendConnectionStore.load();
+      expect(snapshot.activeKind, MediaBackendKind.feiniu);
+      final emby = snapshot.connectionFor(MediaBackendKind.emby);
+      expect(emby, isNotNull);
+      expect(emby!.isAuthenticated, isFalse);
+      expect(emby.serverUrl, 'https://emby.example.test');
+      expect(emby.userName, 'bob');
+      expect(emby.secret, 'password');
+      expect(emby.accessToken, isEmpty);
+      expect(emby.userId, isEmpty);
+    },
+  );
 }
