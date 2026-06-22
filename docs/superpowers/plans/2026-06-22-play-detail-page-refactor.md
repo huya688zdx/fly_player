@@ -84,6 +84,18 @@
     收益是可维护性/"一页两后端",**非 perf**。重复代码仅约 90 行。
   - **做法**:必须**单独会话** + 每步飞牛逐像素核对;先抽展示区共享 builder(hero/meta/描述/演职员),
     两分支同调,再逐步让成功分支吃 null `_data`。**未经实机确认不删旧路**。
+  - **用户拍板**:做,但**分步 + 每步逐像素核对**(每步实机确认飞牛不变后才进下一步)。
+  - ✅ **步骤1 演职员 sliver(`a7ec510`)**:抽 `_buildCreditsSliver`(复刻飞牛树:`_sectionReveal` +
+    `Container` 内边距 + `CreditsSection`;`colors` 由调用方传 builder 作用域值——`DynamicPageThemeScope`
+    改写子树主题,不可在 helper 内重取)。飞牛逐字节等价;Emby 顺带获得同一入场动画(统一)。
+    门控留调用点。**待实机**:飞牛演职员区逐像素不变。
+  - ⏳ **步骤2+ 待做**(各有不同入场,逐个核对):
+    - **描述 sliver**:飞牛用 `_descriptionPopController` 的 `AnimatedBuilder`(非 `_sectionReveal`)、
+      文案**未 trim**、标题 `detailTitle`、无空判;中立裸 + trim + 空判。抽时须以飞牛树为准(传 text/title/
+      animation),Emby 顺带获得控制器入场。
+    - **meta 行 / hero**:飞牛各有 `_headerMetaOpacity` / `_headerTitleOpacity` 等 `FadeTransition`,
+      与中立裸渲染不同;同法以飞牛树为准。
+    - **最后**:成功分支吃 null `_data`(播放半身全守卫)→ 删 `_neutralDisplayOnly`/`_buildNeutralBody`。
 
 阶段二每步只做一块、单测/实机核对飞牛不变,再提交。
 
