@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../api/feiniu_api.dart';
+import '../media_backend/media_backend_kind.dart';
+import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
 import '../theme/app_theme.dart';
 import '../ui/detail_presentation.dart';
@@ -64,6 +66,19 @@ class _PlayDetailScreenState extends State<PlayDetailScreen> {
         _error = null;
       });
     }
+    // 非飞牛后端(Emby):不调飞牛 getItemDetail 判模式(会报权限错),直接走 movie 模式
+    // → PlayDetailPage,由其按 backend 读中立 MediaDetail 渲染。TV/合集模式属后续切片。
+    final backend = context.read<MediaBackendProvider>().backend;
+    if (backend.capabilities.kind != MediaBackendKind.feiniu) {
+      if (!mounted) return;
+      setState(() {
+        _mode = DetailPageMode.movie;
+        _itemDetail = null;
+        _loading = false;
+      });
+      return;
+    }
+
     try {
       final api = FeiniuApi(context.read<NasProvider>());
       final detail = await api.getItemDetail(widget.itemGuid);

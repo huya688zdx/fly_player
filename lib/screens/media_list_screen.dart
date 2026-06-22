@@ -40,7 +40,6 @@ import '../widgets/common/liquid_glass.dart';
 import '../utils/nas_image_headers.dart';
 import 'category_items_screen.dart';
 import 'favorite_items_screen.dart';
-import 'media_detail_screen.dart';
 import 'person_detail_screen.dart';
 import 'play_detail_screen.dart';
 import 'search_screen.dart';
@@ -682,16 +681,17 @@ class _MediaListScreenState extends State<MediaListScreen> {
           return;
         }
 
-        // 非飞牛后端（当前为 Emby）走中立详情屏：按 backend 能力分支（数据/导航层，
-        // 非 UI if(isEmby)），数据走 backend.getItemDetail。飞牛仍走原 launcher /
-        // play_detail_page，路径完全不变。
+        // 非飞牛后端（当前为 Emby）：复用真详情页 PlayDetailScreen（公有化——前端共用同一页，
+        // 页面内按 backend 能力读中立 MediaDetail 渲染）。按 backend 能力在导航层分支，非 UI
+        // if(isEmby)；走 Navigator.push（而非原生 DetailActivity launcher）以确保拿到当前
+        // 引擎的 MediaBackendProvider 会话上下文。飞牛仍走原 launcher / play_detail_page。
         final backend = context.read<MediaBackendProvider>().backend;
         if (backend.capabilities.kind != MediaBackendKind.feiniu) {
           final neutralNavigator = Navigator.of(context);
           if (!mounted) return;
           await neutralNavigator.push(
             AppTransitions.leftToRightPageTurnRoute(
-              MediaDetailScreen(itemId: item.guid, heroTag: heroTag),
+              PlayDetailScreen(itemGuid: item.guid, heroTag: heroTag),
             ),
           );
           if (!mounted) return;
