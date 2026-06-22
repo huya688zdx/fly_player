@@ -51,6 +51,16 @@ class BackendSessionProvider extends ChangeNotifier
     notifyListeners();
   }
 
+  /// 等待会话从磁盘就绪后返回；已就绪则立即返回。
+  ///
+  /// 分屏详情等**副引擎冷启动**时，构造里的 `load()` 可能尚未完成，此时直接读
+  /// [MediaBackendProvider] 会暂时默认回飞牛（[currentKind] fallback）→ Emby 条目被按飞牛
+  /// 查询报 noData。页面在读后端前先 `await ensureReady()` 即可拿到磁盘上的当前后端。
+  Future<void> ensureReady() async {
+    if (_isReady) return;
+    await load();
+  }
+
   Future<void> saveActive(MediaBackendConnection connection) async {
     await MediaBackendConnectionStore.saveActive(connection);
     _snapshot = await MediaBackendConnectionStore.load();

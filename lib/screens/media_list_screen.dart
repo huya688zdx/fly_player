@@ -28,7 +28,6 @@ import '../theme/detail_tokens.dart';
 import '../ui/app_transitions.dart';
 import '../ui/layout_adaptive.dart';
 import '../ui/media_poster_card.dart';
-import '../ui/player_pane_host_scope.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/app_localization_lookup.dart';
 import '../utils/async_action_guard.dart';
@@ -460,8 +459,18 @@ class _MediaListScreenState extends State<MediaListScreen> {
         forceRefresh: true,
       );
       if (!mounted) return;
+      // 与 _fetchHomeData 一致:续播列表为空时回退到从当前分类条目挑选(按进度)。
+      // 否则 Emby 的 getContinueWatching(IsResumable)偶尔返回空会把初始靠回退挑出的
+      // 续播列表砸成空 → 续播区突然消失。
+      final continueWatching = playList.isNotEmpty
+          ? playList.take(_continueLimit).toList()
+          : _pickContinueWatching(
+              _itemsByCategory.values
+                  .expand((items) => items)
+                  .toList(growable: false),
+            );
       setState(() {
-        _continueWatching = playList.take(_continueLimit).toList();
+        _continueWatching = continueWatching;
       });
     } catch (error) {
       debugPrint('[UI][HOME] continue watching refresh failed $error');
@@ -702,20 +711,20 @@ class _MediaListScreenState extends State<MediaListScreen> {
         // 涓嶈蛋鍘熺敓鐙珛寮曟搸(DetailActivity)璺緞鈥斺€斿叾浼氳瘽寮傛鍔犺浇鏈夌珵鎬併€佸彲鑳借鍒ら鐗涖€?
         final backend = context.read<MediaBackendProvider>().backend;
         if (backend.capabilities.kind != MediaBackendKind.feiniu) {
-          final paneHost = PlayerPaneHostScope.maybeOf(context);
-          if (paneHost != null) {
-            final handled = await EmbeddedDetailLauncher.openItemDetail(
-              item.guid,
-              context: context,
-            );
-            if (!mounted) return;
-            if (handled) {
-              unawaited(_refreshContinueWatching());
-              return;
-            }
-          }
-          final neutralNavigator = Navigator.of(context);
+          // 与飞牛一致:无条件经 EmbeddedDetailLauncher 打开——存在 pane host 则在 pane 内,
+          // 否则走原生 openItemDetail 通道(分屏/平行窗口)。副引擎会话竞态已由 _load 的
+          // BackendSessionProvider.ensureReady 兜底(等会话就绪再读后端,不会误判飞牛)。
+          final handled = await EmbeddedDetailLauncher.openItemDetail(
+            item.guid,
+            context: context,
+          );
           if (!mounted) return;
+          if (handled) {
+            unawaited(_refreshContinueWatching());
+            return;
+          }
+          // 原生/分屏不可用(如非 Android、无平行窗口能力)时回退全屏 Navigator.push。
+          final neutralNavigator = Navigator.of(context);
           await neutralNavigator.push(
             AppTransitions.leftToRightPageTurnRoute(
               PlayDetailScreen(itemGuid: item.guid, heroTag: heroTag),
