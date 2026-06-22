@@ -89,10 +89,12 @@
     `Container` 内边距 + `CreditsSection`;`colors` 由调用方传 builder 作用域值——`DynamicPageThemeScope`
     改写子树主题,不可在 helper 内重取)。飞牛逐字节等价;Emby 顺带获得同一入场动画(统一)。
     门控留调用点。**待实机**:飞牛演职员区逐像素不变。
-  - ⏳ **步骤2+ 待做**(各有不同入场,逐个核对):
-    - **描述 sliver**:飞牛用 `_descriptionPopController` 的 `AnimatedBuilder`(非 `_sectionReveal`)、
-      文案**未 trim**、标题 `detailTitle`、无空判;中立裸 + trim + 空判。抽时须以飞牛树为准(传 text/title/
-      animation),Emby 顺带获得控制器入场。
+  - ✅ **步骤2 描述 sliver(`2445ad8`)**:抽 `_buildDescriptionSliver`(复刻飞牛树:`_descriptionPopController`
+    的 `AnimatedBuilder` 入场 + `Container` 内边距 + `DetailDescriptionSection`;`text` 同时喂正文与「展开全文」
+    浮层内容,`colors` 由调用方传 builder 作用域值)。飞牛逐字节等价(传未 trim 的 `detail.overview` +
+    `overlayTitle: detailTitle`、无门控恒显);Emby 顺带获得控制器入场(call site 保留 `if(overview.trim().isNotEmpty)`
+    空判 + 传已 trim 文案 + `overlayTitle: title`)。analyze 净。**待实机**:飞牛描述区逐像素不变。
+  - ⏳ **步骤3+ 待做**(各有不同入场,逐个核对):
     - **meta 行 / hero**:飞牛各有 `_headerMetaOpacity` / `_headerTitleOpacity` 等 `FadeTransition`,
       与中立裸渲染不同;同法以飞牛树为准。
     - **最后**:成功分支吃 null `_data`(播放半身全守卫)→ 删 `_neutralDisplayOnly`/`_buildNeutralBody`。
