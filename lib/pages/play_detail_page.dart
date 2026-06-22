@@ -650,26 +650,39 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               ),
             ),
           if (creditItems.isNotEmpty)
-            SliverToBoxAdapter(
-              child: Container(
-                color: colors.backgroundBase,
-                padding: const EdgeInsets.fromLTRB(
-                  DetailTokens.screenHorizontalPadding,
-                  8,
-                  DetailTokens.screenHorizontalPadding,
-                  20,
-                ),
-                child: CreditsSection(
-                  title: _t(
-                    'layout.details.castAndCrew.title',
-                    'Cast and crew',
-                  ),
-                  items: creditItems,
-                  token: '',
-                ),
-              ),
-            ),
+            _buildCreditsSliver(colors: colors, items: creditItems, token: ''),
         ],
+      ),
+    );
+  }
+
+  /// 演职员 sliver(飞牛 + Emby 共享):复刻飞牛树(`_sectionReveal` 入场 + `Container` 内边距 +
+  /// `CreditsSection`)。可见性 / 非空门控由调用方负责;`token` 与 `onTap` 由调用方传入
+  /// (飞牛传 NAS token + `_openCreditPerson`,Emby 传空 token + 无跳转)。`colors` 必须由调用方
+  /// 传 builder 作用域的 `context.appColors`(`DynamicPageThemeScope` 会改写子树主题,不可在此重取)。
+  Widget _buildCreditsSliver({
+    required AppThemeColors colors,
+    required List<CreditPersonItem> items,
+    required String token,
+    ValueChanged<CreditPersonItem>? onTap,
+  }) {
+    return SliverToBoxAdapter(
+      child: _sectionReveal(
+        child: Container(
+          color: colors.backgroundBase,
+          padding: const EdgeInsets.fromLTRB(
+            DetailTokens.screenHorizontalPadding,
+            8,
+            DetailTokens.screenHorizontalPadding,
+            20,
+          ),
+          child: CreditsSection(
+            title: _t('layout.details.castAndCrew.title', 'Cast and crew'),
+            items: items,
+            token: token,
+            onTap: onTap,
+          ),
+        ),
       ),
     );
   }
@@ -2796,27 +2809,11 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                       ),
                     ),
                     if (_creditsVisible && creditItems.isNotEmpty)
-                      SliverToBoxAdapter(
-                        child: _sectionReveal(
-                          child: Container(
-                            color: colors.backgroundBase,
-                            padding: const EdgeInsets.fromLTRB(
-                              DetailTokens.screenHorizontalPadding,
-                              8,
-                              DetailTokens.screenHorizontalPadding,
-                              20,
-                            ),
-                            child: CreditsSection(
-                              title: _t(
-                                'layout.details.castAndCrew.title',
-                                'Cast and crew',
-                              ),
-                              items: creditItems,
-                              token: provider.token,
-                              onTap: _openCreditPerson,
-                            ),
-                          ),
-                        ),
+                      _buildCreditsSliver(
+                        colors: colors,
+                        items: creditItems,
+                        token: provider.token,
+                        onTap: _openCreditPerson,
                       ),
                     if (_fileInfoVisible)
                       SliverToBoxAdapter(
