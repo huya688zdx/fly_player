@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -28,6 +28,7 @@ import '../theme/detail_tokens.dart';
 import '../ui/app_transitions.dart';
 import '../ui/layout_adaptive.dart';
 import '../ui/media_poster_card.dart';
+import '../ui/player_pane_host_scope.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/app_localization_lookup.dart';
 import '../utils/async_action_guard.dart';
@@ -119,7 +120,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
     super.didChangeDependencies();
     final provider = context.read<NasProvider>();
     final session = context.read<BackendSessionProvider>();
-    // Emby 等公共后端激活（会话已认证）即可加载；飞牛需 NAS 已配置。
+    // Emby 绛夊叕鍏卞悗绔縺娲伙紙浼氳瘽宸茶璇侊級鍗冲彲鍔犺浇锛涢鐗涢渶 NAS 宸查厤缃€?
     final embyReady =
         session.currentKind == MediaBackendKind.emby && session.isConfigured;
     if (!embyReady && !provider.isConfigured) {
@@ -141,7 +142,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
     if (loadKey != _lastLoadKey) {
       _lastLoadKey = loadKey;
       if (embyReady) {
-        // Emby 首光：不读飞牛首页缓存（HomeDataCache 是飞牛态缓存，跨后端会串内容），直接拉取。
+        // Emby 棣栧厜锛氫笉璇婚鐗涢椤电紦瀛橈紙HomeDataCache 鏄鐗涙€佺紦瀛橈紝璺ㄥ悗绔細涓插唴瀹癸級锛岀洿鎺ユ媺鍙栥€?
         _fetchHomeData();
       } else {
         _tryLoadFromCacheThenRefresh();
@@ -162,17 +163,17 @@ class _MediaListScreenState extends State<MediaListScreen> {
         _isLoading = false;
         _error = null;
       });
-      // Refresh in background — update incrementally if changed.
+      // Refresh in background 鈥?update incrementally if changed.
       unawaited(_backgroundRefresh());
       return;
     }
-    // No cache — full load with spinner.
+    // No cache 鈥?full load with spinner.
     _fetchHomeData();
   }
 
-  // 过渡期本地转换：把公共 [MediaCatalog] 还原成首页现有 UI 使用的 [MediaItem]。
-  // 仅限本文件，不扩散；待整页迁移到公共模型后移除。posters/path 完整保留，
-  // 保证分类条缩略图与迁移前一致。
+  // 杩囨浮鏈熸湰鍦拌浆鎹細鎶婂叕鍏?[MediaCatalog] 杩樺師鎴愰椤电幇鏈?UI 浣跨敤鐨?[MediaItem]銆?
+  // 浠呴檺鏈枃浠讹紝涓嶆墿鏁ｏ紱寰呮暣椤佃縼绉诲埌鍏叡妯″瀷鍚庣Щ闄ゃ€俻osters/path 瀹屾暣淇濈暀锛?
+  // 淇濊瘉鍒嗙被鏉＄缉鐣ュ浘涓庤縼绉诲墠涓€鑷淬€?
   static MediaItem _catalogToMediaItem(MediaCatalog catalog) {
     return MediaItem(
       id: catalog.id,
@@ -185,8 +186,8 @@ class _MediaListScreenState extends State<MediaListScreen> {
     );
   }
 
-  /// 公共 [MediaItemCard] → 首页用 [MediaLibraryItem]（仅非飞牛后端走此转换，喂首页现有
-  /// `MediaLibraryItem` 渲染）。续播进度 `ts`/`watchedTs` 不在卡片模型，首光阶段置 0。
+  /// 鍏叡 [MediaItemCard] 鈫?棣栭〉鐢?[MediaLibraryItem]锛堜粎闈為鐗涘悗绔蛋姝よ浆鎹紝鍠傞椤电幇鏈?
+  /// `MediaLibraryItem` 娓叉煋锛夈€傜画鎾繘搴?`ts`/`watchedTs` 涓嶅湪鍗＄墖妯″瀷锛岄鍏夐樁娈电疆 0銆?
   static MediaLibraryItem _cardToMediaItem(MediaItemCard card) {
     return MediaLibraryItem(
       guid: card.id,
@@ -224,9 +225,9 @@ class _MediaListScreenState extends State<MediaListScreen> {
     );
   }
 
-  /// 继续观看数据源：飞牛走 FeiniuApi（保留续播进度 `ts`），其它公共后端（Emby）走
-  /// `backend.getContinueWatching`（[MediaItemCard]→[MediaLibraryItem]，首光阶段无续播进度）。
-  /// 数据层按后端能力选源，**非 UI 渲染分支**，UI 不写 `if (isEmby)`。
+  /// 缁х画瑙傜湅鏁版嵁婧愶細椋炵墰璧?FeiniuApi锛堜繚鐣欑画鎾繘搴?`ts`锛夛紝鍏跺畠鍏叡鍚庣锛圗mby锛夎蛋
+  /// `backend.getContinueWatching`锛圼MediaItemCard]鈫抂MediaLibraryItem]锛岄鍏夐樁娈垫棤缁挱杩涘害锛夈€?
+  /// 鏁版嵁灞傛寜鍚庣鑳藉姏閫夋簮锛?*闈?UI 娓叉煋鍒嗘敮**锛孶I 涓嶅啓 `if (isEmby)`銆?
   Future<List<MediaLibraryItem>> _loadContinueWatching(
     MediaBackend backend,
     FeiniuApi api, {
@@ -239,7 +240,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
     return cards.map(_cardToMediaItem).toList();
   }
 
-  /// 某库预览条目数据源：飞牛走 FeiniuApi，其它公共后端走 `getCatalogPreviewItems`。
+  /// 鏌愬簱棰勮鏉＄洰鏁版嵁婧愶細椋炵墰璧?FeiniuApi锛屽叾瀹冨叕鍏卞悗绔蛋 `getCatalogPreviewItems`銆?
   Future<List<MediaLibraryItem>> _loadCategoryItems(
     MediaBackend backend,
     FeiniuApi api,
@@ -274,9 +275,9 @@ class _MediaListScreenState extends State<MediaListScreen> {
       final api = FeiniuApi(provider);
       final backend = context.read<MediaBackendProvider>().backend;
 
-      // 分类入口/概要走公共 MediaBackend。继续观看与分类条目按后端能力选源：飞牛走
-      // FeiniuApi（保留续播进度等富字段），Emby 等走 backend（见 _loadContinueWatching /
-      // _loadCategoryItems）。数据层分支，UI 渲染不感知后端类型。
+      // 鍒嗙被鍏ュ彛/姒傝璧板叕鍏?MediaBackend銆傜户缁鐪嬩笌鍒嗙被鏉＄洰鎸夊悗绔兘鍔涢€夋簮锛氶鐗涜蛋
+      // FeiniuApi锛堜繚鐣欑画鎾繘搴︾瓑瀵屽瓧娈碉級锛孍mby 绛夎蛋 backend锛堣 _loadContinueWatching /
+      // _loadCategoryItems锛夈€傛暟鎹眰鍒嗘敮锛孶I 娓叉煋涓嶆劅鐭ュ悗绔被鍨嬨€?
       final parallelResults = await Future.wait([
         backend.getCatalogs(),
         backend.getHomeSummary(),
@@ -323,7 +324,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
         _error = null;
       });
 
-      // Persist to cache（仅飞牛：HomeDataCache 是飞牛态缓存，Emby 数据不写入避免跨后端串内容）。
+      // Persist to cache锛堜粎椋炵墰锛欻omeDataCache 鏄鐗涙€佺紦瀛橈紝Emby 鏁版嵁涓嶅啓鍏ラ伩鍏嶈法鍚庣涓插唴瀹癸級銆?
       if (backend.capabilities.kind == MediaBackendKind.feiniu) {
         unawaited(
           HomeDataCache.save(
@@ -354,7 +355,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
     debugPrint('[UI][HOME] background refresh start');
     final provider = context.read<NasProvider>();
     final backend = context.read<MediaBackendProvider>().backend;
-    // 飞牛态需 NAS 已配置才刷新；Emby 等公共后端不依赖 NAS 会话。
+    // 椋炵墰鎬侀渶 NAS 宸查厤缃墠鍒锋柊锛汦mby 绛夊叕鍏卞悗绔笉渚濊禆 NAS 浼氳瘽銆?
     if (backend.capabilities.kind == MediaBackendKind.feiniu &&
         !provider.isConfigured) {
       return;
@@ -363,7 +364,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
     try {
       final api = FeiniuApi(provider);
 
-      // 分类入口/概要走公共 MediaBackend；继续观看与分类条目按后端能力选源（同 _fetchHomeData）。
+      // 鍒嗙被鍏ュ彛/姒傝璧板叕鍏?MediaBackend锛涚户缁鐪嬩笌鍒嗙被鏉＄洰鎸夊悗绔兘鍔涢€夋簮锛堝悓 _fetchHomeData锛夈€?
       final parallelResults = await Future.wait([
         backend.getCatalogs(),
         backend.getHomeSummary(),
@@ -547,8 +548,21 @@ class _MediaListScreenState extends State<MediaListScreen> {
     if (!mounted || !confirmed) return;
     final session = context.read<BackendSessionProvider>();
     if (session.currentKind == MediaBackendKind.emby) {
-      // 退出 Emby：把当前后端切回飞牛态（NAS 未配置则 gate 回登录页），避免用户被困在
-      // Emby 首页。用现有 saveActive，不碰 Codex 的会话内部；与登录后端会话登出收口待协调。
+      final embyConnection = session.currentConnection;
+      if (embyConnection != null) {
+        await session.saveConnection(
+          MediaBackendConnection(
+            kind: MediaBackendKind.emby,
+            serverUrl: embyConnection.serverUrl,
+            displayName: embyConnection.displayName,
+            userName: embyConnection.userName,
+            secret: embyConnection.rememberSecret ? embyConnection.secret : '',
+            rememberSecret: embyConnection.rememberSecret,
+            updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
+          ),
+        );
+      }
+      // 退出 Emby：清掉 Emby token / userId，保留服务器、用户名和已记住的密码。
       await session.saveActive(
         const MediaBackendConnection(
           kind: MediaBackendKind.feiniu,
@@ -681,12 +695,25 @@ class _MediaListScreenState extends State<MediaListScreen> {
           return;
         }
 
-        // 非飞牛后端（当前为 Emby）：复用真详情页 PlayDetailScreen（公有化——前端共用同一页，
-        // 页面内按 backend 能力读中立 MediaDetail 渲染）。按 backend 能力在导航层分支，非 UI
-        // if(isEmby)；走 Navigator.push（而非原生 DetailActivity launcher）以确保拿到当前
-        // 引擎的 MediaBackendProvider 会话上下文。飞牛仍走原 launcher / play_detail_page。
+        // 闈為鐗涘悗绔紙褰撳墠涓?Emby锛夛細澶嶇敤鐪熻鎯呴〉 PlayDetailScreen锛堝叕鏈夊寲鈥斺€斿墠绔叡鐢ㄥ悓涓€椤碉紝
+        // 椤甸潰鍐呮寜 backend 鑳藉姏璇讳腑绔?MediaDetail 娓叉煋锛夈€傛寜 backend 鑳藉姏鍦ㄥ鑸眰鍒嗘敮锛岄潪 UI
+        // if(isEmby)銆傜獥鍙ｆ墭绠?瀛樺湪鍒嗗睆 pane host 鏃剁粡 EmbeddedDetailLauncher 鍦?pane 鍐呮墦寮€
+        // 锛堜笌椋炵墰鍒嗗睆涓€鑷?涓?pane 鍦ㄥ綋鍓嶅凡灏辩华寮曟搸銆佹湁 Emby 浼氳瘽锛?鍚﹀垯鍏ㄥ睆 Navigator.push銆?
+        // 涓嶈蛋鍘熺敓鐙珛寮曟搸(DetailActivity)璺緞鈥斺€斿叾浼氳瘽寮傛鍔犺浇鏈夌珵鎬併€佸彲鑳借鍒ら鐗涖€?
         final backend = context.read<MediaBackendProvider>().backend;
         if (backend.capabilities.kind != MediaBackendKind.feiniu) {
+          final paneHost = PlayerPaneHostScope.maybeOf(context);
+          if (paneHost != null) {
+            final handled = await EmbeddedDetailLauncher.openItemDetail(
+              item.guid,
+              context: context,
+            );
+            if (!mounted) return;
+            if (handled) {
+              unawaited(_refreshContinueWatching());
+              return;
+            }
+          }
           final neutralNavigator = Navigator.of(context);
           if (!mounted) return;
           await neutralNavigator.push(
@@ -797,7 +824,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
           params: <String, Object?>{'count': episodes},
         );
         if (period.isEmpty) return episodeText;
-        return '$episodeText · $period';
+        return '$episodeText 路 $period';
       }
     }
     if (seasonCount > 0) {
@@ -807,7 +834,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
         params: <String, Object?>{'count': seasonCount},
       );
       if (period.isEmpty) return seasonText;
-      return '$seasonText · $period';
+      return '$seasonText 路 $period';
     }
     return period;
   }
@@ -835,7 +862,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
       'Episode {number}',
       params: <String, Object?>{'number': episode},
     );
-    return '$seasonText · $episodeText';
+    return '$seasonText 路 $episodeText';
   }
 
   String _continueEpisodeText(MediaLibraryItem item) {
@@ -847,7 +874,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
         'Episode {number}',
         params: <String, Object?>{'number': episode},
       );
-      return '$specialText · $episodeText';
+      return '$specialText 路 $episodeText';
     }
     return _episodeText(item);
   }
