@@ -183,9 +183,12 @@ class _CreditAvatarState extends State<_CreditAvatar> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    if (widget.urls.isEmpty ||
-        _index >= widget.urls.length ||
-        widget.token.trim().isEmpty) {
+    final hasUrl = widget.urls.isNotEmpty && _index < widget.urls.length;
+    // 空 token 默认回退占位（飞牛头像需 NAS token 鉴权）；Emby 头像走 `?api_key=`
+    // 自鉴权直链，空 token 也照常加载。
+    final selfAuthenticated =
+        hasUrl && widget.urls[_index].contains('api_key=');
+    if (!hasUrl || (widget.token.trim().isEmpty && !selfAuthenticated)) {
       return Container(
         color: colors.surfaceStrong,
         alignment: Alignment.center,
