@@ -8,6 +8,7 @@ class MediaBackendConnection {
     this.userName = '',
     this.userId = '',
     this.accessToken = '',
+    this.secret = '',
     this.rememberSecret = true,
     this.updatedAtMillis = 0,
   });
@@ -18,6 +19,7 @@ class MediaBackendConnection {
   final String userName;
   final String userId;
   final String accessToken;
+  final String secret;
   final bool rememberSecret;
   final int updatedAtMillis;
 
@@ -31,6 +33,7 @@ class MediaBackendConnection {
     'userName': userName,
     'userId': userId,
     'accessToken': accessToken,
+    'secret': secret,
     'rememberSecret': rememberSecret,
     'updatedAtMillis': updatedAtMillis,
   };
@@ -48,6 +51,7 @@ class MediaBackendConnection {
       userName: (json['userName'] ?? '').toString(),
       userId: (json['userId'] ?? '').toString(),
       accessToken: (json['accessToken'] ?? '').toString(),
+      secret: (json['secret'] ?? '').toString(),
       rememberSecret: json['rememberSecret'] != false,
       updatedAtMillis: (json['updatedAtMillis'] as num?)?.toInt() ?? 0,
     );
@@ -63,6 +67,7 @@ class MediaBackendConnection {
           other.userName == userName &&
           other.userId == userId &&
           other.accessToken == accessToken &&
+          other.secret == secret &&
           other.rememberSecret == rememberSecret &&
           other.updatedAtMillis == updatedAtMillis;
 
@@ -74,6 +79,7 @@ class MediaBackendConnection {
     userName,
     userId,
     accessToken,
+    secret,
     rememberSecret,
     updatedAtMillis,
   );

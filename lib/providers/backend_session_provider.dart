@@ -1,14 +1,37 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 import '../media_backend/media_backend_kind.dart';
 import '../media_backend/session/media_backend_connection.dart';
 import '../services/media_backend_connection_store.dart';
 
-class BackendSessionProvider extends ChangeNotifier {
-  BackendSessionProvider({bool autoLoad = true}) {
+class BackendSessionProvider extends ChangeNotifier
+    with WidgetsBindingObserver {
+  final bool _observeLifecycle;
+
+  BackendSessionProvider({bool autoLoad = true})
+    : _observeLifecycle = autoLoad {
     if (autoLoad) {
+      // 仅在真实运行（autoLoad）时挂生命周期观察；单测构造 autoLoad:false 不挂，
+      // 避免依赖 WidgetsBinding。回前台时从磁盘重读，使分屏副栏拿到主引擎切换后的
+      // 当前后端（store.load 已 prefs.reload，与 NasProvider 跨 isolate 同步一致）。
+      WidgetsBinding.instance.addObserver(this);
+      unawaited(load());
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_observeLifecycle) {
+      WidgetsBinding.instance.removeObserver(this);
+    }
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
       unawaited(load());
     }
   }
@@ -30,6 +53,13 @@ class BackendSessionProvider extends ChangeNotifier {
 
   Future<void> saveActive(MediaBackendConnection connection) async {
     await MediaBackendConnectionStore.saveActive(connection);
+    _snapshot = await MediaBackendConnectionStore.load();
+    _isReady = true;
+    notifyListeners();
+  }
+
+  Future<void> saveConnection(MediaBackendConnection connection) async {
+    await MediaBackendConnectionStore.saveConnection(connection);
     _snapshot = await MediaBackendConnectionStore.load();
     _isReady = true;
     notifyListeners();
