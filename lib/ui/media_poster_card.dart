@@ -309,13 +309,16 @@ class _PosterImageState extends State<_PosterImage> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.urls.isEmpty ||
-        _index >= widget.urls.length ||
-        widget.token.trim().isEmpty) {
+    final hasUrl = widget.urls.isNotEmpty && _index < widget.urls.length;
+    final activeUrl = hasUrl ? widget.urls[_index] : '';
+    // 空 token 默认回退占位（飞牛图片需 NAS token 鉴权）；但 URL 自带凭据时
+    // （如 Emby 的 `?api_key=`，自鉴权、不依赖 NAS token）照常加载。
+    final selfAuthenticated = activeUrl.contains('api_key=');
+    if (!hasUrl || (widget.token.trim().isEmpty && !selfAuthenticated)) {
       return widget.fallback;
     }
 
-    final url = widget.urls[_index];
+    final url = activeUrl;
     return LayoutBuilder(
       builder: (context, constraints) {
         // devicePixelRatioOf 只订阅 dpr 这一项，避免每张卡因无关的 MediaQuery

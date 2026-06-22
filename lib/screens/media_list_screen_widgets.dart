@@ -913,13 +913,15 @@ class _PosterImageState extends State<_PosterImage> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.urls.isEmpty ||
-        _index >= widget.urls.length ||
-        widget.token.trim().isEmpty) {
+    final hasUrl = widget.urls.isNotEmpty && _index < widget.urls.length;
+    final activeUrl = hasUrl ? widget.urls[_index] : '';
+    // 空 token 默认回退（飞牛图需 NAS token）；自带凭据 URL（Emby `?api_key=`）照常加载。
+    final selfAuthenticated = activeUrl.contains('api_key=');
+    if (!hasUrl || (widget.token.trim().isEmpty && !selfAuthenticated)) {
       return widget.fallback;
     }
 
-    final current = widget.urls[_index];
+    final current = activeUrl;
     return LayoutBuilder(
       builder: (context, constraints) {
         final dpr = MediaQuery.of(context).devicePixelRatio;
