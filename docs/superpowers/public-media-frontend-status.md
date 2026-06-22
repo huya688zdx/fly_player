@@ -493,6 +493,21 @@ class MediaItemCardPage { List<MediaItemCard> items; int total; }   // 复用 Me
 - 验证：`flutter test test/ui/credit_person_presenter_test.dart` → 7 PASS；详情 mapper/模型 15 PASS；全量 `flutter analyze` → 17 条历史无关项（零新增，`_detail` 已消费无 unused_field）。
 - 结论：MediaDetail **数据层**已可零网络供页面消费（证明切口）；剩余 B/C 类显示逻辑按需推进或留待 Emby 倒逼。**待 Codex 深审收口。**
 
+### Emby 首页首光（first light，**代码完成、待用户实机验证** — 2026-06-22）
+
+> 设计 `specs/2026-06-22-emby-home-first-light-design.md`、计划 `plans/2026-06-22-emby-home-first-light.md`。用户 2026-06-22 要「接 Emby 首页看效果」，确认①有真 Emby 测试服、②由 Claude 连 Provider 路由一起做。承接 Codex 登录后端会话层（认证 / `BackendSessionProvider` / 连接 store 已就位）。
+
+- 目标：Emby 后端激活时首页端到端拉取并显示媒体库（Views）+ 预览 + 继续观看，证明「认证会话 → Provider 路由 → EmbyMediaBackend → 公共首页渲染」整链通。**只做首页读取**，详情/播放/搜索/筛选不接。
+- [x] Task 1：`EmbyApi` 读端点 `getUserViews`/`getItems`（`api_key` 自鉴权），fixture 单测 6 PASS。提交 `3672fa0`。
+- [x] Task 2：Emby mappers `mapEmbyView→MediaCatalog`/`mapEmbyItemCard→MediaItemCard`（图片 URL / RunTimeTicks→秒 / Played），5 PASS。提交 `46f94ec`。
+- [x] Task 3：`EmbyMediaBackend implements MediaBackend`——首页四法（getCatalogs/getHomeSummary/getContinueWatching/getCatalogPreviewItems）实现，**其余方法 throw `UnsupportedError`**；飞牛专属能力在 capabilities 关闭。fake EmbyApi 6 PASS。提交 `345b201`。
+- [x] Task 4：`MediaBackendProvider` 按 `BackendSessionProvider.currentKind` 路由（emby+认证→EmbyMediaBackend，否则飞牛）；`main.dart` 升 `ChangeNotifierProxyProvider2`。第二参可选（null→飞牛），不破坏既有 3 条测试；新增 Emby 路由 + 未认证回退飞牛 2 条。**踩坑**：测试里 NasProvider 异步初始化与 saveActive 抢 SharedPreferences 实例，需先 saveActive 再建 NasProvider。提交 `fd4fbe8`。
+- [x] Task 5：首页加载层按 `backend.capabilities.kind` 在**数据层**选源——飞牛走 FeiniuApi（保留续播进度 `ts`），Emby 走 `backend.getContinueWatching`/`getCatalogPreviewItems` + 本文件 `_cardToMediaItem`（MediaItemCard→MediaLibraryItem，首光阶段无续播进度）；**飞牛分支零改动**，UI 不写 `if(isEmby)`。`_backgroundRefresh`/`_refreshContinueWatching` 的 NAS-configured 守卫改为仅飞牛态强制。提交 `387febf`。
+- [x] gate 扩展：`_ProviderGate` 也观察 `BackendSessionProvider`，emby 会话已认证即放行进主导航（否则飞牛登录后 NasProvider 未配置会被挡回登录页）。**注**：与 Codex 登录后端 Task 8（Provider/gate 收口）重叠，已做最小放行；端到端联通——Codex 登录页 `_verifyEmbyConnection` 验证后 `saveActive(embyConn)`（`connection_screen.dart:214`），session 通知 → gate 重建 → 自动进首页。提交 `6d978e0`。
+- 验证：全量 `flutter analyze` → 17 条历史无关项（零新增）；`test/api/ test/media_backend/`（含 emby_api/mappers/backend/provider 路由）全 PASS。
+- **待用户实机验证**：Emby 账号登录 → 验证连接 → 应自动进首页 → 媒体库分类条 / 各库预览 / 继续观看显示；**重点核对 Emby 图片（`api_key` 自鉴权 URL）能否加载**（若首页图片加载器破坏该 URL，退 `MediaImageRef.headers` 方案——计划 Task 6）。并切回飞牛账号验证飞牛首页零回归。
+- 明确不做：Emby 详情/播放/搜索/筛选（throw）；不改飞牛首页行为；不碰 Codex 的 store/登录页核心；未提交真实凭据（测试用脱敏 fixture / fake）。
+
 ## Claude 下一步任务
 
 - [x] Phase 5 骨架（Task 1~3 + Codex 修复）完成并收口（用户 2026-06-21 选 A）。
