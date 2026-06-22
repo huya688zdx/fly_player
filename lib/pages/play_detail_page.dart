@@ -19,6 +19,8 @@ import '../models/stream_list_option.dart';
 import '../models/stream_track_data.dart';
 import '../media_backend/detail/media_detail.dart';
 import '../media_backend/feiniu/feiniu_detail_mappers.dart';
+import '../media_backend/media_backend_kind.dart';
+import '../providers/media_backend_provider.dart';
 import 'long_text_overlay_page.dart';
 import '../player/controllers/mpv_player_controller.dart';
 import '../player/mpv_player_page.dart';
@@ -27,13 +29,8 @@ import '../providers/app_theme_provider.dart';
 import '../providers/nas_provider.dart';
 import '../danmaku/settings/danmaku_settings_store.dart';
 import '../controllers/item_playback_launcher.dart';
-import '../danmaku/settings/danmaku_settings_store.dart';
-import '../controllers/item_playback_launcher.dart';
 import '../services/app_log_service.dart';
 import '../services/detail_runtime_cache.dart';
-import '../services/native_danmaku_prefetch.dart';
-import '../services/native_player_bridge.dart';
-import '../services/native_reentry_support.dart';
 import '../services/native_danmaku_prefetch.dart';
 import '../services/native_player_bridge.dart';
 import '../services/native_reentry_support.dart';
@@ -47,7 +44,6 @@ import '../ui/capability_badge_mapper.dart';
 import '../ui/credit_person_presenter.dart';
 import '../ui/detail_presentation.dart';
 import '../ui/player_pane_host_scope.dart';
-import '../ui/route_transition_gate.dart';
 import '../ui/route_transition_gate.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/async_action_guard.dart';
@@ -132,6 +128,13 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   /// 演职员 / imdb 在进程内构造，零额外网络。渐进加载下随各阶段重建（见 [_rebuildDetail]）。
   ///
   MediaDetail? _detail;
+
+  /// 中立展示态:当前后端非飞牛(如 Emby)时,本页只读 [MediaBackend.getItemDetail] 的中立
+  /// [_detail] 渲染展示半身,**不加载飞牛播放数据**([_data] 保持 null),播放入口为占位。
+  /// 飞牛态恒为 false、原构建路径完全不变。
+  // ignore: unused_field
+  bool _neutralDisplayOnly = false;
+
   late String _currentItemGuid;
   List<PersonCredit> _personCredits = const [];
   List<StreamListOption> _streamOptions = const [];
@@ -616,6 +619,43 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       _locateMapZhCn = const <String, String>{};
       _authorizedDirs = const <AuthorizedDirEntry>[];
     });
+
+    // 非飞牛后端(如 Emby):只读中立 MediaDetail 渲染展示半身,不加载飞牛播放数据。
+    // 数据/导航层按 backend 能力分支,UI 渲染不写 if(isEmby)。
+    final backend = context.read<MediaBackendProvider>().backend;
+    if (backend.capabilities.kind != MediaBackendKind.feiniu) {
+      _neutralDisplayOnly = true;
+      try {
+        final detail = await backend.getItemDetail(_currentItemGuid);
+        if (!mounted) return;
+        setState(() {
+          _detail = detail;
+          _data = null;
+          _liked = detail.favorite;
+          _watched = detail.watched;
+          _imdbId = detail.externalIds.imdbId;
+          _trimId = detail.externalIds.tmdbId;
+          _descriptionVisible = true;
+          _creditsVisible = true;
+          _loading = false;
+        });
+        _headerFadeController.forward(from: 0);
+        _actionsPopController.forward(from: 0);
+        _descriptionPopController.forward(from: 0);
+      } catch (e) {
+        if (!mounted) return;
+        setState(() {
+          _error = AppException.from(
+            e,
+            action: 'play detail',
+            fallbackKind: AppExceptionKind.transient,
+          );
+          _loading = false;
+        });
+      }
+      return;
+    }
+    _neutralDisplayOnly = false;
 
     try {
       final api = FeiniuApi(context.read<NasProvider>());
