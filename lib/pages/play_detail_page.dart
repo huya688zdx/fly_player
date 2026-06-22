@@ -2090,20 +2090,27 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     var dynamicThemeKey = _currentItemGuid.trim().isNotEmpty
         ? _currentItemGuid
         : widget.itemGuid;
+    // 取色图源同样经 resolver 统一解析(与背景 hero 同一入口);此处只取首候选喂调色板。
+    final dynamicThemeResolver = DetailArtworkResolver(
+      baseUrl: nasProvider.baseUrl,
+      token: nasProvider.token,
+    );
     var dynamicThemeImageUrl = '';
     if (_neutralDisplayOnly && _detail != null) {
-      // Emby 等中立后端:取色图用 _detail 的完整直链(自带 api_key),不走飞牛路径拼接。
+      // Emby 等中立后端:取色图用 _detail 的完整直链(自带 api_key),背景图优先、退海报。
       final neutral = _detail!;
-      dynamicThemeImageUrl = neutral.backdropImage.isNotEmpty
-          ? neutral.backdropImage.url
-          : neutral.primaryImage.url;
+      final urls = dynamicThemeResolver.resolveRefs(<MediaImageRef>[
+        neutral.backdropImage,
+        neutral.primaryImage,
+      ]).urls;
+      if (urls.isNotEmpty) {
+        dynamicThemeImageUrl = urls.first;
+      }
     } else if (_data != null) {
       final item = _data!.item;
-      final urls = ApiUrlHelper.imageCandidates(
-        nasProvider.baseUrl,
-        _dynamicThemePathForPlayItem(item),
-        width: 360,
-      );
+      final urls = dynamicThemeResolver
+          .resolvePath(_dynamicThemePathForPlayItem(item), width: 360)
+          .urls;
       if (urls.isNotEmpty) {
         dynamicThemeImageUrl = urls.first;
       }
@@ -2113,11 +2120,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           ? initialRawItem
           : widget.initialItemDetail!;
       final initialItem = PlayItem.fromJson(initialItemMap);
-      final urls = ApiUrlHelper.imageCandidates(
-        nasProvider.baseUrl,
-        _dynamicThemePathForPlayItem(initialItem),
-        width: 360,
-      );
+      final urls = dynamicThemeResolver
+          .resolvePath(_dynamicThemePathForPlayItem(initialItem), width: 360)
+          .urls;
       if (urls.isNotEmpty) {
         dynamicThemeImageUrl = urls.first;
       }
