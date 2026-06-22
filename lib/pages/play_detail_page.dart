@@ -636,18 +636,16 @@ class _PlayDetailPageState extends State<PlayDetailPage>
             ),
           if (creditItems.isNotEmpty)
             _buildCreditsSliver(colors: colors, items: creditItems, token: ''),
-          if (_imdbId.trim().isNotEmpty || _trimId.trim().isNotEmpty)
-            _buildLinkSliver(colors: colors),
           if (_sourceInfo != null && _sourceInfo!.isNotEmpty)
             SliverToBoxAdapter(
               child: _sectionReveal(
                 child: Container(
                   color: colors.backgroundBase,
-                  padding: EdgeInsets.fromLTRB(
+                  padding: const EdgeInsets.fromLTRB(
                     DetailTokens.screenHorizontalPadding,
                     8,
                     DetailTokens.screenHorizontalPadding,
-                    media.padding.bottom + 24,
+                    20,
                   ),
                   child: MediaSourceInfoSection(
                     info: _sourceInfo!,
@@ -673,6 +671,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                 ),
               ),
             ),
+          // 链接放最后(与飞牛顺序一致:文件信息 → 视频信息 → 链接)。
+          if (_imdbId.trim().isNotEmpty || _trimId.trim().isNotEmpty)
+            _buildLinkSliver(colors: colors),
         ],
       ),
     );
