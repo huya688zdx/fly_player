@@ -152,9 +152,12 @@ class _DetailHeroLogoTitleState extends State<DetailHeroLogoTitle> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.urls.isEmpty ||
-        widget.token.trim().isEmpty ||
-        _index >= widget.urls.length) {
+    final hasUrl = widget.urls.isNotEmpty && _index < widget.urls.length;
+    // 空 token 默认回退标题文本(飞牛 logo 需 NAS token);Emby logo 走 `?api_key=`
+    // 自鉴权直链,空 token 也照常加载。
+    final selfAuthenticated =
+        hasUrl && widget.urls[_index].contains('api_key=');
+    if (!hasUrl || (widget.token.trim().isEmpty && !selfAuthenticated)) {
       return _fallbackTitle(context);
     }
 
