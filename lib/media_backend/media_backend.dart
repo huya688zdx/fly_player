@@ -1,6 +1,7 @@
 import 'detail/media_detail.dart';
 import 'detail/media_episode_summary.dart';
 import 'detail/media_season_summary.dart';
+import 'detail/media_source_info.dart';
 import 'filter/media_catalog_filter.dart';
 import 'media_backend_capabilities.dart';
 import 'media_catalog.dart';
@@ -43,6 +44,12 @@ abstract class MediaBackend {
 
   /// 单个条目的详情（展示信息）。不含播放接线（轨道 / 句柄 / 直链），那些留播放入口。
   Future<MediaDetail> getItemDetail(String itemId);
+
+  /// 单个条目的「媒体源信息」（文件路径 / 大小 / 视频音频字幕摘要），供详情页文件/视频信息卡。
+  ///
+  /// 仅展示用，不含播放句柄/直链。飞牛有自己的文件/视频信息渲染路径，返回 `null` 表示该后端
+  /// 不通过本接口提供（由页面侧走原路径）。
+  Future<MediaSourceInfo?> getItemSourceInfo(String itemId);
 
   /// 剧集的季列表。
   Future<List<MediaSeasonSummary>> getItemSeasons(String seriesId);
