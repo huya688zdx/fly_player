@@ -2225,6 +2225,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
             pageBody = DetailLoadingSkeleton(presentation: widget.presentation);
           } else {
             final provider = context.read<NasProvider>();
+            final artworkResolver = DetailArtworkResolver(
+              baseUrl: provider.baseUrl,
+              token: provider.token,
+            );
             final media = MediaQuery.of(context);
             final logoRequestWidth =
                 (_isPane ? media.size.width * media.devicePixelRatio : 1200.0)
@@ -2259,11 +2263,12 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                       : fallbackTitle);
             final logoUrls = deferAuxiliaryArtwork
                 ? const <String>[]
-                : ApiUrlHelper.imageCandidates(
-                    provider.baseUrl,
-                    (item['logos'] ?? '').toString(),
-                    width: logoRequestWidth,
-                  );
+                : artworkResolver
+                      .resolvePath(
+                        (item['logos'] ?? '').toString(),
+                        width: logoRequestWidth,
+                      )
+                      .urls;
             final episodeHeroSubtitle =
                 ((item['type'] ?? '').toString().trim().toLowerCase() ==
                     'episode')
@@ -2345,6 +2350,12 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           );
         } else {
           final provider = context.read<NasProvider>();
+          // logo / 海报 / 演职员头像图源经同一 resolver 解析(飞牛相对路径 → imageCandidates +
+          // NAS token,Emby 直链直接用)。为 S2-6 统一两分支铺路;飞牛输出逐字节等价。
+          final artworkResolver = DetailArtworkResolver(
+            baseUrl: provider.baseUrl,
+            token: provider.token,
+          );
           final data = _data!;
           final item = data.item;
           // 展示快照（Phase 5 详情页迁移）：与 _data 同 setState 构造，_data 非空即非空。
@@ -2431,11 +2442,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               _isPane || !_heroAsyncSectionsResolved;
           final logoUrls = deferAuxiliaryArtwork
               ? const <String>[]
-              : ApiUrlHelper.imageCandidates(
-                  provider.baseUrl,
-                  detail.logoImage.url, // == item.logos（逐字段等价）
-                  width: logoRequestWidth,
-                );
+              : artworkResolver
+                    .resolveRef(detail.logoImage, width: logoRequestWidth)
+                    .urls;
           final heroTitleChild = itemType != 'episode'
               ? (deferAuxiliaryArtwork
                     ? const SizedBox.shrink()
@@ -2532,11 +2541,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                   subtitle: CreditPersonPresenter.displaySubTitle(e),
                   imageUrls: deferAuxiliaryArtwork
                       ? const <String>[]
-                      : ApiUrlHelper.personImageCandidates(
-                          provider.baseUrl,
-                          e.avatar.url, // == PersonCredit.profilePath（逐字段等价）
-                          width: 180,
-                        ),
+                      : artworkResolver.resolveRef(e.avatar, width: 180).urls,
                 ),
               )
               .toList();
