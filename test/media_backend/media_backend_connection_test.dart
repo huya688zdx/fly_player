@@ -11,6 +11,7 @@ void main() {
       userName: 'alice',
       userId: 'user-1',
       accessToken: 'token',
+      secret: 'password',
       rememberSecret: false,
       updatedAtMillis: 123,
     );
@@ -23,6 +24,7 @@ void main() {
       'userName': 'alice',
       'userId': 'user-1',
       'accessToken': 'token',
+      'secret': 'password',
       'rememberSecret': false,
       'updatedAtMillis': 123,
     });
