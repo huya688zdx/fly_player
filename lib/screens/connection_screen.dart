@@ -225,7 +225,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         _embyPasswordController.text = connection.secret;
         _embyConnectionStatus = _formatEmbyConnectionStatus(connection);
       });
-      _showTopTip('Emby 连接已验证，媒体浏览将在后续阶段开放', context.appColors.accent);
     } catch (error, stackTrace) {
       await _reportAndShowLoginError(
         error,
