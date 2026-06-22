@@ -307,9 +307,11 @@ class _MediaListScreenState extends State<MediaListScreen> {
         allItems.addAll(items);
       }
 
-      final continueWatching = playList.isNotEmpty
-          ? playList.take(_continueLimit).toList()
-          : _pickContinueWatching(allItems);
+      final continueWatching = _resolveContinueWatching(
+        backend,
+        playList,
+        allItems,
+      );
 
       if (!mounted) return;
       setState(() {
@@ -392,9 +394,11 @@ class _MediaListScreenState extends State<MediaListScreen> {
         allItems.addAll(items);
       }
 
-      final continueWatching = playList.isNotEmpty
-          ? playList.take(_continueLimit).toList()
-          : _pickContinueWatching(allItems);
+      final continueWatching = _resolveContinueWatching(
+        backend,
+        playList,
+        allItems,
+      );
 
       if (!mounted) return;
 
@@ -459,16 +463,15 @@ class _MediaListScreenState extends State<MediaListScreen> {
         forceRefresh: true,
       );
       if (!mounted) return;
-      // 与 _fetchHomeData 一致:续播列表为空时回退到从当前分类条目挑选(按进度)。
-      // 否则 Emby 的 getContinueWatching(IsResumable)偶尔返回空会把初始靠回退挑出的
-      // 续播列表砸成空 → 续播区突然消失。
-      final continueWatching = playList.isNotEmpty
-          ? playList.take(_continueLimit).toList()
-          : _pickContinueWatching(
-              _itemsByCategory.values
-                  .expand((items) => items)
-                  .toList(growable: false),
-            );
+      // 与 _fetchHomeData 一致:经 _resolveContinueWatching 统一(飞牛空时回退分类挑选,
+      // Emby 等留空)。否则返回时刷新与初始加载口径不一致会导致续播区抖动/消失。
+      final continueWatching = _resolveContinueWatching(
+        backend,
+        playList,
+        _itemsByCategory.values
+            .expand((items) => items)
+            .toList(growable: false),
+      );
       setState(() {
         _continueWatching = continueWatching;
       });
@@ -509,6 +512,26 @@ class _MediaListScreenState extends State<MediaListScreen> {
   void _applyState(VoidCallback update) {
     if (!mounted) return;
     setState(update);
+  }
+
+  /// 统一计算首页「继续观看」列表（初始 / 后台刷新 / 返回刷新三处同口径）。
+  ///
+  /// 续播列表（飞牛 `getPlayList` / 其它后端 `getContinueWatching`）非空时直接取前 N。
+  /// 为空时**仅飞牛**回退到从分类条目挑选——飞牛分类条目带 `ts`/`watchedTs` 进度，回退合理；
+  /// Emby 等公共后端的分类条目无进度，回退会把片库前几个当“在看”并把竖版海报塞进横版卡，
+  /// 故留空（无真实续播即隐藏该区）。数据层按 backend kind 分支，非 UI `if(isEmby)`。
+  List<MediaLibraryItem> _resolveContinueWatching(
+    MediaBackend backend,
+    List<MediaLibraryItem> playList,
+    List<MediaLibraryItem> allItems,
+  ) {
+    if (playList.isNotEmpty) {
+      return playList.take(_continueLimit).toList();
+    }
+    if (backend.capabilities.kind == MediaBackendKind.feiniu) {
+      return _pickContinueWatching(allItems);
+    }
+    return const <MediaLibraryItem>[];
   }
 
   List<MediaLibraryItem> _pickContinueWatching(List<MediaLibraryItem> items) {
