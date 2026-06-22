@@ -172,12 +172,34 @@ class EmbyMediaBackend implements MediaBackend {
   }
 
   @override
-  Future<List<MediaSeasonSummary>> getItemSeasons(String seriesId) =>
-      _unsupported('getItemSeasons');
+  Future<List<MediaSeasonSummary>> getItemSeasons(String seriesId) async {
+    final seasons = await api.getSeasons(
+      serverUrl: _serverUrl,
+      userId: _userId,
+      accessToken: _token,
+      seriesId: seriesId,
+    );
+    return seasons
+        .map((s) => mapEmbySeason(s, serverUrl: _serverUrl, token: _token))
+        .toList(growable: false);
+  }
 
   @override
-  Future<List<MediaEpisodeSummary>> getSeasonEpisodes(String seasonId) =>
-      _unsupported('getSeasonEpisodes');
+  Future<List<MediaEpisodeSummary>> getSeasonEpisodes(String seasonId) async {
+    // 季是集的父级，故按 ParentId=季 取该季选集（契合只给 seasonId 的接口签名，
+    // 无需 seriesId，也省一次往返）。Emby 默认按 IndexNumber 返回子项，故不强制 SortBy。
+    final episodes = await api.getItems(
+      serverUrl: _serverUrl,
+      userId: _userId,
+      accessToken: _token,
+      parentId: seasonId,
+      includeItemTypes: 'Episode',
+      fields: 'Overview',
+    );
+    return episodes
+        .map((e) => mapEmbyEpisode(e, serverUrl: _serverUrl, token: _token))
+        .toList(growable: false);
+  }
 
   @override
   Future<MediaPlaybackResolution> getPlayback(MediaPlaybackRequest request) =>

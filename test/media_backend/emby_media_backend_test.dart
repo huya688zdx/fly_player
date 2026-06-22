@@ -9,6 +9,7 @@ class _FakeEmbyApi extends EmbyApi {
     this.views = const [],
     this.items = const [],
     this.item = const <String, Object?>{},
+    this.seasons = const [],
     this.countByIncludeItemTypes = const <String, int>{},
     this.favoriteCount = 0,
   });
@@ -16,11 +17,13 @@ class _FakeEmbyApi extends EmbyApi {
   final List<Map<String, Object?>> views;
   final List<Map<String, Object?>> items;
   final Map<String, Object?> item;
+  final List<Map<String, Object?>> seasons;
   // 计数桩：键=IncludeItemTypes（如 'Movie'/'Series'），值=TotalRecordCount。
   final Map<String, int> countByIncludeItemTypes;
   final int favoriteCount;
   String? lastParentId;
   String? lastItemId;
+  String? lastSeasonsSeriesId;
   bool lastIsResumable = false;
   bool lastRecursive = false;
   String lastIncludeItemTypes = '';
@@ -80,6 +83,18 @@ class _FakeEmbyApi extends EmbyApi {
     lastRecursive = recursive;
     lastIncludeItemTypes = includeItemTypes;
     return items;
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> getSeasons({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    required String seriesId,
+    String fields = 'ItemCounts,UserData',
+  }) async {
+    lastSeasonsSeriesId = seriesId;
+    return seasons;
   }
 }
 
@@ -186,14 +201,52 @@ void main() {
     expect(detail.genreLabels, <String>['科幻']);
   });
 
+  test('getItemSeasons：/Shows/{id}/Seasons → MediaSeasonSummary', () async {
+    final api = _FakeEmbyApi(
+      seasons: <Map<String, Object?>>[
+        <String, Object?>{
+          'Id': 'season-1',
+          'Name': '第 1 季',
+          'IndexNumber': 1,
+          'ChildCount': 12,
+        },
+      ],
+    );
+    final backend = EmbyMediaBackend(api: api, connection: connection);
+    final result = await backend.getItemSeasons('series-9');
+    expect(api.lastSeasonsSeriesId, 'series-9');
+    expect(result, hasLength(1));
+    expect(result.first.id, 'season-1');
+    expect(result.first.seasonNumber, 1);
+    expect(result.first.numberOfEpisodes, 12);
+  });
+
+  test('getSeasonEpisodes：ParentId=季 + IncludeItemTypes=Episode', () async {
+    final api = _FakeEmbyApi(
+      items: <Map<String, Object?>>[
+        <String, Object?>{
+          'Id': 'ep-1',
+          'Name': '第一集',
+          'IndexNumber': 1,
+          'ParentIndexNumber': 1,
+        },
+      ],
+    );
+    final backend = EmbyMediaBackend(api: api, connection: connection);
+    final result = await backend.getSeasonEpisodes('season-1');
+    expect(api.lastParentId, 'season-1');
+    expect(api.lastIncludeItemTypes, 'Episode');
+    expect(result, hasLength(1));
+    expect(result.first.id, 'ep-1');
+    expect(result.first.episodeNumber, 1);
+  });
+
   test('未实现方法一律 throw UnsupportedError', () async {
     final backend = EmbyMediaBackend(
       api: _FakeEmbyApi(),
       connection: connection,
     );
     await expectLater(backend.searchItems('x'), throwsUnsupportedError);
-    await expectLater(backend.getItemSeasons('x'), throwsUnsupportedError);
-    await expectLater(backend.getSeasonEpisodes('x'), throwsUnsupportedError);
     await expectLater(
       backend.getCatalogFilterSchema('x'),
       throwsUnsupportedError,

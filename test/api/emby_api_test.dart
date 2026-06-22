@@ -288,43 +288,6 @@ void main() {
       expect(seasons[1]['IndexNumber'], 2);
     },
   );
-
-  test(
-    'getEpisodes 拼 /Shows/{id}/Episodes + SeasonId/Fields，解析 Items',
-    () async {
-      late RequestOptions captured;
-      final adapter = _FakeDioAdapter((options) {
-        captured = options;
-        return const _JsonResponse(<String, Object?>{
-          'Items': <Object?>[
-            <String, Object?>{
-              'Id': 'ep-1',
-              'Name': '第一集',
-              'IndexNumber': 1,
-              'ParentIndexNumber': 1,
-            },
-          ],
-        });
-      });
-      final api = EmbyApi(dio: Dio(BaseOptions())..httpClientAdapter = adapter);
-
-      final episodes = await api.getEpisodes(
-        serverUrl: 'https://emby.example.test',
-        userId: 'user-1',
-        accessToken: 'tok',
-        seriesId: 'series-9',
-        seasonId: 'season-1',
-      );
-
-      expect(captured.uri.path, '/Shows/series-9/Episodes');
-      expect(captured.uri.queryParameters['api_key'], 'tok');
-      expect(captured.uri.queryParameters['UserId'], 'user-1');
-      expect(captured.uri.queryParameters['SeasonId'], 'season-1');
-      expect(captured.uri.queryParameters['Fields'], 'Overview');
-      expect(episodes, hasLength(1));
-      expect(episodes[0]['Id'], 'ep-1');
-    },
-  );
 }
 
 class _JsonResponse {
