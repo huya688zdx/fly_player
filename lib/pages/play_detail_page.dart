@@ -523,6 +523,13 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   /// 播放);演职员点击在中立态暂不跳转(Emby 人物详情后续切片)。
   Widget _buildNeutralBody(AppThemeColors colors) {
     final detail = _detail!;
+    final provider = context.read<NasProvider>();
+    // 与飞牛分支同一图源入口:Emby 引用是完整 api_key 直链,resolveRef 直接透传
+    // (baseUrl/token 仅对飞牛相对路径生效,此处不影响 Emby)。
+    final artworkResolver = DetailArtworkResolver(
+      baseUrl: provider.baseUrl,
+      token: provider.token,
+    );
     final media = MediaQuery.of(context);
     final screenSize = media.size;
     final posterHeight = _backdropHeroHeight(screenSize);
@@ -535,10 +542,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     final title = detail.title.trim().isNotEmpty
         ? detail.title.trim()
         : detail.displayTitle;
-    final logoUrl = detail.logoImage.url;
-    final logoChild = logoUrl.isNotEmpty
+    final logoUrls = artworkResolver.resolveRef(detail.logoImage).urls;
+    final logoChild = logoUrls.isNotEmpty
         ? DetailHeroLogoTitle(
-            urls: <String>[logoUrl],
+            urls: logoUrls,
             token: '',
             fallbackTitle: title,
             maxHeight: 112,
@@ -566,9 +573,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
             personGuid: p.id,
             name: CreditPersonPresenter.displayName(p),
             subtitle: CreditPersonPresenter.displaySubTitle(p),
-            imageUrls: p.avatar.isNotEmpty
-                ? <String>[p.avatar.url]
-                : const <String>[],
+            imageUrls: artworkResolver.resolveRef(p.avatar, width: 180).urls,
           ),
         )
         .toList();
