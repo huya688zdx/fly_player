@@ -18,6 +18,7 @@ import '../models/person_credit.dart';
 import '../models/stream_list_option.dart';
 import '../models/stream_track_data.dart';
 import '../media_backend/detail/media_detail.dart';
+import '../media_backend/detail/media_source_info.dart';
 import '../media_backend/feiniu/feiniu_detail_mappers.dart';
 import '../media_backend/media_backend_kind.dart';
 import '../media_backend/media_image_ref.dart';
@@ -77,6 +78,7 @@ import '../widgets/detail/immersive_detail_background.dart';
 import '../widgets/detail/link_section.dart';
 import '../widgets/detail/play_action_bar.dart';
 import '../widgets/detail/theme_save_name_helper.dart';
+import '../widgets/detail/media_source_info_section.dart';
 import '../widgets/detail/video_info_section.dart';
 
 class PlayDetailPage extends StatefulWidget {
@@ -131,6 +133,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   /// 演职员 / imdb 在进程内构造，零额外网络。渐进加载下随各阶段重建（见 [_rebuildDetail]）。
   ///
   MediaDetail? _detail;
+
+  /// 中立态(Emby)的媒体源信息(文件/视频信息),由 [MediaBackend.getItemSourceInfo] 取;
+  /// 飞牛态恒为 null(飞牛走自有 FileInfoSection/VideoInfoSection 路径)。
+  MediaSourceInfo? _sourceInfo;
 
   /// 中立展示态:当前后端非飞牛(如 Emby)时,本页只读 [MediaBackend.getItemDetail] 的中立
   /// [_detail] 渲染展示半身,**不加载飞牛播放数据**([_data] 保持 null),播放入口为占位。
@@ -632,6 +638,41 @@ class _PlayDetailPageState extends State<PlayDetailPage>
             _buildCreditsSliver(colors: colors, items: creditItems, token: ''),
           if (_imdbId.trim().isNotEmpty || _trimId.trim().isNotEmpty)
             _buildLinkSliver(colors: colors),
+          if (_sourceInfo != null && _sourceInfo!.isNotEmpty)
+            SliverToBoxAdapter(
+              child: _sectionReveal(
+                child: Container(
+                  color: colors.backgroundBase,
+                  padding: EdgeInsets.fromLTRB(
+                    DetailTokens.screenHorizontalPadding,
+                    8,
+                    DetailTokens.screenHorizontalPadding,
+                    media.padding.bottom + 24,
+                  ),
+                  child: MediaSourceInfoSection(
+                    info: _sourceInfo!,
+                    fileTitle: _t('layout.details.fileInfo.title', 'File info'),
+                    // 视频信息标签飞牛侧硬编码中文(VideoInfoSection 未走 _t),此处同口径:
+                    // 有对应 i18n key 则用,否则回退中文字面量。
+                    videoTitle: _t('layout.details.videoInfo.title', '视频信息'),
+                    locationLabel: _t(
+                      'layout.details.fileInfo.location',
+                      'File location',
+                    ),
+                    videoLabel: _t('layout.details.videoInfo.video', '视频'),
+                    audioLabel: _t('layout.details.videoInfo.audio', '音频'),
+                    subtitleLabel: _t(
+                      'layout.details.videoInfo.subtitle',
+                      '字幕',
+                    ),
+                    addedAtPrefix: _t(
+                      'layout.details.fileInfo.addedAt',
+                      'Added at',
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -887,6 +928,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       _genresMapZhCn = const <int, String>{};
       _locateMapZhCn = const <String, String>{};
       _authorizedDirs = const <AuthorizedDirEntry>[];
+      _sourceInfo = null;
     });
 
     // 分屏详情等副引擎冷启动时,后端会话可能尚未从磁盘就绪 → MediaBackendProvider 会暂时
@@ -902,9 +944,17 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       _neutralDisplayOnly = true;
       try {
         final detail = await backend.getItemDetail(_currentItemGuid);
+        // 文件 / 视频信息 best-effort:失败不阻断详情展示。
+        MediaSourceInfo? sourceInfo;
+        try {
+          sourceInfo = await backend.getItemSourceInfo(_currentItemGuid);
+        } catch (_) {
+          sourceInfo = null;
+        }
         if (!mounted) return;
         setState(() {
           _detail = detail;
+          _sourceInfo = sourceInfo;
           _data = null;
           _liked = detail.favorite;
           _watched = detail.watched;
