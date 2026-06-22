@@ -53,6 +53,11 @@
 - **S2-1 图源中立化**:抽 `DetailArtworkResolver`(UI helper):`MediaImageRef`/路径 → urls+headers,
   完整 http 直链直接用(+ref.headers),否则按飞牛路径走 `imageCandidates`+NAS token。先在背景接入、
   飞牛验证逐像素一致,再铺开。**这是让飞牛成功分支也能读 `_detail` 图、最终统一两分支的钥匙**。
+  - ✅ 已落:`lib/ui/detail_artwork_resolver.dart` + 单测(8 例,JVM 过);背景 hero(`62642e9`)
+    与动态取色图源(`abb0bcd`)两后端均经 resolver,飞牛输出逐字节等价、`flutter analyze` 净。
+    **待实机**:Emby 进真页面背景/取色正常 + 飞牛背景逐像素不变。
+  - ⏳ 待铺开:logo(`DetailHeroLogoTitle`)、海报、演职员头像(`CreditsSection`)三处图源仍内联
+    `imageCandidates`,后续切片逐处改走 resolver(为 S2-6 统一铺路)。
 - **S2-2 Hero 区抽组件** `_DetailHeroSection`(背景叠加 + logo 标题 + 副标题),包 `RepaintBoundary`。
 - **S2-3 信息块抽组件** `_DetailInfoBlock`(meta + 选择器 + 动作条 + 画质 + playError),
   把入场动画的 `Opacity`/`Transform` 收进局部、缩小 saveLayer 作用域。
