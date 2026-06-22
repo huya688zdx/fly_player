@@ -94,10 +94,16 @@
     浮层内容,`colors` 由调用方传 builder 作用域值)。飞牛逐字节等价(传未 trim 的 `detail.overview` +
     `overlayTitle: detailTitle`、无门控恒显);Emby 顺带获得控制器入场(call site 保留 `if(overview.trim().isNotEmpty)`
     空判 + 传已 trim 文案 + `overlayTitle: title`)。analyze 净。**待实机**:飞牛描述区逐像素不变。
-  - ⏳ **步骤3+ 待做**(各有不同入场,逐个核对):
-    - **meta 行 / hero**:飞牛各有 `_headerMetaOpacity` / `_headerTitleOpacity` 等 `FadeTransition`,
-      与中立裸渲染不同;同法以飞牛树为准。
-    - **最后**:成功分支吃 null `_data`(播放半身全守卫)→ 删 `_neutralDisplayOnly`/`_buildNeutralBody`。
+  - ✅ **步骤3 hero sliver(`3376424`)**:抽 `_buildHeroSliver`(复刻飞牛树:`FadeTransition(_headerTitleOpacity)`
+    入场 + `DetailHeroOverlay`,`useSoftGradient: true` 恒定)。飞牛逐字节等价(剧集态 `titleFontSize`/小
+    `bottomInset`/副标题照传);Emby 顺带获得标题淡入(`_headerFadeController` 在中立加载路径已 `forward`)。
+    analyze 净。**待实机**:飞牛 hero 逐像素不变。
+    - **注**:**meta 行不在本步**——飞牛 meta(`FadeTransition(_headerMetaOpacity)` + `_asyncFadeSwitcher`)
+      深嵌在播放半身的 `AnimatedSize`/`ConstrainedBox`/`Column`(与 `DetailSelectorRow`/`PlayActionBar` 同列),
+      不是可分离 sliver;中立 meta 是独立 `Container` + 占位播放按钮。两者结构不同,meta 收敛留到最后一步
+      (成功分支吃 null `_data`)一并处理。
+  - ⏳ **最后一步 待做**:成功分支吃 null `_data`(播放半身全 `_data!=null` 守卫、meta 区与中立合流)→
+    删 `_neutralDisplayOnly`/`_buildNeutralBody`。**这是改飞牛渲染路径的最大一步,务必逐像素核对**。
 
 阶段二每步只做一块、单测/实机核对飞牛不变,再提交。
 
