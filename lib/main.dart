@@ -14,6 +14,7 @@ import 'models/media_item.dart';
 import 'models/media_library_item.dart';
 import 'providers/app_locale_provider.dart';
 import 'providers/app_theme_provider.dart';
+import 'media_backend/media_backend_kind.dart';
 import 'providers/backend_session_provider.dart';
 import 'providers/media_backend_provider.dart';
 import 'providers/nas_provider.dart';
@@ -612,14 +613,18 @@ class _ProviderGate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<NasProvider>();
+    final session = context.watch<BackendSessionProvider>();
     final colors = context.appColors;
-    if (!provider.isReady) {
+    if (!provider.isReady || !session.isReady) {
       return Scaffold(
         backgroundColor: colors.backgroundBase,
         body: const Center(child: CircularProgressIndicator()),
       );
     }
-    if (requireConfigured && !provider.isConfigured) {
+    // 飞牛已配置，或当前后端会话为 Emby 且已认证，均可进入主导航；否则回登录页。
+    final embyReady =
+        session.currentKind == MediaBackendKind.emby && session.isConfigured;
+    if (requireConfigured && !provider.isConfigured && !embyReady) {
       return const ConnectionScreen();
     }
     return child;
