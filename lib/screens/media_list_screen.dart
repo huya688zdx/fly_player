@@ -856,7 +856,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
           params: <String, Object?>{'count': episodes},
         );
         if (period.isEmpty) return episodeText;
-        return '$episodeText 路 $period';
+        return '$episodeText · $period';
       }
     }
     if (seasonCount > 0) {
@@ -866,7 +866,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
         params: <String, Object?>{'count': seasonCount},
       );
       if (period.isEmpty) return seasonText;
-      return '$seasonText 路 $period';
+      return '$seasonText · $period';
     }
     return period;
   }
@@ -894,7 +894,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
       'Episode {number}',
       params: <String, Object?>{'number': episode},
     );
-    return '$seasonText 路 $episodeText';
+    return '$seasonText · $episodeText';
   }
 
   String _continueEpisodeText(MediaLibraryItem item) {
@@ -906,7 +906,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
         'Episode {number}',
         params: <String, Object?>{'number': episode},
       );
-      return '$specialText 路 $episodeText';
+      return '$specialText · $episodeText';
     }
     return _episodeText(item);
   }
