@@ -81,7 +81,10 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     required bool hasRuntimeDynamicTheme,
   }) {
     final layout = MediaLayoutProfile.of(context);
-    final isConfigured = context.watch<NasProvider>().isConfigured;
+    final session = context.watch<BackendSessionProvider>();
+    final embyReady =
+        session.currentKind == MediaBackendKind.emby && session.isConfigured;
+    final isConfigured = embyReady || context.watch<NasProvider>().isConfigured;
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
     if (!isConfigured) {

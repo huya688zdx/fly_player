@@ -15,6 +15,7 @@ import '../media_backend/media_backend.dart';
 import '../media_backend/media_backend_kind.dart';
 import '../media_backend/media_catalog.dart';
 import '../media_backend/media_item_card.dart';
+import '../providers/backend_session_provider.dart';
 import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
 import '../services/download_task_service.dart';
@@ -116,7 +117,11 @@ class _MediaListScreenState extends State<MediaListScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final provider = context.read<NasProvider>();
-    if (!provider.isConfigured) {
+    final session = context.read<BackendSessionProvider>();
+    // Emby 等公共后端激活（会话已认证）即可加载；飞牛需 NAS 已配置。
+    final embyReady =
+        session.currentKind == MediaBackendKind.emby && session.isConfigured;
+    if (!embyReady && !provider.isConfigured) {
       _lastLoadKey = '';
       _categories = <MediaItem>[];
       _itemsByCategory = <String, List<MediaLibraryItem>>{};
@@ -128,10 +133,18 @@ class _MediaListScreenState extends State<MediaListScreen> {
       _loadingFromCache = false;
       return;
     }
-    final loadKey = '${provider.baseUrl}|${provider.token}';
+    final connection = session.currentConnection;
+    final loadKey = embyReady
+        ? 'emby|${connection?.serverUrl ?? ''}|${connection?.accessToken ?? ''}'
+        : '${provider.baseUrl}|${provider.token}';
     if (loadKey != _lastLoadKey) {
       _lastLoadKey = loadKey;
-      _tryLoadFromCacheThenRefresh();
+      if (embyReady) {
+        // Emby 首光：不读飞牛首页缓存（HomeDataCache 是飞牛态缓存，跨后端会串内容），直接拉取。
+        _fetchHomeData();
+      } else {
+        _tryLoadFromCacheThenRefresh();
+      }
     }
   }
 
@@ -309,15 +322,17 @@ class _MediaListScreenState extends State<MediaListScreen> {
         _error = null;
       });
 
-      // Persist to cache.
-      unawaited(
-        HomeDataCache.save(
-          categories: categories,
-          itemsByCategory: itemsByCategory,
-          mediaSummary: summary,
-          continueWatching: continueWatching,
-        ),
-      );
+      // Persist to cache（仅飞牛：HomeDataCache 是飞牛态缓存，Emby 数据不写入避免跨后端串内容）。
+      if (backend.capabilities.kind == MediaBackendKind.feiniu) {
+        unawaited(
+          HomeDataCache.save(
+            categories: categories,
+            itemsByCategory: itemsByCategory,
+            mediaSummary: summary,
+            continueWatching: continueWatching,
+          ),
+        );
+      }
     } catch (error) {
       debugPrint('[UI][HOME] load failed $error');
       if (!mounted) return;
