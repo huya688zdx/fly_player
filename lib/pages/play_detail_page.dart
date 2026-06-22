@@ -21,6 +21,7 @@ import '../media_backend/detail/media_detail.dart';
 import '../media_backend/feiniu/feiniu_detail_mappers.dart';
 import '../media_backend/media_backend_kind.dart';
 import '../media_backend/media_image_ref.dart';
+import '../providers/backend_session_provider.dart';
 import '../providers/media_backend_provider.dart';
 import 'long_text_overlay_page.dart';
 import '../player/controllers/mpv_player_controller.dart';
@@ -860,6 +861,12 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       _locateMapZhCn = const <String, String>{};
       _authorizedDirs = const <AuthorizedDirEntry>[];
     });
+
+    // 分屏详情等副引擎冷启动时,后端会话可能尚未从磁盘就绪 → MediaBackendProvider 会暂时
+    // 默认回飞牛,导致 Emby 条目误用飞牛查询(noData)。读后端前先等会话就绪。
+    final session = context.read<BackendSessionProvider>();
+    await session.ensureReady();
+    if (!mounted) return;
 
     // 非飞牛后端(如 Emby):只读中立 MediaDetail 渲染展示半身,不加载飞牛播放数据。
     // 数据/导航层按 backend 能力分支,UI 渲染不写 if(isEmby)。
