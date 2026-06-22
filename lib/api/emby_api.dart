@@ -90,6 +90,72 @@ class EmbyApi {
     );
   }
 
+  /// 当前用户的媒体库（Views）——首页分类条的来源。
+  ///
+  /// `GET /Users/{userId}/Views`，`api_key` 自鉴权。返回 `Items` 数组（BaseItemDto 原样
+  /// `Map`，字段映射留 mapper）。
+  Future<List<Map<String, Object?>>> getUserViews({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+  }) async {
+    final normalizedServerUrl = normalizeServerUrl(serverUrl);
+    return _getItemList(
+      '$normalizedServerUrl/Users/${userId.trim()}/Views',
+      <String, Object?>{'api_key': accessToken},
+    );
+  }
+
+  /// 条目列表——首页某库预览（[parentId]）或继续观看（[isResumable]）。
+  ///
+  /// `GET /Users/{userId}/Items`，`api_key` 自鉴权。返回 `Items` 数组。
+  Future<List<Map<String, Object?>>> getItems({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    String parentId = '',
+    int? limit,
+    bool isResumable = false,
+    bool recursive = false,
+    String fields = '',
+    String sortBy = '',
+    String sortOrder = '',
+  }) async {
+    final normalizedServerUrl = normalizeServerUrl(serverUrl);
+    final query = <String, Object?>{
+      'api_key': accessToken,
+      if (parentId.trim().isNotEmpty) 'ParentId': parentId.trim(),
+      if (limit != null) 'Limit': limit,
+      if (isResumable) 'Filters': 'IsResumable',
+      if (recursive) 'Recursive': true,
+      if (fields.trim().isNotEmpty) 'Fields': fields.trim(),
+      if (sortBy.trim().isNotEmpty) 'SortBy': sortBy.trim(),
+      if (sortOrder.trim().isNotEmpty) 'SortOrder': sortOrder.trim(),
+    };
+    return _getItemList(
+      '$normalizedServerUrl/Users/${userId.trim()}/Items',
+      query,
+    );
+  }
+
+  Future<List<Map<String, Object?>>> _getItemList(
+    String url,
+    Map<String, Object?> query,
+  ) async {
+    final response = await _dio.get<Object?>(
+      url,
+      queryParameters: query,
+      options: Options(headers: _jsonHeaders),
+    );
+    final data = _asMap(response.data);
+    final items = data['Items'];
+    if (items is! List) return const <Map<String, Object?>>[];
+    return items
+        .whereType<Map>()
+        .map((e) => Map<String, Object?>.from(e))
+        .toList(growable: false);
+  }
+
   Map<String, Object?> get _jsonHeaders => const <String, Object?>{
     Headers.acceptHeader: Headers.jsonContentType,
   };
