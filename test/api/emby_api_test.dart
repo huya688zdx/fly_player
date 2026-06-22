@@ -166,6 +166,39 @@ void main() {
     expect(captured.uri.queryParameters['Recursive'], 'true');
     expect(items, isEmpty);
   });
+
+  test(
+    'getItem 拼 /Users/{uid}/Items/{id} + api_key/Fields，返回单条目 Map',
+    () async {
+      late RequestOptions captured;
+      final adapter = _FakeDioAdapter((options) {
+        captured = options;
+        return const _JsonResponse(<String, Object?>{
+          'Id': 'item-9',
+          'Name': '银翼杀手 2049',
+          'Type': 'Movie',
+          'Overview': '简介文本',
+          'Genres': <Object?>['科幻'],
+        });
+      });
+      final api = EmbyApi(dio: Dio(BaseOptions())..httpClientAdapter = adapter);
+
+      final item = await api.getItem(
+        serverUrl: 'https://emby.example.test/',
+        userId: 'user-1',
+        accessToken: 'tok',
+        itemId: 'item-9',
+      );
+
+      expect(captured.method, 'GET');
+      expect(captured.uri.path, '/Users/user-1/Items/item-9');
+      expect(captured.uri.queryParameters['api_key'], 'tok');
+      expect(captured.uri.queryParameters['Fields'], contains('People'));
+      expect(item['Id'], 'item-9');
+      expect(item['Name'], '银翼杀手 2049');
+      expect(item['Genres'], <Object?>['科幻']);
+    },
+  );
 }
 
 class _JsonResponse {

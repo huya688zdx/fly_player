@@ -141,6 +141,33 @@ class EmbyApi {
     );
   }
 
+  /// 单个条目详情——详情页（[itemId]）。
+  ///
+  /// `GET /Users/{userId}/Items/{itemId}`，`api_key` 自鉴权，`Fields` 拉详情所需字段
+  /// （简介 / 题材 / 演职员 / 外部 ID / 拍摄地）。返回单个 `BaseItemDto` 原样 `Map`
+  /// （字段映射留 mapper），与列表接口的 `Items` 数组不同。
+  Future<Map<String, Object?>> getItem({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    required String itemId,
+    String fields =
+        'Overview,Genres,People,ProviderIds,ProductionLocations,'
+        'PremiereDate,CommunityRating',
+  }) async {
+    final normalizedServerUrl = normalizeServerUrl(serverUrl);
+    final query = <String, Object?>{
+      'api_key': accessToken,
+      if (fields.trim().isNotEmpty) 'Fields': fields.trim(),
+    };
+    final response = await _dio.get<Object?>(
+      '$normalizedServerUrl/Users/${userId.trim()}/Items/${itemId.trim()}',
+      queryParameters: query,
+      options: Options(headers: _jsonHeaders),
+    );
+    return _asMap(response.data);
+  }
+
   Future<List<Map<String, Object?>>> _getItemList(
     String url,
     Map<String, Object?> query,
