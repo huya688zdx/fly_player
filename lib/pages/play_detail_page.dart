@@ -132,7 +132,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   /// 中立展示态:当前后端非飞牛(如 Emby)时,本页只读 [MediaBackend.getItemDetail] 的中立
   /// [_detail] 渲染展示半身,**不加载飞牛播放数据**([_data] 保持 null),播放入口为占位。
   /// 飞牛态恒为 false、原构建路径完全不变。
-  // ignore: unused_field
   bool _neutralDisplayOnly = false;
 
   late String _currentItemGuid;
@@ -507,6 +506,16 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       return '';
     }
     return _heroPathForPlayItem(data.item);
+  }
+
+  /// 中立态(Emby)背景 hero 完整直链候选:背景图优先、退海报(均自带 api_key 自鉴权)。
+  List<String> _neutralHeroUrls() {
+    final detail = _detail;
+    if (detail == null) return const <String>[];
+    final urls = <String>[];
+    if (detail.backdropImage.isNotEmpty) urls.add(detail.backdropImage.url);
+    if (detail.primaryImage.isNotEmpty) urls.add(detail.primaryImage.url);
+    return urls;
   }
 
   String _paneEpisodeThemeBackdropFallback() {
@@ -1920,13 +1929,24 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         );
     final nasProvider = context.read<NasProvider>();
     final inPlayerPaneHost = PlayerPaneHostScope.maybeOf(context) != null;
-    final deferHeroArtwork = _loading || _data == null;
-    final deferAuxiliaryArtwork = _loading || !_heroAsyncSectionsResolved;
+    // 中立态 hero/取色就绪条件看 _detail（_data 恒 null）；飞牛态仍看 _data。
+    final deferHeroArtwork = _neutralDisplayOnly
+        ? (_loading || _detail == null)
+        : (_loading || _data == null);
+    final deferAuxiliaryArtwork = _neutralDisplayOnly
+        ? (_loading || _detail == null)
+        : (_loading || !_heroAsyncSectionsResolved);
     var dynamicThemeKey = _currentItemGuid.trim().isNotEmpty
         ? _currentItemGuid
         : widget.itemGuid;
     var dynamicThemeImageUrl = '';
-    if (_data != null) {
+    if (_neutralDisplayOnly && _detail != null) {
+      // Emby 等中立后端:取色图用 _detail 的完整直链(自带 api_key),不走飞牛路径拼接。
+      final neutral = _detail!;
+      dynamicThemeImageUrl = neutral.backdropImage.isNotEmpty
+          ? neutral.backdropImage.url
+          : neutral.primaryImage.url;
+    } else if (_data != null) {
       final item = _data!.item;
       final urls = ApiUrlHelper.imageCandidates(
         nasProvider.baseUrl,
@@ -1990,14 +2010,21 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                     : 1200.0)
                 .clamp(720.0, 1200.0)
                 .round();
-        final persistentHeroPath = _persistentHeroPath();
-        final persistentHeroUrls = persistentHeroPath.isEmpty
-            ? const <String>[]
-            : ApiUrlHelper.imageCandidates(
-                persistentProvider.baseUrl,
-                persistentHeroPath,
-                width: persistentBackdropWidth,
-              );
+        // 中立态(Emby):背景用 _detail 完整直链(自带 api_key),绕开飞牛路径拼接;
+        // 飞牛态仍走 _persistentHeroPath + imageCandidates。
+        final neutralHeroUrls = _neutralHeroUrls();
+        final persistentHeroPath = _neutralDisplayOnly
+            ? ''
+            : _persistentHeroPath();
+        final persistentHeroUrls = _neutralDisplayOnly
+            ? neutralHeroUrls
+            : (persistentHeroPath.isEmpty
+                  ? const <String>[]
+                  : ApiUrlHelper.imageCandidates(
+                      persistentProvider.baseUrl,
+                      persistentHeroPath,
+                      width: persistentBackdropWidth,
+                    ));
         final persistentPosterHeight = _backdropHeroHeight(
           persistentMedia.size,
         );
