@@ -374,11 +374,14 @@ class _BackgroundImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (urls.isEmpty || index >= urls.length || token.trim().isEmpty) {
+    final hasUrl = urls.isNotEmpty && index < urls.length;
+    final currentUrl = hasUrl ? urls[index] : '';
+    // 空 token 默认回退底色（飞牛背景图需 NAS token 鉴权）；但 URL 自带凭据时
+    // （如 Emby 的 `?api_key=`，自鉴权、不依赖 NAS token）照常加载。
+    final selfAuthenticated = currentUrl.contains('api_key=');
+    if (!hasUrl || (token.trim().isEmpty && !selfAuthenticated)) {
       return Container(color: context.appColors.surface);
     }
-
-    final currentUrl = urls[index];
     return LayoutBuilder(
       builder: (context, constraints) {
         final media = MediaQuery.of(context);
