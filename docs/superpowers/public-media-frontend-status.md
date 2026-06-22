@@ -508,6 +508,20 @@ class MediaItemCardPage { List<MediaItemCard> items; int total; }   // 复用 Me
 - **待用户实机验证**：Emby 账号登录 → 验证连接 → 应自动进首页 → 媒体库分类条 / 各库预览 / 继续观看显示；**重点核对 Emby 图片（`api_key` 自鉴权 URL）能否加载**（若首页图片加载器破坏该 URL，退 `MediaImageRef.headers` 方案——计划 Task 6）。并切回飞牛账号验证飞牛首页零回归。
 - 明确不做：Emby 详情/播放/搜索/筛选（throw）；不改飞牛首页行为；不碰 Codex 的 store/登录页核心；未提交真实凭据（测试用脱敏 fixture / fake）。
 
+### Emby 详情页首光（first light，**代码完成、待用户实机验证** — 2026-06-22）
+
+> 设计 `specs/2026-06-22-emby-detail-first-light-design.md`、计划 `plans/2026-06-22-emby-detail-first-light.md`。用户 2026-06-22 选①**只做展示（首光）**、②**新建中立详情屏按后端路由**。承接 Emby 首页首光。
+
+- 目标：Emby 态点开影片进入中立详情屏，显示背景/海报/logo/标题/简介/题材/地区/评分/年份/时长/演职员，数据走 `backend.getItemDetail()` 返回的中立 `MediaDetail`，不再把 Emby id 灌进飞牛 API（消除「六小时无权限」）。**不做播放/季集/下载/收藏写回**；播放入口为占位「即将到来」（能力门控，非 `if(isEmby)`）。
+- [x] Task 1：`EmbyApi.getItem(itemId)`——`GET /Users/{uid}/Items/{id}?api_key=&Fields=...`，返回单条目 Map（`_asMap`，非数组）。emby_api 单测 7 PASS。提交 `a631911`。
+- [x] Task 2：`mapEmbyItemDetail`——`BaseItemDto→MediaDetail`（题材 Genres / 地区 ProductionLocations / 演职员 People[Type→department、Primary 头像自鉴权] / 外部 ID ProviderIds / logo ImageTags.Logo / UserData[Played/IsFavorite/PlaybackPositionTicks] / 年份回退 ProductionYear / ticks→秒分）。mappers 单测 6 PASS。提交 `504aed1`。
+- [x] Task 3：`EmbyMediaBackend.getItemDetail` 接 `getItem`+mapper（去掉 UnsupportedError）；季集/播放/搜索/筛选**仍 throw**。backend 单测 7 PASS。提交 `6a53b1d`。
+- [x] Task 4：中立详情屏 `lib/screens/media_detail_screen.dart`——`initState` 调 `backend.getItemDetail`，加载/错误/成功态；复用 `ImmersiveDetailBackground`/`DetailDescriptionSection`/`DetailTagChip`/`CreditsSection`（演职员经 `CreditPersonPresenter`）从 `MediaDetail` 渲染；播放入口占位禁用。**踩坑**：`ImmersiveDetailBackground._BackgroundImage`、`CreditsSection._CreditAvatar` 原有 `token 空→回退` 飞牛假设，会挡掉 Emby 空 NAS token；同首页 `MediaPosterCard` 模式放宽为 `api_key=` 自鉴权放行（飞牛 URL 不含 api_key、行为零变）。widget 单测 2 PASS。提交 `46e5862`。
+- [x] Task 5：`media_list_screen._openItemDetail` item 分支按 `backend.capabilities.kind`——非飞牛 push `MediaDetailScreen`（数据/导航层分支，UI 不写 `if(isEmby)`）；飞牛走原 launcher/`play_detail_page`，**路径零改动**。提交 `7b86cd1`。
+- 验证：全量 `flutter analyze` → 17 条历史无关项（零新增）；`test/media_backend/ test/api/emby_api_test.dart test/screens/media_detail_screen_test.dart` 117 PASS。
+- **待用户实机验证**：Emby 态点开影片 → 应进中立详情屏，标题/简介/题材/演职员/背景图/logo 显示，播放按钮为禁用占位；返回正常；切回飞牛态详情页（`play_detail_page`）零回归。
+- 明确不做：Emby 播放/季集/搜索/筛选（throw）；不改飞牛详情页；不构造 MpvMediaSource；不迁播放器深层 mixin；未提交真实凭据。
+
 ## Claude 下一步任务
 
 - [x] Phase 5 骨架（Task 1~3 + Codex 修复）完成并收口（用户 2026-06-21 选 A）。
