@@ -60,14 +60,30 @@
     (`resolveRef`/`resolvePath`),飞牛逐字节等价、analyze 净。详情页唯一剩下的内联
     `imageCandidates` 是下载 sheet 的 `previewUrls`(属播放/下载半身,按约束保留)。
     至此 resolver 已是详情页**图源单一入口**(背景 / 取色 / logo / 头像)。
-  - **待实机**:Emby 详情 logo/头像/背景/取色正常 + 飞牛四处图源逐像素不变(改重后必须人工确认)。
-- **S2-2 Hero 区抽组件** `_DetailHeroSection`(背景叠加 + logo 标题 + 副标题),包 `RepaintBoundary`。
-- **S2-3 信息块抽组件** `_DetailInfoBlock`(meta + 选择器 + 动作条 + 画质 + playError),
-  把入场动画的 `Opacity`/`Transform` 收进局部、缩小 saveLayer 作用域。
-- **S2-4 次级区块**(文件/视频/链接/演职员 sliver)各抽组件 + `RepaintBoundary` + const 化。
-- **S2-5 图片缓存**:逐项约束 `cacheWidth/Height`(海报/头像/logo),避免大纹理上传尖峰。
-- **S2-6 统一两分支**:飞牛成功分支改读 `_detail` + resolver(等价替换),最终删掉 `_neutralDisplayOnly`
-  双路,真正一套 build 两后端共用。逐字段等价、逐像素核对后才删旧路。
+  - ✅ 收口(`e58add6`):`_buildNeutralBody` 的 logo + 头像也改走 resolver(原内联 url 列表)。
+    **至此 resolver 是全页图源唯一入口(背景/取色/logo/头像,飞牛+Emby 两分支)。实机已过**
+    (飞牛不变、Emby 正常)。
+
+### S2-2~S2-5 光栅化:**重评——前人已基本做掉,不再硬拆**
+
+实读现状(`62642e9` 后):
+- 背景 `ImmersiveDetailBackground` 已**深度优化**:外层 `RepaintBoundary`(页级 `2942` 再包一层)+
+  组件内 `RepaintBoundary`;滚动只重建廉价 `Transform`,`Image` 子树按 sig 缓存复用不重建;
+  `cacheWidth` 约束解码;低清铺底防首帧 raster 尖峰;`api_key` 自鉴权放行。
+- 入场动画(`_sectionReveal` 的 `Opacity`/`Transform`、各 `FadeTransition`)是 `TweenAnimationBuilder`
+  **一次性**动画,settle 到 `opacity:1.0` 后 Flutter 自动短路、**稳态无 saveLayer**。
+- 前景 `pageBody` 在 boundary 化背景之上 crossfade。
+
+结论:**S2-2~S2-5 预设的光栅化坏味大多不存在**,硬拆只增 churn、且动画精细、风险>收益。
+**暂不做**;若实机抓到具体掉帧/jank 再针对性处理。
+
+- **S2-6 统一两分支(唯一剩余实质项)**:飞牛成功分支(`else` @ ~`2346`,深绑 `_data!`/流/选择器/
+  动作条/文件视频信息)与中立 `_buildNeutralBody` 仍是两条渲染路。统一 = 让成功分支容忍 `_data==null`
+  (播放半身全部 `_data!=null` 守卫、展示半身读 `_detail`),删 `_neutralDisplayOnly` + `_buildNeutralBody`。
+  - **风险**:这是**改飞牛渲染路径**的大改(~370 行成功分支),违反"飞牛逐像素不变"的概率高,
+    收益是可维护性/"一页两后端",**非 perf**。重复代码仅约 90 行。
+  - **做法**:必须**单独会话** + 每步飞牛逐像素核对;先抽展示区共享 builder(hero/meta/描述/演职员),
+    两分支同调,再逐步让成功分支吃 null `_data`。**未经实机确认不删旧路**。
 
 阶段二每步只做一块、单测/实机核对飞牛不变,再提交。
 
