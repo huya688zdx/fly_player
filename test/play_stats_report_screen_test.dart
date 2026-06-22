@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/l10n/generated/app_localizations_zh.dart';
 import 'package:fly_player/providers/nas_provider.dart';
 import 'package:fly_player/screens/play_stats_report/play_stats_report_formatters.dart';
@@ -20,6 +21,9 @@ void main() {
       Provider<NasProvider?>.value(
         value: null,
         child: MaterialApp(
+          locale: const Locale('zh'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           home: PlayStatsReportScreen(
             summaryRepository: repository,
             detailPageBuilder: (_) =>
@@ -32,13 +36,13 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    expect(find.text('range-days30'), findsOneWidget);
+    expect(find.text('30天'), findsOneWidget);
 
     await tester.tap(find.text('7天'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    expect(find.text('range-days7'), findsOneWidget);
+    expect(find.text('7天'), findsOneWidget);
     expect(
       repository.loadedRanges,
       containsAll(<PlayStatsRange>[
