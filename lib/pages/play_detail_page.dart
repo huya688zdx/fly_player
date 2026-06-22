@@ -20,6 +20,7 @@ import '../models/stream_track_data.dart';
 import '../media_backend/detail/media_detail.dart';
 import '../media_backend/feiniu/feiniu_detail_mappers.dart';
 import '../media_backend/media_backend_kind.dart';
+import '../media_backend/media_image_ref.dart';
 import '../providers/media_backend_provider.dart';
 import 'long_text_overlay_page.dart';
 import '../player/controllers/mpv_player_controller.dart';
@@ -42,6 +43,7 @@ import '../ui/adaptive_detail_navigator.dart';
 import '../ui/app_transitions.dart';
 import '../ui/capability_badge_mapper.dart';
 import '../ui/credit_person_presenter.dart';
+import '../ui/detail_artwork_resolver.dart';
 import '../ui/detail_presentation.dart';
 import '../ui/player_pane_host_scope.dart';
 import '../ui/route_transition_gate.dart';
@@ -506,16 +508,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       return '';
     }
     return _heroPathForPlayItem(data.item);
-  }
-
-  /// 中立态(Emby)背景 hero 完整直链候选:背景图优先、退海报(均自带 api_key 自鉴权)。
-  List<String> _neutralHeroUrls() {
-    final detail = _detail;
-    if (detail == null) return const <String>[];
-    final urls = <String>[];
-    if (detail.backdropImage.isNotEmpty) urls.add(detail.backdropImage.url);
-    if (detail.primaryImage.isNotEmpty) urls.add(detail.primaryImage.url);
-    return urls;
   }
 
   static String _neutralYear(String releaseDate) {
@@ -2169,21 +2161,29 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                     : 1200.0)
                 .clamp(720.0, 1200.0)
                 .round();
-        // 中立态(Emby):背景用 _detail 完整直链(自带 api_key),绕开飞牛路径拼接;
-        // 飞牛态仍走 _persistentHeroPath + imageCandidates。
-        final neutralHeroUrls = _neutralHeroUrls();
+        // 图源经 DetailArtworkResolver 统一解析:Emby 的 _detail 引用是完整 api_key 直链
+        // (直接用),飞牛的 _persistentHeroPath 是相对路径(走 imageCandidates + NAS token)。
+        // 两分支同一入口,输出与旧内联逻辑逐字节等价。
+        final persistentResolver = DetailArtworkResolver(
+          baseUrl: persistentProvider.baseUrl,
+          token: persistentProvider.token,
+        );
         final persistentHeroPath = _neutralDisplayOnly
             ? ''
             : _persistentHeroPath();
         final persistentHeroUrls = _neutralDisplayOnly
-            ? neutralHeroUrls
+            ? persistentResolver.resolveRefs(<MediaImageRef>[
+                if (_detail != null) _detail!.backdropImage,
+                if (_detail != null) _detail!.primaryImage,
+              ]).urls
             : (persistentHeroPath.isEmpty
                   ? const <String>[]
-                  : ApiUrlHelper.imageCandidates(
-                      persistentProvider.baseUrl,
-                      persistentHeroPath,
-                      width: persistentBackdropWidth,
-                    ));
+                  : persistentResolver
+                        .resolvePath(
+                          persistentHeroPath,
+                          width: persistentBackdropWidth,
+                        )
+                        .urls);
         final persistentPosterHeight = _backdropHeroHeight(
           persistentMedia.size,
         );
@@ -2198,11 +2198,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               urls: persistentHeroUrls,
               lowResUrls: persistentHeroPath.isEmpty
                   ? const <String>[]
-                  : ApiUrlHelper.imageCandidates(
-                      persistentProvider.baseUrl,
-                      persistentHeroPath,
-                      width: 360,
-                    ),
+                  : persistentResolver
+                        .resolvePath(persistentHeroPath, width: 360)
+                        .urls,
               token: persistentProvider.token,
               scrollOffset: offset,
               posterHeight: persistentPosterHeight,
