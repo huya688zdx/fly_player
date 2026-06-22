@@ -630,6 +630,8 @@ class _PlayDetailPageState extends State<PlayDetailPage>
             ),
           if (creditItems.isNotEmpty)
             _buildCreditsSliver(colors: colors, items: creditItems, token: ''),
+          if (_imdbId.trim().isNotEmpty || _trimId.trim().isNotEmpty)
+            _buildLinkSliver(colors: colors),
         ],
       ),
     );
@@ -746,6 +748,31 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           bottomInset: bottomInset,
           useSoftGradient: true,
           titleChild: titleChild,
+        ),
+      ),
+    );
+  }
+
+  /// 外部链接 sliver(飞牛 + Emby 共享):复刻飞牛树(`_sectionReveal` + `Container` + `LinkSection`)。
+  /// 读 `_imdbId`/`_trimId`(两后端都在 `_load` 设好)与 `_openImdb`/`_openTmdb`;非空门控由调用方负责。
+  /// `colors` 由调用方传 builder 作用域值(`DynamicPageThemeScope` 改写子树主题,不可在此重取)。
+  Widget _buildLinkSliver({required AppThemeColors colors}) {
+    return SliverToBoxAdapter(
+      child: _sectionReveal(
+        child: Container(
+          color: colors.backgroundBase,
+          padding: const EdgeInsets.fromLTRB(
+            DetailTokens.screenHorizontalPadding,
+            8,
+            DetailTokens.screenHorizontalPadding,
+            24,
+          ),
+          child: LinkSection(
+            imdbId: _imdbId,
+            tmdbId: _trimId,
+            onImdbTap: _openImdb,
+            onTmdbTap: _openTmdb,
+          ),
         ),
       ),
     );
@@ -2901,25 +2928,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                     if (_linkVisible &&
                         (_imdbId.trim().isNotEmpty ||
                             _trimId.trim().isNotEmpty))
-                      SliverToBoxAdapter(
-                        child: _sectionReveal(
-                          child: Container(
-                            color: colors.backgroundBase,
-                            padding: const EdgeInsets.fromLTRB(
-                              DetailTokens.screenHorizontalPadding,
-                              8,
-                              DetailTokens.screenHorizontalPadding,
-                              24,
-                            ),
-                            child: LinkSection(
-                              imdbId: _imdbId,
-                              tmdbId: _trimId,
-                              onImdbTap: _openImdb,
-                              onTmdbTap: _openTmdb,
-                            ),
-                          ),
-                        ),
-                      ),
+                      _buildLinkSliver(colors: colors),
                   ],
                 ),
                 ValueListenableBuilder<double>(
