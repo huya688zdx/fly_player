@@ -223,31 +223,6 @@ class EmbyApi {
     );
   }
 
-  /// 某一季的选集列表——季详情选集浏览器。`GET /Shows/{seriesId}/Episodes`，`api_key` 自鉴权。
-  ///
-  /// [seasonId] 限定季。返回 `Items` 数组（集 `BaseItemDto` 原样 `Map`）。`Fields` 带
-  /// `Overview`（选集简介）;`UserData`（已看/续播）、`ImageTags`、`RunTimeTicks` 默认返回。
-  Future<List<Map<String, Object?>>> getEpisodes({
-    required String serverUrl,
-    required String userId,
-    required String accessToken,
-    required String seriesId,
-    String seasonId = '',
-    String fields = 'Overview',
-  }) async {
-    final normalizedServerUrl = normalizeServerUrl(serverUrl);
-    final query = <String, Object?>{
-      'api_key': accessToken,
-      'UserId': userId.trim(),
-      if (seasonId.trim().isNotEmpty) 'SeasonId': seasonId.trim(),
-      if (fields.trim().isNotEmpty) 'Fields': fields.trim(),
-    };
-    return _getItemList(
-      '$normalizedServerUrl/Shows/${seriesId.trim()}/Episodes',
-      query,
-    );
-  }
-
   Future<List<Map<String, Object?>>> _getItemList(
     String url,
     Map<String, Object?> query,
