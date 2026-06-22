@@ -13,10 +13,11 @@ import '../playback/media_playback_resolution.dart';
 import '../session/media_backend_connection.dart';
 import 'emby_media_mappers.dart';
 
-/// Emby 媒体后端适配器——**首页首光阶段**。
+/// Emby 媒体后端适配器——**首页 + 详情展示首光阶段**。
 ///
-/// 只实现首页读取（媒体库 / 预览 / 继续观看）；详情 / 季集 / 搜索 / 筛选 / 播放入口尚未
-/// 实现，一律 throw [UnsupportedError]（由 gate / 入口拦截，本阶段不在 Emby 态点开它们）。
+/// 已实现首页读取（媒体库 / 预览 / 继续观看）与单条目详情展示（[getItemDetail]）；
+/// 季集 / 搜索 / 筛选 / 播放入口尚未实现，一律 throw [UnsupportedError]（由入口拦截，
+/// 本阶段不在 Emby 态点开它们）。详情只承载展示信息，不含播放接线。
 /// 飞牛专属能力（下载 / FN Connect / 片头片尾）在 [capabilities] 中关闭。
 class EmbyMediaBackend implements MediaBackend {
   EmbyMediaBackend({required this.api, required this.connection});
@@ -111,8 +112,15 @@ class EmbyMediaBackend implements MediaBackend {
       _unsupported('queryCatalogItems');
 
   @override
-  Future<MediaDetail> getItemDetail(String itemId) =>
-      _unsupported('getItemDetail');
+  Future<MediaDetail> getItemDetail(String itemId) async {
+    final item = await api.getItem(
+      serverUrl: _serverUrl,
+      userId: _userId,
+      accessToken: _token,
+      itemId: itemId,
+    );
+    return mapEmbyItemDetail(item, serverUrl: _serverUrl, token: _token);
+  }
 
   @override
   Future<List<MediaSeasonSummary>> getItemSeasons(String seriesId) =>

@@ -5,11 +5,17 @@ import 'package:fly_player/media_backend/media_backend_kind.dart';
 import 'package:fly_player/media_backend/session/media_backend_connection.dart';
 
 class _FakeEmbyApi extends EmbyApi {
-  _FakeEmbyApi({this.views = const [], this.items = const []});
+  _FakeEmbyApi({
+    this.views = const [],
+    this.items = const [],
+    this.item = const <String, Object?>{},
+  });
 
   final List<Map<String, Object?>> views;
   final List<Map<String, Object?>> items;
+  final Map<String, Object?> item;
   String? lastParentId;
+  String? lastItemId;
   bool lastIsResumable = false;
   bool lastRecursive = false;
   String lastIncludeItemTypes = '';
@@ -20,6 +26,18 @@ class _FakeEmbyApi extends EmbyApi {
     required String userId,
     required String accessToken,
   }) async => views;
+
+  @override
+  Future<Map<String, Object?>> getItem({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    required String itemId,
+    String fields = '',
+  }) async {
+    lastItemId = itemId;
+    return item;
+  }
 
   @override
   Future<List<Map<String, Object?>>> getItems({
@@ -118,13 +136,31 @@ void main() {
     expect(await backend.getHomeSummary(), isEmpty);
   });
 
+  test('getItemDetail：getItem → MediaDetail', () async {
+    final api = _FakeEmbyApi(
+      item: <String, Object?>{
+        'Id': 'm-1',
+        'Name': '某电影',
+        'Type': 'Movie',
+        'Overview': '简介',
+        'Genres': <Object?>['科幻'],
+      },
+    );
+    final backend = EmbyMediaBackend(api: api, connection: connection);
+    final detail = await backend.getItemDetail('m-1');
+    expect(api.lastItemId, 'm-1');
+    expect(detail.id, 'm-1');
+    expect(detail.title, '某电影');
+    expect(detail.overview, '简介');
+    expect(detail.genreLabels, <String>['科幻']);
+  });
+
   test('未实现方法一律 throw UnsupportedError', () async {
     final backend = EmbyMediaBackend(
       api: _FakeEmbyApi(),
       connection: connection,
     );
     await expectLater(backend.searchItems('x'), throwsUnsupportedError);
-    await expectLater(backend.getItemDetail('x'), throwsUnsupportedError);
     await expectLater(backend.getItemSeasons('x'), throwsUnsupportedError);
     await expectLater(backend.getSeasonEpisodes('x'), throwsUnsupportedError);
     await expectLater(
