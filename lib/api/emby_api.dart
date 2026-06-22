@@ -141,6 +141,38 @@ class EmbyApi {
     );
   }
 
+  /// 条目计数——首页计数行。`GET /Users/{userId}/Items`，`Limit=0` 只取 `TotalRecordCount`、
+  /// 不拉条目体（最省流的计数方式）。Emby 无专用计数端点，按类型分别调本方法拼计数。
+  Future<int> getItemCount({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    bool recursive = true,
+    bool favoritesOnly = false,
+    String includeItemTypes = '',
+  }) async {
+    final normalizedServerUrl = normalizeServerUrl(serverUrl);
+    final query = <String, Object?>{
+      'api_key': accessToken,
+      'Limit': 0,
+      if (recursive) 'Recursive': true,
+      if (favoritesOnly) 'Filters': 'IsFavorite',
+      if (includeItemTypes.trim().isNotEmpty)
+        'IncludeItemTypes': includeItemTypes.trim(),
+    };
+    final response = await _dio.get<Object?>(
+      '$normalizedServerUrl/Users/${userId.trim()}/Items',
+      queryParameters: query,
+      options: Options(headers: _jsonHeaders),
+    );
+    final data = _asMap(response.data);
+    final count = data['TotalRecordCount'];
+    if (count is int) return count;
+    if (count is num) return count.toInt();
+    if (count is String) return int.tryParse(count) ?? 0;
+    return 0;
+  }
+
   /// 单个条目详情——详情页（[itemId]）。
   ///
   /// `GET /Users/{userId}/Items/{itemId}`，`api_key` 自鉴权，`Fields` 拉详情所需字段

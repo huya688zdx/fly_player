@@ -9,16 +9,38 @@ class _FakeEmbyApi extends EmbyApi {
     this.views = const [],
     this.items = const [],
     this.item = const <String, Object?>{},
+    this.countByIncludeItemTypes = const <String, int>{},
+    this.favoriteCount = 0,
   });
 
   final List<Map<String, Object?>> views;
   final List<Map<String, Object?>> items;
   final Map<String, Object?> item;
+  // 计数桩：键=IncludeItemTypes（如 'Movie'/'Series'），值=TotalRecordCount。
+  final Map<String, int> countByIncludeItemTypes;
+  final int favoriteCount;
   String? lastParentId;
   String? lastItemId;
   bool lastIsResumable = false;
   bool lastRecursive = false;
   String lastIncludeItemTypes = '';
+  final List<String> countIncludeItemTypes = <String>[];
+  bool lastCountFavoritesOnly = false;
+
+  @override
+  Future<int> getItemCount({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    bool recursive = true,
+    bool favoritesOnly = false,
+    String includeItemTypes = '',
+  }) async {
+    countIncludeItemTypes.add(includeItemTypes);
+    lastCountFavoritesOnly = favoritesOnly;
+    if (favoritesOnly) return favoriteCount;
+    return countByIncludeItemTypes[includeItemTypes] ?? 0;
+  }
 
   @override
   Future<List<Map<String, Object?>>> getUserViews({
@@ -128,12 +150,21 @@ void main() {
     expect(items, hasLength(1));
   });
 
-  test('getHomeSummary：首光阶段返回空 map', () async {
-    final backend = EmbyMediaBackend(
-      api: _FakeEmbyApi(),
-      connection: connection,
+  test('getHomeSummary：按类型 TotalRecordCount 拼计数，total=电影+电视剧', () async {
+    final api = _FakeEmbyApi(
+      countByIncludeItemTypes: const <String, int>{'Movie': 34, 'Series': 12},
+      favoriteCount: 5,
     );
-    expect(await backend.getHomeSummary(), isEmpty);
+    final backend = EmbyMediaBackend(api: api, connection: connection);
+    final summary = await backend.getHomeSummary();
+    expect(summary['movie'], 34);
+    expect(summary['tv'], 12);
+    expect(summary['total'], 46);
+    expect(summary['favorite'], 5);
+    expect(summary['other'], 0);
+    // 收藏计数走 IsFavorite + Movie,Series。
+    expect(api.countIncludeItemTypes, contains('Movie,Series'));
+    expect(api.lastCountFavoritesOnly, isTrue);
   });
 
   test('getItemDetail：getItem → MediaDetail', () async {
