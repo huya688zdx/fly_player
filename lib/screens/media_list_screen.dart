@@ -11,7 +11,10 @@ import '../controllers/media_item_action_sheet_controller.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../models/media_item.dart';
 import '../models/media_library_item.dart';
+import '../media_backend/media_backend.dart';
+import '../media_backend/media_backend_kind.dart';
 import '../media_backend/media_catalog.dart';
+import '../media_backend/media_item_card.dart';
 import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
 import '../services/download_task_service.dart';
@@ -168,6 +171,80 @@ class _MediaListScreenState extends State<MediaListScreen> {
     );
   }
 
+  /// 公共 [MediaItemCard] → 首页用 [MediaLibraryItem]（仅非飞牛后端走此转换，喂首页现有
+  /// `MediaLibraryItem` 渲染）。续播进度 `ts`/`watchedTs` 不在卡片模型，首光阶段置 0。
+  static MediaLibraryItem _cardToMediaItem(MediaItemCard card) {
+    return MediaLibraryItem(
+      guid: card.id,
+      title: card.title,
+      tvTitle: card.secondaryTitle,
+      type: card.type,
+      poster: card.primaryImage.url,
+      posterWidth: card.posterWidth,
+      posterHeight: card.posterHeight,
+      posterList: card.posters
+          .map((image) => image.url)
+          .toList(growable: false),
+      releaseDate: card.releaseDate,
+      firstAirDate: card.firstAirDate,
+      lastAirDate: card.lastAirDate,
+      voteAverage: card.rating,
+      overview: '',
+      watched: card.watched ? 1 : 0,
+      watchedTs: 0,
+      ts: 0,
+      duration: card.durationSeconds,
+      seasonNumber: card.seasonNumber,
+      episodeNumber: card.episodeNumber,
+      numberOfSeasons: card.numberOfSeasons,
+      numberOfEpisodes: card.numberOfEpisodes,
+      localNumberOfSeasons: card.localNumberOfSeasons,
+      localNumberOfEpisodes: card.localNumberOfEpisodes,
+      numberOfItem: card.numberOfItem,
+      parentGuid: '',
+      parentTitle: '',
+      ancestorGuid: '',
+      ancestorName: '',
+      path: card.primaryImage.url,
+      resolutions: card.resolutions,
+    );
+  }
+
+  /// 继续观看数据源：飞牛走 FeiniuApi（保留续播进度 `ts`），其它公共后端（Emby）走
+  /// `backend.getContinueWatching`（[MediaItemCard]→[MediaLibraryItem]，首光阶段无续播进度）。
+  /// 数据层按后端能力选源，**非 UI 渲染分支**，UI 不写 `if (isEmby)`。
+  Future<List<MediaLibraryItem>> _loadContinueWatching(
+    MediaBackend backend,
+    FeiniuApi api, {
+    bool forceRefresh = false,
+  }) async {
+    if (backend.capabilities.kind == MediaBackendKind.feiniu) {
+      return api.getPlayList(forceRefresh: forceRefresh);
+    }
+    final cards = await backend.getContinueWatching(forceRefresh: forceRefresh);
+    return cards.map(_cardToMediaItem).toList();
+  }
+
+  /// 某库预览条目数据源：飞牛走 FeiniuApi，其它公共后端走 `getCatalogPreviewItems`。
+  Future<List<MediaLibraryItem>> _loadCategoryItems(
+    MediaBackend backend,
+    FeiniuApi api,
+    String catalogId,
+  ) async {
+    if (backend.capabilities.kind == MediaBackendKind.feiniu) {
+      return api.getItemsByCategoryGuid(
+        catalogId,
+        page: 1,
+        limit: _categoryPreviewLimit,
+      );
+    }
+    final cards = await backend.getCatalogPreviewItems(
+      catalogId,
+      limit: _categoryPreviewLimit,
+    );
+    return cards.map(_cardToMediaItem).toList();
+  }
+
   Future<void> _fetchHomeData() async {
     debugPrint('[UI][HOME] start loading home data');
     final usingSpinner = !_loadingFromCache;
@@ -183,13 +260,13 @@ class _MediaListScreenState extends State<MediaListScreen> {
       final api = FeiniuApi(provider);
       final backend = context.read<MediaBackendProvider>().backend;
 
-      // 分类入口和首页概要走公共 MediaBackend（无损）；继续观看和分类条目这一
-      // 阶段仍走 FeiniuApi，因为公共条目模型尚未携带它们的富字段（续播进度、
-      // 清晰度角标、本地季/集计数）。
+      // 分类入口/概要走公共 MediaBackend。继续观看与分类条目按后端能力选源：飞牛走
+      // FeiniuApi（保留续播进度等富字段），Emby 等走 backend（见 _loadContinueWatching /
+      // _loadCategoryItems）。数据层分支，UI 渲染不感知后端类型。
       final parallelResults = await Future.wait([
         backend.getCatalogs(),
         backend.getHomeSummary(),
-        api.getPlayList(),
+        _loadContinueWatching(backend, api),
       ]);
       final categories = (parallelResults[0] as List<MediaCatalog>)
           .map(_catalogToMediaItem)
@@ -203,11 +280,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
       final allItems = <MediaLibraryItem>[];
       final categoryFutures = categories.map((category) async {
         try {
-          final items = await api.getItemsByCategoryGuid(
-            category.id,
-            page: 1,
-            limit: _categoryPreviewLimit,
-          );
+          final items = await _loadCategoryItems(backend, api, category.id);
           return (category.id, items);
         } catch (error) {
           debugPrint('[UI][HOME] category load failed ${category.id}: $error');
@@ -264,17 +337,21 @@ class _MediaListScreenState extends State<MediaListScreen> {
   Future<void> _backgroundRefresh() async {
     debugPrint('[UI][HOME] background refresh start');
     final provider = context.read<NasProvider>();
-    if (!provider.isConfigured) return;
+    final backend = context.read<MediaBackendProvider>().backend;
+    // 飞牛态需 NAS 已配置才刷新；Emby 等公共后端不依赖 NAS 会话。
+    if (backend.capabilities.kind == MediaBackendKind.feiniu &&
+        !provider.isConfigured) {
+      return;
+    }
 
     try {
       final api = FeiniuApi(provider);
-      final backend = context.read<MediaBackendProvider>().backend;
 
-      // 分类入口和概要走公共 MediaBackend；继续观看仍走 FeiniuApi（需续播进度）。
+      // 分类入口/概要走公共 MediaBackend；继续观看与分类条目按后端能力选源（同 _fetchHomeData）。
       final parallelResults = await Future.wait([
         backend.getCatalogs(),
         backend.getHomeSummary(),
-        api.getPlayList(forceRefresh: true),
+        _loadContinueWatching(backend, api, forceRefresh: true),
       ]);
       final categories = (parallelResults[0] as List<MediaCatalog>)
           .map(_catalogToMediaItem)
@@ -287,11 +364,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
       final allItems = <MediaLibraryItem>[];
       final categoryFutures = categories.map((category) async {
         try {
-          final items = await api.getItemsByCategoryGuid(
-            category.id,
-            page: 1,
-            limit: _categoryPreviewLimit,
-          );
+          final items = await _loadCategoryItems(backend, api, category.id);
           return (category.id, items);
         } catch (_) {
           return (category.id, <MediaLibraryItem>[]);
@@ -356,11 +429,19 @@ class _MediaListScreenState extends State<MediaListScreen> {
 
   Future<void> _refreshContinueWatching() async {
     final provider = context.read<NasProvider>();
-    if (!provider.isConfigured) return;
+    final backend = context.read<MediaBackendProvider>().backend;
+    if (backend.capabilities.kind == MediaBackendKind.feiniu &&
+        !provider.isConfigured) {
+      return;
+    }
 
     try {
       final api = FeiniuApi(provider);
-      final playList = await api.getPlayList(forceRefresh: true);
+      final playList = await _loadContinueWatching(
+        backend,
+        api,
+        forceRefresh: true,
+      );
       if (!mounted) return;
       setState(() {
         _continueWatching = playList.take(_continueLimit).toList();
