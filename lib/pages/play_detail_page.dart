@@ -624,30 +624,11 @@ class _PlayDetailPageState extends State<PlayDetailPage>
             ),
           ),
           if (detail.overview.trim().isNotEmpty)
-            SliverToBoxAdapter(
-              child: Container(
-                color: colors.backgroundBase,
-                padding: EdgeInsets.fromLTRB(
-                  DetailTokens.screenHorizontalPadding,
-                  4,
-                  DetailTokens.screenHorizontalPadding,
-                  media.padding.bottom + 18,
-                ),
-                child: DetailDescriptionSection(
-                  text: detail.overview.trim(),
-                  onMoreTap: () {
-                    LongTextOverlayPage.show(
-                      context,
-                      title: title,
-                      sectionTitle: _t(
-                        'layout.details.overview.overview',
-                        'Overview',
-                      ),
-                      content: detail.overview.trim(),
-                    );
-                  },
-                ),
-              ),
+            _buildDescriptionSliver(
+              colors: colors,
+              text: detail.overview.trim(),
+              overlayTitle: title,
+              bottomPadding: media.padding.bottom + 18,
             ),
           if (creditItems.isNotEmpty)
             _buildCreditsSliver(colors: colors, items: creditItems, token: ''),
@@ -681,6 +662,63 @@ class _PlayDetailPageState extends State<PlayDetailPage>
             items: items,
             token: token,
             onTap: onTap,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 描述 sliver(飞牛 + Emby 共享):复刻飞牛树(`_descriptionPopController` 的 `AnimatedBuilder`
+  /// 入场 + `Container` 内边距 + `DetailDescriptionSection`)。`text` 由调用方传(飞牛传未 trim 的
+  /// `detail.overview`,Emby 传已 trim 文案)并同时用于「展开全文」浮层内容;非空门控由调用方负责
+  /// (飞牛无门控、恒显)。`overlayTitle` 是浮层标题(飞牛 `detailTitle` / Emby `title`)。`colors`
+  /// 必须由调用方传 builder 作用域值(`DynamicPageThemeScope` 改写子树主题,不可在此重取)。
+  Widget _buildDescriptionSliver({
+    required AppThemeColors colors,
+    required String text,
+    required String overlayTitle,
+    required double bottomPadding,
+  }) {
+    return SliverToBoxAdapter(
+      child: AnimatedBuilder(
+        animation: _descriptionPopController,
+        builder: (context, child) {
+          return Opacity(
+            opacity: _descriptionVisible ? _descriptionOpacity.value : 0,
+            child: Transform.translate(
+              offset: Offset(
+                0,
+                _descriptionVisible ? _descriptionTranslateY.value : 10,
+              ),
+              child: Transform.scale(
+                scale: _descriptionVisible ? _descriptionScale.value : 0.97,
+                alignment: Alignment.topCenter,
+                child: child,
+              ),
+            ),
+          );
+        },
+        child: Container(
+          color: colors.backgroundBase,
+          padding: EdgeInsets.fromLTRB(
+            DetailTokens.screenHorizontalPadding,
+            4,
+            DetailTokens.screenHorizontalPadding,
+            bottomPadding,
+          ),
+          child: DetailDescriptionSection(
+            text: text,
+            onMoreTap: () {
+              LongTextOverlayPage.show(
+                context,
+                title: overlayTitle,
+                sectionTitle: _t(
+                  'layout.details.overview.overview',
+                  'Overview',
+                ),
+                content: text,
+              );
+            },
           ),
         ),
       ),
@@ -2758,55 +2796,11 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                         ),
                       ),
                     ),
-                    SliverToBoxAdapter(
-                      child: AnimatedBuilder(
-                        animation: _descriptionPopController,
-                        builder: (context, child) {
-                          return Opacity(
-                            opacity: _descriptionVisible
-                                ? _descriptionOpacity.value
-                                : 0,
-                            child: Transform.translate(
-                              offset: Offset(
-                                0,
-                                _descriptionVisible
-                                    ? _descriptionTranslateY.value
-                                    : 10,
-                              ),
-                              child: Transform.scale(
-                                scale: _descriptionVisible
-                                    ? _descriptionScale.value
-                                    : 0.97,
-                                alignment: Alignment.topCenter,
-                                child: child,
-                              ),
-                            ),
-                          );
-                        },
-                        child: Container(
-                          color: colors.backgroundBase,
-                          padding: EdgeInsets.fromLTRB(
-                            DetailTokens.screenHorizontalPadding,
-                            4,
-                            DetailTokens.screenHorizontalPadding,
-                            media.padding.bottom + 18,
-                          ),
-                          child: DetailDescriptionSection(
-                            text: detail.overview,
-                            onMoreTap: () {
-                              LongTextOverlayPage.show(
-                                context,
-                                title: detailTitle,
-                                sectionTitle: _t(
-                                  'layout.details.overview.overview',
-                                  'Overview',
-                                ),
-                                content: detail.overview,
-                              );
-                            },
-                          ),
-                        ),
-                      ),
+                    _buildDescriptionSliver(
+                      colors: colors,
+                      text: detail.overview,
+                      overlayTitle: detailTitle,
+                      bottomPadding: media.padding.bottom + 18,
                     ),
                     if (_creditsVisible && creditItems.isNotEmpty)
                       _buildCreditsSliver(
