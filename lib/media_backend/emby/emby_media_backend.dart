@@ -2,6 +2,7 @@ import '../../api/emby_api.dart';
 import '../detail/media_detail.dart';
 import '../detail/media_episode_summary.dart';
 import '../detail/media_season_summary.dart';
+import '../detail/media_source_info.dart';
 import '../filter/media_catalog_filter.dart';
 import '../media_backend.dart';
 import '../media_backend_capabilities.dart';
@@ -153,6 +154,21 @@ class EmbyMediaBackend implements MediaBackend {
       itemId: itemId,
     );
     return mapEmbyItemDetail(item, serverUrl: _serverUrl, token: _token);
+  }
+
+  @override
+  Future<MediaSourceInfo?> getItemSourceInfo(String itemId) async {
+    // 单独取 MediaSources（含 Path/Size/MediaStreams）+ DateCreated；与 getItemDetail
+    // 的展示字段拉取分开，避免详情字段里塞源信息。
+    final item = await api.getItem(
+      serverUrl: _serverUrl,
+      userId: _userId,
+      accessToken: _token,
+      itemId: itemId,
+      fields: 'MediaSources,DateCreated',
+    );
+    final info = mapEmbySourceInfo(item);
+    return info.isEmpty ? null : info;
   }
 
   @override

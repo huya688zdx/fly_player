@@ -206,4 +206,84 @@ void main() {
       expect(detail.watched, isFalse);
     });
   });
+
+  group('mapEmbySourceInfo', () {
+    test('MediaSources + MediaStreams → 文件信息 + 视频/音频/字幕摘要', () {
+      final info = mapEmbySourceInfo(<String, Object?>{
+        'DateCreated': '2026-02-06T11:48:00.0000000Z',
+        'MediaSources': <Object?>[
+          <String, Object?>{
+            'Path': '/vol4/1000/动漫电影3/Love.mkv',
+            'Container': 'mkv',
+            'Size': 6442450944, // 6 GiB
+            'MediaStreams': <Object?>[
+              <String, Object?>{
+                'Type': 'Video',
+                'DisplayTitle': '1080p H264',
+                'Codec': 'h264',
+                'Height': 1080,
+                'BitRate': 9000000,
+                'BitDepth': 10,
+              },
+              <String, Object?>{
+                'Type': 'Audio',
+                'DisplayTitle': 'Japanese FLAC 5.1 (默认)',
+                'Codec': 'flac',
+                'ChannelLayout': '5.1',
+                'SampleRate': 48000,
+              },
+              <String, Object?>{
+                'Type': 'Subtitle',
+                'DisplayTitle': 'Chinese Simplified ASS',
+                'Codec': 'ass',
+                'IsExternal': true,
+              },
+            ],
+          },
+        ],
+      });
+
+      expect(info.path, '/vol4/1000/动漫电影3/Love.mkv');
+      expect(info.container, 'mkv');
+      expect(info.sizeBytes, 6442450944);
+      expect(info.addedDate, '2026-02-06T11:48:00.0000000Z');
+
+      expect(info.videoStreams, hasLength(1));
+      expect(info.videoStreams.first.label, '1080p H264');
+      expect(info.videoStreams.first.summary, '9.00 mbps · 10 bit');
+
+      expect(info.audioStreams, hasLength(1));
+      expect(info.audioStreams.first.label, 'Japanese FLAC 5.1 (默认)');
+      expect(info.audioStreams.first.summary, '48000 Hz');
+
+      expect(info.subtitleStreams, hasLength(1));
+      expect(info.subtitleStreams.first.label, 'Chinese Simplified ASS');
+      expect(info.subtitleStreams.first.summary, '外挂');
+    });
+
+    test('无 MediaSources → isEmpty', () {
+      final info = mapEmbySourceInfo(const <String, Object?>{
+        'Id': 'm-1',
+        'Name': '某电影',
+      });
+      expect(info.isEmpty, isTrue);
+    });
+
+    test('视频无 DisplayTitle → 用分辨率+编码拼 label', () {
+      final info = mapEmbySourceInfo(<String, Object?>{
+        'MediaSources': <Object?>[
+          <String, Object?>{
+            'MediaStreams': <Object?>[
+              <String, Object?>{
+                'Type': 'Video',
+                'Codec': 'hevc',
+                'Height': 2160,
+              },
+            ],
+          },
+        ],
+      });
+      expect(info.videoStreams.first.label, '2160p HEVC');
+    });
+  });
 }

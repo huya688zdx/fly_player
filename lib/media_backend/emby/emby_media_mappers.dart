@@ -1,4 +1,5 @@
 import '../detail/media_detail.dart';
+import '../detail/media_source_info.dart';
 import '../media_catalog.dart';
 import '../media_image_ref.dart';
 import '../media_item_card.dart';
@@ -105,6 +106,113 @@ MediaDetail mapEmbyItemDetail(
     externalIds: _externalIds(item['ProviderIds']),
     people: _people(item['People'], serverUrl: serverUrl, token: token),
   );
+}
+
+/// Emby `BaseItemDto`（含 `MediaSources`）→ 中立 [MediaSourceInfo]（详情页文件 / 视频信息）。
+///
+/// 取第一个 `MediaSource` 的 Path/Container/Size + 条目 `DateCreated`，并把各 `MediaStream`
+/// 拼成展示摘要行（视频：分辨率/编码/码率/位深；音频：DisplayTitle + 编码/布局/采样率/码率；
+/// 字幕：DisplayTitle + 编码/外挂）。按设计取舍掉用户配置/等级/长宽比/像素格式等冗余字段。
+MediaSourceInfo mapEmbySourceInfo(Map<String, Object?> item) {
+  final sources = item['MediaSources'];
+  Map<String, Object?>? source;
+  if (sources is List && sources.isNotEmpty && sources.first is Map) {
+    source = Map<String, Object?>.from(sources.first as Map);
+  }
+  final path = (source?['Path'] ?? '').toString().trim();
+  final container = (source?['Container'] ?? '').toString().trim();
+  final size = _asInt(source?['Size']);
+  final addedDate = (item['DateCreated'] ?? '').toString().trim();
+
+  final rawStreams = source?['MediaStreams'];
+  final streams = <MediaSourceStream>[];
+  if (rawStreams is List) {
+    for (final raw in rawStreams) {
+      if (raw is! Map) continue;
+      final stream = Map<String, Object?>.from(raw);
+      switch ((stream['Type'] ?? '').toString().toLowerCase()) {
+        case 'video':
+          streams.add(_videoStream(stream));
+          break;
+        case 'audio':
+          streams.add(_audioStream(stream));
+          break;
+        case 'subtitle':
+          streams.add(_subtitleStream(stream));
+          break;
+      }
+    }
+  }
+  return MediaSourceInfo(
+    path: path,
+    container: container,
+    sizeBytes: size,
+    addedDate: addedDate,
+    streams: streams,
+  );
+}
+
+MediaSourceStream _videoStream(Map<String, Object?> stream) {
+  final display = (stream['DisplayTitle'] ?? '').toString().trim();
+  final height = _asInt(stream['Height']);
+  final res = height > 0 ? '${height}p' : '';
+  final codec = (stream['Codec'] ?? '').toString().trim().toUpperCase();
+  final label = display.isNotEmpty
+      ? display
+      : <String>[
+          if (res.isNotEmpty) res,
+          if (codec.isNotEmpty) codec,
+        ].join(' ');
+  final bit = _asInt(stream['BitDepth']);
+  final summary = <String>[
+    if (_mbps(stream['BitRate']).isNotEmpty) _mbps(stream['BitRate']),
+    if (bit > 0) '$bit bit',
+  ].join(' · ');
+  return MediaSourceStream(
+    type: MediaStreamType.video,
+    label: label,
+    summary: summary,
+  );
+}
+
+MediaSourceStream _audioStream(Map<String, Object?> stream) {
+  final display = (stream['DisplayTitle'] ?? '').toString().trim();
+  final codec = (stream['Codec'] ?? '').toString().trim().toUpperCase();
+  final layout = (stream['ChannelLayout'] ?? '').toString().trim();
+  final rate = _asInt(stream['SampleRate']);
+  // DisplayTitle 已含语言/编码/布局；label 用它，summary 只补采样率（DisplayTitle 通常没有）。
+  final label = display.isNotEmpty
+      ? display
+      : <String>[
+          if (codec.isNotEmpty) codec,
+          if (layout.isNotEmpty) layout,
+        ].join(' ');
+  final summary = rate > 0 ? '$rate Hz' : '';
+  return MediaSourceStream(
+    type: MediaStreamType.audio,
+    label: label,
+    summary: summary,
+  );
+}
+
+MediaSourceStream _subtitleStream(Map<String, Object?> stream) {
+  final display = (stream['DisplayTitle'] ?? '').toString().trim();
+  final codec = (stream['Codec'] ?? '').toString().trim().toUpperCase();
+  final external = stream['IsExternal'] == true;
+  final label = display.isNotEmpty ? display : codec;
+  final summary = external ? '外挂' : '';
+  return MediaSourceStream(
+    type: MediaStreamType.subtitle,
+    label: label,
+    summary: summary,
+  );
+}
+
+/// 码率（bps）→ `x.xx mbps`，无效返回空串。
+String _mbps(Object? bitRate) {
+  final value = _asInt(bitRate);
+  if (value <= 0) return '';
+  return '${(value / 1000000.0).toStringAsFixed(2)} mbps';
 }
 
 MediaImageRef _logoImage(
