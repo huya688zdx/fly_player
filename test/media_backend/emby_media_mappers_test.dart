@@ -286,4 +286,85 @@ void main() {
       expect(info.videoStreams.first.label, '2160p HEVC');
     });
   });
+
+  group('mapEmbySeason', () {
+    test('季 → MediaSeasonSummary（ChildCount 充当总数与本地数，图片带 api_key）', () {
+      final season = mapEmbySeason(
+        <String, Object?>{
+          'Id': 'season-1',
+          'Name': '第 1 季',
+          'IndexNumber': 1,
+          'ChildCount': 12,
+          'ImageTags': <String, Object?>{'Primary': 'sp'},
+        },
+        serverUrl: serverUrl,
+        token: token,
+      );
+      expect(season.id, 'season-1');
+      expect(season.title, '第 1 季');
+      expect(season.seasonNumber, 1);
+      expect(season.numberOfEpisodes, 12);
+      expect(season.localNumberOfEpisodes, 12);
+      expect(
+        season.primaryImage.url,
+        'https://emby.example.test/Items/season-1/Images/Primary?tag=sp&api_key=tok',
+      );
+    });
+
+    test('无 ChildCount 时回退 RecursiveItemCount', () {
+      final season = mapEmbySeason(
+        <String, Object?>{
+          'Id': 'season-2',
+          'Name': '第 2 季',
+          'IndexNumber': 2,
+          'RecursiveItemCount': 8,
+        },
+        serverUrl: serverUrl,
+        token: token,
+      );
+      expect(season.numberOfEpisodes, 8);
+      expect(season.primaryImage.isEmpty, isTrue);
+    });
+  });
+
+  group('mapEmbyEpisode', () {
+    test('集 → MediaEpisodeSummary（时长 RunTimeTicks→秒，续播取 UserData）', () {
+      final episode = mapEmbyEpisode(
+        <String, Object?>{
+          'Id': 'ep-1',
+          'Name': '第一集',
+          'ParentIndexNumber': 1,
+          'IndexNumber': 1,
+          'Overview': '开场',
+          'PremiereDate': '2023-01-05',
+          'RunTimeTicks': 14400000000,
+          'UserData': <String, Object?>{
+            'Played': true,
+            'PlaybackPositionTicks': 3000000000,
+          },
+        },
+        serverUrl: serverUrl,
+        token: token,
+      );
+      expect(episode.id, 'ep-1');
+      expect(episode.title, '第一集');
+      expect(episode.seasonNumber, 1);
+      expect(episode.episodeNumber, 1);
+      expect(episode.overview, '开场');
+      expect(episode.airDate, '2023-01-05');
+      expect(episode.durationSeconds, 1440);
+      expect(episode.watched, isTrue);
+      expect(episode.resumePositionSeconds, 300);
+    });
+
+    test('无 UserData → 未看、续播 0', () {
+      final episode = mapEmbyEpisode(
+        <String, Object?>{'Id': 'ep-2', 'Name': '第二集', 'IndexNumber': 2},
+        serverUrl: serverUrl,
+        token: token,
+      );
+      expect(episode.watched, isFalse);
+      expect(episode.resumePositionSeconds, 0);
+    });
+  });
 }

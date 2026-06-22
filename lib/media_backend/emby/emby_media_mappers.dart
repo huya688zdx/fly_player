@@ -1,4 +1,6 @@
 import '../detail/media_detail.dart';
+import '../detail/media_episode_summary.dart';
+import '../detail/media_season_summary.dart';
 import '../detail/media_source_info.dart';
 import '../media_catalog.dart';
 import '../media_image_ref.dart';
@@ -105,6 +107,63 @@ MediaDetail mapEmbyItemDetail(
         : 0,
     externalIds: _externalIds(item['ProviderIds']),
     people: _people(item['People'], serverUrl: serverUrl, token: token),
+  );
+}
+
+/// Emby 季 `BaseItemDto`（`/Shows/{id}/Seasons` 列表项）→ 公共 [MediaSeasonSummary]。
+///
+/// Emby 只入库已有内容，故 `ChildCount`（该季在库集数）同时充当总数与本地数。图源走
+/// `?api_key=` 自鉴权直链（与卡片同款）。
+MediaSeasonSummary mapEmbySeason(
+  Map<String, Object?> season, {
+  required String serverUrl,
+  required String token,
+}) {
+  final id = (season['Id'] ?? '').toString();
+  final childCount = _asInt(season['ChildCount']);
+  final recursiveCount = _asInt(season['RecursiveItemCount']);
+  final episodeCount = childCount > 0 ? childCount : recursiveCount;
+  return MediaSeasonSummary(
+    id: id,
+    title: (season['Name'] ?? '').toString(),
+    seasonNumber: _asInt(season['IndexNumber']),
+    numberOfEpisodes: episodeCount,
+    localNumberOfEpisodes: episodeCount,
+    primaryImage: _primaryImage(
+      season,
+      serverUrl: serverUrl,
+      token: token,
+      id: id,
+    ),
+  );
+}
+
+/// Emby 集 `BaseItemDto`（`/Shows/{id}/Episodes` 列表项）→ 公共 [MediaEpisodeSummary]。
+MediaEpisodeSummary mapEmbyEpisode(
+  Map<String, Object?> episode, {
+  required String serverUrl,
+  required String token,
+}) {
+  final id = (episode['Id'] ?? '').toString();
+  final userData = episode['UserData'];
+  return MediaEpisodeSummary(
+    id: id,
+    title: (episode['Name'] ?? '').toString(),
+    seasonNumber: _asInt(episode['ParentIndexNumber']),
+    episodeNumber: _asInt(episode['IndexNumber']),
+    overview: (episode['Overview'] ?? '').toString(),
+    airDate: (episode['PremiereDate'] ?? '').toString(),
+    durationSeconds: _ticksToSeconds(episode['RunTimeTicks']),
+    watched: _played(episode),
+    resumePositionSeconds: userData is Map
+        ? _ticksToSeconds(userData['PlaybackPositionTicks'])
+        : 0,
+    primaryImage: _primaryImage(
+      episode,
+      serverUrl: serverUrl,
+      token: token,
+      id: id,
+    ),
   );
 }
 
