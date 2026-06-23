@@ -223,6 +223,89 @@ class EmbyApi {
     );
   }
 
+  /// 分页条目查询——分类 / 媒体库列表页（[CategoryItemsScreen]）。
+  ///
+  /// `GET /Users/{userId}/Items`，`api_key` 自鉴权。与 [getItems] 的差别：支持 `StartIndex`
+  /// 偏移分页、`Genres` 题材筛选，并连同 `TotalRecordCount` 一起返回（列表页需要总数算
+  /// 「还有更多」）。[genres] 为题材显示名（Emby `Genres` 取名字，多个用 `|` 分隔）。
+  Future<EmbyItemPage> getItemPage({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    String parentId = '',
+    int startIndex = 0,
+    int? limit,
+    bool recursive = true,
+    String includeItemTypes = '',
+    String genres = '',
+    String fields = '',
+    String sortBy = '',
+    String sortOrder = '',
+  }) async {
+    final normalizedServerUrl = normalizeServerUrl(serverUrl);
+    final query = <String, Object?>{
+      'api_key': accessToken,
+      if (parentId.trim().isNotEmpty) 'ParentId': parentId.trim(),
+      if (startIndex > 0) 'StartIndex': startIndex,
+      if (limit != null) 'Limit': limit,
+      if (recursive) 'Recursive': true,
+      if (includeItemTypes.trim().isNotEmpty)
+        'IncludeItemTypes': includeItemTypes.trim(),
+      if (genres.trim().isNotEmpty) 'Genres': genres.trim(),
+      if (fields.trim().isNotEmpty) 'Fields': fields.trim(),
+      if (sortBy.trim().isNotEmpty) 'SortBy': sortBy.trim(),
+      if (sortOrder.trim().isNotEmpty) 'SortOrder': sortOrder.trim(),
+    };
+    final response = await _dio.get<Object?>(
+      '$normalizedServerUrl/Users/${userId.trim()}/Items',
+      queryParameters: query,
+      options: Options(headers: _jsonHeaders),
+    );
+    final data = _asMap(response.data);
+    final rawItems = data['Items'];
+    final items = rawItems is List
+        ? rawItems
+              .whereType<Map>()
+              .map((e) => Map<String, Object?>.from(e))
+              .toList(growable: false)
+        : const <Map<String, Object?>>[];
+    return EmbyItemPage(
+      items: items,
+      totalRecordCount: _asCount(data['TotalRecordCount'], items.length),
+    );
+  }
+
+  /// 题材列表——分类 / 媒体库列表页的题材筛选维度。`GET /Genres`，`api_key` 自鉴权。
+  ///
+  /// [parentId] 把题材限定在某库；[includeItemTypes] 限定统计的条目类型。返回 `Items`
+  /// 数组（题材 `BaseItemDto`，取 `Name`；Emby 的 `Genres` 查询参数按名字筛选）。
+  Future<List<Map<String, Object?>>> getGenres({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    String parentId = '',
+    String includeItemTypes = '',
+  }) async {
+    final normalizedServerUrl = normalizeServerUrl(serverUrl);
+    final query = <String, Object?>{
+      'api_key': accessToken,
+      'UserId': userId.trim(),
+      'Recursive': true,
+      'SortBy': 'SortName',
+      if (parentId.trim().isNotEmpty) 'ParentId': parentId.trim(),
+      if (includeItemTypes.trim().isNotEmpty)
+        'IncludeItemTypes': includeItemTypes.trim(),
+    };
+    return _getItemList('$normalizedServerUrl/Genres', query);
+  }
+
+  static int _asCount(Object? value, int fallback) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value) ?? fallback;
+    return fallback;
+  }
+
   Future<List<Map<String, Object?>>> _getItemList(
     String url,
     Map<String, Object?> query,
@@ -255,4 +338,12 @@ class EmbyApi {
     }
     return const <String, Object?>{};
   }
+}
+
+/// 分页条目查询结果（[EmbyApi.getItemPage]）：本页条目 + 库内匹配总数。
+class EmbyItemPage {
+  const EmbyItemPage({required this.items, required this.totalRecordCount});
+
+  final List<Map<String, Object?>> items;
+  final int totalRecordCount;
 }
