@@ -66,16 +66,40 @@ class _PlayDetailScreenState extends State<PlayDetailScreen> {
         _error = null;
       });
     }
-    // 非飞牛后端(Emby):不调飞牛 getItemDetail 判模式(会报权限错),直接走 movie 模式
-    // → PlayDetailPage,由其按 backend 读中立 MediaDetail 渲染。TV/合集模式属后续切片。
+    // 非飞牛后端(Emby):读中立 MediaDetail.type 判模式(剧集 → TvDetailPage 中立体,
+    // 其余 → PlayDetailPage 中立体)。带 seriesGuid 的条目(选集)恒 movie,与飞牛 _resolveMode
+    // 同口径。详情由目标页自行按 backend 重取,这里只判型(故 _itemDetail 留 null)。
     final backend = context.read<MediaBackendProvider>().backend;
     if (backend.capabilities.kind != MediaBackendKind.feiniu) {
-      if (!mounted) return;
-      setState(() {
-        _mode = DetailPageMode.movie;
-        _itemDetail = null;
-        _loading = false;
-      });
+      if (widget.seriesGuid.trim().isNotEmpty) {
+        if (!mounted) return;
+        setState(() {
+          _mode = DetailPageMode.movie;
+          _itemDetail = null;
+          _loading = false;
+        });
+        return;
+      }
+      try {
+        final detail = await backend.getItemDetail(widget.itemGuid);
+        if (!mounted) return;
+        final type = detail.type.trim().toLowerCase();
+        setState(() {
+          _mode = (type == 'series' || type == 'tv')
+              ? DetailPageMode.tv
+              : DetailPageMode.movie;
+          _itemDetail = null;
+          _loading = false;
+        });
+      } catch (_) {
+        // 判型失败不阻断:退 movie(PlayDetailPage 自行重取/报错)。
+        if (!mounted) return;
+        setState(() {
+          _mode = DetailPageMode.movie;
+          _itemDetail = null;
+          _loading = false;
+        });
+      }
       return;
     }
 
