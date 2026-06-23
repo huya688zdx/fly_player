@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/api/emby_api.dart';
 import 'package:fly_player/media_backend/emby/emby_media_backend.dart';
+import 'package:fly_player/media_backend/filter/media_catalog_filter.dart';
 import 'package:fly_player/media_backend/media_backend_kind.dart';
 import 'package:fly_player/media_backend/session/media_backend_connection.dart';
 
@@ -10,17 +11,24 @@ class _FakeEmbyApi extends EmbyApi {
     this.items = const [],
     this.item = const <String, Object?>{},
     this.seasons = const [],
+    this.genres = const [],
     this.countByIncludeItemTypes = const <String, int>{},
     this.favoriteCount = 0,
+    this.pageItems = const [],
+    this.pageTotal = 0,
   });
 
   final List<Map<String, Object?>> views;
   final List<Map<String, Object?>> items;
   final Map<String, Object?> item;
   final List<Map<String, Object?>> seasons;
+  final List<Map<String, Object?>> genres;
   // 计数桩：键=IncludeItemTypes（如 'Movie'/'Series'），值=TotalRecordCount。
   final Map<String, int> countByIncludeItemTypes;
   final int favoriteCount;
+  // 分页查询桩。
+  final List<Map<String, Object?>> pageItems;
+  final int pageTotal;
   String? lastParentId;
   String? lastItemId;
   String? lastSeasonsSeriesId;
@@ -29,6 +37,17 @@ class _FakeEmbyApi extends EmbyApi {
   String lastIncludeItemTypes = '';
   final List<String> countIncludeItemTypes = <String>[];
   bool lastCountFavoritesOnly = false;
+  // getItemPage 入参捕获。
+  String? lastPageParentId;
+  int lastPageStartIndex = 0;
+  int? lastPageLimit;
+  String lastPageIncludeItemTypes = '';
+  String lastPageGenres = '';
+  String lastPageSortBy = '';
+  String lastPageSortOrder = '';
+  // getGenres 入参捕获。
+  String? lastGenresParentId;
+  String lastGenresIncludeItemTypes = '';
 
   @override
   Future<int> getItemCount({
@@ -95,6 +114,44 @@ class _FakeEmbyApi extends EmbyApi {
   }) async {
     lastSeasonsSeriesId = seriesId;
     return seasons;
+  }
+
+  @override
+  Future<EmbyItemPage> getItemPage({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    String parentId = '',
+    int startIndex = 0,
+    int? limit,
+    bool recursive = true,
+    String includeItemTypes = '',
+    String genres = '',
+    String fields = '',
+    String sortBy = '',
+    String sortOrder = '',
+  }) async {
+    lastPageParentId = parentId;
+    lastPageStartIndex = startIndex;
+    lastPageLimit = limit;
+    lastPageIncludeItemTypes = includeItemTypes;
+    lastPageGenres = genres;
+    lastPageSortBy = sortBy;
+    lastPageSortOrder = sortOrder;
+    return EmbyItemPage(items: pageItems, totalRecordCount: pageTotal);
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> getGenres({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    String parentId = '',
+    String includeItemTypes = '',
+  }) async {
+    lastGenresParentId = parentId;
+    lastGenresIncludeItemTypes = includeItemTypes;
+    return genres;
   }
 }
 
@@ -241,15 +298,110 @@ void main() {
     expect(result.first.episodeNumber, 1);
   });
 
+  test('queryCatalogItems：StartIndex 分页 + 类型/排序映射 + 总数透传', () async {
+    final api = _FakeEmbyApi(
+      pageItems: <Map<String, Object?>>[
+        <String, Object?>{'Id': 'm-1', 'Name': '片甲', 'Type': 'Movie'},
+        <String, Object?>{'Id': 'm-2', 'Name': '片乙', 'Type': 'Movie'},
+      ],
+      pageTotal: 42,
+    );
+    final backend = EmbyMediaBackend(api: api, connection: connection);
+    final page = await backend.queryCatalogItems(
+      const MediaCatalogQuery(
+        catalogId: 'lib-1',
+        selection: <String, List<String>>{
+          'type': <String>['TV'],
+          'genres': <String>['科幻', '动作'],
+        },
+        sortField: 'vote_average',
+        sortType: 'ASC',
+        page: 3,
+        pageSize: 50,
+      ),
+    );
+    expect(api.lastPageParentId, 'lib-1');
+    // page=3, pageSize=50 → StartIndex=100。
+    expect(api.lastPageStartIndex, 100);
+    expect(api.lastPageLimit, 50);
+    // 'TV' → Series。
+    expect(api.lastPageIncludeItemTypes, 'Series');
+    // 题材名以 | 连接。
+    expect(api.lastPageGenres, '科幻|动作');
+    // vote_average → CommunityRating；ASC → Ascending。
+    expect(api.lastPageSortBy, 'CommunityRating');
+    expect(api.lastPageSortOrder, 'Ascending');
+    expect(page.items, hasLength(2));
+    expect(page.items[0].id, 'm-1');
+    expect(page.total, 42);
+  });
+
+  test('queryCatalogItems：空类型 → Movie,Series；create_time/DESC 默认映射', () async {
+    final api = _FakeEmbyApi(pageItems: const [], pageTotal: 0);
+    final backend = EmbyMediaBackend(api: api, connection: connection);
+    await backend.queryCatalogItems(
+      const MediaCatalogQuery(catalogId: '', page: 1, pageSize: 50),
+    );
+    expect(api.lastPageIncludeItemTypes, 'Movie,Series');
+    // page=1 → StartIndex=0。
+    expect(api.lastPageStartIndex, 0);
+    expect(api.lastPageSortBy, 'DateCreated');
+    expect(api.lastPageSortOrder, 'Descending');
+    expect(api.lastPageGenres, '');
+  });
+
+  test('getCatalogFilterSchema：题材维度 + 四列排序', () async {
+    final api = _FakeEmbyApi(
+      genres: <Map<String, Object?>>[
+        <String, Object?>{'Id': 'g-1', 'Name': '科幻'},
+        <String, Object?>{'Id': 'g-2', 'Name': '动作'},
+      ],
+    );
+    final backend = EmbyMediaBackend(api: api, connection: connection);
+    final schema = await backend.getCatalogFilterSchema('lib-1');
+    expect(api.lastGenresParentId, 'lib-1');
+    expect(schema.sortOptions.map((o) => o.field), <String>[
+      'create_time',
+      'release_date',
+      'title',
+      'vote_average',
+    ]);
+    expect(schema.dimensions, hasLength(1));
+    expect(schema.dimensions.first.key, 'genres');
+    expect(schema.dimensions.first.options.map((o) => o.value), <String>[
+      '科幻',
+      '动作',
+    ]);
+  });
+
+  test('getCatalogFilterSchema：题材取数失败时退化为仅排序、不抛错', () async {
+    final backend = EmbyMediaBackend(
+      api: _ThrowingGenresApi(),
+      connection: connection,
+    );
+    final schema = await backend.getCatalogFilterSchema('lib-1');
+    expect(schema.dimensions, isEmpty);
+    expect(schema.sortOptions, isNotEmpty);
+  });
+
   test('未实现方法一律 throw UnsupportedError', () async {
     final backend = EmbyMediaBackend(
       api: _FakeEmbyApi(),
       connection: connection,
     );
     await expectLater(backend.searchItems('x'), throwsUnsupportedError);
-    await expectLater(
-      backend.getCatalogFilterSchema('x'),
-      throwsUnsupportedError,
-    );
   });
+}
+
+class _ThrowingGenresApi extends _FakeEmbyApi {
+  @override
+  Future<List<Map<String, Object?>>> getGenres({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    String parentId = '',
+    String includeItemTypes = '',
+  }) async {
+    throw StateError('genres endpoint unavailable');
+  }
 }
