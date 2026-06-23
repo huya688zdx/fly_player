@@ -44,7 +44,10 @@ class _DetailHeroImageState extends State<DetailHeroImage> {
     }
     final url = widget.urls[_index];
     final isLocal = _isLocalImageSource(url);
-    if (!isLocal && widget.token.trim().isEmpty) {
+    // 空 token 默认回退占位(飞牛图需 NAS token);Emby 图走 `?api_key=` 自鉴权直链,
+    // 空 token 也照常加载(与 DetailHeroLogoTitle 同口径)。
+    final selfAuthenticated = url.contains('api_key=');
+    if (!isLocal && widget.token.trim().isEmpty && !selfAuthenticated) {
       return _buildPlaceholder();
     }
     return LayoutBuilder(

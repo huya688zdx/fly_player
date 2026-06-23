@@ -1151,13 +1151,15 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     });
     try {
       final backend = context.read<MediaBackendProvider>().backend;
-      final detail = await backend.getItemDetail(seasonGuid);
-      List<MediaEpisodeSummary> episodes;
-      try {
-        episodes = await backend.getSeasonEpisodes(seasonGuid);
-      } catch (_) {
-        episodes = const <MediaEpisodeSummary>[];
-      }
+      // 详情与选集并行取(切季只需这两项),减少串行等待。
+      final results = await Future.wait(<Future<Object?>>[
+        backend.getItemDetail(seasonGuid),
+        backend
+            .getSeasonEpisodes(seasonGuid)
+            .catchError((_) => const <MediaEpisodeSummary>[]),
+      ]);
+      final detail = results[0] as MediaDetail;
+      final episodes = results[1] as List<MediaEpisodeSummary>;
       if (!mounted) return;
       setState(() {
         _neutralDetail = detail;
@@ -1233,8 +1235,20 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
   List<TvEpisodeCardData> _neutralEpisodeCardEntries(
     DetailArtworkResolver resolver,
   ) {
-    return List<TvEpisodeCardData>.generate(_neutralEpisodes.length, (index) {
-      final ep = _neutralEpisodes[index];
+    return _neutralEpisodeCardEntriesFrom(
+      _neutralEpisodes,
+      resolver,
+      selectedGuid: _selectedEpisodeGuid,
+    );
+  }
+
+  List<TvEpisodeCardData> _neutralEpisodeCardEntriesFrom(
+    List<MediaEpisodeSummary> episodes,
+    DetailArtworkResolver resolver, {
+    required String selectedGuid,
+  }) {
+    return List<TvEpisodeCardData>.generate(episodes.length, (index) {
+      final ep = episodes[index];
       final number = ep.episodeNumber > 0 ? ep.episodeNumber : index + 1;
       final cleanTitle = ep.title.trim();
       final title = cleanTitle.isNotEmpty
@@ -1267,12 +1281,84 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         statusColor: statusColor,
         imageUrls: resolver.resolveRef(ep.primaryImage, width: 720).urls,
         resolutions: const <String>[],
-        selected: ep.id == _selectedEpisodeGuid,
+        selected: ep.id == selectedGuid,
         playing: false,
         completed: ep.watched,
         progress: progress,
       );
     }, growable: false);
+  }
+
+  /// 中立选集 picker 的按季加载器:当前季用已加载列表,其余季按需取。
+  Future<TvEpisodePickerPayload> _neutralEpisodePickerPayload(
+    String seasonGuid,
+  ) async {
+    final provider = context.read<NasProvider>();
+    final resolver = DetailArtworkResolver(
+      baseUrl: provider.baseUrl,
+      token: provider.token,
+    );
+    List<MediaEpisodeSummary> episodes;
+    if (seasonGuid == _selectedSeasonGuid) {
+      episodes = _neutralEpisodes;
+    } else {
+      try {
+        episodes = await context
+            .read<MediaBackendProvider>()
+            .backend
+            .getSeasonEpisodes(seasonGuid);
+      } catch (_) {
+        episodes = const <MediaEpisodeSummary>[];
+      }
+    }
+    final selectedGuid = seasonGuid == _selectedSeasonGuid
+        ? _selectedEpisodeGuid
+        : (episodes.isNotEmpty ? episodes.first.id : '');
+    return TvEpisodePickerPayload(
+      totalCount: episodes.length,
+      entries: _neutralEpisodeCardEntriesFrom(
+        episodes,
+        resolver,
+        selectedGuid: selectedGuid,
+      ),
+    );
+  }
+
+  Future<void> _openNeutralEpisodePicker(BuildContext sheetContext) async {
+    if (_neutralSeasons.isEmpty && _neutralEpisodes.isEmpty) return;
+    final result = await TvEpisodePickerSheet.show(
+      sheetContext,
+      title: _t('layout.details.episode.title', 'Episodes'),
+      seasons: _neutralSeasonOptionEntries(),
+      initialSeasonGuid: _selectedSeasonGuid,
+      initialEpisodeGuid: _selectedEpisodeGuid,
+      initialMode: _episodePickerMode,
+      rangeSize: _episodePageSize,
+      emptyText: _t('layout.details.episode.empty', 'No episode info'),
+      token: '',
+      loader: _neutralEpisodePickerPayload,
+      onModeChanged: (mode) async {
+        if (!mounted) return;
+        setState(() => _episodePickerMode = mode);
+      },
+    );
+    if (!mounted || result == null) return;
+    if (result.seasonGuid != _selectedSeasonGuid) {
+      await _switchSeasonNeutral(result.seasonGuid);
+    }
+    if (!mounted) return;
+    if (result.openDetail) {
+      _openNeutralEpisode(result.episodeGuid);
+      return;
+    }
+    setState(() {
+      _episodePickerMode = result.mode;
+      _selectedEpisodeGuid = result.episodeGuid;
+      _episodeRangeIndex = _neutralRangeIndexFor(
+        _neutralEpisodes,
+        result.episodeGuid,
+      );
+    });
   }
 
   void _openNeutralEpisode(String episodeGuid) {
@@ -1484,7 +1570,8 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                           onEpisodeSelected: _openNeutralEpisode,
                           onEpisodeLongPress: (_) {},
                           onEpisodeDetailTap: _openNeutralEpisodeSummary,
-                          onOpenPicker: () {},
+                          onOpenPicker: () =>
+                              unawaited(_openNeutralEpisodePicker(context)),
                         ),
                       if (creditItems.isNotEmpty) ...[
                         const SizedBox(height: 20),
