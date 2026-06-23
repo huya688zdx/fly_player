@@ -8,24 +8,28 @@ import '../controllers/media_item_action_sheet_controller.dart';
 import '../controllers/play_detail_item_actions.dart';
 import '../controllers/tv_season_playback_launcher.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../media_backend/detail/media_detail.dart';
+import '../media_backend/detail/media_season_summary.dart';
+import '../media_backend/media_backend_kind.dart';
+import '../media_backend/media_image_ref.dart';
 import '../models/media_library_item.dart';
 import '../models/play_info.dart';
 import '../providers/app_theme_provider.dart';
+import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
 import '../services/detail_runtime_cache.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../services/native_player_bridge.dart';
 import '../services/native_reentry_support.dart';
-import '../services/native_player_bridge.dart';
-import '../services/native_reentry_support.dart';
 import '../theme/app_theme.dart';
 import '../theme/detail_tokens.dart';
 import '../ui/adaptive_detail_navigator.dart';
+import '../ui/credit_person_presenter.dart';
+import '../ui/detail_artwork_resolver.dart';
 import '../ui/detail_presentation.dart';
 import '../ui/layout_adaptive.dart';
 import '../ui/player_pane_host_scope.dart';
 import '../ui/media_poster_card.dart';
-import '../ui/route_transition_gate.dart';
 import '../ui/route_transition_gate.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
@@ -34,10 +38,12 @@ import '../utils/imdb_launcher.dart';
 import '../utils/play_detail_formatters.dart';
 import '../utils/tv_hero_adaptive.dart';
 import '../widgets/common/app_error_state.dart';
+import '../widgets/detail/credits_section.dart';
 import '../widgets/detail/detail_description_section.dart';
 import '../widgets/detail/detail_header.dart';
 import '../widgets/detail/detail_hero_overlay.dart';
 import '../widgets/detail/detail_loading_skeleton.dart';
+import '../widgets/detail/detail_meta_lines.dart';
 import '../widgets/detail/detail_more_actions_sheet.dart';
 import '../widgets/detail/dynamic_page_theme_scope.dart';
 import '../widgets/detail/immersive_detail_background.dart';
@@ -80,6 +86,11 @@ class _TvDetailPageState extends State<TvDetailPage>
   AppException? _error;
   Map<String, dynamic> _detail = const {};
   bool _usedInitialDetail = false;
+  // 中立(Emby 等公共后端)展示态:`_neutralDisplayOnly` 时飞牛 build 路径整段不进,
+  // 走 `_buildNeutralBody`(读 `_neutralDetail`/`_neutralSeasons`,播放/收藏/已看占位禁用)。
+  bool _neutralDisplayOnly = false;
+  MediaDetail? _neutralDetail;
+  List<MediaSeasonSummary> _neutralSeasons = const [];
   List<MediaLibraryItem> _seasonItems = const [];
   Object? _reentryToken;
   Map<int, String> _genresMapZhCn = const {};
@@ -266,11 +277,20 @@ class _TvDetailPageState extends State<TvDetailPage>
       _seasonItemsResolved = false;
       _artworkReady = false;
       _suppressGlobalThemeSyncUntilFullDetail = false;
+      _neutralDisplayOnly = false;
+      _neutralDetail = null;
+      _neutralSeasons = const [];
       _seasonItems = const [];
       _genresMapZhCn = const {};
       _locateMapZhCn = const <String, String>{};
       _playInfo = null;
     });
+    // 非飞牛后端(Emby):走中立展示路,不调任何 FeiniuApi。飞牛分支整段保持原样。
+    final backend = context.read<MediaBackendProvider>().backend;
+    if (backend.capabilities.kind != MediaBackendKind.feiniu) {
+      await _loadNeutral();
+      return;
+    }
     try {
       final api = FeiniuApi(context.read<NasProvider>());
       final canUseInitial =
@@ -300,6 +320,53 @@ class _TvDetailPageState extends State<TvDetailPage>
         _loading = false;
       });
       _startDeferredLoad();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = AppException.from(
+          e,
+          action: 'tv detail',
+          fallbackKind: AppExceptionKind.transient,
+        );
+        _loading = false;
+      });
+    }
+  }
+
+  /// 中立(Emby)加载:取 `MediaDetail` + 季列表,设展示态。播放接线一律不取(占位)。
+  Future<void> _loadNeutral() async {
+    try {
+      final backend = context.read<MediaBackendProvider>().backend;
+      final detail = await backend.getItemDetail(widget.itemGuid);
+      // 季列表 best-effort:失败不阻断详情展示(空列表 → 空态)。
+      List<MediaSeasonSummary> seasons;
+      try {
+        seasons = await backend.getItemSeasons(widget.itemGuid);
+        seasons = List<MediaSeasonSummary>.of(seasons)
+          ..sort((a, b) => a.seasonNumber.compareTo(b.seasonNumber));
+      } catch (_) {
+        seasons = const <MediaSeasonSummary>[];
+      }
+      if (!mounted) return;
+      await RouteTransitionGate.of(context);
+      if (!mounted) return;
+      setState(() {
+        _neutralDisplayOnly = true;
+        _neutralDetail = detail;
+        _neutralSeasons = seasons;
+        _imdbId = detail.externalIds.imdbId;
+        _trimId = detail.externalIds.tmdbId;
+        _seasonItemsResolved = true;
+        _artworkReady = true;
+        _loading = false;
+      });
+      // 复用飞牛的入场动画(描述/季卡 pop)。
+      _descriptionVisible = true;
+      _descriptionPopController.forward(from: 0);
+      if (seasons.isNotEmpty) {
+        _seasonCardsVisible = true;
+        _seasonCardPopController.forward(from: 0);
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -857,6 +924,401 @@ class _TvDetailPageState extends State<TvDetailPage>
     }
   }
 
+  /// 中立(Emby)系列页:沉浸背景 + hero + meta + 播放占位 + 描述 + 季栅格 + 演职员 + 链接。
+  /// 飞牛专属(PlayControlRow/动态主题取色拼接/原生 reentry)不进;图源走 [DetailArtworkResolver]
+  /// (Emby 完整 api_key 直链直接透传)。播放/收藏/已看本阶段占位禁用。
+  Widget _buildNeutralBody(AppThemeColors colors, Color? ambientTint) {
+    final detail = _neutralDetail!;
+    final provider = context.read<NasProvider>();
+    final artworkResolver = DetailArtworkResolver(
+      baseUrl: provider.baseUrl,
+      token: provider.token,
+    );
+    final layout = MediaLayoutProfile.of(context);
+    final media = MediaQuery.of(context);
+    final screenSize = media.size;
+    final heroAdaptive = TvHeroAdaptive.resolve(
+      screenSize,
+      devicePixelRatio: media.devicePixelRatio,
+    );
+    final posterHeightMax = screenSize.height * 0.48;
+    final posterHeightMin = math.min(300.0, posterHeightMax);
+    final posterHeight = math
+        .min(
+          screenSize.height * heroAdaptive.posterHeightRatio,
+          screenSize.width / 1.55,
+        )
+        .clamp(posterHeightMin, posterHeightMax)
+        .toDouble();
+    final collapseRangeMax = math.max(1.0, posterHeight);
+    final collapseRange = (posterHeight - media.padding.top - kToolbarHeight)
+        .clamp(1.0, collapseRangeMax);
+
+    final title = detail.title.trim().isNotEmpty
+        ? detail.title.trim()
+        : detail.displayTitle;
+    final overview = detail.overview.trim();
+    final heroUrls = artworkResolver.resolveRef(detail.backdropImage).urls;
+    final logoUrls = artworkResolver.resolveRef(detail.logoImage).urls;
+    final heroTitleChild = logoUrls.isNotEmpty
+        ? DetailHeroLogoTitle(
+            urls: logoUrls,
+            token: '',
+            fallbackTitle: title,
+            maxHeight: 124,
+            maxWidth:
+                screenSize.width - (DetailTokens.screenHorizontalPadding * 2),
+          )
+        : null;
+
+    final metaLineA = <String>[
+      ...detail.genreLabels,
+      ...detail.regionLabels,
+    ].map((e) => e.trim()).where((e) => e.isNotEmpty).join(' / ');
+    final year = _year(detail.releaseDate);
+    final metaLineB = <String>[
+      if (year.isNotEmpty) year,
+      if (detail.durationSeconds > 0)
+        PlayDetailFormatters.formatDuration(detail.durationSeconds),
+      if (detail.rating.trim().isNotEmpty) '⭐ ${detail.rating.trim()}',
+    ].join(' / ');
+    final hasMetaLine = metaLineA.isNotEmpty || metaLineB.isNotEmpty;
+
+    final creditItems = detail.people
+        .map(
+          (p) => CreditPersonItem(
+            personGuid: p.id,
+            name: CreditPersonPresenter.displayName(p),
+            subtitle: CreditPersonPresenter.displaySubTitle(p),
+            imageUrls: artworkResolver.resolveRef(p.avatar, width: 180).urls,
+          ),
+        )
+        .toList();
+
+    final seasonCount = _neutralSeasons.length;
+
+    return Scaffold(
+      backgroundColor: colors.backgroundBase,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          ValueListenableBuilder<double>(
+            valueListenable: _scrollOffsetNotifier,
+            builder: (context, offset, _) {
+              return ImmersiveDetailBackground(
+                urls: heroUrls,
+                lowResUrls: const <String>[],
+                token: '',
+                scrollOffset: offset,
+                posterHeight: posterHeight,
+                imageScale: heroAdaptive.imageScale * 1.04,
+                imageFit: BoxFit.cover,
+                imageAlignment: Alignment(
+                  heroAdaptive.imageAlignX,
+                  heroAdaptive.imageAlignY,
+                ),
+                fillGapsWithImage: false,
+                enableBottomFade: false,
+                fadeStart: heroAdaptive.fadeStart,
+                fadeMid: heroAdaptive.fadeMid,
+                overlayOpacity: 0.74,
+                maxScrollZoom: 1.38,
+                ambientTintOverride: ambientTint,
+              );
+            },
+          ),
+          CustomScrollView(
+            controller: _scrollController,
+            physics: const BouncingScrollPhysics(
+              parent: AlwaysScrollableScrollPhysics(),
+            ),
+            slivers: [
+              SliverToBoxAdapter(
+                child: DetailHeroOverlay(
+                  height: posterHeight,
+                  title: title,
+                  useSoftGradient: true,
+                  titleChild: heroTitleChild,
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: Container(
+                  color: colors.backgroundBase,
+                  padding: const EdgeInsets.fromLTRB(
+                    DetailTokens.screenHorizontalPadding,
+                    8,
+                    DetailTokens.screenHorizontalPadding,
+                    18,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (hasMetaLine)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 2),
+                          child: DetailMetaLines(
+                            metaLineA: metaLineA,
+                            metaLineB: metaLineB,
+                          ),
+                        ),
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: null,
+                          icon: const Icon(Icons.play_arrow),
+                          label: const Text('播放功能即将到来'),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      if (overview.isNotEmpty) ...[
+                        AnimatedBuilder(
+                          animation: _descriptionPopController,
+                          builder: (context, child) {
+                            return Opacity(
+                              opacity: _descriptionVisible
+                                  ? _descriptionOpacity.value
+                                  : 0,
+                              child: Transform.translate(
+                                offset: Offset(
+                                  0,
+                                  _descriptionVisible
+                                      ? _descriptionTranslateY.value
+                                      : 10,
+                                ),
+                                child: Transform.scale(
+                                  scale: _descriptionVisible
+                                      ? _descriptionScale.value
+                                      : 0.97,
+                                  alignment: Alignment.topCenter,
+                                  child: child,
+                                ),
+                              ),
+                            );
+                          },
+                          child: DetailDescriptionSection(
+                            text: overview,
+                            onMoreTap: () {
+                              LongTextOverlayPage.show(
+                                context,
+                                title: title,
+                                sectionTitle: _t(
+                                  'layout.details.overview.overview',
+                                  'Overview',
+                                ),
+                                content: overview,
+                              );
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+                      Text(
+                        _t(
+                          'layout.subheading.tv.seasons',
+                          '{count} seasons',
+                          params: {'count': seasonCount},
+                        ),
+                        style: TextStyle(
+                          color: colors.textPrimary,
+                          fontSize: 30,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _buildNeutralSeasonGrid(
+                        colors: colors,
+                        layout: layout,
+                        artworkResolver: artworkResolver,
+                        title: title,
+                        backdropRef: detail.backdropImage,
+                      ),
+                      if (creditItems.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        CreditsSection(
+                          title: _t(
+                            'layout.details.castAndCrew.title',
+                            'Cast and crew',
+                          ),
+                          items: creditItems,
+                          token: '',
+                        ),
+                      ],
+                      const SizedBox(height: 16),
+                      LinkSection(
+                        imdbId: _imdbId,
+                        tmdbId: _trimId,
+                        onImdbTap: _openImdb,
+                        onTmdbTap: _openTmdb,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          ValueListenableBuilder<double>(
+            valueListenable: _scrollOffsetNotifier,
+            builder: (context, offset, _) {
+              final collapseT = (offset / collapseRange).clamp(0.0, 1.0);
+              final centerTitleOpacity = ((collapseT - 0.84) / 0.12).clamp(
+                0.0,
+                1.0,
+              );
+              return DetailFloatingTopBar(
+                onBack: () =>
+                    unawaited(EmbeddedDetailLauncher.closeHostOrPop(context)),
+                onMore: () => unawaited(
+                  showDetailMoreActionsSheet(
+                    context,
+                    pageKey: widget.itemGuid,
+                    pageTitle: title,
+                    suggestedThemeName: context
+                        .read<AppThemeProvider>()
+                        .nextSavedThemeNameFromBase(title),
+                    clearRuntimeBroadcastToMain:
+                        PlayerPaneHostScope.maybeOf(context) == null,
+                  ),
+                ),
+                title: title,
+                titleOpacity: centerTitleOpacity,
+                showBack: true,
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 中立季栅格:季卡用 [MediaSeasonSummary] + resolver 直链;点击转最小 [MediaLibraryItem]
+  /// 经 [AdaptiveDetailRequest.season] 导航(数据层适配,非 UID if(isEmby))。空态占位。
+  Widget _buildNeutralSeasonGrid({
+    required AppThemeColors colors,
+    required MediaLayoutProfile layout,
+    required DetailArtworkResolver artworkResolver,
+    required String title,
+    required MediaImageRef backdropRef,
+  }) {
+    if (_neutralSeasons.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: colors.surface,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Text(
+          _t('layout.details.season.empty', 'No seasons'),
+          style: TextStyle(
+            color: colors.textSecondary,
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      );
+    }
+    return AnimatedBuilder(
+      animation: _seasonCardPopController,
+      builder: (context, child) {
+        return Opacity(
+          opacity: _seasonCardsVisible ? _seasonCardOpacity.value : 0,
+          child: Transform.translate(
+            offset: Offset(
+              0,
+              _seasonCardsVisible ? _seasonCardTranslateY.value : 10,
+            ),
+            child: Transform.scale(
+              scale: _seasonCardsVisible ? _seasonCardScale.value : 0.97,
+              alignment: Alignment.topCenter,
+              child: child,
+            ),
+          ),
+        );
+      },
+      child: SizedBox(
+        height: layout.homePosterRowHeight,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: _neutralSeasons.length,
+          separatorBuilder: (_, __) => SizedBox(width: layout.itemGap),
+          itemBuilder: (context, index) {
+            final season = _neutralSeasons[index];
+            return SizedBox(
+              width: layout.homePosterCardWidth,
+              child: MediaPosterCard(
+                urls: artworkResolver
+                    .resolveRef(
+                      season.primaryImage,
+                      width: layout.homePosterRequestWidth,
+                    )
+                    .urls,
+                token: '',
+                title: _neutralSeasonTitle(season),
+                subtitle: _neutralSeasonSubtitle(season),
+                imageHeight: layout.homePosterImageHeight,
+                titleFontSize: layout.homePosterTitleFontSize,
+                subtitleFontSize: layout.homePosterSubtitleFontSize,
+                onTap: () {
+                  AdaptiveDetailNavigator.open<void>(
+                    context,
+                    AdaptiveDetailRequest.season(
+                      parentGuid: widget.itemGuid,
+                      seriesTitle: title,
+                      backdropPath: backdropRef.url,
+                      seasonItem: _seasonItemFromSummary(season),
+                    ),
+                    presentation: _isPane
+                        ? DetailPresentation.pane
+                        : DetailPresentation.page,
+                  );
+                },
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  String _neutralSeasonTitle(MediaSeasonSummary season) {
+    if (season.seasonNumber > 0) {
+      return _t(
+        'layout.subheading.season.number',
+        'Season {number}',
+        params: {'number': season.seasonNumber},
+      );
+    }
+    final t = season.title.trim();
+    return t.isNotEmpty ? t : _t('layout.subheading.season.default', 'Season');
+  }
+
+  String _neutralSeasonSubtitle(MediaSeasonSummary season) {
+    final episodes = season.localNumberOfEpisodes > 0
+        ? season.localNumberOfEpisodes
+        : season.numberOfEpisodes;
+    if (episodes <= 0) return '';
+    return _t(
+      'layout.subheading.tv.episodes',
+      '{count} episodes',
+      params: {'count': episodes},
+    );
+  }
+
+  /// 把中立季摘要转成季详情页所需的最小 [MediaLibraryItem](导航层数据适配)。
+  /// 海报存 Emby 完整直链,季详情页中立路按完整直链透传。
+  MediaLibraryItem _seasonItemFromSummary(MediaSeasonSummary season) {
+    return MediaLibraryItem.fromJson(<String, dynamic>{
+      'guid': season.id,
+      'title': season.title,
+      'type': 'tv',
+      'poster': season.primaryImage.url,
+      'season_number': season.seasonNumber,
+      'number_of_episodes': season.numberOfEpisodes,
+      'local_number_of_episodes': season.localNumberOfEpisodes,
+    });
+  }
+
   // ignore: unused_element
   Future<void> _onPrimaryPlayTap() async {
     if (_playPreparing) {
@@ -1151,7 +1613,14 @@ class _TvDetailPageState extends State<TvDetailPage>
     final inPlayerPaneHost = PlayerPaneHostScope.maybeOf(context) != null;
     final deferArtwork = _loading || !_artworkReady;
     var dynamicThemeImageUrl = '';
-    if (_detail.isNotEmpty) {
+    if (_neutralDisplayOnly && _neutralDetail != null) {
+      // 中立态:动态取色图源用 Emby 完整直链(backdrop 优先,回退海报),不走飞牛拼接。
+      final neutral = _neutralDetail!;
+      final ref = neutral.backdropImage.isNotEmpty
+          ? neutral.backdropImage
+          : neutral.primaryImage;
+      dynamicThemeImageUrl = ref.url;
+    } else if (_detail.isNotEmpty) {
       final item = _detail['item'] is Map<String, dynamic>
           ? _detail['item'] as Map<String, dynamic>
           : _detail;
@@ -1192,7 +1661,7 @@ class _TvDetailPageState extends State<TvDetailPage>
     return DynamicPageThemeScope(
       pageKey: dynamicThemeKey,
       imageUrl: dynamicThemeImageUrl,
-      token: nasProvider.token,
+      token: _neutralDisplayOnly ? '' : nasProvider.token,
       enabled: dynamicThemeScopeEnabled,
       allowLiveResolve: !deferArtwork,
       syncGlobalTheme: syncGlobalTheme,
@@ -1215,6 +1684,11 @@ class _TvDetailPageState extends State<TvDetailPage>
               onRetry: _load,
             ),
           );
+        }
+
+        // 中立(Emby)展示路:飞牛 build 整段不进。
+        if (_neutralDisplayOnly && _neutralDetail != null) {
+          return _buildNeutralBody(colors, ambientTint);
         }
 
         final provider = context.read<NasProvider>();
