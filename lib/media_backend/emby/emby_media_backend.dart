@@ -16,9 +16,10 @@ import 'emby_media_mappers.dart';
 
 /// Emby 媒体后端适配器——**首页 + 详情展示首光阶段**。
 ///
-/// 已实现首页读取（媒体库 / 预览 / 继续观看）与单条目详情展示（[getItemDetail]）；
-/// 季集 / 搜索 / 筛选 / 播放入口尚未实现，一律 throw [UnsupportedError]（由入口拦截，
-/// 本阶段不在 Emby 态点开它们）。详情只承载展示信息，不含播放接线。
+/// 已实现首页读取（媒体库 / 预览 / 继续观看）、单条目详情展示（[getItemDetail]）、
+/// 季集浏览与分类 / 媒体库列表（[queryCatalogItems] + [getCatalogFilterSchema]）；
+/// 搜索 / 播放入口尚未实现，一律 throw [UnsupportedError]（由入口拦截，本阶段不在
+/// Emby 态点开它们）。详情只承载展示信息，不含播放接线。
 /// 飞牛专属能力（下载 / FN Connect / 片头片尾）在 [capabilities] 中关闭。
 class EmbyMediaBackend implements MediaBackend {
   EmbyMediaBackend({required this.api, required this.connection});
@@ -138,12 +139,103 @@ class EmbyMediaBackend implements MediaBackend {
       _unsupported('searchItems');
 
   @override
-  Future<MediaCatalogFilterSchema> getCatalogFilterSchema(String catalogId) =>
-      _unsupported('getCatalogFilterSchema');
+  Future<MediaCatalogFilterSchema> getCatalogFilterSchema(
+    String catalogId,
+  ) async {
+    // Emby 列表页筛选维度：题材（库内真实题材，名字即显示名，用 plain）。排序字段沿用
+    // 中立四列（显示名由 UI l10n 给，不下发文案）。地区 / 年代 / 清晰度等飞牛维度 Emby
+    // 无简单查询口径，本阶段不开。题材取数失败（如旧服务器）时退化为仅排序、不报错。
+    var genreOptions = const <MediaFilterOption>[];
+    try {
+      final genres = await api.getGenres(
+        serverUrl: _serverUrl,
+        userId: _userId,
+        accessToken: _token,
+        parentId: catalogId,
+        includeItemTypes: 'Movie,Series',
+      );
+      genreOptions = genres
+          .map((g) => (g['Name'] ?? '').toString().trim())
+          .where((name) => name.isNotEmpty)
+          .map((name) => MediaFilterOption(value: name, label: name))
+          .toList(growable: false);
+    } catch (_) {}
+    return MediaCatalogFilterSchema(
+      dimensions: <MediaFilterDimension>[
+        if (genreOptions.isNotEmpty)
+          MediaFilterDimension(
+            key: 'genres',
+            kind: MediaFilterDimensionKind.plain,
+            options: genreOptions,
+          ),
+      ],
+      sortOptions: const <MediaSortOption>[
+        MediaSortOption(field: 'create_time'),
+        MediaSortOption(field: 'release_date'),
+        MediaSortOption(field: 'title'),
+        MediaSortOption(field: 'vote_average'),
+      ],
+    );
+  }
 
   @override
-  Future<MediaItemCardPage> queryCatalogItems(MediaCatalogQuery query) =>
-      _unsupported('queryCatalogItems');
+  Future<MediaItemCardPage> queryCatalogItems(MediaCatalogQuery query) async {
+    final page = await api.getItemPage(
+      serverUrl: _serverUrl,
+      userId: _userId,
+      accessToken: _token,
+      parentId: query.catalogId,
+      startIndex: (query.page - 1) * query.pageSize,
+      limit: query.pageSize,
+      recursive: true,
+      includeItemTypes: _includeItemTypesFor(query.selection['type']),
+      genres: (query.selection['genres'] ?? const <String>[]).join('|'),
+      sortBy: _sortFieldFor(query.sortField),
+      sortOrder: query.sortType.trim().toUpperCase() == 'ASC'
+          ? 'Ascending'
+          : 'Descending',
+      fields: _cardFields,
+    );
+    return MediaItemCardPage(
+      items: page.items
+          .map((e) => mapEmbyItemCard(e, serverUrl: _serverUrl, token: _token))
+          .toList(growable: false),
+      total: page.totalRecordCount,
+    );
+  }
+
+  /// 中立类型标签 → Emby `IncludeItemTypes`。空 / 全部影视 → `Movie,Series`；`TV` → `Series`；
+  /// 未知标签（飞牛「其他」的 `Directory`/`Video`）透传，Emby 无此类型故返回空（口径对齐计数 0）。
+  static String _includeItemTypesFor(List<String>? types) {
+    if (types == null || types.isEmpty) return 'Movie,Series';
+    final mapped = <String>{};
+    for (final raw in types) {
+      final key = raw.trim().toLowerCase();
+      if (key == 'movie') {
+        mapped.add('Movie');
+      } else if (key == 'tv' || key == 'series') {
+        mapped.add('Series');
+      } else if (raw.trim().isNotEmpty) {
+        mapped.add(raw.trim());
+      }
+    }
+    return mapped.isEmpty ? 'Movie,Series' : mapped.join(',');
+  }
+
+  /// 中立排序字段 → Emby `SortBy`。
+  static String _sortFieldFor(String field) {
+    switch (field.trim()) {
+      case 'release_date':
+        return 'PremiereDate';
+      case 'title':
+        return 'SortName';
+      case 'vote_average':
+        return 'CommunityRating';
+      case 'create_time':
+      default:
+        return 'DateCreated';
+    }
+  }
 
   @override
   Future<MediaDetail> getItemDetail(String itemId) async {
