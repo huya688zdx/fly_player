@@ -8,6 +8,7 @@ import '../api/feiniu_api.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/filter/media_catalog_filter.dart';
+import '../media_backend/media_backend_kind.dart';
 import '../media_backend/media_item_card.dart';
 import '../models/media_collection_view_type.dart';
 import '../models/media_item.dart';
@@ -79,6 +80,11 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   DetailPresentation get _detailPresentation =>
       widget.secondaryHost ? DetailPresentation.pane : DetailPresentation.page;
 
+  /// 列表偏好持久化是飞牛专属（mdb 用户设置端点）；其它后端跳过写入。
+  bool get _isFeiniuBackend =>
+      context.read<MediaBackendProvider>().backend.capabilities.kind ==
+      MediaBackendKind.feiniu;
+
   /// 按当前 l10n + schema 构造筛选文案本地化器（schema 变更后自动反映）。
   CatalogFilterLocalizer get _filterLocalizer => CatalogFilterLocalizer(
     l10n: AppLocalizations.of(context),
@@ -140,9 +146,12 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     final provider = context.read<NasProvider>();
     final api = FeiniuApi(provider);
     final backend = context.read<MediaBackendProvider>().backend;
+    final isFeiniu = backend.capabilities.kind == MediaBackendKind.feiniu;
     final hasAncestor = widget.category.id.trim().isNotEmpty;
     UserListSetting? setting;
-    if (hasAncestor) {
+    // 列表排序/视图偏好是飞牛专属持久化（mdb 用户设置端点）；其它后端（Emby）无此口径，
+    // 跳过读取，用页面默认值。
+    if (hasAncestor && isFeiniu) {
       try {
         setting = await api.getUserListSetting(widget.category.id);
       } catch (_) {}
@@ -497,7 +506,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
       return;
     }
     setState(() => _viewType = next);
-    if (widget.category.id.trim().isNotEmpty) {
+    if (widget.category.id.trim().isNotEmpty && _isFeiniuBackend) {
       await FeiniuApi(context.read<NasProvider>()).setUserListSetting(
         widget.category.id,
         sortField: _sortColumn,
@@ -578,7 +587,8 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                         _sortType = 'DESC';
                       }
                       Navigator.of(context).pop();
-                      if (widget.category.id.trim().isNotEmpty) {
+                      if (widget.category.id.trim().isNotEmpty &&
+                          _isFeiniuBackend) {
                         await FeiniuApi(
                           context.read<NasProvider>(),
                         ).setUserListSetting(
