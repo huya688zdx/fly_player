@@ -1079,9 +1079,16 @@ class _TvDetailPageState extends State<TvDetailPage>
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton.icon(
-                          onPressed: null,
+                          // 系列页主播放：Emby 解析续看/首集后进原生壳（与飞牛同入口）。
+                          onPressed: _playPreparing
+                              ? null
+                              : _launchPrimaryPlayback,
                           icon: const Icon(Icons.play_arrow),
-                          label: const Text('播放功能即将到来'),
+                          label: Text(
+                            _playPreparing
+                                ? _t('player.play.preparing', 'Preparing')
+                                : _t('player.play.start', 'Play'),
+                          ),
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -1374,12 +1381,29 @@ class _TvDetailPageState extends State<TvDetailPage>
     }
     setState(() => _playPreparing = true);
     try {
-      final item = _detail['item'] is Map<String, dynamic>
-          ? _detail['item'] as Map<String, dynamic>
-          : _detail;
-      final seriesTitle = _title(item);
       final nas = context.read<NasProvider>();
       final backend = context.read<MediaBackendProvider>().backend;
+      final isFeiniu = backend.capabilities.kind == MediaBackendKind.feiniu;
+      final seriesTitle = isFeiniu
+          ? _title(
+              _detail['item'] is Map<String, dynamic>
+                  ? _detail['item'] as Map<String, dynamic>
+                  : _detail,
+            )
+          : (_neutralDetail?.title ?? '');
+      // Emby 系列 guid 不可直接播（无 MediaSources），先解析续看/首集；飞牛由 launcher/NAS
+      // 自行解析，原样传系列 guid。
+      final playItemId = isFeiniu
+          ? widget.itemGuid
+          : await backend.resolveSeriesPlaybackTarget(widget.itemGuid);
+      if (!mounted) return;
+      if (playItemId.trim().isEmpty) {
+        _showTopTip(
+          _t('player.play.playInfoFailed', 'Failed to get playback info'),
+          context.appColors.danger,
+        );
+        return;
+      }
       // 反向通道：剧详情进原生壳，经统一 binder 按后端接线（剧详情只有季列表、无单集列表，
       // 故无选集静态兜底，选集数据由后端按 seriesGuid 派生）。画质切换回传当前集 guid →
       // resolveForNative 重解析（launcher 已后端中立）。
@@ -1417,16 +1441,19 @@ class _TvDetailPageState extends State<TvDetailPage>
       );
       final result = await const TvSeasonPlaybackLauncher().open(
         context,
-        itemGuid: widget.itemGuid,
+        itemGuid: playItemId,
         seriesTitle: seriesTitle,
         seriesGuid: widget.itemGuid,
       );
       if (!mounted) return;
-      final api = FeiniuApi(context.read<NasProvider>());
-      final info = await _loadPlayInfoOrNull(api, widget.itemGuid);
-      if (!mounted) return;
-      if (info != null) {
-        setState(() => _playInfo = info);
+      // 续播信息卡仅飞牛（Emby 无 PlayInfoData）。
+      if (isFeiniu) {
+        final api = FeiniuApi(context.read<NasProvider>());
+        final info = await _loadPlayInfoOrNull(api, widget.itemGuid);
+        if (!mounted) return;
+        if (info != null) {
+          setState(() => _playInfo = info);
+        }
       }
       if (result != null) {
         unawaited(_refreshDetailSilently());
