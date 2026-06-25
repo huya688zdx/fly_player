@@ -86,6 +86,37 @@ class _FakeEmbyApi extends EmbyApi {
     return subtitleText;
   }
 
+  // PlaybackStart/Stopped 入参捕获。
+  final List<String> playSessionCalls = <String>[];
+  int? lastStartPositionTicks;
+  int? lastStoppedPositionTicks;
+
+  @override
+  Future<void> reportPlaybackStart({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    required String itemId,
+    required String mediaSourceId,
+    int positionTicks = 0,
+  }) async {
+    playSessionCalls.add('start:$itemId');
+    lastStartPositionTicks = positionTicks;
+  }
+
+  @override
+  Future<void> reportPlaybackStopped({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    required String itemId,
+    required String mediaSourceId,
+    required int positionTicks,
+  }) async {
+    playSessionCalls.add('stopped:$itemId');
+    lastStoppedPositionTicks = positionTicks;
+  }
+
   @override
   Future<void> reportPlaybackProgress({
     required String serverUrl,
@@ -690,6 +721,24 @@ void main() {
       positionSeconds: -3,
     );
     expect(api.lastProgressPositionTicks, 0);
+  });
+
+  test('reportPlaybackStart/Stopped：秒 → ticks 透传', () async {
+    final api = _FakeEmbyApi();
+    final backend = EmbyMediaBackend(api: api, connection: connection);
+    await backend.reportPlaybackStart(
+      itemId: 'item-5',
+      mediaSourceId: 'src-1',
+      positionSeconds: 60,
+    );
+    await backend.reportPlaybackStopped(
+      itemId: 'item-5',
+      mediaSourceId: 'src-1',
+      positionSeconds: 120,
+    );
+    expect(api.playSessionCalls, <String>['start:item-5', 'stopped:item-5']);
+    expect(api.lastStartPositionTicks, 600000000);
+    expect(api.lastStoppedPositionTicks, 1200000000);
   });
 
   test('resolveExternalSubtitleFile：解码 guid → 下载落临时文件', () async {

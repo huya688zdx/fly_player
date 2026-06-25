@@ -497,6 +497,39 @@ class EmbyMediaBackend implements MediaBackend {
   }
 
   @override
+  Future<void> reportPlaybackStart({
+    required String itemId,
+    required String mediaSourceId,
+    int positionSeconds = 0,
+  }) async {
+    // 建立播放会话——之后的进度回写才会被 Emby 持久化。best-effort：调用方静默吞错。
+    await api.reportPlaybackStart(
+      serverUrl: _serverUrl,
+      userId: _userId,
+      accessToken: _token,
+      itemId: itemId,
+      mediaSourceId: mediaSourceId,
+      positionTicks: positionSeconds < 0 ? 0 : positionSeconds * 10000000,
+    );
+  }
+
+  @override
+  Future<void> reportPlaybackStopped({
+    required String itemId,
+    required String mediaSourceId,
+    required int positionSeconds,
+  }) async {
+    await api.reportPlaybackStopped(
+      serverUrl: _serverUrl,
+      userId: _userId,
+      accessToken: _token,
+      itemId: itemId,
+      mediaSourceId: mediaSourceId,
+      positionTicks: positionSeconds < 0 ? 0 : positionSeconds * 10000000,
+    );
+  }
+
+  @override
   Future<String?> resolveExternalSubtitleFile(
     String trackId, {
     String? format,

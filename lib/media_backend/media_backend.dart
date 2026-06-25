@@ -91,6 +91,24 @@ abstract class MediaBackend {
     bool isPaused = false,
   }) async {}
 
+  /// 通知后端某条目播放开始（建立播放会话）。默认空操作。
+  ///
+  /// 飞牛走自有进度通道，无需会话握手，故为空；Emby **必须先 `POST /Sessions/Playing`** 建会话，
+  /// 之后的 [reportPlaybackProgress] 才会被持久化（否则续播位不更新）。[positionSeconds] 为起播位。
+  Future<void> reportPlaybackStart({
+    required String itemId,
+    required String mediaSourceId,
+    int positionSeconds = 0,
+  }) async {}
+
+  /// 通知后端某条目播放停止（关闭播放会话、落定最终续播位）。默认空操作；Emby `POST
+  /// /Sessions/Playing/Stopped`。[positionSeconds] 为停止时的播放位。
+  Future<void> reportPlaybackStopped({
+    required String itemId,
+    required String mediaSourceId,
+    required int positionSeconds,
+  }) async {}
+
   /// 解析外挂字幕轨为本地可 `sub-add` 的文件路径（原生壳反向通道）。
   ///
   /// [trackId] 为播放桥接器为外挂字幕轨产出的、自包含的轨道标识（后端各自约定编码，外层
