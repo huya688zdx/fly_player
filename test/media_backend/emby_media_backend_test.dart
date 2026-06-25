@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/api/emby_api.dart';
 import 'package:fly_player/media_backend/emby/emby_media_backend.dart';
+import 'package:fly_player/media_backend/emby/emby_playback_context.dart';
 import 'package:fly_player/media_backend/filter/media_catalog_filter.dart';
 import 'package:fly_player/media_backend/media_backend_kind.dart';
 import 'package:fly_player/media_backend/playback/media_playback.dart';
@@ -499,14 +500,124 @@ void main() {
     expect(versions.first.info.path, '/movies/a.mkv');
   });
 
-  test('getPlayback 仍未实现：throw UnsupportedError', () async {
+  Map<String, Object?> playbackItem() => <String, Object?>{
+    'Id': 'item-5',
+    'Name': '测试电影',
+    'Type': 'Movie',
+    'RunTimeTicks': 72000000000, // 7200s
+    'ProviderIds': <String, Object?>{'Tmdb': '12345'},
+    'UserData': <String, Object?>{
+      'PlaybackPositionTicks': 6000000000, // 600s
+      'Played': false,
+    },
+    'MediaSources': <Object?>[
+      <String, Object?>{
+        'Id': 'src-1',
+        'Container': 'mkv',
+        'DefaultAudioStreamIndex': 1,
+        'DefaultSubtitleStreamIndex': 3,
+        'MediaStreams': <Object?>[
+          <String, Object?>{
+            'Type': 'Video',
+            'Index': 0,
+            'Codec': 'hevc',
+            'Width': 1920,
+            'Height': 1080,
+            'BitDepth': 10,
+          },
+          <String, Object?>{
+            'Type': 'Audio',
+            'Index': 1,
+            'Codec': 'eac3',
+            'Language': 'eng',
+            'DisplayTitle': 'English',
+          },
+          <String, Object?>{'Type': 'Audio', 'Index': 2, 'Codec': 'aac'},
+          <String, Object?>{
+            'Type': 'Subtitle',
+            'Index': 3,
+            'Codec': 'subrip',
+            'DisplayTitle': '简中',
+            'IsExternal': false,
+          },
+        ],
+      },
+    ],
+  };
+
+  test('getPlayback：直链直播 bundle + 默认轨 + 续播位 + Emby 上下文', () async {
     final backend = EmbyMediaBackend(
-      api: _FakeEmbyApi(),
+      api: _FakeEmbyApi(item: playbackItem()),
+      connection: connection,
+    );
+    final resolution = await backend.getPlayback(
+      const MediaPlaybackRequest(itemId: 'item-5'),
+    );
+    final bundle = resolution.bundle;
+    expect(bundle.itemId, 'item-5');
+    expect(bundle.title, '测试电影');
+    expect(bundle.tmdbId, '12345');
+    expect(bundle.durationSeconds, 7200);
+    // 续播位取 UserData.PlaybackPositionTicks（600s）。
+    expect(bundle.startPosition, const Duration(seconds: 600));
+
+    final source = bundle.selectedSource;
+    expect(source.delivery, MediaPlaybackDeliveryKind.directLink);
+    expect(source.id, 'src-1');
+    expect(source.width, 1920);
+    // 直链含 stream.mkv + MediaSourceId + api_key。
+    expect(source.url, contains('/Videos/item-5/stream.mkv'));
+    expect(source.url, contains('MediaSourceId=src-1'));
+    // 直连地址（非 fnos）不带 entry-token cookie。
+    expect(source.headers.containsKey('Cookie'), isFalse);
+
+    expect(bundle.selectedAudioTrack?.id, '1');
+    expect(bundle.selectedSubtitleTrack?.id, '3');
+    expect(bundle.audioTracks, hasLength(2));
+    expect(bundle.subtitleTracks, hasLength(1));
+    expect(resolution.backendContext, isA<EmbyPlaybackContext>());
+  });
+
+  test('getPlayback：fnos 中转域注入 entry-token cookie', () async {
+    const fnosConnection = MediaBackendConnection(
+      kind: MediaBackendKind.emby,
+      serverUrl: 'https://embyserver.geqian688.fnos.net',
+      userId: 'user-1',
+      accessToken: 'tok',
+      entryToken: 'ENTRY-123',
+    );
+    final backend = EmbyMediaBackend(
+      api: _FakeEmbyApi(item: playbackItem()),
+      connection: fnosConnection,
+    );
+    final resolution = await backend.getPlayback(
+      const MediaPlaybackRequest(itemId: 'item-5'),
+    );
+    expect(
+      resolution.bundle.selectedSource.headers['Cookie'],
+      contains('entry-token=ENTRY-123'),
+    );
+  });
+
+  test('getPlayback：startFromBeginning 归零续播位', () async {
+    final backend = EmbyMediaBackend(
+      api: _FakeEmbyApi(item: playbackItem()),
+      connection: connection,
+    );
+    final resolution = await backend.getPlayback(
+      const MediaPlaybackRequest(itemId: 'item-5', startFromBeginning: true),
+    );
+    expect(resolution.bundle.startPosition, Duration.zero);
+  });
+
+  test('getPlayback：无 MediaSources 抛错', () async {
+    final backend = EmbyMediaBackend(
+      api: _FakeEmbyApi(item: <String, Object?>{'Id': 'item-5', 'Name': '空源'}),
       connection: connection,
     );
     await expectLater(
-      backend.getPlayback(const MediaPlaybackRequest(itemId: 'x')),
-      throwsUnsupportedError,
+      backend.getPlayback(const MediaPlaybackRequest(itemId: 'item-5')),
+      throwsStateError,
     );
   });
 }
