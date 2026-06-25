@@ -356,9 +356,29 @@ class EmbyMediaBackend implements MediaBackend {
     String seriesId,
   ) async {
     // 系列页主播放键的「续看/首集」解析：系列 guid 不能直接 getPlayback（无 MediaSources），
-    // 须定到具体单集。按季号升序遍历各季选集——任一集有进度（resume>0）即续看该集；否则记下
-    // 最早的「首个未看」与「首集」，遍历完回退。仅用现有中立 getItemSeasons/getSeasonEpisodes。
-    final seasons = await getItemSeasons(seriesId);
+    // 须定到具体单集。
+    final target = seriesId.trim();
+    // 最准来源：「继续观看」(/Items/Resume) 已按**最近播放**排序，取本系列最近在看的那一集，
+    // 直接反映最新进度（按键文案随每次播放更新）。比按季顺序扫 resume>0 准——后者会卡在更早
+    // 那集（如 ep1 残留进度）而非最近的 ep2。
+    final resume = await getContinueWatching();
+    for (final card in resume) {
+      if (card.type.toLowerCase() == 'episode' &&
+          card.seriesId.trim() == target &&
+          card.episodeNumber > 0) {
+        return MediaEpisodeSummary(
+          id: card.id,
+          title: card.title,
+          seasonNumber: card.seasonNumber,
+          episodeNumber: card.episodeNumber,
+          primaryImage: card.primaryImage,
+          durationSeconds: card.durationSeconds,
+          watched: card.watched,
+        );
+      }
+    }
+    // 回退（本系列无续看记录＝没播过）：按季号升序扫各季，记下最早的「首个未看」与「首集」回退。
+    final seasons = await getItemSeasons(target);
     if (seasons.isEmpty) return null;
     final sorted = [...seasons]
       ..sort((a, b) => a.seasonNumber.compareTo(b.seasonNumber));
