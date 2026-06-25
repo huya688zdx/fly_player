@@ -17,10 +17,10 @@ import 'emby_media_mappers.dart';
 
 /// Emby 媒体后端适配器——**首页 + 详情展示首光阶段**。
 ///
-/// 已实现首页读取（媒体库 / 预览 / 继续观看）、单条目详情展示（[getItemDetail]）、
-/// 季集浏览与分类 / 媒体库列表（[queryCatalogItems] + [getCatalogFilterSchema]）；
-/// 搜索 / 播放入口尚未实现，一律 throw [UnsupportedError]（由入口拦截，本阶段不在
-/// Emby 态点开它们）。详情只承载展示信息，不含播放接线。
+/// 已实现首页读取（媒体库 / 预览 / 继续观看）、搜索（[searchItems]）、单条目详情展示
+/// （[getItemDetail]）、季集浏览与分类 / 媒体库列表（[queryCatalogItems] +
+/// [getCatalogFilterSchema]）；播放入口（[getPlayback]）尚未实现，throw [UnsupportedError]
+/// （由入口拦截）。详情只承载展示信息，不含播放接线。
 /// 飞牛专属能力（下载 / FN Connect / 片头片尾）在 [capabilities] 中关闭。
 class EmbyMediaBackend implements MediaBackend {
   EmbyMediaBackend({required this.api, required this.connection});
@@ -96,20 +96,29 @@ class EmbyMediaBackend implements MediaBackend {
   Future<List<MediaItemCard>> getContinueWatching({
     bool forceRefresh = false,
   }) async {
-    final items = await api.getItems(
+    // Emby 官方「继续观看」专用端点（/Items/Resume），比 Filters=IsResumable 可靠：返回
+    // 任意 Emby 客户端播放留下的续播进度，已按最近播放排序。
+    final items = await api.getResumeItems(
       serverUrl: _serverUrl,
       userId: _userId,
       accessToken: _token,
-      isResumable: true,
-      recursive: true,
       limit: 20,
-      sortBy: 'DatePlayed',
-      sortOrder: 'Descending',
       fields: _cardFields,
     );
     return items
         .map((e) => mapEmbyItemCard(e, serverUrl: _serverUrl, token: _token))
+        .map(_continueWatchingCard)
         .toList(growable: false);
+  }
+
+  /// 续播行是横版卡：电影用 backdrop（竖版海报塞横版会变形），剧集 Primary 本身是横版剧照
+  /// 保持不动。其余无 backdrop 的保持 Primary。
+  MediaItemCard _continueWatchingCard(MediaItemCard card) {
+    final isEpisode = card.type.trim().toLowerCase() == 'episode';
+    if (!isEpisode && card.backdropImage.isNotEmpty) {
+      return card.copyWith(primaryImage: card.backdropImage);
+    }
+    return card;
   }
 
   @override
@@ -136,8 +145,24 @@ class EmbyMediaBackend implements MediaBackend {
   }
 
   @override
-  Future<List<MediaItemCard>> searchItems(String query) =>
-      _unsupported('searchItems');
+  Future<List<MediaItemCard>> searchItems(String query) async {
+    final term = query.trim();
+    if (term.isEmpty) return const <MediaItemCard>[];
+    // 复用分页查询的 SearchTerm；Recursive 拍平库结构，限影片/剧集/单集（主内容）。
+    final page = await api.getItemPage(
+      serverUrl: _serverUrl,
+      userId: _userId,
+      accessToken: _token,
+      searchTerm: term,
+      recursive: true,
+      includeItemTypes: 'Movie,Series,Episode',
+      limit: 60,
+      fields: _cardFields,
+    );
+    return page.items
+        .map((e) => mapEmbyItemCard(e, serverUrl: _serverUrl, token: _token))
+        .toList(growable: false);
+  }
 
   @override
   Future<MediaCatalogFilterSchema> getCatalogFilterSchema(
