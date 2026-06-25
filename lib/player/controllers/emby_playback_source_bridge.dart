@@ -1,4 +1,5 @@
 import '../../media_backend/playback/media_playback.dart';
+import '../../models/stream_track_data.dart';
 import 'mpv_player_controller.dart';
 import 'player_source_controller.dart' show PlayerPlaybackMode;
 
@@ -94,9 +95,72 @@ class EmbyPlaybackSourceBridge {
       reliableSeek: source.reliableSeek,
       // 直链原文件 = 原画模式（mpv 整文件直播，无服务端转码/画质梯度）。
       playbackMode: PlayerPlaybackMode.originalQuality,
-      // audioTracks/subtitleTracks/qualities 首版置空（飞牛 DTO 类型，Emby 无；播放器内切轨
-      // UI 留反向通道分块再接，见设计 §3.4/§5）。
+      // 播放器内音轨/字幕选择器读 loadArgs 的 audioTracks/subtitleTracks（原生壳 showTrackPicker
+      // 用列表 1-based 位置当 mpv aid/sid）。用 bundle 中立轨道构造飞牛 DTO 点亮壳内切轨。
+      // qualities 仍空（Emby 直链无画质梯度；版本切换在详情页选）。
+      audioTracks: _audioTrackOptions(bundle),
+      subtitleTracks: _subtitleTrackOptions(bundle),
     );
+  }
+
+  /// bundle 音轨 → 飞牛 [AudioTrackOption]（喂原生壳 showTrackPicker）。列表顺序 = 容器顺序
+  /// = mpv aid 顺序，原生用 1-based 位置作 aid。Emby DisplayTitle（含语言/编码）放 title、
+  /// language 留空，避免 picker 标签重复。
+  List<AudioTrackOption> _audioTrackOptions(MediaPlaybackBundle bundle) {
+    final source = bundle.selectedSource;
+    return <AudioTrackOption>[
+      for (final track in bundle.audioTracks)
+        AudioTrackOption(
+          mediaGuid: source.id,
+          guid: track.id,
+          title: track.label,
+          codecName: track.codec,
+          profile: '',
+          language: '',
+          audioType: '',
+          channelLayout: '',
+          channels: 0,
+          sampleRate: 0,
+          bps: 0,
+          index: track.index ?? 0,
+          isDefault: track.isDefault ? 1 : 0,
+        ),
+    ];
+  }
+
+  /// bundle 字幕 → 飞牛 [SubtitleTrackOption]。**仅内嵌字幕**：原生 picker 用列表 1-based 位置
+  /// 当 mpv sid，初始 mpv 只有内嵌字幕（外挂未 sideload），故混入外挂会错位 sid；外挂字幕
+  /// sideload 留后续。位图字幕（pgs/dvd 等）标 isBitmap，保留在 mpv 内置轨。
+  List<SubtitleTrackOption> _subtitleTrackOptions(MediaPlaybackBundle bundle) {
+    final source = bundle.selectedSource;
+    return <SubtitleTrackOption>[
+      for (final track in bundle.subtitleTracks)
+        if (track.subtitleLocation == MediaSubtitleLocation.embedded)
+          SubtitleTrackOption(
+            mediaGuid: source.id,
+            guid: track.id,
+            title: track.label,
+            codecName: track.codec,
+            format: track.codec,
+            language: '',
+            index: track.index ?? 0,
+            isDefault: track.isDefault ? 1 : 0,
+            forced: 0,
+            isExternal: 0,
+            extraFile: 0,
+            isBitmap: _isBitmapSubtitle(track.codec) ? 1 : 0,
+          ),
+    ];
+  }
+
+  static bool _isBitmapSubtitle(String codec) {
+    final c = codec.trim().toLowerCase();
+    return c.contains('pgs') ||
+        c.contains('dvdsub') ||
+        c.contains('dvbsub') ||
+        c.contains('dvd_sub') ||
+        c == 'xsub' ||
+        c == 'sup';
   }
 
   /// 轨道在同类型列表中的 1-based 序号（按 id 匹配，对齐 mpv 轨道编号）；找不到回 null。
