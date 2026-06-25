@@ -761,6 +761,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private var lastRecordedTs = -1L
     private val progressReportRunnable = object : Runnable {
         override fun run() {
+            if (!isPeriodicReportRunning) return
             if (this@NativePlayerActivity::playerSurface.isInitialized &&
                 playerSurface.state.nativeLibLoaded
             ) {
@@ -2149,6 +2150,25 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         // 前台恢复（从设置页/Flutter 播放器等返回）时主动拉一次 Flutter 全局 MPV 设置，
         // 让「只在启动注入」之外的外部改动也即时生效。带 diff 守卫，无变化不重下发内核。
         pullGlobalMpvSettingsOnResume()
+        // 前台期间每 3s 周期回写一次播放进度（飞牛/Emby 共用），退出时再补一次。
+        startPeriodicReport()
+    }
+
+    /** 启动 3s 周期进度上报循环；幂等，重复调用不会叠加 runnable。 */
+    private fun startPeriodicReport() {
+        if (isPeriodicReportRunning) return
+        if (!this::bottomBar.isInitialized) return
+        isPeriodicReportRunning = true
+        bottomBar.postDelayed(progressReportRunnable, 3000L)
+    }
+
+    /** 停止周期进度上报循环（切后台/退出）。 */
+    private fun stopPeriodicReport() {
+        if (!isPeriodicReportRunning) return
+        isPeriodicReportRunning = false
+        if (this::bottomBar.isInitialized) {
+            bottomBar.removeCallbacks(progressReportRunnable)
+        }
     }
 
     private fun pullGlobalMpvSettingsOnResume() {
@@ -8755,6 +8775,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     override fun onStop() {
+        // 真正退到后台/不可见才停周期上报（PiP 仍可见，不在此停）；退出前补写一次进度。
+        stopPeriodicReport()
+        reportProgress()
         unregisterBatteryReceiver()
         super.onStop()
     }
@@ -8775,6 +8798,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     override fun onPause() {
         // back/finish/切后台都会经过 onPause，覆盖退出场景：把当前进度写回 NAS。
+        // 不在此停周期循环：PiP 下会走 onPause 但仍在播放，周期上报应继续；真正不可见
+        // （onStop）才停。
         reportProgress()
         super.onPause()
     }
