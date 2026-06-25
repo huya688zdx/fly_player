@@ -69,6 +69,13 @@ abstract class MediaBackend {
   /// 剧集的季列表。
   Future<List<MediaSeasonSummary>> getItemSeasons(String seriesId);
 
+  /// 解析「系列页主播放键」要起播的具体条目 id（系列本身不可直接播）。
+  ///
+  /// 默认返回 [seriesId]（飞牛：launcher/NAS 自行把系列解析成续看单集）。Emby 直链播放需先
+  /// 定到具体单集，故 override 为续看/首集解析（有进度的集优先，否则首个未看，再否则首集）。
+  /// 返回空串表示无可播单集。
+  Future<String> resolveSeriesPlaybackTarget(String seriesId) async => seriesId;
+
   /// 某一季的选集列表。
   Future<List<MediaEpisodeSummary>> getSeasonEpisodes(String seasonId);
 

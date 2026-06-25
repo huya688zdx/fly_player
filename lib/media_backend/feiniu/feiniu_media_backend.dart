@@ -194,6 +194,12 @@ class FeiniuMediaBackend implements MediaBackend {
   }
 
   @override
+  Future<String> resolveSeriesPlaybackTarget(String seriesId) async {
+    // 飞牛 launcher/NAS 自行把系列 guid 解析成续看单集，故原样返回。
+    return seriesId;
+  }
+
+  @override
   Future<List<MediaSeasonSummary>> getItemSeasons(String seriesId) async {
     final seasons = await api.getSeasonList(seriesId);
     return seasons.map(mapFeiniuSeason).toList(growable: false);

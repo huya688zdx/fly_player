@@ -2,9 +2,12 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/api/emby_api.dart';
+import 'package:fly_player/media_backend/detail/media_episode_summary.dart';
+import 'package:fly_player/media_backend/detail/media_season_summary.dart';
 import 'package:fly_player/media_backend/emby/emby_media_backend.dart';
 import 'package:fly_player/media_backend/emby/emby_playback_context.dart';
 import 'package:fly_player/media_backend/filter/media_catalog_filter.dart';
+import 'package:fly_player/media_backend/media_image_ref.dart';
 import 'package:fly_player/media_backend/media_backend_kind.dart';
 import 'package:fly_player/media_backend/playback/media_playback.dart';
 import 'package:fly_player/media_backend/session/media_backend_connection.dart';
@@ -777,6 +780,97 @@ void main() {
       isNull,
     );
   });
+
+  test('resolveSeriesPlaybackTarget：有进度的集优先续看', () async {
+    final backend = _SeriesTargetBackend(
+      <MediaSeasonSummary>[_season('s1', 1), _season('s2', 2)],
+      <String, List<MediaEpisodeSummary>>{
+        's1': <MediaEpisodeSummary>[
+          _ep('s1e1', watched: true),
+          _ep('s1e2', resume: 300),
+          _ep('s1e3'),
+        ],
+        's2': <MediaEpisodeSummary>[_ep('s2e1')],
+      },
+    );
+    expect(await backend.resolveSeriesPlaybackTarget('series-1'), 's1e2');
+  });
+
+  test('resolveSeriesPlaybackTarget：无进度 → 首个未看', () async {
+    final backend = _SeriesTargetBackend(
+      <MediaSeasonSummary>[_season('s1', 1)],
+      <String, List<MediaEpisodeSummary>>{
+        's1': <MediaEpisodeSummary>[
+          _ep('s1e1', watched: true),
+          _ep('s1e2', watched: true),
+          _ep('s1e3'),
+        ],
+      },
+    );
+    expect(await backend.resolveSeriesPlaybackTarget('series-1'), 's1e3');
+  });
+
+  test('resolveSeriesPlaybackTarget：全看完 → 首集；无季 → 空', () async {
+    final allWatched = _SeriesTargetBackend(
+      <MediaSeasonSummary>[_season('s1', 1)],
+      <String, List<MediaEpisodeSummary>>{
+        's1': <MediaEpisodeSummary>[
+          _ep('s1e1', watched: true),
+          _ep('s1e2', watched: true),
+        ],
+      },
+    );
+    expect(await allWatched.resolveSeriesPlaybackTarget('series-1'), 's1e1');
+    final noSeasons = _SeriesTargetBackend(
+      const <MediaSeasonSummary>[],
+      const <String, List<MediaEpisodeSummary>>{},
+    );
+    expect(await noSeasons.resolveSeriesPlaybackTarget('series-1'), '');
+  });
+}
+
+MediaSeasonSummary _season(String id, int number) => MediaSeasonSummary(
+  id: id,
+  title: '',
+  seasonNumber: number,
+  primaryImage: MediaImageRef.empty,
+);
+
+MediaEpisodeSummary _ep(String id, {bool watched = false, int resume = 0}) =>
+    MediaEpisodeSummary(
+      id: id,
+      title: id,
+      seasonNumber: 1,
+      episodeNumber: 1,
+      primaryImage: MediaImageRef.empty,
+      watched: watched,
+      resumePositionSeconds: resume,
+    );
+
+/// 覆写中立季/集查询返回 fixture，钉住 resolveSeriesPlaybackTarget 的续看/首集选取逻辑
+/// （不触 api/mapper）。
+class _SeriesTargetBackend extends EmbyMediaBackend {
+  _SeriesTargetBackend(this.seasonsFixture, this.episodesBySeason)
+    : super(
+        api: _FakeEmbyApi(),
+        connection: const MediaBackendConnection(
+          kind: MediaBackendKind.emby,
+          serverUrl: 'https://emby.example.test',
+          userId: 'user-1',
+          accessToken: 'tok',
+        ),
+      );
+
+  final List<MediaSeasonSummary> seasonsFixture;
+  final Map<String, List<MediaEpisodeSummary>> episodesBySeason;
+
+  @override
+  Future<List<MediaSeasonSummary>> getItemSeasons(String seriesId) async =>
+      seasonsFixture;
+
+  @override
+  Future<List<MediaEpisodeSummary>> getSeasonEpisodes(String seasonId) async =>
+      episodesBySeason[seasonId] ?? const <MediaEpisodeSummary>[];
 }
 
 class _ThrowingGenresApi extends _FakeEmbyApi {
