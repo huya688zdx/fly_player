@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import '../../api/emby_api.dart';
 import '../../utils/nas_image_headers.dart';
 import '../../utils/playback_resume_position_resolver.dart';
@@ -492,6 +494,62 @@ class EmbyMediaBackend implements MediaBackend {
       positionTicks: positionSeconds < 0 ? 0 : positionSeconds * 10000000,
       isPaused: isPaused,
     );
+  }
+
+  @override
+  Future<String?> resolveExternalSubtitleFile(
+    String trackId, {
+    String? format,
+  }) async {
+    // 桥接器把外挂字幕轨编码成自包含 guid（itemId/mediaSourceId/streamIndex），这里无状态
+    // 解码 → 直链下载字幕全文 → 落临时文件供原生壳 sub-add。下载经 EmbyApi 的 dio（entry-token
+    // cookie 由拦截器注入），故无需手动塞 header。失败返回 null（旁路能力，壳侧回退无外挂字幕）。
+    final ref = parseEmbyExternalSubtitleGuid(trackId);
+    if (ref == null) return null;
+    final ext = _subtitleExtension(format);
+    try {
+      final text = await api.downloadSubtitleText(
+        serverUrl: _serverUrl,
+        itemId: ref.itemId,
+        mediaSourceId: ref.mediaSourceId,
+        streamIndex: ref.streamIndex,
+        accessToken: _token,
+        format: ext,
+      );
+      if (text.trim().isEmpty) return null;
+      final safeName = '${ref.itemId}_${ref.mediaSourceId}_${ref.streamIndex}'
+          .replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+      final filePath =
+          '${Directory.systemTemp.path}${Platform.pathSeparator}'
+          'fly_player_emby_sub_$safeName.$ext';
+      final file = File(filePath);
+      await file.writeAsString(text, flush: true);
+      return file.path;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 字幕格式 → URL 扩展名 / 落盘扩展名。Emby `Stream.{ext}` 端点认 srt / ass / ssa / vtt /
+  /// sub；codec `subrip` 映射成 srt，未知回退 srt。
+  static String _subtitleExtension(String? format) {
+    final normalized = (format ?? '').trim().toLowerCase();
+    switch (normalized) {
+      case 'subrip':
+      case 'srt':
+        return 'srt';
+      case 'ass':
+        return 'ass';
+      case 'ssa':
+        return 'ssa';
+      case 'webvtt':
+      case 'vtt':
+        return 'vtt';
+      case 'sub':
+        return 'sub';
+      default:
+        return 'srt';
+    }
   }
 
   /// 过 fnos 边缘闸的播放 headers：`*.fnos.net` 中转域名加 `Cookie: entry-token=<值>`
