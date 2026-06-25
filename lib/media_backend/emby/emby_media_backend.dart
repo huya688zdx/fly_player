@@ -1,4 +1,6 @@
 import '../../api/emby_api.dart';
+import '../../utils/nas_image_headers.dart';
+import '../../utils/playback_resume_position_resolver.dart';
 import '../detail/media_detail.dart';
 import '../detail/media_episode_summary.dart';
 import '../detail/media_season_summary.dart';
@@ -12,8 +14,11 @@ import '../media_catalog.dart';
 import '../media_item_card.dart';
 import '../playback/media_playback.dart';
 import '../playback/media_playback_resolution.dart';
+import '../playback/media_playback_selectors.dart';
 import '../session/media_backend_connection.dart';
 import 'emby_media_mappers.dart';
+import 'emby_playback_context.dart';
+import 'emby_playback_mappers.dart';
 
 /// Emby 媒体后端适配器——**首页 + 详情展示首光阶段**。
 ///
@@ -357,10 +362,160 @@ class EmbyMediaBackend implements MediaBackend {
   }
 
   @override
-  Future<MediaPlaybackResolution> getPlayback(MediaPlaybackRequest request) =>
-      _unsupported('getPlayback');
+  Future<MediaPlaybackResolution> getPlayback(
+    MediaPlaybackRequest request,
+  ) async {
+    // 直链直播（static direct-stream）：一次取数（条目 + MediaSources）即得全部播放事实，
+    // 中立 bundle 自足、桥接器纯本地装配 MpvMediaSource（见
+    // docs/superpowers/specs/2026-06-25-emby-playback-design.md）。
+    final item = await api.getItem(
+      serverUrl: _serverUrl,
+      userId: _userId,
+      accessToken: _token,
+      itemId: request.itemId,
+      // MediaSources 含每源 MediaStreams + Default*StreamIndex；ProviderIds 取 tmdb；
+      // UserData（续播位 PlaybackPositionTicks）在用户域端点默认返回，无需显式 Fields。
+      fields: 'MediaSources,ProviderIds,DateCreated',
+    );
 
-  Future<Never> _unsupported(String method) async {
-    throw UnsupportedError('EmbyMediaBackend.$method 未实现（Emby 首页首光阶段）');
+    final sources = _mediaSources(item);
+    if (sources.isEmpty) {
+      throw StateError('Emby 条目 ${request.itemId} 无 MediaSources，无法播放');
+    }
+    // 多版本：qualityId（= MediaSourceId）命中则取该版本，否则首源。
+    final qualityId = request.qualityId?.trim() ?? '';
+    final source = qualityId.isNotEmpty
+        ? sources.firstWhere(
+            (s) => (s['Id'] ?? '').toString() == qualityId,
+            orElse: () => sources.first,
+          )
+        : sources.first;
+    final mediaSourceId = (source['Id'] ?? '').toString();
+    final container = (source['Container'] ?? '').toString().trim();
+
+    final tracks = mapEmbyPlaybackTracks(source);
+    final selectedAudio = selectPlaybackTrack(
+      tracks: tracks.audio,
+      preferredTrackId: request.audioTrackId,
+      preferredTrackIndex: request.preferredAudioTrackIndex,
+      fallbackTrackId: embyDefaultAudioId(source),
+    );
+    final selectedSubtitle = selectPlaybackTrack(
+      tracks: tracks.subtitle,
+      preferredTrackId: request.subtitleTrackId,
+      preferredTrackIndex: request.preferredSubtitleTrackIndex,
+      fallbackTrackId: embyDefaultSubtitleId(source),
+      explicitlyDisabled: request.subtitleTrackExplicitlyDisabled,
+    );
+
+    final streamUrl = api.buildStreamUrl(
+      serverUrl: _serverUrl,
+      itemId: request.itemId,
+      mediaSourceId: mediaSourceId,
+      accessToken: _token,
+      container: container,
+    );
+    final playbackSource = mapEmbyPlaybackSource(
+      source,
+      url: streamUrl,
+      headers: _entryTokenHeaders(),
+    );
+
+    // 续播位：网络优先（UserData.PlaybackPositionTicks），与飞牛同走对账器（本地 play stats
+    // 兜底）。startFromBeginning 归零；restartWhenCompleted 时已看完的条目回到开头。
+    final durationSeconds = _ticksToSeconds(item['RunTimeTicks']);
+    final userData = item['UserData'];
+    final networkPositionSeconds = request.startFromBeginning
+        ? 0
+        : (request.resumePosition?.inSeconds ??
+              (userData is Map
+                  ? _ticksToSeconds(userData['PlaybackPositionTicks'])
+                  : 0));
+    final networkCompleted =
+        request.restartWhenCompleted &&
+        durationSeconds > 0 &&
+        ((durationSeconds - networkPositionSeconds) <= 0 ||
+            (userData is Map && userData['Played'] == true));
+    final resume = await PlaybackResumePositionResolver.resolve(
+      videoIds: <String>[request.itemId],
+      durationSeconds: durationSeconds,
+      networkPositionSeconds: networkPositionSeconds,
+      networkPositionAvailable: true,
+      networkCompleted: networkCompleted,
+      resetCompletedToBeginning: request.restartWhenCompleted,
+    );
+
+    final title = (item['Name'] ?? '').toString().trim();
+    final bundle = MediaPlaybackBundle(
+      itemId: request.itemId,
+      title: title.isNotEmpty ? title : request.fallbackTitle,
+      itemType: (item['Type'] ?? '').toString(),
+      seriesId: (item['SeriesId'] ?? '').toString(),
+      seasonId: (item['SeasonId'] ?? '').toString(),
+      seriesTitle: (item['SeriesName'] ?? '').toString(),
+      seasonNumber: _asInt(item['ParentIndexNumber']),
+      episodeNumber: _asInt(item['IndexNumber']),
+      posterUrl: _primaryImageUrl(request.itemId),
+      tmdbId: _tmdbId(item['ProviderIds']),
+      durationSeconds: durationSeconds,
+      startPosition: resume.position,
+      selectedSource: playbackSource,
+      selectedAudioTrack: selectedAudio,
+      selectedSubtitleTrack: selectedSubtitle,
+      qualities: const <MediaPlaybackQuality>[],
+      audioTracks: tracks.audio,
+      subtitleTracks: tracks.subtitle,
+      session: const MediaPlaybackSession(),
+    );
+
+    return MediaPlaybackResolution(
+      bundle: bundle,
+      backendContext: const EmbyPlaybackContext(),
+    );
+  }
+
+  /// 过 fnos 边缘闸的播放 headers：`*.fnos.net` 中转域名加 `Cookie: entry-token=<值>`
+  /// （播放直链由 mpv 取流，不经 EmbyApi 拦截器，故在此显式注入）；直连地址不加。
+  Map<String, String> _entryTokenHeaders() {
+    final token = connection.entryToken.trim();
+    if (token.isEmpty || !usesFnConnectRelayCookie(_serverUrl)) {
+      return const <String, String>{};
+    }
+    return <String, String>{'Cookie': mergeEntryTokenCookie('', token)};
+  }
+
+  String _primaryImageUrl(String itemId) =>
+      '$_serverUrl/Items/${itemId.trim()}/Images/Primary?api_key=$_token';
+
+  static List<Map<String, Object?>> _mediaSources(Map<String, Object?> item) {
+    final raw = item['MediaSources'];
+    if (raw is! List) return const <Map<String, Object?>>[];
+    return raw
+        .whereType<Map>()
+        .map((e) => Map<String, Object?>.from(e))
+        .toList(growable: false);
+  }
+
+  static String _tmdbId(Object? providerIds) {
+    if (providerIds is! Map) return '';
+    for (final entry in providerIds.entries) {
+      if ((entry.key?.toString().toLowerCase() ?? '') == 'tmdb') {
+        return (entry.value ?? '').toString().trim();
+      }
+    }
+    return '';
+  }
+
+  /// Emby `RunTimeTicks` / `PlaybackPositionTicks`（100ns 单位）→ 秒。
+  static int _ticksToSeconds(Object? ticks) {
+    final value = ticks is num ? ticks : num.tryParse('${ticks ?? ''}');
+    if (value == null || value <= 0) return 0;
+    return (value ~/ 10000000).toInt();
+  }
+
+  static int _asInt(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse('${value ?? ''}') ?? 0;
   }
 }
