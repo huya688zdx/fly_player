@@ -331,6 +331,38 @@ class EmbyApi {
     );
   }
 
+  /// 直链直播 URL——Emby 原文件 static 直链，供播放层装配 `MpvMediaSource.url`。
+  ///
+  /// `GET /Videos/{itemId}/stream`，`Static=true` 表示不转码、原样投递整文件（mpv 直接吃
+  /// 原始容器，所有内嵌音轨/字幕在 mpv 侧按轨道号切换，无服务端转码会话/PlaySessionId
+  /// 生命周期）。[mediaSourceId] 指定多版本中的某一版（多 `MediaSources` 时必带）；
+  /// [container] 非空时拼进路径（如 `stream.mkv`），帮 mpv 识别容器。`api_key` 自鉴权；
+  /// `*.fnos.net` 中转域名的 entry-token cookie 由播放 headers 携带（不进 URL）。
+  ///
+  /// 纯字符串构造，不发请求（故无 entry-token 拦截器介入；过闸靠 headers）。
+  String buildStreamUrl({
+    required String serverUrl,
+    required String itemId,
+    required String mediaSourceId,
+    required String accessToken,
+    String container = '',
+  }) {
+    final normalizedServerUrl = normalizeServerUrl(serverUrl);
+    final path = container.trim().isNotEmpty
+        ? 'stream.${container.trim()}'
+        : 'stream';
+    final query = <String, String>{
+      'Static': 'true',
+      if (mediaSourceId.trim().isNotEmpty)
+        'MediaSourceId': mediaSourceId.trim(),
+      'api_key': accessToken,
+    };
+    final qs = query.entries
+        .map((e) => '${e.key}=${Uri.encodeQueryComponent(e.value)}')
+        .join('&');
+    return '$normalizedServerUrl/Videos/${itemId.trim()}/$path?$qs';
+  }
+
   static int _asCount(Object? value, int fallback) {
     if (value is int) return value;
     if (value is num) return value.toInt();
