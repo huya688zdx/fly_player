@@ -146,4 +146,31 @@ void main() {
     );
     expect(source.seriesGuid, 'explicit-series');
   });
+
+  test('audioTracks 全量映射飞牛 DTO（喂壳内 picker），顺序=容器顺序', () async {
+    final source = await const EmbyPlaybackSourceBridge().assemble(
+      request: const MediaPlaybackRequest(itemId: 'item-5'),
+      bundle: bundle(
+        selectedAudio: const MediaPlaybackTrack(
+          id: '2',
+          kind: MediaPlaybackTrackKind.audio,
+          index: 2,
+        ),
+      ),
+    );
+    expect(source.audioTracks.map((t) => t.guid).toList(), <String>['1', '2']);
+    expect(source.audioTracks.first.mediaGuid, 'src-1');
+    // 选择器用列表 1-based 位置当 mpv aid，故顺序必须 = 容器顺序。
+    expect(source.audioTracks[1].guid, '2');
+  });
+
+  test('subtitleTracks 仅保留内嵌（外挂被过滤，避免 sid 错位）', () async {
+    final source = await const EmbyPlaybackSourceBridge().assemble(
+      request: const MediaPlaybackRequest(itemId: 'item-5'),
+      bundle: bundle(),
+    );
+    // bundle 含内嵌(id=3) + 外挂(id=4)，只剩内嵌。
+    expect(source.subtitleTracks.map((t) => t.guid).toList(), <String>['3']);
+    expect(source.subtitleTracks.single.isExternal, 0);
+  });
 }
