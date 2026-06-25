@@ -9,6 +9,7 @@ void main() {
     MediaPlaybackTrack? selectedSubtitle,
     Duration startPosition = const Duration(seconds: 600),
     Map<String, String> headers = const <String, String>{},
+    String seriesTitle = '',
   }) {
     const audioTracks = <MediaPlaybackTrack>[
       MediaPlaybackTrack(id: '1', kind: MediaPlaybackTrackKind.audio, index: 1),
@@ -33,6 +34,7 @@ void main() {
       title: '测试电影',
       itemType: 'Movie',
       seriesId: 'series-9',
+      seriesTitle: seriesTitle,
       seasonId: 'season-3',
       seasonNumber: 2,
       episodeNumber: 7,
@@ -172,5 +174,21 @@ void main() {
     // bundle 含内嵌(id=3) + 外挂(id=4)，只剩内嵌。
     expect(source.subtitleTracks.map((t) => t.guid).toList(), <String>['3']);
     expect(source.subtitleTracks.single.isExternal, 0);
+  });
+
+  test('电影（系列名空）seriesTitle 回退标题，供弹幕匹配', () async {
+    final source = await const EmbyPlaybackSourceBridge().assemble(
+      request: const MediaPlaybackRequest(itemId: 'item-5'),
+      bundle: bundle(),
+    );
+    expect(source.seriesTitle, '测试电影');
+  });
+
+  test('剧集（系列名非空）保留系列名', () async {
+    final source = await const EmbyPlaybackSourceBridge().assemble(
+      request: const MediaPlaybackRequest(itemId: 'item-5'),
+      bundle: bundle(seriesTitle: '某剧集'),
+    );
+    expect(source.seriesTitle, '某剧集');
   });
 }
