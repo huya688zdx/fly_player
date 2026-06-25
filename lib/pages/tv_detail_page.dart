@@ -19,8 +19,8 @@ import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
 import '../services/detail_runtime_cache.dart';
 import '../services/embedded_detail_launcher.dart';
+import '../services/native_playback_reentry.dart';
 import '../services/native_player_bridge.dart';
-import '../services/native_reentry_support.dart';
 import '../theme/app_theme.dart';
 import '../theme/detail_tokens.dart';
 import '../ui/adaptive_detail_navigator.dart';
@@ -1379,9 +1379,13 @@ class _TvDetailPageState extends State<TvDetailPage>
           : _detail;
       final seriesTitle = _title(item);
       final nas = context.read<NasProvider>();
-      // 反向通道：剧详情进原生壳也接画质 + 续播回写（tv_detail 只有季列表、无单集列表，
-      // 故暂不提供选集 episodes）。原生壳画质切换回传当前集 guid → resolveForNative 重解析。
-      _reentryToken = NativePlayerBridge.bindReentry(
+      final backend = context.read<MediaBackendProvider>().backend;
+      // 反向通道：剧详情进原生壳，经统一 binder 按后端接线（剧详情只有季列表、无单集列表，
+      // 故无选集静态兜底，选集数据由后端按 seriesGuid 派生）。画质切换回传当前集 guid →
+      // resolveForNative 重解析（launcher 已后端中立）。
+      _reentryToken = NativePlaybackReentry.bind(
+        backend: backend,
+        nas: nas,
         onResolvePlayback:
             (
               itemGuid, {
@@ -1410,29 +1414,6 @@ class _TvDetailPageState extends State<TvDetailPage>
                 preferredQualityResolution: preferredQualityResolution,
               );
             },
-        onRecordProgress: (progress) =>
-            NativeReentrySupport.recordProgress(nas, progress),
-        onResolveSubtitleFile: (guid, {format}) =>
-            NativeReentrySupport.resolveSubtitleFile(nas, guid, format: format),
-        onReloadServerSession: (currentLoadArgs, intent) =>
-            NativeReentrySupport.reloadServerSession(
-              nas,
-              currentLoadArgs: currentLoadArgs,
-              intent: intent,
-            ),
-        onLoadEpisodePickerData: (currentLoadArgs, {seasonGuid}) =>
-            NativeReentrySupport.loadEpisodePickerData(
-              nas,
-              currentLoadArgs: currentLoadArgs,
-              seasonGuid: seasonGuid ?? '',
-            ),
-        onLoadSeasonEpisodes: (seasonGuid) =>
-            NativeReentrySupport.loadSeasonEpisodes(
-              nas,
-              seasonGuid: seasonGuid,
-            ),
-        onSetEpisodePickerViewType: (viewType) =>
-            NativeReentrySupport.setEpisodePickerViewType(nas, viewType),
       );
       final result = await const TvSeasonPlaybackLauncher().open(
         context,
