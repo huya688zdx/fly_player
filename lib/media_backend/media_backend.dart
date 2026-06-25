@@ -78,4 +78,16 @@ abstract class MediaBackend {
   /// 会话句柄）。[MediaPlaybackResolution.backendContext] 由后端桥接器消费装配播放器
   /// 最终 source。本层不构造 `MpvMediaSource`，不导航、不触播放器深层逻辑。
   Future<MediaPlaybackResolution> getPlayback(MediaPlaybackRequest request);
+
+  /// 向后端回写播放进度（更新续播位）。best-effort：调用方静默吞错。
+  ///
+  /// 飞牛走自有 `NativeReentrySupport` 通道（含离线队列 / 本地 play stats），故飞牛实现为
+  /// 空操作；Emby 用 `/Sessions/Playing/Progress` 更新 `UserData.PlaybackPositionTicks`，
+  /// 使跨会话续播一致。[positionSeconds] 为播放位置（秒）。
+  Future<void> reportPlaybackProgress({
+    required String itemId,
+    required String mediaSourceId,
+    required int positionSeconds,
+    bool isPaused = false,
+  }) async {}
 }

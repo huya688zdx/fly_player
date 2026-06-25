@@ -56,6 +56,27 @@ class _FakeEmbyApi extends EmbyApi {
   String lastGenresIncludeItemTypes = '';
   // getResumeItems 入参捕获。
   int lastResumeLimit = 0;
+  // reportPlaybackProgress 入参捕获。
+  String? lastProgressItemId;
+  String? lastProgressMediaSourceId;
+  int? lastProgressPositionTicks;
+  bool? lastProgressIsPaused;
+
+  @override
+  Future<void> reportPlaybackProgress({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    required String itemId,
+    required String mediaSourceId,
+    required int positionTicks,
+    bool isPaused = false,
+  }) async {
+    lastProgressItemId = itemId;
+    lastProgressMediaSourceId = mediaSourceId;
+    lastProgressPositionTicks = positionTicks;
+    lastProgressIsPaused = isPaused;
+  }
 
   @override
   Future<int> getItemCount({
@@ -619,6 +640,32 @@ void main() {
       backend.getPlayback(const MediaPlaybackRequest(itemId: 'item-5')),
       throwsStateError,
     );
+  });
+
+  test('reportPlaybackProgress：秒 → 100ns ticks 回写', () async {
+    final api = _FakeEmbyApi();
+    final backend = EmbyMediaBackend(api: api, connection: connection);
+    await backend.reportPlaybackProgress(
+      itemId: 'item-5',
+      mediaSourceId: 'src-1',
+      positionSeconds: 600,
+      isPaused: true,
+    );
+    expect(api.lastProgressItemId, 'item-5');
+    expect(api.lastProgressMediaSourceId, 'src-1');
+    expect(api.lastProgressPositionTicks, 6000000000); // 600 * 1e7
+    expect(api.lastProgressIsPaused, isTrue);
+  });
+
+  test('reportPlaybackProgress：负秒归零', () async {
+    final api = _FakeEmbyApi();
+    final backend = EmbyMediaBackend(api: api, connection: connection);
+    await backend.reportPlaybackProgress(
+      itemId: 'item-5',
+      mediaSourceId: 'src-1',
+      positionSeconds: -3,
+    );
+    expect(api.lastProgressPositionTicks, 0);
   });
 }
 

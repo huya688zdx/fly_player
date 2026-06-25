@@ -195,9 +195,28 @@ class ItemPlaybackLauncher {
             subtitleGuid: subtitleGuid,
             audioGuid: audioGuid,
           ),
-      // Emby 进度回写首版不做（续播位读自服务端 UserData；写回留后续分块）。
-      onRecordProgress: (progress) async {},
+      onRecordProgress: (progress) => _reportEmbyProgress(backend, progress),
     );
+  }
+
+  /// 原生壳回传进度 → Emby `/Sessions/Playing/Progress`（更新续播位）。best-effort：
+  /// 断网 / 令牌过期静默吞，不阻断播放。progress 的 `ts` 为秒、`itemGuid`/`mediaGuid` 为
+  /// Emby itemId / MediaSourceId（桥接器装进 MpvMediaSource、原生壳原样回传）。
+  Future<void> _reportEmbyProgress(
+    MediaBackend backend,
+    Map<String, dynamic> progress,
+  ) async {
+    final itemGuid = (progress['itemGuid'] ?? '').toString().trim();
+    if (itemGuid.isEmpty) return;
+    final mediaGuid = (progress['mediaGuid'] ?? '').toString().trim();
+    final ts = (progress['ts'] as num?)?.toInt() ?? 0;
+    try {
+      await backend.reportPlaybackProgress(
+        itemId: itemGuid,
+        mediaSourceId: mediaGuid,
+        positionSeconds: ts,
+      );
+    } catch (_) {}
   }
 
   /// Emby 原生壳重解析：按指定版本/轨道重解析 source、回传 loadArgs（无飞牛 PlayInfo / 弹幕）。

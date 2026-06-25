@@ -474,6 +474,26 @@ class EmbyMediaBackend implements MediaBackend {
     );
   }
 
+  @override
+  Future<void> reportPlaybackProgress({
+    required String itemId,
+    required String mediaSourceId,
+    required int positionSeconds,
+    bool isPaused = false,
+  }) async {
+    // 更新 Emby UserData.PlaybackPositionTicks（续播位），使跨会话 / 跨客户端续播一致。
+    // 秒 → 100ns ticks。best-effort：调用方静默吞错（断网 / 令牌过期不阻断播放）。
+    await api.reportPlaybackProgress(
+      serverUrl: _serverUrl,
+      userId: _userId,
+      accessToken: _token,
+      itemId: itemId,
+      mediaSourceId: mediaSourceId,
+      positionTicks: positionSeconds < 0 ? 0 : positionSeconds * 10000000,
+      isPaused: isPaused,
+    );
+  }
+
   /// 过 fnos 边缘闸的播放 headers：`*.fnos.net` 中转域名加 `Cookie: entry-token=<值>`
   /// （播放直链由 mpv 取流，不经 EmbyApi 拦截器，故在此显式注入）；直连地址不加。
   Map<String, String> _entryTokenHeaders() {

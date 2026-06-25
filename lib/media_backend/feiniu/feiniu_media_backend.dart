@@ -156,6 +156,16 @@ class FeiniuMediaBackend implements MediaBackend {
   }
 
   @override
+  Future<void> reportPlaybackProgress({
+    required String itemId,
+    required String mediaSourceId,
+    required int positionSeconds,
+    bool isPaused = false,
+  }) async {
+    // 飞牛进度回写走自有 NativeReentrySupport 通道（含离线队列 + 本地 play stats），不经本接口。
+  }
+
+  @override
   Future<List<MediaSeasonSummary>> getItemSeasons(String seriesId) async {
     final seasons = await api.getSeasonList(seriesId);
     return seasons.map(mapFeiniuSeason).toList(growable: false);

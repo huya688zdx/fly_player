@@ -2222,10 +2222,11 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     }
   }
 
-  /// 绑定 Emby 最小反向通道：选集 → 复用 launcher 原地换源（壳内切本季其它单集）；进度回写
-  /// Emby 首版不做（续播位读自服务端 UserData）。其余飞牛专属回调（服务端会话重载/字幕文件/
-  /// 选集持久化）不绑，最小绑定替换掉可能残留的飞牛回调。
+  /// 绑定 Emby 最小反向通道：选集 → 复用 launcher 原地换源（壳内切本季其它单集）；进度 →
+  /// 回写 Emby `/Sessions/Playing/Progress`（更新续播位）。其余飞牛专属回调（服务端会话重载/
+  /// 字幕文件/选集持久化）不绑，最小绑定替换掉可能残留的飞牛回调。
   void _bindEmbyNativePlayerReentry() {
+    final backend = context.read<MediaBackendProvider>().backend;
     _reentryToken = NativePlayerBridge.bindReentry(
       onResolvePlayback:
           (
@@ -2270,8 +2271,17 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
             }
             return resolved;
           },
-      // Emby 进度回写首版不做。
-      onRecordProgress: (progress) async {},
+      onRecordProgress: (progress) async {
+        final itemGuid = (progress['itemGuid'] ?? '').toString().trim();
+        if (itemGuid.isEmpty) return;
+        try {
+          await backend.reportPlaybackProgress(
+            itemId: itemGuid,
+            mediaSourceId: (progress['mediaGuid'] ?? '').toString().trim(),
+            positionSeconds: (progress['ts'] as num?)?.toInt() ?? 0,
+          );
+        } catch (_) {}
+      },
     );
   }
 
