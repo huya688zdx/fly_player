@@ -396,6 +396,52 @@ class EmbyApi {
     );
   }
 
+  /// 外挂字幕直链——`GET /Videos/{itemId}/{mediaSourceId}/Subtitles/{index}/Stream.{ext}`，
+  /// `api_key` 自鉴权。[streamIndex] 为字幕在 MediaStreams 的容器 Index，[format] 为字幕格式
+  /// （srt / ass / vtt …，决定 URL 扩展名与服务端转码目标）。
+  String buildSubtitleUrl({
+    required String serverUrl,
+    required String itemId,
+    required String mediaSourceId,
+    required int streamIndex,
+    required String accessToken,
+    String format = 'srt',
+  }) {
+    final normalizedServerUrl = normalizeServerUrl(serverUrl);
+    final ext = format.trim().isNotEmpty ? format.trim() : 'srt';
+    return '$normalizedServerUrl/Videos/${itemId.trim()}/${mediaSourceId.trim()}'
+        '/Subtitles/$streamIndex/Stream.$ext'
+        '?api_key=${Uri.encodeQueryComponent(accessToken)}';
+  }
+
+  /// 下载外挂字幕文本——直链 [buildSubtitleUrl] 取字幕全文，供原生壳落临时文件后 `sub-add`。
+  ///
+  /// 经 [_dio] 取流（同 EmbyApi 其它请求，过 fnos 中转闸的 entry-token cookie 由拦截器注入），
+  /// 故不像视频直链需在 headers 手动塞 cookie。`ResponseType.plain` 拿原始文本而非 JSON 解析。
+  /// 空响应返回空串，由调用方判空。
+  Future<String> downloadSubtitleText({
+    required String serverUrl,
+    required String itemId,
+    required String mediaSourceId,
+    required int streamIndex,
+    required String accessToken,
+    String format = 'srt',
+  }) async {
+    final url = buildSubtitleUrl(
+      serverUrl: serverUrl,
+      itemId: itemId,
+      mediaSourceId: mediaSourceId,
+      streamIndex: streamIndex,
+      accessToken: accessToken,
+      format: format,
+    );
+    final response = await _dio.get<Object?>(
+      url,
+      options: Options(responseType: ResponseType.plain),
+    );
+    return (response.data ?? '').toString();
+  }
+
   static int _asCount(Object? value, int fallback) {
     if (value is int) return value;
     if (value is num) return value.toInt();
