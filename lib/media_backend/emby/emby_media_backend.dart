@@ -386,7 +386,9 @@ class EmbyMediaBackend implements MediaBackend {
       accessToken: _token,
       parentId: seasonId,
       includeItemTypes: 'Episode',
-      fields: 'Overview',
+      // UserData 必须显式请求：列表端点默认不回 PlaybackPositionTicks/Played，缺它则
+      // resolveSeriesNextUpEpisode 判不出续看集（全 resume=0）退回首集、选集面板「已看」标记也丢。
+      fields: 'Overview,UserData',
     );
     return episodes
         .map((e) => mapEmbyEpisode(e, serverUrl: _serverUrl, token: _token))
