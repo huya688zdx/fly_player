@@ -735,18 +735,11 @@ class _MediaListScreenState extends State<MediaListScreen> {
         // 涓嶈蛋鍘熺敓鐙珛寮曟搸(DetailActivity)璺緞鈥斺€斿叾浼氳瘽寮傛鍔犺浇鏈夌珵鎬併€佸彲鑳借鍒ら鐗涖€?
         final backend = context.read<MediaBackendProvider>().backend;
         if (backend.capabilities.kind != MediaBackendKind.feiniu) {
-          // 「继续观看」单集本身无选集——用其系列 guid（ancestorGuid）打开系列 TV 详情，
-          // 与点系列海报同源（有选集、播放键经续看解析回到在看那集）。无系列 guid（电影）
-          // 时退回单集 guid 自身。
-          final detailGuid =
-              _isEpisodeItem(item) && item.ancestorGuid.isNotEmpty
-              ? item.ancestorGuid
-              : item.guid;
           // 与飞牛一致:无条件经 EmbeddedDetailLauncher 打开——存在 pane host 则在 pane 内,
           // 否则走原生 openItemDetail 通道(分屏/平行窗口)。副引擎会话竞态已由 _load 的
           // BackendSessionProvider.ensureReady 兜底(等会话就绪再读后端,不会误判飞牛)。
           final handled = await EmbeddedDetailLauncher.openItemDetail(
-            detailGuid,
+            item.guid,
             context: context,
           );
           if (!mounted) return;
@@ -758,7 +751,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
           final neutralNavigator = Navigator.of(context);
           await neutralNavigator.push(
             AppTransitions.leftToRightPageTurnRoute(
-              PlayDetailScreen(itemGuid: detailGuid, heroTag: heroTag),
+              PlayDetailScreen(itemGuid: item.guid, heroTag: heroTag),
             ),
           );
           if (!mounted) return;
