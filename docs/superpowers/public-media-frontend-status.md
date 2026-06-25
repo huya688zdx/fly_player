@@ -4,7 +4,30 @@
 
 ## 当前阶段
 
-阶段：Phase 6 **桥接子阶段 B-4 原生壳反向重载收口完成，用户实机验证通过、Codex 深审通过**（用户 2026-06-21 选 B-4 设计先行）。Phase 5 详情骨架、Phase 6 播放后端骨架（Task 1~4）、桥接 B-1、B-2 单条目 launcher、B-3 TV launcher 迁移均已收口（Codex 深审通过 `b0b37ae`/`0eb9484`；B-2/B-3 用户实机验证通过）。B-4 把反向通道 `reloadServerSession`（转码态切轨/切画质）经中立 `MediaSessionReloadIntent` 收口，reload 内核与 Kotlin channel 协议零改动。
+阶段：Phase 6 **Emby 播放层收口推进中（2026-06-26）**——播放入口统一、进度上报、续看解析、详情页选集、外挂字幕均已实现并部分实机验证；剩转码 HLS、entry-token 过期重抓未做。下方为本阶段最新进度。早期 B-4 原生壳反向重载收口、Phase 5/6 骨架等历史见后续段落。
+
+### 2026-06-25/26 Emby 播放层（统一入口 / 进度 / 续看 / 选集 / 字幕）
+
+**播放入口统一（U-1~U-5，已收口）**：新增 `lib/services/native_playback_reentry.dart` 的 `NativePlaybackReentry.bind(backend, nas, onResolvePlayback, fallbackEpisodes)` 作单一事实源，把 5 个播放入口（单条目 / 季详情 / 剧详情 / 详情页 / 下载）各自手写的 9 个 `bindReentry` 回调收成一处，按 backend 类型统一接线。飞牛逐一等价（主路径逐像素不变），Emby 每入口都获完整回调集（进度 / 选集 / 跨季 / 外挂字幕）。提交：binder `ffafd02` / 入口 A `623c328` / B `4dc63ec` / C `d0a1cb7` / D `507e724` / E `cb35b73`。净删约 250 行重复样板。
+
+**进度上报（已实机验证通过）**：
+- 会话生命周期：`emby_api` 加 `reportPlaybackStart`(`POST /Sessions/Playing`)+`reportPlaybackStopped`，三端点共用 `_playStateBody`（`PlayMethod=DirectStream`+`CanSeek`）。提交 `b457656`/`0abdea8`。`EmbyPlaybackReporter`（binder 内有状态）首帧先建会话再报进度、切集停旧开新。
+- **真根因＝缺 `PlaySessionId`**：实机仍 400 `Value cannot be null. (Parameter 'key')`。诊断:reporter 加临时日志读 error.log，确认错误与授权头无关（无头 / 带头 / 带 Token 三次完全一样）→ Emby 对 `PlayMethod=DirectStream` 按 PlaySessionId 建流跟踪字典，body 缺它则以 null 作键。修:`emby_api` 每 itemId 生成稳定 32 位 hex PlaySessionId 塞进 body。会话授权头（带 Token+引号）一并补上（文档推荐、无害）。
+- **周期上报死代码（`be77034`，已实机验证飞牛+Emby 均生效）**：原生壳 `NativePlayerActivity.progressReportRunnable`（每 3s 上报）声明了却全工程零引用＝从没启动，只 onPause/切集各报一次。修:onResume 起、onStop 停（非 onPause——PiP 仍播）、runnable 加 `if(!isPeriodicReportRunning)return`。
+
+**剧详情系列播放键（已修，待实机复验）**：
+- `MediaBackend.resolveSeriesNextUpEpisode(seriesId)→MediaEpisodeSummary?`（飞牛 null；Emby 返回续看/首集）+ `resolveSeriesPlaybackTarget=其 .id`。系列 guid 不可直接 getPlayback，须定到具体单集。`2b816d7`/`a048515`。
+- **续看集取最新进度**（`ecdb6c1`）:原按季顺序扫首个 resume>0（卡在 ep1）+ 只加载时解析一次（文案死）。改为从 `getContinueWatching`（`/Items/Resume` 按最近播放排序、用 `card.seriesId` 匹配）取本系列最近那集，且**播放返回后重新解析**使文案跟进度更新；没播过回退扫季。依赖 `MediaItemCard.seriesId`（`309f148` 加字段 + `mapEmbyItemCard` 映射 `SeriesId`）。
+- **选集 UserData**（`848dd90`）:`getSeasonEpisodes` 的 Fields 只带 `Overview`，Emby 列表端点默认不回 `UserData` → resume 全 0。加 `UserData`（选集面板"已看"标记也恢复）。
+
+**详情页 / 单集进播放器有选集 + 下一集（已修，待实机复验）**：原生壳选集/下一集靠 `loadArgs["episodes"]` 非空触发（`episodeList<=1` 守卫），绑了 `onLoadEpisodePickerData` 不够。单条目入口 `31acd0c`、剧详情入口 `96e1413` 分别在 launcher 内按 `source.seasonGuid` 派生本季 episodes 透传（起播 + 切集回传都补）。
+
+**外挂字幕（`744841b`/`bf446b2`）**：`emby_api.buildSubtitleUrl`+`downloadSubtitleText`；外挂字幕轨自包含 guid `emby:sub:itemId:mediaSourceId:index`；`MediaBackend.resolveExternalSubtitleFile` 解码 guid→下载落临时文件。待实机验证下载+sub-add 链路。
+
+**继续观看卡片点击（`ff6a514` 回退）**：曾把单集重路由到系列 guid 打开（`309f148`），用户要求回退——点击直接用 `item.guid` 打开详情（与飞牛同）。`seriesId` 字段/映射保留（续看键解析要用）。
+
+**待办**：①转码 HLS（大子系统）②entry-token 过期重抓③Emby 退出无显式结束信号（会话留服务端待超时，进度已落定不影响续播）。**`emby_api.dart` 的进度改动（PlaySessionId+授权头）仍未提交**——Codex 的 entry-token 拦截器未提交且在文件顶部 import 处深度交织，stash 隔离风险高，待 Codex 提交拦截器或本摊收尾后再干净提交（工作区已生效、本地构建不受影响）。
+**待实机复验**:①详情页进播放器有选集/下一集 ②系列播放键显示/播最近在看那集且播完更新 ③外挂字幕下载加载。
 
 ### 2026-06-21 登录页后端选择 + Emby 入口设计
 
