@@ -9,10 +9,16 @@ import 'package:provider/provider.dart';
 import '../api/feiniu_api.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../media_backend/detail/media_detail.dart';
+import '../media_backend/media_backend.dart';
+import '../media_backend/media_backend_kind.dart';
+import '../media_backend/media_item_card.dart';
 import '../models/media_library_item.dart';
 import '../models/person_detail_profile.dart';
 import '../pages/long_text_overlay_page.dart';
 import '../providers/app_theme_provider.dart';
+import '../providers/backend_session_provider.dart';
+import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
 import '../services/detail_runtime_cache.dart';
 import '../services/embedded_detail_launcher.dart';
@@ -73,6 +79,13 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
 
   PersonDetailProfile? _person;
   Map<String, ItemListPage> _jobPages = <String, ItemListPage>{};
+
+  /// 中立展示态（非飞牛后端，如 Emby）：人物本身复用 [MediaBackend.getItemDetail]（姓名 /
+  /// 简介 / 照片），作品走 [MediaBackend.getPersonItems]。飞牛态恒 false、原路径整段不变。
+  bool _neutralDisplayOnly = false;
+  MediaDetail? _neutralDetail;
+  List<MediaItemCard> _neutralWorks = const <MediaItemCard>[];
+
   Map<String, dynamic> _localeMap = <String, dynamic>{};
   bool _isLoading = true;
   bool _favoriteUpdating = false;
@@ -172,6 +185,19 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
       _jobLoading = false;
     });
 
+    // 分屏副引擎冷启动时后端会话可能未就绪，先等就绪再读后端（同 play_detail）。
+    final session = context.read<BackendSessionProvider>();
+    await session.ensureReady();
+    if (!mounted) return;
+
+    // 非飞牛后端（Emby）：走中立路径（getItemDetail 取人物 + getPersonItems 取作品），
+    // 不进飞牛的按职务分页路径。数据/导航层按 backend 能力分支，UI 渲染不写 if(isEmby)。
+    final backend = context.read<MediaBackendProvider>().backend;
+    if (backend.capabilities.kind != MediaBackendKind.feiniu) {
+      await _loadNeutral(backend);
+      return;
+    }
+
     final api = FeiniuApi(context.read<NasProvider>());
     final loadVersion = ++_jobLoadVersion;
     final localeFuture = Future.value(_localeMap);
@@ -217,6 +243,34 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
         _localeMap = locale;
         _isLoading = false;
         _error = appError;
+      });
+    }
+  }
+
+  /// Emby 等公共后端的人物详情加载：并行取人物详情（姓名/简介/照片/外部 ID）+ 作品列表。
+  Future<void> _loadNeutral(MediaBackend backend) async {
+    _neutralDisplayOnly = true;
+    try {
+      final results = await Future.wait(<Future<Object>>[
+        backend.getItemDetail(widget.personGuid),
+        backend.getPersonItems(widget.personGuid),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _neutralDetail = results[0] as MediaDetail;
+        _neutralWorks = results[1] as List<MediaItemCard>;
+        _isLoading = false;
+        _error = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = AppException.from(
+          e,
+          action: 'person detail',
+          fallbackKind: AppExceptionKind.transient,
+        );
+        _isLoading = false;
       });
     }
   }
@@ -471,11 +525,198 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
     return _PersonProfileImage(
       urls: urls,
       token: token,
-      fallback: Container(
-        color: context.appColors.surfaceStrong,
-        alignment: Alignment.center,
-        child: Icon(Icons.person, color: context.appColors.textMuted, size: 42),
+      fallback: _personPhotoFallback(),
+    );
+  }
+
+  Widget _personPhotoFallback() {
+    return Container(
+      color: context.appColors.surfaceStrong,
+      alignment: Alignment.center,
+      child: Icon(Icons.person, color: context.appColors.textMuted, size: 42),
+    );
+  }
+
+  /// Emby 人物照片：完整 api_key 直链（自鉴权），失败回退人物图标。
+  Widget _buildNeutralProfileImage(String url) {
+    if (url.trim().isEmpty) return _personPhotoFallback();
+    return Image.network(
+      url,
+      fit: BoxFit.cover,
+      filterQuality: FilterQuality.low,
+      errorBuilder: (_, error, __) {
+        debugPrint(
+          '[IMG][PERSON_PROFILE][neutral] failed url=$url error=$error',
+        );
+        return _personPhotoFallback();
+      },
+    );
+  }
+
+  String _yearFromCard(MediaItemCard item) {
+    final date = item.releaseDate.isNotEmpty
+        ? item.releaseDate
+        : item.firstAirDate;
+    return date.length >= 4 ? date.substring(0, 4) : '';
+  }
+
+  void _openNeutralWork(MediaItemCard item) {
+    if (item.id.trim().isEmpty) return;
+    AdaptiveDetailNavigator.open<void>(
+      context,
+      AdaptiveDetailRequest.item(itemGuid: item.id),
+      presentation: _isPane ? DetailPresentation.pane : DetailPresentation.page,
+    );
+  }
+
+  Future<void> _openNeutralImdb(String imdbId) async {
+    final result = await ImdbLauncher.openPersonExternal(imdbId);
+    if (!mounted || result == ImdbLaunchResult.success) return;
+    final l10n = AppLocalizations.of(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          result == ImdbLaunchResult.empty
+              ? l10n.detailImdbEmpty
+              : l10n.detailImdbOpenFailed,
+        ),
+        duration: const Duration(seconds: 2),
       ),
+    );
+  }
+
+  Future<void> _openNeutralTmdb(String tmdbId) async {
+    final result = await ImdbLauncher.openTmdbExternal(tmdbId);
+    if (!mounted || result == ImdbLaunchResult.success) return;
+    final l10n = AppLocalizations.of(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          result == ImdbLaunchResult.empty
+              ? l10n.detailTmdbEmpty
+              : l10n.detailTmdbOpenFailed,
+        ),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  /// Emby 人物详情中立体：照片 + 姓名 + 简介 + 参与作品栅格 + 外部链接。
+  /// 飞牛态不进此路径（[build] 按 [_neutralDisplayOnly] 早分流）。
+  Widget _buildNeutralBody({
+    required AppThemeColors colors,
+    required MediaLayoutProfile layout,
+    required MediaQueryData media,
+    required double topContentInset,
+    required double profileWidth,
+    required double profileHeight,
+  }) {
+    final detail = _neutralDetail!;
+    final name = detail.title.trim().isNotEmpty
+        ? detail.title.trim()
+        : widget.initialName;
+    final imdbId = detail.externalIds.imdbId.trim();
+    final tmdbId = detail.externalIds.tmdbId.trim();
+    return CustomScrollView(
+      controller: _scrollController,
+      slivers: <Widget>[
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(16, topContentInset, 16, 10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: SizedBox(
+                    width: profileWidth,
+                    height: profileHeight,
+                    child: _buildNeutralProfileImage(detail.primaryImage.url),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        name,
+                        style: TextStyle(
+                          color: colors.textPrimary,
+                          fontSize: 21,
+                          fontWeight: FontWeight.w700,
+                          height: 1.08,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      _buildBiographyPreviewRaw(name, detail.overview),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_neutralWorks.isNotEmpty) ...<Widget>[
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
+              child: Text(
+                _t('layout.details.person.works', '参与作品'),
+                style: TextStyle(
+                  color: colors.textPrimary,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+            sliver: SliverGrid(
+              delegate: SliverChildBuilderDelegate((context, index) {
+                final item = _neutralWorks[index];
+                final rating = double.tryParse(item.rating);
+                final isEpisode = item.type.trim().toLowerCase() == 'episode';
+                return MediaPosterCard(
+                  urls: item.primaryImage.url.trim().isNotEmpty
+                      ? <String>[item.primaryImage.url.trim()]
+                      : const <String>[],
+                  token: '',
+                  title: item.displayTitle,
+                  subtitle: _yearFromCard(item),
+                  rating: rating,
+                  watched: item.watched,
+                  imageHeight: layout.categoryGridImageHeight,
+                  titleFontSize: layout.homePosterTitleFontSize,
+                  subtitleFontSize: layout.homePosterSubtitleFontSize,
+                  imageFit: isEpisode ? BoxFit.contain : BoxFit.cover,
+                  onTap: () => _openNeutralWork(item),
+                );
+              }, childCount: _neutralWorks.length),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: layout.categoryGridColumns,
+                mainAxisSpacing: layout.itemGap,
+                crossAxisSpacing: layout.itemGap,
+                mainAxisExtent: layout.categoryGridRowHeight,
+              ),
+            ),
+          ),
+        ],
+        if (imdbId.isNotEmpty || tmdbId.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
+              child: LinkSection(
+                imdbId: imdbId,
+                tmdbId: tmdbId,
+                onImdbTap: () => _openNeutralImdb(imdbId),
+                onTmdbTap: () => _openNeutralTmdb(tmdbId),
+              ),
+            ),
+          ),
+        const SliverToBoxAdapter(child: SizedBox(height: 18)),
+      ],
     );
   }
 
@@ -499,10 +740,18 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
         );
     final provider = context.read<NasProvider>();
     final inPlayerPaneHost = PlayerPaneHostScope.maybeOf(context) != null;
-    final dynamicThemeUrls =
-        _person == null || _person!.profilePath.trim().isEmpty
-        ? const <String>[]
-        : _imageCandidates(provider.baseUrl, _person!.profilePath, width: 240);
+    // 动态取色图源:Emby 用人物 Primary 完整直链(api_key 自鉴权);飞牛用 profilePath 相对路径。
+    final dynamicThemeUrls = _neutralDisplayOnly
+        ? ((_neutralDetail?.primaryImage.url.trim().isNotEmpty ?? false)
+              ? <String>[_neutralDetail!.primaryImage.url.trim()]
+              : const <String>[])
+        : (_person == null || _person!.profilePath.trim().isEmpty
+              ? const <String>[]
+              : _imageCandidates(
+                  provider.baseUrl,
+                  _person!.profilePath,
+                  width: 240,
+                ));
     final syncGlobalTheme = dynamicThemeIntensity.allowsGlobalRuntimeThemeSync(
       inPlayerPaneHost: inPlayerPaneHost,
       isPane: _isPane,
@@ -511,7 +760,7 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
     return DynamicPageThemeScope(
       pageKey: widget.personGuid,
       imageUrl: dynamicThemeUrls.isNotEmpty ? dynamicThemeUrls.first : '',
-      token: provider.token,
+      token: _neutralDisplayOnly ? '' : provider.token,
       enabled: dynamicThemeEnabled,
       syncGlobalTheme: syncGlobalTheme,
       deferLocalThemeApplyUntilGlobalSync: _isPane && syncGlobalTheme,
@@ -525,9 +774,28 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
         final profileWidth = (screenWidth * 0.34).clamp(118.0, 148.0);
         final profileHeight = profileWidth * 1.42;
         final topContentInset = media.padding.top + kToolbarHeight + 8;
-        final title = person?.displayName ?? widget.initialName;
+        final title = _neutralDisplayOnly
+            ? ((_neutralDetail?.title.trim().isNotEmpty ?? false)
+                  ? _neutralDetail!.title.trim()
+                  : widget.initialName)
+            : (person?.displayName ?? widget.initialName);
         final body = _isLoading
             ? Center(child: CircularProgressIndicator(color: colors.accent))
+            : _neutralDisplayOnly
+            ? (_error != null
+                  ? AppErrorState(
+                      error: _error!,
+                      localeMap: _localeMap,
+                      onRetry: _loadData,
+                    )
+                  : _buildNeutralBody(
+                      colors: colors,
+                      layout: layout,
+                      media: media,
+                      topContentInset: topContentInset,
+                      profileWidth: profileWidth,
+                      profileHeight: profileHeight,
+                    ))
             : _isNoDataError(_error) || person == null
             ? AppErrorState(
                 error: const AppException(
@@ -771,8 +1039,11 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
     );
   }
 
-  Widget _buildBiographyPreview(PersonDetailProfile person) {
-    final bio = person.biography.trim();
+  Widget _buildBiographyPreview(PersonDetailProfile person) =>
+      _buildBiographyPreviewRaw(person.displayName, person.biography);
+
+  Widget _buildBiographyPreviewRaw(String displayName, String biography) {
+    final bio = biography.trim();
     final colors = context.appColors;
     final bodyStyle = TextStyle(
       color: colors.textSecondary,
@@ -845,12 +1116,12 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
                 recognizer: TapGestureRecognizer()
                   ..onTap = () => LongTextOverlayPage.show(
                     context,
-                    title: person.displayName,
+                    title: displayName,
                     sectionTitle: _t(
                       'layout.details.castAndCrew.biography',
                       '\u6f14\u5458\u7b80\u4ecb',
                     ),
-                    content: person.biography,
+                    content: biography,
                   ),
               ),
             ],
