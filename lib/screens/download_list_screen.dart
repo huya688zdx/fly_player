@@ -12,11 +12,12 @@ import '../models/download_task_record.dart';
 import '../models/play_info.dart';
 import '../player/controllers/mpv_player_controller.dart';
 import '../player/mpv_player_page.dart';
+import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../services/download_task_service.dart';
+import '../services/native_playback_reentry.dart';
 import '../services/native_player_bridge.dart';
-import '../services/native_reentry_support.dart';
 import '../services/play_stats/play_stats.dart';
 import '../theme/app_theme.dart';
 import '../ui/app_transitions.dart';
@@ -694,9 +695,14 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
           final nativeEpisodes = await _nativeEpisodesPayload(provider, source);
 
           if (!mounted) return;
+          final backend = context.read<MediaBackendProvider>().backend;
           // 下载管理入口也走统一反向通道：已下载集优先本地，未下载集有网时走 NAS。
-          // 同一份 episodes 会随每次换源回传，避免选集面板退化成单集。
-          _reentryToken = NativePlayerBridge.bindReentry(
+          // 同一份 episodes 随每次换源回传 + 作选集面板兜底；经统一 binder 按后端接线（下载为
+          // 飞牛专属，backend 即飞牛），补齐选集三件套，与其它入口同口径（离线时选集回退兜底）。
+          _reentryToken = NativePlaybackReentry.bind(
+            backend: backend,
+            nas: provider,
+            fallbackEpisodes: () => nativeEpisodes,
             onResolvePlayback:
                 (
                   itemGuid, {
@@ -719,14 +725,6 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
                   subtitleGuid: subtitleGuid,
                   audioGuid: audioGuid,
                   episodes: nativeEpisodes.isEmpty ? null : nativeEpisodes,
-                ),
-            onRecordProgress: (progress) =>
-                NativeReentrySupport.recordProgress(provider, progress),
-            onResolveSubtitleFile: (guid, {format}) =>
-                NativeReentrySupport.resolveSubtitleFile(
-                  provider,
-                  guid,
-                  format: format,
                 ),
           );
           if (await NativePlayerBridge.maybeLaunch(
