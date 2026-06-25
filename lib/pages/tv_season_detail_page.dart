@@ -25,9 +25,8 @@ import '../providers/nas_provider.dart';
 import '../services/detail_runtime_cache.dart';
 import '../services/download_task_service.dart';
 import '../services/embedded_detail_launcher.dart';
-import '../services/emby_native_picker_support.dart';
+import '../services/native_playback_reentry.dart';
 import '../services/native_player_bridge.dart';
-import '../services/native_reentry_support.dart';
 import '../theme/app_theme.dart';
 import '../theme/detail_tokens.dart';
 import '../theme/dynamic_theme_runtime_controller.dart';
@@ -2223,12 +2222,15 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     }
   }
 
-  /// 绑定 Emby 最小反向通道：选集 → 复用 launcher 原地换源（壳内切本季其它单集）；进度 →
-  /// 回写 Emby `/Sessions/Playing/Progress`（更新续播位）。其余飞牛专属回调（服务端会话重载/
-  /// 字幕文件/选集持久化）不绑，最小绑定替换掉可能残留的飞牛回调。
+  /// 绑定 Emby 反向通道：选集 → 复用 launcher 原地换源 + 更新选中集高亮。其余标准回调（进度
+  /// 回写 / 选集数据 / 跨季 / 外挂字幕）由 [NativePlaybackReentry] 按后端统一接线，与飞牛同口径。
   void _bindEmbyNativePlayerReentry() {
     final backend = context.read<MediaBackendProvider>().backend;
-    _reentryToken = NativePlayerBridge.bindReentry(
+    final nas = context.read<NasProvider>();
+    _reentryToken = NativePlaybackReentry.bind(
+      backend: backend,
+      nas: nas,
+      fallbackEpisodes: _neutralNativeEpisodesPayload,
       onResolvePlayback:
           (
             itemGuid, {
@@ -2272,45 +2274,18 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
             }
             return resolved;
           },
-      onRecordProgress: (progress) async {
-        final itemGuid = (progress['itemGuid'] ?? '').toString().trim();
-        if (itemGuid.isEmpty) return;
-        try {
-          await backend.reportPlaybackProgress(
-            itemId: itemGuid,
-            mediaSourceId: (progress['mediaGuid'] ?? '').toString().trim(),
-            positionSeconds: (progress['ts'] as num?)?.toInt() ?? 0,
-          );
-        } catch (_) {}
-      },
-      // 选集面板数据 / 跨季切换 / 视图偏好：走后端中立 getItemSeasons/getSeasonEpisodes
-      // （Emby 无飞牛专属下载角标 / 服务端 viewType）。这三个绑上后，原生壳选集面板才有季
-      // chip + 跨季 + 宫格/列表持久化，与飞牛壳一致；未绑时只有静态当前季列表。
-      onLoadEpisodePickerData: (currentLoadArgs, {seasonGuid}) =>
-          EmbyNativePickerSupport.loadEpisodePickerData(
-            backend,
-            currentLoadArgs: currentLoadArgs,
-            seasonGuid: seasonGuid ?? '',
-            fallbackEpisodes: _neutralNativeEpisodesPayload(),
-          ),
-      onLoadSeasonEpisodes: (seasonGuid) =>
-          EmbyNativePickerSupport.loadSeasonEpisodes(
-            backend,
-            seasonGuid: seasonGuid,
-          ),
-      onSetEpisodePickerViewType: (viewType) =>
-          EmbyNativePickerSupport.setEpisodePickerViewType(viewType),
-      // 外挂字幕：原生壳走外挂文件路径时回传字幕 guid（桥接器编码的自包含 guid）+ 格式，
-      // 后端解码下载字幕全文落临时文件、回传路径供 sub-add。失败回 null（壳侧回退无外挂字幕）。
-      onResolveSubtitleFile: (guid, {format}) =>
-          backend.resolveExternalSubtitleFile(guid, format: format),
     );
   }
 
-  /// 绑定原生壳反向回调：选集 → 复用 launcher 原地换源；进度 → 写回 NAS。
+  /// 绑定原生壳反向通道：选集 → 复用 launcher 原地换源 + 更新选中集高亮 + 刷新。其余标准回调
+  /// （进度回写 / 外挂字幕 / 服务端会话重载 / 选集数据）由 [NativePlaybackReentry] 统一接线。
   void _bindNativePlayerReentry() {
     final nas = context.read<NasProvider>();
-    _reentryToken = NativePlayerBridge.bindReentry(
+    final backend = context.read<MediaBackendProvider>().backend;
+    _reentryToken = NativePlaybackReentry.bind(
+      backend: backend,
+      nas: nas,
+      fallbackEpisodes: _nativeEpisodesPayload,
       onResolvePlayback:
           (
             itemGuid, {
@@ -2357,36 +2332,6 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
             }
             return resolved;
           },
-      onRecordProgress: _recordNativeProgress,
-      onResolveSubtitleFile: (guid, {format}) =>
-          NativeReentrySupport.resolveSubtitleFile(nas, guid, format: format),
-      onReloadServerSession: (currentLoadArgs, intent) =>
-          NativeReentrySupport.reloadServerSession(
-            nas,
-            currentLoadArgs: currentLoadArgs,
-            intent: intent,
-          ),
-      onLoadEpisodePickerData: (currentLoadArgs, {seasonGuid}) =>
-          NativeReentrySupport.loadEpisodePickerData(
-            nas,
-            currentLoadArgs: currentLoadArgs,
-            seasonGuid: seasonGuid ?? '',
-            fallbackEpisodes: _nativeEpisodesPayload(),
-          ),
-      onLoadSeasonEpisodes: (seasonGuid) =>
-          NativeReentrySupport.loadSeasonEpisodes(nas, seasonGuid: seasonGuid),
-      onSetEpisodePickerViewType: (viewType) =>
-          NativeReentrySupport.setEpisodePickerViewType(nas, viewType),
-    );
-  }
-
-  /// 原生壳回传的进度 → `recordPlayback`（含断网离线排队）。统一走
-  /// [NativeReentrySupport.recordProgress]，与其他播放入口同一套去重/重放逻辑。
-  Future<void> _recordNativeProgress(Map<String, dynamic> progress) async {
-    if (!mounted) return;
-    await NativeReentrySupport.recordProgress(
-      context.read<NasProvider>(),
-      progress,
     );
   }
 
