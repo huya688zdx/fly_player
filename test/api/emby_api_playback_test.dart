@@ -105,6 +105,61 @@ void main() {
     expect(body['PositionTicks'], 0);
     expect(body.containsKey('MediaSourceId'), isFalse);
   });
+
+  test('buildSubtitleUrl 拼 /Subtitles/{index}/Stream.<ext> + api_key', () {
+    final url = api.buildSubtitleUrl(
+      serverUrl: 'https://emby.example.test/',
+      itemId: 'item-9',
+      mediaSourceId: 'src-3',
+      streamIndex: 4,
+      accessToken: 'tok',
+      format: 'ass',
+    );
+    final uri = Uri.parse(url);
+    expect(uri.path, '/Videos/item-9/src-3/Subtitles/4/Stream.ass');
+    expect(uri.queryParameters['api_key'], 'tok');
+  });
+
+  test('downloadSubtitleText 经 dio 取字幕全文（plain）', () async {
+    late RequestOptions captured;
+    const subtitleText = '1\n00:00:01,000 --> 00:00:02,000\n你好\n';
+    final adapter = _TextDioAdapter((options) {
+      captured = options;
+      return subtitleText;
+    });
+    final subApi = EmbyApi(
+      dio: Dio(BaseOptions())..httpClientAdapter = adapter,
+    );
+
+    final text = await subApi.downloadSubtitleText(
+      serverUrl: 'https://emby.example.test',
+      itemId: 'item-9',
+      mediaSourceId: 'src-3',
+      streamIndex: 4,
+      accessToken: 'tok',
+      format: 'srt',
+    );
+    expect(text, subtitleText);
+    expect(captured.uri.path, '/Videos/item-9/src-3/Subtitles/4/Stream.srt');
+  });
+}
+
+class _TextDioAdapter implements HttpClientAdapter {
+  _TextDioAdapter(this.handler);
+
+  final String Function(RequestOptions options) handler;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    return ResponseBody.fromString(handler(options), 200);
+  }
+
+  @override
+  void close({bool force = false}) {}
 }
 
 class _JsonResponse {
