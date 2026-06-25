@@ -19,6 +19,7 @@ import '../models/stream_list_option.dart';
 import '../models/stream_track_data.dart';
 import '../media_backend/detail/media_detail.dart';
 import '../media_backend/detail/media_source_info.dart';
+import '../media_backend/detail/media_source_version.dart';
 import '../media_backend/feiniu/feiniu_detail_mappers.dart';
 import '../media_backend/media_backend_kind.dart';
 import '../media_backend/media_image_ref.dart';
@@ -63,6 +64,7 @@ import '../utils/player_title_formatter.dart';
 import '../utils/play_detail_formatters.dart';
 import '../utils/play_detail_track_selector.dart';
 import '../widgets/common/app_error_state.dart';
+import '../widgets/common/track_option_sheet.dart';
 import '../widgets/detail/credits_section.dart';
 import '../widgets/detail/detail_description_section.dart';
 import '../widgets/detail/detail_header.dart';
@@ -134,9 +136,30 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   ///
   MediaDetail? _detail;
 
-  /// 中立态(Emby)的媒体源信息(文件/视频信息),由 [MediaBackend.getItemSourceInfo] 取;
+  /// 中立态(Emby)的媒体源信息(文件/视频信息)。派生自选中版本 [_neutralSelectedVersion];
   /// 飞牛态恒为 null(飞牛走自有 FileInfoSection/VideoInfoSection 路径)。
   MediaSourceInfo? _sourceInfo;
+
+  /// 中立态(Emby)的可选播放版本列表(每版本含其音轨/字幕轨),由
+  /// [MediaBackend.getItemSourceVersions] 取。飞牛态恒空(走自有版本/轨道选择路径)。
+  List<MediaSourceVersion> _neutralVersions = const <MediaSourceVersion>[];
+  int _neutralSelectedVersionIndex = 0;
+
+  /// 中立态选中的音轨/字幕轨 id(stream Index 串)。本轮仅记录选中态、为日后 Emby
+  /// 播放预留;无播放消费。字幕空串=关闭。
+  String? _neutralSelectedAudioId;
+  String? _neutralSelectedSubtitleId;
+  bool _neutralAudioSelectorExpanded = false;
+  bool _neutralSubtitleSelectorExpanded = false;
+
+  MediaSourceVersion? get _neutralSelectedVersion {
+    if (_neutralVersions.isEmpty) return null;
+    final index = _neutralSelectedVersionIndex.clamp(
+      0,
+      _neutralVersions.length - 1,
+    );
+    return _neutralVersions[index];
+  }
 
   /// 中立展示态:当前后端非飞牛(如 Emby)时,本页只读 [MediaBackend.getItemDetail] 的中立
   /// [_detail] 渲染展示半身,**不加载飞牛播放数据**([_data] 保持 null),播放入口为占位。
@@ -528,6 +551,112 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   /// 中立后端(Emby)展示体:与飞牛页同一批组件(背景在页级已铺、此处为 hero + 信息块 +
   /// 描述 + 演职员),数据全来自中立 [_detail]。播放入口为占位(能力门控,本切片不做 Emby
   /// 播放);演职员点击在中立态暂不跳转(Emby 人物详情后续切片)。
+  /// 选中版本的默认音轨 id:有 `defaultAudioId` 用之,否则首条音轨,无音轨空。
+  String _defaultAudioIdFor(MediaSourceVersion? version) {
+    if (version == null) return '';
+    if (version.defaultAudioId.isNotEmpty) return version.defaultAudioId;
+    return version.audioTracks.isNotEmpty ? version.audioTracks.first.id : '';
+  }
+
+  void _selectNeutralVersion(int index) {
+    if (index == _neutralSelectedVersionIndex ||
+        index < 0 ||
+        index >= _neutralVersions.length) {
+      return;
+    }
+    setState(() {
+      _neutralSelectedVersionIndex = index;
+      final version = _neutralVersions[index];
+      // 切版本:音轨/字幕回到新版本默认,文件/视频信息同步换成该版本。
+      _neutralSelectedAudioId = _defaultAudioIdFor(version);
+      _neutralSelectedSubtitleId = version.defaultSubtitleId;
+      _sourceInfo = version.info;
+    });
+  }
+
+  String _neutralAudioLabel() {
+    final l10n = AppLocalizations.of(context);
+    final tracks =
+        _neutralSelectedVersion?.audioTracks ?? const <MediaTrackOption>[];
+    if (tracks.isEmpty) return l10n.trackAudioNone;
+    for (final track in tracks) {
+      if (track.id == _neutralSelectedAudioId) return track.label;
+    }
+    return tracks.first.label;
+  }
+
+  String _neutralSubtitleLabel() {
+    final l10n = AppLocalizations.of(context);
+    final tracks =
+        _neutralSelectedVersion?.subtitleTracks ?? const <MediaTrackOption>[];
+    final id = _neutralSelectedSubtitleId ?? '';
+    if (id.isEmpty) return l10n.trackSubtitleOff;
+    for (final track in tracks) {
+      if (track.id == id) return track.label;
+    }
+    return tracks.isNotEmpty ? tracks.first.label : l10n.trackSubtitleOff;
+  }
+
+  /// 中立态音轨选择 sheet（复用中立 [TrackOptionSheet]）。本轮仅记录选中态,无播放消费。
+  Future<void> _showNeutralAudioSheet() async {
+    final tracks =
+        _neutralSelectedVersion?.audioTracks ?? const <MediaTrackOption>[];
+    if (tracks.length <= 1) return;
+    setState(() => _neutralAudioSelectorExpanded = true);
+    final items = tracks
+        .map(
+          (t) => TrackOptionSheetItem(
+            id: t.id,
+            title: t.label,
+            subtitle: t.summary,
+          ),
+        )
+        .toList();
+    final current = _neutralSelectedAudioId ?? '';
+    final result = await TrackOptionSheet.show(
+      context,
+      title: AppLocalizations.of(context).playerAudioSelectTitle,
+      items: items,
+      selectedId: current.isEmpty ? items.first.id : current,
+    );
+    if (!mounted) return;
+    setState(() {
+      _neutralAudioSelectorExpanded = false;
+      if (result != null) _neutralSelectedAudioId = result;
+    });
+  }
+
+  /// 中立态字幕选择 sheet（含「字幕关」项）。本轮仅记录选中态,无播放消费。
+  Future<void> _showNeutralSubtitleSheet() async {
+    final tracks =
+        _neutralSelectedVersion?.subtitleTracks ?? const <MediaTrackOption>[];
+    if (tracks.isEmpty) return;
+    setState(() => _neutralSubtitleSelectorExpanded = true);
+    final l10n = AppLocalizations.of(context);
+    const offId = '__subtitle_off__';
+    final items = <TrackOptionSheetItem>[
+      TrackOptionSheetItem(id: offId, title: l10n.playerSubtitleOffAction),
+      ...tracks.map(
+        (t) =>
+            TrackOptionSheetItem(id: t.id, title: t.label, subtitle: t.summary),
+      ),
+    ];
+    final current = _neutralSelectedSubtitleId ?? '';
+    final result = await TrackOptionSheet.show(
+      context,
+      title: l10n.playerSubtitleSelectTitle,
+      items: items,
+      selectedId: current.isEmpty ? offId : current,
+    );
+    if (!mounted) return;
+    setState(() {
+      _neutralSubtitleSelectorExpanded = false;
+      if (result != null) {
+        _neutralSelectedSubtitleId = result == offId ? '' : result;
+      }
+    });
+  }
+
   Widget _buildNeutralBody(AppThemeColors colors) {
     final detail = _detail!;
     final provider = context.read<NasProvider>();
@@ -585,6 +714,26 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         )
         .toList();
 
+    // 版本 / 音轨 / 字幕选择器数据（本轮仅展示 + 记录选中态,无播放消费）。
+    final versions = _neutralVersions;
+    final selectedVersion = _neutralSelectedVersion;
+    final versionLabels = versions.map((v) => v.label).toList();
+    final showVersionSelector = versions.length > 1;
+    final versionSelectedKey =
+        (showVersionSelector &&
+            _neutralSelectedVersionIndex < versionLabels.length)
+        ? '$_neutralSelectedVersionIndex:${versionLabels[_neutralSelectedVersionIndex]}'
+        : null;
+    final audioTracks =
+        selectedVersion?.audioTracks ?? const <MediaTrackOption>[];
+    final subtitleTracks =
+        selectedVersion?.subtitleTracks ?? const <MediaTrackOption>[];
+    final showSelectorRow = audioTracks.isNotEmpty || subtitleTracks.isNotEmpty;
+    final capabilityLabels = (selectedVersion?.badges ?? const <String>[])
+        .map(CapabilityBadgeMapper.normalize)
+        .where((e) => e.isNotEmpty)
+        .toList();
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: CustomScrollView(
@@ -614,6 +763,24 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   DetailMetaLines(metaLineA: metaLineA, metaLineB: metaLineB),
+                  if (showSelectorRow) ...[
+                    const SizedBox(height: 8),
+                    DetailSelectorRow(
+                      subtitleLabel: _neutralSubtitleLabel(),
+                      audioLabel: _neutralAudioLabel(),
+                      capabilityLabels: capabilityLabels,
+                      showSubtitleArrow: subtitleTracks.isNotEmpty,
+                      showAudioArrow: audioTracks.length > 1,
+                      subtitleExpanded: _neutralSubtitleSelectorExpanded,
+                      audioExpanded: _neutralAudioSelectorExpanded,
+                      onSubtitleTap: subtitleTracks.isNotEmpty
+                          ? () => _showNeutralSubtitleSheet()
+                          : null,
+                      onAudioTap: audioTracks.length > 1
+                          ? () => _showNeutralAudioSheet()
+                          : null,
+                    ),
+                  ],
                   const SizedBox(height: 16),
                   SizedBox(
                     width: double.infinity,
@@ -623,6 +790,12 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                       label: const Text('播放功能即将到来'),
                     ),
                   ),
+                  if (showVersionSelector)
+                    DetailResolutionSection(
+                      options: versionLabels,
+                      selected: versionSelectedKey,
+                      onSelected: _selectNeutralVersion,
+                    ),
                 ],
               ),
             ),
@@ -930,6 +1103,12 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       _locateMapZhCn = const <String, String>{};
       _authorizedDirs = const <AuthorizedDirEntry>[];
       _sourceInfo = null;
+      _neutralVersions = const <MediaSourceVersion>[];
+      _neutralSelectedVersionIndex = 0;
+      _neutralSelectedAudioId = null;
+      _neutralSelectedSubtitleId = null;
+      _neutralAudioSelectorExpanded = false;
+      _neutralSubtitleSelectorExpanded = false;
     });
 
     // 分屏详情等副引擎冷启动时,后端会话可能尚未从磁盘就绪 → MediaBackendProvider 会暂时
@@ -945,17 +1124,23 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       _neutralDisplayOnly = true;
       try {
         final detail = await backend.getItemDetail(_currentItemGuid);
-        // 文件 / 视频信息 best-effort:失败不阻断详情展示。
-        MediaSourceInfo? sourceInfo;
+        // 版本 + 文件/视频信息 best-effort:失败不阻断详情展示。
+        var versions = const <MediaSourceVersion>[];
         try {
-          sourceInfo = await backend.getItemSourceInfo(_currentItemGuid);
+          versions = await backend.getItemSourceVersions(_currentItemGuid);
         } catch (_) {
-          sourceInfo = null;
+          versions = const <MediaSourceVersion>[];
         }
+        final selectedVersion = versions.isNotEmpty ? versions.first : null;
         if (!mounted) return;
         setState(() {
           _detail = detail;
-          _sourceInfo = sourceInfo;
+          _neutralVersions = versions;
+          _neutralSelectedVersionIndex = 0;
+          // 音轨/字幕初始化为选中版本的默认轨(无默认则首条音轨 / 字幕关闭)。
+          _neutralSelectedAudioId = _defaultAudioIdFor(selectedVersion);
+          _neutralSelectedSubtitleId = selectedVersion?.defaultSubtitleId ?? '';
+          _sourceInfo = selectedVersion?.info;
           _data = null;
           _liked = detail.favorite;
           _watched = detail.watched;
