@@ -106,6 +106,80 @@ void main() {
     expect(body.containsKey('MediaSourceId'), isFalse);
   });
 
+  test(
+    'reportPlaybackStart POST /Sessions/Playing + PlayMethod/CanSeek',
+    () async {
+      late RequestOptions captured;
+      final adapter = _FakeDioAdapter((options) {
+        captured = options;
+        return const _JsonResponse(<String, Object?>{});
+      });
+      final api2 = EmbyApi(
+        dio: Dio(BaseOptions())..httpClientAdapter = adapter,
+      );
+      await api2.reportPlaybackStart(
+        serverUrl: 'https://emby.example.test',
+        userId: 'user-1',
+        accessToken: 'tok',
+        itemId: 'item-9',
+        mediaSourceId: 'src-3',
+        positionTicks: 6000000000,
+      );
+      expect(captured.method, 'POST');
+      expect(captured.uri.path, '/Sessions/Playing');
+      final body = captured.data as Map<String, Object?>;
+      expect(body['ItemId'], 'item-9');
+      expect(body['MediaSourceId'], 'src-3');
+      expect(body['PositionTicks'], 6000000000);
+      expect(body['PlayMethod'], 'DirectStream');
+      expect(body['CanSeek'], true);
+      // PlaybackStart 不带 Progress 专属字段。
+      expect(body.containsKey('EventName'), isFalse);
+    },
+  );
+
+  test('reportPlaybackStopped POST /Sessions/Playing/Stopped', () async {
+    late RequestOptions captured;
+    final adapter = _FakeDioAdapter((options) {
+      captured = options;
+      return const _JsonResponse(<String, Object?>{});
+    });
+    final api2 = EmbyApi(dio: Dio(BaseOptions())..httpClientAdapter = adapter);
+    await api2.reportPlaybackStopped(
+      serverUrl: 'https://emby.example.test',
+      userId: 'user-1',
+      accessToken: 'tok',
+      itemId: 'item-9',
+      mediaSourceId: 'src-3',
+      positionTicks: 1200000000,
+    );
+    expect(captured.uri.path, '/Sessions/Playing/Stopped');
+    final body = captured.data as Map<String, Object?>;
+    expect(body['PositionTicks'], 1200000000);
+    expect(body['PlayMethod'], 'DirectStream');
+  });
+
+  test('reportPlaybackProgress 带 PlayMethod/CanSeek + EventName', () async {
+    late RequestOptions captured;
+    final adapter = _FakeDioAdapter((options) {
+      captured = options;
+      return const _JsonResponse(<String, Object?>{});
+    });
+    final api2 = EmbyApi(dio: Dio(BaseOptions())..httpClientAdapter = adapter);
+    await api2.reportPlaybackProgress(
+      serverUrl: 'https://emby.example.test',
+      userId: 'user-1',
+      accessToken: 'tok',
+      itemId: 'item-9',
+      mediaSourceId: 'src-3',
+      positionTicks: 6000000000,
+    );
+    final body = captured.data as Map<String, Object?>;
+    expect(body['PlayMethod'], 'DirectStream');
+    expect(body['CanSeek'], true);
+    expect(body['EventName'], 'TimeUpdate');
+  });
+
   test('buildSubtitleUrl 拼 /Subtitles/{index}/Stream.<ext> + api_key', () {
     final url = api.buildSubtitleUrl(
       serverUrl: 'https://emby.example.test/',
