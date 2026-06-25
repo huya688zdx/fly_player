@@ -363,6 +363,39 @@ class EmbyApi {
     return '$normalizedServerUrl/Videos/${itemId.trim()}/$path?$qs';
   }
 
+  /// 回写播放进度——`POST /Sessions/Playing/Progress`，`api_key` 自鉴权。
+  ///
+  /// 让 Emby 更新该条目 `UserData.PlaybackPositionTicks`（续播位），使跨会话 / 跨客户端续播
+  /// 一致。[positionTicks] 为 100ns 单位（秒 ×1e7）。原生壳直链直播无 PlaybackInfo 会话，故不
+  /// 传 PlaySessionId（Emby 仍按 ItemId 更新 UserData）。best-effort：失败由调用方静默吞。
+  Future<void> reportPlaybackProgress({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    required String itemId,
+    required String mediaSourceId,
+    required int positionTicks,
+    bool isPaused = false,
+  }) async {
+    final normalizedServerUrl = normalizeServerUrl(serverUrl);
+    await _dio.post<Object?>(
+      '$normalizedServerUrl/Sessions/Playing/Progress',
+      queryParameters: <String, Object?>{'api_key': accessToken},
+      data: <String, Object?>{
+        'ItemId': itemId.trim(),
+        if (mediaSourceId.trim().isNotEmpty)
+          'MediaSourceId': mediaSourceId.trim(),
+        'PositionTicks': positionTicks < 0 ? 0 : positionTicks,
+        'IsPaused': isPaused,
+        'EventName': 'TimeUpdate',
+      },
+      options: Options(
+        contentType: Headers.jsonContentType,
+        headers: <String, Object?>{..._jsonHeaders},
+      ),
+    );
+  }
+
   static int _asCount(Object? value, int fallback) {
     if (value is int) return value;
     if (value is num) return value.toInt();
