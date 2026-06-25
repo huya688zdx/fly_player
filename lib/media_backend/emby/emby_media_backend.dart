@@ -3,6 +3,7 @@ import '../detail/media_detail.dart';
 import '../detail/media_episode_summary.dart';
 import '../detail/media_season_summary.dart';
 import '../detail/media_source_info.dart';
+import '../detail/media_source_version.dart';
 import '../filter/media_catalog_filter.dart';
 import '../media_backend.dart';
 import '../media_backend_capabilities.dart';
@@ -261,6 +262,20 @@ class EmbyMediaBackend implements MediaBackend {
     );
     final info = mapEmbySourceInfo(item);
     return info.isEmpty ? null : info;
+  }
+
+  @override
+  Future<List<MediaSourceVersion>> getItemSourceVersions(String itemId) async {
+    // 与 getItemSourceInfo 同一拉取（MediaSources 含每源 MediaStreams + Default*StreamIndex），
+    // 但保留所有源映射成可选版本 + 音轨 / 字幕轨。
+    final item = await api.getItem(
+      serverUrl: _serverUrl,
+      userId: _userId,
+      accessToken: _token,
+      itemId: itemId,
+      fields: 'MediaSources,DateCreated',
+    );
+    return mapEmbySourceVersions(item);
   }
 
   @override
