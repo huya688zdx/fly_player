@@ -14,6 +14,10 @@ class MediaItemCard {
   final String secondaryTitle;
   final String type;
 
+  /// 单集所属系列的 guid（Emby `SeriesId`）。供「继续观看」单集卡片点进时定位系列详情
+  /// （单集本身无选集，须用系列 guid 打开 TV 详情）。非单集 / 后端未提供时为空。
+  final String seriesId;
+
   final MediaImageRef primaryImage;
 
   /// 多候选封面（飞牛 `poster_list`）。卡片按顺序择优，为空回退 [primaryImage]。
@@ -58,6 +62,7 @@ class MediaItemCard {
     required this.type,
     required this.primaryImage,
     this.secondaryTitle = '',
+    this.seriesId = '',
     this.posters = const <MediaImageRef>[],
     this.backdropImage = MediaImageRef.empty,
     this.durationSeconds = 0,
@@ -97,6 +102,7 @@ class MediaItemCard {
     String? title,
     String? secondaryTitle,
     String? type,
+    String? seriesId,
     MediaImageRef? primaryImage,
     List<MediaImageRef>? posters,
     MediaImageRef? backdropImage,
@@ -122,6 +128,7 @@ class MediaItemCard {
       title: title ?? this.title,
       secondaryTitle: secondaryTitle ?? this.secondaryTitle,
       type: type ?? this.type,
+      seriesId: seriesId ?? this.seriesId,
       primaryImage: primaryImage ?? this.primaryImage,
       posters: posters ?? this.posters,
       backdropImage: backdropImage ?? this.backdropImage,

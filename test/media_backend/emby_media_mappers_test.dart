@@ -84,6 +84,7 @@ void main() {
           'Name': '第三集',
           'Type': 'Episode',
           'SeriesName': '剧集名',
+          'SeriesId': 'series-9',
           'ParentIndexNumber': 1,
           'IndexNumber': 3,
         },
@@ -92,6 +93,8 @@ void main() {
       );
       expect(card.secondaryTitle, '剧集名');
       expect(card.displayTitle, '剧集名');
+      // 继续观看单集点进时用 seriesId 打开系列详情（单集本身无选集）。
+      expect(card.seriesId, 'series-9');
       expect(card.seasonNumber, 1);
       expect(card.episodeNumber, 3);
       expect(card.watched, isFalse);
