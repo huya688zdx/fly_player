@@ -363,11 +363,36 @@ class EmbyApi {
     return '$normalizedServerUrl/Videos/${itemId.trim()}/$path?$qs';
   }
 
+  /// 播放开始——`POST /Sessions/Playing`，`api_key` 自鉴权。
+  ///
+  /// 实测 Emby **必须先收到 PlaybackStart 建立播放会话**，之后的 `/Progress` 才会被持久化进
+  /// `UserData.PlaybackPositionTicks`（否则只发 Progress 续播位不更新、继续观看不出条目）。
+  /// 故原生壳直链直播首次回传进度前先调本方法开会话。[PlayMethod]=DirectStream（直链原文件）。
+  Future<void> reportPlaybackStart({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    required String itemId,
+    required String mediaSourceId,
+    int positionTicks = 0,
+  }) async {
+    final normalizedServerUrl = normalizeServerUrl(serverUrl);
+    await _dio.post<Object?>(
+      '$normalizedServerUrl/Sessions/Playing',
+      queryParameters: <String, Object?>{'api_key': accessToken},
+      data: _playStateBody(itemId, mediaSourceId, positionTicks),
+      options: Options(
+        contentType: Headers.jsonContentType,
+        headers: <String, Object?>{..._jsonHeaders},
+      ),
+    );
+  }
+
   /// 回写播放进度——`POST /Sessions/Playing/Progress`，`api_key` 自鉴权。
   ///
   /// 让 Emby 更新该条目 `UserData.PlaybackPositionTicks`（续播位），使跨会话 / 跨客户端续播
-  /// 一致。[positionTicks] 为 100ns 单位（秒 ×1e7）。原生壳直链直播无 PlaybackInfo 会话，故不
-  /// 传 PlaySessionId（Emby 仍按 ItemId 更新 UserData）。best-effort：失败由调用方静默吞。
+  /// 一致。[positionTicks] 为 100ns 单位（秒 ×1e7）。须在 [reportPlaybackStart] 开会话后调用
+  /// 才会被持久化。best-effort：失败由调用方静默吞。
   Future<void> reportPlaybackProgress({
     required String serverUrl,
     required String userId,
@@ -381,19 +406,64 @@ class EmbyApi {
     await _dio.post<Object?>(
       '$normalizedServerUrl/Sessions/Playing/Progress',
       queryParameters: <String, Object?>{'api_key': accessToken},
-      data: <String, Object?>{
-        'ItemId': itemId.trim(),
-        if (mediaSourceId.trim().isNotEmpty)
-          'MediaSourceId': mediaSourceId.trim(),
-        'PositionTicks': positionTicks < 0 ? 0 : positionTicks,
-        'IsPaused': isPaused,
-        'EventName': 'TimeUpdate',
-      },
+      data: _playStateBody(
+        itemId,
+        mediaSourceId,
+        positionTicks,
+        isPaused,
+        true,
+      ),
       options: Options(
         contentType: Headers.jsonContentType,
         headers: <String, Object?>{..._jsonHeaders},
       ),
     );
+  }
+
+  /// 播放停止——`POST /Sessions/Playing/Stopped`，`api_key` 自鉴权。关闭播放会话并落定最终
+  /// 续播位（Emby 据此判断是否标记已看 / 移出继续观看）。best-effort：失败由调用方静默吞。
+  Future<void> reportPlaybackStopped({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    required String itemId,
+    required String mediaSourceId,
+    required int positionTicks,
+  }) async {
+    final normalizedServerUrl = normalizeServerUrl(serverUrl);
+    await _dio.post<Object?>(
+      '$normalizedServerUrl/Sessions/Playing/Stopped',
+      queryParameters: <String, Object?>{'api_key': accessToken},
+      data: _playStateBody(itemId, mediaSourceId, positionTicks),
+      options: Options(
+        contentType: Headers.jsonContentType,
+        headers: <String, Object?>{..._jsonHeaders},
+      ),
+    );
+  }
+
+  /// 三个播放会话端点共用的 PlaybackProgressInfo 体。[withProgressFields] 时附带
+  /// IsPaused/EventName（仅 /Progress 需要）。PlayMethod/CanSeek 让 Emby 把它当成一次真实
+  /// 直链播放会话登记（缺这些字段部分 Emby 版本会忽略上报、续播位不持久化）。
+  static Map<String, Object?> _playStateBody(
+    String itemId,
+    String mediaSourceId,
+    int positionTicks, [
+    bool isPaused = false,
+    bool withProgressFields = false,
+  ]) {
+    return <String, Object?>{
+      'ItemId': itemId.trim(),
+      if (mediaSourceId.trim().isNotEmpty)
+        'MediaSourceId': mediaSourceId.trim(),
+      'PositionTicks': positionTicks < 0 ? 0 : positionTicks,
+      'PlayMethod': 'DirectStream',
+      'CanSeek': true,
+      if (withProgressFields) ...<String, Object?>{
+        'IsPaused': isPaused,
+        'EventName': 'TimeUpdate',
+      },
+    };
   }
 
   /// 外挂字幕直链——`GET /Videos/{itemId}/{mediaSourceId}/Subtitles/{index}/Stream.{ext}`，
