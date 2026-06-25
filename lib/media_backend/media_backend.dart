@@ -76,6 +76,14 @@ abstract class MediaBackend {
   /// 返回空串表示无可播单集。
   Future<String> resolveSeriesPlaybackTarget(String seriesId) async => seriesId;
 
+  /// 系列页主播放键要起播的「续看/首集」摘要（含季/集号，供按键文案显示「第 X 季 第 Y 集」）。
+  ///
+  /// 默认 null（飞牛走自有 PlayInfo 文案，不经此）；Emby override 为续看/首集解析。系列页加载时
+  /// 调一次拿到目标集，按键文案与点击起播复用同一目标，避免点击时再解析一遍。
+  Future<MediaEpisodeSummary?> resolveSeriesNextUpEpisode(
+    String seriesId,
+  ) async => null;
+
   /// 某一季的选集列表。
   Future<List<MediaEpisodeSummary>> getSeasonEpisodes(String seasonId);
 

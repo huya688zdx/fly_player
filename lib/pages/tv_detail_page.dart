@@ -9,7 +9,9 @@ import '../controllers/play_detail_item_actions.dart';
 import '../controllers/tv_season_playback_launcher.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/detail/media_detail.dart';
+import '../media_backend/detail/media_episode_summary.dart';
 import '../media_backend/detail/media_season_summary.dart';
+import '../media_backend/media_backend.dart';
 import '../media_backend/media_backend_kind.dart';
 import '../media_backend/media_image_ref.dart';
 import '../models/media_library_item.dart';
@@ -91,6 +93,9 @@ class _TvDetailPageState extends State<TvDetailPage>
   bool _neutralDisplayOnly = false;
   MediaDetail? _neutralDetail;
   List<MediaSeasonSummary> _neutralSeasons = const [];
+  // 中立(Emby)系列页主播放键的「续看/首集」目标：按键文案显示「第 X 季 第 Y 集」+ 点击起播
+  // 复用同一目标（避免点击再解析）。null=尚未解析或无可播单集。
+  MediaEpisodeSummary? _neutralPlayTarget;
   List<MediaLibraryItem> _seasonItems = const [];
   Object? _reentryToken;
   Map<int, String> _genresMapZhCn = const {};
@@ -374,6 +379,9 @@ class _TvDetailPageState extends State<TvDetailPage>
         _artworkReady = true;
         _loading = false;
       });
+      // 主播放键「续看/首集」目标 best-effort 解析（含季/集号供按键文案）：不阻断详情展示，
+      // 解析完更新按键标签（解析前先显示「播放」）。
+      unawaited(_resolveNeutralPlayTarget(backend));
       // 复用飞牛的入场动画(描述/季卡 pop)。
       _descriptionVisible = true;
       _descriptionPopController.forward(from: 0);
@@ -1090,7 +1098,7 @@ class _TvDetailPageState extends State<TvDetailPage>
                                     'player.play.preparing',
                                     'Preparing playback',
                                   )
-                                : _t('player.play.play', 'Play'),
+                                : _neutralPlayLabel(),
                           ),
                         ),
                       ),
@@ -1374,6 +1382,39 @@ class _TvDetailPageState extends State<TvDetailPage>
     }
   }
 
+  /// 解析中立(Emby)系列页主播放键的续看/首集目标，更新按键文案。best-effort：失败保持「播放」。
+  Future<void> _resolveNeutralPlayTarget(MediaBackend backend) async {
+    try {
+      final target = await backend.resolveSeriesNextUpEpisode(widget.itemGuid);
+      if (!mounted || target == null) return;
+      setState(() => _neutralPlayTarget = target);
+    } catch (_) {}
+  }
+
+  /// 中立(Emby)主播放键文案：解析到续看/首集则显示「第 X 季 第 Y 集」（与飞牛同 l10n key），
+  /// 否则「播放」。
+  String _neutralPlayLabel() {
+    final target = _neutralPlayTarget;
+    if (target != null && target.seasonNumber > 0 && target.episodeNumber > 0) {
+      return _t(
+        'layout.subheading.seasonEpisode.number',
+        'Season {season} episode {episode}',
+        params: {
+          'season': target.seasonNumber,
+          'episode': target.episodeNumber,
+        },
+      );
+    }
+    if (target != null && target.episodeNumber > 0) {
+      return _t(
+        'layout.subheading.episode.number',
+        'Episode {number}',
+        params: {'number': target.episodeNumber},
+      );
+    }
+    return _t('player.play.play', 'Play');
+  }
+
   Future<void> _launchPrimaryPlayback() async {
     if (_playPreparing) {
       _showTopTip(
@@ -1394,11 +1435,13 @@ class _TvDetailPageState extends State<TvDetailPage>
                   : _detail,
             )
           : (_neutralDetail?.title ?? '');
-      // Emby 系列 guid 不可直接播（无 MediaSources），先解析续看/首集；飞牛由 launcher/NAS
-      // 自行解析，原样传系列 guid。
+      // Emby 系列 guid 不可直接播（无 MediaSources），起播具体单集：复用加载时已解析的续看/
+      // 首集目标（按键文案同源）；尚未解析好则即时解析一次。飞牛由 launcher/NAS 自行解析，
+      // 原样传系列 guid。
       final playItemId = isFeiniu
           ? widget.itemGuid
-          : await backend.resolveSeriesPlaybackTarget(widget.itemGuid);
+          : (_neutralPlayTarget?.id ??
+                await backend.resolveSeriesPlaybackTarget(widget.itemGuid));
       if (!mounted) return;
       if (playItemId.trim().isEmpty) {
         _showTopTip(
