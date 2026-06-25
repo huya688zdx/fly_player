@@ -348,28 +348,32 @@ class EmbyMediaBackend implements MediaBackend {
 
   @override
   Future<String> resolveSeriesPlaybackTarget(String seriesId) async {
+    return (await resolveSeriesNextUpEpisode(seriesId))?.id ?? '';
+  }
+
+  @override
+  Future<MediaEpisodeSummary?> resolveSeriesNextUpEpisode(
+    String seriesId,
+  ) async {
     // 系列页主播放键的「续看/首集」解析：系列 guid 不能直接 getPlayback（无 MediaSources），
     // 须定到具体单集。按季号升序遍历各季选集——任一集有进度（resume>0）即续看该集；否则记下
     // 最早的「首个未看」与「首集」，遍历完回退。仅用现有中立 getItemSeasons/getSeasonEpisodes。
     final seasons = await getItemSeasons(seriesId);
-    if (seasons.isEmpty) return '';
+    if (seasons.isEmpty) return null;
     final sorted = [...seasons]
       ..sort((a, b) => a.seasonNumber.compareTo(b.seasonNumber));
-    var firstEpisodeId = '';
-    var firstUnwatchedId = '';
+    MediaEpisodeSummary? firstEpisode;
+    MediaEpisodeSummary? firstUnwatched;
     for (final season in sorted) {
       final episodes = await getSeasonEpisodes(season.id);
       if (episodes.isEmpty) continue;
-      if (firstEpisodeId.isEmpty) firstEpisodeId = episodes.first.id;
+      firstEpisode ??= episodes.first;
       for (final episode in episodes) {
-        if (episode.resumePositionSeconds > 0) return episode.id;
-        if (firstUnwatchedId.isEmpty && !episode.watched) {
-          firstUnwatchedId = episode.id;
-        }
+        if (episode.resumePositionSeconds > 0) return episode;
+        firstUnwatched ??= episode.watched ? null : episode;
       }
     }
-    if (firstUnwatchedId.isNotEmpty) return firstUnwatchedId;
-    return firstEpisodeId;
+    return firstUnwatched ?? firstEpisode;
   }
 
   @override
