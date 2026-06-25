@@ -2,6 +2,7 @@ import '../detail/media_detail.dart';
 import '../detail/media_episode_summary.dart';
 import '../detail/media_season_summary.dart';
 import '../detail/media_source_info.dart';
+import '../detail/media_source_version.dart';
 import '../media_catalog.dart';
 import '../media_image_ref.dart';
 import '../media_item_card.dart';
@@ -178,12 +179,92 @@ MediaSourceInfo mapEmbySourceInfo(Map<String, Object?> item) {
   if (sources is List && sources.isNotEmpty && sources.first is Map) {
     source = Map<String, Object?>.from(sources.first as Map);
   }
-  final path = (source?['Path'] ?? '').toString().trim();
-  final container = (source?['Container'] ?? '').toString().trim();
-  final size = _asInt(source?['Size']);
   final addedDate = (item['DateCreated'] ?? '').toString().trim();
+  if (source == null) {
+    return MediaSourceInfo(addedDate: addedDate);
+  }
+  return _sourceInfoFromSource(source, addedDate);
+}
 
-  final rawStreams = source?['MediaStreams'];
+/// Emby `BaseItemDto`（含 `MediaSources`）→ 中立 [MediaSourceVersion] 列表（详情页版本 /
+/// 音轨 / 字幕选择器）。把**每个** `MediaSource` 映射成一个可选版本，连同其音轨 / 字幕轨。
+///
+/// 与 [mapEmbySourceInfo]（只取首源的展示信息）的差别：保留所有源、并额外抽出可选轨道
+/// （带稳定 id = stream `Index`）+ 版本默认音轨 / 字幕。展示信息部分复用同一映射。
+List<MediaSourceVersion> mapEmbySourceVersions(Map<String, Object?> item) {
+  final sources = item['MediaSources'];
+  if (sources is! List) return const <MediaSourceVersion>[];
+  final addedDate = (item['DateCreated'] ?? '').toString().trim();
+  final versions = <MediaSourceVersion>[];
+  for (final raw in sources) {
+    if (raw is! Map) continue;
+    final source = Map<String, Object?>.from(raw);
+    final id = (source['Id'] ?? '').toString();
+    final info = _sourceInfoFromSource(source, addedDate);
+
+    final rawStreams = source['MediaStreams'];
+    final audioTracks = <MediaTrackOption>[];
+    final subtitleTracks = <MediaTrackOption>[];
+    String videoResolution = '';
+    String videoRange = '';
+    if (rawStreams is List) {
+      for (final rawStream in rawStreams) {
+        if (rawStream is! Map) continue;
+        final stream = Map<String, Object?>.from(rawStream);
+        final index = _asInt(stream['Index']);
+        switch ((stream['Type'] ?? '').toString().toLowerCase()) {
+          case 'video':
+            if (videoResolution.isEmpty) {
+              final height = _asInt(stream['Height']);
+              if (height > 0) videoResolution = '${height}p';
+              videoRange = (stream['VideoRange'] ?? '').toString().trim();
+            }
+            break;
+          case 'audio':
+            audioTracks.add(_trackOption(stream, index, isSubtitle: false));
+            break;
+          case 'subtitle':
+            subtitleTracks.add(_trackOption(stream, index, isSubtitle: true));
+            break;
+        }
+      }
+    }
+
+    final name = (source['Name'] ?? '').toString().trim();
+    final label = videoResolution.isNotEmpty
+        ? videoResolution
+        : (name.isNotEmpty ? name : '源 ${versions.length + 1}');
+    final badges = <String>[
+      if (videoResolution.isNotEmpty) videoResolution,
+      if (videoRange.isNotEmpty && videoRange.toUpperCase() != 'SDR')
+        videoRange,
+    ];
+
+    versions.add(
+      MediaSourceVersion(
+        id: id,
+        label: label,
+        badges: badges,
+        info: info,
+        audioTracks: audioTracks,
+        subtitleTracks: subtitleTracks,
+        defaultAudioId: _streamIndexId(source['DefaultAudioStreamIndex']),
+        defaultSubtitleId: _streamIndexId(source['DefaultSubtitleStreamIndex']),
+      ),
+    );
+  }
+  return versions;
+}
+
+/// Emby `MediaSource` → 中立 [MediaSourceInfo]（单源展示信息）。
+MediaSourceInfo _sourceInfoFromSource(
+  Map<String, Object?> source,
+  String addedDate,
+) {
+  final path = (source['Path'] ?? '').toString().trim();
+  final container = (source['Container'] ?? '').toString().trim();
+  final size = _asInt(source['Size']);
+  final rawStreams = source['MediaStreams'];
   final streams = <MediaSourceStream>[];
   if (rawStreams is List) {
     for (final raw in rawStreams) {
@@ -209,6 +290,46 @@ MediaSourceInfo mapEmbySourceInfo(Map<String, Object?> item) {
     addedDate: addedDate,
     streams: streams,
   );
+}
+
+/// Emby 音轨 / 字幕 `MediaStream` → 中立可选 [MediaTrackOption]（id=stream `Index`）。
+MediaTrackOption _trackOption(
+  Map<String, Object?> stream,
+  int index, {
+  required bool isSubtitle,
+}) {
+  final display = (stream['DisplayTitle'] ?? '').toString().trim();
+  final language = (stream['Language'] ?? '').toString().trim();
+  final title = (stream['Title'] ?? '').toString().trim();
+  final codec = (stream['Codec'] ?? '').toString().trim().toUpperCase();
+  final label = display.isNotEmpty
+      ? display
+      : <String>[
+          if (language.isNotEmpty) language,
+          if (title.isNotEmpty) title,
+          if (codec.isNotEmpty) codec,
+        ].join(' ').trim();
+  final external = stream['IsExternal'] == true;
+  final summary = isSubtitle
+      ? (external ? '外挂' : '')
+      : <String>[
+          if (codec.isNotEmpty) codec,
+          if ((stream['ChannelLayout'] ?? '').toString().trim().isNotEmpty)
+            (stream['ChannelLayout']).toString().trim(),
+        ].join(' · ');
+  return MediaTrackOption(
+    id: '$index',
+    label: label.isNotEmpty ? label : '#$index',
+    summary: summary,
+    isExternal: external,
+  );
+}
+
+/// Emby `Default*StreamIndex` → 轨道 id 串；缺失 / 负值（无 / 关闭）返回空。
+String _streamIndexId(Object? value) {
+  final index = value is int ? value : int.tryParse('${value ?? ''}');
+  if (index == null || index < 0) return '';
+  return '$index';
 }
 
 MediaSourceStream _videoStream(Map<String, Object?> stream) {

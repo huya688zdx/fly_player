@@ -2,6 +2,7 @@ import 'detail/media_detail.dart';
 import 'detail/media_episode_summary.dart';
 import 'detail/media_season_summary.dart';
 import 'detail/media_source_info.dart';
+import 'detail/media_source_version.dart';
 import 'filter/media_catalog_filter.dart';
 import 'media_backend_capabilities.dart';
 import 'media_catalog.dart';
@@ -50,6 +51,13 @@ abstract class MediaBackend {
   /// 仅展示用，不含播放句柄/直链。飞牛有自己的文件/视频信息渲染路径，返回 `null` 表示该后端
   /// 不通过本接口提供（由页面侧走原路径）。
   Future<MediaSourceInfo?> getItemSourceInfo(String itemId);
+
+  /// 单个条目的「可选播放版本」列表（每个版本含其音轨 / 字幕轨），供详情页版本 / 音轨 /
+  /// 字幕选择器。仅展示 + 选择标识，不含播放句柄 / 直链。
+  ///
+  /// 默认返回空（飞牛走自有版本 / 轨道选择路径，不经本接口）；Emby 等公共后端 override。
+  Future<List<MediaSourceVersion>> getItemSourceVersions(String itemId) async =>
+      const <MediaSourceVersion>[];
 
   /// 剧集的季列表。
   Future<List<MediaSeasonSummary>> getItemSeasons(String seriesId);
