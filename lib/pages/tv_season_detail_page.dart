@@ -1211,10 +1211,17 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
   }
 
   String _neutralPreferredEpisodeGuid(List<MediaEpisodeSummary> episodes) {
+    if (episodes.isEmpty) return '';
+    // 优先：有断点续看进度的一集（即「正在看」的那集）——反映最新播放进度。
     for (final ep in episodes) {
-      if (ep.resumePositionSeconds > 0 || ep.watched) return ep.id;
+      if (ep.resumePositionSeconds > 0) return ep.id;
     }
-    return episodes.isNotEmpty ? episodes.first.id : '';
+    // 其次：首个未看完的一集（看完前几集后应落在「下一集」，而非死锁第 1 集）。
+    for (final ep in episodes) {
+      if (!ep.watched) return ep.id;
+    }
+    // 全部看完：回到第 1 集。
+    return episodes.first.id;
   }
 
   int _neutralRangeIndexFor(
