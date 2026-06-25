@@ -808,7 +808,12 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               bottomPadding: media.padding.bottom + 18,
             ),
           if (creditItems.isNotEmpty)
-            _buildCreditsSliver(colors: colors, items: creditItems, token: ''),
+            _buildCreditsSliver(
+              colors: colors,
+              items: creditItems,
+              token: '',
+              onTap: _openCreditPerson,
+            ),
           if (_sourceInfo != null && _sourceInfo!.isNotEmpty)
             SliverToBoxAdapter(
               child: _sectionReveal(

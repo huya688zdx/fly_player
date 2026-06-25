@@ -127,6 +127,20 @@ class _TvDetailPageState extends State<TvDetailPage>
   bool get _isPane => widget.presentation == DetailPresentation.pane;
   bool get _useRuntimeCache => _isPane;
 
+  void _openCreditPerson(CreditPersonItem person) {
+    final guid = person.personGuid.trim();
+    if (guid.isEmpty) return;
+    AdaptiveDetailNavigator.open<void>(
+      context,
+      AdaptiveDetailRequest.person(
+        personGuid: guid,
+        initialName: person.name,
+        initialLocaleMap: _localeMap,
+      ),
+      presentation: _isPane ? DetailPresentation.pane : DetailPresentation.page,
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1142,6 +1156,7 @@ class _TvDetailPageState extends State<TvDetailPage>
                           ),
                           items: creditItems,
                           token: '',
+                          onTap: _openCreditPerson,
                         ),
                       ],
                       const SizedBox(height: 16),
