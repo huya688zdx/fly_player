@@ -3,6 +3,7 @@ import 'package:fly_player/api/emby_api.dart';
 import 'package:fly_player/media_backend/emby/emby_media_backend.dart';
 import 'package:fly_player/media_backend/filter/media_catalog_filter.dart';
 import 'package:fly_player/media_backend/media_backend_kind.dart';
+import 'package:fly_player/media_backend/playback/media_playback.dart';
 import 'package:fly_player/media_backend/session/media_backend_connection.dart';
 
 class _FakeEmbyApi extends EmbyApi {
@@ -16,6 +17,7 @@ class _FakeEmbyApi extends EmbyApi {
     this.favoriteCount = 0,
     this.pageItems = const [],
     this.pageTotal = 0,
+    this.resumeItems = const [],
   });
 
   final List<Map<String, Object?>> views;
@@ -23,6 +25,7 @@ class _FakeEmbyApi extends EmbyApi {
   final Map<String, Object?> item;
   final List<Map<String, Object?>> seasons;
   final List<Map<String, Object?>> genres;
+  final List<Map<String, Object?>> resumeItems;
   // 计数桩：键=IncludeItemTypes（如 'Movie'/'Series'），值=TotalRecordCount。
   final Map<String, int> countByIncludeItemTypes;
   final int favoriteCount;
@@ -45,9 +48,12 @@ class _FakeEmbyApi extends EmbyApi {
   String lastPageGenres = '';
   String lastPageSortBy = '';
   String lastPageSortOrder = '';
+  String lastPageSearchTerm = '';
   // getGenres 入参捕获。
   String? lastGenresParentId;
   String lastGenresIncludeItemTypes = '';
+  // getResumeItems 入参捕获。
+  int lastResumeLimit = 0;
 
   @override
   Future<int> getItemCount({
@@ -130,6 +136,7 @@ class _FakeEmbyApi extends EmbyApi {
     String fields = '',
     String sortBy = '',
     String sortOrder = '',
+    String searchTerm = '',
   }) async {
     lastPageParentId = parentId;
     lastPageStartIndex = startIndex;
@@ -138,6 +145,7 @@ class _FakeEmbyApi extends EmbyApi {
     lastPageGenres = genres;
     lastPageSortBy = sortBy;
     lastPageSortOrder = sortOrder;
+    lastPageSearchTerm = searchTerm;
     return EmbyItemPage(items: pageItems, totalRecordCount: pageTotal);
   }
 
@@ -152,6 +160,18 @@ class _FakeEmbyApi extends EmbyApi {
     lastGenresParentId = parentId;
     lastGenresIncludeItemTypes = includeItemTypes;
     return genres;
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> getResumeItems({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    int limit = 20,
+    String fields = '',
+  }) async {
+    lastResumeLimit = limit;
+    return resumeItems;
   }
 }
 
@@ -210,16 +230,55 @@ void main() {
     expect(items[0].id, 'item-1');
   });
 
-  test('getContinueWatching：isResumable 过滤', () async {
+  test('getContinueWatching：走 /Items/Resume；电影续播卡用 backdrop', () async {
     final api = _FakeEmbyApi(
-      items: <Map<String, Object?>>[
-        <String, Object?>{'Id': 'r-1', 'Name': '续播', 'Type': 'Movie'},
+      resumeItems: <Map<String, Object?>>[
+        <String, Object?>{
+          'Id': 'r-1',
+          'Name': '续播电影',
+          'Type': 'Movie',
+          'ImageTags': <String, Object?>{'Primary': 'p1'},
+          'BackdropImageTags': <Object?>['b1'],
+        },
+        <String, Object?>{
+          'Id': 'r-2',
+          'Name': '续播单集',
+          'Type': 'Episode',
+          'ImageTags': <String, Object?>{'Primary': 'ep1'},
+          'BackdropImageTags': <Object?>['bep'],
+        },
       ],
     );
     final backend = EmbyMediaBackend(api: api, connection: connection);
     final items = await backend.getContinueWatching();
-    expect(api.lastIsResumable, isTrue);
-    expect(items, hasLength(1));
+    expect(api.lastResumeLimit, 20);
+    expect(items, hasLength(2));
+    // 电影:横版卡用 backdrop 顶替 Primary。
+    expect(items[0].primaryImage.url, contains('/Images/Backdrop?tag=b1'));
+    // 单集:Primary 本身横版剧照,保持不动。
+    expect(items[1].primaryImage.url, contains('/Images/Primary?tag=ep1'));
+  });
+
+  test('searchItems：SearchTerm + Movie,Series,Episode', () async {
+    final api = _FakeEmbyApi(
+      pageItems: <Map<String, Object?>>[
+        <String, Object?>{'Id': 's-1', 'Name': '命中', 'Type': 'Movie'},
+      ],
+    );
+    final backend = EmbyMediaBackend(api: api, connection: connection);
+    final results = await backend.searchItems('  关键词  ');
+    expect(api.lastPageSearchTerm, '关键词');
+    expect(api.lastPageIncludeItemTypes, 'Movie,Series,Episode');
+    expect(results, hasLength(1));
+    expect(results.first.id, 's-1');
+  });
+
+  test('searchItems：空查询直接返回空、不打网络', () async {
+    final api = _FakeEmbyApi();
+    final backend = EmbyMediaBackend(api: api, connection: connection);
+    final results = await backend.searchItems('   ');
+    expect(results, isEmpty);
+    expect(api.lastPageSearchTerm, '');
   });
 
   test('getHomeSummary：按类型 TotalRecordCount 拼计数，total=电影+电视剧', () async {
@@ -416,12 +475,15 @@ void main() {
     expect(versions.first.info.path, '/movies/a.mkv');
   });
 
-  test('未实现方法一律 throw UnsupportedError', () async {
+  test('getPlayback 仍未实现：throw UnsupportedError', () async {
     final backend = EmbyMediaBackend(
       api: _FakeEmbyApi(),
       connection: connection,
     );
-    await expectLater(backend.searchItems('x'), throwsUnsupportedError);
+    await expectLater(
+      backend.getPlayback(const MediaPlaybackRequest(itemId: 'x')),
+      throwsUnsupportedError,
+    );
   });
 }
 
