@@ -36,8 +36,8 @@ import '../controllers/item_playback_launcher.dart';
 import '../services/app_log_service.dart';
 import '../services/detail_runtime_cache.dart';
 import '../services/native_danmaku_prefetch.dart';
+import '../services/native_playback_reentry.dart';
 import '../services/native_player_bridge.dart';
-import '../services/native_reentry_support.dart';
 import '../services/download_task_service.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../theme/app_theme.dart';
@@ -1978,6 +1978,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           // 反向通道：电影/单视频用 ItemPlaybackLauncher 重解析画质 + 续播回写（无选集）。
           // 本地外部视频无 NAS 上下文，resolver 自然返回 null/进度回写跳过，降级不影响播放。
           final nas = context.read<NasProvider>();
+          final backend = context.read<MediaBackendProvider>().backend;
           // Bug fix(继续观看无选集 + 无弹幕)：episode 类型加载整季集列表供原生壳
           // 选集对话框使用；同时改为 launch + 手动弹幕预取（原 launch 不预取弹幕）。
           List<Map<String, dynamic>> episodes = const [];
@@ -2008,7 +2009,12 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           // Bug 1 fix(选集消失)：捕获 episodes 进闭包，切集时回传给 resolver 合并进
           // loadArgs["episodes"]，保证每次换源后原生壳选集数据不丢。
           final capturedEpisodes = episodes;
-          NativePlayerBridge.bindReentry(
+          // 经统一 binder 按后端接线（本路径为飞牛电影/单视频，backend 即飞牛）。切集回传
+          // 捕获的整季 episodes 合并进 loadArgs，保证换源后原生壳选集数据不丢。
+          NativePlaybackReentry.bind(
+            backend: backend,
+            nas: nas,
+            fallbackEpisodes: () => capturedEpisodes,
             onResolvePlayback:
                 (
                   itemGuid, {
@@ -2031,34 +2037,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                   audioGuid: audioGuid,
                   episodes: capturedEpisodes.isEmpty ? null : capturedEpisodes,
                 ),
-            onRecordProgress: (progress) =>
-                NativeReentrySupport.recordProgress(nas, progress),
-            onResolveSubtitleFile: (guid, {format}) =>
-                NativeReentrySupport.resolveSubtitleFile(
-                  nas,
-                  guid,
-                  format: format,
-                ),
-            onReloadServerSession: (currentLoadArgs, intent) =>
-                NativeReentrySupport.reloadServerSession(
-                  nas,
-                  currentLoadArgs: currentLoadArgs,
-                  intent: intent,
-                ),
-            onLoadEpisodePickerData: (currentLoadArgs, {seasonGuid}) =>
-                NativeReentrySupport.loadEpisodePickerData(
-                  nas,
-                  currentLoadArgs: currentLoadArgs,
-                  seasonGuid: seasonGuid ?? '',
-                  fallbackEpisodes: capturedEpisodes,
-                ),
-            onLoadSeasonEpisodes: (seasonGuid) =>
-                NativeReentrySupport.loadSeasonEpisodes(
-                  nas,
-                  seasonGuid: seasonGuid,
-                ),
-            onSetEpisodePickerViewType: (viewType) =>
-                NativeReentrySupport.setEpisodePickerViewType(nas, viewType),
           );
           await NativePlayerBridge.launch(
             loadArgs: source.toMap(),
