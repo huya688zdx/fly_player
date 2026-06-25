@@ -69,7 +69,11 @@ class EmbyPlaybackSourceBridge {
       url: source.url,
       headers: source.headers,
       title: bundle.title,
-      seriesTitle: bundle.seriesTitle,
+      // 系列名空（电影无系列）时回退条目标题——原生壳弹幕预取按 seriesTitle 匹配
+      // DanDanPlay，空则不匹配；复刻飞牛桥「tvTitle | fallbackTitle」让电影也能出弹幕。
+      seriesTitle: bundle.seriesTitle.trim().isNotEmpty
+          ? bundle.seriesTitle
+          : bundle.title,
       seasonNumber: bundle.seasonNumber,
       tmdbId: bundle.tmdbId,
       episodeNumber: bundle.episodeNumber,
