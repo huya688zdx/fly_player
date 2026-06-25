@@ -8,6 +8,7 @@ import '../detail/media_detail.dart';
 import '../detail/media_episode_summary.dart';
 import '../detail/media_season_summary.dart';
 import '../detail/media_source_info.dart';
+import '../detail/media_source_version.dart';
 import '../filter/media_catalog_filter.dart';
 import '../media_backend.dart';
 import '../media_backend_capabilities.dart';
@@ -139,6 +140,13 @@ class FeiniuMediaBackend implements MediaBackend {
     // 飞牛走页面侧自有的文件信息 / 视频信息渲染路径（FileInfoSection / VideoInfoSection
     // 读流轨道与本地下载记录），不经本中立接口。
     return null;
+  }
+
+  @override
+  Future<List<MediaSourceVersion>> getItemSourceVersions(String itemId) async {
+    // 飞牛走自有的版本 / 音轨 / 字幕选择路径（深绑 MpvMediaSource / StreamTrackData），
+    // 不经本中立接口。
+    return const <MediaSourceVersion>[];
   }
 
   @override

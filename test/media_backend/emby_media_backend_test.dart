@@ -384,6 +384,38 @@ void main() {
     expect(schema.sortOptions, isNotEmpty);
   });
 
+  test('getItemSourceVersions：getItem(MediaSources) → 版本列表', () async {
+    final api = _FakeEmbyApi(
+      item: <String, Object?>{
+        'Id': 'm-1',
+        'DateCreated': '2024-01-01T00:00:00Z',
+        'MediaSources': <Object?>[
+          <String, Object?>{
+            'Id': 'src-1',
+            'Path': '/movies/a.mkv',
+            'Container': 'mkv',
+            'MediaStreams': <Object?>[
+              <String, Object?>{'Type': 'Video', 'Index': 0, 'Height': 1080},
+              <String, Object?>{
+                'Type': 'Audio',
+                'Index': 1,
+                'DisplayTitle': '国语',
+              },
+            ],
+          },
+        ],
+      },
+    );
+    final backend = EmbyMediaBackend(api: api, connection: connection);
+    final versions = await backend.getItemSourceVersions('m-1');
+    expect(api.lastItemId, 'm-1');
+    expect(versions, hasLength(1));
+    expect(versions.first.id, 'src-1');
+    expect(versions.first.label, '1080p');
+    expect(versions.first.audioTracks, hasLength(1));
+    expect(versions.first.info.path, '/movies/a.mkv');
+  });
+
   test('未实现方法一律 throw UnsupportedError', () async {
     final backend = EmbyMediaBackend(
       api: _FakeEmbyApi(),

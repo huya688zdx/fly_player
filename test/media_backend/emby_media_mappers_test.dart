@@ -367,4 +367,75 @@ void main() {
       expect(episode.resumePositionSeconds, 0);
     });
   });
+
+  group('mapEmbySourceVersions', () {
+    test('多源 → 多版本：label/badges/轨道/默认轨', () {
+      final versions = mapEmbySourceVersions(<String, Object?>{
+        'DateCreated': '2024-01-01T00:00:00Z',
+        'MediaSources': <Object?>[
+          <String, Object?>{
+            'Id': 'src-4k',
+            'Path': '/movies/a.4k.mkv',
+            'Container': 'mkv',
+            'Size': 200,
+            'DefaultAudioStreamIndex': 1,
+            'DefaultSubtitleStreamIndex': 3,
+            'MediaStreams': <Object?>[
+              <String, Object?>{
+                'Type': 'Video',
+                'Index': 0,
+                'Height': 2160,
+                'VideoRange': 'HDR',
+              },
+              <String, Object?>{
+                'Type': 'Audio',
+                'Index': 1,
+                'DisplayTitle': '国语 FLAC 5.1',
+                'Codec': 'flac',
+                'ChannelLayout': '5.1',
+              },
+              <String, Object?>{
+                'Type': 'Subtitle',
+                'Index': 3,
+                'DisplayTitle': '简体中文',
+                'IsExternal': true,
+              },
+            ],
+          },
+          <String, Object?>{
+            'Id': 'src-1080',
+            'Container': 'mp4',
+            'MediaStreams': <Object?>[
+              <String, Object?>{'Type': 'Video', 'Index': 0, 'Height': 1080},
+            ],
+          },
+        ],
+      });
+
+      expect(versions, hasLength(2));
+      final v0 = versions[0];
+      expect(v0.id, 'src-4k');
+      expect(v0.label, '2160p');
+      expect(v0.badges, containsAll(<String>['2160p', 'HDR']));
+      expect(v0.info.path, '/movies/a.4k.mkv');
+      expect(v0.info.addedDate, '2024-01-01T00:00:00Z');
+      expect(v0.audioTracks, hasLength(1));
+      expect(v0.audioTracks.first.id, '1');
+      expect(v0.audioTracks.first.label, '国语 FLAC 5.1');
+      expect(v0.subtitleTracks, hasLength(1));
+      expect(v0.subtitleTracks.first.id, '3');
+      expect(v0.subtitleTracks.first.isExternal, isTrue);
+      expect(v0.defaultAudioId, '1');
+      expect(v0.defaultSubtitleId, '3');
+
+      // SDR 不进 badges；无默认字幕索引 → 空。
+      expect(versions[1].label, '1080p');
+      expect(versions[1].badges, <String>['1080p']);
+      expect(versions[1].defaultSubtitleId, '');
+    });
+
+    test('无 MediaSources → 空列表', () {
+      expect(mapEmbySourceVersions(<String, Object?>{'Id': 'x'}), isEmpty);
+    });
+  });
 }
