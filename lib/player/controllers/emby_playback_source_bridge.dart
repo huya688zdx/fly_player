@@ -1,3 +1,4 @@
+import '../../media_backend/emby/emby_playback_mappers.dart';
 import '../../media_backend/playback/media_playback.dart';
 import '../../models/stream_track_data.dart';
 import 'mpv_player_controller.dart';
@@ -31,7 +32,8 @@ class EmbyPlaybackSourceBridge {
         ? null
         : _ordinalOf(bundle.audioTracks, selectedAudio.id);
 
-    // 外挂字幕首版不 sideload（留后续）；内嵌字幕走 mpv sid = 内嵌序号 +1。
+    // 外挂字幕走原生壳反向通道下载 sub-add（preferExternalSubtitle 让壳走外挂文件路径）；
+    // 内嵌字幕走 mpv sid = 内嵌序号 +1。
     final preferExternalSubtitle =
         selectedSubtitle?.subtitleLocation == MediaSubtitleLocation.external;
     final subtitleTrackIndex =
@@ -81,11 +83,11 @@ class EmbyPlaybackSourceBridge {
       audioTrackIndex: audioTrackIndex,
       subtitleTrackIndex: subtitleTrackIndex,
       audioTrackGuid: selectedAudio?.id,
-      // 显式关闭字幕落空串，避免回退服务端默认；否则带选中字幕 id（无 mpv- 前缀，原生回退到
-      // 上面的序号）。
+      // 显式关闭字幕落空串，避免回退服务端默认；否则带选中字幕 guid——内嵌为容器 Index（无
+      // mpv- 前缀，原生回退到上面的序号），外挂为自包含 guid（原生据此反向通道下载 sub-add）。
       subtitleTrackGuid: request.subtitleTrackExplicitlyDisabled
           ? ''
-          : selectedSubtitle?.id,
+          : _subtitleSelectionGuid(bundle, selectedSubtitle),
       resolution: source.height > 0 ? '${source.height}p' : '',
       durationSeconds: bundle.durationSeconds,
       videoCodecName: source.videoCodec,
@@ -132,29 +134,66 @@ class EmbyPlaybackSourceBridge {
     ];
   }
 
-  /// bundle 字幕 → 飞牛 [SubtitleTrackOption]。**仅内嵌字幕**：原生 picker 用列表 1-based 位置
-  /// 当 mpv sid，初始 mpv 只有内嵌字幕（外挂未 sideload），故混入外挂会错位 sid；外挂字幕
-  /// sideload 留后续。位图字幕（pgs/dvd 等）标 isBitmap，保留在 mpv 内置轨。
+  /// bundle 字幕 → 飞牛 [SubtitleTrackOption]，喂原生壳字幕面板。
+  ///
+  /// 内嵌字幕：guid = 容器 Index，isExternal=0；原生壳 `applySubtitleByGuid` 按「非外挂轨」
+  /// 计数得 mpv sid（外挂轨被跳过、不占位），故内嵌 sid 不受外挂混入影响。位图字幕（pgs/sup/
+  /// dvd 等）标 isBitmap=1——mpv 只能作内嵌轨播放、无法 sub-add 文本，故即便外挂位图也走内嵌。
+  ///
+  /// 外挂字幕（非位图）：guid = 自包含 [embyExternalSubtitleGuid]，isExternal=1/extraFile=1；
+  /// 原生 `nativeSubtitleUsesExternalFile` 据此走外挂文件路径 → 反向通道 resolveSubtitleFile
+  /// 解码 guid 下载 sub-add。外挂位图无法 sub-add 文本，跳过不发（避免面板里出现选不动的轨）。
   List<SubtitleTrackOption> _subtitleTrackOptions(MediaPlaybackBundle bundle) {
     final source = bundle.selectedSource;
-    return <SubtitleTrackOption>[
-      for (final track in bundle.subtitleTracks)
-        if (track.subtitleLocation == MediaSubtitleLocation.embedded)
-          SubtitleTrackOption(
-            mediaGuid: source.id,
-            guid: track.id,
-            title: track.label,
-            codecName: track.codec,
-            format: track.codec,
-            language: '',
-            index: track.index ?? 0,
-            isDefault: track.isDefault ? 1 : 0,
-            forced: 0,
-            isExternal: 0,
-            extraFile: 0,
-            isBitmap: _isBitmapSubtitle(track.codec) ? 1 : 0,
-          ),
-    ];
+    final options = <SubtitleTrackOption>[];
+    for (final track in bundle.subtitleTracks) {
+      final isExternal =
+          track.subtitleLocation == MediaSubtitleLocation.external;
+      final isBitmap = _isBitmapSubtitle(track.codec);
+      // 外挂位图字幕无法 sub-add 文本，也无内嵌轨可选，跳过。
+      if (isExternal && isBitmap) continue;
+      options.add(
+        SubtitleTrackOption(
+          mediaGuid: source.id,
+          guid: isExternal
+              ? embyExternalSubtitleGuid(
+                  itemId: bundle.itemId,
+                  mediaSourceId: source.id,
+                  index: track.index ?? 0,
+                )
+              : track.id,
+          title: track.label,
+          codecName: track.codec,
+          format: track.codec,
+          language: '',
+          index: track.index ?? 0,
+          isDefault: track.isDefault ? 1 : 0,
+          forced: 0,
+          isExternal: isExternal ? 1 : 0,
+          extraFile: isExternal ? 1 : 0,
+          isBitmap: isBitmap ? 1 : 0,
+        ),
+      );
+    }
+    return options;
+  }
+
+  /// 选中字幕的 source 级 guid：外挂 → 自包含 guid（与 [_subtitleTrackOptions] 一致，使初始
+  /// 选中态能在面板列表命中并触发外挂下载）；内嵌 → 容器 Index；未选 → null。
+  String? _subtitleSelectionGuid(
+    MediaPlaybackBundle bundle,
+    MediaPlaybackTrack? selectedSubtitle,
+  ) {
+    if (selectedSubtitle == null) return null;
+    if (selectedSubtitle.subtitleLocation == MediaSubtitleLocation.external &&
+        !_isBitmapSubtitle(selectedSubtitle.codec)) {
+      return embyExternalSubtitleGuid(
+        itemId: bundle.itemId,
+        mediaSourceId: bundle.selectedSource.id,
+        index: selectedSubtitle.index ?? 0,
+      );
+    }
+    return selectedSubtitle.id;
   }
 
   static bool _isBitmapSubtitle(String codec) {

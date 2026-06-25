@@ -90,4 +90,15 @@ abstract class MediaBackend {
     required int positionSeconds,
     bool isPaused = false,
   }) async {}
+
+  /// 解析外挂字幕轨为本地可 `sub-add` 的文件路径（原生壳反向通道）。
+  ///
+  /// [trackId] 为播放桥接器为外挂字幕轨产出的、自包含的轨道标识（后端各自约定编码，外层
+  /// 不解释）。飞牛走自有 `NativeReentrySupport.resolveSubtitleFile`（NAS guid → 下载），
+  /// 故本接口对飞牛返回 `null`；Emby 解码 `trackId` → 下载字幕全文落临时文件 → 返回路径。
+  /// 失败返回 `null`（外挂字幕为旁路能力，原生壳回退「无外挂字幕」）。
+  Future<String?> resolveExternalSubtitleFile(
+    String trackId, {
+    String? format,
+  }) async => null;
 }
