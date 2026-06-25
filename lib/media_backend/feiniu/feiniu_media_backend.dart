@@ -150,6 +150,12 @@ class FeiniuMediaBackend implements MediaBackend {
   }
 
   @override
+  Future<List<MediaItemCard>> getPersonItems(String personId) async {
+    // 飞牛走自有的按职务分页 getPersonItemList 路径（PersonDetailScreen 直接调），不经本接口。
+    return const <MediaItemCard>[];
+  }
+
+  @override
   Future<List<MediaSeasonSummary>> getItemSeasons(String seriesId) async {
     final seasons = await api.getSeasonList(seriesId);
     return seasons.map(mapFeiniuSeason).toList(growable: false);

@@ -46,6 +46,13 @@ abstract class MediaBackend {
   /// 单个条目的详情（展示信息）。不含播放接线（轨道 / 句柄 / 直链），那些留播放入口。
   Future<MediaDetail> getItemDetail(String itemId);
 
+  /// 某个人物（演职员）参与的作品列表，供人物详情页作品区。
+  ///
+  /// 默认返回空（飞牛走自有的按职务分页 getPersonItemList 路径，不经本接口）；Emby 等公共
+  /// 后端 override（人物本身的姓名 / 简介 / 照片复用 [getItemDetail]）。
+  Future<List<MediaItemCard>> getPersonItems(String personId) async =>
+      const <MediaItemCard>[];
+
   /// 单个条目的「媒体源信息」（文件路径 / 大小 / 视频音频字幕摘要），供详情页文件/视频信息卡。
   ///
   /// 仅展示用，不含播放句柄/直链。飞牛有自己的文件/视频信息渲染路径，返回 `null` 表示该后端

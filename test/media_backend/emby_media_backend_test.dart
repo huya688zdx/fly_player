@@ -49,6 +49,7 @@ class _FakeEmbyApi extends EmbyApi {
   String lastPageSortBy = '';
   String lastPageSortOrder = '';
   String lastPageSearchTerm = '';
+  String lastPagePersonIds = '';
   // getGenres 入参捕获。
   String? lastGenresParentId;
   String lastGenresIncludeItemTypes = '';
@@ -137,6 +138,7 @@ class _FakeEmbyApi extends EmbyApi {
     String sortBy = '',
     String sortOrder = '',
     String searchTerm = '',
+    String personIds = '',
   }) async {
     lastPageParentId = parentId;
     lastPageStartIndex = startIndex;
@@ -146,6 +148,7 @@ class _FakeEmbyApi extends EmbyApi {
     lastPageSortBy = sortBy;
     lastPageSortOrder = sortOrder;
     lastPageSearchTerm = searchTerm;
+    lastPagePersonIds = personIds;
     return EmbyItemPage(items: pageItems, totalRecordCount: pageTotal);
   }
 
@@ -279,6 +282,27 @@ void main() {
     final results = await backend.searchItems('   ');
     expect(results, isEmpty);
     expect(api.lastPageSearchTerm, '');
+  });
+
+  test('getPersonItems：PersonIds + Movie,Series → 卡片', () async {
+    final api = _FakeEmbyApi(
+      pageItems: <Map<String, Object?>>[
+        <String, Object?>{'Id': 'w-1', 'Name': '作品', 'Type': 'Movie'},
+      ],
+    );
+    final backend = EmbyMediaBackend(api: api, connection: connection);
+    final works = await backend.getPersonItems('  pp-1  ');
+    expect(api.lastPagePersonIds, 'pp-1');
+    expect(api.lastPageIncludeItemTypes, 'Movie,Series');
+    expect(works, hasLength(1));
+    expect(works.first.id, 'w-1');
+  });
+
+  test('getPersonItems：空 id 直接返回空', () async {
+    final api = _FakeEmbyApi();
+    final backend = EmbyMediaBackend(api: api, connection: connection);
+    expect(await backend.getPersonItems('  '), isEmpty);
+    expect(api.lastPagePersonIds, '');
   });
 
   test('getHomeSummary：按类型 TotalRecordCount 拼计数，total=电影+电视剧', () async {

@@ -264,6 +264,29 @@ class EmbyMediaBackend implements MediaBackend {
   }
 
   @override
+  Future<List<MediaItemCard>> getPersonItems(String personId) async {
+    final id = personId.trim();
+    if (id.isEmpty) return const <MediaItemCard>[];
+    // 该人物参与的影片 / 剧集（PersonIds），按上映日期倒序。人物本身的姓名 / 简介 / 照片
+    // 由 getItemDetail(personId) 提供（人物在 Emby 也是 BaseItemDto）。
+    final page = await api.getItemPage(
+      serverUrl: _serverUrl,
+      userId: _userId,
+      accessToken: _token,
+      personIds: id,
+      recursive: true,
+      includeItemTypes: 'Movie,Series',
+      sortBy: 'PremiereDate',
+      sortOrder: 'Descending',
+      limit: 200,
+      fields: _cardFields,
+    );
+    return page.items
+        .map((e) => mapEmbyItemCard(e, serverUrl: _serverUrl, token: _token))
+        .toList(growable: false);
+  }
+
+  @override
   Future<MediaDetail> getItemDetail(String itemId) async {
     final item = await api.getItem(
       serverUrl: _serverUrl,
