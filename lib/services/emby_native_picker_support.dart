@@ -92,6 +92,18 @@ class EmbyNativePickerSupport {
     return <String, dynamic>{'seasonGuid': guid, 'episodes': episodes};
   }
 
+  /// 中立选集 → 原生壳选集行 map 列表（供播放入口把整季 episodes 透进原生壳点亮「选集 /
+  /// 下一集」）。原生壳「下一集」`nextEpisodeGuidOrNull` 与选集面板都读 loadArgs 的 episodes，
+  /// 空则功能不亮——故单集起播 / 切集必须带上本季列表。
+  static List<Map<String, dynamic>> nativeEpisodePayload(
+    List<MediaEpisodeSummary> episodes,
+    String seasonGuid,
+  ) {
+    return <Map<String, dynamic>>[
+      for (final episode in episodes) _episodeMap(seasonGuid, episode),
+    ];
+  }
+
   /// 持久化选集视图偏好（宫格 / 列表）到本地共享键；非法值返回 false。
   static Future<bool> setEpisodePickerViewType(String viewType) async {
     final normalized = viewType.trim();
