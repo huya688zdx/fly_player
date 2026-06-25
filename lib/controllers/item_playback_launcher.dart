@@ -5,10 +5,15 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../api/feiniu_api.dart';
+import '../media_backend/emby/emby_playback_context.dart';
 import '../media_backend/feiniu/feiniu_media_backend.dart';
 import '../media_backend/feiniu/feiniu_playback_context.dart';
+import '../media_backend/media_backend.dart';
+import '../media_backend/media_backend_kind.dart';
 import '../media_backend/playback/media_playback.dart';
+import '../player/controllers/emby_playback_source_bridge.dart';
 import '../player/controllers/feiniu_playback_source_bridge.dart';
+import '../providers/media_backend_provider.dart';
 import '../controllers/play_detail_data_loader.dart';
 import '../danmaku/settings/danmaku_settings_store.dart';
 import '../services/native_danmaku_prefetch.dart';
@@ -39,18 +44,29 @@ class ItemPlaybackLauncher {
     String fallbackTitle = '',
     bool startFromBeginning = false,
     Duration? resumePosition,
+    // 详情页已选的版本 / 音轨 / 字幕（Emby 多版本起播用；飞牛调用方不传，保持旧默认解析）。
+    String? qualityMediaGuid,
+    String? audioTrackId,
+    String? subtitleTrackId,
   }) async {
     return AsyncActionGuard.run<PlayDetailPlayerReturnData?>(
       'item_playback:${itemGuid.trim()}:${startFromBeginning ? 'restart' : 'default'}',
       settleDuration: const Duration(milliseconds: 500),
       action: () async {
         final nas = context.read<NasProvider>();
+        // 后端中立：取当前活动后端（飞牛 / Emby），按其上下文类型分发桥接器。飞牛会话下
+        // 返回的就是 FeiniuMediaBackend(FeiniuApi(nasProvider))，与旧直接构造等价、零回归。
+        final backend = context.read<MediaBackendProvider>().backend;
+        final isFeiniu = backend.capabilities.kind == MediaBackendKind.feiniu;
         final resolved = await _resolve(
-          nas,
+          backend,
           itemGuid: itemGuid,
           fallbackTitle: fallbackTitle,
           startFromBeginning: startFromBeginning,
           resumePosition: resumePosition,
+          qualityMediaGuid: qualityMediaGuid,
+          overrideAudioGuid: audioTrackId,
+          overrideSubtitleGuid: subtitleTrackId,
         );
         if (resolved == null) return null;
         final source = resolved.source;
@@ -58,13 +74,24 @@ class ItemPlaybackLauncher {
         final title = resolved.title;
 
         if (!context.mounted) return null;
-        // 灰度：原生渲染器开启时走纯原生播放壳，并注册反向通道（画质切换 + 续播回写；
-        // 电影/单视频无选集）。maybeLaunch 内部判断开关 + 预取弹幕。
+        // 灰度：原生渲染器开启时走纯原生播放壳，并注册反向通道。飞牛绑全功能反向通道（画质
+        // 切换 + 续播回写 + 选集）；Emby 绑最小反向通道（仅重解析，进度回写/选集首版不做）。
+        // Emby 封面是 api_key 自鉴权直链，不走 NAS 鉴权预取，故 maybeLaunch 不传 nas。
         final danmakuSettings = await const DanmakuSettingsStore().load();
         if (danmakuSettings.useNativeRenderer) {
-          _bindReentry(nas, fallbackTitle: fallbackTitle);
-          if (await NativePlayerBridge.maybeLaunch(source.toMap(), nas: nas)) {
-            return null;
+          if (isFeiniu) {
+            _bindReentry(nas, fallbackTitle: fallbackTitle);
+            if (await NativePlayerBridge.maybeLaunch(
+              source.toMap(),
+              nas: nas,
+            )) {
+              return null;
+            }
+          } else {
+            _bindEmbyReentry(backend, fallbackTitle: fallbackTitle);
+            if (await NativePlayerBridge.maybeLaunch(source.toMap())) {
+              return null;
+            }
           }
         }
         if (!context.mounted) return null;
@@ -143,6 +170,62 @@ class ItemPlaybackLauncher {
     );
   }
 
+  /// 注册 Emby 最小反向通道（捕获活动后端，脱离 widget context）。首版只接「重解析」——
+  /// 进度回写 / 选集 / 服务端会话重载 Emby 首版不做（电影单条目不触发），故余下回调不绑，
+  /// 用最小绑定替换掉可能残留的飞牛回调（bindReentry 以最近一次为准）。
+  void _bindEmbyReentry(MediaBackend backend, {String fallbackTitle = ''}) {
+    NativePlayerBridge.bindReentry(
+      onResolvePlayback:
+          (
+            itemGuid, {
+            qualityIndex,
+            qualityMediaGuid,
+            startPositionMs,
+            subtitleGuid,
+            audioGuid,
+            audioTrackIndex,
+            subtitleTrackIndex,
+            preferredQualityResolution,
+          }) => _resolveEmbyForNative(
+            backend,
+            itemGuid: itemGuid,
+            fallbackTitle: fallbackTitle,
+            qualityMediaGuid: qualityMediaGuid,
+            startPositionMs: startPositionMs,
+            subtitleGuid: subtitleGuid,
+            audioGuid: audioGuid,
+          ),
+      // Emby 进度回写首版不做（续播位读自服务端 UserData；写回留后续分块）。
+      onRecordProgress: (progress) async {},
+    );
+  }
+
+  /// Emby 原生壳重解析：按指定版本/轨道重解析 source、回传 loadArgs（无飞牛 PlayInfo / 弹幕）。
+  Future<Map<String, dynamic>?> _resolveEmbyForNative(
+    MediaBackend backend, {
+    required String itemGuid,
+    String fallbackTitle = '',
+    String? qualityMediaGuid,
+    int? startPositionMs,
+    String? subtitleGuid,
+    String? audioGuid,
+  }) async {
+    final resolved = await _resolve(
+      backend,
+      itemGuid: itemGuid,
+      fallbackTitle: fallbackTitle,
+      qualityMediaGuid: qualityMediaGuid,
+      overrideSubtitleGuid: subtitleGuid,
+      overrideAudioGuid: audioGuid,
+    );
+    if (resolved == null) return null;
+    final loadArgs = <String, dynamic>{
+      ...resolved.source.toMap(),
+      if (startPositionMs != null) 'startPositionMs': startPositionMs,
+    };
+    return <String, dynamic>{'loadArgs': jsonEncode(loadArgs)};
+  }
+
   /// 只解析（不启动 Activity）：原生壳画质切换时回到这里重解析指定档，回传 loadArgs+弹幕。
   Future<Map<String, dynamic>?> resolveForNative(
     NasProvider nas, {
@@ -199,8 +282,9 @@ class ItemPlaybackLauncher {
             }
           }
         }
+        // 原生壳画质切换反向通道目前仅飞牛走（Emby 用最小反向通道 _resolveEmbyForNative）。
         final resolved = await _resolve(
-          nas,
+          FeiniuMediaBackend(FeiniuApi(nas)),
           itemGuid: itemGuid,
           fallbackTitle: fallbackTitle,
           qualityIndex: qualityIndex,
@@ -235,9 +319,14 @@ class ItemPlaybackLauncher {
   }
 
   /// 解析一集的可播 source（含轨道/续播位/标题），open 与 resolveForNative 共用。
-  Future<({MpvMediaSource source, PlayInfoData playInfo, String title})?>
+  ///
+  /// 后端中立：用传入的活动后端 [backend] 调 `getPlayback`，按返回的不透明上下文运行时类型
+  /// 分发桥接器——飞牛 → [FeiniuPlaybackSourceBridge]（playInfo 为飞牛 PlayInfoData）；
+  /// Emby → [EmbyPlaybackSourceBridge]（无 PlayInfoData，playInfo 为 null）。
+  /// overrideSubtitleGuid 三态映射到公共 request：null=默认，''=显式关闭，其余=指定轨。
+  Future<({MpvMediaSource source, PlayInfoData? playInfo, String title})?>
   _resolve(
-    NasProvider nas, {
+    MediaBackend backend, {
     required String itemGuid,
     String fallbackTitle = '',
     bool startFromBeginning = false,
@@ -247,9 +336,6 @@ class ItemPlaybackLauncher {
     String? overrideSubtitleGuid,
     String? overrideAudioGuid,
   }) async {
-    // B-2：单条目播放解析改走后端中立 getPlayback + 飞牛桥接器装配 MpvMediaSource。
-    // 本地下载优先仍在 resolveForNative()；TV launcher / 原生反向通道 / 进度写回不变。
-    // overrideSubtitleGuid 三态映射到公共 request：null=默认，''=显式关闭，其余=指定轨。
     final request = MediaPlaybackRequest(
       itemId: itemGuid,
       fallbackTitle: fallbackTitle,
@@ -265,17 +351,24 @@ class ItemPlaybackLauncher {
       subtitleTrackExplicitlyDisabled: overrideSubtitleGuid == '',
     );
 
-    final backend = FeiniuMediaBackend(FeiniuApi(nas));
     final resolution = await backend.getPlayback(request);
     final context = resolution.backendContext;
-    if (context is! FeiniuPlaybackContext) return null;
-
-    final source = await const FeiniuPlaybackSourceBridge().assemble(
-      request: request,
-      bundle: resolution.bundle,
-      context: context,
-    );
-    return (source: source, playInfo: context.playInfo, title: source.title);
+    if (context is FeiniuPlaybackContext) {
+      final source = await const FeiniuPlaybackSourceBridge().assemble(
+        request: request,
+        bundle: resolution.bundle,
+        context: context,
+      );
+      return (source: source, playInfo: context.playInfo, title: source.title);
+    }
+    if (context is EmbyPlaybackContext) {
+      final source = await const EmbyPlaybackSourceBridge().assemble(
+        request: request,
+        bundle: resolution.bundle,
+      );
+      return (source: source, playInfo: null, title: source.title);
+    }
+    return null;
   }
 
   /// 加载整季剧集列表,供原生壳「选集」对话框使用。

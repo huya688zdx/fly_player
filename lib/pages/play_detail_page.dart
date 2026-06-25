@@ -574,6 +574,22 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     });
   }
 
+  /// 中立(Emby)起播:走 [ItemPlaybackLauncher]（与飞牛同入口、原生壳），带详情页已选的
+  /// 版本(=MediaSourceId)/音轨/字幕。字幕 id 为空串=显式关闭，与 launcher 三态一致。
+  Future<void> _startNeutralPlayback() async {
+    final detail = _detail;
+    if (detail == null) return;
+    final version = _neutralSelectedVersion;
+    await const ItemPlaybackLauncher().open(
+      context,
+      itemGuid: detail.id,
+      fallbackTitle: detail.title,
+      qualityMediaGuid: version?.id,
+      audioTrackId: _neutralSelectedAudioId,
+      subtitleTrackId: _neutralSelectedSubtitleId,
+    );
+  }
+
   String _neutralAudioLabel() {
     final l10n = AppLocalizations.of(context);
     final tracks =
@@ -785,9 +801,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton.icon(
-                      onPressed: null,
+                      onPressed: _startNeutralPlayback,
                       icon: const Icon(Icons.play_arrow),
-                      label: const Text('播放功能即将到来'),
+                      label: const Text('播放'),
                     ),
                   ),
                   if (showVersionSelector)
