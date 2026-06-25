@@ -1788,7 +1788,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                               onTmdbTap: _openTmdb,
                             )
                           : null,
-                      onPlayTap: _neutralComingSoon,
+                      onPlayTap: _onNeutralPlayTap,
                       onDownloadTap: _neutralComingSoon,
                       onWatchedTap: _neutralComingSoon,
                       onOverviewTap: () {
@@ -2162,6 +2162,117 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
           'poster': _episodeItems[i].poster,
         },
     ];
+  }
+
+  /// 中立(Emby)选集 → 原生壳「选集」精简列表（封面为 api_key 自鉴权直链）。
+  List<Map<String, dynamic>> _neutralNativeEpisodesPayload() {
+    return <Map<String, dynamic>>[
+      for (var i = 0; i < _neutralEpisodes.length; i++)
+        <String, dynamic>{
+          'itemGuid': _neutralEpisodes[i].id,
+          'episodeNumber': _neutralEpisodes[i].episodeNumber,
+          'title': _neutralEpisodes[i].title,
+          'shortLabel': _neutralEpisodes[i].episodeNumber > 0
+              ? '${_neutralEpisodes[i].episodeNumber}'
+              : '${i + 1}',
+          'poster': _neutralEpisodes[i].primaryImage.url,
+        },
+    ];
+  }
+
+  /// 中立(Emby)季播放：播选中集（无则首集），走 [TvSeasonPlaybackLauncher]（与飞牛同入口、
+  /// 原生壳）。进原生壳前绑定 Emby 最小反向通道，使壳内「选集」能切到本季其它 Emby 单集。
+  Future<void> _onNeutralPlayTap() async {
+    final episodeGuid = _selectedEpisodeGuid.trim().isNotEmpty
+        ? _selectedEpisodeGuid.trim()
+        : (_neutralEpisodes.isNotEmpty ? _neutralEpisodes.first.id : '');
+    if (episodeGuid.isEmpty || _playPreparing) return;
+    setState(() => _playPreparing = true);
+    _bindEmbyNativePlayerReentry();
+    try {
+      final result = await const TvSeasonPlaybackLauncher().open(
+        context,
+        itemGuid: episodeGuid,
+        seriesTitle: widget.seriesTitle,
+        seriesGuid: widget.parentGuid,
+        episodes: _neutralNativeEpisodesPayload(),
+      );
+      if (!mounted) return;
+      final nextEpisodeGuid = result?.itemGuid.trim().isNotEmpty == true
+          ? result!.itemGuid.trim()
+          : episodeGuid;
+      final idx = _neutralEpisodes.indexWhere((e) => e.id == nextEpisodeGuid);
+      setState(() {
+        _selectedEpisodeGuid = nextEpisodeGuid;
+        if (idx >= 0) _episodeRangeIndex = idx ~/ _episodePageSize;
+      });
+    } catch (_) {
+      if (mounted) {
+        _showTopTip(
+          _t('player.play.playInfoFailed', 'Failed to get playback info'),
+          context.appColors.danger,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _playPreparing = false);
+      } else {
+        _playPreparing = false;
+      }
+    }
+  }
+
+  /// 绑定 Emby 最小反向通道：选集 → 复用 launcher 原地换源（壳内切本季其它单集）；进度回写
+  /// Emby 首版不做（续播位读自服务端 UserData）。其余飞牛专属回调（服务端会话重载/字幕文件/
+  /// 选集持久化）不绑，最小绑定替换掉可能残留的飞牛回调。
+  void _bindEmbyNativePlayerReentry() {
+    _reentryToken = NativePlayerBridge.bindReentry(
+      onResolvePlayback:
+          (
+            itemGuid, {
+            audioGuid,
+            qualityIndex,
+            qualityMediaGuid,
+            startPositionMs,
+            subtitleGuid,
+            audioTrackIndex,
+            subtitleTrackIndex,
+            preferredQualityResolution,
+          }) async {
+            if (!mounted) return null;
+            final resolved = await const TvSeasonPlaybackLauncher()
+                .resolveForNative(
+                  context,
+                  itemGuid: itemGuid,
+                  seriesTitle: widget.seriesTitle,
+                  seriesGuid: widget.parentGuid,
+                  episodes: _neutralNativeEpisodesPayload(),
+                  audioGuid: audioGuid,
+                  qualityIndex: qualityIndex,
+                  qualityMediaGuid: qualityMediaGuid,
+                  startPositionMs: startPositionMs,
+                  subtitleGuid: subtitleGuid,
+                  audioTrackIndex: audioTrackIndex,
+                  subtitleTrackIndex: subtitleTrackIndex,
+                  preferredQualityResolution: preferredQualityResolution,
+                );
+            // 仅选集（无切画质/轨道）更新选中集高亮。
+            if (resolved != null &&
+                mounted &&
+                qualityIndex == null &&
+                subtitleGuid == null &&
+                audioGuid == null) {
+              final idx = _neutralEpisodes.indexWhere((e) => e.id == itemGuid);
+              setState(() {
+                _selectedEpisodeGuid = itemGuid;
+                if (idx >= 0) _episodeRangeIndex = idx ~/ _episodePageSize;
+              });
+            }
+            return resolved;
+          },
+      // Emby 进度回写首版不做。
+      onRecordProgress: (progress) async {},
+    );
   }
 
   /// 绑定原生壳反向回调：选集 → 复用 launcher 原地换源；进度 → 写回 NAS。
