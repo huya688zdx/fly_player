@@ -1500,6 +1500,9 @@ class _TvDetailPageState extends State<TvDetailPage>
         if (info != null) {
           setState(() => _playInfo = info);
         }
+      } else {
+        // 播放回来后重新解析续看目标，使主播放键文案跟最新进度走（否则停留在首次加载值）。
+        unawaited(_resolveNeutralPlayTarget(backend));
       }
       if (result != null) {
         unawaited(_refreshDetailSilently());
