@@ -4,11 +4,14 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../api/feiniu_api.dart';
-import '../media_backend/feiniu/feiniu_media_backend.dart';
+import '../media_backend/emby/emby_playback_context.dart';
 import '../media_backend/feiniu/feiniu_playback_context.dart';
+import '../media_backend/media_backend.dart';
+import '../media_backend/media_backend_kind.dart';
 import '../media_backend/playback/media_playback.dart';
+import '../player/controllers/emby_playback_source_bridge.dart';
 import '../player/controllers/feiniu_playback_source_bridge.dart';
+import '../providers/media_backend_provider.dart';
 import '../controllers/local_download_source_resolver.dart';
 import '../controllers/play_detail_data_loader.dart';
 import '../danmaku/settings/danmaku_settings_store.dart';
@@ -42,8 +45,11 @@ class TvSeasonPlaybackLauncher {
       settleDuration: const Duration(milliseconds: 500),
       action: () async {
         final provider = context.read<NasProvider>();
+        // 后端中立：取活动后端，按 context 类型分发桥接器（与单条目 launcher 同口径）。
+        final backend = context.read<MediaBackendProvider>().backend;
+        final isFeiniu = backend.capabilities.kind == MediaBackendKind.feiniu;
         final resolved = await _resolveWithProvider(
-          provider,
+          backend,
           itemGuid: itemGuid,
           seriesTitle: seriesTitle,
           seriesGuid: seriesGuid,
@@ -56,11 +62,12 @@ class TvSeasonPlaybackLauncher {
         if (!context.mounted) return null;
         // 灰度：原生渲染器开启时走纯原生播放壳（无 Hybrid Composition，弹幕丝滑、二级
         // 界面不卡）。maybeLaunch 内部判断开关 + 预取弹幕；episodes 透传供原生壳「选集」。
-        // 返回 true 表示已交给原生壳，不再 push Flutter 播放器。
+        // 返回 true 表示已交给原生壳，不再 push Flutter 播放器。Emby 封面 api_key 自鉴权直链，
+        // 不走 NAS 鉴权预取，故不传 nas。
         if (await NativePlayerBridge.maybeLaunch(
           source.toMap(),
           episodes: episodes,
-          nas: provider,
+          nas: isFeiniu ? provider : null,
         )) {
           return null;
         }
@@ -122,7 +129,10 @@ class TvSeasonPlaybackLauncher {
         // qualityIndex 非空为切画质请求，本地文件无多画质，跳过走 NAS 重新解析。
         // context.read 在第一个 await 之前捕获，避免 async gap 警告。
         final provider = context.read<NasProvider>();
-        if (qualityIndex == null) {
+        // 后端中立：取活动后端分发桥接器。本地下载优先仅飞牛（Emby 无下载能力）。
+        final backend = context.read<MediaBackendProvider>().backend;
+        final isFeiniu = backend.capabilities.kind == MediaBackendKind.feiniu;
+        if (isFeiniu && qualityIndex == null) {
           await DownloadTaskService.instance.initialize();
           final localRecord = DownloadTaskService.instance
               .downloadedRecordForItem(itemGuid.trim());
@@ -160,7 +170,7 @@ class TvSeasonPlaybackLauncher {
           }
         }
         final resolved = await _resolveWithProvider(
-          provider,
+          backend,
           itemGuid: itemGuid,
           seriesTitle: seriesTitle,
           seriesGuid: seriesGuid,
@@ -201,10 +211,13 @@ class TvSeasonPlaybackLauncher {
   }
 
   /// 解析一集的可播 source（含轨道/续播位/标题），open 与 resolveForNative 共用。
-  /// 仅在开头同步读取一次 NasProvider，之后纯异步网络请求，不再触碰 context。
-  Future<({MpvMediaSource source, PlayInfoData playInfo, String title})?>
+  ///
+  /// 后端中立：用传入的活动后端 [backend] 调 `getPlayback`，按返回的不透明上下文运行时类型
+  /// 分发桥接器——飞牛 → [FeiniuPlaybackSourceBridge]（playInfo 为飞牛 PlayInfoData）；
+  /// Emby → [EmbyPlaybackSourceBridge]（无 PlayInfoData，playInfo 为 null）。
+  Future<({MpvMediaSource source, PlayInfoData? playInfo, String title})?>
   _resolveWithProvider(
-    NasProvider provider, {
+    MediaBackend backend, {
     required String itemGuid,
     required String seriesTitle,
     required String seriesGuid,
@@ -250,16 +263,23 @@ class TvSeasonPlaybackLauncher {
       preferredQualityResolution: preferredQualityResolution ?? '',
     );
 
-    final backend = FeiniuMediaBackend(FeiniuApi(provider));
     final resolution = await backend.getPlayback(request);
     final context = resolution.backendContext;
-    if (context is! FeiniuPlaybackContext) return null;
-
-    final source = await const FeiniuPlaybackSourceBridge().assemble(
-      request: request,
-      bundle: resolution.bundle,
-      context: context,
-    );
-    return (source: source, playInfo: context.playInfo, title: source.title);
+    if (context is FeiniuPlaybackContext) {
+      final source = await const FeiniuPlaybackSourceBridge().assemble(
+        request: request,
+        bundle: resolution.bundle,
+        context: context,
+      );
+      return (source: source, playInfo: context.playInfo, title: source.title);
+    }
+    if (context is EmbyPlaybackContext) {
+      final source = await const EmbyPlaybackSourceBridge().assemble(
+        request: request,
+        bundle: resolution.bundle,
+      );
+      return (source: source, playInfo: null, title: source.title);
+    }
+    return null;
   }
 }
