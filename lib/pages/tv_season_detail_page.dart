@@ -13,6 +13,7 @@ import '../l10n/generated/app_localizations.dart';
 import '../media_backend/detail/media_detail.dart';
 import '../media_backend/detail/media_episode_summary.dart';
 import '../media_backend/detail/media_season_summary.dart';
+import '../media_backend/media_backend.dart';
 import '../media_backend/media_backend_kind.dart';
 import '../models/media_library_item.dart';
 import '../models/person_credit.dart';
@@ -1130,6 +1131,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
       });
       if (showLoading) _resetScrollToTop();
       if (showLoading) _startEntryAnimations();
+      unawaited(_resolveNeutralPlayTarget(backend, target, episodes));
     } catch (e) {
       if (!mounted || seq != _seasonLoadSeq) return;
       setState(() {
@@ -1164,6 +1166,13 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         );
         _episodeItemsResolved = true;
       });
+      unawaited(
+        _resolveNeutralPlayTarget(
+          context.read<MediaBackendProvider>().backend,
+          seasonGuid,
+          cachedEpisodes,
+        ),
+      );
       return;
     }
     // 未缓存:先把选中季切过去并显占位(不空白),再后台取。
@@ -1201,6 +1210,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         );
         _episodeItemsResolved = true;
       });
+      unawaited(_resolveNeutralPlayTarget(backend, seasonGuid, episodes));
     } finally {
       if (mounted) {
         setState(() => _seasonSwitching = false);
@@ -1222,6 +1232,31 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     }
     // 全部看完：回到第 1 集。
     return episodes.first.id;
+  }
+
+  /// 与系列详情页同口径:用 [MediaBackend.resolveSeriesNextUpEpisode]（内部走
+  /// continue-watching，即首页「继续观看」那条权威「最新播放」数据）解析本剧最新在看的一集；
+  /// 若它落在本季选集内，则作为播放按钮文案 / 默认起播目标。否则保持本季 resume/watched 扫描
+  /// 的兜底结果（命中其它季时不动本季选中）。异步、不阻塞首帧；季 guid 守卫防竞态。
+  Future<void> _resolveNeutralPlayTarget(
+    MediaBackend backend,
+    String seasonGuid,
+    List<MediaEpisodeSummary> episodes,
+  ) async {
+    if (episodes.isEmpty) return;
+    try {
+      final target = await backend.resolveSeriesNextUpEpisode(
+        widget.parentGuid,
+      );
+      if (!mounted || seasonGuid != _selectedSeasonGuid) return;
+      if (target == null || target.id.trim().isEmpty) return;
+      if (!episodes.any((e) => e.id == target.id)) return;
+      if (_selectedEpisodeGuid == target.id) return;
+      setState(() {
+        _selectedEpisodeGuid = target.id;
+        _episodeRangeIndex = _neutralRangeIndexFor(episodes, target.id);
+      });
+    } catch (_) {}
   }
 
   int _neutralRangeIndexFor(
