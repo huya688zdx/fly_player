@@ -47,6 +47,7 @@ MediaItemCard mapEmbyItemCard(
     title: (item['Name'] ?? '').toString(),
     secondaryTitle: (item['SeriesName'] ?? '').toString(),
     type: (item['Type'] ?? '').toString(),
+    seriesId: (item['SeriesId'] ?? '').toString(),
     primaryImage: primary,
     posters: primary.isNotEmpty
         ? <MediaImageRef>[primary]
