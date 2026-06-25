@@ -25,6 +25,7 @@ import '../providers/nas_provider.dart';
 import '../services/detail_runtime_cache.dart';
 import '../services/download_task_service.dart';
 import '../services/embedded_detail_launcher.dart';
+import '../services/emby_native_picker_support.dart';
 import '../services/native_player_bridge.dart';
 import '../services/native_reentry_support.dart';
 import '../theme/app_theme.dart';
@@ -2282,6 +2283,23 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
           );
         } catch (_) {}
       },
+      // 选集面板数据 / 跨季切换 / 视图偏好：走后端中立 getItemSeasons/getSeasonEpisodes
+      // （Emby 无飞牛专属下载角标 / 服务端 viewType）。这三个绑上后，原生壳选集面板才有季
+      // chip + 跨季 + 宫格/列表持久化，与飞牛壳一致；未绑时只有静态当前季列表。
+      onLoadEpisodePickerData: (currentLoadArgs, {seasonGuid}) =>
+          EmbyNativePickerSupport.loadEpisodePickerData(
+            backend,
+            currentLoadArgs: currentLoadArgs,
+            seasonGuid: seasonGuid ?? '',
+            fallbackEpisodes: _neutralNativeEpisodesPayload(),
+          ),
+      onLoadSeasonEpisodes: (seasonGuid) =>
+          EmbyNativePickerSupport.loadSeasonEpisodes(
+            backend,
+            seasonGuid: seasonGuid,
+          ),
+      onSetEpisodePickerViewType: (viewType) =>
+          EmbyNativePickerSupport.setEpisodePickerViewType(viewType),
     );
   }
 
