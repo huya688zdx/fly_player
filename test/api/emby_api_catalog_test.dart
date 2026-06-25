@@ -103,6 +103,29 @@ void main() {
     );
   });
 
+  test('getItemPage：personIds → PersonIds 查询参数', () async {
+    late RequestOptions captured;
+    final adapter = _FakeDioAdapter((options) {
+      captured = options;
+      return const _JsonResponse(<String, Object?>{
+        'Items': <Object?>[],
+        'TotalRecordCount': 0,
+      });
+    });
+    final api = EmbyApi(dio: Dio(BaseOptions())..httpClientAdapter = adapter);
+
+    await api.getItemPage(
+      serverUrl: 'https://emby.example.test',
+      userId: 'user-1',
+      accessToken: 'tok',
+      personIds: 'pp-1',
+      includeItemTypes: 'Movie,Series',
+    );
+
+    expect(captured.uri.queryParameters['PersonIds'], 'pp-1');
+    expect(captured.uri.queryParameters['IncludeItemTypes'], 'Movie,Series');
+  });
+
   test('getResumeItems 拼 /Items/Resume + MediaTypes=Video，解析 Items', () async {
     late RequestOptions captured;
     final adapter = _FakeDioAdapter((options) {

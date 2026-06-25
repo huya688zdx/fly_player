@@ -229,6 +229,7 @@ class EmbyApi {
   /// 偏移分页、`Genres` 题材筛选，并连同 `TotalRecordCount` 一起返回（列表页需要总数算
   /// 「还有更多」）。[genres] 为题材显示名（Emby `Genres` 取名字，多个用 `|` 分隔）。
   /// [searchTerm] 非空时按关键字搜索（Emby `SearchTerm`），供搜索页复用本分页查询。
+  /// [personIds] 非空时只取该人物参与的条目（Emby `PersonIds`），供人物详情页作品区。
   Future<EmbyItemPage> getItemPage({
     required String serverUrl,
     required String userId,
@@ -243,6 +244,7 @@ class EmbyApi {
     String sortBy = '',
     String sortOrder = '',
     String searchTerm = '',
+    String personIds = '',
   }) async {
     final normalizedServerUrl = normalizeServerUrl(serverUrl);
     final query = <String, Object?>{
@@ -255,6 +257,7 @@ class EmbyApi {
         'IncludeItemTypes': includeItemTypes.trim(),
       if (genres.trim().isNotEmpty) 'Genres': genres.trim(),
       if (searchTerm.trim().isNotEmpty) 'SearchTerm': searchTerm.trim(),
+      if (personIds.trim().isNotEmpty) 'PersonIds': personIds.trim(),
       if (fields.trim().isNotEmpty) 'Fields': fields.trim(),
       if (sortBy.trim().isNotEmpty) 'SortBy': sortBy.trim(),
       if (sortOrder.trim().isNotEmpty) 'SortOrder': sortOrder.trim(),
