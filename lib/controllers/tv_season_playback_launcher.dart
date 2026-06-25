@@ -16,6 +16,7 @@ import '../controllers/local_download_source_resolver.dart';
 import '../controllers/play_detail_data_loader.dart';
 import '../danmaku/settings/danmaku_settings_store.dart';
 import '../services/download_task_service.dart';
+import '../services/emby_native_picker_support.dart';
 import '../services/native_danmaku_prefetch.dart';
 import '../services/native_player_bridge.dart';
 import '../models/play_info.dart';
@@ -58,7 +59,11 @@ class TvSeasonPlaybackLauncher {
         final source = resolved.source;
         final playInfo = resolved.playInfo;
         final title = resolved.title;
-
+        // 剧详情入口未传 episodes：Emby 起播单集时按 source 的 seasonGuid 加载本季选集，
+        // 否则 loadArgs.episodes 空 → 原生壳「选集 / 下一集」不亮（壳侧靠非空 episodes 触发）。
+        final effectiveEpisodes =
+            episodes ??
+            (isFeiniu ? null : await _embyNativeEpisodes(backend, source));
         if (!context.mounted) return null;
         // 灰度：原生渲染器开启时走纯原生播放壳（无 Hybrid Composition，弹幕丝滑、二级
         // 界面不卡）。maybeLaunch 内部判断开关 + 预取弹幕；episodes 透传供原生壳「选集」。
@@ -66,7 +71,7 @@ class TvSeasonPlaybackLauncher {
         // 不走 NAS 鉴权预取，故不传 nas。
         if (await NativePlayerBridge.maybeLaunch(
           source.toMap(),
-          episodes: episodes,
+          episodes: effectiveEpisodes,
           nas: isFeiniu ? provider : null,
         )) {
           return null;
@@ -183,9 +188,16 @@ class TvSeasonPlaybackLauncher {
           preferredQualityResolution: preferredQualityResolution,
         );
         if (resolved == null) return null;
+        // 切集回传也带本季 episodes（Emby 未传时按 source 重新派生），否则换源后原生壳选集清空。
+        final mergedEpisodes =
+            episodes ??
+            (isFeiniu
+                ? null
+                : await _embyNativeEpisodes(backend, resolved.source));
         final loadArgs = <String, dynamic>{
           ...resolved.source.toMap(),
-          if (episodes != null && episodes.isNotEmpty) 'episodes': episodes,
+          if (mergedEpisodes != null && mergedEpisodes.isNotEmpty)
+            'episodes': mergedEpisodes,
           // 切画质：保持当前播放位置（覆盖按 NAS 续播位解析出的起点）。
           if (startPositionMs != null) 'startPositionMs': startPositionMs,
         };
@@ -208,6 +220,24 @@ class TvSeasonPlaybackLauncher {
         };
       },
     );
+  }
+
+  /// Emby 单集起播 / 切集：按 source 的 seasonGuid 加载本季选集映射成原生壳选集行，点亮壳内
+  /// 「选集 / 下一集」。非单集或无 seasonGuid 返回 null（电影 / 单视频无选集）。失败静默。
+  Future<List<Map<String, dynamic>>?> _embyNativeEpisodes(
+    MediaBackend backend,
+    MpvMediaSource source,
+  ) async {
+    if (source.mediaType.toLowerCase() != 'episode') return null;
+    final seasonGuid = source.seasonGuid.trim();
+    if (seasonGuid.isEmpty) return null;
+    try {
+      final episodes = await backend.getSeasonEpisodes(seasonGuid);
+      if (episodes.isEmpty) return null;
+      return EmbyNativePickerSupport.nativeEpisodePayload(episodes, seasonGuid);
+    } catch (_) {
+      return null;
+    }
   }
 
   /// 解析一集的可播 source（含轨道/续播位/标题），open 与 resolveForNative 共用。
