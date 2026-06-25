@@ -16,6 +16,7 @@ import '../player/controllers/feiniu_playback_source_bridge.dart';
 import '../providers/media_backend_provider.dart';
 import '../controllers/play_detail_data_loader.dart';
 import '../danmaku/settings/danmaku_settings_store.dart';
+import '../services/emby_native_picker_support.dart';
 import '../services/native_danmaku_prefetch.dart';
 import '../services/native_playback_reentry.dart';
 import '../services/native_player_bridge.dart';
@@ -115,9 +116,16 @@ class ItemPlaybackLauncher {
                     audioGuid: audioGuid,
                   ),
           );
+          // Emby 单集起播：带上本季 episodes，否则原生壳「选集 / 下一集」不亮（壳侧靠
+          // loadArgs.episodes 渲染选集面板 + 算下一集；空则预取被跳过、回调不触发）。
+          // 飞牛单集走 _launchPlayer 自带 episodes，故此处只为 Emby 加载。
+          final embyEpisodes = isFeiniu
+              ? null
+              : await _embyNativeEpisodes(backend, source);
           // Emby 封面 api_key 自鉴权直链、不走 NAS 鉴权预取，故只飞牛传 nas。
           if (await NativePlayerBridge.maybeLaunch(
             source.toMap(),
+            episodes: embyEpisodes,
             nas: isFeiniu ? nas : null,
           )) {
             return null;
@@ -152,6 +160,7 @@ class ItemPlaybackLauncher {
   }
 
   /// Emby 原生壳重解析：按指定版本/轨道重解析 source、回传 loadArgs（无飞牛 PlayInfo / 弹幕）。
+  /// 单集回传时带上本季 episodes——否则壳内切集后「选集 / 下一集」会清空。
   Future<Map<String, dynamic>?> _resolveEmbyForNative(
     MediaBackend backend, {
     required String itemGuid,
@@ -170,11 +179,31 @@ class ItemPlaybackLauncher {
       overrideAudioGuid: audioGuid,
     );
     if (resolved == null) return null;
+    final episodes = await _embyNativeEpisodes(backend, resolved.source);
     final loadArgs = <String, dynamic>{
       ...resolved.source.toMap(),
+      if (episodes != null && episodes.isNotEmpty) 'episodes': episodes,
       if (startPositionMs != null) 'startPositionMs': startPositionMs,
     };
     return <String, dynamic>{'loadArgs': jsonEncode(loadArgs)};
+  }
+
+  /// Emby 单集起播 / 切集：加载本季选集映射成原生壳选集行，点亮壳内「选集 / 下一集」。非单集
+  /// 或无 seasonGuid 返回 null（电影 / 单视频无选集）。失败静默（壳侧回退无选集）。
+  Future<List<Map<String, dynamic>>?> _embyNativeEpisodes(
+    MediaBackend backend,
+    MpvMediaSource source,
+  ) async {
+    if (source.mediaType.toLowerCase() != 'episode') return null;
+    final seasonGuid = source.seasonGuid.trim();
+    if (seasonGuid.isEmpty) return null;
+    try {
+      final episodes = await backend.getSeasonEpisodes(seasonGuid);
+      if (episodes.isEmpty) return null;
+      return EmbyNativePickerSupport.nativeEpisodePayload(episodes, seasonGuid);
+    } catch (_) {
+      return null;
+    }
   }
 
   /// 只解析（不启动 Activity）：原生壳画质切换时回到这里重解析指定档，回传 loadArgs+弹幕。

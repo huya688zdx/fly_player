@@ -1086,8 +1086,11 @@ class _TvDetailPageState extends State<TvDetailPage>
                           icon: const Icon(Icons.play_arrow),
                           label: Text(
                             _playPreparing
-                                ? _t('player.play.preparing', 'Preparing')
-                                : _t('player.play.start', 'Play'),
+                                ? _t(
+                                    'player.play.preparing',
+                                    'Preparing playback',
+                                  )
+                                : _t('player.play.play', 'Play'),
                           ),
                         ),
                       ),
