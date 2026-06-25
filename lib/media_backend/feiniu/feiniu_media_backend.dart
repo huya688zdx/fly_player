@@ -166,6 +166,16 @@ class FeiniuMediaBackend implements MediaBackend {
   }
 
   @override
+  Future<String?> resolveExternalSubtitleFile(
+    String trackId, {
+    String? format,
+  }) async {
+    // 飞牛外挂字幕解析走自有 NativeReentrySupport.resolveSubtitleFile（NAS guid → 下载），
+    // 不经本接口。
+    return null;
+  }
+
+  @override
   Future<List<MediaSeasonSummary>> getItemSeasons(String seriesId) async {
     final seasons = await api.getSeasonList(seriesId);
     return seasons.map(mapFeiniuSeason).toList(growable: false);

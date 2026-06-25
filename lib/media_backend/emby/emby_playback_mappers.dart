@@ -92,6 +92,48 @@ String embyDefaultAudioId(Map<String, Object?> source) =>
 String embyDefaultSubtitleId(Map<String, Object?> source) =>
     _defaultIdString(source['DefaultSubtitleStreamIndex']);
 
+/// 外挂字幕轨的**自包含**标识（播放桥接器产出、后端反向通道解码）。
+///
+/// 内嵌字幕 mpv 按 sid 切换、轨道 id 用容器 Index 即可；外挂字幕要靠原生壳反向通道
+/// 把轨道下载成文件，而 `resolveSubtitleFile(guid, format)` 只回传 guid——故把下载 Emby
+/// 字幕直链所需的 itemId / mediaSourceId / streamIndex 全编进 guid，后端无状态解码即可
+/// 拼直链。前缀 `emby:sub:`；各段为 Emby 十六进制 / 数字 id，不含 `:`，故按 `:` 切分安全。
+String embyExternalSubtitleGuid({
+  required String itemId,
+  required String mediaSourceId,
+  required int index,
+}) => 'emby:sub:$itemId:$mediaSourceId:$index';
+
+/// 解析 [embyExternalSubtitleGuid] 产出的外挂字幕标识；非该格式返回 `null`。
+EmbyExternalSubtitleRef? parseEmbyExternalSubtitleGuid(String guid) {
+  const prefix = 'emby:sub:';
+  if (!guid.startsWith(prefix)) return null;
+  final parts = guid.substring(prefix.length).split(':');
+  if (parts.length != 3) return null;
+  final itemId = parts[0].trim();
+  final mediaSourceId = parts[1].trim();
+  final index = int.tryParse(parts[2].trim());
+  if (itemId.isEmpty || index == null) return null;
+  return EmbyExternalSubtitleRef(
+    itemId: itemId,
+    mediaSourceId: mediaSourceId,
+    streamIndex: index,
+  );
+}
+
+/// [parseEmbyExternalSubtitleGuid] 的解码产物。
+class EmbyExternalSubtitleRef {
+  const EmbyExternalSubtitleRef({
+    required this.itemId,
+    required this.mediaSourceId,
+    required this.streamIndex,
+  });
+
+  final String itemId;
+  final String mediaSourceId;
+  final int streamIndex;
+}
+
 MediaPlaybackTrack _track(
   Map<String, Object?> stream,
   int index,

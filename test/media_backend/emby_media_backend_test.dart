@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/api/emby_api.dart';
 import 'package:fly_player/media_backend/emby/emby_media_backend.dart';
@@ -61,6 +63,28 @@ class _FakeEmbyApi extends EmbyApi {
   String? lastProgressMediaSourceId;
   int? lastProgressPositionTicks;
   bool? lastProgressIsPaused;
+  // downloadSubtitleText 桩 + 入参捕获。
+  String subtitleText = '';
+  String? lastSubtitleItemId;
+  String? lastSubtitleMediaSourceId;
+  int? lastSubtitleStreamIndex;
+  String? lastSubtitleFormat;
+
+  @override
+  Future<String> downloadSubtitleText({
+    required String serverUrl,
+    required String itemId,
+    required String mediaSourceId,
+    required int streamIndex,
+    required String accessToken,
+    String format = 'srt',
+  }) async {
+    lastSubtitleItemId = itemId;
+    lastSubtitleMediaSourceId = mediaSourceId;
+    lastSubtitleStreamIndex = streamIndex;
+    lastSubtitleFormat = format;
+    return subtitleText;
+  }
 
   @override
   Future<void> reportPlaybackProgress({
@@ -666,6 +690,43 @@ void main() {
       positionSeconds: -3,
     );
     expect(api.lastProgressPositionTicks, 0);
+  });
+
+  test('resolveExternalSubtitleFile：解码 guid → 下载落临时文件', () async {
+    final api = _FakeEmbyApi()
+      ..subtitleText = '1\n00:00:01,000 --> 00:00:02,000\n你好\n';
+    final backend = EmbyMediaBackend(api: api, connection: connection);
+    final path = await backend.resolveExternalSubtitleFile(
+      'emby:sub:item-5:src-1:4',
+      format: 'subrip',
+    );
+    expect(path, isNotNull);
+    expect(api.lastSubtitleItemId, 'item-5');
+    expect(api.lastSubtitleMediaSourceId, 'src-1');
+    expect(api.lastSubtitleStreamIndex, 4);
+    // subrip 映射成 srt 扩展名。
+    expect(api.lastSubtitleFormat, 'srt');
+    expect(path!.endsWith('.srt'), isTrue);
+    final file = File(path);
+    expect(await file.exists(), isTrue);
+    expect(await file.readAsString(), api.subtitleText);
+    await file.delete();
+  });
+
+  test('resolveExternalSubtitleFile：非外挂 guid 返回 null（不下载）', () async {
+    final api = _FakeEmbyApi();
+    final backend = EmbyMediaBackend(api: api, connection: connection);
+    expect(await backend.resolveExternalSubtitleFile('3'), isNull);
+    expect(api.lastSubtitleItemId, isNull);
+  });
+
+  test('resolveExternalSubtitleFile：空字幕文本返回 null', () async {
+    final api = _FakeEmbyApi()..subtitleText = '   ';
+    final backend = EmbyMediaBackend(api: api, connection: connection);
+    expect(
+      await backend.resolveExternalSubtitleFile('emby:sub:item-5:src-1:4'),
+      isNull,
+    );
   });
 }
 

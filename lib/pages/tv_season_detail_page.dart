@@ -2300,6 +2300,10 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
           ),
       onSetEpisodePickerViewType: (viewType) =>
           EmbyNativePickerSupport.setEpisodePickerViewType(viewType),
+      // 外挂字幕：原生壳走外挂文件路径时回传字幕 guid（桥接器编码的自包含 guid）+ 格式，
+      // 后端解码下载字幕全文落临时文件、回传路径供 sub-add。失败回 null（壳侧回退无外挂字幕）。
+      onResolveSubtitleFile: (guid, {format}) =>
+          backend.resolveExternalSubtitleFile(guid, format: format),
     );
   }
 

@@ -166,14 +166,38 @@ void main() {
     expect(source.audioTracks[1].guid, '2');
   });
 
-  test('subtitleTracks 仅保留内嵌（外挂被过滤，避免 sid 错位）', () async {
+  test('subtitleTracks 内嵌用 Index、外挂用自包含 guid + isExternal=1', () async {
     final source = await const EmbyPlaybackSourceBridge().assemble(
       request: const MediaPlaybackRequest(itemId: 'item-5'),
       bundle: bundle(),
     );
-    // bundle 含内嵌(id=3) + 外挂(id=4)，只剩内嵌。
-    expect(source.subtitleTracks.map((t) => t.guid).toList(), <String>['3']);
-    expect(source.subtitleTracks.single.isExternal, 0);
+    // bundle 含内嵌(id=3) + 外挂(id=4)：内嵌 guid=Index，外挂 guid=自包含编码。
+    final guids = source.subtitleTracks.map((t) => t.guid).toList();
+    expect(guids, <String>['3', 'emby:sub:item-5:src-1:4']);
+    final embedded = source.subtitleTracks.firstWhere((t) => t.guid == '3');
+    expect(embedded.isExternal, 0);
+    final external = source.subtitleTracks.firstWhere(
+      (t) => t.guid == 'emby:sub:item-5:src-1:4',
+    );
+    expect(external.isExternal, 1);
+    expect(external.extraFile, 1);
+  });
+
+  test('选中外挂字幕：subtitleTrackGuid 用自包含 guid + preferExternalSubtitle', () async {
+    final source = await const EmbyPlaybackSourceBridge().assemble(
+      request: const MediaPlaybackRequest(itemId: 'item-5'),
+      bundle: bundle(
+        selectedSubtitle: const MediaPlaybackTrack(
+          id: '4',
+          kind: MediaPlaybackTrackKind.subtitle,
+          index: 4,
+          subtitleLocation: MediaSubtitleLocation.external,
+        ),
+      ),
+    );
+    expect(source.subtitleTrackGuid, 'emby:sub:item-5:src-1:4');
+    expect(source.subtitleTrackIndex, isNull);
+    expect(source.preferExternalSubtitle, isTrue);
   });
 
   test('电影（系列名空）seriesTitle 回退标题，供弹幕匹配', () async {
