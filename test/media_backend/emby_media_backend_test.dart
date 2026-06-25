@@ -810,6 +810,22 @@ void main() {
     expect(await backend.resolveSeriesPlaybackTarget('series-1'), 's1e3');
   });
 
+  test('resolveSeriesNextUpEpisode：返回含季/集号的摘要（供按键文案）', () async {
+    final backend = _SeriesTargetBackend(
+      <MediaSeasonSummary>[_season('s1', 1)],
+      <String, List<MediaEpisodeSummary>>{
+        's1': <MediaEpisodeSummary>[
+          _ep('s1e1', season: 1, episode: 1, watched: true),
+          _ep('s1e2', season: 1, episode: 3, resume: 300),
+        ],
+      },
+    );
+    final ep = await backend.resolveSeriesNextUpEpisode('series-1');
+    expect(ep?.id, 's1e2');
+    expect(ep?.seasonNumber, 1);
+    expect(ep?.episodeNumber, 3);
+  });
+
   test('resolveSeriesPlaybackTarget：全看完 → 首集；无季 → 空', () async {
     final allWatched = _SeriesTargetBackend(
       <MediaSeasonSummary>[_season('s1', 1)],
@@ -836,16 +852,21 @@ MediaSeasonSummary _season(String id, int number) => MediaSeasonSummary(
   primaryImage: MediaImageRef.empty,
 );
 
-MediaEpisodeSummary _ep(String id, {bool watched = false, int resume = 0}) =>
-    MediaEpisodeSummary(
-      id: id,
-      title: id,
-      seasonNumber: 1,
-      episodeNumber: 1,
-      primaryImage: MediaImageRef.empty,
-      watched: watched,
-      resumePositionSeconds: resume,
-    );
+MediaEpisodeSummary _ep(
+  String id, {
+  bool watched = false,
+  int resume = 0,
+  int season = 1,
+  int episode = 1,
+}) => MediaEpisodeSummary(
+  id: id,
+  title: id,
+  seasonNumber: season,
+  episodeNumber: episode,
+  primaryImage: MediaImageRef.empty,
+  watched: watched,
+  resumePositionSeconds: resume,
+);
 
 /// 覆写中立季/集查询返回 fixture，钉住 resolveSeriesPlaybackTarget 的续看/首集选取逻辑
 /// （不触 api/mapper）。

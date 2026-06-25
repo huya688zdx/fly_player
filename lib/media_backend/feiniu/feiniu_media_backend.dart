@@ -200,6 +200,14 @@ class FeiniuMediaBackend implements MediaBackend {
   }
 
   @override
+  Future<MediaEpisodeSummary?> resolveSeriesNextUpEpisode(
+    String seriesId,
+  ) async {
+    // 飞牛系列页按键文案走自有 PlayInfo（_tvPrimaryLabel），不经本接口。
+    return null;
+  }
+
+  @override
   Future<List<MediaSeasonSummary>> getItemSeasons(String seriesId) async {
     final seasons = await api.getSeasonList(seriesId);
     return seasons.map(mapFeiniuSeason).toList(growable: false);
