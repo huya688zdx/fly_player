@@ -78,9 +78,12 @@ class NativePlaybackReentry {
             NativeReentrySupport.setEpisodePickerViewType(nas, viewType),
       );
     }
+    // 每次 bind 建一个有状态的进度上报器：Emby 须先 PlaybackStart 建会话进度才持久化，
+    // 故首帧进度先开会话；切集时停旧会话 + 开新会话。状态随 bind 闭包（每次起播独立）。
+    final reporter = EmbyPlaybackReporter(backend);
     return NativePlayerBridge.bindReentry(
       onResolvePlayback: onResolvePlayback,
-      onRecordProgress: (progress) => _reportEmbyProgress(backend, progress),
+      onRecordProgress: reporter.report,
       onResolveSubtitleFile: (guid, {format}) =>
           backend.resolveExternalSubtitleFile(guid, format: format),
       onLoadEpisodePickerData: (currentLoadArgs, {seasonGuid}) =>
@@ -100,19 +103,47 @@ class NativePlaybackReentry {
           EmbyNativePickerSupport.setEpisodePickerViewType(viewType),
     );
   }
+}
 
-  /// Emby 原生壳回传进度 → `/Sessions/Playing/Progress`（更新续播位）。best-effort：断网 /
-  /// 令牌过期静默吞，不阻断播放。progress 的 `ts` 为秒、`itemGuid`/`mediaGuid` 为 Emby
-  /// itemId / MediaSourceId（桥接器装进 MpvMediaSource、原生壳原样回传）。
-  static Future<void> _reportEmbyProgress(
-    MediaBackend backend,
-    Map<String, dynamic> progress,
-  ) async {
+/// Emby 进度上报器（每次 bind 一个实例，持当前播放会话状态）。
+///
+/// Emby 须先 `PlaybackStart` 建会话，之后 `Progress` 才被持久化（见 [EmbyApi.reportPlaybackStart]）。
+/// 故首次收到某条目进度时先开会话；原生壳壳内切集（itemGuid 变）时停旧会话 + 开新会话，使每集
+/// 的续播位都正确落定。原生壳无显式「播放结束」信号，最终停止不主动 Stopped——但末次 Progress
+/// 已落定续播位、会话已注册，继续观看正常。progress 的 `ts` 为秒、`itemGuid`/`mediaGuid` 为 Emby
+/// itemId / MediaSourceId（桥接器装进 MpvMediaSource、原生壳原样回传）。best-effort：静默吞错。
+class EmbyPlaybackReporter {
+  EmbyPlaybackReporter(this.backend);
+
+  final MediaBackend backend;
+  String _itemId = '';
+  String _mediaId = '';
+  int _lastTs = 0;
+
+  Future<void> report(Map<String, dynamic> progress) async {
     final itemGuid = (progress['itemGuid'] ?? '').toString().trim();
     if (itemGuid.isEmpty) return;
     final mediaGuid = (progress['mediaGuid'] ?? '').toString().trim();
     final ts = (progress['ts'] as num?)?.toInt() ?? 0;
     try {
+      if (itemGuid != _itemId) {
+        // 切到新条目：先停旧会话（落定旧条目最终位），再为新条目开会话。
+        if (_itemId.isNotEmpty) {
+          await backend.reportPlaybackStopped(
+            itemId: _itemId,
+            mediaSourceId: _mediaId,
+            positionSeconds: _lastTs,
+          );
+        }
+        _itemId = itemGuid;
+        await backend.reportPlaybackStart(
+          itemId: itemGuid,
+          mediaSourceId: mediaGuid,
+          positionSeconds: ts,
+        );
+      }
+      _mediaId = mediaGuid;
+      _lastTs = ts;
       await backend.reportPlaybackProgress(
         itemId: itemGuid,
         mediaSourceId: mediaGuid,
