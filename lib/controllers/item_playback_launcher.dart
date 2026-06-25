@@ -17,8 +17,8 @@ import '../providers/media_backend_provider.dart';
 import '../controllers/play_detail_data_loader.dart';
 import '../danmaku/settings/danmaku_settings_store.dart';
 import '../services/native_danmaku_prefetch.dart';
+import '../services/native_playback_reentry.dart';
 import '../services/native_player_bridge.dart';
-import '../services/native_reentry_support.dart';
 import '../models/play_info.dart';
 import '../player/controllers/mpv_player_controller.dart';
 import '../player/mpv_player_page.dart';
@@ -74,24 +74,53 @@ class ItemPlaybackLauncher {
         final title = resolved.title;
 
         if (!context.mounted) return null;
-        // 灰度：原生渲染器开启时走纯原生播放壳，并注册反向通道。飞牛绑全功能反向通道（画质
-        // 切换 + 续播回写 + 选集）；Emby 绑最小反向通道（仅重解析，进度回写/选集首版不做）。
-        // Emby 封面是 api_key 自鉴权直链，不走 NAS 鉴权预取，故 maybeLaunch 不传 nas。
+        // 灰度：原生渲染器开启时走纯原生播放壳，经统一 binder 注册反向通道——飞牛绑全功能、
+        // Emby 绑完整回调集（进度/选集/外挂字幕），由 NativePlaybackReentry 按后端统一接线。
+        // 单条目无选集静态兜底（剧集的选集数据由后端按 loadArgs 的 seriesGuid 派生）；
+        // onResolvePlayback 按后端走各自重解析（飞牛带本地下载+弹幕，Emby 直链重解析）。
         final danmakuSettings = await const DanmakuSettingsStore().load();
         if (danmakuSettings.useNativeRenderer) {
-          if (isFeiniu) {
-            _bindReentry(nas, fallbackTitle: fallbackTitle);
-            if (await NativePlayerBridge.maybeLaunch(
-              source.toMap(),
-              nas: nas,
-            )) {
-              return null;
-            }
-          } else {
-            _bindEmbyReentry(backend, fallbackTitle: fallbackTitle);
-            if (await NativePlayerBridge.maybeLaunch(source.toMap())) {
-              return null;
-            }
+          NativePlaybackReentry.bind(
+            backend: backend,
+            nas: nas,
+            onResolvePlayback:
+                (
+                  itemGuid, {
+                  qualityIndex,
+                  qualityMediaGuid,
+                  startPositionMs,
+                  subtitleGuid,
+                  audioGuid,
+                  audioTrackIndex,
+                  subtitleTrackIndex,
+                  preferredQualityResolution,
+                }) => isFeiniu
+                ? resolveForNative(
+                    nas,
+                    itemGuid: itemGuid,
+                    fallbackTitle: fallbackTitle,
+                    qualityIndex: qualityIndex,
+                    qualityMediaGuid: qualityMediaGuid,
+                    startPositionMs: startPositionMs,
+                    subtitleGuid: subtitleGuid,
+                    audioGuid: audioGuid,
+                  )
+                : _resolveEmbyForNative(
+                    backend,
+                    itemGuid: itemGuid,
+                    fallbackTitle: fallbackTitle,
+                    qualityMediaGuid: qualityMediaGuid,
+                    startPositionMs: startPositionMs,
+                    subtitleGuid: subtitleGuid,
+                    audioGuid: audioGuid,
+                  ),
+          );
+          // Emby 封面 api_key 自鉴权直链、不走 NAS 鉴权预取，故只飞牛传 nas。
+          if (await NativePlayerBridge.maybeLaunch(
+            source.toMap(),
+            nas: isFeiniu ? nas : null,
+          )) {
+            return null;
           }
         }
         if (!context.mounted) return null;
@@ -120,103 +149,6 @@ class ItemPlaybackLauncher {
         return result is PlayDetailPlayerReturnData ? result : null;
       },
     );
-  }
-
-  /// 注册画质/续播反向通道（捕获 nas，脱离 widget context）。单视频/电影无选集。
-  void _bindReentry(NasProvider nas, {String fallbackTitle = ''}) {
-    NativePlayerBridge.bindReentry(
-      onResolvePlayback:
-          (
-            itemGuid, {
-            qualityIndex,
-            qualityMediaGuid,
-            startPositionMs,
-            subtitleGuid,
-            audioGuid,
-            // 单条目无选集，序号/画质继承不适用；声明以匹配桥接器函数类型。
-            audioTrackIndex,
-            subtitleTrackIndex,
-            preferredQualityResolution,
-          }) => resolveForNative(
-            nas,
-            itemGuid: itemGuid,
-            fallbackTitle: fallbackTitle,
-            qualityIndex: qualityIndex,
-            qualityMediaGuid: qualityMediaGuid,
-            startPositionMs: startPositionMs,
-            subtitleGuid: subtitleGuid,
-            audioGuid: audioGuid,
-          ),
-      onRecordProgress: (progress) =>
-          NativeReentrySupport.recordProgress(nas, progress),
-      onResolveSubtitleFile: (guid, {format}) =>
-          NativeReentrySupport.resolveSubtitleFile(nas, guid, format: format),
-      onReloadServerSession: (currentLoadArgs, intent) =>
-          NativeReentrySupport.reloadServerSession(
-            nas,
-            currentLoadArgs: currentLoadArgs,
-            intent: intent,
-          ),
-      onLoadEpisodePickerData: (currentLoadArgs, {seasonGuid}) =>
-          NativeReentrySupport.loadEpisodePickerData(
-            nas,
-            currentLoadArgs: currentLoadArgs,
-            seasonGuid: seasonGuid ?? '',
-          ),
-      onLoadSeasonEpisodes: (seasonGuid) =>
-          NativeReentrySupport.loadSeasonEpisodes(nas, seasonGuid: seasonGuid),
-      onSetEpisodePickerViewType: (viewType) =>
-          NativeReentrySupport.setEpisodePickerViewType(nas, viewType),
-    );
-  }
-
-  /// 注册 Emby 最小反向通道（捕获活动后端，脱离 widget context）。首版只接「重解析」——
-  /// 进度回写 / 选集 / 服务端会话重载 Emby 首版不做（电影单条目不触发），故余下回调不绑，
-  /// 用最小绑定替换掉可能残留的飞牛回调（bindReentry 以最近一次为准）。
-  void _bindEmbyReentry(MediaBackend backend, {String fallbackTitle = ''}) {
-    NativePlayerBridge.bindReentry(
-      onResolvePlayback:
-          (
-            itemGuid, {
-            qualityIndex,
-            qualityMediaGuid,
-            startPositionMs,
-            subtitleGuid,
-            audioGuid,
-            audioTrackIndex,
-            subtitleTrackIndex,
-            preferredQualityResolution,
-          }) => _resolveEmbyForNative(
-            backend,
-            itemGuid: itemGuid,
-            fallbackTitle: fallbackTitle,
-            qualityMediaGuid: qualityMediaGuid,
-            startPositionMs: startPositionMs,
-            subtitleGuid: subtitleGuid,
-            audioGuid: audioGuid,
-          ),
-      onRecordProgress: (progress) => _reportEmbyProgress(backend, progress),
-    );
-  }
-
-  /// 原生壳回传进度 → Emby `/Sessions/Playing/Progress`（更新续播位）。best-effort：
-  /// 断网 / 令牌过期静默吞，不阻断播放。progress 的 `ts` 为秒、`itemGuid`/`mediaGuid` 为
-  /// Emby itemId / MediaSourceId（桥接器装进 MpvMediaSource、原生壳原样回传）。
-  Future<void> _reportEmbyProgress(
-    MediaBackend backend,
-    Map<String, dynamic> progress,
-  ) async {
-    final itemGuid = (progress['itemGuid'] ?? '').toString().trim();
-    if (itemGuid.isEmpty) return;
-    final mediaGuid = (progress['mediaGuid'] ?? '').toString().trim();
-    final ts = (progress['ts'] as num?)?.toInt() ?? 0;
-    try {
-      await backend.reportPlaybackProgress(
-        itemId: itemGuid,
-        mediaSourceId: mediaGuid,
-        positionSeconds: ts,
-      );
-    } catch (_) {}
   }
 
   /// Emby 原生壳重解析：按指定版本/轨道重解析 source、回传 loadArgs（无飞牛 PlayInfo / 弹幕）。
