@@ -228,6 +228,7 @@ class EmbyApi {
   /// `GET /Users/{userId}/Items`，`api_key` 自鉴权。与 [getItems] 的差别：支持 `StartIndex`
   /// 偏移分页、`Genres` 题材筛选，并连同 `TotalRecordCount` 一起返回（列表页需要总数算
   /// 「还有更多」）。[genres] 为题材显示名（Emby `Genres` 取名字，多个用 `|` 分隔）。
+  /// [searchTerm] 非空时按关键字搜索（Emby `SearchTerm`），供搜索页复用本分页查询。
   Future<EmbyItemPage> getItemPage({
     required String serverUrl,
     required String userId,
@@ -241,6 +242,7 @@ class EmbyApi {
     String fields = '',
     String sortBy = '',
     String sortOrder = '',
+    String searchTerm = '',
   }) async {
     final normalizedServerUrl = normalizeServerUrl(serverUrl);
     final query = <String, Object?>{
@@ -252,6 +254,7 @@ class EmbyApi {
       if (includeItemTypes.trim().isNotEmpty)
         'IncludeItemTypes': includeItemTypes.trim(),
       if (genres.trim().isNotEmpty) 'Genres': genres.trim(),
+      if (searchTerm.trim().isNotEmpty) 'SearchTerm': searchTerm.trim(),
       if (fields.trim().isNotEmpty) 'Fields': fields.trim(),
       if (sortBy.trim().isNotEmpty) 'SortBy': sortBy.trim(),
       if (sortOrder.trim().isNotEmpty) 'SortOrder': sortOrder.trim(),
@@ -297,6 +300,32 @@ class EmbyApi {
         'IncludeItemTypes': includeItemTypes.trim(),
     };
     return _getItemList('$normalizedServerUrl/Genres', query);
+  }
+
+  /// 继续观看——首页续播行。`GET /Users/{userId}/Items/Resume`，`api_key` 自鉴权。
+  ///
+  /// Emby 官方「继续观看」专用端点：返回该用户**有续播进度**的条目（任意 Emby 客户端播放
+  /// 留下的进度），已按最近播放排序。比 `/Items?Filters=IsResumable` 更可靠。仅取视频
+  /// （`MediaTypes=Video`）。返回 `Items` 数组（BaseItemDto 原样 `Map`，映射留 mapper）。
+  Future<List<Map<String, Object?>>> getResumeItems({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    int limit = 20,
+    String fields = '',
+  }) async {
+    final normalizedServerUrl = normalizeServerUrl(serverUrl);
+    final query = <String, Object?>{
+      'api_key': accessToken,
+      'Limit': limit,
+      'Recursive': true,
+      'MediaTypes': 'Video',
+      if (fields.trim().isNotEmpty) 'Fields': fields.trim(),
+    };
+    return _getItemList(
+      '$normalizedServerUrl/Users/${userId.trim()}/Items/Resume',
+      query,
+    );
   }
 
   static int _asCount(Object? value, int fallback) {

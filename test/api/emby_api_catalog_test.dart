@@ -75,6 +75,64 @@ void main() {
     expect(page.totalRecordCount, 2);
   });
 
+  test('getItemPage：searchTerm → SearchTerm 查询参数', () async {
+    late RequestOptions captured;
+    final adapter = _FakeDioAdapter((options) {
+      captured = options;
+      return const _JsonResponse(<String, Object?>{
+        'Items': <Object?>[],
+        'TotalRecordCount': 0,
+      });
+    });
+    final api = EmbyApi(dio: Dio(BaseOptions())..httpClientAdapter = adapter);
+
+    await api.getItemPage(
+      serverUrl: 'https://emby.example.test',
+      userId: 'user-1',
+      accessToken: 'tok',
+      searchTerm: '银翼杀手',
+      includeItemTypes: 'Movie,Series,Episode',
+      limit: 60,
+    );
+
+    expect(captured.uri.path, '/Users/user-1/Items');
+    expect(captured.uri.queryParameters['SearchTerm'], '银翼杀手');
+    expect(
+      captured.uri.queryParameters['IncludeItemTypes'],
+      'Movie,Series,Episode',
+    );
+  });
+
+  test('getResumeItems 拼 /Items/Resume + MediaTypes=Video，解析 Items', () async {
+    late RequestOptions captured;
+    final adapter = _FakeDioAdapter((options) {
+      captured = options;
+      return const _JsonResponse(<String, Object?>{
+        'Items': <Object?>[
+          <String, Object?>{'Id': 'r-1', 'Name': '续播', 'Type': 'Movie'},
+        ],
+      });
+    });
+    final api = EmbyApi(dio: Dio(BaseOptions())..httpClientAdapter = adapter);
+
+    final items = await api.getResumeItems(
+      serverUrl: 'https://emby.example.test/',
+      userId: 'user-1',
+      accessToken: 'tok',
+      limit: 20,
+      fields: 'Overview',
+    );
+
+    expect(captured.method, 'GET');
+    expect(captured.uri.path, '/Users/user-1/Items/Resume');
+    expect(captured.uri.queryParameters['api_key'], 'tok');
+    expect(captured.uri.queryParameters['Limit'], '20');
+    expect(captured.uri.queryParameters['Recursive'], 'true');
+    expect(captured.uri.queryParameters['MediaTypes'], 'Video');
+    expect(items, hasLength(1));
+    expect(items[0]['Id'], 'r-1');
+  });
+
   test(
     'getGenres 拼 /Genres + UserId/ParentId/IncludeItemTypes，解析 Items',
     () async {
