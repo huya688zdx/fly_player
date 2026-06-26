@@ -20,13 +20,13 @@ void main() {
     });
   });
 
-  testWidgets('飞牛登录页默认保留历史、HTTPS、FN Connect 和下载入口', (tester) async {
+  testWidgets('飞牛登录页默认保留历史、FN Connect 和下载入口', (tester) async {
     await tester.pumpWidget(_connectionScreen());
     await tester.pump();
 
     expect(find.text('飞牛播放器'), findsOneWidget);
     expect(find.byIcon(Icons.history_rounded), findsOneWidget);
-    expect(find.byType(Switch), findsOneWidget);
+    expect(find.byType(Switch), findsNothing);
     expect(find.text('查看已下载数据'), findsOneWidget);
     expect(find.text('重新登录 FN Connect'), findsOneWidget);
     expect(find.text('登录'), findsOneWidget);
