@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -757,42 +755,33 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: () => FocusScope.of(context).unfocus(),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              const _LoginBackdrop(),
-              SafeArea(
-                child: Center(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(24, 12, 24, 12),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 430),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          const SizedBox(height: 0),
-                          _LogoHeader(title: l10n.connectionAppName),
-                          const SizedBox(height: 16),
-                          _BackendSelector(
-                            selected: _selectedBackend,
-                            onChanged: (backend) {
-                              setState(() {
-                                _selectedBackend = backend;
-                              });
-                            },
-                          ),
-                          const SizedBox(height: 18),
-                          SizedBox(
-                            height: 420,
-                            child: _buildAnimatedForm(theme, l10n),
-                          ),
-                        ],
+          child: SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(24, 12, 24, 12),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 430),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const SizedBox(height: 0),
+                      _LogoHeader(title: l10n.connectionAppName),
+                      const SizedBox(height: 16),
+                      _BackendSelector(
+                        selected: _selectedBackend,
+                        onChanged: (backend) {
+                          setState(() {
+                            _selectedBackend = backend;
+                          });
+                        },
                       ),
-                    ),
+                      const SizedBox(height: 18),
+                      _buildForm(theme, l10n),
+                    ],
                   ),
                 ),
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -822,234 +811,195 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     });
   }
 
-  /// 飞牛 / Emby 表单之间的方向性切换动画：选中右侧（Emby）时新表单从右滑入，
-  /// 选中左侧（飞牛）时从左滑入，配合淡入淡出。
-  Widget _buildAnimatedForm(ThemeData theme, AppLocalizations l10n) {
+  /// 后端表单：单一持久面板 + 内部字段的方向性滑动切换。
+  ///
+  /// 不再用 `AnimatedSwitcher` 跨淡「两整套带阴影的表单」——`FadeTransition` 的
+  /// opacity 会强制离屏 `saveLayer`，叠在海报墙背景上直接 GPU 超支（极卡），叠加
+  /// `ScaleTransition` 与 layoutBuilder 对齐不一致还会抖。这里面板常驻（阴影只栅格化
+  /// 一次），只对内部字段做**纯位移**滑动（无 opacity/scale，无离屏层），顺滑不抖。
+  Widget _buildForm(ThemeData theme, AppLocalizations l10n) {
     final isEmby = _selectedBackend == _ConnectionBackend.emby;
-    return AnimatedSwitcher(
-      duration: AppTransitions.contentSwitchDuration,
-      switchInCurve: Curves.easeOutQuart,
-      switchOutCurve: Curves.easeInQuart,
-      layoutBuilder: (currentChild, previousChildren) {
-        return Stack(
-          fit: StackFit.expand,
-          alignment: Alignment.topLeft,
-          children: [
-            ...previousChildren,
-            if (currentChild != null) currentChild,
-          ],
-        );
-      },
-      transitionBuilder: (child, animation) {
-        final scale = Tween<double>(begin: 0.985, end: 1).animate(animation);
-        return FadeTransition(
-          opacity: animation,
-          child: ScaleTransition(
-            scale: scale,
-            alignment: Alignment.topCenter,
-            child: child,
+    return SizedBox(
+      height: 432,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _LoginFormPanel(
+            child: ClipRect(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 260),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                layoutBuilder: (currentChild, previousChildren) {
+                  return Stack(
+                    alignment: Alignment.topCenter,
+                    children: [
+                      ...previousChildren,
+                      if (currentChild != null) currentChild,
+                    ],
+                  );
+                },
+                transitionBuilder: (child, animation) {
+                  final key = child.key;
+                  final isIncoming =
+                      key is ValueKey<_ConnectionBackend> &&
+                      key.value == _selectedBackend;
+                  // 选 Emby（右侧）时新卡从右进、旧卡向左出；选飞牛（左侧）反向。
+                  final dx = isEmby ? 1.0 : -1.0;
+                  final position = isIncoming
+                      ? Tween<Offset>(begin: Offset(dx, 0), end: Offset.zero)
+                      : Tween<Offset>(begin: Offset(-dx, 0), end: Offset.zero);
+                  return SlideTransition(
+                    position: position.animate(animation),
+                    child: child,
+                  );
+                },
+                child: KeyedSubtree(
+                  key: ValueKey<_ConnectionBackend>(_selectedBackend),
+                  child: _buildFormFields(theme, l10n, isEmby: isEmby),
+                ),
+              ),
+            ),
           ),
-        );
-      },
-      child: KeyedSubtree(
-        key: ValueKey<_ConnectionBackend>(_selectedBackend),
-        child: isEmby
-            ? _buildEmbyForm(theme, l10n)
-            : _buildFeiniuForm(theme, l10n),
+          const SizedBox(height: 18),
+          _SubmitButton(
+            isSubmitting: _isSubmitting,
+            label: l10n.connectionLogin,
+            onPressed: _isSubmitting ? null : _submit,
+          ),
+          if (!isEmby) ...[
+            const SizedBox(height: 10),
+            _buildFeiniuFooter(theme, l10n),
+          ],
+        ],
       ),
     );
   }
 
-  Widget _buildFeiniuForm(ThemeData theme, AppLocalizations l10n) {
+  /// 单套表单字段（服务器/账号/密码/记住）。飞牛与 Emby 结构一致，仅控制器与文案不同，
+  /// 共用此构建以保证两态高度严格相等——滑动切换时面板不重排、不抖。
+  Widget _buildFormFields(
+    ThemeData theme,
+    AppLocalizations l10n, {
+    required bool isEmby,
+  }) {
+    final baseController = isEmby ? _embyBaseUrlController : _baseUrlController;
+    final userController = isEmby
+        ? _embyUserNameController
+        : _userNameController;
+    final passwordController = isEmby
+        ? _embyPasswordController
+        : _passwordController;
+    final obscure = isEmby ? _obscureEmbyPassword : _obscurePassword;
+    final remember = isEmby ? _embyRememberPassword : _rememberPassword;
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _LoginFormPanel(
-          child: Column(
-            children: [
-              _GlassField(
-                controller: _baseUrlController,
-                labelText: '服务器地址',
-                hintText: '例如：https://feiniu.geqian.sbs:5667',
-                leadingIcon: Icons.dns_outlined,
-                keyboardType: TextInputType.url,
-                textInputAction: TextInputAction.next,
-                autofillHints: const <String>[AutofillHints.url],
-                suffix: IconButton(
-                  onPressed: _openLoginHistory,
-                  icon: Icon(
-                    Icons.history_rounded,
-                    color: _historyEntries.isEmpty
-                        ? const Color(0xFF58687C)
-                        : const Color(0xFF7C8DA5),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              _GlassField(
-                controller: _userNameController,
-                labelText: '账号',
-                hintText: l10n.connectionUserNameHint,
-                leadingIcon: Icons.person_outline_rounded,
-                textInputAction: TextInputAction.next,
-                autofillHints: const <String>[AutofillHints.username],
-              ),
-              const SizedBox(height: 12),
-              _GlassField(
-                controller: _passwordController,
-                labelText: l10n.connectionPasswordHint,
-                hintText: '',
-                leadingIcon: Icons.lock_outline_rounded,
-                obscureText: _obscurePassword,
-                textInputAction: TextInputAction.done,
-                autofillHints: const <String>[AutofillHints.password],
-                onSubmitted: (_) => _submit(),
-                suffix: IconButton(
-                  onPressed: () {
-                    setState(() {
-                      _obscurePassword = !_obscurePassword;
-                    });
-                  },
-                  icon: Icon(
-                    _obscurePassword
-                        ? Icons.visibility_off_outlined
-                        : Icons.visibility_outlined,
-                    color: const Color(0xFF8795AD),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-              _buildRememberRow(
-                theme,
-                l10n,
-                value: _rememberPassword,
-                onChanged: (value) {
-                  setState(() {
-                    _rememberPassword = value;
-                  });
-                },
-              ),
-            ],
+        _GlassField(
+          controller: baseController,
+          labelText: isEmby ? 'Emby 服务器地址' : '服务器地址',
+          hintText: isEmby
+              ? '例如：https://emby.example.com'
+              : '例如：https://feiniu.geqian.sbs:5667',
+          leadingIcon: Icons.dns_outlined,
+          keyboardType: TextInputType.url,
+          textInputAction: TextInputAction.next,
+          autofillHints: const <String>[AutofillHints.url],
+          suffix: IconButton(
+            onPressed: _openLoginHistory,
+            icon: Icon(
+              Icons.history_rounded,
+              color: _historyEntries.isEmpty
+                  ? const Color(0xFF58687C)
+                  : const Color(0xFF7C8DA5),
+            ),
           ),
         ),
-        const SizedBox(height: 18),
-        _SubmitButton(
-          isSubmitting: _isSubmitting,
-          label: l10n.connectionLogin,
-          onPressed: _isSubmitting ? null : _submit,
+        const SizedBox(height: 12),
+        _GlassField(
+          controller: userController,
+          labelText: '账号',
+          hintText: l10n.connectionUserNameHint,
+          leadingIcon: Icons.person_outline_rounded,
+          textInputAction: TextInputAction.next,
+          autofillHints: const <String>[AutofillHints.username],
         ),
-        const SizedBox(height: 10),
-        Center(
-          child: Wrap(
-            alignment: WrapAlignment.center,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 10,
-            runSpacing: 2,
-            children: [
-              TextButton(
-                onPressed: _openDownloadedData,
-                style: _footerButtonStyle(
-                  theme,
-                  foregroundColor: const Color(0xFF8FA6C7),
-                ),
-                child: Text(l10n.connectionOpenDownloads),
-              ),
-              TextButton(
-                onPressed: _isSubmitting ? null : _resetFnConnectWebLoginState,
-                style: _footerButtonStyle(
-                  theme,
-                  foregroundColor: const Color(0xFFB6A06A),
-                  disabledForegroundColor: const Color(0xFF5D5A52),
-                  fontWeight: FontWeight.w600,
-                ),
-                child: const Text('重新登录 FN Connect'),
-              ),
-            ],
+        const SizedBox(height: 12),
+        _GlassField(
+          controller: passwordController,
+          labelText: l10n.connectionPasswordHint,
+          hintText: '',
+          leadingIcon: Icons.lock_outline_rounded,
+          obscureText: obscure,
+          textInputAction: TextInputAction.done,
+          autofillHints: const <String>[AutofillHints.password],
+          onSubmitted: (_) => _submit(),
+          suffix: IconButton(
+            onPressed: () {
+              setState(() {
+                if (isEmby) {
+                  _obscureEmbyPassword = !_obscureEmbyPassword;
+                } else {
+                  _obscurePassword = !_obscurePassword;
+                }
+              });
+            },
+            icon: Icon(
+              obscure
+                  ? Icons.visibility_off_outlined
+                  : Icons.visibility_outlined,
+              color: const Color(0xFF8795AD),
+            ),
           ),
+        ),
+        const SizedBox(height: 14),
+        _buildRememberRow(
+          theme,
+          l10n,
+          value: remember,
+          onChanged: (value) {
+            setState(() {
+              if (isEmby) {
+                _embyRememberPassword = value;
+              } else {
+                _rememberPassword = value;
+              }
+            });
+          },
         ),
       ],
     );
   }
 
-  Widget _buildEmbyForm(ThemeData theme, AppLocalizations l10n) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _LoginFormPanel(
-          child: Column(
-            children: [
-              _GlassField(
-                controller: _embyBaseUrlController,
-                labelText: 'Emby 服务器地址',
-                hintText: '例如：https://emby.example.com',
-                leadingIcon: Icons.dns_outlined,
-                keyboardType: TextInputType.url,
-                textInputAction: TextInputAction.next,
-                autofillHints: const <String>[AutofillHints.url],
-                suffix: IconButton(
-                  onPressed: _openLoginHistory,
-                  icon: Icon(
-                    Icons.history_rounded,
-                    color: _historyEntries.isEmpty
-                        ? const Color(0xFF58687C)
-                        : const Color(0xFF7C8DA5),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              _GlassField(
-                controller: _embyUserNameController,
-                labelText: '账号',
-                hintText: l10n.connectionUserNameHint,
-                leadingIcon: Icons.person_outline_rounded,
-                textInputAction: TextInputAction.next,
-                autofillHints: const <String>[AutofillHints.username],
-              ),
-              const SizedBox(height: 12),
-              _GlassField(
-                controller: _embyPasswordController,
-                labelText: l10n.connectionPasswordHint,
-                hintText: '',
-                leadingIcon: Icons.lock_outline_rounded,
-                obscureText: _obscureEmbyPassword,
-                textInputAction: TextInputAction.done,
-                autofillHints: const <String>[AutofillHints.password],
-                onSubmitted: (_) => _submit(),
-                suffix: IconButton(
-                  onPressed: () {
-                    setState(() {
-                      _obscureEmbyPassword = !_obscureEmbyPassword;
-                    });
-                  },
-                  icon: Icon(
-                    _obscureEmbyPassword
-                        ? Icons.visibility_off_outlined
-                        : Icons.visibility_outlined,
-                    color: const Color(0xFF8795AD),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-              _buildRememberRow(
-                theme,
-                l10n,
-                value: _embyRememberPassword,
-                onChanged: (value) {
-                  setState(() {
-                    _embyRememberPassword = value;
-                  });
-                },
-              ),
-            ],
+  Widget _buildFeiniuFooter(ThemeData theme, AppLocalizations l10n) {
+    return Center(
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 10,
+        runSpacing: 2,
+        children: [
+          TextButton(
+            onPressed: _openDownloadedData,
+            style: _footerButtonStyle(
+              theme,
+              foregroundColor: const Color(0xFF8FA6C7),
+            ),
+            child: Text(l10n.connectionOpenDownloads),
           ),
-        ),
-        const SizedBox(height: 18),
-        _SubmitButton(
-          isSubmitting: _isSubmitting,
-          label: l10n.connectionLogin,
-          onPressed: _isSubmitting ? null : _verifyEmbyConnection,
-        ),
-      ],
+          TextButton(
+            onPressed: _isSubmitting ? null : _resetFnConnectWebLoginState,
+            style: _footerButtonStyle(
+              theme,
+              foregroundColor: const Color(0xFFB6A06A),
+              disabledForegroundColor: const Color(0xFF5D5A52),
+              fontWeight: FontWeight.w600,
+            ),
+            child: const Text('重新登录 FN Connect'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1422,304 +1372,6 @@ class _LogoHeader extends StatelessWidget {
       ],
     );
   }
-}
-
-class _LoginBackdrop extends StatefulWidget {
-  const _LoginBackdrop();
-
-  @override
-  State<_LoginBackdrop> createState() => _LoginBackdropState();
-}
-
-class _LoginBackdropState extends State<_LoginBackdrop> {
-  List<File> _cachedPosters = const <File>[];
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(_loadCachedPosters());
-  }
-
-  Future<void> _loadCachedPosters() async {
-    final posters = await _discoverNativeArtworkCache();
-    if (!mounted || posters.isEmpty) return;
-    setState(() => _cachedPosters = posters);
-  }
-
-  Future<List<File>> _discoverNativeArtworkCache() async {
-    final tempDir = Directory.systemTemp;
-    final entries = <({File file, DateTime modified})>[];
-    try {
-      await for (final entity in tempDir.list(followLinks: false)) {
-        if (entity is! File) continue;
-        final name = _fileName(entity.path).toLowerCase();
-        if (!name.startsWith('native_artwork_') || !name.endsWith('.img')) {
-          continue;
-        }
-        final stat = await entity.stat();
-        if (stat.type != FileSystemEntityType.file || stat.size <= 0) {
-          continue;
-        }
-        entries.add((file: entity, modified: stat.modified));
-      }
-    } catch (_) {
-      return const <File>[];
-    }
-    entries.sort((a, b) => b.modified.compareTo(a.modified));
-    return entries.take(36).map((entry) => entry.file).toList(growable: false);
-  }
-
-  String _fileName(String path) {
-    final normalized = path.replaceAll('\\', '/');
-    final index = normalized.lastIndexOf('/');
-    return index >= 0 ? normalized.substring(index + 1) : normalized;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF060B12), Color(0xFF071322), Color(0xFF03070D)],
-            ),
-          ),
-        ),
-        AnimatedSwitcher(
-          duration: const Duration(milliseconds: 360),
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeOutCubic,
-          child: _cachedPosters.isEmpty
-              ? CustomPaint(
-                  key: const ValueKey<String>('painted-poster-wall'),
-                  painter: _PosterWallPainter(),
-                )
-              : _CachedPosterWall(
-                  key: const ValueKey<String>('cached-poster-wall'),
-                  files: _cachedPosters,
-                ),
-        ),
-        const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Color(0xD904080D), Color(0xAA07111C), Color(0xF203070D)],
-              stops: [0, 0.48, 1],
-            ),
-          ),
-        ),
-        const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: RadialGradient(
-              center: Alignment(0, -0.18),
-              radius: 0.78,
-              colors: [Color(0x332C63C7), Color(0x00040A12)],
-              stops: [0, 1],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _CachedPosterWall extends StatelessWidget {
-  const _CachedPosterWall({super.key, required this.files});
-
-  final List<File> files;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final size = Size(constraints.maxWidth, constraints.maxHeight);
-        final isWide = size.width >= 700;
-        final posterW = (size.width / (isWide ? 5.2 : 3.1)).clamp(108.0, 260.0);
-        final posterH = posterW * 1.52;
-        final stepX = posterW * 0.76;
-        final stepY = posterH * 0.66;
-        final wallW = size.width + posterW * 2.8;
-        final wallH = size.height + posterH * 2.2;
-        final dpr = MediaQuery.of(context).devicePixelRatio;
-        final cacheW = (posterW * dpr).round().clamp(120, 720);
-        final cacheH = (posterH * dpr).round().clamp(180, 1100);
-        final tiles = <Widget>[];
-        var index = 0;
-        var row = 0;
-        for (double y = posterH * -0.45; y < wallH; y += stepY) {
-          final rowOffset = row.isEven ? 0.0 : posterW * 0.22;
-          for (double x = posterW * -0.75; x < wallW; x += stepX) {
-            tiles.add(
-              Positioned(
-                left: x + rowOffset,
-                top: y,
-                width: posterW,
-                height: posterH,
-                child: _CachedPosterTile(
-                  file: files[index % files.length],
-                  cacheWidth: cacheW,
-                  cacheHeight: cacheH,
-                ),
-              ),
-            );
-            index++;
-          }
-          row++;
-        }
-        return Transform.rotate(
-          angle: -0.16,
-          child: OverflowBox(
-            minWidth: wallW,
-            maxWidth: wallW,
-            minHeight: wallH,
-            maxHeight: wallH,
-            child: SizedBox(
-              width: wallW,
-              height: wallH,
-              child: Stack(clipBehavior: Clip.none, children: tiles),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _CachedPosterTile extends StatelessWidget {
-  const _CachedPosterTile({
-    required this.file,
-    required this.cacheWidth,
-    required this.cacheHeight,
-  });
-
-  final File file;
-  final int cacheWidth;
-  final int cacheHeight;
-
-  @override
-  Widget build(BuildContext context) {
-    const radius = BorderRadius.all(Radius.circular(13));
-    return Container(
-      foregroundDecoration: BoxDecoration(
-        borderRadius: radius,
-        border: Border.all(color: const Color(0x304C6488), width: 1),
-      ),
-      child: ClipRRect(
-        borderRadius: radius,
-        child: Image.file(
-          file,
-          fit: BoxFit.cover,
-          filterQuality: FilterQuality.low,
-          gaplessPlayback: true,
-          cacheWidth: cacheWidth,
-          cacheHeight: cacheHeight,
-          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-            if (wasSynchronouslyLoaded) return child;
-            return AnimatedOpacity(
-              opacity: frame == null ? 0 : 1,
-              duration: const Duration(milliseconds: 220),
-              curve: Curves.easeOut,
-              child: child,
-            );
-          },
-          errorBuilder: (_, _, _) => const _CachedPosterFallback(),
-        ),
-      ),
-    );
-  }
-}
-
-class _CachedPosterFallback extends StatelessWidget {
-  const _CachedPosterFallback();
-
-  @override
-  Widget build(BuildContext context) {
-    return const DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF14243A), Color(0xFF050A10)],
-        ),
-      ),
-    );
-  }
-}
-
-class _PosterWallPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final palette = <Color>[
-      const Color(0xFF1A2B43),
-      const Color(0xFF2B2230),
-      const Color(0xFF263A35),
-      const Color(0xFF302B1E),
-      const Color(0xFF182235),
-    ];
-    final posterW = size.width / 3.1;
-    final posterH = posterW * 1.58;
-    final paint = Paint()..style = PaintingStyle.fill;
-    final stroke = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1
-      ..color = const Color(0x304C6488);
-
-    canvas.save();
-    canvas.translate(size.width * 0.5, size.height * 0.44);
-    canvas.rotate(-0.16);
-    canvas.translate(-size.width * 0.5, -size.height * 0.44);
-
-    var index = 0;
-    for (
-      double y = -posterH * 0.72;
-      y < size.height + posterH;
-      y += posterH * 0.64
-    ) {
-      for (
-        double x = -posterW * 0.55;
-        x < size.width + posterW;
-        x += posterW * 0.74
-      ) {
-        final offsetX = (index.isEven ? 0 : posterW * 0.18);
-        final rect = Rect.fromLTWH(x + offsetX, y, posterW, posterH);
-        final radius = Radius.circular(math.max(8, posterW * 0.07));
-        final rrect = RRect.fromRectAndRadius(rect, radius);
-        paint.shader = LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            palette[index % palette.length].withValues(alpha: 0.58),
-            const Color(0xFF050A10).withValues(alpha: 0.86),
-          ],
-        ).createShader(rect);
-        canvas.drawRRect(rrect, paint);
-        canvas.drawRRect(rrect, stroke);
-
-        final band = Rect.fromLTWH(
-          rect.left + rect.width * 0.1,
-          rect.bottom - rect.height * 0.18,
-          rect.width * 0.72,
-          rect.height * 0.018,
-        );
-        paint.shader = null;
-        paint.color = const Color(0x334F76B8);
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(band, const Radius.circular(999)),
-          paint,
-        );
-        index++;
-      }
-    }
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _LoginFormPanel extends StatelessWidget {
