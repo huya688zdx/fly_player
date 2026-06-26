@@ -4340,6 +4340,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val items = speeds.map { s ->
             PanelItem("${s}x", selected = abs(s.toDouble() - current) < 0.01) {
                 playerSurface.setSpeed(s.toDouble())
+                pushDanmakuPlaybackSpeed(s.toDouble())
                 hidePanel()
             }
         }
@@ -7315,6 +7316,17 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (persist) persistDanmakuSettings()
     }
 
+    /**
+     * 倍速变更后把新播放速度推给弹幕，使弹幕一起加/减速（overlay 仅改 playbackSpeed 时走平滑
+     * 重锚、不重建时间线）。不能复用 [applyDanmakuSettings]：它从 `state.speed` 取值，而
+     * [NativePlayerSurface.setSpeed] 是异步落到播放线程的，调用点此刻读到的还是旧速度。
+     */
+    private fun pushDanmakuPlaybackSpeed(speed: Double) {
+        if (!this::playerSurface.isInitialized) return
+        danmakuSettings["playbackSpeed"] = speed
+        playerSurface.setDanmakuSettings(danmakuSettings)
+    }
+
     private fun applyOcclusionConfig() {
         playerSurface.setDanmakuOcclusionConfig(effectiveOcclusionConfig())
     }
@@ -8425,6 +8437,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             if (playerSurface.state.paused) return
             speedBoosting = true
             playerSurface.setSpeed(2.0)
+            pushDanmakuPlaybackSpeed(2.0)
             showCenterHint("2x 倍速")
         }
 
@@ -8497,6 +8510,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (speedBoosting) {
             speedBoosting = false
             playerSurface.setSpeed(1.0)
+            pushDanmakuPlaybackSpeed(1.0)
         }
         if (gestureMode == 1) {
             playerSurface.seek(gestureSeekTargetMs)
