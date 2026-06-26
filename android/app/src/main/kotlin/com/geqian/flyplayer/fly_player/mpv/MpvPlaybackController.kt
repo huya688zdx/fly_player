@@ -920,17 +920,26 @@ class MpvPlaybackController(
     fun setSpeed(speed: Double?): Boolean {
         if (disposed) return false
         runOnPlaybackThread {
-            val success = if (initialized && mpv.isAvailable() && speed != null) {
-                runCatching { mpv.setPropertyDouble("speed", speed) }.getOrDefault(false)
+            val target = speed
+            if (initialized && mpv.isAvailable() && target != null) {
+                // 注意：当前预编译 libplayer.so 里 MPVLib.setProperty* 的布尔返回值是未定义的
+                // 垃圾值——JNI 包装在调用 mpv_set_property 后尾调用了返回 void 的
+                // ReleaseStringUTFChars，并未把 mpv 的结果保留到返回寄存器。因此绝不能拿它当
+                // 成功标志，否则倍速明明已经生效，却会随机误报「mpv runtime rejected」。
+                // 与音量/字幕延迟等其它属性一致，best-effort 设置后直接更新本地状态。
+                runCatching { mpv.setPropertyDouble("speed", target) }
+                updateState(
+                    state.copy(
+                        speed = target,
+                        statusText = "Playback speed changed",
+                        error = null,
+                    ),
+                )
             } else {
-                false
+                updateState(
+                    state.copy(error = buildUnavailableMessage("playback speed change")),
+                )
             }
-            updateState(
-                state.copy(
-                    statusText = if (success) "Playback speed changed" else state.statusText,
-                    error = if (success) null else buildUnavailableMessage("playback speed change"),
-                ),
-            )
         }
         return true
     }
