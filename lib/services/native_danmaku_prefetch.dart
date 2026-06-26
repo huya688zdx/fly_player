@@ -110,6 +110,9 @@ class NativeDanmakuPrefetch {
             settings: settings,
             mediaKey: mediaKey,
             store: store,
+            itemGuid: itemGuid,
+            mediaGuid: mediaGuid,
+            seasonGuid: seasonGuid,
           );
           if (online != null) return online;
         }
@@ -146,6 +149,9 @@ class NativeDanmakuPrefetch {
     required DanmakuSettings settings,
     required String mediaKey,
     required DanmakuSavedSourceStore store,
+    String itemGuid = '',
+    String mediaGuid = '',
+    String seasonGuid = '',
   }) async {
     if (seriesTitle.trim().isEmpty) return null;
     if (!await DanDanPlayConfig.ensureConfigured()) return null;
@@ -157,7 +163,7 @@ class NativeDanmakuPrefetch {
       tmdbId: tmdbId,
     );
     final comments = resolved?.result.comments ?? const <DanmakuComment>[];
-    if (comments.isEmpty) {
+    if (resolved == null || comments.isEmpty) {
       if (mediaKey.isNotEmpty) {
         await store.saveAutoMatchBlockedReason(
           mediaKey: mediaKey,
@@ -165,6 +171,30 @@ class NativeDanmakuPrefetch {
         );
       }
       return null;
+    }
+    // 自动匹配命中即登记进弹幕源库，使「弹幕源」面板（原生壳 + Flutter）能看到当前正在用的
+    // 弹幕、并可重选/切换。此前这条路径只写 payload 注入播放器、从不 saveSource，导致用户在
+    // 源面板里看不到自动匹配到的弹幕。口径与旧 Flutter 播放器自动加载一致（sourceKey=episodeId，
+    // saveSource 顺带把它设为该媒体的 active，源面板即标「当前生效」）。
+    final matchedItem = resolved.item;
+    if (mediaKey.isNotEmpty && matchedItem.episodeId > 0) {
+      await store.saveSource(
+        DanmakuSavedSource(
+          type: DanmakuSavedSourceType.danDanPlay,
+          mediaKey: mediaKey,
+          sourceKey: matchedItem.episodeId.toString(),
+          label: matchedItem.displayTitle,
+          detail: matchedItem.displaySubtitle,
+          seriesTitle: seriesTitle.trim(),
+          itemGuid: itemGuid.trim(),
+          seasonGuid: seasonGuid.trim(),
+          mediaGuid: mediaGuid.trim(),
+          seasonNumber: seasonNumber,
+          episodeNumber: episodeNumber,
+          commentCount: comments.length,
+          updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+        ),
+      );
     }
     return await _writePayloadFile(buildPayload(settings, comments));
   }
