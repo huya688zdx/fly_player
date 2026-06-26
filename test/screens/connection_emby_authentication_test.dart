@@ -91,7 +91,7 @@ void main() {
     await tester.pumpWidget(_connectionScreen(embyApi: EmbyApi()));
     await tester.pumpAndSettle();
 
-    expect(find.text('已连接 Emby：Living Room · Alice'), findsOneWidget);
+    expect(find.textContaining('已连接 Emby'), findsNothing);
     final fields = find.byType(TextField);
     expect(
       tester.widget<TextField>(fields.at(0)).controller?.text,

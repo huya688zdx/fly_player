@@ -19,11 +19,11 @@ void main() {
     await tester.pumpWidget(_connectionScreen());
     await tester.pump();
 
-    expect(find.text('飞牛 NAS'), findsOneWidget);
+    expect(find.text('飞牛影视'), findsOneWidget);
     expect(find.text('Emby'), findsOneWidget);
     expect(find.text('登录'), findsOneWidget);
 
-    await tester.tap(find.text('Emby'));
+    await tester.dragFrom(const Offset(400, 300), const Offset(-360, 0));
     await tester.pumpAndSettle();
 
     // Emby 表单已完善为正式登录：登录按钮、记住登录勾选，下载/FN Connect 仍是飞牛专属。
@@ -34,7 +34,7 @@ void main() {
     expect(find.text('保持登录'), findsOneWidget);
     expect(find.text('重新登录 FN Connect'), findsNothing);
 
-    await tester.tap(find.text('飞牛 NAS'));
+    await tester.dragFrom(const Offset(400, 300), const Offset(360, 0));
     await tester.pumpAndSettle();
 
     expect(find.text('登录'), findsOneWidget);
