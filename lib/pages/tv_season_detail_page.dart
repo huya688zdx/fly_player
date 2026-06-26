@@ -10,6 +10,7 @@ import '../controllers/media_item_action_sheet_controller.dart';
 import '../controllers/tv_season_download_sheet_controller.dart';
 import '../controllers/tv_season_playback_launcher.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../media_backend/action/media_library_item_action_target.dart';
 import '../media_backend/detail/media_detail.dart';
 import '../media_backend/detail/media_episode_summary.dart';
 import '../media_backend/detail/media_season_summary.dart';
@@ -128,6 +129,12 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
   // (季列表 + 选集列表 + 季详情来自 MediaBackend,播放/下载/原生 reentry 占位禁用)。
   bool _neutralDisplayOnly = false;
   MediaDetail? _neutralDetail;
+  // 中立(Emby)季页面「收藏整部剧」态(收藏 widget.parentGuid 系列本身)。飞牛季页面不显示此键。
+  bool _neutralSeriesFavorite = false;
+  bool _seriesFavoriteUpdating = false;
+  // 中立(Emby)季评分回退:Emby 季条目通常无 CommunityRating(评分挂在系列上),取系列评分兜底,
+  // 使季页面 meta 与飞牛一致显示「X.X 分 / 年份」。
+  String _neutralSeriesRating = '';
   List<MediaSeasonSummary> _neutralSeasons = const [];
   List<MediaEpisodeSummary> _neutralEpisodes = const [];
   // 按季缓存详情 / 选集:切回已加载的季瞬时返回(追平飞牛切季速度)。
@@ -253,65 +260,6 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     });
   }
 
-  String _t(
-    String path,
-    String fallback, {
-    Map<String, Object?> params = const <String, Object?>{},
-  }) {
-    final l10n = AppLocalizations.of(context);
-    return switch (path) {
-      'layout.subheading.season.number' => l10n.detailSeasonNumber(
-        _paramInt(params, 'number'),
-      ),
-      'layout.subheading.episode.number' => l10n.detailEpisodeNumber(
-        _paramInt(params, 'number'),
-      ),
-      'layout.subheading.episode.unknown' => l10n.detailEpisodeUnknown,
-      'layout.subheading.season.default' => l10n.detailSeasonInfoDefault,
-      'player.play.play' => l10n.detailPlay,
-      'layout.details.overview.empty' => l10n.detailOverviewEmpty,
-      'layout.details.episode.empty' => l10n.detailEpisodeEmpty,
-      'layout.details.episode.title' => l10n.detailEpisodeTitle,
-      'layout.details.episode.total' => l10n.detailEpisodeTotal(
-        _paramInt(params, 'count'),
-      ),
-      'layout.details.castAndCrew.title' => l10n.detailCastCrewTitle,
-      'layout.details.castAndCrew.showMore' => l10n.commonDetails,
-      'layout.details.castAndCrew.imdb' => l10n.detailImdbEmpty,
-      'layout.details.castAndCrew.imdbOpenFailed' => l10n.detailImdbOpenFailed,
-      'layout.rating.score' => l10n.detailRatingScore(
-        '${params['score'] ?? ''}',
-      ),
-      'layout.globalError.clickToRetry' => l10n.commonClickTooFastRetryLater,
-      'player.play.playInfoFailed' => l10n.detailPlayInfoFailed,
-      'common.actions.watched.markedAsWatched' => l10n.actionMarkedAsWatched,
-      'common.actions.watched.markedAsUnwatched' =>
-        l10n.actionMarkedAsUnwatched,
-      'common.actions.watched.markedAsUnwatchedFailed' =>
-        l10n.detailMarkUnwatchedFailed,
-      'common.actions.watched.markedAsWatchedFailed' =>
-        l10n.detailMarkWatchedFailed,
-      'common.actions.download.placeholder' => l10n.detailDownloadPlaceholder,
-      'layout.details.overview.overview' => l10n.detailOverviewTitle,
-      'layout.loading' => l10n.commonLoading,
-      _ => _replaceParams(fallback, params),
-    };
-  }
-
-  int _paramInt(Map<String, Object?> params, String key) {
-    final value = params[key];
-    if (value is int) return value;
-    return int.tryParse('${value ?? ''}') ?? 0;
-  }
-
-  String _replaceParams(String fallback, Map<String, Object?> params) {
-    var resolved = fallback;
-    for (final entry in params.entries) {
-      resolved = resolved.replaceAll('{${entry.key}}', '${entry.value ?? ''}');
-    }
-    return resolved;
-  }
-
   int _asInt(dynamic value) => int.tryParse('$value') ?? 0;
 
   String _year(String date) => date.length >= 4 ? date.substring(0, 4) : '';
@@ -331,28 +279,22 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
 
   String _seasonLabel(MediaLibraryItem season) {
     if (season.seasonNumber > 0) {
-      return _t(
-        'layout.subheading.season.number',
-        'Season {number}',
-        params: {'number': season.seasonNumber},
-      );
+      return AppLocalizations.of(
+        context,
+      ).detailSeasonNumber(season.seasonNumber);
     }
     final title = season.title.trim();
     return title.isNotEmpty
         ? title
-        : _t('layout.subheading.season.default', 'Season info');
+        : AppLocalizations.of(context).detailSeasonInfoDefault;
   }
 
   String _playLabel() {
     final episodeNo = _playInfo?.item.episodeNumber ?? 1;
     if (episodeNo > 0) {
-      return _t(
-        'layout.subheading.episode.number',
-        'Episode {number}',
-        params: {'number': episodeNo},
-      );
+      return AppLocalizations.of(context).detailEpisodeNumber(episodeNo);
     }
-    return _t('player.play.play', 'Play');
+    return AppLocalizations.of(context).detailPlay;
   }
 
   String _suggestedThemeNameBase(MediaLibraryItem season) {
@@ -395,16 +337,12 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     if (episodeNo > 0) {
       return cleanTitle.isNotEmpty
           ? '$episodeNo.$cleanTitle'
-          : '$episodeNo.${_t('layout.subheading.episode.number', 'Episode {number}', params: {'number': episodeNo})}';
+          : '$episodeNo.${AppLocalizations.of(context).detailEpisodeNumber(episodeNo)}';
     }
     final fallback = cleanTitle.isNotEmpty
         ? cleanTitle
-        : _t(
-            'layout.subheading.episode.number',
-            'Episode {number}',
-            params: {'number': index + 1},
-          );
-    return '${_t('layout.subheading.episode.unknown', 'Unknown episode')}.$fallback';
+        : AppLocalizations.of(context).detailEpisodeNumber(index + 1);
+    return '${AppLocalizations.of(context).detailEpisodeUnknown}.$fallback';
   }
 
   String _durationText(int seconds) {
@@ -456,8 +394,8 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
   bool _hasMeaningfulText(String? value) {
     final text = (value ?? '').trim();
     return text.isNotEmpty &&
-        text != _t('layout.details.overview.empty', 'No overview') &&
-        text != _t('layout.details.episode.empty', 'No episode info');
+        text != AppLocalizations.of(context).detailOverviewEmpty &&
+        text != AppLocalizations.of(context).detailEpisodeEmpty;
   }
 
   String _extractImdbId(Map<String, dynamic> data) {
@@ -587,13 +525,9 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
       return TvEpisodeCardData(
         guid: 'placeholder-episode-$number',
         shortLabel: '$number',
-        title: _t(
-          'layout.subheading.episode.number',
-          'Episode {number}',
-          params: {'number': number},
-        ),
+        title: AppLocalizations.of(context).detailEpisodeNumber(number),
         summary: '',
-        durationText: _t('layout.loading', 'Loading'),
+        durationText: AppLocalizations.of(context).commonLoading,
         statusLabel: '',
         statusColor: Colors.transparent,
         imageUrls: const <String>[],
@@ -991,10 +925,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         throw StateError('playlist view type save failed');
       }
       _showTopTip(
-        _t(
-          'layout.globalError.clickToRetry',
-          'Failed to save settings, please try again later',
-        ),
+        AppLocalizations.of(context).commonClickTooFastRetryLater,
         context.appColors.danger,
       );
       throw StateError('playlist view type save failed');
@@ -1019,15 +950,12 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         return;
       case ImdbLaunchResult.empty:
         _showTopTip(
-          _t('layout.details.castAndCrew.imdb', 'No IMDB link'),
+          AppLocalizations.of(context).detailImdbEmpty,
           context.appColors.warning,
         );
       case ImdbLaunchResult.failed:
         _showTopTip(
-          _t(
-            'layout.details.castAndCrew.imdbOpenFailed',
-            'Unable to open IMDB link',
-          ),
+          AppLocalizations.of(context).detailImdbOpenFailed,
           context.appColors.danger,
         );
     }
@@ -1098,6 +1026,20 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
           ? requestedGuid
           : (seasons.isNotEmpty ? seasons.first.id : requestedGuid);
       final detail = await backend.getItemDetail(target);
+      // best-effort 查整部剧收藏态(收藏键收藏的是系列本身,非当前季)+ 系列评分(季无评分时兜底)。
+      bool seriesFavorite = _neutralSeriesFavorite;
+      String seriesRating = _neutralSeriesRating;
+      try {
+        final seriesId = widget.parentGuid.trim();
+        if (seriesId.isEmpty || seriesId == target) {
+          seriesFavorite = detail.favorite;
+          seriesRating = detail.rating;
+        } else {
+          final seriesDetail = await backend.getItemDetail(seriesId);
+          seriesFavorite = seriesDetail.favorite;
+          seriesRating = seriesDetail.rating;
+        }
+      } catch (_) {}
       List<MediaEpisodeSummary> episodes;
       try {
         episodes = await backend.getSeasonEpisodes(target);
@@ -1113,6 +1055,8 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         _neutralDisplayOnly = true;
         _neutralSeasons = seasons;
         _neutralDetail = detail;
+        _neutralSeriesFavorite = seriesFavorite;
+        _neutralSeriesRating = seriesRating;
         _neutralEpisodes = episodes;
         _selectedSeasonGuid = target;
         _imdbId = detail.externalIds.imdbId;
@@ -1271,16 +1215,14 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
 
   String _neutralSeasonLabel(MediaSeasonSummary season) {
     if (season.seasonNumber > 0) {
-      return _t(
-        'layout.subheading.season.number',
-        'Season {number}',
-        params: {'number': season.seasonNumber},
-      );
+      return AppLocalizations.of(
+        context,
+      ).detailSeasonNumber(season.seasonNumber);
     }
     final title = season.title.trim();
     return title.isNotEmpty
         ? title
-        : _t('layout.subheading.season.default', 'Season info');
+        : AppLocalizations.of(context).detailSeasonInfoDefault;
   }
 
   MediaSeasonSummary? _neutralCurrentSeason() {
@@ -1323,7 +1265,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
       final cleanTitle = ep.title.trim();
       final title = cleanTitle.isNotEmpty
           ? '$number.$cleanTitle'
-          : '$number.${_t('layout.subheading.episode.number', 'Episode {number}', params: {'number': number})}';
+          : '$number.${AppLocalizations.of(context).detailEpisodeNumber(number)}';
       String statusLabel = '';
       Color statusColor = context.appColors.textSecondary;
       double progress = 0;
@@ -1350,7 +1292,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         statusLabel: statusLabel,
         statusColor: statusColor,
         imageUrls: resolver.resolveRef(ep.primaryImage, width: 720).urls,
-        resolutions: const <String>[],
+        resolutions: ep.resolutions,
         selected: ep.id == selectedGuid,
         playing: false,
         completed: ep.watched,
@@ -1398,13 +1340,13 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     if (_neutralSeasons.isEmpty && _neutralEpisodes.isEmpty) return;
     final result = await TvEpisodePickerSheet.show(
       sheetContext,
-      title: _t('layout.details.episode.title', 'Episodes'),
+      title: AppLocalizations.of(context).detailEpisodeTitle,
       seasons: _neutralSeasonOptionEntries(),
       initialSeasonGuid: _selectedSeasonGuid,
       initialEpisodeGuid: _selectedEpisodeGuid,
       initialMode: _episodePickerMode,
       rangeSize: _episodePageSize,
-      emptyText: _t('layout.details.episode.empty', 'No episode info'),
+      emptyText: AppLocalizations.of(context).detailEpisodeEmpty,
       token: '',
       loader: _neutralEpisodePickerPayload,
       onModeChanged: (mode) async {
@@ -1454,7 +1396,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     LongTextOverlayPage.show(
       context,
       title: cleanTitle.isNotEmpty ? '$number.$cleanTitle' : '$number',
-      sectionTitle: _t('layout.details.overview.overview', 'Overview'),
+      sectionTitle: AppLocalizations.of(context).detailOverviewTitle,
       content: summary,
     );
   }
@@ -1470,26 +1412,47 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     if (index < 0 && _neutralEpisodes.isNotEmpty) index = 0;
     final number = index >= 0 ? _neutralEpisodes[index].episodeNumber : 0;
     if (number > 0) {
-      return _t(
-        'layout.subheading.episode.number',
-        'Episode {number}',
-        params: {'number': number},
-      );
+      return AppLocalizations.of(context).detailEpisodeNumber(number);
     }
-    return _t('player.play.play', 'Play');
+    return AppLocalizations.of(context).detailPlay;
   }
 
   void _neutralComingSoon() {
     _showTopTip(
-      _t('player.play.placeholder', '播放功能即将到来'),
+      AppLocalizations.of(context).detailFeatureComingSoon,
       context.appColors.textMuted,
     );
   }
 
   /// 中立(Emby)季详情:与飞牛同布局——沉浸背景 + 海报桥接卡 + 标题/季/评分 + 播放(占位)+
   /// 描述 + 选集浏览器 + 演职员 + 链接,复用 [TvSeasonDetailPanel](回应「相同组件」)。
+  Future<void> _toggleNeutralSeriesFavorite() async {
+    if (_seriesFavoriteUpdating) return;
+    final seriesId = widget.parentGuid.trim().isNotEmpty
+        ? widget.parentGuid.trim()
+        : _selectedSeasonGuid;
+    if (seriesId.isEmpty) return;
+    setState(() => _seriesFavoriteUpdating = true);
+    final target = !_neutralSeriesFavorite;
+    try {
+      final backend = context.read<MediaBackendProvider>().backend;
+      final state = await backend.setItemFavorite(seriesId, favorite: target);
+      if (!mounted) return;
+      setState(() => _neutralSeriesFavorite = state);
+    } catch (_) {
+      // 收藏失败静默(与人物详情一致)。
+    } finally {
+      if (mounted) setState(() => _seriesFavoriteUpdating = false);
+    }
+  }
+
   Widget _buildNeutralSeasonBody(AppThemeColors colors, Color? ambientTint) {
     final detail = _neutralDetail!;
+    final favoriteSupported = context
+        .read<MediaBackendProvider>()
+        .backend
+        .capabilities
+        .supportsFavorite;
     final provider = context.read<NasProvider>();
     final artworkResolver = DetailArtworkResolver(
       baseUrl: provider.baseUrl,
@@ -1538,7 +1501,11 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     final overview = detail.overview.trim();
     final hasOverview = overview.isNotEmpty;
     final year = _year(detail.releaseDate);
-    final rating = double.tryParse(detail.rating.trim()) ?? 0;
+    // 季评分回退系列评分(Emby 季多无评分),与飞牛季页面同样显示「X.X 分」。
+    final ratingText = detail.rating.trim().isNotEmpty
+        ? detail.rating.trim()
+        : _neutralSeriesRating.trim();
+    final rating = double.tryParse(ratingText) ?? 0;
 
     // 背景:系列 backdrop 完整直链(Phase C 透传),回退季详情 backdrop/海报。
     final backdropUrls = widget.backdropPath.trim().isNotEmpty
@@ -1631,11 +1598,9 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
             children: [
               if (rating > 0)
                 Text(
-                  _t(
-                    'layout.rating.score',
-                    '{score} points',
-                    params: {'score': rating.toStringAsFixed(1)},
-                  ),
+                  AppLocalizations.of(
+                    context,
+                  ).detailRatingScore(rating.toStringAsFixed(1)),
                   style: const TextStyle(
                     color: Color(0xFFF2D34B),
                     fontSize: 17,
@@ -1764,38 +1729,33 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                       hasOverview: hasOverview,
                       episodeSection: showEpisodes
                           ? TvEpisodeBrowserSection(
-                              title: _t(
-                                'layout.details.episode.title',
-                                'Episodes',
-                              ),
+                              title: AppLocalizations.of(
+                                context,
+                              ).detailEpisodeTitle,
                               totalLabel: !_episodeItemsResolved
                                   ? (expectedCount > 0
-                                        ? _t(
-                                            'layout.details.episode.total',
-                                            '{count} episodes',
-                                            params: {'count': expectedCount},
-                                          )
-                                        : _t('layout.loading', 'Loading'))
-                                  : _t(
-                                      'layout.details.episode.total',
-                                      '{count} episodes',
-                                      params: {
-                                        'count': _neutralEpisodes.length,
-                                      },
+                                        ? AppLocalizations.of(
+                                            context,
+                                          ).detailEpisodeTotal(expectedCount)
+                                        : AppLocalizations.of(
+                                            context,
+                                          ).commonLoading)
+                                  : AppLocalizations.of(
+                                      context,
+                                    ).detailEpisodeTotal(
+                                      _neutralEpisodes.length,
                                     ),
                               seasons: _neutralSeasonOptionEntries(),
                               episodes: episodeEntries,
                               selectedRangeIndex: _episodeRangeIndex,
                               rangeSize: _episodePageSize,
                               previewCount: 4,
-                              emptyText: _t(
-                                'layout.details.episode.empty',
-                                'No episode info',
-                              ),
-                              detailText: _t(
-                                'layout.details.castAndCrew.showMore',
-                                'Details',
-                              ),
+                              emptyText: AppLocalizations.of(
+                                context,
+                              ).detailEpisodeEmpty,
+                              detailText: AppLocalizations.of(
+                                context,
+                              ).commonDetails,
                               token: '',
                               mode: _episodePickerMode,
                               onSeasonSelected: _switchSeasonNeutral,
@@ -1811,10 +1771,9 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                           : const SizedBox.shrink(),
                       creditsSection: creditItems.isNotEmpty
                           ? CreditsSection(
-                              title: _t(
-                                'layout.details.castAndCrew.title',
-                                'Cast and crew',
-                              ),
+                              title: AppLocalizations.of(
+                                context,
+                              ).detailCastCrewTitle,
                               items: creditItems,
                               token: '',
                               onTap: _openCreditPerson,
@@ -1833,14 +1792,19 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                       onPlayTap: _onNeutralPlayTap,
                       onDownloadTap: _neutralComingSoon,
                       onWatchedTap: _neutralComingSoon,
+                      favorite: favoriteSupported
+                          ? _neutralSeriesFavorite
+                          : null,
+                      onFavoriteTap: favoriteSupported
+                          ? _toggleNeutralSeriesFavorite
+                          : null,
                       onOverviewTap: () {
                         LongTextOverlayPage.show(
                           context,
                           title: title,
-                          sectionTitle: _t(
-                            'layout.details.overview.overview',
-                            'Overview',
-                          ),
+                          sectionTitle: AppLocalizations.of(
+                            context,
+                          ).detailOverviewTitle,
                           content: overview,
                         );
                       },
@@ -2180,7 +2144,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
       unawaited(_refreshAfterPlayback(nextEpisodeGuid));
     } catch (_) {
       _showTopTip(
-        _t('player.play.playInfoFailed', 'Failed to get playback info'),
+        AppLocalizations.of(context).detailPlayInfoFailed,
         context.appColors.danger,
       );
     } finally {
@@ -2251,7 +2215,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     } catch (_) {
       if (mounted) {
         _showTopTip(
-          _t('player.play.playInfoFailed', 'Failed to get playback info'),
+          AppLocalizations.of(context).detailPlayInfoFailed,
           context.appColors.danger,
         );
       }
@@ -2383,10 +2347,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     if (_watchedUpdating ||
         now.difference(_lastWatchedTapAt) < _watchedTapCooldown) {
       _showTopTip(
-        _t(
-          'layout.globalError.clickToRetry',
-          'Too many taps, please try again later',
-        ),
+        AppLocalizations.of(context).commonClickTooFastRetryLater,
         context.appColors.warning,
       );
       return;
@@ -2402,24 +2363,15 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
       unawaited(_refreshAfterPlayback(_selectedEpisodeGuid));
       _showTopTip(
         watched
-            ? _t('common.actions.watched.markedAsWatched', 'Marked as watched')
-            : _t(
-                'common.actions.watched.markedAsUnwatched',
-                'Marked as unwatched',
-              ),
+            ? AppLocalizations.of(context).actionMarkedAsWatched
+            : AppLocalizations.of(context).actionMarkedAsUnwatched,
         watched ? const Color(0xFF19A35B) : const Color(0xFF3B4A5E),
       );
     } catch (_) {
       _showTopTip(
         _watched
-            ? _t(
-                'common.actions.watched.markedAsUnwatchedFailed',
-                'Failed to mark as unwatched',
-              )
-            : _t(
-                'common.actions.watched.markedAsWatchedFailed',
-                'Failed to mark as watched',
-              ),
+            ? AppLocalizations.of(context).detailMarkUnwatchedFailed
+            : AppLocalizations.of(context).detailMarkWatchedFailed,
         context.appColors.danger,
       );
     } finally {
@@ -2430,7 +2382,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
   // ignore: unused_element
   void _onDownloadTap() {
     _showTopTip(
-      _t('common.actions.download.placeholder', 'Download API placeholder'),
+      AppLocalizations.of(context).detailDownloadPlaceholder,
       const Color(0xFF3B4A5E),
     );
   }
@@ -2726,7 +2678,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     LongTextOverlayPage.show(
       themedContext,
       title: _episodeTitle(episode, index),
-      sectionTitle: _t('layout.details.overview.overview', 'Overview'),
+      sectionTitle: AppLocalizations.of(context).detailOverviewTitle,
       content: summary,
     );
   }
@@ -2749,14 +2701,16 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     );
     if (index < 0) return;
     final episode = _episodeItems[index];
+    final l10n = AppLocalizations.of(context);
+    final target = episode.toActionTarget();
     await const MediaItemActionSheetController().show(
       context,
-      item: episode,
+      target: target,
       title: MediaItemActionSheetController.episodeTitle(
+        l10n,
         widget.seriesTitle,
-        episode,
+        target,
       ),
-      localeMap: _localeMap,
       initialWatched: episode.watched == 1,
       onChanged: (state) {
         _replaceEpisodeItemLocally(
@@ -2772,13 +2726,13 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     if (_seasonItems.isEmpty) return;
     final result = await TvEpisodePickerSheet.show(
       sheetContext,
-      title: _t('layout.details.episode.title', 'Episodes'),
+      title: AppLocalizations.of(context).detailEpisodeTitle,
       seasons: _seasonOptionEntries(),
       initialSeasonGuid: _selectedSeasonGuid,
       initialEpisodeGuid: _selectedEpisodeGuid,
       initialMode: _episodePickerMode,
       rangeSize: _episodePageSize,
-      emptyText: _t('layout.details.episode.empty', 'No episode info'),
+      emptyText: AppLocalizations.of(context).detailEpisodeEmpty,
       token: context.read<NasProvider>().token,
       loader: _episodePickerPayloadForSeason,
       onModeChanged: _persistEpisodePickerMode,
@@ -2922,19 +2876,13 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                 includeImages: !deferAuxiliaryArtwork,
               )
             : _episodePlaceholderEntries(expectedEpisodeCount);
-        final episodeEmptyText = _t(
-          'layout.details.episode.empty',
-          'No episode info',
-        );
-        final episodeDetailText = _t(
-          'layout.details.castAndCrew.showMore',
-          'Details',
-        );
-        final episodeTotalLabel = _t(
-          'layout.details.episode.total',
-          '{count} episodes',
-          params: {'count': _episodeItems.length},
-        );
+        final episodeEmptyText = AppLocalizations.of(
+          context,
+        ).detailEpisodeEmpty;
+        final episodeDetailText = AppLocalizations.of(context).commonDetails;
+        final episodeTotalLabel = AppLocalizations.of(
+          context,
+        ).detailEpisodeTotal(_episodeItems.length);
 
         final creditItems = _personCredits
             .map(
@@ -3124,13 +3072,10 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                                         children: [
                                           if (rating > 0)
                                             Text(
-                                              _t(
-                                                'layout.rating.score',
-                                                '{score} points',
-                                                params: {
-                                                  'score': rating
-                                                      .toStringAsFixed(1),
-                                                },
+                                              AppLocalizations.of(
+                                                context,
+                                              ).detailRatingScore(
+                                                rating.toStringAsFixed(1),
                                               ),
                                               style: const TextStyle(
                                                 color: Color(0xFFF2D34B),
@@ -3169,24 +3114,19 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                                 hasOverview: hasOverview,
                                 episodeSection: _seasonItems.isNotEmpty
                                     ? TvEpisodeBrowserSection(
-                                        title: _t(
-                                          'layout.details.episode.title',
-                                          'Episodes',
-                                        ),
+                                        title: AppLocalizations.of(
+                                          context,
+                                        ).detailEpisodeTitle,
                                         totalLabel: !_episodeItemsResolved
                                             ? (expectedEpisodeCount > 0
-                                                  ? _t(
-                                                      'layout.details.episode.total',
-                                                      '{count} episodes',
-                                                      params: {
-                                                        'count':
-                                                            expectedEpisodeCount,
-                                                      },
+                                                  ? AppLocalizations.of(
+                                                      context,
+                                                    ).detailEpisodeTotal(
+                                                      expectedEpisodeCount,
                                                     )
-                                                  : _t(
-                                                      'layout.loading',
-                                                      'Loading',
-                                                    ))
+                                                  : AppLocalizations.of(
+                                                      context,
+                                                    ).commonLoading)
                                             : episodeTotalLabel,
                                         seasons: _seasonOptionEntries(),
                                         episodes: episodeEntries,
@@ -3224,10 +3164,9 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                                 creditsSection:
                                     (_creditsVisible && creditItems.isNotEmpty)
                                     ? CreditsSection(
-                                        title: _t(
-                                          'layout.details.castAndCrew.title',
-                                          'Cast and crew',
-                                        ),
+                                        title: AppLocalizations.of(
+                                          context,
+                                        ).detailCastCrewTitle,
                                         items: creditItems,
                                         token: provider.token,
                                         onTap: _openCreditPerson,
@@ -3250,10 +3189,9 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                                   LongTextOverlayPage.show(
                                     context,
                                     title: title,
-                                    sectionTitle: _t(
-                                      'layout.details.overview.overview',
-                                      'Overview',
-                                    ),
+                                    sectionTitle: AppLocalizations.of(
+                                      context,
+                                    ).detailOverviewTitle,
                                     content: overview,
                                   );
                                 },

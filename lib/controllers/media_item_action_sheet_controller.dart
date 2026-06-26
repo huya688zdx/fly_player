@@ -3,18 +3,16 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../api/feiniu_api.dart';
 import '../l10n/generated/app_localizations.dart';
-import '../models/media_library_item.dart';
-import '../providers/nas_provider.dart';
-import '../services/app_log_service.dart';
+import '../media_backend/action/media_item_action_target.dart';
+import '../providers/media_backend_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/async_action_guard.dart';
 import '../utils/app_error_reporter.dart';
+import '../services/app_log_service.dart';
 import '../utils/app_exception.dart';
 import '../utils/detail_top_tip.dart';
 import '../widgets/common/app_action_sheet.dart';
-import 'play_detail_item_actions.dart';
 
 enum _MediaItemSheetAction { toggleWatched, toggleFavorite }
 
@@ -31,6 +29,9 @@ class MediaItemActionSheetState {
 }
 
 /// 负责展示媒体条目的快捷操作菜单。
+///
+/// 收藏 / 已看统一走 [MediaBackend] 中立通道（飞牛→FeiniuApi、Emby→FavoriteItems/
+/// PlayedItems），入参为后端中立的 [MediaItemActionTarget]，不再认识任何后端私有模型。
 class MediaItemActionSheetController {
   static final DetailTopTip _topTip = DetailTopTip();
 
@@ -38,43 +39,41 @@ class MediaItemActionSheetController {
   const MediaItemActionSheetController();
 
   /// 展示媒体条目的操作菜单并处理用户选择。
+  ///
+  /// [favoriteOnly] 仅展示收藏项（人物条目无「已看」语义）。[initialFavorite] /
+  /// [initialWatched] 为调用方已知的初值，为 null 时按需向后端预取；不支持对应能力的后端
+  /// 自动隐藏相应选项。
   Future<void> show(
     BuildContext context, {
-    required MediaLibraryItem item,
+    required MediaItemActionTarget target,
     required String title,
-    Map<String, dynamic> localeMap = const <String, dynamic>{},
     bool favoriteOnly = false,
     bool? initialFavorite,
     bool? initialWatched,
     ValueChanged<MediaItemActionSheetState>? onChanged,
   }) async {
     final l10n = AppLocalizations.of(context);
+    final backend = context.read<MediaBackendProvider>().backend;
+    final capabilities = backend.capabilities;
+    final showWatched = !favoriteOnly && capabilities.supportsWatched;
+    final showFavorite = capabilities.supportsFavorite;
+    if (!showWatched && !showFavorite) return;
+
     await AsyncActionGuard.run<void>(
-      'media_item_sheet:${item.guid.trim()}:${favoriteOnly ? 'favorite' : 'full'}',
+      'media_item_sheet:${target.id.trim()}:${favoriteOnly ? 'favorite' : 'full'}',
       settleDuration: const Duration(milliseconds: 450),
       action: () async {
-        final provider = context.read<NasProvider>();
-        final api = FeiniuApi(provider);
-        var watched = initialWatched ?? item.watched == 1;
-        var favorite = initialFavorite ?? false;
+        var watched = initialWatched ?? target.isWatched;
+        var favorite = initialFavorite ?? target.favorite ?? false;
 
-        final needFavorite = initialFavorite == null;
-        final needWatched = !favoriteOnly && initialWatched == null;
+        final needFavorite =
+            showFavorite && initialFavorite == null && target.favorite == null;
+        final needWatched = showWatched && initialWatched == null;
         if (needFavorite || needWatched) {
           try {
-            final detail = await api.getItemDetail(item.guid);
-            final rawItem = detail['item'];
-            final itemMap = rawItem is Map<String, dynamic> ? rawItem : detail;
-            if (needFavorite) {
-              favorite =
-                  _intFlag(itemMap['is_favorite']) == 1 ||
-                  _intFlag(detail['is_favorite']) == 1;
-            }
-            if (needWatched) {
-              watched =
-                  _intFlag(itemMap['is_watched']) == 1 ||
-                  _intFlag(itemMap['watched']) == 1;
-            }
+            final detail = await backend.getItemDetail(target.id);
+            if (needFavorite) favorite = detail.favorite;
+            if (needWatched) watched = detail.watched;
           } catch (error, stackTrace) {
             unawaited(
               AppErrorReporter.report(
@@ -84,7 +83,7 @@ class MediaItemActionSheetController {
                 stackTrace: stackTrace,
                 fallbackKind: AppExceptionKind.noData,
                 level: AppLogLevel.warning,
-                details: 'itemGuid=${item.guid}',
+                details: 'itemId=${target.id}',
               ),
             );
             // Fall back to the current list state if detail prefetch fails.
@@ -96,19 +95,20 @@ class MediaItemActionSheetController {
           context,
           title: title,
           options: <AppActionSheetOption<_MediaItemSheetAction>>[
-            if (!favoriteOnly)
+            if (showWatched)
               AppActionSheetOption(
                 value: _MediaItemSheetAction.toggleWatched,
                 label: watched
                     ? l10n.actionMarkAsUnwatched
                     : l10n.actionMarkAsWatched,
               ),
-            AppActionSheetOption(
-              value: _MediaItemSheetAction.toggleFavorite,
-              label: favorite
-                  ? l10n.actionFavoriteRemove
-                  : l10n.actionFavoriteAdd,
-            ),
+            if (showFavorite)
+              AppActionSheetOption(
+                value: _MediaItemSheetAction.toggleFavorite,
+                label: favorite
+                    ? l10n.actionFavoriteRemove
+                    : l10n.actionFavoriteAdd,
+              ),
           ],
         );
         if (!context.mounted || action == null) return;
@@ -116,39 +116,37 @@ class MediaItemActionSheetController {
         try {
           switch (action) {
             case _MediaItemSheetAction.toggleWatched:
-              final result = await PlayDetailItemActions(
-                api,
-                l10n: l10n,
-              ).toggleWatched(itemGuid: item.guid, currentWatched: watched);
+              final state = await backend.setItemWatched(
+                target.id,
+                watched: !watched,
+              );
               if (!context.mounted) return;
-              watched = result.state;
+              watched = state;
               onChanged?.call(
                 MediaItemActionSheetState(watched: watched, favorite: favorite),
               );
               _showTopTip(
                 context,
-                result.message,
-                watched
-                    ? context.appColors.success
-                    : context.appColors.textMuted,
+                state
+                    ? l10n.actionMarkedAsWatched
+                    : l10n.actionMarkedAsUnwatched,
+                state ? context.appColors.success : context.appColors.textMuted,
               );
               break;
             case _MediaItemSheetAction.toggleFavorite:
-              final result = await PlayDetailItemActions(
-                api,
-                l10n: l10n,
-              ).toggleFavorite(itemGuid: item.guid, currentLiked: favorite);
+              final state = await backend.setItemFavorite(
+                target.id,
+                favorite: !favorite,
+              );
               if (!context.mounted) return;
-              favorite = result.state;
+              favorite = state;
               onChanged?.call(
                 MediaItemActionSheetState(watched: watched, favorite: favorite),
               );
               _showTopTip(
                 context,
-                result.message,
-                favorite
-                    ? context.appColors.success
-                    : context.appColors.textMuted,
+                state ? l10n.actionFavoriteAdded : l10n.actionFavoriteRemoved,
+                state ? context.appColors.success : context.appColors.textMuted,
               );
               break;
           }
@@ -174,58 +172,60 @@ class MediaItemActionSheetController {
   }
 
   /// 生成条目操作菜单的默认标题。
-  static String defaultTitle(MediaLibraryItem item) {
-    final type = item.type.trim().toLowerCase();
-    final baseTitle = _baseTitle(item);
+  static String defaultTitle(
+    AppLocalizations l10n,
+    MediaItemActionTarget target,
+  ) {
+    final type = target.type.trim().toLowerCase();
+    final base = target.baseTitle.trim();
     if (type == 'episode') {
-      return '《$baseTitle》 ${_seasonLabel(item.seasonNumber)} ${_episodeLabel(item.episodeNumber)}';
+      return '《$base》 ${_seasonEpisodeLabel(l10n, target.seasonNumber, target.episodeNumber)}';
     }
     if (type == 'season') {
-      return '《$baseTitle》 ${_seasonLabel(item.seasonNumber)}';
+      return '《$base》 ${_seasonLabel(l10n, target.seasonNumber)}';
     }
-    return '《$baseTitle》';
+    return '《$base》';
   }
 
   /// 生成季度条目在操作菜单中的标题。
-  static String seasonTitle(String seriesTitle, MediaLibraryItem season) {
-    final baseTitle = seriesTitle.trim().isNotEmpty
+  static String seasonTitle(
+    AppLocalizations l10n,
+    String seriesTitle,
+    MediaItemActionTarget season,
+  ) {
+    final base = seriesTitle.trim().isNotEmpty
         ? seriesTitle.trim()
-        : _baseTitle(season);
-    return '《$baseTitle》 ${_seasonLabel(season.seasonNumber)}';
+        : season.baseTitle.trim();
+    return '《$base》 ${_seasonLabel(l10n, season.seasonNumber)}';
   }
 
   /// 生成剧集条目在操作菜单中的标题。
-  static String episodeTitle(String seriesTitle, MediaLibraryItem episode) {
-    final baseTitle = seriesTitle.trim().isNotEmpty
+  static String episodeTitle(
+    AppLocalizations l10n,
+    String seriesTitle,
+    MediaItemActionTarget episode,
+  ) {
+    final base = seriesTitle.trim().isNotEmpty
         ? seriesTitle.trim()
-        : _baseTitle(episode);
-    return '《$baseTitle》 ${_seasonLabel(episode.seasonNumber)} ${_episodeLabel(episode.episodeNumber)}';
+        : episode.baseTitle.trim();
+    return '《$base》 ${_seasonEpisodeLabel(l10n, episode.seasonNumber, episode.episodeNumber)}';
   }
 
-  static String _baseTitle(MediaLibraryItem item) {
-    if (item.tvTitle.trim().isNotEmpty) {
-      return item.tvTitle.trim();
-    }
-    if (item.displayTitle.trim().isNotEmpty) {
-      return item.displayTitle.trim();
-    }
-    return item.title.trim();
+  static String _seasonLabel(AppLocalizations l10n, int seasonNumber) {
+    if (seasonNumber == 0) return l10n.detailSeasonSpecial;
+    return l10n.detailSeasonNumber(seasonNumber > 0 ? seasonNumber : 1);
   }
 
-  static String _seasonLabel(int seasonNumber) {
-    if (seasonNumber == 0) return 'Special';
-    final season = seasonNumber > 0 ? seasonNumber : 1;
-    return 'Season $season';
-  }
-
-  static String _episodeLabel(int episodeNumber) {
+  static String _seasonEpisodeLabel(
+    AppLocalizations l10n,
+    int seasonNumber,
+    int episodeNumber,
+  ) {
     final episode = episodeNumber > 0 ? episodeNumber : 1;
-    return 'Episode $episode';
-  }
-
-  static int _intFlag(dynamic value) {
-    if (value is int) return value;
-    return int.tryParse('${value ?? ''}') ?? 0;
+    if (seasonNumber == 0) {
+      return '${l10n.detailSeasonSpecial} ${l10n.detailEpisodeNumber(episode)}';
+    }
+    return l10n.detailSeasonEpisodeNumber(seasonNumber, episode);
   }
 
   static void _showTopTip(BuildContext context, String message, Color color) {

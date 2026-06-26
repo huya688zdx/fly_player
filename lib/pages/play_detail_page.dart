@@ -7,7 +7,6 @@ import 'dart:math' as math;
 import '../api/feiniu_api.dart';
 import '../controllers/play_detail_data_loader.dart';
 import '../controllers/play_detail_download_sheet_controller.dart';
-import '../controllers/play_detail_item_actions.dart';
 import '../controllers/play_detail_sheet_controller.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../models/authorized_dir_entry.dart';
@@ -49,6 +48,7 @@ import '../ui/credit_person_presenter.dart';
 import '../ui/detail_artwork_resolver.dart';
 import '../ui/detail_presentation.dart';
 import '../ui/player_pane_host_scope.dart';
+import '../ui/region_name_localizer.dart';
 import '../ui/route_transition_gate.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/async_action_guard.dart';
@@ -80,7 +80,7 @@ import '../widgets/detail/immersive_detail_background.dart';
 import '../widgets/detail/link_section.dart';
 import '../widgets/detail/play_action_bar.dart';
 import '../widgets/detail/theme_save_name_helper.dart';
-import '../widgets/detail/media_source_info_section.dart';
+import 'media_detail_overlay_page.dart';
 import '../widgets/detail/video_info_section.dart';
 
 class PlayDetailPage extends StatefulWidget {
@@ -455,65 +455,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     }
   }
 
-  String _t(
-    String path,
-    String fallback, {
-    Map<String, Object?> params = const <String, Object?>{},
-  }) {
-    final l10n = AppLocalizations.of(context);
-    return switch (path) {
-      'layout.subheading.season.special' => l10n.detailSeasonSpecial,
-      'layout.subheading.season.number' => l10n.detailSeasonNumber(
-        _paramInt(params, 'number'),
-      ),
-      'layout.subheading.episode.number' => l10n.detailEpisodeNumber(
-        _paramInt(params, 'number'),
-      ),
-      'layout.details.castAndCrew.imdb' => l10n.detailImdbEmpty,
-      'layout.details.castAndCrew.imdbOpenFailed' => l10n.detailImdbOpenFailed,
-      'layout.globalError.clickToRetry' => l10n.commonClickTooFastRetryLater,
-      'common.actions.favorite.unfavoriteFailed' => l10n.detailUnfavoriteFailed,
-      'common.actions.favorite.favoriteFailed' => l10n.detailFavoriteFailed,
-      'common.actions.watched.markedAsUnwatchedFailed' =>
-        l10n.detailMarkUnwatchedFailed,
-      'common.actions.watched.markedAsWatchedFailed' =>
-        l10n.detailMarkWatchedFailed,
-      'common.actions.download.unavailable' => l10n.detailDownloadUnavailable,
-      'player.play.replay' => l10n.playerReplayAction,
-      'player.play.continuePlay' => l10n.detailContinuePlay,
-      'player.play.play' => l10n.detailPlay,
-      'layout.details.overview.overview' => l10n.detailOverviewTitle,
-      'layout.details.castAndCrew.title' => l10n.detailCastCrewTitle,
-      'layout.details.fileInfo.title' => l10n.detailFileInfoTitle,
-      'layout.details.fileInfo.location' => l10n.detailFileLocation,
-      'layout.details.fileInfo.size' => l10n.detailFileSize,
-      'layout.details.fileInfo.createdAt' => l10n.detailFileCreatedAt,
-      'layout.details.fileInfo.addedAt' => l10n.detailFileAddedAt,
-      'layout.details.fileInfo.convert' => l10n.detailFileConvert,
-      'player.playbackError.playError' => l10n.detailPlaybackError(
-        '${params['error'] ?? ''}',
-      ),
-      'player.playInfoFailedWithError' => l10n.detailPlayInfoFailedWithError(
-        '${params['error'] ?? ''}',
-      ),
-      _ => _replaceParams(fallback, params),
-    };
-  }
-
-  int _paramInt(Map<String, Object?> params, String key) {
-    final value = params[key];
-    if (value is int) return value;
-    return int.tryParse('${value ?? ''}') ?? 0;
-  }
-
-  String _replaceParams(String fallback, Map<String, Object?> params) {
-    var resolved = fallback;
-    for (final entry in params.entries) {
-      resolved = resolved.replaceAll('{${entry.key}}', '${entry.value ?? ''}');
-    }
-    return resolved;
-  }
-
   int _asInt(dynamic value) => int.tryParse('$value') ?? 0;
 
   String _heroPathForPlayItem(PlayItem item) {
@@ -538,14 +479,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       return '';
     }
     return _heroPathForPlayItem(data.item);
-  }
-
-  static String _neutralYear(String releaseDate) {
-    final value = releaseDate.trim();
-    if (value.length >= 4 && int.tryParse(value.substring(0, 4)) != null) {
-      return value.substring(0, 4);
-    }
-    return '';
   }
 
   /// 中立后端(Emby)展示体:与飞牛页同一批组件(背景在页级已铺、此处为 hero + 信息块 +
@@ -675,6 +608,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
 
   Widget _buildNeutralBody(AppThemeColors colors) {
     final detail = _detail!;
+    final capabilities = context
+        .read<MediaBackendProvider>()
+        .backend
+        .capabilities;
     final provider = context.read<NasProvider>();
     // 与飞牛分支同一图源入口:Emby 引用是完整 api_key 直链,resolveRef 直接透传
     // (baseUrl/token 仅对飞牛相对路径生效,此处不影响 Emby)。
@@ -707,23 +644,20 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           )
         : null;
 
-    final metaLineA = <String>[
-      ...detail.genreLabels,
-      ...detail.regionLabels,
-    ].map((e) => e.trim()).where((e) => e.isNotEmpty).join(' / ');
-    final year = _neutralYear(detail.releaseDate);
     // 时长随选中版本走（同片不同剪辑版本时长可不同）：版本时长优先，缺则回退条目级时长。
     final selectedVersionDuration =
         _neutralSelectedVersion?.durationSeconds ?? 0;
     final effectiveDuration = selectedVersionDuration > 0
         ? selectedVersionDuration
         : detail.durationSeconds;
-    final metaLineB = <String>[
-      if (year.isNotEmpty) year,
-      if (effectiveDuration > 0)
-        PlayDetailFormatters.formatDuration(effectiveDuration),
-      if (detail.rating.trim().isNotEmpty) '⭐ ${detail.rating.trim()}',
-    ].join(' / ');
+    // 元信息与飞牛同结构同顺序（共享 PlayDetailFormatters）：A=年份/题材/地区，B=时长。
+    final metaLineA = PlayDetailFormatters.metaLineAFromDetail(detail);
+    final metaLineB = PlayDetailFormatters.metaLineBFromDetail(
+      detail,
+      effectiveDurationSeconds: effectiveDuration,
+    );
+    final isEpisode = detail.type.trim().toLowerCase() == 'episode';
+    final episodeHeroSubtitle = _neutralEpisodeHeroSubtitle(detail);
 
     // 续看进度（与飞牛同口径）：续看位 / 剩余 / 完成态 → 进度条 + 主按钮文案。
     final resumeTs = detail.resumePositionSeconds.clamp(0, effectiveDuration);
@@ -735,10 +669,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         effectiveDuration > 0 && (remainSeconds <= 0 || _watched);
     final showResumeProgress = resumeTs > 0 && remainSeconds > 0;
     final resolvedPlayText = playbackCompleted
-        ? _t('player.play.replay', 'Replay')
+        ? AppLocalizations.of(context).playerReplayAction
         : resumeTs > 0
-        ? _t('player.play.continuePlay', 'Continue playing')
-        : _t('player.play.play', 'Play');
+        ? AppLocalizations.of(context).detailContinuePlay
+        : AppLocalizations.of(context).detailPlay;
 
     final creditItems = detail.people
         .map(
@@ -791,9 +725,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               _buildHeroSliver(
                 height: layout.infoStart,
                 title: title,
-                subtitle: '',
-                bottomInset: 36,
-                titleChild: logoChild,
+                subtitle: episodeHeroSubtitle,
+                titleFontSize: isEpisode ? 28 : null,
+                bottomInset: isEpisode ? 20 : 36,
+                titleChild: isEpisode ? null : logoChild,
               ),
               SliverToBoxAdapter(
                 child: Container(
@@ -831,52 +766,32 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                         ),
                       ],
                       const SizedBox(height: 16),
-                      if (showResumeProgress) ...[
-                        Row(
-                          children: [
-                            Expanded(
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(
-                                  DetailTokens.progressRadius,
-                                ),
-                                child: LinearProgressIndicator(
-                                  value: PlayDetailFormatters.progress(
-                                    effectiveDuration,
-                                    resumeTs,
-                                  ),
-                                  minHeight: DetailTokens.progressHeight,
-                                  backgroundColor: DetailTokens.progressTrackOf(
-                                    context,
-                                  ),
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    DetailTokens.progressActiveOf(context),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Text(
-                              PlayDetailFormatters.remainText(
-                                effectiveDuration,
-                                resumeTs,
-                              ),
-                              style: TextStyle(
-                                color: colors.textSecondary,
-                                fontSize: DetailTokens.remainFontSize,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
+                      // 与飞牛同一动作条组件:续看进度条 + 主播放键 + 收藏/下载/已看。收藏/已看走
+                      // 中立后端接口（按能力开关启用，不支持的后端置灰 null）；下载暂无公共后端
+                      // 实现,统一提示不可用。
+                      PlayActionBar(
+                        progress: PlayDetailFormatters.progress(
+                          effectiveDuration,
+                          resumeTs,
                         ),
-                        const SizedBox(height: 12),
-                      ],
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          onPressed: _startNeutralPlayback,
-                          icon: const Icon(Icons.play_arrow),
-                          label: Text(resolvedPlayText),
+                        remainText: PlayDetailFormatters.remainText(
+                          effectiveDuration,
+                          resumeTs,
                         ),
+                        showProgress: showResumeProgress,
+                        primaryText: resolvedPlayText,
+                        primaryEnabled: true,
+                        liked: _liked,
+                        watched: _watched,
+                        downloaded: false,
+                        onPrimaryTap: _startNeutralPlayback,
+                        onLikeTap: capabilities.supportsFavorite
+                            ? _toggleFavorite
+                            : null,
+                        onWatchedTap: capabilities.supportsWatched
+                            ? _toggleWatched
+                            : null,
+                        onDownloadTap: _neutralDownloadUnavailable,
                       ),
                       if (showVersionSelector)
                         DetailResolutionSection(
@@ -902,6 +817,37 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                   token: '',
                   onTap: _openCreditPerson,
                 ),
+              // 文件信息：复用飞牛同款 FileInfoSection（独立区块，与飞牛顺序一致排在视频信息前）。
+              // Emby 路径无 /vol 概念 → 隐藏路径切换按钮。
+              if (_neutralFileInfo != null)
+                SliverToBoxAdapter(
+                  child: _sectionReveal(
+                    child: Container(
+                      color: colors.backgroundBase,
+                      padding: const EdgeInsets.fromLTRB(
+                        DetailTokens.screenHorizontalPadding,
+                        8,
+                        DetailTokens.screenHorizontalPadding,
+                        20,
+                      ),
+                      child: FileInfoSection(
+                        file: _neutralFileInfo,
+                        showPathToggle: false,
+                        title: AppLocalizations.of(context).detailFileInfoTitle,
+                        locationLabel: AppLocalizations.of(
+                          context,
+                        ).detailFileLocation,
+                        sizeLabel: AppLocalizations.of(context).detailFileSize,
+                        createdAtLabel: AppLocalizations.of(
+                          context,
+                        ).detailFileCreatedAt,
+                        addedAtLabel: AppLocalizations.of(
+                          context,
+                        ).detailFileAddedAt,
+                      ),
+                    ),
+                  ),
+                ),
               if (_sourceInfo != null && _sourceInfo!.isNotEmpty)
                 SliverToBoxAdapter(
                   child: _sectionReveal(
@@ -913,32 +859,11 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                         DetailTokens.screenHorizontalPadding,
                         20,
                       ),
-                      child: MediaSourceInfoSection(
-                        info: _sourceInfo!,
-                        fileTitle: _t(
-                          'layout.details.fileInfo.title',
-                          'File info',
-                        ),
-                        // 视频信息标签飞牛侧硬编码中文(VideoInfoSection 未走 _t),此处同口径:
-                        // 有对应 i18n key 则用,否则回退中文字面量。
-                        videoTitle: _t(
-                          'layout.details.videoInfo.title',
-                          '视频信息',
-                        ),
-                        locationLabel: _t(
-                          'layout.details.fileInfo.location',
-                          'File location',
-                        ),
-                        videoLabel: _t('layout.details.videoInfo.video', '视频'),
-                        audioLabel: _t('layout.details.videoInfo.audio', '音频'),
-                        subtitleLabel: _t(
-                          'layout.details.videoInfo.subtitle',
-                          '字幕',
-                        ),
-                        addedAtPrefix: _t(
-                          'layout.details.fileInfo.addedAt',
-                          'Added at',
-                        ),
+                      // 与飞牛同一「视频信息」组件（紧凑三行 + 查看全部）；「查看全部」展开
+                      // 逐流字段明细（复用飞牛同款 MediaDetailOverlayPage）。
+                      child: VideoInfoSection(
+                        lines: VideoInfoLines.fromSource(_sourceInfo!),
+                        onViewAll: () => _showNeutralSourceInfoSheet(),
                       ),
                     ),
                   ),
@@ -995,7 +920,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
             20,
           ),
           child: CreditsSection(
-            title: _t('layout.details.castAndCrew.title', 'Cast and crew'),
+            title: AppLocalizations.of(context).detailCastCrewTitle,
             items: items,
             token: token,
             onTap: onTap,
@@ -1049,10 +974,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               LongTextOverlayPage.show(
                 context,
                 title: overlayTitle,
-                sectionTitle: _t(
-                  'layout.details.overview.overview',
-                  'Overview',
-                ),
+                sectionTitle: AppLocalizations.of(context).detailOverviewTitle,
                 content: text,
               );
             },
@@ -1148,14 +1070,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     }
 
     if (item.seasonNumber == 0) {
-      parts.add(_t('layout.subheading.season.special', 'Special'));
+      parts.add(AppLocalizations.of(context).detailSeasonSpecial);
     } else if (item.seasonNumber > 0) {
       parts.add(
-        _t(
-          'layout.subheading.season.number',
-          'Season {number}',
-          params: {'number': item.seasonNumber},
-        ),
+        AppLocalizations.of(context).detailSeasonNumber(item.seasonNumber),
       );
     } else if (item.parentTitle.trim().isNotEmpty) {
       parts.add(item.parentTitle.trim());
@@ -1163,11 +1081,33 @@ class _PlayDetailPageState extends State<PlayDetailPage>
 
     if (item.episodeNumber > 0) {
       parts.add(
-        _t(
-          'layout.subheading.episode.number',
-          'Episode {number}',
-          params: {'number': item.episodeNumber},
-        ),
+        AppLocalizations.of(context).detailEpisodeNumber(item.episodeNumber),
+      );
+    }
+
+    return parts.join(' · ');
+  }
+
+  /// 中立(Emby)剧集 hero 副标题（剧名 · 季 · 集），与飞牛 [_episodeHeroSubtitle] 同口径。
+  /// 非剧集返回空 → hero 不显示副标题。
+  String _neutralEpisodeHeroSubtitle(MediaDetail detail) {
+    if (detail.type.trim().toLowerCase() != 'episode') return '';
+
+    final parts = <String>[];
+    final series = detail.parentTitle.trim();
+    if (series.isNotEmpty) parts.add(series);
+
+    if (detail.seasonNumber == 0) {
+      parts.add(AppLocalizations.of(context).detailSeasonSpecial);
+    } else if (detail.seasonNumber > 0) {
+      parts.add(
+        AppLocalizations.of(context).detailSeasonNumber(detail.seasonNumber),
+      );
+    }
+
+    if (detail.episodeNumber > 0) {
+      parts.add(
+        AppLocalizations.of(context).detailEpisodeNumber(detail.episodeNumber),
       );
     }
 
@@ -1255,8 +1195,16 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         }
         final selectedVersion = versions.isNotEmpty ? versions.first : null;
         if (!mounted) return;
+        // 地区本地化在此渲染层做（mapper 无 l10n）：英文国名 / ISO code → 中文，未知原样。
+        final l10n = AppLocalizations.of(context);
+        final localizedDetail = detail.copyWith(
+          regionLabels: RegionNameLocalizer.localizeAll(
+            l10n,
+            detail.regionLabels,
+          ),
+        );
         setState(() {
-          _detail = detail;
+          _detail = localizedDetail;
           _neutralVersions = versions;
           _neutralSelectedVersionIndex = 0;
           // 音轨/字幕初始化为选中版本的默认轨(无默认则首条音轨 / 字幕关闭)。
@@ -1712,11 +1660,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         final mediaGuid = selectedOption?.mediaGuid ?? data.mediaGuid;
         if (mediaGuid.trim().isEmpty) {
           _showTopTip(
-            _t(
-              'player.playbackError.playError',
-              'Playback error: {error}',
-              params: {'error': 'missing media guid'},
-            ),
+            AppLocalizations.of(
+              context,
+            ).detailPlaybackError('missing media guid'),
             context.appColors.danger,
           );
           return;
@@ -1725,11 +1671,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         final streamUrl = api.getStreamUrl(mediaGuid);
         if (streamUrl.trim().isEmpty) {
           _showTopTip(
-            _t(
-              'player.playbackError.playError',
-              'Playback error: {error}',
-              params: {'error': 'missing stream url'},
-            ),
+            AppLocalizations.of(
+              context,
+            ).detailPlaybackError('missing stream url'),
             context.appColors.danger,
           );
           return;
@@ -1741,11 +1685,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         } catch (error) {
           if (!mounted) return;
           _showTopTip(
-            _t(
-              'player.playbackError.playError',
-              'Failed to get playback stream: {error}',
-              params: {'error': '$error'},
-            ),
+            AppLocalizations.of(context).detailPlaybackError('$error'),
             context.appColors.danger,
           );
           return;
@@ -2281,15 +2221,12 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         return;
       case ImdbLaunchResult.empty:
         _showTopTip(
-          _t('layout.details.castAndCrew.imdb', 'No IMDB link'),
+          AppLocalizations.of(context).detailImdbEmpty,
           context.appColors.warning,
         );
       case ImdbLaunchResult.failed:
         _showTopTip(
-          _t(
-            'layout.details.castAndCrew.imdbOpenFailed',
-            'Unable to open IMDB link',
-          ),
+          AppLocalizations.of(context).detailImdbOpenFailed,
           context.appColors.danger,
         );
     }
@@ -2338,27 +2275,27 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     if (_favoriteUpdating ||
         now.difference(_lastFavoriteTapAt) < _favoriteTapCooldown) {
       _showTopTip(
-        _t(
-          'layout.globalError.clickToRetry',
-          'Too many taps, please try again later',
-        ),
+        AppLocalizations.of(context).commonClickTooFastRetryLater,
         context.appColors.warning,
       );
       return;
     }
     _lastFavoriteTapAt = now;
     _favoriteUpdating = true;
+    final target = !_liked;
+    final l10n = AppLocalizations.of(context);
     try {
-      final api = FeiniuApi(context.read<NasProvider>());
-      final result = await PlayDetailItemActions(
-        api,
-        l10n: AppLocalizations.of(context),
-      ).toggleFavorite(itemGuid: _currentItemGuid, currentLiked: _liked);
+      // 统一走中立后端接口:飞牛→FeiniuApi.setFavorite、Emby→FavoriteItems 端点，文案同口径。
+      final backend = context.read<MediaBackendProvider>().backend;
+      final state = await backend.setItemFavorite(
+        _currentItemGuid,
+        favorite: target,
+      );
       if (!mounted) return;
-      setState(() => _liked = result.state);
+      setState(() => _liked = state);
       _showTopTip(
-        result.message,
-        result.state ? context.appColors.success : context.appColors.textMuted,
+        state ? l10n.actionFavoriteAdded : l10n.actionFavoriteRemoved,
+        state ? context.appColors.success : context.appColors.textMuted,
       );
     } catch (error, stackTrace) {
       unawaited(
@@ -2373,14 +2310,8 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       );
       _showTopTip(
         _liked
-            ? _t(
-                'common.actions.favorite.unfavoriteFailed',
-                'Failed to remove favorite',
-              )
-            : _t(
-                'common.actions.favorite.favoriteFailed',
-                'Failed to favorite',
-              ),
+            ? AppLocalizations.of(context).detailUnfavoriteFailed
+            : AppLocalizations.of(context).detailFavoriteFailed,
         context.appColors.danger,
       );
     } finally {
@@ -2393,29 +2324,30 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     if (_watchedUpdating ||
         now.difference(_lastWatchedTapAt) < _watchedTapCooldown) {
       _showTopTip(
-        _t(
-          'layout.globalError.clickToRetry',
-          'Too many taps, please try again later',
-        ),
+        AppLocalizations.of(context).commonClickTooFastRetryLater,
         context.appColors.warning,
       );
       return;
     }
     _lastWatchedTapAt = now;
     _watchedUpdating = true;
+    final target = !_watched;
+    final l10n = AppLocalizations.of(context);
     try {
-      final api = FeiniuApi(context.read<NasProvider>());
-      final result = await PlayDetailItemActions(
-        api,
-        l10n: AppLocalizations.of(context),
-      ).toggleWatched(itemGuid: _currentItemGuid, currentWatched: _watched);
-      if (!mounted) return;
-      setState(() => _watched = result.state);
-      _showTopTip(
-        result.message,
-        result.state ? context.appColors.success : context.appColors.textMuted,
+      // 统一走中立后端接口:飞牛→FeiniuApi.setWatched、Emby→PlayedItems 端点，文案同口径。
+      final backend = context.read<MediaBackendProvider>().backend;
+      final state = await backend.setItemWatched(
+        _currentItemGuid,
+        watched: target,
       );
-      if (result.needRefresh) {
+      if (!mounted) return;
+      setState(() => _watched = state);
+      _showTopTip(
+        state ? l10n.actionMarkedAsWatched : l10n.actionMarkedAsUnwatched,
+        state ? context.appColors.success : context.appColors.textMuted,
+      );
+      // 飞牛已看切换需回灌 PlayInfo（更新跨 UI 的已看/进度态）；中立后端无此数据通道,跳过。
+      if (backend.capabilities.kind == MediaBackendKind.feiniu) {
         await _refreshAfterItemStateChange();
       }
     } catch (error, stackTrace) {
@@ -2432,19 +2364,81 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       if (!mounted) return;
       _showTopTip(
         _watched
-            ? _t(
-                'common.actions.watched.markedAsUnwatchedFailed',
-                'Failed to mark as unwatched',
-              )
-            : _t(
-                'common.actions.watched.markedAsWatchedFailed',
-                'Failed to mark as watched',
-              ),
+            ? AppLocalizations.of(context).detailMarkUnwatchedFailed
+            : AppLocalizations.of(context).detailMarkWatchedFailed,
         context.appColors.danger,
       );
     } finally {
       _watchedUpdating = false;
     }
+  }
+
+  /// 中立态下载占位:当前公共后端（Emby）未接下载队列,统一提示「不可用」（l10n）。
+  void _neutralDownloadUnavailable() {
+    _showTopTip(
+      AppLocalizations.of(context).detailDownloadUnavailable,
+      context.appColors.textMuted,
+    );
+  }
+
+  /// 中立(Emby)「视频信息 → 查看全部」:底部弹窗展开完整文件信息 + 逐流明细
+  /// 中立(Emby)文件信息 → 飞牛 [StreamFileInfo]（喂复用的 `FileInfoSection`）。Emby 仅有
+  /// `DateCreated`（→ 添加时间），无单独「创建时间」故留空（显示 `-`）。无路径且无大小时返回
+  /// null → 区块隐藏。
+  StreamFileInfo? get _neutralFileInfo {
+    final info = _sourceInfo;
+    if (info == null || (info.path.isEmpty && info.sizeBytes <= 0)) return null;
+    final added = DateTime.tryParse(info.addedDate);
+    return StreamFileInfo(
+      mediaGuid: '',
+      path: info.path,
+      fileName: '',
+      size: info.sizeBytes,
+      fileBirthTime: 0,
+      createTime: added?.millisecondsSinceEpoch ?? 0,
+      updateTime: 0,
+    );
+  }
+
+  /// 「查看全部」：复用飞牛同款 [MediaDetailOverlayPage]（逐字段明细 + 多版本切换），
+  /// 数据经 [MediaDetailVariant.fromSource] 由中立 [MediaSourceInfo] 适配；版本切换回写
+  /// [_selectNeutralVersion]（与主页版本选择器联动）。无多源时退化为单版本。
+  Future<void> _showNeutralSourceInfoSheet() async {
+    final versions = _neutralVersions;
+    final variants = <MediaDetailVariant>[];
+    if (versions.isNotEmpty) {
+      for (var i = 0; i < versions.length; i++) {
+        final version = versions[i];
+        if (!version.info.isNotEmpty) continue;
+        variants.add(
+          MediaDetailVariant.fromSource(
+            key: version.id.isNotEmpty ? version.id : 'source-$i',
+            title: version.label,
+            info: version.info,
+          ),
+        );
+      }
+    } else if (_sourceInfo != null && _sourceInfo!.isNotEmpty) {
+      variants.add(
+        MediaDetailVariant.fromSource(
+          key: 'source-0',
+          title: AppLocalizations.of(context).detailVideoInfoTitle,
+          info: _sourceInfo!,
+        ),
+      );
+    }
+    if (variants.isEmpty) return;
+    final initial = (variants.length == versions.length)
+        ? _neutralSelectedVersionIndex.clamp(0, variants.length - 1)
+        : 0;
+    await MediaDetailOverlayPage.show(
+      context,
+      variants: variants,
+      initialIndex: initial,
+      onVariantChanged: (index) {
+        if (variants.length == versions.length) _selectNeutralVersion(index);
+      },
+    );
   }
 
   Future<void> _prefetchDownloadQualities({
@@ -2469,7 +2463,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     final itemGuid = _currentItemGuid.trim();
     if (item == null || itemGuid.isEmpty) {
       _showTopTip(
-        _t('common.actions.download.unavailable', 'No downloadable resources'),
+        AppLocalizations.of(context).detailDownloadUnavailable,
         context.appColors.warning,
       );
       return;
@@ -2727,19 +2721,15 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                     if ((item['tv_title'] ?? '').toString().trim().isNotEmpty)
                       (item['tv_title'] ?? '').toString().trim(),
                     if (_asInt(item['season_number']) == 0)
-                      _t('layout.subheading.season.special', 'Special')
+                      AppLocalizations.of(context).detailSeasonSpecial
                     else if (_asInt(item['season_number']) > 0)
-                      _t(
-                        'layout.subheading.season.number',
-                        'Season {number}',
-                        params: {'number': _asInt(item['season_number'])},
-                      ),
+                      AppLocalizations.of(
+                        context,
+                      ).detailSeasonNumber(_asInt(item['season_number'])),
                     if (_asInt(item['episode_number']) > 0)
-                      _t(
-                        'layout.subheading.episode.number',
-                        'Episode {number}',
-                        params: {'number': _asInt(item['episode_number'])},
-                      ),
+                      AppLocalizations.of(
+                        context,
+                      ).detailEpisodeNumber(_asInt(item['episode_number'])),
                   ].join(' · ')
                 : '';
             final initialHeroTitleChild = initialItemType != 'episode'
@@ -2855,10 +2845,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           final showProgress = effectiveTs > 0 && remainSeconds > 0;
 
           final resolvedPlayText = playbackCompleted
-              ? _t('player.play.replay', 'Replay')
+              ? AppLocalizations.of(context).playerReplayAction
               : effectiveTs > 0
-              ? _t('player.play.continuePlay', 'Continue playing')
-              : _t('player.play.play', 'Play');
+              ? AppLocalizations.of(context).detailContinuePlay
+              : AppLocalizations.of(context).detailPlay;
           final metaLineA = PlayDetailFormatters.metaLineA(
             item,
             genreMap: _genresMapZhCn,
@@ -3169,11 +3159,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                                 if (item.playError.isNotEmpty) ...[
                                   const SizedBox(height: 12),
                                   Text(
-                                    _t(
-                                      'player.playbackError.playError',
-                                      'Playback error: {error}',
-                                      params: {'error': item.playError},
-                                    ),
+                                    AppLocalizations.of(
+                                      context,
+                                    ).detailPlaybackError(item.playError),
                                     style: const TextStyle(
                                       color: Colors.redAccent,
                                     ),
@@ -3212,30 +3200,24 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                             child: FileInfoSection(
                               file: currentFile,
                               authorizedDirs: _authorizedDirs,
-                              title: _t(
-                                'layout.details.fileInfo.title',
-                                'File info',
-                              ),
-                              locationLabel: _t(
-                                'layout.details.fileInfo.location',
-                                'File location',
-                              ),
-                              sizeLabel: _t(
-                                'layout.details.fileInfo.size',
-                                'File size',
-                              ),
-                              createdAtLabel: _t(
-                                'layout.details.fileInfo.createdAt',
-                                'File created at',
-                              ),
-                              addedAtLabel: _t(
-                                'layout.details.fileInfo.addedAt',
-                                'Added at',
-                              ),
-                              toggleToFriendlyLabel: _t(
-                                'layout.details.fileInfo.convert',
-                                'Convert',
-                              ),
+                              title: AppLocalizations.of(
+                                context,
+                              ).detailFileInfoTitle,
+                              locationLabel: AppLocalizations.of(
+                                context,
+                              ).detailFileLocation,
+                              sizeLabel: AppLocalizations.of(
+                                context,
+                              ).detailFileSize,
+                              createdAtLabel: AppLocalizations.of(
+                                context,
+                              ).detailFileCreatedAt,
+                              addedAtLabel: AppLocalizations.of(
+                                context,
+                              ).detailFileAddedAt,
+                              toggleToFriendlyLabel: AppLocalizations.of(
+                                context,
+                              ).detailFileConvert,
                               toggleToRawLabel: '/vol',
                             ),
                           ),
@@ -3253,9 +3235,11 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                               20,
                             ),
                             child: VideoInfoSection(
-                              video: currentVideo,
-                              audio: currentAudio,
-                              subtitle: currentSubtitle,
+                              lines: VideoInfoLines.fromFeiniu(
+                                currentVideo,
+                                currentAudio,
+                                currentSubtitle,
+                              ),
                               onViewAll: () => _showMediaInfoDetail(context),
                             ),
                           ),

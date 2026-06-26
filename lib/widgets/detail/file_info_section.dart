@@ -17,6 +17,10 @@ class FileInfoSection extends StatefulWidget {
   final String toggleToRawLabel;
   final String? toggleToFriendlyLabel;
 
+  /// 是否显示「/vol ↔ 友好路径」切换按钮。飞牛恒为 true；Emby 等公共后端路径无 /vol 概念，
+  /// 传 false 隐藏该按钮（避免一个无意义的切换）。
+  final bool showPathToggle;
+
   const FileInfoSection({
     super.key,
     required this.file,
@@ -28,6 +32,7 @@ class FileInfoSection extends StatefulWidget {
     this.addedAtLabel,
     this.toggleToRawLabel = '/vol',
     this.toggleToFriendlyLabel,
+    this.showPathToggle = true,
   });
 
   @override
@@ -70,38 +75,41 @@ class _FileInfoSectionState extends State<FileInfoSection> {
               _RowBlock(
                 label: widget.locationLabel ?? l10n.fileInfoLocationLabel,
                 value: displayedPath,
-                trailing: TextButton.icon(
-                  onPressed: friendlyPath.isEmpty
-                      ? null
-                      : () => setState(() => _showRawPath = !_showRawPath),
-                  style: TextButton.styleFrom(
-                    minimumSize: Size.zero,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    foregroundColor: friendlyPath.isEmpty
-                        ? colors.textMuted
-                        : colors.link,
-                  ),
-                  icon: Icon(
-                    _showRawPath
-                        ? Icons.folder_open_outlined
-                        : Icons.swap_horiz,
-                    size: 15,
-                  ),
-                  label: Text(
-                    _showRawPath
-                        ? widget.toggleToFriendlyLabel ??
-                              l10n.fileInfoToggleToFriendly
-                        : widget.toggleToRawLabel,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
+                trailing: !widget.showPathToggle
+                    ? null
+                    : TextButton.icon(
+                        onPressed: friendlyPath.isEmpty
+                            ? null
+                            : () =>
+                                  setState(() => _showRawPath = !_showRawPath),
+                        style: TextButton.styleFrom(
+                          minimumSize: Size.zero,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          foregroundColor: friendlyPath.isEmpty
+                              ? colors.textMuted
+                              : colors.link,
+                        ),
+                        icon: Icon(
+                          _showRawPath
+                              ? Icons.folder_open_outlined
+                              : Icons.swap_horiz,
+                          size: 15,
+                        ),
+                        label: Text(
+                          _showRawPath
+                              ? widget.toggleToFriendlyLabel ??
+                                    l10n.fileInfoToggleToFriendly
+                              : widget.toggleToRawLabel,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
               ),
               const SizedBox(height: 16),
               _RowBlock(

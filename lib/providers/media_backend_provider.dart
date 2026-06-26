@@ -39,7 +39,14 @@ class MediaBackendProvider extends ChangeNotifier {
       final key = 'emby:${connection.serverUrl}:${connection.accessToken}';
       final cached = _cachedBackend;
       if (cached != null && _cachedKey == key) return cached;
-      final created = EmbyMediaBackend(api: EmbyApi(), connection: connection);
+      // .fnos.net 中转域名的 Emby 需携带 FN Connect 入口令牌（entry-token cookie）过云端
+      // 边缘闸；从已保存连接动态读取，令牌刷新后无需重建。直连地址 entryToken 为空、不带头。
+      final created = EmbyMediaBackend(
+        api: EmbyApi(
+          entryTokenProvider: () => session.currentConnection?.entryToken ?? '',
+        ),
+        connection: connection,
+      );
       _cachedBackend = created;
       _cachedKey = key;
       return created;

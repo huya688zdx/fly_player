@@ -27,6 +27,9 @@ class MediaItemCard {
   final int durationSeconds;
   final bool watched;
 
+  /// 续看进度位（秒），用于「继续观看」卡片底部进度条。0 表示无进度 / 后端未提供。
+  final int resumePositionSeconds;
+
   /// 评分文本，保留后端原始展示形式（飞牛为字符串，空表示无评分）。
   final String rating;
 
@@ -67,6 +70,7 @@ class MediaItemCard {
     this.backdropImage = MediaImageRef.empty,
     this.durationSeconds = 0,
     this.watched = false,
+    this.resumePositionSeconds = 0,
     this.rating = '',
     this.releaseDate = '',
     this.firstAirDate = '',
@@ -108,6 +112,7 @@ class MediaItemCard {
     MediaImageRef? backdropImage,
     int? durationSeconds,
     bool? watched,
+    int? resumePositionSeconds,
     String? rating,
     String? releaseDate,
     String? firstAirDate,
@@ -134,6 +139,8 @@ class MediaItemCard {
       backdropImage: backdropImage ?? this.backdropImage,
       durationSeconds: durationSeconds ?? this.durationSeconds,
       watched: watched ?? this.watched,
+      resumePositionSeconds:
+          resumePositionSeconds ?? this.resumePositionSeconds,
       rating: rating ?? this.rating,
       releaseDate: releaseDate ?? this.releaseDate,
       firstAirDate: firstAirDate ?? this.firstAirDate,

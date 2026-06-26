@@ -35,6 +35,10 @@ class TvSeasonDetailPanel extends StatelessWidget {
   final VoidCallback onWatchedTap;
   final VoidCallback onOverviewTap;
 
+  /// 可选「收藏整部剧」键。仅传入时显示(Emby 季页面);飞牛季页面不传 → 不显示,保持原样。
+  final bool? favorite;
+  final VoidCallback? onFavoriteTap;
+
   const TvSeasonDetailPanel({
     super.key,
     required this.title,
@@ -64,6 +68,8 @@ class TvSeasonDetailPanel extends StatelessWidget {
     required this.onDownloadTap,
     required this.onWatchedTap,
     required this.onOverviewTap,
+    this.favorite,
+    this.onFavoriteTap,
   });
 
   @override
@@ -139,36 +145,44 @@ class TvSeasonDetailPanel extends StatelessWidget {
                   );
                 },
                 child: Row(
-                children: [
-                  Expanded(
-                    child: DetailPrimaryPlayButton(
-                      text: playLabel,
-                      textSwitchKey: 'play-label-$playLabel',
-                      textStyle: TextStyle(
-                        fontSize: playLabelFontSize,
-                        fontWeight: FontWeight.w600,
+                  children: [
+                    Expanded(
+                      child: DetailPrimaryPlayButton(
+                        text: playLabel,
+                        textSwitchKey: 'play-label-$playLabel',
+                        textStyle: TextStyle(
+                          fontSize: playLabelFontSize,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        onTap: onPlayTap,
+                        backgroundColor: colors.accent,
+                        foregroundColor: primaryForeground,
                       ),
-                      onTap: onPlayTap,
-                      backgroundColor: colors.accent,
-                      foregroundColor: primaryForeground,
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  DetailIconButton(
-                    iconAsset: 'assets/icons/download.svg',
-                    selectedIconAsset: 'assets/icons/check.svg',
-                    selected: downloaded,
-                    onTap: onDownloadTap,
-                  ),
-                  const SizedBox(width: 10),
-                  DetailIconButton(
-                    iconAsset: 'assets/icons/watched.svg',
-                    selectedIconAsset: 'assets/icons/watched_selected.svg',
-                    selected: watched,
-                    onTap: onWatchedTap,
-                  ),
-                ],
-              ),
+                    const SizedBox(width: 12),
+                    if (favorite != null && onFavoriteTap != null) ...[
+                      DetailIconButton(
+                        iconAsset: 'assets/icons/heart.svg',
+                        selected: favorite!,
+                        onTap: onFavoriteTap,
+                      ),
+                      const SizedBox(width: 10),
+                    ],
+                    DetailIconButton(
+                      iconAsset: 'assets/icons/download.svg',
+                      selectedIconAsset: 'assets/icons/check.svg',
+                      selected: downloaded,
+                      onTap: onDownloadTap,
+                    ),
+                    const SizedBox(width: 10),
+                    DetailIconButton(
+                      iconAsset: 'assets/icons/watched.svg',
+                      selectedIconAsset: 'assets/icons/watched_selected.svg',
+                      selected: watched,
+                      onTap: onWatchedTap,
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 10),
               AnimatedSize(

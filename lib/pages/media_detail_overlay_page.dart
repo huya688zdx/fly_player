@@ -1,25 +1,79 @@
 import 'package:flutter/material.dart';
 
 import '../l10n/generated/app_localizations.dart';
+import '../media_backend/detail/media_source_info.dart';
 import '../models/stream_track_data.dart';
 import '../theme/app_theme.dart';
 import '../ui/app_sheet_transitions.dart';
 import '../utils/media_language_mapper.dart';
 
-class MediaDetailVariant {
-  final String mediaGuid;
-  final String title;
-  final VideoStreamInfo? video;
-  final List<AudioTrackOption> audios;
-  final List<SubtitleTrackOption> subtitles;
+/// 「查看全部」媒体明细页的一张卡片：[header] 为卡片标题行（如 `4K HEVC HDR`），
+/// [fields] 为逐字段明细（枚举键 + 已格式化值，标签由 UI 用 l10n 渲染）。
+class MediaInfoCard {
+  const MediaInfoCard({required this.header, required this.fields});
 
+  final String header;
+  final List<MediaInfoField> fields;
+}
+
+/// 「查看全部」媒体明细页的后端中立数据——一个可切换的版本（飞牛多清晰度 / Emby 多源）。
+///
+/// 飞牛与 Emby 各自把自家轨道数据格式化成同一组 [MediaInfoCard]，喂给同一个
+/// [MediaDetailOverlayPage] 渲染，从而视觉统一、格式化逻辑各归各家（与 `VideoInfoSection`
+/// 同款抽象）。文件信息不在此页——飞牛/Emby 都走详情主页独立的 `FileInfoSection`。
+class MediaDetailVariant {
   const MediaDetailVariant({
-    required this.mediaGuid,
+    required this.key,
     required this.title,
-    required this.video,
-    required this.audios,
-    required this.subtitles,
+    this.video,
+    this.audios = const <MediaInfoCard>[],
+    this.subtitles = const <MediaInfoCard>[],
   });
+
+  final String key;
+  final String title;
+  final MediaInfoCard? video;
+  final List<MediaInfoCard> audios;
+  final List<MediaInfoCard> subtitles;
+
+  /// 飞牛：从当前清晰度的视频 / 音频 / 字幕轨道 DTO 构建（行序与文案逐字保持原飞牛）。
+  factory MediaDetailVariant.fromFeiniu({
+    required String key,
+    required String title,
+    required AppLocalizations l10n,
+    VideoStreamInfo? video,
+    List<AudioTrackOption> audios = const <AudioTrackOption>[],
+    List<SubtitleTrackOption> subtitles = const <SubtitleTrackOption>[],
+  }) {
+    return MediaDetailVariant(
+      key: key,
+      title: title,
+      video: video == null ? null : _feiniuVideoCard(video),
+      audios: audios.map(_feiniuAudioCard).toList(growable: false),
+      subtitles: subtitles
+          .map((s) => _feiniuSubtitleCard(s, l10n))
+          .toList(growable: false),
+    );
+  }
+
+  /// Emby 等公共后端：从中立 [MediaSourceInfo] 构建（明细行由映射层在 [MediaSourceStream.fields]
+  /// 备好）。文件信息走详情主页独立的 `FileInfoSection`（与飞牛同），不放进本 overlay。
+  factory MediaDetailVariant.fromSource({
+    required String key,
+    required String title,
+    required MediaSourceInfo info,
+  }) {
+    MediaInfoCard cardOf(MediaSourceStream s) =>
+        MediaInfoCard(header: s.label, fields: s.fields);
+    final videoStreams = info.videoStreams;
+    return MediaDetailVariant(
+      key: key,
+      title: title,
+      video: videoStreams.isEmpty ? null : cardOf(videoStreams.first),
+      audios: info.audioStreams.map(cardOf).toList(growable: false),
+      subtitles: info.subtitleStreams.map(cardOf).toList(growable: false),
+    );
+  }
 }
 
 class MediaDetailOverlayPage extends StatefulWidget {
@@ -199,39 +253,11 @@ class _MediaDetailOverlayPageState extends State<MediaDetailOverlayPage> {
                     return RepaintBoundary(
                       child: SingleChildScrollView(
                         key: PageStorageKey<String>(
-                          'media-detail-page-${variant.mediaGuid}',
+                          'media-detail-page-${variant.key}',
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (variant.video != null) ...[
-                              _SectionTitle(l10n.mediaDetailsVideoSection),
-                              const SizedBox(height: 8),
-                              _VideoCard(video: variant.video!),
-                              const SizedBox(height: 14),
-                            ],
-                            if (variant.audios.isNotEmpty) ...[
-                              _SectionTitle(l10n.mediaDetailsAudioSection),
-                              const SizedBox(height: 8),
-                              ...variant.audios.map(
-                                (item) => Padding(
-                                  padding: const EdgeInsets.only(bottom: 10),
-                                  child: _AudioCard(audio: item),
-                                ),
-                              ),
-                            ],
-                            if (variant.subtitles.isNotEmpty) ...[
-                              const SizedBox(height: 4),
-                              _SectionTitle(l10n.mediaDetailsSubtitleSection),
-                              const SizedBox(height: 8),
-                              ...variant.subtitles.map(
-                                (item) => Padding(
-                                  padding: const EdgeInsets.only(bottom: 10),
-                                  child: _SubtitleCard(subtitle: item),
-                                ),
-                              ),
-                            ],
-                          ],
+                          children: _variantSections(l10n, variant),
                         ),
                       ),
                     );
@@ -258,6 +284,48 @@ class _MediaDetailOverlayPageState extends State<MediaDetailOverlayPage> {
 
     return SizedBox(height: panelHeight, width: double.infinity, child: child);
   }
+
+  List<Widget> _variantSections(
+    AppLocalizations l10n,
+    MediaDetailVariant variant,
+  ) {
+    final children = <Widget>[];
+    if (variant.video != null) {
+      children
+        ..add(_SectionTitle(l10n.mediaDetailsVideoSection))
+        ..add(const SizedBox(height: 8))
+        ..add(_InfoCard(card: variant.video!))
+        ..add(const SizedBox(height: 14));
+    }
+    if (variant.audios.isNotEmpty) {
+      children
+        ..add(_SectionTitle(l10n.mediaDetailsAudioSection))
+        ..add(const SizedBox(height: 8));
+      for (final card in variant.audios) {
+        children.add(
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _InfoCard(card: card),
+          ),
+        );
+      }
+    }
+    if (variant.subtitles.isNotEmpty) {
+      children
+        ..add(const SizedBox(height: 4))
+        ..add(_SectionTitle(l10n.mediaDetailsSubtitleSection))
+        ..add(const SizedBox(height: 8));
+      for (final card in variant.subtitles) {
+        children.add(
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _InfoCard(card: card),
+          ),
+        );
+      }
+    }
+    return children;
+  }
 }
 
 class _SectionTitle extends StatelessWidget {
@@ -280,14 +348,15 @@ class _SectionTitle extends StatelessWidget {
 }
 
 class _InfoCard extends StatelessWidget {
-  final String header;
-  final List<MapEntry<String, String>> rows;
+  final MediaInfoCard card;
 
-  const _InfoCard({required this.header, required this.rows});
+  const _InfoCard({required this.card});
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
+    final rows = card.fields;
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
@@ -298,27 +367,28 @@ class _InfoCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            header,
-            style: TextStyle(
-              color: colors.textPrimary,
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
+          if (card.header.trim().isNotEmpty) ...[
+            Text(
+              card.header,
+              style: TextStyle(
+                color: colors.textPrimary,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
+            const SizedBox(height: 8),
+          ],
           for (int i = 0; i < rows.length; i++) ...[
-            if (i > 0 && _isDividerRow(rows[i])) ...[
+            if (i > 0 && rows[i].isDivider)
               Divider(color: colors.borderSubtle, height: 14),
-            ],
-            if (!_isDividerRow(rows[i]))
+            if (!rows[i].isDivider)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Row(
                   children: [
                     Expanded(
                       child: Text(
-                        rows[i].key,
+                        _label(l10n, rows[i].key),
                         style: TextStyle(
                           color: colors.textMuted,
                           fontSize: 14,
@@ -327,7 +397,7 @@ class _InfoCard extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      rows[i].value,
+                      _displayValue(l10n, rows[i]),
                       style: TextStyle(
                         color: colors.textSecondary,
                         fontSize: 14,
@@ -344,157 +414,190 @@ class _InfoCard extends StatelessWidget {
   }
 }
 
-class _VideoCard extends StatelessWidget {
-  final VideoStreamInfo video;
+/// 布尔字段（值为 `1`/`0` 中立标记）的键集合，UI 据此渲染本地化「是/否」。
+const Set<MediaInfoFieldKey> _boolFieldKeys = <MediaInfoFieldKey>{
+  MediaInfoFieldKey.interlaced,
+  MediaInfoFieldKey.isDefault,
+  MediaInfoFieldKey.forced,
+  MediaInfoFieldKey.external,
+};
 
-  const _VideoCard({required this.video});
+String _displayValue(AppLocalizations l10n, MediaInfoField field) {
+  if (_boolFieldKeys.contains(field.key)) {
+    if (field.value == '1') return l10n.commonYes;
+    if (field.value == '0') return l10n.commonNo;
+    return '-';
+  }
+  return _safe(field.value);
+}
 
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final headerParts = <String>[
-      if (video.resolutionType.trim().isNotEmpty) video.resolutionType,
-      if (video.codecName.trim().isNotEmpty) video.codecName.toUpperCase(),
-      if (video.colorRangeType.trim().isNotEmpty) video.colorRangeType,
-    ];
-    return _InfoCard(
-      header: headerParts.join(' '),
-      rows: [
-        MapEntry(l10n.mediaDetailsFieldEncoder, _safe(video.codecName)),
-        MapEntry(l10n.mediaDetailsFieldProfile, _safe(video.profile)),
-        MapEntry(l10n.mediaDetailsFieldLevel, _safe(video.level)),
-        MapEntry(
-          l10n.mediaDetailsFieldResolution,
-          _safe(_resolution(video.width, video.height)),
-        ),
-        MapEntry(
-          l10n.mediaDetailsFieldAspectRatio,
-          _safe(video.displayAspectRatio),
-        ),
-        const MapEntry('__divider__', ''),
-        MapEntry(
-          l10n.mediaDetailsFieldInterlaced,
-          _boolText(l10n, video.progressive == 1),
-        ),
-        MapEntry(l10n.mediaDetailsFieldFrameRate, _safe(video.rFrameRate)),
-        MapEntry(l10n.mediaDetailsFieldBitrate, _safe(_kbps(video.bps))),
-        MapEntry(l10n.mediaDetailsFieldRange, _safe(video.colorRangeType)),
-        MapEntry(
-          l10n.mediaDetailsFieldColorPrimaries,
-          _safe(video.colorPrimaries),
-        ),
-        const MapEntry('__divider__', ''),
-        MapEntry(l10n.mediaDetailsFieldColorSpace, _safe(video.colorSpace)),
-        MapEntry(
-          l10n.mediaDetailsFieldColorTransfer,
-          _safe(video.colorTransfer),
-        ),
-        MapEntry(
-          l10n.mediaDetailsFieldBitDepth,
-          _safe(video.bitDepth > 0 ? '${video.bitDepth} bit' : ''),
-        ),
-        MapEntry(l10n.mediaDetailsFieldPixelFormat, _safe(video.pixFmt)),
-        MapEntry(
-          l10n.mediaDetailsFieldRefs,
-          _safe(video.refs > 0 ? '${video.refs}' : ''),
-        ),
-      ],
-    );
+String _label(AppLocalizations l10n, MediaInfoFieldKey key) {
+  switch (key) {
+    case MediaInfoFieldKey.encoder:
+      return l10n.mediaDetailsFieldEncoder;
+    case MediaInfoFieldKey.profile:
+      return l10n.mediaDetailsFieldProfile;
+    case MediaInfoFieldKey.level:
+      return l10n.mediaDetailsFieldLevel;
+    case MediaInfoFieldKey.resolution:
+      return l10n.mediaDetailsFieldResolution;
+    case MediaInfoFieldKey.aspectRatio:
+      return l10n.mediaDetailsFieldAspectRatio;
+    case MediaInfoFieldKey.interlaced:
+      return l10n.mediaDetailsFieldInterlaced;
+    case MediaInfoFieldKey.frameRate:
+      return l10n.mediaDetailsFieldFrameRate;
+    case MediaInfoFieldKey.bitrate:
+      return l10n.mediaDetailsFieldBitrate;
+    case MediaInfoFieldKey.range:
+      return l10n.mediaDetailsFieldRange;
+    case MediaInfoFieldKey.colorPrimaries:
+      return l10n.mediaDetailsFieldColorPrimaries;
+    case MediaInfoFieldKey.colorSpace:
+      return l10n.mediaDetailsFieldColorSpace;
+    case MediaInfoFieldKey.colorTransfer:
+      return l10n.mediaDetailsFieldColorTransfer;
+    case MediaInfoFieldKey.bitDepth:
+      return l10n.mediaDetailsFieldBitDepth;
+    case MediaInfoFieldKey.pixelFormat:
+      return l10n.mediaDetailsFieldPixelFormat;
+    case MediaInfoFieldKey.refs:
+      return l10n.mediaDetailsFieldRefs;
+    case MediaInfoFieldKey.language:
+      return l10n.mediaDetailsFieldLanguage;
+    case MediaInfoFieldKey.channels:
+      return l10n.mediaDetailsFieldChannels;
+    case MediaInfoFieldKey.sampleRate:
+      return l10n.mediaDetailsFieldSampleRate;
+    case MediaInfoFieldKey.layout:
+      return l10n.mediaDetailsFieldLayout;
+    case MediaInfoFieldKey.isDefault:
+      return l10n.mediaDetailsFieldDefault;
+    case MediaInfoFieldKey.forced:
+      return l10n.mediaDetailsFieldForced;
+    case MediaInfoFieldKey.external:
+      return l10n.mediaDetailsFieldExternal;
+    case MediaInfoFieldKey.divider:
+      return '';
   }
 }
 
-class _AudioCard extends StatelessWidget {
-  final AudioTrackOption audio;
+// ── 飞牛轨道 DTO → 中立卡片（行序 / 文案逐字保持原 `_VideoCard`/`_AudioCard`/`_SubtitleCard`）──
 
-  const _AudioCard({required this.audio});
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final lan = MediaLanguageMapper.languageName(audio.language);
-    final headerParts = <String>[
-      if (lan != _unknownLanguageName) lan,
-      if (audio.codecName.trim().isNotEmpty) audio.codecName,
-      if (audio.channelLayout.trim().isNotEmpty) audio.channelLayout,
-    ];
-    return _InfoCard(
-      header: headerParts.join(' '),
-      rows: [
-        MapEntry(
-          l10n.mediaDetailsFieldLanguage,
-          _safe(lan == _unknownLanguageName ? '' : lan),
-        ),
-        MapEntry(l10n.mediaDetailsFieldEncoder, _safe(audio.codecName)),
-        MapEntry(l10n.mediaDetailsFieldProfile, _safe(audio.profile)),
-        const MapEntry('__divider__', ''),
-        MapEntry(
-          l10n.mediaDetailsFieldChannels,
-          _safe(_channelText(audio.channels)),
-        ),
-        MapEntry(
-          l10n.mediaDetailsFieldSampleRate,
-          _safe(audio.sampleRate > 0 ? '${audio.sampleRate} Hz' : ''),
-        ),
-        MapEntry(l10n.mediaDetailsFieldBitrate, _safe(_kbps(audio.bps))),
-        const MapEntry('__divider__', ''),
-        MapEntry(l10n.mediaDetailsFieldLayout, _safe(audio.channelLayout)),
-        MapEntry(
-          l10n.mediaDetailsFieldDefault,
-          _boolText(l10n, audio.isDefault == 1),
-        ),
-      ],
-    );
-  }
+MediaInfoCard _feiniuVideoCard(VideoStreamInfo video) {
+  final headerParts = <String>[
+    if (video.resolutionType.trim().isNotEmpty) video.resolutionType,
+    if (video.codecName.trim().isNotEmpty) video.codecName.toUpperCase(),
+    if (video.colorRangeType.trim().isNotEmpty) video.colorRangeType,
+  ];
+  return MediaInfoCard(
+    header: headerParts.join(' '),
+    fields: <MediaInfoField>[
+      MediaInfoField(MediaInfoFieldKey.encoder, video.codecName),
+      MediaInfoField(MediaInfoFieldKey.profile, video.profile),
+      MediaInfoField(MediaInfoFieldKey.level, video.level),
+      MediaInfoField(
+        MediaInfoFieldKey.resolution,
+        _resolution(video.width, video.height),
+      ),
+      MediaInfoField(MediaInfoFieldKey.aspectRatio, video.displayAspectRatio),
+      const MediaInfoField.divider(),
+      MediaInfoField(
+        MediaInfoFieldKey.interlaced,
+        _boolRaw(video.progressive == 1),
+      ),
+      MediaInfoField(MediaInfoFieldKey.frameRate, video.rFrameRate),
+      MediaInfoField(MediaInfoFieldKey.bitrate, _kbps(video.bps)),
+      MediaInfoField(MediaInfoFieldKey.range, video.colorRangeType),
+      MediaInfoField(MediaInfoFieldKey.colorPrimaries, video.colorPrimaries),
+      const MediaInfoField.divider(),
+      MediaInfoField(MediaInfoFieldKey.colorSpace, video.colorSpace),
+      MediaInfoField(MediaInfoFieldKey.colorTransfer, video.colorTransfer),
+      MediaInfoField(
+        MediaInfoFieldKey.bitDepth,
+        video.bitDepth > 0 ? '${video.bitDepth} bit' : '',
+      ),
+      MediaInfoField(MediaInfoFieldKey.pixelFormat, video.pixFmt),
+      MediaInfoField(
+        MediaInfoFieldKey.refs,
+        video.refs > 0 ? '${video.refs}' : '',
+      ),
+    ],
+  );
 }
 
-class _SubtitleCard extends StatelessWidget {
-  final SubtitleTrackOption subtitle;
-
-  const _SubtitleCard({required this.subtitle});
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final lan = MediaLanguageMapper.languageName(subtitle.language);
-    final fmt =
-        (subtitle.format.isNotEmpty ? subtitle.format : subtitle.codecName)
-            .trim()
-            .toUpperCase();
-    final header =
-        '${lan == _unknownLanguageName ? l10n.mediaDetailsSubtitleSection : lan} ($fmt)';
-    return _InfoCard(
-      header: header,
-      rows: [
-        MapEntry(
-          l10n.mediaDetailsFieldLanguage,
-          _safe(lan == _unknownLanguageName ? '' : lan),
-        ),
-        MapEntry(l10n.mediaDetailsFieldEncoder, _safe(fmt.toLowerCase())),
-        const MapEntry('__divider__', ''),
-        MapEntry(
-          l10n.mediaDetailsFieldDefault,
-          _boolText(l10n, subtitle.isDefault == 1),
-        ),
-        MapEntry(
-          l10n.mediaDetailsFieldForced,
-          _boolText(l10n, subtitle.forced == 1),
-        ),
-        const MapEntry('__divider__', ''),
-        MapEntry(
-          l10n.mediaDetailsFieldExternal,
-          _boolText(l10n, subtitle.isExternal == 1),
-        ),
-      ],
-    );
-  }
+MediaInfoCard _feiniuAudioCard(AudioTrackOption audio) {
+  final lan = MediaLanguageMapper.languageName(audio.language);
+  final headerParts = <String>[
+    if (lan != _unknownLanguageName) lan,
+    if (audio.codecName.trim().isNotEmpty) audio.codecName,
+    if (audio.channelLayout.trim().isNotEmpty) audio.channelLayout,
+  ];
+  return MediaInfoCard(
+    header: headerParts.join(' '),
+    fields: <MediaInfoField>[
+      MediaInfoField(
+        MediaInfoFieldKey.language,
+        lan == _unknownLanguageName ? '' : lan,
+      ),
+      MediaInfoField(MediaInfoFieldKey.encoder, audio.codecName),
+      MediaInfoField(MediaInfoFieldKey.profile, audio.profile),
+      const MediaInfoField.divider(),
+      MediaInfoField(MediaInfoFieldKey.channels, _channelText(audio.channels)),
+      MediaInfoField(
+        MediaInfoFieldKey.sampleRate,
+        audio.sampleRate > 0 ? '${audio.sampleRate} Hz' : '',
+      ),
+      MediaInfoField(MediaInfoFieldKey.bitrate, _kbps(audio.bps)),
+      const MediaInfoField.divider(),
+      MediaInfoField(MediaInfoFieldKey.layout, audio.channelLayout),
+      MediaInfoField(
+        MediaInfoFieldKey.isDefault,
+        _boolRaw(audio.isDefault == 1),
+      ),
+    ],
+  );
 }
 
-bool _isDividerRow(MapEntry<String, String> entry) =>
-    entry.key == '__divider__';
+MediaInfoCard _feiniuSubtitleCard(
+  SubtitleTrackOption subtitle,
+  AppLocalizations l10n,
+) {
+  final lan = MediaLanguageMapper.languageName(subtitle.language);
+  final fmt =
+      (subtitle.format.isNotEmpty ? subtitle.format : subtitle.codecName)
+          .trim()
+          .toUpperCase();
+  final header =
+      '${lan == _unknownLanguageName ? l10n.mediaDetailsSubtitleSection : lan} ($fmt)';
+  return MediaInfoCard(
+    header: header,
+    fields: <MediaInfoField>[
+      MediaInfoField(
+        MediaInfoFieldKey.language,
+        lan == _unknownLanguageName ? '' : lan,
+      ),
+      MediaInfoField(MediaInfoFieldKey.encoder, fmt.toLowerCase()),
+      const MediaInfoField.divider(),
+      MediaInfoField(
+        MediaInfoFieldKey.isDefault,
+        _boolRaw(subtitle.isDefault == 1),
+      ),
+      MediaInfoField(MediaInfoFieldKey.forced, _boolRaw(subtitle.forced == 1)),
+      const MediaInfoField.divider(),
+      MediaInfoField(
+        MediaInfoFieldKey.external,
+        _boolRaw(subtitle.isExternal == 1),
+      ),
+    ],
+  );
+}
+
+String _boolRaw(bool value) => value ? '1' : '0';
 
 String _safe(String value) => value.trim().isEmpty ? '-' : value.trim();
 
-const String _unknownLanguageName = '\u672a\u77e5';
+const String _unknownLanguageName = '未知';
 
 String _resolution(int w, int h) {
   if (w <= 0 || h <= 0) return '';
@@ -513,6 +616,3 @@ String _channelText(int channels) {
   if (channels == 2) return '2 ch';
   return '$channels ch';
 }
-
-String _boolText(AppLocalizations l10n, bool v) =>
-    v ? l10n.commonYes : l10n.commonNo;

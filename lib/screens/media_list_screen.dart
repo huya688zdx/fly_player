@@ -11,6 +11,7 @@ import '../controllers/media_item_action_sheet_controller.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../models/media_item.dart';
 import '../models/media_library_item.dart';
+import '../media_backend/action/media_library_item_action_target.dart';
 import '../media_backend/media_backend.dart';
 import '../media_backend/media_backend_kind.dart';
 import '../media_backend/media_catalog.dart';
@@ -22,6 +23,7 @@ import '../providers/nas_provider.dart';
 import '../services/download_task_service.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../services/home_data_cache.dart';
+import '../services/session_exit_bridge.dart';
 import '../services/parallel_browse_snapshot.dart';
 import '../theme/app_theme.dart';
 import '../theme/detail_tokens.dart';
@@ -29,7 +31,6 @@ import '../ui/app_transitions.dart';
 import '../ui/layout_adaptive.dart';
 import '../ui/media_poster_card.dart';
 import '../utils/api_url_helper.dart';
-import '../utils/app_localization_lookup.dart';
 import '../utils/async_action_guard.dart';
 import '../utils/app_confirm_dialog.dart';
 import '../utils/app_exception.dart';
@@ -205,7 +206,8 @@ class _MediaListScreenState extends State<MediaListScreen> {
       voteAverage: card.rating,
       overview: '',
       watched: card.watched ? 1 : 0,
-      watchedTs: 0,
+      // 续看进度位 → watchedTs（首页继续观看进度条数据源 _progressValue）。
+      watchedTs: card.resumePositionSeconds,
       ts: 0,
       duration: card.durationSeconds,
       seasonNumber: card.seasonNumber,
@@ -557,26 +559,13 @@ class _MediaListScreenState extends State<MediaListScreen> {
     return fallback;
   }
 
-  String _t(
-    String path,
-    String fallback, {
-    Map<String, Object?> params = const <String, Object?>{},
-  }) {
-    return AppLocalizationLookup.text(
-      AppLocalizations.of(context),
-      path,
-      fallback: fallback,
-      params: params,
-    );
-  }
-
   Future<void> _confirmLogout() async {
     final confirmed = await showAppConfirmDialog(
       context,
-      title: _t('auth.exit.title', 'Log out'),
-      content: _t('auth.exit.content', 'Log out of the current account?'),
-      cancelText: _t('common.actions.default.cancel', 'Cancel'),
-      confirmText: _t('common.actions.default.default', 'Confirm'),
+      title: AppLocalizations.of(context).authExitTitle,
+      content: AppLocalizations.of(context).authExitContent,
+      cancelText: AppLocalizations.of(context).commonCancel,
+      confirmText: AppLocalizations.of(context).commonConfirm,
     );
     if (!mounted || !confirmed) return;
     final session = context.read<BackendSessionProvider>();
@@ -602,6 +591,8 @@ class _MediaListScreenState extends State<MediaListScreen> {
           serverUrl: '',
         ),
       );
+      // 与飞牛登出一致：重置分屏副栏 UI，避免退出后右侧仍停留在已登录详情（左右双登录）。
+      await SessionExitBridge.logoutAndResetParallelUi();
       return;
     }
     await context.read<NasProvider>().logout();
@@ -614,7 +605,10 @@ class _MediaListScreenState extends State<MediaListScreen> {
   void _openAllItems() {
     unawaited(
       _openCategoryAsync(
-        MediaItem(id: '', name: _t('layout.sidebar.allList', 'All media')),
+        MediaItem(
+          id: '',
+          name: AppLocalizations.of(context).mediaAllItemsTitle,
+        ),
       ),
     );
     return;
@@ -624,7 +618,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
         CategoryItemsScreen(
           category: MediaItem(
             id: '',
-            name: _t('layout.sidebar.allList', 'All media'),
+            name: AppLocalizations.of(context).mediaAllItemsTitle,
           ),
         ),
       ),
@@ -851,21 +845,17 @@ class _MediaListScreenState extends State<MediaListScreen> {
     if (seasonCount == 1) {
       final episodes = episodeCount;
       if (episodes > 0) {
-        final episodeText = _t(
-          'layout.subheading.tv.episodes',
-          '{count} episodes',
-          params: <String, Object?>{'count': episodes},
-        );
+        final episodeText = AppLocalizations.of(
+          context,
+        ).detailEpisodeTotal(episodes);
         if (period.isEmpty) return episodeText;
         return '$episodeText · $period';
       }
     }
     if (seasonCount > 0) {
-      final seasonText = _t(
-        'layout.subheading.tv.seasons',
-        '{count} seasons',
-        params: <String, Object?>{'count': seasonCount},
-      );
+      final seasonText = AppLocalizations.of(
+        context,
+      ).detailTvSeasonCount(seasonCount);
       if (period.isEmpty) return seasonText;
       return '$seasonText · $period';
     }
@@ -885,28 +875,20 @@ class _MediaListScreenState extends State<MediaListScreen> {
   String _episodeText(MediaLibraryItem item) {
     final season = item.seasonNumber > 0 ? item.seasonNumber : 1;
     final episode = item.episodeNumber > 0 ? item.episodeNumber : 1;
-    final seasonText = _t(
-      'layout.subheading.season.number',
-      'Season {number}',
-      params: <String, Object?>{'number': season},
-    );
-    final episodeText = _t(
-      'layout.subheading.episode.number',
-      'Episode {number}',
-      params: <String, Object?>{'number': episode},
-    );
+    final seasonText = AppLocalizations.of(context).detailSeasonNumber(season);
+    final episodeText = AppLocalizations.of(
+      context,
+    ).detailEpisodeNumber(episode);
     return '$seasonText · $episodeText';
   }
 
   String _continueEpisodeText(MediaLibraryItem item) {
     final episode = item.episodeNumber > 0 ? item.episodeNumber : 1;
     if (item.seasonNumber == 0) {
-      final specialText = _t('layout.subheading.season.special', 'Special');
-      final episodeText = _t(
-        'layout.subheading.episode.number',
-        'Episode {number}',
-        params: <String, Object?>{'number': episode},
-      );
+      final specialText = AppLocalizations.of(context).detailSeasonSpecial;
+      final episodeText = AppLocalizations.of(
+        context,
+      ).detailEpisodeNumber(episode);
       return '$specialText · $episodeText';
     }
     return _episodeText(item);

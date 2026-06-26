@@ -6,6 +6,26 @@
 
 阶段：Phase 6 **Emby 播放层收口推进中（2026-06-26）**——播放入口统一、进度上报、续看解析、详情页选集、外挂字幕均已实现并部分实机验证；剩转码 HLS、entry-token 过期重抓未做。下方为本阶段最新进度。早期 B-4 原生壳反向重载收口、Phase 5/6 骨架等历史见后续段落。
 
+### 2026-06-26 前端抽象批次：条目动作收口 + Emby 收藏页（分支 `feat/media-item-action-abstraction`，工作区生效、`flutter analyze` 0 error、380 单测过；未提交）
+
+依据 `docs/emby-frontend-abstraction-audit.md`（13 项调研）推进。用户排除第 6（Flutter 播放器选集）和第 11（下载），其余分 5 批：①条目状态动作 ②收藏页/合集 ③横切（图片/偏好/字幕/统计）④播放 resolver ⑤详情页合流。本轮完成**批次 1 + 批次 2（Emby 收藏页）**。
+
+**批次 1 — 条目状态动作收口（收藏/已看全部走 backend 中立通道）**：
+- 新增 `lib/media_backend/action/media_item_action_target.dart`（后端中立 action 入参 `MediaItemActionTarget` + `fromCard`）与 `media_library_item_action_target.dart`（飞牛 `toActionTarget()` 适配，公共模型不反依赖飞牛）。
+- `media_item_action_sheet_controller.dart` 就地改造：收藏/已看从 `FeiniuApi`+`PlayDetailItemActions` 直连改走 `MediaBackendProvider().backend.setItemFavorite/setItemWatched`，状态预取走 `getItemDetail` 中立字段，入参 `MediaLibraryItem`→`MediaItemActionTarget`，加 capability 降级（`supportsWatched/supportsFavorite` 控选项显隐）。
+- 9 个 action sheet 调用点全量替换（search/category/favorite/person/media_list/tv_detail/tv_season/media_collection），删掉 search/category 的 `_cardToActionItem` 伪造。
+- 页面内直连飞牛的收藏/已看键一并 backend 化：`tv_detail_page` 心形/已看键、首页继续观看菜单 markWatched/favorite（remove 的 `deletePlaybackRecord` 飞牛专属保留）、`person_detail_screen` 人物收藏键。
+- review 清理：标题硬编码 Season/Episode/Special → l10n；删 controller 死参数 localeMap；删整个死文件 `controllers/play_detail_item_actions.dart`（改完无人用）；消除 `_intFlag` 死代码。
+
+**批次 2 — Emby 收藏页（复用飞牛收藏页整套 UI，只在数据层分流）**：
+- `EmbyApi.getItemPage` 加 `favoritesOnly`；`MediaBackend.queryFavoriteItems(MediaCatalogQuery)`（默认空；飞牛空实现走自有 `getFavoritePage`；Emby 实现 `Filters=IsFavorite` + 收藏类型映射 `_favoriteIncludeItemTypesFor`）。
+- **教训**：首版自写了独立 `EmbyFavoriteItemsScreen`（手搓网格、布局歪）被用户否决——正确做法是像 `category_items_screen` 那样一套 UI 服务两后端。已删自写页，改为：`FavoriteItemsScreen` 整套渲染（网格/视图切换/排序/长按/tab）原样复用，只在 `_fetch`+`_initLoad` 按 `kind` 分流：Emby 走 `queryFavoriteItems`，card 经 `_cardToLibraryItem` 桥接成 `MediaLibraryItem` 喂现有渲染；飞牛专属能力（tag 筛选按钮、服务端偏好持久化）用 `_isFeiniuBackend` getter 守卫隐藏/跳过（飞牛收藏页零改动）。
+- **用户验收后修复**：①单集卡不显示集信息 → 抽公共 `lib/ui/media_episode_subtitle.dart`（「第X季第X集 · 单集名」），收藏/分类/搜索三处 `_cardSubtitle` 单集分支统一用；②首页收藏数=0 → `getHomeSummary` 收藏计数 includeItemTypes 加 Episode（只收藏单集时不再显示 0）；③季页面无收藏整部剧键 → 公共 `TvSeasonDetailPanel` 加**可选** favorite/onFavoriteTap（仅 Emby 中立 `_buildNeutralSeasonBody` 传，飞牛 panel 不传→不显示；收藏 `widget.parentGuid` 系列本身，capability 守卫）。
+
+**验证**：`flutter analyze` 0 error（剩余 10 条均批次外既有告警）；`flutter test` 380 PASS（新增 Emby 收藏查询 2 条）。
+**待实机验证**：Emby 对 Person 的 `FavoriteItems`/查询行为（文档风险点，不能按 Movie 推断）。
+**待办**：批次 2 剩余合集页 `queryChildItems`；批次 3 横切（图片鉴权 / 列表偏好本地持久化 / 字幕 / 统计）；批次 4 播放 resolver；批次 5 详情页 view model 合流。
+
 ### 2026-06-25/26 Emby 播放层（统一入口 / 进度 / 续看 / 选集 / 字幕）
 
 **播放入口统一（U-1~U-5，已收口）**：新增 `lib/services/native_playback_reentry.dart` 的 `NativePlaybackReentry.bind(backend, nas, onResolvePlayback, fallbackEpisodes)` 作单一事实源，把 5 个播放入口（单条目 / 季详情 / 剧详情 / 详情页 / 下载）各自手写的 9 个 `bindReentry` 回调收成一处，按 backend 类型统一接线。飞牛逐一等价（主路径逐像素不变），Emby 每入口都获完整回调集（进度 / 选集 / 跨季 / 外挂字幕）。提交：binder `ffafd02` / 入口 A `623c328` / B `4dc63ec` / C `d0a1cb7` / D `507e724` / E `cb35b73`。净删约 250 行重复样板。
@@ -38,6 +58,8 @@
 - 飞牛后端覆写委托 `FeiniuApi.setFavorite/setWatched`；Emby 后端覆写走新 `EmbyApi.setFavorite/setWatched`（`POST`/`DELETE` `FavoriteItems`/`PlayedItems`、`api_key` 自鉴权、解析回写态）。
 - 电影详情中立分支改用 `PlayActionBar`（与飞牛同组件：进度条+主键+三圆键），收藏/已看按能力位接中立处理器 `_toggleNeutralFavorite/_toggleNeutralWatched`（同飞牛 UX：冷却+顶部提示+l10n 文案），下载无公共实现→统一 `detailDownloadUnavailable` 提示。
 - **提交受阻**：`MediaBackend` 是 `implements`（非 `extends`），Dart 下每个实现类必须具体覆写所有方法 → 加接口方法即强制 `EmbyMediaBackend` 有覆写，而覆写依赖未提交的 `emby_api.dart`；且 HEAD 的 `emby_media_backend.dart` 已引用 `connection.entryToken`（Codex 未提交的 `media_backend_connection` getter）——即 **HEAD 分支本身就靠 Codex 未提交改动才能编译**。故本功能与 PlaySessionId 一样整体并入「待 Codex 提交 connection+api 后随之干净提交」的 Emby 摊子。涉及文件：`media_backend.dart`/`media_backend_capabilities.dart`/`feiniu_media_backend.dart`/`emby_media_backend.dart`/`emby_api.dart`/`play_detail_page.dart`（前三本可独立编译，但与后三强耦合，分批提交会破坏 `implements` 完整性，故一并延后）。
+
+**飞牛收藏/已看 toggle 迁入统一管理 + 视频信息块统一（工作区生效、analyze+159 单测过；同上随 Emby 摊子延后）**：用户「迁入统一管理」「视频信息飞牛/Emby 明显不一样，抽出共管」。①toggle 统一：飞牛 `_toggleFavorite/_toggleWatched` 从直接 `FeiniuApi`+`PlayDetailItemActions` 改走 `backend.setItemFavorite/setItemWatched`（飞牛后端实现=同 FeiniuApi 调用，文案/冷却逐一等价；已看后的 `_refreshAfterItemStateChange` 按 `capabilities.kind==feiniu` 门控，仅飞牛回灌 PlayInfo），删重复的 `_toggleNeutral*`、neutral PlayActionBar 改指 `_toggleFavorite/_toggleWatched`，移除 `play_detail_item_actions` 未用 import（该类仍被 action sheet / tv_detail 用，保留）。②视频信息块（用户选「统一到飞牛样式、飞牛不变」）：`VideoInfoSection` 后端中立化——新增 `VideoInfoLines` 模型（`fromFeiniu` 复用原飞牛格式化器逐字不变 / `fromSource` 从中立 `MediaSourceInfo` 取各类型首流拼行），组件吃 3 行字符串；飞牛调用点改传 `VideoInfoLines.fromFeiniu`（渲染逐像素不变），Emby 从 `MediaSourceInfoSection`（文件卡+逐流）换成 `VideoInfoSection`（紧凑三行+查看全部），「查看全部」底部弹窗复用 `MediaSourceInfoSection` 展开完整文件信息+逐流。
 
 ### 2026-06-21 登录页后端选择 + Emby 入口设计
 

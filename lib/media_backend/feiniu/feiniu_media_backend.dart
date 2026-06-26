@@ -100,6 +100,11 @@ class FeiniuMediaBackend implements MediaBackend {
     );
   }
 
+  @override
+  Future<MediaItemCardPage> queryFavoriteItems(MediaCatalogQuery query) async =>
+      // 飞牛收藏页走自有 `getFavoritePage`（标签 schema + 偏好持久化）完整路径,不经本接口。
+      const MediaItemCardPage();
+
   /// 演职员分页参数，复刻详情页 data loader 的取数口径。
   static const PersonListRequest _creditsRequest = PersonListRequest(
     page: 1,
@@ -173,6 +178,16 @@ class FeiniuMediaBackend implements MediaBackend {
     // 飞牛外挂字幕解析走自有 NativeReentrySupport.resolveSubtitleFile（NAS guid → 下载），
     // 不经本接口。
     return null;
+  }
+
+  @override
+  Future<bool> setItemFavorite(String itemId, {required bool favorite}) {
+    return api.setFavorite(itemId, favorite: favorite);
+  }
+
+  @override
+  Future<bool> setItemWatched(String itemId, {required bool watched}) {
+    return api.setWatched(itemId, watched: watched);
   }
 
   @override

@@ -10,6 +10,7 @@ class CapabilityBadgeMapper {
     if (u.contains('HDR')) return 'HDR';
     if (u.contains('SDR')) return 'SDR';
     if (u.contains('4K') || u.contains('2160')) return '4K';
+    if (u.contains('2K') || u.contains('1440')) return '2K';
     if (u.contains('1080')) return '1080';
     if (u.contains('720')) return '720';
     if (u.contains('480')) return '480';
@@ -22,6 +23,7 @@ class CapabilityBadgeMapper {
   /// 避免首次滚入海报时在 UI 线程同步解析造成 build 尖峰。
   static const List<String> allBadgeAssets = <String>[
     'assets/icons/badge_4k.svg',
+    'assets/icons/badge_2k.svg',
     'assets/icons/badge_1080.svg',
     'assets/icons/badge_720.svg',
     'assets/icons/badge_480.svg',
@@ -37,6 +39,8 @@ class CapabilityBadgeMapper {
     switch (normalizedLabel) {
       case '4K':
         return 'assets/icons/badge_4k.svg';
+      case '2K':
+        return 'assets/icons/badge_2k.svg';
       case '1080':
         return 'assets/icons/badge_1080.svg';
       case '720':

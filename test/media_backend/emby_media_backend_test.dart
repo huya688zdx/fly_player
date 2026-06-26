@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/api/emby_api.dart';
 import 'package:fly_player/media_backend/detail/media_episode_summary.dart';
+import 'package:fly_player/media_backend/detail/media_source_info.dart';
 import 'package:fly_player/media_backend/detail/media_season_summary.dart';
 import 'package:fly_player/media_backend/emby/emby_media_backend.dart';
 import 'package:fly_player/media_backend/emby/emby_playback_context.dart';
@@ -52,10 +53,14 @@ class _FakeEmbyApi extends EmbyApi {
   int? lastPageLimit;
   String lastPageIncludeItemTypes = '';
   String lastPageGenres = '';
+  String lastPageYears = '';
+  String lastPageFilters = '';
+  String lastPageSeriesStatus = '';
   String lastPageSortBy = '';
   String lastPageSortOrder = '';
   String lastPageSearchTerm = '';
   String lastPagePersonIds = '';
+  bool lastPageFavoritesOnly = false;
   // getGenres 入参捕获。
   String? lastGenresParentId;
   String lastGenresIncludeItemTypes = '';
@@ -214,21 +219,29 @@ class _FakeEmbyApi extends EmbyApi {
     bool recursive = true,
     String includeItemTypes = '',
     String genres = '',
+    String years = '',
+    String filters = '',
+    String seriesStatus = '',
     String fields = '',
     String sortBy = '',
     String sortOrder = '',
     String searchTerm = '',
     String personIds = '',
+    bool favoritesOnly = false,
   }) async {
     lastPageParentId = parentId;
     lastPageStartIndex = startIndex;
     lastPageLimit = limit;
     lastPageIncludeItemTypes = includeItemTypes;
     lastPageGenres = genres;
+    lastPageYears = years;
+    lastPageFilters = filters;
+    lastPageSeriesStatus = seriesStatus;
     lastPageSortBy = sortBy;
     lastPageSortOrder = sortOrder;
     lastPageSearchTerm = searchTerm;
     lastPagePersonIds = personIds;
+    lastPageFavoritesOnly = favoritesOnly;
     return EmbyItemPage(items: pageItems, totalRecordCount: pageTotal);
   }
 
@@ -322,6 +335,12 @@ void main() {
           'Type': 'Movie',
           'ImageTags': <String, Object?>{'Primary': 'p1'},
           'BackdropImageTags': <Object?>['b1'],
+          'RunTimeTicks': 72000000000, // 7200s
+          'UserData': <String, Object?>{'PlaybackPositionTicks': 18000000000},
+          'MediaStreams': <Object?>[
+            // 宽银幕 4K：宽 3840 / 高仅 1604。按宽度应判 4K（按高度会误判成 2K）。
+            <String, Object?>{'Type': 'Video', 'Width': 3840, 'Height': 1604},
+          ],
         },
         <String, Object?>{
           'Id': 'r-2',
@@ -338,6 +357,10 @@ void main() {
     expect(items, hasLength(2));
     // 电影:横版卡用 backdrop 顶替 Primary。
     expect(items[0].primaryImage.url, contains('/Images/Backdrop?tag=b1'));
+    // 续看进度位 + 清晰度角标随卡片带出（首页进度条 / 右下角分辨率）。
+    expect(items[0].resumePositionSeconds, 1800);
+    expect(items[0].durationSeconds, 7200);
+    expect(items[0].resolutions, <String>['4K']);
     // 单集:Primary 本身横版剧照,保持不动。
     expect(items[1].primaryImage.url, contains('/Images/Primary?tag=ep1'));
   });
@@ -385,6 +408,42 @@ void main() {
     expect(api.lastPagePersonIds, '');
   });
 
+  test(
+    'queryFavoriteItems：favoritesOnly + 全部 Tab=Movie,Series,Episode',
+    () async {
+      final api = _FakeEmbyApi(
+        pageItems: <Map<String, Object?>>[
+          <String, Object?>{'Id': 'f-1', 'Name': '收藏', 'Type': 'Movie'},
+        ],
+        pageTotal: 1,
+      );
+      final backend = EmbyMediaBackend(api: api, connection: connection);
+      final page = await backend.queryFavoriteItems(
+        const MediaCatalogQuery(catalogId: ''),
+      );
+      expect(api.lastPageFavoritesOnly, isTrue);
+      expect(api.lastPageIncludeItemTypes, 'Movie,Series,Episode');
+      expect(page.items, hasLength(1));
+      expect(page.items.first.id, 'f-1');
+      expect(page.total, 1);
+    },
+  );
+
+  test('queryFavoriteItems：person Tab → IncludeItemTypes=Person', () async {
+    final api = _FakeEmbyApi();
+    final backend = EmbyMediaBackend(api: api, connection: connection);
+    await backend.queryFavoriteItems(
+      const MediaCatalogQuery(
+        catalogId: '',
+        selection: <String, List<String>>{
+          'type': <String>['person'],
+        },
+      ),
+    );
+    expect(api.lastPageFavoritesOnly, isTrue);
+    expect(api.lastPageIncludeItemTypes, 'Person');
+  });
+
   test('getHomeSummary：按类型 TotalRecordCount 拼计数，total=电影+电视剧', () async {
     final api = _FakeEmbyApi(
       countByIncludeItemTypes: const <String, int>{'Movie': 34, 'Series': 12},
@@ -397,8 +456,8 @@ void main() {
     expect(summary['total'], 46);
     expect(summary['favorite'], 5);
     expect(summary['other'], 0);
-    // 收藏计数走 IsFavorite + Movie,Series。
-    expect(api.countIncludeItemTypes, contains('Movie,Series'));
+    // 收藏计数走 IsFavorite + Movie,Series,Episode(含单集,否则只收藏单集时首页显示 0)。
+    expect(api.countIncludeItemTypes, contains('Movie,Series,Episode'));
     expect(api.lastCountFavoritesOnly, isTrue);
   });
 
@@ -410,6 +469,8 @@ void main() {
         'Type': 'Movie',
         'Overview': '简介',
         'Genres': <Object?>['科幻'],
+        // 地区原样透传（英文国名 / ISO code），本地化在渲染层（RegionNameLocalizer）做。
+        'ProductionLocations': <Object?>['Japan', 'United States'],
       },
     );
     final backend = EmbyMediaBackend(api: api, connection: connection);
@@ -419,6 +480,27 @@ void main() {
     expect(detail.title, '某电影');
     expect(detail.overview, '简介');
     expect(detail.genreLabels, <String>['科幻']);
+    expect(detail.regionLabels, <String>['Japan', 'United States']);
+  });
+
+  test('getItemDetail：单集带剧名/季/集（供详情头部面包屑）', () async {
+    final api = _FakeEmbyApi(
+      item: <String, Object?>{
+        'Id': 'ep-11',
+        'Name': '诸行无常',
+        'Type': 'Episode',
+        'SeriesName': '平家物语',
+        'ParentIndexNumber': 1,
+        'IndexNumber': 11,
+      },
+    );
+    final backend = EmbyMediaBackend(api: api, connection: connection);
+    final detail = await backend.getItemDetail('ep-11');
+    expect(detail.type.toLowerCase(), 'episode');
+    expect(detail.title, '诸行无常');
+    expect(detail.parentTitle, '平家物语');
+    expect(detail.seasonNumber, 1);
+    expect(detail.episodeNumber, 11);
   });
 
   test('getItemSeasons：/Shows/{id}/Seasons → MediaSeasonSummary', () async {
@@ -513,7 +595,7 @@ void main() {
     expect(api.lastPageGenres, '');
   });
 
-  test('getCatalogFilterSchema：题材维度 + 四列排序', () async {
+  test('getCatalogFilterSchema：影视分类 + 题材 + 发行年份 + 四列排序', () async {
     final api = _FakeEmbyApi(
       genres: <Map<String, Object?>>[
         <String, Object?>{'Id': 'g-1', 'Name': '科幻'},
@@ -529,22 +611,94 @@ void main() {
       'title',
       'vote_average',
     ]);
-    expect(schema.dimensions, hasLength(1));
-    expect(schema.dimensions.first.key, 'genres');
-    expect(schema.dimensions.first.options.map((o) => o.value), <String>[
-      '科幻',
-      '动作',
+    // 影视分类 / 题材 / 发行年份 + Emby 原生：观看状态 / 收藏 / 剧集状态。
+    expect(schema.dimensions.map((d) => d.key), <String>[
+      'type',
+      'genres',
+      'decade',
+      'watched',
+      'favorite',
+      'status',
     ]);
+    expect(
+      schema.dimensions.firstWhere((d) => d.key == 'favorite').kind,
+      MediaFilterDimensionKind.favorite,
+    );
+    final status = schema.dimensions.firstWhere((d) => d.key == 'status');
+    expect(status.kind, MediaFilterDimensionKind.seriesStatus);
+    expect(status.options.map((o) => o.value), <String>['Continuing', 'Ended']);
+    final type = schema.dimensions.firstWhere((d) => d.key == 'type');
+    expect(type.kind, MediaFilterDimensionKind.mediaType);
+    expect(type.options.map((o) => o.value), <String>['Movie', 'TV']);
+    final genresDim = schema.dimensions.firstWhere((d) => d.key == 'genres');
+    expect(genresDim.kind, MediaFilterDimensionKind.genre);
+    expect(genresDim.options.map((o) => o.value), <String>['科幻', '动作']);
+    final decade = schema.dimensions.firstWhere((d) => d.key == 'decade');
+    expect(decade.kind, MediaFilterDimensionKind.decade);
+    // 首项为当前年（Recent），随后是十年代 token（如 2020s）。
+    expect(decade.options.first.value, 'Recent');
+    expect(
+      decade.options
+          .skip(1)
+          .every((o) => RegExp(r'^\d{4}s$').hasMatch(o.value)),
+      isTrue,
+    );
   });
 
-  test('getCatalogFilterSchema：题材取数失败时退化为仅排序、不抛错', () async {
+  test('getCatalogFilterSchema：题材取数失败时仍保留影视分类/发行年份、不抛错', () async {
     final backend = EmbyMediaBackend(
       api: _ThrowingGenresApi(),
       connection: connection,
     );
     final schema = await backend.getCatalogFilterSchema('lib-1');
-    expect(schema.dimensions, isEmpty);
+    // 题材取数失败只丢 genres 维度，其余维度仍在。
+    expect(schema.dimensions.map((d) => d.key), <String>[
+      'type',
+      'decade',
+      'watched',
+      'favorite',
+      'status',
+    ]);
     expect(schema.sortOptions, isNotEmpty);
+  });
+
+  test('queryCatalogItems：观看/收藏/剧集状态 → Emby Filters/SeriesStatus', () async {
+    final api = _FakeEmbyApi(pageItems: const [], pageTotal: 0);
+    final backend = EmbyMediaBackend(api: api, connection: connection);
+    await backend.queryCatalogItems(
+      const MediaCatalogQuery(
+        catalogId: 'lib-1',
+        selection: <String, List<String>>{
+          'watched': <String>['1'],
+          'favorite': <String>['1'],
+          'status': <String>['Continuing'],
+        },
+        page: 1,
+        pageSize: 50,
+      ),
+    );
+    final filters = api.lastPageFilters.split(',');
+    expect(filters, containsAll(<String>['IsPlayed', 'IsFavorite']));
+    expect(api.lastPageSeriesStatus, 'Continuing');
+  });
+
+  test('queryCatalogItems：decade 选择映射为 Emby Years（含展开十年代）', () async {
+    final api = _FakeEmbyApi(pageItems: const [], pageTotal: 0);
+    final backend = EmbyMediaBackend(api: api, connection: connection);
+    await backend.queryCatalogItems(
+      const MediaCatalogQuery(
+        catalogId: 'lib-1',
+        selection: <String, List<String>>{
+          'decade': <String>['2010s'],
+        },
+        page: 1,
+        pageSize: 50,
+      ),
+    );
+    final years = api.lastPageYears.split(',');
+    expect(years.first, '2010');
+    expect(years.last, '2019');
+    expect(years, hasLength(10));
   });
 
   test('getItemSourceVersions：getItem(MediaSources) → 版本列表', () async {
@@ -558,11 +712,22 @@ void main() {
             'Path': '/movies/a.mkv',
             'Container': 'mkv',
             'MediaStreams': <Object?>[
-              <String, Object?>{'Type': 'Video', 'Index': 0, 'Height': 1080},
+              <String, Object?>{
+                'Type': 'Video',
+                'Index': 0,
+                'Codec': 'hevc',
+                'Width': 1920,
+                'Height': 1080,
+                'BitDepth': 10,
+                'Profile': 'Main 10',
+              },
               <String, Object?>{
                 'Type': 'Audio',
                 'Index': 1,
                 'DisplayTitle': '国语',
+                'Codec': 'eac3',
+                'Channels': 6,
+                'SampleRate': 48000,
               },
             ],
           },
@@ -574,9 +739,22 @@ void main() {
     expect(api.lastItemId, 'm-1');
     expect(versions, hasLength(1));
     expect(versions.first.id, 'src-1');
-    expect(versions.first.label, '1080p');
+    expect(versions.first.label, '1080');
     expect(versions.first.audioTracks, hasLength(1));
     expect(versions.first.info.path, '/movies/a.mkv');
+    // 逐字段明细（喂飞牛同款 MediaDetailOverlayPage）已随源信息带出。
+    final videoFields = versions.first.info.videoStreams.first.fields;
+    String fieldValue(MediaInfoFieldKey key) =>
+        videoFields.firstWhere((f) => f.key == key).value;
+    expect(fieldValue(MediaInfoFieldKey.encoder), 'HEVC');
+    expect(fieldValue(MediaInfoFieldKey.profile), 'Main 10');
+    expect(fieldValue(MediaInfoFieldKey.resolution), '1920 * 1080');
+    expect(fieldValue(MediaInfoFieldKey.bitDepth), '10 bit');
+    final audioFields = versions.first.info.audioStreams.first.fields;
+    expect(
+      audioFields.firstWhere((f) => f.key == MediaInfoFieldKey.channels).value,
+      '6 ch',
+    );
   });
 
   Map<String, Object?> playbackItem() => <String, Object?>{

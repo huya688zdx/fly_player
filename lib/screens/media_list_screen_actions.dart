@@ -2,11 +2,12 @@ part of 'media_list_screen.dart';
 
 extension _MediaListScreenActions on _MediaListScreenState {
   Future<void> _showPosterItemActions(MediaLibraryItem item) async {
+    final l10n = AppLocalizations.of(context);
+    final target = item.toActionTarget();
     await const MediaItemActionSheetController().show(
       context,
-      item: item,
-      title: MediaItemActionSheetController.defaultTitle(item),
-      localeMap: _localeMap,
+      target: target,
+      title: MediaItemActionSheetController.defaultTitle(l10n, target),
       favoriteOnly: _isPersonItem(item),
       initialWatched: item.watched == 1,
       onChanged: (state) {
@@ -34,28 +35,19 @@ extension _MediaListScreenActions on _MediaListScreenState {
     return '《$seriesTitle》 $seasonText';
   }
 
-  int _intFlag(dynamic value) {
-    if (value is int) return value;
-    return int.tryParse('${value ?? ''}') ?? 0;
-  }
-
   Future<({bool watched, bool favorite})> _loadContinueItemFlags(
     MediaLibraryItem item,
   ) async {
     var watched = item.watched == 1;
     var favorite = false;
     try {
-      final detail = await FeiniuApi(
-        context.read<NasProvider>(),
-      ).getItemDetail(item.guid);
-      final rawItem = detail['item'];
-      final itemMap = rawItem is Map<String, dynamic> ? rawItem : detail;
-      watched =
-          _intFlag(itemMap['is_watched']) == 1 ||
-          _intFlag(itemMap['watched']) == 1;
-      favorite =
-          _intFlag(itemMap['is_favorite']) == 1 ||
-          _intFlag(detail['is_favorite']) == 1;
+      // 走中立后端拿已看/收藏态,不再解析飞牛 detail map。
+      final detail = await context
+          .read<MediaBackendProvider>()
+          .backend
+          .getItemDetail(item.guid);
+      watched = detail.watched;
+      favorite = detail.favorite;
     } catch (error) {
       debugPrint('[UI][HOME] continue flags load failed ${item.guid}: $error');
     }
@@ -108,6 +100,7 @@ extension _MediaListScreenActions on _MediaListScreenState {
         if (!mounted || action == null) return;
 
         final api = FeiniuApi(context.read<NasProvider>());
+        final backend = context.read<MediaBackendProvider>().backend;
         try {
           switch (action) {
             case _ContinueWatchingAction.viewDetail:
@@ -115,7 +108,7 @@ extension _MediaListScreenActions on _MediaListScreenState {
               break;
             case _ContinueWatchingAction.markWatched:
               final nextWatched = !flags.watched;
-              await api.setWatched(item.guid, watched: nextWatched);
+              await backend.setItemWatched(item.guid, watched: nextWatched);
               _replaceItemLocally(
                 item.guid,
                 (current) => current.copyWith(
@@ -132,7 +125,7 @@ extension _MediaListScreenActions on _MediaListScreenState {
               break;
             case _ContinueWatchingAction.favorite:
               final nextFavorite = !flags.favorite;
-              await api.setFavorite(item.guid, favorite: nextFavorite);
+              await backend.setItemFavorite(item.guid, favorite: nextFavorite);
               _showHomeSnackBar(
                 nextFavorite
                     ? l10n.actionFavoriteAdded

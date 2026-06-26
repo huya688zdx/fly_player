@@ -10,11 +10,19 @@ class MediaBackendCapabilities {
   final bool supportsFnConnect;
   final bool supportsIntroOutroConfig;
 
+  /// 是否支持「收藏 / 取消收藏」（详情页心形键）。决定该键是否可点。
+  final bool supportsFavorite;
+
+  /// 是否支持「标记已看 / 未看」（详情页已看键）。决定该键是否可点。
+  final bool supportsWatched;
+
   const MediaBackendCapabilities({
     required this.kind,
     required this.supportsDownloadTasks,
     required this.supportsFnConnect,
     required this.supportsIntroOutroConfig,
+    this.supportsFavorite = false,
+    this.supportsWatched = false,
   });
 
   /// 飞牛后端当前能力预设：NAS 专属功能全部开启。
@@ -22,5 +30,7 @@ class MediaBackendCapabilities {
     : kind = MediaBackendKind.feiniu,
       supportsDownloadTasks = true,
       supportsFnConnect = true,
-      supportsIntroOutroConfig = true;
+      supportsIntroOutroConfig = true,
+      supportsFavorite = true,
+      supportsWatched = true;
 }

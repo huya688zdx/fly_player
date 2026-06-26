@@ -17,7 +17,7 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 Text(
-                  _t('layout.list.sort.title', 'Sort'),
+                  AppLocalizations.of(context).listSortTitle,
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 28,
@@ -43,8 +43,8 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
                     trailing: column == _sortColumn
                         ? Text(
                             _sortType == 'ASC'
-                                ? '${_t('layout.list.sort.sortType.asc', 'Ascending')} ↕'
-                                : '${_t('layout.list.sort.sortType.desc', 'Descending')} ↕',
+                                ? '${AppLocalizations.of(context).listSortAsc} ↕'
+                                : '${AppLocalizations.of(context).listSortDesc} ↕',
                             style: const TextStyle(
                               color: Colors.white70,
                               fontWeight: FontWeight.w700,
@@ -60,15 +60,17 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
                         _sortType = 'DESC';
                       }
                       Navigator.of(context).pop();
-                      await FeiniuApi(
-                        context.read<NasProvider>(),
-                      ).setUserListSetting(
-                        '',
-                        sortField: _sortColumn,
-                        sortType: _sortType,
-                        viewType: _viewType.storageValue,
-                        key: _favoriteListSettingKey,
-                      );
+                      if (_isFeiniuBackend) {
+                        await FeiniuApi(
+                          context.read<NasProvider>(),
+                        ).setUserListSetting(
+                          '',
+                          sortField: _sortColumn,
+                          sortType: _sortType,
+                          viewType: _viewType.storageValue,
+                          key: _favoriteListSettingKey,
+                        );
+                      }
                       _reloadAfterQueryChanged();
                     },
                   ),
@@ -149,7 +151,7 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
                   Wrap(
                     children: <Widget>[
                       chip(
-                        _t('layout.list.filter.all', 'All'),
+                        AppLocalizations.of(context).listFilterAll,
                         selected.isEmpty,
                         () => setModal(() => selected.clear()),
                       ),
@@ -186,7 +188,7 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
                         children: <Widget>[
                           const Spacer(),
                           Text(
-                            _t('layout.list.filter.filterButton', 'Filter'),
+                            AppLocalizations.of(context).listFilterButton,
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 24,
@@ -207,10 +209,7 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
                         child: ListView(
                           children: <Widget>[
                             section(
-                              _t(
-                                'layout.list.filter.tagMap.type',
-                                'Media type',
-                              ),
+                              AppLocalizations.of(context).listFilterType,
                               _selectedTab == _FavoriteTab.all
                                   ? const <String>['Movie', 'TV']
                                   : const <String>[],
@@ -218,71 +217,52 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
                               _mediaTypeLabel,
                             ),
                             section(
-                              _t('layout.list.filter.tagMap.genres', 'Genre'),
+                              AppLocalizations.of(context).listFilterGenres,
                               _tagOptions['genres'] ?? const <dynamic>[],
                               tempGenres,
                               _genreLabel,
                             ),
                             section(
-                              _t(
-                                'layout.list.filter.tagMap.locate',
-                                'Country and region',
-                              ),
+                              AppLocalizations.of(context).listFilterLocate,
                               _tagOptions['locate'] ?? const <dynamic>[],
                               tempLocate,
                               _locateLabel,
                             ),
                             section(
-                              _t(
-                                'layout.list.filter.tagMap.decade',
-                                'Release year',
-                              ),
+                              AppLocalizations.of(context).listFilterDecade,
                               _tagOptions['decades'] ?? const <dynamic>[],
                               tempDecades,
                               _decadeLabel,
                             ),
                             section(
-                              _t(
-                                'layout.list.filter.tagMap.resolution',
-                                'Resolution',
-                              ),
+                              AppLocalizations.of(context).listFilterResolution,
                               _tagOptions['resolutions'] ?? const <dynamic>[],
                               tempResolutions,
                               (value) => _resolutionLabel('$value'),
                             ),
                             section(
-                              _t(
-                                'layout.list.filter.tagMap.color_range',
-                                'Video range',
-                              ),
+                              AppLocalizations.of(context).listFilterColorRange,
                               _tagOptions['color_range'] ?? const <dynamic>[],
                               tempColorRange,
                               (value) => '$value',
                             ),
                             section(
-                              _t(
-                                'layout.list.filter.tagMap.audio_type',
-                                'Audio spec',
-                              ),
+                              AppLocalizations.of(context).listFilterAudioType,
                               _tagOptions['audio_type'] ?? const <dynamic>[],
                               tempAudioType,
                               _audioLabel,
                             ),
                             section(
-                              _t(
-                                'layout.list.filter.tagMap.recognition_status',
-                                'Match status',
-                              ),
+                              AppLocalizations.of(
+                                context,
+                              ).listFilterRecognitionStatus,
                               _tagOptions['recognition_status'] ??
                                   const <dynamic>[],
                               tempRecognition,
                               _recognitionStatusLabel,
                             ),
                             section(
-                              _t(
-                                'layout.list.filter.tagMap.watched',
-                                'Watched status',
-                              ),
+                              AppLocalizations.of(context).listFilterWatched,
                               const <int>[1, 0],
                               tempWatched,
                               _watchedLabel,
@@ -315,7 +295,9 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
                                 minimumSize: const Size.fromHeight(44),
                               ),
                               child: Text(
-                                _t('layout.list.filter.resetButton', 'Reset'),
+                                AppLocalizations.of(
+                                  context,
+                                ).listFilterResetButton,
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -344,7 +326,7 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
                                 minimumSize: const Size.fromHeight(44),
                               ),
                               child: Text(
-                                _t('common.actions.default.default', 'Confirm'),
+                                AppLocalizations.of(context).commonConfirm,
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w700,
                                 ),
