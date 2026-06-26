@@ -94,10 +94,28 @@ class NativePlaybackMediaService : Service() {
             ACTION_UPDATE -> {
                 val next = SessionState.fromIntent(intent)
                 if (next != null) {
+                    val prev = state
                     state = next
                     syncArtwork(next)
-                    pushSession(next)
-                    startForegroundCompat(buildNotification(next))
+                    // 仅在「会影响通知/元数据外观」的字段变化时才重建通知 + 刷 metadata。
+                    // 这两件都是主线程重活：buildNotification + startForeground 要 IPC 到
+                    // system_server；setMetadata 含封面位图要跨进程 parcel。原先每 ~1s 无脑全做，
+                    // 会周期性阻塞主线程几十 ms，卡住原生弹幕的 Choreographer 帧（每隔几秒抖一下）。
+                    val heavy = !startedForeground ||
+                        prev == null ||
+                        prev.title != next.title ||
+                        prev.subtitle != next.subtitle ||
+                        prev.durationMs != next.durationMs ||
+                        prev.isPlaying != next.isPlaying ||
+                        prev.canNext != next.canNext
+                    if (heavy) {
+                        pushSession(next)
+                        startForegroundCompat(buildNotification(next))
+                    } else {
+                        // 纯进度/速度刷新：只更新 PlaybackState（无位图、开销极小）。系统媒体控件
+                        // 会据此 position+updateTime+speed 自行外推进度条，无需重建通知。
+                        mediaSession.setPlaybackState(buildPlaybackState(next))
+                    }
                 }
             }
 
