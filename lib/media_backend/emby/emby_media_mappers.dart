@@ -251,6 +251,7 @@ List<MediaSourceVersion> mapEmbySourceVersions(Map<String, Object?> item) {
         subtitleTracks: subtitleTracks,
         defaultAudioId: _streamIndexId(source['DefaultAudioStreamIndex']),
         defaultSubtitleId: _streamIndexId(source['DefaultSubtitleStreamIndex']),
+        durationSeconds: _ticksToSeconds(source['RunTimeTicks']),
       ),
     );
   }

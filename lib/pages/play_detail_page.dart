@@ -712,12 +712,33 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       ...detail.regionLabels,
     ].map((e) => e.trim()).where((e) => e.isNotEmpty).join(' / ');
     final year = _neutralYear(detail.releaseDate);
+    // 时长随选中版本走（同片不同剪辑版本时长可不同）：版本时长优先，缺则回退条目级时长。
+    final selectedVersionDuration =
+        _neutralSelectedVersion?.durationSeconds ?? 0;
+    final effectiveDuration = selectedVersionDuration > 0
+        ? selectedVersionDuration
+        : detail.durationSeconds;
     final metaLineB = <String>[
       if (year.isNotEmpty) year,
-      if (detail.durationSeconds > 0)
-        PlayDetailFormatters.formatDuration(detail.durationSeconds),
+      if (effectiveDuration > 0)
+        PlayDetailFormatters.formatDuration(effectiveDuration),
       if (detail.rating.trim().isNotEmpty) '⭐ ${detail.rating.trim()}',
     ].join(' / ');
+
+    // 续看进度（与飞牛同口径）：续看位 / 剩余 / 完成态 → 进度条 + 主按钮文案。
+    final resumeTs = detail.resumePositionSeconds.clamp(0, effectiveDuration);
+    final remainSeconds = (effectiveDuration - resumeTs).clamp(
+      0,
+      effectiveDuration,
+    );
+    final playbackCompleted =
+        effectiveDuration > 0 && (remainSeconds <= 0 || _watched);
+    final showResumeProgress = resumeTs > 0 && remainSeconds > 0;
+    final resolvedPlayText = playbackCompleted
+        ? _t('player.play.replay', 'Replay')
+        : resumeTs > 0
+        ? _t('player.play.continuePlay', 'Continue playing')
+        : _t('player.play.play', 'Play');
 
     final creditItems = detail.people
         .map(
@@ -750,124 +771,204 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         .where((e) => e.isNotEmpty)
         .toList();
 
+    // 顶栏折叠区间（与飞牛同口径）：滚动到 infoStart 收起处标题淡入。
+    final collapseRange =
+        (layout.infoStart - media.padding.top - kToolbarHeight).clamp(
+          1.0,
+          layout.infoStart,
+        );
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: CustomScrollView(
-        controller: _scrollController,
-        physics: const BouncingScrollPhysics(
-          parent: AlwaysScrollableScrollPhysics(),
-        ),
-        slivers: [
-          _buildHeroSliver(
-            height: layout.infoStart,
-            title: title,
-            subtitle: '',
-            bottomInset: 36,
-            titleChild: logoChild,
-          ),
-          SliverToBoxAdapter(
-            child: Container(
-              color: colors.backgroundBase,
-              padding: const EdgeInsets.fromLTRB(
-                DetailTokens.screenHorizontalPadding,
-                8,
-                DetailTokens.screenHorizontalPadding,
-                10,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          CustomScrollView(
+            controller: _scrollController,
+            physics: const BouncingScrollPhysics(
+              parent: AlwaysScrollableScrollPhysics(),
+            ),
+            slivers: [
+              _buildHeroSliver(
+                height: layout.infoStart,
+                title: title,
+                subtitle: '',
+                bottomInset: 36,
+                titleChild: logoChild,
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  DetailMetaLines(metaLineA: metaLineA, metaLineB: metaLineB),
-                  if (showSelectorRow) ...[
-                    const SizedBox(height: 8),
-                    DetailSelectorRow(
-                      subtitleLabel: _neutralSubtitleLabel(),
-                      audioLabel: _neutralAudioLabel(),
-                      capabilityLabels: capabilityLabels,
-                      showSubtitleArrow: subtitleTracks.isNotEmpty,
-                      showAudioArrow: audioTracks.length > 1,
-                      subtitleExpanded: _neutralSubtitleSelectorExpanded,
-                      audioExpanded: _neutralAudioSelectorExpanded,
-                      onSubtitleTap: subtitleTracks.isNotEmpty
-                          ? () => _showNeutralSubtitleSheet()
-                          : null,
-                      onAudioTap: audioTracks.length > 1
-                          ? () => _showNeutralAudioSheet()
-                          : null,
-                    ),
-                  ],
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: _startNeutralPlayback,
-                      icon: const Icon(Icons.play_arrow),
-                      label: const Text('播放'),
-                    ),
-                  ),
-                  if (showVersionSelector)
-                    DetailResolutionSection(
-                      options: versionLabels,
-                      selected: versionSelectedKey,
-                      onSelected: _selectNeutralVersion,
-                    ),
-                ],
-              ),
-            ),
-          ),
-          if (detail.overview.trim().isNotEmpty)
-            _buildDescriptionSliver(
-              colors: colors,
-              text: detail.overview.trim(),
-              overlayTitle: title,
-              bottomPadding: media.padding.bottom + 18,
-            ),
-          if (creditItems.isNotEmpty)
-            _buildCreditsSliver(
-              colors: colors,
-              items: creditItems,
-              token: '',
-              onTap: _openCreditPerson,
-            ),
-          if (_sourceInfo != null && _sourceInfo!.isNotEmpty)
-            SliverToBoxAdapter(
-              child: _sectionReveal(
+              SliverToBoxAdapter(
                 child: Container(
                   color: colors.backgroundBase,
                   padding: const EdgeInsets.fromLTRB(
                     DetailTokens.screenHorizontalPadding,
                     8,
                     DetailTokens.screenHorizontalPadding,
-                    20,
+                    10,
                   ),
-                  child: MediaSourceInfoSection(
-                    info: _sourceInfo!,
-                    fileTitle: _t('layout.details.fileInfo.title', 'File info'),
-                    // 视频信息标签飞牛侧硬编码中文(VideoInfoSection 未走 _t),此处同口径:
-                    // 有对应 i18n key 则用,否则回退中文字面量。
-                    videoTitle: _t('layout.details.videoInfo.title', '视频信息'),
-                    locationLabel: _t(
-                      'layout.details.fileInfo.location',
-                      'File location',
-                    ),
-                    videoLabel: _t('layout.details.videoInfo.video', '视频'),
-                    audioLabel: _t('layout.details.videoInfo.audio', '音频'),
-                    subtitleLabel: _t(
-                      'layout.details.videoInfo.subtitle',
-                      '字幕',
-                    ),
-                    addedAtPrefix: _t(
-                      'layout.details.fileInfo.addedAt',
-                      'Added at',
-                    ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      DetailMetaLines(
+                        metaLineA: metaLineA,
+                        metaLineB: metaLineB,
+                      ),
+                      if (showSelectorRow) ...[
+                        const SizedBox(height: 8),
+                        DetailSelectorRow(
+                          subtitleLabel: _neutralSubtitleLabel(),
+                          audioLabel: _neutralAudioLabel(),
+                          capabilityLabels: capabilityLabels,
+                          showSubtitleArrow: subtitleTracks.isNotEmpty,
+                          showAudioArrow: audioTracks.length > 1,
+                          subtitleExpanded: _neutralSubtitleSelectorExpanded,
+                          audioExpanded: _neutralAudioSelectorExpanded,
+                          onSubtitleTap: subtitleTracks.isNotEmpty
+                              ? () => _showNeutralSubtitleSheet()
+                              : null,
+                          onAudioTap: audioTracks.length > 1
+                              ? () => _showNeutralAudioSheet()
+                              : null,
+                        ),
+                      ],
+                      const SizedBox(height: 16),
+                      if (showResumeProgress) ...[
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(
+                                  DetailTokens.progressRadius,
+                                ),
+                                child: LinearProgressIndicator(
+                                  value: PlayDetailFormatters.progress(
+                                    effectiveDuration,
+                                    resumeTs,
+                                  ),
+                                  minHeight: DetailTokens.progressHeight,
+                                  backgroundColor: DetailTokens.progressTrackOf(
+                                    context,
+                                  ),
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    DetailTokens.progressActiveOf(context),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              PlayDetailFormatters.remainText(
+                                effectiveDuration,
+                                resumeTs,
+                              ),
+                              style: TextStyle(
+                                color: colors.textSecondary,
+                                fontSize: DetailTokens.remainFontSize,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: _startNeutralPlayback,
+                          icon: const Icon(Icons.play_arrow),
+                          label: Text(resolvedPlayText),
+                        ),
+                      ),
+                      if (showVersionSelector)
+                        DetailResolutionSection(
+                          options: versionLabels,
+                          selected: versionSelectedKey,
+                          onSelected: _selectNeutralVersion,
+                        ),
+                    ],
                   ),
                 ),
               ),
-            ),
-          // 链接放最后(与飞牛顺序一致:文件信息 → 视频信息 → 链接)。
-          if (_imdbId.trim().isNotEmpty || _trimId.trim().isNotEmpty)
-            _buildLinkSliver(colors: colors),
+              if (detail.overview.trim().isNotEmpty)
+                _buildDescriptionSliver(
+                  colors: colors,
+                  text: detail.overview.trim(),
+                  overlayTitle: title,
+                  bottomPadding: media.padding.bottom + 18,
+                ),
+              if (creditItems.isNotEmpty)
+                _buildCreditsSliver(
+                  colors: colors,
+                  items: creditItems,
+                  token: '',
+                  onTap: _openCreditPerson,
+                ),
+              if (_sourceInfo != null && _sourceInfo!.isNotEmpty)
+                SliverToBoxAdapter(
+                  child: _sectionReveal(
+                    child: Container(
+                      color: colors.backgroundBase,
+                      padding: const EdgeInsets.fromLTRB(
+                        DetailTokens.screenHorizontalPadding,
+                        8,
+                        DetailTokens.screenHorizontalPadding,
+                        20,
+                      ),
+                      child: MediaSourceInfoSection(
+                        info: _sourceInfo!,
+                        fileTitle: _t(
+                          'layout.details.fileInfo.title',
+                          'File info',
+                        ),
+                        // 视频信息标签飞牛侧硬编码中文(VideoInfoSection 未走 _t),此处同口径:
+                        // 有对应 i18n key 则用,否则回退中文字面量。
+                        videoTitle: _t(
+                          'layout.details.videoInfo.title',
+                          '视频信息',
+                        ),
+                        locationLabel: _t(
+                          'layout.details.fileInfo.location',
+                          'File location',
+                        ),
+                        videoLabel: _t('layout.details.videoInfo.video', '视频'),
+                        audioLabel: _t('layout.details.videoInfo.audio', '音频'),
+                        subtitleLabel: _t(
+                          'layout.details.videoInfo.subtitle',
+                          '字幕',
+                        ),
+                        addedAtPrefix: _t(
+                          'layout.details.fileInfo.addedAt',
+                          'Added at',
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              // 链接放最后(与飞牛顺序一致:文件信息 → 视频信息 → 链接)。
+              if (_imdbId.trim().isNotEmpty || _trimId.trim().isNotEmpty)
+                _buildLinkSliver(colors: colors),
+            ],
+          ),
+          // 悬浮顶栏（与飞牛同口径）：返回 + 折叠标题。Emby 详情暂不挂「更多」动作面板
+          // （动态主题 / 分享等飞牛专属），故 showMore: false。
+          ValueListenableBuilder<double>(
+            valueListenable: _scrollOffsetNotifier,
+            builder: (context, offset, _) {
+              final collapseT = (offset / collapseRange).clamp(0.0, 1.0);
+              final centerTitleOpacity = ((collapseT - 0.84) / 0.12).clamp(
+                0.0,
+                1.0,
+              );
+              return DetailFloatingTopBar(
+                onBack: () =>
+                    unawaited(EmbeddedDetailLauncher.closeHostOrPop(context)),
+                onMore: () {},
+                title: title,
+                titleOpacity: centerTitleOpacity,
+                showBack: true,
+                showMore: false,
+              );
+            },
+          ),
         ],
       ),
     );

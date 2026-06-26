@@ -18,6 +18,7 @@ class MediaSourceVersion {
     this.subtitleTracks = const <MediaTrackOption>[],
     this.defaultAudioId = '',
     this.defaultSubtitleId = '',
+    this.durationSeconds = 0,
   });
 
   /// 稳定标识（Emby `MediaSources[].Id`）。
@@ -43,6 +44,10 @@ class MediaSourceVersion {
 
   /// 默认字幕 id（Emby `DefaultSubtitleStreamIndex`），无 / 关闭则空。
   final String defaultSubtitleId;
+
+  /// 该版本时长（秒，Emby `MediaSources[].RunTimeTicks`）。同片不同剪辑版本时长可不同，
+  /// 故随版本切换刷新详情页时长行；为 0 时调用方回退条目级 [MediaDetail.durationSeconds]。
+  final int durationSeconds;
 }
 
 /// 一条可选轨道（音轨 / 字幕）的中立描述。
