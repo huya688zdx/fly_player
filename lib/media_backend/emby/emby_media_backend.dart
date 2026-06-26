@@ -36,7 +36,7 @@ class EmbyMediaBackend implements MediaBackend {
   final MediaBackendConnection connection;
 
   static const String _cardFields =
-      'PrimaryImageAspectRatio,Overview,PremiereDate';
+      'PrimaryImageAspectRatio,Overview,PremiereDate,CommunityRating,MediaStreams';
 
   String get _serverUrl => connection.serverUrl;
   String get _userId => connection.userId;
@@ -48,6 +48,8 @@ class EmbyMediaBackend implements MediaBackend {
     supportsDownloadTasks: false,
     supportsFnConnect: false,
     supportsIntroOutroConfig: false,
+    supportsFavorite: true,
+    supportsWatched: true,
   );
 
   @override
@@ -83,7 +85,8 @@ class EmbyMediaBackend implements MediaBackend {
         serverUrl: _serverUrl,
         userId: _userId,
         accessToken: _token,
-        includeItemTypes: 'Movie,Series',
+        // 收藏计数含单集(收藏页全部 Tab 同口径),否则只收藏单集时首页显示 0。
+        includeItemTypes: 'Movie,Series,Episode',
         favoritesOnly: true,
       ),
     ]);
@@ -175,9 +178,12 @@ class EmbyMediaBackend implements MediaBackend {
   Future<MediaCatalogFilterSchema> getCatalogFilterSchema(
     String catalogId,
   ) async {
-    // Emby 列表页筛选维度：题材（库内真实题材，名字即显示名，用 plain）。排序字段沿用
-    // 中立四列（显示名由 UI l10n 给，不下发文案）。地区 / 年代 / 清晰度等飞牛维度 Emby
-    // 无简单查询口径，本阶段不开。题材取数失败（如旧服务器）时退化为仅排序、不报错。
+    // Emby 列表页筛选维度，与飞牛分类页同序对齐（飞牛有的 Emby 尽量给）：
+    // ①影视分类（type，电影/电视剧，查询已接 _includeItemTypesFor）；②题材（库内真实题材，
+    // 用 genre kind 让标题走 l10n「类型」、值用题材名）；③发行年份（decade，映射 Emby Years）。
+    // 地区 / 清晰度 / 音频 / 色域等飞牛维度 Emby 无简单查询口径，本阶段不开（用户认可选项不一致）。
+    // 排序字段沿用中立四列（显示名由 UI l10n 给，不下发文案）。题材取数失败（如旧服务器）时
+    // 退化为仅类型/年份/排序、不报错。
     var genreOptions = const <MediaFilterOption>[];
     try {
       final genres = await api.getGenres(
@@ -190,17 +196,53 @@ class EmbyMediaBackend implements MediaBackend {
       genreOptions = genres
           .map((g) => (g['Name'] ?? '').toString().trim())
           .where((name) => name.isNotEmpty)
-          .map((name) => MediaFilterOption(value: name, label: name))
+          .map((name) => MediaFilterOption(value: name))
           .toList(growable: false);
     } catch (_) {}
     return MediaCatalogFilterSchema(
       dimensions: <MediaFilterDimension>[
+        const MediaFilterDimension(
+          key: 'type',
+          kind: MediaFilterDimensionKind.mediaType,
+          options: <MediaFilterOption>[
+            MediaFilterOption(value: 'Movie'),
+            MediaFilterOption(value: 'TV'),
+          ],
+        ),
         if (genreOptions.isNotEmpty)
           MediaFilterDimension(
             key: 'genres',
-            kind: MediaFilterDimensionKind.plain,
+            kind: MediaFilterDimensionKind.genre,
             options: genreOptions,
           ),
+        MediaFilterDimension(
+          key: 'decade',
+          kind: MediaFilterDimensionKind.decade,
+          options: _decadeOptions(),
+        ),
+        // 以下为 Emby 原生维度（不迁就飞牛分类）：观看状态 / 收藏 / 剧集状态，均为
+        // Emby `/Items` 直接支持的布尔 / 固定项过滤，无需额外拉取可选项。
+        const MediaFilterDimension(
+          key: 'watched',
+          kind: MediaFilterDimensionKind.watched,
+          options: <MediaFilterOption>[
+            MediaFilterOption(value: '1'),
+            MediaFilterOption(value: '0'),
+          ],
+        ),
+        const MediaFilterDimension(
+          key: 'favorite',
+          kind: MediaFilterDimensionKind.favorite,
+          options: <MediaFilterOption>[MediaFilterOption(value: '1')],
+        ),
+        const MediaFilterDimension(
+          key: 'status',
+          kind: MediaFilterDimensionKind.seriesStatus,
+          options: <MediaFilterOption>[
+            MediaFilterOption(value: 'Continuing'),
+            MediaFilterOption(value: 'Ended'),
+          ],
+        ),
       ],
       sortOptions: const <MediaSortOption>[
         MediaSortOption(field: 'create_time'),
@@ -209,6 +251,39 @@ class EmbyMediaBackend implements MediaBackend {
         MediaSortOption(field: 'vote_average'),
       ],
     );
+  }
+
+  /// 发行年份维度选项：当前年（`Recent`→l10n「今年」）+ 最近 4 个十年代（如 `2020s`）。
+  /// 飞牛 decade 取自服务端字典，Emby 无此口径，按当前年动态生成保持新鲜。
+  static List<MediaFilterOption> _decadeOptions() {
+    final currentDecade = (DateTime.now().year ~/ 10) * 10;
+    return <MediaFilterOption>[
+      const MediaFilterOption(value: 'Recent'),
+      for (var d = currentDecade; d >= currentDecade - 30; d -= 10)
+        MediaFilterOption(value: '${d}s'),
+    ];
+  }
+
+  /// decade 选择 → Emby `Years`（逗号分隔年份列表）。`Recent`=当前年；`2020s`=2020..2029。
+  /// 未识别 token 跳过。多选并集去重。
+  static String _yearsFor(List<String>? decades) {
+    if (decades == null || decades.isEmpty) return '';
+    final years = <int>{};
+    for (final raw in decades) {
+      final token = raw.trim();
+      if (token == 'Recent') {
+        years.add(DateTime.now().year);
+        continue;
+      }
+      final match = RegExp(r'^(\d{4})s$').firstMatch(token);
+      if (match == null) continue;
+      final start = int.parse(match.group(1)!);
+      for (var y = start; y < start + 10; y++) {
+        years.add(y);
+      }
+    }
+    final sorted = years.toList()..sort();
+    return sorted.join(',');
   }
 
   @override
@@ -223,6 +298,9 @@ class EmbyMediaBackend implements MediaBackend {
       recursive: true,
       includeItemTypes: _includeItemTypesFor(query.selection['type']),
       genres: (query.selection['genres'] ?? const <String>[]).join('|'),
+      years: _yearsFor(query.selection['decade']),
+      filters: _filtersFor(query.selection),
+      seriesStatus: (query.selection['status'] ?? const <String>[]).join(','),
       sortBy: _sortFieldFor(query.sortField),
       sortOrder: query.sortType.trim().toUpperCase() == 'ASC'
           ? 'Ascending'
@@ -235,6 +313,72 @@ class EmbyMediaBackend implements MediaBackend {
           .toList(growable: false),
       total: page.totalRecordCount,
     );
+  }
+
+  /// 观看 / 收藏选择 → Emby `Filters`（逗号分隔）。watched：`1`→IsPlayed、`0`→IsUnplayed；
+  /// favorite：含 `1`→IsFavorite。
+  static String _filtersFor(Map<String, List<String>> selection) {
+    final tokens = <String>{};
+    for (final raw in selection['watched'] ?? const <String>[]) {
+      if (raw.trim() == '1') tokens.add('IsPlayed');
+      if (raw.trim() == '0') tokens.add('IsUnplayed');
+    }
+    if ((selection['favorite'] ?? const <String>[]).contains('1')) {
+      tokens.add('IsFavorite');
+    }
+    return tokens.join(',');
+  }
+
+  @override
+  Future<MediaItemCardPage> queryFavoriteItems(MediaCatalogQuery query) async {
+    final page = await api.getItemPage(
+      serverUrl: _serverUrl,
+      userId: _userId,
+      accessToken: _token,
+      startIndex: (query.page - 1) * query.pageSize,
+      limit: query.pageSize,
+      recursive: true,
+      favoritesOnly: true,
+      includeItemTypes: _favoriteIncludeItemTypesFor(query.selection['type']),
+      sortBy: _sortFieldFor(query.sortField),
+      sortOrder: query.sortType.trim().toUpperCase() == 'ASC'
+          ? 'Ascending'
+          : 'Descending',
+      fields: _cardFields,
+    );
+    return MediaItemCardPage(
+      items: page.items
+          .map((e) => mapEmbyItemCard(e, serverUrl: _serverUrl, token: _token))
+          .toList(growable: false),
+      total: page.totalRecordCount,
+    );
+  }
+
+  /// 收藏 Tab 的中立类型标签 → Emby `IncludeItemTypes`。与分类查询不同,收藏页含单集 / 人物。
+  /// 空（「全部」Tab）→ 影片 + 剧集 + 单集（人物有独立 Tab,不混入全部）。
+  static String _favoriteIncludeItemTypesFor(List<String>? types) {
+    if (types == null || types.isEmpty) return 'Movie,Series,Episode';
+    final mapped = <String>{};
+    for (final raw in types) {
+      switch (raw.trim().toLowerCase()) {
+        case 'movie':
+          mapped.add('Movie');
+          break;
+        case 'tv':
+        case 'series':
+          mapped.add('Series');
+          break;
+        case 'episode':
+          mapped.add('Episode');
+          break;
+        case 'person':
+          mapped.add('Person');
+          break;
+        default:
+          if (raw.trim().isNotEmpty) mapped.add(raw.trim());
+      }
+    }
+    return mapped.isEmpty ? 'Movie,Series,Episode' : mapped.join(',');
   }
 
   /// 中立类型标签 → Emby `IncludeItemTypes`。空 / 全部影视 → `Movie,Series`；`TV` → `Series`；
@@ -408,7 +552,8 @@ class EmbyMediaBackend implements MediaBackend {
       includeItemTypes: 'Episode',
       // UserData 必须显式请求：列表端点默认不回 PlaybackPositionTicks/Played，缺它则
       // resolveSeriesNextUpEpisode 判不出续看集（全 resume=0）退回首集、选集面板「已看」标记也丢。
-      fields: 'Overview,UserData',
+      // MediaStreams 用于选集卡右下角清晰度角标（与飞牛一致）。
+      fields: 'Overview,UserData,MediaStreams',
     );
     return episodes
         .map((e) => mapEmbyEpisode(e, serverUrl: _serverUrl, token: _token))
@@ -578,6 +723,28 @@ class EmbyMediaBackend implements MediaBackend {
       itemId: itemId,
       mediaSourceId: mediaSourceId,
       positionTicks: positionSeconds < 0 ? 0 : positionSeconds * 10000000,
+    );
+  }
+
+  @override
+  Future<bool> setItemFavorite(String itemId, {required bool favorite}) async {
+    return api.setFavorite(
+      serverUrl: _serverUrl,
+      userId: _userId,
+      accessToken: _token,
+      itemId: itemId,
+      favorite: favorite,
+    );
+  }
+
+  @override
+  Future<bool> setItemWatched(String itemId, {required bool watched}) async {
+    return api.setWatched(
+      serverUrl: _serverUrl,
+      userId: _userId,
+      accessToken: _token,
+      itemId: itemId,
+      watched: watched,
     );
   }
 

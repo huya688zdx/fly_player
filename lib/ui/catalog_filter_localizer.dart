@@ -42,6 +42,10 @@ class CatalogFilterLocalizer {
         return _watchedLabel(value);
       case MediaFilterDimensionKind.mediaType:
         return _typeLabel(value);
+      case MediaFilterDimensionKind.favorite:
+        return l10n.listFilterFavoriteOnly;
+      case MediaFilterDimensionKind.seriesStatus:
+        return _seriesStatusLabel(value);
     }
   }
 
@@ -66,6 +70,10 @@ class CatalogFilterLocalizer {
         return l10n.listFilterRecognitionStatus;
       case MediaFilterDimensionKind.watched:
         return l10n.listFilterWatched;
+      case MediaFilterDimensionKind.favorite:
+        return l10n.listFilterFavorite;
+      case MediaFilterDimensionKind.seriesStatus:
+        return l10n.listFilterSeriesStatus;
       case MediaFilterDimensionKind.plain:
         return dimension.key;
     }
@@ -133,6 +141,17 @@ class CatalogFilterLocalizer {
         return l10n.listWatched;
       case 0:
         return l10n.listUnwatched;
+      default:
+        return value;
+    }
+  }
+
+  String _seriesStatusLabel(String value) {
+    switch (value) {
+      case 'Continuing':
+        return l10n.seriesStatusContinuing;
+      case 'Ended':
+        return l10n.seriesStatusEnded;
       default:
         return value;
     }

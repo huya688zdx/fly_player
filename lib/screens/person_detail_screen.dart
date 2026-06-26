@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import '../api/feiniu_api.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../media_backend/action/media_library_item_action_target.dart';
 import '../media_backend/detail/media_detail.dart';
 import '../media_backend/media_backend.dart';
 import '../media_backend/media_backend_kind.dart';
@@ -30,7 +31,6 @@ import '../ui/layout_adaptive.dart';
 import '../ui/media_poster_card.dart';
 import '../ui/player_pane_host_scope.dart';
 import '../utils/api_url_helper.dart';
-import '../utils/app_localization_lookup.dart';
 import '../utils/app_exception.dart';
 import '../utils/imdb_launcher.dart';
 import '../utils/nas_image_headers.dart';
@@ -121,19 +121,6 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
       _scrollOffsetNotifier.value = offset;
     }
     unawaited(_loadMoreJobsIfNeeded());
-  }
-
-  String _t(
-    String path,
-    String fallback, {
-    Map<String, Object?> params = const <String, Object?>{},
-  }) {
-    return AppLocalizationLookup.text(
-      AppLocalizations.of(context),
-      path,
-      fallback: fallback,
-      params: params,
-    );
   }
 
   String _year(MediaLibraryItem item) {
@@ -354,9 +341,12 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
     setState(() => _favoriteUpdating = true);
     final target = !person.isFavorite;
     try {
-      await FeiniuApi(
-        context.read<NasProvider>(),
-      ).setFavorite(person.guid, favorite: target);
+      // 统一走中立后端：飞牛→FeiniuApi.setFavorite、Emby→FavoriteItems/{personId}。
+      final backend = context.read<MediaBackendProvider>().backend;
+      final state = await backend.setItemFavorite(
+        person.guid,
+        favorite: target,
+      );
       if (!mounted) return;
       setState(() {
         _person = PersonDetailProfile(
@@ -367,7 +357,7 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
           imdbId: person.imdbId,
           trimId: person.trimId,
           biography: person.biography,
-          isFavorite: target,
+          isFavorite: state,
         );
       });
     } catch (_) {
@@ -398,11 +388,12 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
   }
 
   Future<void> _showWorkItemActions(MediaLibraryItem item) async {
+    final l10n = AppLocalizations.of(context);
+    final target = item.toActionTarget();
     await const MediaItemActionSheetController().show(
       context,
-      item: item,
-      title: MediaItemActionSheetController.defaultTitle(item),
-      localeMap: _localeMap,
+      target: target,
+      title: MediaItemActionSheetController.defaultTitle(l10n, target),
       favoriteOnly: false,
       initialWatched: item.watched == 1,
       onChanged: (state) {
@@ -459,12 +450,16 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
 
   String _jobTitle(String rawJob) {
     final key = rawJob.toLowerCase();
-    final jobText = _t('common.person.job.$key', _jobFallback[key] ?? rawJob);
-    return _t(
-      'common.person.asJob',
-      '\u4f5c\u4e3a{job}',
-      params: {'job': jobText},
-    );
+    final l10n = AppLocalizations.of(context);
+    final jobText = switch (key) {
+      'actor' => l10n.personJobActor,
+      'director' => l10n.personJobDirector,
+      'screenplay' => l10n.personJobScreenplay,
+      'writer' => l10n.personJobWriter,
+      'producer' => l10n.personJobProducer,
+      _ => _jobFallback[key] ?? rawJob,
+    };
+    return l10n.personAsJob(jobText);
   }
 
   List<String> _imageCandidates(
@@ -662,7 +657,7 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
               child: Text(
-                _t('layout.details.person.works', '参与作品'),
+                AppLocalizations.of(context).personWorks,
                 style: TextStyle(
                   color: colors.textPrimary,
                   fontSize: 18,
@@ -1059,10 +1054,10 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
     );
 
     if (bio.isEmpty) {
-      return Text(_t('common.other.none', '\u65e0'), style: bodyStyle);
+      return Text(AppLocalizations.of(context).commonNone, style: bodyStyle);
     }
 
-    final moreText = _t('layout.details.castAndCrew.showMore', '\u66f4\u591a');
+    final moreText = AppLocalizations.of(context).commonDetails;
     return LayoutBuilder(
       builder: (context, constraints) {
         final maxWidth = constraints.maxWidth;
@@ -1117,10 +1112,9 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
                   ..onTap = () => LongTextOverlayPage.show(
                     context,
                     title: displayName,
-                    sectionTitle: _t(
-                      'layout.details.castAndCrew.biography',
-                      '\u6f14\u5458\u7b80\u4ecb',
-                    ),
+                    sectionTitle: AppLocalizations.of(
+                      context,
+                    ).personBiographyTitle,
                     content: biography,
                   ),
               ),

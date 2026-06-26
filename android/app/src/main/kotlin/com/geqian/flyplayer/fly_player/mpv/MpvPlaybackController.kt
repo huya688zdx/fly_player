@@ -125,6 +125,10 @@ class MpvPlaybackController(
     private var lastDecoderDropFrameCount = 0L
     private var lastMistimedFrameCount = 0L
     private var lastVoDelayedFrameCount = 0L
+    // 本 mpv 构建里恒不可用的性能计数器(如本设备的 mistimed-frame-count / vo-delayed-frame-count,
+    // getPropertyInt 返回 format-unavailable)。首次 miss 后记下,后续直接跳过——否则每个 time-pos
+    // 都查一遍恒空属性,既白费 JNI 调用又刷 V/mpv 日志(实测一次会话刷 2000+ 行)。每源重置重新探测一次。
+    private val unavailablePerfCounters = HashSet<String>()
     // 连续"不稳"采样窗计数,达到 FILTER_FALLBACK_CONSECUTIVE_WINDOWS 才真正降级(过滤瞬时尖峰)。
     private var consecutiveUnstableFallbackWindows = 0
     private var observedCacheDurationMs = 0L
@@ -2663,24 +2667,29 @@ class MpvPlaybackController(
         }
 
         val now = SystemClock.uptimeMillis()
+        // 间隔门提前到读取之前:采样窗只需 ~1.5s 一次,不必每个 time-pos(数 Hz)都查 mpv 计数器。
+        // 首采样窗(lastFilterFallbackSampleUptimeMs==0)例外,需要立刻读取基线。
+        val firstSampleWindow = lastFilterFallbackSampleUptimeMs == 0L
+        if (!firstSampleWindow &&
+            now - lastFilterFallbackSampleUptimeMs < FILTER_FALLBACK_SAMPLE_INTERVAL_MS
+        ) {
+            return
+        }
+
         // 真实存在的 mpv 属性是 frame-drop-count（VO 丢帧），不是 drop-frame-count——后者在本
         // 构建里恒为 not-found，曾导致整个自适应降级形同虚设（4K60 HDR 无任何保护直接 ANR）。
-        val dropFrameCount = currentPerformanceCounter("frame-drop-count")
-        val decoderDropFrameCount = currentPerformanceCounter("decoder-frame-drop-count")
-        val mistimedFrameCount = currentPerformanceCounter("mistimed-frame-count")
-        val voDelayedFrameCount = currentPerformanceCounter("vo-delayed-frame-count")
+        // mistimed-frame-count / vo-delayed-frame-count 在部分构建同样恒不可用,首次 miss 后缓存跳过。
+        val dropFrameCount = samplePerformanceCounter("frame-drop-count")
+        val decoderDropFrameCount = samplePerformanceCounter("decoder-frame-drop-count")
+        val mistimedFrameCount = samplePerformanceCounter("mistimed-frame-count")
+        val voDelayedFrameCount = samplePerformanceCounter("vo-delayed-frame-count")
 
-        if (lastFilterFallbackSampleUptimeMs == 0L) {
+        if (firstSampleWindow) {
             lastFilterFallbackSampleUptimeMs = now
             lastDropFrameCount = dropFrameCount
             lastDecoderDropFrameCount = decoderDropFrameCount
             lastMistimedFrameCount = mistimedFrameCount
             lastVoDelayedFrameCount = voDelayedFrameCount
-            return
-        }
-
-        val elapsedMs = now - lastFilterFallbackSampleUptimeMs
-        if (elapsedMs < FILTER_FALLBACK_SAMPLE_INTERVAL_MS) {
             return
         }
 
@@ -2889,6 +2898,7 @@ class MpvPlaybackController(
         lastDecoderDropFrameCount = 0L
         lastMistimedFrameCount = 0L
         lastVoDelayedFrameCount = 0L
+        unavailablePerfCounters.clear()
         consecutiveUnstableFallbackWindows = 0
     }
 
@@ -3204,6 +3214,21 @@ class MpvPlaybackController(
 
     private fun currentPerformanceCounter(property: String): Long {
         return currentMpvInt(property) ?: 0L
+    }
+
+    /**
+     * 读取性能计数器,并缓存"恒不可用"的属性:首次返回 null(本构建没有该属性)后记入
+     * [unavailablePerfCounters],后续直接返回 0 而不再发 JNI 查询——避免每个采样窗对恒空属性
+     * 反复查询、刷 V/mpv 日志。每源 [resetAutomaticFilterFallbackMonitor] 时清空重新探测一次。
+     */
+    private fun samplePerformanceCounter(property: String): Long {
+        if (property in unavailablePerfCounters) return 0L
+        val value = currentMpvInt(property)
+        if (value == null) {
+            unavailablePerfCounters += property
+            return 0L
+        }
+        return value
     }
 
     private fun queueExternalSubtitle(path: String): Boolean {

@@ -14,6 +14,7 @@ void main() {
       secret: 'password',
       rememberSecret: false,
       updatedAtMillis: 123,
+      entryToken: 'entry-xyz',
     );
 
     expect(connection.isAuthenticated, isTrue);
@@ -27,6 +28,7 @@ void main() {
       'secret': 'password',
       'rememberSecret': false,
       'updatedAtMillis': 123,
+      'entryToken': 'entry-xyz',
     });
     expect(MediaBackendConnection.fromJson(connection.toJson()), connection);
   });

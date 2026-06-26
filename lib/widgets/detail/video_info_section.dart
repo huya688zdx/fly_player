@@ -1,28 +1,63 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/generated/app_localizations.dart';
+import '../../media_backend/detail/media_source_info.dart';
 import '../../models/stream_track_data.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/media_language_mapper.dart';
 import '../common/liquid_glass.dart';
 
+/// 「视频信息」区块的后端中立数据——已格式化好的三行（视频 / 音频 / 字幕）文本。
+///
+/// 这是飞牛与 Emby 等公共后端的**共同管理点**：两端各自把自家数据（飞牛流轨道 DTO /
+/// Emby 中立 [MediaSourceInfo]）格式化成同一组行文本，再喂给同一个 [VideoInfoSection]
+/// 渲染，从而视频信息块视觉统一、格式化逻辑各归各家。
+class VideoInfoLines {
+  const VideoInfoLines({this.video = '', this.audio = '', this.subtitle = ''});
+
+  final String video;
+  final String audio;
+  final String subtitle;
+
+  bool get hasAny =>
+      video.trim().isNotEmpty ||
+      audio.trim().isNotEmpty ||
+      subtitle.trim().isNotEmpty;
+
+  /// 飞牛：从当前选中流的视频 / 音频 / 字幕轨道 DTO 格式化（保持原飞牛文案逐字不变）。
+  factory VideoInfoLines.fromFeiniu(
+    VideoStreamInfo? video,
+    AudioTrackOption? audio,
+    SubtitleTrackOption? subtitle,
+  ) {
+    return VideoInfoLines(
+      video: _feiniuVideoLine(video),
+      audio: _feiniuAudioLine(audio),
+      subtitle: _feiniuSubtitleLine(subtitle),
+    );
+  }
+
+  /// Emby 等公共后端：从中立 [MediaSourceInfo] 的各流摘要取每类型首条，拼成单行。
+  factory VideoInfoLines.fromSource(MediaSourceInfo info) {
+    return VideoInfoLines(
+      video: _sourceLineFor(info, MediaStreamType.video),
+      audio: _sourceLineFor(info, MediaStreamType.audio),
+      subtitle: _sourceLineFor(info, MediaStreamType.subtitle),
+    );
+  }
+}
+
 class VideoInfoSection extends StatelessWidget {
-  final VideoStreamInfo? video;
-  final AudioTrackOption? audio;
-  final SubtitleTrackOption? subtitle;
+  final VideoInfoLines lines;
   final VoidCallback? onViewAll;
 
-  const VideoInfoSection({
-    super.key,
-    required this.video,
-    required this.audio,
-    required this.subtitle,
-    this.onViewAll,
-  });
+  const VideoInfoSection({super.key, required this.lines, this.onViewAll});
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    if (video == null && audio == null && subtitle == null) {
+    final l10n = AppLocalizations.of(context);
+    if (!lines.hasAny) {
       return const SizedBox.shrink();
     }
 
@@ -30,7 +65,7 @@ class VideoInfoSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '\u89c6\u9891\u4fe1\u606f',
+          l10n.detailVideoInfoTitle,
           style: TextStyle(
             color: colors.textPrimary,
             fontSize: 20,
@@ -46,20 +81,20 @@ class VideoInfoSection extends StatelessWidget {
             children: [
               _InfoRow(
                 icon: Icons.videocam_rounded,
-                title: '\u89c6\u9891',
-                value: _videoLine(video),
+                title: l10n.mediaDetailsVideoSection,
+                value: lines.video,
               ),
               const SizedBox(height: 14),
               _InfoRow(
                 icon: Icons.graphic_eq_rounded,
-                title: '\u97f3\u9891',
-                value: _audioLine(audio),
+                title: l10n.mediaDetailsAudioSection,
+                value: lines.audio,
               ),
               const SizedBox(height: 14),
               _InfoRow(
                 icon: Icons.closed_caption_rounded,
-                title: '\u5b57\u5e55',
-                value: _subtitleLine(subtitle),
+                title: l10n.mediaDetailsSubtitleSection,
+                value: lines.subtitle,
               ),
               if (onViewAll != null) ...[
                 const SizedBox(height: 14),
@@ -73,7 +108,7 @@ class VideoInfoSection extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            '\u67e5\u770b\u5168\u90e8',
+                            l10n.detailVideoInfoViewAll,
                             style: TextStyle(
                               color: colors.textSecondary,
                               fontSize: 14,
@@ -148,7 +183,7 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
-String _videoLine(VideoStreamInfo? video) {
+String _feiniuVideoLine(VideoStreamInfo? video) {
   if (video == null) return '';
   final res = video.resolutionType.trim().isEmpty ? '' : video.resolutionType;
   final codec = video.codecName.trim().isEmpty
@@ -167,7 +202,7 @@ String _videoLine(VideoStreamInfo? video) {
   return parts.join(' ');
 }
 
-String _audioLine(AudioTrackOption? audio) {
+String _feiniuAudioLine(AudioTrackOption? audio) {
   if (audio == null) return '';
   final lan = MediaLanguageMapper.languageName(audio.language);
   final codec = audio.codecName.trim().isEmpty
@@ -186,7 +221,7 @@ String _audioLine(AudioTrackOption? audio) {
   return parts.join('  ');
 }
 
-String _subtitleLine(SubtitleTrackOption? subtitle) {
+String _feiniuSubtitleLine(SubtitleTrackOption? subtitle) {
   if (subtitle == null) return '';
   final lan = MediaLanguageMapper.languageName(subtitle.language);
   final fmt =
@@ -206,4 +241,16 @@ String _channelFromCount(int channels) {
   if (channels == 6) return '5.1ch';
   if (channels == 8) return '7.1ch';
   return channels > 0 ? '$channels ch' : '';
+}
+
+/// 中立 [MediaSourceInfo] 某类型首条流 → 单行（`label  summary`）。
+String _sourceLineFor(MediaSourceInfo info, MediaStreamType type) {
+  for (final stream in info.streams) {
+    if (stream.type != type) continue;
+    return <String>[
+      if (stream.label.trim().isNotEmpty) stream.label.trim(),
+      if (stream.summary.trim().isNotEmpty) stream.summary.trim(),
+    ].join('  ');
+  }
+  return '';
 }

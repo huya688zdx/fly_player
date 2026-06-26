@@ -19,6 +19,91 @@ void main() {
     );
   });
 
+  test('strips Emby web client path / hash route from pasted URL', () {
+    // 从浏览器复制的 Emby 网页地址（含 fnos 中转域名）应还原成 API 根地址。
+    expect(
+      EmbyApi.normalizeServerUrl(
+        'https://embyserver4-9.geqian688.fnos.net/web/index.html',
+      ),
+      'https://embyserver4-9.geqian688.fnos.net',
+    );
+    expect(
+      EmbyApi.normalizeServerUrl(
+        'https://emby.example.test/web/index.html#!/home',
+      ),
+      'https://emby.example.test',
+    );
+    expect(
+      EmbyApi.normalizeServerUrl('https://emby.example.test/web/'),
+      'https://emby.example.test',
+    );
+    // 子路径反代部署（非 /web 客户端路径）应保持不动。
+    expect(
+      EmbyApi.normalizeServerUrl('https://host.example.test/emby/'),
+      'https://host.example.test/emby',
+    );
+  });
+
+  test('attaches entry-token cookie for .fnos.net hosts', () async {
+    late RequestOptions captured;
+    final adapter = _FakeDioAdapter((options) {
+      captured = options;
+      return const _JsonResponse(<String, Object?>{'Items': <Object?>[]});
+    });
+    final api = EmbyApi(
+      dio: Dio(BaseOptions())..httpClientAdapter = adapter,
+      entryTokenProvider: () => 'entry-abc-123',
+    );
+
+    await api.getUserViews(
+      serverUrl: 'https://embyserver4-9.geqian688.fnos.net/web/index.html',
+      userId: 'user-1',
+      accessToken: 'tok',
+    );
+
+    expect(captured.headers['Cookie'], contains('entry-token=entry-abc-123'));
+  });
+
+  test('does not attach entry-token cookie for direct hosts', () async {
+    late RequestOptions captured;
+    final adapter = _FakeDioAdapter((options) {
+      captured = options;
+      return const _JsonResponse(<String, Object?>{'Items': <Object?>[]});
+    });
+    final api = EmbyApi(
+      dio: Dio(BaseOptions())..httpClientAdapter = adapter,
+      entryTokenProvider: () => 'entry-abc-123',
+    );
+
+    await api.getUserViews(
+      serverUrl: 'https://emby.example.test',
+      userId: 'user-1',
+      accessToken: 'tok',
+    );
+
+    expect(captured.headers.containsKey('Cookie'), isFalse);
+  });
+
+  test('omits entry-token cookie when provider returns empty', () async {
+    late RequestOptions captured;
+    final adapter = _FakeDioAdapter((options) {
+      captured = options;
+      return const _JsonResponse(<String, Object?>{'Items': <Object?>[]});
+    });
+    final api = EmbyApi(
+      dio: Dio(BaseOptions())..httpClientAdapter = adapter,
+      entryTokenProvider: () => '',
+    );
+
+    await api.getUserViews(
+      serverUrl: 'https://embyserver4-9.geqian688.fnos.net',
+      userId: 'user-1',
+      accessToken: 'tok',
+    );
+
+    expect(captured.headers.containsKey('Cookie'), isFalse);
+  });
+
   test('loads public system info from normalized server URL', () async {
     final adapter = _FakeDioAdapter((options) {
       expect(options.method, 'GET');
