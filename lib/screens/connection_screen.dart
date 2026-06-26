@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:dio/dio.dart';
@@ -1423,8 +1424,56 @@ class _LogoHeader extends StatelessWidget {
   }
 }
 
-class _LoginBackdrop extends StatelessWidget {
+class _LoginBackdrop extends StatefulWidget {
   const _LoginBackdrop();
+
+  @override
+  State<_LoginBackdrop> createState() => _LoginBackdropState();
+}
+
+class _LoginBackdropState extends State<_LoginBackdrop> {
+  List<File> _cachedPosters = const <File>[];
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadCachedPosters());
+  }
+
+  Future<void> _loadCachedPosters() async {
+    final posters = await _discoverNativeArtworkCache();
+    if (!mounted || posters.isEmpty) return;
+    setState(() => _cachedPosters = posters);
+  }
+
+  Future<List<File>> _discoverNativeArtworkCache() async {
+    final tempDir = Directory.systemTemp;
+    final entries = <({File file, DateTime modified})>[];
+    try {
+      await for (final entity in tempDir.list(followLinks: false)) {
+        if (entity is! File) continue;
+        final name = _fileName(entity.path).toLowerCase();
+        if (!name.startsWith('native_artwork_') || !name.endsWith('.img')) {
+          continue;
+        }
+        final stat = await entity.stat();
+        if (stat.type != FileSystemEntityType.file || stat.size <= 0) {
+          continue;
+        }
+        entries.add((file: entity, modified: stat.modified));
+      }
+    } catch (_) {
+      return const <File>[];
+    }
+    entries.sort((a, b) => b.modified.compareTo(a.modified));
+    return entries.take(36).map((entry) => entry.file).toList(growable: false);
+  }
+
+  String _fileName(String path) {
+    final normalized = path.replaceAll('\\', '/');
+    final index = normalized.lastIndexOf('/');
+    return index >= 0 ? normalized.substring(index + 1) : normalized;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1440,7 +1489,20 @@ class _LoginBackdrop extends StatelessWidget {
             ),
           ),
         ),
-        CustomPaint(painter: _PosterWallPainter()),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 360),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeOutCubic,
+          child: _cachedPosters.isEmpty
+              ? CustomPaint(
+                  key: const ValueKey<String>('painted-poster-wall'),
+                  painter: _PosterWallPainter(),
+                )
+              : _CachedPosterWall(
+                  key: const ValueKey<String>('cached-poster-wall'),
+                  files: _cachedPosters,
+                ),
+        ),
         const DecoratedBox(
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -1462,6 +1524,129 @@ class _LoginBackdrop extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _CachedPosterWall extends StatelessWidget {
+  const _CachedPosterWall({super.key, required this.files});
+
+  final List<File> files;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = Size(constraints.maxWidth, constraints.maxHeight);
+        final isWide = size.width >= 700;
+        final posterW = (size.width / (isWide ? 5.2 : 3.1)).clamp(108.0, 260.0);
+        final posterH = posterW * 1.52;
+        final stepX = posterW * 0.76;
+        final stepY = posterH * 0.66;
+        final wallW = size.width + posterW * 2.8;
+        final wallH = size.height + posterH * 2.2;
+        final dpr = MediaQuery.of(context).devicePixelRatio;
+        final cacheW = (posterW * dpr).round().clamp(120, 720);
+        final cacheH = (posterH * dpr).round().clamp(180, 1100);
+        final tiles = <Widget>[];
+        var index = 0;
+        var row = 0;
+        for (double y = posterH * -0.45; y < wallH; y += stepY) {
+          final rowOffset = row.isEven ? 0.0 : posterW * 0.22;
+          for (double x = posterW * -0.75; x < wallW; x += stepX) {
+            tiles.add(
+              Positioned(
+                left: x + rowOffset,
+                top: y,
+                width: posterW,
+                height: posterH,
+                child: _CachedPosterTile(
+                  file: files[index % files.length],
+                  cacheWidth: cacheW,
+                  cacheHeight: cacheH,
+                ),
+              ),
+            );
+            index++;
+          }
+          row++;
+        }
+        return Transform.rotate(
+          angle: -0.16,
+          child: OverflowBox(
+            minWidth: wallW,
+            maxWidth: wallW,
+            minHeight: wallH,
+            maxHeight: wallH,
+            child: SizedBox(
+              width: wallW,
+              height: wallH,
+              child: Stack(clipBehavior: Clip.none, children: tiles),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _CachedPosterTile extends StatelessWidget {
+  const _CachedPosterTile({
+    required this.file,
+    required this.cacheWidth,
+    required this.cacheHeight,
+  });
+
+  final File file;
+  final int cacheWidth;
+  final int cacheHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    const radius = BorderRadius.all(Radius.circular(13));
+    return Container(
+      foregroundDecoration: BoxDecoration(
+        borderRadius: radius,
+        border: Border.all(color: const Color(0x304C6488), width: 1),
+      ),
+      child: ClipRRect(
+        borderRadius: radius,
+        child: Image.file(
+          file,
+          fit: BoxFit.cover,
+          filterQuality: FilterQuality.low,
+          gaplessPlayback: true,
+          cacheWidth: cacheWidth,
+          cacheHeight: cacheHeight,
+          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+            if (wasSynchronouslyLoaded) return child;
+            return AnimatedOpacity(
+              opacity: frame == null ? 0 : 1,
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOut,
+              child: child,
+            );
+          },
+          errorBuilder: (_, _, _) => const _CachedPosterFallback(),
+        ),
+      ),
+    );
+  }
+}
+
+class _CachedPosterFallback extends StatelessWidget {
+  const _CachedPosterFallback();
+
+  @override
+  Widget build(BuildContext context) {
+    return const DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF14243A), Color(0xFF050A10)],
+        ),
+      ),
     );
   }
 }
