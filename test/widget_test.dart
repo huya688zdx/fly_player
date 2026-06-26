@@ -14,5 +14,30 @@ void main() {
 
     expect(find.byType(ConnectionScreen), findsOneWidget);
     expect(find.byType(TextField), findsNWidgets(3));
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Image &&
+            widget.image is AssetImage &&
+            (widget.image as AssetImage).assetName == 'lib/img/app_logo.png',
+      ),
+      findsOneWidget,
+    );
+    for (final assetName in <String>[
+      'lib/img/feiniu_Logo.png',
+      'lib/img/Emby_logo.png',
+      'lib/img/jellyfin_logo.png',
+    ]) {
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is Image &&
+              widget.image is AssetImage &&
+              (widget.image as AssetImage).assetName == assetName,
+        ),
+        findsOneWidget,
+      );
+    }
+    expect(find.byIcon(Icons.check_circle_rounded), findsNothing);
   });
 }

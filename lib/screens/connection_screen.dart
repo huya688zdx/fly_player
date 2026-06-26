@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -64,14 +65,18 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   );
 
   _ConnectionBackend _selectedBackend = _ConnectionBackend.feiniu;
+  String _baseUrlScheme = 'http';
+  double _swipeStartX = 0;
+  double _swipeStartY = 0;
+  double _swipeLastX = 0;
+  double _swipeLastY = 0;
   bool _rememberPassword = true;
   bool _embyRememberPassword = true;
-  bool _useHttps = false;
   bool _obscurePassword = true;
   bool _obscureEmbyPassword = true;
   bool _isSubmitting = false;
   List<LoginHistoryEntry> _historyEntries = const <LoginHistoryEntry>[];
-  String _embyConnectionStatus = '';
+  final String _embyConnectionStatus = '';
 
   /// 已保存/已抓取的 FN Connect 入口令牌（entry-token）。fnos 中转 Emby 登录复用它过边缘闸。
   String _embyEntryToken = '';
@@ -80,11 +85,11 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   void initState() {
     super.initState();
     final provider = context.read<NasProvider>();
-    _baseUrlController.text = provider.sourceBaseUrl;
+    _baseUrlController.text = _displayBaseUrlForLogin(provider.sourceBaseUrl);
+    _baseUrlScheme = _schemeForLogin(provider.sourceBaseUrl);
     _userNameController.text = provider.userName;
     _passwordController.text = provider.password;
     _rememberPassword = provider.rememberPassword;
-    _useHttps = _looksLikeHttps(provider.sourceBaseUrl);
     _loadLoginHistory();
     unawaited(_loadStoredBackendConnection());
   }
@@ -134,7 +139,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         _embyPasswordController.text = embyConnection.secret;
       }
       _embyEntryToken = embyConnection.entryToken;
-      _embyConnectionStatus = _formatEmbyConnectionStatus(embyConnection);
     });
   }
 
@@ -262,7 +266,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         _embyBaseUrlController.text = connection.serverUrl;
         _embyUserNameController.text = connection.userName;
         _embyPasswordController.text = password;
-        _embyConnectionStatus = _formatEmbyConnectionStatus(connection);
         _historyEntries = entries;
       });
     } catch (error, stackTrace) {
@@ -377,7 +380,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
     setState(() {
       _isSubmitting = true;
-      _baseUrlController.text = baseUrl;
+      _baseUrlScheme = _schemeForLogin(baseUrl);
+      _baseUrlController.text = _displayBaseUrlForLogin(baseUrl);
     });
 
     try {
@@ -506,12 +510,12 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       });
       return;
     }
-    _baseUrlController.text = entry.baseUrl;
+    _baseUrlController.text = _displayBaseUrlForLogin(entry.baseUrl);
     _userNameController.text = entry.userName;
     _passwordController.text = entry.rememberPassword ? entry.password : '';
     setState(() {
+      _baseUrlScheme = _schemeForLogin(entry.baseUrl);
       _rememberPassword = entry.rememberPassword;
-      _useHttps = _looksLikeHttps(entry.baseUrl);
       _selectedBackend = _ConnectionBackend.feiniu;
     });
   }
@@ -671,21 +675,52 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     if (fnConnectId != null) {
       return fnConnectId;
     }
-    final withScheme = trimmed.contains('://')
-        ? trimmed
-        : '${_useHttps ? 'https' : 'http'}://$trimmed';
+    final explicitUri = Uri.tryParse(trimmed);
+    final explicitScheme = explicitUri?.scheme.toLowerCase() ?? '';
+    final scheme = explicitScheme == 'http' || explicitScheme == 'https'
+        ? explicitScheme
+        : _baseUrlScheme;
+    final withScheme = trimmed.contains('://') ? trimmed : '$scheme://$trimmed';
     try {
       final uri = Uri.parse(withScheme);
       if (uri.host.isEmpty && !withScheme.contains(RegExp(r'^\w+://[^/]+'))) {
         return '';
       }
-      final normalized = uri
-          .replace(scheme: _useHttps ? 'https' : 'http')
-          .toString();
+      final normalized = uri.replace(scheme: scheme).toString();
       return ApiUrlHelper.normalizeBaseUrl(normalized);
     } catch (_) {
       return '';
     }
+  }
+
+  String _schemeForLogin(String raw) {
+    final scheme = Uri.tryParse(raw.trim())?.scheme.toLowerCase();
+    return scheme == 'https' ? 'https' : 'http';
+  }
+
+  String _displayBaseUrlForLogin(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return '';
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null || uri.scheme.isEmpty || uri.host.isEmpty) {
+      return trimmed;
+    }
+    if (uri.scheme.toLowerCase() != 'http' &&
+        uri.scheme.toLowerCase() != 'https') {
+      return trimmed;
+    }
+    final buffer = StringBuffer(uri.host);
+    if (uri.hasPort) {
+      buffer.write(':${uri.port}');
+    }
+    final path = uri.path.trim();
+    if (path.isNotEmpty && path != '/') {
+      buffer.write(path);
+    }
+    if (uri.hasQuery) {
+      buffer.write('?${uri.query}');
+    }
+    return buffer.toString();
   }
 
   String _normalizeEmbyBaseUrlInput(String raw) {
@@ -700,51 +735,11 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     }
   }
 
-  String _formatEmbyConnectionStatus(MediaBackendConnection connection) {
-    final name = connection.displayName.trim().isNotEmpty
-        ? connection.displayName.trim()
-        : connection.serverUrl.trim();
-    final user = connection.userName.trim();
-    final prefix = connection.isAuthenticated ? '已连接 Emby' : '已保存 Emby';
-    if (user.isEmpty) {
-      return '$prefix：$name';
-    }
-    return '$prefix：$name · $user';
-  }
-
   BackendSessionProvider? _backendSessionProvider() {
     try {
       return context.read<BackendSessionProvider>();
     } on ProviderNotFoundException {
       return null;
-    }
-  }
-
-  bool _looksLikeHttps(String value) {
-    final uri = Uri.tryParse(value.trim());
-    return uri?.scheme.toLowerCase() == 'https';
-  }
-
-  void _toggleHttps(bool value) {
-    setState(() {
-      _useHttps = value;
-      final normalized = _rewriteScheme(_baseUrlController.text, value);
-      if (normalized.isNotEmpty) {
-        _baseUrlController.text = normalized;
-      }
-    });
-  }
-
-  String _rewriteScheme(String raw, bool useHttps) {
-    final trimmed = raw.trim();
-    if (trimmed.isEmpty) return trimmed;
-    final withScheme = trimmed.contains('://') ? trimmed : 'http://$trimmed';
-    try {
-      final uri = Uri.parse(withScheme);
-      if (uri.host.isEmpty) return trimmed;
-      return uri.replace(scheme: useHttps ? 'https' : 'http').toString();
-    } catch (_) {
-      return trimmed;
     }
   }
 
@@ -754,57 +749,89 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     final l10n = AppLocalizations.of(context);
     return Scaffold(
       backgroundColor: const Color(0xFF08111A),
-      body: GestureDetector(
-        onTap: () => FocusScope.of(context).unfocus(),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            const _LoginBackdrop(),
-            SafeArea(
-              child: Center(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(24, 28, 24, 28),
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 440),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        const SizedBox(height: 12),
-                        _LogoHeader(title: l10n.connectionAppName),
-                        const SizedBox(height: 28),
-                        _BackendSelector(
-                          selected: _selectedBackend,
-                          onChanged: (backend) {
-                            setState(() {
-                              _selectedBackend = backend;
-                            });
-                          },
-                        ),
-                        const SizedBox(height: 18),
-                        _buildAnimatedForm(theme, l10n),
-                      ],
+      body: Listener(
+        onPointerDown: _handleSwipePointerDown,
+        onPointerMove: _handleSwipePointerMove,
+        onPointerUp: _handleSwipePointerUp,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => FocusScope.of(context).unfocus(),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              const _LoginBackdrop(),
+              SafeArea(
+                child: Center(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(24, 12, 24, 12),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 430),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const SizedBox(height: 0),
+                          _LogoHeader(title: l10n.connectionAppName),
+                          const SizedBox(height: 16),
+                          _BackendSelector(
+                            selected: _selectedBackend,
+                            onChanged: (backend) {
+                              setState(() {
+                                _selectedBackend = backend;
+                              });
+                            },
+                          ),
+                          const SizedBox(height: 18),
+                          SizedBox(
+                            height: 420,
+                            child: _buildAnimatedForm(theme, l10n),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  void _handleSwipePointerDown(PointerDownEvent event) {
+    _swipeStartX = event.position.dx;
+    _swipeStartY = event.position.dy;
+    _swipeLastX = event.position.dx;
+    _swipeLastY = event.position.dy;
+  }
+
+  void _handleSwipePointerMove(PointerMoveEvent event) {
+    _swipeLastX = event.position.dx;
+    _swipeLastY = event.position.dy;
+  }
+
+  void _handleSwipePointerUp(PointerUpEvent event) {
+    final dx = _swipeLastX - _swipeStartX;
+    final dy = _swipeLastY - _swipeStartY;
+    if (dx.abs() < 80 || dx.abs() < dy.abs() * 1.4) return;
+    final next = dx < 0 ? _ConnectionBackend.emby : _ConnectionBackend.feiniu;
+    if (next == _selectedBackend) return;
+    setState(() {
+      _selectedBackend = next;
+    });
   }
 
   /// 飞牛 / Emby 表单之间的方向性切换动画：选中右侧（Emby）时新表单从右滑入，
   /// 选中左侧（飞牛）时从左滑入，配合淡入淡出。
   Widget _buildAnimatedForm(ThemeData theme, AppLocalizations l10n) {
     final isEmby = _selectedBackend == _ConnectionBackend.emby;
-    final beginDx = isEmby ? 0.12 : -0.12;
     return AnimatedSwitcher(
       duration: AppTransitions.contentSwitchDuration,
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
+      switchInCurve: Curves.easeOutQuart,
+      switchOutCurve: Curves.easeInQuart,
       layoutBuilder: (currentChild, previousChildren) {
         return Stack(
+          fit: StackFit.expand,
           alignment: Alignment.topLeft,
           children: [
             ...previousChildren,
@@ -813,13 +840,14 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         );
       },
       transitionBuilder: (child, animation) {
-        final slide = Tween<Offset>(
-          begin: Offset(beginDx, 0),
-          end: Offset.zero,
-        ).animate(animation);
+        final scale = Tween<double>(begin: 0.985, end: 1).animate(animation);
         return FadeTransition(
           opacity: animation,
-          child: SlideTransition(position: slide, child: child),
+          child: ScaleTransition(
+            scale: scale,
+            alignment: Alignment.topCenter,
+            child: child,
+          ),
         );
       },
       child: KeyedSubtree(
@@ -835,75 +863,73 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _GlassField(
-          controller: _baseUrlController,
-          hintText: 'http://192.168.6.120:5666',
-          keyboardType: TextInputType.url,
-          textInputAction: TextInputAction.next,
-          autofillHints: const <String>[AutofillHints.url],
-          suffix: IconButton(
-            onPressed: _openLoginHistory,
-            icon: Icon(
-              Icons.history_rounded,
-              color: _historyEntries.isEmpty
-                  ? const Color(0xFF58687C)
-                  : const Color(0xFF7C8DA5),
-            ),
+        _LoginFormPanel(
+          child: Column(
+            children: [
+              _GlassField(
+                controller: _baseUrlController,
+                labelText: '服务器地址',
+                hintText: '例如：https://feiniu.geqian.sbs:5667',
+                leadingIcon: Icons.dns_outlined,
+                keyboardType: TextInputType.url,
+                textInputAction: TextInputAction.next,
+                autofillHints: const <String>[AutofillHints.url],
+                suffix: IconButton(
+                  onPressed: _openLoginHistory,
+                  icon: Icon(
+                    Icons.history_rounded,
+                    color: _historyEntries.isEmpty
+                        ? const Color(0xFF58687C)
+                        : const Color(0xFF7C8DA5),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              _GlassField(
+                controller: _userNameController,
+                labelText: '账号',
+                hintText: l10n.connectionUserNameHint,
+                leadingIcon: Icons.person_outline_rounded,
+                textInputAction: TextInputAction.next,
+                autofillHints: const <String>[AutofillHints.username],
+              ),
+              const SizedBox(height: 12),
+              _GlassField(
+                controller: _passwordController,
+                labelText: l10n.connectionPasswordHint,
+                hintText: '',
+                leadingIcon: Icons.lock_outline_rounded,
+                obscureText: _obscurePassword,
+                textInputAction: TextInputAction.done,
+                autofillHints: const <String>[AutofillHints.password],
+                onSubmitted: (_) => _submit(),
+                suffix: IconButton(
+                  onPressed: () {
+                    setState(() {
+                      _obscurePassword = !_obscurePassword;
+                    });
+                  },
+                  icon: Icon(
+                    _obscurePassword
+                        ? Icons.visibility_off_outlined
+                        : Icons.visibility_outlined,
+                    color: const Color(0xFF8795AD),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              _buildRememberRow(
+                theme,
+                l10n,
+                value: _rememberPassword,
+                onChanged: (value) {
+                  setState(() {
+                    _rememberPassword = value;
+                  });
+                },
+              ),
+            ],
           ),
-        ),
-        const SizedBox(height: 14),
-        _GlassField(
-          controller: _userNameController,
-          hintText: l10n.connectionUserNameHint,
-          textInputAction: TextInputAction.next,
-          autofillHints: const <String>[AutofillHints.username],
-        ),
-        const SizedBox(height: 14),
-        _GlassField(
-          controller: _passwordController,
-          hintText: l10n.connectionPasswordHint,
-          obscureText: _obscurePassword,
-          textInputAction: TextInputAction.done,
-          autofillHints: const <String>[AutofillHints.password],
-          onSubmitted: (_) => _submit(),
-          suffix: IconButton(
-            onPressed: () {
-              setState(() {
-                _obscurePassword = !_obscurePassword;
-              });
-            },
-            icon: Icon(
-              _obscurePassword
-                  ? Icons.visibility_off_outlined
-                  : Icons.visibility_outlined,
-              color: const Color(0xFF7C8DA5),
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        _buildRememberRow(
-          theme,
-          l10n,
-          value: _rememberPassword,
-          onChanged: (value) {
-            setState(() {
-              _rememberPassword = value;
-            });
-          },
-        ),
-        const SizedBox(height: 22),
-        Row(
-          children: [
-            Expanded(child: _SettingRow(label: l10n.connectionHttpsAccess)),
-            Switch(
-              value: _useHttps,
-              onChanged: _toggleHttps,
-              activeThumbColor: Colors.white,
-              activeTrackColor: const Color(0xFF2D74D9),
-              inactiveThumbColor: Colors.white,
-              inactiveTrackColor: const Color(0xFF415064),
-            ),
-          ],
         ),
         const SizedBox(height: 18),
         _SubmitButton(
@@ -945,6 +971,89 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   Widget _buildEmbyForm(ThemeData theme, AppLocalizations l10n) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _LoginFormPanel(
+          child: Column(
+            children: [
+              _GlassField(
+                controller: _embyBaseUrlController,
+                labelText: 'Emby 服务器地址',
+                hintText: '例如：https://emby.example.com',
+                leadingIcon: Icons.dns_outlined,
+                keyboardType: TextInputType.url,
+                textInputAction: TextInputAction.next,
+                autofillHints: const <String>[AutofillHints.url],
+                suffix: IconButton(
+                  onPressed: _openLoginHistory,
+                  icon: Icon(
+                    Icons.history_rounded,
+                    color: _historyEntries.isEmpty
+                        ? const Color(0xFF58687C)
+                        : const Color(0xFF7C8DA5),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              _GlassField(
+                controller: _embyUserNameController,
+                labelText: '账号',
+                hintText: l10n.connectionUserNameHint,
+                leadingIcon: Icons.person_outline_rounded,
+                textInputAction: TextInputAction.next,
+                autofillHints: const <String>[AutofillHints.username],
+              ),
+              const SizedBox(height: 12),
+              _GlassField(
+                controller: _embyPasswordController,
+                labelText: l10n.connectionPasswordHint,
+                hintText: '',
+                leadingIcon: Icons.lock_outline_rounded,
+                obscureText: _obscureEmbyPassword,
+                textInputAction: TextInputAction.done,
+                autofillHints: const <String>[AutofillHints.password],
+                onSubmitted: (_) => _submit(),
+                suffix: IconButton(
+                  onPressed: () {
+                    setState(() {
+                      _obscureEmbyPassword = !_obscureEmbyPassword;
+                    });
+                  },
+                  icon: Icon(
+                    _obscureEmbyPassword
+                        ? Icons.visibility_off_outlined
+                        : Icons.visibility_outlined,
+                    color: const Color(0xFF8795AD),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              _buildRememberRow(
+                theme,
+                l10n,
+                value: _embyRememberPassword,
+                onChanged: (value) {
+                  setState(() {
+                    _embyRememberPassword = value;
+                  });
+                },
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 18),
+        _SubmitButton(
+          isSubmitting: _isSubmitting,
+          label: l10n.connectionLogin,
+          onPressed: _isSubmitting ? null : _verifyEmbyConnection,
+        ),
+      ],
+    );
+  }
+
+  // ignore: unused_element
+  Widget _buildEmbyFormLegacy(ThemeData theme, AppLocalizations l10n) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1094,11 +1203,12 @@ class _BackendSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isEmby = selected == _ConnectionBackend.emby;
+    final selectedAlignment = isEmby ? Alignment.center : Alignment.centerLeft;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: const Color(0xFF182331),
+        color: const Color(0xC10B1726),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFF2D3948)),
+        border: Border.all(color: const Color(0xFF253651)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(4),
@@ -1108,14 +1218,22 @@ class _BackendSelector extends StatelessWidget {
             AnimatedAlign(
               duration: AppTransitions.contentSwitchDuration,
               curve: Curves.easeOutCubic,
-              alignment: isEmby ? Alignment.centerRight : Alignment.centerLeft,
+              alignment: selectedAlignment,
               child: FractionallySizedBox(
-                widthFactor: 0.5,
+                widthFactor: 1 / 3,
                 child: Container(
-                  height: 44,
+                  height: 48,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF2D74D9),
+                    color: const Color(0x182D74D9),
                     borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFF3F84FF)),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x552D74D9),
+                        blurRadius: 16,
+                        spreadRadius: -4,
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -1124,7 +1242,7 @@ class _BackendSelector extends StatelessWidget {
               children: [
                 Expanded(
                   child: _BackendSelectorButton(
-                    label: '飞牛 NAS',
+                    label: '飞牛影视',
                     selected: !isEmby,
                     onTap: () => onChanged(_ConnectionBackend.feiniu),
                   ),
@@ -1134,6 +1252,14 @@ class _BackendSelector extends StatelessWidget {
                     label: 'Emby',
                     selected: isEmby,
                     onTap: () => onChanged(_ConnectionBackend.emby),
+                  ),
+                ),
+                const Expanded(
+                  child: _BackendSelectorButton(
+                    label: 'Jellyfin',
+                    assetName: 'lib/img/jellyfin_logo.png',
+                    selected: false,
+                    enabled: false,
                   ),
                 ),
               ],
@@ -1149,29 +1275,60 @@ class _BackendSelectorButton extends StatelessWidget {
   const _BackendSelectorButton({
     required this.label,
     required this.selected,
-    required this.onTap,
+    this.assetName,
+    this.onTap,
+    this.enabled = true,
   });
 
   final String label;
   final bool selected;
-  final VoidCallback onTap;
+  final String? assetName;
+  final VoidCallback? onTap;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
+    final effectiveAssetName =
+        assetName ??
+        (label == 'Emby' ? 'lib/img/Emby_logo.png' : 'lib/img/feiniu_Logo.png');
     return InkWell(
       borderRadius: BorderRadius.circular(14),
-      onTap: onTap,
+      onTap: enabled ? onTap : null,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
         child: AnimatedDefaultTextStyle(
           duration: AppTransitions.contentSwitchDuration,
           curve: Curves.easeOutCubic,
           style: TextStyle(
-            color: selected ? Colors.white : const Color(0xFF9FB0C7),
+            color: selected
+                ? Colors.white
+                : enabled
+                ? const Color(0xFFB6C0D1)
+                : const Color(0xFF8390A5),
             fontSize: 15,
             fontWeight: FontWeight.w700,
           ),
-          child: Text(label, textAlign: TextAlign.center),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Image.asset(
+                effectiveAssetName,
+                width: 28,
+                height: 28,
+                fit: BoxFit.contain,
+                opacity: AlwaysStoppedAnimation<double>(enabled ? 1 : 0.58),
+              ),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1193,7 +1350,7 @@ class _SubmitButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return SizedBox(
-      height: 64,
+      height: 56,
       child: ElevatedButton(
         onPressed: onPressed,
         style: ElevatedButton.styleFrom(
@@ -1231,15 +1388,37 @@ class _LogoHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      title,
-      textAlign: TextAlign.center,
-      style: const TextStyle(
-        color: Colors.white,
-        fontSize: 24,
-        fontWeight: FontWeight.w800,
-        letterSpacing: 0.6,
-      ),
+    return Column(
+      children: [
+        Image.asset(
+          'lib/img/app_logo.png',
+          width: 68,
+          height: 68,
+          fit: BoxFit.contain,
+        ),
+        const SizedBox(height: 10),
+        Text(
+          title,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 30,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 0,
+          ),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          '连接您的媒体服务，畅享影音世界',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Color(0xFFA7B6D2),
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            letterSpacing: 0,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1255,55 +1434,30 @@ class _LoginBackdrop extends StatelessWidget {
         const DecoratedBox(
           decoration: BoxDecoration(
             gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF060B12), Color(0xFF071322), Color(0xFF03070D)],
+            ),
+          ),
+        ),
+        CustomPaint(painter: _PosterWallPainter()),
+        const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [Color(0xFF0C1825), Color(0xFF07111A), Color(0xFF040A12)],
+              colors: [Color(0xD904080D), Color(0xAA07111C), Color(0xF203070D)],
+              stops: [0, 0.48, 1],
             ),
           ),
         ),
-        Positioned(
-          top: -60,
-          left: -40,
-          child: Container(
-            width: 220,
-            height: 220,
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [Color(0x332D74D9), Color(0x002D74D9)],
-              ),
-            ),
-          ),
-        ),
-        Positioned(
-          right: -70,
-          top: 120,
-          child: Transform.rotate(
-            angle: -0.22,
-            child: Container(
-              width: 240,
-              height: 280,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(36),
-                color: const Color(0x0F6AA7FF),
-                border: Border.all(color: const Color(0x146AA7FF)),
-              ),
-            ),
-          ),
-        ),
-        Positioned(
-          left: 24,
-          right: 24,
-          bottom: 24,
-          child: Container(
-            height: 180,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(32),
-              gradient: const LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Color(0x001D2B3A), Color(0x2216212F)],
-              ),
+        const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: RadialGradient(
+              center: Alignment(0, -0.18),
+              radius: 0.78,
+              colors: [Color(0x332C63C7), Color(0x00040A12)],
+              stops: [0, 1],
             ),
           ),
         ),
@@ -1312,10 +1466,111 @@ class _LoginBackdrop extends StatelessWidget {
   }
 }
 
+class _PosterWallPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final palette = <Color>[
+      const Color(0xFF1A2B43),
+      const Color(0xFF2B2230),
+      const Color(0xFF263A35),
+      const Color(0xFF302B1E),
+      const Color(0xFF182235),
+    ];
+    final posterW = size.width / 3.1;
+    final posterH = posterW * 1.58;
+    final paint = Paint()..style = PaintingStyle.fill;
+    final stroke = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = const Color(0x304C6488);
+
+    canvas.save();
+    canvas.translate(size.width * 0.5, size.height * 0.44);
+    canvas.rotate(-0.16);
+    canvas.translate(-size.width * 0.5, -size.height * 0.44);
+
+    var index = 0;
+    for (
+      double y = -posterH * 0.72;
+      y < size.height + posterH;
+      y += posterH * 0.64
+    ) {
+      for (
+        double x = -posterW * 0.55;
+        x < size.width + posterW;
+        x += posterW * 0.74
+      ) {
+        final offsetX = (index.isEven ? 0 : posterW * 0.18);
+        final rect = Rect.fromLTWH(x + offsetX, y, posterW, posterH);
+        final radius = Radius.circular(math.max(8, posterW * 0.07));
+        final rrect = RRect.fromRectAndRadius(rect, radius);
+        paint.shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            palette[index % palette.length].withValues(alpha: 0.58),
+            const Color(0xFF050A10).withValues(alpha: 0.86),
+          ],
+        ).createShader(rect);
+        canvas.drawRRect(rrect, paint);
+        canvas.drawRRect(rrect, stroke);
+
+        final band = Rect.fromLTWH(
+          rect.left + rect.width * 0.1,
+          rect.bottom - rect.height * 0.18,
+          rect.width * 0.72,
+          rect.height * 0.018,
+        );
+        paint.shader = null;
+        paint.color = const Color(0x334F76B8);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(band, const Radius.circular(999)),
+          paint,
+        );
+        index++;
+      }
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _LoginFormPanel extends StatelessWidget {
+  const _LoginFormPanel({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xC90B1726),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFF405675)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x66000000),
+            blurRadius: 36,
+            offset: Offset(0, 20),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+        child: child,
+      ),
+    );
+  }
+}
+
 class _GlassField extends StatelessWidget {
   const _GlassField({
     required this.controller,
     required this.hintText,
+    this.labelText,
+    this.leadingIcon,
     this.keyboardType,
     this.textInputAction,
     this.autofillHints,
@@ -1326,6 +1581,8 @@ class _GlassField extends StatelessWidget {
 
   final TextEditingController controller;
   final String hintText;
+  final String? labelText;
+  final IconData? leadingIcon;
   final TextInputType? keyboardType;
   final TextInputAction? textInputAction;
   final Iterable<String>? autofillHints;
@@ -1335,50 +1592,67 @@ class _GlassField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final label = labelText?.trim() ?? '';
     return DecoratedBox(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        color: const Color(0xFF232D3A),
-        border: Border.all(color: const Color(0xFF2D3948)),
+        borderRadius: BorderRadius.circular(16),
+        color: const Color(0xD80B1624),
+        border: Border.all(color: const Color(0xFF24344C)),
         boxShadow: const [
           BoxShadow(
-            color: Color(0x26000000),
-            blurRadius: 18,
-            offset: Offset(0, 10),
+            color: Color(0x22000000),
+            blurRadius: 20,
+            offset: Offset(0, 12),
           ),
         ],
       ),
-      child: TextField(
-        controller: controller,
-        obscureText: obscureText,
-        keyboardType: keyboardType,
-        textInputAction: textInputAction,
-        autofillHints: autofillHints,
-        onSubmitted: onSubmitted,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 17,
-          fontWeight: FontWeight.w500,
-        ),
-        decoration: InputDecoration(
-          hintText: hintText,
-          hintStyle: const TextStyle(
-            color: Color(0xFF9EADBE),
-            fontSize: 17,
-            fontWeight: FontWeight.w500,
+      child: Row(
+        children: [
+          if (leadingIcon != null) ...[
+            const SizedBox(width: 18),
+            Icon(leadingIcon, color: const Color(0xFF91A0BB), size: 24),
+            const SizedBox(width: 14),
+          ],
+          Expanded(
+            child: TextField(
+              controller: controller,
+              obscureText: obscureText,
+              keyboardType: keyboardType,
+              textInputAction: textInputAction,
+              autofillHints: autofillHints,
+              onSubmitted: onSubmitted,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 17,
+                fontWeight: FontWeight.w500,
+              ),
+              decoration: InputDecoration(
+                labelText: label.isEmpty ? null : label,
+                hintText: hintText,
+                floatingLabelBehavior: FloatingLabelBehavior.always,
+                labelStyle: const TextStyle(
+                  color: Color(0xFFB6C1D4),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                ),
+                hintStyle: const TextStyle(
+                  color: Color(0xFF6E7C92),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                ),
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                suffixIcon: suffix,
+              ),
+            ),
           ),
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 20,
-            vertical: 20,
-          ),
-          suffixIcon: suffix,
-        ),
+        ],
       ),
     );
   }
 }
 
+// ignore: unused_element
 class _SettingRow extends StatelessWidget {
   const _SettingRow({required this.label});
 
