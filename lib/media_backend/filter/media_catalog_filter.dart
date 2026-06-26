@@ -18,6 +18,8 @@ enum MediaFilterDimensionKind {
   recognitionStatus,
   watched,
   mediaType,
+  favorite,
+  seriesStatus,
 }
 
 /// 一个筛选维度下的可选值。

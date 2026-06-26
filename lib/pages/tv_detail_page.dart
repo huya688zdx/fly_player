@@ -5,9 +5,9 @@ import 'dart:math' as math;
 
 import '../api/feiniu_api.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
-import '../controllers/play_detail_item_actions.dart';
 import '../controllers/tv_season_playback_launcher.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../media_backend/action/media_library_item_action_target.dart';
 import '../media_backend/detail/media_detail.dart';
 import '../media_backend/detail/media_episode_summary.dart';
 import '../media_backend/detail/media_season_summary.dart';
@@ -32,6 +32,7 @@ import '../ui/detail_presentation.dart';
 import '../ui/layout_adaptive.dart';
 import '../ui/player_pane_host_scope.dart';
 import '../ui/media_poster_card.dart';
+import '../ui/region_name_localizer.dart';
 import '../ui/route_transition_gate.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
@@ -45,7 +46,6 @@ import '../widgets/detail/detail_description_section.dart';
 import '../widgets/detail/detail_header.dart';
 import '../widgets/detail/detail_hero_overlay.dart';
 import '../widgets/detail/detail_loading_skeleton.dart';
-import '../widgets/detail/detail_meta_lines.dart';
 import '../widgets/detail/detail_more_actions_sheet.dart';
 import '../widgets/detail/dynamic_page_theme_scope.dart';
 import '../widgets/detail/immersive_detail_background.dart';
@@ -216,73 +216,6 @@ class _TvDetailPageState extends State<TvDetailPage>
     }
   }
 
-  String _t(
-    String path,
-    String fallback, {
-    Map<String, Object?> params = const <String, Object?>{},
-  }) {
-    final l10n = AppLocalizations.of(context);
-    return switch (path) {
-      'layout.subheading.season.special' => l10n.detailSeasonSpecial,
-      'layout.subheading.season.number' => l10n.detailSeasonNumber(
-        _paramInt(params, 'number'),
-      ),
-      'layout.subheading.episode.number' => l10n.detailEpisodeNumber(
-        _paramInt(params, 'number'),
-      ),
-      'layout.subheading.seasonEpisode.number' =>
-        l10n.detailSeasonEpisodeNumber(
-          _paramInt(params, 'season'),
-          _paramInt(params, 'episode'),
-        ),
-      'layout.subheading.specialEpisode.number' =>
-        l10n.detailSpecialEpisodeNumber(_paramInt(params, 'episode')),
-      'layout.subheading.namedEpisode.number' => l10n.detailNamedEpisodeNumber(
-        '${params['title'] ?? ''}',
-        _paramInt(params, 'episode'),
-      ),
-      'layout.subheading.season.default' => l10n.detailSeasonDefault,
-      'layout.subheading.tv.episodes' => l10n.detailEpisodeTotal(
-        _paramInt(params, 'count'),
-      ),
-      'layout.subheading.tv.seasons' => l10n.detailTvSeasonCount(
-        _paramInt(params, 'count'),
-      ),
-      'layout.details.castAndCrew.imdb' => l10n.detailImdbEmpty,
-      'layout.details.castAndCrew.imdbOpenFailed' => l10n.detailImdbOpenFailed,
-      'layout.globalError.clickToRetry' => l10n.commonClickTooFastRetryLater,
-      'common.actions.favorite.unfavoriteFailed' => l10n.detailUnfavoriteFailed,
-      'common.actions.favorite.favoriteFailed' => l10n.detailFavoriteFailed,
-      'common.actions.watched.markedAsUnwatchedFailed' =>
-        l10n.detailMarkUnwatchedFailed,
-      'common.actions.watched.markedAsWatchedFailed' =>
-        l10n.detailMarkWatchedFailed,
-      'player.play.preparing' => l10n.detailPreparingPlayback,
-      'player.play.placeholder' => l10n.detailPlayPlaceholder,
-      'player.play.playInfoFailed' => l10n.detailPlayInfoFailed,
-      'player.play.play' => l10n.detailPlay,
-      'layout.details.overview.overview' => l10n.detailOverviewTitle,
-      'layout.details.castAndCrew.title' => l10n.detailCastCrewTitle,
-      'layout.loading' => l10n.commonLoading,
-      'layout.details.season.empty' => l10n.detailSeasonEmpty,
-      _ => _replaceParams(fallback, params),
-    };
-  }
-
-  int _paramInt(Map<String, Object?> params, String key) {
-    final value = params[key];
-    if (value is int) return value;
-    return int.tryParse('${value ?? ''}') ?? 0;
-  }
-
-  String _replaceParams(String fallback, Map<String, Object?> params) {
-    var resolved = fallback;
-    for (final entry in params.entries) {
-      resolved = resolved.replaceAll('{${entry.key}}', '${entry.value ?? ''}');
-    }
-    return resolved;
-  }
-
   Future<void> _load() async {
     _deferredTimer?.cancel();
     _descriptionPopController.reset();
@@ -373,6 +306,8 @@ class _TvDetailPageState extends State<TvDetailPage>
         _neutralDisplayOnly = true;
         _neutralDetail = detail;
         _neutralSeasons = seasons;
+        _liked = detail.favorite;
+        _watched = detail.watched;
         _imdbId = detail.externalIds.imdbId;
         _trimId = detail.externalIds.tmdbId;
         _seasonItemsResolved = true;
@@ -464,11 +399,16 @@ class _TvDetailPageState extends State<TvDetailPage>
     final item = _detail['item'] is Map<String, dynamic>
         ? _detail['item'] as Map<String, dynamic>
         : _detail;
+    final l10n = AppLocalizations.of(context);
+    final target = season.toActionTarget();
     await const MediaItemActionSheetController().show(
       context,
-      item: season,
-      title: MediaItemActionSheetController.seasonTitle(_title(item), season),
-      localeMap: _localeMap,
+      target: target,
+      title: MediaItemActionSheetController.seasonTitle(
+        l10n,
+        _title(item),
+        target,
+      ),
       initialWatched: season.watched == 1,
       onChanged: (state) {
         _replaceSeasonItemLocally(
@@ -613,23 +553,19 @@ class _TvDetailPageState extends State<TvDetailPage>
         fromPlayInfo?.episodeNumber ?? _asInt(item['episode_number']);
     if (seasonNumber == 0) {
       if (earlyEpisode > 0) {
-        return _t(
-          'layout.subheading.specialEpisode.number',
-          'Special episode {episode}',
-          params: {'episode': earlyEpisode},
-        );
+        return AppLocalizations.of(
+          context,
+        ).detailSpecialEpisodeNumber(earlyEpisode);
       }
-      return _t('layout.subheading.season.special', 'Special');
+      return AppLocalizations.of(context).detailSeasonSpecial;
     }
     if (seasonNumber == 0) {
       if (earlyEpisode > 0) {
-        return _t(
-          'layout.subheading.specialEpisode.number',
-          'Special episode {episode}',
-          params: {'episode': earlyEpisode},
-        );
+        return AppLocalizations.of(
+          context,
+        ).detailSpecialEpisodeNumber(earlyEpisode);
       }
-      return _t('layout.subheading.season.special', 'Special');
+      return AppLocalizations.of(context).detailSeasonSpecial;
     }
     final seriesTitle = (fromPlayInfo?.tvTitle ?? item['tv_title'] ?? '')
         .toString()
@@ -650,36 +586,24 @@ class _TvDetailPageState extends State<TvDetailPage>
         continue;
       }
       if (episode > 0) {
-        return _t(
-          'layout.subheading.namedEpisode.number',
-          '{title} episode {episode}',
-          params: {'title': candidate, 'episode': episode},
-        );
+        return AppLocalizations.of(
+          context,
+        ).detailNamedEpisodeNumber(candidate, episode);
       }
       break;
     }
     if (season > 0 && episode > 0) {
-      return _t(
-        'layout.subheading.seasonEpisode.number',
-        'Season {season} episode {episode}',
-        params: {'season': season, 'episode': episode},
-      );
+      return AppLocalizations.of(
+        context,
+      ).detailSeasonEpisodeNumber(season, episode);
     }
     if (season > 0) {
-      return _t(
-        'layout.subheading.season.number',
-        'Season {number}',
-        params: {'number': season},
-      );
+      return AppLocalizations.of(context).detailSeasonNumber(season);
     }
     if (episode > 0) {
-      return _t(
-        'layout.subheading.episode.number',
-        'Episode {number}',
-        params: {'number': episode},
-      );
+      return AppLocalizations.of(context).detailEpisodeNumber(episode);
     }
-    return _t('player.play.play', 'Play');
+    return AppLocalizations.of(context).detailPlay;
   }
 
   String _tvPrimaryLabel(Map<String, dynamic> item) {
@@ -690,52 +614,34 @@ class _TvDetailPageState extends State<TvDetailPage>
 
     if (season == 0) {
       if (episode > 0) {
-        return _t(
-          'layout.subheading.specialEpisode.number',
-          'Special episode {episode}',
-          params: {'episode': episode},
-        );
+        return AppLocalizations.of(context).detailSpecialEpisodeNumber(episode);
       }
-      return _t('layout.subheading.season.special', 'Special');
+      return AppLocalizations.of(context).detailSeasonSpecial;
     }
     if (season > 0 && episode > 0) {
-      return _t(
-        'layout.subheading.seasonEpisode.number',
-        'Season {season} episode {episode}',
-        params: {'season': season, 'episode': episode},
-      );
+      return AppLocalizations.of(
+        context,
+      ).detailSeasonEpisodeNumber(season, episode);
     }
     if (season > 0) {
-      return _t(
-        'layout.subheading.season.number',
-        'Season {number}',
-        params: {'number': season},
-      );
+      return AppLocalizations.of(context).detailSeasonNumber(season);
     }
     if (episode > 0) {
-      return _t(
-        'layout.subheading.episode.number',
-        'Episode {number}',
-        params: {'number': episode},
-      );
+      return AppLocalizations.of(context).detailEpisodeNumber(episode);
     }
-    return _t('player.play.play', 'Play');
+    return AppLocalizations.of(context).detailPlay;
   }
 
   String _year(String date) => date.length >= 4 ? date.substring(0, 4) : '';
 
   String _seasonTitle(MediaLibraryItem item) {
     if (item.seasonNumber > 0) {
-      return _t(
-        'layout.subheading.season.number',
-        'Season {number}',
-        params: {'number': item.seasonNumber},
-      );
+      return AppLocalizations.of(context).detailSeasonNumber(item.seasonNumber);
     }
     final title = item.title.trim();
     return title.isNotEmpty
         ? title
-        : _t('layout.subheading.season.default', 'Season');
+        : AppLocalizations.of(context).detailSeasonDefault;
   }
 
   String _seasonSubtitle(MediaLibraryItem item) {
@@ -745,13 +651,7 @@ class _TvDetailPageState extends State<TvDetailPage>
     final year = _year(item.releaseDate);
     final parts = <String>[];
     if (episodes > 0) {
-      parts.add(
-        _t(
-          'layout.subheading.tv.episodes',
-          '{count} episodes',
-          params: {'count': episodes},
-        ),
-      );
+      parts.add(AppLocalizations.of(context).detailEpisodeTotal(episodes));
     }
     if (year.isNotEmpty) parts.add(year);
     return parts.join(' \u00b7 ');
@@ -829,6 +729,7 @@ class _TvDetailPageState extends State<TvDetailPage>
     required List<String> genreNames,
     required String countryText,
     required String ancestorName,
+    String ratingStar = '',
   }) {
     final children = <Widget>[];
 
@@ -861,6 +762,10 @@ class _TvDetailPageState extends State<TvDetailPage>
           ],
         ),
       );
+    }
+    // Emby 自有评分（飞牛此区不展示，故仅中立路径传入；与详情页 ⭐ 风格一致）。
+    if (ratingStar.isNotEmpty) {
+      addSegment(_buildMetaTagText('⭐ $ratingStar'));
     }
 
     return Wrap(
@@ -913,15 +818,12 @@ class _TvDetailPageState extends State<TvDetailPage>
         return;
       case ImdbLaunchResult.empty:
         _showTopTip(
-          _t('layout.details.castAndCrew.imdb', 'No IMDB link'),
+          AppLocalizations.of(context).detailImdbEmpty,
           context.appColors.warning,
         );
       case ImdbLaunchResult.failed:
         _showTopTip(
-          _t(
-            'layout.details.castAndCrew.imdbOpenFailed',
-            'Unable to open IMDB link',
-          ),
+          AppLocalizations.of(context).detailImdbOpenFailed,
           context.appColors.danger,
         );
     }
@@ -951,6 +853,10 @@ class _TvDetailPageState extends State<TvDetailPage>
   /// (Emby 完整 api_key 直链直接透传)。播放/收藏/已看本阶段占位禁用。
   Widget _buildNeutralBody(AppThemeColors colors, Color? ambientTint) {
     final detail = _neutralDetail!;
+    final capabilities = context
+        .read<MediaBackendProvider>()
+        .backend
+        .capabilities;
     final provider = context.read<NasProvider>();
     final artworkResolver = DetailArtworkResolver(
       baseUrl: provider.baseUrl,
@@ -993,18 +899,22 @@ class _TvDetailPageState extends State<TvDetailPage>
           )
         : null;
 
-    final metaLineA = <String>[
-      ...detail.genreLabels,
-      ...detail.regionLabels,
-    ].map((e) => e.trim()).where((e) => e.isNotEmpty).join(' / ');
-    final year = _year(detail.releaseDate);
-    final metaLineB = <String>[
-      if (year.isNotEmpty) year,
-      if (detail.durationSeconds > 0)
-        PlayDetailFormatters.formatDuration(detail.durationSeconds),
-      if (detail.rating.trim().isNotEmpty) '⭐ ${detail.rating.trim()}',
-    ].join(' / ');
-    final hasMetaLine = metaLineA.isNotEmpty || metaLineB.isNotEmpty;
+    // 与飞牛系列页同一行式 meta（题材空格连 / 地区 / 库名），用同一 `_buildTvMetaLine`。
+    // Emby 无「库/合集名」(ancestorName) 字段；评分为 Emby 自有，作为末段 ⭐ 追加。
+    final genreNames = detail.genreLabels
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+    // 地区本地化（mapper 无 l10n）：英文国名 / ISO code → 中文，未知原样；飞牛已是中文则透传。
+    final countryText = RegionNameLocalizer.localizeAll(
+      AppLocalizations.of(context),
+      detail.regionLabels,
+    ).map((e) => e.trim()).where((e) => e.isNotEmpty).join(' ');
+    final ratingStar = detail.rating.trim();
+    final hasMetaLine =
+        genreNames.isNotEmpty ||
+        countryText.isNotEmpty ||
+        ratingStar.isNotEmpty;
 
     final creditItems = detail.people
         .map(
@@ -1078,29 +988,35 @@ class _TvDetailPageState extends State<TvDetailPage>
                       if (hasMetaLine)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 2),
-                          child: DetailMetaLines(
-                            metaLineA: metaLineA,
-                            metaLineB: metaLineB,
+                          child: _buildTvMetaLine(
+                            contentRating: '',
+                            genreNames: genreNames,
+                            countryText: countryText,
+                            ancestorName: '',
+                            ratingStar: ratingStar,
                           ),
                         ),
                       const SizedBox(height: 14),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          // 系列页主播放：Emby 解析续看/首集后进原生壳（与飞牛同入口）。
-                          onPressed: _playPreparing
-                              ? null
-                              : _launchPrimaryPlayback,
-                          icon: const Icon(Icons.play_arrow),
-                          label: Text(
-                            _playPreparing
-                                ? _t(
-                                    'player.play.preparing',
-                                    'Preparing playback',
-                                  )
-                                : _neutralPlayLabel(),
-                          ),
-                        ),
+                      // 与飞牛系列页同一动作行：主播放键 + 收藏 + 已看（按能力门控，下载暂不支持）。
+                      PlayControlRow(
+                        primaryText: _playPreparing
+                            ? AppLocalizations.of(
+                                context,
+                              ).detailPreparingPlayback
+                            : _neutralPlayLabel(),
+                        primaryEnabled: !_playPreparing,
+                        liked: _liked,
+                        watched: _watched,
+                        showDownload: false,
+                        onPrimaryTap: _playPreparing
+                            ? null
+                            : _launchPrimaryPlayback,
+                        onLikeTap: capabilities.supportsFavorite
+                            ? _toggleFavorite
+                            : null,
+                        onWatchedTap: capabilities.supportsWatched
+                            ? _toggleWatched
+                            : null,
                       ),
                       const SizedBox(height: 12),
                       if (overview.isNotEmpty) ...[
@@ -1134,10 +1050,9 @@ class _TvDetailPageState extends State<TvDetailPage>
                               LongTextOverlayPage.show(
                                 context,
                                 title: title,
-                                sectionTitle: _t(
-                                  'layout.details.overview.overview',
-                                  'Overview',
-                                ),
+                                sectionTitle: AppLocalizations.of(
+                                  context,
+                                ).detailOverviewTitle,
                                 content: overview,
                               );
                             },
@@ -1146,11 +1061,9 @@ class _TvDetailPageState extends State<TvDetailPage>
                         const SizedBox(height: 16),
                       ],
                       Text(
-                        _t(
-                          'layout.subheading.tv.seasons',
-                          '{count} seasons',
-                          params: {'count': seasonCount},
-                        ),
+                        AppLocalizations.of(
+                          context,
+                        ).detailTvSeasonCount(seasonCount),
                         style: TextStyle(
                           color: colors.textPrimary,
                           fontSize: 30,
@@ -1168,10 +1081,9 @@ class _TvDetailPageState extends State<TvDetailPage>
                       if (creditItems.isNotEmpty) ...[
                         const SizedBox(height: 16),
                         CreditsSection(
-                          title: _t(
-                            'layout.details.castAndCrew.title',
-                            'Cast and crew',
-                          ),
+                          title: AppLocalizations.of(
+                            context,
+                          ).detailCastCrewTitle,
                           items: creditItems,
                           token: '',
                           onTap: _openCreditPerson,
@@ -1242,7 +1154,7 @@ class _TvDetailPageState extends State<TvDetailPage>
           borderRadius: BorderRadius.circular(14),
         ),
         child: Text(
-          _t('layout.details.season.empty', 'No seasons'),
+          AppLocalizations.of(context).detailSeasonEmpty,
           style: TextStyle(
             color: colors.textSecondary,
             fontSize: 16,
@@ -1316,14 +1228,12 @@ class _TvDetailPageState extends State<TvDetailPage>
 
   String _neutralSeasonTitle(MediaSeasonSummary season) {
     if (season.seasonNumber > 0) {
-      return _t(
-        'layout.subheading.season.number',
-        'Season {number}',
-        params: {'number': season.seasonNumber},
-      );
+      return AppLocalizations.of(
+        context,
+      ).detailSeasonNumber(season.seasonNumber);
     }
     final t = season.title.trim();
-    return t.isNotEmpty ? t : _t('layout.subheading.season.default', 'Season');
+    return t.isNotEmpty ? t : AppLocalizations.of(context).detailSeasonDefault;
   }
 
   String _neutralSeasonSubtitle(MediaSeasonSummary season) {
@@ -1331,11 +1241,7 @@ class _TvDetailPageState extends State<TvDetailPage>
         ? season.localNumberOfEpisodes
         : season.numberOfEpisodes;
     if (episodes <= 0) return '';
-    return _t(
-      'layout.subheading.tv.episodes',
-      '{count} episodes',
-      params: {'count': episodes},
-    );
+    return AppLocalizations.of(context).detailEpisodeTotal(episodes);
   }
 
   /// 把中立季摘要转成季详情页所需的最小 [MediaLibraryItem](导航层数据适配)。
@@ -1356,7 +1262,7 @@ class _TvDetailPageState extends State<TvDetailPage>
   Future<void> _onPrimaryPlayTap() async {
     if (_playPreparing) {
       _showTopTip(
-        _t('player.play.preparing', 'Preparing playback'),
+        AppLocalizations.of(context).detailPreparingPlayback,
         context.appColors.warning,
       );
       return;
@@ -1368,13 +1274,13 @@ class _TvDetailPageState extends State<TvDetailPage>
       if (!mounted) return;
       setState(() => _playInfo = info);
       _showTopTip(
-        _t('player.play.placeholder', 'Playback entry is reserved'),
+        AppLocalizations.of(context).detailPlayPlaceholder,
         context.appColors.success,
       );
       // TODO: hook real player launch here with `info`.
     } catch (_) {
       _showTopTip(
-        _t('player.play.playInfoFailed', 'Failed to get playback info'),
+        AppLocalizations.of(context).detailPlayInfoFailed,
         context.appColors.danger,
       );
     } finally {
@@ -1396,29 +1302,22 @@ class _TvDetailPageState extends State<TvDetailPage>
   String _neutralPlayLabel() {
     final target = _neutralPlayTarget;
     if (target != null && target.seasonNumber > 0 && target.episodeNumber > 0) {
-      return _t(
-        'layout.subheading.seasonEpisode.number',
-        'Season {season} episode {episode}',
-        params: {
-          'season': target.seasonNumber,
-          'episode': target.episodeNumber,
-        },
-      );
+      return AppLocalizations.of(
+        context,
+      ).detailSeasonEpisodeNumber(target.seasonNumber, target.episodeNumber);
     }
     if (target != null && target.episodeNumber > 0) {
-      return _t(
-        'layout.subheading.episode.number',
-        'Episode {number}',
-        params: {'number': target.episodeNumber},
-      );
+      return AppLocalizations.of(
+        context,
+      ).detailEpisodeNumber(target.episodeNumber);
     }
-    return _t('player.play.play', 'Play');
+    return AppLocalizations.of(context).detailPlay;
   }
 
   Future<void> _launchPrimaryPlayback() async {
     if (_playPreparing) {
       _showTopTip(
-        _t('player.play.preparing', 'Preparing playback'),
+        AppLocalizations.of(context).detailPreparingPlayback,
         context.appColors.warning,
       );
       return;
@@ -1445,7 +1344,7 @@ class _TvDetailPageState extends State<TvDetailPage>
       if (!mounted) return;
       if (playItemId.trim().isEmpty) {
         _showTopTip(
-          _t('player.play.playInfoFailed', 'Failed to get playback info'),
+          AppLocalizations.of(context).detailPlayInfoFailed,
           context.appColors.danger,
         );
         return;
@@ -1509,7 +1408,7 @@ class _TvDetailPageState extends State<TvDetailPage>
       }
     } catch (_) {
       _showTopTip(
-        _t('player.play.playInfoFailed', 'Failed to get playback info'),
+        AppLocalizations.of(context).detailPlayInfoFailed,
         context.appColors.danger,
       );
     } finally {
@@ -1526,39 +1425,32 @@ class _TvDetailPageState extends State<TvDetailPage>
     if (_favoriteUpdating ||
         now.difference(_lastFavoriteTapAt) < _favoriteTapCooldown) {
       _showTopTip(
-        _t(
-          'layout.globalError.clickToRetry',
-          'Too many taps, please try again later',
-        ),
+        AppLocalizations.of(context).commonClickTooFastRetryLater,
         context.appColors.warning,
       );
       return;
     }
     _lastFavoriteTapAt = now;
     _favoriteUpdating = true;
+    final l10n = AppLocalizations.of(context);
     try {
-      final api = FeiniuApi(context.read<NasProvider>());
-      final result = await PlayDetailItemActions(
-        api,
-        l10n: AppLocalizations.of(context),
-      ).toggleFavorite(itemGuid: widget.itemGuid, currentLiked: _liked);
+      // 统一走中立后端接口:飞牛→FeiniuApi.setFavorite、Emby→FavoriteItems 端点，文案同口径。
+      final backend = context.read<MediaBackendProvider>().backend;
+      final state = await backend.setItemFavorite(
+        widget.itemGuid,
+        favorite: !_liked,
+      );
       if (!mounted) return;
-      setState(() => _liked = result.state);
+      setState(() => _liked = state);
       _showTopTip(
-        result.message,
-        result.state ? context.appColors.success : context.appColors.textMuted,
+        state ? l10n.actionFavoriteAdded : l10n.actionFavoriteRemoved,
+        state ? context.appColors.success : context.appColors.textMuted,
       );
     } catch (_) {
       _showTopTip(
         _liked
-            ? _t(
-                'common.actions.favorite.unfavoriteFailed',
-                'Failed to remove favorite',
-              )
-            : _t(
-                'common.actions.favorite.favoriteFailed',
-                'Failed to favorite',
-              ),
+            ? AppLocalizations.of(context).detailUnfavoriteFailed
+            : AppLocalizations.of(context).detailFavoriteFailed,
         context.appColors.danger,
       );
     } finally {
@@ -1571,44 +1463,38 @@ class _TvDetailPageState extends State<TvDetailPage>
     if (_watchedUpdating ||
         now.difference(_lastWatchedTapAt) < _watchedTapCooldown) {
       _showTopTip(
-        _t(
-          'layout.globalError.clickToRetry',
-          'Too many taps, please try again later',
-        ),
+        AppLocalizations.of(context).commonClickTooFastRetryLater,
         context.appColors.warning,
       );
       return;
     }
     _lastWatchedTapAt = now;
     _watchedUpdating = true;
+    final l10n = AppLocalizations.of(context);
     try {
-      final api = FeiniuApi(context.read<NasProvider>());
-      final result = await PlayDetailItemActions(
-        api,
-        l10n: AppLocalizations.of(context),
-      ).toggleWatched(itemGuid: widget.itemGuid, currentWatched: _watched);
+      // 统一走中立后端接口:飞牛→FeiniuApi.setWatched、Emby→PlayedItems 端点，文案同口径。
+      final backend = context.read<MediaBackendProvider>().backend;
+      final state = await backend.setItemWatched(
+        widget.itemGuid,
+        watched: !_watched,
+      );
       if (!mounted) return;
       setState(() {
-        _applyWatchedStateLocally(result.state);
+        _applyWatchedStateLocally(state);
       });
       _showTopTip(
-        result.message,
-        result.state ? context.appColors.success : context.appColors.textMuted,
+        state ? l10n.actionMarkedAsWatched : l10n.actionMarkedAsUnwatched,
+        state ? context.appColors.success : context.appColors.textMuted,
       );
-      if (result.needRefresh) {
+      // 飞牛已看切换需回灌 PlayInfo（更新跨 UI 的已看/进度态）；中立后端无此通道,跳过。
+      if (backend.capabilities.kind == MediaBackendKind.feiniu) {
         unawaited(_refreshDetailSilently());
       }
     } catch (_) {
       _showTopTip(
         _watched
-            ? _t(
-                'common.actions.watched.markedAsUnwatchedFailed',
-                'Failed to mark as unwatched',
-              )
-            : _t(
-                'common.actions.watched.markedAsWatchedFailed',
-                'Failed to mark as watched',
-              ),
+            ? AppLocalizations.of(context).detailMarkUnwatchedFailed
+            : AppLocalizations.of(context).detailMarkWatchedFailed,
         context.appColors.danger,
       );
     } finally {
@@ -1966,10 +1852,9 @@ class _TvDetailPageState extends State<TvDetailPage>
                                 LongTextOverlayPage.show(
                                   context,
                                   title: title,
-                                  sectionTitle: _t(
-                                    'layout.details.overview.overview',
-                                    'Overview',
-                                  ),
+                                  sectionTitle: AppLocalizations.of(
+                                    context,
+                                  ).detailOverviewTitle,
                                   content: overview,
                                 );
                               },
@@ -1977,11 +1862,9 @@ class _TvDetailPageState extends State<TvDetailPage>
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            _t(
-                              'layout.subheading.tv.seasons',
-                              '{count} seasons',
-                              params: {'count': seasonCount},
-                            ),
+                            AppLocalizations.of(
+                              context,
+                            ).detailTvSeasonCount(seasonCount),
                             style: TextStyle(
                               color: colors.textPrimary,
                               fontSize: 30,
@@ -2092,12 +1975,12 @@ class _TvDetailPageState extends State<TvDetailPage>
                                     child: MediaPosterCard(
                                       urls: const <String>[],
                                       token: provider.token,
-                                      title: _t(
-                                        'layout.subheading.season.number',
-                                        'Season {number}',
-                                        params: {'number': seasonNumber},
-                                      ),
-                                      subtitle: _t('layout.loading', 'Loading'),
+                                      title: AppLocalizations.of(
+                                        context,
+                                      ).detailSeasonNumber(seasonNumber),
+                                      subtitle: AppLocalizations.of(
+                                        context,
+                                      ).commonLoading,
                                       imageHeight: layout.homePosterImageHeight,
                                       titleFontSize:
                                           layout.homePosterTitleFontSize,
@@ -2117,7 +2000,7 @@ class _TvDetailPageState extends State<TvDetailPage>
                                 borderRadius: BorderRadius.circular(14),
                               ),
                               child: Text(
-                                _t('layout.details.season.empty', 'No seasons'),
+                                AppLocalizations.of(context).detailSeasonEmpty,
                                 style: TextStyle(
                                   color: colors.textSecondary,
                                   fontSize: 16,

@@ -17,6 +17,9 @@ class MediaEpisodeSummary {
   final int resumePositionSeconds;
   final MediaImageRef primaryImage;
 
+  /// 清晰度角标（例如 `1080p` / `4K`）；后端未提供时为空。
+  final List<String> resolutions;
+
   const MediaEpisodeSummary({
     required this.id,
     required this.title,
@@ -28,5 +31,6 @@ class MediaEpisodeSummary {
     this.durationSeconds = 0,
     this.watched = false,
     this.resumePositionSeconds = 0,
+    this.resolutions = const <String>[],
   });
 }

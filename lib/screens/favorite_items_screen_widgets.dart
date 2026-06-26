@@ -84,7 +84,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
           fontSize: 20,
           fontWeight: FontWeight.w700,
         ),
-        title: Text(_t('layout.sidebar.favorite', 'Favorites')),
+        title: Text(AppLocalizations.of(context).actionFavoriteAdd),
         actions: <Widget>[
           IconButton(
             icon: const Icon(Icons.search),
@@ -106,23 +106,23 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
               children: <Widget>[
                 _buildTabButton(
                   _FavoriteTab.all,
-                  _t('layout.list.favoriteTabs.all', 'All'),
+                  AppLocalizations.of(context).commonAll,
                 ),
                 _buildTabButton(
                   _FavoriteTab.movie,
-                  _t('layout.list.favoriteTabs.movie', 'Movies'),
+                  AppLocalizations.of(context).listTypeMovie,
                 ),
                 _buildTabButton(
                   _FavoriteTab.tv,
-                  _t('layout.list.favoriteTabs.tv', 'TV'),
+                  AppLocalizations.of(context).listTypeTv,
                 ),
                 _buildTabButton(
                   _FavoriteTab.episode,
-                  _t('layout.list.favoriteTabs.episode', 'Episodes'),
+                  AppLocalizations.of(context).favoriteTabEpisodes,
                 ),
                 _buildTabButton(
                   _FavoriteTab.person,
-                  _t('layout.list.favoriteTabs.person', 'People'),
+                  AppLocalizations.of(context).favoriteTabPeople,
                 ),
               ],
             ),
@@ -143,7 +143,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
 
   Widget _buildSortFilterRow(MediaLayoutProfile layout, _FavoriteTab tab) {
     final tabData = _dataOf(tab);
-    final showFilter = tab != _FavoriteTab.person;
+    final showFilter = tab != _FavoriteTab.person && _isFeiniuBackend;
     final colors = context.appColors;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
@@ -240,7 +240,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
     if (data.items.isEmpty) {
       return Center(
         child: Text(
-          _t('common.other.empty', 'No content'),
+          AppLocalizations.of(context).commonEmpty,
           style: TextStyle(color: colors.textSecondary),
         ),
       );
@@ -420,7 +420,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
               child: TextButton.icon(
                 onPressed: () => _fetch(tab: tab, reset: false),
                 icon: const Icon(Icons.refresh, size: 16),
-                label: Text(_t('layout.globalError.refresh', 'Retry')),
+                label: Text(AppLocalizations.of(context).commonRefreshRetry),
               ),
             ),
           ),

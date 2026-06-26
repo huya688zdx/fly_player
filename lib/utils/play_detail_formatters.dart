@@ -1,4 +1,5 @@
-﻿import '../models/play_info.dart';
+import '../media_backend/detail/media_detail.dart';
+import '../models/play_info.dart';
 import 'api_url_helper.dart';
 
 class PlayDetailFormatters {
@@ -120,5 +121,34 @@ class PlayDetailFormatters {
     ].where((e) => e.isNotEmpty);
     return values.join(' / ');
   }
-}
 
+  /// 中立后端（Emby 等）的 metaLineA：与飞牛 [metaLineA] 同结构同顺序——年份 / 题材 / 地区。
+  /// 题材、地区已由适配层翻好（[MediaDetail.genreLabels]/[MediaDetail.regionLabels]）。
+  static String metaLineAFromDetail(MediaDetail detail) {
+    final date = detail.releaseDate.trim();
+    final year = date.length >= 4 ? date.substring(0, 4) : '';
+    final values = <String>[
+      if (year.isNotEmpty) year,
+      ...detail.genreLabels.map((e) => e.trim()).where((e) => e.isNotEmpty),
+      ...detail.regionLabels.map((e) => e.trim()).where((e) => e.isNotEmpty),
+    ];
+    return values.join(' / ');
+  }
+
+  /// 中立后端（Emby 等）的 metaLineB：时长 + 评分。时长优先单集分钟数，缺则按选中版本秒数
+  /// 格式化。评分为 Emby 自有展示（飞牛此区不展示评分，故仅中立路径拼入；空则省略）。飞牛此处
+  /// 第二段为「库/合集名」(ancestorName)，Emby 无对应字段、且剧名已在剧集面包屑展示，不重复拼入。
+  static String metaLineBFromDetail(
+    MediaDetail detail, {
+    required int effectiveDurationSeconds,
+  }) {
+    final runtime = detail.runtimeMinutes > 0
+        ? '${detail.runtimeMinutes}分钟'
+        : formatDuration(effectiveDurationSeconds);
+    final rating = detail.rating.trim();
+    return <String>[
+      if (runtime.isNotEmpty) runtime,
+      if (rating.isNotEmpty) '⭐ $rating',
+    ].join(' / ');
+  }
+}

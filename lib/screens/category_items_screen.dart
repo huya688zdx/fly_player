@@ -9,10 +9,10 @@ import '../controllers/media_item_action_sheet_controller.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/filter/media_catalog_filter.dart';
 import '../media_backend/media_backend_kind.dart';
+import '../media_backend/action/media_item_action_target.dart';
 import '../media_backend/media_item_card.dart';
 import '../models/media_collection_view_type.dart';
 import '../models/media_item.dart';
-import '../models/media_library_item.dart';
 import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
 import '../services/embedded_detail_launcher.dart';
@@ -21,9 +21,9 @@ import '../ui/adaptive_detail_navigator.dart';
 import '../ui/catalog_filter_localizer.dart';
 import '../ui/detail_presentation.dart';
 import '../ui/layout_adaptive.dart';
+import '../ui/media_episode_subtitle.dart';
 import '../ui/media_poster_card.dart';
 import '../utils/api_url_helper.dart';
-import '../utils/app_localization_lookup.dart';
 import '../utils/app_exception.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/library/media_collection_layout_sheet.dart';
@@ -128,19 +128,6 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     await _fetch();
   }
 
-  String _t(
-    String path,
-    String fallback, {
-    Map<String, Object?> params = const {},
-  }) {
-    return AppLocalizationLookup.text(
-      AppLocalizations.of(context),
-      path,
-      fallback: fallback,
-      params: params,
-    );
-  }
-
   Future<void> _loadMeta() async {
     if (_metaLoaded) return;
     final provider = context.read<NasProvider>();
@@ -222,12 +209,12 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   }
 
   Future<void> _showPosterItemActions(MediaItemCard item) async {
-    final actionItem = _cardToActionItem(item);
+    final l10n = AppLocalizations.of(context);
+    final target = MediaItemActionTarget.fromCard(item);
     await const MediaItemActionSheetController().show(
       context,
-      item: actionItem,
-      title: MediaItemActionSheetController.defaultTitle(actionItem),
-      localeMap: _localeMap,
+      target: target,
+      title: MediaItemActionSheetController.defaultTitle(l10n, target),
       favoriteOnly: _isPersonItem(item),
       initialWatched: item.watched,
       onChanged: (state) {
@@ -236,39 +223,6 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
           (current) => current.copyWith(watched: state.watched),
         );
       },
-    );
-  }
-
-  /// 动作面板仅消费 guid / watched / type / season&episode 编号与标题字段，
-  /// 这里按公共卡片回填一个最小 [MediaLibraryItem] 喂面板，避免在分类页保留飞牛模型。
-  /// 仅限本文件使用，不向外扩散（复刻搜索页 Task 4-4 模式）。
-  MediaLibraryItem _cardToActionItem(MediaItemCard card) {
-    return MediaLibraryItem(
-      guid: card.id,
-      title: card.title,
-      tvTitle: card.secondaryTitle,
-      type: card.type,
-      poster: card.primaryImage.url,
-      releaseDate: '',
-      firstAirDate: '',
-      lastAirDate: '',
-      voteAverage: '',
-      overview: '',
-      watched: card.watched ? 1 : 0,
-      watchedTs: 0,
-      ts: 0,
-      duration: 0,
-      seasonNumber: card.seasonNumber,
-      episodeNumber: card.episodeNumber,
-      numberOfSeasons: 0,
-      numberOfEpisodes: 0,
-      localNumberOfSeasons: 0,
-      localNumberOfEpisodes: 0,
-      parentGuid: '',
-      parentTitle: '',
-      ancestorGuid: '',
-      ancestorName: '',
-      path: '',
     );
   }
 
@@ -413,6 +367,14 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   String _year(String date) => date.length >= 4 ? date.substring(0, 4) : '';
 
   String _cardSubtitle(MediaItemCard item) {
+    if (item.type.trim().toLowerCase() == 'episode') {
+      return mediaEpisodeSubtitle(
+        AppLocalizations.of(context),
+        item.seasonNumber,
+        item.episodeNumber,
+        item.title,
+      );
+    }
     final start = item.firstAirDate.isNotEmpty
         ? item.firstAirDate
         : item.releaseDate;
@@ -455,7 +417,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     ).firstMatch(text);
     if (match != null) return match.group(1) ?? text;
     if (text == 'Others') {
-      return _t('stream.video.videoResolution.others', 'Other');
+      return AppLocalizations.of(context).commonOther;
     }
     return text;
   }
@@ -475,7 +437,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
       parts.add(localizer.optionLabel(dim, option));
     }
     if (parts.isEmpty) {
-      return _t('layout.list.filter.filterButton', 'Filter');
+      return AppLocalizations.of(context).listFilterButton;
     }
     return parts.join(' / ');
   }
@@ -539,7 +501,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  _t('layout.list.sort.title', 'Sort'),
+                  AppLocalizations.of(context).listSortTitle,
                   style: TextStyle(
                     color: colors.textPrimary,
                     fontSize: 36,
@@ -568,8 +530,8 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                             children: [
                               Text(
                                 _sortType == 'ASC'
-                                    ? '${_t('layout.list.sort.sortType.asc', 'Ascending')} ^'
-                                    : '${_t('layout.list.sort.sortType.desc', 'Descending')} v',
+                                    ? '${AppLocalizations.of(context).listSortAsc} ^'
+                                    : '${AppLocalizations.of(context).listSortDesc} v',
                                 style: TextStyle(
                                   color: colors.textSecondary,
                                   fontWeight: FontWeight.w700,
@@ -609,7 +571,21 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     );
   }
 
+  bool _filterSheetOpen = false;
+
+  /// 重入守卫：快速连点（或 await _loadMeta 期间再次点击）会各自走到 showModalBottomSheet
+  /// 叠出多个筛选弹窗。整个打开流程串行化，开着时忽略后续点击。
   Future<void> _openFilterSheet() async {
+    if (_filterSheetOpen) return;
+    _filterSheetOpen = true;
+    try {
+      await _openFilterSheetInner();
+    } finally {
+      _filterSheetOpen = false;
+    }
+  }
+
+  Future<void> _openFilterSheetInner() async {
     if (!_metaLoaded) await _loadMeta();
     if (!mounted) return;
     final colors = context.appColors;
@@ -674,7 +650,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                   Wrap(
                     children: [
                       chip(
-                        _t('layout.list.filter.all', 'All'),
+                        AppLocalizations.of(context).listFilterAll,
                         selected.isEmpty,
                         () => setModal(() => selected.clear()),
                       ),
@@ -711,7 +687,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                         children: [
                           const Spacer(),
                           Text(
-                            _t('layout.list.filter.filterButton', 'Filter'),
+                            AppLocalizations.of(context).listFilterButton,
                             style: TextStyle(
                               color: colors.textPrimary,
                               fontSize: 24,
@@ -753,7 +729,9 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                                 minimumSize: const Size.fromHeight(44),
                               ),
                               child: Text(
-                                _t('layout.list.filter.resetButton', 'Reset'),
+                                AppLocalizations.of(
+                                  context,
+                                ).listFilterResetButton,
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -781,7 +759,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                                 minimumSize: const Size.fromHeight(44),
                               ),
                               child: Text(
-                                _t('common.actions.default.default', 'Confirm'),
+                                AppLocalizations.of(context).commonConfirm,
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -1105,7 +1083,9 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                     child: TextButton.icon(
                       onPressed: _fetchMore,
                       icon: const Icon(Icons.refresh, size: 16),
-                      label: Text(_t('layout.globalError.refresh', 'Retry')),
+                      label: Text(
+                        AppLocalizations.of(context).commonRefreshRetry,
+                      ),
                     ),
                   ),
                 ),

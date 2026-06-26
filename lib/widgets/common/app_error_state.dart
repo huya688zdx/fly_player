@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/app_exception.dart';
-import '../../utils/app_localization_lookup.dart';
 
 class AppErrorState extends StatelessWidget {
   final AppException error;
@@ -19,46 +18,29 @@ class AppErrorState extends StatelessWidget {
     this.padding = const EdgeInsets.all(24),
   });
 
-  String _t(
-    BuildContext context,
-    String path,
-    String fallback, {
-    Map<String, Object?> params = const <String, Object?>{},
-  }) {
-    return AppLocalizationLookup.text(
-      AppLocalizations.of(context),
-      path,
-      fallback: fallback,
-      params: params,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final (icon, title, tint) = switch (error.kind) {
       AppExceptionKind.noData => (
         Icons.folder_open_rounded,
-        _t(context, 'layout.dataLayout.noData', 'No data'),
+        l10n.commonNoData,
         colors.textMuted,
       ),
       AppExceptionKind.unauthorized => (
         Icons.lock_outline_rounded,
-        _t(
-          context,
-          'layout.dataLayout.noAccessLibrary',
-          'No accessible library',
-        ),
+        l10n.commonNoAccessLibrary,
         colors.warning,
       ),
       AppExceptionKind.transient => (
         Icons.cloud_off_rounded,
-        _t(context, 'layout.dataLayout.loadFailed', 'Load failed'),
+        l10n.globalLoadFailed,
         colors.danger,
       ),
       AppExceptionKind.fatal => (
         Icons.error_outline_rounded,
-        _t(context, 'layout.dataLayout.loadFailed', 'Load failed'),
+        l10n.globalLoadFailed,
         colors.danger,
       ),
     };
@@ -98,7 +80,7 @@ class AppErrorState extends StatelessWidget {
               const SizedBox(height: 18),
               ElevatedButton(
                 onPressed: onRetry,
-                child: Text(_t(context, 'layout.globalError.refresh', 'Retry')),
+                child: Text(l10n.commonRefreshRetry),
               ),
             ],
           ],

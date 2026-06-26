@@ -43,6 +43,15 @@ abstract class MediaBackend {
   /// 按筛选条件分页查询某个媒体库的条目。
   Future<MediaItemCardPage> queryCatalogItems(MediaCatalogQuery query);
 
+  /// 查询「收藏」条目分页（收藏页）。
+  ///
+  /// 默认返回空（飞牛走自有 `getFavoritePage` 完整路径 + 标签筛选,不经本接口）；Emby 等公共
+  /// 后端 override 为 `Filters=IsFavorite` 查询。收藏页对飞牛走专属页面,对其他后端走本接口
+  /// 的公共卡片网格。[query] 的 `selection['type']` 用中立类型标签按收藏 Tab 过滤
+  /// （movie / tv / episode / person）。
+  Future<MediaItemCardPage> queryFavoriteItems(MediaCatalogQuery query) async =>
+      const MediaItemCardPage();
+
   /// 单个条目的详情（展示信息）。不含播放接线（轨道 / 句柄 / 直链），那些留播放入口。
   Future<MediaDetail> getItemDetail(String itemId);
 
@@ -123,6 +132,23 @@ abstract class MediaBackend {
     required String mediaSourceId,
     required int positionSeconds,
   }) async {}
+
+  /// 设置 / 取消「收藏」，返回最终收藏态（true=已收藏）。
+  ///
+  /// 详情页心形键的中立通道——新后端实现此法即可让详情页收藏键生效，无需改 UI。默认不支持
+  /// （返回入参，视为无变化）；飞牛走 `FeiniuApi.setFavorite`，Emby 走
+  /// `POST/DELETE /Users/{userId}/FavoriteItems/{itemId}`。失败应抛错，由调用方提示。
+  /// 能力开关见 [MediaBackendCapabilities.supportsFavorite]。
+  Future<bool> setItemFavorite(String itemId, {required bool favorite}) async =>
+      favorite;
+
+  /// 标记「已看 / 未看」，返回最终已看态（true=已看）。
+  ///
+  /// 详情页已看键的中立通道。默认不支持；飞牛走 `FeiniuApi.setWatched`，Emby 走
+  /// `POST/DELETE /Users/{userId}/PlayedItems/{itemId}`。能力开关见
+  /// [MediaBackendCapabilities.supportsWatched]。
+  Future<bool> setItemWatched(String itemId, {required bool watched}) async =>
+      watched;
 
   /// 解析外挂字幕轨为本地可 `sub-add` 的文件路径（原生壳反向通道）。
   ///

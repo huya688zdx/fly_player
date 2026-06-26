@@ -8,6 +8,7 @@ import '../api/item_list_request.dart';
 import '../controllers/item_playback_launcher.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../media_backend/action/media_library_item_action_target.dart';
 import '../models/media_collection_view_type.dart';
 import '../models/media_library_item.dart';
 import '../models/play_info.dart';
@@ -946,10 +947,12 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
   }
 
   Future<void> _showItemActions(MediaLibraryItem item) async {
+    final l10n = AppLocalizations.of(context);
+    final target = item.toActionTarget();
     await const MediaItemActionSheetController().show(
       context,
-      item: item,
-      title: MediaItemActionSheetController.defaultTitle(item),
+      target: target,
+      title: MediaItemActionSheetController.defaultTitle(l10n, target),
       initialWatched: item.watched == 1,
       onChanged: (state) {
         if (!mounted) return;

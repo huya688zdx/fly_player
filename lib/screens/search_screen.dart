@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -7,17 +7,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api/feiniu_api.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../media_backend/action/media_item_action_target.dart';
 import '../media_backend/media_item_card.dart';
-import '../models/media_library_item.dart';
 import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../theme/app_theme.dart';
 import '../ui/app_transitions.dart';
 import '../ui/layout_adaptive.dart';
+import '../ui/media_episode_subtitle.dart';
 import '../ui/media_poster_card.dart';
 import '../utils/api_url_helper.dart';
-import '../utils/app_localization_lookup.dart';
 import '../utils/async_action_guard.dart';
 import '../utils/app_exception.dart';
 import '../widgets/common/app_error_state.dart';
@@ -78,19 +78,6 @@ class _SearchScreenState extends State<SearchScreen> {
         _focusNode.requestFocus();
       }
     });
-  }
-
-  String _t(
-    String path,
-    String fallback, {
-    Map<String, Object?> params = const <String, Object?>{},
-  }) {
-    return AppLocalizationLookup.text(
-      AppLocalizations.of(context),
-      path,
-      fallback: fallback,
-      params: params,
-    );
   }
 
   Future<void> _loadLocaleIfNeeded() async {
@@ -201,12 +188,12 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Future<void> _showPosterItemActions(MediaItemCard item) async {
-    final actionItem = _cardToActionItem(item);
+    final l10n = AppLocalizations.of(context);
+    final target = MediaItemActionTarget.fromCard(item);
     await const MediaItemActionSheetController().show(
       context,
-      item: actionItem,
-      title: MediaItemActionSheetController.defaultTitle(actionItem),
-      localeMap: _localeMap,
+      target: target,
+      title: MediaItemActionSheetController.defaultTitle(l10n, target),
       favoriteOnly: _isPersonItem(item),
       initialWatched: item.watched,
       onChanged: (state) {
@@ -215,39 +202,6 @@ class _SearchScreenState extends State<SearchScreen> {
           (current) => current.copyWith(watched: state.watched),
         );
       },
-    );
-  }
-
-  /// 动作面板仅消费 guid / watched / type / season&episode 编号与标题字段，
-  /// 这里按公共卡片回填一个最小 [MediaLibraryItem] 喂面板，避免在搜索页保留飞牛模型。
-  /// 仅限本文件使用，不向外扩散。
-  MediaLibraryItem _cardToActionItem(MediaItemCard card) {
-    return MediaLibraryItem(
-      guid: card.id,
-      title: card.title,
-      tvTitle: card.secondaryTitle,
-      type: card.type,
-      poster: card.primaryImage.url,
-      releaseDate: '',
-      firstAirDate: '',
-      lastAirDate: '',
-      voteAverage: '',
-      overview: '',
-      watched: card.watched ? 1 : 0,
-      watchedTs: 0,
-      ts: 0,
-      duration: 0,
-      seasonNumber: card.seasonNumber,
-      episodeNumber: card.episodeNumber,
-      numberOfSeasons: 0,
-      numberOfEpisodes: 0,
-      localNumberOfSeasons: 0,
-      localNumberOfEpisodes: 0,
-      parentGuid: '',
-      parentTitle: '',
-      ancestorGuid: '',
-      ancestorName: '',
-      path: '',
     );
   }
 
@@ -307,18 +261,22 @@ class _SearchScreenState extends State<SearchScreen> {
   String _personSubtitle(MediaItemCard item) {
     final count = item.numberOfItem;
     if (count > 0) {
-      return _t(
-        'layout.subheading.person.items',
-        '\u5171 {count} \u4e2a\u4f5c\u54c1',
-        params: <String, Object?>{'count': count},
-      );
+      return AppLocalizations.of(context).personItemCount(count);
     }
-    return _t('common.other.empty', '\u6ca1\u6709\u5185\u5bb9');
+    return AppLocalizations.of(context).commonEmpty;
   }
 
   String _cardSubtitle(MediaItemCard item) {
     if (_isPersonItem(item)) {
       return _personSubtitle(item);
+    }
+    if (item.type.trim().toLowerCase() == 'episode') {
+      return mediaEpisodeSubtitle(
+        AppLocalizations.of(context),
+        item.seasonNumber,
+        item.episodeNumber,
+        item.title,
+      );
     }
     final start = item.firstAirDate.isNotEmpty
         ? item.firstAirDate
@@ -338,19 +296,15 @@ class _SearchScreenState extends State<SearchScreen> {
         ? item.localNumberOfEpisodes
         : item.numberOfEpisodes;
     if (seasonCount == 1 && episodeCount > 0) {
-      final epText = _t(
-        'layout.subheading.tv.episodes',
-        '\u5171 {count} \u96c6',
-        params: <String, Object?>{'count': episodeCount},
-      );
+      final epText = AppLocalizations.of(
+        context,
+      ).detailEpisodeTotal(episodeCount);
       return period.isEmpty ? epText : '$epText \u00b7 $period';
     }
     if (seasonCount > 0) {
-      final seasonText = _t(
-        'layout.subheading.tv.seasons',
-        '\u5171 {count} \u5b63',
-        params: <String, Object?>{'count': seasonCount},
-      );
+      final seasonText = AppLocalizations.of(
+        context,
+      ).detailTvSeasonCount(seasonCount);
       return period.isEmpty ? seasonText : '$seasonText \u00b7 $period';
     }
     return period;
@@ -376,7 +330,7 @@ class _SearchScreenState extends State<SearchScreen> {
           children: [
             Expanded(
               child: Text(
-                _t('layout.search.history', '\u641c\u7d22\u5386\u53f2'),
+                AppLocalizations.of(context).searchHistory,
                 style: TextStyle(
                   color: colors.textPrimary,
                   fontSize: 18,
@@ -455,11 +409,7 @@ class _SearchScreenState extends State<SearchScreen> {
             borderRadius: BorderRadius.circular(10),
           ),
           child: Text(
-            _t(
-              'layout.search.resultCount',
-              '{count}\u4e2a\u641c\u7d22\u7ed3\u679c',
-              params: <String, Object?>{'count': _results.length},
-            ),
+            AppLocalizations.of(context).searchResultCount(_results.length),
             style: TextStyle(
               color: colors.textPrimary,
               fontSize: 14,
@@ -557,10 +507,9 @@ class _SearchScreenState extends State<SearchScreen> {
                               decoration: InputDecoration(
                                 isCollapsed: true,
                                 border: InputBorder.none,
-                                hintText: _t(
-                                  'layout.search.placeholder',
-                                  '\u641c\u7d22',
-                                ),
+                                hintText: AppLocalizations.of(
+                                  context,
+                                ).searchPlaceholder,
                                 hintStyle: TextStyle(
                                   color: colors.textMuted,
                                   fontSize: 18,
@@ -594,7 +543,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       );
                     },
                     child: Text(
-                      _t('common.actions.cancel', '\u53d6\u6d88'),
+                      AppLocalizations.of(context).commonCancel,
                       style: TextStyle(
                         color: colors.textPrimary,
                         fontSize: 18,

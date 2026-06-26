@@ -6,9 +6,14 @@ import 'package:provider/provider.dart';
 
 import '../api/feiniu_api.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
+import '../media_backend/action/media_library_item_action_target.dart';
+import '../media_backend/filter/media_catalog_filter.dart';
+import '../media_backend/media_backend_kind.dart';
+import '../media_backend/media_item_card.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../models/media_collection_view_type.dart';
 import '../models/media_library_item.dart';
+import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../theme/app_theme.dart';
@@ -16,9 +21,9 @@ import '../ui/adaptive_detail_navigator.dart';
 import '../ui/app_transitions.dart';
 import '../ui/detail_presentation.dart';
 import '../ui/layout_adaptive.dart';
+import '../ui/media_episode_subtitle.dart';
 import '../ui/media_poster_card.dart';
 import '../utils/api_url_helper.dart';
-import '../utils/app_localization_lookup.dart';
 import '../utils/app_exception.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/library/media_collection_layout_sheet.dart';
@@ -127,20 +132,19 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
     setState(update);
   }
 
-  String _t(
-    String path,
-    String fallback, {
-    Map<String, Object?> params = const <String, Object?>{},
-  }) {
-    return AppLocalizationLookup.text(
-      AppLocalizations.of(context),
-      path,
-      fallback: fallback,
-      params: params,
-    );
-  }
+  /// 当前是否飞牛后端。决定标签筛选行、服务端列表偏好持久化等飞牛专属能力是否可用;
+  /// 非飞牛(Emby 等）复用本页渲染但隐藏这些专属能力。
+  bool get _isFeiniuBackend =>
+      context.read<MediaBackendProvider>().backend.capabilities.kind ==
+      MediaBackendKind.feiniu;
 
   Future<void> _initLoad() async {
+    // 非飞牛后端无飞牛标签字典 / 服务端列表偏好,直接加载收藏卡片(复用本页整套渲染)。
+    if (context.read<MediaBackendProvider>().backend.capabilities.kind !=
+        MediaBackendKind.feiniu) {
+      await _fetch(tab: _selectedTab, reset: true);
+      return;
+    }
     final api = FeiniuApi(context.read<NasProvider>());
     const localeMap = <String, dynamic>{};
     final genresMap = await api.getTagGenresMap(lan: 'zh-CN');
@@ -227,6 +231,15 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
       return '';
     }
 
+    if (item.type.trim().toLowerCase() == 'episode') {
+      return mediaEpisodeSubtitle(
+        AppLocalizations.of(context),
+        item.seasonNumber,
+        item.episodeNumber,
+        item.title,
+      );
+    }
+
     final start = item.firstAirDate.isNotEmpty
         ? item.firstAirDate
         : item.releaseDate;
@@ -247,19 +260,15 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
               : item.episodeNumber);
 
     if (seasonCount == 1 && episodeCount > 0) {
-      final episodeText = _t(
-        'layout.subheading.tv.episodes',
-        '{count} episodes',
-        params: <String, Object?>{'count': episodeCount},
-      );
+      final episodeText = AppLocalizations.of(
+        context,
+      ).detailEpisodeTotal(episodeCount);
       return period.isEmpty ? episodeText : '$episodeText · $period';
     }
     if (seasonCount > 0) {
-      final seasonText = _t(
-        'layout.subheading.tv.seasons',
-        '{count} seasons',
-        params: <String, Object?>{'count': seasonCount},
-      );
+      final seasonText = AppLocalizations.of(
+        context,
+      ).detailTvSeasonCount(seasonCount);
       return period.isEmpty ? seasonText : '$seasonText · $period';
     }
     return period;
@@ -273,7 +282,7 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
     ).firstMatch(text);
     if (match != null) return match.group(1) ?? text;
     if (text == 'Others') {
-      return _t('stream.video.videoResolution.others', 'Other');
+      return AppLocalizations.of(context).commonOther;
     }
     return text;
   }
@@ -289,9 +298,9 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
     final raw = value.toString();
     switch (raw) {
       case 'Movie':
-        return _t('layout.list.favoriteTabs.movie', 'Movies');
+        return AppLocalizations.of(context).listTypeMovie;
       case 'TV':
-        return _t('layout.list.favoriteTabs.tv', 'TV');
+        return AppLocalizations.of(context).listTypeTv;
       default:
         return raw;
     }
@@ -306,15 +315,15 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
     final raw = value.toString();
     switch (raw) {
       case 'DolbySurround':
-        return _t('stream.audio.audioSpecs.dolbySurround', 'Dolby Surround');
+        return AppLocalizations.of(context).audioSpecDolbySurround;
       case 'DolbyAtmos':
-        return _t('stream.audio.audioSpecs.dolbyAtmos', 'Dolby Atmos');
+        return AppLocalizations.of(context).audioSpecDolbyAtmos;
       case 'DTS':
-        return _t('stream.audio.audioSpecs.dts', 'DTS');
+        return AppLocalizations.of(context).audioSpecDts;
       case 'Stereo':
-        return _t('stream.audio.audioSpecs.stereo', 'Stereo');
+        return AppLocalizations.of(context).audioSpecStereo;
       case 'Others':
-        return _t('stream.audio.audioSpecs.others', 'Other');
+        return AppLocalizations.of(context).commonOther;
       default:
         return raw;
     }
@@ -323,7 +332,7 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
   String _decadeLabel(dynamic value) {
     final raw = value.toString();
     if (raw == 'Recent') {
-      return _t('layout.list.filter.decade.Recent', 'This year');
+      return AppLocalizations.of(context).listFilterDecadeRecent;
     }
     return raw;
   }
@@ -331,21 +340,21 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
   String _recognitionStatusLabel(dynamic value) {
     final code = int.tryParse(value.toString()) ?? 0;
     if (code == 1) {
-      return _t('layout.list.filter.recognitionStatus.1', 'Unmatched');
+      return AppLocalizations.of(context).listRecognitionUnmatched;
     }
     if (code == 2) {
-      return _t('layout.list.filter.recognitionStatus.2', 'Matched');
+      return AppLocalizations.of(context).listRecognitionMatched;
     }
     if (code == 3) {
-      return _t('layout.list.filter.recognitionStatus.3', 'NFO matched');
+      return AppLocalizations.of(context).listRecognitionNfo;
     }
     return value.toString();
   }
 
   String _watchedLabel(dynamic value) {
     final code = int.tryParse(value.toString()) ?? -1;
-    if (code == 1) return _t('layout.list.filter.watched.1', 'Watched');
-    if (code == 0) return _t('layout.list.filter.watched.0', 'Unwatched');
+    if (code == 1) return AppLocalizations.of(context).listWatched;
+    if (code == 0) return AppLocalizations.of(context).listUnwatched;
     return value.toString();
   }
 
@@ -379,7 +388,7 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
       parts.add(_watchedLabel(_selectedWatched.first));
     }
     if (parts.isEmpty) {
-      return _t('layout.list.filter.filterButton', 'Filter');
+      return AppLocalizations.of(context).listFilterButton;
     }
     return parts.join(' / ');
   }
@@ -406,14 +415,56 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
     setState(() {
       _viewType = next;
     });
-    await FeiniuApi(context.read<NasProvider>()).setUserListSetting(
-      '',
-      viewType: next.storageValue,
-      key: _favoriteListSettingKey,
-    );
+    if (_isFeiniuBackend) {
+      await FeiniuApi(context.read<NasProvider>()).setUserListSetting(
+        '',
+        viewType: next.storageValue,
+        key: _favoriteListSettingKey,
+      );
+    }
   }
 
   _FavoriteTabData _dataOf(_FavoriteTab tab) => _tabData[tab]!;
+
+  /// 非飞牛收藏卡 → 飞牛列表模型的临时桥接,使 Emby 等后端复用本页整套渲染
+  /// （网格 / 视图切换 / 排序 / 长按）。待收藏页渲染层迁公共卡片后移除（批次 9）。
+  MediaLibraryItem _cardToLibraryItem(MediaItemCard card) {
+    return MediaLibraryItem(
+      guid: card.id,
+      title: card.title,
+      tvTitle: card.secondaryTitle,
+      type: card.type,
+      poster: card.primaryImage.url,
+      posterWidth: card.posterWidth,
+      posterHeight: card.posterHeight,
+      posterList: card.posters
+          .map((ref) => ref.url)
+          .where((url) => url.trim().isNotEmpty)
+          .toList(growable: false),
+      releaseDate: card.releaseDate,
+      firstAirDate: card.firstAirDate,
+      lastAirDate: card.lastAirDate,
+      voteAverage: card.rating,
+      overview: '',
+      watched: card.watched ? 1 : 0,
+      watchedTs: 0,
+      ts: 0,
+      duration: card.durationSeconds,
+      seasonNumber: card.seasonNumber,
+      episodeNumber: card.episodeNumber,
+      numberOfSeasons: card.numberOfSeasons,
+      numberOfEpisodes: card.numberOfEpisodes,
+      localNumberOfSeasons: card.localNumberOfSeasons,
+      localNumberOfEpisodes: card.localNumberOfEpisodes,
+      numberOfItem: card.numberOfItem,
+      parentGuid: '',
+      parentTitle: '',
+      ancestorGuid: card.seriesId,
+      ancestorName: '',
+      path: '',
+      resolutions: card.resolutions,
+    );
+  }
 
   void _resetTabData(_FavoriteTabData data) {
     data.items = <MediaLibraryItem>[];
@@ -467,21 +518,49 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
 
     try {
       final pageNo = reset ? 1 : (data.currentPage + 1);
-      final page = await FeiniuApi(context.read<NasProvider>()).getFavoritePage(
-        tags: _requestTags(tab),
-        sortType: _sortType,
-        sortColumn: _sortColumn,
-        page: pageNo,
-        pageSize: _pageSize,
-      );
+      final backend = context.read<MediaBackendProvider>().backend;
+      final List<MediaLibraryItem> fetchedItems;
+      final int fetchedTotal;
+      if (backend.capabilities.kind == MediaBackendKind.feiniu) {
+        final page = await FeiniuApi(context.read<NasProvider>())
+            .getFavoritePage(
+              tags: _requestTags(tab),
+              sortType: _sortType,
+              sortColumn: _sortColumn,
+              page: pageNo,
+              pageSize: _pageSize,
+            );
+        fetchedItems = page.items;
+        fetchedTotal = page.total;
+      } else {
+        // 非飞牛:走中立 queryFavoriteItems,卡片映射为列表模型以复用本页整套渲染。
+        final type = _tabTypeFilter(tab);
+        final result = await backend.queryFavoriteItems(
+          MediaCatalogQuery(
+            catalogId: '',
+            selection: type == null
+                ? const <String, List<String>>{}
+                : <String, List<String>>{'type': type},
+            sortField: _sortColumn,
+            sortType: _sortType,
+            page: pageNo,
+            pageSize: _pageSize,
+          ),
+        );
+        fetchedItems = result.items
+            .map(_cardToLibraryItem)
+            .toList(growable: false);
+        fetchedTotal = result.total;
+      }
       if (!mounted) return;
       setState(() {
-        data.total = page.total;
+        data.total = fetchedTotal;
         data.currentPage = pageNo;
         data.items = reset
-            ? page.items
-            : <MediaLibraryItem>[...data.items, ...page.items];
-        data.hasMore = data.items.length < data.total && page.items.isNotEmpty;
+            ? fetchedItems
+            : <MediaLibraryItem>[...data.items, ...fetchedItems];
+        data.hasMore =
+            data.items.length < data.total && fetchedItems.isNotEmpty;
         data.isLoading = false;
         data.isLoadingMore = false;
       });
@@ -577,11 +656,12 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
   }
 
   Future<void> _showFavoriteItemActions(MediaLibraryItem item) async {
+    final l10n = AppLocalizations.of(context);
+    final target = item.toActionTarget();
     await const MediaItemActionSheetController().show(
       context,
-      item: item,
-      title: MediaItemActionSheetController.defaultTitle(item),
-      localeMap: _localeMap,
+      target: target,
+      title: MediaItemActionSheetController.defaultTitle(l10n, target),
       favoriteOnly: _isPersonItem(item),
       initialFavorite: true,
       initialWatched: item.watched == 1,
@@ -613,15 +693,15 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
   String _sortLabelFor(String column) {
     switch (column) {
       case 'create_time':
-        return _t('layout.list.sort.sortField.createTime', 'By favorite date');
+        return AppLocalizations.of(context).listSortCreateTime;
       case 'release_date':
-        return _t('layout.list.sort.sortField.releaseDate', 'By release year');
+        return AppLocalizations.of(context).listSortReleaseDate;
       case 'title':
-        return _t('layout.list.sort.sortField.title', 'By title');
+        return AppLocalizations.of(context).listSortTitleField;
       case 'vote_average':
-        return _t('layout.list.sort.sortField.voteAverage', 'By rating');
+        return AppLocalizations.of(context).listSortVoteAverage;
       default:
-        return _t('layout.list.sort.sortField.createTime', 'By favorite date');
+        return AppLocalizations.of(context).listSortCreateTime;
     }
   }
 

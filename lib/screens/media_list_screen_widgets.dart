@@ -39,7 +39,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
               ? () => EmbeddedDetailLauncher.closeHostOrPop(context)
               : _confirmLogout,
         ),
-        title: Text(_t('layout.sidebar.home', 'Home')),
+        title: Text(AppLocalizations.of(context).homeTitle),
         actions: <Widget>[
           IconButton(
             icon: const Icon(Icons.search),
@@ -115,7 +115,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     if (_categories.isEmpty) {
       return Center(
         child: Text(
-          _t('common.other.empty', 'No content'),
+          AppLocalizations.of(context).commonEmpty,
           style: TextStyle(color: colors.textSecondary),
         ),
       );
@@ -210,7 +210,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
         const SizedBox(height: 10),
         if (_continueWatching.isNotEmpty) ...<Widget>[
           Text(
-            _t('layout.list.continueWatching', 'Continue watching'),
+            AppLocalizations.of(context).homeContinueWatching,
             style: TextStyle(
               color: colors.textPrimary,
               fontSize: 22,
@@ -238,7 +238,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
           children: <Widget>[
             Expanded(
               child: _buildStatCard(
-                _t('common.actions.favorite.favorite', 'Favorites'),
+                AppLocalizations.of(context).actionFavoriteAdd,
                 favorite,
                 hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
                 onTap: _openFavorites,
@@ -247,7 +247,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
             const SizedBox(width: 6),
             Expanded(
               child: _buildStatCard(
-                _t('layout.sidebar.allList', 'All media'),
+                AppLocalizations.of(context).mediaAllItemsTitle,
                 total,
                 hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
                 onTap: _openAllItems,
@@ -256,11 +256,11 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
             const SizedBox(width: 6),
             Expanded(
               child: _buildStatCard(
-                _t('layout.sidebar.movieList', 'Movies'),
+                AppLocalizations.of(context).listTypeMovie,
                 movie,
                 hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
                 onTap: () => _openAllItemsByType(
-                  _t('layout.sidebar.movieList', 'Movies'),
+                  AppLocalizations.of(context).listTypeMovie,
                   const <String>['Movie'],
                 ),
               ),
@@ -268,11 +268,11 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
             const SizedBox(width: 6),
             Expanded(
               child: _buildStatCard(
-                _t('layout.sidebar.tvList', 'TV'),
+                AppLocalizations.of(context).listTypeTv,
                 tv,
                 hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
                 onTap: () => _openAllItemsByType(
-                  _t('layout.sidebar.tvList', 'TV'),
+                  AppLocalizations.of(context).listTypeTv,
                   const <String>['TV'],
                 ),
               ),
@@ -280,11 +280,11 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
             const SizedBox(width: 6),
             Expanded(
               child: _buildStatCard(
-                _t('layout.sidebar.otherList', 'Other'),
+                AppLocalizations.of(context).commonOther,
                 other,
                 hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
                 onTap: () => _openAllItemsByType(
-                  _t('layout.sidebar.otherList', 'Other'),
+                  AppLocalizations.of(context).commonOther,
                   const <String>['Directory', 'Video'],
                 ),
               ),
@@ -437,7 +437,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
               const SizedBox(height: 1),
               Text(
                 item.type.trim().toLowerCase() == 'movie'
-                    ? _t('layout.list.filter.type.movie', 'Movies')
+                    ? AppLocalizations.of(context).listTypeMovie
                     : _continueEpisodeText(item),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -517,7 +517,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
         height: 220,
         child: Center(
           child: Text(
-            _t('common.other.empty', 'No content'),
+            AppLocalizations.of(context).commonEmpty,
             style: TextStyle(color: colors.textMuted),
           ),
         ),

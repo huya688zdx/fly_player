@@ -26,10 +26,12 @@ void main() {
     await tester.tap(find.text('Emby'));
     await tester.pumpAndSettle();
 
-    expect(find.text('验证 Emby 连接'), findsOneWidget);
+    // Emby 表单已完善为正式登录：登录按钮、记住登录勾选，下载/FN Connect 仍是飞牛专属。
     expect(find.text('Emby 服务器地址'), findsOneWidget);
     expect(find.text('用户名'), findsOneWidget);
     expect(find.text('密码'), findsOneWidget);
+    expect(find.text('登录'), findsOneWidget);
+    expect(find.text('保持登录'), findsOneWidget);
     expect(find.text('重新登录 FN Connect'), findsNothing);
 
     await tester.tap(find.text('飞牛 NAS'));

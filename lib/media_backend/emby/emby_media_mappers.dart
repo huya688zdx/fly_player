@@ -42,6 +42,7 @@ MediaItemCard mapEmbyItemCard(
     token: token,
     id: id,
   );
+  final userData = item['UserData'];
   return MediaItemCard(
     id: id,
     title: (item['Name'] ?? '').toString(),
@@ -60,11 +61,47 @@ MediaItemCard mapEmbyItemCard(
     ),
     durationSeconds: _ticksToSeconds(item['RunTimeTicks']),
     watched: _played(item),
+    resumePositionSeconds: userData is Map
+        ? _ticksToSeconds(userData['PlaybackPositionTicks'])
+        : 0,
     rating: _ratingText(item['CommunityRating']),
     releaseDate: (item['PremiereDate'] ?? '').toString(),
     seasonNumber: _asInt(item['ParentIndexNumber']),
     episodeNumber: _asInt(item['IndexNumber']),
+    resolutions: _cardResolutions(item),
   );
+}
+
+/// 卡片清晰度角标：取首条视频流高 → `1080p`/`4K` 等。需查询带上 `MediaStreams` 字段，
+/// 缺失时返回空（不显示角标）。
+List<String> _cardResolutions(Map<String, Object?> item) {
+  final sources = item['MediaSources'];
+  List? streams;
+  if (sources is List && sources.isNotEmpty && sources.first is Map) {
+    streams = (sources.first as Map)['MediaStreams'] as List?;
+  }
+  streams ??= item['MediaStreams'] as List?;
+  if (streams == null) return const <String>[];
+  for (final raw in streams) {
+    if (raw is! Map) continue;
+    if ((raw['Type'] ?? '').toString().toLowerCase() != 'video') continue;
+    final label = _resolutionTier(_asInt(raw['Width']), _asInt(raw['Height']));
+    return label.isEmpty ? const <String>[] : <String>[label];
+  }
+  return const <String>[];
+}
+
+/// 分辨率归档到 app 徽章体系支持的档位：4K / 2K / 1080 / 720 / 480。
+///
+/// 优先按**宽度**判定：宽银幕 scope 内容高度偏低（如 4K 蓝光 3840×1604，宽 3840 仍是 4K，
+/// 按高度会误判成 2K），按宽度才稳。宽度缺失时用高度兜底。无法判定返回空（不显角标 / 用源名）。
+String _resolutionTier(int width, int height) {
+  if (width >= 3000 || height >= 2000) return '4K';
+  if (width >= 2000 || height >= 1400) return '2K';
+  if (width >= 1800 || height >= 1000) return '1080';
+  if (width >= 1100 || height >= 700) return '720';
+  if (width >= 600 || height >= 400) return '480';
+  return '';
 }
 
 /// Emby `BaseItemDto`（详情接口）→ 公共 [MediaDetail]（详情页展示）。
@@ -82,6 +119,11 @@ MediaDetail mapEmbyItemDetail(
     id: id,
     type: (item['Type'] ?? '').toString(),
     title: (item['Name'] ?? '').toString(),
+    // 剧集面包屑（剧名 · 季 · 集）所需：Emby 单集 BaseItemDto 携带 SeriesName/
+    // ParentIndexNumber(季)/IndexNumber(集)。非剧集时缺省 → 空/0，详情头部不显示面包屑。
+    parentTitle: (item['SeriesName'] ?? '').toString(),
+    seasonNumber: _asInt(item['ParentIndexNumber']),
+    episodeNumber: _asInt(item['IndexNumber']),
     overview: (item['Overview'] ?? '').toString(),
     primaryImage: _primaryImage(
       item,
@@ -101,6 +143,8 @@ MediaDetail mapEmbyItemDetail(
     runtimeMinutes: _ticksToSeconds(item['RunTimeTicks']) ~/ 60,
     durationSeconds: _ticksToSeconds(item['RunTimeTicks']),
     genreLabels: _stringList(item['Genres']),
+    // 地区保持原样（Emby 给英文国名 / ISO code）；本地化在有 l10n context 的渲染层做
+    // （mapper 无 AppLocalizations，且中文文案须走 l10n 不可写死）。见 RegionNameLocalizer。
     regionLabels: _stringList(item['ProductionLocations']),
     watched: _played(item),
     favorite: userData is Map && userData['IsFavorite'] == true,
@@ -160,6 +204,7 @@ MediaEpisodeSummary mapEmbyEpisode(
     resumePositionSeconds: userData is Map
         ? _ticksToSeconds(userData['PlaybackPositionTicks'])
         : 0,
+    resolutions: _cardResolutions(episode),
     primaryImage: _primaryImage(
       episode,
       serverUrl: serverUrl,
@@ -216,8 +261,10 @@ List<MediaSourceVersion> mapEmbySourceVersions(Map<String, Object?> item) {
         switch ((stream['Type'] ?? '').toString().toLowerCase()) {
           case 'video':
             if (videoResolution.isEmpty) {
-              final height = _asInt(stream['Height']);
-              if (height > 0) videoResolution = '${height}p';
+              videoResolution = _resolutionTier(
+                _asInt(stream['Width']),
+                _asInt(stream['Height']),
+              );
               videoRange = (stream['VideoRange'] ?? '').toString().trim();
             }
             break;
@@ -336,8 +383,9 @@ String _streamIndexId(Object? value) {
 
 MediaSourceStream _videoStream(Map<String, Object?> stream) {
   final display = (stream['DisplayTitle'] ?? '').toString().trim();
+  final width = _asInt(stream['Width']);
   final height = _asInt(stream['Height']);
-  final res = height > 0 ? '${height}p' : '';
+  final res = _resolutionTier(width, height);
   final codec = (stream['Codec'] ?? '').toString().trim().toUpperCase();
   final label = display.isNotEmpty
       ? display
@@ -350,10 +398,58 @@ MediaSourceStream _videoStream(Map<String, Object?> stream) {
     if (_mbps(stream['BitRate']).isNotEmpty) _mbps(stream['BitRate']),
     if (bit > 0) '$bit bit',
   ].join(' · ');
+  final range = (stream['VideoRange'] ?? '').toString().trim();
+  final interlaced = stream['IsInterlaced'] == true;
   return MediaSourceStream(
     type: MediaStreamType.video,
     label: label,
     summary: summary,
+    fields: <MediaInfoField>[
+      MediaInfoField(MediaInfoFieldKey.encoder, codec),
+      MediaInfoField(
+        MediaInfoFieldKey.profile,
+        (stream['Profile'] ?? '').toString().trim(),
+      ),
+      MediaInfoField(MediaInfoFieldKey.level, _levelText(stream['Level'])),
+      MediaInfoField(
+        MediaInfoFieldKey.resolution,
+        (width > 0 && height > 0) ? '$width * $height' : '',
+      ),
+      MediaInfoField(
+        MediaInfoFieldKey.aspectRatio,
+        (stream['AspectRatio'] ?? '').toString().trim(),
+      ),
+      const MediaInfoField.divider(),
+      MediaInfoField(MediaInfoFieldKey.interlaced, _yesNoRaw(!interlaced)),
+      MediaInfoField(
+        MediaInfoFieldKey.frameRate,
+        _frameRateText(stream['RealFrameRate'] ?? stream['AverageFrameRate']),
+      ),
+      MediaInfoField(MediaInfoFieldKey.bitrate, _bitrate(stream['BitRate'])),
+      MediaInfoField(MediaInfoFieldKey.range, range),
+      MediaInfoField(
+        MediaInfoFieldKey.colorPrimaries,
+        (stream['ColorPrimaries'] ?? '').toString().trim(),
+      ),
+      const MediaInfoField.divider(),
+      MediaInfoField(
+        MediaInfoFieldKey.colorSpace,
+        (stream['ColorSpace'] ?? '').toString().trim(),
+      ),
+      MediaInfoField(
+        MediaInfoFieldKey.colorTransfer,
+        (stream['ColorTransfer'] ?? '').toString().trim(),
+      ),
+      MediaInfoField(MediaInfoFieldKey.bitDepth, bit > 0 ? '$bit bit' : ''),
+      MediaInfoField(
+        MediaInfoFieldKey.pixelFormat,
+        (stream['PixelFormat'] ?? '').toString().trim(),
+      ),
+      MediaInfoField(
+        MediaInfoFieldKey.refs,
+        _asInt(stream['RefFrames']) > 0 ? '${_asInt(stream['RefFrames'])}' : '',
+      ),
+    ],
   );
 }
 
@@ -362,6 +458,8 @@ MediaSourceStream _audioStream(Map<String, Object?> stream) {
   final codec = (stream['Codec'] ?? '').toString().trim().toUpperCase();
   final layout = (stream['ChannelLayout'] ?? '').toString().trim();
   final rate = _asInt(stream['SampleRate']);
+  final channels = _asInt(stream['Channels']);
+  final language = (stream['Language'] ?? '').toString().trim();
   // DisplayTitle 已含语言/编码/布局；label 用它，summary 只补采样率（DisplayTitle 通常没有）。
   final label = display.isNotEmpty
       ? display
@@ -374,6 +472,27 @@ MediaSourceStream _audioStream(Map<String, Object?> stream) {
     type: MediaStreamType.audio,
     label: label,
     summary: summary,
+    fields: <MediaInfoField>[
+      MediaInfoField(MediaInfoFieldKey.language, language),
+      MediaInfoField(MediaInfoFieldKey.encoder, codec),
+      MediaInfoField(
+        MediaInfoFieldKey.profile,
+        (stream['Profile'] ?? '').toString().trim(),
+      ),
+      const MediaInfoField.divider(),
+      MediaInfoField(
+        MediaInfoFieldKey.channels,
+        channels > 0 ? '$channels ch' : '',
+      ),
+      MediaInfoField(MediaInfoFieldKey.sampleRate, rate > 0 ? '$rate Hz' : ''),
+      MediaInfoField(MediaInfoFieldKey.bitrate, _bitrate(stream['BitRate'])),
+      const MediaInfoField.divider(),
+      MediaInfoField(MediaInfoFieldKey.layout, layout),
+      MediaInfoField(
+        MediaInfoFieldKey.isDefault,
+        _yesNoRaw(stream['IsDefault'] == true),
+      ),
+    ],
   );
 }
 
@@ -381,13 +500,55 @@ MediaSourceStream _subtitleStream(Map<String, Object?> stream) {
   final display = (stream['DisplayTitle'] ?? '').toString().trim();
   final codec = (stream['Codec'] ?? '').toString().trim().toUpperCase();
   final external = stream['IsExternal'] == true;
+  final language = (stream['Language'] ?? '').toString().trim();
   final label = display.isNotEmpty ? display : codec;
   final summary = external ? '外挂' : '';
   return MediaSourceStream(
     type: MediaStreamType.subtitle,
     label: label,
     summary: summary,
+    fields: <MediaInfoField>[
+      MediaInfoField(MediaInfoFieldKey.language, language),
+      MediaInfoField(MediaInfoFieldKey.encoder, codec.toLowerCase()),
+      const MediaInfoField.divider(),
+      MediaInfoField(
+        MediaInfoFieldKey.isDefault,
+        _yesNoRaw(stream['IsDefault'] == true),
+      ),
+      MediaInfoField(
+        MediaInfoFieldKey.forced,
+        _yesNoRaw(stream['IsForced'] == true),
+      ),
+      const MediaInfoField.divider(),
+      MediaInfoField(MediaInfoFieldKey.external, _yesNoRaw(external)),
+    ],
   );
+}
+
+/// 是/否的中立标记值（`1`/`0`）；UI 层据此渲染本地化的「是/否」。空值场景用空串。
+String _yesNoRaw(bool value) => value ? '1' : '0';
+
+String _levelText(Object? level) {
+  final value = _asInt(level);
+  if (value <= 0) return '';
+  // Emby 的 Level 是放大整数（如 51 表示 5.1）；保持与 ffprobe 习惯一致地原样展示。
+  return '$value';
+}
+
+String _frameRateText(Object? rate) {
+  final value = rate is num
+      ? rate.toDouble()
+      : double.tryParse('${rate ?? ''}');
+  if (value == null || value <= 0) return '';
+  return '${value.toStringAsFixed(3)} fps';
+}
+
+/// 码率（bps）→ `x.xx mbps`（≥1Mbps）或 `x kbps`，与详情明细页观感一致。
+String _bitrate(Object? bitRate) {
+  final value = _asInt(bitRate);
+  if (value <= 0) return '';
+  if (value >= 1000000) return '${(value / 1000000.0).toStringAsFixed(2)} mbps';
+  return '${(value / 1000.0).toStringAsFixed(0)} kbps';
 }
 
 /// 码率（bps）→ `x.xx mbps`，无效返回空串。

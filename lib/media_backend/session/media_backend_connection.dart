@@ -11,6 +11,7 @@ class MediaBackendConnection {
     this.secret = '',
     this.rememberSecret = true,
     this.updatedAtMillis = 0,
+    this.entryToken = '',
   });
 
   final MediaBackendKind kind;
@@ -22,6 +23,14 @@ class MediaBackendConnection {
   final String secret;
   final bool rememberSecret;
   final int updatedAtMillis;
+
+  /// FN Connect 入口签发的会话令牌（cookie `entry-token` 的值）。
+  ///
+  /// 当 [serverUrl] 是飞牛中转域名（`*.fnos.net`，如 Emby 发布服务藏在飞牛反向代理后面）
+  /// 时，所有请求必须携带 `Cookie: entry-token=<值>` 才能过云端 FN Connect 边缘闸；该令牌
+  /// 由 WebView 走真实入口流程登录后从 cookie 抓取。会话级、会过期 → 失效需重新抓取。
+  /// 直连地址（非 fnos）不需要、留空。
+  final String entryToken;
 
   bool get isAuthenticated =>
       serverUrl.trim().isNotEmpty && accessToken.trim().isNotEmpty;
@@ -36,6 +45,7 @@ class MediaBackendConnection {
     'secret': secret,
     'rememberSecret': rememberSecret,
     'updatedAtMillis': updatedAtMillis,
+    'entryToken': entryToken,
   };
 
   factory MediaBackendConnection.fromJson(Map<String, Object?> json) {
@@ -54,6 +64,7 @@ class MediaBackendConnection {
       secret: (json['secret'] ?? '').toString(),
       rememberSecret: json['rememberSecret'] != false,
       updatedAtMillis: (json['updatedAtMillis'] as num?)?.toInt() ?? 0,
+      entryToken: (json['entryToken'] ?? '').toString(),
     );
   }
 
@@ -69,7 +80,8 @@ class MediaBackendConnection {
           other.accessToken == accessToken &&
           other.secret == secret &&
           other.rememberSecret == rememberSecret &&
-          other.updatedAtMillis == updatedAtMillis;
+          other.updatedAtMillis == updatedAtMillis &&
+          other.entryToken == entryToken;
 
   @override
   int get hashCode => Object.hash(
@@ -82,5 +94,6 @@ class MediaBackendConnection {
     secret,
     rememberSecret,
     updatedAtMillis,
+    entryToken,
   );
 }
