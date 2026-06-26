@@ -29,6 +29,16 @@
 **待办**：①转码 HLS（大子系统）②entry-token 过期重抓③Emby 退出无显式结束信号（会话留服务端待超时，进度已落定不影响续播）。**`emby_api.dart` 的进度改动（PlaySessionId+授权头）仍未提交**——Codex 的 entry-token 拦截器未提交且在文件顶部 import 处深度交织，stash 隔离风险高，待 Codex 提交拦截器或本摊收尾后再干净提交（工作区已生效、本地构建不受影响）。
 **待实机复验**:①详情页进播放器有选集/下一集 ②系列播放键显示/播最近在看那集且播完更新 ③外挂字幕下载加载。
 
+**季详情页（里面的页面）播放键随最新进度（`65f5a02`/`282c1ee`，已提交，待实机复验）**：用户报「点季卡进的季详情页」播放键死锁第 1 集。该页中立路径其实早已全接（加载/播放/点集/选集/换季）；真 bug 在 `_neutralPreferredEpisodeGuid` 返回「首个 watched|resume」集（1、2 集看完即回 ep1）。先改为「有 resume 优先 → 首个未看完 → 首集」（`65f5a02`）；用户进一步要求「显示集数=最新进度集数」，改为异步调 `resolveSeriesNextUpEpisode(seriesGuid)`（同系列页、走 `getContinueWatching` 权威数据），命中本季则设为播放目标，否则保留本季扫描兜底；三加载入口（首进/缓存切季/未缓存切季）都接、季 guid 守卫防竞态（`282c1ee`）。
+
+**Emby 电影详情页三修（`5fe13de`，已提交，待实机复验）**：①无返回按钮——中立详情曾裸 `CustomScrollView`，改包 `Stack`+`DetailFloatingTopBar`（返回走 `closeHostOrPop`、随滚折叠标题、`showMore:false`）。②时长不随版本变——`MediaSourceVersion` 加 `durationSeconds`（Emby mapper 从每源 `RunTimeTicks` 填），metaLineB 用选中版本时长（缺则回退条目级）。③无续看进度条——按 `detail.resumePositionSeconds`/有效时长/`_watched` 算续看位+剩余+完成态，文案「继续播放/重播/播放」。
+
+**收藏 / 下载 / 已看 抽象 + Emby 接入（已在工作区生效、`flutter analyze` 全过、159 单测过；提交受阻待 Codex）**：用户要求「把能公共的都抽象出来（后续可能接新后端）+ 收藏/下载/已看也加」。做法：
+- `MediaBackend` 加中立 `setItemFavorite(itemId,{favorite})→bool` / `setItemWatched(itemId,{watched})→bool`；`MediaBackendCapabilities` 加 `supportsFavorite`/`supportsWatched`（飞牛预设全开、Emby 开这俩、下载仍关）。
+- 飞牛后端覆写委托 `FeiniuApi.setFavorite/setWatched`；Emby 后端覆写走新 `EmbyApi.setFavorite/setWatched`（`POST`/`DELETE` `FavoriteItems`/`PlayedItems`、`api_key` 自鉴权、解析回写态）。
+- 电影详情中立分支改用 `PlayActionBar`（与飞牛同组件：进度条+主键+三圆键），收藏/已看按能力位接中立处理器 `_toggleNeutralFavorite/_toggleNeutralWatched`（同飞牛 UX：冷却+顶部提示+l10n 文案），下载无公共实现→统一 `detailDownloadUnavailable` 提示。
+- **提交受阻**：`MediaBackend` 是 `implements`（非 `extends`），Dart 下每个实现类必须具体覆写所有方法 → 加接口方法即强制 `EmbyMediaBackend` 有覆写，而覆写依赖未提交的 `emby_api.dart`；且 HEAD 的 `emby_media_backend.dart` 已引用 `connection.entryToken`（Codex 未提交的 `media_backend_connection` getter）——即 **HEAD 分支本身就靠 Codex 未提交改动才能编译**。故本功能与 PlaySessionId 一样整体并入「待 Codex 提交 connection+api 后随之干净提交」的 Emby 摊子。涉及文件：`media_backend.dart`/`media_backend_capabilities.dart`/`feiniu_media_backend.dart`/`emby_media_backend.dart`/`emby_api.dart`/`play_detail_page.dart`（前三本可独立编译，但与后三强耦合，分批提交会破坏 `implements` 完整性，故一并延后）。
+
 ### 2026-06-21 登录页后端选择 + Emby 入口设计
 
 本次 Codex 只做审计、设计和计划，不改业务代码。审计确认当前首次启动门禁在 `lib/main.dart` `_ProviderGate`，唯一配置源是 `NasProvider.isConfigured`；飞牛账号保存于 SharedPreferences 旧 key：`base_url`、`resolved_base_url`、`user_name`、`password`、`token`、`remember_password`；登录页 `ConnectionScreen` 直接调用 `FeiniuApi.loginWithBaseUrl()`，成功后写 `NasProvider.updateSettings()`；`MediaBackendProvider` 目前固定创建 `FeiniuMediaBackend(FeiniuApi(nasProvider))`。
