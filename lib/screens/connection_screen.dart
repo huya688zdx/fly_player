@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -19,10 +20,13 @@ import '../utils/app_error_reporter.dart';
 import '../utils/app_exception.dart';
 import '../utils/detail_top_tip.dart';
 import '../utils/login_error_resolver.dart';
+import '../utils/nas_image_headers.dart';
 import '../services/login_history_store.dart';
 import '../services/fn_connect_web_session_service.dart';
 import 'download_list_screen.dart';
+import 'emby_fn_entry_login_page.dart';
 import 'fn_connect_web_login_page.dart';
+import 'login_history_screen.dart';
 import '../utils/app_confirm_dialog.dart';
 
 enum _ConnectionBackend { feiniu, emby }
@@ -61,12 +65,16 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
   _ConnectionBackend _selectedBackend = _ConnectionBackend.feiniu;
   bool _rememberPassword = true;
+  bool _embyRememberPassword = true;
   bool _useHttps = false;
   bool _obscurePassword = true;
   bool _obscureEmbyPassword = true;
   bool _isSubmitting = false;
   List<LoginHistoryEntry> _historyEntries = const <LoginHistoryEntry>[];
   String _embyConnectionStatus = '';
+
+  /// 已保存/已抓取的 FN Connect 入口令牌（entry-token）。fnos 中转 Emby 登录复用它过边缘闸。
+  String _embyEntryToken = '';
 
   @override
   void initState() {
@@ -120,10 +128,12 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       if (_embyUserNameController.text.trim().isEmpty) {
         _embyUserNameController.text = embyConnection.userName;
       }
+      _embyRememberPassword = embyConnection.rememberSecret;
       if (embyConnection.rememberSecret &&
           _embyPasswordController.text.isEmpty) {
         _embyPasswordController.text = embyConnection.secret;
       }
+      _embyEntryToken = embyConnection.entryToken;
       _embyConnectionStatus = _formatEmbyConnectionStatus(embyConnection);
     });
   }
@@ -188,23 +198,41 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       return;
     }
 
+    final isRelay = usesFnConnectRelayCookie(baseUrl);
+
     setState(() {
       _isSubmitting = true;
       _embyBaseUrlController.text = baseUrl;
     });
 
     try {
-      final result = await (widget.embyApi ?? EmbyApi()).authenticateByName(
-        serverUrl: baseUrl,
+      var entryToken = _embyEntryToken;
+      // fnos 中转域：Emby 藏在飞牛反向代理后面，请求必须带 FN Connect 入口令牌
+      // （entry-token cookie）过云端边缘闸。没有就先用 WebView 走真实入口登录抓取。
+      if (isRelay && entryToken.isEmpty) {
+        final captured = await _captureEmbyEntryToken(baseUrl);
+        if (!mounted) return;
+        if (captured == null) return; // 取消/失败，提示已在 helper 内给出
+        entryToken = captured;
+      }
+
+      final result = await _authenticateEmby(
+        baseUrl: baseUrl,
         userName: userName,
         password: password,
+        entryToken: entryToken,
+        allowRecapture: isRelay && widget.embyApi == null,
+        onEntryTokenRefreshed: (refreshed) => entryToken = refreshed,
       );
+      if (!mounted) return;
+
       if (result.accessToken.trim().isEmpty || result.userId.trim().isEmpty) {
         throw AppException.api(
           action: 'emby login',
           message: 'Emby 登录返回的会话信息不完整',
         );
       }
+      _embyEntryToken = entryToken;
       final connection = MediaBackendConnection(
         kind: MediaBackendKind.emby,
         serverUrl: result.serverUrl,
@@ -212,18 +240,30 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         userName: result.userName,
         userId: result.userId,
         accessToken: result.accessToken,
-        secret: password,
-        rememberSecret: true,
+        secret: _embyRememberPassword ? password : '',
+        rememberSecret: _embyRememberPassword,
         updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
+        entryToken: entryToken,
       );
       await (_backendSessionProvider()?.saveActive(connection) ??
           MediaBackendConnectionStore.saveActive(connection));
+      final entries = await LoginHistoryStore.save(
+        LoginHistoryEntry(
+          kind: MediaBackendKind.emby,
+          baseUrl: connection.serverUrl,
+          userName: connection.userName,
+          password: _embyRememberPassword ? password : '',
+          rememberPassword: _embyRememberPassword,
+          updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
+        ),
+      );
       if (!mounted) return;
       setState(() {
         _embyBaseUrlController.text = connection.serverUrl;
         _embyUserNameController.text = connection.userName;
-        _embyPasswordController.text = connection.secret;
+        _embyPasswordController.text = password;
         _embyConnectionStatus = _formatEmbyConnectionStatus(connection);
+        _historyEntries = entries;
       });
     } catch (error, stackTrace) {
       await _reportAndShowLoginError(
@@ -238,6 +278,64 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         });
       }
     }
+  }
+
+  /// 调用 Emby 登录；fnos 中转域命中云端边缘闸（403）时，自动重抓一次入口令牌再试。
+  ///
+  /// 注意：403 = 云端 FN Connect 边缘闸（入口令牌缺失/过期）；Emby 自身用户名密码错误是
+  /// 401，不触发重抓。注入了自定义 [widget.embyApi]（单测）时不重抓。
+  Future<EmbyAuthenticateResult> _authenticateEmby({
+    required String baseUrl,
+    required String userName,
+    required String password,
+    required String entryToken,
+    required bool allowRecapture,
+    required ValueChanged<String> onEntryTokenRefreshed,
+  }) async {
+    EmbyApi build(String token) =>
+        widget.embyApi ?? EmbyApi(entryTokenProvider: () => token);
+    Future<EmbyAuthenticateResult> attempt(String token) =>
+        build(token).authenticateByName(
+          serverUrl: baseUrl,
+          userName: userName,
+          password: password,
+        );
+    try {
+      return await attempt(entryToken);
+    } on DioException catch (error) {
+      if (allowRecapture && error.response?.statusCode == 403) {
+        final recaptured = await _captureEmbyEntryToken(baseUrl);
+        if (recaptured == null) rethrow;
+        onEntryTokenRefreshed(recaptured);
+        return attempt(recaptured);
+      }
+      rethrow;
+    }
+  }
+
+  /// 打开 WebView 走真实 FN Connect 入口流程，抓取 `entry-token`。取消/失败返回 null。
+  Future<String?> _captureEmbyEntryToken(String baseUrl) async {
+    if (!mounted) return null;
+    final nas = context.read<NasProvider>();
+    final token = await Navigator.of(context).push<String>(
+      AppTransitions.leftToRightPageTurnRoute<String>(
+        EmbyFnEntryLoginPage(
+          serverUrl: baseUrl,
+          // 入口认的是 FN 账号；若已填飞牛账号则尝试自动填充，否则在网页内手动登录。
+          userName: nas.userName,
+          password: nas.password,
+        ),
+        fullscreenDialog: true,
+      ),
+    );
+    final trimmed = token?.trim() ?? '';
+    if (trimmed.isEmpty) {
+      if (mounted) {
+        _showTopTip('未获取到 FN Connect 入口令牌，请重试', context.appColors.warning);
+      }
+      return null;
+    }
+    return trimmed;
   }
 
   Future<void> _submitWithUnifiedErrors() async {
@@ -368,47 +466,53 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     });
   }
 
-  Future<void> _showLoginHistorySheet() async {
-    final selected = await showModalBottomSheet<LoginHistoryEntry>(
-      context: context,
-      backgroundColor: const Color(0xFF16202C),
-      barrierColor: Colors.black.withValues(alpha: 0.56),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (sheetContext) {
-        return _LoginHistorySheet(
-          entries: _historyEntries,
-          onDelete: (entry) async {
-            final entries = await LoginHistoryStore.remove(entry);
-            if (!mounted) return;
-            setState(() {
-              _historyEntries = entries;
-            });
-            if (!sheetContext.mounted) return;
-            Navigator.of(sheetContext).pop();
-          },
-          onClear: () async {
-            await LoginHistoryStore.clear();
-            if (!mounted) return;
-            setState(() {
-              _historyEntries = const <LoginHistoryEntry>[];
-            });
-            if (!sheetContext.mounted) return;
-            Navigator.of(sheetContext).pop();
-          },
-        );
-      },
-    );
-    if (!mounted || selected == null) return;
-    _baseUrlController.text = selected.baseUrl;
-    _userNameController.text = selected.userName;
-    _passwordController.text = selected.rememberPassword
-        ? selected.password
-        : '';
+  Future<void> _openLoginHistory() async {
+    FocusScope.of(context).unfocus();
+    // 进入历史页前先刷新一次，确保拿到最新（含其它后端）的登录历史。
+    final latest = await LoginHistoryStore.load();
+    if (!mounted) return;
     setState(() {
-      _rememberPassword = selected.rememberPassword;
-      _useHttps = _looksLikeHttps(selected.baseUrl);
+      _historyEntries = latest;
+    });
+    final selected = await Navigator.of(context).push<LoginHistoryEntry>(
+      AppTransitions.leftToRightPageTurnRoute<LoginHistoryEntry>(
+        LoginHistoryScreen(entries: _historyEntries),
+        fullscreenDialog: true,
+      ),
+    );
+    // 历史页内可能删除/清空，回来时同步最新列表。
+    final refreshed = await LoginHistoryStore.load();
+    if (!mounted) return;
+    setState(() {
+      _historyEntries = refreshed;
+    });
+    if (selected == null) return;
+    _applyHistorySelection(selected);
+  }
+
+  /// 把历史记录回填到对应后端表单，并切换到该后端 Tab。
+  void _applyHistorySelection(LoginHistoryEntry entry) {
+    if (entry.kind == MediaBackendKind.emby) {
+      _embyBaseUrlController.text = entry.baseUrl;
+      _embyUserNameController.text = entry.userName;
+      _embyPasswordController.text = entry.rememberPassword
+          ? entry.password
+          : '';
+      // 历史记录不含 entry-token；切到不同服务器时清空旧令牌，鉴权流程会按需重抓。
+      _embyEntryToken = '';
+      setState(() {
+        _embyRememberPassword = entry.rememberPassword;
+        _selectedBackend = _ConnectionBackend.emby;
+      });
+      return;
+    }
+    _baseUrlController.text = entry.baseUrl;
+    _userNameController.text = entry.userName;
+    _passwordController.text = entry.rememberPassword ? entry.password : '';
+    setState(() {
+      _rememberPassword = entry.rememberPassword;
+      _useHttps = _looksLikeHttps(entry.baseUrl);
+      _selectedBackend = _ConnectionBackend.feiniu;
     });
   }
 
@@ -677,10 +781,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                           },
                         ),
                         const SizedBox(height: 18),
-                        if (_selectedBackend == _ConnectionBackend.feiniu)
-                          _buildFeiniuForm(theme, l10n)
-                        else
-                          _buildEmbyForm(theme, l10n),
+                        _buildAnimatedForm(theme, l10n),
                       ],
                     ),
                   ),
@@ -689,6 +790,43 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// 飞牛 / Emby 表单之间的方向性切换动画：选中右侧（Emby）时新表单从右滑入，
+  /// 选中左侧（飞牛）时从左滑入，配合淡入淡出。
+  Widget _buildAnimatedForm(ThemeData theme, AppLocalizations l10n) {
+    final isEmby = _selectedBackend == _ConnectionBackend.emby;
+    final beginDx = isEmby ? 0.12 : -0.12;
+    return AnimatedSwitcher(
+      duration: AppTransitions.contentSwitchDuration,
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      layoutBuilder: (currentChild, previousChildren) {
+        return Stack(
+          alignment: Alignment.topLeft,
+          children: [
+            ...previousChildren,
+            if (currentChild != null) currentChild,
+          ],
+        );
+      },
+      transitionBuilder: (child, animation) {
+        final slide = Tween<Offset>(
+          begin: Offset(beginDx, 0),
+          end: Offset.zero,
+        ).animate(animation);
+        return FadeTransition(
+          opacity: animation,
+          child: SlideTransition(position: slide, child: child),
+        );
+      },
+      child: KeyedSubtree(
+        key: ValueKey<_ConnectionBackend>(_selectedBackend),
+        child: isEmby
+            ? _buildEmbyForm(theme, l10n)
+            : _buildFeiniuForm(theme, l10n),
       ),
     );
   }
@@ -704,7 +842,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           textInputAction: TextInputAction.next,
           autofillHints: const <String>[AutofillHints.url],
           suffix: IconButton(
-            onPressed: _showLoginHistorySheet,
+            onPressed: _openLoginHistory,
             icon: Icon(
               Icons.history_rounded,
               color: _historyEntries.isEmpty
@@ -743,46 +881,15 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           ),
         ),
         const SizedBox(height: 16),
-        Row(
-          children: [
-            InkWell(
-              borderRadius: BorderRadius.circular(999),
-              onTap: () {
-                setState(() {
-                  _rememberPassword = !_rememberPassword;
-                });
-              },
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 28,
-                    height: 28,
-                    child: Checkbox(
-                      value: _rememberPassword,
-                      onChanged: (value) {
-                        setState(() {
-                          _rememberPassword = value ?? false;
-                        });
-                      },
-                      side: const BorderSide(color: Color(0xFF4D5C6F)),
-                      fillColor: WidgetStateProperty.resolveWith(
-                        (states) => states.contains(WidgetState.selected)
-                            ? const Color(0xFF2D74D9)
-                            : Colors.transparent,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    l10n.connectionRememberLogin,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: const Color(0xFFB3C0D4),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+        _buildRememberRow(
+          theme,
+          l10n,
+          value: _rememberPassword,
+          onChanged: (value) {
+            setState(() {
+              _rememberPassword = value;
+            });
+          },
         ),
         const SizedBox(height: 22),
         Row(
@@ -847,6 +954,15 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           keyboardType: TextInputType.url,
           textInputAction: TextInputAction.next,
           autofillHints: const <String>[AutofillHints.url],
+          suffix: IconButton(
+            onPressed: _openLoginHistory,
+            icon: Icon(
+              Icons.history_rounded,
+              color: _historyEntries.isEmpty
+                  ? const Color(0xFF58687C)
+                  : const Color(0xFF7C8DA5),
+            ),
+          ),
         ),
         const SizedBox(height: 14),
         _GlassField(
@@ -877,16 +993,19 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             ),
           ),
         ),
-        const SizedBox(height: 14),
-        Text(
-          'Emby 登录后进入媒体首页；详情与播放能力按当前阶段开放。',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: const Color(0xFF9EADBE),
-            height: 1.35,
-          ),
+        const SizedBox(height: 16),
+        _buildRememberRow(
+          theme,
+          l10n,
+          value: _embyRememberPassword,
+          onChanged: (value) {
+            setState(() {
+              _embyRememberPassword = value;
+            });
+          },
         ),
         if (_embyConnectionStatus.isNotEmpty) ...[
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           Text(
             _embyConnectionStatus,
             style: theme.textTheme.bodySmall?.copyWith(
@@ -895,11 +1014,52 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             ),
           ),
         ],
-        const SizedBox(height: 18),
+        const SizedBox(height: 22),
         _SubmitButton(
           isSubmitting: _isSubmitting,
-          label: '验证 Emby 连接',
-          onPressed: _verifyEmbyConnection,
+          label: l10n.connectionLogin,
+          onPressed: _isSubmitting ? null : _verifyEmbyConnection,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRememberRow(
+    ThemeData theme,
+    AppLocalizations l10n, {
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Row(
+      children: [
+        InkWell(
+          borderRadius: BorderRadius.circular(999),
+          onTap: () => onChanged(!value),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 28,
+                height: 28,
+                child: Checkbox(
+                  value: value,
+                  onChanged: (next) => onChanged(next ?? false),
+                  side: const BorderSide(color: Color(0xFF4D5C6F)),
+                  fillColor: WidgetStateProperty.resolveWith(
+                    (states) => states.contains(WidgetState.selected)
+                        ? const Color(0xFF2D74D9)
+                        : Colors.transparent,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                l10n.connectionRememberLogin,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: const Color(0xFFB3C0D4),
+                ),
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -933,6 +1093,7 @@ class _BackendSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isEmby = selected == _ConnectionBackend.emby;
     return DecoratedBox(
       decoration: BoxDecoration(
         color: const Color(0xFF182331),
@@ -941,22 +1102,41 @@ class _BackendSelector extends StatelessWidget {
       ),
       child: Padding(
         padding: const EdgeInsets.all(4),
-        child: Row(
+        child: Stack(
           children: [
-            Expanded(
-              child: _BackendSelectorButton(
-                label: '飞牛 NAS',
-                selected: selected == _ConnectionBackend.feiniu,
-                onTap: () => onChanged(_ConnectionBackend.feiniu),
+            // 滑动高亮：跟随选中项在左右半区间平滑移动。
+            AnimatedAlign(
+              duration: AppTransitions.contentSwitchDuration,
+              curve: Curves.easeOutCubic,
+              alignment: isEmby ? Alignment.centerRight : Alignment.centerLeft,
+              child: FractionallySizedBox(
+                widthFactor: 0.5,
+                child: Container(
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2D74D9),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
               ),
             ),
-            const SizedBox(width: 4),
-            Expanded(
-              child: _BackendSelectorButton(
-                label: 'Emby',
-                selected: selected == _ConnectionBackend.emby,
-                onTap: () => onChanged(_ConnectionBackend.emby),
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: _BackendSelectorButton(
+                    label: '飞牛 NAS',
+                    selected: !isEmby,
+                    onTap: () => onChanged(_ConnectionBackend.feiniu),
+                  ),
+                ),
+                Expanded(
+                  child: _BackendSelectorButton(
+                    label: 'Emby',
+                    selected: isEmby,
+                    onTap: () => onChanged(_ConnectionBackend.emby),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -978,23 +1158,20 @@ class _BackendSelectorButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: selected ? const Color(0xFF2D74D9) : Colors.transparent,
+    return InkWell(
       borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: selected ? Colors.white : const Color(0xFF9FB0C7),
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-            ),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        child: AnimatedDefaultTextStyle(
+          duration: AppTransitions.contentSwitchDuration,
+          curve: Curves.easeOutCubic,
+          style: TextStyle(
+            color: selected ? Colors.white : const Color(0xFF9FB0C7),
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
           ),
+          child: Text(label, textAlign: TextAlign.center),
         ),
       ),
     );
@@ -1131,150 +1308,6 @@ class _LoginBackdrop extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _LoginHistorySheet extends StatelessWidget {
-  final List<LoginHistoryEntry> entries;
-  final ValueChanged<LoginHistoryEntry> onDelete;
-  final Future<void> Function() onClear;
-
-  const _LoginHistorySheet({
-    required this.entries,
-    required this.onDelete,
-    required this.onClear,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return SafeArea(
-      top: false,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.72,
-        ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 12, 18, 22),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 44,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF415064),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-              ),
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  Text(
-                    l10n.connectionLoginHistory,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const Spacer(),
-                  if (entries.isNotEmpty)
-                    TextButton(
-                      onPressed: () => onClear(),
-                      child: Text(
-                        l10n.connectionClear,
-                        style: const TextStyle(color: Color(0xFF8FB7FF)),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              if (entries.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(0, 18, 0, 8),
-                  child: Text(
-                    l10n.connectionNoLoginHistory,
-                    style: const TextStyle(
-                      color: Color(0xFF9EADBE),
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                )
-              else
-                Flexible(
-                  child: ListView.separated(
-                    shrinkWrap: true,
-                    itemCount: entries.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
-                    itemBuilder: (context, index) {
-                      final entry = entries[index];
-                      return Material(
-                        color: const Color(0xFF232D3A),
-                        borderRadius: BorderRadius.circular(16),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(16),
-                          onTap: () => Navigator.of(context).pop(entry),
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
-                            child: Row(
-                              children: [
-                                const Icon(
-                                  Icons.dns_rounded,
-                                  color: Color(0xFF8FB7FF),
-                                  size: 20,
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        entry.baseUrl,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        entry.userName,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          color: Color(0xFF9EADBE),
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                IconButton(
-                                  onPressed: () => onDelete(entry),
-                                  icon: const Icon(
-                                    Icons.delete_outline_rounded,
-                                    color: Color(0xFF7C8DA5),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

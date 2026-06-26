@@ -286,7 +286,7 @@ void main() {
           },
         ],
       });
-      expect(info.videoStreams.first.label, '2160p HEVC');
+      expect(info.videoStreams.first.label, '4K HEVC');
     });
   });
 
@@ -418,8 +418,8 @@ void main() {
       expect(versions, hasLength(2));
       final v0 = versions[0];
       expect(v0.id, 'src-4k');
-      expect(v0.label, '2160p');
-      expect(v0.badges, containsAll(<String>['2160p', 'HDR']));
+      expect(v0.label, '4K');
+      expect(v0.badges, containsAll(<String>['4K', 'HDR']));
       expect(v0.info.path, '/movies/a.4k.mkv');
       expect(v0.info.addedDate, '2024-01-01T00:00:00Z');
       expect(v0.audioTracks, hasLength(1));
@@ -432,8 +432,8 @@ void main() {
       expect(v0.defaultSubtitleId, '3');
 
       // SDR 不进 badges；无默认字幕索引 → 空。
-      expect(versions[1].label, '1080p');
-      expect(versions[1].badges, <String>['1080p']);
+      expect(versions[1].label, '1080');
+      expect(versions[1].badges, <String>['1080']);
       expect(versions[1].defaultSubtitleId, '');
     });
 

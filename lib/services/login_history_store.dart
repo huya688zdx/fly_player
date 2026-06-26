@@ -2,8 +2,14 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../media_backend/media_backend_kind.dart';
+
 /// 表示一次登录记录的持久化内容。
 class LoginHistoryEntry {
+  /// 该登录记录对应的后端类型（飞牛 / Emby）。
+  ///
+  /// 旧版本历史不带该字段，反序列化时默认按 [MediaBackendKind.feiniu] 迁移。
+  final MediaBackendKind kind;
   final String baseUrl;
   final String userName;
   final String password;
@@ -12,6 +18,7 @@ class LoginHistoryEntry {
 
   /// 根据登录信息构造历史记录对象。
   const LoginHistoryEntry({
+    this.kind = MediaBackendKind.feiniu,
     required this.baseUrl,
     required this.userName,
     required this.password,
@@ -21,7 +28,13 @@ class LoginHistoryEntry {
 
   /// 从持久化映射恢复登录记录。
   factory LoginHistoryEntry.fromJson(Map<String, dynamic> json) {
+    final kindName = (json['kind'] ?? '').toString();
+    final kind = MediaBackendKind.values.firstWhere(
+      (value) => value.name == kindName,
+      orElse: () => MediaBackendKind.feiniu,
+    );
     return LoginHistoryEntry(
+      kind: kind,
       baseUrl: (json['baseUrl'] ?? '').toString(),
       userName: (json['userName'] ?? '').toString(),
       password: (json['password'] ?? '').toString(),
@@ -33,6 +46,7 @@ class LoginHistoryEntry {
   /// 将登录记录序列化为可持久化映射。
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
+      'kind': kind.name,
       'baseUrl': baseUrl,
       'userName': userName,
       'password': password,
@@ -41,7 +55,7 @@ class LoginHistoryEntry {
     };
   }
 
-  String get dedupeKey => '${baseUrl.trim()}::${userName.trim()}';
+  String get dedupeKey => '${kind.name}::${baseUrl.trim()}::${userName.trim()}';
 }
 
 /// 管理登录历史记录的读取与写入。

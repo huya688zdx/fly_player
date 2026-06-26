@@ -1,4 +1,9 @@
+import 'dart:math';
+
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
+
+import '../utils/nas_image_headers.dart';
 
 class EmbyPublicSystemInfo {
   const EmbyPublicSystemInfo({required this.serverName});
@@ -29,7 +34,11 @@ class EmbyApi {
     this.deviceName = 'Flutter',
     this.deviceId = 'fly-player',
     this.clientVersion = '1.0.0',
-  }) : _dio = dio ?? Dio();
+    String Function()? entryTokenProvider,
+  }) : _dio = dio ?? Dio(),
+       _entryTokenProvider = entryTokenProvider {
+    _installEntryTokenInterceptor();
+  }
 
   final Dio _dio;
   final String clientName;
@@ -37,12 +46,98 @@ class EmbyApi {
   final String deviceId;
   final String clientVersion;
 
+  /// FN Connect 入口令牌（cookie `entry-token` 的值）的动态取值器。
+  ///
+  /// 当 Emby 服务器是 `*.fnos.net` 中转域名（藏在飞牛反向代理后面）时，请求必须携带
+  /// `Cookie: entry-token=<值>` 才能过云端 FN Connect 边缘闸——实测这是唯一被认的凭据
+  /// （NAS token / mode=relay 都不行）。每请求动态读取，令牌刷新后无需重建 EmbyApi。
+  /// 直连地址（非 fnos）该取值器返回空、不带任何 cookie。
+  final String Function()? _entryTokenProvider;
+
+  void _installEntryTokenInterceptor() {
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          if (usesFnConnectRelayCookie(options.uri.toString())) {
+            final token = _entryTokenProvider?.call().trim() ?? '';
+            if (token.isNotEmpty) {
+              options.headers['Cookie'] = _mergeEntryTokenCookie(
+                options.headers['Cookie']?.toString() ?? '',
+                token,
+              );
+            }
+            debugPrint(
+              '[EmbyApi][REQ] ${options.method} ${options.uri} '
+              'entryTokenLen=${token.length}',
+            );
+          }
+          handler.next(options);
+        },
+        onResponse: (response, handler) {
+          final uri = response.requestOptions.uri;
+          if (usesFnConnectRelayCookie(uri.toString())) {
+            final ct = response.headers.value(Headers.contentTypeHeader) ?? '';
+            final raw = response.data;
+            final snippet = raw is String
+                ? raw.replaceAll('\n', ' ')
+                : raw.runtimeType.toString();
+            debugPrint(
+              '[EmbyApi][RESP] http=${response.statusCode} ct=$ct '
+              'path=${uri.path} body=${snippet.length > 160 ? snippet.substring(0, 160) : snippet}',
+            );
+          }
+          handler.next(response);
+        },
+        onError: (error, handler) {
+          final uri = error.requestOptions.uri;
+          if (usesFnConnectRelayCookie(uri.toString())) {
+            final body = error.response?.data;
+            final snippet = body is String
+                ? body.replaceAll('\n', ' ')
+                : body?.runtimeType.toString() ?? '';
+            debugPrint(
+              '[EmbyApi][ERR] http=${error.response?.statusCode} '
+              'type=${error.type} path=${uri.path} '
+              'body=${snippet.length > 160 ? snippet.substring(0, 160) : snippet}',
+            );
+          }
+          handler.next(error);
+        },
+      ),
+    );
+  }
+
+  static String _mergeEntryTokenCookie(String cookie, String token) {
+    final entries = cookie
+        .split(';')
+        .map((entry) => entry.trim())
+        .where((entry) => entry.isNotEmpty)
+        .where((entry) => !entry.toLowerCase().startsWith('entry-token='))
+        .toList();
+    entries.add('entry-token=$token');
+    return entries.join('; ');
+  }
+
   static String normalizeServerUrl(String raw) {
     var value = raw.trim();
     if (value.isEmpty) return '';
     if (!value.startsWith(RegExp(r'https?://', caseSensitive: false))) {
       value = 'http://$value';
     }
+    // 去掉 fragment / query：Emby 网页客户端是 /web/index.html#!/home 这种 hash
+    // 路由，从浏览器复制地址会带上 `#!/...`（及可能的 `?...`），这些不属于 API 根。
+    final hashIndex = value.indexOf('#');
+    if (hashIndex >= 0) value = value.substring(0, hashIndex);
+    final queryIndex = value.indexOf('?');
+    if (queryIndex >= 0) value = value.substring(0, queryIndex);
+    // 去掉粘贴网页地址时带上的 /web/index.html 或 /web 客户端路径，还原成 API 根
+    // 地址（fnos 中转域名同样适用）。仅剥这段众所周知的网页路径，子路径反代部署
+    // （如 https://host/emby）保持不动。
+    value = value.replaceFirst(
+      RegExp(r'/web/index\.html/?$', caseSensitive: false),
+      '',
+    );
+    value = value.replaceFirst(RegExp(r'/web/?$', caseSensitive: false), '');
     while (value.endsWith('/')) {
       value = value.substring(0, value.length - 1);
     }
@@ -240,22 +335,35 @@ class EmbyApi {
     bool recursive = true,
     String includeItemTypes = '',
     String genres = '',
+    String years = '',
+    String filters = '',
+    String seriesStatus = '',
     String fields = '',
     String sortBy = '',
     String sortOrder = '',
     String searchTerm = '',
     String personIds = '',
+    bool favoritesOnly = false,
   }) async {
     final normalizedServerUrl = normalizeServerUrl(serverUrl);
+    // Emby `Filters`（IsFavorite / IsPlayed / IsUnplayed …）合并 favoritesOnly 与显式 filters。
+    final filterTokens = <String>{
+      if (favoritesOnly) 'IsFavorite',
+      for (final t in filters.split(','))
+        if (t.trim().isNotEmpty) t.trim(),
+    };
     final query = <String, Object?>{
       'api_key': accessToken,
       if (parentId.trim().isNotEmpty) 'ParentId': parentId.trim(),
       if (startIndex > 0) 'StartIndex': startIndex,
       if (limit != null) 'Limit': limit,
       if (recursive) 'Recursive': true,
+      if (filterTokens.isNotEmpty) 'Filters': filterTokens.join(','),
+      if (seriesStatus.trim().isNotEmpty) 'SeriesStatus': seriesStatus.trim(),
       if (includeItemTypes.trim().isNotEmpty)
         'IncludeItemTypes': includeItemTypes.trim(),
       if (genres.trim().isNotEmpty) 'Genres': genres.trim(),
+      if (years.trim().isNotEmpty) 'Years': years.trim(),
       if (searchTerm.trim().isNotEmpty) 'SearchTerm': searchTerm.trim(),
       if (personIds.trim().isNotEmpty) 'PersonIds': personIds.trim(),
       if (fields.trim().isNotEmpty) 'Fields': fields.trim(),
@@ -380,10 +488,20 @@ class EmbyApi {
     await _dio.post<Object?>(
       '$normalizedServerUrl/Sessions/Playing',
       queryParameters: <String, Object?>{'api_key': accessToken},
-      data: _playStateBody(itemId, mediaSourceId, positionTicks),
+      data: _playStateBody(
+        itemId,
+        mediaSourceId,
+        positionTicks,
+        _playSessionIdFor(itemId),
+      ),
       options: Options(
         contentType: Headers.jsonContentType,
-        headers: <String, Object?>{..._jsonHeaders},
+        // 会话端点（/Sessions/Playing 系列）须带含 Token 的完整 X-Emby-Authorization，让 Emby
+        // 定位/建立设备会话；缺 Token 时 Emby 以 null 作会话字典键 → 400。
+        headers: <String, Object?>{
+          ..._jsonHeaders,
+          'X-Emby-Authorization': _sessionAuthorizationHeader(accessToken),
+        },
       ),
     );
   }
@@ -410,12 +528,18 @@ class EmbyApi {
         itemId,
         mediaSourceId,
         positionTicks,
+        _playSessionIdFor(itemId),
         isPaused,
         true,
       ),
       options: Options(
         contentType: Headers.jsonContentType,
-        headers: <String, Object?>{..._jsonHeaders},
+        // 会话端点（/Sessions/Playing 系列）须带含 Token 的完整 X-Emby-Authorization，让 Emby
+        // 定位/建立设备会话；缺 Token 时 Emby 以 null 作会话字典键 → 400。
+        headers: <String, Object?>{
+          ..._jsonHeaders,
+          'X-Emby-Authorization': _sessionAuthorizationHeader(accessToken),
+        },
       ),
     );
   }
@@ -434,21 +558,96 @@ class EmbyApi {
     await _dio.post<Object?>(
       '$normalizedServerUrl/Sessions/Playing/Stopped',
       queryParameters: <String, Object?>{'api_key': accessToken},
-      data: _playStateBody(itemId, mediaSourceId, positionTicks),
+      data: _playStateBody(
+        itemId,
+        mediaSourceId,
+        positionTicks,
+        _playSessionIdFor(itemId),
+      ),
       options: Options(
         contentType: Headers.jsonContentType,
-        headers: <String, Object?>{..._jsonHeaders},
+        // 会话端点（/Sessions/Playing 系列）须带含 Token 的完整 X-Emby-Authorization，让 Emby
+        // 定位/建立设备会话；缺 Token 时 Emby 以 null 作会话字典键 → 400。
+        headers: <String, Object?>{
+          ..._jsonHeaders,
+          'X-Emby-Authorization': _sessionAuthorizationHeader(accessToken),
+        },
       ),
     );
   }
 
+  /// 设置 / 取消「收藏」——`POST`(收藏) / `DELETE`(取消) `/Users/{userId}/FavoriteItems/{itemId}`，
+  /// `api_key` 自鉴权（与 getItems 等用户域端点同口径）。返回服务端回写的最终收藏态
+  /// （响应体 `UserItemDataDto.IsFavorite`），缺则回退入参。
+  Future<bool> setFavorite({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    required String itemId,
+    required bool favorite,
+  }) async {
+    final normalizedServerUrl = normalizeServerUrl(serverUrl);
+    final path =
+        '$normalizedServerUrl/Users/${userId.trim()}/FavoriteItems/${itemId.trim()}';
+    final query = <String, Object?>{'api_key': accessToken};
+    final response = favorite
+        ? await _dio.post<Object?>(path, queryParameters: query)
+        : await _dio.delete<Object?>(path, queryParameters: query);
+    final data = response.data;
+    if (data is Map && data['IsFavorite'] is bool) {
+      return data['IsFavorite'] as bool;
+    }
+    return favorite;
+  }
+
+  /// 标记「已看 / 未看」——`POST`(已看) / `DELETE`(未看) `/Users/{userId}/PlayedItems/{itemId}`，
+  /// `api_key` 自鉴权。返回服务端回写的最终已看态（响应体 `UserItemDataDto.Played`），缺则回退入参。
+  Future<bool> setWatched({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    required String itemId,
+    required bool watched,
+  }) async {
+    final normalizedServerUrl = normalizeServerUrl(serverUrl);
+    final path =
+        '$normalizedServerUrl/Users/${userId.trim()}/PlayedItems/${itemId.trim()}';
+    final query = <String, Object?>{'api_key': accessToken};
+    final response = watched
+        ? await _dio.post<Object?>(path, queryParameters: query)
+        : await _dio.delete<Object?>(path, queryParameters: query);
+    final data = response.data;
+    if (data is Map && data['Played'] is bool) {
+      return data['Played'] as bool;
+    }
+    return watched;
+  }
+
+  /// 同一条目（itemId）一次播放期间复用的 PlaySessionId。Emby 对 `PlayMethod` 非 DirectPlay
+  /// 的播放会按 PlaySessionId 建流跟踪字典；body 不带 PlaySessionId 时服务端以 null 作字典键
+  /// 抛 `Value cannot be null. (Parameter 'key')` → 400。Start/Progress/Stopped 须用同一个 id，
+  /// 故按 itemId 缓存（切集 = 新 itemId = 新会话）。
+  final Map<String, String> _playSessionIds = <String, String>{};
+
+  String _playSessionIdFor(String itemId) =>
+      _playSessionIds.putIfAbsent(itemId.trim(), () {
+        final rnd = Random();
+        final buf = StringBuffer();
+        for (var i = 0; i < 32; i++) {
+          buf.write(rnd.nextInt(16).toRadixString(16));
+        }
+        return buf.toString();
+      });
+
   /// 三个播放会话端点共用的 PlaybackProgressInfo 体。[withProgressFields] 时附带
   /// IsPaused/EventName（仅 /Progress 需要）。PlayMethod/CanSeek 让 Emby 把它当成一次真实
-  /// 直链播放会话登记（缺这些字段部分 Emby 版本会忽略上报、续播位不持久化）。
+  /// 直链播放会话登记（缺这些字段部分 Emby 版本会忽略上报、续播位不持久化）。[playSessionId]
+  /// 让服务端流跟踪字典有非 null 键。
   static Map<String, Object?> _playStateBody(
     String itemId,
     String mediaSourceId,
-    int positionTicks, [
+    int positionTicks,
+    String playSessionId, [
     bool isPaused = false,
     bool withProgressFields = false,
   ]) {
@@ -456,6 +655,7 @@ class EmbyApi {
       'ItemId': itemId.trim(),
       if (mediaSourceId.trim().isNotEmpty)
         'MediaSourceId': mediaSourceId.trim(),
+      'PlaySessionId': playSessionId,
       'PositionTicks': positionTicks < 0 ? 0 : positionTicks,
       'PlayMethod': 'DirectStream',
       'CanSeek': true,
@@ -544,6 +744,13 @@ class EmbyApi {
   String get _authorizationHeader =>
       'MediaBrowser Client=$clientName, Device=$deviceName, '
       'DeviceId=$deviceId, Version=$clientVersion';
+
+  /// 会话端点（/Sessions/Playing 系列）用的完整授权头：值加引号 + 带 `Token`（accessToken）。
+  /// Emby 的 SessionManager 据此定位/建立设备会话——仅靠 `api_key` query、头里不带 Token 时，
+  /// 部分版本以 null token 作字典键抛 `Value cannot be null. (Parameter 'key')` → 400、续播不落库。
+  String _sessionAuthorizationHeader(String token) =>
+      'MediaBrowser Client="$clientName", Device="$deviceName", '
+      'DeviceId="$deviceId", Version="$clientVersion", Token="${token.trim()}"';
 
   static Map<String, Object?> _asMap(Object? data) {
     if (data is Map) {

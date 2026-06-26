@@ -85,13 +85,15 @@ class PlayDetailSheetController {
     required int? selectedStreamIndex,
     required ValueChanged<int> onVariantChanged,
   }) async {
+    final l10n = AppLocalizations.of(context);
     final variants = <MediaDetailVariant>[];
     for (final option in streamOptions) {
       final mediaGuid = option.mediaGuid;
       variants.add(
-        MediaDetailVariant(
-          mediaGuid: mediaGuid,
+        MediaDetailVariant.fromFeiniu(
+          key: mediaGuid,
           title: option.label,
+          l10n: l10n,
           video: streamTrackData?.videoForMedia(mediaGuid),
           audios: streamTrackData?.audiosForMedia(mediaGuid) ?? const [],
           subtitles: streamTrackData?.subtitlesForMedia(mediaGuid) ?? const [],
