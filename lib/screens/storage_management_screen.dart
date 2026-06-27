@@ -53,7 +53,8 @@ class _StorageManagementScreenState extends State<StorageManagementScreen> {
 
   Future<void> _loadOverview() async {
     setState(() => _loading = true);
-    final overview = await _service.loadOverview();
+    final l10n = AppLocalizations.of(context);
+    final overview = await _service.loadOverview(l10n);
     if (!mounted) return;
     setState(() {
       _overview = overview;
