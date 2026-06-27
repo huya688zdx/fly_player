@@ -2882,7 +2882,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
                     if (fromUser && lastDurationMs > 0) {
-                        positionLabel.text = formatTime(lastDurationMs * progress / 1000)
+                        val targetMs = lastDurationMs * progress / 1000
+                        positionLabel.text = formatTime(targetMs)
+                        // 拖动底部进度条同样弹出缩略图预览浮层（与横拖手势一致）。
+                        showSeekPreview(targetMs, lastDurationMs)
                     }
                 }
                 override fun onStartTrackingTouch(sb: SeekBar) {
@@ -2895,6 +2898,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                         val targetMs = lastDurationMs * sb.progress / 1000
                         playerSurface.seek(targetMs)
                     }
+                    hideSeekPreview()
                     scheduleControlsAutoHide()
                 }
             })
