@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../../l10n/generated/app_localizations.dart';
 import '../../models/download_task_record.dart';
 import '../../models/tv_episode_browser_models.dart';
 import '../../theme/app_theme.dart';
@@ -224,6 +225,7 @@ class _TvSeasonDownloadSheetState extends State<TvSeasonDownloadSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final sheetTheme = context.downloadSheetTheme;
     final media = MediaQuery.of(context);
     final bottomInset = media.padding.bottom > 0 ? media.padding.bottom : 16.0;
@@ -299,7 +301,7 @@ class _TvSeasonDownloadSheetState extends State<TvSeasonDownloadSheet> {
                               ),
                               const SizedBox(width: 6),
                               Text(
-                                '加载失败',
+                                l10n.globalLoadFailed,
                                 style: TextStyle(
                                   color: sheetTheme.subtitleColor,
                                   fontSize: 13,
@@ -319,7 +321,7 @@ class _TvSeasonDownloadSheetState extends State<TvSeasonDownloadSheet> {
                           ),
                           const SizedBox(width: 8),
                           Text(
-                            '加载中…',
+                            l10n.downloadLoadingEllipsis,
                             style: TextStyle(
                               color: sheetTheme.subtitleColor,
                               fontSize: 13,
