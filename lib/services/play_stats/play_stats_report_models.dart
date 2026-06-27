@@ -1,3 +1,4 @@
+import '../../l10n/generated/app_localizations.dart';
 import 'play_stats_models.dart';
 
 /// 定义播放统计报表支持的时间范围。
@@ -16,13 +17,13 @@ extension PlayStatsRangeX on PlayStatsRange {
   };
 
   /// 返回用于界面展示的范围标签。
-  String get label => switch (this) {
-    PlayStatsRange.days7 => '7天',
-    PlayStatsRange.days30 => '30天',
-    PlayStatsRange.days90 => '90天',
-    PlayStatsRange.days180 => '半年',
-    PlayStatsRange.days365 => '一年',
-    PlayStatsRange.all => '全部',
+  String label(AppLocalizations l10n) => switch (this) {
+    PlayStatsRange.days7 => l10n.playStatsRangeDays7,
+    PlayStatsRange.days30 => l10n.playStatsRangeDays30,
+    PlayStatsRange.days90 => l10n.playStatsRangeDays90,
+    PlayStatsRange.days180 => l10n.playStatsRangeDays180,
+    PlayStatsRange.days365 => l10n.playStatsRangeDays365,
+    PlayStatsRange.all => l10n.playStatsRangeAll,
   };
 }
 
