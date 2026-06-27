@@ -227,6 +227,18 @@ class MediaPlaybackSession {
 }
 
 /// 播放解析结果：后端中立的播放事实，非播放器 load 参数。
+/// 后端中立的拖动 seek 预览缩略图：某一播放位置对应一张缩略图直链。
+///
+/// 来源因后端而异（Emby 用章节图，未来可扩展 BIF/瓦片），公共层只表达「位置 → 图 URL」
+/// 这一中立事实。原生壳拖动 seek 时按目标位置取最近一张显示。[url] 已是带鉴权 query 的
+/// 完整直链；过 fnos 中转闸所需的 cookie 由播放 [MediaPlaybackSource.headers] 复用。
+class MediaSeekThumbnail {
+  const MediaSeekThumbnail({required this.position, required this.url});
+
+  final Duration position;
+  final String url;
+}
+
 class MediaPlaybackBundle {
   final String itemId;
   final String title;
@@ -249,10 +261,15 @@ class MediaPlaybackBundle {
   final List<MediaPlaybackTrack> subtitleTracks;
   final MediaPlaybackSession session;
 
+  /// 拖动 seek 预览缩略图（按位置升序）。空 = 该后端/条目无缩略图（飞牛恒空），
+  /// 原生壳退回纯时间药丸。
+  final List<MediaSeekThumbnail> seekThumbnails;
+
   const MediaPlaybackBundle({
     required this.itemId,
     required this.selectedSource,
     required this.session,
+    this.seekThumbnails = const <MediaSeekThumbnail>[],
     this.title = '',
     this.itemType = '',
     this.seriesId = '',
