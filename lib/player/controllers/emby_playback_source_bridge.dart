@@ -106,6 +106,15 @@ class EmbyPlaybackSourceBridge {
       // qualities 仍空（Emby 直链无画质梯度；版本切换在详情页选）。
       audioTracks: _audioTrackOptions(bundle),
       subtitleTracks: _subtitleTrackOptions(bundle),
+      // 拖动 seek 预览缩略图（Emby 章节图）。中立 [MediaSeekThumbnail] → 播放器层
+      // [MpvSeekThumbnail]，随 toMap 进 loadArgs 传原生壳。空则原生退回纯时间药丸。
+      seekThumbnails: <MpvSeekThumbnail>[
+        for (final thumb in bundle.seekThumbnails)
+          MpvSeekThumbnail(
+            positionMs: thumb.position.inMilliseconds,
+            url: thumb.url,
+          ),
+      ],
     );
   }
 

@@ -399,6 +399,37 @@ class SubtitleTrackOption {
   }
 }
 
+/// 拖动 seek 预览缩略图（播放器层）：某播放位置 → 一张缩略图直链。
+///
+/// 由播放桥接器从后端中立的 `MediaSeekThumbnail` 映射而来，随 `MpvMediaSource.toMap()`
+/// 进 loadArgs 传给原生壳。原生壳拖动 seek 时按目标位置取最近一张显示；空列表 = 该条目
+/// 无缩略图（飞牛恒空），退回纯时间药丸。
+class MpvSeekThumbnail {
+  const MpvSeekThumbnail({required this.positionMs, required this.url});
+
+  final int positionMs;
+  final String url;
+
+  Map<String, Object?> toMap() => <String, Object?>{
+    'positionMs': positionMs,
+    'url': url,
+  };
+
+  static MpvSeekThumbnail? fromMap(Object? raw) {
+    if (raw is! Map) return null;
+    final url = (raw['url'] ?? '').toString();
+    if (url.isEmpty) return null;
+    final pos = raw['positionMs'];
+    final positionMs = pos is int
+        ? pos
+        : (pos is num ? pos.toInt() : int.tryParse('$pos') ?? 0);
+    return MpvSeekThumbnail(
+      positionMs: positionMs < 0 ? 0 : positionMs,
+      url: url,
+    );
+  }
+}
+
 String _channelText(int channels) {
   if (channels <= 0) return '';
   if (channels == 1) return '1.0ch';
