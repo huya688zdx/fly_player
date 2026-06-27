@@ -2753,6 +2753,55 @@
   "playStatsReportNoDistributionData": "暂无分布数据",
   "playStatsReportMetadataBackfilling": "相关元数据还在补全中",
   "playStatsReportNoRankingData": "当前没有足够的排行数据",
+  "playStatsRangeDays7": "7天",
+  "playStatsRangeDays30": "30天",
+  "playStatsRangeDays90": "90天",
+  "playStatsRangeDays180": "半年",
+  "playStatsRangeDays365": "一年",
+  "playStatsRangeAll": "全部",
+  "playStatsMediaTypeMovie": "电影",
+  "playStatsMediaTypeSeries": "剧集",
+  "playStatsInsightEmpty": "还没有足够的播放记录，开始观看后这里会生成你的观影战报。",
+  "playStatsInsightRecentYear": "{year}年前后",
+  "@playStatsInsightRecentYear": {
+    "placeholders": {
+      "year": {
+        "type": "int"
+      }
+    }
+  },
+  "playStatsInsightMainPeriod": "你主要在{period}观看",
+  "@playStatsInsightMainPeriod": {
+    "placeholders": {
+      "period": {}
+    }
+  },
+  "playStatsInsightPreferSeries": "内容偏好更偏向剧集",
+  "playStatsInsightPreferMovie": "近期电影占比更高",
+  "playStatsInsightPreferYear": "偏好{year}的作品",
+  "@playStatsInsightPreferYear": {
+    "placeholders": {
+      "year": {}
+    }
+  },
+  "playStatsInsightAutoNextHeavy": "有明显连续追看的倾向",
+  "playStatsInsightSkipHeavy": "而且 OP 跳过倾向比较明显",
+  "playStatsInsightSentence": "{clauses}。",
+  "@playStatsInsightSentence": {
+    "placeholders": {
+      "clauses": {}
+    }
+  },
+  "playStatsStartManual": "手动打开",
+  "playStatsStartManualSwitch": "手动换集",
+  "playStatsStartAutoNext": "自动连播",
+  "playStatsStartReplay": "重播",
+  "playStatsStartSystemResume": "系统恢复",
+  "playStatsPeriodEarlyMorning": "清晨",
+  "playStatsPeriodMorning": "上午",
+  "playStatsPeriodAfternoon": "下午",
+  "playStatsPeriodNight": "夜间",
+  "playStatsPeriodLateNight": "深夜",
   "playStatsReportNoRecentHistory": "最近还没有新的观看记录",
   "playStatsReportJumpPageTitle": "跳转页码",
   "playStatsReportJumpPageDescription": "输入 1 到 {pageCount} 之间的页码",

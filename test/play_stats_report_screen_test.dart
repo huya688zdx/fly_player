@@ -270,6 +270,7 @@ class _FakeSummaryRepository implements PlayStatsSummaryRepository {
 
   @override
   Future<PlayStatsReportSnapshot> loadReportSnapshot({
+    required AppLocalizations l10n,
     required PlayStatsRange range,
     int topLimit = 8,
   }) async {

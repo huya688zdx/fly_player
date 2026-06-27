@@ -198,7 +198,7 @@ class PlayStatsHeroCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  l10n.playStatsReportHeroTitle(selectedRange.label),
+                  l10n.playStatsReportHeroTitle(selectedRange.label(l10n)),
                   style: TextStyle(
                     color: colors.textPrimary,
                     fontSize: 12.5,
@@ -363,6 +363,7 @@ class PlayStatsRangeSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     final itemSpacing = compact ? 6.0 : 8.0;
     final verticalPadding = compact ? 9.0 : 11.0;
     final fontSize = compact ? 11.8 : 12.8;
@@ -399,7 +400,10 @@ class PlayStatsRangeSelector extends StatelessWidget {
                         fontSize: fontSize,
                         fontWeight: FontWeight.w700,
                       ),
-                      child: Text(range.label, textAlign: TextAlign.center),
+                      child: Text(
+                        range.label(l10n),
+                        textAlign: TextAlign.center,
+                      ),
                     ),
                   ),
                 ),
