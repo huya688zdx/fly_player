@@ -11,6 +11,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.drawable.ClipDrawable
 import android.graphics.drawable.GradientDrawable
@@ -806,6 +807,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private val hideControlsRunnable = Runnable { setControlsVisible(false) }
 
     private lateinit var centerHint: TextView
+    // 拖动 seek 专用预览浮层（与顶部通用 centerHint 解耦）：贴近底部进度条上方居中。
+    // 结构：缩略图(可选) 叠在时间药丸之上。trickplay 缩略图仅支持的后端(Emby)才有，
+    // 飞牛恒无缩略图、退回纯时间药丸。
+    private lateinit var seekPreview: LinearLayout
+    private lateinit var seekPreviewThumb: ImageView
+    private lateinit var seekPreviewTime: TextView
     private lateinit var audioManager: AudioManager
     private lateinit var gestureDetector: GestureDetector
     private val transientHintHide = Runnable { hideCenterHint() }
@@ -2336,6 +2343,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         maybeShowResumePrompt(loadArgs)
         // 清掉切集时的「正在切换…」提示（换源已完成）。
         if (this::centerHint.isInitialized) hideCenterHint()
+        hideSeekPreview()
+        // 换源时复位 trickplay 描述：新源的 trickplay 数据应在此按后端能力重新解析（飞牛恒空）。
         // 纯听模式下换集刷新封面/标题。
         if (isAudioOnly && listenLayer?.visibility == View.VISIBLE) refreshListenArtwork()
         // 换集后立刻刷新媒体会话标题/封面（播停态可能不变，不能只靠 applyState 的态变门控）。
@@ -2534,6 +2543,53 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             ).apply {
                 gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
                 topMargin = dp(140)
+            },
+        )
+
+        // 拖动 seek 预览浮层：缩略图（trickplay 才有）+ 时间药丸，居中贴在底栏进度条上方。
+        seekPreviewThumb = ImageView(this).apply {
+            adjustViewBounds = true
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            background = glassBackground(cornerDp = 10)
+            // 单瓦片缩略图典型 320×180，这里限制最大显示尺寸，保持 16:9 视觉。
+            maxWidth = dp(192)
+            maxHeight = dp(108)
+            visibility = View.GONE
+        }
+        seekPreviewTime = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            background = pillBackground()
+            setPadding(dp(18), dp(10), dp(18), dp(10))
+        }
+        seekPreview = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            visibility = View.GONE
+            addView(
+                seekPreviewThumb,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).apply { bottomMargin = dp(8) },
+            )
+            addView(
+                seekPreviewTime,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ),
+            )
+        }
+        rootContainer.addView(
+            seekPreview,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                // 贴在底栏（≈128dp 高）进度条上方居中。
+                gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                bottomMargin = dp(140)
             },
         )
 
@@ -3441,7 +3497,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             )
             setColorFilter(Color.WHITE)
             isClickable = true
-            contentDescription = if (episodeViewMode == NATIVE_EPISODE_VIEW_MODE_GRID) "切换为列表" else "切换为宫格"
+            contentDescription = if (episodeViewMode == NATIVE_EPISODE_VIEW_MODE_GRID) {
+                context.getString(R.string.player_episode_switch_to_list)
+            } else {
+                context.getString(R.string.player_episode_switch_to_grid)
+            }
             setOnClickListener {
                 val previous = episodeViewMode
                 episodeViewMode = if (episodeViewMode == NATIVE_EPISODE_VIEW_MODE_GRID) {
@@ -8612,9 +8672,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     val deltaMs = (dx / w * 120_000L).toLong()
                     gestureSeekTargetMs =
                         (gestureSeekStartMs + deltaMs).coerceIn(0L, durationMs)
-                    showCenterHint(
-                        "${formatTime(gestureSeekTargetMs)} / ${formatTime(durationMs)}",
-                    )
+                    showSeekPreview(gestureSeekTargetMs, durationMs)
                 }
             }
             2 -> {
@@ -8645,6 +8703,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
         gestureMode = 0
         hideCenterHint()
+        hideSeekPreview()
     }
 
     private fun currentBrightness(): Float {
@@ -8679,6 +8738,53 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         centerHint.removeCallbacks(centerHintWatchdog)
         centerHint.removeCallbacks(weakNetEscalate)
         centerHint.visibility = View.GONE
+    }
+
+    /**
+     * 拖动 seek 预览：显示「目标位置 / 总时长」时间药丸，并在支持 trickplay 的后端附带缩略图。
+     * 飞牛后端无 trickplay，[resolveSeekThumbnail] 恒返回 null → 仅显示时间药丸。
+     */
+    private fun showSeekPreview(targetMs: Long, durationMs: Long) {
+        seekPreviewTime.text = "${formatTime(targetMs)} / ${formatTime(durationMs)}"
+        val thumb = resolveSeekThumbnail(targetMs, durationMs)
+        if (thumb != null) {
+            seekPreviewThumb.setImageBitmap(thumb)
+            seekPreviewThumb.visibility = View.VISIBLE
+        } else {
+            seekPreviewThumb.setImageDrawable(null)
+            seekPreviewThumb.visibility = View.GONE
+        }
+        seekPreview.visibility = View.VISIBLE
+    }
+
+    private fun hideSeekPreview() {
+        if (!this::seekPreview.isInitialized) return
+        seekPreview.visibility = View.GONE
+        seekPreviewThumb.setImageDrawable(null)
+    }
+
+    // ---- 进度缩略图（trickplay）预留 ----
+    // Emby 等后端可提供 trickplay 雪碧图：拖动 seek 时按目标位置切出对应缩略图预览。
+    // 飞牛后端暂不支持，loadArgs 不含 trickplay 描述，[trickplayInfo] 恒为 null。
+    // 接入步骤：① Flutter 端在 loadArgs 注入 trickplay 描述（时间间隔 / 瓦片宽高 / 网格列行 /
+    // 雪碧图 URL 列表）；② 起播时解析进 [trickplayInfo]；③ 在 [resolveSeekThumbnail] 内按
+    // positionMs 定位瓦片、裁剪并缓存返回 Bitmap（注意主线程只读缓存，下载/裁剪走后台）。
+    private data class TrickplayInfo(
+        val intervalMs: Long,
+        val tileWidth: Int,
+        val tileHeight: Int,
+        val columns: Int,
+        val rows: Int,
+        val tileSheetUrls: List<String>,
+    )
+
+    private var trickplayInfo: TrickplayInfo? = null
+
+    /** 返回给定播放位置的 trickplay 缩略图；无 trickplay 数据时返回 null。 */
+    private fun resolveSeekThumbnail(positionMs: Long, durationMs: Long): Bitmap? {
+        val info = trickplayInfo ?: return null
+        // TODO(emby-trickplay): 按 info.intervalMs 计算瓦片索引，从对应雪碧图裁剪并缓存返回。
+        return null
     }
 
     // ---- 控制交互 ----
