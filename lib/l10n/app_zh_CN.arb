@@ -1627,6 +1627,7 @@
     }
   },
   "downloadLoadingInfo": "正在获取下载信息，请稍候",
+  "downloadLoadingEllipsis": "加载中…",
   "downloadNoResources": "暂无可下载资源",
   "downloadNoQuality": "暂无可下载清晰度",
   "downloadSelectItem": "选择下载条目",
