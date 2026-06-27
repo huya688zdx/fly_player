@@ -1,5 +1,6 @@
 import 'package:sqflite/sqflite.dart';
 
+import '../../l10n/generated/app_localizations.dart';
 import 'play_stats_database.dart';
 import 'play_stats_mappers.dart';
 import 'play_stats_models.dart';
@@ -11,6 +12,7 @@ import 'play_stats_summary_models.dart';
 abstract class PlayStatsSummaryRepository {
   /// 按指定时间范围加载完整报表快照。
   Future<PlayStatsReportSnapshot> loadReportSnapshot({
+    required AppLocalizations l10n,
     required PlayStatsRange range,
     int topLimit = 8,
   });
@@ -49,6 +51,7 @@ class SqflitePlayStatsSummaryRepository implements PlayStatsSummaryRepository {
 
   @override
   Future<PlayStatsReportSnapshot> loadReportSnapshot({
+    required AppLocalizations l10n,
     required PlayStatsRange range,
     int topLimit = 8,
   }) async {
@@ -85,6 +88,7 @@ class SqflitePlayStatsSummaryRepository implements PlayStatsSummaryRepository {
         .map((row) => PlayStatsSqlMapper.seasonStatsFromMap(row))
         .toList(growable: false);
     return _reportAggregator.buildSnapshot(
+      l10n: l10n,
       range: range,
       histories: histories,
       videos: videos,

@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import '../../l10n/generated/app_localizations.dart';
 import 'play_stats_models.dart';
 import 'play_stats_report_models.dart';
 
@@ -10,6 +11,7 @@ class PlayStatsReportAggregator {
 
   /// 根据历史记录与聚合数据构造完整报表快照。
   PlayStatsReportSnapshot buildSnapshot({
+    required AppLocalizations l10n,
     required PlayStatsRange range,
     required List<PlayHistoryRecord> histories,
     required List<VideoStatsRecord> videos,
@@ -23,6 +25,7 @@ class PlayStatsReportAggregator {
     };
 
     final overview = _buildOverview(
+      l10n: l10n,
       range: range,
       histories: sortedHistory,
       videos: videos,
@@ -34,7 +37,7 @@ class PlayStatsReportAggregator {
       overview: overview,
       trends: _buildTrends(range: range, histories: sortedHistory),
       heatmap: _buildHeatmap(sortedHistory),
-      mediaTypeBuckets: _buildMediaTypeBuckets(sortedHistory),
+      mediaTypeBuckets: _buildMediaTypeBuckets(l10n, sortedHistory),
       genreBuckets: _buildGenreBuckets(sortedHistory, topLimit: topLimit),
       countryBuckets: _buildCountryBuckets(sortedHistory, topLimit: topLimit),
       yearBuckets: _buildYearBuckets(
@@ -43,7 +46,7 @@ class PlayStatsReportAggregator {
         topLimit: topLimit,
       ),
       affinityPeople: _buildAffinityPeople(sortedHistory, topLimit: topLimit),
-      behavior: _buildBehavior(sortedHistory),
+      behavior: _buildBehavior(l10n, sortedHistory),
       topAnimes: _buildTopAnimes(sortedHistory, topLimit: topLimit),
       topVideos: _buildTopVideos(sortedHistory, topLimit: topLimit),
       recentHistory: sortedHistory.take(12).toList(growable: false),
@@ -56,6 +59,7 @@ class PlayStatsReportAggregator {
   }
 
   PlayStatsOverview _buildOverview({
+    required AppLocalizations l10n,
     required PlayStatsRange range,
     required List<PlayHistoryRecord> histories,
     required List<VideoStatsRecord> videos,
@@ -105,7 +109,7 @@ class PlayStatsReportAggregator {
       totalCompletedSeasonCount: completedSeasons,
       activeDays: activeDays,
       metadataCoverage: metadataCoverage,
-      insight: _buildInsight(histories, videos),
+      insight: _buildInsight(l10n, histories, videos),
     );
   }
 
@@ -176,6 +180,7 @@ class PlayStatsReportAggregator {
   }
 
   List<PlayStatsDistributionBucket> _buildMediaTypeBuckets(
+    AppLocalizations l10n,
     List<PlayHistoryRecord> histories,
   ) {
     final values = <String, int>{};
@@ -191,7 +196,9 @@ class PlayStatsReportAggregator {
     }
     return _toBuckets(
       values,
-      labelBuilder: (id) => id == 'movie' ? '电影' : '剧集',
+      labelBuilder: (id) => id == 'movie'
+          ? l10n.playStatsMediaTypeMovie
+          : l10n.playStatsMediaTypeSeries,
       topLimit: 6,
     );
   }
@@ -314,7 +321,10 @@ class PlayStatsReportAggregator {
         .toList(growable: false);
   }
 
-  PlayStatsBehaviorSummary _buildBehavior(List<PlayHistoryRecord> histories) {
+  PlayStatsBehaviorSummary _buildBehavior(
+    AppLocalizations l10n,
+    List<PlayHistoryRecord> histories,
+  ) {
     final sourceCounts = <String, int>{};
     var completedSessions = 0;
     var forwardSeekCount = 0;
@@ -358,7 +368,7 @@ class PlayStatsReportAggregator {
       backwardSeekCount: backwardSeekCount,
       startSourceBuckets: _toBuckets(
         sourceCounts,
-        labelBuilder: _startSourceLabel,
+        labelBuilder: (id) => _startSourceLabel(l10n, id),
         topLimit: sourceCounts.length,
       ),
       intro: PlayStatsOpEdSummary(
@@ -567,11 +577,12 @@ class PlayStatsReportAggregator {
   }
 
   String _buildInsight(
+    AppLocalizations l10n,
     List<PlayHistoryRecord> histories,
     List<VideoStatsRecord> videos,
   ) {
     if (histories.isEmpty) {
-      return '还没有足够的播放记录，开始观看后这里会生成你的观影战报。';
+      return l10n.playStatsInsightEmpty;
     }
     final hourWeights = List<int>.filled(24, 0);
     var animePlayedMs = 0;
@@ -598,24 +609,28 @@ class PlayStatsReportAggregator {
       }
     }
     final peakHour = hourWeights.indexOf(hourWeights.reduce(math.max));
-    final period = _timePeriodLabel(peakHour);
+    final period = _timePeriodLabel(l10n, peakHour);
     final prefersAnime = animePlayedMs >= moviePlayedMs;
     final years = videos
         .where((item) => item.year > 0)
         .map((item) => item.year)
         .toList();
-    final recentYear = years.isEmpty ? '' : '${(years..sort()).last}年前后';
+    final recentYear = years.isEmpty
+        ? ''
+        : l10n.playStatsInsightRecentYear((years..sort()).last);
     final autoNextHeavy = autoNextCount > histories.length * 0.35;
     final skipHeavy =
         introDetected > 0 && introSkipped >= (introDetected * 0.5);
     final clauses = <String>[
-      '你主要在$period观看',
-      prefersAnime ? '内容偏好更偏向剧集' : '近期电影占比更高',
-      if (recentYear.isNotEmpty) '偏好$recentYear的作品',
-      if (autoNextHeavy) '有明显连续追看的倾向',
-      if (skipHeavy) '而且 OP 跳过倾向比较明显',
+      l10n.playStatsInsightMainPeriod(period),
+      prefersAnime
+          ? l10n.playStatsInsightPreferSeries
+          : l10n.playStatsInsightPreferMovie,
+      if (recentYear.isNotEmpty) l10n.playStatsInsightPreferYear(recentYear),
+      if (autoNextHeavy) l10n.playStatsInsightAutoNextHeavy,
+      if (skipHeavy) l10n.playStatsInsightSkipHeavy,
     ];
-    return '${clauses.join('，')}。';
+    return l10n.playStatsInsightSentence(clauses.join('，'));
   }
 
   bool _matchesRange(PlayStatsRange range, int timestampMs) {
@@ -639,21 +654,21 @@ class PlayStatsReportAggregator {
     return '${value.year}-$month-$day';
   }
 
-  String _startSourceLabel(String id) => switch (id) {
-    'manual' => '手动打开',
-    'manualSwitch' => '手动换集',
-    'autoNext' => '自动连播',
-    'replay' => '重播',
-    'systemResume' => '系统恢复',
+  String _startSourceLabel(AppLocalizations l10n, String id) => switch (id) {
+    'manual' => l10n.playStatsStartManual,
+    'manualSwitch' => l10n.playStatsStartManualSwitch,
+    'autoNext' => l10n.playStatsStartAutoNext,
+    'replay' => l10n.playStatsStartReplay,
+    'systemResume' => l10n.playStatsStartSystemResume,
     _ => id,
   };
 
-  String _timePeriodLabel(int hour) {
-    if (hour >= 5 && hour < 9) return '清晨';
-    if (hour >= 9 && hour < 12) return '上午';
-    if (hour >= 12 && hour < 18) return '下午';
-    if (hour >= 18 && hour < 23) return '夜间';
-    return '深夜';
+  String _timePeriodLabel(AppLocalizations l10n, int hour) {
+    if (hour >= 5 && hour < 9) return l10n.playStatsPeriodEarlyMorning;
+    if (hour >= 9 && hour < 12) return l10n.playStatsPeriodMorning;
+    if (hour >= 12 && hour < 18) return l10n.playStatsPeriodAfternoon;
+    if (hour >= 18 && hour < 23) return l10n.playStatsPeriodNight;
+    return l10n.playStatsPeriodLateNight;
   }
 
   String _animeGroupKey(PlayHistoryRecord item) {
