@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../api/feiniu_api.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../media_backend/playback/media_session_reload.dart';
 import '../models/media_library_item.dart';
 import '../player/controllers/mpv_player_controller.dart';
@@ -32,6 +33,7 @@ class NativeReentrySupport {
   /// 原生壳选集面板的数据源：视图偏好、季列表、指定季剧集都仍由 Flutter/NAS 层负责。
   static Future<Map<String, dynamic>?> loadEpisodePickerData(
     NasProvider nas, {
+    required AppLocalizations l10n,
     required String currentLoadArgs,
     String seasonGuid = '',
     List<Map<String, dynamic>> fallbackEpisodes =
@@ -61,7 +63,7 @@ class NativeReentrySupport {
       loadArgs,
       requestedSeasonGuid,
     );
-    final seasons = await _loadNativeSeasonOptions(api, seriesGuid);
+    final seasons = await _loadNativeSeasonOptions(l10n, api, seriesGuid);
     final targetSeasonGuid = _resolveTargetSeasonGuid(
       requestedSeasonGuid: requestedSeasonGuid,
       seasons: seasons,
@@ -209,6 +211,7 @@ class NativeReentrySupport {
   }
 
   static Future<List<Map<String, dynamic>>> _loadNativeSeasonOptions(
+    AppLocalizations l10n,
     FeiniuApi api,
     String seriesGuid,
   ) async {
@@ -219,7 +222,7 @@ class NativeReentrySupport {
           .map(
             (season) => <String, dynamic>{
               'seasonGuid': season.guid,
-              'seasonLabel': _nativeSeasonLabel(season),
+              'seasonLabel': _nativeSeasonLabel(l10n, season),
               'seasonNumber': season.seasonNumber,
             },
           )
@@ -304,12 +307,17 @@ class NativeReentrySupport {
     };
   }
 
-  static String _nativeSeasonLabel(MediaLibraryItem season) {
-    if (season.seasonNumber == 0) return '特别篇';
-    if (season.seasonNumber > 0) return '第${season.seasonNumber}季';
+  static String _nativeSeasonLabel(
+    AppLocalizations l10n,
+    MediaLibraryItem season,
+  ) {
+    if (season.seasonNumber == 0) return l10n.detailSeasonSpecial;
+    if (season.seasonNumber > 0) {
+      return l10n.playerEpisodeSeasonTemplate(season.seasonNumber);
+    }
     final title = season.title.trim();
     if (title.isNotEmpty) return title;
-    return '季';
+    return l10n.detailSeasonDefault;
   }
 
   static String _nativeEpisodeTitle(MediaLibraryItem episode) {

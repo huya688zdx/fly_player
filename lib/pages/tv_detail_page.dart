@@ -1355,6 +1355,7 @@ class _TvDetailPageState extends State<TvDetailPage>
       _reentryToken = NativePlaybackReentry.bind(
         backend: backend,
         nas: nas,
+        l10n: AppLocalizations.of(context),
         onResolvePlayback:
             (
               itemGuid, {

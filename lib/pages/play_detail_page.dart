@@ -2011,6 +2011,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       settleDuration: const Duration(milliseconds: 500),
       action: () async {
         if (!mounted) return;
+        final l10n = AppLocalizations.of(context);
         // 灰度：原生渲染器开启时走纯原生播放壳（无 Hybrid Composition，弹幕丝滑）。
         // 直接 launch + return，不触碰 _playerRouteActive/try-finally 状态机。
         final danmakuSettings = await const DanmakuSettingsStore().load();
@@ -2055,6 +2056,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           NativePlaybackReentry.bind(
             backend: backend,
             nas: nas,
+            l10n: l10n,
             fallbackEpisodes: () => capturedEpisodes,
             onResolvePlayback:
                 (
