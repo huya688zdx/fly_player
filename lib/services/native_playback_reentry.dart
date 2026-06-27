@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../l10n/generated/app_localizations.dart';
 import '../media_backend/media_backend.dart';
 import '../media_backend/media_backend_kind.dart';
 import '../providers/nas_provider.dart';
@@ -45,6 +46,7 @@ class NativePlaybackReentry {
   static Object bind({
     required MediaBackend backend,
     required NasProvider nas,
+    required AppLocalizations l10n,
     required ResolvePlaybackHandler onResolvePlayback,
     List<Map<String, dynamic>> Function()? fallbackEpisodes,
   }) {
@@ -65,6 +67,7 @@ class NativePlaybackReentry {
             NativeReentrySupport.loadEpisodePickerData(
               nas,
               currentLoadArgs: currentLoadArgs,
+              l10n: l10n,
               seasonGuid: seasonGuid ?? '',
               fallbackEpisodes:
                   fallbackEpisodes?.call() ?? const <Map<String, dynamic>>[],
@@ -89,6 +92,7 @@ class NativePlaybackReentry {
       onLoadEpisodePickerData: (currentLoadArgs, {seasonGuid}) =>
           EmbyNativePickerSupport.loadEpisodePickerData(
             backend,
+            l10n: l10n,
             currentLoadArgs: currentLoadArgs,
             seasonGuid: seasonGuid ?? '',
             fallbackEpisodes:

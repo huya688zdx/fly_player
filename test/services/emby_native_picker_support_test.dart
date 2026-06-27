@@ -1,8 +1,10 @@
 import 'dart:convert';
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/media_backend/detail/media_episode_summary.dart';
 import 'package:fly_player/media_backend/detail/media_season_summary.dart';
 import 'package:fly_player/media_backend/media_backend.dart';
@@ -71,6 +73,7 @@ String _loadArgs({
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  final l10n = lookupAppLocalizations(const Locale('zh', 'CN'));
 
   setUp(() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
@@ -91,6 +94,7 @@ void main() {
     );
     final data = await EmbyNativePickerSupport.loadEpisodePickerData(
       backend,
+      l10n: l10n,
       currentLoadArgs: _loadArgs(),
     );
     expect(data, isNotNull);
@@ -125,6 +129,7 @@ void main() {
     );
     final data = await EmbyNativePickerSupport.loadEpisodePickerData(
       backend,
+      l10n: l10n,
       currentLoadArgs: _loadArgs(),
       seasonGuid: 'season-2',
     );
@@ -142,6 +147,7 @@ void main() {
     ];
     final data = await EmbyNativePickerSupport.loadEpisodePickerData(
       backend,
+      l10n: l10n,
       currentLoadArgs: _loadArgs(),
       fallbackEpisodes: fallback,
     );
@@ -156,6 +162,7 @@ void main() {
     expect(
       await EmbyNativePickerSupport.loadEpisodePickerData(
         backend,
+        l10n: l10n,
         currentLoadArgs: '',
       ),
       isNull,
@@ -198,6 +205,7 @@ void main() {
     final backend = _FakePickerBackend();
     final data = await EmbyNativePickerSupport.loadEpisodePickerData(
       backend,
+      l10n: l10n,
       currentLoadArgs: _loadArgs(),
     );
     expect(data!['viewType'], 'button');

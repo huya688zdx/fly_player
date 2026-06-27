@@ -2236,6 +2236,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     _reentryToken = NativePlaybackReentry.bind(
       backend: backend,
       nas: nas,
+      l10n: AppLocalizations.of(context),
       fallbackEpisodes: _neutralNativeEpisodesPayload,
       onResolvePlayback:
           (
@@ -2291,6 +2292,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     _reentryToken = NativePlaybackReentry.bind(
       backend: backend,
       nas: nas,
+      l10n: AppLocalizations.of(context),
       fallbackEpisodes: _nativeEpisodesPayload,
       onResolvePlayback:
           (

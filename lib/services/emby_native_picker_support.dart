@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../media_backend/detail/media_episode_summary.dart';
 import '../media_backend/detail/media_season_summary.dart';
 import '../media_backend/media_backend.dart';
@@ -30,6 +31,7 @@ class EmbyNativePickerSupport {
   /// 取当前播放季；季列表取数失败退化为「仅当前季」（用 [fallbackEpisodes] 兜底，不报错）。
   static Future<Map<String, dynamic>?> loadEpisodePickerData(
     MediaBackend backend, {
+    required AppLocalizations l10n,
     required String currentLoadArgs,
     String seasonGuid = '',
     List<Map<String, dynamic>> fallbackEpisodes =
@@ -49,7 +51,7 @@ class EmbyNativePickerSupport {
         ? seasonGuid.trim()
         : (loadArgs['seasonGuid'] ?? '').toString().trim();
     final viewType = await _loadViewType();
-    final seasons = await _loadSeasons(backend, seriesGuid);
+    final seasons = await _loadSeasons(l10n, backend, seriesGuid);
     final targetSeasonGuid = _resolveTargetSeasonGuid(
       requestedSeasonGuid: requestedSeasonGuid,
       seasons: seasons,
@@ -129,6 +131,7 @@ class EmbyNativePickerSupport {
   }
 
   static Future<List<Map<String, dynamic>>> _loadSeasons(
+    AppLocalizations l10n,
     MediaBackend backend,
     String seriesGuid,
   ) async {
@@ -139,7 +142,7 @@ class EmbyNativePickerSupport {
           .map(
             (season) => <String, dynamic>{
               'seasonGuid': season.id,
-              'seasonLabel': _seasonLabel(season),
+              'seasonLabel': _seasonLabel(l10n, season),
               'seasonNumber': season.seasonNumber,
             },
           )
@@ -209,10 +212,12 @@ class EmbyNativePickerSupport {
     };
   }
 
-  static String _seasonLabel(MediaSeasonSummary season) {
-    if (season.seasonNumber == 0) return '特别篇';
-    if (season.seasonNumber > 0) return '第${season.seasonNumber}季';
+  static String _seasonLabel(AppLocalizations l10n, MediaSeasonSummary season) {
+    if (season.seasonNumber == 0) return l10n.detailSeasonSpecial;
+    if (season.seasonNumber > 0) {
+      return l10n.playerEpisodeSeasonTemplate(season.seasonNumber);
+    }
     final title = season.title.trim();
-    return title.isNotEmpty ? title : '季';
+    return title.isNotEmpty ? title : l10n.detailSeasonDefault;
   }
 }
