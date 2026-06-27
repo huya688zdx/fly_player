@@ -40,15 +40,30 @@ class DanDanPlayResolver {
     required int seasonNumber,
     required int episodeNumber,
     required String tmdbId,
+    String itemTitle = '',
   }) async {
-    final results = await searchEpisodeCandidates(
+    var results = await searchEpisodeCandidates(
       keyword: seriesTitle,
       episodeNumber: episodeNumber,
       tmdbId: tmdbId,
-      allowLooseTitleFallback: false,
+      allowLooseTitleFallback: true,
     );
+    if (results.isEmpty && episodeNumber > 0) {
+      results = await searchEpisodeCandidates(
+        keyword: seriesTitle,
+        episodeNumber: 0,
+        tmdbId: tmdbId,
+        allowLooseTitleFallback: true,
+      );
+    }
     if (results.isEmpty) return null;
-    final item = results.first;
+    final item =
+        _pickPlaybackCandidate(
+          results,
+          itemTitle: itemTitle,
+          episodeNumber: episodeNumber,
+        ) ??
+        results.first;
     final result = await importEpisodeById(item);
     if (result == null) return null;
     return DanDanPlayPlaybackResolveResult(item: item, result: result);
@@ -230,6 +245,81 @@ class DanDanPlayResolver {
       compact.substring(compact.length - 3),
       compact.substring(compact.length - 2),
     }.toList(growable: false);
+  }
+
+  static DanDanPlayEpisodeSearchItem? _pickPlaybackCandidate(
+    List<DanDanPlayEpisodeSearchItem> items, {
+    required String itemTitle,
+    required int episodeNumber,
+  }) {
+    if (items.isEmpty) return null;
+    final normalizedTitle = _normalizeComparableEpisodeTitle(itemTitle);
+    if (normalizedTitle.isNotEmpty) {
+      for (final item in items) {
+        final candidate = _normalizeComparableEpisodeTitle(item.episodeTitle);
+        if (candidate.isNotEmpty && candidate == normalizedTitle) {
+          return item;
+        }
+      }
+      for (final item in items) {
+        final candidate = _normalizeComparableEpisodeTitle(item.episodeTitle);
+        if (candidate.isNotEmpty &&
+            (candidate.contains(normalizedTitle) ||
+                normalizedTitle.contains(candidate))) {
+          return item;
+        }
+      }
+    }
+    if (episodeNumber > 0) {
+      for (final item in items) {
+        if (item.episodeNumber == episodeNumber ||
+            _extractEpisodeNumber(item.episodeTitle) == episodeNumber) {
+          return item;
+        }
+      }
+    }
+    return null;
+  }
+
+  static String _normalizeComparableEpisodeTitle(String value) {
+    var title = value.trim().toLowerCase();
+    if (title.isEmpty) return '';
+    title = title.replaceFirst(
+      RegExp(
+        r'^(?:\u7b2c\s*\d+\s*[\u8bdd\u8a71\u96c6]|(?:ep|e|episode)\s*\d+)',
+        caseSensitive: false,
+      ),
+      '',
+    );
+    title = title.replaceAll(RegExp(r'[\s\-_:.,!?()\[\]{}]+'), '');
+    title = title.replaceAll(RegExp(r'[，。！？（）【】《》「」『』·・]+'), '');
+    return title.trim();
+  }
+
+  static DanDanPlayEpisodeSearchItem? pickPlaybackCandidateForTest(
+    List<DanDanPlayEpisodeSearchItem> items, {
+    required String itemTitle,
+    required int episodeNumber,
+  }) {
+    return _pickPlaybackCandidate(
+      items,
+      itemTitle: itemTitle,
+      episodeNumber: episodeNumber,
+    );
+  }
+
+  static int _extractEpisodeNumber(String value) {
+    if (value.trim().isEmpty) return 0;
+    final zh = RegExp(
+      r'\u7b2c\s*0*(\d{1,4})\s*[\u8bdd\u8a71\u96c6]',
+    ).firstMatch(value);
+    if (zh != null) return int.tryParse(zh.group(1) ?? '') ?? 0;
+    final en = RegExp(
+      r'(?:EP|E|Episode)\s*0*(\d{1,4})',
+      caseSensitive: false,
+    ).firstMatch(value);
+    if (en != null) return int.tryParse(en.group(1) ?? '') ?? 0;
+    return 0;
   }
 
   static List<DanDanPlayEpisodeSearchItem> _collectEpisodeItems(
