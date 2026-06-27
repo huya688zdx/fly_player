@@ -1,5 +1,6 @@
 package com.geqian.flyplayer.fly_player
 
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -387,6 +388,51 @@ class NativePlayerActivityPanelModelsTest {
         assertEquals(true, nativePanelCanPreloadNextEpisode(true, true))
         assertEquals(false, nativePanelCanPreloadNextEpisode(false, true))
         assertEquals(false, nativePanelCanPreloadNextEpisode(true, false))
+    }
+
+    @Test
+    fun episodeSwitchSkipsPreloadedResultWithoutDanmakuFile() {
+        val danmakuFile = File.createTempFile("native-preload-danmaku", ".json").apply {
+            writeText("""{"comments":[]}""")
+        }
+        assertEquals(
+            false,
+            nativePanelShouldUsePreloadedEpisodeResult(
+                linkedMapOf<String, Any?>("loadArgs" to "{}"),
+            ),
+        )
+        assertEquals(
+            false,
+            nativePanelShouldUsePreloadedEpisodeResult(
+                linkedMapOf<String, Any?>("loadArgs" to "{}", "danmakuFile" to ""),
+            ),
+        )
+        assertEquals(
+            false,
+            nativePanelShouldUsePreloadedEpisodeResult(
+                linkedMapOf<String, Any?>(
+                    "loadArgs" to "{}",
+                    "danmakuFile" to "${danmakuFile.absolutePath}.missing",
+                ),
+            ),
+        )
+        assertEquals(
+            true,
+            nativePanelShouldUsePreloadedEpisodeResult(
+                linkedMapOf<String, Any?>(
+                    "loadArgs" to "{}",
+                    "danmakuFile" to danmakuFile.absolutePath,
+                ),
+            ),
+        )
+        danmakuFile.delete()
+    }
+
+    @Test
+    fun episodeSwitchBypassesPreloadedResultWhenDanmakuIsEnabled() {
+        val result = linkedMapOf<String, Any?>("loadArgs" to "{}")
+        assertEquals(false, nativePanelShouldUsePreloadedEpisodeResultForSwitch(result, true))
+        assertEquals(true, nativePanelShouldUsePreloadedEpisodeResultForSwitch(result, false))
     }
 
     @Test

@@ -35,6 +35,7 @@ class NativeDanmakuPrefetch {
   /// 不传则退化为纯自动匹配（旧行为）。
   static Future<String?> resolveToFile({
     required String seriesTitle,
+    String itemTitle = '',
     required int seasonNumber,
     required int episodeNumber,
     required String tmdbId,
@@ -45,6 +46,12 @@ class NativeDanmakuPrefetch {
   }) async {
     try {
       if (!settings.enabled) return null;
+      // 诊断：对比「全新启动」与「壳内切集」两条路喂进来的参数是否一致。切集没弹幕但退出重进有，
+      // 多半是这里某个字段（seriesTitle/episodeNumber/tmdbId）在切集时是空的，导致下方在线匹配被跳过。
+      debugPrint(
+        '[DANMAKU][NATIVE_PREFETCH] in series="$seriesTitle" title="$itemTitle" s=$seasonNumber '
+        'e=$episodeNumber tmdb="$tmdbId" item="$itemGuid" media="$mediaGuid" season="$seasonGuid"',
+      );
       const store = DanmakuSavedSourceStore();
       final mediaKey = _buildMediaKey(
         itemGuid: itemGuid,
@@ -98,12 +105,20 @@ class NativeDanmakuPrefetch {
             .firstWhere((s) => s != null, orElse: () => null);
         // 3) 自动匹配被屏蔽 → 不再在线请求，但仍可落到随片下载兜底（离线可用）。
         final blocked = await store.loadAutoMatchBlockedReason(mediaKey);
-        final autoBlocked = blocked != null && blocked.isNotEmpty;
+        final autoBlocked =
+            blocked != null &&
+            blocked.isNotEmpty &&
+            blocked != 'auto_no_result';
 
         // 4) 在线自动匹配（网络源），拿到即覆盖旧的随片下载缓存优先使用。
+        debugPrint(
+          '[DANMAKU][NATIVE_PREFETCH] online gate: autoBlocked=$autoBlocked '
+          'seriesTitleEmpty=${seriesTitle.trim().isEmpty}',
+        );
         if (!autoBlocked && seriesTitle.trim().isNotEmpty) {
           final online = await _resolveOnlineToFile(
             seriesTitle: seriesTitle,
+            itemTitle: itemTitle,
             seasonNumber: seasonNumber,
             episodeNumber: episodeNumber,
             tmdbId: tmdbId,
@@ -113,6 +128,9 @@ class NativeDanmakuPrefetch {
             itemGuid: itemGuid,
             mediaGuid: mediaGuid,
             seasonGuid: seasonGuid,
+          );
+          debugPrint(
+            '[DANMAKU][NATIVE_PREFETCH] online result=${online != null}',
           );
           if (online != null) return online;
         }
@@ -127,6 +145,7 @@ class NativeDanmakuPrefetch {
       // 无 mediaKey（纯自动匹配旧路径）：直接在线匹配。
       return await _resolveOnlineToFile(
         seriesTitle: seriesTitle,
+        itemTitle: itemTitle,
         seasonNumber: seasonNumber,
         episodeNumber: episodeNumber,
         tmdbId: tmdbId,
@@ -143,6 +162,7 @@ class NativeDanmakuPrefetch {
   /// 在线 DanDanPlay 自动匹配并落 payload 文件；无结果时写入 blocked 标记。
   static Future<String?> _resolveOnlineToFile({
     required String seriesTitle,
+    String itemTitle = '',
     required int seasonNumber,
     required int episodeNumber,
     required String tmdbId,
@@ -158,6 +178,7 @@ class NativeDanmakuPrefetch {
     final resolver = _buildResolver();
     final resolved = await resolver.resolveForPlayback(
       seriesTitle: seriesTitle,
+      itemTitle: itemTitle,
       seasonNumber: seasonNumber,
       episodeNumber: episodeNumber,
       tmdbId: tmdbId,
@@ -177,12 +198,13 @@ class NativeDanmakuPrefetch {
     // 源面板里看不到自动匹配到的弹幕。口径与旧 Flutter 播放器自动加载一致（sourceKey=episodeId，
     // saveSource 顺带把它设为该媒体的 active，源面板即标「当前生效」）。
     final matchedItem = resolved.item;
+    final sourceKey = matchedItem.episodeId.toString();
     if (mediaKey.isNotEmpty && matchedItem.episodeId > 0) {
       await store.saveSource(
         DanmakuSavedSource(
           type: DanmakuSavedSourceType.danDanPlay,
           mediaKey: mediaKey,
-          sourceKey: matchedItem.episodeId.toString(),
+          sourceKey: sourceKey,
           label: matchedItem.displayTitle,
           detail: matchedItem.displaySubtitle,
           seriesTitle: seriesTitle.trim(),
@@ -196,7 +218,12 @@ class NativeDanmakuPrefetch {
         ),
       );
     }
-    return await _writePayloadFile(buildPayload(settings, comments));
+    if (matchedItem.episodeId > 0) {
+      await _cacheComments('dandan:${matchedItem.episodeId}', comments);
+    }
+    return await _writePayloadFile(
+      buildPayload(settings, comments, sourceKey: sourceKey),
+    );
   }
 
   /// 复刻 `_currentDanmakuMediaKey`（mpv_player_danmaku_mixin）的 key 规则，保证与旧

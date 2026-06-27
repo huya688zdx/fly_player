@@ -650,7 +650,9 @@ extension _MpvPlayerDanmakuMixin on _MpvPlayerPageState {
     final mediaKey = _currentDanmakuMediaKey();
     final blockedReason = await _danmakuSavedSourceStore
         .loadAutoMatchBlockedReason(mediaKey);
-    if (blockedReason != null && blockedReason.isNotEmpty) {
+    if (blockedReason != null &&
+        blockedReason.isNotEmpty &&
+        blockedReason != _danmakuAutoBlockNoResult) {
       debugPrint(
         '[DANMAKU][AUTO_LOAD] skipped mediaKey=$mediaKey blocked=$blockedReason',
       );
@@ -662,6 +664,7 @@ extension _MpvPlayerDanmakuMixin on _MpvPlayerPageState {
         seriesTitle: _currentSeriesTitle.trim().isNotEmpty
             ? _currentSeriesTitle
             : _currentTitle,
+        itemTitle: _currentTitle,
         seasonNumber: _currentSeasonNumber,
         episodeNumber: _currentEpisodeNumber,
         tmdbId: _currentTmdbId,
