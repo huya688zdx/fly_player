@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../controllers/play_detail_data_loader.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../models/download_task_record.dart';
 import '../models/play_info.dart';
 import '../player/controllers/mpv_player_controller.dart';
@@ -62,7 +63,6 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
   PlayerHostLaunchArgs? _currentArgs;
   String _layoutMode = _fullscreenMode;
   bool _loadingInitialArgs = true;
-  _PlayerHostActivePane _activePane = _PlayerHostActivePane.player;
 
   bool get _isSplitMode => _layoutMode == _splitMode;
 
@@ -123,7 +123,6 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
     _layoutMode = args.layoutMode == _splitMode ? _splitMode : _fullscreenMode;
     _detailPaneReserved = _layoutMode == _splitMode;
     _syncPaneTransition(animate: false);
-    _activePane = _PlayerHostActivePane.player;
     final nextInitialRoute = args.initialRightPaneRoute.trim();
     if (!replaceSourceOnly) {
       _splitBackExitGuardArmed =
@@ -443,19 +442,11 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
         _currentRightPaneRoute == _homeRoute) {
       _replaceOrPushRightPaneRoute(normalizedRoute);
     }
-    await _setLayoutMode(
-      normalizedMode,
-      activePane:
-          normalizedMode == _splitMode && _currentRightPaneRoute != _homeRoute
-          ? _PlayerHostActivePane.detail
-          : _PlayerHostActivePane.player,
-      syncPlatform: false,
-    );
+    await _setLayoutMode(normalizedMode, syncPlatform: false);
   }
 
   Future<void> _setLayoutMode(
     String nextMode, {
-    required _PlayerHostActivePane activePane,
     required bool syncPlatform,
   }) async {
     final normalizedMode = nextMode == _splitMode
@@ -465,11 +456,9 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
     if (mounted) {
       setState(() {
         _layoutMode = normalizedMode;
-        _activePane = activePane;
       });
     } else {
       _layoutMode = normalizedMode;
-      _activePane = activePane;
     }
     if (layoutChanged) {
       unawaited(_syncPaneTransition());
@@ -541,11 +530,7 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
       final active =
           (call.arguments as Map<Object?, Object?>?)?['active'] == true;
       if (!active || !_isSplitMode || !mounted) return;
-      await _setLayoutMode(
-        _fullscreenMode,
-        activePane: _PlayerHostActivePane.player,
-        syncPlatform: true,
-      );
+      await _setLayoutMode(_fullscreenMode, syncPlatform: true);
       return;
     }
     if (call.method == 'pictureInPictureModeChanged') {
@@ -561,11 +546,7 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
     final normalizedRoute = routeName.trim();
     if (normalizedRoute.isEmpty) return false;
     _replaceOrPushRightPaneRoute(normalizedRoute);
-    await _setLayoutMode(
-      _splitMode,
-      activePane: _PlayerHostActivePane.detail,
-      syncPlatform: true,
-    );
+    await _setLayoutMode(_splitMode, syncPlatform: true);
     return true;
   }
 
@@ -589,11 +570,7 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
   Future<bool> closePane() async {
     if (!_isSplitMode) return true;
     _resetRightPaneStack(_homeRoute);
-    await _setLayoutMode(
-      _fullscreenMode,
-      activePane: _PlayerHostActivePane.player,
-      syncPlatform: true,
-    );
+    await _setLayoutMode(_fullscreenMode, syncPlatform: true);
     return true;
   }
 
@@ -685,7 +662,9 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
     }
     final args = _currentArgs;
     if (args == null) {
-      return const _PlayerHostError(message: '当前播放器参数错误');
+      return _PlayerHostError(
+        message: AppLocalizations.of(context).playerHostInvalidArgs,
+      );
     }
     if (!provider.isConfigured && !_sourceCanRunWithoutNas(args.source)) {
       return const ConnectionScreen();
@@ -721,41 +700,32 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
                     final splitWidth = totalWidth < 720
                         ? totalWidth * 0.48
                         : (totalWidth * 0.42).clamp(360.0, 640.0);
-                    final detailContent = Listener(
-                      behavior: HitTestBehavior.translucent,
-                      onPointerDown: (_) {
-                        // _activePane 不参与渲染，仅用于手势记录；
-                        // 直接赋值即可，避免无意义的整树（含播放器）重建。
-                        _activePane = _PlayerHostActivePane.detail;
-                      },
-                      child: SizedBox(
-                        width: splitWidth,
-                        height: constraints.maxHeight,
-                        child: Builder(
-                          builder: (context) {
-                            final media = MediaQuery.of(context);
-                            return MediaQuery(
-                              data: media.copyWith(
-                                size: Size(splitWidth, constraints.maxHeight),
+                    final detailContent = SizedBox(
+                      width: splitWidth,
+                      height: constraints.maxHeight,
+                      child: Builder(
+                        builder: (context) {
+                          final media = MediaQuery.of(context);
+                          return MediaQuery(
+                            data: media.copyWith(
+                              size: Size(splitWidth, constraints.maxHeight),
+                            ),
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: context.appColors.backgroundBase,
                               ),
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  color: context.appColors.backgroundBase,
-                                ),
-                                child: DetailHostScreen(
-                                  key: _detailHostKey,
-                                  initialRouteName:
-                                      _rightPaneRouteNotifier.value,
-                                  rootRouteName: _homeRoute,
-                                  routeListenable: _rightPaneRouteNotifier,
-                                  onRouteStackChanged:
-                                      _applyRightPaneRouteStackSnapshot,
-                                  enablePlatformChannel: false,
-                                ),
+                              child: DetailHostScreen(
+                                key: _detailHostKey,
+                                initialRouteName: _rightPaneRouteNotifier.value,
+                                rootRouteName: _homeRoute,
+                                routeListenable: _rightPaneRouteNotifier,
+                                onRouteStackChanged:
+                                    _applyRightPaneRouteStackSnapshot,
+                                enablePlatformChannel: false,
                               ),
-                            );
-                          },
-                        ),
+                            ),
+                          );
+                        },
                       ),
                     );
                     // 重型子树（视频播放器、详情导航）在每次布局时只构建一次，
@@ -763,44 +733,32 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
                     // 期间，相同的 widget 实例会触发 Flutter 的 short-circuit，
                     // 避免 MpvPlayerPage 与详情页每帧重建导致的掉帧。
                     final playerPane = Expanded(
-                      child: Listener(
-                        behavior: HitTestBehavior.translucent,
-                        onPointerDown: (_) {
-                          // 同上：仅记录激活窗格，不触发重建。
-                          _activePane = _PlayerHostActivePane.player;
-                        },
-                        child: DecoratedBox(
-                          decoration: const BoxDecoration(color: Colors.black),
-                          child: KeyedSubtree(
-                            key: const ValueKey<String>('player-pane'),
-                            child: MpvPlayerPage(
-                              title: args.title,
-                              source: args.source,
-                              initialPlayInfo: args.initialPlayInfo,
-                              startSource: args.startSource,
-                              pictureInPictureActive: _pictureInPictureActive,
-                              onBackActionHandlerChanged: (handler) {
-                                _playerBackActionHandler = handler;
-                              },
-                              backDismissManager: _playerBackDismissManager,
-                              parallelLayoutToggleEnabled:
-                                  args.fromParallelHost,
-                              parallelLayoutMode: _layoutMode,
-                              interceptSystemBack: false,
-                              onParallelLayoutModeChanged: (nextMode) async {
-                                await _setLayoutMode(
-                                  nextMode,
-                                  activePane: _PlayerHostActivePane.player,
-                                  syncPlatform: true,
-                                );
-                              },
-                              onCloseRequested: (result) async {
-                                await _finishPlayer(
-                                  result: result,
-                                  force: true,
-                                );
-                              },
-                            ),
+                      child: DecoratedBox(
+                        decoration: const BoxDecoration(color: Colors.black),
+                        child: KeyedSubtree(
+                          key: const ValueKey<String>('player-pane'),
+                          child: MpvPlayerPage(
+                            title: args.title,
+                            source: args.source,
+                            initialPlayInfo: args.initialPlayInfo,
+                            startSource: args.startSource,
+                            pictureInPictureActive: _pictureInPictureActive,
+                            onBackActionHandlerChanged: (handler) {
+                              _playerBackActionHandler = handler;
+                            },
+                            backDismissManager: _playerBackDismissManager,
+                            parallelLayoutToggleEnabled: args.fromParallelHost,
+                            parallelLayoutMode: _layoutMode,
+                            interceptSystemBack: false,
+                            onParallelLayoutModeChanged: (nextMode) async {
+                              await _setLayoutMode(
+                                nextMode,
+                                syncPlatform: true,
+                              );
+                            },
+                            onCloseRequested: (result) async {
+                              await _finishPlayer(result: result, force: true);
+                            },
                           ),
                         ),
                       ),
@@ -898,8 +856,6 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
         normalizedUrl.startsWith('content:');
   }
 }
-
-enum _PlayerHostActivePane { player, detail }
 
 class _PlayerHostError extends StatelessWidget {
   final String message;

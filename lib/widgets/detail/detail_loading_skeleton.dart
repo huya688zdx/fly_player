@@ -37,13 +37,15 @@ class DetailLoadingSkeleton extends StatelessWidget {
       colors.textMuted.withValues(alpha: 0.18),
       colors.backgroundBase,
     );
-    final pad = DetailTokens.screenHorizontalPadding;
+    const pad = DetailTokens.screenHorizontalPadding;
     final buttonHeight = _isPane ? 48.0 : 56.0;
     final topReserve = media.padding.top + 12 + DetailTokens.topButtonSize + 8;
     final bodyWidth = size.width - pad * 2;
     // Poster card: matches tv_season_detail_page / TvSeasonDetailPanel
-    final posterWidth = (size.width * (_isPane ? 0.24 : 0.30))
-        .clamp(120.0, _isPane ? 150.0 : 180.0);
+    final posterWidth = (size.width * (_isPane ? 0.24 : 0.30)).clamp(
+      120.0,
+      _isPane ? 150.0 : 180.0,
+    );
     final posterHeight = posterWidth * 1.45;
     // Fill remaining space beside poster
     final textZoneWidth = bodyWidth - posterWidth - 16;
@@ -74,7 +76,10 @@ class DetailLoadingSkeleton extends StatelessWidget {
                   ),
                 ),
                 padding: EdgeInsets.fromLTRB(
-                  pad, topReserve, pad, _isPane ? 12 : 20,
+                  pad,
+                  topReserve,
+                  pad,
+                  _isPane ? 12 : 20,
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -98,11 +103,26 @@ class DetailLoadingSkeleton extends StatelessWidget {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              _Bar(width: titleWidth, height: _isPane ? 20 : 24, radius: 6, color: fill),
+                              _Bar(
+                                width: titleWidth,
+                                height: _isPane ? 20 : 24,
+                                radius: 6,
+                                color: fill,
+                              ),
                               const SizedBox(height: 10),
-                              _Bar(width: metaWidth1, height: 14, radius: 7, color: line),
+                              _Bar(
+                                width: metaWidth1,
+                                height: 14,
+                                radius: 7,
+                                color: line,
+                              ),
                               const SizedBox(height: 6),
-                              _Bar(width: metaWidth1 * 0.52, height: 14, radius: 7, color: line),
+                              _Bar(
+                                width: metaWidth1 * 0.52,
+                                height: 14,
+                                radius: 7,
+                                color: line,
+                              ),
                             ],
                           ),
                         ),
@@ -112,7 +132,7 @@ class DetailLoadingSkeleton extends StatelessWidget {
                 ),
               ),
               Padding(
-                padding: EdgeInsets.fromLTRB(pad, 0, pad, 0),
+                padding: const EdgeInsets.fromLTRB(pad, 0, pad, 0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -135,9 +155,19 @@ class DetailLoadingSkeleton extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 18),
-                    _Bar(width: bodyWidth * 0.92, height: 12, radius: 6, color: line),
+                    _Bar(
+                      width: bodyWidth * 0.92,
+                      height: 12,
+                      radius: 6,
+                      color: line,
+                    ),
                     const SizedBox(height: 8),
-                    _Bar(width: bodyWidth * 0.64, height: 12, radius: 6, color: line),
+                    _Bar(
+                      width: bodyWidth * 0.64,
+                      height: 12,
+                      radius: 6,
+                      color: line,
+                    ),
                   ],
                 ),
               ),
@@ -155,7 +185,12 @@ class _Bar extends StatelessWidget {
   final double height;
   final double radius;
   final Color color;
-  const _Bar({this.width, required this.height, this.radius = 0, required this.color});
+  const _Bar({
+    this.width,
+    required this.height,
+    this.radius = 0,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -166,7 +201,8 @@ class _Bar extends StatelessWidget {
           )
         : BoxDecoration(color: color);
     return SizedBox(
-      width: width, height: height,
+      width: width,
+      height: height,
       child: DecoratedBox(decoration: decoration),
     );
   }
@@ -180,8 +216,11 @@ class _Circle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: size, height: size,
-      child: DecoratedBox(decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+      width: size,
+      height: size,
+      child: DecoratedBox(
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      ),
     );
   }
 }

@@ -734,7 +734,7 @@ class DownloadTaskService extends ChangeNotifier {
         final absoluteReceived = resumeOffset + raf.positionSync();
         final rawFileSize = response.headers.map['file-size']?.first;
         final totalFromHeaders = rawFileSize != null
-            ? int.tryParse('$rawFileSize')
+            ? int.tryParse(rawFileSize)
             : null;
         final normalizedTotal = totalFromHeaders != null && totalFromHeaders > 0
             ? totalFromHeaders
@@ -1612,8 +1612,9 @@ class DownloadTaskService extends ChangeNotifier {
         // raf is opened in append mode so positionSync() already includes
         // any pre-existing .part data.
         final absoluteReceived = raf.positionSync();
-        final totalFromHeaders = response.headers.map['file-size'] != null
-            ? int.tryParse('${response.headers.map['file-size']?.first ?? ''}')
+        final rawFileSize = response.headers.map['file-size']?.first;
+        final totalFromHeaders = rawFileSize != null
+            ? int.tryParse(rawFileSize)
             : null;
         final normalizedTotal = totalFromHeaders != null && totalFromHeaders > 0
             ? totalFromHeaders

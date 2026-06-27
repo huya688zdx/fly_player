@@ -126,12 +126,13 @@ class AppSettingsScreen extends StatelessWidget {
   }
 
   Future<void> _resetFnConnectWebLoginState(BuildContext context) async {
+    final l10n = AppLocalizations.of(context);
     final confirmed = await showAppConfirmDialog(
       context,
-      title: '重新登录 FN Connect',
-      content: '将清除 FN Connect 网页登录态，并退出当前连接。服务器地址、用户名和已记住的密码会保留，之后可重新发起网页登录。',
-      cancelText: '取消',
-      confirmText: '清除并重新登录',
+      title: l10n.fnConnectReloginTitle,
+      content: l10n.fnConnectReloginContent,
+      cancelText: l10n.commonCancel,
+      confirmText: l10n.fnConnectReloginConfirm,
       confirmColor: context.appColors.warning,
     );
     if (!context.mounted || !confirmed) return;
@@ -141,7 +142,7 @@ class AppSettingsScreen extends StatelessWidget {
       if (!context.mounted) return;
       AppTopTip().show(
         context,
-        message: '已清除 FN Connect 网页登录态，请重新登录',
+        message: l10n.fnConnectReloginSuccess,
         color: context.appColors.accent,
       );
       await context.read<NasProvider>().logout();
@@ -156,7 +157,7 @@ class AppSettingsScreen extends StatelessWidget {
       if (!context.mounted) return;
       AppTopTip().show(
         context,
-        message: '清除 FN Connect 网页登录态失败，请重试',
+        message: l10n.fnConnectReloginFailure,
         color: context.appColors.danger,
       );
     }
@@ -296,18 +297,10 @@ class AppSettingsScreen extends StatelessWidget {
       ),
       SettingsSearchEntry(
         id: 'fn_connect_relogin',
-        title: '重新登录 FN Connect',
-        subtitle: '清除 FN Connect 网页登录态并退出当前连接',
+        title: l10n.fnConnectReloginTitle,
+        subtitle: l10n.fnConnectReloginSubtitle,
         location: l10n.settingsLocationRoot,
-        keywords: const <String>[
-          'FN Connect',
-          'fnos',
-          '飞牛',
-          '网页',
-          '网页登录态',
-          '重新登录',
-          '远程访问',
-        ],
+        keywords: _keywords(l10n.fnConnectReloginKeywords),
         onSelect: () => _resetFnConnectWebLoginState(context),
       ),
       SettingsSearchEntry(
@@ -754,8 +747,8 @@ class AppSettingsScreen extends StatelessWidget {
                                 const _SettingsGroupDivider(),
                                 _SettingsEntryTile(
                                   icon: Icons.cloud_sync_outlined,
-                                  title: '重新登录 FN Connect',
-                                  subtitle: '清除网页登录态并退出当前连接',
+                                  title: l10n.fnConnectReloginTitle,
+                                  subtitle: l10n.fnConnectReloginShortSubtitle,
                                   onTap: () {
                                     unawaited(
                                       _resetFnConnectWebLoginState(context),
