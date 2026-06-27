@@ -106,9 +106,10 @@ class _LoginHistoryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final isEmby = entry.kind == MediaBackendKind.emby;
     final subtitle = entry.userName.isEmpty
-        ? (isEmby ? 'Emby' : '飞牛 NAS')
+        ? (isEmby ? 'Emby' : l10n.connectionFeiniuNas)
         : (isEmby ? '${entry.userName} · Emby' : entry.userName);
     return Material(
       color: const Color(0xFF232D3A),

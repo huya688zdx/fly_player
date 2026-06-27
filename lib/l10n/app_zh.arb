@@ -210,11 +210,53 @@
   "connectionOperationFailedRetryLater": "操作失败，请稍后重试",
   "connectionOperationFailedRetry": "操作失败，请重试",
   "connectionServerRequired": "请输入服务器地址",
+  "connectionEmbyServerRequired": "请输入 Emby 服务器地址",
   "connectionUserNameRequired": "请输入用户名",
   "connectionPasswordRequired": "请输入密码",
+  "connectionEmbySessionIncomplete": "Emby 登录返回的会话信息不完整",
   "connectionInvalidCredential": "用户名或密码错误",
   "connectionNetworkError": "网络异常，请检查后重试",
   "connectionValidationFailed": "验证失败",
+  "connectionServerLabel": "服务器地址",
+  "connectionEmbyServerLabel": "Emby 服务器地址",
+  "connectionServerExample": "例如：https://feiniu.geqian.sbs:5667",
+  "connectionEmbyServerExample": "例如：https://emby.example.com",
+  "connectionAccountLabel": "账号",
+  "connectionFeiniuMedia": "飞牛影视",
+  "connectionFeiniuNas": "飞牛 NAS",
+  "connectionTagline": "连接您的媒体服务，畅享影音世界",
+  "fnConnectReloginTitle": "重新登录 FN Connect",
+  "fnConnectReloginContent": "将清除 FN Connect 网页登录态，并退出当前连接。服务器地址、用户名和已记住的密码会保留，之后可重新发起网页登录。",
+  "fnConnectReloginConfirm": "清除并重新登录",
+  "fnConnectReloginSuccess": "已清除 FN Connect 网页登录态，请重新登录",
+  "fnConnectReloginFailure": "清除 FN Connect 网页登录态失败，请重试",
+  "fnConnectReloginSubtitle": "清除 FN Connect 网页登录态并退出当前连接",
+  "fnConnectReloginShortSubtitle": "清除网页登录态并退出当前连接",
+  "fnConnectReloginKeywords": "FN Connect|fnos|飞牛|网页|网页登录态|重新登录|远程访问",
+  "fnConnectEntryTokenMissing": "未获取到 FN Connect 入口令牌，请重试",
+  "fnConnectEntryOpening": "正在打开 FN Connect 入口...",
+  "fnConnectEntryLoading": "加载 {url}",
+  "@fnConnectEntryLoading": {
+    "placeholders": {
+      "url": {}
+    }
+  },
+  "fnConnectEntryProcessing": "处理 {url}",
+  "@fnConnectEntryProcessing": {
+    "placeholders": {
+      "url": {}
+    }
+  },
+  "fnConnectEntryOpenFailed": "打开入口失败：{error}",
+  "@fnConnectEntryOpenFailed": {
+    "placeholders": {
+      "error": {}
+    }
+  },
+  "fnConnectEntryBlocked": "Emby 访问被拦截：请在页面里从飞牛桌面打开 Emby 应用完成授权",
+  "fnConnectEntryLoginTitle": "登录 FN Connect（Emby）",
+  "fnConnectEntryAuthorizedBack": "我已授权 · 回到 Emby",
+  "fnConnectEntryReload": "重新加载",
   "settingsThemeTitle": "主题设置",
   "settingsThemeSubtitle": "{title} · {subtitle}",
   "@settingsThemeSubtitle": {
@@ -2784,6 +2826,14 @@
   },
   "fnConnectNasAddressFailed": "FN Connect 登录失败，未能解析 NAS 地址",
   "playerHostInvalidArgs": "当前播放器参数错误",
+  "downloadMultipleVersions": "多版本",
+  "homeContinueActionSeasonTitle": "《{seriesTitle}》 {seasonText}",
+  "@homeContinueActionSeasonTitle": {
+    "placeholders": {
+      "seriesTitle": {},
+      "seasonText": {}
+    }
+  },
   "themeSaveDefaultBase": "自定义主题",
   "themeSaveName": "{base}主题色",
   "@themeSaveName": {

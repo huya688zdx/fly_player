@@ -81,10 +81,6 @@ class _FlutterDanmakuOverlayState extends State<FlutterDanmakuOverlay>
   // 上一次"处理 tick"的 wall 时刻；用于限帧（settings.targetFrameRateHz）。
   // 初始 -1 = 还没处理过，第一帧必出。
   double _lastRenderedWallMs = -1;
-  // 上一渲染帧是否有活动弹幕。用于"空闲不强制重绘"：没弹幕时不再每帧 _repaint，
-  // 让视频按自身节奏刷新（texture 路径下每次 _repaint 都触发整屏视频合成，Mali
-  // 上尤其昂贵）。从"有→无"时仍补一帧把残留弹幕清掉。
-  bool _hadActiveLastRender = false;
   // 显示刷新周期（ms）。用于把每帧 dt 量化到整数帧间隔，消除 Flutter 帧时间戳的
   // 亚帧抖动（dt 在 8.33ms 上下抖 ±1ms → 速度抖 ±12% → "一边滚一边颤"）。
   // 从 View.display.refreshRate 取，didChangeDependencies 里刷新。
@@ -225,7 +221,6 @@ class _FlutterDanmakuOverlayState extends State<FlutterDanmakuOverlay>
         _engine.clearActive();
         _repaint.value++;
       }
-      _hadActiveLastRender = false;
       return;
     }
     // 视频真正暂停：整体冻结，不再每帧 update/repaint，最后一帧静止画面保留。
