@@ -871,6 +871,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private var autoNextSuppressedItemGuid = ""
     private var completionActive = false
     private var episodeSwitchInFlight = false
+    // 蠢措施兜底：只要进度真在往前走（位置推进+未暂停未缓冲），就认定已开播，不再死等内核的
+    // visualPlaybackReady——切集原地换源时该标志偶发漏报，会把中间 loading 卡死。每次换源/重载复位。
+    private var lastProgressPositionMs = -1L
+    private var playbackProgressing = false
     private var nextEpisodePreloadGuid = ""
     private var nextEpisodePreloadInFlight = false
     private var nextEpisodePreloadResult: Any? = null
@@ -2231,6 +2235,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         episodePickerLoadedOnce = false // 换源：新内容需重新完整落地选集数据
         episodeViewModeUserDirty = false // 换源：新内容按服务端/本地偏好重新决定视图
         lastRecordedTs = -1L
+        resetPlaybackProgressTracking() // 换源后重置「已开播」兜底，让 loading 重新从切换态开始
         flutterDanmakuSources = null // 切集后 Flutter 弹幕源列表作废，进面板时按新集重拉
         if (this::titleLabel.isInitialized) titleLabel.text = mediaTitle
         // 切画质/换源后刷新画质入口按钮文案（之前只在构建时设一次，切完不变）。
@@ -3282,6 +3287,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             put("startPositionMs", playerSurface.state.positionMs)
         }
         pendingInitialSubtitle = true // 重载后重新套用当前字幕，避免回退默认轨
+        resetPlaybackProgressTracking() // 重载期间先回到「未开播」，等新进度推进再收 loading
         showTransientHint("重新载入中…")
         playerSurface.load(args)
         scheduleControlsAutoHide()
@@ -6138,18 +6144,33 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         weakNetCard.visibility = View.VISIBLE
     }
 
+    /** 换源/重载时复位「已开播」兜底，让中间 loading 重新从切换态起算。 */
+    private fun resetPlaybackProgressTracking() {
+        lastProgressPositionMs = -1L
+        playbackProgressing = false
+    }
+
     /** 由 [applyState] 驱动：加载转圈 / 自动连播·完成 / 弱网建议。 */
     private fun updateOverlays(state: MpvPlayerState) {
+        // 蠢措施：位置推进且未暂停未缓冲=画面真的在走，据此认定已开播。配合 visualPlaybackReady 一起收 loading，
+        // 避免切集原地换源时内核漏报首帧导致中间转圈卡死、episodeSwitchInFlight 永不复位。
+        if (!state.paused && !state.buffering && state.error == null &&
+            lastProgressPositionMs in 0 until state.positionMs
+        ) {
+            playbackProgressing = true
+        }
+        lastProgressPositionMs = state.positionMs
+        val effectivelyReady = state.visualPlaybackReady || playbackProgressing
         val showLoading = !state.nativeLibLoaded ||
             state.buffering ||
-            (!state.visualPlaybackReady && state.error == null) ||
+            (!effectivelyReady && state.error == null) ||
             state.error != null
         loadingSpinner.visibility = if (showLoading && !completionActive) View.VISIBLE else View.GONE
         val playbackEnded = state.playbackPhase == MpvPlaybackPhase.ENDED.wireValue
 
         if (episodeSwitchInFlight) {
             if (completionActive || autoNextActive) clearCompletion()
-            if (state.error != null || (state.visualPlaybackReady && !state.buffering && !playbackEnded)) {
+            if (state.error != null || (effectivelyReady && !state.buffering && !playbackEnded)) {
                 episodeSwitchInFlight = false
             } else {
                 return
