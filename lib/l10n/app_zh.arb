@@ -25,6 +25,19 @@
   "authExitTitle": "退出登录",
   "authExitContent": "确认退出当前帐号？",
   "mediaAllItemsTitle": "全部影视",
+  "mediaActionTitle": "《{title}》",
+  "@mediaActionTitle": {
+    "placeholders": {
+      "title": {}
+    }
+  },
+  "mediaActionTitleWithSuffix": "《{title}》 {suffix}",
+  "@mediaActionTitleWithSuffix": {
+    "placeholders": {
+      "title": {},
+      "suffix": {}
+    }
+  },
   "mediaLibraryFallbackName": "媒体库",
   "collectionLayoutTitle": "布局方式",
   "collectionLayoutSubtitle": "切换合集详情中的列表布局",
@@ -1900,6 +1913,57 @@
   "storageCategoryDetails": "分类详情",
   "storagePlaybackFiles": "播放缓存",
   "storageDownloadFiles": "下载文件",
+  "storageDownloadsTitle": "本地下载",
+  "storageDownloadsNote": "已下载完成的视频文件",
+  "storagePlaybackActiveNote": "播放中不可清理",
+  "storageScreenshotsTitle": "截图文件",
+  "storageScreenshotsRestrictedNote": "未授权时仅统计应用目录",
+  "storageLogsTitle": "日志",
+  "storageLogsCountLabel": "{count} 条",
+  "@storageLogsCountLabel": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "storageLogsNote": "应用内日志，不含导出文件",
+  "storageDanmakuAiCacheTitle": "弹幕蒙版缓存",
+  "storageDanmakuAiCacheNote": "每集的人像分割缩略图与蒙版 warm-start 缓存",
+  "storageAppDataCount": "{count} 项",
+  "@storageAppDataCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "storageAppDataOverviewNote": "含书签、主题、弹幕来源和设置估算值 / 播放统计(SQLite) {size}",
+  "@storageAppDataOverviewNote": {
+    "placeholders": {
+      "size": {}
+    }
+  },
+  "storageOtherCacheTitle": "其他缓存",
+  "storageFileCount": "{count} 个文件",
+  "@storageFileCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "storagePlaybackCacheCount": "{fileCount} 个缓存 · {completeCount} 个完整",
+  "@storagePlaybackCacheCount": {
+    "placeholders": {
+      "fileCount": {
+        "type": "int"
+      },
+      "completeCount": {
+        "type": "int"
+      }
+    }
+  },
   "storagePromoteSelected": "转为下载 ({count})",
   "@storagePromoteSelected": {
     "placeholders": {
