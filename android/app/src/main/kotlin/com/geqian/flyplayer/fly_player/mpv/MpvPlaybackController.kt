@@ -2280,6 +2280,21 @@ class MpvPlaybackController(
                     val positionSampleTimeNs = System.nanoTime()
                     val visualReadyFromProgress =
                         shouldMarkVisualPlaybackReadyFromProgress(positionMs)
+                    // 蠢措施：paused-for-cache 真生效时画面是停的、time-pos 不会前进。所以一旦位置在推进
+                    // 又没暂停，缓冲态必是残留（漏报 end-buffering / paused-for-cache=false）——强制收掉，
+                    // 否则正在播放却一直挂「缓冲中…网速」。换源/seek 由各自路径另行置位，不受影响。
+                    val advancingWhilePlaying =
+                        state.buffering &&
+                            !state.paused &&
+                            !restoreCoordinator.isSeekingOrRestoringVideo &&
+                            positionMs > state.positionMs
+                    if (advancingWhilePlaying) {
+                        weakNetworkBufferingController.onBufferingStateChanged(
+                            buffering = false,
+                            qualifiesAsRebuffer = false,
+                            nowUptimeMs = SystemClock.uptimeMillis(),
+                        )
+                    }
                     refreshWeakNetworkMetrics()
                     handleRestorePlan(
                         restoreCoordinator.onTimePosition(positionMs),
@@ -2289,6 +2304,7 @@ class MpvPlaybackController(
                         state.copy(
                             visualPlaybackReady =
                                 state.visualPlaybackReady || visualReadyFromProgress,
+                            buffering = if (advancingWhilePlaying) false else state.buffering,
                             positionMs = positionMs,
                             bufferedPositionMs = bufferedPositionFor(positionMs),
                             error = null,
