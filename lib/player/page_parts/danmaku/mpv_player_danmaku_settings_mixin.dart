@@ -6,7 +6,10 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
   String _danmakuSummaryText() => _danmakuController.summaryText;
 
   String _danmakuSourcePriorityLabel() {
-    return _danmakuController.settings.preferLocalSource ? '本地优先' : '网络优先';
+    final l10n = AppLocalizations.of(context);
+    return _danmakuController.settings.preferLocalSource
+        ? l10n.danmakuLocalFirst
+        : l10n.danmakuNetworkFirst;
   }
 
   String _danmakuOpacityLabel() {
@@ -21,31 +24,34 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
 
   String _danmakuFontScaleLabel() {
     final scale = _danmakuController.settings.fontScale;
-    if (scale < 0.8) return '较小';
-    if (scale < 0.95) return '偏小';
-    if (scale <= 1.05) return '标准';
-    if (scale < 1.2) return '偏大';
-    return '较大';
+    final l10n = AppLocalizations.of(context);
+    if (scale < 0.8) return l10n.danmakuSizeSmall;
+    if (scale < 0.95) return l10n.danmakuSizeSlightlySmall;
+    if (scale <= 1.05) return l10n.danmakuSizeStandard;
+    if (scale < 1.2) return l10n.danmakuSizeSlightlyLarge;
+    return l10n.danmakuSizeLarge;
   }
 
   String _danmakuThicknessLabel() {
     final thickness = _nearestDanmakuThicknessPreset(
       _danmakuController.settings.fontThickness,
     );
-    if (thickness <= 0.8) return '较细';
-    if (thickness >= 1.4) return '很粗';
-    if (thickness >= 1.2) return '较粗';
-    return '标准';
+    final l10n = AppLocalizations.of(context);
+    if (thickness <= 0.8) return l10n.danmakuWeightThin;
+    if (thickness >= 1.4) return l10n.danmakuWeightVeryThick;
+    if (thickness >= 1.2) return l10n.danmakuWeightThick;
+    return l10n.danmakuSizeStandard;
   }
 
   String _danmakuAreaLabel() {
     final ratio = _nearestDanmakuAreaPreset(
       _danmakuController.settings.displayAreaRatio,
     );
-    if (ratio <= 0.25) return '1/4 屏';
-    if (ratio <= 0.5) return '半屏';
-    if (ratio <= 0.75) return '3/4 屏';
-    return '全屏';
+    final l10n = AppLocalizations.of(context);
+    if (ratio <= 0.25) return l10n.danmakuAreaQuarter;
+    if (ratio <= 0.5) return l10n.danmakuAreaHalf;
+    if (ratio <= 0.75) return l10n.danmakuAreaThreeQuarter;
+    return l10n.danmakuAreaFull;
   }
 
   String _danmakuSpeedLabel() {
@@ -79,35 +85,42 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
 
   String _danmakuOcclusionStatusTitle() {
     final state = _controller.danmakuOcclusionState.value;
+    final l10n = AppLocalizations.of(context);
     if (!state.enabled) {
-      return '主体遮挡已关闭';
+      return l10n.danmakuOcclusionDisabledTitle;
     }
     if (state.available) {
       return switch (state.occlusionMode.trim().toLowerCase()) {
-        'mask' => '精细遮罩中',
-        'bbox' => '人物框兜底中',
-        _ => '主体遮挡已启用',
+        'mask' => l10n.danmakuOcclusionMaskTitle,
+        'bbox' => l10n.danmakuOcclusionBboxTitle,
+        _ => l10n.danmakuOcclusionEnabledTitle,
       };
     }
-    return '主体遮挡暂不可用';
+    return l10n.danmakuOcclusionUnavailableTitle;
   }
 
   String _danmakuOcclusionStatusSubtitle() {
     final state = _controller.danmakuOcclusionState.value;
+    final l10n = AppLocalizations.of(context);
     if (!state.enabled) {
-      return '关闭后会恢复普通弹幕显示。';
+      return l10n.danmakuOcclusionDisabledSubtitle;
     }
     final backend = state.backend.trim().isEmpty ? 'disabled' : state.backend;
     if (state.available) {
       final modeLabel = switch (state.occlusionMode.trim().toLowerCase()) {
-        'mask' => state.cacheHit ? '已复用精细遮罩缓存' : '正在使用实时精细遮罩',
-        'bbox' => '正在使用人物框兜底',
-        _ => '遮挡状态正常',
+        'mask' =>
+          state.cacheHit
+              ? l10n.danmakuOcclusionMaskCached
+              : l10n.danmakuOcclusionMaskRealtime,
+        'bbox' => l10n.danmakuOcclusionBboxFallback,
+        _ => l10n.danmakuOcclusionNormal,
       };
-      return '当前后端：$backend，$modeLabel。';
+      return l10n.danmakuOcclusionBackendStatus(backend, modeLabel);
     }
     final reason = _danmakuOcclusionUnavailableLabel(state.unavailableReason);
-    return '当前后端：$backend${reason == null ? '' : '，$reason'}';
+    return reason == null
+        ? l10n.danmakuOcclusionBackendOnly(backend)
+        : l10n.danmakuOcclusionBackendWithReason(backend, reason);
   }
 
   String? _danmakuOcclusionUnavailableLabel(String? reason) {
@@ -117,9 +130,11 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
       case '':
         return null;
       case 'capture_unsupported':
-        return '当前视频输出后端不支持 AI 采样';
+        return AppLocalizations.of(context).danmakuOcclusionCaptureUnsupported;
       case 'capture_budget_unsupported':
-        return '当前链路在高刷新率下已禁用实时 AI 采样';
+        return AppLocalizations.of(
+          context,
+        ).danmakuOcclusionCaptureBudgetUnsupported;
       default:
         return normalized;
     }
@@ -145,7 +160,9 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
     }
     if (!mounted) return;
     _showStatusMessage(
-      nextEnabled ? '弹幕已开启' : '弹幕已关闭',
+      nextEnabled
+          ? AppLocalizations.of(context).danmakuEnabled
+          : AppLocalizations.of(context).danmakuDisabled,
       hideAfter: const Duration(milliseconds: 1400),
     );
   }
@@ -156,7 +173,9 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
     );
     if (!mounted) return;
     _showStatusMessage(
-      value ? '已切换到原生弹幕渲染器，重新打开播放器后生效' : '已切换到 Flutter 弹幕渲染器，重新打开播放器后生效',
+      value
+          ? AppLocalizations.of(context).danmakuSwitchedNativeRenderer
+          : AppLocalizations.of(context).danmakuSwitchedFlutterRenderer,
       hideAfter: const Duration(milliseconds: 2600),
     );
   }
@@ -288,7 +307,9 @@ extension _MpvPlayerDanmakuSettingsMixin on _MpvPlayerPageState {
     await _tryLoadPreferredDanmakuSource();
     if (!mounted) return;
     _showTopTip(
-      preferLocalSource ? '已切换为本地优先' : '已切换为网络优先',
+      preferLocalSource
+          ? AppLocalizations.of(context).danmakuSwitchedLocalFirst
+          : AppLocalizations.of(context).danmakuSwitchedNetworkFirst,
       context.appColors.success,
     );
   }

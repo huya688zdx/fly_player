@@ -676,7 +676,7 @@ extension _MpvPlayerDanmakuMixin on _MpvPlayerPageState {
         );
         if (mounted) {
           _showTopTip(
-            '当前片源自动匹配弹幕无结果，后续不再自动请求，可手动搜索。',
+            AppLocalizations.of(context).danmakuAutoMatchNoResultBlocked,
             context.appColors.warning,
           );
         }
@@ -721,7 +721,10 @@ extension _MpvPlayerDanmakuMixin on _MpvPlayerPageState {
       if (!mounted) return true;
       final successColor = context.appColors.success;
       _updatePlayerState(() {});
-      _showTopTip('已加载 ${result.comments.length} 条弹幕', successColor);
+      _showTopTip(
+        AppLocalizations.of(context).danmakuLoadedCount(result.comments.length),
+        successColor,
+      );
       return true;
     } catch (error, stackTrace) {
       await _danmakuSavedSourceStore.saveAutoMatchBlockedReason(
@@ -747,10 +750,14 @@ extension _MpvPlayerDanmakuMixin on _MpvPlayerPageState {
         ),
       );
       if (mounted) {
+        final l10n = AppLocalizations.of(context);
         final reason = error is DanDanPlayApiException
             ? error.message
-            : '当前片源自动匹配弹幕失败';
-        _showTopTip('$reason，后续不再自动请求，可手动搜索。', context.appColors.warning);
+            : l10n.danmakuAutoMatchFailed;
+        _showTopTip(
+          l10n.danmakuAutoMatchBlockedWithReason(reason),
+          context.appColors.warning,
+        );
       }
       return false;
     }

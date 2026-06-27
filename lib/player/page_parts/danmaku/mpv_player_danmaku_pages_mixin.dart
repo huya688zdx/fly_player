@@ -11,9 +11,13 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
     final safeBottom = media.padding.bottom > 10 ? media.padding.bottom : 10.0;
     final settings = _danmakuController.settings;
     final supportsAutoMatch = _danmakuController.supportsAutoMatch;
+    final l10n = AppLocalizations.of(context);
 
     return PlayerNestedSheetScaffold(
-      header: PlayerNestedSheetHeader(title: '弹幕设置', onBack: drawer.popPage),
+      header: PlayerNestedSheetHeader(
+        title: l10n.danmakuSettingsTitle,
+        onBack: drawer.popPage,
+      ),
       padding: EdgeInsets.fromLTRB(
         landscape ? 18 : 14,
         landscape ? safeTop : 12,
@@ -23,13 +27,13 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
-          const PlaybackSettingsSectionLabel(label: '显示调节'),
+          PlaybackSettingsSectionLabel(label: l10n.danmakuDisplaySection),
           const SizedBox(height: 10),
           _DanmakuPanelCard(
             child: Column(
               children: [
                 _DanmakuSliderRow(
-                  label: '显示区域',
+                  label: l10n.danmakuDisplayArea,
                   trailing: _danmakuAreaLabel(),
                   slider: _DanmakuDiscreteDotsSlider(
                     values: _danmakuAreaPresets,
@@ -42,7 +46,7 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                 ),
                 const SizedBox(height: 18),
                 _DanmakuSliderRow(
-                  label: '不透明度',
+                  label: l10n.danmakuOpacity,
                   trailing: _danmakuOpacityLabel(),
                   slider: _DanmakuLineSlider(
                     value: settings.opacity,
@@ -57,7 +61,7 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                 ),
                 const SizedBox(height: 18),
                 _DanmakuSliderRow(
-                  label: '弹幕密度',
+                  label: l10n.danmakuDensity,
                   trailing: _danmakuDensityLabel(),
                   slider: _DanmakuLineSlider(
                     value: settings.density,
@@ -72,7 +76,7 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                 ),
                 const SizedBox(height: 18),
                 _DanmakuSliderRow(
-                  label: '字体大小',
+                  label: l10n.danmakuFontSize,
                   trailing: _danmakuFontScaleLabel(),
                   slider: _DanmakuLineSlider(
                     value: settings.fontScale,
@@ -87,7 +91,7 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                 ),
                 const SizedBox(height: 18),
                 _DanmakuSliderRow(
-                  label: '字体粗细',
+                  label: l10n.danmakuFontWeight,
                   trailing: _danmakuThicknessLabel(),
                   slider: _DanmakuDiscreteDotsSlider(
                     values: _danmakuThicknessPresets,
@@ -102,7 +106,7 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                 ),
                 const SizedBox(height: 18),
                 _DanmakuSliderRow(
-                  label: '弹幕速度',
+                  label: l10n.danmakuSpeed,
                   trailing: _danmakuSpeedLabel(),
                   slider: _DanmakuLineSlider(
                     value: clampDanmakuSpeed(settings.speed),
@@ -118,7 +122,7 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                 if (_useNativeDanmakuRenderer) ...[
                   const SizedBox(height: 18),
                   _DanmakuSliderRow(
-                    label: '弹幕帧率',
+                    label: l10n.danmakuFrameRate,
                     trailing: _danmakuFrameRateLabel(),
                     slider: _DanmakuDiscreteDotsSlider(
                       values: _danmakuFrameRatePresets,
@@ -136,7 +140,7 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
             ),
           ),
           const SizedBox(height: 18),
-          const PlaybackSettingsSectionLabel(label: '按弹幕类型屏蔽'),
+          PlaybackSettingsSectionLabel(label: l10n.danmakuTypeFilterSection),
           const SizedBox(height: 10),
           _DanmakuPanelCard(
             child: Wrap(
@@ -144,7 +148,7 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
               runSpacing: 14,
               children: [
                 _DanmakuTypeChip(
-                  label: '固定',
+                  label: l10n.danmakuTypeFixed,
                   icon: Icons.vertical_align_top_rounded,
                   selected: settings.topEnabled,
                   onTap: () {
@@ -158,7 +162,7 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                   },
                 ),
                 _DanmakuTypeChip(
-                  label: '滚动',
+                  label: l10n.danmakuTypeScroll,
                   icon: Icons.swap_horiz_rounded,
                   selected: settings.scrollEnabled,
                   onTap: () {
@@ -173,7 +177,7 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                   },
                 ),
                 _DanmakuTypeChip(
-                  label: '彩色',
+                  label: l10n.danmakuTypeColor,
                   icon: Icons.palette_outlined,
                   selected: settings.colorEnabled,
                   onTap: () {
@@ -188,7 +192,7 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                   },
                 ),
                 _DanmakuTypeChip(
-                  label: '底部',
+                  label: l10n.danmakuTypeBottom,
                   icon: Icons.vertical_align_bottom_rounded,
                   selected: settings.bottomEnabled,
                   onTap: () {
@@ -206,14 +210,14 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
             ),
           ),
           const SizedBox(height: 18),
-          const PlaybackSettingsSectionLabel(label: '画面防遮挡'),
+          PlaybackSettingsSectionLabel(label: l10n.danmakuOcclusionSection),
           const SizedBox(height: 10),
           _DanmakuPanelCard(
             child: Column(
               children: [
                 _DanmakuSwitchRow(
-                  title: '重复弹幕隐藏',
-                  subtitle: '合并高频重复内容，减少同屏密集刷屏。',
+                  title: l10n.danmakuHideDuplicateTitle,
+                  subtitle: l10n.danmakuHideDuplicateSubtitle,
                   value: settings.hideDuplicate,
                   onChanged: (value) {
                     unawaited(
@@ -226,8 +230,8 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                 ),
                 const SizedBox(height: 18),
                 _DanmakuSwitchRow(
-                  title: '底部字幕区域防遮挡',
-                  subtitle: '优先避开字幕所在区域，减少弹幕压住字幕。',
+                  title: l10n.danmakuAvoidSubtitleTitle,
+                  subtitle: l10n.danmakuAvoidSubtitleSubtitle,
                   value: settings.avoidSubtitleArea,
                   onChanged: (value) {
                     unawaited(
@@ -240,8 +244,8 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                 ),
                 const SizedBox(height: 18),
                 _DanmakuSwitchRow(
-                  title: '主体穿透遮挡',
-                  subtitle: '优先使用动态蒙版扣除人物区域内的弹幕，不可用时会恢复普通弹幕。',
+                  title: l10n.danmakuAvoidCenterTitle,
+                  subtitle: l10n.danmakuAvoidCenterSubtitle,
                   value: settings.avoidCenterArea,
                   onChanged: (value) {
                     unawaited(
@@ -254,11 +258,8 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                 ),
                 const SizedBox(height: 18),
                 _DanmakuSwitchRow(
-                  title: '原生弹幕渲染器（实验）',
-                  subtitle:
-                      '视频走独立硬件层、弹幕走原生绘制，二者分开互不抢 GPU，弹幕可'
-                      ' 120fps 丝滑（适合高码率/平板）；代价是二级菜单合成可能略卡。'
-                      '切换后需重新打开播放器才生效。',
+                  title: l10n.danmakuNativeRendererTitle,
+                  subtitle: l10n.danmakuNativeRendererSubtitle,
                   value: settings.useNativeRenderer,
                   onChanged: (value) {
                     unawaited(_setDanmakuUseNativeRenderer(value));
@@ -267,7 +268,7 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                 ),
                 const SizedBox(height: 18),
                 _DanmakuSliderRow(
-                  label: 'AI 采样间隔',
+                  label: l10n.danmakuAiSampleInterval,
                   trailing: _danmakuAiSampleIntervalLabel(),
                   slider: _DanmakuDiscreteDotsSlider(
                     values: _danmakuAiSampleIntervalPresets,
@@ -282,7 +283,7 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                 ),
                 const SizedBox(height: 18),
                 _DanmakuSliderRow(
-                  label: 'AI 采样大小',
+                  label: l10n.danmakuAiSampleSize,
                   trailing: _danmakuAiInputSizeLabel(),
                   slider: _DanmakuDiscreteDotsSlider(
                     values: _danmakuAiInputWidthPresets,
@@ -303,15 +304,15 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
               ],
             ),
           ),
-          const PlaybackSettingsSectionLabel(label: '弹幕来源'),
+          PlaybackSettingsSectionLabel(label: l10n.danmakuSourceSection),
           const SizedBox(height: 10),
           _DanmakuPanelCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _DanmakuSwitchRow(
-                  title: '启用弹幕层',
-                  subtitle: '关闭后右上角设置入口会隐藏，仅保留左下角开关。',
+                  title: l10n.danmakuLayerEnabledTitle,
+                  subtitle: l10n.danmakuLayerEnabledSubtitle,
                   value: settings.enabled,
                   onChanged: (value) {
                     unawaited(_toggleDanmakuEnabled());
@@ -320,7 +321,10 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  '当前状态：${_danmakuStatusLabel()}  ·  ${_danmakuSummaryText()}',
+                  l10n.danmakuCurrentStatus(
+                    _danmakuStatusLabel(),
+                    _danmakuSummaryText(),
+                  ),
                   style: const TextStyle(
                     color: Colors.white70,
                     fontSize: 12,
@@ -335,9 +339,9 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  '来源优先级',
-                  style: TextStyle(
+                Text(
+                  l10n.danmakuSourcePriority,
+                  style: const TextStyle(
                     color: Colors.white,
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -345,7 +349,9 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '当本地弹幕和网络弹幕都可用时，优先自动载入 ${_danmakuSourcePriorityLabel()}。',
+                  l10n.danmakuSourcePriorityDescription(
+                    _danmakuSourcePriorityLabel(),
+                  ),
                   style: TextStyle(
                     color: context.appColors.textSecondary,
                     fontSize: 12,
@@ -357,7 +363,7 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                   children: [
                     Expanded(
                       child: _DanmakuPriorityButton(
-                        label: '本地优先',
+                        label: l10n.danmakuLocalFirst,
                         selected: settings.preferLocalSource,
                         onTap: () {
                           if (!settings.preferLocalSource) {
@@ -374,7 +380,7 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                     const SizedBox(width: 10),
                     Expanded(
                       child: _DanmakuPriorityButton(
-                        label: '网络优先',
+                        label: l10n.danmakuNetworkFirst,
                         selected: !settings.preferLocalSource,
                         onTap: () {
                           if (settings.preferLocalSource) {
@@ -395,10 +401,12 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
           ),
           const SizedBox(height: 12),
           PlaybackSettingsMenuTile(
-            title: '已保存弹幕',
+            title: l10n.danmakuSavedTitle,
             subtitle: _savedLocalDanmakuSources.isEmpty
-                ? '统一管理本地弹幕和弹弹play缓存。'
-                : '当前已保存 ${_savedLocalDanmakuSources.length} 个弹幕来源。',
+                ? l10n.danmakuSavedEmptySubtitle
+                : l10n.danmakuSavedCountSubtitle(
+                    _savedLocalDanmakuSources.length,
+                  ),
             trailingLabel: _savedLocalDanmakuSources.isEmpty
                 ? ''
                 : '${_savedLocalDanmakuSources.length}',
@@ -406,11 +414,11 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
           ),
           const SizedBox(height: 12),
           PlaybackSettingsMenuTile(
-            title: '搜索弹幕',
+            title: l10n.danmakuSearchTitle,
             subtitle: supportsAutoMatch
-                ? '通过弹弹play搜索当前番剧和剧集，直接导入网络弹幕。'
-                : '通过弹弹play搜索当前片源相关结果，直接导入网络弹幕。',
-            trailingLabel: '弹弹play',
+                ? l10n.danmakuSearchAnimeSubtitle
+                : l10n.danmakuSearchSourceSubtitle,
+            trailingLabel: l10n.danmakuDanDanPlay,
             onTap: () {
               _primeDanmakuSearch();
               drawer.push(_playerSettingsDanmakuSearchPageId);
@@ -424,9 +432,9 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
           ),
           const SizedBox(height: 12),
           PlaybackSettingsMenuTile(
-            title: '手动导入弹幕',
-            subtitle: '支持本地 XML / JSON 弹幕文件，导入后会替换当前已载入弹幕。',
-            trailingLabel: '本地文件',
+            title: l10n.danmakuManualImportTitle,
+            subtitle: l10n.danmakuManualImportSubtitle,
+            trailingLabel: l10n.danmakuLocalFile,
             onTap: () => drawer.push(_playerSettingsDanmakuImportPageId),
           ),
           const SizedBox(height: 8),
@@ -440,11 +448,16 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
     PlayerNestedSheetController<void> drawer,
   ) {
     return PlayerNestedSheetScaffold(
-      header: PlayerNestedSheetHeader(title: '手动导入弹幕', onBack: drawer.popPage),
+      header: PlayerNestedSheetHeader(
+        title: AppLocalizations.of(context).danmakuManualImportTitle,
+        onBack: drawer.popPage,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const PlaybackSettingsSectionLabel(label: '本地导入'),
+          PlaybackSettingsSectionLabel(
+            label: AppLocalizations.of(context).danmakuLocalImport,
+          ),
           const SizedBox(height: 10),
           Expanded(
             child: LocalFileBrowserBody(
@@ -468,12 +481,16 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
     final networkSources = savedSources
         .where((item) => item.isDanDanPlay)
         .toList(growable: false);
+    final l10n = AppLocalizations.of(context);
     return PlayerNestedSheetScaffold(
-      header: PlayerNestedSheetHeader(title: '已保存弹幕', onBack: drawer.popPage),
+      header: PlayerNestedSheetHeader(
+        title: l10n.danmakuSavedTitle,
+        onBack: drawer.popPage,
+      ),
       child: savedSources.isEmpty
           ? Center(
               child: Text(
-                '还没有保存的弹幕来源',
+                l10n.danmakuNoSavedSources,
                 style: TextStyle(
                   color: context.appColors.textSecondary,
                   fontSize: 14,
@@ -484,13 +501,13 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
               padding: EdgeInsets.zero,
               children: [
                 if (localSources.isNotEmpty) ...[
-                  const PlaybackSettingsSectionLabel(label: '本地弹幕'),
+                  PlaybackSettingsSectionLabel(label: l10n.danmakuLocalSource),
                   const SizedBox(height: 10),
                   _buildSavedDanmakuSourceGroup(drawer, localSources),
                   const SizedBox(height: 16),
                 ],
                 if (networkSources.isNotEmpty) ...[
-                  const PlaybackSettingsSectionLabel(label: '弹弹play'),
+                  PlaybackSettingsSectionLabel(label: l10n.danmakuDanDanPlay),
                   const SizedBox(height: 10),
                   _buildSavedDanmakuSourceGroup(drawer, networkSources),
                 ],
@@ -535,8 +552,12 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
   ) {
     final results = _danmakuSearchResults;
     final loading = _danmakuSearchLoading;
+    final l10n = AppLocalizations.of(context);
     return PlayerNestedSheetScaffold(
-      header: PlayerNestedSheetHeader(title: '搜索弹幕', onBack: drawer.popPage),
+      header: PlayerNestedSheetHeader(
+        title: l10n.danmakuSearchTitle,
+        onBack: drawer.popPage,
+      ),
       child: Column(
         children: [
           DecoratedBox(
@@ -562,7 +583,7 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                               ),
                               textInputAction: TextInputAction.search,
                               decoration: InputDecoration(
-                                hintText: '可自动带入当前内容，也可以改词重搜',
+                                hintText: l10n.danmakuSearchHint,
                                 hintStyle: TextStyle(
                                   color: Colors.white.withValues(alpha: 0.35),
                                   fontSize: 14,
@@ -571,7 +592,7 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                                 border: InputBorder.none,
                                 suffixIcon: hasText
                                     ? IconButton(
-                                        tooltip: '清空',
+                                        tooltip: l10n.commonClear,
                                         splashRadius: 18,
                                         onPressed: () {
                                           _danmakuSearchController.clear();
@@ -610,7 +631,7 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    '当前匹配：${_danmakuSearchContextText()}',
+                    l10n.danmakuCurrentMatch(_danmakuSearchContextText()),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -640,8 +661,8 @@ extension _MpvPlayerDanmakuPagesMixin on _MpvPlayerPageState {
                 ? Center(
                     child: Text(
                       DanDanPlayConfig.configured
-                          ? '没有搜索到可用结果'
-                          : '请先在配置中填入弹弹play AppId / AppSecret',
+                          ? l10n.danmakuNoSearchResults
+                          : l10n.danmakuConfigRequired,
                       style: TextStyle(
                         color: context.appColors.textSecondary,
                         fontSize: 14,
