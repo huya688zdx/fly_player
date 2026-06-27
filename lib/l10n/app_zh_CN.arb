@@ -2300,6 +2300,7 @@
   "danmakuAvoidCenterSubtitle": "优先使用动态蒙版扣除人物区域内的弹幕，不可用时会恢复普通弹幕。",
   "commonRefresh": "刷新",
   "playStatsTitle": "播放统计",
+  "playStatsDebugUnmatchedAnime": "未匹配番剧",
   "playStatsClearTitle": "清空播放统计",
   "playStatsClearContent": "这会删除本地播放历史和所有聚合统计数据。",
   "playStatsClearTooltip": "清空统计",

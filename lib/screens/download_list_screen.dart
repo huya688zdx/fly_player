@@ -702,6 +702,7 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
           _reentryToken = NativePlaybackReentry.bind(
             backend: backend,
             nas: provider,
+            l10n: AppLocalizations.of(context),
             fallbackEpisodes: () => nativeEpisodes,
             onResolvePlayback:
                 (
