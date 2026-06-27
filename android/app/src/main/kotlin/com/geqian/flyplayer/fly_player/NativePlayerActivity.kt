@@ -11,7 +11,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.Configuration
-import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.drawable.ClipDrawable
 import android.graphics.drawable.GradientDrawable
@@ -2095,6 +2094,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
         mediaTitle = resolveTitle(loadArgs)
         loadArgsMap = loadArgs
+        refreshSeekThumbnails()
         // 弹幕优先走文件（Flutter 拉好后落临时文件，避开 Intent 的 TransactionTooLarge），
         // 其次直接 JSON extra（小量/调试）。
         val danmakuPayload =
@@ -2269,6 +2269,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         reportProgress() // 切集前先把上一集进度写回（首次 onCreate 时 duration=0 自动跳过）
         mediaTitle = resolveTitle(loadArgs)
         loadArgsMap = loadArgs
+        refreshSeekThumbnails()
         // 换源/切集后，当前选中轨道复位为新一集 loadArgs 给出的初值。
         selectedAudioGuid = loadArgs["audioTrackGuid"]?.toString().orEmpty()
         selectedSubtitleGuid = loadArgs["subtitleTrackGuid"]?.toString().orEmpty()
@@ -8741,16 +8742,26 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     /**
-     * 拖动 seek 预览：显示「目标位置 / 总时长」时间药丸，并在支持 trickplay 的后端附带缩略图。
-     * 飞牛后端无 trickplay，[resolveSeekThumbnail] 恒返回 null → 仅显示时间药丸。
+     * 拖动 seek 预览：显示「目标位置 / 总时长」时间药丸，并在有缩略图（Emby 章节图）时附带预览图。
+     *
+     * 缩略图来自 loadArgs["seekThumbnails"]（位置升序的 {positionMs,url} 列表），按目标位置取最近
+     * 一张经 Glide 异步加载（自带磁/内存缓存，反复悬停瞬时命中）。无缩略图（飞牛恒空 / 该条目未做
+     * 章节图）时只显示时间药丸。
      */
     private fun showSeekPreview(targetMs: Long, durationMs: Long) {
         seekPreviewTime.text = "${formatTime(targetMs)} / ${formatTime(durationMs)}"
-        val thumb = resolveSeekThumbnail(targetMs, durationMs)
-        if (thumb != null) {
-            seekPreviewThumb.setImageBitmap(thumb)
+        val url = nearestSeekThumbnailUrl(targetMs)
+        if (url != null) {
+            if (url != seekThumbLoadedUrl) {
+                seekThumbLoadedUrl = url
+                Glide.with(this)
+                    .load(seekThumbnailGlideModel(url))
+                    .transform(RoundedCorners(dp(8)))
+                    .into(seekPreviewThumb)
+            }
             seekPreviewThumb.visibility = View.VISIBLE
         } else {
+            seekThumbLoadedUrl = null
             seekPreviewThumb.setImageDrawable(null)
             seekPreviewThumb.visibility = View.GONE
         }
@@ -8761,30 +8772,63 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (!this::seekPreview.isInitialized) return
         seekPreview.visibility = View.GONE
         seekPreviewThumb.setImageDrawable(null)
+        seekThumbLoadedUrl = null
     }
 
-    // ---- 进度缩略图（trickplay）预留 ----
-    // Emby 等后端可提供 trickplay 雪碧图：拖动 seek 时按目标位置切出对应缩略图预览。
-    // 飞牛后端暂不支持，loadArgs 不含 trickplay 描述，[trickplayInfo] 恒为 null。
-    // 接入步骤：① Flutter 端在 loadArgs 注入 trickplay 描述（时间间隔 / 瓦片宽高 / 网格列行 /
-    // 雪碧图 URL 列表）；② 起播时解析进 [trickplayInfo]；③ 在 [resolveSeekThumbnail] 内按
-    // positionMs 定位瓦片、裁剪并缓存返回 Bitmap（注意主线程只读缓存，下载/裁剪走后台）。
-    private data class TrickplayInfo(
-        val intervalMs: Long,
-        val tileWidth: Int,
-        val tileHeight: Int,
-        val columns: Int,
-        val rows: Int,
-        val tileSheetUrls: List<String>,
-    )
+    // ---- 拖动 seek 预览缩略图（Emby 章节图）----
+    // 数据来自 loadArgs["seekThumbnails"]：位置升序的 {positionMs:Long, url:String} 列表（Emby
+    // 章节图，飞牛恒空）。换源（applyLoadArgs）后随 loadArgsMap 一并刷新。
+    private data class SeekThumbnail(val positionMs: Long, val url: String)
 
-    private var trickplayInfo: TrickplayInfo? = null
+    private var seekThumbnails: List<SeekThumbnail> = emptyList()
 
-    /** 返回给定播放位置的 trickplay 缩略图；无 trickplay 数据时返回 null。 */
-    private fun resolveSeekThumbnail(positionMs: Long, durationMs: Long): Bitmap? {
-        val info = trickplayInfo ?: return null
-        // TODO(emby-trickplay): 按 info.intervalMs 计算瓦片索引，从对应雪碧图裁剪并缓存返回。
-        return null
+    // 当前已加载进 ImageView 的缩略图 URL：相邻拖动多落在同一章节、避免重复 Glide 请求与闪烁。
+    private var seekThumbLoadedUrl: String? = null
+
+    /** 从当前 loadArgsMap 解析缩略图列表（换源后调用一次，避免每帧重解析）。 */
+    private fun refreshSeekThumbnails() {
+        val raw = loadArgsMap["seekThumbnails"] as? List<*>
+        seekThumbnails = raw
+            ?.mapNotNull { entry ->
+                val map = entry as? Map<*, *> ?: return@mapNotNull null
+                val url = map["url"]?.toString().orEmpty()
+                if (url.isEmpty()) return@mapNotNull null
+                val pos = (map["positionMs"] as? Number)?.toLong() ?: 0L
+                SeekThumbnail(pos.coerceAtLeast(0L), url)
+            }
+            ?.sortedBy { it.positionMs }
+            ?: emptyList()
+    }
+
+    /** 取最接近 [positionMs] 的缩略图 URL；无缩略图返回 null。 */
+    private fun nearestSeekThumbnailUrl(positionMs: Long): String? {
+        val list = seekThumbnails
+        if (list.isEmpty()) return null
+        // 取「起始位置 <= 目标」的最后一张（章节图覆盖到下一章前的区间）；都在目标之后则取第一张。
+        var chosen = list.first()
+        for (thumb in list) {
+            if (thumb.positionMs <= positionMs) chosen = thumb else break
+        }
+        return chosen.url
+    }
+
+    /**
+     * seek 缩略图的 Glide 取图模型：把播放 headers 整体透传（Emby 章节图过 `*.fnos.net` 中转闸
+     * 需要 `Cookie: entry-token=…`，鉴权 api_key 已在 URL）。无 headers 时退回裸 URL 字符串。
+     */
+    private fun seekThumbnailGlideModel(url: String): Any {
+        val headers = loadArgsMap["headers"] as? Map<*, *>
+        if (headers.isNullOrEmpty()) return url
+        val builder = com.bumptech.glide.load.model.LazyHeaders.Builder()
+        var any = false
+        for ((key, value) in headers) {
+            val name = key?.toString().orEmpty()
+            val headerValue = value?.toString().orEmpty()
+            if (name.isEmpty() || headerValue.isEmpty()) continue
+            builder.addHeader(name, headerValue)
+            any = true
+        }
+        return if (any) com.bumptech.glide.load.model.GlideUrl(url, builder.build()) else url
     }
 
     // ---- 控制交互 ----
