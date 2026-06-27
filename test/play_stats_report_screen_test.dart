@@ -437,7 +437,7 @@ class _FakeSummaryRepository implements PlayStatsSummaryRepository {
   }
 
   @override
-  Future<PlayStatsDebugSnapshot> loadDebugSnapshot() {
+  Future<PlayStatsDebugSnapshot> loadDebugSnapshot({AppLocalizations? l10n}) {
     throw UnimplementedError();
   }
 

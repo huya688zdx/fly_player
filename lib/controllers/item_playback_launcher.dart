@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../api/feiniu_api.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../media_backend/emby/emby_playback_context.dart';
 import '../media_backend/feiniu/feiniu_media_backend.dart';
 import '../media_backend/feiniu/feiniu_playback_context.dart';
@@ -54,6 +55,7 @@ class ItemPlaybackLauncher {
       'item_playback:${itemGuid.trim()}:${startFromBeginning ? 'restart' : 'default'}',
       settleDuration: const Duration(milliseconds: 500),
       action: () async {
+        final l10n = AppLocalizations.of(context);
         final nas = context.read<NasProvider>();
         // 后端中立：取当前活动后端（飞牛 / Emby），按其上下文类型分发桥接器。飞牛会话下
         // 返回的就是 FeiniuMediaBackend(FeiniuApi(nasProvider))，与旧直接构造等价、零回归。
@@ -84,6 +86,7 @@ class ItemPlaybackLauncher {
           NativePlaybackReentry.bind(
             backend: backend,
             nas: nas,
+            l10n: l10n,
             onResolvePlayback:
                 (
                   itemGuid, {

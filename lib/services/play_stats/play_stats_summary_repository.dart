@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:sqflite/sqflite.dart';
 
 import '../../l10n/generated/app_localizations.dart';
@@ -25,7 +27,7 @@ abstract class PlayStatsSummaryRepository {
   });
 
   /// 加载调试视图所需的完整统计树快照。
-  Future<PlayStatsDebugSnapshot> loadDebugSnapshot();
+  Future<PlayStatsDebugSnapshot> loadDebugSnapshot({AppLocalizations? l10n});
 
   /// 返回最近播放历史列表。
   Future<List<PlayHistoryRecord>> loadRecentHistory({int limit = 50});
@@ -147,7 +149,10 @@ FROM season_stats
   }
 
   @override
-  Future<PlayStatsDebugSnapshot> loadDebugSnapshot() async {
+  Future<PlayStatsDebugSnapshot> loadDebugSnapshot({
+    AppLocalizations? l10n,
+  }) async {
+    final strings = l10n ?? lookupAppLocalizations(const Locale('zh', 'CN'));
     final db = await _database.rawDatabase;
     final totals = await _loadTotalsFromDb(db);
     final animeRows = await db.query(
@@ -432,9 +437,9 @@ FROM season_stats
     if (orphanSeasonNodes.isNotEmpty) {
       animeNodes.add(
         PlayStatsDebugAnimeNode(
-          anime: const AnimeStatsRecord(
+          anime: AnimeStatsRecord(
             animeId: '__orphan_anime__',
-            title: '未匹配番剧',
+            title: strings.playStatsDebugUnmatchedAnime,
             clickCount: 0,
             viewCount: 0,
             totalPlayedMs: 0,
