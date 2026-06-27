@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../danmaku/settings/danmaku_settings_store.dart';
@@ -139,7 +140,11 @@ class NativePlayerBridge {
           final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
           final guid = (args['itemGuid'] ?? '').toString();
           if (guid.isEmpty) return null;
-          return await onResolvePlayback(
+          debugPrint(
+            '[DANMAKU][NATIVE_SWITCH] bridge resolvePlayback recv '
+            'item="$guid" keys=${args.keys.toList()}',
+          );
+          final resolved = await onResolvePlayback(
             guid,
             qualityIndex: (args['qualityIndex'] as num?)?.toInt(),
             qualityMediaGuid: () {
@@ -167,6 +172,13 @@ class NativePlayerBridge {
               return v.isEmpty ? null : v;
             }(),
           );
+          final resultKeys = resolved?.keys.toList() ?? const <String>[];
+          final danmakuFile = (resolved?['danmakuFile'] ?? '').toString();
+          debugPrint(
+            '[DANMAKU][NATIVE_SWITCH] bridge resolvePlayback done '
+            'item="$guid" keys=$resultKeys danmakuFile=${danmakuFile.isNotEmpty}',
+          );
+          return resolved;
         case 'reloadServerSession':
           if (onReloadServerSession == null) return null;
           final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
@@ -451,6 +463,7 @@ class NativePlayerBridge {
     if (resolvedDanmakuFile == null && settings.enabled) {
       resolvedDanmakuFile = await NativeDanmakuPrefetch.resolveToFile(
         seriesTitle: (loadArgs['seriesTitle'] ?? '').toString(),
+        itemTitle: (loadArgs['title'] ?? '').toString(),
         seasonNumber: (loadArgs['seasonNumber'] as num?)?.toInt() ?? 0,
         episodeNumber: (loadArgs['episodeNumber'] as num?)?.toInt() ?? 0,
         tmdbId: (loadArgs['tmdbId'] ?? '').toString(),

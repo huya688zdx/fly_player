@@ -126,10 +126,20 @@ class TvSeasonPlaybackLauncher {
     int? subtitleTrackIndex,
     String? preferredQualityResolution,
   }) async {
+    debugPrint(
+      '[DANMAKU][NATIVE_SWITCH] tv resolveForNative call '
+      'item="$itemGuid" guardRunning=${AsyncActionGuard.isRunning('tv_season_resolve:${itemGuid.trim()}')} '
+      'series="$seriesTitle" episodes=${episodes?.length ?? -1} '
+      'qualityIndex=$qualityIndex qualityMediaGuid="$qualityMediaGuid"',
+    );
     return AsyncActionGuard.run<Map<String, dynamic>?>(
       'tv_season_resolve:${itemGuid.trim()}',
       settleDuration: const Duration(milliseconds: 300),
       action: () async {
+        debugPrint(
+          '[DANMAKU][NATIVE_SWITCH] tv resolveForNative action '
+          'item="$itemGuid"',
+        );
         // Bug fix(季页面播下载集走网络)：有本地下载记录时优先播本地文件。
         // qualityIndex 非空为切画质请求，本地文件无多画质，跳过走 NAS 重新解析。
         // context.read 在第一个 await 之前捕获，避免 async gap 警告。
@@ -157,6 +167,7 @@ class TvSeasonPlaybackLauncher {
               final settings = await const DanmakuSettingsStore().load();
               final danmakuFile = await NativeDanmakuPrefetch.resolveToFile(
                 seriesTitle: (loadArgs['seriesTitle'] ?? '').toString(),
+                itemTitle: (loadArgs['title'] ?? '').toString(),
                 seasonNumber: (loadArgs['seasonNumber'] as num?)?.toInt() ?? 0,
                 episodeNumber:
                     (loadArgs['episodeNumber'] as num?)?.toInt() ?? 0,
@@ -165,6 +176,10 @@ class TvSeasonPlaybackLauncher {
                 itemGuid: (loadArgs['itemGuid'] ?? '').toString(),
                 mediaGuid: (loadArgs['mediaGuid'] ?? '').toString(),
                 seasonGuid: (loadArgs['seasonGuid'] ?? '').toString(),
+              );
+              debugPrint(
+                '[DANMAKU][NATIVE_SWITCH] tv resolveForNative local danmaku '
+                'item="${loadArgs['itemGuid']}" file=${danmakuFile != null && danmakuFile.isNotEmpty}',
               );
               return <String, dynamic>{
                 'loadArgs': jsonEncode(loadArgs),
@@ -205,6 +220,7 @@ class TvSeasonPlaybackLauncher {
         final settings = await const DanmakuSettingsStore().load();
         final danmakuFile = await NativeDanmakuPrefetch.resolveToFile(
           seriesTitle: (loadArgs['seriesTitle'] ?? '').toString(),
+          itemTitle: (loadArgs['title'] ?? '').toString(),
           seasonNumber: (loadArgs['seasonNumber'] as num?)?.toInt() ?? 0,
           episodeNumber: (loadArgs['episodeNumber'] as num?)?.toInt() ?? 0,
           tmdbId: (loadArgs['tmdbId'] ?? '').toString(),
@@ -212,6 +228,11 @@ class TvSeasonPlaybackLauncher {
           itemGuid: (loadArgs['itemGuid'] ?? '').toString(),
           mediaGuid: (loadArgs['mediaGuid'] ?? '').toString(),
           seasonGuid: (loadArgs['seasonGuid'] ?? '').toString(),
+        );
+        debugPrint(
+          '[DANMAKU][NATIVE_SWITCH] tv resolveForNative remote danmaku '
+          'item="${loadArgs['itemGuid']}" s=${loadArgs['seasonNumber']} e=${loadArgs['episodeNumber']} '
+          'series="${loadArgs['seriesTitle']}" file=${danmakuFile != null && danmakuFile.isNotEmpty}',
         );
         return <String, dynamic>{
           'loadArgs': jsonEncode(loadArgs),

@@ -608,6 +608,36 @@ internal fun nativePanelCanPreloadNextEpisode(
     nextEpisodePreloadEnabled: Boolean,
 ): Boolean = autoPlayEnabled && nextEpisodePreloadEnabled
 
+internal fun nativePanelShouldUsePreloadedEpisodeResult(
+    result: Any?,
+    requireDanmakuFile: Boolean = true,
+): Boolean {
+    val map = result as? Map<*, *> ?: return false
+    val loadArgs = map["loadArgs"]?.toString()?.trim().orEmpty()
+    if (loadArgs.isEmpty()) return false
+    if (!requireDanmakuFile) return true
+    val danmakuFile = map["danmakuFile"]?.toString()?.trim().orEmpty()
+    if (danmakuFile.isEmpty()) return false
+    return java.io.File(danmakuFile).let { it.isFile && it.length() > 0L }
+}
+
+internal fun nativePanelShouldUsePreloadedEpisodeResultForSwitch(
+    result: Any?,
+    danmakuEnabled: Boolean,
+): Boolean {
+    if (danmakuEnabled) return false
+    return nativePanelShouldUsePreloadedEpisodeResult(result, requireDanmakuFile = false)
+}
+
+private fun nativePanelDanmakuFileDebug(result: Any?): String {
+    val map = result as? Map<*, *> ?: return "resultType=${result?.javaClass?.simpleName ?: "null"}"
+    val rawLoadArgs = map["loadArgs"]?.toString().orEmpty()
+    val danmakuFile = map["danmakuFile"]?.toString()?.trim().orEmpty()
+    val file = danmakuFile.takeIf { it.isNotEmpty() }?.let { java.io.File(it) }
+    return "hasLoadArgs=${rawLoadArgs.isNotEmpty()} loadArgsLen=${rawLoadArgs.length} " +
+        "danmakuFile=${danmakuFile.isNotEmpty()} exists=${file?.isFile == true} size=${file?.length() ?: -1L}"
+}
+
 internal data class NativeEpisodePickerData(
     val selectedSeasonGuid: String,
     val viewMode: Int,
@@ -2220,6 +2250,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         // 捕获换源前的集身份：用于判断是否「真的切了集」（vs 同集切画质/版本/音轨字幕重载）。
         // 必须在 loadArgsMap 被覆盖前取。
         val previousItemGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
+        val nextItemGuid = loadArgs["itemGuid"]?.toString().orEmpty()
+        val compactCount = (danmakuPayload?.get("commentsCompact") as? List<*>)?.size
+        val verboseCount = (danmakuPayload?.get("comments") as? List<*>)?.size
+        Log.d(
+            "NativePlayerActivity",
+            "[DANMAKU][NATIVE_SWITCH] applyLoadArgs previous=$previousItemGuid next=$nextItemGuid " +
+                "hasPayload=${danmakuPayload != null} compact=${compactCount ?: -1} comments=${verboseCount ?: -1} " +
+                "sourceKey=${danmakuPayload?.get("sourceKey")?.toString().orEmpty()}",
+        )
         reportProgress() // 切集前先把上一集进度写回（首次 onCreate 时 duration=0 自动跳过）
         mediaTitle = resolveTitle(loadArgs)
         loadArgsMap = loadArgs
@@ -2252,6 +2291,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             captureDanmakuSettings(effectiveDanmaku) // 同步镜像，供弹幕设置子页初值/后续整集发送
             applyPersistedDanmakuPrefs() // 原生持久化的显示偏好优先于 payload 自带设置
             // 单次推送（comments + 偏好合并）：二次 settings 推送会 bump generation 把弹幕丢掉。
+            Log.d(
+                "NativePlayerActivity",
+                "[DANMAKU][NATIVE_SWITCH] setDanmakuPayload item=$nextItemGuid " +
+                    "sourceKey=${effectiveDanmaku["sourceKey"]?.toString().orEmpty()}",
+            )
             playerSurface.setDanmakuPayload(payloadWithPersistedDanmakuPrefs(effectiveDanmaku))
         } else if (previousItemGuid.isNotEmpty() &&
             loadArgs["itemGuid"]?.toString().orEmpty().let { it.isNotEmpty() && it != previousItemGuid }
@@ -2259,6 +2303,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             // 真的切了集、但这一集没取到弹幕（自动匹配失败/该入口未回传 danmakuFile 等）：
             // 必须清掉上一集的弹幕，否则旧集弹幕会一直串台到新集（看完下一集/跳集仍是旧弹幕）。
             danmakuSettings["sourceKey"] = ""
+            Log.d(
+                "NativePlayerActivity",
+                "[DANMAKU][NATIVE_SWITCH] clearDanmaku previous=$previousItemGuid next=$nextItemGuid reason=no_payload",
+            )
             playerSurface.clearDanmaku()
         }
         // 换源后复位叠层/循环态/章节缓存，并按起播位置弹续播提示。
@@ -5579,24 +5627,48 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         expandedEpisodeVersionGuid = null
         episodeSwitchInFlight = true
         clearCompletion()
+        Log.d(
+            "NativePlayerActivity",
+            "[DANMAKU][NATIVE_SWITCH] requestEpisode target=$itemGuid current=${loadArgsMap["itemGuid"]?.toString().orEmpty()} " +
+                "danmakuEnabled=$danmakuEnabled preloadGuid=$nextEpisodePreloadGuid " +
+                "hasPreload=${nextEpisodePreloadResult != null}",
+        )
         if (itemGuid == nextEpisodePreloadGuid && nextEpisodePreloadResult != null) {
             val result = nextEpisodePreloadResult
+            val usePreload = nativePanelShouldUsePreloadedEpisodeResultForSwitch(result, danmakuEnabled)
+            Log.d(
+                "NativePlayerActivity",
+                "[DANMAKU][NATIVE_SWITCH] preloadHit target=$itemGuid use=$usePreload " +
+                    "danmakuEnabled=$danmakuEnabled ${nativePanelDanmakuFileDebug(result)}",
+            )
+            if (usePreload) {
+                clearNextEpisodePreload()
+                applyEpisodeResult(result, autoPlayAfterLoad = autoPlayAfterLoad)
+                setControlsVisible(true)
+                return
+            }
             clearNextEpisodePreload()
-            applyEpisodeResult(result, autoPlayAfterLoad = autoPlayAfterLoad)
-            setControlsVisible(true)
-            return
         }
+        Log.d(
+            "NativePlayerActivity",
+            "[DANMAKU][NATIVE_SWITCH] dispatch resolvePlayback target=$itemGuid args=${episodeResolveArgs(itemGuid)}",
+        )
         showNetworkLoadingHint("正在切换…")
         cancelControlsAutoHide()
         NativePlayerReverseBridge.dispatch(
             method = "resolvePlayback",
             args = episodeResolveArgs(itemGuid),
             onResult = { result ->
+                Log.d(
+                    "NativePlayerActivity",
+                    "[DANMAKU][NATIVE_SWITCH] resolvePlayback result target=$itemGuid ${nativePanelDanmakuFileDebug(result)}",
+                )
                 runOnUiThread {
                     applyEpisodeResult(result, autoPlayAfterLoad = autoPlayAfterLoad)
                 }
             },
             onError = {
+                Log.d("NativePlayerActivity", "[DANMAKU][NATIVE_SWITCH] resolvePlayback error target=$itemGuid")
                 runOnUiThread {
                     episodeSwitchInFlight = false
                     showTransientHint("切换失败，请返回重试")
@@ -5641,22 +5713,36 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     @Suppress("UNCHECKED_CAST")
     private fun applyEpisodeResult(result: Any?, autoPlayAfterLoad: Boolean = false) {
+        Log.d(
+            "NativePlayerActivity",
+            "[DANMAKU][NATIVE_SWITCH] applyEpisodeResult autoPlay=$autoPlayAfterLoad ${nativePanelDanmakuFileDebug(result)}",
+        )
         val map = result as? Map<String, Any?>
         val loadArgs = (map?.get("loadArgs") as? String)
             ?.let { runCatching { jsonObjectToMap(JSONObject(it)) }.getOrNull() }
         if (loadArgs == null || loadArgs["url"]?.toString().isNullOrEmpty()) {
+            Log.d("NativePlayerActivity", "[DANMAKU][NATIVE_SWITCH] applyEpisodeResult invalidLoadArgs")
             episodeSwitchInFlight = false
             showTransientHint("切换失败，请返回重试")
             scheduleControlsAutoHide()
             return
         }
-        val danmakuPayload = (map["danmakuFile"] as? String)
-            ?.takeIf { it.isNotEmpty() }
+        val danmakuFile = (map["danmakuFile"] as? String)?.trim().orEmpty()
+        val danmakuPayload = danmakuFile
+            .takeIf { it.isNotEmpty() }
             ?.let {
                 runCatching {
                     jsonObjectToMap(JSONObject(java.io.File(it).readText()))
                 }.getOrNull()
             }
+        val compactCount = (danmakuPayload?.get("commentsCompact") as? List<*>)?.size
+        val verboseCount = (danmakuPayload?.get("comments") as? List<*>)?.size
+        Log.d(
+            "NativePlayerActivity",
+            "[DANMAKU][NATIVE_SWITCH] parsedEpisode item=${loadArgs["itemGuid"]?.toString().orEmpty()} " +
+                "danmakuFile=${danmakuFile.isNotEmpty()} payload=${danmakuPayload != null} " +
+                "compact=${compactCount ?: -1} comments=${verboseCount ?: -1} sourceKey=${danmakuPayload?.get("sourceKey")?.toString().orEmpty()}",
+        )
         val effectiveLoadArgs = nativePanelLoadArgsForEpisodeSwitch(loadArgs, autoPlayAfterLoad)
         applyLoadArgs(effectiveLoadArgs, danmakuPayload)
         if (autoPlayAfterLoad) playWithFocus()
@@ -6941,6 +7027,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (nextGuid == nextEpisodePreloadGuid && (nextEpisodePreloadInFlight || nextEpisodePreloadResult != null)) {
             return
         }
+        Log.d(
+            "NativePlayerActivity",
+            "[DANMAKU][NATIVE_SWITCH] preloadStart next=$nextGuid current=${loadArgsMap["itemGuid"]?.toString().orEmpty()} " +
+                "danmakuEnabled=$danmakuEnabled",
+        )
         nextEpisodePreloadGuid = nextGuid
         nextEpisodePreloadInFlight = true
         nextEpisodePreloadResult = null
@@ -6949,6 +7040,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             // 预取也带当前序号，使自动连播命中预取时仍继承轨道。切轨时会清掉预取重取，避免序号过期。
             args = episodeResolveArgs(nextGuid),
             onResult = { result ->
+                Log.d(
+                    "NativePlayerActivity",
+                    "[DANMAKU][NATIVE_SWITCH] preloadResult next=$nextGuid ${nativePanelDanmakuFileDebug(result)}",
+                )
                 runOnUiThread {
                     if (nextEpisodePreloadGuid == nextGuid) {
                         nextEpisodePreloadResult = result
@@ -6957,6 +7052,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 }
             },
             onError = {
+                Log.d("NativePlayerActivity", "[DANMAKU][NATIVE_SWITCH] preloadError next=$nextGuid")
                 runOnUiThread {
                     if (nextEpisodePreloadGuid == nextGuid) clearNextEpisodePreload()
                 }

@@ -159,8 +159,12 @@ class ItemPlaybackLauncher {
     );
   }
 
-  /// Emby 原生壳重解析：按指定版本/轨道重解析 source、回传 loadArgs（无飞牛 PlayInfo / 弹幕）。
+  /// Emby 原生壳重解析：按指定版本/轨道重解析 source、回传 loadArgs（无飞牛 PlayInfo）。
   /// 单集回传时带上本季 episodes——否则壳内切集后「选集 / 下一集」会清空。
+  ///
+  /// 弹幕：与 `maybeLaunch`/`TvSeasonPlaybackLauncher.resolveForNative` 对齐，切集也要按新集
+  /// 重取弹幕。否则壳内切集走这条路只解析视频、不取弹幕——表现为「首次起播有弹幕、壳内切集没」，
+  /// 且切回已匹配过的老集也不挂载（resolveToFile 第1步按 mediaKey 命中 active 源会恢复）。
   Future<Map<String, dynamic>?> _resolveEmbyForNative(
     MediaBackend backend, {
     required String itemGuid,
@@ -185,7 +189,24 @@ class ItemPlaybackLauncher {
       if (episodes != null && episodes.isNotEmpty) 'episodes': episodes,
       if (startPositionMs != null) 'startPositionMs': startPositionMs,
     };
-    return <String, dynamic>{'loadArgs': jsonEncode(loadArgs)};
+    // 弹幕预取（与 resolveForNative 内逻辑一致，resolveToFile 内部按 settings.enabled 判断）。
+    final settings = await const DanmakuSettingsStore().load();
+    final danmakuFile = await NativeDanmakuPrefetch.resolveToFile(
+      seriesTitle: (loadArgs['seriesTitle'] ?? '').toString(),
+      itemTitle: (loadArgs['title'] ?? '').toString(),
+      seasonNumber: (loadArgs['seasonNumber'] as num?)?.toInt() ?? 0,
+      episodeNumber: (loadArgs['episodeNumber'] as num?)?.toInt() ?? 0,
+      tmdbId: (loadArgs['tmdbId'] ?? '').toString(),
+      settings: settings,
+      itemGuid: (loadArgs['itemGuid'] ?? '').toString(),
+      mediaGuid: (loadArgs['mediaGuid'] ?? '').toString(),
+      seasonGuid: (loadArgs['seasonGuid'] ?? '').toString(),
+    );
+    return <String, dynamic>{
+      'loadArgs': jsonEncode(loadArgs),
+      if (danmakuFile != null && danmakuFile.isNotEmpty)
+        'danmakuFile': danmakuFile,
+    };
   }
 
   /// Emby 单集起播 / 切集：加载本季选集映射成原生壳选集行，点亮壳内「选集 / 下一集」。非单集
@@ -245,6 +266,7 @@ class ItemPlaybackLauncher {
               final settings = await const DanmakuSettingsStore().load();
               final danmakuFile = await NativeDanmakuPrefetch.resolveToFile(
                 seriesTitle: (loadArgs['seriesTitle'] ?? '').toString(),
+                itemTitle: (loadArgs['title'] ?? '').toString(),
                 seasonNumber: (loadArgs['seasonNumber'] as num?)?.toInt() ?? 0,
                 episodeNumber:
                     (loadArgs['episodeNumber'] as num?)?.toInt() ?? 0,
@@ -281,6 +303,7 @@ class ItemPlaybackLauncher {
         final settings = await const DanmakuSettingsStore().load();
         final danmakuFile = await NativeDanmakuPrefetch.resolveToFile(
           seriesTitle: (loadArgs['seriesTitle'] ?? '').toString(),
+          itemTitle: (loadArgs['title'] ?? '').toString(),
           seasonNumber: (loadArgs['seasonNumber'] as num?)?.toInt() ?? 0,
           episodeNumber: (loadArgs['episodeNumber'] as num?)?.toInt() ?? 0,
           tmdbId: (loadArgs['tmdbId'] ?? '').toString(),

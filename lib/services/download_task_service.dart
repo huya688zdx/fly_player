@@ -5409,6 +5409,7 @@ class DownloadTaskService extends ChangeNotifier {
       );
       final resolved = await resolver.resolveForPlayback(
         seriesTitle: seriesTitle,
+        itemTitle: itemTitle,
         seasonNumber: item.seasonNumber,
         episodeNumber: item.episodeNumber,
         tmdbId: item.trimId.trim(),
