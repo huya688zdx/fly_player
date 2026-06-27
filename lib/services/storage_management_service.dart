@@ -8,6 +8,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../danmaku/cache/dandanplay_comment_cache_store.dart';
 import '../danmaku/settings/danmaku_saved_source_store.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../player/stores/bookmark_store.dart';
 import '../providers/app_theme_provider.dart';
 import '../providers/parallel_window_settings_provider.dart';
@@ -364,7 +365,7 @@ class StorageManagementService {
   };
 
   /// 加载当前应用可展示的存储概览统计。
-  Future<StorageOverview> loadOverview() async {
+  Future<StorageOverview> loadOverview(AppLocalizations l10n) async {
     final nativeRaw =
         await _channel.invokeMapMethod<Object?, Object?>(
           'getStorageOverview',
@@ -437,64 +438,73 @@ class StorageManagementService {
     final items = <StorageBreakdownItem>[
       StorageBreakdownItem(
         kind: StorageItemKind.downloads,
-        title: '本地下载',
+        title: l10n.storageDownloadsTitle,
         bytes: downloadBytes,
-        countLabel: _fileCountLabel(downloadCount),
+        countLabel: _fileCountLabel(l10n, downloadCount),
         clearAction: StorageClearAction.clearDownloads,
-        note: '已下载完成的视频文件',
+        note: l10n.storageDownloadsNote,
       ),
       StorageBreakdownItem(
         kind: StorageItemKind.playbackCache,
-        title: '播放缓存',
+        title: l10n.storagePlaybackFiles,
         bytes: _asInt(playback['bytes']),
         countLabel: _playbackCacheCountLabel(
+          l10n: l10n,
           fileCount: _asInt(playback['fileCount']),
           completeCount: _asInt(playback['completeCount']),
         ),
         clearAction: StorageClearAction.clearPlaybackCache,
         clearDisabled: playback['active'] == true,
-        note: playback['active'] == true ? '播放中不可清理' : null,
+        note: playback['active'] == true
+            ? l10n.storagePlaybackActiveNote
+            : null,
       ),
       StorageBreakdownItem(
         kind: StorageItemKind.screenshots,
-        title: '截图文件',
+        title: l10n.storageScreenshotsTitle,
         bytes: _asInt(screenshots['bytes']),
-        countLabel: _fileCountLabel(_asInt(screenshots['fileCount'])),
+        countLabel: _fileCountLabel(l10n, _asInt(screenshots['fileCount'])),
         clearAction: StorageClearAction.clearScreenshots,
         isRestricted: screenshots['restricted'] == true,
-        note: screenshots['restricted'] == true ? '未授权时仅统计应用目录' : null,
+        note: screenshots['restricted'] == true
+            ? l10n.storageScreenshotsRestrictedNote
+            : null,
       ),
       StorageBreakdownItem(
         kind: StorageItemKind.logs,
-        title: '日志',
+        title: l10n.storageLogsTitle,
         bytes: logsBytes,
-        countLabel: _jsonListCountLabel(logsValue, unit: '条'),
+        countLabel: _jsonListCountLabel(l10n, logsValue),
         clearAction: StorageClearAction.clearLogs,
         isEstimated: true,
-        note: '应用内日志，不含导出文件',
+        note: l10n.storageLogsNote,
       ),
       StorageBreakdownItem(
         kind: StorageItemKind.danmakuAiCache,
-        title: '弹幕蒙版缓存',
+        title: l10n.storageDanmakuAiCacheTitle,
         bytes: _asInt(danmakuAiCache['bytes']),
-        countLabel: _fileCountLabel(_asInt(danmakuAiCache['fileCount'])),
+        countLabel: _fileCountLabel(l10n, _asInt(danmakuAiCache['fileCount'])),
         clearAction: StorageClearAction.clearDanmakuAiCache,
-        note: '每集的人像分割缩略图与蒙版 warm-start 缓存',
+        note: l10n.storageDanmakuAiCacheNote,
       ),
       StorageBreakdownItem(
         kind: StorageItemKind.appData,
-        title: '应用数据',
+        title: l10n.storageAppDataTitle,
         bytes: appDataBytes,
-        countLabel:
-            '${_countStoredEntries(savedThemesValue) + _countStoredEntries(loginHistoryValue) + _countBookmarkEntries(bookmarksValue) + _countDanmakuSourceEntries(danmakuSourcesValue)} 项',
+        countLabel: l10n.storageAppDataCount(
+          _countStoredEntries(savedThemesValue) +
+              _countStoredEntries(loginHistoryValue) +
+              _countBookmarkEntries(bookmarksValue) +
+              _countDanmakuSourceEntries(danmakuSourcesValue),
+        ),
         isEstimated: true,
-        note: '含书签、主题、弹幕来源和设置估算值 / 播放统计(SQLite) ${formatBytes(playStatsBytes)}',
+        note: l10n.storageAppDataOverviewNote(formatBytes(playStatsBytes)),
       ),
       StorageBreakdownItem(
         kind: StorageItemKind.otherCache,
-        title: '其他缓存',
+        title: l10n.storageOtherCacheTitle,
         bytes: _asInt(otherCache['bytes']),
-        countLabel: _fileCountLabel(_asInt(otherCache['fileCount'])),
+        countLabel: _fileCountLabel(l10n, _asInt(otherCache['fileCount'])),
         clearAction: StorageClearAction.clearOtherCache,
       ),
     ];
@@ -819,23 +829,26 @@ class StorageManagementService {
     return utf8.encode(jsonEncode(value)).length;
   }
 
-  static String _fileCountLabel(int count) {
-    if (count <= 0) return '0 个文件';
-    return '$count 个文件';
+  static String _fileCountLabel(AppLocalizations l10n, int count) {
+    return l10n.storageFileCount(count <= 0 ? 0 : count);
   }
 
   static String _playbackCacheCountLabel({
+    required AppLocalizations l10n,
     required int fileCount,
     required int completeCount,
   }) {
     final normalizedFileCount = fileCount < 0 ? 0 : fileCount;
     final normalizedCompleteCount = completeCount < 0 ? 0 : completeCount;
-    return '$normalizedFileCount 个缓存 · $normalizedCompleteCount 个完整';
+    return l10n.storagePlaybackCacheCount(
+      normalizedFileCount,
+      normalizedCompleteCount,
+    );
   }
 
-  static String _jsonListCountLabel(Object? value, {required String unit}) {
+  static String _jsonListCountLabel(AppLocalizations l10n, Object? value) {
     final count = _countStoredEntries(value);
-    return '$count $unit';
+    return l10n.storageLogsCountLabel(count);
   }
 
   static int _countStoredEntries(Object? value) {
