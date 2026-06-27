@@ -37,7 +37,10 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
     final hasTmdbSearchContext =
         DanDanPlayResolver.normalizeTmdbId(_currentTmdbId) != null;
     if (keyword.isEmpty && !hasTmdbSearchContext) {
-      _showTopTip('请先输入要搜索的番剧名称', colors.danger);
+      _showTopTip(
+        AppLocalizations.of(context).danmakuNeedSearchKeyword,
+        colors.danger,
+      );
       return;
     }
     final remaining = _danmakuSearchRateLimiter.remaining();
@@ -46,7 +49,10 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
         final seconds =
             remaining.inSeconds +
             (remaining.inMilliseconds % 1000 == 0 ? 0 : 1);
-        _showTopTip('搜索过于频繁，请 $seconds 秒后再试。', colors.warning);
+        _showTopTip(
+          AppLocalizations.of(context).danmakuSearchRateLimited(seconds),
+          colors.warning,
+        );
       }
       return;
     }
@@ -71,7 +77,10 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
       });
       drawer.refresh();
       if (results.isEmpty) {
-        _showTopTip('没有搜索到可用弹幕结果', context.appColors.danger);
+        _showTopTip(
+          AppLocalizations.of(context).danmakuNoAvailableSearchResults,
+          context.appColors.danger,
+        );
       }
     } catch (error) {
       if (!mounted) return;
@@ -80,7 +89,10 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
       });
       drawer.refresh();
       _showTopTip(
-        _describeDanDanPlayError(error, fallback: '搜索弹幕失败'),
+        _describeDanDanPlayError(
+          error,
+          fallback: AppLocalizations.of(context).danmakuSearchFailed,
+        ),
         context.appColors.danger,
       );
     }
@@ -105,7 +117,10 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
           _danmakuImportingEpisodeId = null;
         });
         drawer.refresh();
-        _showTopTip('没有获取到可用弹幕数据', context.appColors.danger);
+        _showTopTip(
+          AppLocalizations.of(context).danmakuNoAvailableData,
+          context.appColors.danger,
+        );
         return;
       }
       _danmakuController.applyImportedComments(
@@ -148,7 +163,9 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
       drawer.popPage();
       drawer.refresh();
       _showTopTip(
-        '已导入 ${result.comments.length} 条弹幕',
+        AppLocalizations.of(
+          context,
+        ).danmakuImportedCount(result.comments.length),
         context.appColors.success,
       );
     } catch (error) {
@@ -158,7 +175,10 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
       });
       drawer.refresh();
       _showTopTip(
-        _describeDanDanPlayError(error, fallback: '导入弹幕失败'),
+        _describeDanDanPlayError(
+          error,
+          fallback: AppLocalizations.of(context).danmakuImportFailed,
+        ),
         context.appColors.danger,
       );
     }
@@ -235,7 +255,9 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
       });
       drawer.refresh();
       _showTopTip(
-        '已导入 ${result.comments.length} 条弹幕',
+        AppLocalizations.of(
+          context,
+        ).danmakuImportedCount(result.comments.length),
         context.appColors.success,
       );
     } catch (error) {
@@ -244,7 +266,10 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
         _danmakuImportingLocalPath = null;
       });
       drawer.refresh();
-      _showTopTip('导入弹幕失败: ', context.appColors.danger);
+      _showTopTip(
+        AppLocalizations.of(context).danmakuImportFailedWithError(''),
+        context.appColors.danger,
+      );
     }
   }
 
@@ -304,7 +329,7 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
       });
       drawer.refresh();
       _showTopTip(
-        '已载入 ${result.comments.length} 条弹幕',
+        AppLocalizations.of(context).danmakuLoadedCount(result.comments.length),
         context.appColors.success,
       );
     } catch (error) {
@@ -318,7 +343,10 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
         _danmakuImportingLocalPath = null;
       });
       drawer.refresh();
-      _showTopTip('弹幕文件已失效，已从列表移除', context.appColors.danger);
+      _showTopTip(
+        AppLocalizations.of(context).danmakuSavedFileInvalidRemoved,
+        context.appColors.danger,
+      );
     }
   }
 
@@ -345,6 +373,9 @@ extension _MpvPlayerDanmakuSourcesMixin on _MpvPlayerPageState {
       _danmakuDeletingLocalPath = null;
     });
     drawer.refresh();
-    _showTopTip('已删除保存的弹幕来源', context.appColors.success);
+    _showTopTip(
+      AppLocalizations.of(context).danmakuSavedSourceDeleted,
+      context.appColors.success,
+    );
   }
 }
