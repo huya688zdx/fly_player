@@ -179,12 +179,18 @@ class MediaItemActionSheetController {
     final type = target.type.trim().toLowerCase();
     final base = target.baseTitle.trim();
     if (type == 'episode') {
-      return '《$base》 ${_seasonEpisodeLabel(l10n, target.seasonNumber, target.episodeNumber)}';
+      return l10n.mediaActionTitleWithSuffix(
+        base,
+        _seasonEpisodeLabel(l10n, target.seasonNumber, target.episodeNumber),
+      );
     }
     if (type == 'season') {
-      return '《$base》 ${_seasonLabel(l10n, target.seasonNumber)}';
+      return l10n.mediaActionTitleWithSuffix(
+        base,
+        _seasonLabel(l10n, target.seasonNumber),
+      );
     }
-    return '《$base》';
+    return l10n.mediaActionTitle(base);
   }
 
   /// 生成季度条目在操作菜单中的标题。
@@ -196,7 +202,10 @@ class MediaItemActionSheetController {
     final base = seriesTitle.trim().isNotEmpty
         ? seriesTitle.trim()
         : season.baseTitle.trim();
-    return '《$base》 ${_seasonLabel(l10n, season.seasonNumber)}';
+    return l10n.mediaActionTitleWithSuffix(
+      base,
+      _seasonLabel(l10n, season.seasonNumber),
+    );
   }
 
   /// 生成剧集条目在操作菜单中的标题。
@@ -208,7 +217,10 @@ class MediaItemActionSheetController {
     final base = seriesTitle.trim().isNotEmpty
         ? seriesTitle.trim()
         : episode.baseTitle.trim();
-    return '《$base》 ${_seasonEpisodeLabel(l10n, episode.seasonNumber, episode.episodeNumber)}';
+    return l10n.mediaActionTitleWithSuffix(
+      base,
+      _seasonEpisodeLabel(l10n, episode.seasonNumber, episode.episodeNumber),
+    );
   }
 
   static String _seasonLabel(AppLocalizations l10n, int seasonNumber) {
