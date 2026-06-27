@@ -332,6 +332,7 @@ class _DanmakuSearchButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return InkWell(
       onTap: loading ? null : onTap,
       borderRadius: BorderRadius.circular(12),
@@ -354,7 +355,7 @@ class _DanmakuSearchButton extends StatelessWidget {
                   ),
                 )
               : Text(
-                  '搜索',
+                  l10n.danmakuSearchButton,
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: colors.textPrimary,
@@ -458,9 +459,12 @@ class _SavedDanmakuSourceTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final sourceTypeLabel = source.isDanDanPlay
         ? 'DanDanPlay'
-        : (source.isDownloadedFile ? '随片下载' : '本地导入');
+        : (source.isDownloadedFile
+              ? l10n.danmakuDownloadedWithMedia
+              : l10n.danmakuLocalImport);
     final colors = context.appColors;
     final sourceTypeColor = source.isDanDanPlay
         ? colors.success
@@ -471,8 +475,12 @@ class _SavedDanmakuSourceTile extends StatelessWidget {
               ? source.sourceKey.split(Platform.pathSeparator).last
               : source.sourceKey);
     final subtitle = source.commentCount > 0
-        ? '$sourceTypeLabel · ${source.commentCount} 条 · $detail'
-        : '$sourceTypeLabel · $detail';
+        ? l10n.danmakuSavedSourceSubtitleWithCount(
+            sourceTypeLabel,
+            source.commentCount,
+            detail,
+          )
+        : l10n.danmakuSavedSourceSubtitle(sourceTypeLabel, detail);
     return Row(
       children: [
         Expanded(
@@ -534,7 +542,7 @@ class _SavedDanmakuSourceTile extends StatelessWidget {
                             border: Border.all(color: colors.selection),
                           ),
                           child: Text(
-                            '当前',
+                            l10n.danmakuCurrent,
                             style: TextStyle(
                               color: colors.selectionStrong,
                               fontSize: 11,

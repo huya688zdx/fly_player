@@ -1122,6 +1122,7 @@
     }
   },
   "danmakuNoSearchResults": "没有搜索到可用结果",
+  "danmakuNoAvailableSearchResults": "没有搜索到可用弹幕结果",
   "danmakuConfigRequired": "请先在配置中填入弹弹play AppId / AppSecret",
   "danmakuSizeSmall": "较小",
   "danmakuSizeSlightlySmall": "偏小",
@@ -1207,6 +1208,7 @@
       }
     }
   },
+  "danmakuDownloadedWithMedia": "随片下载",
   "danmakuSavedFileInvalidRemoved": "弹幕文件已失效，已从列表移除",
   "danmakuSavedSourceDeleted": "已删除保存的弹幕来源",
   "danmakuReadSavedFileFailed": "无法读取已保存的弹幕文件",
@@ -1220,6 +1222,10 @@
   },
   "danmakuSwitchedLocalFirst": "已切换为本地优先",
   "danmakuSwitchedNetworkFirst": "已切换为网络优先",
+  "danmakuNativeRendererTitle": "原生弹幕渲染器（实验）",
+  "danmakuNativeRendererSubtitle": "视频走独立硬件层、弹幕走原生绘制，二者分开互不抢 GPU，弹幕可 120fps 丝滑（适合高码率/平板）；代价是二级菜单合成可能略卡。切换后需重新打开播放器才生效。",
+  "danmakuSwitchedNativeRenderer": "已切换到原生弹幕渲染器，重新打开播放器后生效",
+  "danmakuSwitchedFlutterRenderer": "已切换到 Flutter 弹幕渲染器，重新打开播放器后生效",
   "danmakuLayerDisabledSummary": "弹幕层已关闭，开启后会按当前优先级自动载入弹幕。",
   "danmakuLoadedLocalSummary": "当前已加载本地弹幕",
   "danmakuLoadedNetworkSummary": "当前已加载弹弹play弹幕",
