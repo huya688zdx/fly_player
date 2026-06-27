@@ -2213,6 +2213,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     /** onCreate 与 onNewIntent 共用：装载（或换）一路 source + 弹幕，并刷新标题/上下文。 */
     private fun applyLoadArgs(loadArgs: Map<String, Any?>, danmakuPayload: Map<String, Any?>?) {
+        // 捕获换源前的集身份：用于判断是否「真的切了集」（vs 同集切画质/版本/音轨字幕重载）。
+        // 必须在 loadArgsMap 被覆盖前取。
+        val previousItemGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
         reportProgress() // 切集前先把上一集进度写回（首次 onCreate 时 duration=0 自动跳过）
         mediaTitle = resolveTitle(loadArgs)
         loadArgsMap = loadArgs
@@ -2245,6 +2248,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             applyPersistedDanmakuPrefs() // 原生持久化的显示偏好优先于 payload 自带设置
             // 单次推送（comments + 偏好合并）：二次 settings 推送会 bump generation 把弹幕丢掉。
             playerSurface.setDanmakuPayload(payloadWithPersistedDanmakuPrefs(effectiveDanmaku))
+        } else if (previousItemGuid.isNotEmpty() &&
+            loadArgs["itemGuid"]?.toString().orEmpty().let { it.isNotEmpty() && it != previousItemGuid }
+        ) {
+            // 真的切了集、但这一集没取到弹幕（自动匹配失败/该入口未回传 danmakuFile 等）：
+            // 必须清掉上一集的弹幕，否则旧集弹幕会一直串台到新集（看完下一集/跳集仍是旧弹幕）。
+            danmakuSettings["sourceKey"] = ""
+            playerSurface.clearDanmaku()
         }
         // 换源后复位叠层/循环态/章节缓存，并按起播位置弹续播提示。
         abRepeatMode = 0
