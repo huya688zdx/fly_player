@@ -471,6 +471,34 @@ class EmbyApi {
     return '$normalizedServerUrl/Videos/${itemId.trim()}/$path?$qs';
   }
 
+  /// 章节缩略图直链——`GET /Items/{itemId}/Images/Chapter/{index}`，`api_key` 自鉴权。
+  ///
+  /// 拖动 seek 预览用：Emby 的「章节图 / 视频预览缩略图提取」任务会在条目 `Chapters` 上
+  /// 按位置生成图（带 `ImageTag`），网页客户端拖动时即取此端点。[chapterIndex] 为章节在
+  /// `Chapters` 数组的下标，[tag] 为该章节 `ImageTag`（带上确保命中正确缓存版本）。
+  /// [maxWidth] 限制服务端缩放后的宽度（省流，缩略图 320 足够）。纯字符串构造、不发请求
+  /// （过 fnos 中转闸的 entry-token cookie 由播放 headers 复用）。
+  String buildChapterImageUrl({
+    required String serverUrl,
+    required String itemId,
+    required int chapterIndex,
+    required String accessToken,
+    String tag = '',
+    int maxWidth = 320,
+  }) {
+    final normalizedServerUrl = normalizeServerUrl(serverUrl);
+    final query = <String, String>{
+      if (tag.trim().isNotEmpty) 'tag': tag.trim(),
+      if (maxWidth > 0) 'MaxWidth': '$maxWidth',
+      'api_key': accessToken,
+    };
+    final qs = query.entries
+        .map((e) => '${e.key}=${Uri.encodeQueryComponent(e.value)}')
+        .join('&');
+    return '$normalizedServerUrl/Items/${itemId.trim()}'
+        '/Images/Chapter/$chapterIndex?$qs';
+  }
+
   /// 播放开始——`POST /Sessions/Playing`，`api_key` 自鉴权。
   ///
   /// 实测 Emby **必须先收到 PlaybackStart 建立播放会话**，之后的 `/Progress` 才会被持久化进

@@ -574,7 +574,8 @@ class EmbyMediaBackend implements MediaBackend {
       itemId: request.itemId,
       // MediaSources 含每源 MediaStreams + Default*StreamIndex；ProviderIds 取 tmdb；
       // UserData（续播位 PlaybackPositionTicks）在用户域端点默认返回，无需显式 Fields。
-      fields: 'MediaSources,ProviderIds,DateCreated',
+      // Chapters：拖动 seek 预览缩略图（章节图）的位置 + ImageTag 来源。
+      fields: 'MediaSources,ProviderIds,DateCreated,Chapters',
     );
 
     final sources = _mediaSources(item);
@@ -665,6 +666,7 @@ class EmbyMediaBackend implements MediaBackend {
       audioTracks: tracks.audio,
       subtitleTracks: tracks.subtitle,
       session: const MediaPlaybackSession(),
+      seekThumbnails: _buildSeekThumbnails(item, request.itemId),
     );
 
     return MediaPlaybackResolution(
@@ -824,6 +826,44 @@ class EmbyMediaBackend implements MediaBackend {
         .whereType<Map>()
         .map((e) => Map<String, Object?>.from(e))
         .toList(growable: false);
+  }
+
+  /// 章节图 → 拖动 seek 预览缩略图（按位置升序）。
+  ///
+  /// 取条目 `Chapters` 中**带 `ImageTag`** 的章节（有图才入列），位置取 `StartPositionTicks`、
+  /// URL 走 [EmbyApi.buildChapterImageUrl]（章节下标 + ImageTag）。无章节图（很多条目未做
+  /// 「章节图/视频预览缩略图提取」任务）则返回空，原生壳退回纯时间药丸。
+  List<MediaSeekThumbnail> _buildSeekThumbnails(
+    Map<String, Object?> item,
+    String itemId,
+  ) {
+    final raw = item['Chapters'];
+    if (raw is! List) return const <MediaSeekThumbnail>[];
+    final thumbnails = <MediaSeekThumbnail>[];
+    for (var index = 0; index < raw.length; index++) {
+      final chapter = raw[index];
+      if (chapter is! Map) continue;
+      final tag = (chapter['ImageTag'] ?? '').toString().trim();
+      if (tag.isEmpty) continue; // 无图的章节跳过（仅有名字/位置不足以预览）。
+      final ticks = chapter['StartPositionTicks'];
+      final positionMs = ticks is num
+          ? (ticks ~/ 10000).toInt()
+          : (num.tryParse('${ticks ?? ''}')?.toInt() ?? 0) ~/ 10000;
+      thumbnails.add(
+        MediaSeekThumbnail(
+          position: Duration(milliseconds: positionMs < 0 ? 0 : positionMs),
+          url: api.buildChapterImageUrl(
+            serverUrl: _serverUrl,
+            itemId: itemId,
+            chapterIndex: index,
+            accessToken: _token,
+            tag: tag,
+          ),
+        ),
+      );
+    }
+    thumbnails.sort((a, b) => a.position.compareTo(b.position));
+    return thumbnails;
   }
 
   static String _tmdbId(Object? providerIds) {

@@ -87,6 +87,9 @@ class MpvMediaSource {
   final List<SubtitleTrackOption> subtitleTracks;
   final List<PlaybackQualityOption> qualities;
 
+  /// 拖动 seek 预览缩略图（按位置升序）。空 = 该条目无缩略图（飞牛恒空），原生壳退回纯时间药丸。
+  final List<MpvSeekThumbnail> seekThumbnails;
+
   bool get serverPlaybackManaged => playbackMode.isServerManaged;
 
   const MpvMediaSource({
@@ -144,6 +147,7 @@ class MpvMediaSource {
     this.audioTracks = const <AudioTrackOption>[],
     this.subtitleTracks = const <SubtitleTrackOption>[],
     this.qualities = const <PlaybackQualityOption>[],
+    this.seekThumbnails = const <MpvSeekThumbnail>[],
   });
 
   MpvMediaSource copyWith({
@@ -207,6 +211,7 @@ class MpvMediaSource {
     List<AudioTrackOption>? audioTracks,
     List<SubtitleTrackOption>? subtitleTracks,
     List<PlaybackQualityOption>? qualities,
+    List<MpvSeekThumbnail>? seekThumbnails,
   }) {
     return MpvMediaSource(
       loadNonce: loadNonce ?? this.loadNonce,
@@ -283,6 +288,7 @@ class MpvMediaSource {
       audioTracks: audioTracks ?? this.audioTracks,
       subtitleTracks: subtitleTracks ?? this.subtitleTracks,
       qualities: qualities ?? this.qualities,
+      seekThumbnails: seekThumbnails ?? this.seekThumbnails,
     );
   }
 
@@ -565,6 +571,7 @@ class MpvMediaSource {
       'audioTracks': audioTracks.map(_audioTrackToMap).toList(),
       'subtitleTracks': subtitleTracks.map(_subtitleTrackToMap).toList(),
       'qualities': qualities.map(_qualityToMap).toList(),
+      'seekThumbnails': seekThumbnails.map((t) => t.toMap()).toList(),
     };
   }
 
@@ -756,6 +763,14 @@ class MpvMediaSource {
       audioTracks: parseAudioTracks(raw['audioTracks']),
       subtitleTracks: parseSubtitleTracks(raw['subtitleTracks']),
       qualities: parseQualities(raw['qualities']),
+      seekThumbnails: () {
+        final value = raw['seekThumbnails'];
+        if (value is! List) return const <MpvSeekThumbnail>[];
+        return value
+            .map(MpvSeekThumbnail.fromMap)
+            .whereType<MpvSeekThumbnail>()
+            .toList(growable: false);
+      }(),
     );
   }
 
