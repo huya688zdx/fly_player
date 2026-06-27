@@ -89,8 +89,13 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
     super.initState();
     _selectedRange = widget.initialRange;
     _scrollController.addListener(_handleScroll);
-    unawaited(_loadMetadataMaps());
-    unawaited(_loadCurrentRange(initial: true));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      unawaited(_loadMetadataMaps());
+      unawaited(_loadCurrentRange(initial: true));
+    });
   }
 
   @override
@@ -133,6 +138,7 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
     bool withBackfill = false,
   }) async {
     final requestRange = _selectedRange;
+    final l10n = AppLocalizations.of(context);
     if (mounted) {
       setState(() {
         if (initial && _snapshot == null) {
@@ -148,6 +154,7 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
 
     try {
       final snapshot = await _summaryRepository.loadReportSnapshot(
+        l10n: l10n,
         range: requestRange,
       );
       if (!mounted || requestRange != _selectedRange) {
@@ -162,7 +169,7 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
       });
       await _loadMetadataMaps();
       if (withBackfill) {
-        await _runBackfillAndReload(snapshot, requestRange);
+        await _runBackfillAndReload(l10n, snapshot, requestRange);
       } else {
         unawaited(_triggerMetadataBackfill(snapshot));
       }
@@ -179,11 +186,13 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
   }
 
   Future<void> _runBackfillAndReload(
+    AppLocalizations l10n,
     PlayStatsReportSnapshot snapshot,
     PlayStatsRange requestRange,
   ) async {
     await _triggerMetadataBackfill(snapshot);
     final refreshed = await _summaryRepository.loadReportSnapshot(
+      l10n: l10n,
       range: requestRange,
     );
     if (!mounted || requestRange != _selectedRange) {
@@ -579,6 +588,7 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
   }
 
   Widget _buildFloatingCollapsedToolbar(AppThemeColors colors) {
+    final l10n = AppLocalizations.of(context);
     return Padding(
       key: const ValueKey<String>('range-toolbar-float'),
       padding: const EdgeInsets.fromLTRB(12, 7, 12, 7),
@@ -593,7 +603,7 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
                       Text(
-                        _selectedRange.label,
+                        _selectedRange.label(l10n),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -628,7 +638,7 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
                         mainAxisSize: MainAxisSize.min,
                         children: <Widget>[
                           Text(
-                            _selectedRange.label,
+                            _selectedRange.label(l10n),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(

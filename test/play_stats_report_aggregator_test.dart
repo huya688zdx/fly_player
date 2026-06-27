@@ -1,8 +1,12 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/services/play_stats/play_stats.dart';
 
 void main() {
+  final l10n = lookupAppLocalizations(const Locale('zh', 'CN'));
+
   group('PlayStatsReportAggregator', () {
     test('builds weighted overview, behavior, and preference summaries', () {
       final now = DateTime.now();
@@ -110,6 +114,7 @@ void main() {
       ];
 
       final snapshot = aggregator.buildSnapshot(
+        l10n: l10n,
         range: PlayStatsRange.days7,
         histories: histories,
         videos: videos,
@@ -183,12 +188,14 @@ void main() {
         ];
 
         final recentSnapshot = aggregator.buildSnapshot(
+          l10n: l10n,
           range: PlayStatsRange.days30,
           histories: const <PlayHistoryRecord>[],
           videos: videos,
           seasons: seasons,
         );
         final allSnapshot = aggregator.buildSnapshot(
+          l10n: l10n,
           range: PlayStatsRange.all,
           histories: histories,
           videos: videos,
@@ -233,6 +240,7 @@ void main() {
       ];
 
       final snapshot = aggregator.buildSnapshot(
+        l10n: l10n,
         range: PlayStatsRange.days7,
         histories: histories,
         videos: const <VideoStatsRecord>[],
@@ -293,6 +301,7 @@ void main() {
       ];
 
       final snapshot = aggregator.buildSnapshot(
+        l10n: l10n,
         range: PlayStatsRange.days7,
         histories: histories,
         videos: const <VideoStatsRecord>[],
