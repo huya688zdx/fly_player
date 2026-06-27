@@ -183,7 +183,10 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       return;
     }
     if (baseUrl.isEmpty) {
-      _showTopTip('请输入 Emby 服务器地址', context.appColors.danger);
+      _showTopTip(
+        AppLocalizations.of(context).connectionEmbyServerRequired,
+        context.appColors.danger,
+      );
       return;
     }
     if (userName.isEmpty) {
@@ -232,7 +235,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       if (result.accessToken.trim().isEmpty || result.userId.trim().isEmpty) {
         throw AppException.api(
           action: 'emby login',
-          message: 'Emby 登录返回的会话信息不完整',
+          message: AppLocalizations.of(context).connectionEmbySessionIncomplete,
         );
       }
       _embyEntryToken = entryToken;
@@ -333,7 +336,10 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     final trimmed = token?.trim() ?? '';
     if (trimmed.isEmpty) {
       if (mounted) {
-        _showTopTip('未获取到 FN Connect 入口令牌，请重试', context.appColors.warning);
+        _showTopTip(
+          AppLocalizations.of(context).fnConnectEntryTokenMissing,
+          context.appColors.warning,
+        );
       }
       return null;
     }
@@ -521,12 +527,13 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
   Future<void> _resetFnConnectWebLoginState() async {
     if (_isSubmitting) return;
+    final l10n = AppLocalizations.of(context);
     final confirmed = await showAppConfirmDialog(
       context,
-      title: '重新登录 FN Connect',
-      content: '将清除 FN Connect 网页登录态，并退出当前连接。服务器地址、用户名和已记住的密码会保留，之后可重新发起网页登录。',
-      cancelText: '取消',
-      confirmText: '清除并重新登录',
+      title: l10n.fnConnectReloginTitle,
+      content: l10n.fnConnectReloginContent,
+      cancelText: l10n.commonCancel,
+      confirmText: l10n.fnConnectReloginConfirm,
       confirmColor: context.appColors.warning,
     );
     if (!mounted || !confirmed) return;
@@ -539,7 +546,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         await context.read<NasProvider>().logout();
       }
       if (!mounted) return;
-      _showTopTip('已清除 FN Connect 网页登录态，请重新登录', context.appColors.accent);
+      _showTopTip(l10n.fnConnectReloginSuccess, context.appColors.accent);
     } catch (error, stackTrace) {
       await AppErrorReporter.report(
         error,
@@ -549,7 +556,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         fallbackKind: AppExceptionKind.transient,
       );
       if (!mounted) return;
-      _showTopTip('清除 FN Connect 网页登录态失败，请重试', context.appColors.danger);
+      _showTopTip(l10n.fnConnectReloginFailure, context.appColors.danger);
     } finally {
       if (mounted) {
         setState(() {
@@ -768,6 +775,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                       _LogoHeader(title: l10n.connectionAppName),
                       const SizedBox(height: 16),
                       _BackendSelector(
+                        l10n: l10n,
                         selected: _selectedBackend,
                         onChanged: (backend) {
                           setState(() {
@@ -898,10 +906,12 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       children: [
         _GlassField(
           controller: baseController,
-          labelText: isEmby ? 'Emby 服务器地址' : '服务器地址',
+          labelText: isEmby
+              ? l10n.connectionEmbyServerLabel
+              : l10n.connectionServerLabel,
           hintText: isEmby
-              ? '例如：https://emby.example.com'
-              : '例如：https://feiniu.geqian.sbs:5667',
+              ? l10n.connectionEmbyServerExample
+              : l10n.connectionServerExample,
           leadingIcon: Icons.dns_outlined,
           keyboardType: TextInputType.url,
           textInputAction: TextInputAction.next,
@@ -919,7 +929,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         const SizedBox(height: 12),
         _GlassField(
           controller: userController,
-          labelText: '账号',
+          labelText: l10n.connectionAccountLabel,
           hintText: l10n.connectionUserNameHint,
           leadingIcon: Icons.person_outline_rounded,
           textInputAction: TextInputAction.next,
@@ -996,7 +1006,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
               disabledForegroundColor: const Color(0xFF5D5A52),
               fontWeight: FontWeight.w600,
             ),
-            child: const Text('重新登录 FN Connect'),
+            child: Text(l10n.fnConnectReloginTitle),
           ),
         ],
       ),
@@ -1010,7 +1020,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       children: [
         _GlassField(
           controller: _embyBaseUrlController,
-          hintText: 'Emby 服务器地址',
+          hintText: l10n.connectionEmbyServerLabel,
           keyboardType: TextInputType.url,
           textInputAction: TextInputAction.next,
           autofillHints: const <String>[AutofillHints.url],
@@ -1146,8 +1156,13 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 }
 
 class _BackendSelector extends StatelessWidget {
-  const _BackendSelector({required this.selected, required this.onChanged});
+  const _BackendSelector({
+    required this.l10n,
+    required this.selected,
+    required this.onChanged,
+  });
 
+  final AppLocalizations l10n;
   final _ConnectionBackend selected;
   final ValueChanged<_ConnectionBackend> onChanged;
 
@@ -1193,7 +1208,7 @@ class _BackendSelector extends StatelessWidget {
               children: [
                 Expanded(
                   child: _BackendSelectorButton(
-                    label: '飞牛影视',
+                    label: l10n.connectionFeiniuMedia,
                     selected: !isEmby,
                     onTap: () => onChanged(_ConnectionBackend.feiniu),
                   ),
@@ -1359,10 +1374,10 @@ class _LogoHeader extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 4),
-        const Text(
-          '连接您的媒体服务，畅享影音世界',
+        Text(
+          AppLocalizations.of(context).connectionTagline,
           textAlign: TextAlign.center,
-          style: TextStyle(
+          style: const TextStyle(
             color: Color(0xFFA7B6D2),
             fontSize: 14,
             fontWeight: FontWeight.w500,

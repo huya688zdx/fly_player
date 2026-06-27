@@ -159,22 +159,22 @@ class TvSeasonDownloadSheetController {
           );
           final cachedQualityOptions = cachedQualityStrings.isNotEmpty
               ? cachedQualityStrings
-                  .map(
-                    (quality) => TvSeasonDownloadQualityOption(
-                      value: quality,
-                      label: _qualityLabel(quality, l10n),
-                      hint: _downloadQualityHint(
-                        l10n: l10n,
-                        sourceResolution: sourceResolution,
-                        quality: quality,
-                        downloaded: downloadService.hasDownloadedResolution(
-                          episode?.guid ?? '',
-                          quality,
+                    .map(
+                      (quality) => TvSeasonDownloadQualityOption(
+                        value: quality,
+                        label: _qualityLabel(quality, l10n),
+                        hint: _downloadQualityHint(
+                          l10n: l10n,
+                          sourceResolution: sourceResolution,
+                          quality: quality,
+                          downloaded: downloadService.hasDownloadedResolution(
+                            episode?.guid ?? '',
+                            quality,
+                          ),
                         ),
                       ),
-                    ),
-                  )
-                  .toList(growable: false)
+                    )
+                    .toList(growable: false)
               : const <TvSeasonDownloadQualityOption>[];
 
           // Build initial payload with static data — shown immediately.
@@ -213,28 +213,32 @@ class TvSeasonDownloadSheetController {
             ),
           );
 
-          final payloadNotifier =
-              ValueNotifier<TvSeasonDownloadSheetPayload>(initialPayload);
+          final payloadNotifier = ValueNotifier<TvSeasonDownloadSheetPayload>(
+            initialPayload,
+          );
 
           // Kick off API loading in background (does not block sheet display).
-          unawaited(_loadSheetApiData(
-            api: api,
-            provider: provider,
-            episode: episode,
-            candidateItemGuids: candidateItemGuids,
-            episodeEntries: episodeEntries,
-            seriesTitle: seriesTitle,
-            initialRangeIndex: initialRangeIndex,
-            rangeSize: rangeSize,
-            l10n: l10n,
-            downloadService: downloadService,
-            payloadNotifier: payloadNotifier,
-            initialPayload: initialPayload,
-            onItemLoaded: (item) => loadedItem = item,
-            onGroupMetaLoaded: (meta) => loadedGroupMeta = meta,
-          ));
+          unawaited(
+            _loadSheetApiData(
+              api: api,
+              provider: provider,
+              episode: episode,
+              candidateItemGuids: candidateItemGuids,
+              episodeEntries: episodeEntries,
+              seriesTitle: seriesTitle,
+              initialRangeIndex: initialRangeIndex,
+              rangeSize: rangeSize,
+              l10n: l10n,
+              downloadService: downloadService,
+              payloadNotifier: payloadNotifier,
+              initialPayload: initialPayload,
+              onItemLoaded: (item) => loadedItem = item,
+              onGroupMetaLoaded: (meta) => loadedGroupMeta = meta,
+            ),
+          );
 
           // Show sheet immediately with static data; blocks until sheet closes.
+          if (!context.mounted) return;
           await TvSeasonDownloadSheet.show(
             context,
             payloadNotifier: payloadNotifier,
@@ -381,11 +385,9 @@ class TvSeasonDownloadSheetController {
       final playItemGuid = _extractPlayItemGuid(detail, item);
       if (playItemGuid.isEmpty) return;
 
-      final qualities = _cachedQualities[playItemGuid] ??
-          await api.getDownloadResolutionOptions(
-            playItemGuid,
-            lan: 'zh-CN',
-          );
+      final qualities =
+          _cachedQualities[playItemGuid] ??
+          await api.getDownloadResolutionOptions(playItemGuid, lan: 'zh-CN');
       if (qualities.isEmpty) return;
       _cachedQualities[playItemGuid] = qualities;
 

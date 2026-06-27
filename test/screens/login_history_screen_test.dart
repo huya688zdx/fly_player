@@ -15,14 +15,14 @@ void main() {
     SharedPreferences.setMockInitialValues(const <String, Object>{});
   });
 
-  final feiniuEntry = LoginHistoryEntry(
+  const feiniuEntry = LoginHistoryEntry(
     baseUrl: 'https://aliyun.bffss.cn',
     userName: 'geqian688',
     password: 'pw',
     rememberPassword: true,
     updatedAtMillis: 2,
   );
-  final embyEntry = LoginHistoryEntry(
+  const embyEntry = LoginHistoryEntry(
     kind: MediaBackendKind.emby,
     baseUrl: 'http://100.125.130.96:8096',
     userName: 'geqian688',
@@ -65,7 +65,7 @@ void main() {
                 onPressed: () async {
                   popped = await Navigator.of(context).push<LoginHistoryEntry>(
                     MaterialPageRoute(
-                      builder: (_) => LoginHistoryScreen(
+                      builder: (_) => const LoginHistoryScreen(
                         entries: <LoginHistoryEntry>[embyEntry],
                       ),
                     ),

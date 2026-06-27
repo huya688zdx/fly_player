@@ -32,7 +32,7 @@ extension _MediaListScreenActions on _MediaListScreenState {
         : l10n.detailSeasonNumber(
             item.seasonNumber > 0 ? item.seasonNumber : 1,
           );
-    return '《$seriesTitle》 $seasonText';
+    return l10n.homeContinueActionSeasonTitle(seriesTitle, seasonText);
   }
 
   Future<({bool watched, bool favorite})> _loadContinueItemFlags(

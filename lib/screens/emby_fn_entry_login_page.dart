@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import '../l10n/generated/app_localizations.dart';
+
 /// 抓取 FN Connect 入口令牌（cookie `entry-token`）的 WebView 页。
 ///
 /// 藏在飞牛反向代理后面的 Emby 发布服务（`*.fnos.net`）受云端 FN Connect 边缘闸保护，
@@ -44,7 +46,7 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
   bool _isClosing = false;
   bool _autoRedirectedToTarget = false;
   int _progress = 0;
-  String _statusText = '正在打开 FN Connect 入口...';
+  String _statusText = '';
 
   @override
   void initState() {
@@ -57,6 +59,7 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
   }
 
   Future<void> _initialize() async {
+    final l10n = AppLocalizations.of(context);
     try {
       await _controller.setJavaScriptMode(JavaScriptMode.unrestricted);
       await _controller.setBackgroundColor(const Color(0xFF08111A));
@@ -68,14 +71,20 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
         NavigationDelegate(
           onPageStarted: (url) {
             if (!mounted || _isClosing) return;
-            setState(() => _statusText = '加载 ${_friendlyUrl(url)}');
+            setState(() {
+              _statusText = AppLocalizations.of(
+                context,
+              ).fnConnectEntryLoading(_friendlyUrl(url));
+            });
           },
           onPageFinished: (url) {
             unawaited(_injectBridgeScript());
             if (!mounted || _isClosing) return;
             setState(() {
               _isReady = true;
-              _statusText = '处理 ${_friendlyUrl(url)}';
+              _statusText = AppLocalizations.of(
+                context,
+              ).fnConnectEntryProcessing(_friendlyUrl(url));
             });
           },
           onProgress: (progress) {
@@ -92,7 +101,7 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
       );
       await _controller.loadRequest(Uri.parse(widget.serverUrl));
     } catch (error) {
-      _completeFailure('打开入口失败：$error');
+      _completeFailure(l10n.fnConnectEntryOpenFailed('$error'));
     }
   }
 
@@ -238,7 +247,7 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
         if (blocked) {
           if (mounted && !_isClosing) {
             setState(() {
-              _statusText = 'Emby 访问被拦截：请在页面里从飞牛桌面打开 Emby 应用完成授权';
+              _statusText = AppLocalizations.of(context).fnConnectEntryBlocked;
             });
           }
           return;
@@ -293,28 +302,29 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final progress = _progress.clamp(0, 100) / 100.0;
     return Scaffold(
       backgroundColor: const Color(0xFF08111A),
       appBar: AppBar(
         backgroundColor: const Color(0xFF0C1724),
         foregroundColor: Colors.white,
-        title: const Text('登录 FN Connect（Emby）'),
+        title: Text(l10n.fnConnectEntryLoginTitle),
         actions: [
           IconButton(
-            tooltip: '我已授权 · 回到 Emby',
+            tooltip: l10n.fnConnectEntryAuthorizedBack,
             onPressed: _isReady
                 ? () => _controller.loadRequest(Uri.parse(widget.serverUrl))
                 : null,
             icon: const Icon(Icons.check_circle_outline_rounded),
           ),
           IconButton(
-            tooltip: '重新加载',
+            tooltip: l10n.fnConnectEntryReload,
             onPressed: _isReady ? () => _controller.reload() : null,
             icon: const Icon(Icons.refresh_rounded),
           ),
           IconButton(
-            tooltip: '取消',
+            tooltip: l10n.commonCancel,
             onPressed: () {
               if (_isClosing) return;
               Navigator.of(context).pop(null);
@@ -338,7 +348,9 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  _statusText,
+                  _statusText.isEmpty
+                      ? l10n.fnConnectEntryOpening
+                      : _statusText,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(

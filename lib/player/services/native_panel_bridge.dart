@@ -33,7 +33,7 @@ class EpisodeSelection {
 class NativePanelBridge {
   NativePanelBridge._();
 
-  static final MethodChannel _channel = const MethodChannel(
+  static const MethodChannel _channel = MethodChannel(
     'fly_player/native_panels',
   );
 
