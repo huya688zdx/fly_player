@@ -491,6 +491,93 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     return version.audioTracks.isNotEmpty ? version.audioTracks.first.id : '';
   }
 
+  List<MediaSourceVersion> _localizeNeutralSourceVersions(
+    List<MediaSourceVersion> versions,
+    AppLocalizations l10n,
+  ) {
+    return <MediaSourceVersion>[
+      for (var index = 0; index < versions.length; index++)
+        _localizeNeutralSourceVersion(versions[index], index, l10n),
+    ];
+  }
+
+  MediaSourceVersion _localizeNeutralSourceVersion(
+    MediaSourceVersion version,
+    int index,
+    AppLocalizations l10n,
+  ) {
+    return MediaSourceVersion(
+      id: version.id,
+      label: _localizeNeutralVersionLabel(version.label, index, l10n),
+      badges: version.badges,
+      info: _localizeNeutralSourceInfo(version.info, l10n),
+      audioTracks: _localizeNeutralTrackOptions(version.audioTracks, l10n),
+      subtitleTracks: _localizeNeutralTrackOptions(
+        version.subtitleTracks,
+        l10n,
+      ),
+      defaultAudioId: version.defaultAudioId,
+      defaultSubtitleId: version.defaultSubtitleId,
+      durationSeconds: version.durationSeconds,
+    );
+  }
+
+  String _localizeNeutralVersionLabel(
+    String label,
+    int index,
+    AppLocalizations l10n,
+  ) {
+    final raw = label.trim();
+    if (raw.startsWith(mediaSourceFallbackLabelPrefix)) {
+      final numberText = raw.substring(mediaSourceFallbackLabelPrefix.length);
+      final number = int.tryParse(numberText) ?? (index + 1);
+      return l10n.detailSourceFallbackLabel(number);
+    }
+    return label;
+  }
+
+  List<MediaTrackOption> _localizeNeutralTrackOptions(
+    List<MediaTrackOption> tracks,
+    AppLocalizations l10n,
+  ) {
+    return <MediaTrackOption>[
+      for (final track in tracks)
+        MediaTrackOption(
+          id: track.id,
+          label: track.label,
+          summary: _localizeNeutralSummary(track.summary, l10n),
+          isExternal: track.isExternal,
+        ),
+    ];
+  }
+
+  MediaSourceInfo _localizeNeutralSourceInfo(
+    MediaSourceInfo info,
+    AppLocalizations l10n,
+  ) {
+    return MediaSourceInfo(
+      path: info.path,
+      container: info.container,
+      sizeBytes: info.sizeBytes,
+      addedDate: info.addedDate,
+      streams: <MediaSourceStream>[
+        for (final stream in info.streams)
+          MediaSourceStream(
+            type: stream.type,
+            label: stream.label,
+            summary: _localizeNeutralSummary(stream.summary, l10n),
+            fields: stream.fields,
+          ),
+      ],
+    );
+  }
+
+  String _localizeNeutralSummary(String summary, AppLocalizations l10n) {
+    return summary.trim() == mediaExternalSubtitleSummaryToken
+        ? l10n.playerSubtitleExternal
+        : summary;
+  }
+
   void _selectNeutralVersion(int index) {
     if (index == _neutralSelectedVersionIndex ||
         index < 0 ||
@@ -1201,10 +1288,16 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         } catch (_) {
           versions = const <MediaSourceVersion>[];
         }
-        final selectedVersion = versions.isNotEmpty ? versions.first : null;
         if (!mounted) return;
         // 地区本地化在此渲染层做（mapper 无 l10n）：英文国名 / ISO code → 中文，未知原样。
         final l10n = AppLocalizations.of(context);
+        final localizedVersions = _localizeNeutralSourceVersions(
+          versions,
+          l10n,
+        );
+        final selectedVersion = localizedVersions.isNotEmpty
+            ? localizedVersions.first
+            : null;
         final localizedDetail = detail.copyWith(
           regionLabels: RegionNameLocalizer.localizeAll(
             l10n,
@@ -1213,7 +1306,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         );
         setState(() {
           _detail = localizedDetail;
-          _neutralVersions = versions;
+          _neutralVersions = localizedVersions;
           _neutralSelectedVersionIndex = 0;
           // 音轨/字幕初始化为选中版本的默认轨(无默认则首条音轨 / 字幕关闭)。
           _neutralSelectedAudioId = _defaultAudioIdFor(selectedVersion);

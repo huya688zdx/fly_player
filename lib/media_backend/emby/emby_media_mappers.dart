@@ -281,7 +281,9 @@ List<MediaSourceVersion> mapEmbySourceVersions(Map<String, Object?> item) {
     final name = (source['Name'] ?? '').toString().trim();
     final label = videoResolution.isNotEmpty
         ? videoResolution
-        : (name.isNotEmpty ? name : '源 ${versions.length + 1}');
+        : (name.isNotEmpty
+              ? name
+              : '$mediaSourceFallbackLabelPrefix${versions.length + 1}');
     final badges = <String>[
       if (videoResolution.isNotEmpty) videoResolution,
       if (videoRange.isNotEmpty && videoRange.toUpperCase() != 'SDR')
@@ -360,7 +362,7 @@ MediaTrackOption _trackOption(
         ].join(' ').trim();
   final external = stream['IsExternal'] == true;
   final summary = isSubtitle
-      ? (external ? '外挂' : '')
+      ? (external ? mediaExternalSubtitleSummaryToken : '')
       : <String>[
           if (codec.isNotEmpty) codec,
           if ((stream['ChannelLayout'] ?? '').toString().trim().isNotEmpty)
@@ -502,7 +504,7 @@ MediaSourceStream _subtitleStream(Map<String, Object?> stream) {
   final external = stream['IsExternal'] == true;
   final language = (stream['Language'] ?? '').toString().trim();
   final label = display.isNotEmpty ? display : codec;
-  final summary = external ? '外挂' : '';
+  final summary = external ? mediaExternalSubtitleSummaryToken : '';
   return MediaSourceStream(
     type: MediaStreamType.subtitle,
     label: label,
