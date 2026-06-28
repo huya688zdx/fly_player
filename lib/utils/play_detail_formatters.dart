@@ -1,3 +1,4 @@
+import '../l10n/generated/app_localizations.dart';
 import '../media_backend/detail/media_detail.dart';
 import '../models/play_info.dart';
 import 'api_url_helper.dart';
@@ -30,20 +31,24 @@ class PlayDetailFormatters {
     return date.length >= 4 ? date.substring(0, 4) : '';
   }
 
-  static String runtimeText(PlayItem item) {
-    if (item.runtime > 0) return '${item.runtime}分钟';
-    return formatDuration(item.duration);
+  static String runtimeText(PlayItem item, AppLocalizations l10n) {
+    if (item.runtime > 0) return l10n.detailDurationMinutes(item.runtime);
+    return formatDuration(item.duration, l10n);
   }
 
-  static String formatDuration(int durationSeconds) {
+  static String formatDuration(int durationSeconds, AppLocalizations l10n) {
     if (durationSeconds <= 0) return '';
     final hour = durationSeconds ~/ 3600;
     final minute = (durationSeconds % 3600) ~/ 60;
     final second = durationSeconds % 60;
 
-    if (hour > 0) return '$hour小时$minute分钟';
-    if (minute > 0) return second > 0 ? '$minute分钟$second秒' : '$minute分钟';
-    return '$second秒';
+    if (hour > 0) return l10n.detailDurationHoursMinutes(hour, minute);
+    if (minute > 0) {
+      return second > 0
+          ? l10n.detailDurationMinutesSeconds(minute, second)
+          : l10n.detailDurationMinutes(minute);
+    }
+    return l10n.detailDurationSeconds(second);
   }
 
   static List<String> genreNamesFromIds(
@@ -82,7 +87,7 @@ class PlayDetailFormatters {
         .toList();
   }
 
-  static String remainText(int duration, int ts) {
+  static String remainText(int duration, int ts, AppLocalizations l10n) {
     if (duration <= 0) return '';
     final remainSeconds = (duration - ts).clamp(0, duration);
     final hour = remainSeconds ~/ 3600;
@@ -90,9 +95,13 @@ class PlayDetailFormatters {
     final second = remainSeconds % 60;
     if (hour > 0) {
       final minuteInHour = (remainSeconds % 3600) ~/ 60;
-      return '剩余 $hour 小时 $minuteInHour 分钟 $second 秒';
+      return l10n.detailRemainingDurationHoursMinutesSeconds(
+        hour,
+        minuteInHour,
+        second,
+      );
     }
-    return '剩余 $minute 分钟 $second 秒';
+    return l10n.detailRemainingDurationMinutesSeconds(minute, second);
   }
 
   static double progress(int duration, int ts) {
@@ -114,9 +123,9 @@ class PlayDetailFormatters {
     return values.join(' / ');
   }
 
-  static String metaLineB(PlayItem item) {
+  static String metaLineB(PlayItem item, AppLocalizations l10n) {
     final values = [
-      runtimeText(item),
+      runtimeText(item, l10n),
       item.ancestorName,
     ].where((e) => e.isNotEmpty);
     return values.join(' / ');
@@ -141,10 +150,11 @@ class PlayDetailFormatters {
   static String metaLineBFromDetail(
     MediaDetail detail, {
     required int effectiveDurationSeconds,
+    required AppLocalizations l10n,
   }) {
     final runtime = detail.runtimeMinutes > 0
-        ? '${detail.runtimeMinutes}分钟'
-        : formatDuration(effectiveDurationSeconds);
+        ? l10n.detailDurationMinutes(detail.runtimeMinutes)
+        : formatDuration(effectiveDurationSeconds, l10n);
     final rating = detail.rating.trim();
     return <String>[
       if (runtime.isNotEmpty) runtime,
