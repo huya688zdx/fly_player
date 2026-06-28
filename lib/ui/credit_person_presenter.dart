@@ -30,8 +30,9 @@ class CreditPersonPresenter {
     AppLocalizations l10n,
   ) {
     final role = person.role.trim();
-    if (role.isNotEmpty && role != '(voice)')
+    if (role.isNotEmpty && role != '(voice)') {
       return l10n.creditPersonRole(role);
+    }
     final job = person.department.trim();
     if (job.isEmpty) return '';
     switch (job.toLowerCase()) {
