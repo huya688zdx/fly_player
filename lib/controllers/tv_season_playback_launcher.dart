@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../media_backend/emby/emby_playback_context.dart';
 import '../media_backend/feiniu/feiniu_playback_context.dart';
 import '../media_backend/media_backend.dart';
@@ -45,6 +46,7 @@ class TvSeasonPlaybackLauncher {
       'tv_season_playback:${itemGuid.trim()}',
       settleDuration: const Duration(milliseconds: 500),
       action: () async {
+        final l10n = AppLocalizations.of(context);
         final provider = context.read<NasProvider>();
         // 后端中立：取活动后端，按 context 类型分发桥接器（与单条目 launcher 同口径）。
         final backend = context.read<MediaBackendProvider>().backend;
@@ -54,6 +56,7 @@ class TvSeasonPlaybackLauncher {
           itemGuid: itemGuid,
           seriesTitle: seriesTitle,
           seriesGuid: seriesGuid,
+          l10n: l10n,
         );
         if (resolved == null) return null;
         final source = resolved.source;
@@ -136,6 +139,7 @@ class TvSeasonPlaybackLauncher {
       'tv_season_resolve:${itemGuid.trim()}',
       settleDuration: const Duration(milliseconds: 300),
       action: () async {
+        final l10n = AppLocalizations.of(context);
         debugPrint(
           '[DANMAKU][NATIVE_SWITCH] tv resolveForNative action '
           'item="$itemGuid"',
@@ -155,6 +159,7 @@ class TvSeasonPlaybackLauncher {
             final local = await resolveLocalDownloadSource(
               localRecord,
               provider,
+              l10n: l10n,
               startPositionMs: startPositionMs,
             );
             if (local != null) {
@@ -201,6 +206,7 @@ class TvSeasonPlaybackLauncher {
           audioTrackIndex: audioTrackIndex,
           subtitleTrackIndex: subtitleTrackIndex,
           preferredQualityResolution: preferredQualityResolution,
+          l10n: l10n,
         );
         if (resolved == null) return null;
         // 切集回传也带本季 episodes（Emby 未传时按 source 重新派生），否则换源后原生壳选集清空。
@@ -272,6 +278,7 @@ class TvSeasonPlaybackLauncher {
     required String itemGuid,
     required String seriesTitle,
     required String seriesGuid,
+    required AppLocalizations l10n,
     int? qualityIndex,
     String? qualityMediaGuid,
     String? overrideSubtitleGuid,
@@ -321,6 +328,7 @@ class TvSeasonPlaybackLauncher {
         request: request,
         bundle: resolution.bundle,
         context: context,
+        l10n: l10n,
       );
       return (source: source, playInfo: context.playInfo, title: source.title);
     }
