@@ -678,8 +678,14 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         .map(
           (p) => CreditPersonItem(
             personGuid: p.id,
-            name: CreditPersonPresenter.displayName(p),
-            subtitle: CreditPersonPresenter.displaySubTitle(p),
+            name: CreditPersonPresenter.displayName(
+              p,
+              AppLocalizations.of(context),
+            ),
+            subtitle: CreditPersonPresenter.displaySubTitle(
+              p,
+              AppLocalizations.of(context),
+            ),
             imageUrls: artworkResolver.resolveRef(p.avatar, width: 180).urls,
           ),
         )
@@ -2980,8 +2986,14 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               .map(
                 (e) => CreditPersonItem(
                   personGuid: e.id,
-                  name: CreditPersonPresenter.displayName(e),
-                  subtitle: CreditPersonPresenter.displaySubTitle(e),
+                  name: CreditPersonPresenter.displayName(
+                    e,
+                    AppLocalizations.of(context),
+                  ),
+                  subtitle: CreditPersonPresenter.displaySubTitle(
+                    e,
+                    AppLocalizations.of(context),
+                  ),
                   imageUrls: deferAuxiliaryArtwork
                       ? const <String>[]
                       : artworkResolver.resolveRef(e.avatar, width: 180).urls,
