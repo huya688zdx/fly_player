@@ -655,6 +655,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     final metaLineB = PlayDetailFormatters.metaLineBFromDetail(
       detail,
       effectiveDurationSeconds: effectiveDuration,
+      l10n: AppLocalizations.of(context),
     );
     final isEpisode = detail.type.trim().toLowerCase() == 'episode';
     final episodeHeroSubtitle = _neutralEpisodeHeroSubtitle(detail);
@@ -783,6 +784,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                         remainText: PlayDetailFormatters.remainText(
                           effectiveDuration,
                           resumeTs,
+                          AppLocalizations.of(context),
                         ),
                         showProgress: showResumeProgress,
                         primaryText: resolvedPlayText,
@@ -2863,7 +2865,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
             locateMap: _locateMapZhCn,
           );
           final metaLineB = [
-            PlayDetailFormatters.formatDuration(effectiveDuration),
+            PlayDetailFormatters.formatDuration(
+              effectiveDuration,
+              AppLocalizations.of(context),
+            ),
             item.ancestorName,
           ].where((e) => e.isNotEmpty).join(' / ');
 
@@ -3111,6 +3116,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                                             PlayDetailFormatters.remainText(
                                               effectiveDuration,
                                               effectiveTs,
+                                              AppLocalizations.of(context),
                                             ),
                                         showProgress: showProgress,
                                         primaryText: resolvedPlayText,

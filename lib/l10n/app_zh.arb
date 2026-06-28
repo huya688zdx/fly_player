@@ -1630,6 +1630,69 @@
   "detailLocalVideoInvalid": "本地视频文件无效",
   "detailTmdbEmpty": "暂无 TMDB 链接",
   "detailTmdbOpenFailed": "无法打开 TMDB 链接",
+  "detailDurationHoursMinutes": "{hours}小时{minutes}分钟",
+  "@detailDurationHoursMinutes": {
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      },
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "detailDurationMinutesSeconds": "{minutes}分钟{seconds}秒",
+  "@detailDurationMinutesSeconds": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "detailDurationMinutes": "{minutes}分钟",
+  "@detailDurationMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "detailDurationSeconds": "{seconds}秒",
+  "@detailDurationSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "detailRemainingDurationHoursMinutesSeconds": "剩余 {hours} 小时 {minutes} 分钟 {seconds} 秒",
+  "@detailRemainingDurationHoursMinutesSeconds": {
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      },
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "detailRemainingDurationMinutesSeconds": "剩余 {minutes} 分钟 {seconds} 秒",
+  "@detailRemainingDurationMinutesSeconds": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
   "commonOther": "其他",
   "commonDurationHoursMinutes": "{hours} 小时 {minutes} 分钟",
   "@commonDurationHoursMinutes": {
