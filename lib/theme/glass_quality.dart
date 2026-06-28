@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import '../l10n/generated/app_localizations.dart';
+
 /// 全局「液态玻璃」质感挡位。与「动态取色」强度挡位并列，挂在主题设置里。
 ///
 /// - [off] 极简：纯色面板、关高光，开销最低；
@@ -19,17 +21,17 @@ extension LiquidGlassLevelX on LiquidGlassLevel {
   };
 
   /// 设置项里展示的短标题。
-  String get title => switch (this) {
-    LiquidGlassLevel.off => '极简',
-    LiquidGlassLevel.frosted => '磨砂',
-    LiquidGlassLevel.liquid => '液态',
+  String title(AppLocalizations l10n) => switch (this) {
+    LiquidGlassLevel.off => l10n.themeGlassLevelOffTitle,
+    LiquidGlassLevel.frosted => l10n.themeGlassLevelFrostedTitle,
+    LiquidGlassLevel.liquid => l10n.themeGlassLevelLiquidTitle,
   };
 
   /// 当前挡位的行为说明。
-  String get description => switch (this) {
-    LiquidGlassLevel.off => '纯色面板、无高光，开销最低',
-    LiquidGlassLevel.frosted => '静态磨砂玻璃（默认，滚动零额外开销）',
-    LiquidGlassLevel.liquid => '关键面真实背景模糊，质感最佳、略增 GPU',
+  String description(AppLocalizations l10n) => switch (this) {
+    LiquidGlassLevel.off => l10n.themeGlassLevelOffDescription,
+    LiquidGlassLevel.frosted => l10n.themeGlassLevelFrostedDescription,
+    LiquidGlassLevel.liquid => l10n.themeGlassLevelLiquidDescription,
   };
 
   /// 是否启用真实背景模糊（仅 [liquid]）。
