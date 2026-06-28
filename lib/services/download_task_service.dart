@@ -19,6 +19,7 @@ import '../danmaku/models/danmaku_saved_source.dart';
 import '../danmaku/parser/danmaku_import_parser.dart';
 import '../danmaku/settings/danmaku_saved_source_store.dart';
 import '../models/download_task_record.dart';
+import '../models/download_record_tokens.dart';
 import '../models/media_library_item.dart';
 import '../models/play_info.dart';
 import '../models/stream_list_option.dart';
@@ -146,7 +147,8 @@ class DownloadTaskService extends ChangeNotifier {
   static const MethodChannel _storageChannel = MethodChannel(
     'fly_player/storage',
   );
-  static const String _interruptedMessage = '下载已中断';
+  static const String _legacyLocalResolution = '\u672c\u5730';
+  static const String _interruptedMessage = downloadInterruptedMessageToken;
 
   static const List<String> _recoveredImageExtensions = <String>[
     '.webp',
@@ -665,7 +667,11 @@ class DownloadTaskService extends ChangeNotifier {
 
     final downloadUrl = api.buildDownloadTaskUrl(effectiveTaskId);
     if (downloadUrl.trim().isEmpty) {
-      _setRecordPaused(index, recordId, errorMessage: '无法获取下载资源');
+      _setRecordPaused(
+        index,
+        recordId,
+        errorMessage: downloadResourceUnavailableMessageToken,
+      );
       return;
     }
 
@@ -2403,9 +2409,16 @@ class DownloadTaskService extends ChangeNotifier {
     if (current.isEmpty) return true;
     if (_isGenericRecoveredRecord(record)) {
       return current != normalizedRecovered &&
-          (current == '本地' || normalizedRecovered != '本地');
+          (_isLocalRecoveredResolution(current) ||
+              !_isLocalRecoveredResolution(normalizedRecovered));
     }
     return false;
+  }
+
+  bool _isLocalRecoveredResolution(String value) {
+    final normalized = value.trim();
+    return normalized == downloadLocalResolutionToken ||
+        normalized == _legacyLocalResolution;
   }
 
   _RecoveredBackendLookup? _createRecoveredBackendLookup(
@@ -4129,17 +4142,12 @@ class DownloadTaskService extends ChangeNotifier {
     for (final value in const <String>['1440p', '1080p', '720p', '480p']) {
       if (normalized.contains(value)) return value;
     }
-    return '本地';
+    return downloadLocalResolutionToken;
   }
 
   String _formatRecoveredDurationText(int durationSeconds) {
     if (durationSeconds <= 0) return '';
-    final hour = durationSeconds ~/ 3600;
-    final minute = (durationSeconds % 3600) ~/ 60;
-    final second = durationSeconds % 60;
-    if (hour > 0) return '$hour小时$minute分钟';
-    if (minute > 0) return second > 0 ? '$minute分钟$second秒' : '$minute分钟';
-    return '$second秒';
+    return '$downloadRecoveredDurationTokenPrefix$durationSeconds';
   }
 
   String _stableRecoveryId(String raw, int bytes) {
@@ -4850,7 +4858,7 @@ class DownloadTaskService extends ChangeNotifier {
     final title = (item['title'] ?? '').toString().trim();
     if (title.isNotEmpty) return title;
     final seasonNumber = int.tryParse('${item['season_number'] ?? ''}') ?? 0;
-    if (seasonNumber > 0) return '第$seasonNumber季';
+    if (seasonNumber > 0) return '$downloadSeasonLabelTokenPrefix$seasonNumber';
     return '';
   }
 
@@ -5626,7 +5634,7 @@ class DownloadTaskService extends ChangeNotifier {
   String _normalizeImportedCacheResolution(String value) {
     final normalized = value.trim();
     if (normalized.isNotEmpty) return normalized;
-    return '缓存';
+    return downloadCacheResolutionToken;
   }
 
   bool _isDownloadedRecordAvailable(DownloadTaskRecord record) {
