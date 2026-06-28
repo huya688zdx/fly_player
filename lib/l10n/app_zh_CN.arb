@@ -1573,6 +1573,7 @@
     }
   },
   "commonClickTooFastRetryLater": "点击过快，请稍后再试",
+  "commonOperationFailed": "操作失败",
   "commonOperationFailedRetryLater": "操作失败，请稍后重试",
   "actionFavoriteAdd": "收藏",
   "actionFavoriteRemove": "取消收藏",
