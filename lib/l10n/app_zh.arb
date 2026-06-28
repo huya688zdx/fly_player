@@ -1636,6 +1636,12 @@
   "detailLocalVideoInvalid": "本地视频文件无效",
   "detailTmdbEmpty": "暂无 TMDB 链接",
   "detailTmdbOpenFailed": "无法打开 TMDB 链接",
+  "detailSourceFallbackLabel": "源 {index}",
+  "@detailSourceFallbackLabel": {
+    "placeholders": {
+      "index": {}
+    }
+  },
   "detailDurationHoursMinutes": "{hours}小时{minutes}分钟",
   "@detailDurationHoursMinutes": {
     "placeholders": {
