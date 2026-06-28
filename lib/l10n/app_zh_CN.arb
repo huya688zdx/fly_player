@@ -238,6 +238,18 @@
   "connectionFeiniuMedia": "飞牛影视",
   "connectionFeiniuNas": "飞牛 NAS",
   "connectionTagline": "连接您的媒体服务，畅享影音世界",
+  "loginErrorGenericFailure": "登录失败，请重试",
+  "loginErrorInvalidServerAddress": "服务器地址格式不正确",
+  "loginErrorInvalidCredentials": "用户名或密码错误",
+  "loginErrorAccountDisabled": "账号已被禁用，请联系管理员",
+  "loginErrorAccountLocked": "登录失败次数过多，请稍后再试",
+  "loginErrorNetworkUnavailable": "无法连接到服务器，请检查地址、端口和网络",
+  "loginErrorSecureConnectionFailed": "HTTPS 连接失败，请检查证书配置或改用可访问地址",
+  "loginErrorIpv6Unavailable": "当前网络无法访问该 IPv6 地址，请更换网络或使用其他地址",
+  "loginErrorServiceUnavailable": "服务器暂时不可用，请稍后重试",
+  "loginErrorServerNotFound": "服务器地址不正确，或接口不存在",
+  "loginErrorFnConnectUnreachable": "FN Connect 可用地址当前都无法连接，请检查网络环境或改用可直连地址",
+  "loginErrorFnConnectUnavailable": "FN Connect 登录失败，请稍后重试",
   "fnConnectReloginTitle": "重新登录 FN Connect",
   "fnConnectReloginContent": "将清除 FN Connect 网页登录态，并退出当前连接。服务器地址、用户名和已记住的密码会保留，之后可重新发起网页登录。",
   "fnConnectReloginConfirm": "清除并重新登录",
@@ -260,6 +272,7 @@
       "url": {}
     }
   },
+  "fnConnectEntryExchangingOauth": "正在交换 OAuth 授权码...",
   "fnConnectEntryOpenFailed": "打开入口失败：{error}",
   "@fnConnectEntryOpenFailed": {
     "placeholders": {
