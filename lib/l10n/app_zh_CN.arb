@@ -1768,6 +1768,9 @@
       "quality": {}
     }
   },
+  "downloadInterruptedError": "下载已中断",
+  "downloadResourceUnavailable": "无法获取下载资源",
+  "downloadLocalResolution": "本地",
   "downloadItemDownloading": "该条目正在下载",
   "downloadItemDownloaded": "该条目已下载",
   "downloadFailedWithError": "下载失败：{error}",
