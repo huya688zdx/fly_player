@@ -1,23 +1,14 @@
+import 'dart:ui';
+
 import '../api/feiniu_api.dart';
+import '../l10n/generated/app_localizations.dart';
 import 'app_exception.dart';
 
 class LoginErrorResolver {
   LoginErrorResolver._();
 
-  static const String genericFailure = '登录失败，请重试';
-  static const String invalidServerAddress = '服务器地址格式不正确';
-  static const String invalidCredentials = '用户名或密码错误';
-  static const String accountDisabled = '账号已被禁用，请联系管理员';
-  static const String accountLocked = '登录失败次数过多，请稍后再试';
-  static const String networkUnavailable = '无法连接到服务器，请检查地址、端口和网络';
-  static const String secureConnectionFailed = 'HTTPS 连接失败，请检查证书配置或改用可访问地址';
-  static const String ipv6Unavailable = '当前网络无法访问该 IPv6 地址，请更换网络或使用其他地址';
-  static const String serviceUnavailable = '服务器暂时不可用，请稍后重试';
-  static const String fnConnectUnreachable =
-      'FN Connect 可用地址当前都无法连接，请检查网络环境或改用可直连地址';
-  static const String fnConnectUnavailable = 'FN Connect 登录失败，请稍后重试';
-
-  static String resolve(Object error) {
+  static String resolve(Object error, {AppLocalizations? l10n}) {
+    final strings = l10n ?? lookupAppLocalizations(const Locale('zh', 'CN'));
     final raw = _readableMessage(error);
     if (_isFriendlyChinese(raw)) {
       return raw;
@@ -29,7 +20,7 @@ class LoginErrorResolver {
     final code = appError?.code;
 
     if (code == -2 || code == -15 || status == 401 || status == 403) {
-      return invalidCredentials;
+      return strings.loginErrorInvalidCredentials;
     }
 
     if (_containsAny(message, const <String>[
@@ -51,7 +42,7 @@ class LoginErrorResolver {
       '用户名或密码',
       '登录失败，请检查账号密码',
     ])) {
-      return invalidCredentials;
+      return strings.loginErrorInvalidCredentials;
     }
 
     if (_containsAny(message, const <String>[
@@ -62,7 +53,7 @@ class LoginErrorResolver {
       '账号已禁用',
       '用户已禁用',
     ])) {
-      return accountDisabled;
+      return strings.loginErrorAccountDisabled;
     }
 
     if (_containsAny(message, const <String>[
@@ -75,7 +66,7 @@ class LoginErrorResolver {
       '尝试次数过多',
       '账号锁定',
     ])) {
-      return accountLocked;
+      return strings.loginErrorAccountLocked;
     }
 
     if (_containsAny(message, const <String>[
@@ -87,7 +78,7 @@ class LoginErrorResolver {
       '地址格式',
       'invalid url',
     ])) {
-      return invalidServerAddress;
+      return strings.loginErrorInvalidServerAddress;
     }
 
     if (_containsAny(message, const <String>[
@@ -101,7 +92,7 @@ class LoginErrorResolver {
       '意外的数据包格式',
       'https',
     ])) {
-      return secureConnectionFailed;
+      return strings.loginErrorSecureConnectionFailed;
     }
 
     if (message.contains('ipv6') &&
@@ -112,7 +103,7 @@ class LoginErrorResolver {
           '无法',
           '不可用',
         ])) {
-      return ipv6Unavailable;
+      return strings.loginErrorIpv6Unavailable;
     }
 
     if (_containsAny(message, const <String>[
@@ -134,7 +125,7 @@ class LoginErrorResolver {
       '积极拒绝',
       '无法连接',
     ])) {
-      return networkUnavailable;
+      return strings.loginErrorNetworkUnavailable;
     }
 
     if (status == 404 ||
@@ -144,7 +135,7 @@ class LoginErrorResolver {
           'api not found',
           'not found',
         ])) {
-      return '服务器地址不正确，或接口不存在';
+      return strings.loginErrorServerNotFound;
     }
 
     if ((status != null && status >= 500) ||
@@ -158,7 +149,7 @@ class LoginErrorResolver {
           'internal server error',
           'gateway timeout',
         ])) {
-      return serviceUnavailable;
+      return strings.loginErrorServiceUnavailable;
     }
 
     if (_containsAny(message, const <String>[
@@ -168,14 +159,14 @@ class LoginErrorResolver {
       'web-only',
       'relay access is web-only',
     ])) {
-      return fnConnectUnreachable;
+      return strings.loginErrorFnConnectUnreachable;
     }
 
     if (message.contains('fn connect')) {
-      return fnConnectUnavailable;
+      return strings.loginErrorFnConnectUnavailable;
     }
 
-    return genericFailure;
+    return strings.loginErrorGenericFailure;
   }
 
   static AppException? _extractAppException(Object error) {
