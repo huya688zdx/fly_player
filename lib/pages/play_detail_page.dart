@@ -1648,6 +1648,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       );
       return;
     }
+    final l10n = AppLocalizations.of(context);
 
     await AsyncActionGuard.run<void>(
       actionKey,
@@ -1721,6 +1722,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         final title = formatPlayerTitleFromPlayItem(
           item,
           fallbackTitle: item.displayTitle,
+          l10n: l10n,
         );
 
         final selectedAudio = PlayDetailTrackSelector.selectedOrFirstAudio(
@@ -1888,6 +1890,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       );
       return;
     }
+    final l10n = AppLocalizations.of(context);
 
     final selectedOption = _currentStreamOption();
     final effectiveDuration =
@@ -1912,6 +1915,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     final title = formatPlayerTitleFromPlayItem(
       item,
       fallbackTitle: item.displayTitle,
+      l10n: l10n,
     );
     final localVideo =
         _streamTrackData?.videoForMedia(record.mediaGuid) ??
@@ -2013,6 +2017,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       );
       return;
     }
+    final l10n = AppLocalizations.of(context);
 
     await AsyncActionGuard.run<void>(
       actionKey,
@@ -2087,6 +2092,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                   subtitleGuid: subtitleGuid,
                   audioGuid: audioGuid,
                   episodes: capturedEpisodes.isEmpty ? null : capturedEpisodes,
+                  l10n: l10n,
                 ),
           );
           await NativePlayerBridge.launch(
@@ -2704,6 +2710,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               episodeNumber: _asInt(item['episode_number']),
               fallbackTitle: (item['display_title'] ?? item['title'] ?? '')
                   .toString(),
+              l10n: AppLocalizations.of(context),
             );
             final initialEpisodeTitle = (item['title'] ?? '').toString().trim();
             final initialDisplayTitle =

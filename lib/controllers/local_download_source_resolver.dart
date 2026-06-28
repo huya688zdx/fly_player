@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../api/feiniu_api.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../models/download_task_record.dart';
 import '../models/play_info.dart';
 import '../models/playback_stream.dart';
@@ -36,6 +37,7 @@ Future<({MpvMediaSource source, PlayInfoData? playInfo, String title})?>
 resolveLocalDownloadSource(
   DownloadTaskRecord record,
   NasProvider nas, {
+  required AppLocalizations l10n,
   int? startPositionMs,
 }) async {
   final path = record.filePath.trim();
@@ -65,7 +67,11 @@ resolveLocalDownloadSource(
   final playItem = initialPlayInfo?.item;
   final title = playItem == null
       ? fallbackTitle
-      : formatPlayerTitleFromPlayItem(playItem, fallbackTitle: fallbackTitle);
+      : formatPlayerTitleFromPlayItem(
+          playItem,
+          fallbackTitle: fallbackTitle,
+          l10n: l10n,
+        );
   final trackVideo = resolvedMediaGuid.isEmpty
       ? null
       : trackData?.videoForMedia(resolvedMediaGuid);
