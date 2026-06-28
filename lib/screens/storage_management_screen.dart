@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../l10n/generated/app_localizations.dart';
+import '../models/download_record_tokens.dart';
 import '../models/download_task_record.dart';
 import '../providers/app_theme_provider.dart';
 import '../providers/nas_provider.dart';
@@ -14,6 +15,7 @@ import '../theme/app_theme.dart';
 import '../ui/app_transitions.dart';
 import '../ui/secondary_host_navigation.dart';
 import '../utils/app_top_tip.dart';
+import '../utils/download_record_localizer.dart';
 
 class StorageManagementScreen extends StatefulWidget {
   const StorageManagementScreen({super.key});
@@ -2095,6 +2097,21 @@ _ParsedStorageSeason _parseSeriesSeasonLabel(
       seasonSort: 999999,
     );
   }
+  final downloadSeasonTokenPattern = RegExp(
+    '^(.*?)\\s*${RegExp.escape(downloadSeasonLabelTokenPrefix)}(\\d+)\$',
+  );
+  final downloadSeasonTokenMatch = downloadSeasonTokenPattern.firstMatch(label);
+  if (downloadSeasonTokenMatch != null) {
+    final series = _cleanStorageLabel(downloadSeasonTokenMatch.group(1) ?? '');
+    final season = int.tryParse(downloadSeasonTokenMatch.group(2) ?? '') ?? 0;
+    if (series.isNotEmpty && season > 0) {
+      return _ParsedStorageSeason(
+        seriesTitle: series,
+        seasonLabel: l10n.storageSeasonNumberSpaced(season),
+        seasonSort: season,
+      );
+    }
+  }
   final patterns = <RegExp>[
     RegExp(r'^(.*?)\s+Season\s*-?\s*(\d+)$', caseSensitive: false),
     RegExp(r'^(.*?)\s+S(\d+)$', caseSensitive: false),
@@ -2451,9 +2468,10 @@ class _DownloadEntryPanel extends StatelessWidget {
                   onToggleSelected(entry.id, selected),
               entryTitle: (entry) => _downloadEpisodeTitle(entry, l10n),
               entrySubtitle: (entry) => [
-                if (entry.resolution.trim().isNotEmpty) entry.resolution.trim(),
+                if (entry.resolution.trim().isNotEmpty)
+                  localizeDownloadResolution(entry.resolution, l10n),
                 if (entry.durationText.trim().isNotEmpty)
-                  entry.durationText.trim(),
+                  localizeDownloadDurationText(entry.durationText, l10n),
                 _formatUpdatedTime(entry.updatedAtMs),
                 entry.filePath,
               ].join(' · '),
@@ -2480,9 +2498,10 @@ class _DownloadEntryPanel extends StatelessWidget {
                 ),
                 subtitle: Text(
                   [
-                    if (entry.resolution.trim().isNotEmpty) entry.resolution,
+                    if (entry.resolution.trim().isNotEmpty)
+                      localizeDownloadResolution(entry.resolution, l10n),
                     if (entry.durationText.trim().isNotEmpty)
-                      entry.durationText,
+                      localizeDownloadDurationText(entry.durationText, l10n),
                     _formatUpdatedTime(entry.updatedAtMs),
                     entry.filePath,
                   ].join(' ·'),

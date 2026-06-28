@@ -25,6 +25,7 @@ import '../ui/capability_badge_mapper.dart';
 import '../ui/media_detail_components.dart';
 import '../utils/async_action_guard.dart';
 import '../utils/app_top_tip.dart';
+import '../utils/download_record_localizer.dart';
 
 enum DownloadListTab { downloaded, downloading }
 
@@ -787,6 +788,7 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
   }
 
   String _playerTitleForRecord(DownloadTaskRecord record) {
+    final l10n = AppLocalizations.of(context);
     final fallback = localDownloadRecordTitle(record).trim();
     var title = DownloadTaskService.instance
         .displayTitleForRecord(record)
@@ -800,7 +802,10 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
         .replaceFirst(RegExp('^\\u7b2c\\s*\\d+\\s*\\u5b63\\s*'), '')
         .replaceFirst(RegExp('^\\u7b2c\\s*\\d+\\s*\\u96c6\\s*'), '')
         .trim();
-    return title.isNotEmpty ? title : fallback;
+    return localizeDownloadTitleTokens(
+      title.isNotEmpty ? title : fallback,
+      l10n,
+    );
   }
 
   /// 断网或 NAS 拉整季失败时的回退列表：只展示本组已下载集。
@@ -1284,6 +1289,7 @@ class _DownloadRecordVersionGroup extends StatelessWidget {
   Widget build(BuildContext context) {
     final lead = records.first;
     final colors = context.appColors;
+    final l10n = AppLocalizations.of(context);
     return Column(
       children: <Widget>[
         _DownloadRecordRow(
@@ -1319,7 +1325,7 @@ class _DownloadRecordVersionGroup extends StatelessWidget {
                           key: ValueKey<String>('version-${records[index].id}'),
                           record: records[index],
                           token: token,
-                          titleOverride: _versionTitle(records[index]),
+                          titleOverride: _versionTitle(records[index], l10n),
                           busy: busyRecordId == records[index].id,
                           dimmed:
                               busyRecordId != null &&
@@ -1339,19 +1345,22 @@ class _DownloadRecordVersionGroup extends StatelessWidget {
     );
   }
 
-  String _versionTitle(DownloadTaskRecord record) {
+  String _versionTitle(DownloadTaskRecord record, AppLocalizations l10n) {
     // 多版本行用文件名区分不同媒体版本；缺文件名时回退到标题(+清晰度)，
     // 而不是只显示一个裸分辨率数字。
     final fileName = record.fileName.trim();
     if (fileName.isNotEmpty) return fileName;
-    final title = DownloadTaskService.instance
-        .displayTitleForRecord(record)
-        .trim();
+    final title = localizeDownloadTitleTokens(
+      DownloadTaskService.instance.displayTitleForRecord(record),
+      l10n,
+    ).trim();
     final resolution = record.resolution.trim();
     if (title.isNotEmpty) {
-      return resolution.isNotEmpty ? '$title · $resolution' : title;
+      return resolution.isNotEmpty
+          ? '$title · ${localizeDownloadResolution(resolution, l10n)}'
+          : title;
     }
-    return resolution;
+    return localizeDownloadResolution(resolution, l10n);
   }
 }
 
@@ -1491,7 +1500,7 @@ class _DownloadGroupCard extends StatelessWidget {
               child: _DownloadGroupPosterImage(
                 urls: lead.groupPosterUrls,
                 token: token,
-                badgeLabel: lead.resolution,
+                badgeLabel: localizeDownloadResolution(lead.resolution, l10n),
               ),
             ),
             const SizedBox(width: 16),
@@ -1503,7 +1512,7 @@ class _DownloadGroupCard extends StatelessWidget {
                   children: <Widget>[
                     Expanded(
                       child: Text(
-                        group.title,
+                        localizeDownloadTitleTokens(group.title, l10n),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -1618,8 +1627,8 @@ class _DownloadRecordRow extends StatelessWidget {
         : (isActive
               ? (record.totalBytes > 0 ? _formatBytes(record.totalBytes) : '')
               : (record.durationText.trim().isEmpty
-                    ? record.resolution
-                    : record.durationText));
+                    ? localizeDownloadResolution(record.resolution, l10n)
+                    : localizeDownloadDurationText(record.durationText, l10n)));
     final progressValue = isTranscoding
         ? transcodePercent / 100
         : (record.totalBytes > 0
@@ -1772,7 +1781,7 @@ class _DownloadRecordRow extends StatelessWidget {
             child: _DownloadPosterImage(
               urls: record.posterUrls,
               token: token,
-              badgeLabel: record.resolution,
+              badgeLabel: localizeDownloadResolution(record.resolution, l10n),
             ),
           ),
           const SizedBox(width: 14),
@@ -1785,8 +1794,11 @@ class _DownloadRecordRow extends StatelessWidget {
                   Text(
                     titleOverride?.trim().isNotEmpty == true
                         ? titleOverride!.trim()
-                        : DownloadTaskService.instance.displayTitleForRecord(
-                            record,
+                        : localizeDownloadTitleTokens(
+                            DownloadTaskService.instance.displayTitleForRecord(
+                              record,
+                            ),
+                            l10n,
                           ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
