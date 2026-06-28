@@ -1,8 +1,10 @@
+import '../l10n/generated/app_localizations.dart';
 import '../models/play_info.dart';
 
 String formatPlayerTitle({
   required String seriesTitle,
   required String episodeTitle,
+  required AppLocalizations l10n,
   int seasonNumber = 0,
   int episodeNumber = 0,
   String fallbackTitle = '',
@@ -13,8 +15,8 @@ String formatPlayerTitle({
 
   final titleParts = <String>[
     if (normalizedSeriesTitle.isNotEmpty) normalizedSeriesTitle,
-    if (seasonNumber > 0) '第$seasonNumber季',
-    if (episodeNumber > 0) '第$episodeNumber集',
+    if (seasonNumber > 0) l10n.playerEpisodeSeasonTemplate(seasonNumber),
+    if (episodeNumber > 0) l10n.playerEpisodeNumberTemplate(episodeNumber),
   ];
 
   final shouldAppendEpisodeTitle =
@@ -38,6 +40,7 @@ String formatPlayerTitle({
 
 String formatPlayerTitleFromPlayItem(
   PlayItem item, {
+  required AppLocalizations l10n,
   String fallbackTitle = '',
 }) {
   return formatPlayerTitle(
@@ -45,6 +48,7 @@ String formatPlayerTitleFromPlayItem(
         ? item.tvTitle.trim()
         : item.displayTitle,
     episodeTitle: item.title,
+    l10n: l10n,
     seasonNumber: item.seasonNumber,
     episodeNumber: item.episodeNumber,
     fallbackTitle: fallbackTitle,

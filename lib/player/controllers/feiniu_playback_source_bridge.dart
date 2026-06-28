@@ -1,3 +1,4 @@
+import '../../l10n/generated/app_localizations.dart';
 import '../../media_backend/feiniu/feiniu_playback_context.dart';
 import '../../media_backend/playback/media_playback.dart';
 import '../../utils/player_artwork_path_resolver.dart';
@@ -21,6 +22,7 @@ class FeiniuPlaybackSourceBridge {
     required MediaPlaybackRequest request,
     required MediaPlaybackBundle bundle,
     required FeiniuPlaybackContext context,
+    required AppLocalizations l10n,
   }) async {
     final api = context.api;
     final playInfo = context.playInfo;
@@ -86,6 +88,7 @@ class FeiniuPlaybackSourceBridge {
     final title = formatPlayerTitleFromPlayItem(
       item,
       fallbackTitle: request.fallbackTitle,
+      l10n: l10n,
     );
 
     return MpvMediaSource(

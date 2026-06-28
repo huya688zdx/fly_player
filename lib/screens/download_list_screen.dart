@@ -719,6 +719,7 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
                 }) => const ItemPlaybackLauncher().resolveForNative(
                   provider,
                   itemGuid: itemGuid,
+                  l10n: AppLocalizations.of(context),
                   fallbackTitle: title,
                   qualityIndex: qualityIndex,
                   qualityMediaGuid: qualityMediaGuid,
@@ -864,8 +865,12 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
     DownloadTaskRecord record,
     NasProvider nas, {
     int? startPositionMs,
-  }) =>
-      resolveLocalDownloadSource(record, nas, startPositionMs: startPositionMs);
+  }) => resolveLocalDownloadSource(
+    record,
+    nas,
+    l10n: AppLocalizations.of(context),
+    startPositionMs: startPositionMs,
+  );
 
   @override
   Widget build(BuildContext context) {

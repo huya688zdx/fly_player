@@ -265,6 +265,7 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
     if (path.isEmpty || !File(path).existsSync()) {
       throw Exception('local downloaded file missing');
     }
+    final l10n = AppLocalizations.of(context);
     final api = FeiniuApi(context.read<NasProvider>());
     final currentPosition =
         startPosition ?? _displayPosition(_controller.value.value);
@@ -347,6 +348,7 @@ extension _MpvPlayerOptionsMixin on _MpvPlayerPageState {
           : formatPlayerTitleFromPlayItem(
               playInfo.item,
               fallbackTitle: _currentTitle,
+              l10n: l10n,
             ),
       seriesTitle: (playInfo?.item.tvTitle ?? widget.source.seriesTitle).trim(),
       seasonNumber: playInfo?.item.seasonNumber ?? widget.source.seasonNumber,

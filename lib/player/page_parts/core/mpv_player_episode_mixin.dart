@@ -1757,7 +1757,11 @@ extension _MpvPlayerEpisodeMixin on _MpvPlayerPageState {
   }
 
   String _playerTitleForItem(PlayItem item) {
-    return formatPlayerTitleFromPlayItem(item, fallbackTitle: _currentTitle);
+    return formatPlayerTitleFromPlayItem(
+      item,
+      fallbackTitle: _currentTitle,
+      l10n: AppLocalizations.of(context),
+    );
   }
 
   PlaybackQualityOption? _matchPreferredQuality(
@@ -2316,6 +2320,7 @@ extension _MpvPlayerEpisodeMixin on _MpvPlayerPageState {
       throw const FileSystemException('local video file missing');
     }
 
+    final l10n = AppLocalizations.of(context);
     final provider = context.read<NasProvider>();
     final api = FeiniuApi(provider);
     PlayInfoData? playInfo;
@@ -2402,7 +2407,11 @@ extension _MpvPlayerEpisodeMixin on _MpvPlayerPageState {
               : _currentTitle);
     final title = playItem == null
         ? fallbackTitle
-        : formatPlayerTitleFromPlayItem(playItem, fallbackTitle: fallbackTitle);
+        : formatPlayerTitleFromPlayItem(
+            playItem,
+            fallbackTitle: fallbackTitle,
+            l10n: l10n,
+          );
     final resolvedSeasonGuid = (playInfo?.parentGuid.trim().isNotEmpty == true)
         ? playInfo!.parentGuid.trim()
         : (_currentSeasonGuid.trim().isNotEmpty
