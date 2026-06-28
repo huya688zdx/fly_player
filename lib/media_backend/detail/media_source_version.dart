@@ -1,5 +1,8 @@
 import 'media_source_info.dart';
 
+const String mediaSourceFallbackLabelPrefix = '__media_source_';
+const String mediaExternalSubtitleSummaryToken = '__media_external_subtitle__';
+
 /// 后端中立的「可选播放版本」——详情页版本 / 音轨 / 字幕选择器的数据。
 ///
 /// 一个版本对应同一条目的一个可播放源（Emby `MediaSources[]` 的一项，通常是同一影片的
