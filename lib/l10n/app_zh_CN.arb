@@ -668,6 +668,12 @@
       "season": {}
     }
   },
+  "playerEpisodeNumberTemplate": "第{episode}集",
+  "@playerEpisodeNumberTemplate": {
+    "placeholders": {
+      "episode": {}
+    }
+  },
   "playerEpisodePlaying": "播放中..",
   "playerEpisodeWatched": "已观看",
   "playerEpisodeWatchedPercent": "已观看{percent}%",

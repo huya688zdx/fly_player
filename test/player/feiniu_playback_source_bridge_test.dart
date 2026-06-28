@@ -1,5 +1,7 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/api/feiniu_api.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/media_backend/feiniu/feiniu_playback_context.dart';
 import 'package:fly_player/media_backend/playback/media_playback.dart';
 import 'package:fly_player/models/play_info.dart';
@@ -152,6 +154,7 @@ MediaPlaybackBundle buildBundle() {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  final l10n = lookupAppLocalizations(const Locale('zh', 'CN'));
 
   setUp(() {
     SharedPreferences.setMockInitialValues(const <String, Object>{});
@@ -180,6 +183,7 @@ void main() {
         request: const MediaPlaybackRequest(itemId: 'item-1'),
         bundle: buildBundle(),
         context: context,
+        l10n: l10n,
       );
 
       expect(source, isA<MpvMediaSource>());
@@ -219,6 +223,7 @@ void main() {
         ),
         bundle: buildBundle(),
         context: context,
+        l10n: l10n,
       );
 
       expect(source.subtitleTrackGuid, '');
@@ -239,6 +244,7 @@ void main() {
         request: const MediaPlaybackRequest(itemId: 'item-1'),
         bundle: buildBundle(),
         context: context,
+        l10n: l10n,
       );
 
       expect(source.preferExternalSubtitle, isTrue);
@@ -254,6 +260,7 @@ void main() {
         request: const MediaPlaybackRequest(itemId: 'item-1'),
         bundle: buildBundle(),
         context: context,
+        l10n: l10n,
       );
 
       expect(source.seriesGuid, 'series-1');
@@ -270,6 +277,7 @@ void main() {
         ),
         bundle: buildBundle(),
         context: context,
+        l10n: l10n,
       );
 
       expect(source.seriesGuid, 'series-override');

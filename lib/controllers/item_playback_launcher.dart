@@ -64,6 +64,7 @@ class ItemPlaybackLauncher {
         final resolved = await _resolve(
           backend,
           itemGuid: itemGuid,
+          l10n: l10n,
           fallbackTitle: fallbackTitle,
           startFromBeginning: startFromBeginning,
           resumePosition: resumePosition,
@@ -108,6 +109,7 @@ class ItemPlaybackLauncher {
                     startPositionMs: startPositionMs,
                     subtitleGuid: subtitleGuid,
                     audioGuid: audioGuid,
+                    l10n: l10n,
                   )
                 : _resolveEmbyForNative(
                     backend,
@@ -117,6 +119,7 @@ class ItemPlaybackLauncher {
                     startPositionMs: startPositionMs,
                     subtitleGuid: subtitleGuid,
                     audioGuid: audioGuid,
+                    l10n: l10n,
                   ),
           );
           // Emby 单集起播：带上本季 episodes，否则原生壳「选集 / 下一集」不亮（壳侧靠
@@ -171,6 +174,7 @@ class ItemPlaybackLauncher {
   Future<Map<String, dynamic>?> _resolveEmbyForNative(
     MediaBackend backend, {
     required String itemGuid,
+    required AppLocalizations l10n,
     String fallbackTitle = '',
     String? qualityMediaGuid,
     int? startPositionMs,
@@ -180,6 +184,7 @@ class ItemPlaybackLauncher {
     final resolved = await _resolve(
       backend,
       itemGuid: itemGuid,
+      l10n: l10n,
       fallbackTitle: fallbackTitle,
       qualityMediaGuid: qualityMediaGuid,
       overrideSubtitleGuid: subtitleGuid,
@@ -241,6 +246,7 @@ class ItemPlaybackLauncher {
     String? subtitleGuid,
     String? audioGuid,
     List<Map<String, dynamic>>? episodes,
+    required AppLocalizations l10n,
   }) async {
     return AsyncActionGuard.run<Map<String, dynamic>?>(
       'item_resolve:${itemGuid.trim()}',
@@ -256,6 +262,7 @@ class ItemPlaybackLauncher {
             final local = await resolveLocalDownloadSource(
               localRecord,
               nas,
+              l10n: l10n,
               startPositionMs: startPositionMs,
             );
             if (local != null) {
@@ -296,6 +303,7 @@ class ItemPlaybackLauncher {
           qualityMediaGuid: qualityMediaGuid,
           overrideSubtitleGuid: subtitleGuid,
           overrideAudioGuid: audioGuid,
+          l10n: l10n,
         );
         if (resolved == null) return null;
         final loadArgs = <String, dynamic>{
@@ -334,6 +342,7 @@ class ItemPlaybackLauncher {
   _resolve(
     MediaBackend backend, {
     required String itemGuid,
+    required AppLocalizations l10n,
     String fallbackTitle = '',
     bool startFromBeginning = false,
     Duration? resumePosition,
@@ -364,6 +373,7 @@ class ItemPlaybackLauncher {
         request: request,
         bundle: resolution.bundle,
         context: context,
+        l10n: l10n,
       );
       return (source: source, playInfo: context.playInfo, title: source.title);
     }
