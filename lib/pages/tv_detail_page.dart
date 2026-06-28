@@ -920,8 +920,14 @@ class _TvDetailPageState extends State<TvDetailPage>
         .map(
           (p) => CreditPersonItem(
             personGuid: p.id,
-            name: CreditPersonPresenter.displayName(p),
-            subtitle: CreditPersonPresenter.displaySubTitle(p),
+            name: CreditPersonPresenter.displayName(
+              p,
+              AppLocalizations.of(context),
+            ),
+            subtitle: CreditPersonPresenter.displaySubTitle(
+              p,
+              AppLocalizations.of(context),
+            ),
             imageUrls: artworkResolver.resolveRef(p.avatar, width: 180).urls,
           ),
         )

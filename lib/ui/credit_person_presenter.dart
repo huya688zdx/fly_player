@@ -1,3 +1,4 @@
+import '../l10n/generated/app_localizations.dart';
 import '../media_backend/detail/media_detail.dart';
 
 /// 把中立 [MediaDetailPerson] 渲染成详情页"演职员"卡片所需的展示文案。
@@ -16,26 +17,30 @@ class CreditPersonPresenter {
   ///
   /// 复刻 `PersonCredit.displayName`——mapper 已把 `name` 为空时回退 `originalName`，故此处
   /// 只需对合并后的 `name` 做「trim 后空则未知」，与原「name→originalName→未知」三级等价。
-  static String displayName(MediaDetailPerson person) {
+  static String displayName(MediaDetailPerson person, AppLocalizations l10n) {
     final name = person.name.trim();
-    return name.isEmpty ? '未知' : name;
+    return name.isEmpty ? l10n.creditPersonUnknown : name;
   }
 
   /// 副标题：角色优先（`饰 <role>`，跳过 `(voice)`），否则按职务映射中文，未知职务原样返回。
   ///
   /// 复刻 `PersonCredit.displaySubTitle`（`role`←飞牛 role，`department`←飞牛 job）。
-  static String displaySubTitle(MediaDetailPerson person) {
+  static String displaySubTitle(
+    MediaDetailPerson person,
+    AppLocalizations l10n,
+  ) {
     final role = person.role.trim();
-    if (role.isNotEmpty && role != '(voice)') return '饰 $role';
+    if (role.isNotEmpty && role != '(voice)')
+      return l10n.creditPersonRole(role);
     final job = person.department.trim();
     if (job.isEmpty) return '';
     switch (job.toLowerCase()) {
       case 'director':
-        return '导演';
+        return l10n.creditPersonDirector;
       case 'actor':
-        return '演员';
+        return l10n.creditPersonActor;
       case 'screenplay':
-        return '编剧';
+        return l10n.creditPersonScreenplay;
       default:
         return job;
     }

@@ -1591,6 +1591,16 @@
   "detailPlay": "播放",
   "detailOverviewTitle": "简介",
   "detailCastCrewTitle": "演职人员",
+  "creditPersonUnknown": "未知",
+  "creditPersonRole": "饰 {role}",
+  "@creditPersonRole": {
+    "placeholders": {
+      "role": {}
+    }
+  },
+  "creditPersonDirector": "导演",
+  "creditPersonActor": "演员",
+  "creditPersonScreenplay": "编剧",
   "detailFileInfoTitle": "文件信息",
   "detailVideoInfoTitle": "视频信息",
   "detailVideoInfoViewAll": "查看全部",
