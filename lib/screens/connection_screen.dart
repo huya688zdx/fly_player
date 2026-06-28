@@ -155,7 +155,10 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       details: details,
     );
     if (!mounted) return;
-    _showTopTip(LoginErrorResolver.resolve(error), context.appColors.danger);
+    _showTopTip(
+      LoginErrorResolver.resolve(error, l10n: AppLocalizations.of(context)),
+      context.appColors.danger,
+    );
   }
 
   Future<void> _submit() async {

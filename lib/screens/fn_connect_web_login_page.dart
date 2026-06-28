@@ -130,6 +130,7 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
   }
 
   Future<void> _initialize() async {
+    final l10n = AppLocalizations.of(context);
     try {
       if (!FnConnectWebLoginSessionPolicy.preserveCookiesByDefault) {
         await _cookieManager.clearCookies();
@@ -145,7 +146,7 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
           onPageStarted: (url) {
             if (!mounted || _isClosing) return;
             setState(() {
-              _statusText = 'Loading ${_friendlyUrl(url)}';
+              _statusText = l10n.fnConnectEntryLoading(_friendlyUrl(url));
             });
           },
           onPageFinished: (url) {
@@ -153,7 +154,7 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
             if (!mounted || _isClosing) return;
             setState(() {
               _isReady = true;
-              _statusText = 'Processing ${_friendlyUrl(url)}';
+              _statusText = l10n.fnConnectEntryProcessing(_friendlyUrl(url));
             });
           },
           onProgress: (progress) {
@@ -186,7 +187,7 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
       }
       await _controller.loadRequest(Uri.parse(_entry.initialUrl));
     } catch (error) {
-      _completeFailure(LoginErrorResolver.resolve(error));
+      _completeFailure(LoginErrorResolver.resolve(error, l10n: l10n));
     }
   }
 
@@ -607,16 +608,17 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
 
   Future<void> _exchangeOauthCode(String code) async {
     if (_isExchangingCode || _isClosing) return;
+    final l10n = AppLocalizations.of(context);
     final baseUrl = _resolvedBaseUrl;
     if (baseUrl.isEmpty) {
-      _completeFailure(AppLocalizations.of(context).fnConnectNasAddressFailed);
+      _completeFailure(l10n.fnConnectNasAddressFailed);
       return;
     }
 
     _isExchangingCode = true;
     if (mounted) {
       setState(() {
-        _statusText = 'Exchanging OAuth code for token...';
+        _statusText = l10n.fnConnectEntryExchangingOauth;
       });
     }
 
@@ -627,7 +629,7 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
       );
       _completeSuccess(result);
     } catch (error) {
-      _completeFailure(LoginErrorResolver.resolve(error));
+      _completeFailure(LoginErrorResolver.resolve(error, l10n: l10n));
     }
   }
 
