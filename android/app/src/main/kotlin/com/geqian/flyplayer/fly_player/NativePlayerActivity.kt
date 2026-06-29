@@ -7443,7 +7443,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             "无"
         }
         val hwdec = diag["hwdecCurrent"]?.toString()?.takeIf { it.isNotEmpty() } ?: "软解"
-        val spatial = AudioSpatializerSupport.probe(this).summary()
+        val spatial = AudioSpatializerSupport.probe(this).summary(this)
         val diagRows = listOfNotNull(
             infoRow("硬解", hwdec),
             infoRow("色彩管线", pipelineText),
