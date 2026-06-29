@@ -4642,7 +4642,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun makeEntryButton(
         label: String,
         onClick: () -> Unit = {
-            showTransientHint("「$label」即将支持")
+            showTransientHint(getString(R.string.player_coming_soon_format, label))
             scheduleControlsAutoHide()
         },
     ): TextView {
@@ -4874,7 +4874,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     panelPrimaryTile(
                         title = getString(R.string.player_version_picker_title),
                         subtitle = getString(R.string.player_text_0036),
-                        trailing = "${versions.size} 个版本",
+                        trailing = getString(R.string.player_versions_count, versions.size),
                     ) {
                         pushPanel(PanelPage(getString(R.string.player_version_picker_title)) { buildVersionPanelContent(versions) })
                     },
@@ -6077,7 +6077,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 weakNetSuggestedQualityIndex?.let { index ->
                     weakNetDismissed = true
                     weakNetCard.visibility = View.GONE
-                    requestQuality(index, "网络较慢，正在切换到 $weakNetSuggestedQualityLabel…")
+                    requestQuality(
+                        index,
+                        getString(
+                            R.string.player_switch_quality_weak_network,
+                            weakNetSuggestedQualityLabel,
+                        ),
+                    )
                 }
             })
             addView(promptButton(getString(R.string.player_text_0061), TEXT_DIM, false) {
@@ -6226,7 +6232,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             hideResumePrompt()
             return
         }
-        resumeText.text = "已从 ${formatTime(startMs)} 继续播放"
+        resumeText.text = getString(R.string.player_resume_from_position, formatTime(startMs))
         resumeCard.visibility = View.VISIBLE
         resumeCard.removeCallbacks(resumeHideRunnable)
         resumeCard.postDelayed(resumeHideRunnable, 6000)
@@ -6260,7 +6266,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     playNextEpisode()
                     return
                 }
-                autoNextText.text = "${autoNextSeconds}秒后播放下一集"
+                autoNextText.text = getString(R.string.player_auto_next_countdown, autoNextSeconds)
                 autoNextSeconds -= 1
                 autoNextCard.postDelayed(this, 1000)
             }
@@ -6325,7 +6331,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
         weakNetSuggestedQualityIndex = recommendation.qualityIndex
         weakNetSuggestedQualityLabel = recommendation.qualityLabel
-        weakNetTitle.text = "网络较慢，建议切换到 ${recommendation.qualityLabel}"
+        weakNetTitle.text =
+            getString(R.string.player_weak_network_recommend_quality, recommendation.qualityLabel)
         weakNetSubtitle.text = recommendation.details
         weakNetCard.visibility = View.VISIBLE
     }
@@ -6795,7 +6802,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     hidePanel()
                 }
                 addView(TextView(context).apply {
-                    text = chapter["title"]?.toString()?.trim()?.takeIf { it.isNotEmpty() } ?: "章节 ${index + 1}"
+                    text = chapter["title"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+                        ?: getString(R.string.player_chapter_number, index + 1)
                     setTextColor(if (selected) ACCENT else Color.WHITE)
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
                     maxLines = 1
@@ -7420,7 +7428,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             else -> cp.orEmpty()
         }
         val windowMode = diag["windowColorMode"]?.toString().orEmpty()
-        val pipelineText = pipeline + if (windowMode.isNotEmpty()) " · 窗口 $windowMode" else ""
+        val pipelineText =
+            pipeline + if (windowMode.isNotEmpty()) {
+                getString(R.string.player_window_mode_suffix, windowMode)
+            } else {
+                ""
+            }
         val passthrough = diag["audioPassthrough"] == true
         val audioCodec = diag["audioCodec"]?.toString().orEmpty()
         val audioOutChannels = diag["audioOutChannels"]?.toString().orEmpty()
@@ -7450,7 +7463,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             infoRow(getString(R.string.player_text_0209), fallback),
             infoRow(getString(R.string.player_text_0210), audioOut),
             infoRow(getString(R.string.player_text_0211), spatial),
-            infoRow(getString(R.string.player_text_0212), "$dropped" + if (decDropped > 0) " (解码 $decDropped)" else ""),
+            infoRow(
+                getString(R.string.player_text_0212),
+                "$dropped" + if (decDropped > 0) {
+                    getString(R.string.player_decode_dropped_suffix, decDropped)
+                } else {
+                    ""
+                },
+            ),
             infoRow(getString(R.string.player_text_0214), if (containerFps > 0.0) String.format("%.3f fps", containerFps) else ""),
         )
         if (diagRows.isEmpty()) return
@@ -7761,7 +7781,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
         val subtitle = buildString {
             append(typeText)
-            if (count > 0) append(" · $count 条")
+            if (count > 0) append(getString(R.string.player_danmaku_count_suffix, count))
             if (active) append(getString(R.string.player_text_0253))
         }
         return LinearLayout(this).apply {
@@ -8251,7 +8271,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val episodeTitle = item["episodeTitle"]?.toString().orEmpty()
         val episodeNumber = (item["episodeNumber"] as? Number)?.toInt() ?: 0
         val label = listOf(animeTitle, episodeTitle).filter { it.isNotEmpty() }.joinToString(" · ")
-            .ifEmpty { item["title"]?.toString().orEmpty().ifEmpty { "弹弹play #$episodeId" } }
+            .ifEmpty {
+                item["title"]?.toString().orEmpty()
+                    .ifEmpty { getString(R.string.player_dandan_episode_id, episodeId.toString()) }
+            }
         // 成功后记入「已保存来源」（在线源可靠重拉）。
         pendingDanmakuSource = DanmakuSource(
             mediaKey = danmakuMediaKey(), type = "dandan", label = label,
@@ -8307,13 +8330,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             introOutroEnabled = v; renderTopPanel()
         })
         if (introOutroEnabled) {
-            addPanelRow(panelSlider(getString(R.string.player_text_0276), 1f, 4f, introMaxMin.toFloat(), steps = 3, format = { "${it.toInt()} 分钟" }) { v ->
+            addPanelRow(panelSlider(getString(R.string.player_text_0276), 1f, 4f, introMaxMin.toFloat(), steps = 3, format = { getString(R.string.player_minutes_format, it.toInt()) }) { v ->
                 introMaxMin = v.toInt()
             })
-            addPanelRow(panelSlider(getString(R.string.player_text_0278), 1f, 4f, outroMaxMin.toFloat(), steps = 3, format = { "${it.toInt()} 分钟" }) { v ->
+            addPanelRow(panelSlider(getString(R.string.player_text_0278), 1f, 4f, outroMaxMin.toFloat(), steps = 3, format = { getString(R.string.player_minutes_format, it.toInt()) }) { v ->
                 outroMaxMin = v.toInt()
             })
-            addPanelRow(panelSlider(getString(R.string.player_text_0280), 2f, 10f, skipCountdownSec.toFloat(), steps = 8, format = { "${it.toInt()} 秒" }) { v ->
+            addPanelRow(panelSlider(getString(R.string.player_text_0280), 2f, 10f, skipCountdownSec.toFloat(), steps = 8, format = { getString(R.string.player_seconds_format, it.toInt()) }) { v ->
                 skipCountdownSec = v.toInt()
             })
         }
@@ -8374,7 +8397,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun buildBookmarkPage() {
         addPanelRow(panelActionRow(getString(R.string.player_text_0281)) {
             val ts = playerSurface.state.positionMs
-            bookmarks.add(Bookmark(ts, "书签 ${formatTime(ts)}"))
+            bookmarks.add(Bookmark(ts, getString(R.string.player_bookmark_title, formatTime(ts))))
             bookmarks.sortBy { it.ts }
             // TODO(反向通道)：recordBookmark 持久化到 NAS / 本地库。
             renderTopPanel()
