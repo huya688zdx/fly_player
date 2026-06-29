@@ -86,6 +86,16 @@
     <string name="mpv_spatializer_level_bed_objects">声床+对象(Atmos)</string>
     <string name="mpv_spatializer_level_unknown">未知(%1$d)</string>
 
+    <!-- ========== storage_：系统文件夹/授权目录 ========== -->
+    <string name="storage_authorized_folder">已授权文件夹</string>
+    <string name="storage_folder">文件夹</string>
+
+    <!-- ========== screenshot_：截图目录/图库 ========== -->
+    <string name="screenshot_selected_directory">已选目录</string>
+    <string name="screenshot_custom_directory">截图自定义目录</string>
+    <string name="screenshot_app_pictures_directory">应用目录/Pictures/FlyPlayer</string>
+    <string name="screenshot_app_dcim_directory">应用目录/DCIM/FlyPlayer</string>
+
     <!-- ↓↓↓ Codex 在此之后按模块分组，继续追加其余文案 key ↓↓↓ -->
 
 </resources>
