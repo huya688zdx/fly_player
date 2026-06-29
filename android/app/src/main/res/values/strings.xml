@@ -74,6 +74,25 @@
     <string name="player_switch_quality_loading">正在切换画质…</string>
     <string name="player_switch_quality_unavailable">无法切换画质</string>
     <string name="player_switch_unavailable">无法切换</string>
+    <string name="player_weak_network_loading">网络较慢，仍在加载…</string>
+    <string name="player_network_none">无网络</string>
+    <string name="player_network_cellular">移动网络</string>
+    <string name="player_network_ethernet">以太网</string>
+    <string name="player_network_connected">已连接</string>
+    <string name="player_performance_fallback_video">检测到持续卡顿，已自动降低画质、关闭 AI 遮罩以保流畅</string>
+    <string name="player_performance_fallback_danmaku">卡顿仍持续，已临时降低弹幕密度</string>
+    <string name="player_performance_fallback_hdr">卡顿仍未缓解，已临时关闭 HDR 直通（转 SDR）以保流畅</string>
+    <string name="player_status_error">错误：%1$s</string>
+    <string name="player_status_buffering_with_speed">缓冲中…  %1$s</string>
+    <string name="player_status_buffering">缓冲中…</string>
+    <string name="player_speed_2x_hint">2x 倍速</string>
+    <string name="player_brightness_percent">亮度 %1$d%%</string>
+    <string name="player_volume_percent">音量 %1$d%%</string>
+    <string name="player_media_action_rewind">后退</string>
+    <string name="player_media_action_rewind_10s">后退10秒</string>
+    <string name="player_media_action_forward">快进</string>
+    <string name="player_media_action_forward_10s">快进10秒</string>
+    <string name="player_locked_unlock_hint">已锁定，点按锁图标解锁</string>
 
     <!-- ========== mpv_：mpv 输出/诊断 ========== -->
     <string name="mpv_spatializer_unsupported">不支持（系统版本过低）</string>
