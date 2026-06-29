@@ -62,84 +62,92 @@ import java.math.RoundingMode
 import kotlin.math.abs
 
 private val nativePanelLanguageNameMap = mapOf(
-    "ara" to "阿拉伯语", "ar" to "阿拉伯语",
-    "bul" to "保加利亚语", "bg" to "保加利亚语",
-    "cat" to "加泰罗尼亚语", "ca" to "加泰罗尼亚语",
-    "ces" to "捷克语", "cze" to "捷克语", "cs" to "捷克语",
-    "jpn" to "日语", "ja" to "日语", "jp" to "日语",
-    "chi" to "中文", "zho" to "中文", "zh" to "中文", "cmn" to "中文",
-    "eng" to "英语", "en" to "英语",
-    "dan" to "丹麦语", "da" to "丹麦语",
-    "nld" to "荷兰语", "dut" to "荷兰语", "nl" to "荷兰语",
-    "ell" to "希腊语", "gre" to "希腊语", "el" to "希腊语",
-    "est" to "爱沙尼亚语", "et" to "爱沙尼亚语",
-    "fin" to "芬兰语", "fi" to "芬兰语",
-    "fra" to "法语", "fre" to "法语", "fr" to "法语",
-    "heb" to "希伯来语", "he" to "希伯来语",
-    "hin" to "印地语", "hi" to "印地语",
-    "hrv" to "克罗地亚语", "hr" to "克罗地亚语",
-    "hun" to "匈牙利语", "hu" to "匈牙利语",
-    "ind" to "印尼语", "id" to "印尼语",
-    "ita" to "意大利语", "it" to "意大利语",
-    "kor" to "韩语", "ko" to "韩语",
-    "lav" to "拉脱维亚语", "lv" to "拉脱维亚语",
-    "lit" to "立陶宛语", "lt" to "立陶宛语",
-    "msa" to "马来语", "may" to "马来语", "ms" to "马来语",
-    "nob" to "挪威语", "nno" to "挪威语", "nor" to "挪威语",
-    "nb" to "挪威语", "nn" to "挪威语", "no" to "挪威语",
-    "pol" to "波兰语", "pl" to "波兰语",
-    "por" to "葡萄牙语", "pt" to "葡萄牙语",
-    "ron" to "罗马尼亚语", "rum" to "罗马尼亚语", "ro" to "罗马尼亚语",
-    "rus" to "俄语", "ru" to "俄语",
-    "slk" to "斯洛伐克语", "slo" to "斯洛伐克语", "sk" to "斯洛伐克语",
-    "slv" to "斯洛文尼亚语", "sl" to "斯洛文尼亚语",
-    "spa" to "西班牙语", "es" to "西班牙语",
-    "srp" to "塞尔维亚语", "sr" to "塞尔维亚语",
-    "swe" to "瑞典语", "sv" to "瑞典语",
-    "tha" to "泰语", "th" to "泰语",
-    "tur" to "土耳其语", "tr" to "土耳其语",
-    "ukr" to "乌克兰语", "uk" to "乌克兰语",
-    "vie" to "越南语", "vi" to "越南语",
-    "deu" to "德语", "ger" to "德语", "de" to "德语",
-    "mul" to "多种语言", "multi" to "多种语言",
+    "ara" to R.string.player_language_arabic, "ar" to R.string.player_language_arabic,
+    "bul" to R.string.player_language_bulgarian, "bg" to R.string.player_language_bulgarian,
+    "cat" to R.string.player_language_catalan, "ca" to R.string.player_language_catalan,
+    "ces" to R.string.player_language_czech, "cze" to R.string.player_language_czech, "cs" to R.string.player_language_czech,
+    "jpn" to R.string.player_language_japanese, "ja" to R.string.player_language_japanese, "jp" to R.string.player_language_japanese,
+    "chi" to R.string.player_language_chinese, "zho" to R.string.player_language_chinese, "zh" to R.string.player_language_chinese, "cmn" to R.string.player_language_chinese,
+    "eng" to R.string.player_language_english, "en" to R.string.player_language_english,
+    "dan" to R.string.player_language_danish, "da" to R.string.player_language_danish,
+    "nld" to R.string.player_language_dutch, "dut" to R.string.player_language_dutch, "nl" to R.string.player_language_dutch,
+    "ell" to R.string.player_language_greek, "gre" to R.string.player_language_greek, "el" to R.string.player_language_greek,
+    "est" to R.string.player_language_estonian, "et" to R.string.player_language_estonian,
+    "fin" to R.string.player_language_finnish, "fi" to R.string.player_language_finnish,
+    "fra" to R.string.player_language_french, "fre" to R.string.player_language_french, "fr" to R.string.player_language_french,
+    "heb" to R.string.player_language_hebrew, "he" to R.string.player_language_hebrew,
+    "hin" to R.string.player_language_hindi, "hi" to R.string.player_language_hindi,
+    "hrv" to R.string.player_language_croatian, "hr" to R.string.player_language_croatian,
+    "hun" to R.string.player_language_hungarian, "hu" to R.string.player_language_hungarian,
+    "ind" to R.string.player_language_indonesian, "id" to R.string.player_language_indonesian,
+    "ita" to R.string.player_language_italian, "it" to R.string.player_language_italian,
+    "kor" to R.string.player_language_korean, "ko" to R.string.player_language_korean,
+    "lav" to R.string.player_language_latvian, "lv" to R.string.player_language_latvian,
+    "lit" to R.string.player_language_lithuanian, "lt" to R.string.player_language_lithuanian,
+    "msa" to R.string.player_language_malay, "may" to R.string.player_language_malay, "ms" to R.string.player_language_malay,
+    "nob" to R.string.player_language_norwegian, "nno" to R.string.player_language_norwegian, "nor" to R.string.player_language_norwegian,
+    "nb" to R.string.player_language_norwegian, "nn" to R.string.player_language_norwegian, "no" to R.string.player_language_norwegian,
+    "pol" to R.string.player_language_polish, "pl" to R.string.player_language_polish,
+    "por" to R.string.player_language_portuguese, "pt" to R.string.player_language_portuguese,
+    "ron" to R.string.player_language_romanian, "rum" to R.string.player_language_romanian, "ro" to R.string.player_language_romanian,
+    "rus" to R.string.player_language_russian, "ru" to R.string.player_language_russian,
+    "slk" to R.string.player_language_slovak, "slo" to R.string.player_language_slovak, "sk" to R.string.player_language_slovak,
+    "slv" to R.string.player_language_slovenian, "sl" to R.string.player_language_slovenian,
+    "spa" to R.string.player_language_spanish, "es" to R.string.player_language_spanish,
+    "srp" to R.string.player_language_serbian, "sr" to R.string.player_language_serbian,
+    "swe" to R.string.player_language_swedish, "sv" to R.string.player_language_swedish,
+    "tha" to R.string.player_language_thai, "th" to R.string.player_language_thai,
+    "tur" to R.string.player_language_turkish, "tr" to R.string.player_language_turkish,
+    "ukr" to R.string.player_language_ukrainian, "uk" to R.string.player_language_ukrainian,
+    "vie" to R.string.player_language_vietnamese, "vi" to R.string.player_language_vietnamese,
+    "deu" to R.string.player_language_german, "ger" to R.string.player_language_german, "de" to R.string.player_language_german,
+    "mul" to R.string.player_language_multiple, "multi" to R.string.player_language_multiple,
 )
 
-internal fun nativePanelLanguageName(raw: String): String {
+internal fun nativePanelLanguageName(context: Context, raw: String): String {
     val key = raw.trim().lowercase()
-    if (key.isEmpty() || key == "zz-unknow" || key == "unknown" || key == "und") return "未知"
-    return nativePanelLanguageNameMap[key] ?: "未知"
+    if (key.isEmpty() || key == "zz-unknow" || key == "unknown" || key == "und") {
+        return context.getString(R.string.player_language_unknown)
+    }
+    return nativePanelLanguageNameMap[key]?.let(context::getString)
+        ?: context.getString(R.string.player_language_unknown)
 }
 
-internal fun nativePanelTrackLabel(track: Map<String, Any?>): String {
+internal fun nativePanelTrackLabel(context: Context, track: Map<String, Any?>): String {
     val title = track["title"]?.toString()?.trim().orEmpty()
-    val language = nativePanelLanguageName(track["language"]?.toString().orEmpty())
-        .takeUnless { it == "未知" }
+    val unknown = context.getString(R.string.player_language_unknown)
+    val language = nativePanelLanguageName(context, track["language"]?.toString().orEmpty())
+        .takeUnless { it == unknown }
         .orEmpty()
     val fallback = track["index"]?.toString()?.trim().orEmpty()
     return when {
         title.isNotEmpty() && language.isNotEmpty() -> "$title · $language"
         title.isNotEmpty() -> title
         language.isNotEmpty() -> language
-        fallback.isNotEmpty() -> "轨道 $fallback"
-        else -> "轨道"
+        fallback.isNotEmpty() -> context.getString(R.string.player_track_number_format, fallback)
+        else -> context.getString(R.string.player_track_generic)
     }
 }
 
 internal fun nativePanelAudioSummary(
+    context: Context,
     tracks: List<Map<String, Any?>>,
     selectedGuid: String,
 ): String {
     val selected = tracks.firstOrNull { it["guid"]?.toString().orEmpty() == selectedGuid }
-    return selected?.let(::nativePanelTrackLabel) ?: "默认"
+    return selected?.let { nativePanelTrackLabel(context, it) }
+        ?: context.getString(R.string.player_track_default)
 }
 
 internal fun nativePanelSubtitleSummary(
+    context: Context,
     tracks: List<Map<String, Any?>>,
     selectedGuid: String,
 ): String {
-    if (selectedGuid.isEmpty()) return "关闭"
+    if (selectedGuid.isEmpty()) return context.getString(R.string.player_track_off)
     val selected = tracks.firstOrNull { it["guid"]?.toString().orEmpty() == selectedGuid }
-    return selected?.let(::nativePanelTrackLabel) ?: "未选择"
+    return selected?.let { nativePanelTrackLabel(context, it) }
+        ?: context.getString(R.string.player_track_unselected)
 }
 
 internal fun nativePanelSubtitleCanRemove(track: Map<String, Any?>): Boolean {
@@ -176,33 +184,35 @@ internal fun nativeSubtitleUsesExternalFile(track: Map<String, Any?>): Boolean {
     return nativePanelTruthy(track["isExternal"]) || nativePanelTruthy(track["extraFile"])
 }
 
-internal fun nativePanelSubtitleDisplayTitle(track: Map<String, Any?>): String {
+internal fun nativePanelSubtitleDisplayTitle(context: Context, track: Map<String, Any?>): String {
     val rawLanguage = track["language"]?.toString().orEmpty()
-    val language = nativePanelLanguageName(rawLanguage)
-        .takeUnless { it == "未知" }
+    val unknown = context.getString(R.string.player_language_unknown)
+    val language = nativePanelLanguageName(context, rawLanguage)
+        .takeUnless { it == unknown }
         .orEmpty()
     val title = track["title"]?.toString()?.trim().orEmpty()
     val base = when {
         language.isNotEmpty() -> language
         title.isNotEmpty() -> title
-        else -> "字幕"
+        else -> context.getString(R.string.player_subtitle_generic)
     }
     val suffix = when {
-        nativePanelSubtitleCanRemove(track) -> "外挂"
-        nativePanelTruthy(track["isDefault"]) -> "默认"
+        nativePanelSubtitleCanRemove(track) -> context.getString(R.string.player_subtitle_external)
+        nativePanelTruthy(track["isDefault"]) -> context.getString(R.string.player_track_default)
         else -> ""
     }
     return if (suffix.isNotEmpty()) "$base-$suffix" else base
 }
 
-internal fun nativePanelSubtitleDisplaySubtitle(track: Map<String, Any?>): String {
+internal fun nativePanelSubtitleDisplaySubtitle(context: Context, track: Map<String, Any?>): String {
     val format = (
         track["format"]?.toString()?.trim()
             ?: ""
         ).ifEmpty { track["codecName"]?.toString()?.trim().orEmpty() }
         .uppercase()
-    val language = nativePanelLanguageName(track["language"]?.toString().orEmpty())
-        .takeUnless { it == "未知" }
+    val unknown = context.getString(R.string.player_language_unknown)
+    val language = nativePanelLanguageName(context, track["language"]?.toString().orEmpty())
+        .takeUnless { it == unknown }
         .orEmpty()
     val parts = listOf(format, language).filter { it.isNotEmpty() }
     return parts.joinToString("  ").ifEmpty {
@@ -220,17 +230,18 @@ private fun nativePanelTruthy(value: Any?): Boolean {
 }
 
 internal fun nativePanelQualitySummary(
+    context: Context,
     playbackMode: String?,
     currentResolution: String?,
 ): String {
-    if (playbackMode == "originalQuality") return "原画"
+    if (playbackMode == "originalQuality") return context.getString(R.string.player_original_quality)
     val resolution = currentResolution?.trim().orEmpty()
     val vertical = Regex("""(?:^|x)(\d{3,4})(?:p)?$""", RegexOption.IGNORE_CASE)
         .find(resolution)
         ?.groupValues
         ?.getOrNull(1)
         ?.toIntOrNull()
-    return if (vertical != null && vertical > 0) "${vertical}P" else "原画"
+    return if (vertical != null && vertical > 0) "${vertical}P" else context.getString(R.string.player_original_quality)
 }
 
 /**
@@ -291,9 +302,9 @@ internal fun nativePanelEpisodeVersionEntries(
 }
 
 /** 版本卡标题：优先源文件名，缺失时回退「版本 N」。 */
-internal fun nativePanelEpisodeVersionTitle(quality: Map<String, Any?>, index: Int): String {
+internal fun nativePanelEpisodeVersionTitle(context: Context, quality: Map<String, Any?>, index: Int): String {
     val fileName = quality["fileName"]?.toString()?.trim().orEmpty()
-    return fileName.ifEmpty { "版本 ${index + 1}" }
+    return fileName.ifEmpty { context.getString(R.string.player_version_number, index + 1) }
 }
 
 internal fun nativePanelBitrateLabel(bitrateBitsPerSecond: Long): String {
@@ -307,12 +318,13 @@ internal fun nativePanelBitrateLabel(bitrateBitsPerSecond: Long): String {
 
 /** 版本卡副标题：分辨率 · 视频时长 · 码率（不再写来源「转码/原画」）。 */
 internal fun nativePanelEpisodeVersionSummary(
+    context: Context,
     quality: Map<String, Any?>,
     durationLabel: String = "",
 ): String {
     val resolution = quality["resolution"]?.toString()?.trim().orEmpty()
         .ifEmpty { nativePanelQualityTierLabel(nativePanelQualityTierRank(quality["resolution"]?.toString())) }
-        .ifEmpty { "版本" }
+        .ifEmpty { context.getString(R.string.player_version_generic) }
     val bitrate = nativePanelQualityBitrate(quality).takeIf { it > 0 }?.let {
         nativePanelBitrateLabel(it)
     }.orEmpty()
@@ -339,6 +351,7 @@ internal data class NativeWeakNetworkQualityRecommendation(
 )
 
 internal fun nativePanelRecommendWeakNetworkQuality(
+    context: Context,
     qualities: List<Map<String, Any?>>,
     currentQuality: Map<String, Any?>,
     networkSpeedBytesPerSecond: Long,
@@ -362,8 +375,9 @@ internal fun nativePanelRecommendWeakNetworkQuality(
 
     return NativeWeakNetworkQualityRecommendation(
         qualityIndex = target.index,
-        qualityLabel = nativePanelWeakNetworkQualityLabel(target.value),
+        qualityLabel = nativePanelWeakNetworkQualityLabel(context, target.value),
         details = nativePanelWeakNetworkDetails(
+            context = context,
             networkSpeedBytesPerSecond = networkSpeedBytesPerSecond,
             estimatedResumeWaitMs = estimatedResumeWaitMs,
         ),
@@ -479,21 +493,23 @@ private fun nativePanelSameQuality(
             nativePanelNullableInt(right["directLinkQualityIndex"])
 }
 
-private fun nativePanelWeakNetworkQualityLabel(quality: Map<String, Any?>): String {
+private fun nativePanelWeakNetworkQualityLabel(context: Context, quality: Map<String, Any?>): String {
     val rank = nativePanelQualityTierRank(quality["resolution"]?.toString())
     return nativePanelQualityTierLabel(rank).ifEmpty {
-        quality["resolution"]?.toString()?.trim().orEmpty().ifEmpty { "较低画质" }
+        quality["resolution"]?.toString()?.trim().orEmpty()
+            .ifEmpty { context.getString(R.string.player_lower_quality) }
     }
 }
 
 private fun nativePanelWeakNetworkDetails(
+    context: Context,
     networkSpeedBytesPerSecond: Long,
     estimatedResumeWaitMs: Long?,
 ): String {
     val speed = nativePanelSpeedLabel(networkSpeedBytesPerSecond)
-    if (estimatedResumeWaitMs == null) return "当前网速 $speed"
+    if (estimatedResumeWaitMs == null) return context.getString(R.string.player_current_speed, speed)
     val seconds = ((estimatedResumeWaitMs.coerceAtLeast(1L) + 999L) / 1000L).coerceAtLeast(1L)
-    return "当前网速 $speed · 预计恢复 ${seconds}秒"
+    return context.getString(R.string.player_current_speed_resume, speed, seconds)
 }
 
 private fun nativePanelSpeedLabel(bytesPerSecond: Long): String {
@@ -552,12 +568,12 @@ internal fun nativePanelResolveImageUrl(path: String?, videoUrl: String?): Strin
     return "$origin/v/api/v1/sys/img$normalizedPath?w=320"
 }
 
-internal fun nativePanelEpisodeLabel(episode: Map<String, Any?>): String {
+internal fun nativePanelEpisodeLabel(context: Context, episode: Map<String, Any?>): String {
     val number = (episode["episodeNumber"] as? Number)?.toInt() ?: 0
     val title = episode["title"]?.toString()?.trim().orEmpty()
     val shortLabel = episode["shortLabel"]?.toString()?.trim().orEmpty()
     val prefix = when {
-        number > 0 -> "第${number}集"
+        number > 0 -> context.getString(R.string.player_episode_number, number)
         shortLabel.isNotEmpty() -> shortLabel
         else -> ""
     }
@@ -566,7 +582,7 @@ internal fun nativePanelEpisodeLabel(episode: Map<String, Any?>): String {
             "$prefix  $title"
         title.isNotEmpty() -> title
         prefix.isNotEmpty() -> prefix
-        else -> "未命名"
+        else -> context.getString(R.string.player_untitled)
     }
 }
 
@@ -4454,7 +4470,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
                     addView(TextView(context).apply {
-                        text = nativePanelEpisodeVersionTitle(entry.quality, index)
+                        text = nativePanelEpisodeVersionTitle(this@NativePlayerActivity, entry.quality, index)
                         setTextColor(Color.WHITE)
                         setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
                         typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -4467,7 +4483,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                         marqueeTargets += this
                     })
                     addView(TextView(context).apply {
-                        text = nativePanelEpisodeVersionSummary(entry.quality, durationLabel)
+                        text = nativePanelEpisodeVersionSummary(this@NativePlayerActivity, entry.quality, durationLabel)
                         setTextColor(if (selected) 0xFFD6E6FF.toInt() else TEXT_DIM)
                         setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
                         maxLines = 1
@@ -4712,15 +4728,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun currentAudioSummary(): String {
-        return nativePanelAudioSummary(trackList("audioTracks"), selectedAudioGuidForPanel())
+        return nativePanelAudioSummary(this, trackList("audioTracks"), selectedAudioGuidForPanel())
     }
 
     private fun currentSubtitleSummary(): String {
-        return nativePanelSubtitleSummary(trackList("subtitleTracks"), selectedSubtitleGuidForPanel())
+        return nativePanelSubtitleSummary(this, trackList("subtitleTracks"), selectedSubtitleGuidForPanel())
     }
 
     private fun currentQualitySummary(): String {
         return nativePanelQualitySummary(
+            context = this,
             playbackMode = loadArgsMap["playbackMode"]?.toString(),
             currentResolution = loadArgsMap["resolution"]?.toString(),
         )
@@ -4902,7 +4919,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val items = tracks.mapIndexed { i, track ->
             val guid = track["guid"]?.toString().orEmpty()
             PanelItem(
-                nativePanelTrackLabel(track),
+                nativePanelTrackLabel(this, track),
                 subtitle = trackPanelSubtitle(track),
                 selected = guid.isNotEmpty() && guid == current,
             ) {
@@ -4969,8 +4986,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             val selected = guid.isNotEmpty() && guid == selectedSubtitleGuidForPanel()
             rows +=
                 subtitlePanelTrackRow(
-                    title = nativePanelSubtitleDisplayTitle(track),
-                    subtitle = nativePanelSubtitleDisplaySubtitle(track),
+                    title = nativePanelSubtitleDisplayTitle(this, track),
+                    subtitle = nativePanelSubtitleDisplaySubtitle(this, track),
                     selected = selected,
                     removable = nativePanelSubtitleCanRemove(track),
                     onClick = { selectSubtitleFromPanel(guid) },
@@ -5715,7 +5732,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun episodeLabel(episode: Map<String, Any?>): String {
-        return nativePanelEpisodeLabel(episode)
+        return nativePanelEpisodeLabel(this, episode)
     }
 
     /**
@@ -5973,7 +5990,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun trackLabel(track: Map<String, Any?>): String {
         val title = track["title"]?.toString()?.trim().orEmpty()
-        val language = nativePanelLanguageName(track["language"]?.toString().orEmpty())
+        val language = nativePanelLanguageName(this, track["language"]?.toString().orEmpty())
             .takeUnless { it == getString(R.string.player_text_0057) }
             .orEmpty()
         return when {
@@ -6318,6 +6335,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             return
         }
         val recommendation = nativePanelRecommendWeakNetworkQuality(
+            context = this,
             qualities = qualityList(),
             currentQuality = currentQualityForWeakNetwork(),
             networkSpeedBytesPerSecond = state.networkSpeedBytesPerSecond,
@@ -6707,18 +6725,18 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 },
             ),
         )
-        addPanelRow(panelSectionHeader("工具"))
+        addPanelRow(panelSectionHeader(getString(R.string.player_tools_section)))
         addPanelRow(
             panelCardGroup(
-                panelNavRow("截图设置") {
-                    pushPanel(PanelPage("截图设置") { buildScreenshotSettingsPage() })
+                panelNavRow(getString(R.string.player_screenshot_settings_title)) {
+                    pushPanel(PanelPage(getString(R.string.player_screenshot_settings_title)) { buildScreenshotSettingsPage() })
                 },
             ),
         )
     }
 
     private fun playbackBehaviorSummary(): String {
-        return if (autoPlayEnabled) "连播开" else "连播关"
+        return if (autoPlayEnabled) getString(R.string.player_autoplay_on) else getString(R.string.player_autoplay_off)
     }
 
     private fun buildPlaybackBehaviorSettingsPage() {
@@ -7333,26 +7351,26 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 },
             ),
         )
-        addPanelRow(panelSectionHeader("画质增强"))
+        addPanelRow(panelSectionHeader(getString(R.string.player_video_enhancement_section)))
         addPanelRow(
             panelCardGroup(
-                advancedSegment("去隔行", "deinterlace", listOf(getString(R.string.player_text_0128) to "auto", getString(R.string.player_text_0167) to "force", getString(R.string.player_text_0127) to "off")),
-                advancedSegment("去色带", "deband", listOf(getString(R.string.player_text_0127) to "off", getString(R.string.player_text_0135) to "low", getString(R.string.player_text_0136) to "medium", getString(R.string.player_text_0169) to "high")),
-                advancedSegment("锐化", "sharpen", listOf(getString(R.string.player_text_0127) to "off", getString(R.string.player_text_0135) to "low", getString(R.string.player_text_0136) to "medium", getString(R.string.player_text_0169) to "high")),
+                advancedSegment(getString(R.string.player_deinterlace), "deinterlace", listOf(getString(R.string.player_text_0128) to "auto", getString(R.string.player_text_0167) to "force", getString(R.string.player_text_0127) to "off")),
+                advancedSegment(getString(R.string.player_deband), "deband", listOf(getString(R.string.player_text_0127) to "off", getString(R.string.player_text_0135) to "low", getString(R.string.player_text_0136) to "medium", getString(R.string.player_text_0169) to "high")),
+                advancedSegment(getString(R.string.player_sharpen), "sharpen", listOf(getString(R.string.player_text_0127) to "off", getString(R.string.player_text_0135) to "low", getString(R.string.player_text_0136) to "medium", getString(R.string.player_text_0169) to "high")),
                 advancedSegment(getString(R.string.player_text_0172), "denoise", listOf(getString(R.string.player_text_0127) to "off", getString(R.string.player_text_0135) to "low", getString(R.string.player_text_0136) to "medium")),
-                advancedSegment(getString(R.string.player_text_0175), "scale_profile", listOf(getString(R.string.player_text_0176) to "balanced", getString(R.string.player_text_0177) to "fast", "高质" to "quality")),
-                advancedSegment("HDR", "hdr_mode", listOf(getString(R.string.player_text_0128) to "auto", "映射SDR" to "sdr_map", "保守" to "conservative", "增强" to "enhanced")),
+                advancedSegment(getString(R.string.player_text_0175), "scale_profile", listOf(getString(R.string.player_text_0176) to "balanced", getString(R.string.player_text_0177) to "fast", getString(R.string.player_high_quality) to "quality")),
+                advancedSegment("HDR", "hdr_mode", listOf(getString(R.string.player_text_0128) to "auto", getString(R.string.player_map_sdr) to "sdr_map", getString(R.string.player_conservative) to "conservative", getString(R.string.player_enhanced) to "enhanced")),
                 advancedSegment(getString(R.string.player_text_0179), "tone_mapping", listOf(getString(R.string.player_text_0128) to "auto", "bt2390" to "bt2390", "mobius" to "mobius", "hable" to "hable", "reinhard" to "reinhard")),
-                advancedSegment("补帧", "frame_interpolation", listOf(getString(R.string.player_text_0127) to "off", getString(R.string.player_text_0128) to "auto", getString(R.string.player_text_0129) to "on")),
+                advancedSegment(getString(R.string.player_frame_interpolation), "frame_interpolation", listOf(getString(R.string.player_text_0127) to "off", getString(R.string.player_text_0128) to "auto", getString(R.string.player_text_0129) to "on")),
             ),
         )
         addPanelRow(panelSectionHeader(getString(R.string.player_text_0184)))
         addPanelRow(
             panelCardGroup(
                 advancedSegment(getString(R.string.player_text_0185), "video_sync", listOf(getString(R.string.player_text_0128) to "auto", getString(R.string.player_text_0187) to "audio", getString(R.string.player_text_0188) to "display", getString(R.string.player_text_0189) to "smooth")),
-                advancedSegment("缓存策略", "cache_profile", listOf(getString(R.string.player_text_0190) to "default", "稳定" to "stable", "网络" to "network", getString(R.string.player_text_0191) to "low_latency")),
-                advancedSegment("缓存大小", "cache_size_mb", listOf(getString(R.string.player_text_0128) to "auto", "64M" to "64", "128M" to "128", "256M" to "256", "512M" to "512")),
-                advancedSegment("兼容模式", "compatibility_profile", listOf(getString(R.string.player_text_0190) to "default", "保守" to "conservative", "软解兜底" to "software_fallback")),
+                advancedSegment(getString(R.string.player_cache_strategy), "cache_profile", listOf(getString(R.string.player_text_0190) to "default", getString(R.string.player_stable) to "stable", getString(R.string.player_network) to "network", getString(R.string.player_text_0191) to "low_latency")),
+                advancedSegment(getString(R.string.player_cache_size), "cache_size_mb", listOf(getString(R.string.player_text_0128) to "auto", "64M" to "64", "128M" to "128", "256M" to "256", "512M" to "512")),
+                advancedSegment(getString(R.string.player_compatibility_mode), "compatibility_profile", listOf(getString(R.string.player_text_0190) to "default", getString(R.string.player_conservative) to "conservative", getString(R.string.player_software_fallback) to "software_fallback")),
             ),
         )
     }
@@ -7474,7 +7492,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             infoRow(getString(R.string.player_text_0214), if (containerFps > 0.0) String.format("%.3f fps", containerFps) else ""),
         )
         if (diagRows.isEmpty()) return
-        addPanelRow(panelSectionHeader("解码 / 输出诊断"))
+        addPanelRow(panelSectionHeader(getString(R.string.player_decode_output_diagnostics)))
         addPanelRow(panelCardGroup(*diagRows.toTypedArray()))
     }
 
@@ -8340,10 +8358,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 skipCountdownSec = v.toInt()
             })
         }
-        addPanelRow(panelSectionHeader("当前视频"))
+        addPanelRow(panelSectionHeader(getString(R.string.player_current_video)))
         // TODO(数据接入)：片头片尾时间点暂无（待 loadArgs 带 intro/outro 或反向通道检测）。
         addPanelRow(TextView(this).apply {
-            text = "未检测到片头/片尾信息"
+            text = getString(R.string.player_no_intro_outro_detected)
             setTextColor(TEXT_DIM)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             setPadding(dp(12), dp(10), dp(12), dp(10))
