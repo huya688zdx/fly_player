@@ -118,9 +118,9 @@ class TrackSelectionController(
                     }
                 }
             }
-            val selectedExisting = runCatching {
+            val selectedExisting = applyMpvPropertyBestEffort {
                 mpv.setPropertyInt("sid", primaryTrackId.toLong())
-            }.getOrDefault(false)
+            }
             if (selectedExisting) {
                 Log.d("FlyPlayerMpv", "reuse external subtitle path=$path sid=$primaryTrackId")
                 activeExternalSubtitlePath = path

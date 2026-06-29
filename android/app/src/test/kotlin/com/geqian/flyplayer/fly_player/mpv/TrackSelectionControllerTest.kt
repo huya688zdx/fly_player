@@ -77,6 +77,34 @@ class TrackSelectionControllerTest {
         assertFalse(fake.commands.any { it.firstOrNull() == "sub-add" })
     }
 
+    @Test
+    fun reuseExistingExternalSubtitleIgnoresFalseSetterReturn() {
+        val path = "/data/code_cache/fly_player_sub_false_return.ass"
+        val fake = FakeTrackListFacade(
+            trackListCount = 3L,
+            tracks = mapOf(
+                0 to mapOf("type" to "video"),
+                1 to mapOf("type" to "audio"),
+                2 to mapOf("type" to "sub", "external-filename" to path, "id" to "1"),
+            ),
+            falseSetIntProperties = setOf("sid"),
+        )
+        val controller = TrackSelectionController(fake)
+
+        controller.queueExternalSubtitle(path, initialized = true)
+        val applied = controller.applyPendingExternalSubtitle()
+
+        assertTrue(applied)
+        assertEquals(
+            listOf("sid" to 1L),
+            fake.setIntCalls.filter { it.first == "sid" },
+        )
+        assertFalse(
+            "setPropertyInt 返回 false 不能触发重复 sub-add",
+            fake.commands.any { it.firstOrNull() == "sub-add" },
+        )
+    }
+
     /** 外挂字幕尚未加载时，复用扫描应为空并回退到 sub-add 重挂。 */
     @Test
     fun fallsBackToSubAddWhenExternalNotLoaded() {
@@ -104,6 +132,7 @@ class TrackSelectionControllerTest {
     private class FakeTrackListFacade(
         private val trackListCount: Long,
         private val tracks: Map<Int, Map<String, String>>,
+        private val falseSetIntProperties: Set<String> = emptySet(),
     ) : MpvFacade {
         val setIntCalls = mutableListOf<Pair<String, Long>>()
         val commands = mutableListOf<List<String>>()
@@ -129,6 +158,7 @@ class TrackSelectionControllerTest {
 
         override fun setPropertyInt(name: String, value: Long): Boolean {
             setIntCalls += name to value
+            if (name in falseSetIntProperties) return false
             // 模拟 mpv 对不存在轨道号的拒绝（error -4）。
             if (name == "sid" && value > 256L) return false
             return true
