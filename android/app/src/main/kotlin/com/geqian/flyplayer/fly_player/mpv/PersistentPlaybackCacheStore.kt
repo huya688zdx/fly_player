@@ -3,6 +3,7 @@ package com.geqian.flyplayer.fly_player.mpv
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
+import com.geqian.flyplayer.fly_player.R
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -322,7 +323,7 @@ class PersistentPlaybackCacheEntry internal constructor(
 }
 
 class PersistentPlaybackCacheStore(
-    context: Context,
+    private val context: Context,
 ) {
     private val rootDir: File = context.getDir("playback_cache", Context.MODE_PRIVATE).apply {
         mkdirs()
@@ -622,18 +623,35 @@ class PersistentPlaybackCacheStore(
             metadata.episodeNumber > 0 -> {
                 val series = metadata.seriesTitle.ifBlank { metadata.title }.trim()
                 when {
-                    metadata.seasonNumber == 0 -> "$series·特别篇·第${metadata.episodeNumber}集"
-                    metadata.seasonNumber > 0 -> "$series·第${metadata.seasonNumber}季·第${metadata.episodeNumber}集"
-                    else -> "$series·第${metadata.episodeNumber}集"
+                    metadata.seasonNumber == 0 -> context.getString(
+                        R.string.playback_cache_file_series_special_episode,
+                        series,
+                        metadata.episodeNumber,
+                    )
+                    metadata.seasonNumber > 0 -> context.getString(
+                        R.string.playback_cache_file_series_season_episode,
+                        series,
+                        metadata.seasonNumber,
+                        metadata.episodeNumber,
+                    )
+                    else -> context.getString(
+                        R.string.playback_cache_file_series_episode,
+                        series,
+                        metadata.episodeNumber,
+                    )
                 }
             }
             metadata.seasonNumber > 0 -> {
                 val series = metadata.seriesTitle.ifBlank { metadata.title }.trim()
-                "$series·第${metadata.seasonNumber}季"
+                context.getString(
+                    R.string.playback_cache_file_series_season,
+                    series,
+                    metadata.seasonNumber,
+                )
             }
             metadata.seasonNumber == 0 && metadata.seriesTitle.isNotBlank() -> {
                 val series = metadata.seriesTitle.trim()
-                "$series·特别篇"
+                context.getString(R.string.playback_cache_file_series_special, series)
             }
             else -> metadata.title.ifBlank { metadata.mediaGuid.ifBlank { "video" } }.trim()
         }
@@ -648,21 +666,33 @@ class PersistentPlaybackCacheStore(
         }
         when {
             metadata.episodeNumber > 0 && metadata.seasonNumber == 0 -> {
-                segments += "特别篇"
-                segments += "第${metadata.episodeNumber}集"
+                segments += context.getString(R.string.playback_cache_special_episode)
+                segments += context.getString(
+                    R.string.playback_cache_episode_number,
+                    metadata.episodeNumber,
+                )
             }
             metadata.episodeNumber > 0 && metadata.seasonNumber > 0 -> {
-                segments += "第${metadata.seasonNumber}季"
-                segments += "第${metadata.episodeNumber}集"
+                segments += context.getString(
+                    R.string.playback_cache_season_number,
+                    metadata.seasonNumber,
+                )
+                segments += context.getString(
+                    R.string.playback_cache_episode_number,
+                    metadata.episodeNumber,
+                )
             }
             metadata.seasonNumber > 0 -> {
-                segments += "第${metadata.seasonNumber}季"
+                segments += context.getString(
+                    R.string.playback_cache_season_number,
+                    metadata.seasonNumber,
+                )
             }
         }
         if (metadata.resolution.isNotBlank()) {
             segments += metadata.resolution
         }
-        return segments.joinToString(" · ")
+        return segments.joinToString(context.getString(R.string.playback_cache_entry_separator))
     }
 
     private fun uniqueTargetFile(root: File, fileName: String): File {

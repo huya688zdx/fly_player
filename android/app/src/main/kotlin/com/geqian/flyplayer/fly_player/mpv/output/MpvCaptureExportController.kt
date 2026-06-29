@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import com.geqian.flyplayer.fly_player.R
 import com.geqian.flyplayer.fly_player.ScreenshotDirectoryAccessController
 import java.io.File
 import java.io.FileInputStream
@@ -270,7 +271,7 @@ internal class MpvCaptureExportController(
 
         source?.captureResolutionLabel()?.let { segments += it }
         if (includeSubtitles) {
-            segments += "\u542B\u5B57\u5E55"
+            segments += context.getString(R.string.capture_include_subtitles)
         }
 
         val stem =
@@ -317,18 +318,18 @@ internal class MpvCaptureExportController(
                 normalizedMediaType.contains("film")
         when {
             episodeNumber > 0 && seasonNumber == 0 -> {
-                labels += "\u7279\u522B\u7BC7"
-                labels += "\u7B2C${episodeNumber}\u96C6"
+                labels += context.getString(R.string.capture_special_episode)
+                labels += context.getString(R.string.capture_episode_number, episodeNumber)
             }
             episodeNumber > 0 && seasonNumber > 0 -> {
-                labels += "\u7B2C${seasonNumber}\u5B63"
-                labels += "\u7B2C${episodeNumber}\u96C6"
+                labels += context.getString(R.string.capture_season_number, seasonNumber)
+                labels += context.getString(R.string.capture_episode_number, episodeNumber)
             }
             seasonNumber > 0 -> {
-                labels += "\u7B2C${seasonNumber}\u5B63"
+                labels += context.getString(R.string.capture_season_number, seasonNumber)
             }
             isMovie -> {
-                labels += "\u7535\u5F71"
+                labels += context.getString(R.string.capture_movie)
             }
             normalizedMediaType.isNotEmpty() -> {
                 labels += mediaType.trim()
