@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  原生（Kotlin/Android）层的用户可见文案集中放在这里。
+  规范见 CODEX_KOTLIN_I18N_TASK.md：
+    - 命名 snake_case，按模块前缀分组（notification_ / player_ / detail_ / parallel_ / mpv_ / storage_ ...）。
+    - 只放「会显示给用户」的文案（Toast / 通知 / 对话框 / contentDescription 等），日志与注释不放。
+    - 不新增第二语言，仅做文案外置（默认 values 即中文兜底）。
+    - 含格式占位符用 %1$s / %1$d；含 % ' " < & 等需按 Android 规则转义。
+  Kotlin 侧引用：context.getString(R.string.xxx) 或 getString(R.string.xxx, arg)。
+-->
+<resources>
+
+    <!-- ========== notification_：播放通知（NativePlaybackMediaService） ========== -->
+    <string name="notification_now_playing">正在播放</string>
+    <string name="notification_action_play">播放</string>
+    <string name="notification_action_pause">暂停</string>
+    <string name="notification_action_rewind_10s">后退10秒</string>
+    <string name="notification_action_forward_10s">快进10秒</string>
+    <string name="notification_action_next_episode">下一集</string>
+    <string name="notification_channel_playback_name">播放控制</string>
+    <string name="notification_channel_playback_description">原生播放器的锁屏/通知栏控制</string>
+
+    <!-- ========== player_：原生播放器（NativePlayerActivity 等） ========== -->
+    <string name="player_episode_switch_to_list">切换为列表</string>
+    <string name="player_episode_switch_to_grid">切换为宫格</string>
+
+    <!-- ↓↓↓ Codex 在此之后按模块分组，继续追加其余文案 key ↓↓↓ -->
+
+</resources>
