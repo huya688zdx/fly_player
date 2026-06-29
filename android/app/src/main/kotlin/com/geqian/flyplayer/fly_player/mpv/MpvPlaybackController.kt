@@ -662,10 +662,10 @@ class MpvPlaybackController(
                 TAG,
                 "setAudioTrack requestedIndex=$trackIndex requestedGuid=${trackGuid.orEmpty()} resolvedId=$resolvedTrackId",
             )
-            val success = if (initialized && mpv.isAvailable() && resolvedTrackId != null) {
-                runCatching { mpv.setPropertyString("aid", resolvedTrackId.toString()) }.getOrDefault(false)
-            } else {
-                false
+            val success = applyMpvPropertyBestEffort(
+                ready = initialized && mpv.isAvailable() && resolvedTrackId != null,
+            ) {
+                mpv.setPropertyString("aid", resolvedTrackId.toString())
             }
             updateState(
                 state.copy(
@@ -693,12 +693,12 @@ class MpvPlaybackController(
                 restoreCoordinator.clearPendingExternalSubtitle()
                 trackSelectionController.onSubtitleTrackSelectedManually()
                 when {
-                    resolvedTrackId == null -> runCatching {
+                    resolvedTrackId == null -> applyMpvPropertyBestEffort {
                         mpv.setPropertyString("sid", "no")
-                    }.getOrDefault(false)
-                    else -> runCatching {
+                    }
+                    else -> applyMpvPropertyBestEffort {
                         mpv.setPropertyString("sid", resolvedTrackId.toString())
-                    }.getOrDefault(false)
+                    }
                 }
             } else {
                 false
@@ -737,9 +737,9 @@ class MpvPlaybackController(
             val normalized = delay ?: 0.0
             trackSelectionController.setSubtitleDelay(normalized)
             val success = if (initialized && mpv.isAvailable()) {
-                runCatching {
+                applyMpvPropertyBestEffort {
                     mpv.setPropertyDouble("sub-delay", normalized)
-                }.getOrDefault(false)
+                }
             } else {
                 true
             }
@@ -761,9 +761,9 @@ class MpvPlaybackController(
             trackSelectionController.setAudioDelay(normalized)
             val success =
                 if (initialized && mpv.isAvailable()) {
-                    runCatching {
+                    applyMpvPropertyBestEffort {
                         mpv.setPropertyDouble("audio-delay", normalized)
-                    }.getOrDefault(false)
+                    }
                 } else {
                     true
                 }
@@ -784,10 +784,10 @@ class MpvPlaybackController(
             val normalized = (position ?: DEFAULT_SUBTITLE_POSITION).coerceIn(0, 100)
             trackSelectionController.setSubtitlePosition(normalized)
             val success = if (initialized && mpv.isAvailable()) {
-                runCatching {
+                applyMpvPropertyBestEffort {
                     mpv.setPropertyString("sub-ass-override", "scale")
                     mpv.setPropertyInt("sub-pos", normalized.toLong())
-                }.getOrDefault(false)
+                }
             } else {
                 true
             }
@@ -808,10 +808,10 @@ class MpvPlaybackController(
             val normalized = (scale ?: 1.0).coerceIn(0.5, 2.5)
             trackSelectionController.setSubtitleScale(normalized)
             val success = if (initialized && mpv.isAvailable()) {
-                runCatching {
+                applyMpvPropertyBestEffort {
                     mpv.setPropertyString("sub-ass-override", "scale")
                     mpv.setPropertyDouble("sub-scale", normalized)
-                }.getOrDefault(false)
+                }
             } else {
                 true
             }
@@ -831,24 +831,24 @@ class MpvPlaybackController(
         runOnPlaybackThread {
             trackSelectionController.resetSubtitleStyle()
             val delaySuccess = if (initialized && mpv.isAvailable()) {
-                runCatching {
+                applyMpvPropertyBestEffort {
                     mpv.setPropertyDouble("sub-delay", 0.0)
-                }.getOrDefault(false)
+                }
             } else {
                 true
             }
             val positionSuccess = if (initialized && mpv.isAvailable()) {
-                runCatching {
+                applyMpvPropertyBestEffort {
                     mpv.setPropertyString("sub-ass-override", "scale")
                     mpv.setPropertyInt("sub-pos", DEFAULT_SUBTITLE_POSITION.toLong())
-                }.getOrDefault(false)
+                }
             } else {
                 true
             }
             val scaleSuccess = if (initialized && mpv.isAvailable()) {
-                runCatching {
+                applyMpvPropertyBestEffort {
                     mpv.setPropertyDouble("sub-scale", 1.0)
-                }.getOrDefault(false)
+                }
             } else {
                 true
             }
