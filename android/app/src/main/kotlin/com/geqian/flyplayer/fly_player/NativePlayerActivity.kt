@@ -5980,7 +5980,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             title.isNotEmpty() && language.isNotEmpty() -> "$title  ·  $language"
             title.isNotEmpty() -> title
             language.isNotEmpty() -> language
-            else -> "轨道 ${track["index"] ?: "?"}"
+            else -> getString(R.string.player_track_number_format, track["index"] ?: "?")
         }
     }
 

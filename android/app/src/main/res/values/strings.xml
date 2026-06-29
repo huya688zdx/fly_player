@@ -107,6 +107,7 @@
     <string name="player_minutes_format">%1$d 分钟</string>
     <string name="player_seconds_format">%1$d 秒</string>
     <string name="player_bookmark_title">书签 %1$s</string>
+    <string name="player_track_number_format">轨道 %1$s</string>
 
     <!-- ========== mpv_：mpv 输出/诊断 ========== -->
     <string name="mpv_spatializer_unsupported">不支持（系统版本过低）</string>
