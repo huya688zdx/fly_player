@@ -6533,7 +6533,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         "brightness" to 0.0, "contrast" to 0.0, "saturation" to 0.0, "gamma" to 0.0, "hue" to 0.0,
     )
     private var subDelaySec = 0.0
-    private var subPosition = 100
+    private var subPosition = NativeSubtitleStyleSettings.DEFAULT_POSITION
     private var subScale = 1.0
     private var audioDelaySec = 0.0
     private var decoderHardware = true
@@ -6852,13 +6852,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         settingsStore.loadMap(NativePlayerSettingsStore.KEY_OCCLUSION, occlusionConfig).let {
             occlusionConfig.clear(); occlusionConfig.putAll(it)
         }
-        val sub = settingsStore.loadMap(
-            NativePlayerSettingsStore.KEY_SUBTITLE_STYLE,
-            linkedMapOf("delay" to 0.0, "position" to 100, "scale" to 1.0),
+        val sub = NativeSubtitleStyleSettings.fromMap(
+            settingsStore.loadMap(
+                NativePlayerSettingsStore.KEY_SUBTITLE_STYLE,
+                NativeSubtitleStyleSettings.defaultMap(),
+            ),
         )
-        subDelaySec = (sub["delay"] as? Number)?.toDouble() ?: 0.0
-        subPosition = (sub["position"] as? Number)?.toInt() ?: 100
-        subScale = (sub["scale"] as? Number)?.toDouble() ?: 1.0
+        subDelaySec = sub.delaySeconds
+        subPosition = sub.position
+        subScale = sub.scale
         audioDelaySec = (settingsStore.loadMap(
             NativePlayerSettingsStore.KEY_AUDIO_ADJUST, linkedMapOf("delay" to 0.0),
         )["delay"] as? Number)?.toDouble() ?: 0.0
@@ -6922,7 +6924,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         playerSurface.setDecoderMode(if (decoderHardware) "hardware" else "software")
         playerSurface.setDisplayAspectRatioMode(aspectMode)
         if (subDelaySec != 0.0) playerSurface.setSubtitleDelay(subDelaySec)
-        if (subPosition != 100) playerSurface.setSubtitlePosition(subPosition)
+        if (subPosition != NativeSubtitleStyleSettings.DEFAULT_POSITION) {
+            playerSurface.setSubtitlePosition(subPosition)
+        }
         if (subScale != 1.0) playerSurface.setSubtitleScale(subScale)
         if (audioDelaySec != 0.0) playerSurface.setAudioDelay(audioDelaySec)
         if (occlusionConfig["enabled"] == true) applyOcclusionConfig()
@@ -7055,7 +7059,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun persistSubtitleStyle() = settingsStore.saveMap(
         NativePlayerSettingsStore.KEY_SUBTITLE_STYLE,
-        linkedMapOf<String, Any?>("delay" to subDelaySec, "position" to subPosition, "scale" to subScale),
+        NativeSubtitleStyleSettings(
+            delaySeconds = subDelaySec,
+            position = subPosition,
+            scale = subScale,
+        ).toMap(),
     )
 
     private fun persistAudioAdjust() = settingsStore.saveMap(
@@ -7164,17 +7172,21 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun buildSubtitleStylePage() {
         addPanelRow(panelSlider("字幕延迟", -10f, 10f, subDelaySec.toFloat(), steps = 200, format = { String.format("%+.1f s", it) }) { v ->
-            subDelaySec = v.toDouble(); playerSurface.setSubtitleDelay(subDelaySec)
+            subDelaySec = v.toDouble(); playerSurface.setSubtitleDelay(subDelaySec); persistSubtitleStyle()
         })
         addPanelRow(panelSlider("垂直位置", 0f, 100f, subPosition.toFloat(), steps = 100) { v ->
-            subPosition = v.toInt(); playerSurface.setSubtitlePosition(subPosition)
+            subPosition = v.toInt(); playerSurface.setSubtitlePosition(subPosition); persistSubtitleStyle()
         })
         addPanelRow(panelSlider("字号缩放", 0.5f, 2.5f, subScale.toFloat(), steps = 200, format = { String.format("%.2fx", it) }) { v ->
-            subScale = v.toDouble(); playerSurface.setSubtitleScale(subScale)
+            subScale = v.toDouble(); playerSurface.setSubtitleScale(subScale); persistSubtitleStyle()
         })
         addPanelRow(panelActionRow("重置字幕样式") {
-            subDelaySec = 0.0; subPosition = 100; subScale = 1.0
-            playerSurface.resetSubtitleStyle(); renderTopPanel()
+            subDelaySec = NativeSubtitleStyleSettings.DEFAULT_DELAY_SECONDS
+            subPosition = NativeSubtitleStyleSettings.DEFAULT_POSITION
+            subScale = NativeSubtitleStyleSettings.DEFAULT_SCALE
+            playerSurface.resetSubtitleStyle()
+            persistSubtitleStyle()
+            renderTopPanel()
         })
     }
 
