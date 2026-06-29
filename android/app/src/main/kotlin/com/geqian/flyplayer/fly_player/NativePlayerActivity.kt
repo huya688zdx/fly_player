@@ -1809,7 +1809,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             .onFailure {
                 ParallelWindowCoordinator.setNativeSplitPlayerVisible(false)
                 syncOcclusionWithSplitState()
-                showTransientHint("分屏启动失败")
+                showTransientHint(getString(R.string.player_split_start_failed))
                 Log.w("NativePlayerSplit", "enterSplitMode startActivity failed", it)
             }
         ParallelWindowCoordinator.setLastNativePlaybackSplit(this, true)
@@ -1842,7 +1842,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (nextGuid != null) {
             requestEpisode(nextGuid, autoPlayAfterLoad = autoPlayAfterLoad)
         } else {
-            showTransientHint("已经是最后一集了")
+            showTransientHint(getString(R.string.player_last_episode))
         }
     }
 
@@ -1859,7 +1859,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         danmakuSettings["enabled"] = enabled
         if (this::playerSurface.isInitialized) playerSurface.setDanmakuVisible(enabled)
         if (this::danmakuToggleButton.isInitialized) setIconActive(danmakuToggleButton, enabled)
-        showTransientHint(if (enabled) "弹幕已开启" else "弹幕已关闭")
+        showTransientHint(
+            if (enabled) {
+                getString(R.string.player_danmaku_enabled)
+            } else {
+                getString(R.string.player_danmaku_disabled)
+            },
+        )
     }
 
     private fun isServerManagedPlayback(): Boolean {
@@ -1880,7 +1886,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (isServerManagedPlayback()) {
             selectedSubtitleGuid = guid
             Log.d(TAG, "applySubtitleByGuid serverManaged reload guid=$guid")
-            requestServerReload(selectedAudioGuid, guid, null, "正在切换字幕...")
+            requestServerReload(
+                selectedAudioGuid,
+                guid,
+                null,
+                getString(R.string.player_switch_subtitle_loading),
+            )
             return
         }
         if (guid.isEmpty()) {
@@ -1940,12 +1951,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             return
         }
         if (guid.isEmpty()) {
-            showTransientHint("字幕加载失败")
+            showTransientHint(getString(R.string.player_subtitle_load_failed))
             return
         }
         val format = track["format"]?.toString()?.takeIf { it.isNotEmpty() }
             ?: track["codecName"]?.toString().orEmpty()
-        showCenterHint("正在加载字幕...")
+        showCenterHint(getString(R.string.player_subtitle_loading))
         NativePlayerReverseBridge.dispatch(
             method = "resolveSubtitleFile",
             args = mapOf("guid" to guid, "format" to format),
@@ -1955,12 +1966,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     if (path != null) {
                         playerSurface.setExternalSubtitleFile(path)
                     } else {
-                        showTransientHint("字幕加载失败")
+                        showTransientHint(getString(R.string.player_subtitle_load_failed))
                     }
                 }
             },
             onError = {
-                runOnUiThread { showTransientHint("字幕加载失败") }
+                runOnUiThread { showTransientHint(getString(R.string.player_subtitle_load_failed)) }
             },
         )
     }
@@ -2816,8 +2827,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             val eNum = (loadArgsMap["episodeNumber"] as? Number)?.toInt() ?: 0
             val fullTitle = StringBuilder().apply {
                 if (sTitle.isNotEmpty()) append(sTitle).append(" ")
-                if (sNum > 0) append("第${sNum}季 ")
-                if (eNum > 0) append("第${eNum}集")
+                if (sNum > 0) append(getString(R.string.player_season_number, sNum)).append(" ")
+                if (eNum > 0) append(getString(R.string.player_episode_number, eNum))
                 if (isEmpty()) append(mediaTitle)
             }.toString()
             text = fullTitle
@@ -2835,18 +2846,18 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
         // 小窗（画中画）：仅手机显示，平板隐藏；系统不支持 PIP 也隐藏。竖屏再隐藏（见下）。
         if (pipSupported() && !isTablet()) {
-            pipButton = makeIconButton("小窗") { enterPip() }.also { iconActions.addView(it) }
+            pipButton = makeIconButton(getString(R.string.player_action_pip)) { enterPip() }.also { iconActions.addView(it) }
         }
-        listenButton = makeIconButton("听视频") { toggleAudioMode() }
+        listenButton = makeIconButton(getString(R.string.player_action_listen_video)) { toggleAudioMode() }
         iconActions.addView(listenButton)
-        screenshotButton = makeIconButton("截图") { takeScreenshot() }.also { iconActions.addView(it) }
+        screenshotButton = makeIconButton(getString(R.string.player_action_screenshot)) { takeScreenshot() }.also { iconActions.addView(it) }
         abButton = makeIconButton("AB") { toggleAbRepeat() }
         iconActions.addView(abButton)
         // 弹幕设置：Flutter 顶栏即有的直达入口（不止在设置抽屉里）。
-        danmakuQuickButton = makeIconButton("弹幕设置") {
-            togglePanel(PanelPage("弹幕设置") { buildDanmakuSettingsPage() })
+        danmakuQuickButton = makeIconButton(getString(R.string.player_action_danmaku_settings)) {
+            togglePanel(PanelPage(getString(R.string.player_action_danmaku_settings)) { buildDanmakuSettingsPage() })
         }.also { iconActions.addView(it) }
-        iconActions.addView(makeIconButton("更多") { showSettingsRoot() })
+        iconActions.addView(makeIconButton(getString(R.string.player_action_more)) { showSettingsRoot() })
 
         mainRow.addView(iconActions)
 
@@ -3019,9 +3030,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             actionStrip.addView(view)
         }
 
-        addActionButton(makeEntryButton("重载") { reloadCurrentSource() })
+        addActionButton(makeEntryButton(getString(R.string.player_action_reload)) { reloadCurrentSource() })
         // 选集/多版本入口：多集→「选集」；单集(电影)有多版本→「多版本」；单集单版本→隐藏。
-        episodeEntryButton = makeEntryButton("选集") { onEpisodeEntryClick() }
+        episodeEntryButton = makeEntryButton(getString(R.string.player_episode_picker_title)) { onEpisodeEntryClick() }
         actionStrip.addView(episodeSpacer)
         actionStrip.addView(episodeEntryButton)
         refreshEpisodeEntryButton()
@@ -3032,9 +3043,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         // 音轨/字幕/画质：横屏常驻底栏；竖屏窄屏放不下且会被裁，改为隐藏并从「更多」设置进入。
         // 显式持有按钮与其前置分隔，竖屏整段连同间距一起收起（避免遗留空白）。
         audioEntrySpacer = controlActionSpacer().also { actionStrip.addView(it) }
-        audioEntryButton = makeEntryButton("音轨") { showAudioPanel() }.also { actionStrip.addView(it) }
+        audioEntryButton = makeEntryButton(getString(R.string.player_audio_track_picker_title)) { showAudioPanel() }.also { actionStrip.addView(it) }
         subtitleEntrySpacer = controlActionSpacer().also { actionStrip.addView(it) }
-        subtitleEntryButton = makeEntryButton("字幕") { showSubtitlePanel() }.also { actionStrip.addView(it) }
+        subtitleEntryButton = makeEntryButton(getString(R.string.player_subtitle_track_picker_title)) { showSubtitlePanel() }.also { actionStrip.addView(it) }
         qualityEntrySpacer = controlActionSpacer().also { actionStrip.addView(it) }
         qualityButton = makeEntryButton(currentQualityLabel()) { showQualityPanel() }
         actionStrip.addView(qualityButton)
@@ -3161,11 +3172,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun makeIconButton(text: String, onClick: () -> Unit): View {
         val iconRes = when (text) {
-            "小窗" -> R.drawable.ic_player_pip
-            "听视频" -> R.drawable.ic_player_listen_video
-            "截图" -> R.drawable.ic_player_screenshot
-            "弹幕设置" -> R.drawable.ic_player_danmaku_settings
-            "更多" -> R.drawable.ic_player_more
+            getString(R.string.player_action_pip) -> R.drawable.ic_player_pip
+            getString(R.string.player_action_listen_video) -> R.drawable.ic_player_listen_video
+            getString(R.string.player_action_screenshot) -> R.drawable.ic_player_screenshot
+            getString(R.string.player_action_danmaku_settings) -> R.drawable.ic_player_danmaku_settings
+            getString(R.string.player_action_more) -> R.drawable.ic_player_more
             else -> 0
         }
         if (iconRes != 0) {
@@ -3213,7 +3224,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         runCatching {
             // 比例须在 [1/2.39, 2.39] 内（currentPipRatio 已兜底），并带上播放控制 RemoteAction。
             enterPictureInPictureMode(buildPipParams())
-        }.onFailure { showTransientHint("小窗启动失败") }
+        }.onFailure { showTransientHint(getString(R.string.player_pip_start_failed)) }
     }
 
     private fun toggleAudioMode() {
@@ -3227,7 +3238,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val message = result["message"]?.toString()
         showTransientHint(
             message?.takeIf { it.isNotEmpty() }
-                ?: if (enabled) "已开启听视频模式" else "已关闭听视频模式",
+                ?: if (enabled) {
+                    getString(R.string.player_listen_mode_enabled)
+                } else {
+                    getString(R.string.player_listen_mode_disabled)
+                },
         )
     }
 
@@ -3308,7 +3323,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             setTextColor(TEXT_DIM)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             gravity = Gravity.CENTER
-            text = "正在收听"
+            text = getString(R.string.player_listening)
         }
         column.addView(
             listenSubtitleLabel,
@@ -3337,12 +3352,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         )
         if (result["success"] == true) {
             // 截图后只提示是否保存，不再进入预览/分享页面。
-            showTransientHint("已保存截图")
+            showTransientHint(getString(R.string.player_screenshot_saved))
         } else {
             showTransientHint(
                 when (result["code"]?.toString()) {
-                    "custom_directory_required", "custom_directory_unavailable" -> "请先在设置里选择截图目录"
-                    else -> "截图失败"
+                    "custom_directory_required", "custom_directory_unavailable" -> getString(R.string.player_screenshot_choose_directory)
+                    else -> getString(R.string.player_screenshot_failed)
                 },
             )
         }
@@ -3353,22 +3368,28 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         when (abRepeatMode) {
             1 -> {
                 abLoopStartMs = playerSurface.state.positionMs
-                showTransientHint("已设起点 A ${formatTime(abLoopStartMs)}")
+                showTransientHint(getString(R.string.player_ab_start_set, formatTime(abLoopStartMs)))
             }
             2 -> {
                 abLoopEndMs = playerSurface.state.positionMs
                 if (abLoopEndMs <= abLoopStartMs) {
                     abRepeatMode = 1 // 终点无效，退回「仅设起点」
                     abLoopEndMs = 0L
-                    showTransientHint("终点需晚于起点 A")
+                    showTransientHint(getString(R.string.player_ab_end_must_after_start))
                 } else {
-                    showTransientHint("AB 循环 ${formatTime(abLoopStartMs)} - ${formatTime(abLoopEndMs)}")
+                    showTransientHint(
+                        getString(
+                            R.string.player_ab_loop_range,
+                            formatTime(abLoopStartMs),
+                            formatTime(abLoopEndMs),
+                        ),
+                    )
                 }
             }
             else -> {
                 abLoopStartMs = 0L
                 abLoopEndMs = 0L
-                showTransientHint("已关闭 AB 循环")
+                showTransientHint(getString(R.string.player_ab_loop_disabled))
             }
         }
         if (this::abButton.isInitialized) {
@@ -3389,7 +3410,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun reloadCurrentSource() {
         val url = loadArgsMap["url"]?.toString()
         if (url.isNullOrEmpty()) {
-            showTransientHint("无法重载")
+            showTransientHint(getString(R.string.player_reload_unavailable))
             return
         }
         val args = HashMap<String, Any?>(loadArgsMap).apply {
@@ -3397,7 +3418,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
         pendingInitialSubtitle = true // 重载后重新套用当前字幕，避免回退默认轨
         resetPlaybackProgressTracking() // 重载期间先回到「未开播」，等新进度推进再收 loading
-        showTransientHint("重新载入中…")
+        showTransientHint(getString(R.string.player_reloading))
         playerSurface.load(args)
         scheduleControlsAutoHide()
     }
@@ -3439,13 +3460,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
         return current?.let { nativePanelSeasonLabel(it) }
             ?: (loadArgsMap["seasonNumber"] as? Number)?.toInt()?.takeIf { it > 0 }
-                ?.let { "第${it}季" }
-            ?: "选季"
+                ?.let { getString(R.string.player_season_number, it) }
+            ?: getString(R.string.player_season_picker)
     }
 
     private fun episodePanelTitle(): String {
         val sTitle = episodePanelSeriesTitle.ifEmpty { loadArgsMap["seriesTitle"]?.toString().orEmpty() }
-        if (sTitle.isEmpty()) return "选集"
+        if (sTitle.isEmpty()) return getString(R.string.player_episode_picker_title)
         // 多季时季由标题旁的 chip 展示，标题只保留系列名，避免重复。
         if (episodePanelSeasons.size > 1) return sTitle
         val selectedSeason = episodePanelSeasons.firstOrNull {
@@ -3455,7 +3476,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val sNum = (loadArgsMap["seasonNumber"] as? Number)?.toInt() ?: 0
         return when {
             sLabel.isNotEmpty() -> "$sTitle · $sLabel"
-            sNum > 0 -> "$sTitle · 第${sNum}季"
+            sNum > 0 -> "$sTitle · ${getString(R.string.player_season_number, sNum)}"
             else -> sTitle
         }
     }
@@ -3614,7 +3635,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             episodePanelLoading = false
             if (episodes.isEmpty()) {
                 if (panelVisible) renderTopPanel()
-                showTransientHint("无选集信息")
+                showTransientHint(getString(R.string.player_no_episode_info))
                 return@dispatchSeasonEpisodes
             }
             applySeasonEpisodesToPanel(seasonGuid, episodes)
@@ -3648,7 +3669,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val label = season["seasonLabel"]?.toString()?.trim().orEmpty()
         if (label.isNotEmpty()) return label
         val number = (season["seasonNumber"] as? Number)?.toInt() ?: 0
-        return if (number > 0) "第${number}季" else "季"
+        return if (number > 0) {
+            getString(R.string.player_season_number, number)
+        } else {
+            getString(R.string.player_season_generic)
+        }
     }
 
     private fun requestEpisodePickerData(seasonGuid: String?, showLoading: Boolean) {
@@ -3671,7 +3696,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 runOnUiThread {
                     if (token != episodePanelLoadToken) return@runOnUiThread
                     episodePanelLoading = false
-                    if (episodePanelEpisodes.isEmpty()) showTransientHint("无选集信息")
+                    if (episodePanelEpisodes.isEmpty()) showTransientHint(getString(R.string.player_no_episode_info))
                     if (panelVisible) renderTopPanel()
                 }
             },
@@ -3925,12 +3950,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (!this::episodeEntryButton.isInitialized) return
         when (episodeEntryMode()) {
             0 -> {
-                episodeEntryButton.text = "选集"
+                episodeEntryButton.text = getString(R.string.player_episode_picker_title)
                 episodeEntryButton.visibility = View.VISIBLE
                 episodeEntryDivider?.visibility = View.VISIBLE
             }
             1 -> {
-                episodeEntryButton.text = "多版本"
+                episodeEntryButton.text = getString(R.string.player_version_picker_title)
                 episodeEntryButton.visibility = View.VISIBLE
                 episodeEntryDivider?.visibility = View.VISIBLE
             }
@@ -3945,10 +3970,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun showVersionPanel() {
         val versions = nativePanelEpisodeVersionEntries(qualityList())
         if (versions.size <= 1) {
-            showTransientHint("无多版本")
+            showTransientHint(getString(R.string.player_no_versions))
             return
         }
-        val title = "多版本"
+        val title = getString(R.string.player_version_picker_title)
         if (panelVisible && panelStack.size == 1 && panelStack.lastOrNull()?.title == title) {
             hidePanel()
             return
@@ -4002,7 +4027,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (episodes.isEmpty()) {
             panelContent.addView(
                 TextView(this).apply {
-                    text = "无选集信息"
+                    text = getString(R.string.player_no_episode_info)
                     setTextColor(TEXT_DIM)
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
                     gravity = Gravity.CENTER
@@ -4335,7 +4360,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     /** 「多版本」切换按钮：展开/收起共用同一文案「多版本」（不再切成「收起」）。 */
     private fun buildVersionToggleButton(expanded: Boolean, guid: String): View {
         return TextView(this).apply {
-            text = "多版本"
+            text = getString(R.string.player_version_picker_title)
             setTextColor(ACCENT)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             setPadding(dp(10), dp(4), dp(10), dp(4))
@@ -4829,14 +4854,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 trailing = if (danmakuEnabled) "已开启" else "已关闭",
                 selected = danmakuEnabled,
             ) {
-                pushPanel(PanelPage("弹幕设置") { buildDanmakuSettingsPage() })
+                pushPanel(PanelPage(getString(R.string.player_action_danmaku_settings)) { buildDanmakuSettingsPage() })
             },
         )
         addPanelRow(panelSectionHeader("更多"))
         when (episodeEntryMode()) {
             0 -> addPanelRow(
                 panelPrimaryTile(
-                    title = "选集",
+                    title = getString(R.string.player_episode_picker_title),
                     subtitle = "在当前季内切换剧集",
                     trailing = episodePanelTitle(),
                 ) {
@@ -4847,11 +4872,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 val versions = nativePanelEpisodeVersionEntries(qualityList())
                 addPanelRow(
                     panelPrimaryTile(
-                        title = "多版本",
+                        title = getString(R.string.player_version_picker_title),
                         subtitle = "切换该视频的不同版本",
                         trailing = "${versions.size} 个版本",
                     ) {
-                        pushPanel(PanelPage("多版本") { buildVersionPanelContent(versions) })
+                        pushPanel(PanelPage(getString(R.string.player_version_picker_title)) { buildVersionPanelContent(versions) })
                     },
                 )
             }
@@ -4870,7 +4895,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun showAudioPanel() {
         val tracks = trackList("audioTracks")
         if (tracks.isEmpty()) {
-            showTransientHint("无可用音轨")
+            showTransientHint(getString(R.string.player_no_audio_tracks))
             return
         }
         val current = selectedAudioGuidForPanel()
@@ -4896,7 +4921,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         clearNextEpisodePreload()
         if (isServerManagedPlayback()) {
             hidePanel()
-            requestServerReload(guid, selectedSubtitleGuidForPanel(), null, "正在切换音轨...")
+            requestServerReload(
+                        guid,
+                        selectedSubtitleGuidForPanel(),
+                        null,
+                        getString(R.string.player_switch_audio_loading),
+                    )
         } else {
             playerSurface.setAudioTrack(index, guid)
             hidePanel()
@@ -5044,7 +5074,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         // 不能丢给 requestServerReload（飞牛侧不认识 local: guid）。
         if (isServerManagedPlayback() && !isLocalSubtitleGuid(guid)) {
             hidePanel()
-            requestServerReload(selectedAudioGuidForPanel(), guid, null, "正在切换字幕...")
+            requestServerReload(
+                selectedAudioGuidForPanel(),
+                guid,
+                null,
+                getString(R.string.player_switch_subtitle_loading),
+            )
         } else {
             applySubtitleByGuid(guid)
             hidePanel()
@@ -5586,18 +5621,18 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun showAudioPicker() {
         val tracks = trackList("audioTracks")
         if (tracks.isEmpty()) {
-            showTransientHint("无可用音轨")
+            showTransientHint(getString(R.string.player_no_audio_tracks))
             scheduleControlsAutoHide()
             return
         }
-        showTrackPicker("音轨", tracks, includeOff = false) { index, guid ->
+        showTrackPicker(getString(R.string.player_audio_track_picker_title), tracks, includeOff = false) { index, guid ->
             playerSurface.setAudioTrack(index, guid)
         }
     }
 
     private fun showSubtitlePicker() {
         val tracks = trackList("subtitleTracks")
-        showTrackPicker("字幕", tracks, includeOff = true) { index, guid ->
+        showTrackPicker(getString(R.string.player_subtitle_track_picker_title), tracks, includeOff = true) { index, guid ->
             playerSurface.setSubtitleTrack(index, guid)
         }
     }
@@ -5617,7 +5652,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val labels = ArrayList<String>()
         val actions = ArrayList<Pair<Int?, String?>>()
         if (includeOff) {
-            labels.add("关闭")
+            labels.add(getString(R.string.player_track_off))
             actions.add(null to null)
         }
         // 用列表 1-based 位置作为 mpv SID（mpv 音轨/字幕 SID 从 1 开始）。
@@ -5653,7 +5688,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun showEpisodePicker() {
         val episodes = episodeList()
         if (episodes.isEmpty()) {
-            showTransientHint("无选集信息")
+            showTransientHint(getString(R.string.player_no_episode_info))
             scheduleControlsAutoHide()
             return
         }
@@ -5664,7 +5699,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
         cancelControlsAutoHide()
         AlertDialog.Builder(this)
-            .setTitle("选集")
+            .setTitle(getString(R.string.player_episode_picker_title))
             .setSingleChoiceItems(labels, checked) { dialog, which ->
                 dialog.dismiss()
                 val guid = episodes[which]["itemGuid"]?.toString().orEmpty()
@@ -5718,7 +5753,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             "NativePlayerActivity",
             "[DANMAKU][NATIVE_SWITCH] dispatch resolvePlayback target=$itemGuid args=${episodeResolveArgs(itemGuid)}",
         )
-        showNetworkLoadingHint("正在切换…")
+        showNetworkLoadingHint(getString(R.string.player_switching))
         cancelControlsAutoHide()
         NativePlayerReverseBridge.dispatch(
             method = "resolvePlayback",
@@ -5736,7 +5771,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 Log.d("NativePlayerActivity", "[DANMAKU][NATIVE_SWITCH] resolvePlayback error target=$itemGuid")
                 runOnUiThread {
                     episodeSwitchInFlight = false
-                    showTransientHint("切换失败，请返回重试")
+                    showTransientHint(getString(R.string.player_switch_failed_retry))
                     scheduleControlsAutoHide()
                 }
             },
@@ -5748,15 +5783,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
      * 保留当前播放位置。不能走 reloadServerSession——那条只在当前流的 qualities 里按转码档切，
      * 切到别版本会播转码且沿用旧版本字幕。
      */
-    private fun requestVersion(mediaGuid: String, hint: String = "正在切换版本…") {
+    private fun requestVersion(mediaGuid: String, hint: String? = null) {
         val itemGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
         if (itemGuid.isEmpty() || mediaGuid.isEmpty()) {
-            showTransientHint("无法切换版本")
+            showTransientHint(getString(R.string.player_switch_version_unavailable))
             scheduleControlsAutoHide()
             return
         }
         expandedEpisodeVersionGuid = null
-        showNetworkLoadingHint(hint)
+        showNetworkLoadingHint(hint ?: getString(R.string.player_switch_version_loading))
         cancelControlsAutoHide()
         NativePlayerReverseBridge.dispatch(
             method = "resolvePlayback",
@@ -5769,7 +5804,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             onError = {
                 runOnUiThread {
                     episodeSwitchInFlight = false
-                    showTransientHint("切换失败，请返回重试")
+                    showTransientHint(getString(R.string.player_switch_failed_retry))
                     scheduleControlsAutoHide()
                 }
             },
@@ -5788,7 +5823,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (loadArgs == null || loadArgs["url"]?.toString().isNullOrEmpty()) {
             Log.d("NativePlayerActivity", "[DANMAKU][NATIVE_SWITCH] applyEpisodeResult invalidLoadArgs")
             episodeSwitchInFlight = false
-            showTransientHint("切换失败，请返回重试")
+            showTransientHint(getString(R.string.player_switch_failed_retry))
             scheduleControlsAutoHide()
             return
         }
@@ -5825,7 +5860,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun showQualityPicker() {
         val qualities = qualityList()
         if (qualities.isEmpty()) {
-            showTransientHint("无可用画质")
+            showTransientHint(getString(R.string.player_no_quality))
             scheduleControlsAutoHide()
             return
         }
@@ -5837,7 +5872,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
         cancelControlsAutoHide()
         AlertDialog.Builder(this)
-            .setTitle("画质")
+            .setTitle(getString(R.string.player_quality_picker_title))
             .setSingleChoiceItems(labels, checked) { dialog, which ->
                 dialog.dismiss()
                 requestQuality(which)
@@ -5851,23 +5886,23 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     /** 当前画质入口按钮文案：原画态显示「原画」，否则「<分辨率>P」。 */
     private fun currentQualityLabel(): String {
-        if (loadArgsMap["playbackMode"]?.toString() == "originalQuality") return "原画"
+        if (loadArgsMap["playbackMode"]?.toString() == "originalQuality") return getString(R.string.player_original_quality)
         val resNum = qualityResNum(mapOf("resolution" to loadArgsMap["resolution"]))
-        return if (resNum > 0) "${resNum}P" else "原画"
+        return if (resNum > 0) "${resNum}P" else getString(R.string.player_original_quality)
     }
 
     private fun qualityLabel(quality: Map<String, Any?>): String {
         val resolution = quality["resolution"]?.toString()?.trim().orEmpty()
         val isDefault = quality["isDefault"] == true
-        val base = resolution.ifEmpty { "画质" }
-        return if (isDefault) "$base  (默认)" else base
+        val base = resolution.ifEmpty { getString(R.string.player_quality_generic) }
+        return if (isDefault) getString(R.string.player_quality_default_suffix, base) else base
     }
 
     /** 切画质：重解析当前集的指定档，带当前播放位置保持进度，原地换源。 */
-    private fun requestQuality(qualityIndex: Int, hint: String = "正在切换画质…") {
+    private fun requestQuality(qualityIndex: Int, hint: String? = null) {
         val itemGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
         if (itemGuid.isEmpty()) {
-            showTransientHint("无法切换画质")
+            showTransientHint(getString(R.string.player_switch_quality_unavailable))
             scheduleControlsAutoHide()
             return
         }
@@ -5885,7 +5920,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             selectedAudioGuid,
             selectedSubtitleGuid,
             qualityIndex,
-            hint,
+            hint ?: getString(R.string.player_switch_quality_loading),
         )
     }
 
@@ -5910,7 +5945,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             .getOrNull()
             ?.takeIf { it.isNotEmpty() }
         if (loadArgsJson == null) {
-            showTransientHint("无法切换")
+            showTransientHint(getString(R.string.player_switch_unavailable))
             scheduleControlsAutoHide()
             return
         }
@@ -5929,7 +5964,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             onResult = { result -> runOnUiThread { applyEpisodeResult(result) } },
             onError = {
                 runOnUiThread {
-                    showTransientHint("切换失败，请返回重试")
+                    showTransientHint(getString(R.string.player_switch_failed_retry))
                     scheduleControlsAutoHide()
                 }
             },
@@ -6628,7 +6663,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         addPanelRow(
             panelCardGroup(
                 panelNavRow("弹幕设置") {
-                    pushPanel(PanelPage("弹幕设置") { buildDanmakuSettingsPage() })
+                    pushPanel(PanelPage(getString(R.string.player_action_danmaku_settings)) { buildDanmakuSettingsPage() })
                 },
                 panelNavRow("弹幕源") {
                     pushPanel(PanelPage("弹幕源") { buildDanmakuSourcePage() })
@@ -8885,7 +8920,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     override fun onMediaNext() {
-        if (hasNextEpisode()) playNextEpisode() else showTransientHint("已经是最后一集了")
+        if (hasNextEpisode()) playNextEpisode() else showTransientHint(getString(R.string.player_last_episode))
     }
 
     // ---- MediaSession 前台服务推送 ----
