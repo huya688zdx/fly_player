@@ -23,6 +23,57 @@
     <!-- ========== player_：原生播放器（NativePlayerActivity 等） ========== -->
     <string name="player_episode_switch_to_list">切换为列表</string>
     <string name="player_episode_switch_to_grid">切换为宫格</string>
+    <string name="player_action_pip">小窗</string>
+    <string name="player_action_listen_video">听视频</string>
+    <string name="player_action_screenshot">截图</string>
+    <string name="player_action_danmaku_settings">弹幕设置</string>
+    <string name="player_action_more">更多</string>
+    <string name="player_action_reload">重载</string>
+    <string name="player_split_start_failed">分屏启动失败</string>
+    <string name="player_last_episode">已经是最后一集了</string>
+    <string name="player_danmaku_enabled">弹幕已开启</string>
+    <string name="player_danmaku_disabled">弹幕已关闭</string>
+    <string name="player_subtitle_load_failed">字幕加载失败</string>
+    <string name="player_subtitle_loading">正在加载字幕...</string>
+    <string name="player_switch_subtitle_loading">正在切换字幕...</string>
+    <string name="player_switch_audio_loading">正在切换音轨...</string>
+    <string name="player_pip_start_failed">小窗启动失败</string>
+    <string name="player_listen_mode_enabled">已开启听视频模式</string>
+    <string name="player_listen_mode_disabled">已关闭听视频模式</string>
+    <string name="player_listening">正在收听</string>
+    <string name="player_screenshot_saved">已保存截图</string>
+    <string name="player_screenshot_choose_directory">请先在设置里选择截图目录</string>
+    <string name="player_screenshot_failed">截图失败</string>
+    <string name="player_ab_start_set">已设起点 A %1$s</string>
+    <string name="player_ab_end_must_after_start">终点需晚于起点 A</string>
+    <string name="player_ab_loop_range">AB 循环 %1$s - %2$s</string>
+    <string name="player_ab_loop_disabled">已关闭 AB 循环</string>
+    <string name="player_reload_unavailable">无法重载</string>
+    <string name="player_reloading">重新载入中…</string>
+    <string name="player_season_number">第%1$d季</string>
+    <string name="player_episode_number">第%1$d集</string>
+    <string name="player_season_picker">选季</string>
+    <string name="player_season_generic">季</string>
+    <string name="player_no_episode_info">无选集信息</string>
+    <string name="player_episode_picker_title">选集</string>
+    <string name="player_version_picker_title">多版本</string>
+    <string name="player_no_versions">无多版本</string>
+    <string name="player_no_audio_tracks">无可用音轨</string>
+    <string name="player_audio_track_picker_title">音轨</string>
+    <string name="player_subtitle_track_picker_title">字幕</string>
+    <string name="player_track_off">关闭</string>
+    <string name="player_switching">正在切换…</string>
+    <string name="player_switch_failed_retry">切换失败，请返回重试</string>
+    <string name="player_switch_version_loading">正在切换版本…</string>
+    <string name="player_switch_version_unavailable">无法切换版本</string>
+    <string name="player_quality_picker_title">画质</string>
+    <string name="player_no_quality">无可用画质</string>
+    <string name="player_original_quality">原画</string>
+    <string name="player_quality_generic">画质</string>
+    <string name="player_quality_default_suffix">%1$s  (默认)</string>
+    <string name="player_switch_quality_loading">正在切换画质…</string>
+    <string name="player_switch_quality_unavailable">无法切换画质</string>
+    <string name="player_switch_unavailable">无法切换</string>
 
     <!-- ↓↓↓ Codex 在此之后按模块分组，继续追加其余文案 key ↓↓↓ -->
 
