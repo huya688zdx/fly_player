@@ -75,6 +75,17 @@
     <string name="player_switch_quality_unavailable">无法切换画质</string>
     <string name="player_switch_unavailable">无法切换</string>
 
+    <!-- ========== mpv_：mpv 输出/诊断 ========== -->
+    <string name="mpv_spatializer_unsupported">不支持（系统版本过低）</string>
+    <string name="mpv_spatializer_hardware_unavailable">硬件不可用</string>
+    <string name="mpv_spatializer_disabled">可用但未开启（系统设置里打开「空间音频」）</string>
+    <string name="mpv_spatializer_enabled">已开启 · %1$s</string>
+    <string name="mpv_spatializer_enabled_not_virtualizable">已开启但当前内容不可虚拟化</string>
+    <string name="mpv_spatializer_level_none">无</string>
+    <string name="mpv_spatializer_level_multichannel">多声道</string>
+    <string name="mpv_spatializer_level_bed_objects">声床+对象(Atmos)</string>
+    <string name="mpv_spatializer_level_unknown">未知(%1$d)</string>
+
     <!-- ↓↓↓ Codex 在此之后按模块分组，继续追加其余文案 key ↓↓↓ -->
 
 </resources>
