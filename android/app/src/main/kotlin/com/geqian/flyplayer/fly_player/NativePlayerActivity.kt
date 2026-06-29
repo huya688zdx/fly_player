@@ -6641,6 +6641,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 panelNavRow("播放行为", playbackBehaviorSummary()) {
                     pushPanel(PanelPage("播放行为") { buildPlaybackBehaviorSettingsPage() })
                 },
+                panelNavRow("片头片尾跳过") {
+                    pushPanel(PanelPage("片头片尾跳过") { buildIntroOutroPage() })
+                },
             ),
         )
         if (chapterList.isNotEmpty()) {
@@ -6654,9 +6657,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
         addPanelRow(
             panelCardGroup(
-                panelNavRow("片头片尾跳过") {
-                    pushPanel(PanelPage("片头片尾跳过") { buildIntroOutroPage() })
-                },
                 panelNavRow("书签") {
                     pushPanel(PanelPage("书签") { buildBookmarkPage() })
                 },
@@ -6673,7 +6673,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 },
             ),
         )
-        addPanelRow(panelCardGroup(panelActionRow("切换到 Flutter 播放器") { switchToFlutterPlayer() }))
     }
 
     private fun playbackBehaviorSummary(): String {
@@ -7274,15 +7273,20 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     playerSurface.setDisplayAspectRatioMode(aspectMode); renderTopPanel()
                 },
                 panelSegment("划走自动小窗", listOf("开", "关"), if (pipAutoEnter) 0 else 1) { i ->
-                    pipAutoEnter = i == 0; persistVideoMisc()
+                    pipAutoEnter = i == 0
+                    persistVideoMisc()
+                    renderTopPanel()
                 },
                 panelSegment("熄屏继续播放音频", listOf("开", "关"), if (keepAudioWhenScreenOff) 0 else 1) { i ->
                     keepAudioWhenScreenOff = i == 0
                     playerSurface.setKeepAudioWhenScreenOff(keepAudioWhenScreenOff)
                     persistVideoMisc()
+                    renderTopPanel()
                 },
                 panelSegment("匹配刷新率", listOf("开", "关"), if (refreshRateSwitch) 0 else 1) { i ->
-                    refreshRateSwitch = i == 0; persistVideoMisc()
+                    refreshRateSwitch = i == 0
+                    persistVideoMisc()
+                    renderTopPanel()
                 },
             ),
         )
