@@ -82,8 +82,7 @@ class ItemPlaybackLauncher {
         // Emby 绑完整回调集（进度/选集/外挂字幕），由 NativePlaybackReentry 按后端统一接线。
         // 单条目无选集静态兜底（剧集的选集数据由后端按 loadArgs 的 seriesGuid 派生）；
         // onResolvePlayback 按后端走各自重解析（飞牛带本地下载+弹幕，Emby 直链重解析）。
-        final danmakuSettings = await const DanmakuSettingsStore().load();
-        if (danmakuSettings.useNativeRenderer) {
+        if (NativePlayerBridge.preferNativePlayerShell) {
           NativePlaybackReentry.bind(
             backend: backend,
             nas: nas,
