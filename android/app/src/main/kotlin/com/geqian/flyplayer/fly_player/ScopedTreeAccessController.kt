@@ -169,9 +169,9 @@ class ScopedTreeAccessController(
         val displayName =
             documentInfo.name.ifBlank {
                 if (documentId == DocumentsContract.getTreeDocumentId(treeUri)) {
-                    "已授权文件夹"
+                    context.getString(R.string.storage_authorized_folder)
                 } else {
-                    "文件夹"
+                    context.getString(R.string.storage_folder)
                 }
             }
         return mapOf("id" to documentId, "name" to displayName)
