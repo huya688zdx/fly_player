@@ -20,6 +20,8 @@ import 'native_danmaku_prefetch.dart';
 class NativePlayerBridge {
   const NativePlayerBridge._();
 
+  static const bool preferNativePlayerShell = true;
+
   static const MethodChannel _channel = MethodChannel(
     'fly_player/native_player',
   );
@@ -456,7 +458,7 @@ class NativePlayerBridge {
     NasProvider? nas,
   }) async {
     final settings = await const DanmakuSettingsStore().load();
-    if (!settings.useNativeRenderer) return false;
+    if (!preferNativePlayerShell) return false;
     // 弹幕：详情页 engine 仍存活时，用 source 的媒体上下文做一次 DanDanPlay 自动匹配+
     // 拉取，序列化落临时文件，随 Intent 传给原生壳。失败则无弹幕、不阻塞播放。
     var resolvedDanmakuFile = danmakuFilePath;

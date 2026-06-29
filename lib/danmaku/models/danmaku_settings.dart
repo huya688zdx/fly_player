@@ -180,7 +180,7 @@ class DanmakuSettings {
     required this.targetFrameRateHz,
     required this.aiSampleIntervalMs,
     required this.aiInputWidth,
-    this.useNativeRenderer = false,
+    this.useNativeRenderer = true,
   });
 
   static const DanmakuSettings defaults = DanmakuSettings(
@@ -340,7 +340,9 @@ class DanmakuSettings {
         defaults.aiSampleIntervalMs,
       ).clamp(minAiSampleIntervalMs, maxAiSampleIntervalMs),
       aiInputWidth: _readAiInputWidth(json),
-      useNativeRenderer: json['useNativeRenderer'] == true,
+      useNativeRenderer: json['useNativeRenderer'] is bool
+          ? json['useNativeRenderer'] as bool
+          : defaults.useNativeRenderer,
     );
   }
 
