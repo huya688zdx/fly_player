@@ -818,7 +818,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private val centerHintWatchdog = Runnable { hideCenterHint() }
     private val weakNetEscalate = Runnable {
         if (this::centerHint.isInitialized && centerHint.visibility == View.VISIBLE) {
-            centerHint.text = "网络较慢，仍在加载…"
+            centerHint.text = getString(R.string.player_weak_network_loading)
         }
     }
     // 手势状态：0 无 / 1 横拖 seek / 2 左侧亮度 / 3 右侧音量
@@ -1649,11 +1649,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val caps = cm?.activeNetwork?.let { cm.getNetworkCapabilities(it) }
         val hasInternet = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
         networkLabel.text = when {
-            caps == null || !hasInternet -> "无网络"
+            caps == null || !hasInternet -> getString(R.string.player_network_none)
             caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "WiFi"
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "移动网络"
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "以太网"
-            else -> "已连接"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> getString(R.string.player_network_cellular)
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> getString(R.string.player_network_ethernet)
+            else -> getString(R.string.player_network_connected)
         }
     }
 
@@ -8505,12 +8505,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             // L1 起就关掉 AI 遮罩(MNN 分割重负载)；幂等,跳级(如 0→2)也覆盖。
             if (level >= 1) disableOcclusionForPerformance()
             when (level) {
-                1 -> showTransientHint("检测到持续卡顿，已自动降低画质、关闭 AI 遮罩以保流畅")
+                1 -> showTransientHint(getString(R.string.player_performance_fallback_video))
                 2 -> {
                     capDanmakuForPerformance()
-                    showTransientHint("卡顿仍持续，已临时降低弹幕密度")
+                    showTransientHint(getString(R.string.player_performance_fallback_danmaku))
                 }
-                3 -> showTransientHint("卡顿仍未缓解，已临时关闭 HDR 直通（转 SDR）以保流畅")
+                3 -> showTransientHint(getString(R.string.player_performance_fallback_hdr))
             }
         } else if (level == 0) {
             restoreDanmakuAfterPerformance()
@@ -8585,11 +8585,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
         // statusLabel 始终可见，显隐交由父层 loadingSpinner 控制（与原版一致）；文本为空即无字。
         statusLabel.text = when {
-            state.error != null -> "错误：${state.error}"
+            state.error != null -> getString(R.string.player_status_error, state.error)
             !state.nativeLibLoaded -> state.statusText
             state.buffering -> {
                 val speed = formatSpeed(state.networkSpeedBytesPerSecond)
-                if (speed.isNotEmpty()) "缓冲中…  $speed" else "缓冲中…"
+                if (speed.isNotEmpty()) getString(R.string.player_status_buffering_with_speed, speed) else getString(R.string.player_status_buffering)
             }
             else -> ""
         }
@@ -8681,7 +8681,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             speedBoosting = true
             playerSurface.setSpeed(2.0)
             pushDanmakuPlaybackSpeed(2.0)
-            showCenterHint("2x 倍速")
+            showCenterHint(getString(R.string.player_speed_2x_hint))
         }
 
         override fun onScroll(
@@ -8736,13 +8736,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 val lp = window.attributes
                 lp.screenBrightness = next
                 window.attributes = lp
-                showCenterHint("亮度 ${(next * 100).toInt()}%")
+                showCenterHint(getString(R.string.player_brightness_percent, (next * 100).toInt()))
             }
             3 -> {
                 val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
                 val next = (gestureVolumeStart - dy / h * max).toInt().coerceIn(0, max)
                 audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0)
-                showCenterHint("音量 ${next * 100 / max}%")
+                showCenterHint(getString(R.string.player_volume_percent, next * 100 / max))
             }
         }
     }
@@ -8980,25 +8980,25 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val paused = playerSurface.state.paused
         val rewind = RemoteAction(
             Icon.createWithResource(this, android.R.drawable.ic_media_rew),
-            "后退", "后退10秒",
+            getString(R.string.player_media_action_rewind), getString(R.string.player_media_action_rewind_10s),
             pipCommandIntent(NativeMediaCommandCoordinator.ACTION_REWIND, 41),
         )
         val playPause = if (paused) {
             RemoteAction(
                 Icon.createWithResource(this, android.R.drawable.ic_media_play),
-                "播放", "播放",
+                getString(R.string.notification_action_play), getString(R.string.notification_action_play),
                 pipCommandIntent(NativeMediaCommandCoordinator.ACTION_PLAY, 42),
             )
         } else {
             RemoteAction(
                 Icon.createWithResource(this, android.R.drawable.ic_media_pause),
-                "暂停", "暂停",
+                getString(R.string.notification_action_pause), getString(R.string.notification_action_pause),
                 pipCommandIntent(NativeMediaCommandCoordinator.ACTION_PAUSE, 43),
             )
         }
         val forward = RemoteAction(
             Icon.createWithResource(this, android.R.drawable.ic_media_ff),
-            "快进", "快进10秒",
+            getString(R.string.player_media_action_forward), getString(R.string.player_media_action_forward_10s),
             pipCommandIntent(NativeMediaCommandCoordinator.ACTION_FORWARD, 44),
         )
         return listOf(rewind, playPause, forward)
@@ -9076,7 +9076,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
         if (isLocked) {
             setControlsVisible(true)
-            showTransientHint("已锁定，点按锁图标解锁")
+            showTransientHint(getString(R.string.player_locked_unlock_hint))
             return true
         }
         return false
