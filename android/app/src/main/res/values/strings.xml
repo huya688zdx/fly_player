@@ -85,6 +85,9 @@
     <string name="mpv_spatializer_level_multichannel">多声道</string>
     <string name="mpv_spatializer_level_bed_objects">声床+对象(Atmos)</string>
     <string name="mpv_spatializer_level_unknown">未知(%1$d)</string>
+    <string name="mpv_player_released">播放器已释放</string>
+    <string name="mpv_audio_passthrough_fallback">直通输出不被支持，已切换为解码播放</string>
+    <string name="mpv_fallback_reason_color">色彩→%1$s</string>
 
     <!-- ========== storage_：系统文件夹/授权目录 ========== -->
     <string name="storage_authorized_folder">已授权文件夹</string>
@@ -95,6 +98,24 @@
     <string name="screenshot_custom_directory">截图自定义目录</string>
     <string name="screenshot_app_pictures_directory">应用目录/Pictures/FlyPlayer</string>
     <string name="screenshot_app_dcim_directory">应用目录/DCIM/FlyPlayer</string>
+
+    <!-- ========== playback_cache_：离线播放缓存文件名/条目描述 ========== -->
+    <string name="playback_cache_file_series_special_episode">%1$s·特别篇·第%2$d集</string>
+    <string name="playback_cache_file_series_season_episode">%1$s·第%2$d季·第%3$d集</string>
+    <string name="playback_cache_file_series_episode">%1$s·第%2$d集</string>
+    <string name="playback_cache_file_series_season">%1$s·第%2$d季</string>
+    <string name="playback_cache_file_series_special">%1$s·特别篇</string>
+    <string name="playback_cache_special_episode">特别篇</string>
+    <string name="playback_cache_season_number">第%1$d季</string>
+    <string name="playback_cache_episode_number">第%1$d集</string>
+    <string name="playback_cache_entry_separator"> · </string>
+
+    <!-- ========== capture_：mpv 截图文件名标签 ========== -->
+    <string name="capture_special_episode">特别篇</string>
+    <string name="capture_season_number">第%1$d季</string>
+    <string name="capture_episode_number">第%1$d集</string>
+    <string name="capture_movie">电影</string>
+    <string name="capture_include_subtitles">含字幕</string>
 
     <!-- ↓↓↓ Codex 在此之后按模块分组，继续追加其余文案 key ↓↓↓ -->
 
