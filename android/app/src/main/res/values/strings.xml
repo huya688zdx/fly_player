@@ -93,6 +93,20 @@
     <string name="player_media_action_forward">快进</string>
     <string name="player_media_action_forward_10s">快进10秒</string>
     <string name="player_locked_unlock_hint">已锁定，点按锁图标解锁</string>
+    <string name="player_coming_soon_format">「%1$s」即将支持</string>
+    <string name="player_versions_count">%1$d 个版本</string>
+    <string name="player_switch_quality_weak_network">网络较慢，正在切换到 %1$s…</string>
+    <string name="player_resume_from_position">已从 %1$s 继续播放</string>
+    <string name="player_auto_next_countdown">%1$d秒后播放下一集</string>
+    <string name="player_weak_network_recommend_quality">网络较慢，建议切换到 %1$s</string>
+    <string name="player_chapter_number">章节 %1$d</string>
+    <string name="player_window_mode_suffix"> · 窗口 %1$s</string>
+    <string name="player_decode_dropped_suffix"> (解码 %1$d)</string>
+    <string name="player_danmaku_count_suffix"> · %1$d 条</string>
+    <string name="player_dandan_episode_id">弹弹play #%1$s</string>
+    <string name="player_minutes_format">%1$d 分钟</string>
+    <string name="player_seconds_format">%1$d 秒</string>
+    <string name="player_bookmark_title">书签 %1$s</string>
 
     <!-- ========== mpv_：mpv 输出/诊断 ========== -->
     <string name="mpv_spatializer_unsupported">不支持（系统版本过低）</string>
