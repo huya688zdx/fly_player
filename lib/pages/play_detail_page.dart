@@ -2121,7 +2121,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         // 灰度：原生渲染器开启时走纯原生播放壳（无 Hybrid Composition，弹幕丝滑）。
         // 直接 launch + return，不触碰 _playerRouteActive/try-finally 状态机。
         final danmakuSettings = await const DanmakuSettingsStore().load();
-        if (danmakuSettings.useNativeRenderer) {
+        if (NativePlayerBridge.preferNativePlayerShell) {
           if (!mounted) return;
           // 反向通道：电影/单视频用 ItemPlaybackLauncher 重解析画质 + 续播回写（无选集）。
           // 本地外部视频无 NAS 上下文，resolver 自然返回 null/进度回写跳过，降级不影响播放。
