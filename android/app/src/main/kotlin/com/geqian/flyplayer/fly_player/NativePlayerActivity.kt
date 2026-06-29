@@ -2520,7 +2520,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 setTextColor(Color.WHITE)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
                 setShadowLayer(dp(4).toFloat(), 0f, dp(1).toFloat(), PANEL_BG)
-                text = "准备中…"
+                text = getString(R.string.player_text_0001)
                 gravity = Gravity.CENTER
             }
             addView(
@@ -2799,7 +2799,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         // "已下载" 标签 (如果适用)
         if (loadArgsMap["isDownloadedFile"] == true) {
             val chip = TextView(this).apply {
-                text = "已下载"
+                text = getString(R.string.player_text_0002)
                 setTextColor(Color.WHITE)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
                 includeFontPadding = false
@@ -2992,7 +2992,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
         // 弹幕开关 (对应截图底栏左侧图标)
         danmakuToggleButton = TextView(this).apply {
-            text = "弹幕"
+            text = getString(R.string.player_text_0008)
             setTextColor(if (danmakuEnabled) ACCENT else Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -3069,7 +3069,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         lockButton.setImageResource(
             if (isLocked) R.drawable.ic_player_lock else R.drawable.ic_player_lock_open,
         )
-        showTransientHint(if (isLocked) "屏幕已锁定" else "屏幕已解锁")
+        showTransientHint(if (isLocked) getString(R.string.player_text_0009) else getString(R.string.player_text_0010))
         setControlsVisible(true) // 切换后显示一下，方便看到变化
     }
 
@@ -4011,7 +4011,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (episodePanelLoading && episodePanelEpisodes.isEmpty()) {
             panelContent.addView(
                 TextView(this).apply {
-                    text = "加载中..."
+                    text = getString(R.string.player_text_0011)
                     setTextColor(TEXT_DIM)
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
                     gravity = Gravity.CENTER
@@ -4221,7 +4221,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             )
 
             val watched = (episode["watched"] as? Number)?.toInt() ?: 0
-            val statusStr = if (isSelected) "播放中.." else if (watched == 1) "已观看" else ""
+            val statusStr = if (isSelected) getString(R.string.player_text_0012) else if (watched == 1) getString(R.string.player_text_0013) else ""
             if (statusStr.isNotEmpty()) {
                 val statusText = TextView(this).apply {
                     text = statusStr
@@ -4498,7 +4498,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 hidePanel()
             }
         }
-        showUnifiedPanel("倍速", items)
+        showUnifiedPanel(getString(R.string.player_text_0014), items)
     }
 
     private fun showUnifiedPanel(title: String, items: List<PanelItem>, headerActionLabel: String? = null, headerActionOnClick: (() -> Unit)? = null) {
@@ -4765,15 +4765,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun showPlaybackControlPanel() {
-        togglePanel(PanelPage("播放控制") { buildPlaybackControlRootPage() })
+        togglePanel(PanelPage(getString(R.string.player_text_0015)) { buildPlaybackControlRootPage() })
     }
 
     private fun buildPlaybackControlRootPage() {
-        addPanelRow(panelSectionHeader("常用"))
+        addPanelRow(panelSectionHeader(getString(R.string.player_text_0016)))
         addPanelRow(
             panelPrimaryTile(
-                title = "字幕",
-                subtitle = "选择内嵌或外挂字幕，也可以关闭字幕",
+                title = getString(R.string.player_text_0017),
+                subtitle = getString(R.string.player_text_0018),
                 trailing = currentSubtitleSummary(),
             ) {
                 showSubtitlePanel()
@@ -4781,8 +4781,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         )
         addPanelRow(
             panelPrimaryTile(
-                title = "音轨",
-                subtitle = "切换多语言或多声道音轨",
+                title = getString(R.string.player_text_0019),
+                subtitle = getString(R.string.player_text_0020),
                 trailing = currentAudioSummary(),
             ) {
                 showAudioPanel()
@@ -4790,19 +4790,19 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         )
         addPanelRow(
             panelPrimaryTile(
-                title = "视频质量",
-                subtitle = "切换原画或服务端转码清晰度",
+                title = getString(R.string.player_text_0021),
+                subtitle = getString(R.string.player_text_0022),
                 trailing = currentQualitySummary(),
             ) {
-                pushPanel(PanelPage("视频质量") { buildQualityPanelPage() })
+                pushPanel(PanelPage(getString(R.string.player_text_0021)) { buildQualityPanelPage() })
             },
         )
         addPanelRow(
             panelCardGroup(
                 panelToggle(
-                    label = "自动旋转",
+                    label = getString(R.string.player_text_0023),
                     value = autoRotateEnabled,
-                    subtitle = "跟随系统方向自动切换",
+                    subtitle = getString(R.string.player_text_0024),
                 ) { enabled ->
                     autoRotateEnabled = enabled
                     persistPlaybackBehavior()
@@ -4810,12 +4810,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     renderTopPanel()
                 },
                 panelToggle(
-                    label = "自动连播",
+                    label = getString(R.string.player_text_0025),
                     value = autoPlayEnabled,
                     subtitle = if (autoPlayEnabled) {
-                        "当前集结束前 5 秒提示并自动进入下一集"
+                        getString(R.string.player_text_0026)
                     } else {
-                        "关闭后播放完成停留当前集"
+                        getString(R.string.player_text_0027)
                     },
                 ) { enabled ->
                     autoPlayEnabled = enabled
@@ -4827,16 +4827,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     renderTopPanel()
                 },
                 panelToggle(
-                    label = "下一级预加载",
+                    label = getString(R.string.player_text_0028),
                     value = nativePanelCanPreloadNextEpisode(
                         autoPlayEnabled,
                         nextEpisodePreloadEnabled,
                     ),
                     subtitle = if (autoPlayEnabled) {
-                        if (nextEpisodePreloadEnabled) "提前准备下一集，减少切集等待"
-                        else "关闭后保持原本的自动连播切集方式"
+                        if (nextEpisodePreloadEnabled) getString(R.string.player_text_0029)
+                        else getString(R.string.player_text_0030)
                     } else {
-                        "需先开启自动连播"
+                        getString(R.string.player_text_0031)
                     },
                     enabled = autoPlayEnabled,
                 ) { enabled ->
@@ -4849,20 +4849,20 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         )
         addPanelRow(
             panelPrimaryTile(
-                title = "弹幕",
-                subtitle = "显示开关、透明度、字号与 AI 遮挡",
-                trailing = if (danmakuEnabled) "已开启" else "已关闭",
+                title = getString(R.string.player_text_0008),
+                subtitle = getString(R.string.player_text_0032),
+                trailing = if (danmakuEnabled) getString(R.string.player_text_0033) else getString(R.string.player_text_0034),
                 selected = danmakuEnabled,
             ) {
                 pushPanel(PanelPage(getString(R.string.player_action_danmaku_settings)) { buildDanmakuSettingsPage() })
             },
         )
-        addPanelRow(panelSectionHeader("更多"))
+        addPanelRow(panelSectionHeader(getString(R.string.player_text_0007)))
         when (episodeEntryMode()) {
             0 -> addPanelRow(
                 panelPrimaryTile(
                     title = getString(R.string.player_episode_picker_title),
-                    subtitle = "在当前季内切换剧集",
+                    subtitle = getString(R.string.player_text_0035),
                     trailing = episodePanelTitle(),
                 ) {
                     pushPanel(PanelPage(episodePanelTitle()) { buildEpisodePanelContent() })
@@ -4873,7 +4873,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 addPanelRow(
                     panelPrimaryTile(
                         title = getString(R.string.player_version_picker_title),
-                        subtitle = "切换该视频的不同版本",
+                        subtitle = getString(R.string.player_text_0036),
                         trailing = "${versions.size} 个版本",
                     ) {
                         pushPanel(PanelPage(getString(R.string.player_version_picker_title)) { buildVersionPanelContent(versions) })
@@ -4884,10 +4884,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
         addPanelRow(
             panelPrimaryTile(
-                title = "高级设置",
-                subtitle = "画面、字幕样式、音频、解码和信息",
+                title = getString(R.string.player_text_0037),
+                subtitle = getString(R.string.player_text_0038),
             ) {
-                pushPanel(PanelPage("高级设置") { buildSettingsRoot() })
+                pushPanel(PanelPage(getString(R.string.player_text_0037)) { buildSettingsRoot() })
             },
         )
     }
@@ -4910,8 +4910,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             }
         }
         // 顶部「调节」入口 → 音频延迟 / 均衡器页（对齐原版 showUnifiedPanel）。
-        showUnifiedPanel("音轨", items, "调节") {
-            pushPanel(PanelPage("音频调节") { buildAudioPage() })
+        showUnifiedPanel(getString(R.string.player_text_0019), items, getString(R.string.player_text_0039)) {
+            pushPanel(PanelPage(getString(R.string.player_text_0040)) { buildAudioPage() })
         }
     }
 
@@ -4937,14 +4937,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun showSubtitlePanel() {
         togglePanel(
             PanelPage(
-                title = "字幕",
+                title = getString(R.string.player_text_0017),
                 build = { buildSubtitlePanelPage() },
                 headerActions = {
                     listOf(
-                        panelHeaderTextButton("⚙  调整") {
-                            pushPanel(PanelPage("字幕调节") { buildSubtitleStylePage() })
+                        panelHeaderTextButton(getString(R.string.player_text_0041)) {
+                            pushPanel(PanelPage(getString(R.string.player_text_0042)) { buildSubtitleStylePage() })
                         },
-                        panelHeaderTextButton("+  添加", filled = true) {
+                        panelHeaderTextButton(getString(R.string.player_text_0043), filled = true) {
                             pickLocalSubtitleFile()
                         },
                     )
@@ -4954,11 +4954,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun buildSubtitlePanelPage() {
-        addPanelRow(panelSectionHeader("字幕列表"))
+        addPanelRow(panelSectionHeader(getString(R.string.player_text_0044)))
         val rows = mutableListOf<View>()
         rows +=
             subtitlePanelTrackRow(
-                title = "关闭",
+                title = getString(R.string.player_text_0045),
                 subtitle = "",
                 selected = selectedSubtitleGuidForPanel().isEmpty(),
                 removable = false,
@@ -5057,7 +5057,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     background = itemRippleBackground()
                     setPadding(dp(8), dp(8), dp(8), dp(8))
                     setOnClickListener {
-                        if (onRemove != null) onRemove() else showTransientHint("字幕删除待接入")
+                        if (onRemove != null) onRemove() else showTransientHint(getString(R.string.player_text_0046))
                     }
                 }, LinearLayout.LayoutParams(dp(42), dp(42)).apply {
                     leftMargin = dp(10)
@@ -5101,26 +5101,26 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             )
         }
         runCatching { startActivityForResult(intent, REQUEST_PICK_SUBTITLE) }
-            .onFailure { showTransientHint("无法打开文件选择器") }
+            .onFailure { showTransientHint(getString(R.string.player_text_0047)) }
     }
 
     private fun importSubtitleFromUri(uri: android.net.Uri) {
         val name = queryDisplayName(uri) ?: "subtitle.srt"
         val ext = name.substringAfterLast('.', "").lowercase()
         if (ext !in SUBTITLE_IMPORT_EXTENSIONS) {
-            showTransientHint("仅支持 SRT / ASS / SSA / VTT / SUB 字幕")
+            showTransientHint(getString(R.string.player_text_0048))
             return
         }
         runCatching {
             contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        showCenterHint("导入字幕中…")
+        showCenterHint(getString(R.string.player_text_0049))
         Thread {
             val path = copyUriToCache(uri)
             runOnUiThread {
                 hideCenterHint()
                 if (path == null) {
-                    showTransientHint("读取文件失败")
+                    showTransientHint(getString(R.string.player_text_0050))
                     return@runOnUiThread
                 }
                 addLocalSubtitleTrack(label = name.substringBeforeLast('.', name), format = ext, path = path)
@@ -5149,7 +5149,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         selectedSubtitleGuid = guid
         playerSurface.setExternalSubtitleFile(path)
         renderTopPanel()
-        showTransientHint("字幕已加载")
+        showTransientHint(getString(R.string.player_text_0051))
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -5170,17 +5170,17 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             playerSurface.setSubtitleTrack(null, null)
         }
         renderTopPanel()
-        showTransientHint("已删除字幕")
+        showTransientHint(getString(R.string.player_text_0052))
     }
 
     private fun showQualityPanel() {
-        togglePanel(PanelPage("视频质量") { buildQualityPanelPage() })
+        togglePanel(PanelPage(getString(R.string.player_text_0021)) { buildQualityPanelPage() })
     }
 
     private fun buildQualityPanelPage() {
         val visible = visibleQualityEntries()
         if (visible.isEmpty()) {
-            addPanelRow(panelEmptyState("暂无可用画质"))
+            addPanelRow(panelEmptyState(getString(R.string.player_text_0053)))
             return
         }
         val currentRes = loadArgsMap["resolution"]?.toString()?.trim().orEmpty()
@@ -5258,7 +5258,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             gravity = Gravity.END or Gravity.CENTER_VERTICAL
             setPadding(0, 0, 0, dp(18))
             addView(TextView(context).apply {
-                text = "⚙  自定义"
+                text = getString(R.string.player_text_0054)
                 setTextColor(ACCENT)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -5271,7 +5271,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 isClickable = true
                 setOnClickListener {
                     customQualityTabTitle = ""
-                    pushPanel(PanelPage("视频质量") { buildCustomQualityPanelPage() })
+                    pushPanel(PanelPage(getString(R.string.player_text_0021)) { buildCustomQualityPanelPage() })
                 }
             })
         }
@@ -5280,7 +5280,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun buildCustomQualityPanelPage() {
         val visible = visibleQualityEntries()
         if (visible.isEmpty()) {
-            addPanelRow(panelEmptyState("暂无可用画质"))
+            addPanelRow(panelEmptyState(getString(R.string.player_text_0053)))
             return
         }
         // 自定义页按归一化档位分标签（4k 与 4K HDR 仍是两个独立 tab，但同档 SDR 变体合一），按真实档位降序（4k 最前）。
@@ -5289,7 +5289,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             compareByDescending<String> { nativePanelQualityTierRank(it) }.thenBy { it },
         )
         if (resTitles.isEmpty()) {
-            addPanelRow(panelEmptyState("暂无可用画质"))
+            addPanelRow(panelEmptyState(getString(R.string.player_text_0053)))
             return
         }
         val currentRes = loadArgsMap["resolution"]?.toString()?.trim().orEmpty()
@@ -5528,7 +5528,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     /** 「原画」浮标徽章：卡片右上角小圆角标签，不参与点击。 */
     private fun qualityOriginalBadge(): View {
         return TextView(this).apply {
-            text = "原画"
+            text = getString(R.string.player_text_0055)
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
             gravity = Gravity.CENTER
@@ -5574,7 +5574,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     /** 自定义页标题/标签：WxH→竖直P，文字标签（4k/4K HDR/1080P）保留原文以区分，纯数字补 P。 */
     private fun qualityDisplayTitle(quality: Map<String, Any?>): String {
         val resolution = quality["resolution"]?.toString()?.trim().orEmpty()
-        if (resolution.isEmpty()) return "画质"
+        if (resolution.isEmpty()) return getString(R.string.player_text_0056)
         val lower = resolution.lowercase()
         Regex("""(\d{2,5})\s*[x×]\s*(\d{2,5})""").find(lower)?.let { m ->
             val a = m.groupValues[1].toIntOrNull() ?: 0
@@ -5974,7 +5974,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun trackLabel(track: Map<String, Any?>): String {
         val title = track["title"]?.toString()?.trim().orEmpty()
         val language = nativePanelLanguageName(track["language"]?.toString().orEmpty())
-            .takeUnless { it == "未知" }
+            .takeUnless { it == getString(R.string.player_text_0057) }
             .orEmpty()
         return when {
             title.isNotEmpty() && language.isNotEmpty() -> "$title  ·  $language"
@@ -6018,7 +6018,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             setPadding(dp(14), dp(10), dp(14), dp(10))
             visibility = View.GONE
             addView(resumeText)
-            addView(promptButton("从头开始", ACCENT, false) {
+            addView(promptButton(getString(R.string.player_text_0058), ACCENT, false) {
                 playerSurface.seek(0); hideResumePrompt()
             })
             addView(promptButton("✕", TEXT_DIM, false) { hideResumePrompt() })
@@ -6042,7 +6042,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             setPadding(dp(14), dp(10), dp(14), dp(10))
             visibility = View.GONE
             addView(autoNextText)
-            addView(promptButton("取消", ACCENT, false) { cancelAutoNext(suppressCurrentItem = true) })
+            addView(promptButton(getString(R.string.player_text_0059), ACCENT, false) { cancelAutoNext(suppressCurrentItem = true) })
         }
         layer.addView(
             autoNextCard,
@@ -6073,14 +6073,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 addView(weakNetTitle)
                 addView(weakNetSubtitle)
             })
-            addView(promptButton("切换", ACCENT, false) {
+            addView(promptButton(getString(R.string.player_text_0060), ACCENT, false) {
                 weakNetSuggestedQualityIndex?.let { index ->
                     weakNetDismissed = true
                     weakNetCard.visibility = View.GONE
                     requestQuality(index, "网络较慢，正在切换到 $weakNetSuggestedQualityLabel…")
                 }
             })
-            addView(promptButton("忽略", TEXT_DIM, false) {
+            addView(promptButton(getString(R.string.player_text_0061), TEXT_DIM, false) {
                 weakNetDismissed = true; weakNetCard.visibility = View.GONE
             })
         }
@@ -6108,7 +6108,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             ellipsize = TextUtils.TruncateAt.END
             setPadding(0, dp(18), 0, 0)
         }
-        completedNextButton = promptButton("下一集", Color.WHITE, true) {
+        completedNextButton = promptButton(getString(R.string.player_text_0062), Color.WHITE, true) {
             clearCompletion()
             playNextEpisode()
         }
@@ -6128,13 +6128,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER
                 setPadding(0, dp(18), 0, 0)
-                addView(promptButton("重播", ACCENT, true) {
+                addView(promptButton(getString(R.string.player_text_0063), ACCENT, true) {
                     clearCompletion(); playerSurface.seek(0); playWithFocus()
                 })
                 addView(View(context), LinearLayout.LayoutParams(dp(12), 1))
                 addView(completedNextButton)
                 addView(View(context), LinearLayout.LayoutParams(dp(12), 1))
-                addView(promptButton("返回", Color.WHITE, true) { finish() })
+                addView(promptButton(getString(R.string.player_text_0064), Color.WHITE, true) { finish() })
             })
         }
         completedOverlay = FrameLayout(this).apply {
@@ -6167,7 +6167,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             setPadding(dp(14), dp(10), dp(14), dp(10))
             visibility = View.GONE
             addView(skipText)
-            addView(promptButton("跳过", ACCENT, false) { skipAction?.invoke() })
+            addView(promptButton(getString(R.string.player_text_0065), ACCENT, false) { skipAction?.invoke() })
         }
         layer.addView(
             skipCard,
@@ -6195,7 +6195,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         when {
             // 片头窗口：起播 2s（或片头章节起点）后到片头结束边界内
             !introSkipDismissed && pos in introShowFromMs until introEndMs -> {
-                skipText.text = "跳过片头"
+                skipText.text = getString(R.string.player_text_0066)
                 skipAction = {
                     introSkipDismissed = true
                     skipCard.visibility = View.GONE
@@ -6206,7 +6206,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             // 片尾窗口：进入片尾上限后（且不在最后几秒触发完成前）
             !outroSkipDismissed && outroStartMs > introEndMs && pos >= outroStartMs -> {
                 val hasNext = hasNextEpisode()
-                skipText.text = if (hasNext) "跳过片尾，播放下一集" else "跳过片尾"
+                skipText.text = if (hasNext) getString(R.string.player_text_0067) else getString(R.string.player_text_0068)
                 skipAction = {
                     outroSkipDismissed = true
                     skipCard.visibility = View.GONE
@@ -6530,11 +6530,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             setPadding(dp(14), dp(10), dp(14), dp(10))
             visibility = View.GONE
             addView(TextView(context).apply {
-                text = "已断网，正在播放本地内容"
+                text = getString(R.string.player_text_0069)
                 setTextColor(Color.WHITE)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             })
-            addView(promptButton("知道了", ACCENT, false) {
+            addView(promptButton(getString(R.string.player_text_0070), ACCENT, false) {
                 offlineBannerDismissed = true
                 offlineBanner?.visibility = View.GONE
             })
@@ -6633,70 +6633,70 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun showSettingsRoot() {
-        togglePanel(PanelPage("设置") { buildSettingsRoot() })
+        togglePanel(PanelPage(getString(R.string.player_text_0071)) { buildSettingsRoot() })
     }
 
     private fun buildSettingsRoot() {
         // 竖屏下底栏隐藏了音轨/字幕/画质入口，这里补一段直达，保证仍可访问。
         if (isPortrait()) {
-            addPanelRow(panelSectionHeader("音画"))
+            addPanelRow(panelSectionHeader(getString(R.string.player_text_0072)))
             addPanelRow(
                 panelCardGroup(
-                    panelNavRow("音轨") { showAudioPanel() },
-                    panelNavRow("字幕") { showSubtitlePanel() },
-                    panelNavRow("画质", currentQualityLabel()) { showQualityPanel() },
+                    panelNavRow(getString(R.string.player_text_0019)) { showAudioPanel() },
+                    panelNavRow(getString(R.string.player_text_0017)) { showSubtitlePanel() },
+                    panelNavRow(getString(R.string.player_text_0056), currentQualityLabel()) { showQualityPanel() },
                 ),
             )
         }
-        addPanelRow(panelSectionHeader("画面"))
+        addPanelRow(panelSectionHeader(getString(R.string.player_text_0073)))
         addPanelRow(
             panelCardGroup(
-                panelNavRow("画面调整") {
-                    pushPanel(PanelPage("画面调整") { buildVideoAdjustPage() })
+                panelNavRow(getString(R.string.player_text_0074)) {
+                    pushPanel(PanelPage(getString(R.string.player_text_0074)) { buildVideoAdjustPage() })
                 },
-                panelNavRow("画质与解码") {
-                    pushPanel(PanelPage("画质与解码") { buildAdvancedMpvPage() })
+                panelNavRow(getString(R.string.player_text_0075)) {
+                    pushPanel(PanelPage(getString(R.string.player_text_0075)) { buildAdvancedMpvPage() })
                 },
             ),
         )
-        addPanelRow(panelSectionHeader("弹幕"))
+        addPanelRow(panelSectionHeader(getString(R.string.player_text_0008)))
         addPanelRow(
             panelCardGroup(
-                panelNavRow("弹幕设置") {
+                panelNavRow(getString(R.string.player_text_0006)) {
                     pushPanel(PanelPage(getString(R.string.player_action_danmaku_settings)) { buildDanmakuSettingsPage() })
                 },
-                panelNavRow("弹幕源") {
-                    pushPanel(PanelPage("弹幕源") { buildDanmakuSourcePage() })
+                panelNavRow(getString(R.string.player_text_0076)) {
+                    pushPanel(PanelPage(getString(R.string.player_text_0076)) { buildDanmakuSourcePage() })
                 },
             ),
         )
-        addPanelRow(panelSectionHeader("播放"))
+        addPanelRow(panelSectionHeader(getString(R.string.player_text_0077)))
         addPanelRow(
             panelCardGroup(
-                panelNavRow("播放行为", playbackBehaviorSummary()) {
-                    pushPanel(PanelPage("播放行为") { buildPlaybackBehaviorSettingsPage() })
+                panelNavRow(getString(R.string.player_text_0078), playbackBehaviorSummary()) {
+                    pushPanel(PanelPage(getString(R.string.player_text_0078)) { buildPlaybackBehaviorSettingsPage() })
                 },
-                panelNavRow("片头片尾跳过") {
-                    pushPanel(PanelPage("片头片尾跳过") { buildIntroOutroPage() })
+                panelNavRow(getString(R.string.player_text_0081)) {
+                    pushPanel(PanelPage(getString(R.string.player_text_0081)) { buildIntroOutroPage() })
                 },
             ),
         )
         if (chapterList.isNotEmpty()) {
             addPanelRow(
                 panelCardGroup(
-                    panelNavRow("章节", chapterList.size.toString()) {
-                        pushPanel(PanelPage("章节") { buildChapterPage() })
+                    panelNavRow(getString(R.string.player_text_0082), chapterList.size.toString()) {
+                        pushPanel(PanelPage(getString(R.string.player_text_0082)) { buildChapterPage() })
                     },
                 ),
             )
         }
         addPanelRow(
             panelCardGroup(
-                panelNavRow("书签") {
-                    pushPanel(PanelPage("书签") { buildBookmarkPage() })
+                panelNavRow(getString(R.string.player_text_0084)) {
+                    pushPanel(PanelPage(getString(R.string.player_text_0084)) { buildBookmarkPage() })
                 },
-                panelNavRow("视频/轨道信息") {
-                    pushPanel(PanelPage("视频/轨道信息") { buildTrackInfoPage() })
+                panelNavRow(getString(R.string.player_text_0085)) {
+                    pushPanel(PanelPage(getString(R.string.player_text_0085)) { buildTrackInfoPage() })
                 },
             ),
         )
@@ -6718,9 +6718,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         addPanelRow(
             panelCardGroup(
                 panelToggle(
-                    label = "自动旋转",
+                    label = getString(R.string.player_text_0023),
                     value = autoRotateEnabled,
-                    subtitle = "跟随系统方向自动切换",
+                    subtitle = getString(R.string.player_text_0024),
                 ) { enabled ->
                     autoRotateEnabled = enabled
                     persistPlaybackBehavior()
@@ -6728,12 +6728,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     renderTopPanel()
                 },
                 panelToggle(
-                    label = "自动连播",
+                    label = getString(R.string.player_text_0025),
                     value = autoPlayEnabled,
                     subtitle = if (autoPlayEnabled) {
-                        "当前集结束前 5 秒提示并自动进入下一集"
+                        getString(R.string.player_text_0026)
                     } else {
-                        "关闭后播放完成停留当前集"
+                        getString(R.string.player_text_0027)
                     },
                 ) { enabled ->
                     autoPlayEnabled = enabled
@@ -6745,16 +6745,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     renderTopPanel()
                 },
                 panelToggle(
-                    label = "下一级预加载",
+                    label = getString(R.string.player_text_0028),
                     value = nativePanelCanPreloadNextEpisode(
                         autoPlayEnabled,
                         nextEpisodePreloadEnabled,
                     ),
                     subtitle = if (autoPlayEnabled) {
-                        if (nextEpisodePreloadEnabled) "提前准备下一集，减少切集等待"
-                        else "关闭后保持原本的自动连播切集方式"
+                        if (nextEpisodePreloadEnabled) getString(R.string.player_text_0029)
+                        else getString(R.string.player_text_0030)
                     } else {
-                        "需先开启自动连播"
+                        getString(R.string.player_text_0031)
                     },
                     enabled = autoPlayEnabled,
                 ) { enabled ->
@@ -6769,7 +6769,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun buildChapterPage() {
         if (chapterList.isEmpty()) {
-            addPanelRow(panelEmptyState("当前视频没有章节信息"))
+            addPanelRow(panelEmptyState(getString(R.string.player_text_0091)))
             return
         }
         val pos = playerSurface.state.positionMs
@@ -6819,12 +6819,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             onResult = {
                 runOnUiThread {
                     reportProgress()
-                    showTransientHint("已切换到 Flutter 播放器，重新播放生效")
+                    showTransientHint(getString(R.string.player_text_0092))
                     finish()
                 }
             },
             onError = {
-                runOnUiThread { showTransientHint("切换失败，请重试") }
+                runOnUiThread { showTransientHint(getString(R.string.player_text_0093)) }
             },
         )
     }
@@ -6832,22 +6832,22 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun buildScreenshotSettingsPage() {
         // 选项与取值同 Flutter 端「截图设置」保持一致，确保两端相互映射。
         val saveOpts = listOf(
-            "相册" to "pictures",
+            getString(R.string.player_text_0094) to "pictures",
             "DCIM" to "dcim",
-            "应用目录" to "app_pictures",
-            "自定义" to "custom",
+            getString(R.string.player_text_0095) to "app_pictures",
+            getString(R.string.player_text_0096) to "custom",
         )
         addPanelRow(
             panelCardGroup(
                 panelSegment(
-                    "保存位置",
+                    getString(R.string.player_text_0097),
                     saveOpts.map { it.first },
                     saveOpts.indexOfFirst { it.second == screenshotSaveMode }.coerceAtLeast(0),
                 ) { index ->
                     val mode = saveOpts[index].second
                     // 自定义目录由 App 设置里授权选择，原生壳内无法新增授权，未配置时提示并回退。
                     if (mode == "custom" && !screenshotCustomDirectoryConfigured()) {
-                        showTransientHint("请先在 App 设置里选择自定义截图目录")
+                        showTransientHint(getString(R.string.player_text_0098))
                     } else {
                         screenshotSaveMode = mode
                         persistScreenshot()
@@ -6855,16 +6855,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     renderTopPanel()
                 },
                 panelToggle(
-                    "截图包含字幕",
+                    getString(R.string.player_text_0099),
                     screenshotIncludeSubtitles,
-                    "开启则把当前字幕一并截入图片。",
+                    getString(R.string.player_text_0100),
                 ) { enabled ->
                     screenshotIncludeSubtitles = enabled
                     persistScreenshot()
                 },
             ),
         )
-        addPanelRow(panelCardGroup(panelActionRow("立即截图") {
+        addPanelRow(panelCardGroup(panelActionRow(getString(R.string.player_text_0101)) {
             hidePanel()
             takeScreenshot()
         }))
@@ -7013,7 +7013,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     /** 拉取 Flutter 已保存预设并弹出选择子页。kind = "picture" | "audio"。 */
     private fun showSavedMpvPresetPicker(kind: String) {
-        showCenterHint("加载预设…")
+        showCenterHint(getString(R.string.player_text_0102))
         NativePlayerReverseBridge.dispatch(
             method = "listSavedMpvPresets",
             args = mapOf("kind" to kind),
@@ -7023,25 +7023,25 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     val list = (res as? List<*>)?.mapNotNull { it as? Map<String, Any?> }
                         ?: emptyList()
                     if (list.isEmpty()) {
-                        showTransientHint("暂无已保存预设，请先在设置页保存")
+                        showTransientHint(getString(R.string.player_text_0103))
                         return@runOnUiThread
                     }
                     pushPanel(
-                        PanelPage(if (kind == "audio") "音频预设" else "画质预设") {
+                        PanelPage(if (kind == "audio") getString(R.string.player_text_0104) else getString(R.string.player_text_0105)) {
                             buildSavedPresetListPage(kind, list)
                         },
                     )
                 }
             },
-            onError = { runOnUiThread { hideCenterHint(); showTransientHint("预设加载失败") } },
+            onError = { runOnUiThread { hideCenterHint(); showTransientHint(getString(R.string.player_text_0106)) } },
         )
     }
 
     private fun buildSavedPresetListPage(kind: String, list: List<Map<String, Any?>>) {
-        addPanelRow(panelSectionHeader("已保存预设"))
+        addPanelRow(panelSectionHeader(getString(R.string.player_text_0107)))
         val rows = list.map { p ->
             val id = p["id"]?.toString().orEmpty()
-            val name = p["name"]?.toString()?.takeIf { it.isNotEmpty() } ?: "预设"
+            val name = p["name"]?.toString()?.takeIf { it.isNotEmpty() } ?: getString(R.string.player_text_0108)
             val desc = p["description"]?.toString().orEmpty()
             panelNavRow(name, desc) { applySavedMpvPreset(kind, id) }
         }
@@ -7050,7 +7050,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun applySavedMpvPreset(kind: String, id: String) {
         if (id.isEmpty()) return
-        showCenterHint("应用预设…")
+        showCenterHint(getString(R.string.player_text_0109))
         NativePlayerReverseBridge.dispatch(
             method = "applySavedMpvPreset",
             args = mapOf("kind" to kind, "id" to id),
@@ -7058,13 +7058,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 runOnUiThread {
                     hideCenterHint()
                     val bundle = res as? Map<String, Any?>
-                    if (bundle == null) { showTransientHint("应用预设失败"); return@runOnUiThread }
+                    if (bundle == null) { showTransientHint(getString(R.string.player_text_0110)); return@runOnUiThread }
                     applyPresetBundle(bundle)
                     popPanel() // 退出预设列表回到画质/音频页
-                    showTransientHint("已应用预设")
+                    showTransientHint(getString(R.string.player_text_0111))
                 }
             },
-            onError = { runOnUiThread { hideCenterHint(); showTransientHint("应用预设失败") } },
+            onError = { runOnUiThread { hideCenterHint(); showTransientHint(getString(R.string.player_text_0110)) } },
         )
     }
 
@@ -7183,8 +7183,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun buildVideoAdjustPage() {
         val fields = listOf(
-            "brightness" to "亮度", "contrast" to "对比度",
-            "saturation" to "饱和度", "gamma" to "伽马", "hue" to "色相",
+            "brightness" to getString(R.string.player_text_0112), "contrast" to getString(R.string.player_text_0113),
+            "saturation" to getString(R.string.player_text_0114), "gamma" to getString(R.string.player_text_0115), "hue" to getString(R.string.player_text_0116),
         )
         for ((key, label) in fields) {
             val cur = (videoAdjust[key] as? Number)?.toFloat() ?: 0f
@@ -7196,7 +7196,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 playerSurface.setVideoAdjustments(mapOf("settings" to videoAdjust))
             })
         }
-        addPanelRow(panelActionRow("重置画面") {
+        addPanelRow(panelActionRow(getString(R.string.player_text_0117)) {
             for (k in videoAdjust.keys.toList()) videoAdjust[k] = 0.0
             playerSurface.setVideoAdjustments(mapOf("settings" to videoAdjust))
             commitVideoAdjust()
@@ -7205,16 +7205,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun buildSubtitleStylePage() {
-        addPanelRow(panelSlider("字幕延迟", -10f, 10f, subDelaySec.toFloat(), steps = 200, format = { String.format("%+.1f s", it) }) { v ->
+        addPanelRow(panelSlider(getString(R.string.player_text_0118), -10f, 10f, subDelaySec.toFloat(), steps = 200, format = { String.format("%+.1f s", it) }) { v ->
             subDelaySec = v.toDouble(); playerSurface.setSubtitleDelay(subDelaySec); persistSubtitleStyle()
         })
-        addPanelRow(panelSlider("垂直位置", 0f, 100f, subPosition.toFloat(), steps = 100) { v ->
+        addPanelRow(panelSlider(getString(R.string.player_text_0119), 0f, 100f, subPosition.toFloat(), steps = 100) { v ->
             subPosition = v.toInt(); playerSurface.setSubtitlePosition(subPosition); persistSubtitleStyle()
         })
-        addPanelRow(panelSlider("字号缩放", 0.5f, 2.5f, subScale.toFloat(), steps = 200, format = { String.format("%.2fx", it) }) { v ->
+        addPanelRow(panelSlider(getString(R.string.player_text_0120), 0.5f, 2.5f, subScale.toFloat(), steps = 200, format = { String.format("%.2fx", it) }) { v ->
             subScale = v.toDouble(); playerSurface.setSubtitleScale(subScale); persistSubtitleStyle()
         })
-        addPanelRow(panelActionRow("重置字幕样式") {
+        addPanelRow(panelActionRow(getString(R.string.player_text_0121)) {
             subDelaySec = NativeSubtitleStyleSettings.DEFAULT_DELAY_SECONDS
             subPosition = NativeSubtitleStyleSettings.DEFAULT_POSITION
             subScale = NativeSubtitleStyleSettings.DEFAULT_SCALE
@@ -7225,42 +7225,42 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun buildAudioPage() {
-        addPanelRow(panelCardGroup(panelSlider("音频延迟", -10f, 10f, audioDelaySec.toFloat(), steps = 200, format = { String.format("%+.1f s", it) }) { v ->
+        addPanelRow(panelCardGroup(panelSlider(getString(R.string.player_text_0122), -10f, 10f, audioDelaySec.toFloat(), steps = 200, format = { String.format("%+.1f s", it) }) { v ->
             audioDelaySec = v.toDouble(); playerSurface.setAudioDelay(audioDelaySec); persistAudioAdjust()
         }))
-        addPanelRow(panelSectionHeader("快速预设"))
-        addPanelRow(panelCardGroup(panelNavRow("应用已保存的音频预设") {
+        addPanelRow(panelSectionHeader(getString(R.string.player_text_0123)))
+        addPanelRow(panelCardGroup(panelNavRow(getString(R.string.player_text_0124)) {
             showSavedMpvPresetPicker("audio")
         }))
-        addPanelRow(panelSectionHeader("直通输出"))
+        addPanelRow(panelSectionHeader(getString(R.string.player_text_0125)))
         addPanelRow(panelCardGroup(
-            advancedSegment("直通输出(杜比/DTS)", "audio_passthrough", listOf("关" to "off", "自动" to "auto", "开" to "on")),
+            advancedSegment(getString(R.string.player_text_0126), "audio_passthrough", listOf(getString(R.string.player_text_0127) to "off", getString(R.string.player_text_0128) to "auto", getString(R.string.player_text_0129) to "on")),
         ))
         val passthroughOn = mpvAdvanced["audio_passthrough"].let { it == "on" || it == "auto" }
         if (passthroughOn) {
             addPanelRow(panelCardGroup(TextView(this).apply {
-                text = "直通中：音频由功放/电视解码，EQ 与音频增强已停用"
+                text = getString(R.string.player_text_0130)
                 setTextColor(TEXT_DIM)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
                 setPadding(dp(16), dp(12), dp(16), dp(12))
             }))
         }
-        addPanelRow(panelSectionHeader("音频处理"))
+        addPanelRow(panelSectionHeader(getString(R.string.player_text_0131)))
         addPanelRow(panelCardGroup(
-            advancedSegment("音量增益", "volume_gain", listOf("100%" to "100", "150%" to "150", "200%" to "200"), passthroughOn),
-            advancedSegment("高保真直通", "audio_high_fidelity", listOf("关" to "off", "开" to "on"), passthroughOn),
-            advancedSegment("动态范围压缩", "dynamic_range", listOf("关" to "off", "低" to "low", "中" to "medium"), passthroughOn),
-            advancedSegment("限制器", "audio_limiter", listOf("关" to "off", "轻" to "light", "强" to "strong"), passthroughOn),
-            advancedSegment("低音增强", "audio_bass_boost", listOf("关" to "off", "低" to "low", "中" to "medium"), passthroughOn),
-            advancedSegment("人声增强", "audio_voice_enhance", listOf("关" to "off", "低" to "low", "中" to "medium"), passthroughOn),
-            advancedSegment("声道", "channel_mix", listOf("自动" to "auto", "立体声" to "stereo", "环绕" to "surround"), passthroughOn),
+            advancedSegment(getString(R.string.player_text_0132), "volume_gain", listOf("100%" to "100", "150%" to "150", "200%" to "200"), passthroughOn),
+            advancedSegment(getString(R.string.player_text_0133), "audio_high_fidelity", listOf(getString(R.string.player_text_0127) to "off", getString(R.string.player_text_0129) to "on"), passthroughOn),
+            advancedSegment(getString(R.string.player_text_0134), "dynamic_range", listOf(getString(R.string.player_text_0127) to "off", getString(R.string.player_text_0135) to "low", getString(R.string.player_text_0136) to "medium"), passthroughOn),
+            advancedSegment(getString(R.string.player_text_0137), "audio_limiter", listOf(getString(R.string.player_text_0127) to "off", getString(R.string.player_text_0138) to "light", getString(R.string.player_text_0139) to "strong"), passthroughOn),
+            advancedSegment(getString(R.string.player_text_0140), "audio_bass_boost", listOf(getString(R.string.player_text_0127) to "off", getString(R.string.player_text_0135) to "low", getString(R.string.player_text_0136) to "medium"), passthroughOn),
+            advancedSegment(getString(R.string.player_text_0141), "audio_voice_enhance", listOf(getString(R.string.player_text_0127) to "off", getString(R.string.player_text_0135) to "low", getString(R.string.player_text_0136) to "medium"), passthroughOn),
+            advancedSegment(getString(R.string.player_text_0142), "channel_mix", listOf(getString(R.string.player_text_0128) to "auto", getString(R.string.player_text_0143) to "stereo", getString(R.string.player_text_0144) to "surround"), passthroughOn),
         ))
-        addPanelRow(panelSectionHeader("均衡器 EQ"))
+        addPanelRow(panelSectionHeader(getString(R.string.player_text_0145)))
         addPanelRow(panelCardGroup(
-            advancedSegment("EQ 预设", "audio_eq", listOf("关" to "off", "柔和" to "soft", "清晰" to "clarity", "影院" to "cinema", "自定义" to "custom"), passthroughOn),
-            panelNavRow("自定义均衡器", if (mpvAdvanced["audio_eq"] == "custom") "已启用" else "") {
-                if (passthroughOn) { showTransientHint("直通输出中，EQ 不可用"); return@panelNavRow }
-                pushPanel(PanelPage("自定义均衡器") { buildEqualizerPage() })
+            advancedSegment(getString(R.string.player_text_0146), "audio_eq", listOf(getString(R.string.player_text_0127) to "off", getString(R.string.player_text_0147) to "soft", getString(R.string.player_text_0148) to "clarity", getString(R.string.player_text_0149) to "cinema", getString(R.string.player_text_0096) to "custom"), passthroughOn),
+            panelNavRow(getString(R.string.player_text_0150), if (mpvAdvanced["audio_eq"] == "custom") getString(R.string.player_text_0151) else "") {
+                if (passthroughOn) { showTransientHint(getString(R.string.player_text_0152)); return@panelNavRow }
+                pushPanel(PanelPage(getString(R.string.player_text_0150)) { buildEqualizerPage() })
             },
         ))
     }
@@ -7280,7 +7280,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             }
         }.toTypedArray()
         addPanelRow(panelCardGroup(*sliders))
-        addPanelRow(panelCardGroup(panelActionRow("重置均衡器") {
+        addPanelRow(panelCardGroup(panelActionRow(getString(R.string.player_text_0153)) {
             for ((key, _) in eqBands) mpvAdvanced[key] = "0"
             commitMpvAdvanced()
             renderTopPanel()
@@ -7289,36 +7289,36 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun buildAdvancedMpvPage() {
         val aspectOpts = listOf(
-            "自适应" to "fit", "填充" to "fill", "4:3" to "4:3", "16:9" to "16:9", "21:9" to "21:9",
+            getString(R.string.player_text_0154) to "fit", getString(R.string.player_text_0155) to "fill", "4:3" to "4:3", "16:9" to "16:9", "21:9" to "21:9",
         )
-        addPanelRow(panelSectionHeader("快速预设"))
-        addPanelRow(panelCardGroup(panelNavRow("应用已保存的画质预设") {
+        addPanelRow(panelSectionHeader(getString(R.string.player_text_0123)))
+        addPanelRow(panelCardGroup(panelNavRow(getString(R.string.player_text_0156)) {
             showSavedMpvPresetPicker("picture")
         }))
-        addPanelRow(panelSectionHeader("解码 / 画面"))
+        addPanelRow(panelSectionHeader(getString(R.string.player_text_0157)))
         addPanelRow(
             panelCardGroup(
-                panelSegment("解码方式", listOf("硬件", "软件"), if (decoderHardware) 0 else 1) { i ->
+                panelSegment(getString(R.string.player_text_0158), listOf(getString(R.string.player_text_0159), getString(R.string.player_text_0160)), if (decoderHardware) 0 else 1) { i ->
                     decoderHardware = i == 0
                     playerSurface.setDecoderMode(if (decoderHardware) "hardware" else "software")
                     renderTopPanel()
                 },
-                panelSegment("画面比例", aspectOpts.map { it.first }, aspectOpts.indexOfFirst { it.second == aspectMode }.coerceAtLeast(0)) { i ->
+                panelSegment(getString(R.string.player_text_0161), aspectOpts.map { it.first }, aspectOpts.indexOfFirst { it.second == aspectMode }.coerceAtLeast(0)) { i ->
                     aspectMode = aspectOpts[i].second
                     playerSurface.setDisplayAspectRatioMode(aspectMode); renderTopPanel()
                 },
-                panelSegment("划走自动小窗", listOf("开", "关"), if (pipAutoEnter) 0 else 1) { i ->
+                panelSegment(getString(R.string.player_text_0162), listOf(getString(R.string.player_text_0129), getString(R.string.player_text_0127)), if (pipAutoEnter) 0 else 1) { i ->
                     pipAutoEnter = i == 0
                     persistVideoMisc()
                     renderTopPanel()
                 },
-                panelSegment("熄屏继续播放音频", listOf("开", "关"), if (keepAudioWhenScreenOff) 0 else 1) { i ->
+                panelSegment(getString(R.string.player_text_0163), listOf(getString(R.string.player_text_0129), getString(R.string.player_text_0127)), if (keepAudioWhenScreenOff) 0 else 1) { i ->
                     keepAudioWhenScreenOff = i == 0
                     playerSurface.setKeepAudioWhenScreenOff(keepAudioWhenScreenOff)
                     persistVideoMisc()
                     renderTopPanel()
                 },
-                panelSegment("匹配刷新率", listOf("开", "关"), if (refreshRateSwitch) 0 else 1) { i ->
+                panelSegment(getString(R.string.player_text_0165), listOf(getString(R.string.player_text_0129), getString(R.string.player_text_0127)), if (refreshRateSwitch) 0 else 1) { i ->
                     refreshRateSwitch = i == 0
                     persistVideoMisc()
                     renderTopPanel()
@@ -7328,23 +7328,23 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         addPanelRow(panelSectionHeader("画质增强"))
         addPanelRow(
             panelCardGroup(
-                advancedSegment("去隔行", "deinterlace", listOf("自动" to "auto", "强制" to "force", "关" to "off")),
-                advancedSegment("去色带", "deband", listOf("关" to "off", "低" to "low", "中" to "medium", "高" to "high")),
-                advancedSegment("锐化", "sharpen", listOf("关" to "off", "低" to "low", "中" to "medium", "高" to "high")),
-                advancedSegment("降噪", "denoise", listOf("关" to "off", "低" to "low", "中" to "medium")),
-                advancedSegment("缩放算法", "scale_profile", listOf("均衡" to "balanced", "高速" to "fast", "高质" to "quality")),
-                advancedSegment("HDR", "hdr_mode", listOf("自动" to "auto", "映射SDR" to "sdr_map", "保守" to "conservative", "增强" to "enhanced")),
-                advancedSegment("色调映射", "tone_mapping", listOf("自动" to "auto", "bt2390" to "bt2390", "mobius" to "mobius", "hable" to "hable", "reinhard" to "reinhard")),
-                advancedSegment("补帧", "frame_interpolation", listOf("关" to "off", "自动" to "auto", "开" to "on")),
+                advancedSegment("去隔行", "deinterlace", listOf(getString(R.string.player_text_0128) to "auto", getString(R.string.player_text_0167) to "force", getString(R.string.player_text_0127) to "off")),
+                advancedSegment("去色带", "deband", listOf(getString(R.string.player_text_0127) to "off", getString(R.string.player_text_0135) to "low", getString(R.string.player_text_0136) to "medium", getString(R.string.player_text_0169) to "high")),
+                advancedSegment("锐化", "sharpen", listOf(getString(R.string.player_text_0127) to "off", getString(R.string.player_text_0135) to "low", getString(R.string.player_text_0136) to "medium", getString(R.string.player_text_0169) to "high")),
+                advancedSegment(getString(R.string.player_text_0172), "denoise", listOf(getString(R.string.player_text_0127) to "off", getString(R.string.player_text_0135) to "low", getString(R.string.player_text_0136) to "medium")),
+                advancedSegment(getString(R.string.player_text_0175), "scale_profile", listOf(getString(R.string.player_text_0176) to "balanced", getString(R.string.player_text_0177) to "fast", "高质" to "quality")),
+                advancedSegment("HDR", "hdr_mode", listOf(getString(R.string.player_text_0128) to "auto", "映射SDR" to "sdr_map", "保守" to "conservative", "增强" to "enhanced")),
+                advancedSegment(getString(R.string.player_text_0179), "tone_mapping", listOf(getString(R.string.player_text_0128) to "auto", "bt2390" to "bt2390", "mobius" to "mobius", "hable" to "hable", "reinhard" to "reinhard")),
+                advancedSegment("补帧", "frame_interpolation", listOf(getString(R.string.player_text_0127) to "off", getString(R.string.player_text_0128) to "auto", getString(R.string.player_text_0129) to "on")),
             ),
         )
-        addPanelRow(panelSectionHeader("同步 / 缓存 / 兼容"))
+        addPanelRow(panelSectionHeader(getString(R.string.player_text_0184)))
         addPanelRow(
             panelCardGroup(
-                advancedSegment("视频同步", "video_sync", listOf("自动" to "auto", "音频" to "audio", "刷新率" to "display", "平滑" to "smooth")),
-                advancedSegment("缓存策略", "cache_profile", listOf("默认" to "default", "稳定" to "stable", "网络" to "network", "低延迟" to "low_latency")),
-                advancedSegment("缓存大小", "cache_size_mb", listOf("自动" to "auto", "64M" to "64", "128M" to "128", "256M" to "256", "512M" to "512")),
-                advancedSegment("兼容模式", "compatibility_profile", listOf("默认" to "default", "保守" to "conservative", "软解兜底" to "software_fallback")),
+                advancedSegment(getString(R.string.player_text_0185), "video_sync", listOf(getString(R.string.player_text_0128) to "auto", getString(R.string.player_text_0187) to "audio", getString(R.string.player_text_0188) to "display", getString(R.string.player_text_0189) to "smooth")),
+                advancedSegment("缓存策略", "cache_profile", listOf(getString(R.string.player_text_0190) to "default", "稳定" to "stable", "网络" to "network", getString(R.string.player_text_0191) to "low_latency")),
+                advancedSegment("缓存大小", "cache_size_mb", listOf(getString(R.string.player_text_0128) to "auto", "64M" to "64", "128M" to "128", "256M" to "256", "512M" to "512")),
+                advancedSegment("兼容模式", "compatibility_profile", listOf(getString(R.string.player_text_0190) to "default", "保守" to "conservative", "软解兜底" to "software_fallback")),
             ),
         )
     }
@@ -7353,7 +7353,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val cur = mpvAdvanced[key] ?: opts.first().second
         val view = panelSegment(label, opts.map { it.first }, opts.indexOfFirst { it.second == cur }.coerceAtLeast(0)) { i ->
             if (disabled) {
-                showTransientHint("直通输出中，该项不可用")
+                showTransientHint(getString(R.string.player_text_0192))
                 return@panelSegment
             }
             mpvAdvanced[key] = opts[i].second
@@ -7385,28 +7385,28 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val bitDepth = (loadArgsMap["bitDepth"] as? Number)?.toInt() ?: 0
         val bitrate = (loadArgsMap["bitrate"] as? Number)?.toLong() ?: 0L
         val videoRows = listOfNotNull(
-            infoRow("分辨率", if (w > 0 && h > 0) "${w}x$h" else loadArgsMap["resolution"]?.toString().orEmpty()),
-            infoRow("编码", loadArgsMap["videoCodecName"]?.toString().orEmpty()),
+            infoRow(getString(R.string.player_text_0193), if (w > 0 && h > 0) "${w}x$h" else loadArgsMap["resolution"]?.toString().orEmpty()),
+            infoRow(getString(R.string.player_text_0194), loadArgsMap["videoCodecName"]?.toString().orEmpty()),
             infoRow("Profile", loadArgsMap["videoProfile"]?.toString().orEmpty()),
-            infoRow("色彩空间", loadArgsMap["colorSpace"]?.toString().orEmpty()),
-            infoRow("传递函数", loadArgsMap["colorTransfer"]?.toString().orEmpty()),
-            infoRow("位深", if (bitDepth > 0) "${bitDepth}bit" else ""),
-            infoRow("码率", if (bitrate > 0) "${bitrate / 1000} kbps" else ""),
+            infoRow(getString(R.string.player_text_0195), loadArgsMap["colorSpace"]?.toString().orEmpty()),
+            infoRow(getString(R.string.player_text_0196), loadArgsMap["colorTransfer"]?.toString().orEmpty()),
+            infoRow(getString(R.string.player_text_0197), if (bitDepth > 0) "${bitDepth}bit" else ""),
+            infoRow(getString(R.string.player_text_0198), if (bitrate > 0) "${bitrate / 1000} kbps" else ""),
         )
         if (videoRows.isNotEmpty()) {
-            addPanelRow(panelSectionHeader("视频"))
+            addPanelRow(panelSectionHeader(getString(R.string.player_text_0199)))
             addPanelRow(panelCardGroup(*videoRows.toTypedArray()))
         }
         val audios = trackList("audioTracks")
         if (audios.isNotEmpty()) {
             val rows = audios.mapNotNull { infoRow("·", trackLabel(it).replace("\n", " ")) }
-            addPanelRow(panelSectionHeader("音轨"))
+            addPanelRow(panelSectionHeader(getString(R.string.player_text_0019)))
             addPanelRow(panelCardGroup(*rows.toTypedArray()))
         }
         val subs = trackList("subtitleTracks")
         if (subs.isNotEmpty()) {
             val rows = subs.mapNotNull { infoRow("·", trackLabel(it).replace("\n", " ")) }
-            addPanelRow(panelSectionHeader("字幕"))
+            addPanelRow(panelSectionHeader(getString(R.string.player_text_0017)))
             addPanelRow(panelCardGroup(*rows.toTypedArray()))
         }
 
@@ -7415,8 +7415,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (diag.isEmpty()) return
         val pipeline = when (val cp = diag["colorPipeline"]?.toString()) {
             "SDR" -> "SDR"
-            "HDR_TONEMAP_SDR" -> "HDR→SDR 映射"
-            "HDR_DIRECT" -> "HDR 直出"
+            "HDR_TONEMAP_SDR" -> getString(R.string.player_text_0200)
+            "HDR_DIRECT" -> getString(R.string.player_text_0201)
             else -> cp.orEmpty()
         }
         val windowMode = diag["windowColorMode"]?.toString().orEmpty()
@@ -7425,11 +7425,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val audioCodec = diag["audioCodec"]?.toString().orEmpty()
         val audioOutChannels = diag["audioOutChannels"]?.toString().orEmpty()
         val audioOut = if (passthrough) {
-            "直通" + if (audioCodec.isNotEmpty()) "($audioCodec)" else ""
+            getString(R.string.player_text_0202) + if (audioCodec.isNotEmpty()) "($audioCodec)" else ""
         } else {
             val fmt = diag["audioFormat"]?.toString().orEmpty()
             buildString {
-                append("PCM 解码")
+                append(getString(R.string.player_text_0203))
                 if (fmt.isNotEmpty()) append(" · $fmt")
                 if (audioOutChannels.isNotEmpty()) append(" · $audioOutChannels")
             }
@@ -7438,20 +7438,20 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val decDropped = (diag["decoderDroppedFrames"] as? Number)?.toLong() ?: 0L
         val containerFps = (diag["containerFps"] as? Number)?.toDouble() ?: 0.0
         val fallback = if (diag["fallbackTriggered"] == true) {
-            diag["fallbackReason"]?.toString()?.takeIf { it.isNotBlank() } ?: "已触发"
+            diag["fallbackReason"]?.toString()?.takeIf { it.isNotBlank() } ?: getString(R.string.player_text_0204)
         } else {
-            "无"
+            getString(R.string.player_text_0205)
         }
-        val hwdec = diag["hwdecCurrent"]?.toString()?.takeIf { it.isNotEmpty() } ?: "软解"
+        val hwdec = diag["hwdecCurrent"]?.toString()?.takeIf { it.isNotEmpty() } ?: getString(R.string.player_text_0206)
         val spatial = AudioSpatializerSupport.probe(this).summary(this)
         val diagRows = listOfNotNull(
-            infoRow("硬解", hwdec),
-            infoRow("色彩管线", pipelineText),
-            infoRow("自动回退", fallback),
-            infoRow("音频输出", audioOut),
-            infoRow("空间音频", spatial),
-            infoRow("丢帧", "$dropped" + if (decDropped > 0) " (解码 $decDropped)" else ""),
-            infoRow("帧率", if (containerFps > 0.0) String.format("%.3f fps", containerFps) else ""),
+            infoRow(getString(R.string.player_text_0207), hwdec),
+            infoRow(getString(R.string.player_text_0208), pipelineText),
+            infoRow(getString(R.string.player_text_0209), fallback),
+            infoRow(getString(R.string.player_text_0210), audioOut),
+            infoRow(getString(R.string.player_text_0211), spatial),
+            infoRow(getString(R.string.player_text_0212), "$dropped" + if (decDropped > 0) " (解码 $decDropped)" else ""),
+            infoRow(getString(R.string.player_text_0214), if (containerFps > 0.0) String.format("%.3f fps", containerFps) else ""),
         )
         if (diagRows.isEmpty()) return
         addPanelRow(panelSectionHeader("解码 / 输出诊断"))
@@ -7610,55 +7610,55 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun danmakuFloat(key: String) = (danmakuSettings[key] as? Number)?.toFloat() ?: 0f
 
     private fun buildDanmakuSettingsPage() {
-        addPanelRow(panelSectionHeader("显示调节"))
+        addPanelRow(panelSectionHeader(getString(R.string.player_text_0215)))
         val fpsOpts = listOf("30fps" to 30, "60fps" to 60, "90fps" to 90, "120fps" to 120)
         val curFps = (danmakuSettings["targetFrameRateHz"] as? Number)?.toInt() ?: 120
         addPanelRow(
             panelCardGroup(
-                panelSlider("显示区域", 0.25f, 1.0f, danmakuFloat("displayAreaRatio"), steps = 75, format = { "${(it * 100).toInt()}%" }) { v ->
+                panelSlider(getString(R.string.player_text_0216), 0.25f, 1.0f, danmakuFloat("displayAreaRatio"), steps = 75, format = { "${(it * 100).toInt()}%" }) { v ->
                     danmakuSettings["displayAreaRatio"] = v.toDouble(); applyDanmakuSettings()
                 },
-                panelSlider("不透明度", 0.2f, 1.0f, danmakuFloat("opacity"), steps = 80, format = { "${(it * 100).toInt()}%" }) { v ->
+                panelSlider(getString(R.string.player_text_0217), 0.2f, 1.0f, danmakuFloat("opacity"), steps = 80, format = { "${(it * 100).toInt()}%" }) { v ->
                     danmakuSettings["opacity"] = v.toDouble(); applyDanmakuSettings()
                 },
-                panelSlider("弹幕密度", 0.2f, 1.0f, danmakuFloat("density"), steps = 80, format = { "${(it * 100).toInt()}%" }) { v ->
+                panelSlider(getString(R.string.player_text_0218), 0.2f, 1.0f, danmakuFloat("density"), steps = 80, format = { "${(it * 100).toInt()}%" }) { v ->
                     danmakuSettings["density"] = v.toDouble(); applyDanmakuSettings()
                 },
-                panelSlider("字体大小", 0.6f, 1.4f, danmakuFloat("fontScale"), steps = 80, format = { String.format("%.2fx", it) }) { v ->
+                panelSlider(getString(R.string.player_text_0219), 0.6f, 1.4f, danmakuFloat("fontScale"), steps = 80, format = { String.format("%.2fx", it) }) { v ->
                     danmakuSettings["fontScale"] = v.toDouble(); applyDanmakuSettings()
                 },
-                panelSlider("字体粗细", 0.8f, 1.4f, danmakuFloat("fontThickness"), steps = 60, format = { String.format("%.2f", it) }) { v ->
+                panelSlider(getString(R.string.player_text_0220), 0.8f, 1.4f, danmakuFloat("fontThickness"), steps = 60, format = { String.format("%.2f", it) }) { v ->
                     danmakuSettings["fontThickness"] = v.toDouble(); applyDanmakuSettings()
                 },
-                panelSlider("弹幕速度", 0.4f, 1.6f, danmakuFloat("speed"), steps = 120, format = { String.format("%.2f", it) }) { v ->
+                panelSlider(getString(R.string.player_text_0221), 0.4f, 1.6f, danmakuFloat("speed"), steps = 120, format = { String.format("%.2f", it) }) { v ->
                     danmakuSettings["speed"] = v.toDouble(); applyDanmakuSettings()
                 },
-                panelSegment("渲染帧率", fpsOpts.map { it.first }, fpsOpts.indexOfFirst { it.second == curFps }.coerceAtLeast(0)) { i ->
+                panelSegment(getString(R.string.player_text_0222), fpsOpts.map { it.first }, fpsOpts.indexOfFirst { it.second == curFps }.coerceAtLeast(0)) { i ->
                     danmakuSettings["targetFrameRateHz"] = fpsOpts[i].second
                     applyDanmakuSettings()
                     renderTopPanel()
                 },
             ),
         )
-        addPanelRow(panelSectionHeader("按弹幕类型屏蔽"))
+        addPanelRow(panelSectionHeader(getString(R.string.player_text_0223)))
         addPanelRow(
             panelCardGroup(
-                panelToggle("滚动弹幕", danmakuBool("scrollEnabled")) { v -> danmakuSettings["scrollEnabled"] = v; applyDanmakuSettings() },
-                panelToggle("顶部弹幕", danmakuBool("topEnabled")) { v -> danmakuSettings["topEnabled"] = v; applyDanmakuSettings() },
-                panelToggle("底部弹幕", danmakuBool("bottomEnabled")) { v -> danmakuSettings["bottomEnabled"] = v; applyDanmakuSettings() },
-                panelToggle("彩色弹幕", danmakuBool("colorEnabled")) { v -> danmakuSettings["colorEnabled"] = v; applyDanmakuSettings() },
+                panelToggle(getString(R.string.player_text_0224), danmakuBool("scrollEnabled")) { v -> danmakuSettings["scrollEnabled"] = v; applyDanmakuSettings() },
+                panelToggle(getString(R.string.player_text_0225), danmakuBool("topEnabled")) { v -> danmakuSettings["topEnabled"] = v; applyDanmakuSettings() },
+                panelToggle(getString(R.string.player_text_0226), danmakuBool("bottomEnabled")) { v -> danmakuSettings["bottomEnabled"] = v; applyDanmakuSettings() },
+                panelToggle(getString(R.string.player_text_0227), danmakuBool("colorEnabled")) { v -> danmakuSettings["colorEnabled"] = v; applyDanmakuSettings() },
             ),
         )
-        addPanelRow(panelSectionHeader("画面防遮挡"))
+        addPanelRow(panelSectionHeader(getString(R.string.player_text_0228)))
         addPanelRow(
             panelCardGroup(
-                panelToggle("重复弹幕隐藏", danmakuBool("hideDuplicate"), "合并高频重复内容，减少同屏密集刷屏。") { v ->
+                panelToggle(getString(R.string.player_text_0229), danmakuBool("hideDuplicate"), getString(R.string.player_text_0230)) { v ->
                     danmakuSettings["hideDuplicate"] = v; applyDanmakuSettings()
                 },
-                panelToggle("底部字幕区域防遮挡", danmakuBool("avoidSubtitleArea"), "优先避开字幕所在区域，减少弹幕压住字幕。") { v ->
+                panelToggle(getString(R.string.player_text_0231), danmakuBool("avoidSubtitleArea"), getString(R.string.player_text_0232)) { v ->
                     danmakuSettings["avoidSubtitleArea"] = v; applyDanmakuSettings()
                 },
-                panelToggle("主体穿透遮挡", occlusionConfig["enabled"] == true, "优先使用动态蒙版扣除人物区域内的弹幕，不可用时会恢复普通弹幕。") { v ->
+                panelToggle(getString(R.string.player_text_0233), occlusionConfig["enabled"] == true, getString(R.string.player_text_0234)) { v ->
                     occlusionConfig["enabled"] = v
                     applyOcclusionConfig()
                     persistOcclusion()
@@ -7667,7 +7667,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             ),
         )
         if (occlusionConfig["enabled"] == true) {
-            addPanelRow(panelSectionHeader("动态遮罩参数"))
+            addPanelRow(panelSectionHeader(getString(R.string.player_text_0235)))
             val intervalOpts = listOf("200ms" to 200L, "300ms" to 300L, "400ms" to 400L, "500ms" to 500L)
             val curInterval = (occlusionConfig["sampleIntervalMs"] as? Number)?.toLong() ?: 300L
             val widthOpts = listOf("160" to 160, "256" to 256, "320" to 320, "512" to 512)
@@ -7676,19 +7676,19 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             val curMaskFps = (occlusionConfig["renderTargetFrameRateHz"] as? Number)?.toInt() ?: 60
             addPanelRow(
                 panelCardGroup(
-                    panelSegment("采样间隔", intervalOpts.map { it.first }, intervalOpts.indexOfFirst { it.second == curInterval }.coerceAtLeast(0)) { i ->
+                    panelSegment(getString(R.string.player_text_0236), intervalOpts.map { it.first }, intervalOpts.indexOfFirst { it.second == curInterval }.coerceAtLeast(0)) { i ->
                         occlusionConfig["sampleIntervalMs"] = intervalOpts[i].second
                         applyOcclusionConfig()
                         persistOcclusion()
                         renderTopPanel()
                     },
-                    panelSegment("输入宽度", widthOpts.map { it.first }, widthOpts.indexOfFirst { it.second == curWidth }.coerceAtLeast(0)) { i ->
+                    panelSegment(getString(R.string.player_text_0237), widthOpts.map { it.first }, widthOpts.indexOfFirst { it.second == curWidth }.coerceAtLeast(0)) { i ->
                         occlusionConfig["inputWidth"] = widthOpts[i].second
                         applyOcclusionConfig()
                         persistOcclusion()
                         renderTopPanel()
                     },
-                    panelSegment("遮罩帧率", maskFpsOpts.map { it.first }, maskFpsOpts.indexOfFirst { it.second == curMaskFps }.coerceAtLeast(0)) { i ->
+                    panelSegment(getString(R.string.player_text_0238), maskFpsOpts.map { it.first }, maskFpsOpts.indexOfFirst { it.second == curMaskFps }.coerceAtLeast(0)) { i ->
                         occlusionConfig["renderTargetFrameRateHz"] = maskFpsOpts[i].second
                         applyOcclusionConfig()
                         persistOcclusion()
@@ -7700,25 +7700,25 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun buildDanmakuSourcePage() {
-        addPanelRow(panelSectionHeader("当前源"))
+        addPanelRow(panelSectionHeader(getString(R.string.player_text_0239)))
         val sourceKey = danmakuSettings["sourceKey"]?.toString().orEmpty()
         addPanelRow(panelCardGroup(TextView(this).apply {
-            text = if (sourceKey.isNotEmpty()) sourceKey else "无（由编排层注入）"
+            text = if (sourceKey.isNotEmpty()) sourceKey else getString(R.string.player_text_0240)
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             setPadding(dp(16), dp(16), dp(16), dp(16))
         }))
-        addPanelRow(panelSectionHeader("操作"))
+        addPanelRow(panelSectionHeader(getString(R.string.player_text_0241)))
         addPanelRow(panelCardGroup(
-            panelNavRow(if (networkOffline) "搜索弹弹play（需联网）" else "搜索弹弹play") {
-                if (networkOffline) { showTransientHint("已断网，无法在线搜索弹幕"); return@panelNavRow }
+            panelNavRow(if (networkOffline) getString(R.string.player_text_0242) else getString(R.string.player_text_0243)) {
+                if (networkOffline) { showTransientHint(getString(R.string.player_text_0244)); return@panelNavRow }
                 danmakuSearchKeyword = ""
                 danmakuSearchResults = emptyList()
-                pushPanel(PanelPage("搜索弹幕") { buildDanmakuSearchPage() })
+                pushPanel(PanelPage(getString(R.string.player_text_0245)) { buildDanmakuSearchPage() })
             },
-            panelNavRow("从文件导入") { pickLocalDanmakuFile() },
+            panelNavRow(getString(R.string.player_text_0246)) { pickLocalDanmakuFile() },
         ))
-        addPanelRow(panelSectionHeader("已保存来源"))
+        addPanelRow(panelSectionHeader(getString(R.string.player_text_0247)))
         ensureFlutterDanmakuSourcesLoaded()
         val saved = loadDanmakuSourcesForCurrent()
         // 原生源身份集合，用于去重 Flutter 侧重复的在线源（同 episodeId 的 dandan）。
@@ -7737,7 +7737,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (rows.isEmpty()) {
             val loading = flutterDanmakuSourcesLoading
             addPanelRow(panelCardGroup(TextView(this).apply {
-                text = if (loading) "加载中…" else "暂无已保存来源"
+                text = if (loading) getString(R.string.player_text_0248) else getString(R.string.player_text_0249)
                 setTextColor(TEXT_DIM)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
                 setPadding(dp(16), dp(16), dp(16), dp(16))
@@ -7751,18 +7751,18 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun flutterDanmakuSourceRow(src: Map<String, Any?>): View {
         val sourceKey = src["sourceKey"]?.toString().orEmpty()
         val type = src["type"]?.toString().orEmpty()
-        val label = src["label"]?.toString()?.takeIf { it.isNotEmpty() } ?: "弹幕源"
+        val label = src["label"]?.toString()?.takeIf { it.isNotEmpty() } ?: getString(R.string.player_text_0076)
         val active = src["active"] == true
         val count = (src["commentCount"] as? Number)?.toInt() ?: 0
         val typeText = when (type) {
-            "downloadedFile" -> "随片下载"
-            "danDanPlay" -> "弹弹play 在线"
-            else -> "本地导入"
+            "downloadedFile" -> getString(R.string.player_text_0250)
+            "danDanPlay" -> getString(R.string.player_text_0251)
+            else -> getString(R.string.player_text_0252)
         }
         val subtitle = buildString {
             append(typeText)
             if (count > 0) append(" · $count 条")
-            if (active) append(" · 当前生效")
+            if (active) append(getString(R.string.player_text_0253))
         }
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -7792,7 +7792,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun applyFlutterDanmakuSource(sourceKey: String) {
         if (sourceKey.isEmpty()) return
-        showCenterHint("加载弹幕中…")
+        showCenterHint(getString(R.string.player_text_0254))
         NativePlayerReverseBridge.dispatch(
             method = "loadSavedDanmakuSource",
             args = HashMap(danmakuMediaArgs()).apply { put("sourceKey", sourceKey) },
@@ -7805,7 +7805,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 }
             },
             onError = {
-                runOnUiThread { hideCenterHint(); showTransientHint("弹幕加载失败") }
+                runOnUiThread { hideCenterHint(); showTransientHint(getString(R.string.player_text_0255)) }
             },
         )
     }
@@ -7829,7 +7829,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     ellipsize = android.text.TextUtils.TruncateAt.END
                 })
                 addView(TextView(context).apply {
-                    text = if (rec.type == "dandan") "弹弹play 在线" else "本地文件"
+                    text = if (rec.type == "dandan") getString(R.string.player_text_0251) else getString(R.string.player_text_0256)
                     setTextColor(TEXT_DIM)
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                     setPadding(0, dp(3), 0, 0)
@@ -7891,7 +7891,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val input = android.widget.EditText(this).apply {
             setText(initial)
             setSelection(text?.length ?: 0)
-            hint = "输入番名 / 关键词"
+            hint = getString(R.string.player_text_0257)
             setTextColor(Color.WHITE)
             setHintTextColor(TEXT_DIM)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
@@ -7900,19 +7900,19 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             maxLines = 1
         }
         addPanelRow(input)
-        addPanelRow(panelActionRow("搜索") {
+        addPanelRow(panelActionRow(getString(R.string.player_text_0258)) {
             val keyword = input.text.toString().trim()
             if (keyword.isEmpty()) {
-                showTransientHint("请输入关键词")
+                showTransientHint(getString(R.string.player_text_0259))
                 return@panelActionRow
             }
             danmakuSearchKeyword = keyword
             searchDanmaku(keyword)
         })
-        addPanelRow(panelSectionHeader("结果"))
+        addPanelRow(panelSectionHeader(getString(R.string.player_text_0260)))
         if (danmakuSearchResults.isEmpty()) {
             addPanelRow(TextView(this).apply {
-                text = "输入关键词后搜索"
+                text = getString(R.string.player_text_0261)
                 setTextColor(TEXT_DIM)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
                 setPadding(dp(12), dp(10), dp(12), dp(10))
@@ -7933,7 +7933,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             )
         }
         runCatching { startActivityForResult(intent, REQUEST_PICK_DANMAKU) }
-            .onFailure { showTransientHint("无法打开文件选择器") }
+            .onFailure { showTransientHint(getString(R.string.player_text_0047)) }
     }
 
     @Deprecated("Deprecated in Java")
@@ -7953,14 +7953,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val name = queryDisplayName(uri) ?: ""
         val ext = name.substringAfterLast('.', "").lowercase()
         if (ext !in DANMAKU_IMPORT_EXTENSIONS) {
-            showTransientHint("仅支持 XML / JSON 弹幕文件")
+            showTransientHint(getString(R.string.player_text_0262))
             return
         }
         // 取持久 URI 读权限，"已保存来源"重启后仍可重读该文件。
         runCatching {
             contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        val label = name.ifEmpty { "本地弹幕" }
+        val label = name.ifEmpty { getString(R.string.player_text_0263) }
         pendingDanmakuSource = DanmakuSource(
             mediaKey = danmakuMediaKey(), type = "local", label = label,
             episodeId = 0, animeTitle = "", episodeTitle = "", episodeNumber = 0,
@@ -7970,19 +7970,19 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun importDanmakuFromUri(uri: android.net.Uri) {
-        showCenterHint("导入弹幕中…")
+        showCenterHint(getString(R.string.player_text_0264))
         Thread {
             val tempPath = copyUriToCache(uri)
             runOnUiThread {
                 if (tempPath == null) {
                     pendingDanmakuSource = null
-                    hideCenterHint(); showTransientHint("读取文件失败"); return@runOnUiThread
+                    hideCenterHint(); showTransientHint(getString(R.string.player_text_0050)); return@runOnUiThread
                 }
                 NativePlayerReverseBridge.dispatch(
                     method = "importDanmakuFile",
                     args = mapOf("path" to tempPath),
                     onResult = { res -> runOnUiThread { applyDanmakuLoadResult(res) } },
-                    onError = { runOnUiThread { pendingDanmakuSource = null; hideCenterHint(); showTransientHint("弹幕导入失败") } },
+                    onError = { runOnUiThread { pendingDanmakuSource = null; hideCenterHint(); showTransientHint(getString(R.string.player_text_0265)) } },
                 )
             }
         }.start()
@@ -8034,7 +8034,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     flutterDanmakuSources = (res as? List<*>)
                         ?.mapNotNull { it as? Map<String, Any?> }
                         ?: emptyList()
-                    if (panelStack.lastOrNull()?.title == "弹幕源") renderTopPanel()
+                    if (panelStack.lastOrNull()?.title == getString(R.string.player_text_0076)) renderTopPanel()
                 }
             },
             onError = {
@@ -8119,7 +8119,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         pendingDanmakuSource = rec.copy(updatedAt = System.currentTimeMillis())
         when (rec.type) {
             "dandan" -> {
-                showCenterHint("加载弹幕中…")
+                showCenterHint(getString(R.string.player_text_0254))
                 NativePlayerReverseBridge.dispatch(
                     method = "loadDanmakuEpisode",
                     args = mapOf(
@@ -8129,14 +8129,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                         "episodeNumber" to rec.episodeNumber,
                     ),
                     onResult = { res -> runOnUiThread { applyDanmakuLoadResult(res) } },
-                    onError = { runOnUiThread { pendingDanmakuSource = null; hideCenterHint(); showTransientHint("弹幕加载失败") } },
+                    onError = { runOnUiThread { pendingDanmakuSource = null; hideCenterHint(); showTransientHint(getString(R.string.player_text_0255)) } },
                 )
             }
             "local" -> {
                 val uri = runCatching { android.net.Uri.parse(rec.uri) }.getOrNull()
                 if (uri == null) {
                     pendingDanmakuSource = null
-                    showTransientHint("弹幕文件不可用")
+                    showTransientHint(getString(R.string.player_text_0266))
                     return
                 }
                 importDanmakuFromUri(uri)
@@ -8161,7 +8161,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }.getOrNull()
 
     private fun searchDanmaku(keyword: String) {
-        showCenterHint("搜索中…")
+        showCenterHint(getString(R.string.player_text_0267))
         NativePlayerReverseBridge.dispatch(
             method = "searchDanmakuSource",
             args = mapOf(
@@ -8182,11 +8182,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     } else {
                         parsed
                     }
-                    if (danmakuSearchResults.isEmpty()) showTransientHint("没有找到弹幕")
+                    if (danmakuSearchResults.isEmpty()) showTransientHint(getString(R.string.player_text_0268))
                     if (panelVisible) renderTopPanel()
                 }
             },
-            onError = { runOnUiThread { hideCenterHint(); showTransientHint("弹幕搜索失败") } },
+            onError = { runOnUiThread { hideCenterHint(); showTransientHint(getString(R.string.player_text_0269)) } },
         )
     }
 
@@ -8220,7 +8220,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
                 if (isCurrent) {
                     addView(TextView(context).apply {
-                        text = "当前集"
+                        text = getString(R.string.player_text_0270)
                         setTextColor(ACCENT)
                         setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                         setPadding(dp(8), 0, 0, 0)
@@ -8244,7 +8244,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun loadDanmakuFromResult(item: Map<String, Any?>) {
         val episodeId = (item["episodeId"] as? Number)?.toInt() ?: 0
         if (episodeId <= 0) {
-            showTransientHint("无效的弹幕集")
+            showTransientHint(getString(R.string.player_text_0271))
             return
         }
         val animeTitle = item["animeTitle"]?.toString().orEmpty()
@@ -8258,7 +8258,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             episodeId = episodeId, animeTitle = animeTitle, episodeTitle = episodeTitle,
             episodeNumber = episodeNumber, uri = "", updatedAt = System.currentTimeMillis(),
         )
-        showCenterHint("加载弹幕中…")
+        showCenterHint(getString(R.string.player_text_0254))
         NativePlayerReverseBridge.dispatch(
             method = "loadDanmakuEpisode",
             args = mapOf(
@@ -8268,7 +8268,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 "episodeNumber" to episodeNumber,
             ),
             onResult = { res -> runOnUiThread { applyDanmakuLoadResult(res) } },
-            onError = { runOnUiThread { pendingDanmakuSource = null; hideCenterHint(); showTransientHint("弹幕加载失败") } },
+            onError = { runOnUiThread { pendingDanmakuSource = null; hideCenterHint(); showTransientHint(getString(R.string.player_text_0255)) } },
         )
     }
 
@@ -8279,7 +8279,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val path = map?.get("danmakuFile")?.toString()?.takeIf { it.isNotEmpty() }
         if (path == null) {
             pendingDanmakuSource = null
-            showTransientHint("没有弹幕数据")
+            showTransientHint(getString(R.string.player_text_0272))
             return
         }
         val payload = runCatching {
@@ -8287,7 +8287,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }.getOrNull()
         if (payload == null) {
             pendingDanmakuSource = null
-            showTransientHint("弹幕读取失败")
+            showTransientHint(getString(R.string.player_text_0273))
             return
         }
         captureDanmakuSettings(payload)
@@ -8299,21 +8299,21 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         pendingDanmakuSource?.let { saveDanmakuSource(it.copy(updatedAt = System.currentTimeMillis())) }
         pendingDanmakuSource = null
         hidePanel()
-        showTransientHint("弹幕已加载")
+        showTransientHint(getString(R.string.player_text_0274))
     }
 
     private fun buildIntroOutroPage() {
-        addPanelRow(panelToggle("启用片头片尾跳过", introOutroEnabled) { v ->
+        addPanelRow(panelToggle(getString(R.string.player_text_0275), introOutroEnabled) { v ->
             introOutroEnabled = v; renderTopPanel()
         })
         if (introOutroEnabled) {
-            addPanelRow(panelSlider("片头时长上限", 1f, 4f, introMaxMin.toFloat(), steps = 3, format = { "${it.toInt()} 分钟" }) { v ->
+            addPanelRow(panelSlider(getString(R.string.player_text_0276), 1f, 4f, introMaxMin.toFloat(), steps = 3, format = { "${it.toInt()} 分钟" }) { v ->
                 introMaxMin = v.toInt()
             })
-            addPanelRow(panelSlider("片尾时长上限", 1f, 4f, outroMaxMin.toFloat(), steps = 3, format = { "${it.toInt()} 分钟" }) { v ->
+            addPanelRow(panelSlider(getString(R.string.player_text_0278), 1f, 4f, outroMaxMin.toFloat(), steps = 3, format = { "${it.toInt()} 分钟" }) { v ->
                 outroMaxMin = v.toInt()
             })
-            addPanelRow(panelSlider("跳过倒计时", 2f, 10f, skipCountdownSec.toFloat(), steps = 8, format = { "${it.toInt()} 秒" }) { v ->
+            addPanelRow(panelSlider(getString(R.string.player_text_0280), 2f, 10f, skipCountdownSec.toFloat(), steps = 8, format = { "${it.toInt()} 秒" }) { v ->
                 skipCountdownSec = v.toInt()
             })
         }
@@ -8372,7 +8372,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun buildBookmarkPage() {
-        addPanelRow(panelActionRow("在当前位置添加书签") {
+        addPanelRow(panelActionRow(getString(R.string.player_text_0281)) {
             val ts = playerSurface.state.positionMs
             bookmarks.add(Bookmark(ts, "书签 ${formatTime(ts)}"))
             bookmarks.sortBy { it.ts }
@@ -8381,7 +8381,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         })
         if (bookmarks.isEmpty()) {
             addPanelRow(TextView(this).apply {
-                text = "暂无书签"
+                text = getString(R.string.player_text_0282)
                 setTextColor(TEXT_DIM)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
                 setPadding(dp(12), dp(12), dp(12), dp(12))
@@ -8400,7 +8400,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     isClickable = true
                     setOnClickListener { playerSurface.seek(bm.ts); hidePanel() }
                 }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-                addView(promptButton("删除", TEXT_DIM, false) {
+                addView(promptButton(getString(R.string.player_text_0283), TEXT_DIM, false) {
                     bookmarks.remove(bm); renderTopPanel()
                 })
             })
