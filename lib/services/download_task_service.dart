@@ -188,6 +188,29 @@ class DownloadTaskService extends ChangeNotifier {
   List<DownloadTaskRecord> get records =>
       List<DownloadTaskRecord>.unmodifiable(_records);
 
+  @visibleForTesting
+  void debugReplaceRecordsForTesting(List<DownloadTaskRecord> records) {
+    _persistTimer?.cancel();
+    _persistTimer = null;
+    _pendingInitialization = null;
+    _initialized = true;
+    _cancelTokens.clear();
+    for (final timer in _downloadTaskProgressPollers.values) {
+      timer.cancel();
+    }
+    _downloadTaskProgressPollers.clear();
+    _downloadSpeedBytesPerSecond.clear();
+    _downloadProgressSamples.clear();
+    _downloadSpeedAnchorSamples.clear();
+    _downloadSpeedPublishedAtMs.clear();
+    _downloadTaskProgress.clear();
+    _records
+      ..clear()
+      ..addAll(records);
+    _sortRecords();
+    notifyListeners();
+  }
+
   /// 返回所有活跃（下载中或已暂停）的下载任务。
   List<DownloadTaskRecord> get activeRecords {
     return _sortedRecords(

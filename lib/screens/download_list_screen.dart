@@ -82,7 +82,9 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
     _service.initialize();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _service.refreshDownloadedGroupMetadata(context.read<NasProvider>());
+      final provider = context.read<NasProvider>();
+      if (!provider.isConfigured) return;
+      _service.refreshDownloadedGroupMetadata(provider);
     });
   }
 
@@ -106,6 +108,17 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
   void _resetEditingState() {
     _editing = false;
     _selectedGroupIds.clear();
+  }
+
+  bool _exitEditingMode() {
+    if (!_editing) return false;
+    setState(_resetEditingState);
+    return true;
+  }
+
+  Future<void> _handleBackNavigation() async {
+    if (_exitEditingMode()) return;
+    await EmbeddedDetailLauncher.closeHostOrPop(context);
   }
 
   Future<void> _handleRecoverDownloadedFiles() async {
@@ -186,193 +199,200 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
     final l10n = AppLocalizations.of(context);
     final token = context.watch<NasProvider>().token;
 
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      body: SafeArea(
-        bottom: false,
-        child: Column(
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(10, 8, 14, 0),
-              child: Row(
-                children: <Widget>[
-                  _TopActionButton(
-                    icon: Icons.arrow_back_ios_new_rounded,
-                    onTap: () {
-                      unawaited(EmbeddedDetailLauncher.closeHostOrPop(context));
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Center(
-                      child: _DownloadTabSwitcher(
-                        selectedTab: _selectedTab,
-                        onChanged: (tab) => unawaited(_switchTab(tab)),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  _TopActionButton(
-                    icon: Icons.refresh_rounded,
-                    tooltip: l10n.downloadRefreshFilesTooltip,
-                    busy: _recoveringDownloads,
-                    onTap: _recoveringDownloads
-                        ? null
-                        : () => unawaited(_handleRecoverDownloadedFiles()),
-                  ),
-                  const SizedBox(width: 4),
-                  AnimatedBuilder(
-                    animation: _service,
-                    builder: (context, _) {
-                      final canEdit =
-                          _selectedTab == DownloadListTab.downloaded &&
-                          _service
-                              .groupsByStatus(DownloadTaskStatus.downloaded)
-                              .isNotEmpty;
-                      return TextButton(
-                        onPressed: !canEdit
-                            ? null
-                            : () {
-                                setState(() {
-                                  _editing = !_editing;
-                                  if (!_editing) {
-                                    _selectedGroupIds.clear();
-                                  }
-                                });
-                              },
-                        style: TextButton.styleFrom(
-                          foregroundColor: _editing
-                              ? colors.textPrimary
-                              : colors.textMuted,
-                          minimumSize: Size.zero,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 6,
-                          ),
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          textStyle: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        child: Text(
-                          _editing ? l10n.commonCancel : l10n.commonEdit,
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: AnimatedBuilder(
-                animation: _service,
-                builder: (context, _) {
-                  final downloadedGroups = _service.groupsByStatus(
-                    DownloadTaskStatus.downloaded,
-                  );
-                  if (downloadedGroups.isEmpty && _editing) {
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (!mounted || !_editing) return;
-                      setState(() {
-                        _editing = false;
-                        _selectedGroupIds.clear();
-                      });
-                    });
-                  }
-                  _selectedGroupIds.removeWhere(
-                    (id) => !downloadedGroups.any((group) => group.id == id),
-                  );
-                  final downloadingRecords = _service.activeRecords;
-                  return PageView(
-                    controller: _pageController,
-                    onPageChanged: _handlePageChanged,
-                    physics: const BouncingScrollPhysics(),
-                    children: <Widget>[
-                      _buildDownloadedPage(
-                        context: context,
-                        token: token,
-                        groups: downloadedGroups,
-                      ),
-                      _buildDownloadingPage(
-                        context: context,
-                        token: token,
-                        records: downloadingRecords,
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ),
-            if (_editing) ...<Widget>[
-              const SizedBox(height: 8),
+    return PopScope<Object?>(
+      canPop: !_editing,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _exitEditingMode();
+      },
+      child: Scaffold(
+        backgroundColor: colors.backgroundBase,
+        body: SafeArea(
+          bottom: false,
+          child: Column(
+            children: <Widget>[
               Padding(
-                padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                padding: const EdgeInsets.fromLTRB(10, 8, 14, 0),
                 child: Row(
                   children: <Widget>[
+                    _TopActionButton(
+                      icon: Icons.arrow_back_ios_new_rounded,
+                      onTap: () {
+                        unawaited(_handleBackNavigation());
+                      },
+                    ),
+                    const SizedBox(width: 8),
                     Expanded(
-                      child: FilledButton.tonal(
-                        onPressed: () {
-                          final groups = _service.groupsByStatus(
-                            _selectedTab.status,
-                          );
-                          setState(() {
-                            if (_selectedGroupIds.length == groups.length &&
-                                groups.isNotEmpty) {
-                              _selectedGroupIds.clear();
-                            } else {
-                              _selectedGroupIds
-                                ..clear()
-                                ..addAll(groups.map((group) => group.id));
-                            }
-                          });
-                        },
-                        style: FilledButton.styleFrom(
-                          minimumSize: const Size.fromHeight(58),
-                          backgroundColor: colors.surfaceStrong,
-                          foregroundColor: colors.textPrimary,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(18),
-                          ),
-                        ),
-                        child: Text(
-                          _selectedGroupIds.length ==
-                                      _service
-                                          .groupsByStatus(_selectedTab.status)
-                                          .length &&
-                                  _service
-                                      .groupsByStatus(_selectedTab.status)
-                                      .isNotEmpty
-                              ? l10n.commonDeselectAll
-                              : l10n.commonSelectAll,
+                      child: Center(
+                        child: _DownloadTabSwitcher(
+                          selectedTab: _selectedTab,
+                          onChanged: (tab) => unawaited(_switchTab(tab)),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 18),
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: _selectedGroupIds.isEmpty
-                            ? null
-                            : () => _confirmDeleteSelectedGroups(context),
-                        style: FilledButton.styleFrom(
-                          minimumSize: const Size.fromHeight(58),
-                          backgroundColor: const Color(0xFF7E0913),
-                          disabledBackgroundColor: const Color(
-                            0xFF7E0913,
-                          ).withValues(alpha: 0.35),
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(18),
+                    const SizedBox(width: 8),
+                    _TopActionButton(
+                      icon: Icons.refresh_rounded,
+                      tooltip: l10n.downloadRefreshFilesTooltip,
+                      busy: _recoveringDownloads,
+                      onTap: _recoveringDownloads
+                          ? null
+                          : () => unawaited(_handleRecoverDownloadedFiles()),
+                    ),
+                    const SizedBox(width: 4),
+                    AnimatedBuilder(
+                      animation: _service,
+                      builder: (context, _) {
+                        final canEdit =
+                            _selectedTab == DownloadListTab.downloaded &&
+                            _service
+                                .groupsByStatus(DownloadTaskStatus.downloaded)
+                                .isNotEmpty;
+                        return TextButton(
+                          onPressed: !canEdit
+                              ? null
+                              : () {
+                                  setState(() {
+                                    _editing = !_editing;
+                                    if (!_editing) {
+                                      _selectedGroupIds.clear();
+                                    }
+                                  });
+                                },
+                          style: TextButton.styleFrom(
+                            foregroundColor: _editing
+                                ? colors.textPrimary
+                                : colors.textMuted,
+                            minimumSize: Size.zero,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 6,
+                            ),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            textStyle: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
-                        ),
-                        child: Text(l10n.commonDelete),
-                      ),
+                          child: Text(
+                            _editing ? l10n.commonCancel : l10n.commonEdit,
+                          ),
+                        );
+                      },
                     ),
                   ],
                 ),
               ),
+              Expanded(
+                child: AnimatedBuilder(
+                  animation: _service,
+                  builder: (context, _) {
+                    final downloadedGroups = _service.groupsByStatus(
+                      DownloadTaskStatus.downloaded,
+                    );
+                    if (downloadedGroups.isEmpty && _editing) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (!mounted || !_editing) return;
+                        setState(() {
+                          _editing = false;
+                          _selectedGroupIds.clear();
+                        });
+                      });
+                    }
+                    _selectedGroupIds.removeWhere(
+                      (id) => !downloadedGroups.any((group) => group.id == id),
+                    );
+                    final downloadingRecords = _service.activeRecords;
+                    return PageView(
+                      controller: _pageController,
+                      onPageChanged: _handlePageChanged,
+                      physics: const BouncingScrollPhysics(),
+                      children: <Widget>[
+                        _buildDownloadedPage(
+                          context: context,
+                          token: token,
+                          groups: downloadedGroups,
+                        ),
+                        _buildDownloadingPage(
+                          context: context,
+                          token: token,
+                          records: downloadingRecords,
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+              if (_editing) ...<Widget>[
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                  child: Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: FilledButton.tonal(
+                          onPressed: () {
+                            final groups = _service.groupsByStatus(
+                              _selectedTab.status,
+                            );
+                            setState(() {
+                              if (_selectedGroupIds.length == groups.length &&
+                                  groups.isNotEmpty) {
+                                _selectedGroupIds.clear();
+                              } else {
+                                _selectedGroupIds
+                                  ..clear()
+                                  ..addAll(groups.map((group) => group.id));
+                              }
+                            });
+                          },
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size.fromHeight(58),
+                            backgroundColor: colors.surfaceStrong,
+                            foregroundColor: colors.textPrimary,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                          ),
+                          child: Text(
+                            _selectedGroupIds.length ==
+                                        _service
+                                            .groupsByStatus(_selectedTab.status)
+                                            .length &&
+                                    _service
+                                        .groupsByStatus(_selectedTab.status)
+                                        .isNotEmpty
+                                ? l10n.commonDeselectAll
+                                : l10n.commonSelectAll,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 18),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: _selectedGroupIds.isEmpty
+                              ? null
+                              : () => _confirmDeleteSelectedGroups(context),
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size.fromHeight(58),
+                            backgroundColor: const Color(0xFF7E0913),
+                            disabledBackgroundColor: const Color(
+                              0xFF7E0913,
+                            ).withValues(alpha: 0.35),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                          ),
+                          child: Text(l10n.commonDelete),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -653,6 +673,22 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
     });
   }
 
+  void _resetEditingState() {
+    _editing = false;
+    _selectedRecordIds.clear();
+  }
+
+  bool _exitEditingMode() {
+    if (!_editing) return false;
+    setState(_resetEditingState);
+    return true;
+  }
+
+  Future<void> _handleBackNavigation() async {
+    if (_exitEditingMode()) return;
+    await EmbeddedDetailLauncher.closeHostOrPop(context);
+  }
+
   Future<void> _playDownloadedRecord(DownloadTaskRecord record) async {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
@@ -883,278 +919,290 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
     final l10n = AppLocalizations.of(context);
     final token = context.watch<NasProvider>().token;
 
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      body: SafeArea(
-        bottom: false,
-        child: AnimatedBuilder(
-          animation: _service,
-          builder: (context, _) {
-            final group = _service.groupById(
-              widget.groupId,
-              status: _selectedTab.status,
-            );
-            final title = group?.title.trim().isNotEmpty == true
-                ? group!.title
-                : l10n.downloadDetailTitle;
-            final records = group?.records ?? const <DownloadTaskRecord>[];
-            if (records.isEmpty && _editing) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (!mounted || !_editing) return;
-                setState(() {
-                  _editing = false;
-                  _selectedRecordIds.clear();
+    return PopScope<Object?>(
+      canPop: !_editing,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _exitEditingMode();
+      },
+      child: Scaffold(
+        backgroundColor: colors.backgroundBase,
+        body: SafeArea(
+          bottom: false,
+          child: AnimatedBuilder(
+            animation: _service,
+            builder: (context, _) {
+              final group = _service.groupById(
+                widget.groupId,
+                status: _selectedTab.status,
+              );
+              final title = group?.title.trim().isNotEmpty == true
+                  ? group!.title
+                  : l10n.downloadDetailTitle;
+              final records = group?.records ?? const <DownloadTaskRecord>[];
+              if (records.isEmpty && _editing) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (!mounted || !_editing) return;
+                  setState(() {
+                    _editing = false;
+                    _selectedRecordIds.clear();
+                  });
                 });
-              });
-            }
-            _selectedRecordIds.removeWhere(
-              (id) => !records.any((record) => record.id == id),
-            );
-            _expandedVersionGroupKeys.removeWhere(
-              (key) => !_groupRecordsByItem(
-                records,
-              ).any((group) => group.key == key && group.records.length > 1),
-            );
-            final selectedCount = _selectedRecordIds.length;
-            final launchingRecordId = _playLaunchingRecordId;
-            final recordVersionGroups =
-                _selectedTab == DownloadListTab.downloaded && !_editing
-                ? _groupRecordsByItem(records)
-                : const <_DownloadRecordVersionGroupData>[];
+              }
+              _selectedRecordIds.removeWhere(
+                (id) => !records.any((record) => record.id == id),
+              );
+              _expandedVersionGroupKeys.removeWhere(
+                (key) => !_groupRecordsByItem(
+                  records,
+                ).any((group) => group.key == key && group.records.length > 1),
+              );
+              final selectedCount = _selectedRecordIds.length;
+              final launchingRecordId = _playLaunchingRecordId;
+              final recordVersionGroups =
+                  _selectedTab == DownloadListTab.downloaded && !_editing
+                  ? _groupRecordsByItem(records)
+                  : const <_DownloadRecordVersionGroupData>[];
 
-            return Column(
-              children: <Widget>[
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 8, 14, 0),
-                  child: Row(
-                    children: <Widget>[
-                      _TopActionButton(
-                        icon: Icons.arrow_back_ios_new_rounded,
-                        onTap: () {
-                          unawaited(
-                            EmbeddedDetailLauncher.closeHostOrPop(context),
-                          );
-                        },
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          _editing
-                              ? l10n.downloadSelectedCount(selectedCount)
-                              : title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: colors.textPrimary,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      TextButton(
-                        onPressed:
-                            records.isEmpty ||
-                                launchingRecordId != null ||
-                                _selectedTab != DownloadListTab.downloaded
-                            ? null
-                            : () {
-                                setState(() {
-                                  _editing = !_editing;
-                                  if (!_editing) {
-                                    _selectedRecordIds.clear();
-                                  }
-                                });
-                              },
-                        style: TextButton.styleFrom(
-                          foregroundColor: _editing
-                              ? colors.textPrimary
-                              : colors.textMuted,
-                          textStyle: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        child: Text(
-                          _editing ? l10n.commonCancel : l10n.commonEdit,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: records.isEmpty
-                      ? Center(
-                          child: Text(
-                            _selectedTab.emptyLabel(l10n),
-                            style: TextStyle(
-                              color: colors.textMuted,
-                              fontSize: 16,
-                            ),
-                          ),
-                        )
-                      : _selectedTab == DownloadListTab.downloaded && !_editing
-                      ? ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
-                          itemCount: recordVersionGroups.length,
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(height: 18),
-                          itemBuilder: (context, index) {
-                            final group = recordVersionGroups[index];
-                            final lead = group.records.first;
-                            final expanded = _expandedVersionGroupKeys.contains(
-                              group.key,
-                            );
-                            if (group.records.length <= 1) {
-                              return _DownloadRecordRow(
-                                key: ValueKey<String>(lead.id),
-                                record: lead,
-                                token: token,
-                                busy: launchingRecordId == lead.id,
-                                dimmed:
-                                    launchingRecordId != null &&
-                                    launchingRecordId != lead.id,
-                                onLongPress: launchingRecordId != null
-                                    ? null
-                                    : () => _handleRecordLongPress(lead.id),
-                                onTap: launchingRecordId != null
-                                    ? null
-                                    : () => _playDownloadedRecord(lead),
-                              );
-                            }
-                            return _DownloadRecordVersionGroup(
-                              key: ValueKey<String>('versions:${group.key}'),
-                              records: group.records,
-                              token: token,
-                              expanded: expanded,
-                              busyRecordId: launchingRecordId,
-                              onToggle: () {
-                                setState(() {
-                                  if (expanded) {
-                                    _expandedVersionGroupKeys.remove(group.key);
-                                  } else {
-                                    _expandedVersionGroupKeys.add(group.key);
-                                  }
-                                });
-                              },
-                              onRecordTap: (record) {
-                                if (launchingRecordId != null) return;
-                                _playDownloadedRecord(record);
-                              },
-                              onRecordLongPress: (record) {
-                                if (launchingRecordId != null) return;
-                                _handleRecordLongPress(record.id);
-                              },
-                            );
-                          },
-                        )
-                      : ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
-                          itemCount: records.length,
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(height: 18),
-                          itemBuilder: (context, index) {
-                            final record = records[index];
-                            return _DownloadRecordRow(
-                              key: ValueKey<String>(record.id),
-                              record: record,
-                              token: token,
-                              busy: launchingRecordId == record.id,
-                              dimmed:
-                                  launchingRecordId != null &&
-                                  launchingRecordId != record.id,
-                              downloadSpeedBytesPerSecond: _service
-                                  .downloadSpeedBytesPerSecondFor(record.id),
-                              editing: _editing,
-                              selected: _selectedRecordIds.contains(record.id),
-                              onLongPress: launchingRecordId != null
-                                  ? null
-                                  : () => _handleRecordLongPress(record.id),
-                              onSelectToggle: _editing
-                                  ? (launchingRecordId != null
-                                        ? null
-                                        : () =>
-                                              _toggleRecordSelection(record.id))
-                                  : null,
-                              onTap: launchingRecordId != null
-                                  ? null
-                                  : _editing
-                                  ? () => _toggleRecordSelection(record.id)
-                                  : _selectedTab != DownloadListTab.downloaded
-                                  ? null
-                                  : () => _playDownloadedRecord(record),
-                            );
-                          },
-                        ),
-                ),
-                if (_editing) ...<Widget>[
-                  const SizedBox(height: 8),
+              return Column(
+                children: <Widget>[
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                    padding: const EdgeInsets.fromLTRB(10, 8, 14, 0),
                     child: Row(
                       children: <Widget>[
+                        _TopActionButton(
+                          icon: Icons.arrow_back_ios_new_rounded,
+                          onTap: () {
+                            unawaited(_handleBackNavigation());
+                          },
+                        ),
+                        const SizedBox(width: 12),
                         Expanded(
-                          child: FilledButton.tonal(
-                            onPressed: records.isEmpty
-                                ? null
-                                : () {
-                                    setState(() {
-                                      if (_selectedRecordIds.length ==
-                                          records.length) {
-                                        _selectedRecordIds.clear();
-                                      } else {
-                                        _selectedRecordIds
-                                          ..clear()
-                                          ..addAll(
-                                            records.map((record) => record.id),
-                                          );
-                                      }
-                                    });
-                                  },
-                            style: FilledButton.styleFrom(
-                              minimumSize: const Size.fromHeight(58),
-                              backgroundColor: colors.surfaceStrong,
-                              foregroundColor: colors.textPrimary,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(18),
-                              ),
-                            ),
-                            child: Text(
-                              _selectedRecordIds.length == records.length &&
-                                      records.isNotEmpty
-                                  ? l10n.commonDeselectAll
-                                  : l10n.commonSelectAll,
+                          child: Text(
+                            _editing
+                                ? l10n.downloadSelectedCount(selectedCount)
+                                : title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: colors.textPrimary,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ),
-                        const SizedBox(width: 18),
-                        Expanded(
-                          child: FilledButton(
-                            onPressed: _selectedRecordIds.isEmpty
-                                ? null
-                                : () => _confirmDeleteSelected(context),
-                            style: FilledButton.styleFrom(
-                              minimumSize: const Size.fromHeight(58),
-                              backgroundColor: const Color(0xFF7E0913),
-                              disabledBackgroundColor: const Color(
-                                0xFF7E0913,
-                              ).withValues(alpha: 0.35),
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(18),
-                              ),
+                        const SizedBox(width: 12),
+                        TextButton(
+                          onPressed:
+                              records.isEmpty ||
+                                  launchingRecordId != null ||
+                                  _selectedTab != DownloadListTab.downloaded
+                              ? null
+                              : () {
+                                  setState(() {
+                                    _editing = !_editing;
+                                    if (!_editing) {
+                                      _selectedRecordIds.clear();
+                                    }
+                                  });
+                                },
+                          style: TextButton.styleFrom(
+                            foregroundColor: _editing
+                                ? colors.textPrimary
+                                : colors.textMuted,
+                            textStyle: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w500,
                             ),
-                            child: Text(l10n.commonDelete),
+                          ),
+                          child: Text(
+                            _editing ? l10n.commonCancel : l10n.commonEdit,
                           ),
                         ),
                       ],
                     ),
                   ),
+                  Expanded(
+                    child: records.isEmpty
+                        ? Center(
+                            child: Text(
+                              _selectedTab.emptyLabel(l10n),
+                              style: TextStyle(
+                                color: colors.textMuted,
+                                fontSize: 16,
+                              ),
+                            ),
+                          )
+                        : _selectedTab == DownloadListTab.downloaded &&
+                              !_editing
+                        ? ListView.separated(
+                            padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
+                            itemCount: recordVersionGroups.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 18),
+                            itemBuilder: (context, index) {
+                              final group = recordVersionGroups[index];
+                              final lead = group.records.first;
+                              final expanded = _expandedVersionGroupKeys
+                                  .contains(group.key);
+                              if (group.records.length <= 1) {
+                                return _DownloadRecordRow(
+                                  key: ValueKey<String>(lead.id),
+                                  record: lead,
+                                  token: token,
+                                  busy: launchingRecordId == lead.id,
+                                  dimmed:
+                                      launchingRecordId != null &&
+                                      launchingRecordId != lead.id,
+                                  onLongPress: launchingRecordId != null
+                                      ? null
+                                      : () => _handleRecordLongPress(lead.id),
+                                  onTap: launchingRecordId != null
+                                      ? null
+                                      : () => _playDownloadedRecord(lead),
+                                );
+                              }
+                              return _DownloadRecordVersionGroup(
+                                key: ValueKey<String>('versions:${group.key}'),
+                                records: group.records,
+                                token: token,
+                                expanded: expanded,
+                                busyRecordId: launchingRecordId,
+                                onToggle: () {
+                                  setState(() {
+                                    if (expanded) {
+                                      _expandedVersionGroupKeys.remove(
+                                        group.key,
+                                      );
+                                    } else {
+                                      _expandedVersionGroupKeys.add(group.key);
+                                    }
+                                  });
+                                },
+                                onRecordTap: (record) {
+                                  if (launchingRecordId != null) return;
+                                  _playDownloadedRecord(record);
+                                },
+                                onRecordLongPress: (record) {
+                                  if (launchingRecordId != null) return;
+                                  _handleRecordLongPress(record.id);
+                                },
+                              );
+                            },
+                          )
+                        : ListView.separated(
+                            padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
+                            itemCount: records.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 18),
+                            itemBuilder: (context, index) {
+                              final record = records[index];
+                              return _DownloadRecordRow(
+                                key: ValueKey<String>(record.id),
+                                record: record,
+                                token: token,
+                                busy: launchingRecordId == record.id,
+                                dimmed:
+                                    launchingRecordId != null &&
+                                    launchingRecordId != record.id,
+                                downloadSpeedBytesPerSecond: _service
+                                    .downloadSpeedBytesPerSecondFor(record.id),
+                                editing: _editing,
+                                selected: _selectedRecordIds.contains(
+                                  record.id,
+                                ),
+                                onLongPress: launchingRecordId != null
+                                    ? null
+                                    : () => _handleRecordLongPress(record.id),
+                                onSelectToggle: _editing
+                                    ? (launchingRecordId != null
+                                          ? null
+                                          : () => _toggleRecordSelection(
+                                              record.id,
+                                            ))
+                                    : null,
+                                onTap: launchingRecordId != null
+                                    ? null
+                                    : _editing
+                                    ? () => _toggleRecordSelection(record.id)
+                                    : _selectedTab != DownloadListTab.downloaded
+                                    ? null
+                                    : () => _playDownloadedRecord(record),
+                              );
+                            },
+                          ),
+                  ),
+                  if (_editing) ...<Widget>[
+                    const SizedBox(height: 8),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                      child: Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: FilledButton.tonal(
+                              onPressed: records.isEmpty
+                                  ? null
+                                  : () {
+                                      setState(() {
+                                        if (_selectedRecordIds.length ==
+                                            records.length) {
+                                          _selectedRecordIds.clear();
+                                        } else {
+                                          _selectedRecordIds
+                                            ..clear()
+                                            ..addAll(
+                                              records.map(
+                                                (record) => record.id,
+                                              ),
+                                            );
+                                        }
+                                      });
+                                    },
+                              style: FilledButton.styleFrom(
+                                minimumSize: const Size.fromHeight(58),
+                                backgroundColor: colors.surfaceStrong,
+                                foregroundColor: colors.textPrimary,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                              ),
+                              child: Text(
+                                _selectedRecordIds.length == records.length &&
+                                        records.isNotEmpty
+                                    ? l10n.commonDeselectAll
+                                    : l10n.commonSelectAll,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 18),
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: _selectedRecordIds.isEmpty
+                                  ? null
+                                  : () => _confirmDeleteSelected(context),
+                              style: FilledButton.styleFrom(
+                                minimumSize: const Size.fromHeight(58),
+                                backgroundColor: const Color(0xFF7E0913),
+                                disabledBackgroundColor: const Color(
+                                  0xFF7E0913,
+                                ).withValues(alpha: 0.35),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                              ),
+                              child: Text(l10n.commonDelete),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ],
-              ],
-            );
-          },
+              );
+            },
+          ),
         ),
       ),
     );
