@@ -661,6 +661,68 @@ internal data class NativeEpisodePickerData(
     val episodes: List<Map<String, Any?>>,
 )
 
+internal data class NativeEpisodeRefreshMerge(
+    val episodes: List<Map<String, Any?>>,
+    val changed: Boolean,
+)
+
+internal fun nativePanelMergeEpisodeRefresh(
+    currentEpisodes: List<Map<String, Any?>>,
+    refreshedEpisodes: List<Map<String, Any?>>,
+): NativeEpisodeRefreshMerge {
+    if (refreshedEpisodes.isEmpty()) {
+        return NativeEpisodeRefreshMerge(currentEpisodes, changed = false)
+    }
+    val currentByGuid = LinkedHashMap<String, Map<String, Any?>>()
+    for (episode in currentEpisodes) {
+        val guid = episode["itemGuid"]?.toString()?.trim().orEmpty()
+        if (guid.isNotEmpty()) currentByGuid[guid] = episode
+    }
+    val refreshedByGuid = LinkedHashMap<String, Map<String, Any?>>()
+    var hasMissingEpisode = false
+    for (episode in refreshedEpisodes) {
+        val guid = episode["itemGuid"]?.toString()?.trim().orEmpty()
+        if (guid.isEmpty()) continue
+        refreshedByGuid[guid] = episode
+        if (!currentByGuid.containsKey(guid)) hasMissingEpisode = true
+    }
+    if (refreshedByGuid.isEmpty()) {
+        return NativeEpisodeRefreshMerge(currentEpisodes, changed = false)
+    }
+
+    val merged = if (hasMissingEpisode) {
+        refreshedEpisodes.map { incoming ->
+            val guid = incoming["itemGuid"]?.toString()?.trim().orEmpty()
+            nativePanelMergeEpisodeMap(currentByGuid[guid], incoming)
+        }
+    } else {
+        currentEpisodes.map { existing ->
+            val guid = existing["itemGuid"]?.toString()?.trim().orEmpty()
+            val incoming = refreshedByGuid[guid]
+            if (incoming == null) existing else nativePanelMergeEpisodeMap(existing, incoming)
+        }
+    }
+    return NativeEpisodeRefreshMerge(merged, changed = merged != currentEpisodes)
+}
+
+private fun nativePanelMergeEpisodeMap(
+    existing: Map<String, Any?>?,
+    incoming: Map<String, Any?>,
+): Map<String, Any?> {
+    val merged = LinkedHashMap<String, Any?>()
+    if (existing != null) merged.putAll(existing)
+    for ((key, value) in incoming) {
+        val name = key.toString()
+        if (value == null) continue
+        if (value is String && value.trim().isEmpty()) {
+            val current = merged[name]?.toString()?.trim().orEmpty()
+            if (current.isNotEmpty()) continue
+        }
+        merged[name] = value
+    }
+    return merged
+}
+
 internal fun nativePanelEpisodePickerData(
     selectedSeasonGuid: String,
     viewType: String?,
@@ -3836,26 +3898,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             if (panelVisible) renderTopPanel()
             return
         }
-        val watchedByGuid = HashMap<String, Any?>()
-        for (ep in data.episodes) {
-            val guid = ep["itemGuid"]?.toString().orEmpty()
-            if (guid.isNotEmpty()) watchedByGuid[guid] = ep["watched"]
-        }
-        var changed = false
-        val merged = episodePanelEpisodes.map { ep ->
-            val guid = ep["itemGuid"]?.toString().orEmpty()
-            if (watchedByGuid.containsKey(guid) && ep["watched"] != watchedByGuid[guid]) {
-                changed = true
-                HashMap(ep).apply { this["watched"] = watchedByGuid[guid] }
-            } else {
-                ep
-            }
-        }
-        if (changed) {
-            episodePanelEpisodes = merged
-            seasonEpisodesCache[data.selectedSeasonGuid] = merged
+        val merge = nativePanelMergeEpisodeRefresh(episodePanelEpisodes, data.episodes)
+        if (merge.changed) {
+            episodePanelEpisodes = merge.episodes
+            seasonEpisodesCache[data.selectedSeasonGuid] = merge.episodes
             if (data.selectedSeasonGuid == loadArgsMap["seasonGuid"]?.toString().orEmpty()) {
-                loadArgsMap = HashMap(loadArgsMap).apply { put("episodes", merged) }
+                loadArgsMap = HashMap(loadArgsMap).apply { put("episodes", merge.episodes) }
             }
         }
         if (panelVisible) renderTopPanel()
