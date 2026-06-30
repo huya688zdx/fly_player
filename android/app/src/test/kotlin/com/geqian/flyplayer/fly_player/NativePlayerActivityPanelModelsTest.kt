@@ -57,6 +57,75 @@ class NativePlayerActivityPanelModelsTest {
     }
 
     @Test
+    fun episodeRefreshMergeCompletesDownloadedFallbackWithNetworkPosters() {
+        val merge = nativePanelMergeEpisodeRefresh(
+            currentEpisodes = listOf(
+                mapOf<String, Any?>(
+                    "itemGuid" to "e2",
+                    "episodeNumber" to 2,
+                    "poster" to "file:///downloads/e2-cover.jpg",
+                    "downloaded" to true,
+                ),
+            ),
+            refreshedEpisodes = listOf(
+                mapOf<String, Any?>(
+                    "itemGuid" to "e1",
+                    "episodeNumber" to 1,
+                    "poster" to "https://nas.example.com/e1.jpg",
+                    "imageAuth" to "token",
+                    "downloaded" to false,
+                ),
+                mapOf<String, Any?>(
+                    "itemGuid" to "e2",
+                    "episodeNumber" to 2,
+                    "poster" to "file:///downloads/e2-cover.jpg",
+                    "downloaded" to true,
+                ),
+                mapOf<String, Any?>(
+                    "itemGuid" to "e3",
+                    "episodeNumber" to 3,
+                    "poster" to "https://nas.example.com/e3.jpg",
+                    "imageAuth" to "token",
+                    "downloaded" to false,
+                ),
+            ),
+        )
+
+        assertEquals(true, merge.changed)
+        assertEquals(listOf("e1", "e2", "e3"), merge.episodes.map { it["itemGuid"] })
+        assertEquals("https://nas.example.com/e1.jpg", merge.episodes[0]["poster"])
+        assertEquals("file:///downloads/e2-cover.jpg", merge.episodes[1]["poster"])
+        assertEquals("token", merge.episodes[2]["imageAuth"])
+    }
+
+    @Test
+    fun episodeRefreshMergeDoesNotClearExistingPosterWithEmptyIncomingValue() {
+        val merge = nativePanelMergeEpisodeRefresh(
+            currentEpisodes = listOf(
+                mapOf<String, Any?>(
+                    "itemGuid" to "e1",
+                    "poster" to "https://nas.example.com/e1.jpg",
+                    "imageAuth" to "token",
+                    "watched" to 0,
+                ),
+            ),
+            refreshedEpisodes = listOf(
+                mapOf<String, Any?>(
+                    "itemGuid" to "e1",
+                    "poster" to "",
+                    "imageAuth" to "",
+                    "watched" to 1,
+                ),
+            ),
+        )
+
+        assertEquals(true, merge.changed)
+        assertEquals("https://nas.example.com/e1.jpg", merge.episodes[0]["poster"])
+        assertEquals("token", merge.episodes[0]["imageAuth"])
+        assertEquals(1, merge.episodes[0]["watched"])
+    }
+
+    @Test
     fun audioSummaryUsesSelectedGuid() {
         val tracks = listOf(
             mapOf<String, Any?>("guid" to "a1", "title" to "AAC", "language" to "zh"),
