@@ -138,11 +138,12 @@ class MediaBackendConnectionStore {
       if (decoded is! List) return const [];
       return decoded
           .whereType<Map>()
-          .map(
-            (item) => MediaBackendConnection.fromJson(
+          .map<MediaBackendConnection?>(
+            (item) => MediaBackendConnection.tryFromJson(
               Map<String, Object?>.from(item),
             ),
           )
+          .whereType<MediaBackendConnection>()
           .toList(growable: false);
     } on FormatException {
       return const [];

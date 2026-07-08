@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 
@@ -46,6 +45,7 @@ import 'ui/app_transitions.dart';
 import 'ui/media_poster_card.dart';
 import 'ui/route_transition_gate.dart';
 import 'utils/private_network_http_overrides.dart';
+import 'utils/route_query_json.dart';
 
 void main() {
   runZonedGuarded(
@@ -442,9 +442,9 @@ Route<dynamic> _buildRoute(RouteSettings settings) {
     final rawInitialItemDetail = payloadToken == null
         ? (uri.queryParameters['initialItemDetail'] ?? '')
         : '';
-    final decodedInitialItemDetail = rawInitialItemDetail.isEmpty
-        ? null
-        : (jsonDecode(rawInitialItemDetail) as Map).cast<String, dynamic>();
+    final decodedInitialItemDetail = RouteQueryJson.tryDecodeMap(
+      rawInitialItemDetail,
+    );
     return AppTransitions.leftToRightPageTurnRoute<void>(
       DetailItemRoute(
         itemGuid: uri.queryParameters['itemGuid'] ?? '',
@@ -473,9 +473,8 @@ Route<dynamic> _buildRoute(RouteSettings settings) {
     final rawSeasonItem = payloadToken == null
         ? (uri.queryParameters['seasonItem'] ?? '')
         : '';
-    final decodedSeasonItem = rawSeasonItem.isEmpty
-        ? const <String, dynamic>{}
-        : (jsonDecode(rawSeasonItem) as Map).cast<String, dynamic>();
+    final decodedSeasonItem =
+        RouteQueryJson.tryDecodeMap(rawSeasonItem) ?? const <String, dynamic>{};
     return AppTransitions.leftToRightPageTurnRoute<void>(
       DetailSeasonRoute(
         parentGuid: uri.queryParameters['parentGuid'] ?? '',
@@ -535,14 +534,9 @@ Route<dynamic> _buildRoute(RouteSettings settings) {
   if (uri != null && uri.path == '/screen/category') {
     final rawCategory = uri.queryParameters['category'] ?? '';
     final rawTypes = uri.queryParameters['types'] ?? '';
-    final decodedCategory = rawCategory.isEmpty
-        ? const <String, dynamic>{}
-        : (jsonDecode(rawCategory) as Map).cast<String, dynamic>();
-    final decodedTypes = rawTypes.isEmpty
-        ? null
-        : (jsonDecode(rawTypes) as List)
-              .map((value) => '$value')
-              .toList(growable: false);
+    final decodedCategory =
+        RouteQueryJson.tryDecodeMap(rawCategory) ?? const <String, dynamic>{};
+    final decodedTypes = RouteQueryJson.tryDecodeStringList(rawTypes);
     return AppTransitions.leftToRightPageTurnRoute<void>(
       CategoryRoute(
         category: MediaItem.fromJson(decodedCategory),

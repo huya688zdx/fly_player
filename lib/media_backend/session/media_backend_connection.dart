@@ -48,12 +48,28 @@ class MediaBackendConnection {
     'entryToken': entryToken,
   };
 
+  static MediaBackendConnection? tryFromJson(Map<String, Object?> json) {
+    try {
+      return MediaBackendConnection.fromJson(json);
+    } on FormatException {
+      return null;
+    } on TypeError {
+      return null;
+    }
+  }
+
   factory MediaBackendConnection.fromJson(Map<String, Object?> json) {
     final kindName = (json['kind'] ?? '').toString();
-    final kind = MediaBackendKind.values.firstWhere(
-      (value) => value.name == kindName,
-      orElse: () => MediaBackendKind.feiniu,
-    );
+    MediaBackendKind? kind;
+    for (final candidate in MediaBackendKind.values) {
+      if (candidate.name == kindName) {
+        kind = candidate;
+        break;
+      }
+    }
+    if (kind == null) {
+      throw FormatException('Unknown media backend kind: $kindName');
+    }
     return MediaBackendConnection(
       kind: kind,
       serverUrl: (json['serverUrl'] ?? '').toString(),

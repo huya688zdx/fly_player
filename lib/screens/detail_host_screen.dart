@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -12,6 +11,7 @@ import '../providers/app_theme_provider.dart';
 import '../services/detail_route_payload_store.dart';
 import '../ui/app_transitions.dart';
 import '../ui/detail_presentation.dart';
+import '../utils/route_query_json.dart';
 import 'detail_route_bodies.dart';
 import 'app_settings_screen.dart';
 import 'category_items_screen.dart';
@@ -449,9 +449,9 @@ Widget _buildRouteChild(String routeName, {required bool isActiveRoute}) {
     final rawInitialItemDetail = payloadToken == null
         ? (uri.queryParameters['initialItemDetail'] ?? '')
         : '';
-    final decodedInitialItemDetail = rawInitialItemDetail.isEmpty
-        ? null
-        : (jsonDecode(rawInitialItemDetail) as Map).cast<String, dynamic>();
+    final decodedInitialItemDetail = RouteQueryJson.tryDecodeMap(
+      rawInitialItemDetail,
+    );
     if (itemGuid.trim().isEmpty) {
       return const _DetailHostRouteError(message: 'Missing detail parameters');
     }
@@ -470,9 +470,8 @@ Widget _buildRouteChild(String routeName, {required bool isActiveRoute}) {
     final rawSeasonItem = payloadToken == null
         ? (uri.queryParameters['seasonItem'] ?? '')
         : '';
-    final decodedSeasonItem = rawSeasonItem.isEmpty
-        ? const <String, dynamic>{}
-        : (jsonDecode(rawSeasonItem) as Map).cast<String, dynamic>();
+    final decodedSeasonItem =
+        RouteQueryJson.tryDecodeMap(rawSeasonItem) ?? const <String, dynamic>{};
     final parentGuid = uri.queryParameters['parentGuid'] ?? '';
     final seasonItem = decodedSeasonItem.isEmpty
         ? null
@@ -528,14 +527,9 @@ Widget _buildRouteChild(String routeName, {required bool isActiveRoute}) {
   if (uri.path == '/screen/category') {
     final rawCategory = uri.queryParameters['category'] ?? '';
     final rawTypes = uri.queryParameters['types'] ?? '';
-    final decodedCategory = rawCategory.isEmpty
-        ? const <String, dynamic>{}
-        : (jsonDecode(rawCategory) as Map).cast<String, dynamic>();
-    final decodedTypes = rawTypes.isEmpty
-        ? null
-        : (jsonDecode(rawTypes) as List)
-              .map((value) => '$value')
-              .toList(growable: false);
+    final decodedCategory =
+        RouteQueryJson.tryDecodeMap(rawCategory) ?? const <String, dynamic>{};
+    final decodedTypes = RouteQueryJson.tryDecodeStringList(rawTypes);
     return CategoryItemsScreen(
       key: ValueKey<String>(routeName),
       category: MediaItem.fromJson(decodedCategory),
