@@ -37,24 +37,14 @@ class PersonCredit {
     if (n.isNotEmpty) return n;
     final o = originalName.trim();
     if (o.isNotEmpty) return o;
-    return '\u672A\u77E5';
+    return '';
   }
 
   String get displaySubTitle {
     final r = role.trim();
-    if (r.isNotEmpty && r != '(voice)') return '\u9970 $r';
+    if (r.isNotEmpty && r != '(voice)') return r;
     final j = job.trim();
-    if (j.isEmpty) return '';
-    switch (j.toLowerCase()) {
-      case 'director':
-        return '\u5BFC\u6F14';
-      case 'actor':
-        return '\u6F14\u5458';
-      case 'screenplay':
-        return '\u7F16\u5267';
-      default:
-        return j;
-    }
+    return j;
   }
 }
 

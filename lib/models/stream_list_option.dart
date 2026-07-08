@@ -1,9 +1,6 @@
-﻿import '../ui/capability_badge_mapper.dart';
 import 'package:fly_player/utils/media_language_mapper.dart';
 
 class StreamListOption {
-  static const String unknownVersionLabel = '\u672a\u77e5\u7248\u672c';
-
   final String mediaGuid;
   final String videoGuid;
   final String resolutionType;
@@ -24,19 +21,18 @@ class StreamListOption {
 
   String get label {
     final resolution = _formatResolution(resolutionType);
-    final color = CapabilityBadgeMapper.normalize(colorRangeType);
+    final color = _normalizeCapabilityBadge(colorRangeType);
     final parts = <String>[
       if (resolution.isNotEmpty) resolution,
       if (color.isNotEmpty) color,
     ];
-    if (parts.isEmpty) return unknownVersionLabel;
     return parts.join(' ');
   }
 
   String get audioLabel => MediaLanguageMapper.audioLabel(audioLanguage);
 
   static String _formatResolution(String raw) {
-    final normalized = CapabilityBadgeMapper.normalize(raw);
+    final normalized = _normalizeCapabilityBadge(raw);
     switch (normalized) {
       case '1080':
         return '1080P';
@@ -63,8 +59,10 @@ class StreamListOption {
         if (mediaGuid.isEmpty || audioTypeByMediaGuid.containsKey(mediaGuid)) {
           continue;
         }
-        audioTypeByMediaGuid[mediaGuid] = (entry['audio_type'] ?? '').toString();
-        audioLanguageByMediaGuid[mediaGuid] = (entry['language'] ?? '').toString();
+        audioTypeByMediaGuid[mediaGuid] = (entry['audio_type'] ?? '')
+            .toString();
+        audioLanguageByMediaGuid[mediaGuid] = (entry['language'] ?? '')
+            .toString();
       }
     }
 
@@ -87,4 +85,8 @@ class StreamListOption {
     }
     return options;
   }
+}
+
+String _normalizeCapabilityBadge(String raw) {
+  return raw.trim().toUpperCase().replaceAll(RegExp(r'\s+'), '');
 }

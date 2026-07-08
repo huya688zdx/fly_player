@@ -79,7 +79,7 @@ class MediaLibraryItem {
 
     return MediaLibraryItem(
       guid: (json['guid'] ?? '').toString(),
-      title: (json['title'] ?? 'Unknown').toString(),
+      title: (json['title'] ?? '').toString(),
       tvTitle: (json['tv_title'] ?? '').toString(),
       type: (json['type'] ?? '').toString(),
       poster: resolvedPoster,

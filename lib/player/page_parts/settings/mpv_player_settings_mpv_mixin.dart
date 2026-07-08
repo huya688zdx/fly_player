@@ -947,7 +947,13 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
                               Row(
                                 children: [
                                   Text(
-                                    'MIN ${_formatMpvCachePercentLabel(_mpvCachePercentSliderMin)}',
+                                    AppLocalizations.of(
+                                      context,
+                                    ).mpvCacheSliderMinimum(
+                                      _formatMpvCachePercentLabel(
+                                        _mpvCachePercentSliderMin,
+                                      ),
+                                    ),
                                     style: TextStyle(
                                       color: context.appColors.textSecondary,
                                       fontSize: 12,
@@ -955,7 +961,13 @@ extension _MpvPlayerSettingsMpvMixin on _MpvPlayerPageState {
                                   ),
                                   const Spacer(),
                                   Text(
-                                    'MAX ${_formatMpvCachePercentLabel(_mpvCachePercentSliderMax)}',
+                                    AppLocalizations.of(
+                                      context,
+                                    ).mpvCacheSliderMaximum(
+                                      _formatMpvCachePercentLabel(
+                                        _mpvCachePercentSliderMax,
+                                      ),
+                                    ),
                                     style: TextStyle(
                                       color: context.appColors.textSecondary,
                                       fontSize: 12,

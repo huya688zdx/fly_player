@@ -4,7 +4,7 @@ import 'package:fly_player/models/stream_list_option.dart';
 
 void main() {
   group('StreamListOption', () {
-    test('uses unknown version label for streams without video metadata', () {
+    test('keeps version label empty when streams have no video metadata', () {
       final options = StreamListOption.fromApiData({
         'video_streams': [
           {
@@ -31,11 +31,7 @@ void main() {
         ],
       });
 
-      expect(options.map((e) => e.label), [
-        StreamListOption.unknownVersionLabel,
-        StreamListOption.unknownVersionLabel,
-        '1080P SDR',
-      ]);
+      expect(options.map((e) => e.label), ['', '', '1080P SDR']);
     });
   });
 }

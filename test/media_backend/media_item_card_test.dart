@@ -3,7 +3,7 @@ import 'package:fly_player/media_backend/media_image_ref.dart';
 import 'package:fly_player/media_backend/media_item_card.dart';
 
 void main() {
-  test('displayTitle 优先副标题，其次主标题，皆空回退占位', () {
+  test('displayTitle 优先副标题，其次主标题，皆空时保持空值', () {
     const withSecondary = MediaItemCard(
       id: 'a',
       title: '剧集 B',
@@ -27,7 +27,7 @@ void main() {
       type: 'Movie',
       primaryImage: MediaImageRef.empty,
     );
-    expect(empty.displayTitle, 'Unknown');
+    expect(empty.displayTitle, '');
   });
 
   test('hasPosterSize / isLandscapePoster 由海报尺寸推导', () {

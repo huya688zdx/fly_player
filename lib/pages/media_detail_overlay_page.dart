@@ -113,7 +113,7 @@ class MediaDetailOverlayPage extends StatefulWidget {
     return AppSheetTransitions.showBottomSurface<void>(
       context,
       barrierDismissible: true,
-      barrierLabel: 'media_detail_overlay',
+      barrierLabel: AppLocalizations.of(context).mediaDetailsTitle,
       barrierColor: const Color(0xBF020812),
       builder: (_) => page,
     );
