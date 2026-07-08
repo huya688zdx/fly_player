@@ -103,14 +103,14 @@ class MediaDetail {
     this.people = const <MediaDetailPerson>[],
   });
 
-  /// 优先副标题，其次主标题，二者皆空时回退占位（复刻飞牛 displayTitle 语义）。
+  /// 优先副标题，其次主标题；二者皆空时保持空值，由 UI 层决定本地化占位。
   String get displayTitle {
     final secondary = secondaryTitle.trim();
     if (secondary.isNotEmpty) {
       return secondary;
     }
     final value = title.trim();
-    return value.isEmpty ? 'Unknown' : value;
+    return value;
   }
 
   MediaDetail copyWith({

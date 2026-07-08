@@ -5,10 +5,7 @@ import 'app_theme.dart';
 class AppThemeL10n {
   const AppThemeL10n._();
 
-  static String presetSubtitle(
-    AppLocalizations l10n,
-    AppThemePreset preset,
-  ) {
+  static String presetSubtitle(AppLocalizations l10n, AppThemePreset preset) {
     return switch (preset) {
       AppThemePreset.midnight => l10n.themePresetMidnightSubtitle,
       AppThemePreset.ocean => l10n.themePresetOceanSubtitle,
@@ -20,10 +17,19 @@ class AppThemeL10n {
     };
   }
 
-  static String accentToneTitle(
-    AppLocalizations l10n,
-    AppAccentTone tone,
-  ) {
+  static String presetTitle(AppLocalizations l10n, AppThemePreset preset) {
+    return switch (preset) {
+      AppThemePreset.midnight => l10n.themePresetMidnightTitle,
+      AppThemePreset.ocean => l10n.themePresetOceanTitle,
+      AppThemePreset.forest => l10n.themePresetForestTitle,
+      AppThemePreset.graphite => l10n.themePresetGraphiteTitle,
+      AppThemePreset.sunset => l10n.themePresetSunsetTitle,
+      AppThemePreset.aurora => l10n.themePresetAuroraTitle,
+      AppThemePreset.latte => l10n.themePresetLatteTitle,
+    };
+  }
+
+  static String accentToneTitle(AppLocalizations l10n, AppAccentTone tone) {
     return switch (tone) {
       AppAccentTone.blue => l10n.themeAccentBlue,
       AppAccentTone.cyan => l10n.themeAccentCyan,
@@ -58,7 +64,8 @@ class AppThemeL10n {
   ) {
     return switch (mode) {
       AppDynamicThemeMode.off => l10n.themeDynamicModeOff,
-      AppDynamicThemeMode.detailsAndPeople => l10n.themeDynamicModeDetailsAndPeople,
+      AppDynamicThemeMode.detailsAndPeople =>
+        l10n.themeDynamicModeDetailsAndPeople,
     };
   }
 
@@ -100,7 +107,7 @@ class AppThemeL10n {
     AppThemeProvider provider,
   ) {
     return switch (provider.themeSourceType) {
-      AppThemeSourceType.preset => provider.preset.title,
+      AppThemeSourceType.preset => presetTitle(l10n, provider.preset),
       AppThemeSourceType.currentCustom => l10n.themeCurrentCustomTitle,
       AppThemeSourceType.savedCustomTheme =>
         provider.activeSavedTheme?.name ?? l10n.themeCurrentCustomTitle,

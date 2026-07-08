@@ -868,9 +868,9 @@ class _ContinueDownloadBadge extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: _borderColor, width: 0.8),
         ),
-        child: const Text(
-          '\u5df2\u4e0b\u8f7d',
-          style: TextStyle(
+        child: Text(
+          AppLocalizations.of(context).downloadDownloaded,
+          style: const TextStyle(
             color: _textColor,
             fontSize: 12,
             fontWeight: FontWeight.w700,

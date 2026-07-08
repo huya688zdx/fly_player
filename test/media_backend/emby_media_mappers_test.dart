@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fly_player/media_backend/detail/media_source_version.dart';
 import 'package:fly_player/media_backend/emby/emby_media_mappers.dart';
 
 void main() {
@@ -261,7 +262,10 @@ void main() {
 
       expect(info.subtitleStreams, hasLength(1));
       expect(info.subtitleStreams.first.label, 'Chinese Simplified ASS');
-      expect(info.subtitleStreams.first.summary, '外挂');
+      expect(
+        info.subtitleStreams.first.summary,
+        mediaExternalSubtitleSummaryToken,
+      );
     });
 
     test('无 MediaSources → isEmpty', () {

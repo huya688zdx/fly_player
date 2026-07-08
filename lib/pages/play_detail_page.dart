@@ -957,7 +957,12 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                       // 与飞牛同一「视频信息」组件（紧凑三行 + 查看全部）；「查看全部」展开
                       // 逐流字段明细（复用飞牛同款 MediaDetailOverlayPage）。
                       child: VideoInfoSection(
-                        lines: VideoInfoLines.fromSource(_sourceInfo!),
+                        lines: VideoInfoLines.fromSource(
+                          _localizeNeutralSourceInfo(
+                            _sourceInfo!,
+                            AppLocalizations.of(context),
+                          ),
+                        ),
                         onViewAll: () => _showNeutralSourceInfoSheet(),
                       ),
                     ),

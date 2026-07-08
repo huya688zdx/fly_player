@@ -491,7 +491,7 @@ class _EpisodeListView extends StatelessWidget {
                 Text(
                   entry.statusLabel,
                   style: TextStyle(
-                    color: entry.statusColor,
+                    color: _episodeStatusColor(context, entry.statusTone),
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
                   ),
@@ -503,6 +503,15 @@ class _EpisodeListView extends StatelessWidget {
       },
     );
   }
+}
+
+Color _episodeStatusColor(BuildContext context, TvEpisodeStatusTone tone) {
+  final colors = context.appColors;
+  return switch (tone) {
+    TvEpisodeStatusTone.none => Colors.transparent,
+    TvEpisodeStatusTone.secondary => colors.textSecondary,
+    TvEpisodeStatusTone.accent => colors.accent,
+  };
 }
 
 class _EpisodeGridView extends StatelessWidget {

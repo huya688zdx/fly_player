@@ -299,7 +299,7 @@ class AudioTrackOption {
   bool get isDefaultOption => isDefault == 1;
 
   String get displayLabel {
-    return MediaLanguageMapper.audioLabel(language);
+    return MediaLanguageMapper.normalizeLanguageCode(language) ?? '';
   }
 
   String get detailLabel {
@@ -314,7 +314,7 @@ class AudioTrackOption {
     ];
     if (parts.isNotEmpty) return parts.join('  ');
     if (audioType.trim().isNotEmpty) return audioType.trim();
-    return '\u672a\u77e5\u97f3\u9891';
+    return '';
   }
 }
 
@@ -384,7 +384,7 @@ class SubtitleTrackOption {
   bool get isDefaultOption => isDefault == 1;
 
   String get displayLabel {
-    return _subtitleTitleLabel(language, title);
+    return _subtitleLanguageCode(language, title);
   }
 
   String get detailLabel {
@@ -395,7 +395,7 @@ class SubtitleTrackOption {
       if (style.isNotEmpty) style,
     ];
     if (parts.isNotEmpty) return parts.join('  ');
-    return '\u5b57\u5e55';
+    return '';
   }
 }
 
@@ -439,20 +439,15 @@ String _channelText(int channels) {
   return '$channels ch';
 }
 
-String _subtitleTitleLabel(String language, String title) {
-  final t = title.trim().toLowerCase();
-  if (t.contains('cht') || t.contains('trad')) return '中文';
-  if (t.contains('chs') || t.contains('simp')) return '中文';
-  return MediaLanguageMapper.subtitleLabel(language);
+String _subtitleLanguageCode(String language, String title) {
+  return MediaLanguageMapper.normalizeLanguageCode(language) ??
+      MediaLanguageMapper.inferLanguageCodeFromText(title) ??
+      '';
 }
 
 String _subtitleStyleLabel(String title) {
   final t = title.trim().toLowerCase();
   if (t.isEmpty) return '';
-  if (t.contains('traditional_dsnp')) return 'Traditional_DSNP';
-  if (t.contains('simplified_dsnp')) return 'Simplified_DSNP';
-  if (t.contains('cht') || t.contains('trad')) return 'Traditional';
-  if (t.contains('chs') || t.contains('simp')) return 'Simplified';
   return title.trim().replaceAll(RegExp(r'\s+'), ' ');
 }
 

@@ -355,10 +355,10 @@ class DownloadActionState {
   });
 
   String label({
-    String downloadLabel = 'Download',
-    String downloadingLabel = 'Downloading',
-    String downloadedLabel = 'Downloaded',
-    String pausedLabel = 'Paused',
+    required String downloadLabel,
+    required String downloadingLabel,
+    required String downloadedLabel,
+    required String pausedLabel,
   }) {
     if (downloaded) return downloadedLabel;
     if (downloading) return downloadingLabel;

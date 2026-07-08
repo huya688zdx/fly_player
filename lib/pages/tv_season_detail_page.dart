@@ -455,11 +455,11 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     return future;
   }
 
-  (String, Color, bool) _episodeStatus(MediaLibraryItem episode) {
+  (String, TvEpisodeStatusTone, bool) _episodeStatus(MediaLibraryItem episode) {
     if (episode.watched == 1) {
       return (
         AppLocalizations.of(context).listWatched,
-        context.appColors.textSecondary,
+        TvEpisodeStatusTone.secondary,
         false,
       );
     }
@@ -467,9 +467,9 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     final watchedTs = episode.ts > 0 ? episode.ts : episode.watchedTs;
     if (duration > 0 && watchedTs > 0) {
       final percent = (watchedTs / duration * 100).clamp(0, 100).round();
-      return ('$percent%', context.appColors.accent, false);
+      return ('$percent%', TvEpisodeStatusTone.accent, false);
     }
-    return ('', context.appColors.textSecondary, false);
+    return ('', TvEpisodeStatusTone.secondary, false);
   }
 
   double _episodeProgress(MediaLibraryItem episode) {
@@ -503,7 +503,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
             : '',
         durationText: _durationText(episode.duration),
         statusLabel: status.$1,
-        statusColor: status.$2,
+        statusTone: status.$2,
         imageUrls: includeImages
             ? _imageCandidates(episode.poster, width: 720)
             : const <String>[],
@@ -529,7 +529,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         summary: '',
         durationText: AppLocalizations.of(context).commonLoading,
         statusLabel: '',
-        statusColor: Colors.transparent,
+        statusTone: TvEpisodeStatusTone.none,
         imageUrls: const <String>[],
         resolutions: const <String>[],
         selected: false,
@@ -1267,7 +1267,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
           ? '$number.$cleanTitle'
           : '$number.${AppLocalizations.of(context).detailEpisodeNumber(number)}';
       String statusLabel = '';
-      Color statusColor = context.appColors.textSecondary;
+      var statusTone = TvEpisodeStatusTone.secondary;
       double progress = 0;
       if (ep.watched) {
         statusLabel = AppLocalizations.of(context).listWatched;
@@ -1277,7 +1277,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
             .clamp(0, 100)
             .round();
         statusLabel = '$percent%';
-        statusColor = context.appColors.accent;
+        statusTone = TvEpisodeStatusTone.accent;
         progress = (ep.resumePositionSeconds / ep.durationSeconds).clamp(
           0.0,
           1.0,
@@ -1290,7 +1290,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         summary: _hasMeaningfulText(ep.overview) ? ep.overview.trim() : '',
         durationText: _durationText(ep.durationSeconds),
         statusLabel: statusLabel,
-        statusColor: statusColor,
+        statusTone: statusTone,
         imageUrls: resolver.resolveRef(ep.primaryImage, width: 720).urls,
         resolutions: ep.resolutions,
         selected: ep.id == selectedGuid,
