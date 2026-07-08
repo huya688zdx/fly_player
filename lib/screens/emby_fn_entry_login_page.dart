@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../l10n/generated/app_localizations.dart';
+import 'fn_web_login_bridge_script.dart';
 
 /// 抓取 FN Connect 入口令牌（cookie `entry-token`）的 WebView 页。
 ///
@@ -112,101 +113,13 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
   }
 
   String _buildInjectionScript() {
-    final user = jsonEncode(widget.userName);
-    final password = jsonEncode(widget.password);
-    return '''
-(() => {
-  const BRIDGE = ${jsonEncode(_bridgeName)};
-  const AUTO_USER = $user;
-  const AUTO_PASS = $password;
-
-  function post(payload) {
-    try {
-      payload = payload || {};
-      payload.cookie = document.cookie || '';
-      payload.pageUrl = String(window.location.href || '');
-      payload.title = String(document.title || '');
-      var bodyText = (document.body && document.body.innerText) || '';
-      // 被拦截页（"FN Connect 访问提示 / 暂无权限"）= 当前令牌对该服务无效。
-      payload.blocked =
-        payload.title.indexOf('FN Connect') !== -1 ||
-        bodyText.indexOf('\\u6682\\u65e0\\u6743\\u9650') !== -1;
-      window[BRIDGE].postMessage(JSON.stringify(payload));
-    } catch (_) {}
-  }
-
-  function triggerInput(input, value) {
-    if (!input) return;
-    const d = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
-    if (d && d.set) { d.set.call(input, value); } else { input.value = value; }
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-    input.dispatchEvent(new Event('blur', { bubbles: true }));
-  }
-
-  function autoLogin() {
-    if (!AUTO_USER && !AUTO_PASS) return;
-    if (window.location.href.indexOf('/login') === -1) return;
-    setTimeout(() => {
-      const userInput =
-        document.querySelector('#username') ||
-        document.querySelector('input[name="username"]') ||
-        document.querySelector('input[autocomplete="username"]') ||
-        document.querySelector('input[type="text"]');
-      const passInput =
-        document.querySelector('#password') ||
-        document.querySelector('input[name="password"]') ||
-        document.querySelector('input[autocomplete="current-password"]') ||
-        document.querySelector('input[type="password"]');
-      if (userInput && AUTO_USER) triggerInput(userInput, AUTO_USER);
-      if (passInput && AUTO_PASS) triggerInput(passInput, AUTO_PASS);
-      setTimeout(() => {
-        const submit = document.querySelector('button[type="submit"]');
-        if (submit && !submit.disabled) submit.click();
-      }, 250);
-    }, 250);
-  }
-
-  function findText(elements, patterns) {
-    for (let i = 0; i < elements.length; i += 1) {
-      const t = String((elements[i] && (elements[i].innerText || elements[i].textContent)) || '')
-        .trim().toLowerCase();
-      for (let j = 0; j < patterns.length; j += 1) {
-        if (t.indexOf(patterns[j].toLowerCase()) !== -1) return elements[i];
-      }
-    }
-    return null;
-  }
-
-  function autoAuthorize() {
-    // 入口的授权页：自动点"授权/同意/Authorize"，让流程走完并跳回目标服务。
-    if (window.location.href.indexOf('/signin') === -1 &&
-        window.location.href.indexOf('/authorize') === -1 &&
-        window.location.href.indexOf('/oauth') === -1) return;
-    setTimeout(() => {
-      const btn = findText(
-        document.querySelectorAll('button'),
-        ['\\u6388\\u6743', '\\u540c\\u610f', 'Authorize', 'Agree', 'Continue', 'Allow']
-      );
-      if (btn && !btn.disabled) btn.click();
-    }, 250);
-  }
-
-  function reportCookie() { post({ type: 'cookie' }); }
-
-  autoLogin();
-  autoAuthorize();
-  reportCookie();
-  let ticks = 0;
-  const timer = setInterval(() => {
-    ticks += 1;
-    autoLogin();
-    autoAuthorize();
-    reportCookie();
-    if (ticks >= 240) clearInterval(timer);
-  }, 750);
-})();
-''';
+    return FnWebLoginBridgeScript.build(
+      bridgeName: _bridgeName,
+      userName: widget.userName,
+      password: widget.password,
+      requireCredentialsForAutoLogin: true,
+      reportBlockedState: true,
+    );
   }
 
   void _handleBridgeMessage(String rawMessage) {

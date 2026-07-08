@@ -6,76 +6,210 @@ import '../../ui/media_detail_components.dart';
 import 'detail_description_section.dart';
 import 'detail_icon_button.dart';
 
-class TvSeasonDetailPanel extends StatelessWidget {
+class TvSeasonPanelHeader {
   final String title;
   final double titleFontSize;
   final String token;
   final Color? ambientTint;
   final List<String> posterUrls;
-  final double posterWidth;
-  final double posterCardHeight;
-  final double posterBridgeOverlap;
-  final double panelDropOffset;
-  final double headerBodyTopPadding;
-  final Animation<double> headerMetaOpacity;
+  final Animation<double> metaOpacity;
   final Widget metaContent;
-  final String playLabel;
-  final double playLabelFontSize;
-  final bool watched;
-  final bool downloaded;
-  final bool descriptionVisible;
-  final Duration switchDuration;
-  final String overview;
-  final bool hasOverview;
-  final Widget episodeSection;
-  final Widget? creditsSection;
-  final Widget? linkSection;
-  final VoidCallback onPlayTap;
-  final VoidCallback onDownloadTap;
-  final VoidCallback onWatchedTap;
-  final VoidCallback onOverviewTap;
 
-  /// 可选「收藏整部剧」键。仅传入时显示(Emby 季页面);飞牛季页面不传 → 不显示,保持原样。
-  final bool? favorite;
-  final VoidCallback? onFavoriteTap;
-
-  const TvSeasonDetailPanel({
-    super.key,
+  const TvSeasonPanelHeader({
     required this.title,
     required this.titleFontSize,
     required this.token,
     required this.ambientTint,
     required this.posterUrls,
+    required this.metaOpacity,
+    required this.metaContent,
+  });
+}
+
+class TvSeasonPanelLayout {
+  final double posterWidth;
+  final double posterCardHeight;
+  final double posterBridgeOverlap;
+  final double panelDropOffset;
+  final double headerBodyTopPadding;
+  final double playLabelFontSize;
+  final Duration switchDuration;
+
+  const TvSeasonPanelLayout({
     required this.posterWidth,
     required this.posterCardHeight,
     required this.posterBridgeOverlap,
     required this.panelDropOffset,
     required this.headerBodyTopPadding,
-    required this.headerMetaOpacity,
-    required this.metaContent,
-    required this.playLabel,
     required this.playLabelFontSize,
+    required this.switchDuration,
+  });
+}
+
+class TvSeasonPanelActions {
+  final String playLabel;
+  final bool watched;
+  final bool downloaded;
+  final VoidCallback onPlayTap;
+  final VoidCallback onDownloadTap;
+  final VoidCallback onWatchedTap;
+
+  /// 可选「收藏整部剧」键。仅传入时显示(Emby 季页面);飞牛季页面不传 → 不显示,保持原样。
+  final bool? favorite;
+  final VoidCallback? onFavoriteTap;
+
+  const TvSeasonPanelActions({
+    required this.playLabel,
     required this.watched,
     this.downloaded = false,
+    required this.onPlayTap,
+    required this.onDownloadTap,
+    required this.onWatchedTap,
+    this.favorite,
+    this.onFavoriteTap,
+  });
+}
+
+class TvSeasonPanelContent {
+  final bool descriptionVisible;
+  final String overview;
+  final bool hasOverview;
+  final Widget episodeSection;
+  final Widget? creditsSection;
+  final Widget? linkSection;
+  final VoidCallback onOverviewTap;
+
+  const TvSeasonPanelContent({
     required this.descriptionVisible,
-    required this.switchDuration,
     required this.overview,
     required this.hasOverview,
     required this.episodeSection,
     required this.creditsSection,
     required this.linkSection,
-    required this.onPlayTap,
-    required this.onDownloadTap,
-    required this.onWatchedTap,
     required this.onOverviewTap,
-    this.favorite,
-    this.onFavoriteTap,
   });
+}
+
+class TvSeasonDetailPanel extends StatelessWidget {
+  final TvSeasonPanelHeader header;
+  final TvSeasonPanelLayout layout;
+  final TvSeasonPanelActions actions;
+  final TvSeasonPanelContent content;
+
+  const TvSeasonDetailPanel({
+    super.key,
+    required this.header,
+    required this.layout,
+    required this.actions,
+    required this.content,
+  });
+
+  factory TvSeasonDetailPanel.legacy({
+    Key? key,
+    required String title,
+    required double titleFontSize,
+    required String token,
+    required Color? ambientTint,
+    required List<String> posterUrls,
+    required double posterWidth,
+    required double posterCardHeight,
+    required double posterBridgeOverlap,
+    required double panelDropOffset,
+    required double headerBodyTopPadding,
+    required Animation<double> headerMetaOpacity,
+    required Widget metaContent,
+    required String playLabel,
+    required double playLabelFontSize,
+    required bool watched,
+    bool downloaded = false,
+    required bool descriptionVisible,
+    required Duration switchDuration,
+    required String overview,
+    required bool hasOverview,
+    required Widget episodeSection,
+    required Widget? creditsSection,
+    required Widget? linkSection,
+    required VoidCallback onPlayTap,
+    required VoidCallback onDownloadTap,
+    required VoidCallback onWatchedTap,
+    required VoidCallback onOverviewTap,
+    bool? favorite,
+    VoidCallback? onFavoriteTap,
+  }) {
+    return TvSeasonDetailPanel(
+      key: key,
+      header: TvSeasonPanelHeader(
+        title: title,
+        titleFontSize: titleFontSize,
+        token: token,
+        ambientTint: ambientTint,
+        posterUrls: posterUrls,
+        metaOpacity: headerMetaOpacity,
+        metaContent: metaContent,
+      ),
+      layout: TvSeasonPanelLayout(
+        posterWidth: posterWidth,
+        posterCardHeight: posterCardHeight,
+        posterBridgeOverlap: posterBridgeOverlap,
+        panelDropOffset: panelDropOffset,
+        headerBodyTopPadding: headerBodyTopPadding,
+        playLabelFontSize: playLabelFontSize,
+        switchDuration: switchDuration,
+      ),
+      actions: TvSeasonPanelActions(
+        playLabel: playLabel,
+        watched: watched,
+        downloaded: downloaded,
+        onPlayTap: onPlayTap,
+        onDownloadTap: onDownloadTap,
+        onWatchedTap: onWatchedTap,
+        favorite: favorite,
+        onFavoriteTap: onFavoriteTap,
+      ),
+      content: TvSeasonPanelContent(
+        descriptionVisible: descriptionVisible,
+        overview: overview,
+        hasOverview: hasOverview,
+        episodeSection: episodeSection,
+        creditsSection: creditsSection,
+        linkSection: linkSection,
+        onOverviewTap: onOverviewTap,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final primaryForeground = Theme.of(context).colorScheme.onPrimary;
+    final title = header.title;
+    final titleFontSize = header.titleFontSize;
+    final token = header.token;
+    final posterUrls = header.posterUrls;
+    final headerMetaOpacity = header.metaOpacity;
+    final metaContent = header.metaContent;
+    final posterWidth = layout.posterWidth;
+    final posterCardHeight = layout.posterCardHeight;
+    final posterBridgeOverlap = layout.posterBridgeOverlap;
+    final panelDropOffset = layout.panelDropOffset;
+    final headerBodyTopPadding = layout.headerBodyTopPadding;
+    final playLabelFontSize = layout.playLabelFontSize;
+    final switchDuration = layout.switchDuration;
+    final playLabel = actions.playLabel;
+    final watched = actions.watched;
+    final downloaded = actions.downloaded;
+    final onPlayTap = actions.onPlayTap;
+    final onDownloadTap = actions.onDownloadTap;
+    final onWatchedTap = actions.onWatchedTap;
+    final favorite = actions.favorite;
+    final onFavoriteTap = actions.onFavoriteTap;
+    final descriptionVisible = content.descriptionVisible;
+    final overview = content.overview;
+    final hasOverview = content.hasOverview;
+    final episodeSection = content.episodeSection;
+    final creditsSection = content.creditsSection;
+    final linkSection = content.linkSection;
+    final onOverviewTap = content.onOverviewTap;
     return Stack(
       clipBehavior: Clip.none,
       children: [
@@ -163,7 +297,7 @@ class TvSeasonDetailPanel extends StatelessWidget {
                     if (favorite != null && onFavoriteTap != null) ...[
                       DetailIconButton(
                         iconAsset: 'assets/icons/heart.svg',
-                        selected: favorite!,
+                        selected: favorite,
                         onTap: onFavoriteTap,
                       ),
                       const SizedBox(width: 10),
@@ -212,11 +346,11 @@ class TvSeasonDetailPanel extends StatelessWidget {
               episodeSection,
               if (creditsSection != null) ...[
                 const SizedBox(height: 20),
-                creditsSection!,
+                creditsSection,
               ],
               if (linkSection != null) ...[
                 const SizedBox(height: 20),
-                linkSection!,
+                linkSection,
               ],
             ],
           ),

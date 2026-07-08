@@ -1712,7 +1712,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                       DetailTokens.screenHorizontalPadding,
                       20,
                     ),
-                    child: TvSeasonDetailPanel(
+                    child: TvSeasonDetailPanel.legacy(
                       title: title,
                       titleFontSize: titleFontSize,
                       token: '',
@@ -3052,7 +3052,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                                 DetailTokens.screenHorizontalPadding,
                                 20,
                               ),
-                              child: TvSeasonDetailPanel(
+                              child: TvSeasonDetailPanel.legacy(
                                 title: title,
                                 titleFontSize: titleFontSize,
                                 token: provider.token,
