@@ -62,6 +62,19 @@ Future<bool> _showMpvPerformanceWarningDialog(
   return result ?? false;
 }
 
+MpvSettingCategoryEntry _mpvSettingCategoryEntry(
+  BuildContext context,
+  String key,
+) {
+  final l10n = AppLocalizations.of(context);
+  final definition = MpvSettingsL10n.definitionByKey(l10n, key);
+  return MpvSettingCategoryEntry(
+    key: key,
+    title: definition?.title ?? l10n.mpvGenericSettingTitle,
+    subtitle: definition?.description ?? '',
+  );
+}
+
 class MpvPlayerSettingsScreen extends StatefulWidget {
   static const String sectionQuickMode = 'quick_mode';
   static const String sectionPicture = 'picture';
@@ -128,82 +141,9 @@ class _MpvPlayerSettingsDestinationScreenState
       subtitle: subtitle,
       description: description,
       entries: keys
-          .map(
-            (key) => MpvSettingCategoryEntry(
-              key: key,
-              title: _settingTitle(key),
-              subtitle: _settingSubtitle(key),
-            ),
-          )
+          .map((key) => _mpvSettingCategoryEntry(context, key))
           .toList(growable: false),
     );
-  }
-
-  String _settingTitle(String key) {
-    final l10n = AppLocalizations.of(context);
-    return switch (key) {
-      MpvSettingsCatalog.debandKey => l10n.mpvSettingDebandTitle,
-      MpvSettingsCatalog.sharpenKey => l10n.mpvSettingSharpenTitle,
-      MpvSettingsCatalog.denoiseKey => l10n.mpvSettingDenoiseTitle,
-      MpvSettingsCatalog.deinterlaceKey => l10n.mpvSettingDeinterlaceTitle,
-      MpvSettingsCatalog.scaleProfileKey => l10n.mpvSettingScaleProfileTitle,
-      MpvSettingsCatalog.hdrModeKey => l10n.mpvSettingHdrModeTitle,
-      MpvSettingsCatalog.toneMappingKey => l10n.mpvSettingToneMappingTitle,
-      MpvSettingsCatalog.frameInterpolationKey =>
-        l10n.mpvSettingFrameInterpolationTitle,
-      MpvSettingsCatalog.videoSyncKey => l10n.mpvSettingVideoSyncTitle,
-      MpvSettingsCatalog.cacheProfileKey => l10n.mpvSettingCacheProfileTitle,
-      MpvSettingsCatalog.cacheSizeMbKey => l10n.mpvSettingCacheSizeTitle,
-      MpvSettingsCatalog.volumeGainKey => l10n.mpvSettingVolumeGainTitle,
-      MpvSettingsCatalog.audioHighFidelityKey =>
-        l10n.mpvSettingAudioHighFidelityTitle,
-      MpvSettingsCatalog.dynamicRangeKey => l10n.mpvSettingDynamicRangeTitle,
-      MpvSettingsCatalog.audioEqKey => l10n.mpvSettingAudioEqTitle,
-      MpvSettingsCatalog.audioLimiterKey => l10n.mpvSettingAudioLimiterTitle,
-      MpvSettingsCatalog.audioBassBoostKey =>
-        l10n.mpvSettingAudioBassBoostTitle,
-      MpvSettingsCatalog.audioVoiceEnhanceKey =>
-        l10n.mpvSettingAudioVoiceEnhanceTitle,
-      MpvSettingsCatalog.audioPassthroughKey =>
-        l10n.mpvSettingAudioPassthroughTitle,
-      MpvSettingsCatalog.channelMixKey => l10n.mpvSettingChannelMixTitle,
-      MpvSettingsCatalog.compatibilityKey => l10n.mpvSettingCompatibilityTitle,
-      _ => l10n.mpvGenericSettingTitle,
-    };
-  }
-
-  String _settingSubtitle(String key) {
-    final l10n = AppLocalizations.of(context);
-    return switch (key) {
-      MpvSettingsCatalog.debandKey => l10n.mpvSettingDebandSubtitle,
-      MpvSettingsCatalog.sharpenKey => l10n.mpvSettingSharpenSubtitle,
-      MpvSettingsCatalog.denoiseKey => l10n.mpvSettingDenoiseSubtitle,
-      MpvSettingsCatalog.deinterlaceKey => l10n.mpvSettingDeinterlaceSubtitle,
-      MpvSettingsCatalog.scaleProfileKey => l10n.mpvSettingScaleProfileSubtitle,
-      MpvSettingsCatalog.hdrModeKey => l10n.mpvSettingHdrModeSubtitle,
-      MpvSettingsCatalog.toneMappingKey => l10n.mpvSettingToneMappingSubtitle,
-      MpvSettingsCatalog.frameInterpolationKey =>
-        l10n.mpvSettingFrameInterpolationSubtitle,
-      MpvSettingsCatalog.videoSyncKey => l10n.mpvSettingVideoSyncSubtitle,
-      MpvSettingsCatalog.cacheProfileKey => l10n.mpvSettingCacheProfileSubtitle,
-      MpvSettingsCatalog.cacheSizeMbKey => l10n.mpvSettingCacheSizeSubtitle,
-      MpvSettingsCatalog.volumeGainKey => l10n.mpvSettingVolumeGainSubtitle,
-      MpvSettingsCatalog.audioHighFidelityKey =>
-        l10n.mpvSettingAudioHighFidelitySubtitle,
-      MpvSettingsCatalog.dynamicRangeKey => l10n.mpvSettingDynamicRangeSubtitle,
-      MpvSettingsCatalog.audioEqKey => l10n.mpvSettingAudioEqSubtitle,
-      MpvSettingsCatalog.audioLimiterKey => l10n.mpvSettingAudioLimiterSubtitle,
-      MpvSettingsCatalog.audioBassBoostKey =>
-        l10n.mpvSettingAudioBassBoostSubtitle,
-      MpvSettingsCatalog.audioVoiceEnhanceKey =>
-        l10n.mpvSettingAudioVoiceEnhanceSubtitle,
-      MpvSettingsCatalog.audioPassthroughKey =>
-        l10n.mpvSettingAudioPassthroughSubtitle,
-      MpvSettingsCatalog.channelMixKey => l10n.mpvSettingChannelMixSubtitle,
-      MpvSettingsCatalog.compatibilityKey =>
-        l10n.mpvSettingCompatibilitySubtitle,
-      _ => '',
-    };
   }
 
   MpvSettingCategory? _resolveCategory(String section) {
@@ -635,82 +575,9 @@ class _MpvPlayerSettingsScreenState extends State<MpvPlayerSettingsScreen> {
       subtitle: subtitle,
       description: description,
       entries: keys
-          .map(
-            (key) => MpvSettingCategoryEntry(
-              key: key,
-              title: _displaySettingTitle(key),
-              subtitle: _displaySettingSubtitle(key),
-            ),
-          )
+          .map((key) => _mpvSettingCategoryEntry(context, key))
           .toList(growable: false),
     );
-  }
-
-  String _displaySettingTitle(String key) {
-    final l10n = AppLocalizations.of(context);
-    return switch (key) {
-      MpvSettingsCatalog.debandKey => l10n.mpvSettingDebandTitle,
-      MpvSettingsCatalog.sharpenKey => l10n.mpvSettingSharpenTitle,
-      MpvSettingsCatalog.denoiseKey => l10n.mpvSettingDenoiseTitle,
-      MpvSettingsCatalog.deinterlaceKey => l10n.mpvSettingDeinterlaceTitle,
-      MpvSettingsCatalog.scaleProfileKey => l10n.mpvSettingScaleProfileTitle,
-      MpvSettingsCatalog.hdrModeKey => l10n.mpvSettingHdrModeTitle,
-      MpvSettingsCatalog.toneMappingKey => l10n.mpvSettingToneMappingTitle,
-      MpvSettingsCatalog.frameInterpolationKey =>
-        l10n.mpvSettingFrameInterpolationTitle,
-      MpvSettingsCatalog.videoSyncKey => l10n.mpvSettingVideoSyncTitle,
-      MpvSettingsCatalog.cacheProfileKey => l10n.mpvSettingCacheProfileTitle,
-      MpvSettingsCatalog.cacheSizeMbKey => l10n.mpvSettingCacheSizeTitle,
-      MpvSettingsCatalog.volumeGainKey => l10n.mpvSettingVolumeGainTitle,
-      MpvSettingsCatalog.audioHighFidelityKey =>
-        l10n.mpvSettingAudioHighFidelityTitle,
-      MpvSettingsCatalog.dynamicRangeKey => l10n.mpvSettingDynamicRangeTitle,
-      MpvSettingsCatalog.audioEqKey => l10n.mpvSettingAudioEqTitle,
-      MpvSettingsCatalog.audioLimiterKey => l10n.mpvSettingAudioLimiterTitle,
-      MpvSettingsCatalog.audioBassBoostKey =>
-        l10n.mpvSettingAudioBassBoostTitle,
-      MpvSettingsCatalog.audioVoiceEnhanceKey =>
-        l10n.mpvSettingAudioVoiceEnhanceTitle,
-      MpvSettingsCatalog.audioPassthroughKey =>
-        l10n.mpvSettingAudioPassthroughTitle,
-      MpvSettingsCatalog.channelMixKey => l10n.mpvSettingChannelMixTitle,
-      MpvSettingsCatalog.compatibilityKey => l10n.mpvSettingCompatibilityTitle,
-      _ => l10n.mpvGenericSettingTitle,
-    };
-  }
-
-  String _displaySettingSubtitle(String key) {
-    final l10n = AppLocalizations.of(context);
-    return switch (key) {
-      MpvSettingsCatalog.debandKey => l10n.mpvSettingDebandSubtitle,
-      MpvSettingsCatalog.sharpenKey => l10n.mpvSettingSharpenSubtitle,
-      MpvSettingsCatalog.denoiseKey => l10n.mpvSettingDenoiseSubtitle,
-      MpvSettingsCatalog.deinterlaceKey => l10n.mpvSettingDeinterlaceSubtitle,
-      MpvSettingsCatalog.scaleProfileKey => l10n.mpvSettingScaleProfileSubtitle,
-      MpvSettingsCatalog.hdrModeKey => l10n.mpvSettingHdrModeSubtitle,
-      MpvSettingsCatalog.toneMappingKey => l10n.mpvSettingToneMappingSubtitle,
-      MpvSettingsCatalog.frameInterpolationKey =>
-        l10n.mpvSettingFrameInterpolationSubtitle,
-      MpvSettingsCatalog.videoSyncKey => l10n.mpvSettingVideoSyncSubtitle,
-      MpvSettingsCatalog.cacheProfileKey => l10n.mpvSettingCacheProfileSubtitle,
-      MpvSettingsCatalog.cacheSizeMbKey => l10n.mpvSettingCacheSizeSubtitle,
-      MpvSettingsCatalog.volumeGainKey => l10n.mpvSettingVolumeGainSubtitle,
-      MpvSettingsCatalog.audioHighFidelityKey =>
-        l10n.mpvSettingAudioHighFidelitySubtitle,
-      MpvSettingsCatalog.dynamicRangeKey => l10n.mpvSettingDynamicRangeSubtitle,
-      MpvSettingsCatalog.audioEqKey => l10n.mpvSettingAudioEqSubtitle,
-      MpvSettingsCatalog.audioLimiterKey => l10n.mpvSettingAudioLimiterSubtitle,
-      MpvSettingsCatalog.audioBassBoostKey =>
-        l10n.mpvSettingAudioBassBoostSubtitle,
-      MpvSettingsCatalog.audioVoiceEnhanceKey =>
-        l10n.mpvSettingAudioVoiceEnhanceSubtitle,
-      MpvSettingsCatalog.audioPassthroughKey =>
-        l10n.mpvSettingAudioPassthroughSubtitle,
-      MpvSettingsCatalog.channelMixKey => l10n.mpvSettingChannelMixSubtitle,
-      MpvSettingsCatalog.compatibilityKey =>
-        l10n.mpvSettingCompatibilitySubtitle,
-      _ => '',
-    };
   }
 
   SavedMpvPreset? _activeSavedPreset(SavedMpvPresetKind kind) {

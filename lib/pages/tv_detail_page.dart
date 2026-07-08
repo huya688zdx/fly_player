@@ -545,67 +545,6 @@ class _TvDetailPageState extends State<TvDetailPage>
     return (item['posters'] ?? '').toString();
   }
 
-  // ignore: unused_element
-  String _tvPrimaryText(Map<String, dynamic> item) {
-    final fromPlayInfo = _playInfo?.item;
-    final seasonNumber = _asInt(item['season_number']);
-    final earlyEpisode =
-        fromPlayInfo?.episodeNumber ?? _asInt(item['episode_number']);
-    if (seasonNumber == 0) {
-      if (earlyEpisode > 0) {
-        return AppLocalizations.of(
-          context,
-        ).detailSpecialEpisodeNumber(earlyEpisode);
-      }
-      return AppLocalizations.of(context).detailSeasonSpecial;
-    }
-    if (seasonNumber == 0) {
-      if (earlyEpisode > 0) {
-        return AppLocalizations.of(
-          context,
-        ).detailSpecialEpisodeNumber(earlyEpisode);
-      }
-      return AppLocalizations.of(context).detailSeasonSpecial;
-    }
-    final seriesTitle = (fromPlayInfo?.tvTitle ?? item['tv_title'] ?? '')
-        .toString()
-        .trim();
-    final ancestorName = (item['ancestor_name'] ?? '').toString().trim();
-    final season = fromPlayInfo?.seasonNumber ?? _asInt(item['season_number']);
-    final episode =
-        fromPlayInfo?.episodeNumber ?? _asInt(item['episode_number']);
-    for (final candidate in <String>[
-      (fromPlayInfo?.displaySubTitle ?? '').trim(),
-      (fromPlayInfo?.title ?? '').trim(),
-      (item['title'] ?? '').toString().trim(),
-      (item['parent_title'] ?? '').toString().trim(),
-    ]) {
-      if (candidate.isEmpty ||
-          candidate == seriesTitle ||
-          candidate == ancestorName) {
-        continue;
-      }
-      if (episode > 0) {
-        return AppLocalizations.of(
-          context,
-        ).detailNamedEpisodeNumber(candidate, episode);
-      }
-      break;
-    }
-    if (season > 0 && episode > 0) {
-      return AppLocalizations.of(
-        context,
-      ).detailSeasonEpisodeNumber(season, episode);
-    }
-    if (season > 0) {
-      return AppLocalizations.of(context).detailSeasonNumber(season);
-    }
-    if (episode > 0) {
-      return AppLocalizations.of(context).detailEpisodeNumber(episode);
-    }
-    return AppLocalizations.of(context).detailPlay;
-  }
-
   String _tvPrimaryLabel(Map<String, dynamic> item) {
     final fromPlayInfo = _playInfo?.item;
     final season = fromPlayInfo?.seasonNumber ?? _asInt(item['season_number']);
@@ -1262,36 +1201,6 @@ class _TvDetailPageState extends State<TvDetailPage>
       'number_of_episodes': season.numberOfEpisodes,
       'local_number_of_episodes': season.localNumberOfEpisodes,
     });
-  }
-
-  // ignore: unused_element
-  Future<void> _onPrimaryPlayTap() async {
-    if (_playPreparing) {
-      _showTopTip(
-        AppLocalizations.of(context).detailPreparingPlayback,
-        context.appColors.warning,
-      );
-      return;
-    }
-    _playPreparing = true;
-    try {
-      final api = FeiniuApi(context.read<NasProvider>());
-      final info = await _loadPlayInfo(api, widget.itemGuid);
-      if (!mounted) return;
-      setState(() => _playInfo = info);
-      _showTopTip(
-        AppLocalizations.of(context).detailPlayPlaceholder,
-        context.appColors.success,
-      );
-      // TODO: hook real player launch here with `info`.
-    } catch (_) {
-      _showTopTip(
-        AppLocalizations.of(context).detailPlayInfoFailed,
-        context.appColors.danger,
-      );
-    } finally {
-      _playPreparing = false;
-    }
   }
 
   /// 解析中立(Emby)系列页主播放键的续看/首集目标，更新按键文案。best-effort：失败保持「播放」。

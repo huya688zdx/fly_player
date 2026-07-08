@@ -75,7 +75,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   bool _obscureEmbyPassword = true;
   bool _isSubmitting = false;
   List<LoginHistoryEntry> _historyEntries = const <LoginHistoryEntry>[];
-  final String _embyConnectionStatus = '';
 
   /// 已保存/已抓取的 FN Connect 入口令牌（entry-token）。fnos 中转 Emby 登录复用它过边缘闸。
   String _embyEntryToken = '';
@@ -1013,87 +1012,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           ),
         ],
       ),
-    );
-  }
-
-  // ignore: unused_element
-  Widget _buildEmbyFormLegacy(ThemeData theme, AppLocalizations l10n) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _GlassField(
-          controller: _embyBaseUrlController,
-          hintText: l10n.connectionEmbyServerLabel,
-          keyboardType: TextInputType.url,
-          textInputAction: TextInputAction.next,
-          autofillHints: const <String>[AutofillHints.url],
-          suffix: IconButton(
-            onPressed: _openLoginHistory,
-            icon: Icon(
-              Icons.history_rounded,
-              color: _historyEntries.isEmpty
-                  ? const Color(0xFF58687C)
-                  : const Color(0xFF7C8DA5),
-            ),
-          ),
-        ),
-        const SizedBox(height: 14),
-        _GlassField(
-          controller: _embyUserNameController,
-          hintText: l10n.connectionUserNameHint,
-          textInputAction: TextInputAction.next,
-          autofillHints: const <String>[AutofillHints.username],
-        ),
-        const SizedBox(height: 14),
-        _GlassField(
-          controller: _embyPasswordController,
-          hintText: l10n.connectionPasswordHint,
-          obscureText: _obscureEmbyPassword,
-          textInputAction: TextInputAction.done,
-          autofillHints: const <String>[AutofillHints.password],
-          onSubmitted: (_) => _submit(),
-          suffix: IconButton(
-            onPressed: () {
-              setState(() {
-                _obscureEmbyPassword = !_obscureEmbyPassword;
-              });
-            },
-            icon: Icon(
-              _obscureEmbyPassword
-                  ? Icons.visibility_off_outlined
-                  : Icons.visibility_outlined,
-              color: const Color(0xFF7C8DA5),
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        _buildRememberRow(
-          theme,
-          l10n,
-          value: _embyRememberPassword,
-          onChanged: (value) {
-            setState(() {
-              _embyRememberPassword = value;
-            });
-          },
-        ),
-        if (_embyConnectionStatus.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          Text(
-            _embyConnectionStatus,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: const Color(0xFF8FB7FF),
-              height: 1.35,
-            ),
-          ),
-        ],
-        const SizedBox(height: 22),
-        _SubmitButton(
-          isSubmitting: _isSubmitting,
-          label: l10n.connectionLogin,
-          onPressed: _isSubmitting ? null : _verifyEmbyConnection,
-        ),
-      ],
     );
   }
 
