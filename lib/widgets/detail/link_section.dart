@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/generated/app_localizations.dart';
 import '../../theme/app_theme.dart';
 import '../common/liquid_glass.dart';
 
@@ -27,7 +28,7 @@ class LinkSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          '\u94fe\u63a5',
+          AppLocalizations.of(context).detailLinksTitle,
           style: TextStyle(
             color: colors.textPrimary,
             fontSize: 20,

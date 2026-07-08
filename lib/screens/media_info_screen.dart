@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../api/feiniu_api.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../models/media_info.dart';
 import '../providers/nas_provider.dart';
 import '../utils/app_exception.dart';
@@ -50,8 +51,9 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Media Info Viewer')),
+      appBar: AppBar(title: Text(l10n.mediaInfoViewerTitle)),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -61,9 +63,9 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
                 Expanded(
                   child: TextField(
                     controller: _guidController,
-                    decoration: const InputDecoration(
-                      labelText: 'Media GUID',
-                      hintText: 'Enter media_guid',
+                    decoration: InputDecoration(
+                      labelText: l10n.mediaInfoGuidLabel,
+                      hintText: l10n.mediaInfoGuidHint,
                     ),
                   ),
                 ),
@@ -79,7 +81,8 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
               Expanded(
                 child: AppErrorState(error: _error!, onRetry: _fetchMetadata),
               ),
-            if (_mediaInfo != null) Expanded(child: _buildInfoList(_mediaInfo!)),
+            if (_mediaInfo != null)
+              Expanded(child: _buildInfoList(_mediaInfo!)),
           ],
         ),
       ),
@@ -87,40 +90,57 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
   }
 
   Widget _buildInfoList(MediaInfo info) {
+    final l10n = AppLocalizations.of(context);
     final api = FeiniuApi(context.read<NasProvider>());
     final streamUrl = api.getStreamUrl(_guidController.text.trim());
 
     return ListView(
       children: [
         ListTile(
-          title: const Text('Filename'),
-          subtitle: Text(info.fileStream?.filename ?? 'Unknown'),
+          title: Text(l10n.mediaInfoFilename),
+          subtitle: Text(info.fileStream?.filename ?? l10n.mediaInfoUnknown),
         ),
         ListTile(
-          title: const Text('Video Codec'),
-          subtitle: Text('${info.videoStream?.codec} (${info.videoStream?.width}x${info.videoStream?.height})'),
+          title: Text(l10n.mediaInfoVideoCodec),
+          subtitle: Text(
+            '${info.videoStream?.codec} (${info.videoStream?.width}x${info.videoStream?.height})',
+          ),
         ),
         const Divider(),
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Text('Audio Streams', style: TextStyle(fontWeight: FontWeight.bold)),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Text(
+            l10n.mediaInfoAudioStreams,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
         ),
-        ...info.audioStreams.map((s) => ListTile(
-              title: Text('Stream ${s.index}: ${s.codec}'),
-              subtitle: Text('Language: ${s.language ?? "N/A"}'),
-            )),
+        ...info.audioStreams.map(
+          (s) => ListTile(
+            title: Text(l10n.mediaInfoStreamTitle(s.index, s.codec)),
+            subtitle: Text(
+              l10n.mediaInfoLanguage(s.language ?? l10n.mediaInfoNotAvailable),
+            ),
+          ),
+        ),
         const Divider(),
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Text('Subtitle Streams', style: TextStyle(fontWeight: FontWeight.bold)),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Text(
+            l10n.mediaInfoSubtitleStreams,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
         ),
-        ...info.subtitleStreams.map((s) => ListTile(
-              title: Text('Stream ${s.index}: ${s.codec}'),
-              subtitle: Text('Language: ${s.language ?? "N/A"}'),
-            )),
+        ...info.subtitleStreams.map(
+          (s) => ListTile(
+            title: Text(l10n.mediaInfoStreamTitle(s.index, s.codec)),
+            subtitle: Text(
+              l10n.mediaInfoLanguage(s.language ?? l10n.mediaInfoNotAvailable),
+            ),
+          ),
+        ),
         const Divider(),
         ListTile(
-          title: const Text('Stream URL (Generated)'),
+          title: Text(l10n.mediaInfoStreamUrlGenerated),
           subtitle: Text(streamUrl, style: const TextStyle(fontSize: 12)),
           onTap: () {
             // Future: Copy to clipboard or open in external player

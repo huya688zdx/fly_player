@@ -4,10 +4,17 @@ import 'package:fly_player/utils/media_language_mapper.dart';
 
 void main() {
   group('MediaLanguageMapper', () {
-    test('maps additional built-in subtitle languages', () {
-      expect(MediaLanguageMapper.subtitleLabel('dan'), '丹麦语');
-      expect(MediaLanguageMapper.subtitleLabel('hun'), '匈牙利语');
-      expect(MediaLanguageMapper.subtitleLabel('ces'), '捷克语');
+    test('normalizes additional built-in subtitle languages', () {
+      expect(MediaLanguageMapper.normalizeLanguageCode('dan'), 'dan');
+      expect(MediaLanguageMapper.normalizeLanguageCode('hun'), 'hun');
+      expect(MediaLanguageMapper.normalizeLanguageCode('ces'), 'ces');
+    });
+
+    test('does not return UI fallback labels from the utility layer', () {
+      expect(MediaLanguageMapper.normalizeLanguageCode('unknown'), isNull);
+      expect(MediaLanguageMapper.languageName('unknown'), '');
+      expect(MediaLanguageMapper.audioLabel('unknown'), '');
+      expect(MediaLanguageMapper.subtitleLabel('unknown'), '');
     });
 
     test('infers language code from local subtitle file names', () {

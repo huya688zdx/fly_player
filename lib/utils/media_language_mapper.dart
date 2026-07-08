@@ -305,32 +305,27 @@ class MediaLanguageMapper {
   static String _normalizeLanguageValue(String raw) {
     final value = raw.trim();
     if (value.isEmpty) return '';
-    if (value == '未确定的语言') return '未知';
+    if (value == '未确定的语言') return '';
     return value;
   }
 
   static String languageName(String raw) {
     final key = raw.trim().toLowerCase();
     if (key.isEmpty || key == 'zz-unknow' || key == 'unknown' || key == 'und') {
-      return '\u672a\u77e5';
+      return '';
     }
     final normalizedKey = normalizeLanguageCode(key);
-    if (normalizedKey == null) return '\u672a\u77e5';
-    return _languageNameMap[normalizedKey] ??
-        _languageNameMap[key] ??
-        '\u672a\u77e5';
+    if (normalizedKey == null) return '';
+    return _languageNameMap[normalizedKey] ?? _languageNameMap[key] ?? '';
   }
 
   static String audioLabel(String raw) {
     final name = languageName(raw);
-    if (name == '\u672a\u77e5') return '\u672a\u77e5\u97f3\u9891';
-    return '$name\u97f3\u9891';
+    return name.isEmpty ? '' : '$name\u97f3\u9891';
   }
 
   static String subtitleLabel(String raw) {
-    final name = languageName(raw);
-    if (name == '\u672a\u77e5') return '\u672a\u77e5\u8bed\u8a00';
-    return name;
+    return languageName(raw);
   }
 
   static String? normalizeLanguageCode(String raw) {

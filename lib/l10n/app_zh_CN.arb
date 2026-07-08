@@ -15,6 +15,7 @@
   "languageZhCN": "简体中文",
   "languageZhCNSubtitle": "固定使用简体中文",
   "commonCancel": "取消",
+  "commonClose": "关闭",
   "commonConfirm": "确认",
   "commonSave": "保存",
   "commonRefreshRetry": "刷新重试",
@@ -210,6 +211,8 @@
   "routeErrorMissingSeason": "缺少季详情参数",
   "routeErrorMissingPerson": "缺少人物详情参数",
   "routeErrorMissingDownload": "缺少下载详情参数",
+  "routeErrorInvalidFormat": "路由格式无效",
+  "routeErrorPageNotFound": "页面不存在",
   "connectionAppName": "飞牛播放器",
   "connectionUserNameHint": "用户名",
   "connectionPasswordHint": "密码",
@@ -283,6 +286,13 @@
   "fnConnectEntryLoginTitle": "登录 FN Connect（Emby）",
   "fnConnectEntryAuthorizedBack": "我已授权 · 回到 Emby",
   "fnConnectEntryReload": "重新加载",
+  "fnConnectWebLoginTitle": "FN Connect：{id}",
+  "@fnConnectWebLoginTitle": {
+    "placeholders": {
+      "id": {}
+    }
+  },
+  "fnConnectWebRequestingAuthorization": "正在请求 FN Connect 授权...",
   "settingsThemeTitle": "主题设置",
   "settingsThemeSubtitle": "{title} · {subtitle}",
   "@settingsThemeSubtitle": {
@@ -777,6 +787,18 @@
   "mpvCacheSliderSubtitle": "拖动滑杆调整缓存百分比，修改后会立即应用到当前播放器。",
   "mpvCachePercentSettingLabel": "缓存设定：{value}",
   "@mpvCachePercentSettingLabel": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "mpvCacheSliderMinimum": "最小 {value}",
+  "@mpvCacheSliderMinimum": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "mpvCacheSliderMaximum": "最大 {value}",
+  "@mpvCacheSliderMaximum": {
     "placeholders": {
       "value": {}
     }
@@ -1476,6 +1498,29 @@
   "settingsScreenshotCustomDirectoryDisabledStatus": "当前未启用自定义目录。",
   "detailOverviewEmpty": "暂无简介",
   "mediaDetailsTitle": "文件媒体信息",
+  "mediaInfoViewerTitle": "媒体信息查看器",
+  "mediaInfoGuidLabel": "媒体 GUID",
+  "mediaInfoGuidHint": "输入 media_guid",
+  "mediaInfoFilename": "文件名",
+  "mediaInfoUnknown": "未知",
+  "mediaInfoVideoCodec": "视频编码",
+  "mediaInfoAudioStreams": "音频流",
+  "mediaInfoSubtitleStreams": "字幕流",
+  "mediaInfoStreamTitle": "流 {index}：{codec}",
+  "@mediaInfoStreamTitle": {
+    "placeholders": {
+      "index": {},
+      "codec": {}
+    }
+  },
+  "mediaInfoLanguage": "语言：{language}",
+  "@mediaInfoLanguage": {
+    "placeholders": {
+      "language": {}
+    }
+  },
+  "mediaInfoNotAvailable": "不可用",
+  "mediaInfoStreamUrlGenerated": "播放地址（已生成）",
   "mediaDetailsVideoSection": "视频",
   "mediaDetailsAudioSection": "音频",
   "mediaDetailsSubtitleSection": "字幕",
@@ -1597,6 +1642,7 @@
   "detailContinuePlay": "继续播放",
   "detailPlay": "播放",
   "detailOverviewTitle": "简介",
+  "detailLinksTitle": "链接",
   "detailCastCrewTitle": "演职人员",
   "creditPersonUnknown": "未知",
   "creditPersonRole": "饰 {role}",
@@ -2200,12 +2246,19 @@
   "mpvEqEditorTitle": "高级均衡",
   "mpvEqEditorSubtitle": "上下拖动每个频段，细微调整整体音色。",
   "mpvEqReset": "归零",
+  "themePresetMidnightTitle": "午夜",
   "themePresetMidnightSubtitle": "深夜影院感，层次稳重",
+  "themePresetOceanTitle": "海洋",
   "themePresetOceanSubtitle": "冷海风格，信息感更强",
+  "themePresetForestTitle": "森林",
   "themePresetForestSubtitle": "自然绿调，观感更柔和",
+  "themePresetGraphiteTitle": "石墨",
   "themePresetGraphiteSubtitle": "中性石墨，适合长期使用",
+  "themePresetSunsetTitle": "日落",
   "themePresetSunsetSubtitle": "暖调落日，氛围更明显",
+  "themePresetAuroraTitle": "极光",
   "themePresetAuroraSubtitle": "清亮极光，更偏轻快科技感",
+  "themePresetLatteTitle": "拿铁",
   "themePresetLatteSubtitle": "奶白纸感，适合亮背景偏好",
   "themeAccentBlue": "星蓝",
   "themeAccentCyan": "冰青",

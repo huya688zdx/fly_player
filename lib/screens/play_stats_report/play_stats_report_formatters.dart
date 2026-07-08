@@ -18,18 +18,6 @@ class PlayStatsReportFormatters {
     final value = Duration(milliseconds: safeMs);
     final hours = value.inHours;
     final minutes = value.inMinutes.remainder(60);
-    if (compact) {
-      if (hours > 0) {
-        return minutes > 0 ? '${hours}h ${minutes}m' : '${hours}h';
-      }
-      final seconds = value.inSeconds.remainder(60);
-      if (value.inMinutes > 0) {
-        return seconds > 0
-            ? '${value.inMinutes}m ${seconds}s'
-            : '${value.inMinutes}m';
-      }
-      return '${value.inSeconds}s';
-    }
     if (hours > 0) {
       return minutes > 0
           ? l10n.playStatsReportDurationHoursMinutes(hours, minutes)

@@ -23,7 +23,7 @@ class MediaItem {
 
     return MediaItem(
       id: (json['guid'] ?? json['id'] ?? '').toString(),
-      name: (json['title'] ?? json['name'] ?? 'Unknown').toString(),
+      name: (json['title'] ?? json['name'] ?? '').toString(),
       type: (json['category'] ?? json['type'])?.toString(),
       path: (json['poster'] ?? json['path'])?.toString(),
       posters: posters,

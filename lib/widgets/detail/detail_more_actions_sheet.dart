@@ -136,7 +136,9 @@ Future<void> showDetailMoreActionsSheet(
   if (selectedAction?.kind == _DetailMoreActionKind.saveTheme) {
     final input = await showSaveThemeDialog(
       context,
-      initialName: provider.nextSavedThemeName(),
+      initialName: provider.nextSavedThemeNameFromBase(
+        l10n.themeCustomBaseName,
+      ),
       suggestedName: suggestedThemeName,
     );
     if (!context.mounted || input == null) {

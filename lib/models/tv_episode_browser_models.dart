@@ -1,5 +1,3 @@
-import 'package:flutter/material.dart';
-
 class TvEpisodeSeasonOptionData {
   final String guid;
   final String label;
@@ -12,6 +10,8 @@ class TvEpisodeSeasonOptionData {
   });
 }
 
+enum TvEpisodeStatusTone { none, secondary, accent }
+
 class TvEpisodeCardData {
   final String guid;
   final String shortLabel;
@@ -19,7 +19,7 @@ class TvEpisodeCardData {
   final String summary;
   final String durationText;
   final String statusLabel;
-  final Color statusColor;
+  final TvEpisodeStatusTone statusTone;
   final List<String> imageUrls;
   final List<String> resolutions;
   final bool selected;
@@ -34,7 +34,7 @@ class TvEpisodeCardData {
     required this.summary,
     required this.durationText,
     required this.statusLabel,
-    required this.statusColor,
+    this.statusTone = TvEpisodeStatusTone.secondary,
     required this.imageUrls,
     required this.resolutions,
     required this.selected,
