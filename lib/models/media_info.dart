@@ -14,12 +14,21 @@ class MediaInfo {
   });
 
   factory MediaInfo.fromJson(Map<String, dynamic> json) {
+    final rawFileStream = _asStringKeyMap(json['file_stream']);
+    final rawVideoStream = _asStringKeyMap(json['video_stream']);
     return MediaInfo(
-      fileStream: json['file_stream'] != null ? FileStream.fromJson(json['file_stream']) : null,
-      videoStream: json['video_stream'] != null ? VideoStream.fromJson(json['video_stream']) : null,
-      audioStreams: (json['audio_streams'] as List?)?.map((e) => AudioStream.fromJson(e)).toList() ?? [],
-      subtitleStreams: (json['subtitle_streams'] as List?)?.map((e) => SubtitleStream.fromJson(e)).toList() ?? [],
-      qualities: (json['qualities'] as List?)?.map((e) => QualityOption.fromJson(e)).toList() ?? [],
+      fileStream: rawFileStream == null
+          ? null
+          : FileStream.fromJson(rawFileStream),
+      videoStream: rawVideoStream == null
+          ? null
+          : VideoStream.fromJson(rawVideoStream),
+      audioStreams: _decodeMapList(json['audio_streams'], AudioStream.fromJson),
+      subtitleStreams: _decodeMapList(
+        json['subtitle_streams'],
+        SubtitleStream.fromJson,
+      ),
+      qualities: _decodeMapList(json['qualities'], QualityOption.fromJson),
     );
   }
 }
@@ -32,8 +41,8 @@ class FileStream {
 
   factory FileStream.fromJson(Map<String, dynamic> json) {
     return FileStream(
-      filename: json['filename'] ?? '',
-      size: json['size'] ?? 0,
+      filename: (json['filename'] ?? '').toString(),
+      size: _asInt(json['size']),
     );
   }
 }
@@ -47,9 +56,9 @@ class VideoStream {
 
   factory VideoStream.fromJson(Map<String, dynamic> json) {
     return VideoStream(
-      codec: json['codec'] ?? '',
-      width: json['width'] ?? 0,
-      height: json['height'] ?? 0,
+      codec: (json['codec'] ?? '').toString(),
+      width: _asInt(json['width']),
+      height: _asInt(json['height']),
     );
   }
 }
@@ -63,9 +72,9 @@ class AudioStream {
 
   factory AudioStream.fromJson(Map<String, dynamic> json) {
     return AudioStream(
-      index: json['index'] ?? 0,
-      codec: json['codec'] ?? '',
-      language: json['language'],
+      index: _asInt(json['index']),
+      codec: (json['codec'] ?? '').toString(),
+      language: json['language']?.toString(),
     );
   }
 }
@@ -79,9 +88,9 @@ class SubtitleStream {
 
   factory SubtitleStream.fromJson(Map<String, dynamic> json) {
     return SubtitleStream(
-      index: json['index'] ?? 0,
-      codec: json['codec'] ?? '',
-      language: json['language'],
+      index: _asInt(json['index']),
+      codec: (json['codec'] ?? '').toString(),
+      language: json['language']?.toString(),
     );
   }
 }
@@ -94,8 +103,35 @@ class QualityOption {
 
   factory QualityOption.fromJson(Map<String, dynamic> json) {
     return QualityOption(
-      id: json['id'] ?? '',
-      name: json['name'] ?? '',
+      id: (json['id'] ?? '').toString(),
+      name: (json['name'] ?? '').toString(),
     );
   }
+}
+
+Map<String, dynamic>? _asStringKeyMap(Object? value) {
+  if (value is! Map) return null;
+  return value.map((key, value) => MapEntry('$key', value));
+}
+
+List<T> _decodeMapList<T>(
+  Object? value,
+  T Function(Map<String, dynamic> json) decode,
+) {
+  if (value is! List) return <T>[];
+  final result = <T>[];
+  for (final entry in value) {
+    final json = _asStringKeyMap(entry);
+    if (json != null) {
+      result.add(decode(json));
+    }
+  }
+  return result;
+}
+
+int _asInt(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  if (value is String) return int.tryParse(value) ?? 0;
+  return 0;
 }

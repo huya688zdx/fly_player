@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fly_player/media_backend/media_backend_kind.dart';
@@ -120,4 +122,28 @@ void main() {
       expect(emby.userId, isEmpty);
     },
   );
+
+  test('load ignores stored connections with unknown backend kind', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      MediaBackendConnectionStore.connectionsKey: jsonEncode(<Object?>[
+        <String, Object?>{
+          'kind': 'jellyfin',
+          'serverUrl': 'https://jellyfin.example.test',
+          'accessToken': 'token',
+        },
+        const MediaBackendConnection(
+          kind: MediaBackendKind.emby,
+          serverUrl: 'https://emby.example.test',
+          accessToken: 'emby-token',
+        ).toJson(),
+      ]),
+      MediaBackendConnectionStore.activeKindKey: 'jellyfin',
+    });
+
+    final snapshot = await MediaBackendConnectionStore.load();
+
+    expect(snapshot.activeKind, MediaBackendKind.feiniu);
+    expect(snapshot.connectionFor(MediaBackendKind.emby), isNotNull);
+    expect(snapshot.connections, hasLength(1));
+  });
 }

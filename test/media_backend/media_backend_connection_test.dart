@@ -41,4 +41,15 @@ void main() {
 
     expect(connection.isAuthenticated, isFalse);
   });
+
+  test('unknown kind is not silently parsed as Feiniu', () {
+    final json = <String, Object?>{
+      'kind': 'jellyfin',
+      'serverUrl': 'https://media.example.test',
+      'accessToken': 'token',
+    };
+
+    expect(() => MediaBackendConnection.fromJson(json), throwsFormatException);
+    expect(MediaBackendConnection.tryFromJson(json), isNull);
+  });
 }
