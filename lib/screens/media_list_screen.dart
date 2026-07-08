@@ -611,18 +611,6 @@ class _MediaListScreenState extends State<MediaListScreen> {
         ),
       ),
     );
-    return;
-    // ignore: dead_code
-    Navigator.of(context).push(
-      AppTransitions.fadeSlideRoute(
-        CategoryItemsScreen(
-          category: MediaItem(
-            id: '',
-            name: AppLocalizations.of(context).mediaAllItemsTitle,
-          ),
-        ),
-      ),
-    );
   }
 
   void _openAllItemsByType(String title, List<String> types) {
@@ -632,25 +620,10 @@ class _MediaListScreenState extends State<MediaListScreen> {
         initialTypeTags: types,
       ),
     );
-    return;
-    // ignore: dead_code
-    Navigator.of(context).push(
-      AppTransitions.fadeSlideRoute(
-        CategoryItemsScreen(
-          category: MediaItem(id: '', name: title),
-          initialTypeTags: types,
-        ),
-      ),
-    );
   }
 
   void _openFavorites() {
     unawaited(_openFavoritesAsync());
-    return;
-    // ignore: dead_code
-    Navigator.of(
-      context,
-    ).push(AppTransitions.fadeSlideRoute(const FavoriteItemsScreen()));
   }
 
   Future<void> _openCategoryAsync(

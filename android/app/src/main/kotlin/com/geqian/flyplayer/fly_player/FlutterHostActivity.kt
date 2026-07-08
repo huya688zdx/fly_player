@@ -27,6 +27,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.window.embedding.SplitController
 import com.geqian.flyplayer.fly_player.mpv.MpvPlayerViewFactory
+import com.geqian.flyplayer.fly_player.mpv.detectDeviceProfile
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.android.RenderMode
 import io.flutter.embedding.engine.FlutterEngine
@@ -317,6 +318,16 @@ abstract class FlutterHostActivity : FlutterActivity() {
                                     "batteryLevel" to currentBatteryLevel(),
                                     "charging" to isBatteryCharging(),
                                     "networkType" to currentNetworkType(),
+                                ),
+                            )
+                        }
+
+                        "getGpuProfile" -> {
+                            val profile = detectDeviceProfile()
+                            result.success(
+                                mapOf(
+                                    "isLikelyMali" to profile.isLikelyMali,
+                                    "summary" to profile.summary,
                                 ),
                             )
                         }
