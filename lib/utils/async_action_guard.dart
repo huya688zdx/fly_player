@@ -34,14 +34,16 @@ class AsyncActionGuard {
     _inFlight[normalizedKey] = sharedFuture;
 
     unawaited(
-      sharedFuture.whenComplete(() async {
-        if (settleDuration > Duration.zero) {
-          await Future<void>.delayed(settleDuration);
-        }
-        if (identical(_inFlight[normalizedKey], sharedFuture)) {
-          _inFlight.remove(normalizedKey);
-        }
-      }),
+      sharedFuture
+          .whenComplete(() async {
+            if (settleDuration > Duration.zero) {
+              await Future<void>.delayed(settleDuration);
+            }
+            if (identical(_inFlight[normalizedKey], sharedFuture)) {
+              _inFlight.remove(normalizedKey);
+            }
+          })
+          .catchError((Object _) => null),
     );
 
     return actionFuture;

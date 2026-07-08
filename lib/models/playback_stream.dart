@@ -188,7 +188,7 @@ class PlaybackStreamData {
     }
 
     final responseHeaders = PlaybackResponseHeaders.fromJson(
-      json['header'] as Map<String, dynamic>?,
+      _asStringKeyMap(json['header']),
     );
     PlaybackCloudStorageInfo? cloudStorageInfo;
     final rawCloudStorageInfo = json['cloud_storage_info'];
@@ -336,6 +336,11 @@ class PlaybackStreamData {
       debugSummary: debugSummary,
     );
   }
+}
+
+Map<String, dynamic>? _asStringKeyMap(Object? value) {
+  if (value is! Map) return null;
+  return value.map((key, value) => MapEntry('$key', value));
 }
 
 class PlaybackQualityOption {
