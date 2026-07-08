@@ -2244,7 +2244,11 @@ class _MpvCacheSizeScreenState extends State<_MpvCacheSizeScreen> {
                             Row(
                               children: <Widget>[
                                 Text(
-                                  'MIN ${MpvSettingsCatalog.formatCachePercentLabel(MpvSettingsCatalog.cachePercentSliderMin)}',
+                                  l10n.mpvCacheSliderMinimum(
+                                    MpvSettingsCatalog.formatCachePercentLabel(
+                                      MpvSettingsCatalog.cachePercentSliderMin,
+                                    ),
+                                  ),
                                   style: TextStyle(
                                     color: colors.textSecondary,
                                     fontSize: AdaptiveText.roleSize(12),
@@ -2252,7 +2256,11 @@ class _MpvCacheSizeScreenState extends State<_MpvCacheSizeScreen> {
                                 ),
                                 const Spacer(),
                                 Text(
-                                  'MAX ${MpvSettingsCatalog.formatCachePercentLabel(MpvSettingsCatalog.cachePercentSliderMax)}',
+                                  l10n.mpvCacheSliderMaximum(
+                                    MpvSettingsCatalog.formatCachePercentLabel(
+                                      MpvSettingsCatalog.cachePercentSliderMax,
+                                    ),
+                                  ),
                                   style: TextStyle(
                                     color: colors.textSecondary,
                                     fontSize: AdaptiveText.roleSize(12),

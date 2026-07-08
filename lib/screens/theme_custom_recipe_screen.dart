@@ -33,7 +33,9 @@ class ThemeCustomRecipeScreen extends StatelessWidget {
             onPressed: () async {
               final result = await showSaveThemeDialog(
                 context,
-                initialName: provider.nextSavedThemeName(),
+                initialName: provider.nextSavedThemeNameFromBase(
+                  l10n.themeCustomBaseName,
+                ),
                 suggestedName: provider.nextSavedThemeNameFromBase(
                   l10n.themeCustomBaseName,
                 ),
@@ -123,10 +125,7 @@ class ThemeCustomRecipeScreen extends StatelessWidget {
                 subtitle: l10n.themeAccentControlSubtitle,
                 currentToneTitle: provider.usesCustomAccentColor
                     ? l10n.themeCustomLabel
-                    : AppThemeL10n.accentToneTitle(
-                        l10n,
-                        provider.accentTone,
-                      ),
+                    : AppThemeL10n.accentToneTitle(l10n, provider.accentTone),
                 currentColor: provider.accentPreviewColor,
                 currentHex: themeSettingsColorHex(provider.accentPreviewColor),
                 usesCustomColor: provider.usesCustomAccentColor,

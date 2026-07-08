@@ -64,7 +64,7 @@ class ThemeSettingsScreen extends StatelessWidget {
                   itemBuilder: (context, index) {
                     final preset = AppThemePreset.values[index];
                     return ThemeSettingsPresetCard(
-                      title: preset.title,
+                      title: AppThemeL10n.presetTitle(l10n, preset),
                       subtitle: AppThemeL10n.presetSubtitle(l10n, preset),
                       previewColors: provider.previewColorsForPreset(preset),
                       selected:
@@ -194,17 +194,16 @@ class _SavedThemeCard extends StatelessWidget {
                 }
                 await provider.deleteSavedTheme(theme.id);
               },
-              itemBuilder: (context) =>
-                  <PopupMenuEntry<_SavedThemeMenuAction>>[
-                    PopupMenuItem<_SavedThemeMenuAction>(
-                      value: _SavedThemeMenuAction.rename,
-                      child: Text(l10n.commonRename),
-                    ),
-                    PopupMenuItem<_SavedThemeMenuAction>(
-                      value: _SavedThemeMenuAction.delete,
-                      child: Text(l10n.commonDelete),
-                    ),
-                  ],
+              itemBuilder: (context) => <PopupMenuEntry<_SavedThemeMenuAction>>[
+                PopupMenuItem<_SavedThemeMenuAction>(
+                  value: _SavedThemeMenuAction.rename,
+                  child: Text(l10n.commonRename),
+                ),
+                PopupMenuItem<_SavedThemeMenuAction>(
+                  value: _SavedThemeMenuAction.delete,
+                  child: Text(l10n.commonDelete),
+                ),
+              ],
             ),
           ),
         ],

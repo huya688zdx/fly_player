@@ -114,7 +114,7 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
   bool _isFetchingOauthConfig = false;
   bool _isExchangingCode = false;
   int _progress = 0;
-  String _statusText = 'Opening FN Connect...';
+  String _statusText = '';
   String _cookieString = '';
   String _resolvedBaseUrl = '';
   String _lastSigninUrl = '';
@@ -205,7 +205,9 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
     for (final baseUrl in _entry.relayBaseUrls) {
       if (!mounted || _isClosing) return false;
       setState(() {
-        _statusText = 'Requesting FN Connect authorization...';
+        _statusText = AppLocalizations.of(
+          context,
+        ).fnConnectWebRequestingAuthorization;
       });
       try {
         final config = await FeiniuApi.fetchFnConnectOauthConfig(
@@ -338,7 +340,9 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
     await _copyRelayCookiesToBaseUrl(finalBaseUrl);
     if (!mounted || _isClosing) return;
     setState(() {
-      _statusText = 'Requesting FN Connect authorization...';
+      _statusText = AppLocalizations.of(
+        context,
+      ).fnConnectWebRequestingAuthorization;
     });
     await _controller.loadRequest(Uri.parse(signinUrl));
   }
@@ -446,21 +450,25 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final progress = _progress.clamp(0, 100) / 100.0;
+    final statusText = _statusText.isEmpty
+        ? l10n.fnConnectEntryOpening
+        : _statusText;
     return Scaffold(
       backgroundColor: const Color(0xFF08111A),
       appBar: AppBar(
         backgroundColor: const Color(0xFF0C1724),
         foregroundColor: Colors.white,
-        title: Text('FN Connect: ${widget.fnConnectId}'),
+        title: Text(l10n.fnConnectWebLoginTitle(widget.fnConnectId)),
         actions: [
           IconButton(
-            tooltip: 'Reload',
+            tooltip: l10n.fnConnectEntryReload,
             onPressed: _isReady ? () => _controller.reload() : null,
             icon: const Icon(Icons.refresh_rounded),
           ),
           IconButton(
-            tooltip: 'Close',
+            tooltip: l10n.commonClose,
             onPressed: () {
               if (_isClosing) return;
               Navigator.of(context).pop();
@@ -484,7 +492,7 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  _statusText,
+                  statusText,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(

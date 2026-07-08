@@ -38,7 +38,7 @@ void main() {
       ],
     );
 
-    test('displayTitle 优先副标题，回退主标题', () {
+    test('displayTitle 优先副标题，回退主标题，皆空时保持空值', () {
       expect(detail.displayTitle, '剧集副标题');
 
       const noSecondary = MediaDetail(
@@ -55,7 +55,7 @@ void main() {
         title: '',
         primaryImage: MediaImageRef.empty,
       );
-      expect(blank.displayTitle, 'Unknown');
+      expect(blank.displayTitle, '');
     });
 
     test('展示字段与外部 ID、演职员保留', () {

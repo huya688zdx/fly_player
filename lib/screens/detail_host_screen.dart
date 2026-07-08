@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../models/media_item.dart';
 import '../models/media_library_item.dart';
 import '../providers/app_theme_provider.dart';
@@ -440,7 +441,9 @@ Widget _buildRouteChild(String routeName, {required bool isActiveRoute}) {
       : routeName.trim();
   final uri = Uri.tryParse(normalizedRoute);
   if (uri == null) {
-    return const _DetailHostRouteError(message: 'Invalid route format');
+    return const _DetailHostRouteError(
+      kind: _DetailHostRouteErrorKind.invalidFormat,
+    );
   }
 
   if (uri.path == '/detail/item') {
@@ -453,7 +456,9 @@ Widget _buildRouteChild(String routeName, {required bool isActiveRoute}) {
       rawInitialItemDetail,
     );
     if (itemGuid.trim().isEmpty) {
-      return const _DetailHostRouteError(message: 'Missing detail parameters');
+      return const _DetailHostRouteError(
+        kind: _DetailHostRouteErrorKind.missingDetail,
+      );
     }
     return DetailItemRouteBody(
       key: ValueKey<String>(routeName),
@@ -481,7 +486,7 @@ Widget _buildRouteChild(String routeName, {required bool isActiveRoute}) {
         (((seasonItem?.guid ?? '').trim().isEmpty) &&
             seasonGuid.trim().isEmpty)) {
       return const _DetailHostRouteError(
-        message: 'Missing season detail parameters',
+        kind: _DetailHostRouteErrorKind.missingSeason,
       );
     }
     return DetailSeasonRouteBody(
@@ -500,7 +505,7 @@ Widget _buildRouteChild(String routeName, {required bool isActiveRoute}) {
     final personGuid = uri.queryParameters['personGuid'] ?? '';
     if (personGuid.trim().isEmpty) {
       return const _DetailHostRouteError(
-        message: 'Missing person detail parameters',
+        kind: _DetailHostRouteErrorKind.missingPerson,
       );
     }
     return PersonDetailScreen(
@@ -551,7 +556,7 @@ Widget _buildRouteChild(String routeName, {required bool isActiveRoute}) {
     final groupId = uri.queryParameters['groupId'] ?? '';
     if (groupId.trim().isEmpty) {
       return const _DetailHostRouteError(
-        message: 'Missing download detail parameters',
+        kind: _DetailHostRouteErrorKind.missingDownload,
       );
     }
     return DownloadGroupDetailScreen(
@@ -594,7 +599,9 @@ Widget _buildRouteChild(String routeName, {required bool isActiveRoute}) {
     );
   }
 
-  return const _DetailHostRouteError(message: 'Page not found');
+  return const _DetailHostRouteError(
+    kind: _DetailHostRouteErrorKind.pageNotFound,
+  );
 }
 
 class _DeferredRouteChild extends StatefulWidget {
@@ -629,14 +636,33 @@ class _DeferredRouteChildState extends State<_DeferredRouteChild> {
   }
 }
 
-class _DetailHostRouteError extends StatelessWidget {
-  final String message;
+enum _DetailHostRouteErrorKind {
+  invalidFormat,
+  missingDetail,
+  missingSeason,
+  missingPerson,
+  missingDownload,
+  pageNotFound,
+}
 
-  const _DetailHostRouteError({required this.message});
+class _DetailHostRouteError extends StatelessWidget {
+  final _DetailHostRouteErrorKind kind;
+
+  const _DetailHostRouteError({required this.kind});
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final l10n = AppLocalizations.of(context);
+    final message = switch (kind) {
+      _DetailHostRouteErrorKind.invalidFormat => l10n.routeErrorInvalidFormat,
+      _DetailHostRouteErrorKind.missingDetail => l10n.routeErrorMissingDetail,
+      _DetailHostRouteErrorKind.missingSeason => l10n.routeErrorMissingSeason,
+      _DetailHostRouteErrorKind.missingPerson => l10n.routeErrorMissingPerson,
+      _DetailHostRouteErrorKind.missingDownload =>
+        l10n.routeErrorMissingDownload,
+      _DetailHostRouteErrorKind.pageNotFound => l10n.routeErrorPageNotFound,
+    };
     return Scaffold(
       backgroundColor: colors.surface,
       body: Center(

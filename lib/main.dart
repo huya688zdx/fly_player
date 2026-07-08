@@ -338,7 +338,9 @@ class _GlobalErrorFallback extends StatelessWidget {
             const SizedBox(height: 16),
             Text(
               _maybeAppLocalizations(context)?.globalLoadFailed ??
-                  'Load failed',
+                  lookupAppLocalizations(
+                    const Locale('zh', 'CN'),
+                  ).globalLoadFailed,
               style: TextStyle(
                 color: colors.textPrimary,
                 fontSize: 18,
@@ -921,15 +923,16 @@ class _RouteErrorScreen extends StatelessWidget {
 
   String _message(BuildContext context) {
     final l10n = _maybeAppLocalizations(context);
+    final fallback = lookupAppLocalizations(const Locale('zh', 'CN'));
     return switch (kind) {
       _RouteErrorKind.missingDetail =>
-        l10n?.routeErrorMissingDetail ?? 'Missing detail parameters',
+        l10n?.routeErrorMissingDetail ?? fallback.routeErrorMissingDetail,
       _RouteErrorKind.missingSeason =>
-        l10n?.routeErrorMissingSeason ?? 'Missing season detail parameters',
+        l10n?.routeErrorMissingSeason ?? fallback.routeErrorMissingSeason,
       _RouteErrorKind.missingPerson =>
-        l10n?.routeErrorMissingPerson ?? 'Missing person detail parameters',
+        l10n?.routeErrorMissingPerson ?? fallback.routeErrorMissingPerson,
       _RouteErrorKind.missingDownload =>
-        l10n?.routeErrorMissingDownload ?? 'Missing download detail parameters',
+        l10n?.routeErrorMissingDownload ?? fallback.routeErrorMissingDownload,
     };
   }
 }
@@ -1066,15 +1069,14 @@ class _LiquidGlassBottomNavigation extends StatelessWidget {
           child: ValueListenableBuilder<LiquidGlassLevel>(
             valueListenable: liquidGlassLevel,
             builder: (context, level, child) {
-              final bool blur = level.usesRealBlur;
-              // 液态挡位：真实背景模糊 + 更通透的底色，让身后内容折射出来。
-              // 其余挡位：去掉 BackdropFilter，用较实的半透明底色伪磨砂（零开销）。
-              Widget surface = DecoratedBox(
+              // 纯色化：回归纯色风格后导航条永不走 BackdropFilter（去实时模糊，避免
+              // 转场/滚动逐帧重栅格），仅保留半透明渐变磨砂观感（沿用原非模糊态底色）。
+              final Widget surface = DecoratedBox(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(36),
                   border: Border.all(
                     color: Colors.white.withValues(
-                      alpha: isLightSurface ? 0.58 : (blur ? 0.22 : 0.16),
+                      alpha: isLightSurface ? 0.58 : 0.16,
                     ),
                     width: 0.8,
                   ),
@@ -1083,14 +1085,10 @@ class _LiquidGlassBottomNavigation extends StatelessWidget {
                     end: Alignment.bottomRight,
                     colors: <Color>[
                       Colors.white.withValues(
-                        alpha: blur
-                            ? (isLightSurface ? 0.42 : 0.12)
-                            : (isLightSurface ? 0.66 : 0.18),
+                        alpha: isLightSurface ? 0.66 : 0.18,
                       ),
                       colors.navBarBackground.withValues(
-                        alpha: blur
-                            ? (isLightSurface ? 0.60 : 0.42)
-                            : (isLightSurface ? 0.90 : 0.84),
+                        alpha: isLightSurface ? 0.90 : 0.84,
                       ),
                       colors.accentSoft.withValues(
                         alpha: isLightSurface ? 0.22 : 0.16,
@@ -1100,12 +1098,6 @@ class _LiquidGlassBottomNavigation extends StatelessWidget {
                 ),
                 child: child,
               );
-              if (blur) {
-                surface = BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
-                  child: surface,
-                );
-              }
               return ClipRRect(
                 borderRadius: BorderRadius.circular(36),
                 child: surface,

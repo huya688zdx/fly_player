@@ -339,7 +339,7 @@ class ThemeSettingsRecipePanel extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     final customLabel = l10n.themeCustomLabel;
     final items = <String>[
-      '${l10n.themeRecipePresetLabel}: ${provider.preset.title}',
+      '${l10n.themeRecipePresetLabel}: ${AppThemeL10n.presetTitle(l10n, provider.preset)}',
       '${l10n.themeRecipeBackgroundLabel}: ${provider.usesCustomBackgroundColor ? '$customLabel ${themeSettingsColorHex(provider.backgroundPreviewColor)}' : AppThemeL10n.backgroundToneTitle(l10n, provider.backgroundTone)}',
       '${l10n.themeRecipeAccentLabel}: ${provider.usesCustomAccentColor ? '$customLabel ${themeSettingsColorHex(provider.accentPreviewColor)}' : AppThemeL10n.accentToneTitle(l10n, provider.accentTone)}',
       '${l10n.themeRecipeSelectionLabel}: ${provider.usesCustomSelectionColor ? '$customLabel ${themeSettingsColorHex(provider.selectionPreviewColor)}' : AppThemeL10n.accentToneTitle(l10n, provider.selectionTone)}',

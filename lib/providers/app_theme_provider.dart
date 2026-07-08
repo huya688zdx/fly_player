@@ -180,21 +180,6 @@ class AppThemeProvider extends ChangeNotifier {
 
   String get materialThemeSignature => _baseThemeSignature();
 
-  String get currentThemeTitle => switch (_themeSourceType) {
-    AppThemeSourceType.preset => _preset.title,
-    AppThemeSourceType.currentCustom => 'Current custom',
-    AppThemeSourceType.savedCustomTheme =>
-      activeSavedTheme?.name ?? 'Current custom',
-  };
-  String get currentThemeSubtitle => switch (_themeSourceType) {
-    AppThemeSourceType.preset => 'Preset theme',
-    AppThemeSourceType.currentCustom => 'Manual recipe',
-    AppThemeSourceType.savedCustomTheme =>
-      activeSavedTheme?.description.trim().isNotEmpty == true
-          ? activeSavedTheme!.description
-          : 'Saved theme',
-  };
-
   bool get usesCustomBackgroundColor => _customBackgroundColor != null;
   bool get usesCustomAccentColor => _customAccentColor != null;
   bool get usesCustomSelectionColor => _customSelectionColor != null;
@@ -210,9 +195,6 @@ class AppThemeProvider extends ChangeNotifier {
         _selectionTone != defaults.selectionTone ||
         _linkTone != defaults.linkTone;
   }
-
-  String get effectiveThemeTitle =>
-      isPresetCustomized ? 'Custom' : _preset.title;
 
   AppThemeColors get themeColors => AppThemePalette.colorsFor(
     _preset,
@@ -297,17 +279,6 @@ class AppThemeProvider extends ChangeNotifier {
     return _isThemeNameAvailable(name, excludingId: excludingId);
   }
 
-  String nextSavedThemeName() {
-    var index = 1;
-    while (true) {
-      final candidate = 'Custom theme $index';
-      if (_isThemeNameAvailable(candidate)) {
-        return candidate;
-      }
-      index++;
-    }
-  }
-
   Future<void> activateCurrentCustomTheme() async {
     _themeSourceType = AppThemeSourceType.currentCustom;
     _activeSavedThemeId = '';
@@ -317,7 +288,7 @@ class AppThemeProvider extends ChangeNotifier {
   String nextSavedThemeNameFromBase(String baseName) {
     final normalizedBase = baseName.trim();
     if (normalizedBase.isEmpty) {
-      return nextSavedThemeName();
+      return '';
     }
     var index = 1;
     while (true) {

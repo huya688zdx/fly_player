@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/generated/app_localizations.dart';
 import '../models/media_library_item.dart';
 import '../pages/tv_season_detail_page.dart';
 import '../services/detail_route_payload_store.dart';
@@ -47,8 +48,8 @@ class _DetailItemRouteBodyState extends State<DetailItemRouteBody> {
   Widget build(BuildContext context) {
     final itemGuid = widget.itemGuid.trim();
     if (itemGuid.isEmpty) {
-      return const _DetailRouteStatusScreen(
-        message: 'Missing detail route params',
+      return _DetailRouteStatusScreen(
+        message: AppLocalizations.of(context).routeErrorMissingDetail,
       );
     }
     final cachedPayload = _cachedPayload;
@@ -161,8 +162,8 @@ class _DetailSeasonRouteBodyState extends State<DetailSeasonRouteBody> {
     final resolvedSeasonItem =
         seasonItem ?? _seasonItemFromGuid(widget.seasonGuid?.trim() ?? '');
     if (parentGuid.isEmpty || resolvedSeasonItem == null) {
-      return const _DetailRouteStatusScreen(
-        message: 'Missing season detail params',
+      return _DetailRouteStatusScreen(
+        message: AppLocalizations.of(context).routeErrorMissingSeason,
       );
     }
     return TvSeasonDetailPage(
