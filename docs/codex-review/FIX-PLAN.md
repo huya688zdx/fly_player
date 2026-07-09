@@ -81,7 +81,7 @@
 
 **生命周期/async gap**（模式统一修）：
 - TapGestureRecognizer 在 build 中创建不释放：H-003 / H-012 / F-035（三处同模式，统一改 WidgetSpan+GestureDetector）。**已修复。**
-- TextEditingController 泄漏：H-025 / F-039。
+- TextEditingController 泄漏：H-025 / F-039。**已修复。**
 - H-011：图片 errorBuilder post-frame 回调 dispose 后 setState；F-038：await 后 setState 无 mounted；F-030：bottom sheet pop 后继续用弹层 context。
 - G-010：存储页加载无 catch/finally，异常即永久 loading。
 

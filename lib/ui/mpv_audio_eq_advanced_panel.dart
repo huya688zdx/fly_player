@@ -200,44 +200,48 @@ class _MpvAudioEqAdvancedPanelState extends State<MpvAudioEqAdvancedPanel> {
 
   Future<String?> _showPresetNameDialog(BuildContext context) async {
     final controller = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      builder: (dialogContext) {
-        final colors = dialogContext.appColors;
-        final l10n = AppLocalizations.of(dialogContext);
-        return AlertDialog(
-          backgroundColor: colors.surface,
-          title: Text(
-            l10n.mpvEqSavePresetTitle,
-            style: TextStyle(color: colors.textPrimary),
-          ),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            maxLength: 20,
-            style: TextStyle(color: colors.textPrimary),
-            decoration: InputDecoration(
-              hintText: l10n.mpvEqSavePresetHint,
-              hintStyle: TextStyle(color: colors.textMuted),
+    try {
+      return await showDialog<String>(
+        context: context,
+        builder: (dialogContext) {
+          final colors = dialogContext.appColors;
+          final l10n = AppLocalizations.of(dialogContext);
+          return AlertDialog(
+            backgroundColor: colors.surface,
+            title: Text(
+              l10n.mpvEqSavePresetTitle,
+              style: TextStyle(color: colors.textPrimary),
             ),
-          ),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: Text(l10n.commonCancel),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              maxLength: 20,
+              style: TextStyle(color: colors.textPrimary),
+              decoration: InputDecoration(
+                hintText: l10n.mpvEqSavePresetHint,
+                hintStyle: TextStyle(color: colors.textMuted),
+              ),
             ),
-            FilledButton(
-              onPressed: () {
-                final trimmed = controller.text.trim();
-                if (trimmed.isEmpty) return;
-                Navigator.of(dialogContext).pop(trimmed);
-              },
-              child: Text(l10n.commonSave),
-            ),
-          ],
-        );
-      },
-    );
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: Text(l10n.commonCancel),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final trimmed = controller.text.trim();
+                  if (trimmed.isEmpty) return;
+                  Navigator.of(dialogContext).pop(trimmed);
+                },
+                child: Text(l10n.commonSave),
+              ),
+            ],
+          );
+        },
+      );
+    } finally {
+      controller.dispose();
+    }
   }
 
   @override
