@@ -123,6 +123,12 @@ H-004/005/010/017/018/019/020/021/023/024/030 + F-031/F-034：全部是「组件
 
 ## 7. 批次 R —— 结构：拆分与去重（约 18 条）
 
+**已修复（2026-07-09，commit `abb06d4`）**：
+- G-002：mpv 设置标题/副标题映射双份已收敛到 `MpvSettingsL10n.definitionByKey`。
+- G-034：`FnConnectWebLoginPage` / `EmbyFnEntryLoginPage` 的 Web 登录注入脚本已抽为共享 `FnWebLoginBridgeScript`，保留 FN OAuth 探测与 entry-token 阻断页检测差异配置。
+- H-013：`TvSeasonDetailPanel` 已引入 `TvSeasonPanelHeader/Layout/Actions/Content` 配置对象，现有调用走 `legacy` 过渡工厂。
+- 死代码/死契约：F-011、F-013、F-020、G-026 已删除不可达或未调用旧代码；C-001 已在 `FlutterHostActivity` 补齐 `getGpuProfile` 原生实现。
+
 - **详情页三兄弟**：F-006/F-014/F-016（3.5k+2.1k+3.3k 行）——按 F-014 建议抽 `DetailScaffold/DetailHeroChrome/DetailActionRow` 公共件；注意与批次 M 的 5.3 同文件，**建议先做 M 的数据层收口再拆 UI**，避免拆两次。
 - 超大文件：G-001（mpv 设置页 3.2k）、G-006（下载页 2.4k）、G-009（存储页 2.9k）、G-014（截图预览 2.5k）、G-019/G-021（统计报表）、G-025（连接页）。
 - 重复合并：G-002（mpv 设置标题映射双份）、G-034（两个 Web 登录页重复注入脚本）。
