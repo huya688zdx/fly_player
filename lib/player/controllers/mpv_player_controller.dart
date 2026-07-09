@@ -333,6 +333,7 @@ class MpvMediaSource {
     List<AudioTrackOption> audioTracks = const <AudioTrackOption>[],
     List<SubtitleTrackOption> subtitleTracks = const <SubtitleTrackOption>[],
     List<PlaybackQualityOption> qualities = const <PlaybackQualityOption>[],
+    LocalSubtitleBundle? localSubtitleBundle,
     int? loadNonce,
   }) {
     final normalizedItemGuid = itemGuid.trim();
@@ -343,10 +344,12 @@ class MpvMediaSource {
         ? videoGuid.trim()
         : normalizedMediaGuid;
     final normalizedPath = filePath.trim();
-    final localSubtitleBundle = discoverLocalSubtitleBundle(
-      mediaGuid: normalizedMediaGuid,
-      videoFilePath: normalizedPath,
-    );
+    final resolvedLocalSubtitleBundle =
+        localSubtitleBundle ??
+        discoverLocalSubtitleBundle(
+          mediaGuid: normalizedMediaGuid,
+          videoFilePath: normalizedPath,
+        );
     final normalizedSubtitleGuid = subtitleTrackGuid?.trim() ?? '';
     final externalSubtitleTemplates = subtitleTracks
         .where(
@@ -356,7 +359,7 @@ class MpvMediaSource {
         )
         .toList(growable: false);
     SubtitleTrackOption? localSubtitleTemplate;
-    if (localSubtitleBundle.tracks.length == 1 &&
+    if (resolvedLocalSubtitleBundle.tracks.length == 1 &&
         externalSubtitleTemplates.isNotEmpty) {
       if (normalizedSubtitleGuid.isNotEmpty) {
         for (final track in externalSubtitleTemplates) {
@@ -371,25 +374,25 @@ class MpvMediaSource {
           : null;
     }
     final resolvedLocalSubtitleTracks = localSubtitleTemplate == null
-        ? localSubtitleBundle.tracks
+        ? resolvedLocalSubtitleBundle.tracks
         : <SubtitleTrackOption>[
             SubtitleTrackOption(
-              mediaGuid: localSubtitleBundle.tracks.first.mediaGuid,
-              guid: localSubtitleBundle.tracks.first.guid,
+              mediaGuid: resolvedLocalSubtitleBundle.tracks.first.mediaGuid,
+              guid: resolvedLocalSubtitleBundle.tracks.first.guid,
               title: localSubtitleTemplate.title.trim().isNotEmpty
                   ? localSubtitleTemplate.title
-                  : localSubtitleBundle.tracks.first.title,
-              codecName: localSubtitleBundle.tracks.first.codecName,
-              format: localSubtitleBundle.tracks.first.format,
+                  : resolvedLocalSubtitleBundle.tracks.first.title,
+              codecName: resolvedLocalSubtitleBundle.tracks.first.codecName,
+              format: resolvedLocalSubtitleBundle.tracks.first.format,
               language: localSubtitleTemplate.language.trim().isNotEmpty
                   ? localSubtitleTemplate.language
-                  : localSubtitleBundle.tracks.first.language,
-              index: localSubtitleBundle.tracks.first.index,
-              isDefault: localSubtitleBundle.tracks.first.isDefault,
-              forced: localSubtitleBundle.tracks.first.forced,
-              isExternal: localSubtitleBundle.tracks.first.isExternal,
-              extraFile: localSubtitleBundle.tracks.first.extraFile,
-              isBitmap: localSubtitleBundle.tracks.first.isBitmap,
+                  : resolvedLocalSubtitleBundle.tracks.first.language,
+              index: resolvedLocalSubtitleBundle.tracks.first.index,
+              isDefault: resolvedLocalSubtitleBundle.tracks.first.isDefault,
+              forced: resolvedLocalSubtitleBundle.tracks.first.forced,
+              isExternal: resolvedLocalSubtitleBundle.tracks.first.isExternal,
+              extraFile: resolvedLocalSubtitleBundle.tracks.first.extraFile,
+              isBitmap: resolvedLocalSubtitleBundle.tracks.first.isBitmap,
             ),
           ];
     final mergedSubtitleTracks = <SubtitleTrackOption>[];
@@ -407,7 +410,7 @@ class MpvMediaSource {
       addSubtitleTrack(track);
     }
     final shouldSkipExternalTemplateTrack =
-        localSubtitleBundle.tracks.isNotEmpty &&
+        resolvedLocalSubtitleBundle.tracks.isNotEmpty &&
         externalSubtitleTemplates.isNotEmpty;
     for (final track in subtitleTracks) {
       if (shouldSkipExternalTemplateTrack &&
@@ -420,18 +423,18 @@ class MpvMediaSource {
     final shouldPreferDiscoveredLocalSubtitle =
         normalizedSubtitleGuid.isEmpty &&
         subtitleTrackIndex == null &&
-        localSubtitleBundle.preferredGuid?.trim().isNotEmpty == true;
+        resolvedLocalSubtitleBundle.preferredGuid?.trim().isNotEmpty == true;
     final shouldMapExplicitExternalSubtitleToLocal =
         subtitleTrackIndex == null &&
         normalizedSubtitleGuid.isNotEmpty &&
-        localSubtitleBundle.preferredGuid?.trim().isNotEmpty == true &&
+        resolvedLocalSubtitleBundle.preferredGuid?.trim().isNotEmpty == true &&
         externalSubtitleTemplates.any(
           (track) => track.guid.trim() == normalizedSubtitleGuid,
         );
     final shouldPreferDefaultExternalSubtitle =
         normalizedSubtitleGuid.isEmpty &&
         subtitleTrackIndex == null &&
-        localSubtitleBundle.preferredGuid?.trim().isNotEmpty != true &&
+        resolvedLocalSubtitleBundle.preferredGuid?.trim().isNotEmpty != true &&
         externalSubtitleTemplates.isNotEmpty;
     String? defaultExternalSubtitleGuid() {
       for (final track in externalSubtitleTemplates) {
@@ -450,9 +453,9 @@ class MpvMediaSource {
     }
 
     final resolvedSubtitleTrackGuid = shouldPreferDiscoveredLocalSubtitle
-        ? localSubtitleBundle.preferredGuid!.trim()
+        ? resolvedLocalSubtitleBundle.preferredGuid!.trim()
         : shouldMapExplicitExternalSubtitleToLocal
-        ? localSubtitleBundle.preferredGuid!.trim()
+        ? resolvedLocalSubtitleBundle.preferredGuid!.trim()
         : shouldPreferDefaultExternalSubtitle
         ? defaultExternalSubtitleGuid()
         : (normalizedSubtitleGuid.isNotEmpty ? normalizedSubtitleGuid : null);
@@ -489,7 +492,7 @@ class MpvMediaSource {
       resolution: resolution,
       bitrate: bitrate,
       durationSeconds: durationSeconds,
-      localSubtitleFiles: localSubtitleBundle.fileByGuid,
+      localSubtitleFiles: resolvedLocalSubtitleBundle.fileByGuid,
       videoWidth: videoWidth,
       videoHeight: videoHeight,
       videoCodecName: videoCodecName,

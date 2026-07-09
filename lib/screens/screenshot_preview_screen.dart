@@ -283,8 +283,9 @@ class _ScreenshotPreviewScreenState extends State<ScreenshotPreviewScreen> {
     return visible;
   }
 
-  List<_ScreenshotSection> get _visibleSections {
-    final items = _visibleItems;
+  List<_ScreenshotSection> _sectionsForVisibleItems(
+    List<ScreenshotLibraryItem> items,
+  ) {
     if (items.isEmpty) {
       return const <_ScreenshotSection>[];
     }
@@ -375,18 +376,22 @@ class _ScreenshotPreviewScreenState extends State<ScreenshotPreviewScreen> {
     if (unresolved.isEmpty) {
       return;
     }
-    final entries = await Future.wait(
-      unresolved.map((item) async {
-        final metadata = await _ScreenshotMetadataLoader.instance.load(item);
-        return MapEntry(item.id, metadata);
-      }),
-    );
-    if (!mounted) return;
-    setState(() {
-      for (final entry in entries) {
-        _sortMetadata[entry.key] = entry.value;
-      }
-    });
+    const batchSize = 4;
+    for (var start = 0; start < unresolved.length; start += batchSize) {
+      final batch = unresolved.skip(start).take(batchSize);
+      final entries = await Future.wait(
+        batch.map((item) async {
+          final metadata = await _ScreenshotMetadataLoader.instance.load(item);
+          return MapEntry(item.id, metadata);
+        }),
+      );
+      if (!mounted) return;
+      setState(() {
+        for (final entry in entries) {
+          _sortMetadata[entry.key] = entry.value;
+        }
+      });
+    }
   }
 
   Future<void> _openSortSheet() async {
@@ -659,7 +664,7 @@ class _ScreenshotPreviewScreenState extends State<ScreenshotPreviewScreen> {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
     final visibleItems = _visibleItems;
-    final visibleSections = _visibleSections;
+    final visibleSections = _sectionsForVisibleItems(visibleItems);
 
     return Scaffold(
       backgroundColor: colors.backgroundBase,
@@ -1140,6 +1145,9 @@ class _GallerySection extends StatelessWidget {
             .clamp(2, 4);
         final cardWidth =
             (constraints.maxWidth - spacing * (columns - 1)) / columns;
+        final dpr = MediaQuery.devicePixelRatioOf(context);
+        final cacheWidth = (cardWidth * dpr).round().clamp(240, 960);
+        final cacheHeight = ((cardWidth / 0.76) * dpr).round().clamp(320, 1280);
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
@@ -1168,6 +1176,8 @@ class _GallerySection extends StatelessWidget {
                         aspectRatio: 0.76,
                         child: _GalleryCard(
                           item: item,
+                          cacheWidth: cacheWidth,
+                          cacheHeight: cacheHeight,
                           selected: selectedIds.contains(item.id),
                           selectionMode: selectionMode,
                           onTap: () => onTap(item),
@@ -1552,6 +1562,8 @@ class _EmptyGalleryState extends StatelessWidget {
 
 class _GalleryCard extends StatelessWidget {
   final ScreenshotLibraryItem item;
+  final int cacheWidth;
+  final int cacheHeight;
   final bool selected;
   final bool selectionMode;
   final VoidCallback onTap;
@@ -1559,6 +1571,8 @@ class _GalleryCard extends StatelessWidget {
 
   const _GalleryCard({
     required this.item,
+    required this.cacheWidth,
+    required this.cacheHeight,
     required this.selected,
     required this.selectionMode,
     required this.onTap,
@@ -1597,7 +1611,12 @@ class _GalleryCard extends StatelessWidget {
             children: <Widget>[
               ClipRRect(
                 borderRadius: BorderRadius.circular(27),
-                child: _ScreenshotImage(item: item, fit: BoxFit.cover),
+                child: _ScreenshotImage(
+                  item: item,
+                  fit: BoxFit.cover,
+                  cacheWidth: cacheWidth,
+                  cacheHeight: cacheHeight,
+                ),
               ),
               if (item.isHdr)
                 Positioned(
@@ -1673,14 +1692,25 @@ class _MetaPill extends StatelessWidget {
 class _ScreenshotImage extends StatelessWidget {
   final ScreenshotLibraryItem item;
   final BoxFit fit;
+  final int? cacheWidth;
+  final int? cacheHeight;
 
-  const _ScreenshotImage({required this.item, required this.fit});
+  const _ScreenshotImage({
+    required this.item,
+    required this.fit,
+    this.cacheWidth,
+    this.cacheHeight,
+  });
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     return Image(
-      image: _ScreenshotImageProvider(item),
+      image: _ScreenshotImageProvider(
+        item,
+        cacheWidth: cacheWidth,
+        cacheHeight: cacheHeight,
+      ),
       fit: fit,
       gaplessPlayback: true,
       frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
@@ -2267,8 +2297,14 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox>
 // 截图图片提供者：统一处理授权目录（字节）与本地文件，供 photo_view 解码缩放。
 class _ScreenshotImageProvider extends ImageProvider<_ScreenshotImageProvider> {
   final ScreenshotLibraryItem item;
+  final int? cacheWidth;
+  final int? cacheHeight;
 
-  const _ScreenshotImageProvider(this.item);
+  const _ScreenshotImageProvider(
+    this.item, {
+    this.cacheWidth,
+    this.cacheHeight,
+  });
 
   @override
   Future<_ScreenshotImageProvider> obtainKey(ImageConfiguration configuration) {
@@ -2306,16 +2342,26 @@ class _ScreenshotImageProvider extends ImageProvider<_ScreenshotImageProvider> {
       );
     }
     final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+    if (cacheWidth != null || cacheHeight != null) {
+      return ui.instantiateImageCodecFromBuffer(
+        buffer,
+        targetWidth: cacheWidth,
+        targetHeight: cacheHeight,
+      );
+    }
     return decode(buffer);
   }
 
   @override
   bool operator ==(Object other) {
-    return other is _ScreenshotImageProvider && other.item.id == item.id;
+    return other is _ScreenshotImageProvider &&
+        other.item.id == item.id &&
+        other.cacheWidth == cacheWidth &&
+        other.cacheHeight == cacheHeight;
   }
 
   @override
-  int get hashCode => item.id.hashCode;
+  int get hashCode => Object.hash(item.id, cacheWidth, cacheHeight);
 }
 
 class _LightboxButton extends StatelessWidget {

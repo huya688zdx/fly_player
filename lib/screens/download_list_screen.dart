@@ -73,6 +73,11 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
     initialPage: _selectedTab.index,
   );
   final Set<String> _selectedGroupIds = <String>{};
+  List<DownloadTaskGroup> _downloadedGroupsSnapshot =
+      const <DownloadTaskGroup>[];
+  List<DownloadTaskRecord> _activeRecordsSnapshot =
+      const <DownloadTaskRecord>[];
+  String _listStructureSignature = '';
   bool _editing = false;
   bool _recoveringDownloads = false;
 
@@ -80,6 +85,8 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
   void initState() {
     super.initState();
     _service.initialize();
+    _refreshListStructureSnapshot(force: true);
+    _service.addListener(_handleServiceChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final provider = context.read<NasProvider>();
@@ -90,9 +97,39 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
 
   @override
   void dispose() {
+    _service.removeListener(_handleServiceChanged);
     _topTip.dispose();
     _pageController.dispose();
     super.dispose();
+  }
+
+  void _handleServiceChanged() {
+    _refreshListStructureSnapshot();
+  }
+
+  void _refreshListStructureSnapshot({bool force = false}) {
+    final downloadedGroups = _service.groupsByStatus(
+      DownloadTaskStatus.downloaded,
+    );
+    final activeRecords = _service.activeRecords;
+    final signature = _downloadListStructureSignature(
+      downloadedGroups,
+      activeRecords,
+    );
+    if (!force && signature == _listStructureSignature) return;
+    _listStructureSignature = signature;
+    _downloadedGroupsSnapshot = downloadedGroups;
+    _activeRecordsSnapshot = activeRecords;
+    _selectedGroupIds.removeWhere(
+      (id) => !downloadedGroups.any((group) => group.id == id),
+    );
+    if (downloadedGroups.isEmpty && _editing) {
+      _editing = false;
+      _selectedGroupIds.clear();
+    }
+    if (!force && mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _handleGroupLongPress(String groupId) async {
@@ -284,43 +321,22 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
                 ),
               ),
               Expanded(
-                child: AnimatedBuilder(
-                  animation: _service,
-                  builder: (context, _) {
-                    final downloadedGroups = _service.groupsByStatus(
-                      DownloadTaskStatus.downloaded,
-                    );
-                    if (downloadedGroups.isEmpty && _editing) {
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (!mounted || !_editing) return;
-                        setState(() {
-                          _editing = false;
-                          _selectedGroupIds.clear();
-                        });
-                      });
-                    }
-                    _selectedGroupIds.removeWhere(
-                      (id) => !downloadedGroups.any((group) => group.id == id),
-                    );
-                    final downloadingRecords = _service.activeRecords;
-                    return PageView(
-                      controller: _pageController,
-                      onPageChanged: _handlePageChanged,
-                      physics: const BouncingScrollPhysics(),
-                      children: <Widget>[
-                        _buildDownloadedPage(
-                          context: context,
-                          token: token,
-                          groups: downloadedGroups,
-                        ),
-                        _buildDownloadingPage(
-                          context: context,
-                          token: token,
-                          records: downloadingRecords,
-                        ),
-                      ],
-                    );
-                  },
+                child: PageView(
+                  controller: _pageController,
+                  onPageChanged: _handlePageChanged,
+                  physics: const BouncingScrollPhysics(),
+                  children: <Widget>[
+                    _buildDownloadedPage(
+                      context: context,
+                      token: token,
+                      groups: _downloadedGroupsSnapshot,
+                    ),
+                    _buildDownloadingPage(
+                      context: context,
+                      token: token,
+                      records: _activeRecordsSnapshot,
+                    ),
+                  ],
                 ),
               ),
               if (_editing) ...<Widget>[
@@ -516,13 +532,17 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
       separatorBuilder: (_, __) => const SizedBox(height: 14),
       itemBuilder: (context, index) {
         final record = records[index];
-        return _DownloadRecordRow(
+        return ListenableBuilder(
           key: ValueKey<String>(record.id),
-          record: record,
-          token: token,
-          downloadSpeedBytesPerSecond: _service.downloadSpeedBytesPerSecondFor(
-            record.id,
-          ),
+          listenable: _service,
+          builder: (context, _) {
+            return _DownloadRecordRow(
+              record: record,
+              token: token,
+              downloadSpeedBytesPerSecond: _service
+                  .downloadSpeedBytesPerSecondFor(record.id),
+            );
+          },
         );
       },
     );
@@ -643,6 +663,8 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
   late final DownloadListTab _selectedTab = widget.initialTab;
   final Set<String> _selectedRecordIds = <String>{};
   final Set<String> _expandedVersionGroupKeys = <String>{};
+  DownloadTaskGroup? _groupSnapshot;
+  String _groupStructureSignature = '';
   bool _editing = false;
   String? _playLaunchingRecordId;
   Object? _reentryToken;
@@ -651,16 +673,50 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
   void initState() {
     super.initState();
     _service.initialize();
+    _refreshGroupStructureSnapshot(force: true);
+    _service.addListener(_handleServiceChanged);
   }
 
   @override
   void dispose() {
+    _service.removeListener(_handleServiceChanged);
     _topTip.dispose();
     if (_reentryToken != null) {
       NativePlayerBridge.unbindReentry(_reentryToken!);
       _reentryToken = null;
     }
     super.dispose();
+  }
+
+  void _handleServiceChanged() {
+    _refreshGroupStructureSnapshot();
+  }
+
+  void _refreshGroupStructureSnapshot({bool force = false}) {
+    final group = _service.groupById(
+      widget.groupId,
+      status: _selectedTab.status,
+    );
+    final records = group?.records ?? const <DownloadTaskRecord>[];
+    final signature = _downloadGroupStructureSignature(group, records);
+    if (!force && signature == _groupStructureSignature) return;
+    _groupStructureSignature = signature;
+    _groupSnapshot = group;
+    _selectedRecordIds.removeWhere(
+      (id) => !records.any((record) => record.id == id),
+    );
+    _expandedVersionGroupKeys.removeWhere(
+      (key) => !_groupRecordsByItem(
+        records,
+      ).any((group) => group.key == key && group.records.length > 1),
+    );
+    if (records.isEmpty && _editing) {
+      _editing = false;
+      _selectedRecordIds.clear();
+    }
+    if (!force && mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _handleRecordLongPress(String recordId) async {
@@ -918,6 +974,17 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
     final token = context.watch<NasProvider>().token;
+    final group = _groupSnapshot;
+    final title = group?.title.trim().isNotEmpty == true
+        ? group!.title
+        : l10n.downloadDetailTitle;
+    final records = group?.records ?? const <DownloadTaskRecord>[];
+    final selectedCount = _selectedRecordIds.length;
+    final launchingRecordId = _playLaunchingRecordId;
+    final recordVersionGroups =
+        _selectedTab == DownloadListTab.downloaded && !_editing
+        ? _groupRecordsByItem(records)
+        : const <_DownloadRecordVersionGroupData>[];
 
     return PopScope<Object?>(
       canPop: !_editing,
@@ -929,177 +996,141 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
         backgroundColor: colors.backgroundBase,
         body: SafeArea(
           bottom: false,
-          child: AnimatedBuilder(
-            animation: _service,
-            builder: (context, _) {
-              final group = _service.groupById(
-                widget.groupId,
-                status: _selectedTab.status,
-              );
-              final title = group?.title.trim().isNotEmpty == true
-                  ? group!.title
-                  : l10n.downloadDetailTitle;
-              final records = group?.records ?? const <DownloadTaskRecord>[];
-              if (records.isEmpty && _editing) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (!mounted || !_editing) return;
-                  setState(() {
-                    _editing = false;
-                    _selectedRecordIds.clear();
-                  });
-                });
-              }
-              _selectedRecordIds.removeWhere(
-                (id) => !records.any((record) => record.id == id),
-              );
-              _expandedVersionGroupKeys.removeWhere(
-                (key) => !_groupRecordsByItem(
-                  records,
-                ).any((group) => group.key == key && group.records.length > 1),
-              );
-              final selectedCount = _selectedRecordIds.length;
-              final launchingRecordId = _playLaunchingRecordId;
-              final recordVersionGroups =
-                  _selectedTab == DownloadListTab.downloaded && !_editing
-                  ? _groupRecordsByItem(records)
-                  : const <_DownloadRecordVersionGroupData>[];
-
-              return Column(
-                children: <Widget>[
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(10, 8, 14, 0),
-                    child: Row(
-                      children: <Widget>[
-                        _TopActionButton(
-                          icon: Icons.arrow_back_ios_new_rounded,
-                          onTap: () {
-                            unawaited(_handleBackNavigation());
-                          },
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            _editing
-                                ? l10n.downloadSelectedCount(selectedCount)
-                                : title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: colors.textPrimary,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        TextButton(
-                          onPressed:
-                              records.isEmpty ||
-                                  launchingRecordId != null ||
-                                  _selectedTab != DownloadListTab.downloaded
-                              ? null
-                              : () {
-                                  setState(() {
-                                    _editing = !_editing;
-                                    if (!_editing) {
-                                      _selectedRecordIds.clear();
-                                    }
-                                  });
-                                },
-                          style: TextButton.styleFrom(
-                            foregroundColor: _editing
-                                ? colors.textPrimary
-                                : colors.textMuted,
-                            textStyle: const TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          child: Text(
-                            _editing ? l10n.commonCancel : l10n.commonEdit,
-                          ),
-                        ),
-                      ],
+          child: Column(
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 8, 14, 0),
+                child: Row(
+                  children: <Widget>[
+                    _TopActionButton(
+                      icon: Icons.arrow_back_ios_new_rounded,
+                      onTap: () {
+                        unawaited(_handleBackNavigation());
+                      },
                     ),
-                  ),
-                  Expanded(
-                    child: records.isEmpty
-                        ? Center(
-                            child: Text(
-                              _selectedTab.emptyLabel(l10n),
-                              style: TextStyle(
-                                color: colors.textMuted,
-                                fontSize: 16,
-                              ),
-                            ),
-                          )
-                        : _selectedTab == DownloadListTab.downloaded &&
-                              !_editing
-                        ? ListView.separated(
-                            padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
-                            itemCount: recordVersionGroups.length,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(height: 18),
-                            itemBuilder: (context, index) {
-                              final group = recordVersionGroups[index];
-                              final lead = group.records.first;
-                              final expanded = _expandedVersionGroupKeys
-                                  .contains(group.key);
-                              if (group.records.length <= 1) {
-                                return _DownloadRecordRow(
-                                  key: ValueKey<String>(lead.id),
-                                  record: lead,
-                                  token: token,
-                                  busy: launchingRecordId == lead.id,
-                                  dimmed:
-                                      launchingRecordId != null &&
-                                      launchingRecordId != lead.id,
-                                  onLongPress: launchingRecordId != null
-                                      ? null
-                                      : () => _handleRecordLongPress(lead.id),
-                                  onTap: launchingRecordId != null
-                                      ? null
-                                      : () => _playDownloadedRecord(lead),
-                                );
-                              }
-                              return _DownloadRecordVersionGroup(
-                                key: ValueKey<String>('versions:${group.key}'),
-                                records: group.records,
-                                token: token,
-                                expanded: expanded,
-                                busyRecordId: launchingRecordId,
-                                onToggle: () {
-                                  setState(() {
-                                    if (expanded) {
-                                      _expandedVersionGroupKeys.remove(
-                                        group.key,
-                                      );
-                                    } else {
-                                      _expandedVersionGroupKeys.add(group.key);
-                                    }
-                                  });
-                                },
-                                onRecordTap: (record) {
-                                  if (launchingRecordId != null) return;
-                                  _playDownloadedRecord(record);
-                                },
-                                onRecordLongPress: (record) {
-                                  if (launchingRecordId != null) return;
-                                  _handleRecordLongPress(record.id);
-                                },
-                              );
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        _editing
+                            ? l10n.downloadSelectedCount(selectedCount)
+                            : title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: colors.textPrimary,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    TextButton(
+                      onPressed:
+                          records.isEmpty ||
+                              launchingRecordId != null ||
+                              _selectedTab != DownloadListTab.downloaded
+                          ? null
+                          : () {
+                              setState(() {
+                                _editing = !_editing;
+                                if (!_editing) {
+                                  _selectedRecordIds.clear();
+                                }
+                              });
                             },
-                          )
-                        : ListView.separated(
-                            padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
-                            itemCount: records.length,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(height: 18),
-                            itemBuilder: (context, index) {
-                              final record = records[index];
+                      style: TextButton.styleFrom(
+                        foregroundColor: _editing
+                            ? colors.textPrimary
+                            : colors.textMuted,
+                        textStyle: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      child: Text(
+                        _editing ? l10n.commonCancel : l10n.commonEdit,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: records.isEmpty
+                    ? Center(
+                        child: Text(
+                          _selectedTab.emptyLabel(l10n),
+                          style: TextStyle(
+                            color: colors.textMuted,
+                            fontSize: 16,
+                          ),
+                        ),
+                      )
+                    : _selectedTab == DownloadListTab.downloaded && !_editing
+                    ? ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
+                        itemCount: recordVersionGroups.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 18),
+                        itemBuilder: (context, index) {
+                          final group = recordVersionGroups[index];
+                          final lead = group.records.first;
+                          final expanded = _expandedVersionGroupKeys.contains(
+                            group.key,
+                          );
+                          if (group.records.length <= 1) {
+                            return _DownloadRecordRow(
+                              key: ValueKey<String>(lead.id),
+                              record: lead,
+                              token: token,
+                              busy: launchingRecordId == lead.id,
+                              dimmed:
+                                  launchingRecordId != null &&
+                                  launchingRecordId != lead.id,
+                              onLongPress: launchingRecordId != null
+                                  ? null
+                                  : () => _handleRecordLongPress(lead.id),
+                              onTap: launchingRecordId != null
+                                  ? null
+                                  : () => _playDownloadedRecord(lead),
+                            );
+                          }
+                          return _DownloadRecordVersionGroup(
+                            key: ValueKey<String>('versions:${group.key}'),
+                            records: group.records,
+                            token: token,
+                            expanded: expanded,
+                            busyRecordId: launchingRecordId,
+                            onToggle: () {
+                              setState(() {
+                                if (expanded) {
+                                  _expandedVersionGroupKeys.remove(group.key);
+                                } else {
+                                  _expandedVersionGroupKeys.add(group.key);
+                                }
+                              });
+                            },
+                            onRecordTap: (record) {
+                              if (launchingRecordId != null) return;
+                              _playDownloadedRecord(record);
+                            },
+                            onRecordLongPress: (record) {
+                              if (launchingRecordId != null) return;
+                              _handleRecordLongPress(record.id);
+                            },
+                          );
+                        },
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
+                        itemCount: records.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 18),
+                        itemBuilder: (context, index) {
+                          final record = records[index];
+                          return ListenableBuilder(
+                            key: ValueKey<String>(record.id),
+                            listenable: _service,
+                            builder: (context, _) {
                               return _DownloadRecordRow(
-                                key: ValueKey<String>(record.id),
                                 record: record,
                                 token: token,
                                 busy: launchingRecordId == record.id,
@@ -1131,77 +1162,75 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
                                     : () => _playDownloadedRecord(record),
                               );
                             },
-                          ),
-                  ),
-                  if (_editing) ...<Widget>[
-                    const SizedBox(height: 8),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
-                      child: Row(
-                        children: <Widget>[
-                          Expanded(
-                            child: FilledButton.tonal(
-                              onPressed: records.isEmpty
-                                  ? null
-                                  : () {
-                                      setState(() {
-                                        if (_selectedRecordIds.length ==
-                                            records.length) {
-                                          _selectedRecordIds.clear();
-                                        } else {
-                                          _selectedRecordIds
-                                            ..clear()
-                                            ..addAll(
-                                              records.map(
-                                                (record) => record.id,
-                                              ),
-                                            );
-                                        }
-                                      });
-                                    },
-                              style: FilledButton.styleFrom(
-                                minimumSize: const Size.fromHeight(58),
-                                backgroundColor: colors.surfaceStrong,
-                                foregroundColor: colors.textPrimary,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(18),
-                                ),
-                              ),
-                              child: Text(
-                                _selectedRecordIds.length == records.length &&
-                                        records.isNotEmpty
-                                    ? l10n.commonDeselectAll
-                                    : l10n.commonSelectAll,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 18),
-                          Expanded(
-                            child: FilledButton(
-                              onPressed: _selectedRecordIds.isEmpty
-                                  ? null
-                                  : () => _confirmDeleteSelected(context),
-                              style: FilledButton.styleFrom(
-                                minimumSize: const Size.fromHeight(58),
-                                backgroundColor: const Color(0xFF7E0913),
-                                disabledBackgroundColor: const Color(
-                                  0xFF7E0913,
-                                ).withValues(alpha: 0.35),
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(18),
-                                ),
-                              ),
-                              child: Text(l10n.commonDelete),
-                            ),
-                          ),
-                        ],
+                          );
+                        },
                       ),
-                    ),
-                  ],
-                ],
-              );
-            },
+              ),
+              if (_editing) ...<Widget>[
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                  child: Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: FilledButton.tonal(
+                          onPressed: records.isEmpty
+                              ? null
+                              : () {
+                                  setState(() {
+                                    if (_selectedRecordIds.length ==
+                                        records.length) {
+                                      _selectedRecordIds.clear();
+                                    } else {
+                                      _selectedRecordIds
+                                        ..clear()
+                                        ..addAll(
+                                          records.map((record) => record.id),
+                                        );
+                                    }
+                                  });
+                                },
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size.fromHeight(58),
+                            backgroundColor: colors.surfaceStrong,
+                            foregroundColor: colors.textPrimary,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                          ),
+                          child: Text(
+                            _selectedRecordIds.length == records.length &&
+                                    records.isNotEmpty
+                                ? l10n.commonDeselectAll
+                                : l10n.commonSelectAll,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 18),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: _selectedRecordIds.isEmpty
+                              ? null
+                              : () => _confirmDeleteSelected(context),
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size.fromHeight(58),
+                            backgroundColor: const Color(0xFF7E0913),
+                            disabledBackgroundColor: const Color(
+                              0xFF7E0913,
+                            ).withValues(alpha: 0.35),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                          ),
+                          child: Text(l10n.commonDelete),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
       ),
@@ -1311,6 +1340,60 @@ class _DownloadRecordVersionGroupData {
   final List<DownloadTaskRecord> records;
 
   const _DownloadRecordVersionGroupData(this.key, this.records);
+}
+
+String _downloadListStructureSignature(
+  List<DownloadTaskGroup> downloadedGroups,
+  List<DownloadTaskRecord> activeRecords,
+) {
+  final buffer = StringBuffer();
+  for (final group in downloadedGroups) {
+    buffer
+      ..write('g:')
+      ..write(group.id)
+      ..write('|')
+      ..write(group.records.length)
+      ..write('|');
+    for (final record in group.records) {
+      _writeDownloadRecordStructure(buffer, record);
+    }
+  }
+  buffer.write('active|');
+  for (final record in activeRecords) {
+    _writeDownloadRecordStructure(buffer, record);
+  }
+  return buffer.toString();
+}
+
+String _downloadGroupStructureSignature(
+  DownloadTaskGroup? group,
+  List<DownloadTaskRecord> records,
+) {
+  if (group == null) return 'missing';
+  final buffer = StringBuffer()
+    ..write(group.id)
+    ..write('|')
+    ..write(records.length)
+    ..write('|');
+  for (final record in records) {
+    _writeDownloadRecordStructure(buffer, record);
+  }
+  return buffer.toString();
+}
+
+void _writeDownloadRecordStructure(
+  StringBuffer buffer,
+  DownloadTaskRecord record,
+) {
+  buffer
+    ..write(record.id)
+    ..write(':')
+    ..write(record.status.storageValue)
+    ..write(':')
+    ..write(record.filePath)
+    ..write(':')
+    ..write(record.totalBytes)
+    ..write(';');
 }
 
 class _DownloadRecordVersionGroup extends StatelessWidget {

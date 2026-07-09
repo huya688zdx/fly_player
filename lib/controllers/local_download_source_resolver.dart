@@ -13,6 +13,7 @@ import '../utils/play_detail_track_selector.dart';
 import '../utils/playback_resume_position_resolver.dart';
 import '../utils/player_artwork_path_resolver.dart';
 import '../utils/player_title_formatter.dart';
+import '../utils/local_subtitle_bundle.dart';
 
 /// 已下载记录的显示标题（groupTitle + recordTitle 拼合）。
 String localDownloadRecordTitle(DownloadTaskRecord record) {
@@ -108,6 +109,10 @@ resolveLocalDownloadSource(
     selectedSubtitleGuid: initialPlayInfo?.subtitleGuid ?? '',
     subtitleTracks: subtitleTracks,
   );
+  final localSubtitleBundle = await discoverLocalSubtitleBundleAsync(
+    mediaGuid: resolvedMediaGuid,
+    videoFilePath: path,
+  );
   final embeddedSubtitleTrackIndex =
       PlayDetailTrackSelector.embeddedSubtitleTrackIndex(
         selectedSubtitle: selectedSubtitle,
@@ -181,6 +186,7 @@ resolveLocalDownloadSource(
     audioTrackGuid: selectedAudio?.guid ?? initialPlayInfo?.audioGuid,
     subtitleTrackIndex: embeddedSubtitleTrackIndex,
     subtitleTrackGuid: initialPlayInfo?.subtitleGuid,
+    localSubtitleBundle: localSubtitleBundle,
     resolution: record.resolution.trim().isNotEmpty
         ? record.resolution.trim()
         : (playbackVideo?.resolutionType.trim().isNotEmpty == true

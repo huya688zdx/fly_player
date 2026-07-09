@@ -4,9 +4,37 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fly_player/models/stream_track_data.dart';
 import 'package:fly_player/player/controllers/mpv_player_controller.dart';
+import 'package:fly_player/utils/local_subtitle_bundle.dart';
 
 void main() {
   group('MpvMediaSource.localFile subtitle selection', () {
+    test('discovers sidecar subtitles through async entrypoint', () async {
+      final tempDir = Directory.systemTemp.createTempSync(
+        'fly_player_local_source_test_',
+      );
+      addTearDown(() {
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+
+      final videoFile = File('${tempDir.path}${Platform.pathSeparator}demo.mkv')
+        ..writeAsStringSync('video');
+      File(
+        '${tempDir.path}${Platform.pathSeparator}demo.zh-Hans.ass',
+      ).writeAsStringSync('subtitle');
+
+      final bundle = await discoverLocalSubtitleBundleAsync(
+        mediaGuid: 'media-1',
+        videoFilePath: videoFile.path,
+      );
+
+      expect(bundle.tracks, hasLength(1));
+      expect(bundle.tracks.single.guid, startsWith('local:'));
+      expect(bundle.tracks.single.language, 'zho');
+      expect(bundle.fileByGuid[bundle.tracks.single.guid], contains('demo'));
+    });
+
     test('keeps explicit embedded subtitle instead of sidecar default', () {
       final tempDir = Directory.systemTemp.createTempSync(
         'fly_player_local_source_test_',
