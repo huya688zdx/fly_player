@@ -2,11 +2,10 @@ import 'dart:async';
 
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/media_backend.dart';
-import '../media_backend/media_backend_kind.dart';
 import '../providers/nas_provider.dart';
-import 'emby_native_picker_support.dart';
 import 'native_player_bridge.dart';
 import 'native_reentry_support.dart';
+import 'server_native_picker_support.dart';
 
 /// 原生壳 `onResolvePlayback` 回调签名（与 [NativePlayerBridge.bindReentry] 一致）。
 typedef ResolvePlaybackHandler =
@@ -25,7 +24,7 @@ typedef ResolvePlaybackHandler =
 /// 统一原生壳反向通道注册——所有播放入口的单一接线点。
 ///
 /// 各入口（单条目 / 季详情 / 剧详情 / 下载）曾各自调 [NativePlayerBridge.bindReentry] 并按
-/// 后端类型重复接线：飞牛接 [NativeReentrySupport]、Emby 接 [EmbyNativePickerSupport]+backend。
+/// 后端类型重复接线：飞牛接 [NativeReentrySupport]、服务器族接 [ServerNativePickerSupport]+backend。
 /// 重复的 9 个回调样板散落多处、且每个入口绑的回调集不一致（有的漏选集、有的漏进度回写），
 /// 导致「从某入口进播放没选集 / 没进度」这类按入口而异的缺陷。
 ///
@@ -34,8 +33,8 @@ typedef ResolvePlaybackHandler =
 /// 服务端会话重载 / 选集三件套）按 [backend] 类型统一接线。
 ///
 /// - 飞牛：与各入口原本逐一绑定的回调等价（零行为变化，主路径逐像素不变）。
-/// - Emby：每个入口都获得**完整**回调集（进度回写 + 选集 + 跨季 + 外挂字幕），消除入口间不一致。
-///   Emby 直链直播无服务端转码会话，故不绑 `onReloadServerSession`（原生壳侧回退、不切转码档）。
+/// - 服务器族：每个入口都获得**完整**回调集（进度回写 + 选集 + 跨季 + 外挂字幕），消除入口间不一致。
+///   是否支持服务端转码会话重载由能力位决定；当前 Emby 直链直播不绑该回调。
 class NativePlaybackReentry {
   const NativePlaybackReentry._();
 
@@ -50,7 +49,7 @@ class NativePlaybackReentry {
     required ResolvePlaybackHandler onResolvePlayback,
     List<Map<String, dynamic>> Function()? fallbackEpisodes,
   }) {
-    if (backend.capabilities.kind == MediaBackendKind.feiniu) {
+    if (backend.capabilities.usesLegacyFeiniuFlow) {
       return NativePlayerBridge.bindReentry(
         onResolvePlayback: onResolvePlayback,
         onRecordProgress: (progress) =>
@@ -81,16 +80,16 @@ class NativePlaybackReentry {
             NativeReentrySupport.setEpisodePickerViewType(nas, viewType),
       );
     }
-    // 每次 bind 建一个有状态的进度上报器：Emby 须先 PlaybackStart 建会话进度才持久化，
+    // 每次 bind 建一个有状态的进度上报器：服务器族须先 PlaybackStart 建会话进度才持久化，
     // 故首帧进度先开会话；切集时停旧会话 + 开新会话。状态随 bind 闭包（每次起播独立）。
-    final reporter = EmbyPlaybackReporter(backend);
+    final reporter = ServerPlaybackReporter(backend);
     return NativePlayerBridge.bindReentry(
       onResolvePlayback: onResolvePlayback,
       onRecordProgress: reporter.report,
       onResolveSubtitleFile: (guid, {format}) =>
           backend.resolveExternalSubtitleFile(guid, format: format),
       onLoadEpisodePickerData: (currentLoadArgs, {seasonGuid}) =>
-          EmbyNativePickerSupport.loadEpisodePickerData(
+          ServerNativePickerSupport.loadEpisodePickerData(
             backend,
             l10n: l10n,
             currentLoadArgs: currentLoadArgs,
@@ -99,25 +98,25 @@ class NativePlaybackReentry {
                 fallbackEpisodes?.call() ?? const <Map<String, dynamic>>[],
           ),
       onLoadSeasonEpisodes: (seasonGuid) =>
-          EmbyNativePickerSupport.loadSeasonEpisodes(
+          ServerNativePickerSupport.loadSeasonEpisodes(
             backend,
             seasonGuid: seasonGuid,
           ),
       onSetEpisodePickerViewType: (viewType) =>
-          EmbyNativePickerSupport.setEpisodePickerViewType(viewType),
+          ServerNativePickerSupport.setEpisodePickerViewType(viewType),
     );
   }
 }
 
-/// Emby 进度上报器（每次 bind 一个实例，持当前播放会话状态）。
+/// 服务器族进度上报器（每次 bind 一个实例，持当前播放会话状态）。
 ///
-/// Emby 须先 `PlaybackStart` 建会话，之后 `Progress` 才被持久化（见 [EmbyApi.reportPlaybackStart]）。
+/// 服务器族须先 `PlaybackStart` 建会话，之后 `Progress` 才被持久化。
 /// 故首次收到某条目进度时先开会话；原生壳壳内切集（itemGuid 变）时停旧会话 + 开新会话，使每集
 /// 的续播位都正确落定。原生壳无显式「播放结束」信号，最终停止不主动 Stopped——但末次 Progress
-/// 已落定续播位、会话已注册，继续观看正常。progress 的 `ts` 为秒、`itemGuid`/`mediaGuid` 为 Emby
+/// 已落定续播位、会话已注册，继续观看正常。progress 的 `ts` 为秒、`itemGuid`/`mediaGuid` 为服务器
 /// itemId / MediaSourceId（桥接器装进 MpvMediaSource、原生壳原样回传）。best-effort：静默吞错。
-class EmbyPlaybackReporter {
-  EmbyPlaybackReporter(this.backend);
+class ServerPlaybackReporter {
+  ServerPlaybackReporter(this.backend);
 
   final MediaBackend backend;
   String _itemId = '';

@@ -1,6 +1,8 @@
 import '../../l10n/generated/app_localizations.dart';
 import '../../media_backend/feiniu/feiniu_playback_context.dart';
 import '../../media_backend/playback/media_playback.dart';
+import '../../media_backend/playback/media_playback_resolution.dart';
+import '../../media_backend/playback/media_playback_source_bridge.dart';
 import '../../utils/player_artwork_path_resolver.dart';
 import '../../utils/player_title_formatter.dart';
 import 'mpv_player_controller.dart';
@@ -14,8 +16,30 @@ import 'player_source_controller.dart';
 /// 当前的 `buildInitialPlaybackResult` + `MpvMediaSource` 装配口径——续播位已由后端算入
 /// `bundle.startPosition`，画质/轨道/直链/代理会话仍由 [PlayerSourceController] 用上下文
 /// 的飞牛 raw facts 重新解析（不直接信任 `MediaPlaybackSource.url` 是最终可播 URL）。
-class FeiniuPlaybackSourceBridge {
+class FeiniuPlaybackSourceBridge implements MediaPlaybackSourceBridge {
   const FeiniuPlaybackSourceBridge();
+
+  @override
+  Future<MediaPlaybackSourceResult> assemblePlaybackSource({
+    required MediaPlaybackRequest request,
+    required MediaPlaybackBundle bundle,
+    required MediaPlaybackBackendContext? context,
+    required AppLocalizations l10n,
+  }) async {
+    if (context is! FeiniuPlaybackContext) {
+      throw StateError('飞牛播放桥接器收到不匹配的后端上下文');
+    }
+    final source = await assemble(
+      request: request,
+      bundle: bundle,
+      context: context,
+      l10n: l10n,
+    );
+    return MediaPlaybackSourceResult(
+      source: source,
+      legacySidecar: context.playInfo,
+    );
+  }
 
   /// 装配 [MpvMediaSource]。不导航、不打开页面，只返回 source。
   Future<MpvMediaSource> assemble({
