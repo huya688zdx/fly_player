@@ -16,6 +16,9 @@ class MediaBackendCapabilities {
   /// 是否支持「标记已看 / 未看」（详情页已看键）。决定该键是否可点。
   final bool supportsWatched;
 
+  /// 是否支持服务端转码会话重载（画质 / 音轨 / 字幕切换走服务端会话）。
+  final bool supportsServerTranscodeSession;
+
   const MediaBackendCapabilities({
     required this.kind,
     required this.supportsDownloadTasks,
@@ -23,6 +26,7 @@ class MediaBackendCapabilities {
     required this.supportsIntroOutroConfig,
     this.supportsFavorite = false,
     this.supportsWatched = false,
+    this.supportsServerTranscodeSession = false,
   });
 
   /// 飞牛后端当前能力预设：NAS 专属功能全部开启。
@@ -32,5 +36,19 @@ class MediaBackendCapabilities {
       supportsFnConnect = true,
       supportsIntroOutroConfig = true,
       supportsFavorite = true,
-      supportsWatched = true;
+      supportsWatched = true,
+      supportsServerTranscodeSession = false;
+
+  /// 服务器族后端能力预设：关闭飞牛专属能力，保留公共收藏 / 已看能力。
+  const MediaBackendCapabilities.server({
+    required this.kind,
+    this.supportsFavorite = true,
+    this.supportsWatched = true,
+    this.supportsServerTranscodeSession = false,
+  }) : supportsDownloadTasks = false,
+       supportsFnConnect = false,
+       supportsIntroOutroConfig = false;
+
+  /// 是否走飞牛遗留路径（下载 / FN Connect / PlayInfo / NAS 进度通道）。
+  bool get usesLegacyFeiniuFlow => kind == MediaBackendKind.feiniu;
 }

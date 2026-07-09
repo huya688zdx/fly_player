@@ -5,21 +5,16 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../l10n/generated/app_localizations.dart';
-import '../media_backend/emby/emby_playback_context.dart';
-import '../media_backend/feiniu/feiniu_playback_context.dart';
 import '../media_backend/media_backend.dart';
-import '../media_backend/media_backend_kind.dart';
 import '../media_backend/playback/media_playback.dart';
-import '../player/controllers/emby_playback_source_bridge.dart';
-import '../player/controllers/feiniu_playback_source_bridge.dart';
 import '../providers/media_backend_provider.dart';
 import '../controllers/local_download_source_resolver.dart';
 import '../controllers/play_detail_data_loader.dart';
 import '../danmaku/settings/danmaku_settings_store.dart';
 import '../services/download_task_service.dart';
-import '../services/emby_native_picker_support.dart';
 import '../services/native_danmaku_prefetch.dart';
 import '../services/native_player_bridge.dart';
+import '../services/server_native_picker_support.dart';
 import '../models/play_info.dart';
 import '../player/controllers/mpv_player_controller.dart';
 import '../player/mpv_player_page.dart';
@@ -48,9 +43,9 @@ class TvSeasonPlaybackLauncher {
       action: () async {
         final l10n = AppLocalizations.of(context);
         final provider = context.read<NasProvider>();
-        // 后端中立：取活动后端，按 context 类型分发桥接器（与单条目 launcher 同口径）。
+        // 后端中立：取活动后端，由后端自己的桥接器装配最终播放 source。
         final backend = context.read<MediaBackendProvider>().backend;
-        final isFeiniu = backend.capabilities.kind == MediaBackendKind.feiniu;
+        final isFeiniu = backend.capabilities.usesLegacyFeiniuFlow;
         final resolved = await _resolveWithProvider(
           backend,
           itemGuid: itemGuid,
@@ -62,16 +57,16 @@ class TvSeasonPlaybackLauncher {
         final source = resolved.source;
         final playInfo = resolved.playInfo;
         final title = resolved.title;
-        // 剧详情入口未传 episodes：Emby 起播单集时按 source 的 seasonGuid 加载本季选集，
+        // 剧详情入口未传 episodes：服务器族起播单集时按 source 的 seasonGuid 加载本季选集，
         // 否则 loadArgs.episodes 空 → 原生壳「选集 / 下一集」不亮（壳侧靠非空 episodes 触发）。
         final effectiveEpisodes =
             episodes ??
-            (isFeiniu ? null : await _embyNativeEpisodes(backend, source));
+            (isFeiniu ? null : await _serverNativeEpisodes(backend, source));
         if (!context.mounted) return null;
         // 灰度：原生渲染器开启时走纯原生播放壳（无 Hybrid Composition，弹幕丝滑、二级
         // 界面不卡）。maybeLaunch 内部判断开关 + 预取弹幕；episodes 透传供原生壳「选集」。
-        // 返回 true 表示已交给原生壳，不再 push Flutter 播放器。Emby 封面 api_key 自鉴权直链，
-        // 不走 NAS 鉴权预取，故不传 nas。
+        // 返回 true 表示已交给原生壳，不再 push Flutter 播放器。服务器族封面由后端给出可直接
+        // 消费的 URL，不走 NAS 鉴权预取，故不传 nas。
         if (await NativePlayerBridge.maybeLaunch(
           source.toMap(),
           episodes: effectiveEpisodes,
@@ -150,7 +145,7 @@ class TvSeasonPlaybackLauncher {
         final provider = context.read<NasProvider>();
         // 后端中立：取活动后端分发桥接器。本地下载优先仅飞牛（Emby 无下载能力）。
         final backend = context.read<MediaBackendProvider>().backend;
-        final isFeiniu = backend.capabilities.kind == MediaBackendKind.feiniu;
+        final isFeiniu = backend.capabilities.usesLegacyFeiniuFlow;
         if (isFeiniu && qualityIndex == null) {
           await DownloadTaskService.instance.initialize();
           final localRecord = DownloadTaskService.instance
@@ -209,12 +204,12 @@ class TvSeasonPlaybackLauncher {
           l10n: l10n,
         );
         if (resolved == null) return null;
-        // 切集回传也带本季 episodes（Emby 未传时按 source 重新派生），否则换源后原生壳选集清空。
+        // 切集回传也带本季 episodes（服务器族未传时按 source 重新派生），否则换源后原生壳选集清空。
         final mergedEpisodes =
             episodes ??
             (isFeiniu
                 ? null
-                : await _embyNativeEpisodes(backend, resolved.source));
+                : await _serverNativeEpisodes(backend, resolved.source));
         final loadArgs = <String, dynamic>{
           ...resolved.source.toMap(),
           if (mergedEpisodes != null && mergedEpisodes.isNotEmpty)
@@ -249,9 +244,9 @@ class TvSeasonPlaybackLauncher {
     );
   }
 
-  /// Emby 单集起播 / 切集：按 source 的 seasonGuid 加载本季选集映射成原生壳选集行，点亮壳内
+  /// 服务器族单集起播 / 切集：按 source 的 seasonGuid 加载本季选集映射成原生壳选集行，点亮壳内
   /// 「选集 / 下一集」。非单集或无 seasonGuid 返回 null（电影 / 单视频无选集）。失败静默。
-  Future<List<Map<String, dynamic>>?> _embyNativeEpisodes(
+  Future<List<Map<String, dynamic>>?> _serverNativeEpisodes(
     MediaBackend backend,
     MpvMediaSource source,
   ) async {
@@ -261,7 +256,10 @@ class TvSeasonPlaybackLauncher {
     try {
       final episodes = await backend.getSeasonEpisodes(seasonGuid);
       if (episodes.isEmpty) return null;
-      return EmbyNativePickerSupport.nativeEpisodePayload(episodes, seasonGuid);
+      return ServerNativePickerSupport.nativeEpisodePayload(
+        episodes,
+        seasonGuid,
+      );
     } catch (_) {
       return null;
     }
@@ -269,9 +267,7 @@ class TvSeasonPlaybackLauncher {
 
   /// 解析一集的可播 source（含轨道/续播位/标题），open 与 resolveForNative 共用。
   ///
-  /// 后端中立：用传入的活动后端 [backend] 调 `getPlayback`，按返回的不透明上下文运行时类型
-  /// 分发桥接器——飞牛 → [FeiniuPlaybackSourceBridge]（playInfo 为飞牛 PlayInfoData）；
-  /// Emby → [EmbyPlaybackSourceBridge]（无 PlayInfoData，playInfo 为 null）。
+  /// 后端中立：用传入的活动后端 [backend] 调 `getPlayback`，再交给后端自己的桥接器装配。
   Future<({MpvMediaSource source, PlayInfoData? playInfo, String title})?>
   _resolveWithProvider(
     MediaBackend backend, {
@@ -287,7 +283,7 @@ class TvSeasonPlaybackLauncher {
     int? subtitleTrackIndex,
     String? preferredQualityResolution,
   }) async {
-    // B-3：季/集播放解析改走后端中立 getPlayback + 飞牛桥接器装配 MpvMediaSource。
+    // B-3：季/集播放解析改走后端中立 getPlayback + 后端桥接器装配 MpvMediaSource。
     // 与 B-2 单条目共用桥接器；TV 特有的两点经中立 request 字段表达：
     //   - seriesId：调用方显式剧集 guid 优先（桥接器回退 grandGuid）；
     //   - restartWhenCompleted=true：已看完的一集重新点播回到开头。
@@ -322,23 +318,18 @@ class TvSeasonPlaybackLauncher {
     );
 
     final resolution = await backend.getPlayback(request);
-    final context = resolution.backendContext;
-    if (context is FeiniuPlaybackContext) {
-      final source = await const FeiniuPlaybackSourceBridge().assemble(
-        request: request,
-        bundle: resolution.bundle,
-        context: context,
-        l10n: l10n,
-      );
-      return (source: source, playInfo: context.playInfo, title: source.title);
-    }
-    if (context is EmbyPlaybackContext) {
-      final source = await const EmbyPlaybackSourceBridge().assemble(
-        request: request,
-        bundle: resolution.bundle,
-      );
-      return (source: source, playInfo: null, title: source.title);
-    }
-    return null;
+    final assembled = await backend.playbackSourceBridge.assemblePlaybackSource(
+      request: request,
+      bundle: resolution.bundle,
+      context: resolution.backendContext,
+      l10n: l10n,
+    );
+    final source = assembled.source;
+    final playInfo = assembled.legacySidecar;
+    return (
+      source: source,
+      playInfo: playInfo is PlayInfoData ? playInfo : null,
+      title: source.title,
+    );
   }
 }

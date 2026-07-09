@@ -47,7 +47,7 @@ Map<String, dynamic> _progress(String itemGuid, int ts, {String media = 'm'}) {
 void main() {
   test('首帧进度先 PlaybackStart 再 Progress', () async {
     final backend = _RecordingBackend();
-    final reporter = EmbyPlaybackReporter(backend);
+    final reporter = ServerPlaybackReporter(backend);
     await reporter.report(_progress('ep-1', 10));
     await reporter.report(_progress('ep-1', 20));
     expect(backend.calls, <String>[
@@ -59,7 +59,7 @@ void main() {
 
   test('壳内切集：停旧会话（末位）+ 开新会话', () async {
     final backend = _RecordingBackend();
-    final reporter = EmbyPlaybackReporter(backend);
+    final reporter = ServerPlaybackReporter(backend);
     await reporter.report(_progress('ep-1', 10));
     await reporter.report(_progress('ep-1', 50)); // 旧集最后已知位
     await reporter.report(_progress('ep-2', 5)); // 切集
@@ -75,7 +75,7 @@ void main() {
 
   test('空 itemGuid 跳过、不开会话', () async {
     final backend = _RecordingBackend();
-    final reporter = EmbyPlaybackReporter(backend);
+    final reporter = ServerPlaybackReporter(backend);
     await reporter.report(_progress('', 10));
     expect(backend.calls, isEmpty);
   });

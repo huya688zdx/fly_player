@@ -3,6 +3,7 @@ import '../../api/person_list_request.dart';
 import '../../models/person_credit.dart';
 import '../../models/playback_stream.dart';
 import '../../models/stream_track_data.dart';
+import '../../player/controllers/feiniu_playback_source_bridge.dart';
 import '../../utils/playback_resume_position_resolver.dart';
 import '../detail/media_detail.dart';
 import '../detail/media_episode_summary.dart';
@@ -17,6 +18,7 @@ import '../media_item_card.dart';
 import '../playback/media_playback.dart';
 import '../playback/media_playback_resolution.dart';
 import '../playback/media_playback_selectors.dart';
+import '../playback/media_playback_source_bridge.dart';
 import 'feiniu_detail_mappers.dart';
 import 'feiniu_media_mappers.dart';
 import 'feiniu_playback_context.dart';
@@ -34,6 +36,10 @@ class FeiniuMediaBackend implements MediaBackend {
   @override
   MediaBackendCapabilities get capabilities =>
       const MediaBackendCapabilities.feiniu();
+
+  @override
+  MediaPlaybackSourceBridge get playbackSourceBridge =>
+      const FeiniuPlaybackSourceBridge();
 
   @override
   Future<List<MediaCatalog>> getCatalogs() async {
