@@ -96,6 +96,11 @@
 - B-010 / B-012：`EmbyNativePickerSupport`、`EmbyPlaybackReporter` 改为服务器族命名（`ServerNativePickerSupport`、`ServerPlaybackReporter`），原生反向通道飞牛分支改走 `usesLegacyFeiniuFlow` 语义能力位。
 - 5.1 部分基础扩展点：新增 `MediaBackendKind.isServerFamily`、`MediaBackendCapabilities.usesLegacyFeiniuFlow`、`MediaBackendCapabilities.server()` 与 `supportsServerTranscodeSession`，`main.dart` / `MediaBackendProvider` 的 Emby-only gate 收口为服务器族语义。
 - 新增架构回归测试 `test/media_backend/multi_backend_abstraction_boundary_test.dart`，防止播放 launcher 重新认识具体后端 context / bridge。
+**已修复（2026-07-09，本次提交补充）**：
+- A-002 / A-029（部分）：新增 `MediaBackendRegistry` / `MediaBackendDescriptor` 作为服务器族唯一描述符入口，`MediaBackendProvider` 改为通过注册表创建当前服务器族后端，不再在 provider 中直接依赖 Emby 具体工厂。
+- 5.1 分支收口补充：`media_list_screen.dart` 与 `media_list_screen_widgets.dart` 的首页配置 gate / loadKey / 登出分支改用 `MediaBackendKind.isServerFamily`，不再写死 `MediaBackendKind.emby`。
+- 登录历史展示收口：`login_history_screen.dart` 的服务器族显示名与角标改从注册表描述符读取，保留飞牛本地化 fallback，为后续 Jellyfin 等服务器族后端复用同一列表入口。
+- 架构回归测试扩展：`multi_backend_abstraction_boundary_test.dart` 增加公共层禁止 Emby-only 判断与注册表描述符存在性的断言。
 
 **5.1 核心扩展点（新增后端必改的公共代码，最优先）**
 - A-024 后端 kind 写死 enum；A-029 backend 工厂 else=飞牛；A-002 main.dart 登录 gate 写死 Emby/飞牛；

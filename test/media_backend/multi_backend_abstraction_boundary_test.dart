@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/media_backend/media_backend_capabilities.dart';
 import 'package:fly_player/media_backend/media_backend_kind.dart';
+import 'package:fly_player/media_backend/media_backend_registry.dart';
 
 void main() {
   group('多后端抽象边界', () {
@@ -34,6 +35,36 @@ void main() {
           kind: MediaBackendKind.emby,
         ).usesLegacyFeiniuFlow,
         isFalse,
+      );
+    });
+
+    test('服务器族公共层不再写死 Emby 判断', () {
+      final publicBoundaryFiles = <String>[
+        'lib/providers/media_backend_provider.dart',
+        'lib/screens/media_list_screen.dart',
+        'lib/screens/media_list_screen_widgets.dart',
+        'lib/screens/login_history_screen.dart',
+      ];
+
+      for (final path in publicBoundaryFiles) {
+        final source = File(path).readAsStringSync();
+        expect(source, isNot(contains('== MediaBackendKind.emby')));
+        expect(source, isNot(contains('!= MediaBackendKind.emby')));
+        expect(source, isNot(contains('isEmby')));
+      }
+    });
+
+    test('服务器族后端从注册表描述符创建', () {
+      final descriptor = MediaBackendRegistry.requireDescriptor(
+        MediaBackendKind.emby,
+      );
+
+      expect(descriptor.kind, MediaBackendKind.emby);
+      expect(descriptor.displayName, 'Emby');
+      expect(descriptor.badgeText, 'E');
+      expect(
+        MediaBackendRegistry.serverDescriptors.map((item) => item.kind),
+        contains(MediaBackendKind.emby),
       );
     });
   });
