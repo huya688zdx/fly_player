@@ -120,10 +120,10 @@ class _MediaListScreenState extends State<MediaListScreen> {
     super.didChangeDependencies();
     final provider = context.read<NasProvider>();
     final session = context.read<BackendSessionProvider>();
-    // Emby 绛夊叕鍏卞悗绔縺娲伙紙浼氳瘽宸茶璇侊級鍗冲彲鍔犺浇锛涢鐗涢渶 NAS 宸查厤缃€?
-    final embyReady =
-        session.currentKind == MediaBackendKind.emby && session.isConfigured;
-    if (!embyReady && !provider.isConfigured) {
+    // 服务器族后端会话已认证即可加载；飞牛仍要求 NAS 已配置。
+    final serverReady =
+        session.currentKind.isServerFamily && session.isConfigured;
+    if (!serverReady && !provider.isConfigured) {
       _lastLoadKey = '';
       _categories = <MediaItem>[];
       _itemsByCategory = <String, List<MediaLibraryItem>>{};
@@ -136,13 +136,13 @@ class _MediaListScreenState extends State<MediaListScreen> {
       return;
     }
     final connection = session.currentConnection;
-    final loadKey = embyReady
-        ? 'emby|${connection?.serverUrl ?? ''}|${connection?.accessToken ?? ''}'
+    final loadKey = serverReady
+        ? '${session.currentKind.name}|${connection?.serverUrl ?? ''}|${connection?.accessToken ?? ''}'
         : '${provider.baseUrl}|${provider.token}';
     if (loadKey != _lastLoadKey) {
       _lastLoadKey = loadKey;
-      if (embyReady) {
-        // Emby 棣栧厜锛氫笉璇婚鐗涢椤电紦瀛橈紙HomeDataCache 鏄鐗涙€佺紦瀛橈紝璺ㄥ悗绔細涓插唴瀹癸級锛岀洿鎺ユ媺鍙栥€?
+      if (serverReady) {
+        // 服务器族首页不读飞牛 HomeDataCache，避免跨后端串内容。
         _fetchHomeData();
       } else {
         _tryLoadFromCacheThenRefresh();
@@ -229,7 +229,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
 
   /// 缁х画瑙傜湅鏁版嵁婧愶細椋炵墰璧?FeiniuApi锛堜繚鐣欑画鎾繘搴?`ts`锛夛紝鍏跺畠鍏叡鍚庣锛圗mby锛夎蛋
   /// `backend.getContinueWatching`锛圼MediaItemCard]鈫抂MediaLibraryItem]锛岄鍏夐樁娈垫棤缁挱杩涘害锛夈€?
-  /// 鏁版嵁灞傛寜鍚庣鑳藉姏閫夋簮锛?*闈?UI 娓叉煋鍒嗘敮**锛孶I 涓嶅啓 `if (isEmby)`銆?
+  /// 数据层按后端能力选源，UI 不写具体服务器后端判断。
   Future<List<MediaLibraryItem>> _loadContinueWatching(
     MediaBackend backend,
     FeiniuApi api, {
@@ -522,7 +522,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
   /// 续播列表（飞牛 `getPlayList` / 其它后端 `getContinueWatching`）非空时直接取前 N。
   /// 为空时**仅飞牛**回退到从分类条目挑选——飞牛分类条目带 `ts`/`watchedTs` 进度，回退合理；
   /// Emby 等公共后端的分类条目无进度，回退会把片库前几个当“在看”并把竖版海报塞进横版卡，
-  /// 故留空（无真实续播即隐藏该区）。数据层按 backend kind 分支，非 UI `if(isEmby)`。
+  /// 故留空（无真实续播即隐藏该区）。数据层按 backend kind 分支，UI 不写具体服务器后端判断。
   List<MediaLibraryItem> _resolveContinueWatching(
     MediaBackend backend,
     List<MediaLibraryItem> playList,
@@ -569,22 +569,24 @@ class _MediaListScreenState extends State<MediaListScreen> {
     );
     if (!mounted || !confirmed) return;
     final session = context.read<BackendSessionProvider>();
-    if (session.currentKind == MediaBackendKind.emby) {
-      final embyConnection = session.currentConnection;
-      if (embyConnection != null) {
+    if (session.currentKind.isServerFamily) {
+      final serverConnection = session.currentConnection;
+      if (serverConnection != null) {
         await session.saveConnection(
           MediaBackendConnection(
-            kind: MediaBackendKind.emby,
-            serverUrl: embyConnection.serverUrl,
-            displayName: embyConnection.displayName,
-            userName: embyConnection.userName,
-            secret: embyConnection.rememberSecret ? embyConnection.secret : '',
-            rememberSecret: embyConnection.rememberSecret,
+            kind: serverConnection.kind,
+            serverUrl: serverConnection.serverUrl,
+            displayName: serverConnection.displayName,
+            userName: serverConnection.userName,
+            secret: serverConnection.rememberSecret
+                ? serverConnection.secret
+                : '',
+            rememberSecret: serverConnection.rememberSecret,
             updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
           ),
         );
       }
-      // 退出 Emby：清掉 Emby token / userId，保留服务器、用户名和已记住的密码。
+      // 退出服务器族：清掉 token / userId，保留服务器、用户名和已记住的密码。
       await session.saveActive(
         const MediaBackendConnection(
           kind: MediaBackendKind.feiniu,
@@ -697,7 +699,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
 
         // 闈為鐗涘悗绔紙褰撳墠涓?Emby锛夛細澶嶇敤鐪熻鎯呴〉 PlayDetailScreen锛堝叕鏈夊寲鈥斺€斿墠绔叡鐢ㄥ悓涓€椤碉紝
         // 椤甸潰鍐呮寜 backend 鑳藉姏璇讳腑绔?MediaDetail 娓叉煋锛夈€傛寜 backend 鑳藉姏鍦ㄥ鑸眰鍒嗘敮锛岄潪 UI
-        // if(isEmby)銆傜獥鍙ｆ墭绠?瀛樺湪鍒嗗睆 pane host 鏃剁粡 EmbeddedDetailLauncher 鍦?pane 鍐呮墦寮€
+        // 不写具体服务器后端判断；存在分屏 pane host 时经 EmbeddedDetailLauncher 在 pane 内打开。
         // 锛堜笌椋炵墰鍒嗗睆涓€鑷?涓?pane 鍦ㄥ綋鍓嶅凡灏辩华寮曟搸銆佹湁 Emby 浼氳瘽锛?鍚﹀垯鍏ㄥ睆 Navigator.push銆?
         // 涓嶈蛋鍘熺敓鐙珛寮曟搸(DetailActivity)璺緞鈥斺€斿叾浼氳瘽寮傛鍔犺浇鏈夌珵鎬併€佸彲鑳借鍒ら鐗涖€?
         final backend = context.read<MediaBackendProvider>().backend;

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/media_backend_kind.dart';
+import '../media_backend/media_backend_registry.dart';
 import '../services/login_history_store.dart';
 
 /// 统一的登录历史页面：飞牛与 Emby 历史共用一个列表，每行用后端 logo 区分。
@@ -107,10 +108,13 @@ class _LoginHistoryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final isEmby = entry.kind == MediaBackendKind.emby;
+    final descriptor = MediaBackendRegistry.descriptorFor(entry.kind);
+    final backendName = descriptor?.displayName ?? l10n.connectionFeiniuNas;
     final subtitle = entry.userName.isEmpty
-        ? (isEmby ? 'Emby' : l10n.connectionFeiniuNas)
-        : (isEmby ? '${entry.userName} · Emby' : entry.userName);
+        ? backendName
+        : (descriptor == null
+              ? entry.userName
+              : '${entry.userName} · $backendName');
     return Material(
       color: const Color(0xFF232D3A),
       borderRadius: BorderRadius.circular(16),
@@ -178,19 +182,21 @@ class BackendLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isEmby = kind == MediaBackendKind.emby;
+    final descriptor = MediaBackendRegistry.descriptorFor(kind);
+    final serverFamily = kind.isServerFamily;
     // TODO(logo): 替换为真实 logo 图片资源。
     // return Image.asset(
-    //   isEmby ? 'assets/images/login/emby_logo.png'
-    //          : 'assets/images/login/feiniu_logo.png',
+    //   serverFamily ? 'assets/images/login/server_logo.png'
+    //                : 'assets/images/login/feiniu_logo.png',
     //   width: size, height: size,
     // );
-    final background = isEmby
+    final background = serverFamily
         ? const Color(0xFF1F3A2E)
         : const Color(0xFF1E3354);
-    final foreground = isEmby
+    final foreground = serverFamily
         ? const Color(0xFF52C41A)
         : const Color(0xFF6AA7FF);
+    final badgeText = descriptor?.badgeText ?? 'FN';
     return Container(
       width: size,
       height: size,
@@ -201,10 +207,10 @@ class BackendLogo extends StatelessWidget {
         border: Border.all(color: foreground.withValues(alpha: 0.32)),
       ),
       child: Text(
-        isEmby ? 'E' : 'FN',
+        badgeText,
         style: TextStyle(
           color: foreground,
-          fontSize: isEmby ? 18 : 15,
+          fontSize: serverFamily ? 18 : 15,
           fontWeight: FontWeight.w800,
           letterSpacing: 0.2,
         ),
