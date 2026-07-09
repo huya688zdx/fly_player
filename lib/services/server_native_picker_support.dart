@@ -7,7 +7,7 @@ import '../media_backend/detail/media_episode_summary.dart';
 import '../media_backend/detail/media_season_summary.dart';
 import '../media_backend/media_backend.dart';
 
-/// Emby 原生壳「选集」反向通道支持。
+/// 服务器族原生壳「选集」反向通道支持。
 ///
 /// 对位飞牛 [NativeReentrySupport] 的选集三方法（loadEpisodePickerData /
 /// loadSeasonEpisodes / setEpisodePickerViewType），但数据源是**后端中立** [MediaBackend]
@@ -15,12 +15,12 @@ import '../media_backend/media_backend.dart';
 /// 封面 NAS 鉴权 / 服务端 viewType 偏好。
 ///
 /// 飞牛靠 `loadEpisodePickerData` 拉**季列表 + 当前季完整剧集**点亮原生壳选集面板（季 chip /
-/// 跨季切换 / 宫格列表视图），靠 `loadSeasonEpisodes` 轻量预取其它季。Emby 之前只把当前季
+/// 跨季切换 / 宫格列表视图），靠 `loadSeasonEpisodes` 轻量预取其它季。服务器族后端可先把当前季
 /// 静态 `episodes` 透进 loadArgs（够「下一集」与单季选集，但无季 chip、不能跨季），绑上这三个
-/// 回调后达成与飞牛壳一致的选集体验。viewType 仅本地持久化（Emby 无对应服务端偏好口径），
+/// 回调后达成与飞牛壳一致的选集体验。viewType 仅本地持久化（服务器族无对应服务端偏好口径），
 /// 写共享键 `playlist_view_type`（原生壳读同键），与飞牛壳口径一致。
-class EmbyNativePickerSupport {
-  const EmbyNativePickerSupport._();
+class ServerNativePickerSupport {
+  const ServerNativePickerSupport._();
 
   static const String viewTypeCard = 'card';
   static const String viewTypeButton = 'button';
@@ -192,8 +192,8 @@ class EmbyNativePickerSupport {
   }
 
   /// 中立选集 → 原生壳选集行 map。键对齐飞牛 `_nativeEpisodeMap`：原生面板读 `duration`
-  /// （秒）/ `watched`（1/0）/ `poster` 渲染时长 / 已观看角标 / 缩略图。Emby 封面 api_key 自
-  /// 鉴权直链，故 `imageAuth` 留空。
+  /// （秒）/ `watched`（1/0）/ `poster` 渲染时长 / 已观看角标 / 缩略图。服务器族封面应由后端
+  /// 提供可直接消费的 URL，故 `imageAuth` 留空。
   static Map<String, dynamic> _episodeMap(
     String seasonGuid,
     MediaEpisodeSummary episode,

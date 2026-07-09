@@ -9,7 +9,7 @@ import 'package:fly_player/media_backend/detail/media_episode_summary.dart';
 import 'package:fly_player/media_backend/detail/media_season_summary.dart';
 import 'package:fly_player/media_backend/media_backend.dart';
 import 'package:fly_player/media_backend/media_image_ref.dart';
-import 'package:fly_player/services/emby_native_picker_support.dart';
+import 'package:fly_player/services/server_native_picker_support.dart';
 
 /// 只实现选集所需的两个查询；其余接口方法抛错（本测不触达）。
 class _FakePickerBackend implements MediaBackend {
@@ -92,7 +92,7 @@ void main() {
         ],
       },
     );
-    final data = await EmbyNativePickerSupport.loadEpisodePickerData(
+    final data = await ServerNativePickerSupport.loadEpisodePickerData(
       backend,
       l10n: l10n,
       currentLoadArgs: _loadArgs(),
@@ -127,7 +127,7 @@ void main() {
         'season-2': <MediaEpisodeSummary>[_episode('ep-9', 9)],
       },
     );
-    final data = await EmbyNativePickerSupport.loadEpisodePickerData(
+    final data = await ServerNativePickerSupport.loadEpisodePickerData(
       backend,
       l10n: l10n,
       currentLoadArgs: _loadArgs(),
@@ -145,7 +145,7 @@ void main() {
     final fallback = <Map<String, dynamic>>[
       <String, dynamic>{'itemGuid': 'ep-1', 'seasonGuid': 'season-1'},
     ];
-    final data = await EmbyNativePickerSupport.loadEpisodePickerData(
+    final data = await ServerNativePickerSupport.loadEpisodePickerData(
       backend,
       l10n: l10n,
       currentLoadArgs: _loadArgs(),
@@ -160,7 +160,7 @@ void main() {
   test('loadEpisodePickerData：空 loadArgs 返回 null', () async {
     final backend = _FakePickerBackend();
     expect(
-      await EmbyNativePickerSupport.loadEpisodePickerData(
+      await ServerNativePickerSupport.loadEpisodePickerData(
         backend,
         l10n: l10n,
         currentLoadArgs: '',
@@ -175,14 +175,14 @@ void main() {
         'season-2': <MediaEpisodeSummary>[_episode('ep-9', 9)],
       },
     );
-    final data = await EmbyNativePickerSupport.loadSeasonEpisodes(
+    final data = await ServerNativePickerSupport.loadSeasonEpisodes(
       backend,
       seasonGuid: 'season-2',
     );
     expect(data!['seasonGuid'], 'season-2');
     expect((data['episodes'] as List).length, 1);
     expect(
-      await EmbyNativePickerSupport.loadSeasonEpisodes(
+      await ServerNativePickerSupport.loadSeasonEpisodes(
         backend,
         seasonGuid: 'season-empty',
       ),
@@ -192,18 +192,18 @@ void main() {
 
   test('setEpisodePickerViewType：合法值持久化、非法值拒绝', () async {
     expect(
-      await EmbyNativePickerSupport.setEpisodePickerViewType('button'),
+      await ServerNativePickerSupport.setEpisodePickerViewType('button'),
       isTrue,
     );
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString('playlist_view_type'), 'button');
     expect(
-      await EmbyNativePickerSupport.setEpisodePickerViewType('bogus'),
+      await ServerNativePickerSupport.setEpisodePickerViewType('bogus'),
       isFalse,
     );
     // 持久化后 loadEpisodePickerData 回读该偏好。
     final backend = _FakePickerBackend();
-    final data = await EmbyNativePickerSupport.loadEpisodePickerData(
+    final data = await ServerNativePickerSupport.loadEpisodePickerData(
       backend,
       l10n: l10n,
       currentLoadArgs: _loadArgs(),

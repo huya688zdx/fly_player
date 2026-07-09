@@ -1,6 +1,10 @@
+import '../../media_backend/emby/emby_playback_context.dart';
 import '../../media_backend/emby/emby_playback_mappers.dart';
 import '../../media_backend/playback/media_playback.dart';
+import '../../media_backend/playback/media_playback_resolution.dart';
+import '../../media_backend/playback/media_playback_source_bridge.dart';
 import '../../models/stream_track_data.dart';
+import '../../l10n/generated/app_localizations.dart';
 import 'mpv_player_controller.dart';
 import 'player_source_controller.dart' show PlayerPlaybackMode;
 
@@ -15,8 +19,22 @@ import 'player_source_controller.dart' show PlayerPlaybackMode;
 /// 原始容器，音轨/字幕按 **mpv 轨道号**（1-based、同类型内序号）选择——原生
 /// `resolveRequestedTrackId` 在无 `mpv-*:` guid 时把 `trackIndex` 直接当 `aid`/`sid`，而 mpv
 /// 按容器内顺序给同类型轨道编号 1,2,…，与 Emby `MediaStreams` 的 Index 顺序一致，故取序号 +1。
-class EmbyPlaybackSourceBridge {
+class EmbyPlaybackSourceBridge implements MediaPlaybackSourceBridge {
   const EmbyPlaybackSourceBridge();
+
+  @override
+  Future<MediaPlaybackSourceResult> assemblePlaybackSource({
+    required MediaPlaybackRequest request,
+    required MediaPlaybackBundle bundle,
+    required MediaPlaybackBackendContext? context,
+    required AppLocalizations l10n,
+  }) async {
+    if (context is! EmbyPlaybackContext) {
+      throw StateError('Emby 播放桥接器收到不匹配的后端上下文');
+    }
+    final source = await assemble(request: request, bundle: bundle);
+    return MediaPlaybackSourceResult(source: source);
+  }
 
   /// 装配 [MpvMediaSource]。不导航、不打开页面，只返回 source。
   Future<MpvMediaSource> assemble({

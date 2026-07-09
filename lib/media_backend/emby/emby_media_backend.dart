@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../../api/emby_api.dart';
+import '../../player/controllers/emby_playback_source_bridge.dart';
 import '../../utils/nas_image_headers.dart';
 import '../../utils/playback_resume_position_resolver.dart';
 import '../detail/media_detail.dart';
@@ -17,6 +18,7 @@ import '../media_item_card.dart';
 import '../playback/media_playback.dart';
 import '../playback/media_playback_resolution.dart';
 import '../playback/media_playback_selectors.dart';
+import '../playback/media_playback_source_bridge.dart';
 import '../session/media_backend_connection.dart';
 import 'emby_media_mappers.dart';
 import 'emby_playback_context.dart';
@@ -43,14 +45,12 @@ class EmbyMediaBackend implements MediaBackend {
   String get _token => connection.accessToken;
 
   @override
-  MediaBackendCapabilities get capabilities => const MediaBackendCapabilities(
-    kind: MediaBackendKind.emby,
-    supportsDownloadTasks: false,
-    supportsFnConnect: false,
-    supportsIntroOutroConfig: false,
-    supportsFavorite: true,
-    supportsWatched: true,
-  );
+  MediaBackendCapabilities get capabilities =>
+      const MediaBackendCapabilities.server(kind: MediaBackendKind.emby);
+
+  @override
+  MediaPlaybackSourceBridge get playbackSourceBridge =>
+      const EmbyPlaybackSourceBridge();
 
   @override
   Future<List<MediaCatalog>> getCatalogs() async {

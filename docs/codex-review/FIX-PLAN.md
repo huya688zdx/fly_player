@@ -85,6 +85,12 @@
 
 与 `docs/multi-backend-abstraction-plan.md` 是同一件事的两面，建议合并执行。按层推进：
 
+**已修复（2026-07-09，本次提交）**：
+- A-032 / A-039：单条目与整季播放 launcher 不再按 `FeiniuPlaybackContext` / `EmbyPlaybackContext` 下钻分发桥接器；新增中立 `MediaPlaybackSourceBridge`，由各后端通过 `MediaBackend.playbackSourceBridge` 自供装配器，调用方只消费中立 bridge 结果。
+- B-010 / B-012：`EmbyNativePickerSupport`、`EmbyPlaybackReporter` 改为服务器族命名（`ServerNativePickerSupport`、`ServerPlaybackReporter`），原生反向通道飞牛分支改走 `usesLegacyFeiniuFlow` 语义能力位。
+- 5.1 部分基础扩展点：新增 `MediaBackendKind.isServerFamily`、`MediaBackendCapabilities.usesLegacyFeiniuFlow`、`MediaBackendCapabilities.server()` 与 `supportsServerTranscodeSession`，`main.dart` / `MediaBackendProvider` 的 Emby-only gate 收口为服务器族语义。
+- 新增架构回归测试 `test/media_backend/multi_backend_abstraction_boundary_test.dart`，防止播放 launcher 重新认识具体后端 context / bridge。
+
 **5.1 核心扩展点（新增后端必改的公共代码，最优先）**
 - A-024 后端 kind 写死 enum；A-029 backend 工厂 else=飞牛；A-002 main.dart 登录 gate 写死 Emby/飞牛；
 - A-032 / A-039：单条目与整季播放 launcher 拿到抽象 `getPlayback()` 后又 downcast `FeiniuPlaybackContext/EmbyPlaybackContext` 选装配器——改注册式 playback assembler 或由后端返回装配结果（**这是原生起播路径，活代码核心**）；

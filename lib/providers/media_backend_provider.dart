@@ -11,13 +11,13 @@ import 'nas_provider.dart';
 
 /// 向页面提供当前 [MediaBackend] 实例。
 ///
-/// 按当前后端会话路由：[BackendSessionProvider.currentKind] 为 `emby` 且连接已认证时
-/// 返回 [EmbyMediaBackend]；否则（飞牛 / 无会话层）返回 [FeiniuMediaBackend]。页面只读
+/// 按当前后端会话路由：[BackendSessionProvider.currentKind] 为服务器族且连接已认证时
+/// 返回当前服务器族后端；否则（飞牛 / 无会话层）返回 [FeiniuMediaBackend]。页面只读
 /// `backend`，无需感知后端类型，也不写 `if (isEmby)`。
 ///
 /// 按会话身份缓存 backend 实例（缓存键 = kind + 身份）：飞牛取 `nasProvider.baseUrl`
 /// （FeiniuApi 把 baseUrl 烤进 Dio、token 拦截器每请求动态读取，故 baseUrl 变更才重建）；
-/// Emby 取 serverUrl + accessToken。同一会话内多页面复用同一实例，会话切换时才重建。
+/// 服务器族取 kind + serverUrl + accessToken。同一会话内多页面复用同一实例，会话切换时才重建。
 class MediaBackendProvider extends ChangeNotifier {
   final NasProvider nasProvider;
 
@@ -33,10 +33,11 @@ class MediaBackendProvider extends ChangeNotifier {
     final session = sessionProvider;
     final connection = session?.currentConnection;
     if (session != null &&
-        session.currentKind == MediaBackendKind.emby &&
+        session.currentKind.isServerFamily &&
         connection != null &&
         connection.isAuthenticated) {
-      final key = 'emby:${connection.serverUrl}:${connection.accessToken}';
+      final key =
+          '${session.currentKind.name}:${connection.serverUrl}:${connection.accessToken}';
       final cached = _cachedBackend;
       if (cached != null && _cachedKey == key) return cached;
       // .fnos.net 中转域名的 Emby 需携带 FN Connect 入口令牌（entry-token cookie）过云端

@@ -9,6 +9,7 @@ import 'media_catalog.dart';
 import 'media_item_card.dart';
 import 'playback/media_playback.dart';
 import 'playback/media_playback_resolution.dart';
+import 'playback/media_playback_source_bridge.dart';
 
 /// 公共媒体后端接口。
 ///
@@ -17,6 +18,9 @@ import 'playback/media_playback_resolution.dart';
 abstract class MediaBackend {
   /// 当前后端支持的能力，飞牛专属功能通过此处声明。
   MediaBackendCapabilities get capabilities;
+
+  /// 本后端的播放桥接器。播放入口统一经此装配，不解读具体 backend context。
+  MediaPlaybackSourceBridge get playbackSourceBridge;
 
   /// 首页媒体库入口列表。
   Future<List<MediaCatalog>> getCatalogs();
