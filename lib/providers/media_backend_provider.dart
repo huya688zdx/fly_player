@@ -1,11 +1,10 @@
 import 'package:flutter/foundation.dart';
 
-import '../api/emby_api.dart';
 import '../api/feiniu_api.dart';
-import '../media_backend/emby/emby_media_backend.dart';
 import '../media_backend/feiniu/feiniu_media_backend.dart';
 import '../media_backend/media_backend.dart';
 import '../media_backend/media_backend_kind.dart';
+import '../media_backend/media_backend_registry.dart';
 import 'backend_session_provider.dart';
 import 'nas_provider.dart';
 
@@ -13,7 +12,7 @@ import 'nas_provider.dart';
 ///
 /// 按当前后端会话路由：[BackendSessionProvider.currentKind] 为服务器族且连接已认证时
 /// 返回当前服务器族后端；否则（飞牛 / 无会话层）返回 [FeiniuMediaBackend]。页面只读
-/// `backend`，无需感知后端类型，也不写 `if (isEmby)`。
+/// `backend`，无需感知后端类型，也不写具体服务器后端判断。
 ///
 /// 按会话身份缓存 backend 实例（缓存键 = kind + 身份）：飞牛取 `nasProvider.baseUrl`
 /// （FeiniuApi 把 baseUrl 烤进 Dio、token 拦截器每请求动态读取，故 baseUrl 变更才重建）；
@@ -42,11 +41,12 @@ class MediaBackendProvider extends ChangeNotifier {
       if (cached != null && _cachedKey == key) return cached;
       // .fnos.net 中转域名的 Emby 需携带 FN Connect 入口令牌（entry-token cookie）过云端
       // 边缘闸；从已保存连接动态读取，令牌刷新后无需重建。直连地址 entryToken 为空、不带头。
-      final created = EmbyMediaBackend(
-        api: EmbyApi(
-          entryTokenProvider: () => session.currentConnection?.entryToken ?? '',
-        ),
-        connection: connection,
+      final descriptor = MediaBackendRegistry.requireDescriptor(
+        session.currentKind,
+      );
+      final created = descriptor.createBackend(
+        connection,
+        entryTokenProvider: () => session.currentConnection?.entryToken ?? '',
       );
       _cachedBackend = created;
       _cachedKey = key;

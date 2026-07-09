@@ -82,9 +82,10 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
   }) {
     final layout = MediaLayoutProfile.of(context);
     final session = context.watch<BackendSessionProvider>();
-    final embyReady =
-        session.currentKind == MediaBackendKind.emby && session.isConfigured;
-    final isConfigured = embyReady || context.watch<NasProvider>().isConfigured;
+    final serverReady =
+        session.currentKind.isServerFamily && session.isConfigured;
+    final isConfigured =
+        serverReady || context.watch<NasProvider>().isConfigured;
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
     if (!isConfigured) {
