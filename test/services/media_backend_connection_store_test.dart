@@ -48,6 +48,9 @@ void main() {
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString('base_url'), isNull);
     expect(prefs.getString('token'), isNull);
+    final raw = prefs.getString(MediaBackendConnectionStore.connectionsKey);
+    expect(raw, isNotNull);
+    expect(raw, isNot(contains('emby-token')));
 
     final snapshot = await MediaBackendConnectionStore.load();
     expect(snapshot.activeKind, MediaBackendKind.emby);
@@ -120,6 +123,11 @@ void main() {
       expect(emby.secret, 'password');
       expect(emby.accessToken, isEmpty);
       expect(emby.userId, isEmpty);
+
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(MediaBackendConnectionStore.connectionsKey);
+      expect(raw, isNot(contains('password')));
+      expect(raw, isNot(contains('emby-token')));
     },
   );
 

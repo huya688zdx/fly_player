@@ -44,6 +44,12 @@
 
 方案要点：两个 WebView 统一改为默认取消 SSL 错误 + 可信主机显式放行（可与 G-034 的共享 Web 登录 bridge 一起做）；HttpOverrides 收紧为 RFC1918/loopback/已注册 NAS host；凭据迁移平台安全存储并清理旧明文。
 
+**已修复（2026-07-09，本次提交）**：
+- G-029 / G-032：两个 WebView 登录页遇到 SSL 证书错误时默认 `cancel()` 并提示，不再静默 `proceed()` 自动提交凭据。
+- B-027：全局 `PrivateNetworkHttpOverrides` 仅允许 RFC1918、loopback、link-local、IPv6 ULA 和显式注册 NAS host 跳过证书校验，公网 IP 不再放行。
+- B-011：新增平台安全凭据存储，登录历史、后端连接、飞牛旧会话的密码/token 迁入安全存储，SharedPreferences 只保留非敏感描述和存在标记，并迁移清理旧明文。
+- A-019：Emby 媒体图片 URL 移除 `api_key` query，access token 改走 `MediaImageRef.headers`。
+
 ## 4. 批次 X —— 崩溃与数据丢失（约 25 条）
 
 **已修复（2026-07-09，commit `1f75fd1`）**：
@@ -156,6 +162,13 @@ H-004/005/010/017/018/019/020/021/023/024/030 + F-031/F-034：全部是「组件
 - 死代码：F-011、F-013、F-020、G-026、C-001（getGpuProfile 孤儿契约：补 Kotlin 实现或删桥）、D-027 已随废弃区。
 
 ## 8. 批次 I —— i18n / 模型层文案（约 22 条，机械性高）
+
+**已修复（2026-07-09，commit `840a7c0`）**：
+- 模型/DTO 层不再产出 `Unknown`、`未知版本`、`饰` 等用户可见 fallback；空值保持空或结构化 token，由 UI 层负责本地化展示。
+- `StreamListOption` 移除对 UI mapper 的反向依赖；语言映射、音轨/字幕显示名、人物演职员展示等 fallback 改为后端中立输出。
+- `AppThemeProvider` 不再提供英文主题展示文案，主题预设名与自定义名称建议改由 `AppThemeL10n`/`AppLocalizations` 生成。
+- 路由错误页、FN Connect Web 登录页、媒体信息页、mpv 缓存滑杆端点、详情简介/链接/下载角标等页面硬编码文案已接入 l10n。
+- `TvEpisodeCardData` 的状态颜色从模型层 `Color` 改为语义 tone，组件层再映射主题色。
 
 统一模式：**模型/store/provider 层不产出用户可见文案**，只出结构化状态，由 UI presenter 走 AppLocalizations。
 - 模型层英文/中文 fallback：A-013、A-023、A-041、A-042、A-043、A-045（同时是 models→ui 反向依赖，优先）、A-046、A-047、B-025（语言映射表）；

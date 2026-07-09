@@ -570,7 +570,8 @@ MediaImageRef _logoImage(
   final tag = (tags is Map ? tags['Logo'] : null)?.toString() ?? '';
   if (id.isEmpty || tag.isEmpty) return MediaImageRef.empty;
   return MediaImageRef(
-    url: '$serverUrl/Items/$id/Images/Logo?tag=$tag&api_key=$token',
+    url: _imageUrl(serverUrl: serverUrl, id: id, kind: 'Logo', tag: tag),
+    headers: _imageHeaders(token),
   );
 }
 
@@ -627,7 +628,13 @@ List<MediaDetailPerson> _people(
     final tag = (person['PrimaryImageTag'] ?? '').toString().trim();
     final avatar = (id.isNotEmpty && tag.isNotEmpty)
         ? MediaImageRef(
-            url: '$serverUrl/Items/$id/Images/Primary?tag=$tag&api_key=$token',
+            url: _imageUrl(
+              serverUrl: serverUrl,
+              id: id,
+              kind: 'Primary',
+              tag: tag,
+            ),
+            headers: _imageHeaders(token),
           )
         : MediaImageRef.empty;
     result.add(
@@ -653,7 +660,8 @@ MediaImageRef _primaryImage(
   final tag = (tags is Map ? tags['Primary'] : null)?.toString() ?? '';
   if (id.isEmpty || tag.isEmpty) return MediaImageRef.empty;
   return MediaImageRef(
-    url: '$serverUrl/Items/$id/Images/Primary?tag=$tag&api_key=$token',
+    url: _imageUrl(serverUrl: serverUrl, id: id, kind: 'Primary', tag: tag),
+    headers: _imageHeaders(token),
   );
 }
 
@@ -668,8 +676,25 @@ MediaImageRef _backdropImage(
   final tag = tags.first?.toString() ?? '';
   if (tag.isEmpty) return MediaImageRef.empty;
   return MediaImageRef(
-    url: '$serverUrl/Items/$id/Images/Backdrop?tag=$tag&api_key=$token',
+    url: _imageUrl(serverUrl: serverUrl, id: id, kind: 'Backdrop', tag: tag),
+    headers: _imageHeaders(token),
   );
+}
+
+String _imageUrl({
+  required String serverUrl,
+  required String id,
+  required String kind,
+  required String tag,
+}) {
+  final base = serverUrl.replaceAll(RegExp(r'/$'), '');
+  return '$base/Items/$id/Images/$kind?tag=${Uri.encodeQueryComponent(tag)}';
+}
+
+Map<String, String> _imageHeaders(String token) {
+  final normalized = token.trim();
+  if (normalized.isEmpty) return const <String, String>{};
+  return <String, String>{'X-Emby-Token': normalized};
 }
 
 /// Emby `RunTimeTicks`（100ns 单位）→ 秒。

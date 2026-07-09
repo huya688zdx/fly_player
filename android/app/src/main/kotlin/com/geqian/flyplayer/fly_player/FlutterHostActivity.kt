@@ -65,6 +65,9 @@ abstract class FlutterHostActivity : FlutterActivity() {
     private val danDanPlaySecretStore by lazy {
         DanDanPlaySecretStore(applicationContext)
     }
+    private val secureCredentialStore by lazy {
+        SecureCredentialStore(applicationContext)
+    }
     protected var systemChannel: MethodChannel? = null
     protected var detailHostChannel: MethodChannel? = null
     protected var playerHostStateChannel: MethodChannel? = null
@@ -538,6 +541,19 @@ abstract class FlutterHostActivity : FlutterActivity() {
                     }
                     "clearDanDanPlayConfig" -> {
                         result.success(danDanPlaySecretStore.clearConfig())
+                    }
+                    "readCredential" -> {
+                        val key = call.argument<String>("key").orEmpty()
+                        result.success(secureCredentialStore.read(key))
+                    }
+                    "writeCredential" -> {
+                        val key = call.argument<String>("key").orEmpty()
+                        val value = call.argument<String>("value").orEmpty()
+                        result.success(secureCredentialStore.write(key, value))
+                    }
+                    "deleteCredential" -> {
+                        val key = call.argument<String>("key").orEmpty()
+                        result.success(secureCredentialStore.delete(key))
                     }
                     else -> result.notImplemented()
                 }

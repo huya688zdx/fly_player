@@ -1,8 +1,10 @@
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../media_backend/media_backend_kind.dart';
+import 'secure_credential_store.dart';
 
 /// 表示一次登录记录的持久化内容。
 class LoginHistoryEntry {
@@ -49,7 +51,6 @@ class LoginHistoryEntry {
       'kind': kind.name,
       'baseUrl': baseUrl,
       'userName': userName,
-      'password': password,
       'rememberPassword': rememberPassword,
       'updatedAtMillis': updatedAtMillis,
     };
@@ -70,21 +71,42 @@ class LoginHistoryStore {
     final prefs = await SharedPreferences.getInstance();
     final rawEntries = prefs.getStringList(_historyKey) ?? const <String>[];
     final entries = <LoginHistoryEntry>[];
+    var needsRewrite = false;
     for (final raw in rawEntries) {
       try {
         final decoded = jsonDecode(raw);
         if (decoded is Map<String, dynamic>) {
-          final entry = LoginHistoryEntry.fromJson(decoded);
+          final legacyPassword = (decoded['password'] ?? '').toString();
+          final entryWithoutSecret = LoginHistoryEntry.fromJson(decoded);
+          final password = await _restorePassword(
+            entryWithoutSecret,
+            legacyPassword: legacyPassword,
+          );
+          final entry = LoginHistoryEntry(
+            kind: entryWithoutSecret.kind,
+            baseUrl: entryWithoutSecret.baseUrl,
+            userName: entryWithoutSecret.userName,
+            password: password,
+            rememberPassword: entryWithoutSecret.rememberPassword,
+            updatedAtMillis: entryWithoutSecret.updatedAtMillis,
+          );
           if (entry.baseUrl.trim().isNotEmpty &&
               entry.userName.trim().isNotEmpty) {
             entries.add(entry);
+            if (legacyPassword.isNotEmpty || password != entry.password) {
+              needsRewrite = true;
+            }
           }
         }
       } catch (_) {
+        needsRewrite = true;
         continue;
       }
     }
     entries.sort((a, b) => b.updatedAtMillis.compareTo(a.updatedAtMillis));
+    if (needsRewrite) {
+      await _writeEntries(prefs, entries);
+    }
     return entries;
   }
 
@@ -97,12 +119,18 @@ class LoginHistoryStore {
       ...current.where((item) => item.dedupeKey != entry.dedupeKey),
     ];
     if (next.length > _maxHistoryCount) {
+      final removed = next.sublist(_maxHistoryCount);
+      for (final item in removed) {
+        await SecureCredentialStore.delete(_passwordKey(item));
+      }
       next.removeRange(_maxHistoryCount, next.length);
     }
-    await prefs.setStringList(
-      _historyKey,
-      next.map((item) => jsonEncode(item.toJson())).toList(growable: false),
-    );
+    for (final item in current.where(
+      (item) => !next.any((nextItem) => nextItem.dedupeKey == item.dedupeKey),
+    )) {
+      await SecureCredentialStore.delete(_passwordKey(item));
+    }
+    await _writeEntries(prefs, next);
     return next;
   }
 
@@ -113,16 +141,58 @@ class LoginHistoryStore {
     final next = current
         .where((item) => item.dedupeKey != entry.dedupeKey)
         .toList(growable: false);
-    await prefs.setStringList(
-      _historyKey,
-      next.map((item) => jsonEncode(item.toJson())).toList(growable: false),
-    );
+    await SecureCredentialStore.delete(_passwordKey(entry));
+    await _writeEntries(prefs, next);
     return next;
   }
 
   /// 清空全部登录历史记录。
   static Future<void> clear() async {
     final prefs = await SharedPreferences.getInstance();
+    final current = await load();
+    for (final entry in current) {
+      await SecureCredentialStore.delete(_passwordKey(entry));
+    }
     await prefs.remove(_historyKey);
+  }
+
+  static Future<String> _restorePassword(
+    LoginHistoryEntry entry, {
+    required String legacyPassword,
+  }) async {
+    if (!entry.rememberPassword) {
+      await SecureCredentialStore.delete(_passwordKey(entry));
+      return '';
+    }
+    final stored = await SecureCredentialStore.read(_passwordKey(entry));
+    if (stored.isNotEmpty) return stored;
+    if (legacyPassword.isNotEmpty) {
+      await SecureCredentialStore.write(_passwordKey(entry), legacyPassword);
+      return legacyPassword;
+    }
+    return '';
+  }
+
+  static Future<void> _writeEntries(
+    SharedPreferences prefs,
+    List<LoginHistoryEntry> entries,
+  ) async {
+    for (final entry in entries) {
+      final key = _passwordKey(entry);
+      if (entry.rememberPassword && entry.password.isNotEmpty) {
+        await SecureCredentialStore.write(key, entry.password);
+      } else {
+        await SecureCredentialStore.delete(key);
+      }
+    }
+    await prefs.setStringList(
+      _historyKey,
+      entries.map((item) => jsonEncode(item.toJson())).toList(growable: false),
+    );
+  }
+
+  static String _passwordKey(LoginHistoryEntry entry) {
+    final digest = sha256.convert(utf8.encode(entry.dedupeKey)).toString();
+    return 'login_history.password.$digest';
   }
 }

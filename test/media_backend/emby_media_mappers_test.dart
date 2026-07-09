@@ -7,7 +7,7 @@ void main() {
   const token = 'tok';
 
   group('mapEmbyView', () {
-    test('媒体库 → MediaCatalog（type 取 CollectionType，图片带 api_key）', () {
+    test('媒体库 → MediaCatalog（type 取 CollectionType，图片 token 走 header）', () {
       final catalog = mapEmbyView(
         <String, Object?>{
           'Id': 'lib-1',
@@ -23,8 +23,9 @@ void main() {
       expect(catalog.type, 'movies');
       expect(
         catalog.primaryImage.url,
-        'https://emby.example.test/Items/lib-1/Images/Primary?tag=abc&api_key=tok',
+        'https://emby.example.test/Items/lib-1/Images/Primary?tag=abc',
       );
+      expect(catalog.primaryImage.headers['X-Emby-Token'], token);
       expect(catalog.posters, hasLength(1));
     });
 
@@ -70,12 +71,14 @@ void main() {
       expect(card.releaseDate, '2020-01-01T00:00:00.0000000Z');
       expect(
         card.primaryImage.url,
-        'https://emby.example.test/Items/item-1/Images/Primary?tag=p1&api_key=tok',
+        'https://emby.example.test/Items/item-1/Images/Primary?tag=p1',
       );
+      expect(card.primaryImage.headers['X-Emby-Token'], token);
       expect(
         card.backdropImage.url,
-        'https://emby.example.test/Items/item-1/Images/Backdrop?tag=b1&api_key=tok',
+        'https://emby.example.test/Items/item-1/Images/Backdrop?tag=b1',
       );
+      expect(card.backdropImage.headers['X-Emby-Token'], token);
     });
 
     test('剧集单集：SeriesName→副标题，季/集编号', () {
@@ -165,16 +168,19 @@ void main() {
       expect(detail.resumePositionSeconds, 600);
       expect(
         detail.primaryImage.url,
-        'https://emby.example.test/Items/m-1/Images/Primary?tag=p1&api_key=tok',
+        'https://emby.example.test/Items/m-1/Images/Primary?tag=p1',
       );
+      expect(detail.primaryImage.headers['X-Emby-Token'], token);
       expect(
         detail.logoImage.url,
-        'https://emby.example.test/Items/m-1/Images/Logo?tag=lg1&api_key=tok',
+        'https://emby.example.test/Items/m-1/Images/Logo?tag=lg1',
       );
+      expect(detail.logoImage.headers['X-Emby-Token'], token);
       expect(
         detail.backdropImage.url,
-        'https://emby.example.test/Items/m-1/Images/Backdrop?tag=b1&api_key=tok',
+        'https://emby.example.test/Items/m-1/Images/Backdrop?tag=b1',
       );
+      expect(detail.backdropImage.headers['X-Emby-Token'], token);
       // 无名演职员被剔除；其余保留顺序、department=Type。
       expect(detail.people, hasLength(2));
       expect(detail.people[0].name, 'Ryan Gosling');
@@ -182,8 +188,9 @@ void main() {
       expect(detail.people[0].department, 'Actor');
       expect(
         detail.people[0].avatar.url,
-        'https://emby.example.test/Items/pp-1/Images/Primary?tag=av1&api_key=tok',
+        'https://emby.example.test/Items/pp-1/Images/Primary?tag=av1',
       );
+      expect(detail.people[0].avatar.headers['X-Emby-Token'], token);
       expect(detail.people[1].name, 'Denis Villeneuve');
       expect(detail.people[1].department, 'Director');
       expect(detail.people[1].avatar.isEmpty, isTrue);
@@ -295,7 +302,7 @@ void main() {
   });
 
   group('mapEmbySeason', () {
-    test('季 → MediaSeasonSummary（ChildCount 充当总数与本地数，图片带 api_key）', () {
+    test('季 → MediaSeasonSummary（ChildCount 充当总数与本地数，图片 token 走 header）', () {
       final season = mapEmbySeason(
         <String, Object?>{
           'Id': 'season-1',
@@ -314,8 +321,9 @@ void main() {
       expect(season.localNumberOfEpisodes, 12);
       expect(
         season.primaryImage.url,
-        'https://emby.example.test/Items/season-1/Images/Primary?tag=sp&api_key=tok',
+        'https://emby.example.test/Items/season-1/Images/Primary?tag=sp',
       );
+      expect(season.primaryImage.headers['X-Emby-Token'], token);
     });
 
     test('无 ChildCount 时回退 RecursiveItemCount', () {
