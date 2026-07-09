@@ -179,11 +179,14 @@ class DownloadTaskService extends ChangeNotifier {
   final Map<String, DownloadTaskProgressInfo> _downloadTaskProgress =
       <String, DownloadTaskProgressInfo>{};
   final Map<String, Timer> _downloadTaskProgressPollers = <String, Timer>{};
+  final Set<String> _downloadTaskProgressInFlight = <String>{};
 
   bool _initialized = false;
   Future<void>? _pendingInitialization;
   Timer? _persistTimer;
+  Future<void>? _persistQueue;
   Future<void>? _pendingGroupMetadataRefresh;
+  String? _debugRecordsFilePath;
 
   List<DownloadTaskRecord> get records =>
       List<DownloadTaskRecord>.unmodifiable(_records);
@@ -192,6 +195,7 @@ class DownloadTaskService extends ChangeNotifier {
   void debugReplaceRecordsForTesting(List<DownloadTaskRecord> records) {
     _persistTimer?.cancel();
     _persistTimer = null;
+    _persistQueue = null;
     _pendingInitialization = null;
     _initialized = true;
     _cancelTokens.clear();
@@ -199,6 +203,7 @@ class DownloadTaskService extends ChangeNotifier {
       timer.cancel();
     }
     _downloadTaskProgressPollers.clear();
+    _downloadTaskProgressInFlight.clear();
     _downloadSpeedBytesPerSecond.clear();
     _downloadProgressSamples.clear();
     _downloadSpeedAnchorSamples.clear();
@@ -209,6 +214,37 @@ class DownloadTaskService extends ChangeNotifier {
       ..addAll(records);
     _sortRecords();
     notifyListeners();
+  }
+
+  @visibleForTesting
+  void debugSetRecordsFilePathForTesting(String? path) {
+    _debugRecordsFilePath = path;
+    _recordsPathFuture = null;
+  }
+
+  @visibleForTesting
+  Future<void> debugUpsertRecordForTesting(
+    DownloadTaskRecord record, {
+    bool persistImmediately = false,
+  }) {
+    return _upsertRecord(record, persistImmediately: persistImmediately);
+  }
+
+  @visibleForTesting
+  Future<void> debugPollDownloadTaskProgressForTesting({
+    required String recordId,
+    required Future<DownloadTaskProgressInfo?> Function(String remoteTaskId)
+    fetchProgress,
+  }) {
+    return _pollDownloadTaskProgressOnce(
+      recordId: recordId,
+      fetchProgress: fetchProgress,
+    );
+  }
+
+  @visibleForTesting
+  DownloadTaskProgressInfo? debugTaskProgressForTesting(String recordId) {
+    return _downloadTaskProgress[recordId];
   }
 
   /// 返回所有活跃（下载中或已暂停）的下载任务。
@@ -1759,6 +1795,10 @@ class DownloadTaskService extends ChangeNotifier {
   static const String _recordsFileName = 'download_task_records_v1.json';
   static Future<String>? _recordsPathFuture;
   Future<File> _recordsFile() async {
+    final debugPath = _debugRecordsFilePath;
+    if (debugPath != null) {
+      return File(debugPath);
+    }
     final path = await (_recordsPathFuture ??= () async {
       final dir = await getDatabasesPath();
       return '$dir/$_recordsFileName';
@@ -1828,7 +1868,7 @@ class DownloadTaskService extends ChangeNotifier {
     }
   }
 
-  void _upsertRecord(
+  Future<void> _upsertRecord(
     DownloadTaskRecord record, {
     bool persistImmediately = false,
   }) {
@@ -1844,16 +1884,19 @@ class DownloadTaskService extends ChangeNotifier {
     }
     _sortRecords();
     notifyListeners();
+    Future<void> persistFuture;
     if (persistImmediately) {
-      unawaited(_persist());
       _persistTimer?.cancel();
       _persistTimer = null;
+      persistFuture = _persist();
     } else {
       _schedulePersist();
+      persistFuture = Future<void>.value();
     }
     if (_isDownloadedRecordAvailable(record)) {
       unawaited(_writeRecoveryMetadata(record));
     }
+    return persistFuture;
   }
 
   void _sortRecords() {
@@ -4291,35 +4334,10 @@ class DownloadTaskService extends ChangeNotifier {
     _stopDownloadTaskProgressPolling(record.id, notify: false);
 
     Future<void> pollOnce() async {
-      final activeRecord = _records.firstWhere(
-        (entry) => entry.id == record.id,
-        orElse: () => DownloadTaskService._emptyRecord,
+      await _pollDownloadTaskProgressOnce(
+        recordId: record.id,
+        fetchProgress: api.getDownloadTaskProgress,
       );
-      if (activeRecord == _emptyRecord ||
-          activeRecord.status != DownloadTaskStatus.downloading) {
-        _stopDownloadTaskProgressPolling(record.id);
-        return;
-      }
-      try {
-        final progress = await api.getDownloadTaskProgress(
-          activeRecord.remoteTaskId,
-        );
-        final previous = _downloadTaskProgress[record.id];
-        if (progress == null || progress.status != 0) {
-          _stopDownloadTaskProgressPolling(record.id, notify: previous != null);
-          return;
-        }
-        final normalized = DownloadTaskProgressInfo(
-          status: progress.status,
-          percents: progress.percents.clamp(0, 100).toInt(),
-        );
-        if (previous?.status == normalized.status &&
-            previous?.percents == normalized.percents) {
-          return;
-        }
-        _downloadTaskProgress[record.id] = normalized;
-        notifyListeners();
-      } catch (_) {}
     }
 
     _downloadTaskProgressPollers[record.id] = Timer.periodic(
@@ -4329,8 +4347,49 @@ class DownloadTaskService extends ChangeNotifier {
     unawaited(pollOnce());
   }
 
+  Future<void> _pollDownloadTaskProgressOnce({
+    required String recordId,
+    required Future<DownloadTaskProgressInfo?> Function(String remoteTaskId)
+    fetchProgress,
+  }) async {
+    if (!_downloadTaskProgressInFlight.add(recordId)) {
+      return;
+    }
+    try {
+      final activeRecord = _records.firstWhere(
+        (entry) => entry.id == recordId,
+        orElse: () => DownloadTaskService._emptyRecord,
+      );
+      if (activeRecord == _emptyRecord ||
+          activeRecord.status != DownloadTaskStatus.downloading) {
+        _stopDownloadTaskProgressPolling(recordId);
+        return;
+      }
+      final progress = await fetchProgress(activeRecord.remoteTaskId);
+      final previous = _downloadTaskProgress[recordId];
+      if (progress == null || progress.status != 0) {
+        _stopDownloadTaskProgressPolling(recordId, notify: previous != null);
+        return;
+      }
+      final normalized = DownloadTaskProgressInfo(
+        status: progress.status,
+        percents: progress.percents.clamp(0, 100).toInt(),
+      );
+      if (previous?.status == normalized.status &&
+          previous?.percents == normalized.percents) {
+        return;
+      }
+      _downloadTaskProgress[recordId] = normalized;
+      notifyListeners();
+    } catch (_) {
+    } finally {
+      _downloadTaskProgressInFlight.remove(recordId);
+    }
+  }
+
   void _stopDownloadTaskProgressPolling(String recordId, {bool notify = true}) {
     _downloadTaskProgressPollers.remove(recordId)?.cancel();
+    _downloadTaskProgressInFlight.remove(recordId);
     final removed = _downloadTaskProgress.remove(recordId);
     if (notify && removed != null) {
       notifyListeners();
@@ -4358,15 +4417,32 @@ class DownloadTaskService extends ChangeNotifier {
   }
 
   Future<void> _persist() async {
-    try {
+    final previous = _persistQueue ?? Future<void>.value();
+    final current = previous.catchError((Object _) {}).then((_) async {
       final encoded = jsonEncode(
         _records.map((entry) => entry.toJson()).toList(growable: false),
       );
       final file = await _recordsFile();
-      final tmp = File('${file.path}.tmp');
+      final tmp = File(
+        '${file.path}.${DateTime.now().microsecondsSinceEpoch}.tmp',
+      );
       await tmp.writeAsString(encoded, flush: true);
       await tmp.rename(file.path);
-    } catch (_) {}
+    });
+    _persistQueue = current;
+    try {
+      await current;
+    } catch (error, stackTrace) {
+      await AppLogService.instance.recordWarning(
+        error: error,
+        stackTrace: stackTrace,
+        source: 'download_records_persist',
+      );
+    } finally {
+      if (identical(_persistQueue, current)) {
+        _persistQueue = null;
+      }
+    }
   }
 
   Future<void> _refreshDownloadedGroupMetadataInternal(

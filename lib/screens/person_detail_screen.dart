@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -1105,11 +1104,12 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
           TextSpan(
             children: <InlineSpan>[
               TextSpan(text: '$head...', style: bodyStyle),
-              TextSpan(
-                text: moreText,
-                style: moreStyle,
-                recognizer: TapGestureRecognizer()
-                  ..onTap = () => LongTextOverlayPage.show(
+              WidgetSpan(
+                alignment: PlaceholderAlignment.baseline,
+                baseline: TextBaseline.alphabetic,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => LongTextOverlayPage.show(
                     context,
                     title: displayName,
                     sectionTitle: AppLocalizations.of(
@@ -1117,6 +1117,8 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
                     ).personBiographyTitle,
                     content: biography,
                   ),
+                  child: Text(moreText, style: moreStyle),
+                ),
               ),
             ],
           ),

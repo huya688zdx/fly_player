@@ -1,5 +1,10 @@
+import 'dart:convert';
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:fly_player/api/feiniu_api.dart';
 import 'package:fly_player/models/download_task_record.dart';
 import 'package:fly_player/models/stream_list_option.dart';
 import 'package:fly_player/models/stream_track_data.dart';
@@ -142,5 +147,125 @@ void main() {
     );
 
     expect(result, selectedVersion);
+  });
+
+  test('immediate download record persistence can be awaited', () async {
+    final service = DownloadTaskService.instance;
+    final tempDir = await Directory.systemTemp.createTemp(
+      'fly-player-download-records-',
+    );
+    addTearDown(() async {
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+      service.debugSetRecordsFilePathForTesting(null);
+    });
+    final recordsFile = File('${tempDir.path}/records.json');
+    service.debugSetRecordsFilePathForTesting(recordsFile.path);
+
+    const first = DownloadTaskRecord(
+      id: 'record-persist',
+      remoteTaskId: 'remote-1',
+      itemGuid: 'item-1',
+      mediaGuid: 'media-1',
+      groupId: 'group-1',
+      groupTitle: 'Group',
+      title: 'Episode',
+      durationText: '24m',
+      posterUrls: <String>[],
+      groupPosterUrls: <String>[],
+      resolution: '1080P',
+      fileName: 'episode.mkv',
+      filePath: '/tmp/episode.mkv',
+      totalBytes: 100,
+      downloadedBytes: 10,
+      status: DownloadTaskStatus.downloading,
+      errorMessage: '',
+      createdAtMs: 1,
+      updatedAtMs: 1,
+    );
+    final second = first.copyWith(
+      downloadedBytes: 100,
+      status: DownloadTaskStatus.downloaded,
+      updatedAtMs: 2,
+    );
+
+    service.debugReplaceRecordsForTesting(const <DownloadTaskRecord>[]);
+    final firstPersist = service.debugUpsertRecordForTesting(
+      first,
+      persistImmediately: true,
+    );
+    final secondPersist = service.debugUpsertRecordForTesting(
+      second,
+      persistImmediately: true,
+    );
+
+    await firstPersist;
+    await secondPersist;
+
+    final raw = await recordsFile.readAsString();
+    final decoded = jsonDecode(raw) as List<dynamic>;
+    final persisted = DownloadTaskRecord.fromJson(
+      Map<String, dynamic>.from(decoded.single as Map),
+    );
+    expect(persisted.downloadedBytes, 100);
+    expect(persisted.status, DownloadTaskStatus.downloaded);
+  });
+
+  test('download task progress polling skips reentrant requests', () async {
+    final service = DownloadTaskService.instance;
+    const record = DownloadTaskRecord(
+      id: 'record-progress',
+      remoteTaskId: 'remote-progress',
+      itemGuid: 'item-1',
+      mediaGuid: 'media-1',
+      groupId: 'group-1',
+      groupTitle: 'Group',
+      title: 'Episode',
+      durationText: '24m',
+      posterUrls: <String>[],
+      groupPosterUrls: <String>[],
+      resolution: '720P',
+      fileName: 'episode.mkv',
+      filePath: '/tmp/episode.mkv',
+      totalBytes: 100,
+      downloadedBytes: 10,
+      status: DownloadTaskStatus.downloading,
+      errorMessage: '',
+      createdAtMs: 1,
+      updatedAtMs: 1,
+    );
+    service.debugReplaceRecordsForTesting(const <DownloadTaskRecord>[record]);
+
+    var requestCount = 0;
+    final firstRequest = Completer<DownloadTaskProgressInfo?>();
+    final firstPoll = service.debugPollDownloadTaskProgressForTesting(
+      recordId: record.id,
+      fetchProgress: (_) {
+        requestCount += 1;
+        return firstRequest.future;
+      },
+    );
+    final secondPoll = service.debugPollDownloadTaskProgressForTesting(
+      recordId: record.id,
+      fetchProgress: (_) {
+        requestCount += 1;
+        return Future<DownloadTaskProgressInfo?>.value(
+          const DownloadTaskProgressInfo(status: 0, percents: 30),
+        );
+      },
+    );
+
+    await Future<void>.delayed(Duration.zero);
+    expect(requestCount, 1);
+
+    firstRequest.complete(
+      const DownloadTaskProgressInfo(status: 0, percents: 20),
+    );
+    await firstPoll;
+    await secondPoll;
+
+    expect(requestCount, 1);
+    expect(service.debugTaskProgressForTesting(record.id)?.percents, 20);
   });
 }

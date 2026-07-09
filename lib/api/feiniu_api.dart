@@ -418,7 +418,10 @@ class FeiniuApi {
   // Deduplicate identical paged-list requests during fast scrolling.
   final Map<String, Future<ItemListPage>> _itemListInflight = {};
 
-  FeiniuApi(this.nasProvider) {
+  FeiniuApi(this.nasProvider, {HttpClientAdapter? httpClientAdapter}) {
+    if (httpClientAdapter != null) {
+      _dio.httpClientAdapter = httpClientAdapter;
+    }
     _dio.options.baseUrl = ApiUrlHelper.normalizeBaseUrl(nasProvider.baseUrl);
     _dio.options.connectTimeout = const Duration(seconds: 10);
     _dio.options.receiveTimeout = const Duration(seconds: 10);
@@ -2008,7 +2011,7 @@ class FeiniuApi {
     String? playLink,
   }) async {
     try {
-      await _dio.post(
+      final response = await _dio.post(
         _playRecordPath,
         data: <String, dynamic>{
           'item_guid': itemGuid,
@@ -2023,6 +2026,7 @@ class FeiniuApi {
           'play_link': (playLink ?? '').trim(),
         },
       );
+      _requireSuccessPayload(response.data, 'playback record');
     } catch (e) {
       throw AppException.from(
         e,

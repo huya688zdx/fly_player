@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/gestures.dart';
 
 import '../../l10n/generated/app_localizations.dart';
 import '../../theme/app_theme.dart';
@@ -100,10 +99,14 @@ class DescriptionSection extends StatelessWidget {
             children: [
               TextSpan(text: clipped),
               const TextSpan(text: suffix),
-              TextSpan(
-                text: more,
-                style: moreStyle,
-                recognizer: TapGestureRecognizer()..onTap = onMoreTap,
+              WidgetSpan(
+                alignment: PlaceholderAlignment.baseline,
+                baseline: TextBaseline.alphabetic,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onMoreTap,
+                  child: Text(more, style: moreStyle),
+                ),
               ),
             ],
           ),
