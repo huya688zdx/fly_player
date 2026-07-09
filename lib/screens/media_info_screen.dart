@@ -20,6 +20,12 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
   bool _isLoading = false;
   AppException? _error;
 
+  @override
+  void dispose() {
+    _guidController.dispose();
+    super.dispose();
+  }
+
   Future<void> _fetchMetadata() async {
     final guid = _guidController.text.trim();
     if (guid.isEmpty) return;
