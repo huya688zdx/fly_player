@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../media_backend/media_backend_kind.dart';
 import '../media_backend/session/media_backend_connection.dart';
+import 'secure_credential_store.dart';
 
 class MediaBackendConnectionSnapshot {
   const MediaBackendConnectionSnapshot({
@@ -54,7 +55,7 @@ class MediaBackendConnectionStore {
       // 查 Emby 报 noData）。与 NasProvider._loadSettings 一致：先 reload() 从磁盘重读。
       await targetPrefs.reload();
     }
-    final connections = _readConnections(targetPrefs);
+    final connections = await _readConnections(targetPrefs);
     final legacyFeiniu = _readLegacyFeiniuConnection(targetPrefs);
     final mergedConnections = _mergeLegacyFeiniu(connections, legacyFeiniu);
     final activeKind =
@@ -74,14 +75,10 @@ class MediaBackendConnectionStore {
   }) async {
     final targetPrefs = prefs ?? await SharedPreferences.getInstance();
     final connections = await _connectionsWith(connection, prefs: targetPrefs);
+    await _persistConnectionCredentials(connection);
 
     await targetPrefs.setString(activeKindKey, connection.kind.name);
-    await targetPrefs.setString(
-      connectionsKey,
-      jsonEncode(
-        connections.map((item) => item.toJson()).toList(growable: false),
-      ),
-    );
+    await _writeConnections(targetPrefs, connections);
   }
 
   static Future<void> saveConnection(
@@ -90,12 +87,8 @@ class MediaBackendConnectionStore {
   }) async {
     final targetPrefs = prefs ?? await SharedPreferences.getInstance();
     final connections = await _connectionsWith(connection, prefs: targetPrefs);
-    await targetPrefs.setString(
-      connectionsKey,
-      jsonEncode(
-        connections.map((item) => item.toJson()).toList(growable: false),
-      ),
-    );
+    await _persistConnectionCredentials(connection);
+    await _writeConnections(targetPrefs, connections);
   }
 
   static Future<List<MediaBackendConnection>> _connectionsWith(
@@ -128,23 +121,45 @@ class MediaBackendConnectionStore {
     return null;
   }
 
-  static List<MediaBackendConnection> _readConnections(
+  static Future<List<MediaBackendConnection>> _readConnections(
     SharedPreferences prefs,
-  ) {
+  ) async {
     final raw = prefs.getString(connectionsKey);
     if (raw == null || raw.trim().isEmpty) return const [];
     try {
       final decoded = jsonDecode(raw);
       if (decoded is! List) return const [];
-      return decoded
-          .whereType<Map>()
-          .map<MediaBackendConnection?>(
-            (item) => MediaBackendConnection.tryFromJson(
-              Map<String, Object?>.from(item),
-            ),
-          )
-          .whereType<MediaBackendConnection>()
-          .toList(growable: false);
+      final connections = <MediaBackendConnection>[];
+      var needsRewrite = false;
+      for (final item in decoded.whereType<Map>()) {
+        final storageJson = Map<String, Object?>.from(item);
+        final connection = MediaBackendConnection.tryFromJson(storageJson);
+        if (connection == null) {
+          needsRewrite = true;
+          continue;
+        }
+        final restored = await _restoreConnectionCredentials(
+          connection,
+          hasAccessToken:
+              storageJson['hasAccessToken'] == true ||
+              connection.accessToken.isNotEmpty,
+          hasSecret:
+              storageJson['hasSecret'] == true || connection.secret.isNotEmpty,
+          hasEntryToken:
+              storageJson['hasEntryToken'] == true ||
+              connection.entryToken.isNotEmpty,
+        );
+        connections.add(restored);
+        if (connection.accessToken.isNotEmpty ||
+            connection.secret.isNotEmpty ||
+            connection.entryToken.isNotEmpty) {
+          needsRewrite = true;
+        }
+      }
+      if (needsRewrite) {
+        await _writeConnections(prefs, connections);
+      }
+      return connections;
     } on FormatException {
       return const [];
     } on TypeError {
@@ -189,4 +204,128 @@ class MediaBackendConnectionStore {
       rememberSecret: prefs.getBool(_legacyRememberPasswordKey) ?? true,
     );
   }
+
+  static Future<void> _writeConnections(
+    SharedPreferences prefs,
+    List<MediaBackendConnection> connections,
+  ) async {
+    await prefs.setString(
+      connectionsKey,
+      jsonEncode(
+        connections.map(_connectionStorageJson).toList(growable: false),
+      ),
+    );
+  }
+
+  static Map<String, Object?> _connectionStorageJson(
+    MediaBackendConnection connection,
+  ) {
+    return <String, Object?>{
+      'kind': connection.kind.name,
+      'serverUrl': connection.serverUrl,
+      'displayName': connection.displayName,
+      'userName': connection.userName,
+      'userId': connection.userId,
+      'rememberSecret': connection.rememberSecret,
+      'updatedAtMillis': connection.updatedAtMillis,
+      'hasAccessToken': connection.accessToken.isNotEmpty,
+      'hasSecret': connection.rememberSecret && connection.secret.isNotEmpty,
+      'hasEntryToken': connection.entryToken.isNotEmpty,
+    };
+  }
+
+  static Future<MediaBackendConnection> _restoreConnectionCredentials(
+    MediaBackendConnection connection, {
+    required bool hasAccessToken,
+    required bool hasSecret,
+    required bool hasEntryToken,
+  }) async {
+    final keys = _credentialKeys(connection.kind);
+    final accessToken = await _restoreCredential(
+      keys.accessToken,
+      legacyValue: connection.accessToken,
+      shouldKeep: hasAccessToken,
+    );
+    final secret = await _restoreCredential(
+      keys.secret,
+      legacyValue: connection.secret,
+      shouldKeep: connection.rememberSecret && hasSecret,
+    );
+    final entryToken = await _restoreCredential(
+      keys.entryToken,
+      legacyValue: connection.entryToken,
+      shouldKeep: hasEntryToken,
+    );
+    return MediaBackendConnection(
+      kind: connection.kind,
+      serverUrl: connection.serverUrl,
+      displayName: connection.displayName,
+      userName: connection.userName,
+      userId: connection.userId,
+      accessToken: accessToken,
+      secret: secret,
+      rememberSecret: connection.rememberSecret,
+      updatedAtMillis: connection.updatedAtMillis,
+      entryToken: entryToken,
+    );
+  }
+
+  static Future<String> _restoreCredential(
+    String key, {
+    required String legacyValue,
+    required bool shouldKeep,
+  }) async {
+    if (!shouldKeep) {
+      await SecureCredentialStore.delete(key);
+      return '';
+    }
+    final stored = await SecureCredentialStore.read(key);
+    if (stored.isNotEmpty) return stored;
+    if (legacyValue.isNotEmpty) {
+      await SecureCredentialStore.write(key, legacyValue);
+      return legacyValue;
+    }
+    return '';
+  }
+
+  static Future<void> _persistConnectionCredentials(
+    MediaBackendConnection connection,
+  ) async {
+    final keys = _credentialKeys(connection.kind);
+    await _writeOrDelete(keys.accessToken, connection.accessToken);
+    await _writeOrDelete(
+      keys.secret,
+      connection.rememberSecret ? connection.secret : '',
+    );
+    await _writeOrDelete(keys.entryToken, connection.entryToken);
+  }
+
+  static Future<void> _writeOrDelete(String key, String value) async {
+    if (value.isEmpty) {
+      await SecureCredentialStore.delete(key);
+    } else {
+      await SecureCredentialStore.write(key, value);
+    }
+  }
+
+  static _ConnectionCredentialKeys _credentialKeys(MediaBackendKind kind) {
+    final prefix = 'media_backend_connection.${kind.name}';
+    return _ConnectionCredentialKeys(
+      accessToken: '$prefix.access_token',
+      secret: '$prefix.secret',
+      entryToken: '$prefix.entry_token',
+    );
+  }
+}
+
+class _ConnectionCredentialKeys {
+  final String accessToken;
+  final String secret;
+  final String entryToken;
+
+  const _ConnectionCredentialKeys({
+    required this.accessToken,
+    required this.secret,
+    required this.entryToken,
+  });
 }

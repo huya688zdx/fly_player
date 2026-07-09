@@ -17,23 +17,41 @@ class PrivateNetworkHttpOverrides extends HttpOverrides {
   HttpClient createHttpClient(SecurityContext? context) {
     final client = super.createHttpClient(context);
     client.badCertificateCallback = (cert, host, port) {
-      return _isPrivateHost(host);
+      return allowsBadCertificateForHost(host);
     };
     return client;
   }
 
-  bool _isPrivateHost(String host) {
-    final normalized = host.trim();
+  static bool allowsBadCertificateForHost(String host) {
+    final normalized = host.trim().toLowerCase();
     final address = InternetAddress.tryParse(normalized);
     if (address != null) {
-      // Direct NAS access commonly uses self-signed certs on raw IP hosts.
-      return true;
+      return _isPrivateAddress(address);
     }
     if (normalized == 'localhost') {
       return true;
     }
-    if (_knownNasHosts.contains(normalized.toLowerCase())) {
+    if (_knownNasHosts.contains(normalized)) {
       return true;
+    }
+    return false;
+  }
+
+  static bool _isPrivateAddress(InternetAddress address) {
+    if (address.isLoopback || address.isLinkLocal) {
+      return true;
+    }
+    final raw = address.rawAddress;
+    if (address.type == InternetAddressType.IPv4 && raw.length == 4) {
+      final first = raw[0];
+      final second = raw[1];
+      return first == 10 ||
+          (first == 172 && second >= 16 && second <= 31) ||
+          (first == 192 && second == 168);
+    }
+    if (address.type == InternetAddressType.IPv6 && raw.length == 16) {
+      final first = raw[0];
+      return (first & 0xfe) == 0xfc;
     }
     return false;
   }
