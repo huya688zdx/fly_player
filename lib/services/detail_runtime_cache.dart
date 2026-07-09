@@ -53,7 +53,7 @@ class DetailRuntimeCache {
       },
       onError: (Object error, StackTrace stackTrace) {
         _inflight.remove(inflightKey);
-        throw error;
+        Error.throwWithStackTrace(error, stackTrace);
       },
     );
 

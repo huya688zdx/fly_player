@@ -14,6 +14,7 @@ import '../ui/app_transitions.dart';
 import '../ui/secondary_host_navigation.dart';
 import '../utils/app_confirm_dialog.dart';
 import '../utils/app_top_tip.dart';
+import '../utils/swallowed_error_logger.dart';
 import 'bookmark_manager_screen.dart';
 import 'danmaku_settings_screen.dart';
 import 'screenshot_preview_screen.dart';
@@ -1001,6 +1002,20 @@ class _ScreenshotCustomDirectoryScreenState
             ? context.appColors.success
             : context.appColors.warning,
       );
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'pick screenshot custom directory',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'screenshot_settings_screen',
+      );
+      if (mounted) {
+        _topTip.show(
+          context,
+          message: AppLocalizations.of(context).commonOperationFailedRetryLater,
+          color: context.appColors.danger,
+        );
+      }
     } finally {
       if (mounted) {
         setState(() => _selecting = false);
@@ -1043,6 +1058,20 @@ class _ScreenshotCustomDirectoryScreenState
         ).settingsScreenshotCustomDirectoryCleared,
         color: context.appColors.success,
       );
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'clear screenshot custom directory',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'screenshot_settings_screen',
+      );
+      if (mounted) {
+        _topTip.show(
+          context,
+          message: AppLocalizations.of(context).commonOperationFailedRetryLater,
+          color: context.appColors.danger,
+        );
+      }
     } finally {
       if (mounted) {
         setState(() => _clearing = false);

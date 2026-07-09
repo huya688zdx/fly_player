@@ -469,7 +469,17 @@ class AppLogService extends ChangeNotifier {
       final tmp = File('${file.path}.tmp');
       await tmp.writeAsString(encoded, flush: true);
       await tmp.rename(file.path);
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      final entry = _buildEntry(
+        level: AppLogLevel.warning,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'app_log',
+        details: 'action=persist logs',
+      );
+      _appendCrashJournalSync(entry);
+      debugPrint('Failed to persist app logs: $error\n$stackTrace');
+    }
   }
 
   Future<String> _buildExternalExportPath(String fileName) async {

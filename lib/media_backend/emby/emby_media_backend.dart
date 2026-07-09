@@ -4,6 +4,7 @@ import '../../api/emby_api.dart';
 import '../../player/controllers/emby_playback_source_bridge.dart';
 import '../../utils/nas_image_headers.dart';
 import '../../utils/playback_resume_position_resolver.dart';
+import '../../utils/swallowed_error_logger.dart';
 import '../detail/media_detail.dart';
 import '../detail/media_episode_summary.dart';
 import '../detail/media_season_summary.dart';
@@ -198,7 +199,15 @@ class EmbyMediaBackend implements MediaBackend {
           .where((name) => name.isNotEmpty)
           .map((name) => MediaFilterOption(value: name))
           .toList(growable: false);
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load emby catalog genres',
+        id: catalogId,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'emby_media_backend',
+      );
+    }
     return MediaCatalogFilterSchema(
       dimensions: <MediaFilterDimension>[
         const MediaFilterDimension(
@@ -779,7 +788,15 @@ class EmbyMediaBackend implements MediaBackend {
       final file = File(filePath);
       await file.writeAsString(text, flush: true);
       return file.path;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'resolve emby external subtitle',
+        id: trackId,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'emby_media_backend',
+        details: 'format=$ext',
+      );
       return null;
     }
   }

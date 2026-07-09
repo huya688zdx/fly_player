@@ -8,6 +8,7 @@ import '../api/feiniu_api.dart';
 import '../l10n/generated/app_localizations.dart';
 import 'fn_web_login_bridge_script.dart';
 import '../utils/login_error_resolver.dart';
+import '../utils/swallowed_error_logger.dart';
 
 class FnConnectWebLoginSessionPolicy {
   static const bool preserveCookiesByDefault = true;
@@ -221,7 +222,15 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
         _cookieString = 'mode=relay';
         await _navigateToSignin(baseUrl: config.baseUrl, appId: config.appId);
         return true;
-      } catch (_) {}
+      } catch (error, stackTrace) {
+        await logSwallowedError(
+          action: 'probe fn connect relay oauth config',
+          id: baseUrl,
+          error: error,
+          stackTrace: stackTrace,
+          source: 'fn_connect_web_login_page',
+        );
+      }
     }
     return false;
   }
@@ -229,7 +238,15 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
   Future<void> _injectBridgeScript() async {
     try {
       await _controller.runJavaScript(_buildInjectionScript());
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'inject fn connect web bridge',
+        id: widget.fnConnectId,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'fn_connect_web_login_page',
+      );
+    }
   }
 
   String _buildInjectionScript() {
@@ -277,7 +294,15 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
           await _exchangeOauthCode(code);
         }
       }
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'handle fn connect bridge message',
+        id: widget.fnConnectId,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'fn_connect_web_login_page',
+      );
+    }
   }
 
   Future<void> _loadOauthConfigFromCookie({
@@ -299,7 +324,14 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
         cookie: cookie,
       );
       await _navigateToSignin(baseUrl: config.baseUrl, appId: config.appId);
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load fn connect oauth config from cookie',
+        id: pageUrl,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'fn_connect_web_login_page',
+      );
       _isFetchingOauthConfig = false;
     }
   }
@@ -323,7 +355,15 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
           : fallbackBaseUrl;
       if (targetBaseUrl.isEmpty) return;
       await _navigateToSignin(baseUrl: targetBaseUrl, appId: appId);
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'handle fn connect sys config',
+        id: pageUrl,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'fn_connect_web_login_page',
+      );
+    }
   }
 
   Future<void> _navigateToSignin({
@@ -418,7 +458,16 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
       final data = decoded['data'];
       if (data is! Map<String, dynamic>) return '';
       return data['code']?.toString().trim() ?? '';
-    } catch (_) {
+    } catch (error, stackTrace) {
+      unawaited(
+        logSwallowedError(
+          action: 'extract fn connect oauth code',
+          id: widget.fnConnectId,
+          error: error,
+          stackTrace: stackTrace,
+          source: 'fn_connect_web_login_page',
+        ),
+      );
       return '';
     }
   }

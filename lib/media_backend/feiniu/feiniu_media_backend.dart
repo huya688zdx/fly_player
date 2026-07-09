@@ -5,6 +5,7 @@ import '../../models/playback_stream.dart';
 import '../../models/stream_track_data.dart';
 import '../../player/controllers/feiniu_playback_source_bridge.dart';
 import '../../utils/playback_resume_position_resolver.dart';
+import '../../utils/swallowed_error_logger.dart';
 import '../detail/media_detail.dart';
 import '../detail/media_episode_summary.dart';
 import '../detail/media_season_summary.dart';
@@ -125,18 +126,45 @@ class FeiniuMediaBackend implements MediaBackend {
     var credits = const <PersonCredit>[];
     try {
       credits = await api.getPersonList(itemId, request: _creditsRequest);
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load feiniu item credits',
+        id: itemId,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'feiniu_media_backend',
+      );
       // 演职员失败不阻断详情展示（复刻详情页 best-effort 语义）。
     }
     // 题材 / 地区字典 best-effort：失败回空 map，详情仍可看（题材退化为原始 id），
     // 复刻旧 play_detail_page 的 `.catchError((_) => const {})` 降级，避免字典请求
     // 失败让整个详情打不开。
-    final genresMap = await api
-        .getTagGenresMap(lan: 'zh-CN')
-        .catchError((_) => const <int, String>{});
-    final regionNames = await api
-        .getTagIso3166Map(lan: 'zh-CN')
-        .catchError((_) => const <String, String>{});
+    Map<int, String> genresMap;
+    try {
+      genresMap = await api.getTagGenresMap(lan: 'zh-CN');
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load feiniu genre dictionary',
+        id: itemId,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'feiniu_media_backend',
+      );
+      genresMap = const <int, String>{};
+    }
+    Map<String, String> regionNames;
+    try {
+      regionNames = await api.getTagIso3166Map(lan: 'zh-CN');
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load feiniu region dictionary',
+        id: itemId,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'feiniu_media_backend',
+      );
+      regionNames = const <String, String>{};
+    }
     return mapFeiniuItemDetail(
       info,
       genresMap: genresMap,
@@ -263,7 +291,14 @@ class FeiniuMediaBackend implements MediaBackend {
     StreamTrackData? trackData;
     try {
       trackData = await api.getStreamTrackData(request.itemId);
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load feiniu stream track data',
+        id: request.itemId,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'feiniu_media_backend',
+      );
       trackData = null;
     }
 

@@ -25,6 +25,7 @@ import '../ui/media_episode_subtitle.dart';
 import '../ui/media_poster_card.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
+import '../utils/swallowed_error_logger.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/library/media_collection_layout_sheet.dart';
 import '../widgets/library/media_library_list_tile.dart';
@@ -157,7 +158,14 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
     Map<String, List<dynamic>> tags = const <String, List<dynamic>>{};
     try {
       tags = await api.getTagList(isFavorite: 1);
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load favorite tag filters',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'favorite_items_screen',
+      );
+    }
 
     if (!mounted) return;
     setState(() {
@@ -795,8 +803,14 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
       setState(() {
         _episodePosterParentCache[parentGuid] = parentItem;
       });
-    } catch (_) {
-      // Keep the current episode still if parent poster lookup fails.
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load favorite episode parent poster',
+        id: parentGuid,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'favorite_items_screen',
+      );
     } finally {
       _episodePosterParentPending.remove(parentGuid);
     }
@@ -823,7 +837,15 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
       initialDetail = await FeiniuApi(
         provider,
       ).getItemDetail(item.guid).timeout(const Duration(milliseconds: 240));
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'prefetch favorite item detail',
+        id: item.guid,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'favorite_items_screen',
+      );
+    }
     if (!mounted) return;
     await AdaptiveDetailNavigator.open<void>(
       context,
