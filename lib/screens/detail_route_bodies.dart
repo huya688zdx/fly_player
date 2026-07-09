@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../l10n/generated/app_localizations.dart';
@@ -5,6 +7,7 @@ import '../models/media_library_item.dart';
 import '../pages/tv_season_detail_page.dart';
 import '../services/detail_route_payload_store.dart';
 import '../ui/detail_presentation.dart';
+import '../utils/swallowed_error_logger.dart';
 import '../widgets/detail/detail_loading_skeleton.dart';
 import 'play_detail_screen.dart';
 
@@ -68,6 +71,18 @@ class _DetailItemRouteBodyState extends State<DetailItemRouteBody> {
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
           return DetailLoadingSkeleton(presentation: widget.presentation);
+        }
+        if (snapshot.hasError) {
+          unawaited(
+            logSwallowedError(
+              action: 'read detail route payload',
+              id: widget.payloadToken,
+              error: snapshot.error ?? StateError('unknown payload error'),
+              stackTrace: snapshot.stackTrace,
+              source: 'detail_route_bodies',
+              details: 'route=item',
+            ),
+          );
         }
         final payload = snapshot.data;
         final initialItemDetail =
@@ -147,6 +162,18 @@ class _DetailSeasonRouteBodyState extends State<DetailSeasonRouteBody> {
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
           return DetailLoadingSkeleton(presentation: widget.presentation);
+        }
+        if (snapshot.hasError) {
+          unawaited(
+            logSwallowedError(
+              action: 'read detail route payload',
+              id: widget.payloadToken,
+              error: snapshot.error ?? StateError('unknown payload error'),
+              stackTrace: snapshot.stackTrace,
+              source: 'detail_route_bodies',
+              details: 'route=season',
+            ),
+          );
         }
         final payloadSeasonItem = _asStringMap(snapshot.data?['seasonItem']);
         final seasonItem = payloadSeasonItem == null

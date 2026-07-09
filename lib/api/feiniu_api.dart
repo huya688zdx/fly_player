@@ -28,6 +28,7 @@ import '../providers/nas_provider.dart';
 import '../utils/app_exception.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/private_network_http_overrides.dart';
+import '../utils/swallowed_error_logger.dart';
 
 const bool _verboseApiLogsEnabled = false;
 
@@ -2420,7 +2421,14 @@ class FeiniuApi {
         '$_downloadTaskPath/$normalizedTaskId',
         data: <String, dynamic>{'lan': lan.trim()},
       );
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'delete download task',
+        id: normalizedTaskId,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'feiniu_api',
+      );
       // Best-effort: server-side cleanup should not block the local UX.
     }
   }

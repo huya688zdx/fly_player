@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'app_theme.dart';
 import 'dynamic_theme_mapper.dart';
 import 'dynamic_theme_seed_extractor.dart';
+import '../utils/swallowed_error_logger.dart';
 
 class DynamicThemeRuntimeController {
   DynamicThemeRuntimeController._();
@@ -264,8 +265,13 @@ class DynamicThemeRuntimeController {
       while (_pageSeedCache.length > _maxSeedCacheEntries) {
         _pageSeedCache.remove(_pageSeedCache.keys.first);
       }
-    } catch (_) {
-      // Runtime cache restore failure should only fall back to live sampling.
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'restore dynamic theme runtime cache',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'dynamic_theme_runtime_controller',
+      );
     } finally {
       _persistentCacheLoaded = true;
       _persistentCacheLoadFuture = null;
@@ -303,8 +309,13 @@ class DynamicThemeRuntimeController {
         _persistentCachePrefsKey,
         jsonEncode(payload),
       );
-    } catch (_) {
-      // Keep the in-memory cache even if persistence is unavailable.
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'persist dynamic theme runtime cache',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'dynamic_theme_runtime_controller',
+      );
     }
   }
 

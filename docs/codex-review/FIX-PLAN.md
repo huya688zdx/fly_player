@@ -188,6 +188,13 @@ H-004/005/010/017/018/019/020/021/023/024/030 + F-031/F-034：全部是「组件
 - F-002、F-009、F-012、F-017、F-018、F-024、F-028、F-033、F-041；
 - G-005、G-008、G-020、G-030；H-029、H-031。
 
+**已修复（2026-07-09，本次提交）**：
+- 新增 `logSwallowedError()` 统一记录允许降级的异常，写入 `AppLogService` warning，并在 action/id/details 中保留业务上下文；新增回归测试覆盖 warning 记录与堆栈保留。
+- A-009、A-015、A-016、A-021、A-027、B-009、E-007、F-002/F-009/F-012/F-017/F-018/F-024/F-028/F-033/F-041、G-005/G-008/G-020/G-030、H-029/H-031：点名 best-effort 降级路径不再无声吞异常，保留原降级/用户反馈语义并补日志。
+- B-002：`AppLogService._persist()` 失败不再空吞，改写入 runtime crash journal 并 `debugPrint`，避免递归调用日志服务。
+- B-003：`DetailRuntimeCache` loader 失败改用 `Error.throwWithStackTrace` 保留原始堆栈，并新增回归测试。
+- E-001：DanDanPlay 评论接口 JSON 业务错误改为 `on DanDanPlayApiException rethrow`，不再被 payload 探测兜底吞掉。
+
 ## 10. 建议执行顺序
 
 1. **S 安全**（半天量级，风险最高）

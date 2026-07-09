@@ -25,6 +25,7 @@ import '../ui/route_transition_gate.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
 import '../utils/detail_top_tip.dart';
+import '../utils/swallowed_error_logger.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/common/liquid_glass.dart';
 import '../widgets/detail/detail_loading_skeleton.dart';
@@ -205,7 +206,14 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
         baseItem.guid,
         baseItem: baseItem,
       );
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load collection fallback play info',
+        id: itemGuid,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'media_collection_detail_page',
+      );
       return const <MediaLibraryItem>[];
     }
   }
@@ -253,7 +261,14 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
         return fallbackItems;
       }
       return <MediaLibraryItem>[resolvedBaseItem];
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load collection fallback stream list',
+        id: playItemGuid,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'media_collection_detail_page',
+      );
       return const <MediaLibraryItem>[];
     }
   }

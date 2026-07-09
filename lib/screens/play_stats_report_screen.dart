@@ -11,6 +11,7 @@ import '../theme/app_theme.dart';
 import '../ui/adaptive_detail_navigator.dart';
 import '../ui/app_transitions.dart';
 import '../ui/secondary_host_navigation.dart';
+import '../utils/swallowed_error_logger.dart';
 import 'play_stats_debug_page.dart';
 import 'play_stats_report/play_stats_report_formatters.dart';
 import 'play_stats_report/play_stats_report_widgets.dart';
@@ -220,7 +221,14 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
         _genreMap = maps.genreMap;
         _countryMap = maps.countryMap;
       });
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load play stats metadata maps',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'play_stats_report_screen',
+      );
+    }
   }
 
   Future<PlayStatsMetadataMaps> _defaultMetadataLoader(
