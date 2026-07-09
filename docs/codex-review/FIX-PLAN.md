@@ -52,15 +52,21 @@
 - A-025：未知后端 kind 不再静默反序列化为飞牛，连接 store 过滤坏记录。
 - B-023：`AsyncActionGuard` 清理 Future 不再把已由调用方处理的失败变成旁路未处理异步错误。
 
+**已修复（2026-07-09，commit `cf41cf4`）**：
+- B-006：下载记录持久化改为串行队列，`persistImmediately` 返回可等待 Future，并避免并发共享同一个 `.tmp` 文件。
+- B-007：下载转码进度轮询增加 per-record in-flight 防重入，避免并发请求和旧结果覆盖。
+- A-008：`recordPlayback()` 校验后端业务 payload，HTTP 200 但 `code != 0` 会进入统一异常路径。
+- H-003 / H-012 / F-035：简介“更多/详情”链接改为 `WidgetSpan + GestureDetector`，不再在 build 中创建需 dispose 的 `TapGestureRecognizer`。
+
 **路由/解析崩溃**：
 - A-001 + F-043：`_buildRoute()` 与副栏 `_buildRouteChild` 对 query JSON 裸 `jsonDecode`+强转——同根因，做一个统一安全解析 helper，两处复用（顺带 F-042/F-044 的错误页文案走 l10n）。**已修复：安全解析已落地；l10n 文案仍留给批次 I。**
 - A-040 / A-044：`MediaInfo`、`PlaybackStreamData.header` 嵌套 JSON 强转 TypeError。**已修复。**
 
 **数据丢失/状态错乱**：
-- B-006 (P0)：下载记录 `persistImmediately` 实为 unawaited + 并发共用同一 `.tmp` 文件——串行化持久化队列。
+- B-006 (P0)：下载记录 `persistImmediately` 实为 unawaited + 并发共用同一 `.tmp` 文件——串行化持久化队列。**已修复。**
 - A-028：保存主题整包 try/catch，一条损坏清空全部——改 item 级隔离 + 备份。
-- B-018：play_stats 数据库并发 open 无去重；B-007：下载转码进度轮询重入。
-- A-008：`recordPlayback` 不校验业务 code，续播位假保存。
+- B-018：play_stats 数据库并发 open 无去重；B-007：下载转码进度轮询重入。**B-007 已修复；B-018 未修。**
+- A-008：`recordPlayback` 不校验业务 code，续播位假保存。**已修复。**
 - A-022：`MediaBackend` 默认收藏/已看实现返回入参 = 假成功——改抛 UnsupportedError + capability 门控。
 - A-025：未知后端 kind 反序列化静默回退飞牛。**已修复。**
 - G-004 / A-031：设置先改内存后落盘、失败无回滚。
@@ -68,7 +74,7 @@
 - B-023：AsyncActionGuard 旁路 Future 把失败变未处理异步错误。**已修复。**
 
 **生命周期/async gap**（模式统一修）：
-- TapGestureRecognizer 在 build 中创建不释放：H-003 / H-012 / F-035（三处同模式，统一改 WidgetSpan+GestureDetector）。
+- TapGestureRecognizer 在 build 中创建不释放：H-003 / H-012 / F-035（三处同模式，统一改 WidgetSpan+GestureDetector）。**已修复。**
 - TextEditingController 泄漏：H-025 / F-039。
 - H-011：图片 errorBuilder post-frame 回调 dispose 后 setState；F-038：await 后 setState 无 mounted；F-030：bottom sheet pop 后继续用弹层 context。
 - G-010：存储页加载无 catch/finally，异常即永久 loading。
