@@ -1,4 +1,3 @@
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -781,10 +780,14 @@ class _EpisodeSummaryLine extends StatelessWidget {
             children: [
               TextSpan(text: fitted, style: normalStyle),
               TextSpan(text: suffixNormal, style: normalStyle),
-              TextSpan(
-                text: detailText,
-                style: detailStyle,
-                recognizer: TapGestureRecognizer()..onTap = onDetailTap,
+              WidgetSpan(
+                alignment: PlaceholderAlignment.baseline,
+                baseline: TextBaseline.alphabetic,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onDetailTap,
+                  child: Text(detailText, style: detailStyle),
+                ),
               ),
             ],
           ),

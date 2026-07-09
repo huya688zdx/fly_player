@@ -1,6 +1,11 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/api/feiniu_api.dart';
 import 'package:fly_player/providers/nas_provider.dart';
+import 'package:fly_player/utils/app_exception.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -101,4 +106,70 @@ void main() {
       },
     );
   });
+
+  group('FeiniuApi playback record', () {
+    test('throws when backend payload reports failure', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      late RequestOptions captured;
+      final adapter = _FakeDioAdapter((options) {
+        captured = options;
+        return ResponseBody.fromString(
+          jsonEncode(<String, Object?>{
+            'code': 500,
+            'message': 'record failed',
+          }),
+          200,
+          headers: <String, List<String>>{
+            Headers.contentTypeHeader: <String>['application/json'],
+          },
+        );
+      });
+
+      final provider = NasProvider();
+      addTearDown(provider.dispose);
+      await provider.updateSettings(
+        baseUrl: 'http://127.0.0.1:5667',
+        userName: 'user',
+        password: 'password',
+        token: 'token',
+      );
+      final api = FeiniuApi(provider, httpClientAdapter: adapter);
+
+      await expectLater(
+        api.recordPlayback(
+          itemGuid: 'item-1',
+          mediaGuid: 'media-1',
+          videoGuid: 'video-1',
+          ts: 10,
+          duration: 100,
+        ),
+        throwsA(
+          isA<AppException>()
+              .having((error) => error.action, 'action', 'playback record')
+              .having((error) => error.code, 'code', 500)
+              .having((error) => error.message, 'message', 'record failed'),
+        ),
+      );
+      expect(captured.method, 'POST');
+      expect(captured.path, '/v/api/v1/play/record');
+    });
+  });
+}
+
+class _FakeDioAdapter implements HttpClientAdapter {
+  _FakeDioAdapter(this.handler);
+
+  final ResponseBody Function(RequestOptions options) handler;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<List<int>>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    return handler(options);
+  }
+
+  @override
+  void close({bool force = false}) {}
 }
