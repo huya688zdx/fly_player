@@ -25,6 +25,7 @@ import '../ui/media_episode_subtitle.dart';
 import '../ui/media_poster_card.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
+import '../utils/swallowed_error_logger.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/library/media_collection_layout_sheet.dart';
 import '../widgets/library/media_library_list_tile.dart';
@@ -141,12 +142,29 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     if (hasAncestor && isFeiniu) {
       try {
         setting = await api.getUserListSetting(widget.category.id);
-      } catch (_) {}
+      } catch (error, stackTrace) {
+        await logSwallowedError(
+          action: 'load category list setting',
+          id: widget.category.id,
+          error: error,
+          stackTrace: stackTrace,
+          source: 'category_items_screen',
+        );
+      }
     }
     var schema = const MediaCatalogFilterSchema();
     try {
       schema = await backend.getCatalogFilterSchema(widget.category.id);
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load category filter schema',
+        id: widget.category.id,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'category_items_screen',
+        details: 'backend=${backend.capabilities.kind.name}',
+      );
+    }
 
     if (!mounted) return;
     setState(() {
@@ -312,7 +330,15 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
       initialDetail = await FeiniuApi(
         context.read<NasProvider>(),
       ).getItemDetail(item.id).timeout(const Duration(milliseconds: 240));
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'prefetch category item detail',
+        id: item.id,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'category_items_screen',
+      );
+    }
     if (!mounted) return;
     await AdaptiveDetailNavigator.open<void>(
       context,

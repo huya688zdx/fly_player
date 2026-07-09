@@ -39,6 +39,7 @@ import '../utils/app_exception.dart';
 import '../utils/detail_top_tip.dart';
 import '../utils/imdb_launcher.dart';
 import '../utils/play_detail_formatters.dart';
+import '../utils/swallowed_error_logger.dart';
 import '../utils/tv_hero_adaptive.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/detail/credits_section.dart';
@@ -462,10 +463,20 @@ class _TvDetailPageState extends State<TvDetailPage>
   }
 
   // 出错时返回 null，让调用方决定是否跳过该段（区别于"成功但为空"）。
-  Future<T?> _guardSection<T>(Future<T> Function() task) async {
+  Future<T?> _guardSection<T>(
+    Future<T> Function() task, {
+    required String action,
+  }) async {
     try {
       return await task();
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: action,
+        id: widget.itemGuid,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'tv_detail_page',
+      );
       return null;
     }
   }
@@ -480,15 +491,19 @@ class _TvDetailPageState extends State<TvDetailPage>
     // 性合并为单次 setState。
     final seasonItemsFuture = _guardSection<List<MediaLibraryItem>>(
       () => _loadSeasonItems(api, widget.itemGuid),
+      action: 'load tv season items',
     );
     final genresFuture = _guardSection<Map<int, String>>(
       () => api.getTagGenresMap(lan: 'zh-CN'),
+      action: 'load tv genre dictionary',
     );
     final locateFuture = _guardSection<Map<String, String>>(
       () => api.getTagIso3166Map(lan: 'zh-CN'),
+      action: 'load tv region dictionary',
     );
     final playInfoFuture = _guardSection<PlayInfoData?>(
       () => _loadPlayInfoOrNull(api, widget.itemGuid),
+      action: 'load tv play info',
     );
 
     final seasonItems = await seasonItemsFuture;

@@ -27,6 +27,7 @@ import '../models/stream_track_data.dart';
 import '../providers/nas_provider.dart';
 import '../utils/app_exception.dart';
 import '../utils/api_url_helper.dart';
+import '../utils/swallowed_error_logger.dart';
 import 'app_log_service.dart';
 import 'storage_access_service.dart';
 import 'storage_management_service.dart';
@@ -1384,7 +1385,15 @@ class DownloadTaskService extends ChangeNotifier {
     CachedMediaDownloadability downloadability;
     try {
       downloadability = await storageService.canPromoteCachedMedia(identity);
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'check cached media promotability',
+        id: itemGuid,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'download_task_service',
+        details: 'mediaGuid=$mediaGuid | videoGuid=$videoGuid',
+      );
       return null;
     }
     if (!downloadability.found || !downloadability.downloadable) {
@@ -1397,7 +1406,15 @@ class DownloadTaskService extends ChangeNotifier {
         identity,
         targetMode: 'appExternalMovies',
       );
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'promote cached media',
+        id: itemGuid,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'download_task_service',
+        details: 'mediaGuid=$mediaGuid | videoGuid=$videoGuid',
+      );
       return null;
     }
     if (!promoteResult.success || promoteResult.path.trim().isEmpty) {
