@@ -617,10 +617,10 @@ class _ProviderGate extends StatelessWidget {
         body: const Center(child: CircularProgressIndicator()),
       );
     }
-    // 飞牛已配置，或当前后端会话为 Emby 且已认证，均可进入主导航；否则回登录页。
-    final embyReady =
-        session.currentKind == MediaBackendKind.emby && session.isConfigured;
-    if (requireConfigured && !provider.isConfigured && !embyReady) {
+    // 飞牛已配置，或当前后端会话为服务器族且已认证，均可进入主导航；否则回登录页。
+    final serverFamilyReady =
+        session.currentKind.isServerFamily && session.isConfigured;
+    if (requireConfigured && !provider.isConfigured && !serverFamilyReady) {
       return const ConnectionScreen();
     }
     return child;
