@@ -57,6 +57,7 @@ import '../utils/app_exception.dart';
 import '../utils/detail_layout_solver.dart';
 import '../utils/detail_top_tip.dart';
 import '../utils/imdb_launcher.dart';
+import '../utils/local_subtitle_bundle.dart';
 import '../utils/media_language_mapper.dart';
 import '../utils/player_artwork_path_resolver.dart';
 import '../utils/playback_resume_position_resolver.dart';
@@ -123,6 +124,8 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   final DownloadTaskService _downloadTaskService = DownloadTaskService.instance;
   // 当前 item 已下载记录的签名，用于在下载任务变化时跳过无关的全页重建（P7）。
   String? _downloadedRecordSignatureForCurrentItem;
+  StreamFileInfo? _localDownloadedFileInfoSnapshot;
+  int _localDownloadedFileInfoRequestId = 0;
   static const Duration _favoriteTapCooldown = Duration(milliseconds: 900);
   static const Duration _watchedTapCooldown = Duration(milliseconds: 900);
 
@@ -419,6 +422,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     if (signature == _downloadedRecordSignatureForCurrentItem) return;
     _downloadedRecordSignatureForCurrentItem = signature;
     setState(() {});
+    unawaited(_refreshLocalDownloadedFileInfo(record));
   }
 
   DownloadTaskRecord? _downloadedRecordForCurrentItem() {
@@ -428,31 +432,49 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     );
   }
 
-  StreamFileInfo? _localDownloadedFileInfo(DownloadTaskRecord? record) {
-    if (record == null) return null;
-    final path = record.filePath.trim();
-    if (path.isEmpty) return null;
-    final file = File(path);
-    if (!file.existsSync()) return null;
-    try {
-      final stat = file.statSync();
-      final modifiedAt = stat.modified.millisecondsSinceEpoch;
-      return StreamFileInfo(
-        mediaGuid: record.mediaGuid,
-        path: path,
-        fileName: record.fileName.trim().isEmpty
-            ? file.uri.pathSegments.isEmpty
-                  ? ''
-                  : file.uri.pathSegments.last
-            : record.fileName.trim(),
-        size: stat.size,
-        fileBirthTime: record.createdAtMs > 0 ? record.createdAtMs : modifiedAt,
-        createTime: record.createdAtMs > 0 ? record.createdAtMs : modifiedAt,
-        updateTime: record.updatedAtMs > 0 ? record.updatedAtMs : modifiedAt,
-      );
-    } catch (_) {
-      return null;
+  Future<void> _refreshLocalDownloadedFileInfo(
+    DownloadTaskRecord? record,
+  ) async {
+    final requestId = ++_localDownloadedFileInfoRequestId;
+    if (record == null) {
+      if (!mounted) return;
+      setState(() => _localDownloadedFileInfoSnapshot = null);
+      return;
     }
+    final path = record.filePath.trim();
+    if (path.isEmpty) {
+      if (!mounted || requestId != _localDownloadedFileInfoRequestId) return;
+      setState(() => _localDownloadedFileInfoSnapshot = null);
+      return;
+    }
+
+    StreamFileInfo? info;
+    final file = File(path);
+    try {
+      if (await file.exists()) {
+        final stat = await file.stat();
+        final modifiedAt = stat.modified.millisecondsSinceEpoch;
+        info = StreamFileInfo(
+          mediaGuid: record.mediaGuid,
+          path: path,
+          fileName: record.fileName.trim().isEmpty
+              ? file.uri.pathSegments.isEmpty
+                    ? ''
+                    : file.uri.pathSegments.last
+              : record.fileName.trim(),
+          size: stat.size,
+          fileBirthTime: record.createdAtMs > 0
+              ? record.createdAtMs
+              : modifiedAt,
+          createTime: record.createdAtMs > 0 ? record.createdAtMs : modifiedAt,
+          updateTime: record.updatedAtMs > 0 ? record.updatedAtMs : modifiedAt,
+        );
+      }
+    } catch (_) {
+      info = null;
+    }
+    if (!mounted || requestId != _localDownloadedFileInfoRequestId) return;
+    setState(() => _localDownloadedFileInfoSnapshot = info);
   }
 
   int _asInt(dynamic value) => int.tryParse('$value') ?? 0;
@@ -1243,6 +1265,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     _headerFadeController.reset();
     _actionsPopController.reset();
     _descriptionPopController.reset();
+    _downloadedRecordSignatureForCurrentItem = null;
+    _localDownloadedFileInfoSnapshot = null;
+    _localDownloadedFileInfoRequestId++;
     setState(() {
       _loading = true;
       _error = null;
@@ -1326,6 +1351,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           _creditsVisible = true;
           _loading = false;
         });
+        _handleDownloadTasksChanged();
         _headerFadeController.forward(from: 0);
         _actionsPopController.forward(from: 0);
         _descriptionPopController.forward(from: 0);
@@ -1361,6 +1387,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         _rebuildDetail();
         _loading = false;
       });
+      _handleDownloadTasksChanged();
       _startEntryAnimations();
 
       // Phase 2: load track-related data while header fade is running.
@@ -2049,6 +2076,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       const <PlaybackQualityOption>[],
       _streamTrackData,
     );
+    final localSubtitleBundle = await discoverLocalSubtitleBundleAsync(
+      mediaGuid: resolvedMediaGuid,
+      videoFilePath: record.filePath,
+    );
     final source = MpvMediaSource.localFile(
       filePath: record.filePath,
       itemGuid: _currentItemGuid,
@@ -2076,6 +2107,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       subtitleTrackGuid: _selectedSubtitleGuid?.trim().isNotEmpty == true
           ? _selectedSubtitleGuid
           : data.subtitleGuid,
+      localSubtitleBundle: localSubtitleBundle,
       resolution: record.resolution,
       bitrate: 0,
       durationSeconds: effectiveDuration,
@@ -3068,10 +3100,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           );
 
           final currentMediaGuid = _currentStreamOption()?.mediaGuid ?? '';
-          final localDownloadRecord = _downloadedRecordForCurrentItem();
-          final localDownloadedFile = _localDownloadedFileInfo(
-            localDownloadRecord,
-          );
+          final localDownloadedFile = _localDownloadedFileInfoSnapshot;
           final currentFile =
               localDownloadedFile ??
               ((currentMediaGuid.isNotEmpty)

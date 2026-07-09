@@ -20,6 +20,7 @@ import '../theme/app_theme.dart';
 import '../ui/app_motion.dart';
 import '../ui/player_pane_host_scope.dart';
 import '../utils/back_dismiss_manager.dart';
+import '../utils/local_subtitle_bundle.dart';
 import '../utils/playback_resume_position_resolver.dart';
 import 'connection_screen.dart';
 import 'detail_host_screen.dart';
@@ -180,6 +181,10 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
       durationSeconds: fallbackSource.durationSeconds,
       networkPositionAvailable: false,
     );
+    final localSubtitleBundle = await discoverLocalSubtitleBundleAsync(
+      mediaGuid: mediaGuid,
+      videoFilePath: record.filePath,
+    );
     return MpvMediaSource.localFile(
       filePath: record.filePath,
       itemGuid: record.itemGuid,
@@ -204,6 +209,7 @@ class _PlayerHostScreenState extends State<PlayerHostScreen>
       subtitleTrackIndex: fallbackSource.subtitleTrackIndex,
       audioTrackGuid: fallbackSource.audioTrackGuid,
       subtitleTrackGuid: fallbackSource.subtitleTrackGuid,
+      localSubtitleBundle: localSubtitleBundle,
       resolution: record.resolution,
       bitrate: fallbackSource.bitrate,
       durationSeconds: resume.effectiveDurationSeconds,
