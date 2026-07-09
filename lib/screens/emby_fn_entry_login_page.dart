@@ -97,7 +97,13 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
               setState(() => _statusText = error.description);
             }
           },
-          onSslAuthError: (error) => error.proceed(),
+          onSslAuthError: (error) {
+            unawaited(error.cancel());
+            if (!mounted || _isClosing) return;
+            setState(() {
+              _statusText = 'SSL 证书错误：${error.platform.description}';
+            });
+          },
         ),
       );
       await _controller.loadRequest(Uri.parse(widget.serverUrl));

@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/detail_runtime_cache.dart';
 import '../services/play_stats/play_stats.dart';
 import '../services/playback_progress_offline_queue.dart';
+import '../services/secure_credential_store.dart';
 import '../services/session_exit_bridge.dart';
 import '../theme/dynamic_theme_seed_extractor.dart';
 
@@ -15,6 +16,8 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     'fly_player/session_state',
   );
   static const String _playStatsOwnerKeyPref = 'play_stats_owner_key';
+  static const String _passwordCredentialKey = 'nas_session.password';
+  static const String _tokenCredentialKey = 'nas_session.token';
   static _NasProviderBootstrapSnapshot? _bootstrapSnapshot;
 
   String _baseUrl = '';
@@ -24,6 +27,7 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
   String _token = '';
   bool _rememberPassword = true;
   bool _isReady = false;
+  bool _disposed = false;
 
   String get baseUrl =>
       _resolvedBaseUrl.isNotEmpty ? _resolvedBaseUrl : _baseUrl;
@@ -55,6 +59,7 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _disposed = true;
     WidgetsBinding.instance.removeObserver(this);
     _sessionStateChannel.setMethodCallHandler(null);
     super.dispose();
@@ -79,6 +84,7 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _loadSettings() async {
+    if (_disposed) return;
     final prefs = await SharedPreferences.getInstance();
     // 跨 isolate 同步登录态：分屏副栏是独立 Flutter 引擎(独立 isolate)，其
     // SharedPreferences 在首次读取后会内存缓存。若副栏引擎在主引擎登录“之前”就被
@@ -86,11 +92,29 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     // 缓存与磁盘 XML，副栏 isolate 不会自动感知 → 分屏唤起时仍判未登录、落到登录页。
     // 故每次加载先 reload() 从磁盘重读，确保副栏被 resume 时拿到主引擎写入的最新会话。
     await prefs.reload();
+    if (_disposed) return;
     final nextBaseUrl = prefs.getString('base_url') ?? '';
     var nextResolvedBaseUrl = prefs.getString('resolved_base_url') ?? '';
     final nextUserName = prefs.getString('user_name') ?? '';
-    final nextPassword = prefs.getString('password') ?? '';
-    final nextToken = prefs.getString('token') ?? '';
+    final legacyPassword = prefs.getString('password') ?? '';
+    final legacyToken = prefs.getString('token') ?? '';
+    final nextPassword = await _restoreCredential(
+      _passwordCredentialKey,
+      legacyValue: legacyPassword,
+      shouldKeep: prefs.getBool('remember_password') ?? true,
+    );
+    final nextToken = await _restoreCredential(
+      _tokenCredentialKey,
+      legacyValue: legacyToken,
+      shouldKeep: legacyToken.isNotEmpty,
+    );
+    if (legacyPassword.isNotEmpty) {
+      await prefs.remove('password');
+    }
+    if (legacyToken.isNotEmpty) {
+      await prefs.remove('token');
+    }
+    if (_disposed) return;
     if (nextToken.isEmpty && nextResolvedBaseUrl.isNotEmpty) {
       nextResolvedBaseUrl = '';
       await prefs.remove('resolved_base_url');
@@ -112,6 +136,7 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     _token = nextToken;
     _rememberPassword = nextRememberPassword;
     await _syncPlayStatsOwner(prefs);
+    if (_disposed) return;
     _isReady = true;
     _cacheBootstrapSnapshot();
     if (changed) {
@@ -143,9 +168,11 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     await prefs.setString('base_url', _baseUrl);
     await prefs.setString('resolved_base_url', _resolvedBaseUrl);
     await prefs.setString('user_name', _userName);
-    await prefs.setString('password', _password);
     await prefs.setBool('remember_password', _rememberPassword);
-    await prefs.setString('token', _token);
+    await _writeOrDelete(_passwordCredentialKey, _password);
+    await _writeOrDelete(_tokenCredentialKey, _token);
+    await prefs.remove('password');
+    await prefs.remove('token');
     await _syncPlayStatsOwner(prefs);
 
     _cacheBootstrapSnapshot();
@@ -155,7 +182,8 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> updateToken(String token) async {
     final prefs = await SharedPreferences.getInstance();
     _token = token;
-    await prefs.setString('token', _token);
+    await _writeOrDelete(_tokenCredentialKey, _token);
+    await prefs.remove('token');
     _cacheBootstrapSnapshot();
     notifyListeners();
   }
@@ -164,6 +192,7 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     final prefs = await SharedPreferences.getInstance();
     _token = '';
     _resolvedBaseUrl = '';
+    await SecureCredentialStore.delete(_tokenCredentialKey);
     await prefs.remove('token');
     await prefs.remove('resolved_base_url');
     await _syncPlayStatsOwner(prefs);
@@ -213,6 +242,32 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
       return '';
     }
     return '$normalizedBaseUrl|$normalizedUserName';
+  }
+
+  Future<String> _restoreCredential(
+    String key, {
+    required String legacyValue,
+    required bool shouldKeep,
+  }) async {
+    if (!shouldKeep) {
+      await SecureCredentialStore.delete(key);
+      return '';
+    }
+    final stored = await SecureCredentialStore.read(key);
+    if (stored.isNotEmpty) return stored;
+    if (legacyValue.isNotEmpty) {
+      await SecureCredentialStore.write(key, legacyValue);
+      return legacyValue;
+    }
+    return '';
+  }
+
+  Future<void> _writeOrDelete(String key, String value) async {
+    if (value.isEmpty) {
+      await SecureCredentialStore.delete(key);
+    } else {
+      await SecureCredentialStore.write(key, value);
+    }
   }
 }
 
