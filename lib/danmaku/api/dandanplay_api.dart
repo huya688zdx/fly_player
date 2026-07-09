@@ -244,6 +244,8 @@ class DanDanPlayApi {
       if (decoded is! Map) return;
       final payload = Map<String, dynamic>.from(decoded);
       _throwIfBusinessError(payload);
+    } on DanDanPlayApiException {
+      rethrow;
     } catch (_) {
       return;
     }

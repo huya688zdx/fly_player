@@ -26,6 +26,7 @@ import '../ui/media_detail_components.dart';
 import '../utils/async_action_guard.dart';
 import '../utils/app_top_tip.dart';
 import '../utils/download_record_localizer.dart';
+import '../utils/swallowed_error_logger.dart';
 
 enum DownloadListTab { downloaded, downloading }
 
@@ -1778,10 +1779,31 @@ class _DownloadRecordRow extends StatelessWidget {
     final statusColor = isPaused
         ? colors.textMuted
         : (isTranscoding ? colors.warning : colors.selectionStrong);
+    void showActionFailed() {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.commonOperationFailedRetryLater)),
+      );
+    }
+
     void handlePause() {
       final provider = Provider.of<NasProvider>(context, listen: false);
       debugPrint('[DL] UI handlePause id=${record.id}');
-      DownloadTaskService.instance.pauseDownload(provider, record.id);
+      unawaited(
+        DownloadTaskService.instance
+            .pauseDownload(provider, record.id)
+            .catchError((Object error, StackTrace stackTrace) {
+              unawaited(
+                logSwallowedError(
+                  action: 'pause download',
+                  id: record.id,
+                  error: error,
+                  stackTrace: stackTrace,
+                  source: 'download_list_screen',
+                ),
+              );
+              showActionFailed();
+            }),
+      );
     }
 
     void handleResume() {
@@ -1789,7 +1811,22 @@ class _DownloadRecordRow extends StatelessWidget {
       debugPrint(
         '[DL] UI handleResume id=${record.id} status=${record.status.storageValue}',
       );
-      DownloadTaskService.instance.resumeDownload(provider, record.id);
+      unawaited(
+        DownloadTaskService.instance
+            .resumeDownload(provider, record.id)
+            .catchError((Object error, StackTrace stackTrace) {
+              unawaited(
+                logSwallowedError(
+                  action: 'resume download',
+                  id: record.id,
+                  error: error,
+                  stackTrace: stackTrace,
+                  source: 'download_list_screen',
+                ),
+              );
+              showActionFailed();
+            }),
+      );
     }
 
     void handleDelete() {
@@ -1871,8 +1908,22 @@ class _DownloadRecordRow extends StatelessWidget {
         },
       ).then((confirmed) {
         if (confirmed == true) {
-          DownloadTaskService.instance.clearActiveDownloadRecords(
-            recordIds: <String>[record.id],
+          unawaited(
+            DownloadTaskService.instance
+                .clearActiveDownloadRecords(recordIds: <String>[record.id])
+                .catchError((Object error, StackTrace stackTrace) {
+                  unawaited(
+                    logSwallowedError(
+                      action: 'cancel download',
+                      id: record.id,
+                      error: error,
+                      stackTrace: stackTrace,
+                      source: 'download_list_screen',
+                    ),
+                  );
+                  showActionFailed();
+                  return 0;
+                }),
           );
         }
       });

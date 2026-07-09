@@ -12,6 +12,7 @@ import '../theme/app_theme.dart';
 import '../theme/dynamic_theme_mapper.dart';
 import '../theme/dynamic_theme_seed_extractor.dart';
 import '../theme/glass_quality.dart';
+import '../utils/swallowed_error_logger.dart';
 
 class AppThemeProvider extends ChangeNotifier {
   static const String _presetKey = 'app_theme_preset';
@@ -136,8 +137,13 @@ class AppThemeProvider extends ChangeNotifier {
       // true there).
       _prefsSharedAcrossEngines = context.parallelEngineActive;
       _hostRoleResolved = true;
-    } catch (_) {
-      // Leave the previous value; default false means "skip reload".
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'refresh theme prefs sharing mode',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'app_theme_provider',
+      );
     }
   }
 

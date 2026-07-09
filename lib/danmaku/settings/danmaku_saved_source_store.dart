@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart' show getDatabasesPath;
 
 import '../models/danmaku_saved_source.dart';
+import '../../utils/swallowed_error_logger.dart';
 
 class DanmakuSavedSourceStore {
   // 旧版本把保存源(实测 70KB)塞进 SharedPreferences → 每次 getInstance/reload 都解码
@@ -211,7 +212,14 @@ class DanmakuSavedSourceStore {
     try {
       final file = await _file();
       if (await file.exists()) await file.delete();
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'clear saved danmaku sources',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'danmaku_saved_source_store',
+      );
+    }
     unawaited(_purgeLegacyPref());
     _notifyChanged();
   }
@@ -232,18 +240,28 @@ class DanmakuSavedSourceStore {
   };
 
   Future<Map<String, dynamic>> _loadPayload() async {
-    final raw = await _readRaw();
-    if (raw == null || raw.trim().isEmpty) return _emptyPayload();
-    final decoded = jsonDecode(raw);
-    if (decoded is! Map) return _emptyPayload();
-    return Map<String, dynamic>.from(decoded);
+    try {
+      final raw = await _readRaw();
+      if (raw == null || raw.trim().isEmpty) return _emptyPayload();
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return _emptyPayload();
+      return Map<String, dynamic>.from(decoded);
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load saved danmaku sources',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'danmaku_saved_source_store',
+      );
+      return _emptyPayload();
+    }
   }
 
   /// 优先读文件；文件不存在则从旧 SharedPreferences 迁移一次并删除该 prefs 大 blob。
   Future<String?> _readRaw() async {
-    final file = await _file();
-    if (await file.exists()) return file.readAsString();
     try {
+      final file = await _file();
+      if (await file.exists()) return file.readAsString();
       final prefs = await SharedPreferences.getInstance();
       final legacy = prefs.getString(_prefKey);
       if (legacy != null && legacy.trim().isNotEmpty) {
@@ -251,7 +269,13 @@ class DanmakuSavedSourceStore {
       }
       if (prefs.containsKey(_prefKey)) await prefs.remove(_prefKey);
       return legacy;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'read saved danmaku source payload',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'danmaku_saved_source_store',
+      );
       return null;
     }
   }
@@ -267,7 +291,14 @@ class DanmakuSavedSourceStore {
     try {
       final prefs = await SharedPreferences.getInstance();
       if (prefs.containsKey(_prefKey)) await prefs.remove(_prefKey);
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'purge legacy danmaku source prefs',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'danmaku_saved_source_store',
+      );
+    }
   }
 
   void _notifyChanged() {

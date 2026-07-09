@@ -10,6 +10,7 @@ import 'package:palette_generator/palette_generator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../utils/nas_image_headers.dart';
+import '../utils/swallowed_error_logger.dart';
 
 class _ScoredSwatch {
   final Color color;
@@ -290,7 +291,14 @@ class DynamicThemeSeedExtractor {
         linkSeed: _linkSeedForHsl(HSLColor.fromColor(linkSource)),
         preferLightSurface: preferLightSurface,
       );
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'extract dynamic theme seed',
+        id: normalizeImageIdentity(imageUrl),
+        error: error,
+        stackTrace: stackTrace,
+        source: 'dynamic_theme_seed_extractor',
+      );
       return null;
     }
   }

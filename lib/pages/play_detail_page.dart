@@ -64,6 +64,7 @@ import '../utils/playback_resume_position_resolver.dart';
 import '../utils/player_title_formatter.dart';
 import '../utils/play_detail_formatters.dart';
 import '../utils/play_detail_track_selector.dart';
+import '../utils/swallowed_error_logger.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/common/track_option_sheet.dart';
 import '../widgets/detail/credits_section.dart';
@@ -470,7 +471,14 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           updateTime: record.updatedAtMs > 0 ? record.updatedAtMs : modifiedAt,
         );
       }
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'refresh local downloaded file info',
+        id: record.itemGuid,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'play_detail_page',
+      );
       info = null;
     }
     if (!mounted || requestId != _localDownloadedFileInfoRequestId) return;
@@ -1315,7 +1323,15 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         var versions = const <MediaSourceVersion>[];
         try {
           versions = await backend.getItemSourceVersions(_currentItemGuid);
-        } catch (_) {
+        } catch (error, stackTrace) {
+          await logSwallowedError(
+            action: 'load neutral source versions',
+            id: _currentItemGuid,
+            error: error,
+            stackTrace: stackTrace,
+            source: 'play_detail_page',
+            details: 'backend=${backend.capabilities.kind.name}',
+          );
           versions = const <MediaSourceVersion>[];
         }
         if (!mounted) return;
@@ -1542,7 +1558,18 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     try {
       final people = await _loadPersonCredits(api, _currentItemGuid)
           .then<List<PersonCredit>>((v) => v)
-          .catchError((_) => const <PersonCredit>[]);
+          .catchError((Object error, StackTrace stackTrace) {
+            unawaited(
+              logSwallowedError(
+                action: 'load play detail credits',
+                id: _currentItemGuid,
+                error: error,
+                stackTrace: stackTrace,
+                source: 'play_detail_page',
+              ),
+            );
+            return const <PersonCredit>[];
+          });
       if (!mounted) return;
       if (_playerRouteActive) {
         _deferredSectionLoadStarted = false;
@@ -1553,7 +1580,15 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         _creditsVisible = people.isNotEmpty;
         _rebuildDetail();
       });
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'apply play detail credits',
+        id: _currentItemGuid,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'play_detail_page',
+      );
+    }
 
     await Future<void>.delayed(_deferredSectionStepDelay);
     if (!mounted) return;
@@ -1570,14 +1605,33 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       final dirs = await api
           .getAppAuthorizedDirs()
           .then<List<AuthorizedDirEntry>>((value) => value)
-          .catchError((_) => const <AuthorizedDirEntry>[]);
+          .catchError((Object error, StackTrace stackTrace) {
+            unawaited(
+              logSwallowedError(
+                action: 'load app authorized directories',
+                id: _currentItemGuid,
+                error: error,
+                stackTrace: stackTrace,
+                source: 'play_detail_page',
+              ),
+            );
+            return const <AuthorizedDirEntry>[];
+          });
       if (!mounted) return;
       if (_playerRouteActive) {
         _deferredSectionLoadStarted = false;
         return;
       }
       setState(() => _authorizedDirs = dirs);
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'apply play detail authorized directories',
+        id: _currentItemGuid,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'play_detail_page',
+      );
+    }
 
     await Future<void>.delayed(_deferredSectionStepDelay);
     if (!mounted) return;
@@ -1616,7 +1670,15 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         _trimId = trimId;
         _linkVisible = _imdbId.trim().isNotEmpty || _trimId.trim().isNotEmpty;
       });
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load play detail external links',
+        id: _currentItemGuid,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'play_detail_page',
+      );
+    }
   }
 
   Future<PlayInfoData> _loadPlayInfo(FeiniuApi api, String itemGuid) {
@@ -2175,7 +2237,15 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                 nas,
                 seasonGuid,
               );
-            } catch (_) {}
+            } catch (error, stackTrace) {
+              await logSwallowedError(
+                action: 'prefetch native season episodes',
+                id: seasonGuid,
+                error: error,
+                stackTrace: stackTrace,
+                source: 'play_detail_page',
+              );
+            }
           }
           // 弹幕预取(danmakuSettings 已在外层加载)。
           String? danmakuFile;

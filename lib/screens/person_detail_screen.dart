@@ -33,6 +33,7 @@ import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
 import '../utils/imdb_launcher.dart';
 import '../utils/nas_image_headers.dart';
+import '../utils/swallowed_error_logger.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/detail/detail_header.dart';
 import '../widgets/detail/detail_more_actions_sheet.dart';
@@ -307,7 +308,15 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
         _jobPages[job] = page;
       });
       return true;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load person job page',
+        id: widget.personGuid,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'person_detail_screen',
+        details: 'job=$job',
+      );
       if (!mounted || loadVersion != _jobLoadVersion) return false;
       setState(() {
         _jobPages[job] = const ItemListPage(
@@ -359,8 +368,14 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
           isFavorite: state,
         );
       });
-    } catch (_) {
-      // Ignore favorite failure to keep UX smooth.
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'toggle person favorite',
+        id: person.guid,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'person_detail_screen',
+      );
     } finally {
       if (mounted) {
         setState(() => _favoriteUpdating = false);
@@ -503,7 +518,15 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
       initialDetail = await FeiniuApi(
         provider,
       ).getItemDetail(item.guid).timeout(const Duration(milliseconds: 240));
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'prefetch person item detail',
+        id: item.guid,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'person_detail_screen',
+      );
+    }
     if (!mounted) return;
     AdaptiveDetailNavigator.open<void>(
       context,

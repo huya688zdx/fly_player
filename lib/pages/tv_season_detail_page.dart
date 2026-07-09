@@ -43,6 +43,7 @@ import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
 import '../utils/detail_top_tip.dart';
 import '../utils/imdb_launcher.dart';
+import '../utils/swallowed_error_logger.dart';
 import '../utils/tv_hero_adaptive.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/detail/credits_section.dart';
@@ -677,7 +678,14 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
           key: guid,
           loader: () => api.getPlayInfo(guid),
         );
-      } catch (_) {
+      } catch (error, stackTrace) {
+        await logSwallowedError(
+          action: 'load season play info',
+          id: guid,
+          error: error,
+          stackTrace: stackTrace,
+          source: 'tv_season_detail_page',
+        );
         return null;
       }
     }();
@@ -1019,7 +1027,15 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         seasons = await backend.getItemSeasons(widget.parentGuid);
         seasons = List<MediaSeasonSummary>.of(seasons)
           ..sort((a, b) => a.seasonNumber.compareTo(b.seasonNumber));
-      } catch (_) {
+      } catch (error, stackTrace) {
+        await logSwallowedError(
+          action: 'load neutral season list',
+          id: widget.parentGuid,
+          error: error,
+          stackTrace: stackTrace,
+          source: 'tv_season_detail_page',
+          details: 'backend=${backend.capabilities.kind.name}',
+        );
         seasons = const <MediaSeasonSummary>[];
       }
       final target = seasons.any((s) => s.id == requestedGuid)
@@ -1039,11 +1055,28 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
           seriesFavorite = seriesDetail.favorite;
           seriesRating = seriesDetail.rating;
         }
-      } catch (_) {}
+      } catch (error, stackTrace) {
+        await logSwallowedError(
+          action: 'load neutral series detail fallback',
+          id: widget.parentGuid,
+          error: error,
+          stackTrace: stackTrace,
+          source: 'tv_season_detail_page',
+          details: 'seasonGuid=$target',
+        );
+      }
       List<MediaEpisodeSummary> episodes;
       try {
         episodes = await backend.getSeasonEpisodes(target);
-      } catch (_) {
+      } catch (error, stackTrace) {
+        await logSwallowedError(
+          action: 'load neutral season episodes',
+          id: target,
+          error: error,
+          stackTrace: stackTrace,
+          source: 'tv_season_detail_page',
+          details: 'backend=${backend.capabilities.kind.name}',
+        );
         episodes = const <MediaEpisodeSummary>[];
       }
       if (!mounted || seq != _seasonLoadSeq) return;
@@ -1200,7 +1233,15 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         _selectedEpisodeGuid = target.id;
         _episodeRangeIndex = _neutralRangeIndexFor(episodes, target.id);
       });
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'resolve neutral next episode',
+        id: seasonGuid,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'tv_season_detail_page',
+      );
+    }
   }
 
   int _neutralRangeIndexFor(
@@ -1319,7 +1360,14 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
             .read<MediaBackendProvider>()
             .backend
             .getSeasonEpisodes(seasonGuid);
-      } catch (_) {
+      } catch (error, stackTrace) {
+        await logSwallowedError(
+          action: 'load neutral picker episodes',
+          id: seasonGuid,
+          error: error,
+          stackTrace: stackTrace,
+          source: 'tv_season_detail_page',
+        );
         episodes = const <MediaEpisodeSummary>[];
       }
     }
@@ -1439,8 +1487,14 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
       final state = await backend.setItemFavorite(seriesId, favorite: target);
       if (!mounted) return;
       setState(() => _neutralSeriesFavorite = state);
-    } catch (_) {
-      // 收藏失败静默(与人物详情一致)。
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'toggle neutral series favorite',
+        id: seriesId,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'tv_season_detail_page',
+      );
     } finally {
       if (mounted) setState(() => _seriesFavoriteUpdating = false);
     }
@@ -2037,7 +2091,14 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         _artworkReady = _descriptionVisible;
       });
       unawaited(_prefetchDownloadData(episodes, selectedEpisodeGuid));
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'resolve feiniu episode items',
+        id: seasonGuid,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'tv_season_detail_page',
+      );
       if (!mounted ||
           seq != _seasonLoadSeq ||
           seasonGuid != _selectedSeasonGuid) {
@@ -2075,7 +2136,14 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         _personCredits = people;
         _creditsVisible = people.isNotEmpty;
       });
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load feiniu season credits',
+        id: seasonGuid,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'tv_season_detail_page',
+      );
       if (!mounted ||
           seq != _seasonLoadSeq ||
           seasonGuid != _selectedSeasonGuid) {
@@ -2148,7 +2216,16 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         );
       });
       unawaited(_refreshAfterPlayback(nextEpisodeGuid));
-    } catch (_) {
+    } catch (error, stackTrace) {
+      unawaited(
+        logSwallowedError(
+          action: 'launch feiniu episode playback',
+          id: episodeGuid,
+          error: error,
+          stackTrace: stackTrace,
+          source: 'tv_season_detail_page',
+        ),
+      );
       _showTopTip(
         AppLocalizations.of(context).detailPlayInfoFailed,
         context.appColors.danger,
@@ -2218,7 +2295,16 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         _selectedEpisodeGuid = nextEpisodeGuid;
         if (idx >= 0) _episodeRangeIndex = idx ~/ _episodePageSize;
       });
-    } catch (_) {
+    } catch (error, stackTrace) {
+      unawaited(
+        logSwallowedError(
+          action: 'launch neutral episode playback',
+          id: episodeGuid,
+          error: error,
+          stackTrace: stackTrace,
+          source: 'tv_season_detail_page',
+        ),
+      );
       if (mounted) {
         _showTopTip(
           AppLocalizations.of(context).detailPlayInfoFailed,
@@ -2375,7 +2461,16 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
             : AppLocalizations.of(context).actionMarkedAsUnwatched,
         watched ? const Color(0xFF19A35B) : const Color(0xFF3B4A5E),
       );
-    } catch (_) {
+    } catch (error, stackTrace) {
+      unawaited(
+        logSwallowedError(
+          action: 'toggle feiniu season watched',
+          id: season.guid,
+          error: error,
+          stackTrace: stackTrace,
+          source: 'tv_season_detail_page',
+        ),
+      );
       _showTopTip(
         _watched
             ? AppLocalizations.of(context).detailMarkUnwatchedFailed
@@ -2578,7 +2673,15 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
           selectedEpisodeGuid,
         );
       });
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'refresh season after playback',
+        id: episodeGuid,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'tv_season_detail_page',
+      );
+    }
   }
 
   Future<void> _openEpisodeDetail(MediaLibraryItem episode) async {
@@ -2591,7 +2694,15 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
       if (hydrated.isNotEmpty) {
         initialDetail = hydrated;
       }
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'prefetch episode detail',
+        id: episode.guid,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'tv_season_detail_page',
+      );
+    }
     if (!mounted) return;
     _primeEpisodeThemeSeed(episode, initialDetail);
     await AdaptiveDetailNavigator.open<void>(
