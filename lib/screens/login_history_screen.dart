@@ -4,6 +4,7 @@ import '../l10n/generated/app_localizations.dart';
 import '../media_backend/media_backend_kind.dart';
 import '../media_backend/media_backend_registry.dart';
 import '../services/login_history_store.dart';
+import '../utils/app_confirm_dialog.dart';
 
 /// 统一的登录历史页面：飞牛与 Emby 历史共用一个列表，每行用后端 logo 区分。
 ///
@@ -21,6 +22,15 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
   late List<LoginHistoryEntry> _entries = List.of(widget.entries);
 
   Future<void> _delete(LoginHistoryEntry entry) async {
+    final l10n = AppLocalizations.of(context);
+    final confirmed = await showAppConfirmDialog(
+      context,
+      title: l10n.connectionDeleteHistoryConfirmTitle,
+      content: l10n.connectionDeleteHistoryConfirmContent,
+      cancelText: l10n.commonCancel,
+      confirmText: l10n.commonDelete,
+    );
+    if (!confirmed) return;
     final entries = await LoginHistoryStore.remove(entry);
     if (!mounted) return;
     setState(() {
@@ -29,6 +39,15 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
   }
 
   Future<void> _clear() async {
+    final l10n = AppLocalizations.of(context);
+    final confirmed = await showAppConfirmDialog(
+      context,
+      title: l10n.connectionClearHistoryConfirmTitle,
+      content: l10n.connectionClearHistoryConfirmContent,
+      cancelText: l10n.commonCancel,
+      confirmText: l10n.commonClear,
+    );
+    if (!confirmed) return;
     await LoginHistoryStore.clear();
     if (!mounted) return;
     setState(() {
