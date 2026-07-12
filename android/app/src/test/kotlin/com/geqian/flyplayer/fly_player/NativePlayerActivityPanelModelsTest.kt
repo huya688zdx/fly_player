@@ -1,10 +1,51 @@
 package com.geqian.flyplayer.fly_player
 
+import android.content.Context
+import android.content.res.Resources
+import android.app.Application
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class NativePlayerActivityPanelModelsTest {
+    private val testContext: Context = object : Application() {
+        private val testResources = object : Resources(
+            null,
+            null,
+            null,
+        ) {
+            override fun getString(resId: Int): String = when (resId) {
+            R.string.player_language_unknown -> "未知"
+            R.string.player_language_arabic -> "阿拉伯语"
+            R.string.player_language_japanese -> "日语"
+            R.string.player_language_chinese -> "中文"
+            R.string.player_language_english -> "英语"
+            R.string.player_language_korean -> "韩语"
+            R.string.player_track_off -> "关闭"
+            R.string.player_original_quality -> "原画"
+            R.string.player_track_generic -> "轨道"
+            R.string.player_track_default -> "默认"
+            R.string.player_track_unselected -> "未选择"
+            R.string.player_subtitle_generic -> "字幕"
+            R.string.player_subtitle_external -> "外挂"
+            R.string.player_version_generic -> "版本"
+            R.string.player_untitled -> "未命名"
+            else -> error("未覆盖的测试资源: $resId")
+            }
+
+            override fun getString(resId: Int, vararg formatArgs: Any): String = when (resId) {
+            R.string.player_track_number_format -> "轨道 ${formatArgs[0]}"
+            R.string.player_episode_number -> "第${formatArgs[0]}集"
+            R.string.player_version_number -> "版本 ${formatArgs[0]}"
+            R.string.player_current_speed -> "当前网速 ${formatArgs[0]}"
+            R.string.player_current_speed_resume -> "当前网速 ${formatArgs[0]} · 预计恢复 ${formatArgs[1]}秒"
+                else -> getString(resId)
+            }
+        }
+
+        override fun getResources(): Resources = testResources
+    }
+
     @Test
     fun episodeViewModeMapsFeiniuPlaylistViewTypes() {
         assertEquals(0, nativePanelEpisodeViewModeFromType("card"))
@@ -132,7 +173,7 @@ class NativePlayerActivityPanelModelsTest {
             mapOf<String, Any?>("guid" to "a2", "title" to "DTS", "language" to "jpn"),
         )
 
-        assertEquals("DTS · 日语", nativePanelAudioSummary(tracks, "a2"))
+        assertEquals("DTS · 日语", nativePanelAudioSummary(testContext, tracks, "a2"))
     }
 
     @Test
@@ -141,7 +182,7 @@ class NativePlayerActivityPanelModelsTest {
             mapOf<String, Any?>("guid" to "s1", "title" to "简体中文", "language" to "zh"),
         )
 
-        assertEquals("关闭", nativePanelSubtitleSummary(tracks, ""))
+        assertEquals("关闭", nativePanelSubtitleSummary(testContext, tracks, ""))
     }
 
     @Test
@@ -150,12 +191,12 @@ class NativePlayerActivityPanelModelsTest {
             mapOf<String, Any?>("guid" to "s1", "title" to "Main Subtitle", "language" to "chi"),
         )
 
-        assertEquals("Main Subtitle · 中文", nativePanelSubtitleSummary(tracks, "s1"))
+        assertEquals("Main Subtitle · 中文", nativePanelSubtitleSummary(testContext, tracks, "s1"))
     }
 
     @Test
     fun languageOnlyTrackLabelMapsCommonCodes() {
-        assertEquals("英语", nativePanelTrackLabel(mapOf<String, Any?>("language" to "en")))
+        assertEquals("英语", nativePanelTrackLabel(testContext, mapOf<String, Any?>("language" to "en")))
     }
 
     @Test
@@ -163,6 +204,7 @@ class NativePlayerActivityPanelModelsTest {
         assertEquals(
             "原画",
             nativePanelQualitySummary(
+                context = testContext,
                 playbackMode = "originalQuality",
                 currentResolution = "3840x2160",
             ),
@@ -174,6 +216,7 @@ class NativePlayerActivityPanelModelsTest {
         assertEquals(
             "1080P",
             nativePanelQualitySummary(
+                context = testContext,
                 playbackMode = "transcode",
                 currentResolution = "1920x1080",
             ),
@@ -207,6 +250,7 @@ class NativePlayerActivityPanelModelsTest {
         assertEquals(
             "第9集  选手宣誓",
             nativePanelEpisodeLabel(
+                testContext,
                 mapOf<String, Any?>(
                     "episodeNumber" to 9,
                     "title" to "选手宣誓",
@@ -220,6 +264,7 @@ class NativePlayerActivityPanelModelsTest {
         assertEquals(
             "英语-外挂",
             nativePanelSubtitleDisplayTitle(
+                testContext,
                 mapOf<String, Any?>(
                     "language" to "en",
                     "format" to "ass",
@@ -230,6 +275,7 @@ class NativePlayerActivityPanelModelsTest {
         assertEquals(
             "日语-默认",
             nativePanelSubtitleDisplayTitle(
+                testContext,
                 mapOf<String, Any?>(
                     "language" to "jpn",
                     "format" to "sup",
@@ -244,6 +290,7 @@ class NativePlayerActivityPanelModelsTest {
         assertEquals(
             "ASS  中文",
             nativePanelSubtitleDisplaySubtitle(
+                testContext,
                 mapOf<String, Any?>(
                     "language" to "chi",
                     "format" to "ass",
@@ -330,6 +377,7 @@ class NativePlayerActivityPanelModelsTest {
         )
 
         val recommendation = nativePanelRecommendWeakNetworkQuality(
+            context = testContext,
             qualities = qualities,
             currentQuality = qualities[0],
             networkSpeedBytesPerSecond = 700_000,
@@ -349,6 +397,7 @@ class NativePlayerActivityPanelModelsTest {
         )
 
         val recommendation = nativePanelRecommendWeakNetworkQuality(
+            context = testContext,
             qualities = qualities,
             currentQuality = qualities[0],
             networkSpeedBytesPerSecond = 100_000,
@@ -366,6 +415,7 @@ class NativePlayerActivityPanelModelsTest {
         )
 
         val recommendation = nativePanelRecommendWeakNetworkQuality(
+            context = testContext,
             qualities = qualities,
             currentQuality = qualities[0],
             networkSpeedBytesPerSecond = 900_000,
@@ -457,6 +507,45 @@ class NativePlayerActivityPanelModelsTest {
         assertEquals(true, nativePanelCanPreloadNextEpisode(true, true))
         assertEquals(false, nativePanelCanPreloadNextEpisode(false, true))
         assertEquals(false, nativePanelCanPreloadNextEpisode(true, false))
+    }
+
+    @Test
+    fun topEdgePullDownIsReservedForSystemBars() {
+        assertEquals(
+            true,
+            nativePanelShouldLetSystemHandleTopPullDown(
+                startY = 12f,
+                statusBarInsetPx = 24,
+                density = 1f,
+            ),
+        )
+        assertEquals(
+            false,
+            nativePanelShouldLetSystemHandleTopPullDown(
+                startY = 64f,
+                statusBarInsetPx = 24,
+                density = 1f,
+            ),
+        )
+    }
+
+    @Test
+    fun autoPipRequiresEnabledPlaybackAndSupportedDevice() {
+        assertEquals(
+            true,
+            nativePanelShouldAutoEnterPip(
+                pipAutoEnter = true,
+                pipSupported = true,
+                paused = false,
+                alreadyInPip = false,
+                finishing = false,
+            ),
+        )
+        assertEquals(false, nativePanelShouldAutoEnterPip(true, true, paused = true, false, false))
+        assertEquals(false, nativePanelShouldAutoEnterPip(true, false, paused = false, false, false))
+        assertEquals(false, nativePanelShouldAutoEnterPip(false, true, paused = false, false, false))
+        assertEquals(false, nativePanelShouldAutoEnterPip(true, true, paused = false, true, false))
+        assertEquals(false, nativePanelShouldAutoEnterPip(true, true, paused = false, false, true))
     }
 
     @Test
@@ -563,7 +652,7 @@ class NativePlayerActivityPanelModelsTest {
         // 副标题不再写来源，改为 分辨率 · 视频时长 · 码率。
         assertEquals(
             "1080P · 24:42 · 8 Mbps",
-            nativePanelEpisodeVersionSummary(versions[0].quality, "24:42"),
+            nativePanelEpisodeVersionSummary(testContext, versions[0].quality, "24:42"),
         )
     }
 
@@ -579,13 +668,14 @@ class NativePlayerActivityPanelModelsTest {
         assertEquals(
             "BDRip.mkv",
             nativePanelEpisodeVersionTitle(
+                testContext,
                 mapOf<String, Any?>("fileName" to "BDRip.mkv"),
                 0,
             ),
         )
         assertEquals(
             "版本 2",
-            nativePanelEpisodeVersionTitle(mapOf<String, Any?>(), 1),
+            nativePanelEpisodeVersionTitle(testContext, mapOf<String, Any?>(), 1),
         )
     }
 

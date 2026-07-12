@@ -31,6 +31,7 @@ import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import android.view.GestureDetector
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -60,6 +61,7 @@ import org.json.JSONObject
 import java.math.BigDecimal
 import java.math.RoundingMode
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 private val nativePanelLanguageNameMap = mapOf(
     "ara" to R.string.player_language_arabic, "ar" to R.string.player_language_arabic,
@@ -104,18 +106,23 @@ private val nativePanelLanguageNameMap = mapOf(
     "mul" to R.string.player_language_multiple, "multi" to R.string.player_language_multiple,
 )
 
+private fun Context.nativePanelString(resId: Int): String = resources.getString(resId)
+
+private fun Context.nativePanelString(resId: Int, vararg args: Any): String =
+    resources.getString(resId, *args)
+
 internal fun nativePanelLanguageName(context: Context, raw: String): String {
     val key = raw.trim().lowercase()
     if (key.isEmpty() || key == "zz-unknow" || key == "unknown" || key == "und") {
-        return context.getString(R.string.player_language_unknown)
+        return context.nativePanelString(R.string.player_language_unknown)
     }
-    return nativePanelLanguageNameMap[key]?.let(context::getString)
-        ?: context.getString(R.string.player_language_unknown)
+    return nativePanelLanguageNameMap[key]?.let(context::nativePanelString)
+        ?: context.nativePanelString(R.string.player_language_unknown)
 }
 
 internal fun nativePanelTrackLabel(context: Context, track: Map<String, Any?>): String {
     val title = track["title"]?.toString()?.trim().orEmpty()
-    val unknown = context.getString(R.string.player_language_unknown)
+    val unknown = context.nativePanelString(R.string.player_language_unknown)
     val language = nativePanelLanguageName(context, track["language"]?.toString().orEmpty())
         .takeUnless { it == unknown }
         .orEmpty()
@@ -124,8 +131,8 @@ internal fun nativePanelTrackLabel(context: Context, track: Map<String, Any?>): 
         title.isNotEmpty() && language.isNotEmpty() -> "$title · $language"
         title.isNotEmpty() -> title
         language.isNotEmpty() -> language
-        fallback.isNotEmpty() -> context.getString(R.string.player_track_number_format, fallback)
-        else -> context.getString(R.string.player_track_generic)
+        fallback.isNotEmpty() -> context.nativePanelString(R.string.player_track_number_format, fallback)
+        else -> context.nativePanelString(R.string.player_track_generic)
     }
 }
 
@@ -136,7 +143,7 @@ internal fun nativePanelAudioSummary(
 ): String {
     val selected = tracks.firstOrNull { it["guid"]?.toString().orEmpty() == selectedGuid }
     return selected?.let { nativePanelTrackLabel(context, it) }
-        ?: context.getString(R.string.player_track_default)
+        ?: context.nativePanelString(R.string.player_track_default)
 }
 
 internal fun nativePanelSubtitleSummary(
@@ -144,10 +151,10 @@ internal fun nativePanelSubtitleSummary(
     tracks: List<Map<String, Any?>>,
     selectedGuid: String,
 ): String {
-    if (selectedGuid.isEmpty()) return context.getString(R.string.player_track_off)
+    if (selectedGuid.isEmpty()) return context.nativePanelString(R.string.player_track_off)
     val selected = tracks.firstOrNull { it["guid"]?.toString().orEmpty() == selectedGuid }
     return selected?.let { nativePanelTrackLabel(context, it) }
-        ?: context.getString(R.string.player_track_unselected)
+        ?: context.nativePanelString(R.string.player_track_unselected)
 }
 
 internal fun nativePanelSubtitleCanRemove(track: Map<String, Any?>): Boolean {
@@ -186,7 +193,7 @@ internal fun nativeSubtitleUsesExternalFile(track: Map<String, Any?>): Boolean {
 
 internal fun nativePanelSubtitleDisplayTitle(context: Context, track: Map<String, Any?>): String {
     val rawLanguage = track["language"]?.toString().orEmpty()
-    val unknown = context.getString(R.string.player_language_unknown)
+    val unknown = context.nativePanelString(R.string.player_language_unknown)
     val language = nativePanelLanguageName(context, rawLanguage)
         .takeUnless { it == unknown }
         .orEmpty()
@@ -194,11 +201,11 @@ internal fun nativePanelSubtitleDisplayTitle(context: Context, track: Map<String
     val base = when {
         language.isNotEmpty() -> language
         title.isNotEmpty() -> title
-        else -> context.getString(R.string.player_subtitle_generic)
+        else -> context.nativePanelString(R.string.player_subtitle_generic)
     }
     val suffix = when {
-        nativePanelSubtitleCanRemove(track) -> context.getString(R.string.player_subtitle_external)
-        nativePanelTruthy(track["isDefault"]) -> context.getString(R.string.player_track_default)
+        nativePanelSubtitleCanRemove(track) -> context.nativePanelString(R.string.player_subtitle_external)
+        nativePanelTruthy(track["isDefault"]) -> context.nativePanelString(R.string.player_track_default)
         else -> ""
     }
     return if (suffix.isNotEmpty()) "$base-$suffix" else base
@@ -210,7 +217,7 @@ internal fun nativePanelSubtitleDisplaySubtitle(context: Context, track: Map<Str
             ?: ""
         ).ifEmpty { track["codecName"]?.toString()?.trim().orEmpty() }
         .uppercase()
-    val unknown = context.getString(R.string.player_language_unknown)
+    val unknown = context.nativePanelString(R.string.player_language_unknown)
     val language = nativePanelLanguageName(context, track["language"]?.toString().orEmpty())
         .takeUnless { it == unknown }
         .orEmpty()
@@ -234,14 +241,14 @@ internal fun nativePanelQualitySummary(
     playbackMode: String?,
     currentResolution: String?,
 ): String {
-    if (playbackMode == "originalQuality") return context.getString(R.string.player_original_quality)
+    if (playbackMode == "originalQuality") return context.nativePanelString(R.string.player_original_quality)
     val resolution = currentResolution?.trim().orEmpty()
     val vertical = Regex("""(?:^|x)(\d{3,4})(?:p)?$""", RegexOption.IGNORE_CASE)
         .find(resolution)
         ?.groupValues
         ?.getOrNull(1)
         ?.toIntOrNull()
-    return if (vertical != null && vertical > 0) "${vertical}P" else context.getString(R.string.player_original_quality)
+    return if (vertical != null && vertical > 0) "${vertical}P" else context.nativePanelString(R.string.player_original_quality)
 }
 
 /**
@@ -304,7 +311,7 @@ internal fun nativePanelEpisodeVersionEntries(
 /** 版本卡标题：优先源文件名，缺失时回退「版本 N」。 */
 internal fun nativePanelEpisodeVersionTitle(context: Context, quality: Map<String, Any?>, index: Int): String {
     val fileName = quality["fileName"]?.toString()?.trim().orEmpty()
-    return fileName.ifEmpty { context.getString(R.string.player_version_number, index + 1) }
+    return fileName.ifEmpty { context.nativePanelString(R.string.player_version_number, index + 1) }
 }
 
 internal fun nativePanelBitrateLabel(bitrateBitsPerSecond: Long): String {
@@ -324,7 +331,7 @@ internal fun nativePanelEpisodeVersionSummary(
 ): String {
     val resolution = quality["resolution"]?.toString()?.trim().orEmpty()
         .ifEmpty { nativePanelQualityTierLabel(nativePanelQualityTierRank(quality["resolution"]?.toString())) }
-        .ifEmpty { context.getString(R.string.player_version_generic) }
+        .ifEmpty { context.nativePanelString(R.string.player_version_generic) }
     val bitrate = nativePanelQualityBitrate(quality).takeIf { it > 0 }?.let {
         nativePanelBitrateLabel(it)
     }.orEmpty()
@@ -497,7 +504,7 @@ private fun nativePanelWeakNetworkQualityLabel(context: Context, quality: Map<St
     val rank = nativePanelQualityTierRank(quality["resolution"]?.toString())
     return nativePanelQualityTierLabel(rank).ifEmpty {
         quality["resolution"]?.toString()?.trim().orEmpty()
-            .ifEmpty { context.getString(R.string.player_lower_quality) }
+            .ifEmpty { context.nativePanelString(R.string.player_lower_quality) }
     }
 }
 
@@ -507,9 +514,9 @@ private fun nativePanelWeakNetworkDetails(
     estimatedResumeWaitMs: Long?,
 ): String {
     val speed = nativePanelSpeedLabel(networkSpeedBytesPerSecond)
-    if (estimatedResumeWaitMs == null) return context.getString(R.string.player_current_speed, speed)
+    if (estimatedResumeWaitMs == null) return context.nativePanelString(R.string.player_current_speed, speed)
     val seconds = ((estimatedResumeWaitMs.coerceAtLeast(1L) + 999L) / 1000L).coerceAtLeast(1L)
-    return context.getString(R.string.player_current_speed_resume, speed, seconds)
+    return context.nativePanelString(R.string.player_current_speed_resume, speed, seconds)
 }
 
 private fun nativePanelSpeedLabel(bytesPerSecond: Long): String {
@@ -573,7 +580,7 @@ internal fun nativePanelEpisodeLabel(context: Context, episode: Map<String, Any?
     val title = episode["title"]?.toString()?.trim().orEmpty()
     val shortLabel = episode["shortLabel"]?.toString()?.trim().orEmpty()
     val prefix = when {
-        number > 0 -> context.getString(R.string.player_episode_number, number)
+        number > 0 -> context.nativePanelString(R.string.player_episode_number, number)
         shortLabel.isNotEmpty() -> shortLabel
         else -> ""
     }
@@ -582,7 +589,7 @@ internal fun nativePanelEpisodeLabel(context: Context, episode: Map<String, Any?
             "$prefix  $title"
         title.isNotEmpty() -> title
         prefix.isNotEmpty() -> prefix
-        else -> context.getString(R.string.player_untitled)
+        else -> context.nativePanelString(R.string.player_untitled)
     }
 }
 
@@ -623,6 +630,24 @@ internal fun nativePanelCanPreloadNextEpisode(
     autoPlayEnabled: Boolean,
     nextEpisodePreloadEnabled: Boolean,
 ): Boolean = autoPlayEnabled && nextEpisodePreloadEnabled
+
+internal fun nativePanelShouldLetSystemHandleTopPullDown(
+    startY: Float,
+    statusBarInsetPx: Int,
+    density: Float,
+): Boolean {
+    val fallbackPx = (36f * density.coerceAtLeast(0.1f)).roundToInt()
+    val reservedTopPx = maxOf(statusBarInsetPx, fallbackPx)
+    return startY in 0f..reservedTopPx.toFloat()
+}
+
+internal fun nativePanelShouldAutoEnterPip(
+    pipAutoEnter: Boolean,
+    pipSupported: Boolean,
+    paused: Boolean,
+    alreadyInPip: Boolean,
+    finishing: Boolean,
+): Boolean = pipAutoEnter && pipSupported && !paused && !alreadyInPip && !finishing
 
 internal fun nativePanelShouldUsePreloadedEpisodeResult(
     result: Any?,
@@ -892,6 +917,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private lateinit var seekPreviewTime: TextView
     private lateinit var audioManager: AudioManager
     private lateinit var gestureDetector: GestureDetector
+    private var statusBarTopInsetPx = 0
     private val transientHintHide = Runnable { hideCenterHint() }
     private val centerHintWatchdog = Runnable { hideCenterHint() }
     private val weakNetEscalate = Runnable {
@@ -903,6 +929,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private var gestureMode = 0
     private var gestureSeekStartMs = 0L
     private var gestureSeekTargetMs = 0L
+    private var gestureSeekHapticBucket = -1L
     private var gestureBrightnessStart = 0.5f
     private var gestureVolumeStart = 0
     private var speedBoosting = false
@@ -1538,18 +1565,28 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     thumbOffset = dp(10)
                     setPadding(dp(10), dp(12), dp(10), dp(4))
                     progress = (((value - min) / span) * steps).toInt().coerceIn(0, steps)
+                    var lastHapticProgress = progress
                     setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                         override fun onProgressChanged(sb: SeekBar, p: Int, fromUser: Boolean) {
                             val real = min + (p.toFloat() / steps) * span
                             valueLabel.text = format(real)
-                            if (fromUser) onChange(real)
+                            if (fromUser) {
+                                if (p != lastHapticProgress) {
+                                    lastHapticProgress = p
+                                    hapticTick()
+                                }
+                                onChange(real)
+                            }
                         }
 
                         override fun onStartTrackingTouch(sb: SeekBar) {
+                            lastHapticProgress = sb.progress
+                            hapticTick()
                             cancelControlsAutoHide()
                         }
 
                         override fun onStopTrackingTouch(sb: SeekBar) {
+                            hapticTick()
                             onCommit?.invoke(min + (sb.progress.toFloat() / steps) * span)
                         }
                     })
@@ -2747,6 +2784,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             // 只取稳定的刘海/挖孔 inset。导航栏 inset 在全屏↔分屏 resize 过渡里会瞬时跳变(出现又被
             // 沉浸式隐藏)，若底栏跟它走，进度条就会上下抖一下；播放器本就隐藏系统栏，故底栏改用 cutout。
             val cutout = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
+            statusBarTopInsetPx = bars.top
             // 横屏单侧刘海会把控制层整体推向另一侧（"太偏右"）。两侧统一取最大值对称留白，
             // 控制层始终居中对称；竖屏 cutout.left/right 通常为 0，不受影响。
             val sideInset = maxOf(cutout.left, cutout.right)
@@ -2769,6 +2807,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         gestureDetector = GestureDetector(this, GestureListener())
         gestureView.setOnTouchListener { _, event ->
+            if (event.actionMasked == MotionEvent.ACTION_DOWN &&
+                nativePanelShouldLetSystemHandleTopPullDown(
+                    event.y,
+                    statusBarTopInsetPx,
+                    resources.displayMetrics.density,
+                )
+            ) {
+                return@setOnTouchListener false
+            }
             if (isLocked) {
                 if (event.actionMasked == MotionEvent.ACTION_DOWN) {
                     toggleControls() // 锁定状态下点击屏幕只显示/隐藏锁定按钮
@@ -2874,7 +2921,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             setPadding(dp(12), 0, 0, 0)
         }
 
-        // "已下载" 标签 (如果适用)
+        // 已下载 标签 (如果适用)
         if (loadArgsMap["isDownloadedFile"] == true) {
             val chip = TextView(this).apply {
                 text = getString(R.string.player_text_0002)
@@ -2924,18 +2971,18 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
         // 小窗（画中画）：仅手机显示，平板隐藏；系统不支持 PIP 也隐藏。竖屏再隐藏（见下）。
         if (pipSupported() && !isTablet()) {
-            pipButton = makeIconButton(getString(R.string.player_action_pip)) { enterPip() }.also { iconActions.addView(it) }
+            pipButton = makeIconButton(getString(R.string.player_text_0003)) { enterPip() }.also { iconActions.addView(it) }
         }
-        listenButton = makeIconButton(getString(R.string.player_action_listen_video)) { toggleAudioMode() }
+        listenButton = makeIconButton(getString(R.string.player_text_0004)) { toggleAudioMode() }
         iconActions.addView(listenButton)
-        screenshotButton = makeIconButton(getString(R.string.player_action_screenshot)) { takeScreenshot() }.also { iconActions.addView(it) }
+        screenshotButton = makeIconButton(getString(R.string.player_text_0005)) { takeScreenshot() }.also { iconActions.addView(it) }
         abButton = makeIconButton("AB") { toggleAbRepeat() }
         iconActions.addView(abButton)
         // 弹幕设置：Flutter 顶栏即有的直达入口（不止在设置抽屉里）。
-        danmakuQuickButton = makeIconButton(getString(R.string.player_action_danmaku_settings)) {
-            togglePanel(PanelPage(getString(R.string.player_action_danmaku_settings)) { buildDanmakuSettingsPage() })
+        danmakuQuickButton = makeIconButton(getString(R.string.player_text_0006)) {
+            togglePanel(PanelPage(getString(R.string.player_text_0006)) { buildDanmakuSettingsPage() })
         }.also { iconActions.addView(it) }
-        iconActions.addView(makeIconButton(getString(R.string.player_action_more)) { showSettingsRoot() })
+        iconActions.addView(makeIconButton(getString(R.string.player_text_0007)) { showSettingsRoot() })
 
         mainRow.addView(iconActions)
 
@@ -2968,9 +3015,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             splitTrack = false
             thumbOffset = dp(8)
             setPadding(dp(12), dp(14), dp(12), dp(14))
+            var lastHapticProgress = progress
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
                     if (fromUser && lastDurationMs > 0) {
+                        val bucket = progress / 10
+                        if (bucket != lastHapticProgress / 10) {
+                            lastHapticProgress = progress
+                            hapticTick()
+                        }
                         val targetMs = lastDurationMs * progress / 1000
                         positionLabel.text = formatTime(targetMs)
                         // 拖动底部进度条同样弹出缩略图预览浮层（与横拖手势一致）。
@@ -2979,10 +3032,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 }
                 override fun onStartTrackingTouch(sb: SeekBar) {
                     userSeeking = true
+                    lastHapticProgress = sb.progress
+                    hapticTick()
                     cancelControlsAutoHide()
                 }
                 override fun onStopTrackingTouch(sb: SeekBar) {
                     userSeeking = false
+                    hapticTick()
                     if (lastDurationMs > 0) {
                         val targetMs = lastDurationMs * sb.progress / 1000
                         playerSurface.seek(targetMs)
@@ -3121,9 +3177,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         // 音轨/字幕/画质：横屏常驻底栏；竖屏窄屏放不下且会被裁，改为隐藏并从「更多」设置进入。
         // 显式持有按钮与其前置分隔，竖屏整段连同间距一起收起（避免遗留空白）。
         audioEntrySpacer = controlActionSpacer().also { actionStrip.addView(it) }
-        audioEntryButton = makeEntryButton(getString(R.string.player_audio_track_picker_title)) { showAudioPanel() }.also { actionStrip.addView(it) }
+        audioEntryButton = makeEntryButton(getString(R.string.player_audio_track_picker_title)) { showAudioPanel() }
+            .also { actionStrip.addView(it) }
         subtitleEntrySpacer = controlActionSpacer().also { actionStrip.addView(it) }
-        subtitleEntryButton = makeEntryButton(getString(R.string.player_subtitle_track_picker_title)) { showSubtitlePanel() }.also { actionStrip.addView(it) }
+        subtitleEntryButton = makeEntryButton(getString(R.string.player_subtitle_track_picker_title)) { showSubtitlePanel() }
+            .also { actionStrip.addView(it) }
         qualityEntrySpacer = controlActionSpacer().also { actionStrip.addView(it) }
         qualityButton = makeEntryButton(currentQualityLabel()) { showQualityPanel() }
         actionStrip.addView(qualityButton)
@@ -3434,7 +3492,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         } else {
             showTransientHint(
                 when (result["code"]?.toString()) {
-                    "custom_directory_required", "custom_directory_unavailable" -> getString(R.string.player_screenshot_choose_directory)
+                    "custom_directory_required", "custom_directory_unavailable" ->
+                        getString(R.string.player_screenshot_choose_directory)
                     else -> getString(R.string.player_screenshot_failed)
                 },
             )
@@ -4919,7 +4978,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 trailing = if (danmakuEnabled) getString(R.string.player_text_0033) else getString(R.string.player_text_0034),
                 selected = danmakuEnabled,
             ) {
-                pushPanel(PanelPage(getString(R.string.player_action_danmaku_settings)) { buildDanmakuSettingsPage() })
+                pushPanel(PanelPage(getString(R.string.player_text_0006)) { buildDanmakuSettingsPage() })
             },
         )
         addPanelRow(panelSectionHeader(getString(R.string.player_text_0007)))
@@ -4941,7 +5000,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                         subtitle = getString(R.string.player_text_0036),
                         trailing = getString(R.string.player_versions_count, versions.size),
                     ) {
-                        pushPanel(PanelPage(getString(R.string.player_version_picker_title)) { buildVersionPanelContent(versions) })
+                        pushPanel(PanelPage(getString(R.string.player_version_picker_title)) {
+                            buildVersionPanelContent(versions)
+                        })
                     },
                 )
             }
@@ -4986,7 +5047,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         clearNextEpisodePreload()
         if (isServerManagedPlayback()) {
             hidePanel()
-            requestServerReload(
+                    requestServerReload(
                         guid,
                         selectedSubtitleGuidForPanel(),
                         null,
@@ -5951,7 +6012,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     /** 当前画质入口按钮文案：原画态显示「原画」，否则「<分辨率>P」。 */
     private fun currentQualityLabel(): String {
-        if (loadArgsMap["playbackMode"]?.toString() == "originalQuality") return getString(R.string.player_original_quality)
+        if (loadArgsMap["playbackMode"]?.toString() == "originalQuality") {
+            return getString(R.string.player_original_quality)
+        }
         val resNum = qualityResNum(mapOf("resolution" to loadArgsMap["resolution"]))
         return if (resNum > 0) "${resNum}P" else getString(R.string.player_original_quality)
     }
@@ -5996,7 +6059,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
      *
      * 关键：每次都把「当前音轨 + 当前字幕」两条都带上——只重载一条时另一条会回退到服务端
      * 默认轨（_resolve 用 playInfo.audioGuid/subtitleGuid），导致切音轨把字幕弄丢、反之亦然。
-     * subtitleGuid 空串 = 关闭字幕；audioGuid 不会为空（音轨无"关闭"）。
+     * subtitleGuid 空串 = 关闭字幕；audioGuid 不会为空（音轨无关闭）。
      */
     private fun requestServerReload(
         audioGuid: String,
@@ -6736,7 +6799,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         addPanelRow(
             panelCardGroup(
                 panelNavRow(getString(R.string.player_text_0006)) {
-                    pushPanel(PanelPage(getString(R.string.player_action_danmaku_settings)) { buildDanmakuSettingsPage() })
+                    pushPanel(PanelPage(getString(R.string.player_text_0006)) { buildDanmakuSettingsPage() })
                 },
                 panelNavRow(getString(R.string.player_text_0076)) {
                     pushPanel(PanelPage(getString(R.string.player_text_0076)) { buildDanmakuSourcePage() })
@@ -6749,8 +6812,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 panelNavRow(getString(R.string.player_text_0078), playbackBehaviorSummary()) {
                     pushPanel(PanelPage(getString(R.string.player_text_0078)) { buildPlaybackBehaviorSettingsPage() })
                 },
+                panelNavRow(getString(R.string.player_text_0079)) {
+                    pushPanel(PanelPage(getString(R.string.player_text_0079)) { buildIntroOutroPage() })
+                },
+                panelNavRow(getString(R.string.player_text_0080)) {
+                    pushPanel(PanelPage(getString(R.string.player_text_0080)) { buildBookmarkPage() })
+                },
                 panelNavRow(getString(R.string.player_text_0081)) {
-                    pushPanel(PanelPage(getString(R.string.player_text_0081)) { buildIntroOutroPage() })
+                    pushPanel(PanelPage(getString(R.string.player_text_0081)) { buildTrackInfoPage() })
                 },
             ),
         )
@@ -6763,16 +6832,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 ),
             )
         }
-        addPanelRow(
-            panelCardGroup(
-                panelNavRow(getString(R.string.player_text_0084)) {
-                    pushPanel(PanelPage(getString(R.string.player_text_0084)) { buildBookmarkPage() })
-                },
-                panelNavRow(getString(R.string.player_text_0085)) {
-                    pushPanel(PanelPage(getString(R.string.player_text_0085)) { buildTrackInfoPage() })
-                },
-            ),
-        )
         addPanelRow(panelSectionHeader(getString(R.string.player_tools_section)))
         addPanelRow(
             panelCardGroup(
@@ -6834,6 +6893,26 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     nextEpisodePreloadEnabled = enabled
                     persistPlaybackBehavior()
                     if (!enabled) clearNextEpisodePreload()
+                    renderTopPanel()
+                },
+                panelToggle(
+                    label = getString(R.string.player_text_0087),
+                    value = pipAutoEnter,
+                    subtitle = getString(R.string.player_text_0088),
+                ) { enabled ->
+                    pipAutoEnter = enabled
+                    persistVideoMisc()
+                    updatePipParams()
+                    renderTopPanel()
+                },
+                panelToggle(
+                    label = getString(R.string.player_text_0089),
+                    value = keepAudioWhenScreenOff,
+                    subtitle = getString(R.string.player_text_0090),
+                ) { enabled ->
+                    keepAudioWhenScreenOff = enabled
+                    playerSurface.setKeepAudioWhenScreenOff(keepAudioWhenScreenOff)
+                    persistVideoMisc()
                     renderTopPanel()
                 },
             ),
@@ -7381,18 +7460,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     aspectMode = aspectOpts[i].second
                     playerSurface.setDisplayAspectRatioMode(aspectMode); renderTopPanel()
                 },
-                panelSegment(getString(R.string.player_text_0162), listOf(getString(R.string.player_text_0129), getString(R.string.player_text_0127)), if (pipAutoEnter) 0 else 1) { i ->
-                    pipAutoEnter = i == 0
-                    persistVideoMisc()
-                    renderTopPanel()
-                },
-                panelSegment(getString(R.string.player_text_0163), listOf(getString(R.string.player_text_0129), getString(R.string.player_text_0127)), if (keepAudioWhenScreenOff) 0 else 1) { i ->
-                    keepAudioWhenScreenOff = i == 0
-                    playerSurface.setKeepAudioWhenScreenOff(keepAudioWhenScreenOff)
-                    persistVideoMisc()
-                    renderTopPanel()
-                },
-                panelSegment(getString(R.string.player_text_0165), listOf(getString(R.string.player_text_0129), getString(R.string.player_text_0127)), if (refreshRateSwitch) 0 else 1) { i ->
+                panelSegment(getString(R.string.player_text_0162), listOf(getString(R.string.player_text_0129), getString(R.string.player_text_0127)), if (refreshRateSwitch) 0 else 1) { i ->
                     refreshRateSwitch = i == 0
                     persistVideoMisc()
                     renderTopPanel()
@@ -7405,17 +7473,17 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 advancedSegment(getString(R.string.player_deinterlace), "deinterlace", listOf(getString(R.string.player_text_0128) to "auto", getString(R.string.player_text_0167) to "force", getString(R.string.player_text_0127) to "off")),
                 advancedSegment(getString(R.string.player_deband), "deband", listOf(getString(R.string.player_text_0127) to "off", getString(R.string.player_text_0135) to "low", getString(R.string.player_text_0136) to "medium", getString(R.string.player_text_0169) to "high")),
                 advancedSegment(getString(R.string.player_sharpen), "sharpen", listOf(getString(R.string.player_text_0127) to "off", getString(R.string.player_text_0135) to "low", getString(R.string.player_text_0136) to "medium", getString(R.string.player_text_0169) to "high")),
-                advancedSegment(getString(R.string.player_text_0172), "denoise", listOf(getString(R.string.player_text_0127) to "off", getString(R.string.player_text_0135) to "low", getString(R.string.player_text_0136) to "medium")),
+                advancedSegment(getString(R.string.player_text_0169), "denoise", listOf(getString(R.string.player_text_0127) to "off", getString(R.string.player_text_0135) to "low", getString(R.string.player_text_0136) to "medium")),
                 advancedSegment(getString(R.string.player_text_0175), "scale_profile", listOf(getString(R.string.player_text_0176) to "balanced", getString(R.string.player_text_0177) to "fast", getString(R.string.player_high_quality) to "quality")),
                 advancedSegment("HDR", "hdr_mode", listOf(getString(R.string.player_text_0128) to "auto", getString(R.string.player_map_sdr) to "sdr_map", getString(R.string.player_conservative) to "conservative", getString(R.string.player_enhanced) to "enhanced")),
-                advancedSegment(getString(R.string.player_text_0179), "tone_mapping", listOf(getString(R.string.player_text_0128) to "auto", "bt2390" to "bt2390", "mobius" to "mobius", "hable" to "hable", "reinhard" to "reinhard")),
+                advancedSegment(getString(R.string.player_text_0177), "tone_mapping", listOf(getString(R.string.player_text_0128) to "auto", "bt2390" to "bt2390", "mobius" to "mobius", "hable" to "hable", "reinhard" to "reinhard")),
                 advancedSegment(getString(R.string.player_frame_interpolation), "frame_interpolation", listOf(getString(R.string.player_text_0127) to "off", getString(R.string.player_text_0128) to "auto", getString(R.string.player_text_0129) to "on")),
             ),
         )
-        addPanelRow(panelSectionHeader(getString(R.string.player_text_0184)))
+        addPanelRow(panelSectionHeader(getString(R.string.player_text_0179)))
         addPanelRow(
             panelCardGroup(
-                advancedSegment(getString(R.string.player_text_0185), "video_sync", listOf(getString(R.string.player_text_0128) to "auto", getString(R.string.player_text_0187) to "audio", getString(R.string.player_text_0188) to "display", getString(R.string.player_text_0189) to "smooth")),
+                advancedSegment(getString(R.string.player_text_0180), "video_sync", listOf(getString(R.string.player_text_0128) to "auto", getString(R.string.player_text_0181) to "audio", getString(R.string.player_text_0182) to "display", getString(R.string.player_text_0183) to "smooth")),
                 advancedSegment(getString(R.string.player_cache_strategy), "cache_profile", listOf(getString(R.string.player_text_0190) to "default", getString(R.string.player_stable) to "stable", getString(R.string.player_network) to "network", getString(R.string.player_text_0191) to "low_latency")),
                 advancedSegment(getString(R.string.player_cache_size), "cache_size_mb", listOf(getString(R.string.player_text_0128) to "auto", "64M" to "64", "128M" to "128", "256M" to "256", "512M" to "512")),
                 advancedSegment(getString(R.string.player_compatibility_mode), "compatibility_profile", listOf(getString(R.string.player_text_0190) to "default", getString(R.string.player_conservative) to "conservative", getString(R.string.player_software_fallback) to "software_fallback")),
@@ -7537,10 +7605,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     ""
                 },
             ),
-            infoRow(getString(R.string.player_text_0214), if (containerFps > 0.0) String.format("%.3f fps", containerFps) else ""),
+            infoRow(getString(R.string.player_text_0213), if (containerFps > 0.0) String.format("%.3f fps", containerFps) else ""),
         )
         if (diagRows.isEmpty()) return
-        addPanelRow(panelSectionHeader(getString(R.string.player_decode_output_diagnostics)))
+        addPanelRow(panelSectionHeader(getString(R.string.player_text_0214)))
         addPanelRow(panelCardGroup(*diagRows.toTypedArray()))
     }
 
@@ -7696,7 +7764,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun danmakuFloat(key: String) = (danmakuSettings[key] as? Number)?.toFloat() ?: 0f
 
     private fun buildDanmakuSettingsPage() {
-        addPanelRow(panelSectionHeader(getString(R.string.player_text_0215)))
+        addPanelRow(panelSectionHeader(getString(R.string.player_decode_output_diagnostics)))
         val fpsOpts = listOf("30fps" to 30, "60fps" to 60, "90fps" to 90, "120fps" to 120)
         val curFps = (danmakuSettings["targetFrameRateHz"] as? Number)?.toInt() ?: 120
         addPanelRow(
@@ -8399,10 +8467,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             addPanelRow(panelSlider(getString(R.string.player_text_0276), 1f, 4f, introMaxMin.toFloat(), steps = 3, format = { getString(R.string.player_minutes_format, it.toInt()) }) { v ->
                 introMaxMin = v.toInt()
             })
-            addPanelRow(panelSlider(getString(R.string.player_text_0278), 1f, 4f, outroMaxMin.toFloat(), steps = 3, format = { getString(R.string.player_minutes_format, it.toInt()) }) { v ->
+            addPanelRow(panelSlider(getString(R.string.player_text_0277), 1f, 4f, outroMaxMin.toFloat(), steps = 3, format = { getString(R.string.player_minutes_format, it.toInt()) }) { v ->
                 outroMaxMin = v.toInt()
             })
-            addPanelRow(panelSlider(getString(R.string.player_text_0280), 2f, 10f, skipCountdownSec.toFloat(), steps = 8, format = { getString(R.string.player_seconds_format, it.toInt()) }) { v ->
+            addPanelRow(panelSlider(getString(R.string.player_text_0278), 2f, 10f, skipCountdownSec.toFloat(), steps = 8, format = { getString(R.string.player_seconds_format, it.toInt()) }) { v ->
                 skipCountdownSec = v.toInt()
             })
         }
@@ -8678,7 +8746,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             !state.nativeLibLoaded -> state.statusText
             state.buffering -> {
                 val speed = formatSpeed(state.networkSpeedBytesPerSecond)
-                if (speed.isNotEmpty()) getString(R.string.player_status_buffering_with_speed, speed) else getString(R.string.player_status_buffering)
+                if (speed.isNotEmpty()) {
+                    getString(R.string.player_status_buffering_with_speed, speed)
+                } else {
+                    getString(R.string.player_status_buffering)
+                }
             }
             else -> ""
         }
@@ -8768,6 +8840,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         override fun onLongPress(e: MotionEvent) {
             if (playerSurface.state.paused) return
             speedBoosting = true
+            hapticLongPress()
             playerSurface.setSpeed(2.0)
             pushDanmakuPlaybackSpeed(2.0)
             showCenterHint(getString(R.string.player_speed_2x_hint))
@@ -8795,6 +8868,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             gestureMode = when {
                 abs(dx) > abs(dy) -> {
                     gestureSeekStartMs = playerSurface.state.positionMs
+                    gestureSeekHapticBucket = gestureSeekStartMs / 5_000L
+                    hapticTick()
                     cancelControlsAutoHide()
                     1
                 }
@@ -8817,6 +8892,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     val deltaMs = (dx / w * 120_000L).toLong()
                     gestureSeekTargetMs =
                         (gestureSeekStartMs + deltaMs).coerceIn(0L, durationMs)
+                    val bucket = gestureSeekTargetMs / 5_000L
+                    if (bucket != gestureSeekHapticBucket) {
+                        gestureSeekHapticBucket = bucket
+                        hapticTick()
+                    }
                     showSeekPreview(gestureSeekTargetMs, durationMs)
                 }
             }
@@ -8839,14 +8919,17 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun onGestureEnd() {
         if (speedBoosting) {
             speedBoosting = false
+            hapticTick()
             playerSurface.setSpeed(1.0)
             pushDanmakuPlaybackSpeed(1.0)
         }
         if (gestureMode == 1) {
+            hapticTick()
             playerSurface.seek(gestureSeekTargetMs)
             scheduleControlsAutoHide()
         }
         gestureMode = 0
+        gestureSeekHapticBucket = -1L
         hideCenterHint()
         hideSeekPreview()
     }
@@ -8854,6 +8937,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun currentBrightness(): Float {
         val value = window.attributes.screenBrightness
         return if (value >= 0f) value else 0.5f
+    }
+
+    private fun hapticTick() {
+        window.decorView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+    }
+
+    private fun hapticLongPress() {
+        window.decorView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
     }
 
     private fun showCenterHint(text: String) {
@@ -9009,7 +9100,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     override fun onMediaNext() {
-        if (hasNextEpisode()) playNextEpisode() else showTransientHint(getString(R.string.player_last_episode))
+        if (hasNextEpisode()) {
+            playNextEpisode()
+        } else {
+            showTransientHint(getString(R.string.player_last_episode))
+        }
     }
 
     // ---- MediaSession 前台服务推送 ----
@@ -9069,25 +9164,29 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val paused = playerSurface.state.paused
         val rewind = RemoteAction(
             Icon.createWithResource(this, android.R.drawable.ic_media_rew),
-            getString(R.string.player_media_action_rewind), getString(R.string.player_media_action_rewind_10s),
+            getString(R.string.player_media_action_rewind),
+            getString(R.string.player_media_action_rewind_10s),
             pipCommandIntent(NativeMediaCommandCoordinator.ACTION_REWIND, 41),
         )
         val playPause = if (paused) {
             RemoteAction(
                 Icon.createWithResource(this, android.R.drawable.ic_media_play),
-                getString(R.string.notification_action_play), getString(R.string.notification_action_play),
+                getString(R.string.notification_action_play),
+                getString(R.string.notification_action_play),
                 pipCommandIntent(NativeMediaCommandCoordinator.ACTION_PLAY, 42),
             )
         } else {
             RemoteAction(
                 Icon.createWithResource(this, android.R.drawable.ic_media_pause),
-                getString(R.string.notification_action_pause), getString(R.string.notification_action_pause),
+                getString(R.string.notification_action_pause),
+                getString(R.string.notification_action_pause),
                 pipCommandIntent(NativeMediaCommandCoordinator.ACTION_PAUSE, 43),
             )
         }
         val forward = RemoteAction(
             Icon.createWithResource(this, android.R.drawable.ic_media_ff),
-            getString(R.string.player_media_action_forward), getString(R.string.player_media_action_forward_10s),
+            getString(R.string.player_media_action_forward),
+            getString(R.string.player_media_action_forward_10s),
             pipCommandIntent(NativeMediaCommandCoordinator.ACTION_FORWARD, 44),
         )
         return listOf(rewind, playPause, forward)
@@ -9109,6 +9208,21 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun updatePipParams() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         runCatching { setPictureInPictureParams(buildPipParams()) }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (!this::playerSurface.isInitialized) return
+        if (nativePanelShouldAutoEnterPip(
+                pipAutoEnter = pipAutoEnter,
+                pipSupported = pipSupported(),
+                paused = playerSurface.state.paused,
+                alreadyInPip = inPipMode,
+                finishing = isFinishing,
+            )
+        ) {
+            enterPip()
+        }
     }
 
     private fun toggleControls() = setControlsVisible(!controlsVisible)
@@ -9166,6 +9280,19 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         if (isLocked) {
             setControlsVisible(true)
             showTransientHint(getString(R.string.player_locked_unlock_hint))
+            return true
+        }
+        // 分屏态：系统返回先驱动左侧副栏导航(详情→…→首页)，弹不动了才收掉分屏(回全屏播放)，
+        // 而不是直接退出播放/分屏。满足"分屏时返回应控制左边"的预期。
+        if (ParallelWindowCoordinator.isNativeSplitPlayerVisible()) {
+            val host = ParallelWindowCoordinator.currentSplitDetailHost()
+            if (host != null) {
+                host.requestPopInPane { popped ->
+                    if (!popped) exitSplitMode()
+                }
+            } else {
+                exitSplitMode()
+            }
             return true
         }
         return false

@@ -24,6 +24,12 @@ object ParallelFlutterEngineRegistry {
     @Volatile
     private var engineGroup: FlutterEngineGroup? = null
 
+    // 副栏第二引擎当前已构建的目标路由。用于「再次进分屏时若目标条目未变 → 保留已加载的
+    // 导航栈、不重建」，从而避免每次进分屏副栏都重新加载/闪烁。引擎被销毁(注销/低内存)后
+    // 会在重建分支重新落值。
+    @Volatile
+    private var lastSplitDetailRoute: String = ""
+
     fun warmIfEligible(context: Context) {
         detailEngine(context)
     }
@@ -164,6 +170,7 @@ object ParallelFlutterEngineRegistry {
         if (normalizedRoute.isEmpty()) return
         val existing = FlutterEngineCache.getInstance().get(SPLIT_DETAIL_ENGINE_ID)
         if (existing == null) {
+            lastSplitDetailRoute = normalizedRoute
             engineFor(
                 context,
                 SPLIT_DETAIL_ENGINE_ID,
@@ -173,8 +180,14 @@ object ParallelFlutterEngineRegistry {
             return
         }
         resumeEngine(existing)
-        // 复用引擎时显式重建整条栈为 [首页, 详情]：Navigator 有两页，返回逐层回退(详情→首页→收分屏)，
-        // 与首次新建的初始栈一致；避免只设单页 [详情] 导致返回直接收掉分屏。
+        // 目标条目未变：副栏已加载的导航栈(首页+详情，含此前的浏览)还活着(退分屏只暂停不重置)，
+        // 直接复用、不重建 → 不重新加载、不闪。仅 resume 让其重新上屏即可。
+        if (isSameSplitTarget(lastSplitDetailRoute, normalizedRoute)) {
+            return
+        }
+        // 目标条目变了(在播条目不同/换片)：重建整条栈为 [首页, 详情]，Navigator 两页可逐层回退
+        // (详情→首页→收分屏)，与首次新建一致；避免只设单页 [详情] 导致返回直接收掉分屏。
+        lastSplitDetailRoute = normalizedRoute
         MethodChannel(
             existing.dartExecutor.binaryMessenger,
             DETAIL_HOST_CHANNEL,
@@ -184,7 +197,36 @@ object ParallelFlutterEngineRegistry {
         )
     }
 
-    fun resetSplitDetailRouteToPlaceholder() = resetRouteToPlaceholder(SPLIT_DETAIL_ENGINE_ID)
+    /** 两条副栏目标路由是否指向同一条目：优先比 itemGuid/parentGuid/personGuid，回退整串比较。 */
+    private fun isSameSplitTarget(
+        previous: String,
+        next: String,
+    ): Boolean {
+        val prev = previous.trim()
+        val cur = next.trim()
+        if (prev.isEmpty() || cur.isEmpty()) return false
+        if (prev == cur) return true
+        val prevUri = runCatching { Uri.parse(prev) }.getOrNull() ?: return false
+        val curUri = runCatching { Uri.parse(cur) }.getOrNull() ?: return false
+        if (prevUri.path?.trim() != curUri.path?.trim()) return false
+        for (key in listOf("itemGuid", "parentGuid", "personGuid", "seasonGuid")) {
+            val a = prevUri.getQueryParameter(key)?.trim().orEmpty()
+            val b = curUri.getQueryParameter(key)?.trim().orEmpty()
+            if (a.isNotEmpty() || b.isNotEmpty()) {
+                return a == b
+            }
+        }
+        return false
+    }
+
+    /**
+     * 注销/重置时调用：把副栏第二引擎重置成占位页并清空目标跟踪，丢弃上一账号已加载的详情，
+     * 避免 [pauseSplitDetailEngine] 的保活把旧会话内容残留到下次进分屏。
+     */
+    fun resetSplitDetailRouteToPlaceholder() {
+        lastSplitDetailRoute = ""
+        resetRouteToPlaceholder(SPLIT_DETAIL_ENGINE_ID)
+    }
 
     /** 副栏 host 初始路由：把子路由包进 /detail/host，并带 root=/screen/home（可回退到首页）。 */
     private fun splitDetailHostInitialRoute(childRoute: String): String =
@@ -198,6 +240,14 @@ object ParallelFlutterEngineRegistry {
 
     fun resumeSplitDetailEngine() {
         FlutterEngineCache.getInstance().get(SPLIT_DETAIL_ENGINE_ID)?.let(::resumeEngine)
+    }
+
+    /**
+     * 退分屏时调用：仅暂停副栏第二引擎、**保留其导航栈与已加载页面**(不重置成占位页)，
+     * 下次进分屏若目标条目未变即可零重建复用([prepareSplitDetailRoute] 会跳过 setRouteStack)。
+     */
+    fun pauseSplitDetailEngine() {
+        FlutterEngineCache.getInstance().get(SPLIT_DETAIL_ENGINE_ID)?.let(::pauseEngine)
     }
 
     private fun resumeEngine(engine: FlutterEngine) {
