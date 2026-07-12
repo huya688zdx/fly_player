@@ -3,6 +3,10 @@ import 'package:flutter/foundation.dart';
 import '../services/parallel_window_settings_bridge.dart';
 
 class ParallelWindowSettingsProvider extends ChangeNotifier {
+  final Future<ParallelWindowSettings> Function(
+    ParallelWindowSettings settings,
+  )?
+  _saveSettings;
   bool _isReady = false;
   bool _enabled = true;
   String _preferredPrimaryPaneSide = 'left';
@@ -22,123 +26,61 @@ class ParallelWindowSettingsProvider extends ChangeNotifier {
   bool get primaryOnLeft => _preferredPrimaryPaneSide == 'left';
   bool get playbackPrimaryOnLeft => _preferredPlaybackPrimaryPaneSide == 'left';
 
-  ParallelWindowSettingsProvider() {
-    load();
+  ParallelWindowSettingsProvider({
+    bool autoLoad = true,
+    Future<ParallelWindowSettings> Function(ParallelWindowSettings settings)?
+    saveSettings,
+  }) : _saveSettings = saveSettings {
+    if (autoLoad) {
+      load();
+    }
   }
 
   Future<void> load() async {
     final settings = await ParallelWindowSettingsBridge.load();
-    _enabled = settings.enabled;
-    _preferredPrimaryPaneSide = settings.preferredPrimaryPaneSide;
-    _preferredPlaybackPrimaryPaneSide =
-        settings.preferredPlaybackPrimaryPaneSide;
-    _splitRatioPreset = settings.splitRatioPreset;
-    _defaultPlaybackFullscreen = settings.defaultPlaybackFullscreen;
-    _immersiveStatusBar = settings.immersiveStatusBar;
+    _applySettings(settings);
     _isReady = true;
     notifyListeners();
   }
 
-  Future<void> setEnabled(bool value) async {
-    _enabled = value;
-    notifyListeners();
-    final settings = await ParallelWindowSettingsBridge.save(
-      enabled: _enabled,
-      preferredPrimaryPaneSide: _preferredPrimaryPaneSide,
-      preferredPlaybackPrimaryPaneSide: _preferredPlaybackPrimaryPaneSide,
-      splitRatioPreset: _splitRatioPreset,
-      defaultPlaybackFullscreen: _defaultPlaybackFullscreen,
-      immersiveStatusBar: _immersiveStatusBar,
-    );
-    _enabled = settings.enabled;
-    _preferredPrimaryPaneSide = settings.preferredPrimaryPaneSide;
-    _preferredPlaybackPrimaryPaneSide =
-        settings.preferredPlaybackPrimaryPaneSide;
-    _splitRatioPreset = settings.splitRatioPreset;
-    _defaultPlaybackFullscreen = settings.defaultPlaybackFullscreen;
-    _immersiveStatusBar = settings.immersiveStatusBar;
-    _isReady = true;
-    notifyListeners();
-  }
+  Future<void> setEnabled(bool value) =>
+      _persistSettings(_currentSettings().copyWith(enabled: value));
 
-  Future<void> setPreferredPrimaryPaneSide(String value) async {
+  Future<void> setPreferredPrimaryPaneSide(String value) {
     final normalized = value == 'right' ? 'right' : 'left';
-    _preferredPrimaryPaneSide = normalized;
-    notifyListeners();
-    final settings = await ParallelWindowSettingsBridge.save(
-      enabled: _enabled,
-      preferredPrimaryPaneSide: _preferredPrimaryPaneSide,
-      preferredPlaybackPrimaryPaneSide: _preferredPlaybackPrimaryPaneSide,
-      splitRatioPreset: _splitRatioPreset,
-      defaultPlaybackFullscreen: _defaultPlaybackFullscreen,
-      immersiveStatusBar: _immersiveStatusBar,
+    return _persistSettings(
+      _currentSettings().copyWith(preferredPrimaryPaneSide: normalized),
     );
-    _enabled = settings.enabled;
-    _preferredPrimaryPaneSide = settings.preferredPrimaryPaneSide;
-    _preferredPlaybackPrimaryPaneSide =
-        settings.preferredPlaybackPrimaryPaneSide;
-    _splitRatioPreset = settings.splitRatioPreset;
-    _defaultPlaybackFullscreen = settings.defaultPlaybackFullscreen;
-    _immersiveStatusBar = settings.immersiveStatusBar;
-    _isReady = true;
-    notifyListeners();
   }
 
-  Future<void> setPreferredPlaybackPrimaryPaneSide(String value) async {
+  Future<void> setPreferredPlaybackPrimaryPaneSide(String value) {
     final normalized = value == 'left' ? 'left' : 'right';
-    _preferredPlaybackPrimaryPaneSide = normalized;
-    notifyListeners();
-    final settings = await ParallelWindowSettingsBridge.save(
-      enabled: _enabled,
-      preferredPrimaryPaneSide: _preferredPrimaryPaneSide,
-      preferredPlaybackPrimaryPaneSide: _preferredPlaybackPrimaryPaneSide,
-      splitRatioPreset: _splitRatioPreset,
-      defaultPlaybackFullscreen: _defaultPlaybackFullscreen,
-      immersiveStatusBar: _immersiveStatusBar,
+    return _persistSettings(
+      _currentSettings().copyWith(preferredPlaybackPrimaryPaneSide: normalized),
     );
-    _enabled = settings.enabled;
-    _preferredPrimaryPaneSide = settings.preferredPrimaryPaneSide;
-    _preferredPlaybackPrimaryPaneSide =
-        settings.preferredPlaybackPrimaryPaneSide;
-    _splitRatioPreset = settings.splitRatioPreset;
-    _defaultPlaybackFullscreen = settings.defaultPlaybackFullscreen;
-    _immersiveStatusBar = settings.immersiveStatusBar;
-    _isReady = true;
-    notifyListeners();
   }
 
-  Future<void> setSplitRatioPreset(String value) async {
+  Future<void> setSplitRatioPreset(String value) {
     final normalized = switch (value) {
       'equal' => 'equal',
       'focus_detail' => 'focus_detail',
       'focus_home' => 'focus_home',
       _ => 'balanced',
     };
-    _splitRatioPreset = normalized;
-    notifyListeners();
-    final settings = await ParallelWindowSettingsBridge.save(
-      enabled: _enabled,
-      preferredPrimaryPaneSide: _preferredPrimaryPaneSide,
-      preferredPlaybackPrimaryPaneSide: _preferredPlaybackPrimaryPaneSide,
-      splitRatioPreset: _splitRatioPreset,
-      defaultPlaybackFullscreen: _defaultPlaybackFullscreen,
-      immersiveStatusBar: _immersiveStatusBar,
+    return _persistSettings(
+      _currentSettings().copyWith(splitRatioPreset: normalized),
     );
-    _enabled = settings.enabled;
-    _preferredPrimaryPaneSide = settings.preferredPrimaryPaneSide;
-    _preferredPlaybackPrimaryPaneSide =
-        settings.preferredPlaybackPrimaryPaneSide;
-    _splitRatioPreset = settings.splitRatioPreset;
-    _defaultPlaybackFullscreen = settings.defaultPlaybackFullscreen;
-    _immersiveStatusBar = settings.immersiveStatusBar;
-    _isReady = true;
-    notifyListeners();
   }
 
-  Future<void> setDefaultPlaybackFullscreen(bool value) async {
-    _defaultPlaybackFullscreen = value;
-    notifyListeners();
-    final settings = await ParallelWindowSettingsBridge.save(
+  Future<void> setDefaultPlaybackFullscreen(bool value) => _persistSettings(
+    _currentSettings().copyWith(defaultPlaybackFullscreen: value),
+  );
+
+  Future<void> setImmersiveStatusBar(bool value) =>
+      _persistSettings(_currentSettings().copyWith(immersiveStatusBar: value));
+
+  ParallelWindowSettings _currentSettings() {
+    return ParallelWindowSettings(
       enabled: _enabled,
       preferredPrimaryPaneSide: _preferredPrimaryPaneSide,
       preferredPlaybackPrimaryPaneSide: _preferredPlaybackPrimaryPaneSide,
@@ -146,28 +88,9 @@ class ParallelWindowSettingsProvider extends ChangeNotifier {
       defaultPlaybackFullscreen: _defaultPlaybackFullscreen,
       immersiveStatusBar: _immersiveStatusBar,
     );
-    _enabled = settings.enabled;
-    _preferredPrimaryPaneSide = settings.preferredPrimaryPaneSide;
-    _preferredPlaybackPrimaryPaneSide =
-        settings.preferredPlaybackPrimaryPaneSide;
-    _splitRatioPreset = settings.splitRatioPreset;
-    _defaultPlaybackFullscreen = settings.defaultPlaybackFullscreen;
-    _immersiveStatusBar = settings.immersiveStatusBar;
-    _isReady = true;
-    notifyListeners();
   }
 
-  Future<void> setImmersiveStatusBar(bool value) async {
-    _immersiveStatusBar = value;
-    notifyListeners();
-    final settings = await ParallelWindowSettingsBridge.save(
-      enabled: _enabled,
-      preferredPrimaryPaneSide: _preferredPrimaryPaneSide,
-      preferredPlaybackPrimaryPaneSide: _preferredPlaybackPrimaryPaneSide,
-      splitRatioPreset: _splitRatioPreset,
-      defaultPlaybackFullscreen: _defaultPlaybackFullscreen,
-      immersiveStatusBar: _immersiveStatusBar,
-    );
+  void _applySettings(ParallelWindowSettings settings) {
     _enabled = settings.enabled;
     _preferredPrimaryPaneSide = settings.preferredPrimaryPaneSide;
     _preferredPlaybackPrimaryPaneSide =
@@ -175,7 +98,31 @@ class ParallelWindowSettingsProvider extends ChangeNotifier {
     _splitRatioPreset = settings.splitRatioPreset;
     _defaultPlaybackFullscreen = settings.defaultPlaybackFullscreen;
     _immersiveStatusBar = settings.immersiveStatusBar;
-    _isReady = true;
+  }
+
+  Future<void> _persistSettings(ParallelWindowSettings next) async {
+    final previous = _currentSettings();
+    _applySettings(next);
     notifyListeners();
+    try {
+      final saved = _saveSettings != null
+          ? await _saveSettings(next)
+          : await ParallelWindowSettingsBridge.save(
+              enabled: next.enabled,
+              preferredPrimaryPaneSide: next.preferredPrimaryPaneSide,
+              preferredPlaybackPrimaryPaneSide:
+                  next.preferredPlaybackPrimaryPaneSide,
+              splitRatioPreset: next.splitRatioPreset,
+              defaultPlaybackFullscreen: next.defaultPlaybackFullscreen,
+              immersiveStatusBar: next.immersiveStatusBar,
+            );
+      _applySettings(saved);
+      _isReady = true;
+      notifyListeners();
+    } catch (_) {
+      _applySettings(previous);
+      notifyListeners();
+      rethrow;
+    }
   }
 }

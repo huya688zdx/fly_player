@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../danmaku/models/danmaku_saved_source.dart';
@@ -8,10 +10,20 @@ import '../l10n/generated/app_localizations.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
 import '../ui/app_transitions.dart';
+import '../utils/swallowed_error_logger.dart';
 import 'danmaku_manager_screen.dart';
 
 class DanmakuSettingsScreen extends StatefulWidget {
-  const DanmakuSettingsScreen({super.key});
+  final Future<void> Function(DanmakuSettings settings)? saveSettings;
+  final Future<DanmakuSettings> Function()? settingsLoader;
+  final Future<List<DanmakuSavedSource>> Function()? savedSourceLoader;
+
+  const DanmakuSettingsScreen({
+    super.key,
+    this.saveSettings,
+    this.settingsLoader,
+    this.savedSourceLoader,
+  });
 
   @override
   State<DanmakuSettingsScreen> createState() => _DanmakuSettingsScreenState();
@@ -44,8 +56,8 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
 
   Future<void> _load() async {
     final results = await Future.wait<Object>(<Future<Object>>[
-      _store.load(),
-      _savedSourceStore.loadAll(),
+      (widget.settingsLoader ?? _store.load)(),
+      (widget.savedSourceLoader ?? _savedSourceStore.loadAll)(),
     ]);
     if (!mounted) return;
     setState(() {
@@ -56,8 +68,27 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
   }
 
   Future<void> _save(DanmakuSettings next) async {
-    setState(() => _settings = next);
-    await _store.save(next);
+    try {
+      await (widget.saveSettings ?? _store.save)(next);
+      if (!mounted) return;
+      setState(() => _settings = next);
+    } catch (error, stackTrace) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(AppLocalizations.of(context).globalLoadFailed),
+          ),
+        );
+      }
+      unawaited(
+        logSwallowedError(
+          action: 'save danmaku settings',
+          error: error,
+          stackTrace: stackTrace,
+          source: 'danmaku_settings_screen',
+        ),
+      );
+    }
   }
 
   String _speedLabel(double speed) {

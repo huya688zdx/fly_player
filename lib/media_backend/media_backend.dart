@@ -140,11 +140,11 @@ abstract class MediaBackend {
   /// 设置 / 取消「收藏」，返回最终收藏态（true=已收藏）。
   ///
   /// 详情页心形键的中立通道——新后端实现此法即可让详情页收藏键生效，无需改 UI。默认不支持
-  /// （返回入参，视为无变化）；飞牛走 `FeiniuApi.setFavorite`，Emby 走
+  /// （抛出 [UnsupportedError]）；飞牛走 `FeiniuApi.setFavorite`，Emby 走
   /// `POST/DELETE /Users/{userId}/FavoriteItems/{itemId}`。失败应抛错，由调用方提示。
   /// 能力开关见 [MediaBackendCapabilities.supportsFavorite]。
   Future<bool> setItemFavorite(String itemId, {required bool favorite}) async =>
-      favorite;
+      throw UnsupportedError('This media backend does not support favorites.');
 
   /// 标记「已看 / 未看」，返回最终已看态（true=已看）。
   ///
@@ -152,7 +152,9 @@ abstract class MediaBackend {
   /// `POST/DELETE /Users/{userId}/PlayedItems/{itemId}`。能力开关见
   /// [MediaBackendCapabilities.supportsWatched]。
   Future<bool> setItemWatched(String itemId, {required bool watched}) async =>
-      watched;
+      throw UnsupportedError(
+        'This media backend does not support watched state.',
+      );
 
   /// 解析外挂字幕轨为本地可 `sub-add` 的文件路径（原生壳反向通道）。
   ///

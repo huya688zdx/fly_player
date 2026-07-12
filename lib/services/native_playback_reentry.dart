@@ -5,7 +5,10 @@ import '../media_backend/media_backend.dart';
 import '../providers/nas_provider.dart';
 import 'native_player_bridge.dart';
 import 'native_reentry_support.dart';
+import 'playback_progress_offline_queue.dart';
 import 'server_native_picker_support.dart';
+import '../utils/app_exception.dart';
+import '../utils/swallowed_error_logger.dart';
 
 /// 原生壳 `onResolvePlayback` 回调签名（与 [NativePlayerBridge.bindReentry] 一致）。
 typedef ResolvePlaybackHandler =
@@ -128,6 +131,7 @@ class ServerPlaybackReporter {
     if (itemGuid.isEmpty) return;
     final mediaGuid = (progress['mediaGuid'] ?? '').toString().trim();
     final ts = (progress['ts'] as num?)?.toInt() ?? 0;
+    final isPaused = progress['isPaused'] == true;
     try {
       if (itemGuid != _itemId) {
         // 切到新条目：先停旧会话（落定旧条目最终位），再为新条目开会话。
@@ -137,13 +141,15 @@ class ServerPlaybackReporter {
             mediaSourceId: _mediaId,
             positionSeconds: _lastTs,
           );
+          _itemId = '';
+          _mediaId = '';
         }
-        _itemId = itemGuid;
         await backend.reportPlaybackStart(
           itemId: itemGuid,
           mediaSourceId: mediaGuid,
           positionSeconds: ts,
         );
+        _itemId = itemGuid;
       }
       _mediaId = mediaGuid;
       _lastTs = ts;
@@ -151,7 +157,54 @@ class ServerPlaybackReporter {
         itemId: itemGuid,
         mediaSourceId: mediaGuid,
         positionSeconds: ts,
+        isPaused: isPaused,
       );
-    } catch (_) {}
+      unawaited(
+        PlaybackProgressOfflineQueue.flushServer((queued) async {
+          final queuedItemId = (queued['itemId'] ?? '').toString().trim();
+          final queuedMediaSourceId = (queued['mediaSourceId'] ?? '')
+              .toString()
+              .trim();
+          if (queuedItemId.isEmpty || queuedMediaSourceId.isEmpty) return;
+          final queuedPosition =
+              (queued['positionSeconds'] as num?)?.toInt() ?? 0;
+          await backend.reportPlaybackStart(
+            itemId: queuedItemId,
+            mediaSourceId: queuedMediaSourceId,
+            positionSeconds: queuedPosition,
+          );
+          await backend.reportPlaybackProgress(
+            itemId: queuedItemId,
+            mediaSourceId: queuedMediaSourceId,
+            positionSeconds: queuedPosition,
+            isPaused: queued['isPaused'] == true,
+          );
+        }),
+      );
+    } catch (error, stackTrace) {
+      final exception = AppException.from(
+        error,
+        action: 'server playback progress',
+        fallbackKind: AppExceptionKind.fatal,
+        stackTrace: stackTrace,
+      );
+      if (exception.isTransient) {
+        await PlaybackProgressOfflineQueue.enqueueServer(
+          itemId: itemGuid,
+          mediaSourceId: mediaGuid,
+          positionSeconds: ts,
+          isPaused: isPaused,
+        );
+      }
+      unawaited(
+        logSwallowedError(
+          action: 'server playback progress',
+          id: itemGuid,
+          error: error,
+          stackTrace: stackTrace,
+          source: 'server_playback_reporter',
+        ),
+      );
+    }
   }
 }
