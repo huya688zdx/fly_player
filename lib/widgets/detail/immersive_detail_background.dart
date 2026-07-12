@@ -348,10 +348,12 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
     );
   }
 
-  void _nextFallbackImage() {
-    if (_index + 1 < widget.urls.length) {
-      setState(() => _index += 1);
+  void _nextFallbackImage(int failedIndex) {
+    if (!mounted || _index + 1 >= widget.urls.length) {
+      return;
     }
+    if (failedIndex != _index) return;
+    setState(() => _index += 1);
   }
 }
 
@@ -361,7 +363,7 @@ class _BackgroundImage extends StatelessWidget {
   final int index;
   final BoxFit fit;
   final Alignment alignment;
-  final VoidCallback onErrorNext;
+  final ValueChanged<int> onErrorNext;
 
   const _BackgroundImage({
     required this.urls,
@@ -419,7 +421,9 @@ class _BackgroundImage extends StatelessWidget {
                   ? '[IMG][DETAIL_BG] failed url=$currentUrl error=$error -> fallback=$nextUrl'
                   : '[IMG][DETAIL_BG] failed url=$currentUrl error=$error -> no_more_fallback',
             );
-            WidgetsBinding.instance.addPostFrameCallback((_) => onErrorNext());
+            WidgetsBinding.instance.addPostFrameCallback(
+              (_) => onErrorNext(index),
+            );
             return Container(color: context.appColors.surface);
           },
         );

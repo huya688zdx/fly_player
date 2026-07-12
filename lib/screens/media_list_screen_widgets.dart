@@ -326,7 +326,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
                   (path) => _posterCandidates(
                     baseUrl,
                     path,
-                    width: (layout.categoryMiniPosterWidth * 3).round(),
+                    width: layout.categoryMiniPosterRequestWidth,
                   ),
                 )
                 .toList(),
@@ -335,6 +335,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
             cardWidth: layout.categoryCardWidth,
             miniPosterWidth: layout.categoryMiniPosterWidth,
             miniPosterHeight: layout.categoryMiniPosterHeight,
+            decodeWidth: layout.miniPosterDecodeWidth,
             onTap: () => _openCategory(category),
           );
         },
@@ -385,6 +386,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
                         urls: urls,
                         token: token,
                         lightweight: widget.secondaryHost,
+                        decodeWidth: layout.continueDecodeWidth,
                         fallback: Center(
                           child: Icon(
                             Icons.movie,
@@ -558,6 +560,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
               resolutions: resolutions,
               watched: item.watched == 1,
               imageHeight: layout.homePosterImageHeight,
+              decodeWidth: layout.homePosterDecodeWidth,
               titleFontSize: layout.homePosterTitleFontSize,
               subtitleFontSize: layout.homePosterSubtitleFontSize,
               imageFit: _isEpisodeItem(item) ? BoxFit.contain : BoxFit.cover,
@@ -583,6 +586,7 @@ class _CategoryPosterCard extends StatelessWidget {
   final double cardWidth;
   final double miniPosterWidth;
   final double miniPosterHeight;
+  final int decodeWidth;
   final VoidCallback? onTap;
 
   const _CategoryPosterCard({
@@ -593,6 +597,7 @@ class _CategoryPosterCard extends StatelessWidget {
     required this.cardWidth,
     required this.miniPosterWidth,
     required this.miniPosterHeight,
+    required this.decodeWidth,
     this.onTap,
   });
 
@@ -603,15 +608,7 @@ class _CategoryPosterCard extends StatelessWidget {
     final normalized = posterUrls.take(3).toList();
     final radius = BorderRadius.circular(16);
 
-    // iOS26 磨砂玻璃：半透明磨砂基底 + 镜面高光 + 发丝边。
-    // 不用 BackdropFilter（实时模糊在滚动区逐帧重算、很掉帧），改用半透明
-    // 渐变模拟玻璃；因此基底比真模糊版略实一点，才能读出“玻璃”质感。
-    final glassFill = isLightSurface
-        ? Colors.white.withValues(alpha: 0.42)
-        : Colors.white.withValues(alpha: 0.16);
-    final glassEdge = isLightSurface
-        ? Colors.white.withValues(alpha: 0.70)
-        : Colors.white.withValues(alpha: 0.16);
+    // 纯色化：回归纯色风格，分类卡用实色底 + 细边，去掉白渐变/镜面高光/发丝边。
     final bottomVeil = isLightSurface
         ? colors.backgroundBase.withValues(alpha: 0.12)
         : colors.backgroundBase.withValues(alpha: 0.30);
@@ -630,41 +627,12 @@ class _CategoryPosterCard extends StatelessWidget {
               child: Ink(
                 decoration: BoxDecoration(
                   borderRadius: radius,
-                  border: Border.all(color: glassEdge, width: 0.8),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: <Color>[
-                      Colors.white.withValues(
-                        alpha: isLightSurface ? 0.50 : 0.22,
-                      ),
-                      glassFill,
-                      colors.accentSoft.withValues(
-                        alpha: isLightSurface ? 0.14 : 0.09,
-                      ),
-                    ],
-                  ),
+                  border: Border.all(color: colors.borderSubtle, width: 0.7),
+                  color: colors.surfaceStrong,
                 ),
                 child: Stack(
                   children: <Widget>[
-                    // 左上镜面高光，模拟玻璃对光的反射。
-                    Positioned.fill(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: RadialGradient(
-                            center: const Alignment(-0.78, -0.95),
-                            radius: 1.3,
-                            colors: <Color>[
-                              Colors.white.withValues(
-                                alpha: isLightSurface ? 0.38 : 0.14,
-                              ),
-                              Colors.transparent,
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    // 海报簇（轻微倾斜叠放，每张带玻璃描边）。
+                    // 海报簇（轻微倾斜叠放）。
                     Positioned.fill(
                       child: Padding(
                         padding: const EdgeInsets.fromLTRB(10, 10, 10, 30),
@@ -675,6 +643,7 @@ class _CategoryPosterCard extends StatelessWidget {
                             lightweight: lightweight,
                             miniPosterWidth: miniPosterWidth,
                             miniPosterHeight: miniPosterHeight,
+                            decodeWidth: decodeWidth,
                             fallbackColor: colors.surfaceStrong.withValues(
                               alpha: isLightSurface ? 0.30 : 0.18,
                             ),
@@ -695,23 +664,6 @@ class _CategoryPosterCard extends StatelessWidget {
                               Colors.transparent,
                               bottomVeil,
                             ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    // 顶沿发丝高光，强化玻璃边缘的清脆感。
-                    Positioned(
-                      left: 1,
-                      right: 1,
-                      top: 1,
-                      child: Container(
-                        height: 1,
-                        decoration: BoxDecoration(
-                          borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(16),
-                          ),
-                          color: Colors.white.withValues(
-                            alpha: isLightSurface ? 0.60 : 0.24,
                           ),
                         ),
                       ),
@@ -761,6 +713,7 @@ class _PosterCluster extends StatelessWidget {
   final bool lightweight;
   final double miniPosterWidth;
   final double miniPosterHeight;
+  final int decodeWidth;
   final Color fallbackColor;
 
   const _PosterCluster({
@@ -769,6 +722,7 @@ class _PosterCluster extends StatelessWidget {
     required this.lightweight,
     required this.miniPosterWidth,
     required this.miniPosterHeight,
+    required this.decodeWidth,
     required this.fallbackColor,
   });
 
@@ -802,6 +756,7 @@ class _PosterCluster extends StatelessWidget {
                   urls: posterUrls[index],
                   token: token,
                   lightweight: lightweight,
+                  decodeWidth: decodeWidth,
                   fallback: ColoredBox(color: fallbackColor),
                 ),
               ),
@@ -886,12 +841,14 @@ class _PosterImage extends StatefulWidget {
   final List<String> urls;
   final String token;
   final bool lightweight;
+  final int? decodeWidth;
   final Widget fallback;
 
   const _PosterImage({
     required this.urls,
     required this.token,
     this.lightweight = false,
+    this.decodeWidth,
     required this.fallback,
   });
 
@@ -926,12 +883,19 @@ class _PosterImageState extends State<_PosterImage> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final dpr = MediaQuery.of(context).devicePixelRatio;
-        final cacheWidth = constraints.maxWidth.isFinite
-            ? (constraints.maxWidth * dpr).round().clamp(80, 1000)
-            : null;
-        final cacheHeight = constraints.maxHeight.isFinite
-            ? (constraints.maxHeight * dpr).round().clamp(80, 1000)
-            : null;
+        // 稳定解码宽度优先：用与窗口无关的 decodeWidth(高按源图比例推导)，避免进/退分屏
+        // 时 cacheWidth 变化导致图片缓存 key 失配、海报重解码闪烁。
+        final stableW = widget.decodeWidth;
+        final cacheWidth =
+            stableW ??
+            (constraints.maxWidth.isFinite
+                ? (constraints.maxWidth * dpr).round().clamp(80, 1000)
+                : null);
+        final cacheHeight = stableW != null
+            ? null
+            : (constraints.maxHeight.isFinite
+                  ? (constraints.maxHeight * dpr).round().clamp(80, 1000)
+                  : null);
 
         return Image.network(
           current,

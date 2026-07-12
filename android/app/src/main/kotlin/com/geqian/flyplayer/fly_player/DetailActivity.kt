@@ -3,8 +3,11 @@ package com.geqian.flyplayer.fly_player
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
 import io.flutter.embedding.android.FlutterActivityLaunchConfigs
 import io.flutter.embedding.android.RenderMode
 import io.flutter.embedding.engine.FlutterEngine
@@ -14,6 +17,9 @@ class DetailActivity : FlutterHostActivity() {
     /** 本实例是否为原生壳分屏副栏（用第二引擎）。由启动 Intent 的 extra 决定，全生命周期不变。 */
     private val useSplitEngine: Boolean
         get() = intent?.getBooleanExtra(EXTRA_USE_SPLIT_ENGINE, false) == true
+
+    // 预测式返回(API33+/targetSdk35)回调；用 Any? 持有，旧设备不加载该 API 类型。
+    private var backInvokedCallback: Any? = null
 
     private fun wrappedInitialRoute(routeName: String): String {
         return Uri
@@ -72,6 +78,43 @@ class DetailActivity : FlutterHostActivity() {
             ParallelFlutterEngineRegistry.resumeDetailEngine()
         }
         super.onResume()
+        registerBackHandler()
+    }
+
+    // 详情/副栏的系统返回：先委派 Flutter 在本 pane 导航栈内逐层回退(详情→…→首页/root)，
+    // 弹不动了才 finish(收掉本详情/分屏副栏)。否则在 targetSdk35 预测式返回下，系统会直接
+    // finish 本 Activity、绕过 Flutter 的 PopScope，导致"分屏里一按返回就收掉副栏"。
+    private fun handleDetailBack() {
+        requestPopInPane { popped ->
+            if (!popped && !isFinishing) {
+                finish()
+            }
+        }
+    }
+
+    /** 旧设备(API<33 或未启用预测式返回)走经典 onBackPressed。 */
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() {
+        handleDetailBack()
+    }
+
+    private fun registerBackHandler() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (backInvokedCallback != null) return
+        val callback = OnBackInvokedCallback { handleDetailBack() }
+        backInvokedCallback = callback
+        onBackInvokedDispatcher.registerOnBackInvokedCallback(
+            OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+            callback,
+        )
+    }
+
+    private fun unregisterBackHandler() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        (backInvokedCallback as? OnBackInvokedCallback)?.let {
+            onBackInvokedDispatcher.unregisterOnBackInvokedCallback(it)
+        }
+        backInvokedCallback = null
     }
 
     override fun getInitialRoute(): String {
@@ -122,11 +165,13 @@ class DetailActivity : FlutterHostActivity() {
         }
 
     override fun onDestroy() {
+        unregisterBackHandler()
         if (isFinishing) {
             if (useSplitEngine) {
-                // 保留副栏第二引擎(热)，仅重置为占位并暂停；下次进分屏复用、不冷启黑屏。
+                // 保留副栏第二引擎(热)**及其导航栈/已加载页面**，仅暂停；下次进分屏若目标条目
+                // 未变即零重建复用(不再重新加载/闪烁)，条目变了才由 prepareSplitDetailRoute 重建。
                 ParallelWindowCoordinator.detachSplitDetailHost(this)
-                ParallelFlutterEngineRegistry.resetSplitDetailRouteToPlaceholder()
+                ParallelFlutterEngineRegistry.pauseSplitDetailEngine()
             } else {
                 ParallelWindowCoordinator.detachDetailHost(this)
                 ParallelWindowCoordinator.detachRightPaneHost(this)

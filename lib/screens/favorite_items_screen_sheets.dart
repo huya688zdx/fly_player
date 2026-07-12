@@ -2,6 +2,7 @@ part of 'favorite_items_screen.dart';
 
 extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
   Future<void> _openSortSheet() async {
+    final nasProvider = context.read<NasProvider>();
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xFF141C29),
@@ -61,9 +62,7 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
                       }
                       Navigator.of(context).pop();
                       if (_isFeiniuBackend) {
-                        await FeiniuApi(
-                          context.read<NasProvider>(),
-                        ).setUserListSetting(
+                        await FeiniuApi(nasProvider).setUserListSetting(
                           '',
                           sortField: _sortColumn,
                           sortType: _sortType,
@@ -71,6 +70,7 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
                           key: _favoriteListSettingKey,
                         );
                       }
+                      if (!mounted) return;
                       _reloadAfterQueryChanged();
                     },
                   ),
