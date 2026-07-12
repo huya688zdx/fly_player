@@ -82,7 +82,7 @@ class TvSeasonDetailPage extends StatefulWidget {
 }
 
 class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   static const int _episodePageSize = 30;
   static const String _playlistViewTypeCard = 'card';
   static const String _playlistViewTypeButton = 'button';
@@ -148,6 +148,9 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
   DateTime _lastWatchedTapAt = DateTime.fromMillisecondsSinceEpoch(0);
   bool _seasonSwitching = false;
   bool _playPreparing = false;
+  // 原生壳是独立 Activity,退出无返回点;启动时置位,回前台据 _selectedEpisodeGuid(选集切换
+  // 已在 reentry 里更新)一次性刷新进度。性能门控:仅播放后刷一次,非实时。
+  bool _nativePlayerLaunched = false;
   int _episodeRangeIndex = 0;
   int _seasonLoadSeq = 0;
 
@@ -203,13 +206,28 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     _selectedSeasonGuid = widget.seasonItem.guid;
     _scrollController.addListener(_onScroll);
     _downloadTaskService.addListener(_handleDownloadTasksChanged);
+    WidgetsBinding.instance.addObserver(this);
     unawaited(_downloadTaskService.initialize());
     unawaited(_loadEpisodePickerModeSetting());
     _loadSeasonData(_selectedSeasonGuid, showLoading: true);
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // 原生壳退出回前台:据当前选中集(选集切换已在 reentry 里更新到最新)静默刷新一次进度。
+    // 性能:仅启动过原生壳后触发一次,不做实时刷新。
+    if (state != AppLifecycleState.resumed || !_nativePlayerLaunched) return;
+    _nativePlayerLaunched = false;
+    final episodeGuid = _selectedEpisodeGuid.trim();
+    if (episodeGuid.isNotEmpty) {
+      unawaited(_refreshAfterPlayback(episodeGuid));
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _downloadTaskService.removeListener(_handleDownloadTasksChanged);
     _topTip.dispose();
     _deferredLoadTimer?.cancel();
@@ -2197,6 +2215,8 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     // 退出/暂停回到这里写回进度（最近发起的 detail page 生效）。
     _bindNativePlayerReentry();
     try {
+      // 原生壳启动后即返回(不等退出),标记以便回前台一次性刷新进度。
+      _nativePlayerLaunched = true;
       final result = await const TvSeasonPlaybackLauncher().open(
         context,
         itemGuid: episodeGuid,
@@ -2973,7 +2993,6 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         final rating = double.tryParse(season.voteAverage) ?? 0;
         final title = widget.seriesTitle;
         final playLabel = _playLabel();
-        final deferAuxiliaryArtwork = !_artworkReady;
         final backdropRequestWidth =
             (_isPane ? screenSize.width * media.devicePixelRatio * 1.2 : 1200.0)
                 .clamp(720.0, 1200.0)
@@ -2989,11 +3008,12 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         );
         final posterUrls = _imageCandidates(season.poster, width: 560);
         final expectedEpisodeCount = _expectedEpisodeCount();
+        // 集卡片图不走 _artworkReady 二次门控:集列表已由 _episodeItemsResolved 门控(未就绪
+        // 走占位条目),且数据应用经转场 gate 延迟到转场后才发生,此时一定要真封面。再用
+        // _artworkReady 二次门控会在集列表网络快于描述揭示时先渲染无图、待 _artworkReady 翻
+        // true 整批补图 → 肉眼可见的「刷新」。与季列表/演职员同理。
         final episodeEntries = _episodeItemsResolved
-            ? _episodeCardEntries(
-                _episodeItems,
-                includeImages: !deferAuxiliaryArtwork,
-              )
+            ? _episodeCardEntries(_episodeItems, includeImages: true)
             : _episodePlaceholderEntries(expectedEpisodeCount);
         final episodeEmptyText = AppLocalizations.of(
           context,
@@ -3009,9 +3029,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                 personGuid: p.personGuid,
                 name: p.displayName,
                 subtitle: p.displaySubTitle,
-                imageUrls: deferAuxiliaryArtwork
-                    ? const <String>[]
-                    : _imageCandidates(p.profilePath, width: 180),
+                imageUrls: _imageCandidates(p.profilePath, width: 180),
               ),
             )
             .toList();

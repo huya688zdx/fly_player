@@ -106,7 +106,7 @@ class PlayDetailPage extends StatefulWidget {
 }
 
 class _PlayDetailPageState extends State<PlayDetailPage>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   static const Duration _headerFadeDuration = Duration(milliseconds: 360);
   static const Duration _actionsPopDuration = Duration(milliseconds: 300);
   static const Duration _descriptionPopDuration = Duration(milliseconds: 320);
@@ -202,6 +202,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   bool _audioSelectorExpanded = false;
   bool _deferredSectionLoadStarted = false;
   bool _playerRouteActive = false;
+  // 原生播放壳是独立 Android Activity,退出无 Navigator.push 返回点,详情页收不到刷新信号。
+  // 故启动原生壳时置位,并记录其最后播放的条目(切集时更新);回前台一次性刷新进度/跟到新集。
+  bool _nativePlayerLaunched = false;
+  String _lastNativePlayedItemGuid = '';
   Timer? _entryActionTimer;
   Timer? _deferredSectionTimer;
   late final AnimationController _headerFadeController;
@@ -314,6 +318,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _currentItemGuid = widget.itemGuid;
     _headerFadeController = AnimationController(
       vsync: this,
@@ -389,6 +394,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _topTip.dispose();
     _entryActionTimer?.cancel();
     _deferredSectionTimer?.cancel();
@@ -401,6 +407,27 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     _scrollOffsetNotifier.dispose();
     PlayDetailDownloadSheetController.clearCache();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // 原生播放壳退出后回前台:一次性刷新本详情(进度;若壳内切了集则跟到新集)。性能:仅在
+    // 确实启动过原生壳后触发一次,不做实时刷新。Flutter 全屏播放器走 Navigator.push 返回刷新,
+    // 不在此路径。
+    if (state != AppLifecycleState.resumed) return;
+    if (!_nativePlayerLaunched || _playerRouteActive) return;
+    _nativePlayerLaunched = false;
+    final playedGuid = _lastNativePlayedItemGuid.trim();
+    if (playedGuid.isNotEmpty && playedGuid != _currentItemGuid) {
+      setState(() {
+        _currentItemGuid = playedGuid;
+      });
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_refreshAfterItemStateChange());
+    });
   }
 
   void _onScroll() {
@@ -2209,7 +2236,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       );
       return;
     }
-    final l10n = AppLocalizations.of(context);
 
     await AsyncActionGuard.run<void>(
       actionKey,
@@ -2252,6 +2278,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           if (danmakuSettings.enabled) {
             danmakuFile = await NativeDanmakuPrefetch.resolveToFile(
               seriesTitle: source.seriesTitle,
+              itemTitle: source.title,
               seasonNumber: source.seasonNumber,
               episodeNumber: source.episodeNumber,
               tmdbId: source.tmdbId,
@@ -2283,18 +2310,29 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                   audioTrackIndex,
                   subtitleTrackIndex,
                   preferredQualityResolution,
-                }) => const ItemPlaybackLauncher().resolveForNative(
-                  nas,
-                  itemGuid: itemGuid,
-                  qualityIndex: qualityIndex,
-                  qualityMediaGuid: qualityMediaGuid,
-                  startPositionMs: startPositionMs,
-                  subtitleGuid: subtitleGuid,
-                  audioGuid: audioGuid,
-                  episodes: capturedEpisodes.isEmpty ? null : capturedEpisodes,
-                  l10n: l10n,
-                ),
+                }) {
+                  // 记录原生壳当前(切集后)条目,回前台据此把详情跟到最后播放的那一集。
+                  if (itemGuid.trim().isNotEmpty) {
+                    _lastNativePlayedItemGuid = itemGuid.trim();
+                  }
+                  return const ItemPlaybackLauncher().resolveForNative(
+                    nas,
+                    itemGuid: itemGuid,
+                    qualityIndex: qualityIndex,
+                    qualityMediaGuid: qualityMediaGuid,
+                    startPositionMs: startPositionMs,
+                    subtitleGuid: subtitleGuid,
+                    audioGuid: audioGuid,
+                    episodes: capturedEpisodes.isEmpty
+                        ? null
+                        : capturedEpisodes,
+                    l10n: AppLocalizations.of(context),
+                  );
+                },
           );
+          // 标记已启动原生壳 + 初始播放条目;回前台时一次性刷新进度/跟到新集(性能门控)。
+          _nativePlayerLaunched = true;
+          _lastNativePlayedItemGuid = source.itemGuid.trim();
           await NativePlayerBridge.launch(
             loadArgs: source.toMap(),
             danmakuFilePath: danmakuFile,
@@ -3191,6 +3229,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           // 演职员读公共详情快照 detail.people；显示文案经 CreditPersonPresenter 复刻飞牛
           // displayName/displaySubTitle 语义（显示逻辑留 UI 层、不进中立模型）。
           // detail.people 与 _personCredits 同源（_rebuildDetail 用 credits: _personCredits）。
+          // 头像不走 deferAuxiliaryArtwork 门控:演职员区块本身已被 _loadDeferredSections
+          // 延迟到列表就绪后才显示(_creditsVisible && creditItems.isNotEmpty),此时一定要真
+          // 头像。若再用 _heroAsyncSectionsResolved 二次门控,Phase 2 慢于演职员列表时会先渲染
+          // 占位图标、待 Phase 2 完成整页重建再整批换真照片 → 肉眼可见的「跳闪」。与 Emby 路径对齐。
           final creditItems = detail.people
               .map(
                 (e) => CreditPersonItem(
@@ -3203,9 +3245,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                     e,
                     AppLocalizations.of(context),
                   ),
-                  imageUrls: deferAuxiliaryArtwork
-                      ? const <String>[]
-                      : artworkResolver.resolveRef(e.avatar, width: 180).urls,
+                  imageUrls: artworkResolver
+                      .resolveRef(e.avatar, width: 180)
+                      .urls,
                 ),
               )
               .toList();

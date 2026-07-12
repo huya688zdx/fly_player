@@ -54,11 +54,25 @@ class MediaLayoutProfile {
     required this.categoryFilterSummaryMaxWidth,
   });
 
-  int get homeContinueRequestWidth =>
-      (continueCardWidth * 2).round().clamp(320, 900);
+  static const int _homeContinueRequestWidth = 520;
+  static const int _homePosterRequestWidth = 440;
+  static const int _categoryMiniPosterRequestWidth = 156;
+  static const int _continueDecodeWidth = 520;
+  static const int _homePosterDecodeWidth = 352;
+  static const int _miniPosterDecodeWidth = 104;
 
-  int get homePosterRequestWidth =>
-      (homePosterCardWidth * 2.5).round().clamp(260, 860);
+  // 首页海报的网络请求宽度固定取卡片上界，避免飞牛 ?w= 随分屏宽度变化。
+  int get homeContinueRequestWidth => _homeContinueRequestWidth;
+  int get homePosterRequestWidth => _homePosterRequestWidth;
+  int get categoryMiniPosterRequestWidth => _categoryMiniPosterRequestWidth;
+
+  // 稳定解码宽度(像素)：仅取「卡片宽度上界(下方 of() 里 clamp 的 ceiling) × 2」，
+  // **刻意不依赖当前窗口/分屏宽度**。进/退分屏时卡片会随 pane 缩放，但解码尺寸恒定，
+  // 于是 Image 的 ResizeImage(cacheWidth) 缓存 key 不变 → 命中图片缓存、海报不重解码闪烁。
+  // (dpr 在同机型上恒定，这里用固定 ×2 作代理；上界变更需同步这几个常量。)
+  int get continueDecodeWidth => _continueDecodeWidth;
+  int get homePosterDecodeWidth => _homePosterDecodeWidth;
+  int get miniPosterDecodeWidth => _miniPosterDecodeWidth;
 
   int get categoryGridRequestWidth =>
       (categoryGridCardWidth * 2.5).round().clamp(240, 960);
