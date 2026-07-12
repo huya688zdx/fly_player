@@ -6,8 +6,8 @@ import 'package:provider/provider.dart';
 
 import '../api/feiniu_api.dart';
 import '../l10n/generated/app_localizations.dart';
-import '../media_backend/feiniu/feiniu_media_backend.dart';
 import '../media_backend/media_backend.dart';
+import '../media_backend/media_backend_registry.dart';
 import '../media_backend/playback/media_playback.dart';
 import '../providers/media_backend_provider.dart';
 import '../controllers/play_detail_data_loader.dart';
@@ -96,6 +96,7 @@ class ItemPlaybackLauncher {
                 }) => isFeiniu
                 ? resolveForNative(
                     nas,
+                    backend: backend,
                     itemGuid: itemGuid,
                     fallbackTitle: fallbackTitle,
                     qualityIndex: qualityIndex,
@@ -235,6 +236,7 @@ class ItemPlaybackLauncher {
   /// 只解析（不启动 Activity）：原生壳画质切换时回到这里重解析指定档，回传 loadArgs+弹幕。
   Future<Map<String, dynamic>?> resolveForNative(
     NasProvider nas, {
+    MediaBackend? backend,
     required String itemGuid,
     String fallbackTitle = '',
     int? qualityIndex,
@@ -293,7 +295,7 @@ class ItemPlaybackLauncher {
         }
         // 原生壳画质切换反向通道目前仅飞牛走（服务器族用最小反向通道 _resolveServerForNative）。
         final resolved = await _resolve(
-          FeiniuMediaBackend(FeiniuApi(nas)),
+          backend ?? MediaBackendRegistry.createLegacyFeiniu(nas),
           itemGuid: itemGuid,
           fallbackTitle: fallbackTitle,
           qualityIndex: qualityIndex,

@@ -812,6 +812,7 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
                   preferredQualityResolution,
                 }) => const ItemPlaybackLauncher().resolveForNative(
                   provider,
+                  backend: backend,
                   itemGuid: itemGuid,
                   l10n: AppLocalizations.of(context),
                   fallbackTitle: title,

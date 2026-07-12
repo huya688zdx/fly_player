@@ -14,7 +14,7 @@ extension MediaLibraryItemActionTargetX on MediaLibraryItem {
       id: guid,
       baseTitle: base,
       type: type,
-      watched: watched == 1 ? 1 : 0,
+      watched: watched == 1,
       seasonNumber: seasonNumber,
       episodeNumber: episodeNumber,
       seriesId: ancestorGuid,
