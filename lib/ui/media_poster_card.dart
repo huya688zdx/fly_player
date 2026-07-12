@@ -25,6 +25,10 @@ class MediaPosterCard extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
 
+  /// 稳定解码宽度(像素)：非空时图片用它作 ResizeImage 的 cacheWidth(不再随窗口宽度变)，
+  /// 从而进/退分屏缩放不改变缓存 key、海报不重解码闪烁。为空时回退到按实时约束解码。
+  final int? decodeWidth;
+
   const MediaPosterCard({
     super.key,
     required this.urls,
@@ -44,6 +48,7 @@ class MediaPosterCard extends StatelessWidget {
     this.heroTag,
     this.onTap,
     this.onLongPress,
+    this.decodeWidth,
   });
 
   /// 启动时预热海报卡用到的 SVG（已观看角标 + 清晰度/音轨徽章）。flutter_svg
@@ -148,6 +153,7 @@ class MediaPosterCard extends StatelessWidget {
               fit: imageFit,
               aspectRatioHint: imageAspectRatioHint,
               autoFitByImageAspect: autoFitByImageAspect,
+              decodeWidth: decodeWidth,
               fallback: Center(
                 child: Icon(
                   Icons.movie,
@@ -279,6 +285,7 @@ class _PosterImage extends StatefulWidget {
   final BoxFit fit;
   final double? aspectRatioHint;
   final bool autoFitByImageAspect;
+  final int? decodeWidth;
   final Widget fallback;
 
   const _PosterImage({
@@ -287,6 +294,7 @@ class _PosterImage extends StatefulWidget {
     required this.fit,
     required this.aspectRatioHint,
     required this.autoFitByImageAspect,
+    required this.decodeWidth,
     required this.fallback,
   });
 
@@ -324,12 +332,19 @@ class _PosterImageState extends State<_PosterImage> {
         // devicePixelRatioOf 只订阅 dpr 这一项，避免每张卡因无关的 MediaQuery
         // 变化（键盘、安全区等）被牵连重建。
         final dpr = MediaQuery.devicePixelRatioOf(context);
-        final cacheW = constraints.maxWidth.isFinite
-            ? (constraints.maxWidth * dpr).round().clamp(120, 1200)
-            : null;
-        final cacheH = constraints.maxHeight.isFinite
-            ? (constraints.maxHeight * dpr).round().clamp(120, 1800)
-            : null;
+        // 稳定解码宽度优先：用与窗口无关的 decodeWidth(仅设宽、高按源图比例由 fit 策略推导)，
+        // 避免进/退分屏因 cacheWidth 变化使图片缓存 key 失配、海报重解码闪烁。
+        final stableW = widget.decodeWidth;
+        final cacheW =
+            stableW ??
+            (constraints.maxWidth.isFinite
+                ? (constraints.maxWidth * dpr).round().clamp(120, 1200)
+                : null);
+        final cacheH = stableW != null
+            ? null
+            : (constraints.maxHeight.isFinite
+                  ? (constraints.maxHeight * dpr).round().clamp(120, 1800)
+                  : null);
         // 同时给宽和高设上限，避免高图被解码成超大纹理——新行滚入时纹理
         // 上传会占用 raster 线程，正是观测到的 maxRaster 尖峰来源。用
         // ResizeImagePolicy.fit 在限制框内等比缩放，不会像默认 exact 策略那样

@@ -74,7 +74,7 @@ class TvDetailPage extends StatefulWidget {
 }
 
 class _TvDetailPageState extends State<TvDetailPage>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   static const Duration _descriptionPopDuration = Duration(milliseconds: 320);
   static const Duration _seasonCardPopDuration = Duration(milliseconds: 320);
   static const Duration _deferredSectionStartDelay = Duration(
@@ -127,6 +127,9 @@ class _TvDetailPageState extends State<TvDetailPage>
   bool _watchedUpdating = false;
   DateTime _lastWatchedTapAt = DateTime.fromMillisecondsSinceEpoch(0);
   bool _playPreparing = false;
+  // 原生壳是独立 Activity,退出无返回点;启动时置位,回前台一次性静默刷新(让"继续播放"跟到
+  // 最新进度/集)。性能门控:仅播放后刷一次,非实时。
+  bool _nativePlayerLaunched = false;
   final DetailTopTip _topTip = DetailTopTip();
   final Map<String, dynamic> _localeMap = const <String, dynamic>{};
 
@@ -191,11 +194,27 @@ class _TvDetailPageState extends State<TvDetailPage>
       end: 0,
     ).animate(seasonCardCurve);
     _scrollController.addListener(_onScroll);
+    WidgetsBinding.instance.addObserver(this);
     _load();
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // 原生壳退出回前台:静默刷新一次,使主播放键/续看卡跟到最新进度与集。性能:仅启动过原生壳
+    // 后触发一次,不做实时刷新。
+    if (state != AppLifecycleState.resumed || !_nativePlayerLaunched) return;
+    _nativePlayerLaunched = false;
+    final backend = context.read<MediaBackendProvider>().backend;
+    if (backend.capabilities.kind != MediaBackendKind.feiniu) {
+      unawaited(_resolveNeutralPlayTarget(backend));
+    }
+    unawaited(_refreshDetailSilently());
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _topTip.dispose();
     _deferredTimer?.cancel();
     _descriptionPopController.dispose();
@@ -1315,6 +1334,8 @@ class _TvDetailPageState extends State<TvDetailPage>
               );
             },
       );
+      // 原生壳为独立 Activity 启动后即返回(不等退出),标记以便回前台一次性刷新。
+      _nativePlayerLaunched = true;
       final result = await const TvSeasonPlaybackLauncher().open(
         context,
         itemGuid: playItemId,
@@ -1843,14 +1864,16 @@ class _TvDetailPageState extends State<TvDetailPage>
                                     return SizedBox(
                                       width: layout.homePosterCardWidth,
                                       child: MediaPosterCard(
-                                        urls: deferArtwork
-                                            ? const <String>[]
-                                            : _posterCandidates(
-                                                provider.baseUrl,
-                                                season.poster,
-                                                width: layout
-                                                    .homePosterRequestWidth,
-                                              ),
+                                        // 季海报不走 deferArtwork 门控:季卡片本身已被
+                                        // _seasonCardsVisible + 转场 gate 延迟到转场后才出现,
+                                        // 此时一定要真海报。若再用 _artworkReady 二次门控,季列表
+                                        // 网络快于描述揭示定时器时会先渲染占位、待 _artworkReady
+                                        // 翻 true 整批换真海报 → 肉眼可见的「刷新」。与演职员同理。
+                                        urls: _posterCandidates(
+                                          provider.baseUrl,
+                                          season.poster,
+                                          width: layout.homePosterRequestWidth,
+                                        ),
                                         token: provider.token,
                                         title: _seasonTitle(season),
                                         subtitle: _seasonSubtitle(season),

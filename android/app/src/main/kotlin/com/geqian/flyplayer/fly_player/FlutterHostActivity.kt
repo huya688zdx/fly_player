@@ -1236,6 +1236,9 @@ abstract class FlutterHostActivity : FlutterActivity() {
     protected open fun logoutAndResetParallelUi(): Boolean {
         ParallelWindowCoordinator.clearSessionUiState()
         ParallelWindowCoordinator.setSplitPlayerVisible(false)
+        // 副栏第二引擎现采用保活(退分屏不重置)，注销时须显式丢弃其已加载详情，避免上一账号
+        // 内容残留到下次进分屏。
+        ParallelFlutterEngineRegistry.resetSplitDetailRouteToPlaceholder()
         val rightPaneHosts = ParallelWindowCoordinator.rightPaneHostsSnapshot()
 
         ParallelWindowCoordinator.currentMainHost()?.dispatchSessionState("loggedOut")

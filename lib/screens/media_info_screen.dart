@@ -39,11 +39,13 @@ class _MediaInfoScreenState extends State<MediaInfoScreen> {
     try {
       final api = FeiniuApi(context.read<NasProvider>());
       final info = await api.getStreamMetadata(guid);
+      if (!mounted) return;
       setState(() {
         _mediaInfo = info;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = AppException.from(
           e,

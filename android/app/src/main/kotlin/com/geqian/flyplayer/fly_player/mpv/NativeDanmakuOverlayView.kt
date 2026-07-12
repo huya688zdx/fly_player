@@ -1512,6 +1512,11 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
                 previousSettings.colorEnabled != settings.colorEnabled ||
                 previousSettings.hideDuplicate != settings.hideDuplicate ||
                 previousSettings.avoidSubtitleArea != settings.avoidSubtitleArea
+        Log.d(
+            TAG,
+            "[DANMAKU][NATIVE] apply_settings area ${previousSettings.displayAreaRatio}->${settings.displayAreaRatio} " +
+                "hasComments=${payload.comments != null} rebuild=$requiresTimelineRebuild h=$height",
+        )
         if (requiresTimelineRebuild) {
             rebuildLaneLayout()
             val resetPosition =
@@ -1553,6 +1558,13 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
                 displayAreaRatio = currentEffectiveDisplayAreaRatio(),
                 fontScale = settings.fontScale,
             )
+        Log.d(
+            TAG,
+            "[DANMAKU][NATIVE] lane_rebuild effArea=${currentEffectiveDisplayAreaRatio()} " +
+                "settingsArea=${settings.displayAreaRatio} overload=$overloadLevel " +
+                "topTracks=${laneLayout.topTracks.size} bottomTracks=${laneLayout.bottomOffsets.size} " +
+                "trackH=${currentLaneSlotHeightPx(settings.fontScale)} h=$height",
+        )
         effectiveDensityRatio = computeEffectiveDensityRatio(laneLayout)
         topLaneAvailableAtMs = FloatArray(laneLayout.topTracks.size)
         bottomLaneAvailableAtMs = FloatArray(laneLayout.bottomOffsets.size)

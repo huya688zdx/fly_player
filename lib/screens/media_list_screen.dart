@@ -65,7 +65,8 @@ class MediaListScreen extends StatefulWidget {
   State<MediaListScreen> createState() => _MediaListScreenState();
 }
 
-class _MediaListScreenState extends State<MediaListScreen> {
+class _MediaListScreenState extends State<MediaListScreen>
+    with WidgetsBindingObserver {
   static const int _fallbackContinueLimit = 12;
   static const int _secondaryContinueLimit = 4;
   static const int _defaultCategoryPreviewLimit = 12;
@@ -82,6 +83,10 @@ class _MediaListScreenState extends State<MediaListScreen> {
   bool _isLoading = false;
   bool _loadingFromCache = false;
   AppException? _error;
+
+  // 仅当用户从本页打开过条目(可能已播放)后,回前台才刷新一次「继续观看」。避免每次 resume
+  // 都拉取(用户要求:考虑性能、不要实时刷新)。打开条目时置位,刷新后清零。
+  bool _pendingContinueWatchingRefresh = false;
 
   int get _continueLimit =>
       widget.secondaryHost ? _secondaryContinueLimit : _fallbackContinueLimit;
@@ -100,6 +105,7 @@ class _MediaListScreenState extends State<MediaListScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     unawaited(DownloadTaskService.instance.initialize());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(
@@ -112,7 +118,23 @@ class _MediaListScreenState extends State<MediaListScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // 回到前台时刷新「继续观看」:原生壳全屏播放/分屏退出后,首页引擎从 paused→resumed,
+    // 而分屏/pane 流程没有 Navigator.push 返回点(那条路径才刷新),故此处兜底。
+    // 性能:仅当本页确实打开过条目(_pendingContinueWatchingRefresh)且已加载过时刷一次,
+    // 不做实时/每次 resume 刷新。
+    if (state == AppLifecycleState.resumed &&
+        _pendingContinueWatchingRefresh &&
+        _lastLoadKey.isNotEmpty) {
+      _pendingContinueWatchingRefresh = false;
+      unawaited(_refreshContinueWatching());
+    }
   }
 
   @override
@@ -672,6 +694,10 @@ class _MediaListScreenState extends State<MediaListScreen> {
 
   Future<void> _openItemDetail(MediaLibraryItem item, {String? heroTag}) async {
     if (item.guid.trim().isEmpty) return;
+    // 打开非人物条目可能进入播放;标记回前台时刷新一次「继续观看」(人物页不涉及进度)。
+    if (!_isPersonItem(item)) {
+      _pendingContinueWatchingRefresh = true;
+    }
     await AsyncActionGuard.run<void>(
       'media_list_detail:${item.type.trim().toLowerCase()}:${item.guid.trim()}',
       settleDuration: const Duration(milliseconds: 450),
