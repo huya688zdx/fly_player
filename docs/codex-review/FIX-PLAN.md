@@ -51,8 +51,8 @@
 | 2026-07-09 | X 生命周期 | H-011 / F-038 / F-030 | 已修复 | 图片 errorBuilder、await 后 setState、bottom sheet pop 后 context 使用等 async gap 问题已按分批记录修复。 | 分批章节记录 | 待验证 | 待补充具体提交和验证 |
 | 2026-07-09 | M 多后端抽象 | A-032 / A-039 | 已修复 | 播放 launcher 不再下钻具体 `FeiniuPlaybackContext` / `EmbyPlaybackContext`；新增中立 `MediaPlaybackSourceBridge`，由各后端自供装配器。 | 本次提交 | `test/media_backend/multi_backend_abstraction_boundary_test.dart` | 无 |
 | 2026-07-09 | M 多后端抽象 | B-010 / B-012 | 已修复 | `EmbyNativePickerSupport`、`EmbyPlaybackReporter` 改为服务器族命名；原生反向通道飞牛分支改走 `usesLegacyFeiniuFlow` 能力位。 | 本次提交 | 架构回归测试 | 无 |
-| 2026-07-09 | M 多后端抽象 | 5.1 基础扩展点 | 部分修复 | 新增 `MediaBackendKind.isServerFamily`、`MediaBackendCapabilities.usesLegacyFeiniuFlow`、`MediaBackendCapabilities.server()` 与 `supportsServerTranscodeSession`，并收口部分 Emby-only gate。 | 本次提交 | 架构回归测试 | A-024、A-033、A-020、A-014、A-012 等 5.1 尾项仍待处理 |
-| 2026-07-09 | M 多后端抽象 | A-002 / A-029 | 部分修复 | 新增 `MediaBackendRegistry` / `MediaBackendDescriptor` 作为服务器族描述符入口；`MediaBackendProvider` 改为通过注册表创建当前服务器族后端。 | 本次提交补充 | 架构回归测试 | 后续新增后端时继续补齐注册表入口与 kind 扩展 |
+| 2026-07-12 | M 多后端抽象 | 5.1 基础扩展点 | 已修复 | 后端 kind 继续作为显式扩展点，服务器族统一由注册表描述；播放原生重解析改为注入当前后端；飞牛收藏、人物作品、源信息/版本均补齐公共接口，操作目标改用布尔已看态。 | 本次工作区变更 | `flutter test test/media_backend`；目标 `flutter analyze` | 无 |
+| 2026-07-12 | M 多后端抽象 | A-002 / A-024 / A-029 / A-033 / A-020 / A-014 / A-012 | 已修复 | `MediaBackendRegistry` 统一服务器族描述符和遗留飞牛工厂；原生重解析不再直接构造具体后端；飞牛适配器补齐收藏/人物/源信息/版本公共映射；`MediaItemActionTarget.watched` 改为布尔值。 | 本次工作区变更 | `flutter test test/media_backend`；目标 `flutter analyze` | 无 |
 | 2026-07-09 | M 多后端抽象 | media_list / login_history 收口 | 已修复 | 媒体列表的首页配置 gate、loadKey、登出分支改用服务器族语义；登录历史服务器族显示名与角标改从注册表描述符读取。 | 本次提交补充 | 架构回归测试 | 无 |
 | 2026-07-09 | P 性能 | B-022 | 已修复 | 新增本地字幕异步扫描入口，下载/原生起播路径先异步解析 sidecar 字幕，再构造 `MpvMediaSource`。 | 本次提交 | 待验证 | 无 |
 | 2026-07-09 | P 性能 | F-008 | 已修复 | 详情页本地下载文件信息改为下载记录变化时异步刷新快照，`build()` 不再执行 `existsSync/statSync`。 | 本次提交 | 待验证 | 无 |
@@ -154,16 +154,16 @@
 - 新增架构回归测试 `test/media_backend/multi_backend_abstraction_boundary_test.dart`，防止播放 launcher 重新认识具体后端 context / bridge。
 
 **已修复（2026-07-09，本次提交补充）**：
-- A-002 / A-029（部分）：新增 `MediaBackendRegistry` / `MediaBackendDescriptor` 作为服务器族唯一描述符入口，`MediaBackendProvider` 改为通过注册表创建当前服务器族后端，不再在 provider 中直接依赖 Emby 具体工厂。
+- A-002 / A-029：`MediaBackendRegistry` / `MediaBackendDescriptor` 作为服务器族唯一描述符入口，`MediaBackendProvider` 以及遗留飞牛临时工厂均通过注册表边界创建后端，不再散落具体工厂。
 - 5.1 分支收口补充：`media_list_screen.dart` 与 `media_list_screen_widgets.dart` 的首页配置 gate / loadKey / 登出分支改用 `MediaBackendKind.isServerFamily`，不再写死 `MediaBackendKind.emby`。
 - 登录历史展示收口：`login_history_screen.dart` 的服务器族显示名与角标改从注册表描述符读取，保留飞牛本地化 fallback，为后续 Jellyfin 等服务器族后端复用同一列表入口。
 - 架构回归测试扩展：`multi_backend_abstraction_boundary_test.dart` 增加公共层禁止 Emby-only 判断与注册表描述符存在性的断言。
 
-**5.1 核心扩展点（新增后端必改的公共代码，最优先）**
-- A-024 后端 kind 写死 enum；A-029 backend 工厂 else=飞牛；A-002 main.dart 登录 gate 写死 Emby/飞牛；
-- A-032 / A-039：单条目与整季播放 launcher 拿到抽象 `getPlayback()` 后又 downcast `FeiniuPlaybackContext/EmbyPlaybackContext` 选装配器——改注册式 playback assembler 或由后端返回装配结果（**这是原生起播路径，活代码核心**）；
-- A-033 `resolveForNative` 直接 new `FeiniuMediaBackend(FeiniuApi(nas))`；B-012 原生重入按 kind 分支；B-010 `EmbyNativePickerSupport` 后端专名泄漏在 services；
-- A-020 FeiniuMediaBackend 公共接口返空数据；A-014 MediaSourceInfo 只服务 Emby；A-012 公共 target 用飞牛 watched=1/0。
+**5.1 核心扩展点（已清零）**
+- A-024/A-029/A-002：后端 kind 保持显式枚举扩展点，服务器族由 `MediaBackendRegistry` 描述符统一登记，遗留飞牛工厂也收口到注册表。
+- A-033：`resolveForNative` 改为接收当前后端，缺省遗留路径通过注册表工厂创建，不再直接构造具体适配器。
+- A-020/A-014：飞牛适配器补齐收藏、人物作品、源信息和版本映射，`MediaSourceInfo`/`MediaSourceVersion` 由飞牛与服务器族共同使用。
+- A-012：公共操作目标的已看状态改为布尔值，去除飞牛 `1/0` 语义泄漏。
 
 **5.2 API/服务层**
 - A-006 FeiniuApi 反向依赖 NasProvider 并在 401 直接 logout；A-007/A-010 FeiniuApi 上帝类拆分（auth/catalog/playback/download/subtitle/prefs）；A-005 FN Connect entry-token 逻辑抽出 EmbyApi 到 transport 层；A-004 EmbyApi 默认 Dio 无超时；

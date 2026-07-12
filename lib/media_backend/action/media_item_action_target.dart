@@ -16,8 +16,8 @@ class MediaItemActionTarget {
   /// 条目类型（movie / series / season / episode / person ...）。
   final String type;
 
-  /// 已看态：1=已看，0=未看（沿用飞牛语义便于过渡）。
-  final int watched;
+  /// 已看态，使用后端中立的布尔值。
+  final bool watched;
 
   /// 收藏态。null 表示未知，由面板按需向后端预取。
   final bool? favorite;
@@ -35,7 +35,7 @@ class MediaItemActionTarget {
     required this.id,
     required this.baseTitle,
     required this.type,
-    this.watched = 0,
+    this.watched = false,
     this.favorite,
     this.seasonNumber = 0,
     this.episodeNumber = 0,
@@ -43,7 +43,7 @@ class MediaItemActionTarget {
     this.imageUrl = '',
   });
 
-  bool get isWatched => watched == 1;
+  bool get isWatched => watched;
 
   /// 由公共卡片模型构造，供搜索 / 分类 / 首页等已走 [MediaItemCard] 的入口直接使用。
   factory MediaItemActionTarget.fromCard(MediaItemCard card) {
@@ -53,7 +53,7 @@ class MediaItemActionTarget {
       id: card.id,
       baseTitle: base,
       type: card.type,
-      watched: card.watched ? 1 : 0,
+      watched: card.watched,
       seasonNumber: card.seasonNumber,
       episodeNumber: card.episodeNumber,
       seriesId: card.seriesId,
