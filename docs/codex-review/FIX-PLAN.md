@@ -67,6 +67,8 @@
 | 2026-07-12 | P 性能 | B-013 | 已修复 | 原生弹幕评论缓存增加 7 天 TTL，payload 临时文件增加 24 小时 TTL，并用带门闩的低频清理避免临时目录持续膨胀。 | 本次工作区变更 | 目标 `flutter analyze`；`flutter test test/services` | 无 |
 | 2026-07-12 | P 性能 | A-011 | 已修复 | 飞牛 API 共享读取缓存增加显式清理入口，NAS 登出时同步清理旧 token 对应缓存和进行中的共享请求。 | 本次工作区变更 | 目标 `flutter analyze`；`flutter test test/services` | 无 |
 | 2026-07-12 | P 性能 | H-028 | 已修复 | 移除没有实际渲染效果的 `LiquidGlassLevel.liquid` 配置挡位，旧存储值自动降级为 frosted。 | 本次工作区变更 | 目标 `flutter analyze` | 无 |
+| 2026-07-12 | P 性能 | G-011 | 已修复 | 存储明细按系列分页展示（单页最多 8 组），展开项只构建当前页内容，避免长列表一次性渲染。 | `e67bafe` | 代码核对：`_storageEntryPageSize` | 无 |
+| 2026-07-12 | P 性能 | E-004 | 已修复 | 弹幕文件解析统一通过 `Isolate.run` 执行，网络/本地导入不在 UI isolate 同步解析。 | `735a8e9` | 代码核对：`DanmakuImportParser` | 无 |
 | 2026-07-09 | R 结构 | G-002 | 已修复 | mpv 设置标题/副标题映射双份已收敛到 `MpvSettingsL10n.definitionByKey`。 | `abb06d4` | 待验证 | 无 |
 | 2026-07-09 | R 结构 | G-034 | 已修复 | 两个 Web 登录页的注入脚本抽为共享 `FnWebLoginBridgeScript`，保留 FN OAuth 探测与 entry-token 阻断页检测差异配置。 | `abb06d4` | 待验证 | 无 |
 | 2026-07-09 | R 结构 | H-013 | 已修复 | `TvSeasonDetailPanel` 引入 `TvSeasonPanelHeader/Layout/Actions/Content` 配置对象，现有调用走 `legacy` 过渡工厂。 | `abb06d4` | 待验证 | 无 |
@@ -204,7 +206,7 @@ H-004/005/010/017/018/019/020/021/023/024/030 + F-031/F-034：全部是「组件
 
 **高频重建**：G-007（下载速度 900ms 全页重建 PageView+列表——改行级局部监听）。
 
-**截图库**：G-015（缩略图按原图解码）、G-016（分辨率排序并发解码全部截图）、G-017（build 双重全量排序 + Wrap 全量构建）；G-011（存储明细 Column 全量渲染）。
+**截图库**：G-015（缩略图按原图解码）、G-016（分辨率排序并发解码全部截图）、G-017（build 双重全量排序 + Wrap 全量构建）均已处理；G-011 存储明细分页已在 `e67bafe` 完成。
 
 **数据聚合**：B-017（报表 all 范围全量加载 + Dart 多轮聚合→SQL 聚合/后台 isolate）；B-016（每视频重建全部聚合表→批次末尾一次）；A-017（Emby 系列起播按季串行扫描→NextUp 查询）。
 
@@ -212,7 +214,7 @@ H-004/005/010/017/018/019/020/021/023/024/030 + F-031/F-034：全部是「组件
 
 **图片解码尺寸**：H-006、H-016、F-036（统一并入 5.4 的 MediaImageRequest 改造，presenter 顺带带上 cacheWidth）。
 
-**弹幕（原生链路）**：E-004（网络弹幕 UI isolate 同步解析→isolate 入口）；B-013 已增加评论缓存与 payload 临时文件 TTL 清理。
+**弹幕（原生链路）**：E-004 已通过 `DanmakuImportParser` 的 isolate 入口处理；B-013 已增加评论缓存与 payload 临时文件 TTL 清理。
 
 **缓存泄漏**：A-011 已修复（FeiniuApi 静态缓存登出时清理）。
 
