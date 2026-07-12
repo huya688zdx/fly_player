@@ -31,6 +31,8 @@ class AppThemeProvider extends ChangeNotifier {
   static const String _activeSavedThemeIdKey =
       'app_theme_active_saved_theme_id';
   static const String _savedThemesKey = 'app_theme_saved_themes_v1';
+  static const String _savedThemesCorruptBackupKey =
+      'app_theme_saved_themes_v1_corrupt_backup';
   static const String _runtimeDynamicThemePageKey =
       'app_theme_runtime_dynamic_page_key';
   static const String _runtimeDynamicBackgroundSeedKey =
@@ -995,14 +997,50 @@ class AppThemeProvider extends ChangeNotifier {
         if (item is! Map) {
           continue;
         }
-        final theme = SavedCustomTheme.fromMap(item.cast<String, dynamic>());
-        if (theme != null) {
-          result.add(theme);
+        try {
+          final theme = SavedCustomTheme.fromMap(item.cast<String, dynamic>());
+          if (theme != null) {
+            result.add(theme);
+          }
+        } catch (error, stackTrace) {
+          unawaited(
+            logSwallowedError(
+              action: 'decode saved theme item',
+              error: error,
+              stackTrace: stackTrace,
+              source: 'app_theme_provider',
+            ),
+          );
         }
       }
       return result;
     } catch (_) {
       return const <SavedCustomTheme>[];
+    }
+  }
+
+  bool _shouldBackupSavedThemes(String? raw, List<SavedCustomTheme> decoded) {
+    final normalized = raw?.trim() ?? '';
+    return normalized.isNotEmpty && normalized != '[]' && decoded.isEmpty;
+  }
+
+  Future<void> _backupCorruptSavedThemes(
+    SharedPreferences prefs,
+    String raw,
+  ) async {
+    try {
+      if (prefs.getString(_savedThemesCorruptBackupKey) != raw) {
+        await prefs.setString(_savedThemesCorruptBackupKey, raw);
+      }
+      await logSwallowedError(
+        action: 'backup corrupt saved themes',
+        error: const FormatException(
+          'Saved theme JSON could not be fully decoded.',
+        ),
+        source: 'app_theme_provider',
+      );
+    } catch (_) {
+      // 备份和日志都是旁路保护，不能阻断主题加载。
     }
   }
 
@@ -1198,7 +1236,11 @@ class AppThemeProvider extends ChangeNotifier {
       prefs.getString(_themeSourceTypeKey),
     );
     _activeSavedThemeId = prefs.getString(_activeSavedThemeIdKey)?.trim() ?? '';
-    _savedThemes = _decodeSavedThemes(prefs.getString(_savedThemesKey));
+    final rawSavedThemes = prefs.getString(_savedThemesKey);
+    _savedThemes = _decodeSavedThemes(rawSavedThemes);
+    if (_shouldBackupSavedThemes(rawSavedThemes, _savedThemes)) {
+      unawaited(_backupCorruptSavedThemes(prefs, rawSavedThemes!));
+    }
     if (savedThemeById(_activeSavedThemeId) == null) {
       _activeSavedThemeId = '';
       if (_themeSourceType == AppThemeSourceType.savedCustomTheme) {
