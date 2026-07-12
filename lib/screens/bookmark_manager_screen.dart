@@ -11,6 +11,7 @@ import '../ui/bookmark_note_dialog.dart';
 import '../ui/bookmark_note_preview.dart';
 import '../ui/app_transitions.dart';
 import '../ui/secondary_host_navigation.dart';
+import '../utils/app_confirm_dialog.dart';
 
 bool _bookmarkIsTv(PlayerBookmarkEntry entry) {
   final type = entry.mediaType.trim().toLowerCase();
@@ -111,6 +112,15 @@ class _BookmarkManagerScreenState extends State<BookmarkManagerScreen> {
   }
 
   Future<void> _clearAll() async {
+    final l10n = AppLocalizations.of(context);
+    final confirmed = await showAppConfirmDialog(
+      context,
+      title: l10n.bookmarkClearConfirmTitle,
+      content: l10n.bookmarkClearConfirmContent,
+      cancelText: l10n.commonCancel,
+      confirmText: l10n.commonClear,
+    );
+    if (!confirmed) return;
     await _store.clearAll();
   }
 
@@ -669,6 +679,15 @@ class _BookmarkEpisodeBookmarksScreenState
   }
 
   Future<void> _deleteBookmark(PlayerBookmarkEntry entry) async {
+    final l10n = AppLocalizations.of(context);
+    final confirmed = await showAppConfirmDialog(
+      context,
+      title: l10n.bookmarkDeleteConfirmTitle,
+      content: l10n.bookmarkDeleteConfirmContent,
+      cancelText: l10n.commonCancel,
+      confirmText: l10n.commonDelete,
+    );
+    if (!confirmed) return;
     await _store.remove(entry.id);
   }
 
@@ -795,6 +814,15 @@ class _BookmarkDirectEntryScreenState
   }
 
   Future<void> _deleteBookmark(PlayerBookmarkEntry entry) async {
+    final l10n = AppLocalizations.of(context);
+    final confirmed = await showAppConfirmDialog(
+      context,
+      title: l10n.bookmarkDeleteConfirmTitle,
+      content: l10n.bookmarkDeleteConfirmContent,
+      cancelText: l10n.commonCancel,
+      confirmText: l10n.commonDelete,
+    );
+    if (!confirmed) return;
     await _store.remove(entry.id);
   }
 
