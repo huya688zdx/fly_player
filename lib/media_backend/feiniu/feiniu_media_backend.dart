@@ -108,9 +108,23 @@ class FeiniuMediaBackend implements MediaBackend {
   }
 
   @override
-  Future<MediaItemCardPage> queryFavoriteItems(MediaCatalogQuery query) async =>
-      // 飞牛收藏页走自有 `getFavoritePage`（标签 schema + 偏好持久化）完整路径,不经本接口。
-      const MediaItemCardPage();
+  Future<MediaItemCardPage> queryFavoriteItems(MediaCatalogQuery query) async {
+    final tags = <String, dynamic>{
+      for (final entry in query.selection.entries)
+        if (entry.value.isNotEmpty) entry.key: entry.value,
+    };
+    final page = await api.getFavoritePage(
+      tags: tags,
+      sortType: query.sortType,
+      sortColumn: query.sortField,
+      page: query.page,
+      pageSize: query.pageSize,
+    );
+    return MediaItemCardPage(
+      items: page.items.map(mapFeiniuItemCard).toList(growable: false),
+      total: page.total,
+    );
+  }
 
   /// 演职员分页参数，复刻详情页 data loader 的取数口径。
   static const PersonListRequest _creditsRequest = PersonListRequest(
@@ -176,22 +190,20 @@ class FeiniuMediaBackend implements MediaBackend {
 
   @override
   Future<MediaSourceInfo?> getItemSourceInfo(String itemId) async {
-    // 飞牛走页面侧自有的文件信息 / 视频信息渲染路径（FileInfoSection / VideoInfoSection
-    // 读流轨道与本地下载记录），不经本中立接口。
-    return null;
+    final info = await api.getStreamMetadata(itemId);
+    return mapFeiniuSourceInfo(info);
   }
 
   @override
   Future<List<MediaSourceVersion>> getItemSourceVersions(String itemId) async {
-    // 飞牛走自有的版本 / 音轨 / 字幕选择路径（深绑 MpvMediaSource / StreamTrackData），
-    // 不经本中立接口。
-    return const <MediaSourceVersion>[];
+    final trackData = await api.getStreamTrackData(itemId);
+    return mapFeiniuSourceVersions(trackData);
   }
 
   @override
   Future<List<MediaItemCard>> getPersonItems(String personId) async {
-    // 飞牛走自有的按职务分页 getPersonItemList 路径（PersonDetailScreen 直接调），不经本接口。
-    return const <MediaItemCard>[];
+    final page = await api.getPersonItemList(personGuid: personId, job: '');
+    return page.items.map(mapFeiniuItemCard).toList(growable: false);
   }
 
   @override

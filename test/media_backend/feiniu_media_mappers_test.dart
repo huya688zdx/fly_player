@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/media_backend/feiniu/feiniu_media_mappers.dart';
 import 'package:fly_player/models/media_item.dart';
 import 'package:fly_player/models/media_library_item.dart';
+import 'package:fly_player/models/media_info.dart';
 
 MediaLibraryItem _libraryItem({
   String guid = 'item',
@@ -140,5 +141,27 @@ void main() {
     expect(card.posterHeight, 1080);
     expect(card.isLandscapePoster, isTrue);
     expect(card.resolutions, ['2160p', '1080p']);
+  });
+
+  test('把飞牛流探测结果映射为中立源信息', () {
+    final info = mapFeiniuSourceInfo(
+      MediaInfo(
+        fileStream: FileStream(filename: '/media/demo.mkv', size: 1234),
+        videoStream: VideoStream(codec: 'H.265', width: 1920, height: 1080),
+        audioStreams: <AudioStream>[
+          AudioStream(index: 0, codec: 'AAC', language: '日语'),
+        ],
+        subtitleStreams: <SubtitleStream>[
+          SubtitleStream(index: 1, codec: 'ASS', language: '中文'),
+        ],
+      ),
+    );
+
+    expect(info.path, '/media/demo.mkv');
+    expect(info.container, 'mkv');
+    expect(info.sizeBytes, 1234);
+    expect(info.videoStreams.single.summary, '1920 x 1080');
+    expect(info.audioStreams.single.label, '日语 AAC');
+    expect(info.subtitleStreams.single.label, '中文 ASS');
   });
 }
