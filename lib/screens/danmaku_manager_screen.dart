@@ -9,6 +9,7 @@ import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
 import '../ui/app_transitions.dart';
 import '../ui/secondary_host_navigation.dart';
+import '../utils/app_confirm_dialog.dart';
 
 bool _sourceIsTv(DanmakuSavedSource source) {
   final type = source.mediaType.trim().toLowerCase();
@@ -503,6 +504,15 @@ class _DanmakuSeasonDetailScreenState
   }
 
   Future<void> _deleteSource(DanmakuSavedSource source) async {
+    final l10n = AppLocalizations.of(context);
+    final confirmed = await showAppConfirmDialog(
+      context,
+      title: l10n.danmakuDeleteConfirmTitle,
+      content: l10n.danmakuDeleteConfirmContent,
+      cancelText: l10n.commonCancel,
+      confirmText: l10n.commonDelete,
+    );
+    if (!confirmed) return;
     await _store.removeSource(
       mediaKey: source.mediaKey,
       sourceKey: source.sourceKey,
@@ -604,6 +614,15 @@ class _DanmakuDirectEntryScreenState extends State<_DanmakuDirectEntryScreen> {
   }
 
   Future<void> _deleteSource(DanmakuSavedSource source) async {
+    final l10n = AppLocalizations.of(context);
+    final confirmed = await showAppConfirmDialog(
+      context,
+      title: l10n.danmakuDeleteConfirmTitle,
+      content: l10n.danmakuDeleteConfirmContent,
+      cancelText: l10n.commonCancel,
+      confirmText: l10n.commonDelete,
+    );
+    if (!confirmed) return;
     await _store.removeSource(
       mediaKey: source.mediaKey,
       sourceKey: source.sourceKey,
