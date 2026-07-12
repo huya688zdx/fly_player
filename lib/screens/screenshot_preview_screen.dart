@@ -749,36 +749,97 @@ class _ScreenshotPreviewScreenState extends State<ScreenshotPreviewScreen> {
                           ),
                         )
                       else
-                        SliverList.separated(
-                          itemCount: visibleSections.length,
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(height: 24),
-                          itemBuilder: (context, index) {
-                            final section = visibleSections[index];
-                            return Padding(
+                        ...visibleSections.asMap().entries.expand<Widget>((
+                          entry,
+                        ) {
+                          final index = entry.key;
+                          final section = entry.value;
+                          final isLast = index == visibleSections.length - 1;
+                          return <Widget>[
+                            SliverPadding(
                               padding: EdgeInsets.fromLTRB(
                                 16,
-                                index == 0 ? 10 : 0,
+                                index == 0 ? 10 : 24,
                                 16,
-                                index == visibleSections.length - 1 ? 28 : 0,
+                                14,
                               ),
-                              child: _GallerySection(
-                                title: section.title,
-                                items: section.items,
-                                selectedIds: _selectedIds,
-                                selectionMode: _selectionMode,
-                                onTap: (item) {
-                                  if (_selectionMode) {
-                                    _toggleSelection(item);
-                                  } else {
-                                    unawaited(_openViewer(item));
-                                  }
+                              sliver: SliverToBoxAdapter(
+                                child: Text(
+                                  section.title,
+                                  style: TextStyle(
+                                    color: colors.textPrimary,
+                                    fontSize: AdaptiveText.roleSize(
+                                      18,
+                                      role: AdaptiveFontRole.title,
+                                    ),
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            SliverPadding(
+                              padding: EdgeInsets.only(
+                                left: 16,
+                                right: 16,
+                                bottom: isLast ? 28 : 0,
+                              ),
+                              sliver: SliverLayoutBuilder(
+                                builder: (context, constraints) {
+                                  final columns = screenshotGalleryColumnCount(
+                                    constraints.crossAxisExtent,
+                                  );
+                                  const spacing = 14.0;
+                                  final cardWidth =
+                                      (constraints.crossAxisExtent -
+                                          spacing * (columns - 1)) /
+                                      columns;
+                                  final dpr = MediaQuery.devicePixelRatioOf(
+                                    context,
+                                  );
+                                  final cacheWidth = (cardWidth * dpr)
+                                      .round()
+                                      .clamp(240, 960);
+                                  final cacheHeight = ((cardWidth / 0.76) * dpr)
+                                      .round()
+                                      .clamp(320, 1280);
+                                  return SliverGrid(
+                                    delegate: SliverChildBuilderDelegate((
+                                      context,
+                                      itemIndex,
+                                    ) {
+                                      final item = section.items[itemIndex];
+                                      return _GalleryCard(
+                                        item: item,
+                                        cacheWidth: cacheWidth,
+                                        cacheHeight: cacheHeight,
+                                        selected: _selectedIds.contains(
+                                          item.id,
+                                        ),
+                                        selectionMode: _selectionMode,
+                                        onTap: () {
+                                          if (_selectionMode) {
+                                            _toggleSelection(item);
+                                          } else {
+                                            unawaited(_openViewer(item));
+                                          }
+                                        },
+                                        onLongPress: () =>
+                                            _toggleSelection(item),
+                                      );
+                                    }, childCount: section.items.length),
+                                    gridDelegate:
+                                        SliverGridDelegateWithFixedCrossAxisCount(
+                                          crossAxisCount: columns,
+                                          crossAxisSpacing: spacing,
+                                          mainAxisSpacing: 16,
+                                          childAspectRatio: 0.76,
+                                        ),
+                                  );
                                 },
-                                onLongPress: _toggleSelection,
                               ),
-                            );
-                          },
-                        ),
+                            ),
+                          ];
+                        }),
                     ],
                   ),
                 ),
@@ -1116,83 +1177,11 @@ class _ScreenshotFilterSheet extends StatelessWidget {
   }
 }
 
-class _GallerySection extends StatelessWidget {
-  final String title;
-  final List<ScreenshotLibraryItem> items;
-  final Set<String> selectedIds;
-  final bool selectionMode;
-  final ValueChanged<ScreenshotLibraryItem> onTap;
-  final ValueChanged<ScreenshotLibraryItem> onLongPress;
-
-  const _GallerySection({
-    required this.title,
-    required this.items,
-    required this.selectedIds,
-    required this.selectionMode,
-    required this.onTap,
-    required this.onLongPress,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        const spacing = 14.0;
-        const minWidth = 156.0;
-        final columns = (constraints.maxWidth / (minWidth + spacing))
-            .floor()
-            .clamp(2, 4);
-        final cardWidth =
-            (constraints.maxWidth - spacing * (columns - 1)) / columns;
-        final dpr = MediaQuery.devicePixelRatioOf(context);
-        final cacheWidth = (cardWidth * dpr).round().clamp(240, 960);
-        final cacheHeight = ((cardWidth / 0.76) * dpr).round().clamp(320, 1280);
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.only(bottom: 14),
-              child: Text(
-                title,
-                style: TextStyle(
-                  color: colors.textPrimary,
-                  fontSize: AdaptiveText.roleSize(
-                    18,
-                    role: AdaptiveFontRole.title,
-                  ),
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-            Wrap(
-              spacing: spacing,
-              runSpacing: 16,
-              children: items
-                  .map((item) {
-                    return SizedBox(
-                      width: cardWidth,
-                      child: AspectRatio(
-                        aspectRatio: 0.76,
-                        child: _GalleryCard(
-                          item: item,
-                          cacheWidth: cacheWidth,
-                          cacheHeight: cacheHeight,
-                          selected: selectedIds.contains(item.id),
-                          selectionMode: selectionMode,
-                          onTap: () => onTap(item),
-                          onLongPress: () => onLongPress(item),
-                        ),
-                      ),
-                    );
-                  })
-                  .toList(growable: false),
-            ),
-          ],
-        );
-      },
-    );
+int screenshotGalleryColumnCount(double width) {
+  if (!width.isFinite || width <= 0) {
+    return 2;
   }
+  return (width / (156 + 14)).floor().clamp(2, 4);
 }
 
 class _ScreenshotSortSheet extends StatefulWidget {
