@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../api/feiniu_api.dart';
 import '../services/detail_runtime_cache.dart';
 import '../services/play_stats/play_stats.dart';
 import '../services/playback_progress_offline_queue.dart';
@@ -197,6 +198,7 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     await prefs.remove('resolved_base_url');
     await _syncPlayStatsOwner(prefs);
     DetailRuntimeCache.instance.clearAll();
+    FeiniuApi.clearSharedResourceCache();
     _cacheBootstrapSnapshot();
     if (notify) {
       notifyListeners();

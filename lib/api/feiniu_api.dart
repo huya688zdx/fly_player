@@ -413,6 +413,13 @@ class FeiniuApi {
   static const Duration _playListCacheTtl = Duration(seconds: 2);
   static const Duration _detailReadCacheTtl = Duration(seconds: 4);
 
+  /// 清理当前 Dart isolate 中的飞牛共享读取缓存，登出时避免旧 token 数据继续驻留。
+  static void clearSharedResourceCache() {
+    _sharedResourceCache.clear();
+    _sharedResourceInflight.clear();
+    _sharedResourceCacheTimes.clear();
+  }
+
   final NasProvider nasProvider;
   final Dio _dio = Dio();
   final Random _random = Random();
