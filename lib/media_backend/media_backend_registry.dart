@@ -1,4 +1,7 @@
 import '../api/emby_api.dart';
+import '../api/feiniu_api.dart';
+import '../providers/nas_provider.dart';
+import 'feiniu/feiniu_media_backend.dart';
 import 'emby/emby_media_backend.dart';
 import 'media_backend.dart';
 import 'media_backend_kind.dart';
@@ -47,6 +50,12 @@ class MediaBackendRegistry {
 
   static List<MediaBackendDescriptor> get serverDescriptors =>
       <MediaBackendDescriptor>[emby];
+
+  /// 创建遗留飞牛后端。遗留族不进入服务器族描述符列表，但所有需要临时
+  /// 解析飞牛原生回调的入口仍通过此处取得实例，避免调用方散落具体工厂。
+  static MediaBackend createLegacyFeiniu(NasProvider nas) {
+    return FeiniuMediaBackend(FeiniuApi(nas));
+  }
 
   static MediaBackendDescriptor? descriptorFor(MediaBackendKind kind) {
     for (final descriptor in serverDescriptors) {
