@@ -63,6 +63,10 @@
 | 2026-07-09 | P 性能 | G-015 | 已修复 | 截图库缩略图按卡片尺寸传入目标解码宽高，全屏预览仍走原图。 | 本次提交 | 待验证 | 无 |
 | 2026-07-09 | P 性能 | G-016 | 已修复 | 分辨率排序 metadata 预热改为小批量加载，避免一次性并发解码全部截图。 | 本次提交 | 待验证 | 无 |
 | 2026-07-09 | P 性能 | G-017 | 已修复 | 截图库可见项过滤/排序只计算一次，并按分组使用懒构建 `SliverGrid`，不再通过 `Wrap` 一次性构建全部卡片。 | 本次提交 | 待验证 | 无 |
+| 2026-07-12 | P 性能 | H-001 | 已修复 | `BottomGlassPanel` 移除真实 `BackdropFilter` 路径，保留兼容参数但统一使用纯色渐变面板。 | 本次工作区变更 | 目标 `flutter analyze` | 无 |
+| 2026-07-12 | P 性能 | B-013 | 已修复 | 原生弹幕评论缓存增加 7 天 TTL，payload 临时文件增加 24 小时 TTL，并用带门闩的低频清理避免临时目录持续膨胀。 | 本次工作区变更 | 目标 `flutter analyze`；`flutter test test/services` | 无 |
+| 2026-07-12 | P 性能 | A-011 | 已修复 | 飞牛 API 共享读取缓存增加显式清理入口，NAS 登出时同步清理旧 token 对应缓存和进行中的共享请求。 | 本次工作区变更 | 目标 `flutter analyze`；`flutter test test/services` | 无 |
+| 2026-07-12 | P 性能 | H-028 | 已修复 | 移除没有实际渲染效果的 `LiquidGlassLevel.liquid` 配置挡位，旧存储值自动降级为 frosted。 | 本次工作区变更 | 目标 `flutter analyze` | 无 |
 | 2026-07-09 | R 结构 | G-002 | 已修复 | mpv 设置标题/副标题映射双份已收敛到 `MpvSettingsL10n.definitionByKey`。 | `abb06d4` | 待验证 | 无 |
 | 2026-07-09 | R 结构 | G-034 | 已修复 | 两个 Web 登录页的注入脚本抽为共享 `FnWebLoginBridgeScript`，保留 FN OAuth 探测与 entry-token 阻断页检测差异配置。 | `abb06d4` | 待验证 | 无 |
 | 2026-07-09 | R 结构 | H-013 | 已修复 | `TvSeasonDetailPanel` 引入 `TvSeasonPanelHeader/Layout/Actions/Content` 配置对象，现有调用走 `legacy` 过渡工厂。 | `abb06d4` | 待验证 | 无 |
@@ -204,13 +208,13 @@ H-004/005/010/017/018/019/020/021/023/024/030 + F-031/F-034：全部是「组件
 
 **数据聚合**：B-017（报表 all 范围全量加载 + Dart 多轮聚合→SQL 聚合/后台 isolate）；B-016（每视频重建全部聚合表→批次末尾一次）；A-017（Emby 系列起播按季串行扫描→NextUp 查询）。
 
-**模糊残留清剿**（回归纯色决策的收尾）：H-001（bottom_glass_panel 真模糊路径）、H-009（沉浸背景 ImageFiltered+BackdropFilter）、H-028（LiquidGlassLevel.liquid 死配置入口）、H-027（死 token）。
+**模糊残留清剿**：H-001（bottom_glass_panel 真模糊路径）、H-028（LiquidGlassLevel.liquid 死配置入口）已清理；H-009（沉浸背景 ImageFiltered+BackdropFilter）、H-027（死 token）仍属于沉浸详情背景的后续清理。
 
 **图片解码尺寸**：H-006、H-016、F-036（统一并入 5.4 的 MediaImageRequest 改造，presenter 顺带带上 cacheWidth）。
 
-**弹幕（原生链路）**：E-004（网络弹幕 UI isolate 同步解析→isolate 入口）；B-013（native_danmaku_prefetch 缓存/payload 文件无 TTL 清理）。
+**弹幕（原生链路）**：E-004（网络弹幕 UI isolate 同步解析→isolate 入口）；B-013 已增加评论缓存与 payload 临时文件 TTL 清理。
 
-**缓存泄漏**：A-011（FeiniuApi 静态缓存以 token 为 key、登出不清理）。
+**缓存泄漏**：A-011 已修复（FeiniuApi 静态缓存登出时清理）。
 
 ## 7. 批次 R —— 结构：拆分与去重（约 18 条）
 

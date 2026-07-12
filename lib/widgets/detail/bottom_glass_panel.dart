@@ -1,6 +1,3 @@
-import 'dart:ui';
-
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../theme/app_theme.dart';
@@ -18,21 +15,11 @@ class BottomGlassPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isAndroid =
-        !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
-    final useBlur = enableBlur && !isAndroid;
     final colors = context.appColors;
     return ClipRRect(
       borderRadius: DetailTokens.glassPanelRadius,
       child: Stack(
         children: [
-          if (useBlur)
-            Positioned.fill(
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                child: const SizedBox.expand(),
-              ),
-            ),
           Positioned.fill(
             child: DecoratedBox(
               decoration: BoxDecoration(
