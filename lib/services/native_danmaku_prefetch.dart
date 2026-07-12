@@ -27,6 +27,11 @@ import '../danmaku/settings/danmaku_settings_store.dart';
 class NativeDanmakuPrefetch {
   const NativeDanmakuPrefetch._();
 
+  static const Duration _commentCacheTtl = Duration(days: 7);
+  static const Duration _payloadFileTtl = Duration(hours: 24);
+  static DateTime? _lastTempCleanupAt;
+  static Future<void>? _tempCleanupFuture;
+
   /// 原生壳启动时解析弹幕，对齐 Flutter 播放器 `_tryLoadPreferredDanmakuSource`：
   /// 1) 先用该媒体「激活的保存源」（用户离线/手动选择的源）——最高优先、跨启动持久；
   /// 2) 否则查 autoMatchBlocked，被屏蔽则不再自动匹配；
@@ -483,6 +488,48 @@ class NativeDanmakuPrefetch {
     );
   }
 
+  static Future<void> _cleanupExpiredTempFiles() async {
+    final now = DateTime.now();
+    final last = _lastTempCleanupAt;
+    if (last != null && now.difference(last) < const Duration(hours: 1)) {
+      return;
+    }
+    final pending = _tempCleanupFuture;
+    if (pending != null) {
+      await pending;
+      return;
+    }
+    final future = _cleanupExpiredTempFilesImpl(now);
+    _tempCleanupFuture = future;
+    try {
+      await future;
+      _lastTempCleanupAt = now;
+    } finally {
+      if (identical(_tempCleanupFuture, future)) {
+        _tempCleanupFuture = null;
+      }
+    }
+  }
+
+  static Future<void> _cleanupExpiredTempFilesImpl(DateTime now) async {
+    try {
+      await for (final entry in Directory.systemTemp.list()) {
+        if (entry is! File) continue;
+        final name = entry.path.split(Platform.pathSeparator).last;
+        if (!name.startsWith('native_danmaku_')) continue;
+        final modifiedAt = (await entry.stat()).modified;
+        final ttl = name.startsWith('native_danmaku_cache_')
+            ? _commentCacheTtl
+            : _payloadFileTtl;
+        if (now.difference(modifiedAt) > ttl) {
+          await entry.delete();
+        }
+      }
+    } catch (_) {
+      // 临时缓存清理失败不影响当前弹幕播放。
+    }
+  }
+
   static Future<void> _cacheComments(
     String sourceKey,
     List<DanmakuComment> comments,
@@ -511,6 +558,11 @@ class NativeDanmakuPrefetch {
     try {
       final file = _commentCacheFile(sourceKey);
       if (!await file.exists()) return null;
+      final modifiedAt = (await file.stat()).modified;
+      if (DateTime.now().difference(modifiedAt) > _commentCacheTtl) {
+        await file.delete();
+        return null;
+      }
       final raw = await file.readAsString();
       if (raw.trim().isEmpty) return null;
       final decoded = jsonDecode(raw);
@@ -543,6 +595,7 @@ class NativeDanmakuPrefetch {
   }
 
   static Future<String?> _writePayloadFile(Map<String, Object?> payload) async {
+    await _cleanupExpiredTempFiles();
     final file = File(
       '${Directory.systemTemp.path}/native_danmaku_'
       '${DateTime.now().millisecondsSinceEpoch}.json',
