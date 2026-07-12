@@ -19,6 +19,28 @@ abstract class PlayStatsDatabase {
   Future<void> clearAll();
 }
 
+/// 让并发的资源打开请求共享同一个进行中的 Future。
+class FutureOpenGate<T> {
+  Future<T>? _opening;
+
+  Future<T> run(Future<T> Function() opener) {
+    final current = _opening;
+    if (current != null) {
+      return current;
+    }
+
+    final opened = opener();
+    late final Future<T> shared;
+    shared = opened.whenComplete(() {
+      if (identical(_opening, shared)) {
+        _opening = null;
+      }
+    });
+    _opening = shared;
+    return shared;
+  }
+}
+
 /// 基于 `sqflite` 的播放统计数据库实现。
 class SqflitePlayStatsDatabase implements PlayStatsDatabase {
   static const String databaseName = 'play_stats.db';
@@ -26,6 +48,7 @@ class SqflitePlayStatsDatabase implements PlayStatsDatabase {
 
   Database? _database;
   String _ownerScope = '';
+  final FutureOpenGate<Database> _openGate = FutureOpenGate<Database>();
 
   /// 见 [PlayStatsDatabase.open]。
   @override
@@ -51,6 +74,12 @@ class SqflitePlayStatsDatabase implements PlayStatsDatabase {
   /// 见 [PlayStatsDatabase.rawDatabase]。
   @override
   Future<Database> get rawDatabase async {
+    final existing = _database;
+    if (existing != null) return existing;
+    return _openGate.run(_openDatabase);
+  }
+
+  Future<Database> _openDatabase() async {
     final existing = _database;
     if (existing != null) return existing;
     final databasesPath = await getDatabasesPath();

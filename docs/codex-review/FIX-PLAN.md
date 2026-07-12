@@ -14,6 +14,62 @@
 活代码问题的四大主题：**多后端抽象泄漏**（约 60 条，最大主题）、**错误处理空 catch**（约 35 条）、
 **性能/主线程 IO/图片解码**（约 25 条）、**i18n 模型层文案**（约 22 条）；另有安全 5 条、崩溃/数据丢失约 25 条、结构拆分约 18 条。
 
+## 1.1 已修复登记表维护规则
+
+后续 AI 继续修复本计划中的 finding 时，必须同步更新下方表格，方便后来者一眼看清“哪些已经做完、做到什么程度、证据在哪里”。
+
+填写规则：
+1. 每完成一组 finding，就在“已修复登记表”新增或更新一行；不要只在分批章节里追加散文说明。
+2. `状态` 只能填：`已修复`、`部分修复`、`已废弃不修`。如果还有尾巴，必须写成 `部分修复` 并在 `剩余事项` 写清楚。
+3. `验证/证据` 至少填写测试命令、静态检查、人工验证、提交号之一；如果暂未验证，写 `待验证`，不要留空。
+4. `提交/来源` 优先填 commit hash；还未提交时填 `本地未提交` 或 `本次工作区变更`。
+5. 同一 finding 不要重复登记多行；补充修复时更新原行，并把 `剩余事项` 清空或改为新的尾项。
+6. 如果分批章节里的“已修复”文字与本表冲突，以本表为准，并同步修正分批章节。
+
+## 1.2 已修复登记表
+
+| 日期 | 批次 | Finding / 范围 | 状态 | 修复内容摘要 | 提交/来源 | 验证/证据 | 剩余事项 |
+|---|---|---|---|---|---|---|---|
+| 2026-07-09 | S 安全 | G-029 / G-032 | 已修复 | 两个 WebView 登录页遇到 SSL 证书错误时默认 `cancel()` 并提示，不再静默 `proceed()` 或自动提交凭据。 | 本次提交 | 待验证 | 无 |
+| 2026-07-09 | S 安全 | B-027 | 已修复 | `PrivateNetworkHttpOverrides` 仅允许 RFC1918、loopback、link-local、IPv6 ULA 和显式注册 NAS host 跳过证书校验，公网 IP 不再放行。 | 本次提交 | 待验证 | 无 |
+| 2026-07-09 | S 安全 | B-011 | 已修复 | 新增平台安全凭据存储；登录历史、后端连接、飞牛旧会话的密码/token 迁入安全存储，SharedPreferences 只留非敏感描述和存在标记，并迁移清理旧明文。 | 本次提交 | 待验证 | 无 |
+| 2026-07-09 | S 安全 | A-019 | 已修复 | Emby 媒体图片 URL 移除 `api_key` query，access token 改走 `MediaImageRef.headers`。 | 本次提交 | 待验证 | 无 |
+| 2026-07-09 | X 崩溃/数据丢失 | A-001 / F-043 | 已修复 | 新增 `RouteQueryJson` 安全解析 helper，主路由与副栏路由不再因畸形 query JSON 抛异常。 | `1f75fd1` | 待验证 | l10n 文案仍归批次 I 跟进 |
+| 2026-07-09 | X 崩溃/数据丢失 | A-040 / A-044 | 已修复 | `MediaInfo` 与 `PlaybackStreamData.header` 增加嵌套类型防护，非法 payload 降级或跳过，合法数据保留。 | `1f75fd1` | 待验证 | 无 |
+| 2026-07-09 | X 崩溃/数据丢失 | A-025 | 已修复 | 未知后端 kind 不再静默反序列化为飞牛，连接 store 会过滤坏记录。 | `1f75fd1` | 待验证 | 无 |
+| 2026-07-09 | X 崩溃/数据丢失 | B-023 | 已修复 | `AsyncActionGuard` 清理 Future 不再把已由调用方处理的失败变成旁路未处理异步错误。 | `1f75fd1` | 待验证 | 无 |
+| 2026-07-09 | X 崩溃/数据丢失 | B-006 | 已修复 | 下载记录持久化改为串行队列，`persistImmediately` 返回可等待 Future，并避免并发共享同一个 `.tmp` 文件。 | `cf41cf4` | 待验证 | 无 |
+| 2026-07-12 | X 崩溃/数据丢失 | A-028 | 已修复 | 保存主题解析改为单项隔离；整包损坏时保留损坏原文备份并记录 warning，避免主题数据无迹丢失。 | 本次工作区变更 | `flutter test test/providers/app_theme_provider_corrupt_saved_themes_test.dart` | 无 |
+| 2026-07-12 | X 崩溃/数据丢失 | B-018 | 已修复 | 播放统计数据库打开增加 Future 门闩，并发冷启动只共享同一打开流程，失败后允许重试。 | 本次工作区变更 | `flutter test test/services/future_open_gate_test.dart` | 无 |
+| 2026-07-12 | X 崩溃/数据丢失 | A-022 | 已修复 | `MediaBackend` 默认收藏/已看操作改为抛出 `UnsupportedError`，不再把请求态伪装成服务端成功。 | 本次工作区变更 | `flutter test test/media_backend/media_backend_default_action_test.dart` | 无 |
+| 2026-07-12 | X 崩溃/数据丢失 | G-004 / A-031 | 已修复 | 弹幕设置与并行窗口设置均在持久化失败时恢复旧状态；弹幕页提示失败并异步记录日志。 | 本次工作区变更 | `flutter test test/providers/parallel_window_settings_provider_test.dart test/screens/danmaku_settings_screen_test.dart` | 无 |
+| 2026-07-12 | X 崩溃/数据丢失 | B-014 | 已修复 | 新增服务器族进度离线队列；Emby/服务器族原生进度 transient 失败入队，成功重放后删除，并记录异常上下文。 | 本次工作区变更 | `flutter test test/services/playback_progress_offline_queue_test.dart test/services/native_playback_reporter_test.dart` | 无 |
+| 2026-07-09 | X 崩溃/数据丢失 | B-007 | 已修复 | 下载转码进度轮询增加 per-record in-flight 防重入，避免并发请求和旧结果覆盖。 | `cf41cf4` | 待验证 | 无 |
+| 2026-07-09 | X 崩溃/数据丢失 | A-008 | 已修复 | `recordPlayback()` 校验后端业务 payload，HTTP 200 但 `code != 0` 会进入统一异常路径。 | `cf41cf4` | 待验证 | 无 |
+| 2026-07-09 | X 生命周期 | H-003 / H-012 / F-035 | 已修复 | 简介“更多/详情”链接改为 `WidgetSpan + GestureDetector`，不再在 build 中创建需 dispose 的 `TapGestureRecognizer`。 | `cf41cf4` | 待验证 | 无 |
+| 2026-07-09 | X 生命周期 | H-025 / F-039 | 已修复 | `TextEditingController` 泄漏问题已按分批记录修复。 | 分批章节记录 | 待验证 | 待补充具体提交和验证 |
+| 2026-07-09 | X 生命周期 | H-011 / F-038 / F-030 | 已修复 | 图片 errorBuilder、await 后 setState、bottom sheet pop 后 context 使用等 async gap 问题已按分批记录修复。 | 分批章节记录 | 待验证 | 待补充具体提交和验证 |
+| 2026-07-09 | M 多后端抽象 | A-032 / A-039 | 已修复 | 播放 launcher 不再下钻具体 `FeiniuPlaybackContext` / `EmbyPlaybackContext`；新增中立 `MediaPlaybackSourceBridge`，由各后端自供装配器。 | 本次提交 | `test/media_backend/multi_backend_abstraction_boundary_test.dart` | 无 |
+| 2026-07-09 | M 多后端抽象 | B-010 / B-012 | 已修复 | `EmbyNativePickerSupport`、`EmbyPlaybackReporter` 改为服务器族命名；原生反向通道飞牛分支改走 `usesLegacyFeiniuFlow` 能力位。 | 本次提交 | 架构回归测试 | 无 |
+| 2026-07-09 | M 多后端抽象 | 5.1 基础扩展点 | 部分修复 | 新增 `MediaBackendKind.isServerFamily`、`MediaBackendCapabilities.usesLegacyFeiniuFlow`、`MediaBackendCapabilities.server()` 与 `supportsServerTranscodeSession`，并收口部分 Emby-only gate。 | 本次提交 | 架构回归测试 | A-024、A-033、A-020、A-014、A-012 等 5.1 尾项仍待处理 |
+| 2026-07-09 | M 多后端抽象 | A-002 / A-029 | 部分修复 | 新增 `MediaBackendRegistry` / `MediaBackendDescriptor` 作为服务器族描述符入口；`MediaBackendProvider` 改为通过注册表创建当前服务器族后端。 | 本次提交补充 | 架构回归测试 | 后续新增后端时继续补齐注册表入口与 kind 扩展 |
+| 2026-07-09 | M 多后端抽象 | media_list / login_history 收口 | 已修复 | 媒体列表的首页配置 gate、loadKey、登出分支改用服务器族语义；登录历史服务器族显示名与角标改从注册表描述符读取。 | 本次提交补充 | 架构回归测试 | 无 |
+| 2026-07-09 | P 性能 | B-022 | 已修复 | 新增本地字幕异步扫描入口，下载/原生起播路径先异步解析 sidecar 字幕，再构造 `MpvMediaSource`。 | 本次提交 | 待验证 | 无 |
+| 2026-07-09 | P 性能 | F-008 | 已修复 | 详情页本地下载文件信息改为下载记录变化时异步刷新快照，`build()` 不再执行 `existsSync/statSync`。 | 本次提交 | 待验证 | 无 |
+| 2026-07-09 | P 性能 | G-007 | 已修复 | 下载列表页/下载详情页移除整页高频 `AnimatedBuilder`，列表结构按签名变化刷新，速度和转码进度改为行级局部监听。 | 本次提交 | 待验证 | 无 |
+| 2026-07-09 | P 性能 | G-015 | 已修复 | 截图库缩略图按卡片尺寸传入目标解码宽高，全屏预览仍走原图。 | 本次提交 | 待验证 | 无 |
+| 2026-07-09 | P 性能 | G-016 | 已修复 | 分辨率排序 metadata 预热改为小批量加载，避免一次性并发解码全部截图。 | 本次提交 | 待验证 | 无 |
+| 2026-07-09 | P 性能 | G-017 | 部分修复 | `build()` 内可见项过滤/排序只计算一次并复用到 section。 | 本次提交 | 待验证 | section 内 `Wrap` 全量构建仍待改为 SliverGrid/分页 |
+| 2026-07-09 | R 结构 | G-002 | 已修复 | mpv 设置标题/副标题映射双份已收敛到 `MpvSettingsL10n.definitionByKey`。 | `abb06d4` | 待验证 | 无 |
+| 2026-07-09 | R 结构 | G-034 | 已修复 | 两个 Web 登录页的注入脚本抽为共享 `FnWebLoginBridgeScript`，保留 FN OAuth 探测与 entry-token 阻断页检测差异配置。 | `abb06d4` | 待验证 | 无 |
+| 2026-07-09 | R 结构 | H-013 | 已修复 | `TvSeasonDetailPanel` 引入 `TvSeasonPanelHeader/Layout/Actions/Content` 配置对象，现有调用走 `legacy` 过渡工厂。 | `abb06d4` | 待验证 | 无 |
+| 2026-07-09 | R 结构 | F-011 / F-013 / F-020 / G-026 / C-001 | 已修复 | 删除不可达或未调用旧代码；`FlutterHostActivity` 补齐 `getGpuProfile` 原生实现。 | `abb06d4` | 待验证 | 无 |
+| 2026-07-09 | I i18n / 模型层文案 | 模型/DTO fallback | 已修复 | 模型/DTO 层不再产出用户可见 fallback；空值保持空或结构化 token，由 UI 层负责本地化展示。 | `840a7c0` | 待验证 | 无 |
+| 2026-07-09 | I i18n / 模型层文案 | `StreamListOption` 与展示名 fallback | 已修复 | `StreamListOption` 移除对 UI mapper 的反向依赖；语言映射、音轨/字幕显示名、人物演职员展示 fallback 改为后端中立输出。 | `840a7c0` | 待验证 | 无 |
+| 2026-07-09 | I i18n / 模型层文案 | 主题展示文案 | 已修复 | `AppThemeProvider` 不再提供英文主题展示文案；主题预设名与自定义名称建议改由 l10n 生成。 | `840a7c0` | 待验证 | 无 |
+| 2026-07-09 | I i18n / 模型层文案 | 页面硬编码文案 | 已修复 | 路由错误页、FN Connect Web 登录页、媒体信息页、mpv 缓存滑杆端点、详情简介/链接/下载角标等页面硬编码文案已接入 l10n。 | `840a7c0` | 待验证 | 无 |
+| 2026-07-09 | I i18n / 模型层文案 | `TvEpisodeCardData` | 已修复 | 状态颜色从模型层 `Color` 改为语义 tone，组件层再映射主题色。 | `840a7c0` | 待验证 | 无 |
+
 ## 2. 废弃区（74 条，不修）
 
 **清单**：
@@ -70,20 +126,20 @@
 
 **数据丢失/状态错乱**：
 - B-006 (P0)：下载记录 `persistImmediately` 实为 unawaited + 并发共用同一 `.tmp` 文件——串行化持久化队列。**已修复。**
-- A-028：保存主题整包 try/catch，一条损坏清空全部——改 item 级隔离 + 备份。
-- B-018：play_stats 数据库并发 open 无去重；B-007：下载转码进度轮询重入。**B-007 已修复；B-018 未修。**
+- A-028：保存主题整包 try/catch，一条损坏清空全部——已改为 item 级隔离 + 损坏原文备份。**已修复。**
+- B-018：play_stats 数据库并发 open 无去重；B-007：下载转码进度轮询重入。**B-018 / B-007 均已修复。**
 - A-008：`recordPlayback` 不校验业务 code，续播位假保存。**已修复。**
-- A-022：`MediaBackend` 默认收藏/已看实现返回入参 = 假成功——改抛 UnsupportedError + capability 门控。
+- A-022：`MediaBackend` 默认收藏/已看实现返回入参 = 假成功——已改抛 `UnsupportedError`，并由 capability 门控入口。**已修复。**
 - A-025：未知后端 kind 反序列化静默回退飞牛。**已修复。**
-- G-004 / A-031：设置先改内存后落盘、失败无回滚。
-- B-014：Emby 原生进度上报失败静默丢失（可复用离线进度队列）。
+- G-004 / A-031：设置先改内存后落盘、失败无回滚。**已修复：失败回滚并提示/记录。**
+- B-014：Emby 原生进度上报失败静默丢失（可复用离线进度队列）。**已修复：服务器族中立离线队列。**
 - B-023：AsyncActionGuard 旁路 Future 把失败变未处理异步错误。**已修复。**
 
 **生命周期/async gap**（模式统一修）：
 - TapGestureRecognizer 在 build 中创建不释放：H-003 / H-012 / F-035（三处同模式，统一改 WidgetSpan+GestureDetector）。**已修复。**
 - TextEditingController 泄漏：H-025 / F-039。**已修复。**
-- H-011：图片 errorBuilder post-frame 回调 dispose 后 setState；F-038：await 后 setState 无 mounted；F-030：bottom sheet pop 后继续用弹层 context。
-- G-010：存储页加载无 catch/finally，异常即永久 loading。
+- H-011：图片 errorBuilder post-frame 回调 dispose 后 setState；F-038：await 后 setState 无 mounted；F-030：bottom sheet pop 后继续用弹层 context。**已修复。**
+- G-010：存储页加载无 catch/finally，异常即永久 loading。**已修复：首帧后加载、catch/finally、可重试错误态。**
 
 **误操作防护**：G-012 (P0) 书签清空/删除、G-013 弹幕源删除、G-027 登录历史清空——均无确认/撤销，统一加确认弹窗模式。
 
@@ -96,6 +152,7 @@
 - B-010 / B-012：`EmbyNativePickerSupport`、`EmbyPlaybackReporter` 改为服务器族命名（`ServerNativePickerSupport`、`ServerPlaybackReporter`），原生反向通道飞牛分支改走 `usesLegacyFeiniuFlow` 语义能力位。
 - 5.1 部分基础扩展点：新增 `MediaBackendKind.isServerFamily`、`MediaBackendCapabilities.usesLegacyFeiniuFlow`、`MediaBackendCapabilities.server()` 与 `supportsServerTranscodeSession`，`main.dart` / `MediaBackendProvider` 的 Emby-only gate 收口为服务器族语义。
 - 新增架构回归测试 `test/media_backend/multi_backend_abstraction_boundary_test.dart`，防止播放 launcher 重新认识具体后端 context / bridge。
+
 **已修复（2026-07-09，本次提交补充）**：
 - A-002 / A-029（部分）：新增 `MediaBackendRegistry` / `MediaBackendDescriptor` 作为服务器族唯一描述符入口，`MediaBackendProvider` 改为通过注册表创建当前服务器族后端，不再在 provider 中直接依赖 Emby 具体工厂。
 - 5.1 分支收口补充：`media_list_screen.dart` 与 `media_list_screen_widgets.dart` 的首页配置 gate / loadKey / 登出分支改用 `MediaBackendKind.isServerFamily`，不再写死 `MediaBackendKind.emby`。

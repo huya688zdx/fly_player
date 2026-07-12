@@ -21,9 +21,91 @@ class PlaybackProgressOfflineQueue {
   PlaybackProgressOfflineQueue._();
 
   static const String _prefsKey = 'playback_progress_offline_queue_v1';
+  static const String _serverPrefsKey =
+      'playback_server_progress_offline_queue_v1';
   static const int _maxEntries = 200;
 
   static bool _flushing = false;
+  static bool _serverFlushing = false;
+
+  static Future<void> enqueueServer({
+    required String itemId,
+    required String mediaSourceId,
+    required int positionSeconds,
+    bool isPaused = false,
+  }) async {
+    final normalizedItemId = itemId.trim();
+    final normalizedMediaSourceId = mediaSourceId.trim();
+    if (normalizedItemId.isEmpty || normalizedMediaSourceId.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final entries = _readServer(prefs);
+      entries['$normalizedItemId|$normalizedMediaSourceId'] = <String, Object?>{
+        'itemId': normalizedItemId,
+        'mediaSourceId': normalizedMediaSourceId,
+        'positionSeconds': positionSeconds < 0 ? 0 : positionSeconds,
+        'isPaused': isPaused,
+        'enqueuedAt': DateTime.now().millisecondsSinceEpoch,
+      };
+      _trimServer(entries);
+      await prefs.setString(_serverPrefsKey, jsonEncode(entries));
+    } catch (_) {
+      // 离线队列是旁路能力，落盘失败不应阻断播放。
+    }
+  }
+
+  static Future<void> flushServer(
+    Future<void> Function(Map<String, Object?> progress) report,
+  ) async {
+    if (_serverFlushing) return;
+    _serverFlushing = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final entries = _readServer(prefs);
+      if (entries.isEmpty) return;
+      var dirty = false;
+      final keys = _sortedServerKeys(entries);
+      for (final key in keys) {
+        final raw = entries[key];
+        if (raw is! Map) {
+          entries.remove(key);
+          dirty = true;
+          continue;
+        }
+        final progress = raw.map<String, Object?>(
+          (entryKey, value) => MapEntry(entryKey.toString(), value),
+        );
+        progress.remove('enqueuedAt');
+        try {
+          await report(progress);
+          entries.remove(key);
+          dirty = true;
+        } catch (error) {
+          final exception = AppException.from(
+            error,
+            action: 'replay server playback progress',
+            fallbackKind: AppExceptionKind.fatal,
+          );
+          if (exception.isTransient) {
+            break;
+          }
+          entries.remove(key);
+          dirty = true;
+        }
+      }
+      if (dirty) {
+        if (entries.isEmpty) {
+          await prefs.remove(_serverPrefsKey);
+        } else {
+          await prefs.setString(_serverPrefsKey, jsonEncode(entries));
+        }
+      }
+    } catch (_) {
+      // 重放失败时保留盘上队列，等待下一次网络恢复。
+    } finally {
+      _serverFlushing = false;
+    }
+  }
 
   static String _keyOf(Map<String, dynamic> p) {
     final item = (p['itemGuid'] ?? '').toString().trim();
@@ -154,6 +236,35 @@ class PlaybackProgressOfflineQueue {
     final removeCount = map.length - _maxEntries;
     for (var i = 0; i < removeCount; i++) {
       map.remove(keys[i]);
+    }
+  }
+
+  static Map<String, dynamic> _readServer(SharedPreferences prefs) {
+    final raw = prefs.getString(_serverPrefsKey);
+    if (raw == null || raw.isEmpty) return <String, dynamic>{};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) {
+        return decoded.map((key, value) => MapEntry(key.toString(), value));
+      }
+    } catch (_) {}
+    return <String, dynamic>{};
+  }
+
+  static List<String> _sortedServerKeys(Map<String, dynamic> entries) {
+    return entries.keys.toList()..sort((a, b) {
+      final aTime = ((entries[a] as Map?)?['enqueuedAt'] as num?)?.toInt() ?? 0;
+      final bTime = ((entries[b] as Map?)?['enqueuedAt'] as num?)?.toInt() ?? 0;
+      return aTime.compareTo(bTime);
+    });
+  }
+
+  static void _trimServer(Map<String, dynamic> entries) {
+    if (entries.length <= _maxEntries) return;
+    final keys = _sortedServerKeys(entries);
+    final removeCount = entries.length - _maxEntries;
+    for (var index = 0; index < removeCount; index++) {
+      entries.remove(keys[index]);
     }
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -14,11 +15,16 @@ import '../services/storage_management_service.dart';
 import '../theme/app_theme.dart';
 import '../ui/app_transitions.dart';
 import '../ui/secondary_host_navigation.dart';
+import '../utils/app_exception.dart';
 import '../utils/app_top_tip.dart';
 import '../utils/download_record_localizer.dart';
+import '../utils/swallowed_error_logger.dart';
+import '../widgets/common/app_error_state.dart';
 
 class StorageManagementScreen extends StatefulWidget {
-  const StorageManagementScreen({super.key});
+  final Future<StorageOverview> Function(AppLocalizations l10n)? overviewLoader;
+
+  const StorageManagementScreen({super.key, this.overviewLoader});
 
   @override
   State<StorageManagementScreen> createState() =>
@@ -30,6 +36,7 @@ class _StorageManagementScreenState extends State<StorageManagementScreen> {
   final AppTopTip _topTip = AppTopTip();
 
   StorageOverview? _overview;
+  AppException? _overviewError;
   bool _loading = true;
   bool _working = false;
   bool _playbackExpanded = false;
@@ -44,7 +51,11 @@ class _StorageManagementScreenState extends State<StorageManagementScreen> {
   @override
   void initState() {
     super.initState();
-    _loadOverview();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        unawaited(_loadOverview());
+      }
+    });
   }
 
   @override
@@ -56,12 +67,36 @@ class _StorageManagementScreenState extends State<StorageManagementScreen> {
   Future<void> _loadOverview() async {
     setState(() => _loading = true);
     final l10n = AppLocalizations.of(context);
-    final overview = await _service.loadOverview(l10n);
-    if (!mounted) return;
-    setState(() {
-      _overview = overview;
-      _loading = false;
-    });
+    final loader = widget.overviewLoader ?? _service.loadOverview;
+    try {
+      final overview = await loader(l10n);
+      if (!mounted) return;
+      setState(() {
+        _overview = overview;
+        _overviewError = null;
+      });
+    } catch (error, stackTrace) {
+      unawaited(
+        logSwallowedError(
+          action: 'load storage overview',
+          error: error,
+          stackTrace: stackTrace,
+          source: 'storage_management_screen',
+        ),
+      );
+      if (!mounted) return;
+      setState(() {
+        _overviewError = AppException.from(
+          error,
+          action: 'storage overview',
+          fallbackKind: AppExceptionKind.transient,
+        );
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
   }
 
   Future<void> _loadPlaybackEntries() async {
@@ -480,7 +515,11 @@ class _StorageManagementScreenState extends State<StorageManagementScreen> {
           ),
         ],
       ),
-      body: _loading || overview == null
+      body: _loading
+          ? Center(child: CircularProgressIndicator(color: colors.accent))
+          : overview == null && _overviewError != null
+          ? AppErrorState(error: _overviewError!, onRetry: _loadOverview)
+          : overview == null
           ? Center(child: CircularProgressIndicator(color: colors.accent))
           : ListView(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
