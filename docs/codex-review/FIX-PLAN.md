@@ -44,6 +44,9 @@
 | 2026-07-12 | X 崩溃/数据丢失 | A-022 | 已修复 | `MediaBackend` 默认收藏/已看操作改为抛出 `UnsupportedError`，不再把请求态伪装成服务端成功。 | 本次工作区变更 | `flutter test test/media_backend/media_backend_default_action_test.dart` | 无 |
 | 2026-07-12 | X 崩溃/数据丢失 | G-004 / A-031 | 已修复 | 弹幕设置与并行窗口设置均在持久化失败时恢复旧状态；弹幕页提示失败并异步记录日志。 | 本次工作区变更 | `flutter test test/providers/parallel_window_settings_provider_test.dart test/screens/danmaku_settings_screen_test.dart` | 无 |
 | 2026-07-12 | X 崩溃/数据丢失 | B-014 | 已修复 | 新增服务器族进度离线队列；Emby/服务器族原生进度 transient 失败入队，成功重放后删除，并记录异常上下文。 | 本次工作区变更 | `flutter test test/services/playback_progress_offline_queue_test.dart test/services/native_playback_reporter_test.dart` | 无 |
+| 2026-07-12 | X 误操作防护 | G-012 | 已修复 | 书签清空与单条删除统一使用确认弹窗，取消时不触发存储变更。 | 本次工作区变更 | 目标 `flutter analyze` | 无 |
+| 2026-07-12 | X 误操作防护 | G-013 | 已修复 | 弹幕保存源的两处删除入口统一使用确认弹窗，取消时保留原记录。 | 本次工作区变更 | 目标 `flutter analyze` | 无 |
+| 2026-07-12 | X 误操作防护 | G-027 | 已修复 | 登录历史清空与单条删除统一使用确认弹窗，取消时不修改历史。 | 本次工作区变更 | 目标 `flutter analyze` | 无 |
 | 2026-07-09 | X 崩溃/数据丢失 | B-007 | 已修复 | 下载转码进度轮询增加 per-record in-flight 防重入，避免并发请求和旧结果覆盖。 | `cf41cf4` | 待验证 | 无 |
 | 2026-07-09 | X 崩溃/数据丢失 | A-008 | 已修复 | `recordPlayback()` 校验后端业务 payload，HTTP 200 但 `code != 0` 会进入统一异常路径。 | `cf41cf4` | 待验证 | 无 |
 | 2026-07-09 | X 生命周期 | H-003 / H-012 / F-035 | 已修复 | 简介“更多/详情”链接改为 `WidgetSpan + GestureDetector`，不再在 build 中创建需 dispose 的 `TapGestureRecognizer`。 | `cf41cf4` | 待验证 | 无 |
@@ -141,7 +144,7 @@
 - H-011：图片 errorBuilder post-frame 回调 dispose 后 setState；F-038：await 后 setState 无 mounted；F-030：bottom sheet pop 后继续用弹层 context。**已修复。**
 - G-010：存储页加载无 catch/finally，异常即永久 loading。**已修复：首帧后加载、catch/finally、可重试错误态。**
 
-**误操作防护**：G-012 (P0) 书签清空/删除、G-013 弹幕源删除、G-027 登录历史清空——均无确认/撤销，统一加确认弹窗模式。
+**误操作防护（已修复）**：G-012 书签清空/删除、G-013 弹幕源删除、G-027 登录历史清空/删除均已接入统一确认弹窗，取消时不触发存储变更。
 
 ## 5. 批次 M —— 多后端抽象收口（约 60 条，工作量最大）
 

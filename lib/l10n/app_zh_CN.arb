@@ -3176,5 +3176,15 @@
       "title": {}
     }
   },
-  "storageUnknownEpisode": "未知集数"
+  "storageUnknownEpisode": "未知集数",
+  "bookmarkClearConfirmTitle": "清空书签",
+  "bookmarkClearConfirmContent": "将删除全部书签，此操作无法撤销。",
+  "bookmarkDeleteConfirmTitle": "删除书签",
+  "bookmarkDeleteConfirmContent": "将删除这条书签，此操作无法撤销。",
+  "danmakuDeleteConfirmTitle": "删除弹幕来源",
+  "danmakuDeleteConfirmContent": "将删除这个已保存的弹幕来源，此操作无法撤销。",
+  "connectionClearHistoryConfirmTitle": "清空登录历史",
+  "connectionClearHistoryConfirmContent": "将删除全部登录历史，此操作无法撤销。",
+  "connectionDeleteHistoryConfirmTitle": "删除登录记录",
+  "connectionDeleteHistoryConfirmContent": "将删除这条登录记录，此操作无法撤销。"
 }
