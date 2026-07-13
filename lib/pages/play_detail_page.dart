@@ -25,6 +25,7 @@ import '../media_backend/media_image_ref.dart';
 import '../providers/backend_session_provider.dart';
 import '../providers/media_backend_provider.dart';
 import 'long_text_overlay_page.dart';
+import '../playback/native_playback_host.dart';
 import '../playback/playback_source.dart';
 import '../player/mpv_player_page.dart';
 import '../playback/player_source_controller.dart';
@@ -2333,8 +2334,8 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           // 标记已启动原生壳 + 初始播放条目;回前台时一次性刷新进度/跟到新集(性能门控)。
           _nativePlayerLaunched = true;
           _lastNativePlayedItemGuid = source.itemGuid.trim();
-          await NativePlayerBridge.launch(
-            loadArgs: source.toMap(),
+          await const NativePlaybackHost().launch(
+            source: source,
             danmakuFilePath: danmakuFile,
             episodes: episodes.isEmpty ? null : episodes,
             nas: nas,
