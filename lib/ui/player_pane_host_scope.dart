@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 import '../models/play_info.dart';
-import '../player/controllers/mpv_player_controller.dart';
+import '../playback/playback_source.dart';
 import '../services/play_stats/play_stats.dart';
 
 abstract class PlayerPaneHostController {

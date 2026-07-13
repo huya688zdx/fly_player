@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fly_player/models/stream_track_data.dart';
-import 'package:fly_player/player/controllers/mpv_player_controller.dart';
+import 'package:fly_player/playback/playback_source.dart';
 import 'package:fly_player/utils/local_subtitle_bundle.dart';
 
 void main() {

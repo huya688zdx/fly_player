@@ -1,6 +1,6 @@
 import '../../models/playback_stream.dart';
 import '../../models/stream_track_data.dart';
-import 'mpv_player_controller.dart';
+import '../../playback/playback_source.dart';
 import 'player_completion_controller.dart';
 import 'player_source_controller.dart';
 

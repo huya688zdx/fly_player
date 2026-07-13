@@ -10,7 +10,7 @@ import '../controllers/local_download_source_resolver.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../models/download_task_record.dart';
 import '../models/play_info.dart';
-import '../player/controllers/mpv_player_controller.dart';
+import '../playback/playback_source.dart';
 import '../player/mpv_player_page.dart';
 import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';

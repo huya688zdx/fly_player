@@ -1,4 +1,4 @@
-import '../controllers/mpv_player_controller.dart';
+import '../../playback/playback_source.dart';
 import '../../models/play_info.dart';
 import '../../services/play_stats/play_stats.dart';
 

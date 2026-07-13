@@ -6,7 +6,7 @@ import '../models/download_task_record.dart';
 import '../models/play_info.dart';
 import '../models/playback_stream.dart';
 import '../models/stream_track_data.dart';
-import '../player/controllers/mpv_player_controller.dart';
+import '../playback/playback_source.dart';
 import '../providers/nas_provider.dart';
 import '../services/download_task_service.dart';
 import '../utils/play_detail_track_selector.dart';

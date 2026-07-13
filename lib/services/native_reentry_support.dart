@@ -6,7 +6,7 @@ import '../api/feiniu_api.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/playback/media_session_reload.dart';
 import '../models/media_library_item.dart';
-import '../player/controllers/mpv_player_controller.dart';
+import '../playback/playback_source.dart';
 import '../player/controllers/player_source_controller.dart';
 import '../providers/nas_provider.dart';
 import '../utils/api_url_helper.dart';

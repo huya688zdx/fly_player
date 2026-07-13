@@ -5,7 +5,7 @@ import '../../media_backend/playback/media_playback_resolution.dart';
 import '../../media_backend/playback/media_playback_source_bridge.dart';
 import '../../models/stream_track_data.dart';
 import '../../l10n/generated/app_localizations.dart';
-import 'mpv_player_controller.dart';
+import '../../playback/playback_source.dart';
 import 'player_source_controller.dart' show PlayerPlaybackMode;
 
 /// Emby 播放桥接器：把后端中立 [MediaPlaybackBundle] 装配成播放器最终的 [MpvMediaSource]。

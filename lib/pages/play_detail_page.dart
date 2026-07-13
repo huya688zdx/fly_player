@@ -25,7 +25,7 @@ import '../media_backend/media_image_ref.dart';
 import '../providers/backend_session_provider.dart';
 import '../providers/media_backend_provider.dart';
 import 'long_text_overlay_page.dart';
-import '../player/controllers/mpv_player_controller.dart';
+import '../playback/playback_source.dart';
 import '../player/mpv_player_page.dart';
 import '../player/controllers/player_source_controller.dart';
 import '../providers/app_theme_provider.dart';
