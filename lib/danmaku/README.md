@@ -1,57 +1,50 @@
 # Danmaku 模块设计说明
 
+> 本文档保留了 Flutter 弹幕渲染层的历史设计背景。旧 `lib/danmaku/controller/`、
+> `lib/danmaku/render/` 和播放器页面接入已删除；第 4～11 节中的旧 overlay、controller、
+> painter 方案仅作迁移参考。当前活代码是弹幕 API、模型、设置/源 store、导入 parser 以及原生壳回调链路。
+
 ## 1. 目标
 
-这个模块的目标不是先把弹弹play API 直接接进来，而是先把播放器里的弹幕架构定型，避免后面越接越乱。
+这个模块负责为原生播放器提供后端中立的弹幕数据、设置、导入和源管理能力，避免把弹幕请求耦合进 NAS API 或具体平台 Activity。
 
 当前设计目标：
 
 - 弹幕层独立于 `mpv` 播放内核
 - 弹幕层独立于字幕层
-- 弹幕层不抢手势，不影响进度拖动、双击、上下 UI
-- 设置、数据源、渲染三层分离
-- 后续可以平滑接入弹弹play、本地弹幕文件、手动匹配
-- 尽量不把新增状态继续堆进 `mpv_player_page.dart`
+- 弹幕数据层不参与播放器手势和进度控制
+- 设置、数据源、导入解析、原生渲染桥分离
+- 可以接入弹弹play、本地弹幕文件和手动匹配
+- 不在 Flutter 侧恢复旧播放页面或逐条弹幕 widget
 
-这套设计是围绕当前项目的播放器结构做的。当前播放器本身就是：
-
-- 原生视频视图
-- Flutter Overlay 控制层
-- 多个独立 mixin 管理功能
-
-所以弹幕最合适的接入方式也是独立 overlay。
+当前播放由平台宿主负责，Android 使用 `NativePlayerActivity`。Flutter 侧只通过弹幕 API、store、parser 和原生反向通道参与弹幕能力。
 
 ## 2. 当前已经落下来的雏形
 
-当前代码只完成了“架构雏形”和“预览弹幕”，没有真正接弹弹play网络数据。
+当前代码保留了原生壳使用的弹幕数据链路；旧 Flutter 预览 overlay 不再属于运行时架构。
 
 已存在文件：
 
 - `lib/danmaku/models/danmaku_comment.dart`
 - `lib/danmaku/models/danmaku_settings.dart`
 - `lib/danmaku/settings/danmaku_settings_store.dart`
-- `lib/danmaku/controller/danmaku_controller.dart`
-- `lib/danmaku/render/danmaku_overlay.dart`
-- `lib/player/mpv_player_danmaku_mixin.dart`
+- `lib/danmaku/api/`
+- `lib/danmaku/parser/danmaku_import_parser.dart`
+- `lib/danmaku/settings/danmaku_saved_source_store.dart`
+- `lib/services/native_danmaku_prefetch.dart`
 
 当前已实现能力：
 
-- 播放器里有独立弹幕 overlay
-- 可在播放器设置里打开“弹幕设置”
-- 设置支持持久化
-- 有预览弹幕可验证样式、层级、避让和性能
-- 切集/换源时会同步弹幕上下文
+- 原生播放器可通过反向通道搜索、加载、导入和管理弹幕
+- 弹幕设置与已保存源支持持久化
+- 弹幕导入 parser 支持本地文件解析
+- 原生壳预取链路可以独立于主播放链路失败或重试
 
 当前未实现：
 
-- 弹弹play API 请求
-- 自动匹配
-- 弹幕缓存
-- 真实时间轴调度
-- 重复弹幕合并
-- 关键词过滤
-- 高级弹幕
-- 人像/主体检测
+- 更多弹幕源和匹配策略
+- 平台间统一的时间轴调度能力
+- 更细粒度的过滤、缓存和主体避让策略
 
 ## 3. 为什么这样拆
 
@@ -462,7 +455,7 @@
 后面接手的人请不要直接这么做：
 
 - 不要把弹幕请求写进 `feiniu_api.dart`
-- 不要把弹幕状态继续堆进 `MpvPlayerPage` 主状态
+- 不要把弹幕状态继续堆进已删除的 Flutter 播放页面
 - 不要一条弹幕一个 widget
 - 不要让弹幕层接管触摸事件
 - 不要让弹幕请求阻塞视频播放
@@ -470,29 +463,28 @@
 
 ## 13. 后续接手时建议先检查的文件
 
-如果后面要继续完善，先从这几处看：
+如果后面要继续完善，先从这些活代码看；旧 Flutter overlay 章节只用于理解迁移背景：
 
 - `lib/danmaku/README.md`
-- `lib/danmaku/controller/danmaku_controller.dart`
-- `lib/danmaku/render/danmaku_overlay.dart`
-- `lib/player/mpv_player_danmaku_mixin.dart`
-- `lib/player/mpv_player_view_mixin.dart`
-- `lib/player/mpv_player_runtime_mixin.dart`
+- `lib/danmaku/api/`
+- `lib/danmaku/settings/`
+- `lib/danmaku/parser/danmaku_import_parser.dart`
+- `lib/services/native_danmaku_prefetch.dart`
 
 ## 14. 当前状态总结
 
 现在这套代码的定位很明确：
 
-- 不是最终版弹幕功能
-- 是一个可继续扩展的播放器弹幕骨架
-- 已经把后续最关键的架构方向定好了
+- 不是 Flutter 播放器内的渲染层
+- 是可由原生播放器消费的弹幕数据与设置模块
+- 平台渲染实现位于原生壳，Dart 侧保持平台无关
 
 后面继续补的时候，尽量遵守这个原则：
 
 - 数据源可替换
 - 设置可持久化
-- 渲染独立
-- 调度独立
+- 原生渲染与 Dart 数据链路独立
+- 调度不阻塞视频主链路
 - 播放器只做桥接
 
 只要不打破这五条，后面无论接弹弹play还是别的弹幕源，都不会失控。
