@@ -17,6 +17,7 @@ import '../services/native_playback_reentry.dart';
 import '../services/native_player_bridge.dart';
 import '../services/server_native_picker_support.dart';
 import '../models/play_info.dart';
+import '../playback/native_playback_host.dart';
 import '../playback/playback_source.dart';
 import '../player/mpv_player_page.dart';
 import '../providers/nas_provider.dart';
@@ -124,8 +125,8 @@ class ItemPlaybackLauncher {
               ? null
               : await _serverNativeEpisodes(backend, source);
           // 服务器族封面由后端给出可直接消费的 URL，不走 NAS 鉴权预取，故只飞牛传 nas。
-          if (await NativePlayerBridge.maybeLaunch(
-            source.toMap(),
+          if (await const NativePlaybackHost().launch(
+            source: source,
             episodes: serverEpisodes,
             nas: isFeiniu ? nas : null,
           )) {

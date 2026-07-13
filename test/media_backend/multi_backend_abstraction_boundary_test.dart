@@ -22,6 +22,28 @@ void main() {
       }
     });
 
+    test('播放入口通过 PlaybackHost 调度原生播放', () {
+      final playbackEntryFiles = <String>[
+        'lib/controllers/item_playback_launcher.dart',
+        'lib/controllers/tv_season_playback_launcher.dart',
+        'lib/pages/play_detail_page.dart',
+        'lib/screens/download_list_screen.dart',
+      ];
+
+      for (final path in playbackEntryFiles) {
+        final source = File(path).readAsStringSync();
+        expect(source, contains('NativePlaybackHost'));
+        expect(
+          source,
+          isNot(
+            contains(
+              RegExp(r'NativePlayerBridge\.(?:maybeLaunch|launch)\s*\('),
+            ),
+          ),
+        );
+      }
+    });
+
     test('能力模型用语义化 getter 区分飞牛遗留族与服务器族', () {
       expect(
         const MediaBackendCapabilities.feiniu().usesLegacyFeiniuFlow,

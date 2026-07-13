@@ -10,6 +10,7 @@ import '../controllers/local_download_source_resolver.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../models/download_task_record.dart';
 import '../models/play_info.dart';
+import '../playback/native_playback_host.dart';
 import '../playback/playback_source.dart';
 import '../player/mpv_player_page.dart';
 import '../providers/media_backend_provider.dart';
@@ -824,8 +825,8 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
                   episodes: nativeEpisodes.isEmpty ? null : nativeEpisodes,
                 ),
           );
-          if (await NativePlayerBridge.maybeLaunch(
-            source.toMap(),
+          if (await const NativePlaybackHost().launch(
+            source: source,
             episodes: nativeEpisodes,
             nas: provider,
           )) {

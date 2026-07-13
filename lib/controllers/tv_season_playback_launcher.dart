@@ -13,9 +13,9 @@ import '../controllers/play_detail_data_loader.dart';
 import '../danmaku/settings/danmaku_settings_store.dart';
 import '../services/download_task_service.dart';
 import '../services/native_danmaku_prefetch.dart';
-import '../services/native_player_bridge.dart';
 import '../services/server_native_picker_support.dart';
 import '../models/play_info.dart';
+import '../playback/native_playback_host.dart';
 import '../playback/playback_source.dart';
 import '../player/mpv_player_page.dart';
 import '../providers/nas_provider.dart';
@@ -67,8 +67,8 @@ class TvSeasonPlaybackLauncher {
         // 界面不卡）。maybeLaunch 内部判断开关 + 预取弹幕；episodes 透传供原生壳「选集」。
         // 返回 true 表示已交给原生壳，不再 push Flutter 播放器。服务器族封面由后端给出可直接
         // 消费的 URL，不走 NAS 鉴权预取，故不传 nas。
-        if (await NativePlayerBridge.maybeLaunch(
-          source.toMap(),
+        if (await const NativePlaybackHost().launch(
+          source: source,
           episodes: effectiveEpisodes,
           nas: isFeiniu ? provider : null,
         )) {
