@@ -3,7 +3,7 @@ import '../../api/person_list_request.dart';
 import '../../models/person_credit.dart';
 import '../../models/playback_stream.dart';
 import '../../models/stream_track_data.dart';
-import '../../player/controllers/feiniu_playback_source_bridge.dart';
+import '../../playback/feiniu_playback_source_bridge.dart';
 import '../../utils/playback_resume_position_resolver.dart';
 import '../../utils/swallowed_error_logger.dart';
 import '../detail/media_detail.dart';
