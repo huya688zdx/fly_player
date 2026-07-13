@@ -1,5 +1,5 @@
-import '../l10n/generated/app_localizations.dart';
-import 'stores/mpv_settings_store.dart';
+import '../../l10n/generated/app_localizations.dart';
+import 'mpv_settings_store.dart';
 
 class MpvSettingsL10n {
   const MpvSettingsL10n._();

@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import '../../danmaku/models/danmaku_dynamic_occlusion.dart';
 import '../../playback/playback_source.dart';
 import '../../models/stream_track_data.dart';
-import '../stores/screenshot_settings_store.dart';
+import '../../playback/screenshots/screenshot_settings_store.dart';
 
 enum MpvPlaybackPhase {
   idle,
