@@ -1,14 +1,15 @@
 # FIX-PLAN —— 全项目评审修复计划
 
 > 汇总自 8 个评审窗口共 **264 条已确认 finding**（findings/A~H.md），已按主题去重归批。
-> **范围调整（用户决策 2026-07-03）**：Flutter 层播放链路已废弃（实际播放走原生壳 NativePlayerActivity），
-> 该区域的问题**不修复**，归入「废弃区」，建议以删除代替修复（见第 2 节）。
+> **范围调整与收口（用户决策 2026-07-03，删除计划已完成）**：Flutter 播放页面、旧 `PlayerActivity` 宿主、Flutter 弹幕
+> `render/controller` 已删除；播放契约已迁至 `lib/playback/`。`lib/danmaku/api/`、弹幕源 store、弹幕导入 parser、mpv
+> 设置/书签/截图 store 为活代码，不属于废弃区。
 
 ## 1. 总览
 
 | 分类 | 条数 | 处理 |
 |---|---|---|
-| 废弃区（Flutter 播放器及其专属附件） | 74 | 不修，随删除计划一次性消灭 |
+| 已删除废弃区（Flutter 播放器及其专属附件） | 74 | 不修，已随删除计划一次性消灭 |
 | 活代码待修 | 190 | 按下方批次 S/X/M/P/R/I/O 执行 |
 
 活代码问题的四大主题：**多后端抽象泄漏**（约 60 条，最大主题）、**错误处理空 catch**（约 35 条）、
@@ -79,7 +80,7 @@
 | 2026-07-09 | I i18n / 模型层文案 | 页面硬编码文案 | 已修复 | 路由错误页、FN Connect Web 登录页、媒体信息页、mpv 缓存滑杆端点、详情简介/链接/下载角标等页面硬编码文案已接入 l10n。 | `840a7c0` | 待验证 | 无 |
 | 2026-07-09 | I i18n / 模型层文案 | `TvEpisodeCardData` | 已修复 | 状态颜色从模型层 `Color` 改为语义 tone，组件层再映射主题色。 | `840a7c0` | 待验证 | 无 |
 
-## 2. 废弃区（74 条，不修）
+## 2. 已删除废弃区（74 条，不修）
 
 **清单**：
 - **D 全部 44 条**（lib/player 页面宿主、core/view mixin、controllers、stores、player services）
@@ -90,10 +91,7 @@
 
 **E 中仍是活代码、不在废弃区**（原生壳弹幕链路仍在用）：E-001/E-002/E-004（`lib/danmaku/api/` DanDanPlay API/config/resolver）、E-007（弹幕保存源 store）。
 
-**建议：立项「删除 Flutter 播放链路」**，收益比逐条修大得多——约 4 万行 lib/player + danmaku render/controller 层 + 死桥，74 条问题一次清零，也是对"低耦合易维护"目标的最大单笔回报。删除前需确认三件事：
-1. `player_host_screen` / PlayerActivity 仍注册在 `main.dart` 路由与原生侧——确认外部本地视频（ExternalLocalVideoActivity）等所有入口都已走原生壳后再删；
-2. `MpvMediaSource`（mpv_player_controller.dart 内）目前被原生起播装配路径复用——删除前先把该模型抽离到独立文件（顺带解决 D-044 的反向依赖）；
-3. `lib/danmaku/api/`、`danmaku_saved_source_store`、`DanmakuImportParser` 被原生弹幕链路使用，**保留**。
+**删除计划已完成**：旧 Flutter 播放页面、旧宿主 Activity、Flutter 弹幕 render/controller 和死桥已移除；外部本地视频、详情页、剧集页、下载列表均通过 `PlaybackHost` 进入 `NativePlayerActivity`。`MpvMediaSource` 已迁至 `lib/playback/playback_source.dart`，活跃的弹幕 API、弹幕源 store、导入 parser 以及 mpv 设置/书签/截图 store 均已保留。
 
 ---
 
