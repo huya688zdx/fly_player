@@ -19,19 +19,19 @@ import '../services/server_native_picker_support.dart';
 import '../models/play_info.dart';
 import '../playback/native_playback_host.dart';
 import '../playback/playback_source.dart';
-import '../player/mpv_player_page.dart';
 import '../providers/nas_provider.dart';
-import '../services/embedded_detail_launcher.dart';
-import '../services/play_stats/play_stats.dart';
-import '../ui/app_transitions.dart';
+import '../theme/app_theme.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/async_action_guard.dart';
+import '../utils/detail_top_tip.dart';
 import '../controllers/local_download_source_resolver.dart';
 import '../models/media_library_item.dart';
 import '../services/download_task_service.dart';
 
 /// 负责从条目详情上下文构建并拉起播放器。
 class ItemPlaybackLauncher {
+  static final DetailTopTip _topTip = DetailTopTip();
+
   /// 创建一个条目播放拉起器实例。
   const ItemPlaybackLauncher();
 
@@ -70,8 +70,6 @@ class ItemPlaybackLauncher {
         );
         if (resolved == null) return null;
         final source = resolved.source;
-        final playInfo = resolved.playInfo;
-        final title = resolved.title;
 
         if (!context.mounted) return null;
         // 灰度：原生渲染器开启时走纯原生播放壳，经统一 binder 注册反向通道——飞牛绑全功能、
@@ -134,29 +132,14 @@ class ItemPlaybackLauncher {
           }
         }
         if (!context.mounted) return null;
-        final navigator = Navigator.of(context);
-        final embeddedResult =
-            await EmbeddedDetailLauncher.openFullscreenPlayer(
-              context: context,
-              title: title,
-              source: source,
-              initialPlayInfo: playInfo,
-              startSource: PlayStartSource.manual,
-            );
-        if (embeddedResult.handled) {
-          return embeddedResult.data;
+        if (context.mounted) {
+          _topTip.show(
+            context,
+            message: l10n.detailPlayInfoFailed,
+            color: context.appColors.danger,
+          );
         }
-        final result = await navigator.push(
-          AppTransitions.playerRoute(
-            MpvPlayerPage(
-              title: title,
-              source: source,
-              initialPlayInfo: playInfo,
-              startSource: PlayStartSource.manual,
-            ),
-          ),
-        );
-        return result is PlayDetailPlayerReturnData ? result : null;
+        return null;
       },
     );
   }
