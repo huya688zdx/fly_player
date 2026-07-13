@@ -773,8 +773,7 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
     final savedAudioPresets = await _mpvSettingsStore.loadSavedPresets(
       SavedMpvPresetKind.audio,
     );
-    final pictureInPictureSupported =
-        await PlayerHostBridge.isPictureInPictureSupported();
+    const pictureInPictureSupported = false;
     final parallelWindowSupported =
         await EmbeddedDetailLauncher.canOpenEmbeddedDetail();
     final parallelWindowSettings = parallelWindowSupported
@@ -2651,32 +2650,13 @@ extension _MpvPlayerRuntimeMixin on _MpvPlayerPageState {
 
   Future<void> _togglePlayerOrientation() async {
     final l10n = AppLocalizations.of(context);
-    final systemMultiWindowActive =
-        await PlayerHostBridge.isSystemMultiWindowActive();
-    if (widget.parallelLayoutToggleEnabled && !systemMultiWindowActive) {
-      final currentPosition =
-          _uiController.draggingPosition ?? _controller.value.value.position;
-      final source = _buildCurrentSource(
-        startPosition: currentPosition,
-        loadNonce: _issueNextLoadNonce(),
-      );
+    if (widget.parallelLayoutToggleEnabled) {
       final targetMode = widget.parallelLayoutMode == 'split'
           ? 'fullscreen'
           : 'split';
       final onParallelLayoutModeChanged = widget.onParallelLayoutModeChanged;
       if (onParallelLayoutModeChanged != null) {
         onParallelLayoutModeChanged(targetMode);
-        return;
-      }
-      final switched = await PlayerHostBridge.switchPlayerLayoutMode(
-        title: _currentTitle,
-        source: source.toMap(),
-        initialPlayInfo: widget.initialPlayInfo,
-        startSource: widget.startSource,
-        targetMode: targetMode,
-        result: _buildPlayerReturnData(),
-      );
-      if (switched) {
         return;
       }
       _showCenterPopupMessage(l10n.playerLayoutSwitchFailed);

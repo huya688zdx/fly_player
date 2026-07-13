@@ -151,14 +151,14 @@ class DetailActivity : FlutterHostActivity() {
     override fun hostSurface(): String = "detail"
 
     override fun hostPaneSide(): ParallelPaneSide =
-        if (ParallelWindowCoordinator.isSplitPlayerVisible()) {
+        if (ParallelWindowCoordinator.isNativeSplitPlayerVisible()) {
             ParallelWindowCoordinator.activePlayerSecondaryPaneSide()
         } else {
             ParallelWindowCoordinator.preferredSecondaryPaneSide()
         }
 
     override fun hostRoleOverride(): ParallelHostRole? =
-        if (ParallelWindowCoordinator.isSplitPlayerVisible()) {
+        if (ParallelWindowCoordinator.isNativeSplitPlayerVisible()) {
             ParallelHostRole.SECONDARY
         } else {
             null
@@ -237,26 +237,6 @@ class DetailActivity : FlutterHostActivity() {
         return true
     }
 
-    fun launchSplitPlayer(
-        title: String,
-        source: HashMap<String, Any?>,
-        initialPlayInfo: HashMap<String, Any?>? = null,
-        startSource: String = "manual",
-    ) {
-        startActivity(
-            PlayerActivity.createIntent(
-                context = this,
-                title = title,
-                source = source,
-                initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
-                startSource = startSource,
-                fromParallelHost = true,
-                hostContext = getParallelHostContext(),
-                layoutMode = PlayerLaunchContract.MODE_SPLIT,
-            ),
-        )
-    }
-
     companion object {
         private const val EXTRA_INITIAL_ROUTE = "initial_route"
         // true → 用分屏副栏专用的第二个 Flutter 引擎（原生壳分屏用），与浏览详情引擎物理隔离。
@@ -303,15 +283,6 @@ class DetailActivity : FlutterHostActivity() {
             return createRouteIntent(context, routeName).apply {
                 addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                 addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            }
-        }
-
-        fun createAttachToPlayerIntent(
-            context: Context,
-            routeName: String,
-        ): Intent {
-            return createResumeIntent(context, routeName).apply {
-                action = PlayerLaunchContract.ACTION_ATTACH_DETAIL_TO_PLAYER
             }
         }
 
