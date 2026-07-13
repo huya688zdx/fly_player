@@ -1,5 +1,5 @@
 import '../../l10n/generated/app_localizations.dart';
-import '../../player/controllers/mpv_player_controller.dart';
+import '../../playback/playback_source.dart';
 import 'media_playback.dart';
 import 'media_playback_resolution.dart';
 

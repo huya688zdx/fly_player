@@ -70,6 +70,7 @@ import 'controllers/episode_picker_presenter.dart';
 import 'panels/episode_picker_sheet.dart';
 import 'stores/mpv_settings_store.dart';
 import 'controllers/mpv_player_controller.dart';
+import '../playback/playback_source.dart';
 import 'controllers/player_runtime_controller.dart';
 import 'models/player_runtime_preferences.dart';
 import 'controllers/player_session_controller.dart';
