@@ -1,15 +1,15 @@
 import 'dart:async';
 import 'dart:io';
 
-import '../../api/feiniu_api.dart';
-import '../../models/playback_stream.dart';
-import '../../models/stream_track_data.dart';
-import '../../playback/playback_source.dart';
-import '../../services/app_log_service.dart';
-import '../../utils/api_url_helper.dart';
-import '../../utils/app_error_reporter.dart';
-import '../../utils/app_exception.dart';
-import '../../utils/play_detail_track_selector.dart';
+import '../api/feiniu_api.dart';
+import '../models/playback_stream.dart';
+import '../models/stream_track_data.dart';
+import 'playback_source.dart';
+import '../services/app_log_service.dart';
+import '../utils/api_url_helper.dart';
+import '../utils/app_error_reporter.dart';
+import '../utils/app_exception.dart';
+import '../utils/play_detail_track_selector.dart';
 
 /// 表示可直接交给播放器内核消费的播放源信息。
 class PlayerPlayableSource {
