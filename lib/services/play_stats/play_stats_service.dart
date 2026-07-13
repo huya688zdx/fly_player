@@ -1,4 +1,4 @@
-import '../../player/controllers/play_stats_session_controller.dart';
+import 'play_stats_session_controller.dart';
 import 'play_stats_backfill_service.dart';
 import 'play_stats_database.dart';
 import 'play_stats_repositories.dart';
