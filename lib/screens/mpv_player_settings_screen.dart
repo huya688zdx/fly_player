@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../l10n/generated/app_localizations.dart';
-import '../player/mpv_settings_l10n.dart';
-import '../player/stores/mpv_settings_store.dart';
+import '../playback/settings/mpv_settings_l10n.dart';
+import '../playback/settings/mpv_settings_store.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
 import '../ui/app_transitions.dart';

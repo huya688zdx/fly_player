@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../l10n/generated/app_localizations.dart';
-import '../player/stores/mpv_audio_eq_preset_store.dart';
-import '../player/stores/mpv_settings_store.dart';
+import '../playback/settings/mpv_audio_eq_preset_store.dart';
+import '../playback/settings/mpv_settings_store.dart';
 import '../theme/app_theme.dart';
 import 'adaptive_text.dart';
 import 'mpv_audio_eq_editor.dart';

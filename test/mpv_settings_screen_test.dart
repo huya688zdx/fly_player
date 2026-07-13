@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/l10n/generated/app_localizations_zh.dart';
-import 'package:fly_player/player/stores/mpv_settings_store.dart';
+import 'package:fly_player/playback/settings/mpv_settings_store.dart';
 import 'package:fly_player/providers/app_theme_provider.dart';
 import 'package:fly_player/screens/mpv_player_settings_screen.dart';
 

@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../controllers/item_playback_launcher.dart';
 import '../l10n/generated/app_localizations.dart';
-import '../player/stores/bookmark_store.dart';
+import '../playback/bookmarks/bookmark_store.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_text.dart';
 import '../ui/bookmark_note_dialog.dart';
