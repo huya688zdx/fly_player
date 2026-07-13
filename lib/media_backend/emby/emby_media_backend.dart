@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import '../../api/emby_api.dart';
-import '../../player/controllers/emby_playback_source_bridge.dart';
+import '../../playback/emby_playback_source_bridge.dart';
 import '../../utils/nas_image_headers.dart';
 import '../../utils/playback_resume_position_resolver.dart';
 import '../../utils/swallowed_error_logger.dart';

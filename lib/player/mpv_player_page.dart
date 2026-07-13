@@ -92,7 +92,7 @@ import 'widgets/player_overlay_sections.dart';
 import 'widgets/player_speed_dial_overlay.dart';
 import 'controllers/player_settings_controller.dart';
 import 'controllers/player_overlay_state.dart';
-import 'controllers/player_source_controller.dart';
+import '../playback/player_source_controller.dart';
 import 'controllers/player_subtitle_controller.dart';
 import 'controllers/player_ui_controller.dart';
 import 'widgets/player_listen_video_presentation.dart';
