@@ -8,7 +8,7 @@ import '../controllers/play_detail_data_loader.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../models/download_task_record.dart';
 import '../models/play_info.dart';
-import '../player/controllers/mpv_player_controller.dart';
+import '../playback/playback_source.dart';
 import '../player/models/player_host_launch_args.dart';
 import '../player/mpv_player_page.dart';
 import '../providers/nas_provider.dart';
