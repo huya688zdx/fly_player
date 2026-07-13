@@ -44,6 +44,19 @@ void main() {
       }
     });
 
+    test('详情页仅在原生宿主启动成功时提前返回', () {
+      final source = File('lib/pages/play_detail_page.dart').readAsStringSync();
+
+      expect(
+        source,
+        contains(
+          RegExp(
+            r'if\s*\(\s*await\s+const\s+NativePlaybackHost\(\)\.launch\s*\(',
+          ),
+        ),
+      );
+    });
+
     test('能力模型用语义化 getter 区分飞牛遗留族与服务器族', () {
       expect(
         const MediaBackendCapabilities.feiniu().usesLegacyFeiniuFlow,
