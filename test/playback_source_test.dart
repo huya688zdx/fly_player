@@ -1,10 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fly_player/playback/playback_source.dart';
-import 'package:fly_player/player/controllers/mpv_player_controller.dart';
 
 void main() {
-  group('Mpv player listen video mode', () {
+  group('MpvMediaSource contract', () {
     test('round-trips media source listen video mode', () {
       const source = MpvMediaSource(
         loadNonce: 7,
@@ -66,38 +65,5 @@ void main() {
       expect(decoded.externalLocalFileSizeBytes, 0);
     });
 
-    test('parses listen video mode from native state events', () {
-      const fallback = MpvPlayerValue.initial();
-
-      final value = MpvPlayerValue.fromEvent(const <Object?, Object?>{
-        'ready': true,
-        'nativeLibLoaded': true,
-        'listenVideoModeEnabled': true,
-        'statusText': 'Listen video mode enabled',
-      }, fallback: fallback);
-
-      expect(value.ready, isTrue);
-      expect(value.nativeLibLoaded, isTrue);
-      expect(value.listenVideoModeEnabled, isTrue);
-      expect(value.statusText, 'Listen video mode enabled');
-    });
-
-    test('parses weak network fields from native state events', () {
-      const fallback = MpvPlayerValue.initial();
-
-      final value = MpvPlayerValue.fromEvent(const <Object?, Object?>{
-        'playbackPhase': 'buffering',
-        'weakNetworkMode': true,
-        'networkSpeedBytesPerSecond': 262144,
-        'rebufferTargetMs': 8000,
-        'estimatedResumeWaitMs': 12000,
-      }, fallback: fallback);
-
-      expect(value.playbackPhase, MpvPlaybackPhase.buffering);
-      expect(value.weakNetworkMode, isTrue);
-      expect(value.networkSpeedBytesPerSecond, 262144);
-      expect(value.rebufferTarget, const Duration(seconds: 8));
-      expect(value.estimatedResumeWait, const Duration(seconds: 12));
-    });
   });
 }

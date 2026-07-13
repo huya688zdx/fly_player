@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:fly_player/player/controllers/play_stats_session_controller.dart';
+import 'package:fly_player/services/play_stats/play_stats_session_controller.dart';
 import 'package:fly_player/services/play_stats/play_stats.dart';
 
 void main() {
