@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fly_player/media_backend/playback/media_playback.dart';
-import 'package:fly_player/player/controllers/emby_playback_source_bridge.dart';
+import 'package:fly_player/playback/emby_playback_source_bridge.dart';
 
 void main() {
   MediaPlaybackBundle bundle({

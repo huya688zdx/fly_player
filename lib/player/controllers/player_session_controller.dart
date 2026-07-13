@@ -2,7 +2,7 @@ import '../../models/playback_stream.dart';
 import '../../models/stream_track_data.dart';
 import '../../playback/playback_source.dart';
 import 'player_completion_controller.dart';
-import 'player_source_controller.dart';
+import '../../playback/player_source_controller.dart';
 
 /// 持有播放器当前媒体会话的核心状态。
 class PlayerSessionController {

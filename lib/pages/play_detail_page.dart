@@ -27,7 +27,7 @@ import '../providers/media_backend_provider.dart';
 import 'long_text_overlay_page.dart';
 import '../playback/playback_source.dart';
 import '../player/mpv_player_page.dart';
-import '../player/controllers/player_source_controller.dart';
+import '../playback/player_source_controller.dart';
 import '../providers/app_theme_provider.dart';
 import '../providers/nas_provider.dart';
 import '../danmaku/settings/danmaku_settings_store.dart';
