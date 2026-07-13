@@ -22,7 +22,6 @@ Fly Player is a Flutter-based Android media player that uses **mpv** as its nati
 All navigation is URI-based, resolved in `lib/main.dart` `_buildRoute()`. Key routes:
 - `/` — main tabbed shell (Home + Settings)
 - `/detail/item`, `/detail/season`, `/detail/person`, `/detail/host` — media detail pages
-- `/player` — the mpv player page
 - `/screen/*` — secondary screens (search, favorites, downloads, settings, etc.)
 - `/parallel/placeholder` — placeholder for split-pane secondary window
 
@@ -30,50 +29,19 @@ All navigation is URI-based, resolved in `lib/main.dart` `_buildRoute()`. Key ro
 
 Four top-level providers (`lib/providers/`): `NasProvider` (NAS connection + auth), `AppThemeProvider`, `AppLocaleProvider`, `ParallelWindowSettingsProvider`. All set up in `FlyPlayerApp.build()` via `MultiProvider`.
 
-### Player architecture (critical)
+### Player architecture
 
-`MpvPlayerPage` in `lib/player/mpv_player_page.dart` is the central widget. It uses a **part-file mixin pattern** — the widget class mixes in ~20 mixins, each declared via `part` directives pointing to `page_parts/*/`. This breaks the player into independently maintainable concerns:
-
-| Mixin file | Concern |
-|---|---|
-| `mpv_player_view_mixin.dart` | Video view, overlay stacking, gesture layer |
-| `mpv_player_runtime_mixin.dart` | Playback lifecycle, source switching, resume |
-| `mpv_player_source_mixin.dart` | Stream resolution/quality switching |
-| `mpv_player_episode_mixin.dart` | Episode browser and navigation |
-| `mpv_player_options_mixin.dart` | Overflow menu and action sheet options |
-| `mpv_player_playback_feedback_mixin.dart` | Speed, quality change, error toasts |
-| `mpv_player_ab_loop_mixin.dart` | A-B repeat loop UI |
-| `mpv_player_bookmark_mixin.dart` | Bookmark creation and management |
-| `mpv_player_system_session_mixin.dart` | Android media session / PIP integration |
-| `mpv_player_danmaku_mixin.dart` | Danmaku overlay bridge and lifecycle |
-| `mpv_player_danmaku_settings_mixin.dart` | Danmaku settings drawer |
-| `mpv_player_danmaku_sources_mixin.dart` | Danmaku source selection (DanDanPlay etc.) |
-| `mpv_player_danmaku_pages_mixin.dart` | Danmaku management pages |
-| `mpv_player_danmaku_widgets.dart` | Danmaku-related UI widgets |
-| `mpv_player_settings_drawer_mixin.dart` | Main settings drawer host |
-| `mpv_player_settings_intro_outro_mixin.dart` | OP/ED skip configuration |
-| `mpv_player_settings_video_info_mixin.dart` | Video/audio track info display |
-| `mpv_player_settings_mpv_mixin.dart` | Advanced mpv settings |
-| `mpv_player_audio_drawer_mixin.dart` | Audio track and EQ settings |
-| `mpv_player_subtitle_drawer_mixin.dart` | Subtitle track and styling |
-| `mpv_player_video_adjust_mixin.dart` | Video zoom/crop/adjust |
-
-When adding player features, follow this pattern: create a new mixin `part` file and mix it into `MpvPlayerPage`.
+实际播放走平台宿主接口 `lib/playback/playback_host.dart`。Android 实现通过 `NativePlaybackHost` / `NativePlayerBridge` 拉起 `NativePlayerActivity`，原生壳只消费 `MpvMediaSource.toMap()` 产出的 loadArgs JSON 与反向通道回调。新增后端不得直接依赖 Android Activity；新增平台只实现 `PlaybackHost`。
 
 ### Danmaku module (`lib/danmaku/`)
 
-Architected as an independent overlay system separate from mpv. Key principles (from `lib/danmaku/README.md`):
-- Data sources, settings, and rendering are three separate layers
-- Danmaku overlay uses a single `CustomPaint` + `RepaintBoundary` (never one widget per comment)
-- Always `IgnorePointer` — must not interfere with player gestures
-- Danmaku network requests go through `lib/danmaku/api/`, never through `feiniu_api.dart`
-- See the README for the full architecture rationale and planned iteration order
+弹幕数据源、设置、导入解析和原生壳回调仍由 Flutter 侧维护；已删除旧 Flutter render/controller 层。弹幕网络请求走 `lib/danmaku/api/`，不得直接通过 `feiniu_api.dart`。
 
 ### Android native side
 
 Kotlin code under `android/app/src/main/kotlin/com/geqian/flyplayer/fly_player/`:
 - `mpv/` — native mpv bridge: playback controller, proxy server, video output, track selection, diagnostics, playback recovery, danmaku dynamic occlusion (Paddle Lite segmentation)
-- Top-level Activities: `MainActivity` (home host), `PlayerActivity`, `FullscreenPlayerActivity`, `DetailActivity`, `ExternalLocalVideoActivity`, `FullscreenScreenshotActivity`
+- Top-level Activities: `MainActivity` (home host), `NativePlayerActivity`, `DetailActivity`, `ExternalLocalVideoActivity`, `FullscreenScreenshotActivity`
 - `ParallelWindowCoordinator` / `ParallelFlutterEngineRegistry` — manage multi-window split-pane with separate Flutter engines
 - `PlaybackSessionManager` / `PlaybackSessionCoordinator` — manage playback state across Activity transitions and PIP
 - mpv native libs are bundled in `jniLibs/arm64-v8a/` (only arm64-v8a ABI is built)
@@ -81,7 +49,7 @@ Kotlin code under `android/app/src/main/kotlin/com/geqian/flyplayer/fly_player/`
 ### Key Flutter services (`lib/services/`)
 
 - `feiniu_api.dart` (`lib/api/`) — Feiniu NAS API client (Dio-based)
-- `mpv_proxy_server.dart` — local HTTP proxy for forwarding playback streams to mpv
+- `mpv_proxy_server.dart` — local HTTP proxy used by the native playback path
 - `play_stats/` — playback statistics with SQLite persistence (via `sqflite`)
 - `*_bridge.dart` files — MethodChannel bridges to Android native code
 - `download_task_service.dart` — download queue management
