@@ -12,7 +12,6 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
 import android.view.Surface
-import com.geqian.flyplayer.fly_player.PlayerLayoutHandoffCoordinator
 import com.geqian.flyplayer.fly_player.R
 import `is`.xyz.mpv.MPVLib
 import java.io.File
@@ -254,14 +253,7 @@ class MpvPlaybackController(
     private fun disposeInternal() {
         invalidateVideoOutputSanityChecks()
         sourceResolver.release()
-        val preserveSessionForHandoff = shouldPreserveSessionForHostHandoff()
-        if (preserveSessionForHandoff) {
-            Log.d(
-                TAG,
-                "preserving mpv session during host handoff host=${hostActivity?.javaClass?.simpleName}",
-            )
-            videoOutputController.detachSurfaceForHandoff()
-        } else if (mpv.isAvailable() && mpv.isCreated()) {
+        if (mpv.isAvailable() && mpv.isCreated()) {
             clearRetainedPlaybackStateForReuse()
             runtimeBootstrap.release()
         }
@@ -1183,27 +1175,6 @@ class MpvPlaybackController(
         runOnPlaybackThread {
             invalidateVideoOutputSanityChecks()
             lastSurfaceTransitionUptimeMs = SystemClock.uptimeMillis()
-            if (shouldPreserveSessionForHostHandoff()) {
-                Log.d(
-                    TAG,
-                    "surfaceDestroyed generation=$generation preserving mpv session during host handoff host=${hostActivity?.javaClass?.simpleName}",
-                )
-                videoOutputController.detachSurfaceForHandoff()
-                syncVideoOutputState()
-                surfaceReady = false
-                surfaceAttached = false
-                videoOutputReady = false
-                resumeAfterSurfaceRestore = false
-                pendingAutoResumeAfterSurfaceRestore = false
-                updateState(
-                    state.copy(
-                        ready = false,
-                        statusText = "Player host switching",
-                        error = null,
-                    ),
-                )
-                return@runOnPlaybackThread
-            }
             val wasPlaying = state.playbackPhase == MpvPlaybackPhase.PLAYING.wireValue
             if (state.positionMs > 0L) {
                 restoreCoordinator.onSeekQueued(state.positionMs)
@@ -1863,10 +1834,6 @@ class MpvPlaybackController(
             return false
         }
         return !surfaceReady || !surfaceAttached || !currentSurfaceValid() || !videoOutputReady
-    }
-
-    private fun shouldPreserveSessionForHostHandoff(): Boolean {
-        return PlayerLayoutHandoffCoordinator.shouldPreserveFor(hostActivity)
     }
 
     private fun buildPlaybackDiagnostics(): Map<String, Any?> {

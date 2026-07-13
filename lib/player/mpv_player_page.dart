@@ -41,7 +41,6 @@ import '../services/app_log_service.dart';
 import '../services/download_task_service.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../services/parallel_window_settings_bridge.dart';
-import '../services/player_host_bridge.dart';
 import '../services/storage_access_service.dart';
 import '../services/storage_management_service.dart';
 import '../services/player_system_session_bridge.dart';
@@ -1039,18 +1038,9 @@ class _MpvPlayerPageState extends State<MpvPlayerPage>
     if (!mounted) return;
     final isLandscape = _isLandscapeViewport();
     if (widget.parallelLayoutMode == 'split') {
-      unawaited(() async {
-        final systemMultiWindowActive =
-            await PlayerHostBridge.isSystemMultiWindowActive();
-        if (!mounted) return;
-        if (systemMultiWindowActive) {
-          widget.onParallelLayoutModeChanged?.call('fullscreen');
-          return;
-        }
-        if (!_isLandscapeViewport()) {
-          await _setPlayerOrientationMode('landscape');
-        }
-      }());
+      if (!_isLandscapeViewport()) {
+        unawaited(_setPlayerOrientationMode('landscape'));
+      }
     }
     unawaited(_applySystemUiForOrientation(isLandscape, force: true));
     if (_uiController.orientationChangeInProgress) {
