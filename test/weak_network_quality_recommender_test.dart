@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fly_player/models/playback_stream.dart';
-import 'package:fly_player/player/controllers/weak_network_quality_recommender.dart';
+import 'package:fly_player/playback/weak_network_quality_recommender.dart';
 
 PlaybackQualityOption _quality({
   required String resolution,
