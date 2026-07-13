@@ -16,7 +16,7 @@ import '../services/native_danmaku_prefetch.dart';
 import '../services/native_player_bridge.dart';
 import '../services/server_native_picker_support.dart';
 import '../models/play_info.dart';
-import '../player/controllers/mpv_player_controller.dart';
+import '../playback/playback_source.dart';
 import '../player/mpv_player_page.dart';
 import '../providers/nas_provider.dart';
 import '../services/embedded_detail_launcher.dart';

@@ -5,7 +5,7 @@ import '../../media_backend/playback/media_playback_resolution.dart';
 import '../../media_backend/playback/media_playback_source_bridge.dart';
 import '../../utils/player_artwork_path_resolver.dart';
 import '../../utils/player_title_formatter.dart';
-import 'mpv_player_controller.dart';
+import '../../playback/playback_source.dart';
 import 'player_source_controller.dart';
 
 /// 飞牛播放桥接器：把后端中立 [MediaPlaybackBundle] + 飞牛不透明上下文

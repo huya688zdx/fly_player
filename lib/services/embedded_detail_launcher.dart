@@ -8,7 +8,7 @@ import '../controllers/play_detail_data_loader.dart';
 import '../models/media_item.dart';
 import '../models/media_library_item.dart';
 import '../models/play_info.dart';
-import '../player/controllers/mpv_player_controller.dart';
+import '../playback/playback_source.dart';
 import '../services/detail_route_payload_store.dart';
 import '../services/play_stats/play_stats.dart';
 import '../ui/player_pane_host_scope.dart';

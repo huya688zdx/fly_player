@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:fly_player/playback/playback_source.dart';
 import 'package:fly_player/player/controllers/mpv_player_controller.dart';
 
 void main() {
