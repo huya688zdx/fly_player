@@ -4,26 +4,12 @@ import 'dart:io';
 import '../../api/feiniu_api.dart';
 import '../../models/playback_stream.dart';
 import '../../models/stream_track_data.dart';
+import '../../playback/playback_source.dart';
 import '../../services/app_log_service.dart';
 import '../../utils/api_url_helper.dart';
 import '../../utils/app_error_reporter.dart';
 import '../../utils/app_exception.dart';
 import '../../utils/play_detail_track_selector.dart';
-
-/// 定义播放器当前使用的媒体加载链路模式。
-enum PlayerPlaybackMode {
-  originalQuality,
-  directLinkQuality,
-  serverSession;
-
-  bool get isDirect => this != PlayerPlaybackMode.serverSession;
-
-  bool get isOriginalQuality => this == PlayerPlaybackMode.originalQuality;
-
-  bool get isDirectLink => this == PlayerPlaybackMode.directLinkQuality;
-
-  bool get isServerManaged => this == PlayerPlaybackMode.serverSession;
-}
 
 /// 表示可直接交给播放器内核消费的播放源信息。
 class PlayerPlayableSource {
