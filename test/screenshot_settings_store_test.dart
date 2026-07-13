@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:fly_player/player/stores/screenshot_settings_store.dart';
+import 'package:fly_player/playback/screenshots/screenshot_settings_store.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
