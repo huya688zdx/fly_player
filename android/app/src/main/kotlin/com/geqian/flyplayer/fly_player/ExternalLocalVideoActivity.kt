@@ -8,6 +8,8 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.widget.Toast
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.util.Locale
 
@@ -39,18 +41,19 @@ class ExternalLocalVideoActivity : Activity() {
             return
         }
 
-        val launchIntent = PlayerLaunchContract.buildExternalLocalVideoIntent(
-            context = this,
+        val loadArgs = PlayerLaunchContract.buildExternalLocalVideoLoadArgs(
             uri = uri,
             title = displayName,
             sizeBytes = querySizeBytes(uri),
-        ).apply {
+        )
+        val launchIntent = Intent(this, NativePlayerActivity::class.java).apply {
             addFlags(
                 Intent.FLAG_ACTIVITY_CLEAR_TOP or
                     Intent.FLAG_ACTIVITY_SINGLE_TOP or
                     Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
                     Intent.FLAG_GRANT_READ_URI_PERMISSION,
             )
+            putExtra(NativePlayerActivity.EXTRA_LOAD_ARGS, loadArgsToJson(loadArgs))
             if (!sourceIntent?.type.isNullOrBlank()) {
                 setDataAndType(uri, sourceIntent?.type)
             } else {
@@ -66,6 +69,28 @@ class ExternalLocalVideoActivity : Activity() {
         }
         finish()
         overridePendingTransition(0, 0)
+    }
+
+    private fun loadArgsToJson(loadArgs: Map<String, Any?>): String {
+        return jsonValue(loadArgs).toString()
+    }
+
+    private fun jsonValue(value: Any?): Any {
+        return when (value) {
+            null -> JSONObject.NULL
+            is Map<*, *> -> JSONObject().apply {
+                value.forEach { (key, nestedValue) ->
+                    if (key != null) put(key.toString(), jsonValue(nestedValue))
+                }
+            }
+            is Iterable<*> -> JSONArray().apply {
+                value.forEach { put(jsonValue(it)) }
+            }
+            is Array<*> -> JSONArray().apply {
+                value.forEach { put(jsonValue(it)) }
+            }
+            else -> value
+        }
     }
 
     private fun resolveSingleUri(intent: Intent?): Uri? {

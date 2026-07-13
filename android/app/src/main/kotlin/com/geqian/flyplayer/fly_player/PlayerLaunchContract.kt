@@ -105,11 +105,30 @@ object PlayerLaunchContract {
         title: String,
         sizeBytes: Long = 0L,
     ): Intent {
+        val loadArgs = buildExternalLocalVideoLoadArgs(uri, title, sizeBytes)
+        val normalizedTitle = loadArgs["title"] as String
+        return PlayerActivity.createIntent(
+            context = context,
+            title = normalizedTitle,
+            source = loadArgs,
+            startSource = "manual",
+            fromParallelHost = false,
+            hostContext = hashMapOf(),
+            layoutMode = MODE_FULLSCREEN,
+            initialRightPaneRoute = "",
+        )
+    }
+
+    fun buildExternalLocalVideoLoadArgs(
+        uri: Uri,
+        title: String,
+        sizeBytes: Long = 0L,
+    ): HashMap<String, Any?> {
         val normalizedTitle = title.trim().ifEmpty { "Local Video" }
-        val stableId = externalLocalVideoId(uri, normalizedTitle, sizeBytes)
+        val normalizedSizeBytes = sizeBytes.coerceAtLeast(0L)
+        val stableId = externalLocalVideoId(uri, normalizedTitle, normalizedSizeBytes)
         val loadNonce = (System.currentTimeMillis() and 0x7fffffff).toInt().coerceAtLeast(1)
-        val source =
-            hashMapOf<String, Any?>(
+        return hashMapOf<String, Any?>(
                 "loadNonce" to loadNonce,
                 "itemGuid" to stableId,
                 "seriesGuid" to "",
@@ -141,7 +160,7 @@ object PlayerLaunchContract {
                 "isDownloadedFile" to true,
                 "externalLocalSource" to true,
                 "danmakuAutoSearchAllowed" to false,
-                "externalLocalFileSizeBytes" to sizeBytes.coerceAtLeast(0L),
+                "externalLocalFileSizeBytes" to normalizedSizeBytes,
                 "preferExternalSubtitle" to false,
                 "forceNativeProxy" to false,
                 "extremePlaybackEnabled" to false,
@@ -154,16 +173,6 @@ object PlayerLaunchContract {
                 "subtitleTracks" to arrayListOf<HashMap<String, Any?>>(),
                 "qualities" to arrayListOf<HashMap<String, Any?>>(),
             )
-        return PlayerActivity.createIntent(
-            context = context,
-            title = normalizedTitle,
-            source = source,
-            startSource = "manual",
-            fromParallelHost = false,
-            hostContext = hashMapOf(),
-            layoutMode = MODE_FULLSCREEN,
-            initialRightPaneRoute = "",
-        )
     }
 
     fun isFromParallelHost(intent: Intent?): Boolean {
