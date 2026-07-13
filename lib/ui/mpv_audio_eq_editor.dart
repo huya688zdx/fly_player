@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../l10n/generated/app_localizations.dart';
-import '../player/stores/mpv_settings_store.dart';
+import '../playback/settings/mpv_settings_store.dart';
 import '../theme/app_theme.dart';
 
 class MpvAudioEqEditor extends StatelessWidget {

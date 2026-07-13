@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 
 import '../danmaku/settings/danmaku_settings_store.dart';
 import '../media_backend/playback/media_session_reload.dart';
-import '../player/stores/mpv_settings_store.dart';
+import '../playback/settings/mpv_settings_store.dart';
 import '../providers/nas_provider.dart';
 import 'app_log_service.dart';
 import 'native_artwork_prefetch.dart';

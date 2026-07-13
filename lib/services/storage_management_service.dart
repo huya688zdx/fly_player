@@ -9,7 +9,7 @@ import 'package:sqflite/sqflite.dart';
 import '../danmaku/cache/dandanplay_comment_cache_store.dart';
 import '../danmaku/settings/danmaku_saved_source_store.dart';
 import '../l10n/generated/app_localizations.dart';
-import '../player/stores/bookmark_store.dart';
+import '../playback/bookmarks/bookmark_store.dart';
 import '../providers/app_theme_provider.dart';
 import '../providers/parallel_window_settings_provider.dart';
 import '../services/app_log_service.dart';
