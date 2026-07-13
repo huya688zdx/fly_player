@@ -2334,13 +2334,14 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           // 标记已启动原生壳 + 初始播放条目;回前台时一次性刷新进度/跟到新集(性能门控)。
           _nativePlayerLaunched = true;
           _lastNativePlayedItemGuid = source.itemGuid.trim();
-          await const NativePlaybackHost().launch(
+          if (await const NativePlaybackHost().launch(
             source: source,
             danmakuFilePath: danmakuFile,
             episodes: episodes.isEmpty ? null : episodes,
             nas: nas,
-          );
-          return;
+          )) {
+            return;
+          }
         }
         if (!mounted) return;
         final navigator = Navigator.of(context);
