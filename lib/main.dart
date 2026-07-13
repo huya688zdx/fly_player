@@ -28,7 +28,6 @@ import 'screens/favorite_items_screen.dart';
 import 'screens/media_list_screen.dart';
 import 'screens/parallel_placeholder_screen.dart';
 import 'screens/person_detail_screen.dart';
-import 'screens/player_host_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/screenshot_preview_screen.dart';
 import 'services/app_log_service.dart';
@@ -582,13 +581,6 @@ Route<dynamic> _buildRoute(RouteSettings settings) {
       settings: settings,
     );
   }
-  if (uri != null && uri.path == '/player') {
-    return AppTransitions.leftToRightPageTurnRoute<void>(
-      const PlayerActivityRoute(),
-      settings: settings,
-    );
-  }
-
   return AppTransitions.leftToRightPageTurnRoute<void>(
     const AppEntry(),
     settings: settings,
@@ -878,15 +870,6 @@ class ParallelPlaceholderRoute extends StatelessWidget {
       requireConfigured: false,
       child: ParallelPlaceholderScreen(),
     );
-  }
-}
-
-class PlayerActivityRoute extends StatelessWidget {
-  const PlayerActivityRoute({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const PlayerHostScreen();
   }
 }
 

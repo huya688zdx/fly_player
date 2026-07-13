@@ -10,12 +10,12 @@ class HomePaneActivity : FlutterHostActivity() {
         super.onCreate(savedInstanceState)
         ParallelWindowCoordinator.attachHomePaneHost(this)
         ParallelWindowCoordinator.attachBrowseHost(this)
-        Log.d(TAG, "onCreate action=${intent?.action} splitPlayerVisible=${ParallelWindowCoordinator.isSplitPlayerVisible()}")
+        Log.d(TAG, "onCreate action=${intent?.action} nativeSplitPlayerVisible=${ParallelWindowCoordinator.isNativeSplitPlayerVisible()}")
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        Log.d(TAG, "onNewIntent action=${intent.action} splitPlayerVisible=${ParallelWindowCoordinator.isSplitPlayerVisible()}")
+        Log.d(TAG, "onNewIntent action=${intent.action} nativeSplitPlayerVisible=${ParallelWindowCoordinator.isNativeSplitPlayerVisible()}")
     }
 
     override fun onResume() {
@@ -28,14 +28,14 @@ class HomePaneActivity : FlutterHostActivity() {
     override fun hostSurface(): String = "home"
 
     override fun hostPaneSide(): ParallelPaneSide =
-        if (ParallelWindowCoordinator.isSplitPlayerVisible()) {
+        if (ParallelWindowCoordinator.isNativeSplitPlayerVisible()) {
             ParallelWindowCoordinator.activePlayerSecondaryPaneSide()
         } else {
             ParallelWindowCoordinator.preferredPrimaryPaneSide()
         }
 
     override fun hostRoleOverride(): ParallelHostRole? =
-        if (ParallelWindowCoordinator.isSplitPlayerVisible()) {
+        if (ParallelWindowCoordinator.isNativeSplitPlayerVisible()) {
             ParallelHostRole.SECONDARY
         } else {
             null

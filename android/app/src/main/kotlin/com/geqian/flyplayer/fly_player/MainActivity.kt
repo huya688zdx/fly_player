@@ -20,14 +20,14 @@ class MainActivity : FlutterHostActivity() {
     override fun hostSurface(): String = "home"
 
     override fun hostPaneSide(): ParallelPaneSide =
-        if (ParallelWindowCoordinator.isSplitPlayerVisible()) {
+        if (ParallelWindowCoordinator.isNativeSplitPlayerVisible()) {
             ParallelWindowCoordinator.activePlayerSecondaryPaneSide()
         } else {
             ParallelWindowCoordinator.preferredPrimaryPaneSide()
         }
 
     override fun hostRoleOverride(): ParallelHostRole? =
-        if (ParallelWindowCoordinator.isSplitPlayerVisible()) {
+        if (ParallelWindowCoordinator.isNativeSplitPlayerVisible()) {
             ParallelHostRole.SECONDARY
         } else {
             null

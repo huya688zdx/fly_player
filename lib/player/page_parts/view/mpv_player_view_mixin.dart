@@ -1281,8 +1281,7 @@ extension _MpvPlayerViewMixin on _MpvPlayerPageState {
       return;
     }
     await _handlePictureInPictureActivated();
-    final entered = await PlayerHostBridge.enterPictureInPicture();
-    if (!mounted || entered) {
+    if (!mounted) {
       return;
     }
     _showTopTip(
