@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fly_player/playback/playback_source.dart';
-import 'package:fly_player/player/controllers/player_source_controller.dart';
 import 'package:fly_player/player/models/player_host_launch_args.dart';
 
 void main() {
@@ -16,7 +15,9 @@ void main() {
           'mediaGuid': 'media-1',
           'videoGuid': 'video-1',
           'url': 'https://example.com/video.mp4',
-          'headers': {'Authorization': 'Bearer token'},
+          'headers': {
+            'Authorization': 'Bearer token',
+          },
           'title': 'Episode 1',
           'playbackMode': 'directLinkQuality',
         },

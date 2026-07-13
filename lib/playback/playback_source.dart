@@ -1,6 +1,5 @@
 import '../models/playback_stream.dart';
 import '../models/stream_track_data.dart';
-import '../player/controllers/player_source_controller.dart';
 import '../utils/local_subtitle_bundle.dart';
 
 int createMpvLoadNonce() {
@@ -22,6 +21,21 @@ abstract final class MpvVideoOutputBackend {
       _ => defaultValue,
     };
   }
+}
+
+/// 定义播放器当前使用的媒体加载链路模式。
+enum PlayerPlaybackMode {
+  originalQuality,
+  directLinkQuality,
+  serverSession;
+
+  bool get isDirect => this != PlayerPlaybackMode.serverSession;
+
+  bool get isOriginalQuality => this == PlayerPlaybackMode.originalQuality;
+
+  bool get isDirectLink => this == PlayerPlaybackMode.directLinkQuality;
+
+  bool get isServerManaged => this == PlayerPlaybackMode.serverSession;
 }
 
 class MpvMediaSource {
