@@ -9,7 +9,6 @@ import 'package:fly_player/models/playback_stream.dart';
 import 'package:fly_player/models/stream_track_data.dart';
 import 'package:fly_player/player/controllers/feiniu_playback_source_bridge.dart';
 import 'package:fly_player/playback/playback_source.dart';
-import 'package:fly_player/player/controllers/player_source_controller.dart';
 import 'package:fly_player/providers/nas_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
