@@ -12,14 +12,12 @@ import '../models/download_task_record.dart';
 import '../models/play_info.dart';
 import '../playback/native_playback_host.dart';
 import '../playback/playback_source.dart';
-import '../player/mpv_player_page.dart';
 import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../services/download_task_service.dart';
 import '../services/native_playback_reentry.dart';
 import '../services/native_player_bridge.dart';
-import '../services/play_stats/play_stats.dart';
 import '../theme/app_theme.dart';
 import '../ui/app_transitions.dart';
 import '../ui/capability_badge_mapper.dart';
@@ -770,7 +768,6 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
         actionKey,
         settleDuration: const Duration(milliseconds: 500),
         action: () async {
-          final navigator = Navigator.of(context);
           final provider = context.read<NasProvider>();
           final resolved = await _resolveLocalSource(record, provider);
           if (resolved == null) {
@@ -784,9 +781,7 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
             return;
           }
           final source = resolved.source;
-          final initialPlayInfo = resolved.playInfo;
           final title = resolved.title;
-          final canUseEmbeddedHost = provider.isConfigured;
           final nativeEpisodes = await _nativeEpisodesPayload(provider, source);
 
           if (!mounted) return;
@@ -833,26 +828,10 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
             return;
           }
           if (!mounted) return;
-          if (canUseEmbeddedHost) {
-            final embeddedResult =
-                await EmbeddedDetailLauncher.openFullscreenPlayer(
-                  context: context,
-                  title: title,
-                  source: source,
-                  initialPlayInfo: initialPlayInfo,
-                  startSource: PlayStartSource.manual,
-                );
-            if (embeddedResult.handled || !mounted) return;
-          }
-          await navigator.push(
-            AppTransitions.playerRoute(
-              MpvPlayerPage(
-                title: title,
-                source: source,
-                initialPlayInfo: initialPlayInfo,
-                startSource: PlayStartSource.manual,
-              ),
-            ),
+          _topTip.show(
+            context,
+            message: l10n.commonOperationFailedRetryLater,
+            color: colors.danger,
           );
         },
       );

@@ -4,26 +4,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../controllers/play_detail_data_loader.dart';
 import '../models/media_item.dart';
 import '../models/media_library_item.dart';
-import '../models/play_info.dart';
-import '../playback/playback_source.dart';
 import '../services/detail_route_payload_store.dart';
-import '../services/play_stats/play_stats.dart';
 import '../ui/player_pane_host_scope.dart';
 import '../utils/async_action_guard.dart';
 import 'main_host_bridge.dart';
 import 'parallel_browse_snapshot.dart';
-
-/// 表示嵌入式播放器启动请求的处理结果。
-class EmbeddedPlayerLaunchResult {
-  final bool handled;
-  final PlayDetailPlayerReturnData? data;
-
-  /// 根据处理状态与可选返回值构造结果对象。
-  const EmbeddedPlayerLaunchResult({required this.handled, this.data});
-}
 
 /// 统一封装嵌入式详情页与播放器的打开逻辑。
 class EmbeddedDetailLauncher {
@@ -288,70 +275,6 @@ class EmbeddedDetailLauncher {
         },
       ).toString(),
       context: context,
-    );
-  }
-
-  /// 以全屏播放器形式打开指定播放源。
-  static Future<EmbeddedPlayerLaunchResult> openFullscreenPlayer({
-    BuildContext? context,
-    required String title,
-    required MpvMediaSource source,
-    PlayInfoData? initialPlayInfo,
-    PlayStartSource startSource = PlayStartSource.manual,
-  }) async {
-    final playbackKey = <String>[
-      source.itemGuid.trim(),
-      source.mediaGuid.trim(),
-      source.videoGuid.trim(),
-      source.url.trim(),
-      source.playLink?.trim() ?? '',
-      source.playbackMode.name,
-      title.trim(),
-    ].where((value) => value.isNotEmpty).join('|');
-    return AsyncActionGuard.run<EmbeddedPlayerLaunchResult>(
-      'embedded_player:$playbackKey',
-      settleDuration: const Duration(milliseconds: 500),
-      action: () async {
-        if (context != null) {
-          final paneHost = PlayerPaneHostScope.maybeOf(context);
-          if (paneHost != null) {
-            final handled = await paneHost.replacePlayerSource(
-              title: title,
-              source: source,
-              initialPlayInfo: initialPlayInfo,
-              startSource: startSource,
-            );
-            return EmbeddedPlayerLaunchResult(handled: handled);
-          }
-        }
-        if (!Platform.isAndroid) {
-          return const EmbeddedPlayerLaunchResult(handled: false);
-        }
-        final normalizedTitle = title.trim();
-        if (normalizedTitle.isEmpty) {
-          return const EmbeddedPlayerLaunchResult(handled: false);
-        }
-        try {
-          final result = await _channel.invokeMapMethod<Object?, Object?>(
-            'openFullscreenPlayer',
-            <String, Object?>{
-              'title': normalizedTitle,
-              'source': source.toMap(),
-              'initialPlayInfo': initialPlayInfo?.toJson(),
-              'startSource': PlayStatsSqlMapper.startSourceToText(startSource),
-            },
-          );
-          if (result == null) {
-            return const EmbeddedPlayerLaunchResult(handled: true);
-          }
-          return EmbeddedPlayerLaunchResult(
-            handled: true,
-            data: PlayDetailPlayerReturnData.fromMap(_normalizeMap(result)),
-          );
-        } on PlatformException {
-          return const EmbeddedPlayerLaunchResult(handled: false);
-        }
-      },
     );
   }
 
