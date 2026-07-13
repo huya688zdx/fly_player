@@ -17,15 +17,15 @@ import '../services/server_native_picker_support.dart';
 import '../models/play_info.dart';
 import '../playback/native_playback_host.dart';
 import '../playback/playback_source.dart';
-import '../player/mpv_player_page.dart';
 import '../providers/nas_provider.dart';
-import '../services/embedded_detail_launcher.dart';
-import '../services/play_stats/play_stats.dart';
-import '../ui/app_transitions.dart';
+import '../theme/app_theme.dart';
 import '../utils/async_action_guard.dart';
+import '../utils/detail_top_tip.dart';
 
 /// 负责从季度列表上下文拉起播放器。
 class TvSeasonPlaybackLauncher {
+  static final DetailTopTip _topTip = DetailTopTip();
+
   /// 创建一个季度播放拉起器实例。
   const TvSeasonPlaybackLauncher();
 
@@ -55,8 +55,6 @@ class TvSeasonPlaybackLauncher {
         );
         if (resolved == null) return null;
         final source = resolved.source;
-        final playInfo = resolved.playInfo;
-        final title = resolved.title;
         // 剧详情入口未传 episodes：服务器族起播单集时按 source 的 seasonGuid 加载本季选集，
         // 否则 loadArgs.episodes 空 → 原生壳「选集 / 下一集」不亮（壳侧靠非空 episodes 触发）。
         final effectiveEpisodes =
@@ -75,29 +73,14 @@ class TvSeasonPlaybackLauncher {
           return null;
         }
         if (!context.mounted) return null;
-        final navigator = Navigator.of(context);
-        final embeddedResult =
-            await EmbeddedDetailLauncher.openFullscreenPlayer(
-              context: context,
-              title: title,
-              source: source,
-              initialPlayInfo: playInfo,
-              startSource: PlayStartSource.manual,
-            );
-        if (embeddedResult.handled) {
-          return embeddedResult.data;
+        if (context.mounted) {
+          _topTip.show(
+            context,
+            message: l10n.detailPlayInfoFailed,
+            color: context.appColors.danger,
+          );
         }
-        final result = await navigator.push(
-          AppTransitions.playerRoute(
-            MpvPlayerPage(
-              title: title,
-              source: source,
-              initialPlayInfo: playInfo,
-              startSource: PlayStartSource.manual,
-            ),
-          ),
-        );
-        return result is PlayDetailPlayerReturnData ? result : null;
+        return null;
       },
     );
   }

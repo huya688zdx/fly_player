@@ -27,7 +27,6 @@ import '../providers/media_backend_provider.dart';
 import 'long_text_overlay_page.dart';
 import '../playback/native_playback_host.dart';
 import '../playback/playback_source.dart';
-import '../player/mpv_player_page.dart';
 import '../playback/player_source_controller.dart';
 import '../providers/app_theme_provider.dart';
 import '../providers/nas_provider.dart';
@@ -202,7 +201,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   bool _subtitleSelectorExpanded = false;
   bool _audioSelectorExpanded = false;
   bool _deferredSectionLoadStarted = false;
-  bool _playerRouteActive = false;
+  final bool _playerRouteActive = false;
   // 原生播放壳是独立 Android Activity,退出无 Navigator.push 返回点,详情页收不到刷新信号。
   // 故启动原生壳时置位,并记录其最后播放的条目(切集时更新);回前台一次性刷新进度/跟到新集。
   bool _nativePlayerLaunched = false;
@@ -2086,11 +2085,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           qualities: mergedQualities,
         );
 
-        await _launchPlayer(
-          title: title,
-          source: source,
-          initialPlayInfo: data,
-        );
+        await _launchPlayer(source: source);
       },
     );
   }
@@ -2215,14 +2210,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       playbackSpeed: 1.0,
     );
 
-    await _launchPlayer(title: title, source: source, initialPlayInfo: data);
+    await _launchPlayer(source: source);
   }
 
-  Future<void> _launchPlayer({
-    required String title,
-    required MpvMediaSource source,
-    PlayInfoData? initialPlayInfo,
-  }) async {
+  Future<void> _launchPlayer({required MpvMediaSource source}) async {
     final actionKey = <String>[
       'play_detail_launch',
       source.itemGuid.trim(),
@@ -2344,77 +2335,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           }
         }
         if (!mounted) return;
-        final navigator = Navigator.of(context);
-        _playerRouteActive = true;
-        _deferredSectionTimer?.cancel();
-        try {
-          final embeddedResult =
-              await EmbeddedDetailLauncher.openFullscreenPlayer(
-                context: context,
-                title: title,
-                source: source,
-                initialPlayInfo: initialPlayInfo,
-              );
-          final result = embeddedResult.handled
-              ? embeddedResult.data
-              : await navigator.push(
-                  AppTransitions.playerRoute(
-                    MpvPlayerPage(
-                      title: title,
-                      source: source,
-                      initialPlayInfo: initialPlayInfo,
-                    ),
-                  ),
-                );
-          if (!mounted) return;
-          _restoreContentVisibilityAfterPlayerExit();
-          if (!_deferredSectionLoadStarted &&
-              (_personCredits.isEmpty ||
-                  _authorizedDirs.isEmpty ||
-                  (!_linkVisible && (_imdbId.isEmpty || _trimId.isEmpty)))) {
-            unawaited(_loadDeferredSections());
-          }
-          final playerReturn = result is PlayDetailPlayerReturnData
-              ? result
-              : null;
-          final nextItemGuid = switch (playerReturn) {
-            PlayDetailPlayerReturnData(itemGuid: final String itemGuid)
-                when itemGuid.trim().isNotEmpty =>
-              itemGuid.trim(),
-            _ => _currentItemGuid,
-          };
-          if (nextItemGuid != _currentItemGuid) {
-            setState(() {
-              _currentItemGuid = nextItemGuid;
-            });
-          }
-          if (playerReturn?.refreshData != null) {
-            _applyRefreshedDetailData(
-              playerReturn!.refreshData!,
-              currentTsSeconds: playerReturn.currentTsSeconds,
-            );
-            return;
-          }
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) return;
-            unawaited(_refreshAfterPlayerExit());
-          });
-        } finally {
-          _playerRouteActive = false;
-        }
+        _nativePlayerLaunched = false;
+        _showTopTip(l10n.detailPlayInfoFailed, context.appColors.danger);
       },
     );
-  }
-
-  Future<void> _refreshAfterPlayerExit() async {
-    try {
-      await Future<void>.delayed(const Duration(milliseconds: 220));
-      if (!mounted) return;
-      _restoreContentVisibilityAfterPlayerExit();
-      await _refreshAfterItemStateChange();
-    } catch (error) {
-      debugPrint('[PLAY_DETAIL] refresh after player failed error=$error');
-    }
   }
 
   Future<void> _refreshAfterItemStateChange() async {
