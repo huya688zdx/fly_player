@@ -14,6 +14,7 @@ import android.os.SystemClock
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
+import org.json.JSONObject
 import android.util.Log
 import android.util.LruCache
 import androidx.core.app.NotificationCompat
@@ -276,14 +277,9 @@ class PlaybackSessionManager(
                 ?.launchSource
                 ?.takeIf { it.isNotEmpty() }
                 ?.let { source ->
-                    PlayerActivity.createResumeIntent(
-                        context = context,
-                        title = payload.launchTitle.ifBlank { payload.title },
-                        source = HashMap(source),
-                        fromParallelHost = payload.launchFromParallelHost,
-                        layoutMode = payload.launchLayoutMode,
-                        initialRightPaneRoute = payload.launchInitialRightPaneRoute,
-                    )
+                    Intent(context, NativePlayerActivity::class.java).apply {
+                        putExtra(NativePlayerActivity.EXTRA_LOAD_ARGS, JSONObject(source).toString())
+                    }
                 }?.apply {
                     addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
                     addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)

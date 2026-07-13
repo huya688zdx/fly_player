@@ -49,7 +49,6 @@ abstract class FlutterHostActivity : FlutterActivity() {
     private var pendingScopedTreeAccessResult: MethodChannel.Result? = null
     private var pendingScreenshotTreeAccessResult: MethodChannel.Result? = null
     private var awaitingManageStorageAccessResult = false
-    private var pendingPlayerResult: MethodChannel.Result? = null
     private val scopedTreeAccessController by lazy {
         ScopedTreeAccessController(applicationContext)
     }
@@ -70,7 +69,6 @@ abstract class FlutterHostActivity : FlutterActivity() {
     }
     protected var systemChannel: MethodChannel? = null
     protected var detailHostChannel: MethodChannel? = null
-    protected var playerHostStateChannel: MethodChannel? = null
     protected var mainHostChannel: MethodChannel? = null
     protected var runtimeThemeSyncChannel: MethodChannel? = null
     protected var sessionStateChannel: MethodChannel? = null
@@ -79,7 +77,6 @@ abstract class FlutterHostActivity : FlutterActivity() {
     private var playerImmersiveSystemBarsEnabled = false
     private var lastAppliedDecorFitsSystemWindows: Boolean? = null
     private var lastAppliedSystemBarsMode: Int? = null
-    private var lastReportedSystemMultiWindowActive: Boolean? = null
     private var lastEmbeddingDecisionLog: String? = null
     private var lastEmbeddingDecisionLogAtMs: Long = 0L
 
@@ -89,14 +86,12 @@ abstract class FlutterHostActivity : FlutterActivity() {
         ActivityEmbeddingInstaller.install(this)
         applyPreferredHostDisplayMode(reason = "create")
         applyParallelWindowImmersiveMode()
-        notifyPlayerHostSystemWindowMode()
     }
 
     override fun onResume() {
         super.onResume()
         applyPreferredHostDisplayMode(reason = "resume")
         applyParallelWindowImmersiveMode()
-        notifyPlayerHostSystemWindowMode()
         if (awaitingManageStorageAccessResult) {
             awaitingManageStorageAccessResult = false
             pendingStoragePermissionResult?.success(hasFileAccess())
@@ -116,7 +111,6 @@ abstract class FlutterHostActivity : FlutterActivity() {
         super.onConfigurationChanged(newConfig)
         applyPreferredHostDisplayMode(reason = "configuration")
         applyParallelWindowImmersiveMode()
-        notifyPlayerHostSystemWindowMode()
     }
 
     override fun onDestroy() {
@@ -128,9 +122,6 @@ abstract class FlutterHostActivity : FlutterActivity() {
     override fun getRenderMode(): RenderMode = RenderMode.texture
 
     private fun applyPreferredHostDisplayMode(reason: String) {
-        if (!shouldApplyHostPreferredDisplayMode()) {
-            return
-        }
         val currentDisplay = resolveActivityDisplay() ?: return
         val bestMode =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -202,8 +193,6 @@ abstract class FlutterHostActivity : FlutterActivity() {
         registerSessionStateChannel(flutterEngine)
         registerMainHostChannel(flutterEngine)
         registerEmbeddingChannel(flutterEngine)
-        registerPlayerHostChannel(flutterEngine)
-        registerPlayerHostStateChannel(flutterEngine)
         registerDetailHostChannel(flutterEngine)
         registerNativePlayerChannel(flutterEngine)
         registerPlatformViewFactories(flutterEngine)
@@ -220,7 +209,6 @@ abstract class FlutterHostActivity : FlutterActivity() {
         nativePlayerChannel = null
         systemChannel = null
         detailHostChannel = null
-        playerHostStateChannel = null
         mainHostChannel = null
         runtimeThemeSyncChannel = null
         sessionStateChannel = null
@@ -671,14 +659,6 @@ abstract class FlutterHostActivity : FlutterActivity() {
                             ),
                         )
                     }
-                    "openFullscreenPlayer" -> {
-                        val title = call.argument<String>("title").orEmpty()
-                        val source = call.argument<HashMap<String, Any?>>("source")
-                        val initialPlayInfo =
-                            call.argument<HashMap<String, Any?>>("initialPlayInfo")
-                        val startSource = call.argument<String>("startSource").orEmpty()
-                        openFullscreenPlayer(title, source, initialPlayInfo, startSource, result)
-                    }
                     "openFullscreenScreenshot" -> {
                         val rawItems = call.argument<List<*>>("items") ?: emptyList<Any?>()
                         val initialIndex = call.argument<Int>("initialIndex") ?: 0
@@ -742,71 +722,6 @@ abstract class FlutterHostActivity : FlutterActivity() {
                 }
             }
         }
-    }
-
-    private fun registerPlayerHostChannel(flutterEngine: FlutterEngine) {
-        createMethodChannel(flutterEngine, "fly_player/player_host").also { channel ->
-            trackMethodChannelHandler(channel)
-            channel.setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "consumeInitialPlayerArgs" -> result.success(consumeInitialPlayerArgs())
-                    "finishPlayerActivity" -> {
-                        val payload = call.argument<HashMap<String, Any?>>("result")
-                        result.success(finishPlayerActivity(payload))
-                    }
-                    "switchPlayerLayoutMode" -> {
-                        val title = call.argument<String>("title").orEmpty()
-                        val source = call.argument<HashMap<String, Any?>>("source")
-                        val initialPlayInfo =
-                            call.argument<HashMap<String, Any?>>("initialPlayInfo")
-                        val startSource = call.argument<String>("startSource").orEmpty()
-                        val targetMode = call.argument<String>("targetMode").orEmpty()
-                        val resultPayload = call.argument<HashMap<String, Any?>>("result")
-                        result.success(
-                            switchPlayerLayoutMode(
-                                title = title,
-                                source = source,
-                                initialPlayInfo = initialPlayInfo,
-                                startSource = startSource,
-                                targetMode = targetMode,
-                                resultPayload = resultPayload,
-                            ),
-                        )
-                    }
-                    "syncPlayerLaunchState" -> {
-                        val title = call.argument<String>("title").orEmpty()
-                        val source = call.argument<HashMap<String, Any?>>("source")
-                        val initialPlayInfo =
-                            call.argument<HashMap<String, Any?>>("initialPlayInfo")
-                        val startSource = call.argument<String>("startSource").orEmpty()
-                        result.success(
-                            syncPlayerLaunchState(
-                                title = title,
-                                source = source,
-                                initialPlayInfo = initialPlayInfo,
-                                startSource = startSource,
-                            ),
-                        )
-                    }
-                    "isSystemMultiWindowActive" -> {
-                        result.success(isSystemMultiWindowActive())
-                    }
-                    "isPictureInPictureSupported" -> {
-                        result.success(isPictureInPictureSupported())
-                    }
-                    "enterPictureInPicture" -> {
-                        result.success(enterPictureInPicture())
-                    }
-                    else -> result.notImplemented()
-                }
-            }
-        }
-    }
-
-    private fun registerPlayerHostStateChannel(flutterEngine: FlutterEngine) {
-        playerHostStateChannel =
-            createMethodChannel(flutterEngine, "fly_player/player_host_state")
-        notifyPlayerHostSystemWindowMode()
     }
 
     private fun registerDetailHostChannel(flutterEngine: FlutterEngine) {
@@ -896,20 +811,12 @@ abstract class FlutterHostActivity : FlutterActivity() {
             }
             return
         }
-        if (requestCode != PLAYER_ACTIVITY_REQUEST_CODE) return
-        val callback = pendingPlayerResult ?: return
-        pendingPlayerResult = null
-        callback.success(PlayerLaunchContract.readResultPayload(data))
     }
 
     protected open fun canOpenEmbeddedDetail(): Boolean {
         if (!ParallelWindowCoordinator.isParallelWindowEnabled()) {
             logEmbeddingDecision("canOpenEmbeddedDetail=false disabledBySettings")
             closeRightPaneIfEmbeddedDetailUnavailable(reason = "disabledBySettings")
-            return false
-        }
-        if (ParallelWindowCoordinator.isSplitPlayerVisible() && this !is PlayerActivity) {
-            logEmbeddingDecision("canOpenEmbeddedDetail=false splitPlayerVisible")
             return false
         }
         if (Build.VERSION.SDK_INT < 32) {
@@ -945,9 +852,6 @@ abstract class FlutterHostActivity : FlutterActivity() {
             return
         }
         if (!ParallelWindowCoordinator.hasRightPaneHost()) {
-            return
-        }
-        if (ParallelWindowCoordinator.isSplitPlayerVisible()) {
             return
         }
         val canKeepRightPane =
@@ -1034,12 +938,6 @@ abstract class FlutterHostActivity : FlutterActivity() {
         }
         val route = routeBuilder.build().toString()
         if (handleSplitSecondaryInPlace(route)) return true
-        if (ParallelWindowCoordinator.isSplitPlayerVisible()) {
-            ParallelWindowCoordinator.updateCurrentDetailItemGuid(normalizedGuid)
-            ParallelWindowCoordinator.updateCurrentDetailRoute(route)
-            val playerHost = ParallelWindowCoordinator.currentPlayerHost() ?: return false
-            return playerHost.replaceRightPaneRouteInPlace(route)
-        }
         val detailHost = ParallelWindowCoordinator.currentDetailHost()
         if (detailHost != null) {
             ParallelWindowCoordinator.updateCurrentDetailItemGuid(normalizedGuid)
@@ -1060,12 +958,6 @@ abstract class FlutterHostActivity : FlutterActivity() {
         if (normalizedRoute.isEmpty()) return false
         if (handleSplitSecondaryInPlace(normalizedRoute)) return true
         if (!canOpenEmbeddedDetail()) return false
-        if (ParallelWindowCoordinator.isSplitPlayerVisible()) {
-            ParallelWindowCoordinator.updateCurrentDetailRoute(normalizedRoute)
-            updateTrackedDetailFromRoute(normalizedRoute)
-            val playerHost = ParallelWindowCoordinator.currentPlayerHost() ?: return false
-            return playerHost.replaceRightPaneRouteInPlace(normalizedRoute)
-        }
         val detailHost = ParallelWindowCoordinator.currentDetailHost()
         if (detailHost != null) {
             updateTrackedDetailFromRoute(normalizedRoute)
@@ -1101,12 +993,6 @@ abstract class FlutterHostActivity : FlutterActivity() {
         val normalizedRoute = destinationRoute?.trim().orEmpty()
         if (normalizedRoute.isEmpty()) {
             return true
-        }
-        if (ParallelWindowCoordinator.isSplitPlayerVisible()) {
-            ParallelWindowCoordinator.updateCurrentDetailRoute(normalizedRoute)
-            updateTrackedDetailFromRoute(normalizedRoute)
-            val playerHost = ParallelWindowCoordinator.currentPlayerHost() ?: return false
-            return playerHost.replaceRightPaneRouteInPlace(normalizedRoute)
         }
         return browseHost.openEmbeddedRoute(normalizedRoute)
     }
@@ -1148,12 +1034,6 @@ abstract class FlutterHostActivity : FlutterActivity() {
                 .toString()
         if (handleSplitSecondaryInPlace(route)) return true
         if (!canOpenEmbeddedDetail()) return false
-        if (ParallelWindowCoordinator.isSplitPlayerVisible()) {
-            ParallelWindowCoordinator.updateCurrentDetailItemGuid(seasonGuid)
-            ParallelWindowCoordinator.updateCurrentDetailRoute(route)
-            val playerHost = ParallelWindowCoordinator.currentPlayerHost() ?: return false
-            return playerHost.replaceRightPaneRouteInPlace(route)
-        }
         val detailHost = ParallelWindowCoordinator.currentDetailHost()
         if (detailHost != null) {
             ParallelWindowCoordinator.updateCurrentDetailItemGuid(seasonGuid)
@@ -1209,10 +1089,10 @@ abstract class FlutterHostActivity : FlutterActivity() {
         if (this is DetailActivity || this is PlaceholderActivity) {
             Log.d(
                 logTag,
-                "closeRightPane host=${javaClass.simpleName} splitPlayerVisible=${ParallelWindowCoordinator.isSplitPlayerVisible()} currentDetailRoute=${ParallelWindowCoordinator.currentDetailRoute()}",
+                "closeRightPane host=${javaClass.simpleName} nativeSplitPlayerVisible=${ParallelWindowCoordinator.isNativeSplitPlayerVisible()} currentDetailRoute=${ParallelWindowCoordinator.currentDetailRoute()}",
             )
             ParallelWindowCoordinator.clearRightPane()
-            if (this is DetailActivity && ParallelWindowCoordinator.isSplitPlayerVisible()) {
+            if (this is DetailActivity && ParallelWindowCoordinator.isNativeSplitPlayerVisible()) {
                 Log.d(logTag, "closeRightPane restoring MainActivity while split player visible")
                 startActivity(
                     Intent(this, MainActivity::class.java).apply {
@@ -1235,7 +1115,6 @@ abstract class FlutterHostActivity : FlutterActivity() {
 
     protected open fun logoutAndResetParallelUi(): Boolean {
         ParallelWindowCoordinator.clearSessionUiState()
-        ParallelWindowCoordinator.setSplitPlayerVisible(false)
         // 副栏第二引擎现采用保活(退分屏不重置)，注销时须显式丢弃其已加载详情，避免上一账号
         // 内容残留到下次进分屏。
         ParallelFlutterEngineRegistry.resetSplitDetailRouteToPlaceholder()
@@ -1245,14 +1124,7 @@ abstract class FlutterHostActivity : FlutterActivity() {
         ParallelWindowCoordinator.currentHomePaneHost()?.dispatchSessionState("loggedOut")
         ParallelWindowCoordinator.currentDetailHost()?.dispatchSessionState("loggedOut")
         ParallelWindowCoordinator.currentPlaceholderHost()?.dispatchSessionState("loggedOut")
-        ParallelWindowCoordinator.currentPlayerHost()?.dispatchSessionState("loggedOut")
         ParallelWindowCoordinator.currentBrowseHost()?.dispatchSessionState("loggedOut")
-
-        ParallelWindowCoordinator.currentPlayerHost()?.let { playerHost ->
-            if (playerHost !== this) {
-                playerHost.finish()
-            }
-        }
 
         rightPaneHosts.forEach { rightPaneHost ->
             if (rightPaneHost !== this) {
@@ -1263,7 +1135,6 @@ abstract class FlutterHostActivity : FlutterActivity() {
         if (
             this is DetailActivity ||
                 this is PlaceholderActivity ||
-                this is PlayerActivity ||
                 this is HomePaneActivity
         ) {
             startActivity(
@@ -1288,7 +1159,7 @@ abstract class FlutterHostActivity : FlutterActivity() {
         if (!ParallelWindowCoordinator.isParallelWindowEnabled()) return false
         if (!ParallelWindowCoordinator.immersiveStatusBar()) return false
         return ParallelWindowCoordinator.hasRightPaneHost() ||
-            ParallelWindowCoordinator.isSplitPlayerVisible()
+            ParallelWindowCoordinator.isNativeSplitPlayerVisible()
     }
 
     protected fun applyParallelWindowImmersiveMode(force: Boolean = false) {
@@ -1332,8 +1203,6 @@ abstract class FlutterHostActivity : FlutterActivity() {
         flutterEngine: FlutterEngine,
     ): Boolean = false
 
-    protected open fun shouldApplyHostPreferredDisplayMode(): Boolean = true
-
     protected open fun getParallelHostContext(): HashMap<String, Any?> {
         val context =
             ParallelWindowCoordinator.buildHostContext(
@@ -1351,31 +1220,8 @@ abstract class FlutterHostActivity : FlutterActivity() {
         // "detail pane active" flag stay true during plain fullscreen playback — which
         // kept the costly prefs.reload() poll running every 1.5s on tablets (the top
         // CPU-profile cost, stuttering danmaku). splitPlayerVisible is driven by
-        // PlayerActivity.applyLayoutModeState (true only in MODE_SPLIT), so it is false
-        // for fullscreen single-window playback and never leaks across that transition.
-        context["parallelEngineActive"] = ParallelWindowCoordinator.isSplitPlayerVisible()
+        context["parallelEngineActive"] = ParallelWindowCoordinator.isNativeSplitPlayerVisible()
         return context
-    }
-
-    protected fun isSystemMultiWindowActive(): Boolean {
-        return isInMultiWindowMode ||
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                isInPictureInPictureMode
-            } else {
-                false
-            }
-    }
-
-    protected fun notifyPlayerHostSystemWindowMode() {
-        val active = isSystemMultiWindowActive()
-        if (lastReportedSystemMultiWindowActive == active) {
-            return
-        }
-        lastReportedSystemMultiWindowActive = active
-        playerHostStateChannel?.invokeMethod(
-            "systemMultiWindowModeChanged",
-            hashMapOf("active" to active),
-        )
     }
 
     protected fun runAfterMethodReply(action: () -> Unit) {
@@ -1394,42 +1240,6 @@ abstract class FlutterHostActivity : FlutterActivity() {
             }
         }
     }
-
-    protected open fun resolvePlayerInitialRightPaneRoute(): String {
-        val currentRoute = ParallelWindowCoordinator.currentDetailRoute().trim()
-        if (currentRoute.isNotEmpty() && currentRoute != "/") {
-            return currentRoute
-        }
-        val rememberedRoute = ParallelWindowCoordinator.rememberedDetailRoute().trim()
-        if (rememberedRoute.isNotEmpty() && rememberedRoute != "/") {
-            return rememberedRoute
-        }
-        return "/screen/home"
-    }
-
-    protected open fun consumeInitialPlayerArgs(): HashMap<String, Any?>? = null
-
-    protected open fun finishPlayerActivity(result: HashMap<String, Any?>?): Boolean = false
-
-    protected open fun switchPlayerLayoutMode(
-        title: String,
-        source: HashMap<String, Any?>?,
-        initialPlayInfo: HashMap<String, Any?>?,
-        startSource: String,
-        targetMode: String,
-        resultPayload: HashMap<String, Any?>?,
-    ): Boolean = false
-
-    protected open fun syncPlayerLaunchState(
-        title: String,
-        source: HashMap<String, Any?>?,
-        initialPlayInfo: HashMap<String, Any?>?,
-        startSource: String,
-    ): Boolean = false
-
-    protected open fun isPictureInPictureSupported(): Boolean = false
-
-    protected open fun enterPictureInPicture(): Boolean = false
 
     open fun dispatchSystemPlaybackCommand(
         method: String,
@@ -1492,121 +1302,6 @@ abstract class FlutterHostActivity : FlutterActivity() {
             Log.d(logTag, "dispatchRuntimeThemeSync method=$method page=${arguments["pageKey"]}")
             val payload: Any? = if (arguments.isEmpty()) null else arguments
             runtimeThemeSyncChannel?.invokeMethod(method, payload)
-        }
-    }
-
-    private fun openFullscreenPlayer(
-        title: String,
-        source: HashMap<String, Any?>?,
-        initialPlayInfo: HashMap<String, Any?>?,
-        startSource: String,
-        result: MethodChannel.Result,
-    ) {
-        val normalizedTitle = title.trim()
-        val playerSource = source ?: hashMapOf()
-        if (normalizedTitle.isEmpty() || playerSource.isEmpty()) {
-            result.error("invalid_args", "missing player arguments", null)
-            return
-        }
-        PlaybackSessionCoordinator.allowSessionUpdates()
-        if (ParallelWindowCoordinator.isSplitPlayerVisible() && this !is PlayerActivity) {
-            ParallelWindowCoordinator.currentPlayerHost()?.let { playerHost ->
-                Log.d(
-                    logTag,
-                    "openFullscreenPlayer reusingSplitPlayer itemGuid=${playerSource["itemGuid"]}",
-                )
-                playerHost.replaceSourceInPlace(
-                    normalizedTitle,
-                    HashMap(playerSource),
-                    initialPlayInfo?.let { HashMap(it) },
-                    startSource,
-                )
-                result.success(null)
-                return
-            }
-            runCatching {
-                startActivity(
-                    PlayerActivity.createIntent(
-                        context = this,
-                        title = normalizedTitle,
-                        source = HashMap(playerSource),
-                        initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
-                        startSource = startSource,
-                        fromParallelHost = true,
-                        hostContext = getParallelHostContext(),
-                        layoutMode = PlayerLaunchContract.MODE_SPLIT,
-                        initialRightPaneRoute = resolvePlayerInitialRightPaneRoute(),
-                    ).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-                        addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                    },
-                )
-            }.onSuccess {
-                result.success(null)
-            }.onFailure { error ->
-                result.error("launch_failed", error.message, null)
-            }
-            return
-        }
-        // 当已有播放器在 PIP 小窗模式时，替换其播放源而非启动新 Activity，
-        // 避免两个播放器同时播放。
-        if (this !is PlayerActivity) {
-            val existingPlayerHost = ParallelWindowCoordinator.currentPlayerHost()
-            if (existingPlayerHost != null && existingPlayerHost.isInPictureInPictureMode) {
-                Log.d(
-                    logTag,
-                    "openFullscreenPlayer replacingPipSource itemGuid=${playerSource["itemGuid"]}",
-                )
-                existingPlayerHost.replaceSourceInPlace(
-                    normalizedTitle,
-                    HashMap(playerSource),
-                    initialPlayInfo?.let { HashMap(it) },
-                    startSource,
-                )
-                result.success(null)
-                return
-            }
-        }
-        if (pendingPlayerResult != null) {
-            result.error("busy", "player activity already pending", null)
-            return
-        }
-        pendingPlayerResult = result
-        val preferFullscreen =
-            !canOpenEmbeddedDetail() || ParallelWindowCoordinator.defaultPlaybackFullscreen()
-        val launchIntent =
-            if (preferFullscreen) {
-                PlayerActivity.createIntent(
-                    context = this,
-                    title = normalizedTitle,
-                    source = HashMap(playerSource),
-                    initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
-                    startSource = startSource,
-                    fromParallelHost = this is DetailActivity && ParallelWindowCoordinator.hasRightPaneHost(),
-                    hostContext = getParallelHostContext(),
-                    layoutMode = PlayerLaunchContract.MODE_FULLSCREEN,
-                )
-            } else {
-                PlayerActivity.createIntent(
-                    context = this,
-                    title = normalizedTitle,
-                    source = HashMap(playerSource),
-                    initialPlayInfo = initialPlayInfo?.let { HashMap(it) },
-                    startSource = startSource,
-                    fromParallelHost = this is DetailActivity && ParallelWindowCoordinator.hasRightPaneHost(),
-                    hostContext = getParallelHostContext(),
-                    layoutMode = PlayerLaunchContract.MODE_SPLIT,
-                    initialRightPaneRoute = resolvePlayerInitialRightPaneRoute(),
-                )
-            }
-        runCatching {
-            startActivityForResult(
-                launchIntent,
-                PLAYER_ACTIVITY_REQUEST_CODE,
-            )
-        }.onFailure { error ->
-            pendingPlayerResult = null
-            result.error("launch_failed", error.message, null)
         }
     }
 
@@ -1835,7 +1530,6 @@ abstract class FlutterHostActivity : FlutterActivity() {
     private companion object {
         var activeRuntimeThemePageKey: String = ""
         var activeRuntimeThemePayload: HashMap<String, Any?>? = null
-        const val PLAYER_ACTIVITY_REQUEST_CODE = 2072
         const val STORAGE_PERMISSION_REQUEST_CODE = 2071
         const val SCOPED_TREE_ACCESS_REQUEST_CODE = 2073
         const val SCREENSHOT_TREE_ACCESS_REQUEST_CODE = 2074

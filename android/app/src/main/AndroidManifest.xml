@@ -126,21 +126,6 @@
             </intent-filter>
         </activity>
         <activity
-            android:name=".PlayerActivity"
-            android:exported="false"
-            android:launchMode="singleTop"
-            android:taskAffinity="com.geqian.flyplayer.fly_player"
-            android:theme="@style/PlayerLaunchTheme"
-            android:supportsPictureInPicture="true"
-            android:resizeableActivity="true"
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
-            android:hardwareAccelerated="true"
-            android:windowSoftInputMode="adjustResize">
-            <meta-data
-                android:name="io.flutter.embedding.android.NormalTheme"
-                android:resource="@style/PlayerNormalTheme" />
-        </activity>
-        <activity
             android:name=".NativePlayerActivity"
             android:exported="true"
             android:launchMode="singleTop"
@@ -151,20 +136,6 @@
             android:autoRemoveFromRecents="true"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true" />
-        <activity
-            android:name=".FullscreenPlayerActivity"
-            android:exported="false"
-            android:launchMode="singleTask"
-            android:taskAffinity="com.geqian.flyplayer.fly_player.fullscreen"
-            android:theme="@style/PlayerLaunchTheme"
-            android:resizeableActivity="true"
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
-            android:hardwareAccelerated="true"
-            android:windowSoftInputMode="adjustResize">
-            <meta-data
-                android:name="io.flutter.embedding.android.NormalTheme"
-                android:resource="@style/PlayerNormalTheme" />
-        </activity>
         <activity
             android:name=".FullscreenScreenshotActivity"
             android:exported="false"

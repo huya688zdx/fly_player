@@ -48,9 +48,6 @@ object ParallelWindowCoordinator {
     private var preferredPlaybackPrimaryPaneSide: ParallelPaneSide = ParallelPaneSide.RIGHT
 
     @Volatile
-    private var splitPlayerVisible: Boolean = false
-
-    @Volatile
     private var splitRatioPreset: String = "balanced"
 
     @Volatile
@@ -74,9 +71,6 @@ object ParallelWindowCoordinator {
 
     @Volatile
     private var placeholderHostRef: WeakReference<PlaceholderActivity>? = null
-
-    @Volatile
-    private var playerHostRef: WeakReference<PlayerActivity>? = null
 
     @Volatile
     private var mainHostRef: WeakReference<MainActivity>? = null
@@ -126,12 +120,6 @@ object ParallelWindowCoordinator {
 
     fun setParallelWindowEnabled(enabled: Boolean) {
         parallelWindowEnabled = enabled
-    }
-
-    fun isSplitPlayerVisible(): Boolean = splitPlayerVisible
-
-    fun setSplitPlayerVisible(visible: Boolean) {
-        splitPlayerVisible = visible
     }
 
     fun preferredPrimaryPaneSide(): ParallelPaneSide = preferredPrimaryPaneSide
@@ -272,16 +260,6 @@ object ParallelWindowCoordinator {
     }
 
     fun currentPlaceholderHost(): PlaceholderActivity? = placeholderHostRef?.get()
-
-    fun attachPlayerHost(activity: PlayerActivity) {
-        playerHostRef = attachHostReference(activity)
-    }
-
-    fun detachPlayerHost(activity: PlayerActivity) {
-        playerHostRef = detachHostReference(playerHostRef, activity)
-    }
-
-    fun currentPlayerHost(): PlayerActivity? = playerHostRef?.get()
 
     fun attachMainHost(activity: MainActivity) {
         mainHostRef = attachHostReference(activity)
