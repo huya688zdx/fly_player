@@ -5,6 +5,8 @@ import 'package:flutter/widgets.dart';
 import '../media_backend/media_backend_kind.dart';
 import '../media_backend/session/media_backend_connection.dart';
 import '../services/media_backend_connection_store.dart';
+import '../services/secure_credential_store.dart';
+import '../utils/swallowed_error_logger.dart';
 
 class BackendSessionProvider extends ChangeNotifier
     with WidgetsBindingObserver {
@@ -46,9 +48,19 @@ class BackendSessionProvider extends ChangeNotifier
   bool get isConfigured => currentConnection?.isAuthenticated ?? false;
 
   Future<void> load() async {
-    _snapshot = await MediaBackendConnectionStore.load();
-    _isReady = true;
-    notifyListeners();
+    try {
+      final nextSnapshot = await MediaBackendConnectionStore.load();
+      _snapshot = nextSnapshot;
+      _isReady = true;
+      notifyListeners();
+    } on SecureCredentialUnavailableException catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load backend session credentials',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'backend_session_provider',
+      );
+    }
   }
 
   /// 等待会话从磁盘就绪后返回；已就绪则立即返回。
