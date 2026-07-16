@@ -8,6 +8,14 @@ import '../services/media_backend_connection_store.dart';
 import '../services/secure_credential_store.dart';
 import '../utils/swallowed_error_logger.dart';
 
+class BackendSessionUnavailableException implements Exception {
+  const BackendSessionUnavailableException();
+
+  @override
+  String toString() =>
+      'Backend session credentials are temporarily unavailable';
+}
+
 class BackendSessionProvider extends ChangeNotifier
     with WidgetsBindingObserver {
   final bool _observeLifecycle;
@@ -71,6 +79,9 @@ class BackendSessionProvider extends ChangeNotifier
   Future<void> ensureReady() async {
     if (_isReady) return;
     await load();
+    if (!_isReady) {
+      throw const BackendSessionUnavailableException();
+    }
   }
 
   Future<void> saveActive(MediaBackendConnection connection) async {

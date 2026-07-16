@@ -102,33 +102,36 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     final nextUserName = prefs.getString('user_name') ?? '';
     final legacyPassword = prefs.getString('password') ?? '';
     final legacyToken = prefs.getString('token') ?? '';
-    final restoredPassword = await _restoreCredential(
-      _passwordCredentialKey,
-      legacyValue: legacyPassword,
-      currentValue: _password,
-      shouldKeep: prefs.getBool('remember_password') ?? true,
-    );
     final restoredToken = await _restoreCredential(
       _tokenCredentialKey,
       legacyValue: legacyToken,
       currentValue: _token,
       shouldKeep: true,
     );
-    if (restoredPassword.available && legacyPassword.isNotEmpty) {
-      await prefs.remove('password');
-    }
-    if (restoredToken.available && legacyToken.isNotEmpty) {
-      await prefs.remove('token');
-    }
     if (_disposed) return;
-    if (!restoredToken.available && restoredToken.value.isEmpty) {
-      final wasReady = _isReady;
-      _isReady = false;
-      if (wasReady) {
-        notifyListeners();
+    if (!restoredToken.available) {
+      if (restoredToken.value.isEmpty) {
+        final wasReady = _isReady;
+        _isReady = false;
+        if (wasReady) {
+          notifyListeners();
+        }
       }
       return;
     }
+    if (legacyToken.isNotEmpty) {
+      await prefs.remove('token');
+    }
+    final restoredPassword = await _restoreCredential(
+      _passwordCredentialKey,
+      legacyValue: legacyPassword,
+      currentValue: _password,
+      shouldKeep: prefs.getBool('remember_password') ?? true,
+    );
+    if (restoredPassword.available && legacyPassword.isNotEmpty) {
+      await prefs.remove('password');
+    }
+    if (_disposed) return;
     final nextPassword = restoredPassword.value;
     final nextToken = restoredToken.value;
     if (nextToken.isEmpty && nextResolvedBaseUrl.isNotEmpty) {

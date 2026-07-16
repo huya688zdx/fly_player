@@ -107,6 +107,39 @@ void main() {
     expect(backend.deletedKeys, isNot(contains(unavailableKey)));
   });
 
+  test('同一条暂不可用历史以空密码保存时保留既有凭据', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'login_history_v1': <String>[
+        jsonEncode(<String, Object?>{
+          'kind': 'feiniu',
+          'baseUrl': 'https://nas.example.test',
+          'userName': 'alice',
+          'rememberPassword': true,
+          'updatedAtMillis': 1,
+        }),
+      ],
+    });
+    final backend = _UnavailableCredentialBackend();
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+
+    await LoginHistoryStore.load();
+    final unavailableKey = backend.lastReadKey;
+    final entries = await LoginHistoryStore.save(
+      const LoginHistoryEntry(
+        baseUrl: 'https://nas.example.test',
+        userName: 'alice',
+        password: '',
+        rememberPassword: true,
+        updatedAtMillis: 2,
+      ),
+    );
+
+    expect(entries.single.rememberPassword, isTrue);
+    expect(unavailableKey, isNotNull);
+    expect(backend.deletedKeys, isNot(contains(unavailableKey)));
+  });
+
   test('迁移旧密码时安全写入失败会向调用方抛出', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{
       'login_history_v1': <String>[

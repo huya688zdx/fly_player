@@ -103,6 +103,31 @@ void main() {
     expect(provider.isReady, isFalse);
     expect(provider.isConfigured, isFalse);
   });
+
+  test('首次读取安全凭据失败时 ensureReady 不会返回默认后端', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      MediaBackendConnectionStore.connectionsKey: jsonEncode(<Object?>[
+        <String, Object?>{
+          'kind': 'emby',
+          'serverUrl': 'https://emby.example.test',
+          'hasAccessToken': true,
+        },
+      ]),
+      MediaBackendConnectionStore.activeKindKey: 'emby',
+    });
+    final backend = _SwitchableCredentialBackend()..unavailable = true;
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final provider = BackendSessionProvider(autoLoad: false);
+    addTearDown(provider.dispose);
+
+    final kindAfterReady = provider.ensureReady().then(
+      (_) => provider.currentKind,
+    );
+
+    await expectLater(kindAfterReady, throwsA(isA<Exception>()));
+    expect(provider.isReady, isFalse);
+  });
 }
 
 class _SwitchableCredentialBackend implements SecureCredentialBackend {
