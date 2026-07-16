@@ -27,7 +27,7 @@ class BackendSessionProvider extends ChangeNotifier
       // 避免依赖 WidgetsBinding。回前台时从磁盘重读，使分屏副栏拿到主引擎切换后的
       // 当前后端（store.load 已 prefs.reload，与 NasProvider 跨 isolate 同步一致）。
       WidgetsBinding.instance.addObserver(this);
-      unawaited(load());
+      unawaited(_loadSafely());
     }
   }
 
@@ -42,7 +42,7 @@ class BackendSessionProvider extends ChangeNotifier
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      unawaited(load());
+      unawaited(_loadSafely());
     }
   }
 
@@ -71,6 +71,19 @@ class BackendSessionProvider extends ChangeNotifier
     }
   }
 
+  Future<void> _loadSafely() async {
+    try {
+      await load();
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load backend session credentials',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'backend_session_provider',
+      );
+    }
+  }
+
   /// 等待会话从磁盘就绪后返回；已就绪则立即返回。
   ///
   /// 分屏详情等**副引擎冷启动**时，构造里的 `load()` 可能尚未完成，此时直接读
@@ -78,7 +91,17 @@ class BackendSessionProvider extends ChangeNotifier
   /// 查询报 noData。页面在读后端前先 `await ensureReady()` 即可拿到磁盘上的当前后端。
   Future<void> ensureReady() async {
     if (_isReady) return;
-    await load();
+    try {
+      await load();
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load backend session credentials',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'backend_session_provider',
+      );
+      throw const BackendSessionUnavailableException();
+    }
     if (!_isReady) {
       throw const BackendSessionUnavailableException();
     }
