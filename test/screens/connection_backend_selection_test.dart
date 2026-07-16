@@ -22,6 +22,9 @@ void main() {
     expect(find.text('飞牛影视'), findsOneWidget);
     expect(find.text('Emby'), findsOneWidget);
     expect(find.text('登录'), findsOneWidget);
+    final feiniuLoginButtonY = tester
+        .getTopLeft(find.byType(ElevatedButton))
+        .dy;
 
     await tester.dragFrom(const Offset(400, 300), const Offset(-360, 0));
     await tester.pumpAndSettle();
@@ -34,6 +37,10 @@ void main() {
     expect(find.text('保持登录'), findsOneWidget);
     expect(find.text('重新登录 FN Connect'), findsNothing);
     expect(find.byType(SegmentedButton<String>), findsNothing);
+    expect(
+      tester.getTopLeft(find.byType(ElevatedButton)).dy,
+      closeTo(feiniuLoginButtonY, 0.5),
+    );
 
     await tester.dragFrom(const Offset(400, 300), const Offset(360, 0));
     await tester.pumpAndSettle();

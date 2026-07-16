@@ -42,10 +42,18 @@ String effectivePersistedBaseUrlForLogin({
   return sourceBaseUrl;
 }
 
+typedef FeiniuLoginCallback =
+    Future<LoginWithBaseUrlResult> Function({
+      required String baseUrl,
+      required String userName,
+      required String password,
+    });
+
 class ConnectionScreen extends StatefulWidget {
-  const ConnectionScreen({super.key, this.embyApi});
+  const ConnectionScreen({super.key, this.embyApi, this.feiniuLogin});
 
   final EmbyApi? embyApi;
+  final FeiniuLoginCallback? feiniuLogin;
 
   @override
   State<ConnectionScreen> createState() => _ConnectionScreenState();
@@ -392,11 +400,12 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     });
 
     try {
-      final loginResult = await FeiniuApi.loginWithBaseUrl(
-        baseUrl: baseUrl,
-        userName: userName,
-        password: password,
-      );
+      final loginResult =
+          await (widget.feiniuLogin ?? FeiniuApi.loginWithBaseUrl)(
+            baseUrl: baseUrl,
+            userName: userName,
+            password: password,
+          );
       if (!mounted) return;
       await _applyLoginResult(
         sourceBaseUrl: baseUrl,
@@ -686,6 +695,24 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     });
   }
 
+  void _selectBaseUrlScheme(String scheme) {
+    if (scheme != 'http' && scheme != 'https') return;
+    final raw = _baseUrlController.text;
+    final updated = raw.replaceFirst(
+      RegExp(r'^\s*https?://', caseSensitive: false),
+      '$scheme://',
+    );
+    if (updated != raw) {
+      _baseUrlController.value = TextEditingValue(
+        text: updated,
+        selection: TextSelection.collapsed(offset: updated.length),
+      );
+    }
+    setState(() {
+      _baseUrlScheme = scheme;
+    });
+  }
+
   String _normalizeBaseUrlInput(String raw) {
     final trimmed = raw.trim();
     if (trimmed.isEmpty) return '';
@@ -839,60 +866,58 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   /// 一次），只对内部字段做**纯位移**滑动（无 opacity/scale，无离屏层），顺滑不抖。
   Widget _buildForm(ThemeData theme, AppLocalizations l10n) {
     final isEmby = _selectedBackend == _ConnectionBackend.emby;
-    return SizedBox(
-      height: 448,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _LoginFormPanel(
-            child: ClipRect(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 260),
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeInCubic,
-                layoutBuilder: (currentChild, previousChildren) {
-                  return Stack(
-                    alignment: Alignment.topCenter,
-                    children: [
-                      ...previousChildren,
-                      if (currentChild != null) currentChild,
-                    ],
-                  );
-                },
-                transitionBuilder: (child, animation) {
-                  final key = child.key;
-                  final isIncoming =
-                      key is ValueKey<_ConnectionBackend> &&
-                      key.value == _selectedBackend;
-                  // 选 Emby（右侧）时新卡从右进、旧卡向左出；选飞牛（左侧）反向。
-                  final dx = isEmby ? 1.0 : -1.0;
-                  final position = isIncoming
-                      ? Tween<Offset>(begin: Offset(dx, 0), end: Offset.zero)
-                      : Tween<Offset>(begin: Offset(-dx, 0), end: Offset.zero);
-                  return SlideTransition(
-                    position: position.animate(animation),
-                    child: child,
-                  );
-                },
-                child: KeyedSubtree(
-                  key: ValueKey<_ConnectionBackend>(_selectedBackend),
-                  child: _buildFormFields(theme, l10n, isEmby: isEmby),
-                ),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _LoginFormPanel(
+          child: ClipRect(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 260),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              layoutBuilder: (currentChild, previousChildren) {
+                return Stack(
+                  alignment: Alignment.topCenter,
+                  children: [
+                    ...previousChildren,
+                    if (currentChild != null) currentChild,
+                  ],
+                );
+              },
+              transitionBuilder: (child, animation) {
+                final key = child.key;
+                final isIncoming =
+                    key is ValueKey<_ConnectionBackend> &&
+                    key.value == _selectedBackend;
+                // 选 Emby（右侧）时新卡从右进、旧卡向左出；选飞牛（左侧）反向。
+                final dx = isEmby ? 1.0 : -1.0;
+                final position = isIncoming
+                    ? Tween<Offset>(begin: Offset(dx, 0), end: Offset.zero)
+                    : Tween<Offset>(begin: Offset(-dx, 0), end: Offset.zero);
+                return SlideTransition(
+                  position: position.animate(animation),
+                  child: child,
+                );
+              },
+              child: KeyedSubtree(
+                key: ValueKey<_ConnectionBackend>(_selectedBackend),
+                child: _buildFormFields(theme, l10n, isEmby: isEmby),
               ),
             ),
           ),
-          const SizedBox(height: 18),
-          _SubmitButton(
-            isSubmitting: _isSubmitting,
-            label: l10n.connectionLogin,
-            onPressed: _isSubmitting ? null : _submit,
-          ),
-          if (!isEmby) ...[
-            const SizedBox(height: 10),
-            _buildFeiniuFooter(theme, l10n),
-          ],
+        ),
+        const SizedBox(height: 18),
+        _SubmitButton(
+          isSubmitting: _isSubmitting,
+          label: l10n.connectionLogin,
+          onPressed: _isSubmitting ? null : _submit,
+        ),
+        if (!isEmby) ...[
+          const SizedBox(height: 10),
+          _buildFeiniuFooter(theme, l10n),
         ],
-      ),
+      ],
     );
   }
 
@@ -939,10 +964,19 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             ),
           ),
         ),
-        if (!isEmby) ...[
-          const SizedBox(height: 10),
-          _buildProtocolSelector(theme, l10n),
-        ],
+        const SizedBox(height: 10),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final textScale = MediaQuery.textScalerOf(context).scale(1);
+            final isStacked = constraints.maxWidth < 300 || textScale > 1.2;
+            return SizedBox(
+              height: isStacked ? 96 : 40,
+              child: isEmby
+                  ? const SizedBox.shrink()
+                  : _buildProtocolSelector(theme, l10n, isStacked: isStacked),
+            );
+          },
+        ),
         const SizedBox(height: 12),
         _GlassField(
           controller: userController,
@@ -999,47 +1033,59 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     );
   }
 
-  Widget _buildProtocolSelector(ThemeData theme, AppLocalizations l10n) {
+  Widget _buildProtocolSelector(
+    ThemeData theme,
+    AppLocalizations l10n, {
+    required bool isStacked,
+  }) {
+    final label = Text(
+      l10n.connectionProtocolLabel,
+      style: theme.textTheme.bodyMedium?.copyWith(
+        color: const Color(0xFFB6C1D4),
+        fontWeight: FontWeight.w500,
+      ),
+    );
+    final selector = SegmentedButton<String>(
+      segments: <ButtonSegment<String>>[
+        ButtonSegment<String>(
+          value: 'http',
+          label: Text(l10n.connectionProtocolHttp),
+        ),
+        ButtonSegment<String>(
+          value: 'https',
+          label: Text(l10n.connectionProtocolHttps),
+        ),
+      ],
+      selected: <String>{_baseUrlScheme},
+      onSelectionChanged: (selected) {
+        if (selected.isEmpty) return;
+        _selectBaseUrlScheme(selected.first);
+      },
+      showSelectedIcon: false,
+      style: SegmentedButton.styleFrom(
+        foregroundColor: const Color(0xFF91A0BB),
+        selectedForegroundColor: Colors.white,
+        backgroundColor: const Color(0xD80B1624),
+        selectedBackgroundColor: const Color(0xFF263A58),
+        side: const BorderSide(color: Color(0xFF405675)),
+        visualDensity: VisualDensity.compact,
+      ),
+    );
+    if (isStacked) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          label,
+          const SizedBox(height: 6),
+          Expanded(child: selector),
+        ],
+      );
+    }
     return Row(
       children: [
-        Text(
-          l10n.connectionProtocolLabel,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: const Color(0xFFB6C1D4),
-            fontWeight: FontWeight.w500,
-          ),
-        ),
+        label,
         const SizedBox(width: 12),
-        Expanded(
-          child: SegmentedButton<String>(
-            segments: <ButtonSegment<String>>[
-              ButtonSegment<String>(
-                value: 'http',
-                label: Text(l10n.connectionProtocolHttp),
-              ),
-              ButtonSegment<String>(
-                value: 'https',
-                label: Text(l10n.connectionProtocolHttps),
-              ),
-            ],
-            selected: <String>{_baseUrlScheme},
-            onSelectionChanged: (selected) {
-              if (selected.isEmpty) return;
-              setState(() {
-                _baseUrlScheme = selected.first;
-              });
-            },
-            showSelectedIcon: false,
-            style: SegmentedButton.styleFrom(
-              foregroundColor: const Color(0xFF91A0BB),
-              selectedForegroundColor: Colors.white,
-              backgroundColor: const Color(0xD80B1624),
-              selectedBackgroundColor: const Color(0xFF263A58),
-              side: const BorderSide(color: Color(0xFF405675)),
-              visualDensity: VisualDensity.compact,
-            ),
-          ),
-        ),
+        Expanded(child: selector),
       ],
     );
   }
