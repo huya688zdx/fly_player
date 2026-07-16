@@ -156,7 +156,10 @@ class LoginHistoryStore {
     }
     final preserveCredentialKeys = <String>{
       ...snapshot.unavailableCredentialKeys,
-    }..remove(_passwordKey(entry));
+    };
+    if (!entry.rememberPassword || entry.password.isNotEmpty) {
+      preserveCredentialKeys.remove(_passwordKey(entry));
+    }
     await _writeEntries(
       prefs,
       next,
