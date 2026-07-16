@@ -1336,7 +1336,21 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     // 分屏详情等副引擎冷启动时,后端会话可能尚未从磁盘就绪 → MediaBackendProvider 会暂时
     // 默认回飞牛,导致 Emby 条目误用飞牛查询(noData)。读后端前先等会话就绪。
     final session = context.read<BackendSessionProvider>();
-    await session.ensureReady();
+    try {
+      await session.ensureReady();
+    } on BackendSessionUnavailableException catch (error, stackTrace) {
+      if (!mounted) return;
+      setState(() {
+        _error = AppException.from(
+          error,
+          action: 'play detail',
+          fallbackKind: AppExceptionKind.transient,
+          stackTrace: stackTrace,
+        );
+        _loading = false;
+      });
+      return;
+    }
     if (!mounted) return;
 
     // 非飞牛后端(如 Emby):只读中立 MediaDetail 渲染展示半身,不加载飞牛播放数据。
