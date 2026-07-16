@@ -21,6 +21,7 @@ import '../utils/app_exception.dart';
 import '../utils/detail_top_tip.dart';
 import '../utils/login_error_resolver.dart';
 import '../utils/nas_image_headers.dart';
+import '../utils/swallowed_error_logger.dart';
 import '../services/login_history_store.dart';
 import '../services/fn_connect_web_session_service.dart';
 import 'download_list_screen.dart';
@@ -96,8 +97,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     _userNameController.text = provider.userName;
     _passwordController.text = provider.password;
     _rememberPassword = provider.rememberPassword;
-    _loadLoginHistory();
-    unawaited(_loadStoredBackendConnection());
+    unawaited(_loadLoginHistorySafely());
+    unawaited(_loadStoredBackendConnectionSafely());
   }
 
   @override
@@ -118,6 +119,19 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     setState(() {
       _historyEntries = entries;
     });
+  }
+
+  Future<void> _loadLoginHistorySafely() async {
+    try {
+      await _loadLoginHistory();
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load login history',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'connection_screen',
+      );
+    }
   }
 
   void _showTopTip(String message, Color color) {
@@ -146,6 +160,19 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       }
       _embyEntryToken = embyConnection.entryToken;
     });
+  }
+
+  Future<void> _loadStoredBackendConnectionSafely() async {
+    try {
+      await _loadStoredBackendConnection();
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load stored backend connection',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'connection_screen',
+      );
+    }
   }
 
   Future<void> _reportAndShowLoginError(

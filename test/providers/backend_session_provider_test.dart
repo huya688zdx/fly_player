@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'dart:async';
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -131,11 +133,91 @@ void main() {
     );
     expect(provider.isReady, isFalse);
   });
+
+  test('ensureReady 将凭据迁移写入失败规范化为会话不可用', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      MediaBackendConnectionStore.connectionsKey: jsonEncode(<Object?>[
+        <String, Object?>{
+          'kind': 'emby',
+          'serverUrl': 'https://emby.example.test',
+          'accessToken': 'legacy-access-token',
+          'hasAccessToken': true,
+        },
+      ]),
+      MediaBackendConnectionStore.activeKindKey: 'emby',
+    });
+    final backend = _SwitchableCredentialBackend()..failWrite = true;
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final provider = BackendSessionProvider(autoLoad: false);
+    addTearDown(provider.dispose);
+
+    await expectLater(
+      provider.ensureReady(),
+      throwsA(isA<BackendSessionUnavailableException>()),
+    );
+    expect(provider.isReady, isFalse);
+  });
+
+  test('ensureReady 将凭据清理失败规范化为会话不可用', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      MediaBackendConnectionStore.connectionsKey: jsonEncode(<Object?>[
+        <String, Object?>{
+          'kind': 'emby',
+          'serverUrl': 'https://emby.example.test',
+        },
+      ]),
+      MediaBackendConnectionStore.activeKindKey: 'emby',
+    });
+    final backend = _SwitchableCredentialBackend()..failDelete = true;
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final provider = BackendSessionProvider(autoLoad: false);
+    addTearDown(provider.dispose);
+
+    await expectLater(
+      provider.ensureReady(),
+      throwsA(isA<BackendSessionUnavailableException>()),
+    );
+    expect(provider.isReady, isFalse);
+  });
+
+  test('回前台自动加载凭据写入失败不泄漏未处理异常', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      MediaBackendConnectionStore.connectionsKey: jsonEncode(<Object?>[
+        <String, Object?>{
+          'kind': 'emby',
+          'serverUrl': 'https://emby.example.test',
+          'accessToken': 'legacy-access-token',
+          'hasAccessToken': true,
+        },
+      ]),
+      MediaBackendConnectionStore.activeKindKey: 'emby',
+    });
+    final backend = _SwitchableCredentialBackend()..failWrite = true;
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final unhandledErrors = <Object>[];
+    final provider = BackendSessionProvider(autoLoad: false);
+    addTearDown(provider.dispose);
+
+    await runZonedGuarded<Future<void>>(() async {
+      provider.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await backend.writeAttempt.future;
+      await Future<void>.delayed(Duration.zero);
+    }, (error, stackTrace) => unhandledErrors.add(error));
+
+    expect(unhandledErrors, isEmpty);
+    expect(provider.isReady, isFalse);
+  });
 }
 
 class _SwitchableCredentialBackend implements SecureCredentialBackend {
   final Map<String, String> values = <String, String>{};
   bool unavailable = false;
+  bool failWrite = false;
+  bool failDelete = false;
+  final Completer<void> writeAttempt = Completer<void>();
 
   @override
   Future<SecureCredentialReadResult> read(String key) async {
@@ -148,11 +230,18 @@ class _SwitchableCredentialBackend implements SecureCredentialBackend {
 
   @override
   Future<void> write(String key, String value) async {
+    if (!writeAttempt.isCompleted) writeAttempt.complete();
+    if (failWrite) {
+      throw SecureCredentialOperationException('write', key);
+    }
     values[key] = value;
   }
 
   @override
   Future<void> delete(String key) async {
+    if (failDelete) {
+      throw SecureCredentialOperationException('delete', key);
+    }
     values.remove(key);
   }
 }

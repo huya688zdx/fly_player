@@ -11,6 +11,7 @@ import '../services/playback_progress_offline_queue.dart';
 import '../services/secure_credential_store.dart';
 import '../services/session_exit_bridge.dart';
 import '../theme/dynamic_theme_seed_extractor.dart';
+import '../utils/swallowed_error_logger.dart';
 
 class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
   static const MethodChannel _sessionStateChannel = MethodChannel(
@@ -55,7 +56,7 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
       _isReady = true;
     }
     _sessionStateChannel.setMethodCallHandler(_handleSessionStateMethodCall);
-    _loadSettings();
+    unawaited(_loadSettingsSafely());
   }
 
   @override
@@ -69,7 +70,7 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      unawaited(_loadSettings());
+      unawaited(_loadSettingsSafely());
       return;
     }
     if (state == AppLifecycleState.inactive ||
@@ -165,6 +166,19 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     // isConfigured 内部已判 token，未登录不动队列。
     if (isConfigured) {
       unawaited(PlaybackProgressOfflineQueue.flush(this));
+    }
+  }
+
+  Future<void> _loadSettingsSafely() async {
+    try {
+      await _loadSettings();
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load NAS session settings',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'nas_provider',
+      );
     }
   }
 
