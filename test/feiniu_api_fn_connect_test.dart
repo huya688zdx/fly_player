@@ -108,6 +108,56 @@ void main() {
   });
 
   group('FeiniuApi playback record', () {
+    test('ordinary 401 does not clear the active session', () async {
+      const initialBaseUrl = 'http://initial.invalid:5667';
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'base_url': initialBaseUrl,
+      });
+      final adapter = _FakeDioAdapter((options) {
+        return ResponseBody.fromString(
+          jsonEncode(<String, Object?>{'code': 401, 'message': 'unauthorized'}),
+          401,
+          headers: <String, List<String>>{
+            Headers.contentTypeHeader: <String>['application/json'],
+          },
+        );
+      });
+
+      final provider = NasProvider();
+      addTearDown(provider.dispose);
+      await _waitForSettingsLoad(provider, initialBaseUrl);
+      await provider.updateSettings(
+        baseUrl: 'http://127.0.0.1:5667',
+        userName: 'user',
+        password: 'password',
+        token: 'active-token',
+      );
+      final api = FeiniuApi(provider, httpClientAdapter: adapter);
+
+      await expectLater(
+        api.recordPlayback(
+          itemGuid: 'item-1',
+          mediaGuid: 'media-1',
+          videoGuid: 'video-1',
+          ts: 10,
+          duration: 100,
+        ),
+        throwsA(
+          isA<AppException>()
+              .having(
+                (error) => error.kind,
+                'kind',
+                AppExceptionKind.unauthorized,
+              )
+              .having((error) => error.httpStatus, 'httpStatus', 401),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(provider.token, 'active-token');
+      expect(provider.isConfigured, isTrue);
+    });
+
     test('throws when backend payload reports failure', () async {
       SharedPreferences.setMockInitialValues(<String, Object>{});
       late RequestOptions captured;
@@ -172,4 +222,28 @@ class _FakeDioAdapter implements HttpClientAdapter {
 
   @override
   void close({bool force = false}) {}
+}
+
+Future<void> _waitForSettingsLoad(
+  NasProvider provider,
+  String expectedBaseUrl,
+) async {
+  if (provider.isReady && provider.sourceBaseUrl == expectedBaseUrl) return;
+
+  final completer = Completer<void>();
+  void listener() {
+    if (!completer.isCompleted &&
+        provider.isReady &&
+        provider.sourceBaseUrl == expectedBaseUrl) {
+      completer.complete();
+    }
+  }
+
+  provider.addListener(listener);
+  listener();
+  try {
+    await completer.future;
+  } finally {
+    provider.removeListener(listener);
+  }
 }
