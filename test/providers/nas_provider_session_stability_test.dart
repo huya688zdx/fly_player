@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -66,11 +69,76 @@ void main() {
     expect(provider.rememberPassword, isTrue);
     expect(provider.isConfigured, isTrue);
   });
+
+  test('回前台自动迁移写入失败时不泄漏异常并保留当前会话', () async {
+    SharedPreferences.setMockInitialValues(const <String, Object>{});
+    final backend = _SwitchableCredentialBackend();
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final provider = NasProvider();
+    addTearDown(provider.dispose);
+    await provider.reloadSettingsForTesting();
+    await provider.updateSettings(
+      baseUrl: 'http://old-nas.example.test',
+      userName: 'alice',
+      password: 'secret',
+      token: 'active-token',
+    );
+    final prefs = await SharedPreferences.getInstance();
+    backend.values.remove('nas_session.token');
+    await prefs.setString('token', 'legacy-token');
+    backend.failWrite = true;
+    final unhandledErrors = <Object>[];
+
+    await runZonedGuarded<Future<void>>(() async {
+      provider.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await backend.writeAttempt.future;
+      await Future<void>.delayed(Duration.zero);
+    }, (error, stackTrace) => unhandledErrors.add(error));
+
+    expect(unhandledErrors, isEmpty);
+    expect(provider.token, 'active-token');
+    expect(provider.isReady, isTrue);
+  });
+
+  test('回前台自动清理凭据失败时不泄漏异常并保留当前会话', () async {
+    SharedPreferences.setMockInitialValues(const <String, Object>{});
+    final backend = _SwitchableCredentialBackend();
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final provider = NasProvider();
+    addTearDown(provider.dispose);
+    await provider.reloadSettingsForTesting();
+    await provider.updateSettings(
+      baseUrl: 'http://old-nas.example.test',
+      userName: 'alice',
+      password: 'secret',
+      token: 'active-token',
+    );
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('remember_password', false);
+    backend.failDelete = true;
+    final unhandledErrors = <Object>[];
+
+    await runZonedGuarded<Future<void>>(() async {
+      provider.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await backend.deleteAttempt.future;
+      await Future<void>.delayed(Duration.zero);
+    }, (error, stackTrace) => unhandledErrors.add(error));
+
+    expect(unhandledErrors, isEmpty);
+    expect(provider.password, 'secret');
+    expect(provider.isReady, isTrue);
+  });
 }
 
 class _SwitchableCredentialBackend implements SecureCredentialBackend {
   final Map<String, String> values = <String, String>{};
   bool unavailable = false;
+  bool failWrite = false;
+  bool failDelete = false;
+  Completer<void> writeAttempt = Completer<void>();
+  Completer<void> deleteAttempt = Completer<void>();
 
   @override
   Future<SecureCredentialReadResult> read(String key) async {
@@ -83,11 +151,19 @@ class _SwitchableCredentialBackend implements SecureCredentialBackend {
 
   @override
   Future<void> write(String key, String value) async {
+    if (failWrite) {
+      if (!writeAttempt.isCompleted) writeAttempt.complete();
+      throw SecureCredentialOperationException('write', key);
+    }
     values[key] = value;
   }
 
   @override
   Future<void> delete(String key) async {
+    if (failDelete) {
+      if (!deleteAttempt.isCompleted) deleteAttempt.complete();
+      throw SecureCredentialOperationException('delete', key);
+    }
     values.remove(key);
   }
 }
