@@ -71,6 +71,7 @@ class LoginHistoryStore {
     final prefs = await SharedPreferences.getInstance();
     final rawEntries = prefs.getStringList(_historyKey) ?? const <String>[];
     final entries = <LoginHistoryEntry>[];
+    final unavailableCredentialKeys = <String>{};
     var needsRewrite = false;
     for (final raw in rawEntries) {
       try {
@@ -78,7 +79,7 @@ class LoginHistoryStore {
         if (decoded is Map<String, dynamic>) {
           final legacyPassword = (decoded['password'] ?? '').toString();
           final entryWithoutSecret = LoginHistoryEntry.fromJson(decoded);
-          final password = await _restorePassword(
+          final restoredPassword = await _restorePassword(
             entryWithoutSecret,
             legacyPassword: legacyPassword,
           );
@@ -86,14 +87,16 @@ class LoginHistoryStore {
             kind: entryWithoutSecret.kind,
             baseUrl: entryWithoutSecret.baseUrl,
             userName: entryWithoutSecret.userName,
-            password: password,
+            password: restoredPassword.value,
             rememberPassword: entryWithoutSecret.rememberPassword,
             updatedAtMillis: entryWithoutSecret.updatedAtMillis,
           );
           if (entry.baseUrl.trim().isNotEmpty &&
               entry.userName.trim().isNotEmpty) {
             entries.add(entry);
-            if (legacyPassword.isNotEmpty || password != entry.password) {
+            if (!restoredPassword.available) {
+              unavailableCredentialKeys.add(_passwordKey(entry));
+            } else if (legacyPassword.isNotEmpty) {
               needsRewrite = true;
             }
           }
@@ -105,7 +108,11 @@ class LoginHistoryStore {
     }
     entries.sort((a, b) => b.updatedAtMillis.compareTo(a.updatedAtMillis));
     if (needsRewrite) {
-      await _writeEntries(prefs, entries);
+      await _writeEntries(
+        prefs,
+        entries,
+        preserveCredentialKeys: unavailableCredentialKeys,
+      );
     }
     return entries;
   }
@@ -156,29 +163,36 @@ class LoginHistoryStore {
     await prefs.remove(_historyKey);
   }
 
-  static Future<String> _restorePassword(
+  static Future<({String value, bool available})> _restorePassword(
     LoginHistoryEntry entry, {
     required String legacyPassword,
   }) async {
     if (!entry.rememberPassword) {
       await SecureCredentialStore.delete(_passwordKey(entry));
-      return '';
+      return (value: '', available: true);
     }
     final stored = await SecureCredentialStore.read(_passwordKey(entry));
-    if (stored.isNotEmpty) return stored;
+    if (stored.isUnavailable) {
+      return (value: '', available: false);
+    }
+    if (stored.value.isNotEmpty) {
+      return (value: stored.value, available: true);
+    }
     if (legacyPassword.isNotEmpty) {
       await SecureCredentialStore.write(_passwordKey(entry), legacyPassword);
-      return legacyPassword;
+      return (value: legacyPassword, available: true);
     }
-    return '';
+    return (value: '', available: true);
   }
 
   static Future<void> _writeEntries(
     SharedPreferences prefs,
-    List<LoginHistoryEntry> entries,
-  ) async {
+    List<LoginHistoryEntry> entries, {
+    Set<String> preserveCredentialKeys = const <String>{},
+  }) async {
     for (final entry in entries) {
       final key = _passwordKey(entry);
+      if (preserveCredentialKeys.contains(key)) continue;
       if (entry.rememberPassword && entry.password.isNotEmpty) {
         await SecureCredentialStore.write(key, entry.password);
       } else {

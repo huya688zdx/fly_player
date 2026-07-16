@@ -280,7 +280,10 @@ class MediaBackendConnectionStore {
       return '';
     }
     final stored = await SecureCredentialStore.read(key);
-    if (stored.isNotEmpty) return stored;
+    if (stored.isUnavailable) {
+      throw SecureCredentialUnavailableException(key);
+    }
+    if (stored.value.isNotEmpty) return stored.value;
     if (legacyValue.isNotEmpty) {
       await SecureCredentialStore.write(key, legacyValue);
       return legacyValue;

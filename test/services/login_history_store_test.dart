@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fly_player/services/login_history_store.dart';
+import 'package:fly_player/services/secure_credential_store.dart';
 
 void main() {
   setUp(() {
@@ -50,4 +51,43 @@ void main() {
     expect(entries.single.password, isEmpty);
     expect(raw.single, isNot(contains('old-password')));
   });
+
+  test('安全凭据暂不可用时保留记住密码状态且不删除凭据', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'login_history_v1': <String>[
+        jsonEncode(<String, Object?>{
+          'kind': 'feiniu',
+          'baseUrl': 'https://nas.example.test',
+          'userName': 'alice',
+          'rememberPassword': true,
+          'updatedAtMillis': 1,
+        }),
+      ],
+    });
+    final backend = _UnavailableCredentialBackend();
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+
+    final entries = await LoginHistoryStore.load();
+
+    expect(entries.single.password, isEmpty);
+    expect(entries.single.rememberPassword, isTrue);
+    expect(backend.deletedKeys, isEmpty);
+  });
+}
+
+class _UnavailableCredentialBackend implements SecureCredentialBackend {
+  final List<String> deletedKeys = <String>[];
+
+  @override
+  Future<SecureCredentialReadResult> read(String key) async =>
+      const SecureCredentialReadResult.unavailable();
+
+  @override
+  Future<void> write(String key, String value) async {}
+
+  @override
+  Future<void> delete(String key) async {
+    deletedKeys.add(key);
+  }
 }

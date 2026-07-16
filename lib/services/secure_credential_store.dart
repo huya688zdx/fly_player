@@ -1,41 +1,75 @@
 import 'package:flutter/services.dart';
 
+enum SecureCredentialReadStatus { value, missing, unavailable }
+
+class SecureCredentialReadResult {
+  final SecureCredentialReadStatus status;
+  final String value;
+
+  const SecureCredentialReadResult._(this.status, this.value);
+
+  const SecureCredentialReadResult.missing()
+    : this._(SecureCredentialReadStatus.missing, '');
+
+  const SecureCredentialReadResult.unavailable()
+    : this._(SecureCredentialReadStatus.unavailable, '');
+
+  factory SecureCredentialReadResult.found(String value) =>
+      SecureCredentialReadResult._(SecureCredentialReadStatus.value, value);
+
+  bool get isUnavailable => status == SecureCredentialReadStatus.unavailable;
+}
+
+class SecureCredentialUnavailableException implements Exception {
+  final String key;
+
+  const SecureCredentialUnavailableException(this.key);
+
+  @override
+  String toString() => 'Secure credential is temporarily unavailable: $key';
+}
+
 abstract class SecureCredentialBackend {
-  Future<String> read(String key);
+  Future<SecureCredentialReadResult> read(String key);
   Future<void> write(String key, String value);
   Future<void> delete(String key);
 }
 
 class MethodChannelSecureCredentialBackend implements SecureCredentialBackend {
+  MethodChannelSecureCredentialBackend({this.forcePlatformChannel = false});
+
   static const MethodChannel _channel = MethodChannel(
     'fly_player/secret_store',
   );
 
-  final Map<String, String> _memoryFallback = <String, String>{};
-  bool _useMemoryFallback = false;
+  final bool forcePlatformChannel;
+  final Map<String, String> _testValues = <String, String>{};
 
   @override
-  Future<String> read(String key) async {
+  Future<SecureCredentialReadResult> read(String key) async {
     final normalized = _normalizeKey(key);
-    if (normalized.isEmpty) return '';
-    _activateMemoryFallbackForTests();
-    if (_useMemoryFallback) {
-      return _memoryFallback[normalized] ?? '';
+    if (normalized.isEmpty) {
+      return const SecureCredentialReadResult.missing();
+    }
+    if (_usesTestMemoryBackend) {
+      return _resultForValue(_testValues[normalized]);
     }
     try {
-      final value = await _channel.invokeMethod<String>('readCredential', {
-        'key': normalized,
-      });
-      return value ?? '';
+      final raw = await _channel.invokeMapMethod<String, Object?>(
+        'readCredential',
+        <String, String>{'key': normalized},
+      );
+      return switch (raw?['status']) {
+        'value' => SecureCredentialReadResult.found(
+          (raw?['value'] ?? '').toString(),
+        ),
+        'missing' => const SecureCredentialReadResult.missing(),
+        _ => const SecureCredentialReadResult.unavailable(),
+      };
     } on MissingPluginException {
-      _useMemoryFallback = true;
-      return _memoryFallback[normalized] ?? '';
+      return const SecureCredentialReadResult.unavailable();
     } on PlatformException {
-      _useMemoryFallback = true;
-      return _memoryFallback[normalized] ?? '';
-    } catch (_) {
-      _useMemoryFallback = true;
-      return _memoryFallback[normalized] ?? '';
+      return const SecureCredentialReadResult.unavailable();
     }
   }
 
@@ -47,61 +81,37 @@ class MethodChannelSecureCredentialBackend implements SecureCredentialBackend {
       await delete(normalized);
       return;
     }
-    _activateMemoryFallbackForTests();
-    if (_useMemoryFallback) {
-      _memoryFallback[normalized] = value;
+    if (_usesTestMemoryBackend) {
+      _testValues[normalized] = value;
       return;
     }
-    try {
-      await _channel.invokeMethod<void>('writeCredential', {
-        'key': normalized,
-        'value': value,
-      });
-    } on MissingPluginException {
-      _useMemoryFallback = true;
-      _memoryFallback[normalized] = value;
-    } on PlatformException {
-      _useMemoryFallback = true;
-      _memoryFallback[normalized] = value;
-    } catch (_) {
-      _useMemoryFallback = true;
-      _memoryFallback[normalized] = value;
-    }
+    await _channel.invokeMethod<void>('writeCredential', {
+      'key': normalized,
+      'value': value,
+    });
   }
 
   @override
   Future<void> delete(String key) async {
     final normalized = _normalizeKey(key);
     if (normalized.isEmpty) return;
-    _memoryFallback.remove(normalized);
-    _activateMemoryFallbackForTests();
-    if (_useMemoryFallback) return;
-    try {
-      await _channel.invokeMethod<void>('deleteCredential', {
-        'key': normalized,
-      });
-    } on MissingPluginException {
-      _useMemoryFallback = true;
-    } on PlatformException {
-      _useMemoryFallback = true;
-    } catch (_) {
-      _useMemoryFallback = true;
+    if (_usesTestMemoryBackend) {
+      _testValues.remove(normalized);
+      return;
     }
+    await _channel.invokeMethod<void>('deleteCredential', {'key': normalized});
   }
 
-  void _activateMemoryFallbackForTests() {
-    if (_useMemoryFallback) return;
+  bool get _usesTestMemoryBackend =>
+      !forcePlatformChannel && _usesTestMessenger();
+
+  bool _usesTestMessenger() {
     try {
-      final messengerType = ServicesBinding
-          .instance
-          .defaultBinaryMessenger
-          .runtimeType
-          .toString();
-      if (messengerType.contains('Test')) {
-        _useMemoryFallback = true;
-      }
+      return ServicesBinding.instance.defaultBinaryMessenger.runtimeType
+          .toString()
+          .contains('Test');
     } catch (_) {
-      _useMemoryFallback = true;
+      return true;
     }
   }
 }
@@ -110,7 +120,8 @@ class MemorySecureCredentialBackend implements SecureCredentialBackend {
   final Map<String, String> _values = <String, String>{};
 
   @override
-  Future<String> read(String key) async => _values[_normalizeKey(key)] ?? '';
+  Future<SecureCredentialReadResult> read(String key) async =>
+      _resultForValue(_values[_normalizeKey(key)]);
 
   @override
   Future<void> write(String key, String value) async {
@@ -135,7 +146,8 @@ class SecureCredentialStore {
 
   const SecureCredentialStore._();
 
-  static Future<String> read(String key) => _backend.read(key);
+  static Future<SecureCredentialReadResult> read(String key) =>
+      _backend.read(key);
 
   static Future<void> write(String key, String value) =>
       _backend.write(key, value);
@@ -149,6 +161,13 @@ class SecureCredentialStore {
   static void resetBackendForTesting() {
     _backend = MethodChannelSecureCredentialBackend();
   }
+}
+
+SecureCredentialReadResult _resultForValue(String? value) {
+  if (value == null || value.isEmpty) {
+    return const SecureCredentialReadResult.missing();
+  }
+  return SecureCredentialReadResult.found(value);
 }
 
 String _normalizeKey(String key) => key.trim();
