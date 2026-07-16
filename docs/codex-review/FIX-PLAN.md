@@ -33,7 +33,9 @@
 |---|---|---|---|---|---|---|---|
 | 2026-07-09 | S 安全 | G-029 / G-032 | 已修复 | 两个 WebView 登录页遇到 SSL 证书错误时默认 `cancel()` 并提示，不再静默 `proceed()` 或自动提交凭据。 | 本次提交 | 待验证 | 无 |
 | 2026-07-09 | S 安全 | B-027 | 已修复 | `PrivateNetworkHttpOverrides` 仅允许 RFC1918、loopback、link-local、IPv6 ULA 和显式注册 NAS host 跳过证书校验，公网 IP 不再放行。 | 本次提交 | 待验证 | 无 |
-| 2026-07-09 | S 安全 | B-011 | 已修复 | 新增平台安全凭据存储；登录历史、后端连接、飞牛旧会话的密码/token 迁入安全存储，SharedPreferences 只留非敏感描述和存在标记，并迁移清理旧明文。 | 本次提交 | 待验证 | 无 |
+| 2026-07-16 | S 安全 | B-011 | 已修复 | 安全凭据读取采用 `value/missing/unavailable` 三态；瞬时读取失败时保留飞牛和服务器族现有会话，Android 读取失败不再删除密文，写入/删除失败向调用方传播。 | `76b19a5` / `c8d2065` / `c1112d8` / `520bb2d` | `flutter test test/services/secure_credential_store_test.dart test/providers/nas_provider_session_stability_test.dart test/providers/backend_session_provider_test.dart`；Android `SecureCredentialStoreTest` | 无 |
+| 2026-07-16 | M API/服务层 | A-006 | 已修复 | 普通接口返回 401 时，网络层不再直接调用 `logout()` 清除会话；请求错误仍按原路径向调用方透传。 | `035e1f1` | `flutter test test/feiniu_api_fn_connect_test.dart` | 无 |
+| 2026-07-16 | S/P 回归 | 飞牛登录协议选择 | 已修复 | 飞牛登录恢复显式 HTTP/HTTPS 选择，按选择提交实际 URL；Emby 表单与窄屏/大字体响应式布局保持兼容。 | `90896be` / `26efa2e` / `58b956f` | `flutter test test/screens/connection_feiniu_compatibility_test.dart test/screens/connection_backend_selection_test.dart` | 无 |
 | 2026-07-09 | S 安全 | A-019 | 已修复 | Emby 媒体图片 URL 移除 `api_key` query，access token 改走 `MediaImageRef.headers`。 | 本次提交 | 待验证 | 无 |
 | 2026-07-09 | X 崩溃/数据丢失 | A-001 / F-043 | 已修复 | 新增 `RouteQueryJson` 安全解析 helper，主路由与副栏路由不再因畸形 query JSON 抛异常。 | `1f75fd1` | 待验证 | l10n 文案仍归批次 I 跟进 |
 | 2026-07-09 | X 崩溃/数据丢失 | A-040 / A-044 | 已修复 | `MediaInfo` 与 `PlaybackStreamData.header` 增加嵌套类型防护，非法 payload 降级或跳过，合法数据保留。 | `1f75fd1` | 待验证 | 无 |
@@ -60,7 +62,7 @@
 | 2026-07-09 | M 多后端抽象 | media_list / login_history 收口 | 已修复 | 媒体列表的首页配置 gate、loadKey、登出分支改用服务器族语义；登录历史服务器族显示名与角标改从注册表描述符读取。 | 本次提交补充 | 架构回归测试 | 无 |
 | 2026-07-09 | P 性能 | B-022 | 已修复 | 新增本地字幕异步扫描入口，下载/原生起播路径先异步解析 sidecar 字幕，再构造 `MpvMediaSource`。 | 本次提交 | 待验证 | 无 |
 | 2026-07-09 | P 性能 | F-008 | 已修复 | 详情页本地下载文件信息改为下载记录变化时异步刷新快照，`build()` 不再执行 `existsSync/statSync`。 | 本次提交 | 待验证 | 无 |
-| 2026-07-09 | P 性能 | G-007 | 已修复 | 下载列表页/下载详情页移除整页高频 `AnimatedBuilder`，列表结构按签名变化刷新，速度和转码进度改为行级局部监听。 | 本次提交 | 待验证 | 无 |
+| 2026-07-16 | P 性能回归 | G-007 | 已修复 | 行级监听按任务 ID 重新读取当前 `DownloadTaskRecord`，下载列表和详情不再因闭包持有旧记录而停止刷新。 | `aaea330` | `flutter test test/screens/download_list_back_behavior_test.dart test/download_task_record_test.dart`（覆盖列表/详情刷新） | 无 |
 | 2026-07-09 | P 性能 | G-015 | 已修复 | 截图库缩略图按卡片尺寸传入目标解码宽高，全屏预览仍走原图。 | 本次提交 | 待验证 | 无 |
 | 2026-07-09 | P 性能 | G-016 | 已修复 | 分辨率排序 metadata 预热改为小批量加载，避免一次性并发解码全部截图。 | 本次提交 | 待验证 | 无 |
 | 2026-07-09 | P 性能 | G-017 | 已修复 | 截图库可见项过滤/排序只计算一次，并按分组使用懒构建 `SliverGrid`，不再通过 `Wrap` 一次性构建全部卡片。 | 本次提交 | 待验证 | 无 |
@@ -110,8 +112,9 @@
 **已修复（2026-07-09，本次提交）**：
 - G-029 / G-032：两个 WebView 登录页遇到 SSL 证书错误时默认 `cancel()` 并提示，不再静默 `proceed()` 自动提交凭据。
 - B-027：全局 `PrivateNetworkHttpOverrides` 仅允许 RFC1918、loopback、link-local、IPv6 ULA 和显式注册 NAS host 跳过证书校验，公网 IP 不再放行。
-- B-011：新增平台安全凭据存储，登录历史、后端连接、飞牛旧会话的密码/token 迁入安全存储，SharedPreferences 只保留非敏感描述和存在标记，并迁移清理旧明文。
+- B-011：平台安全凭据读取采用 `value/missing/unavailable` 三态；瞬时读取失败保留现有会话，Android 读取失败不删除密文，写入/删除失败向调用方传播（`76b19a5`、`c8d2065`、`c1112d8`、`520bb2d`）。
 - A-019：Emby 媒体图片 URL 移除 `api_key` query，access token 改走 `MediaImageRef.headers`。
+- 飞牛登录协议回归：恢复显式 HTTP/HTTPS 选择，并验证实际提交 URL、Emby 表单及窄屏/大字体响应式布局（`90896be`、`26efa2e`、`58b956f`）。
 
 ## 4. 批次 X —— 崩溃与数据丢失（约 25 条）
 
@@ -173,7 +176,7 @@
 - A-012：公共操作目标的已看状态改为布尔值，去除飞牛 `1/0` 语义泄漏。
 
 **5.2 API/服务层**
-- A-006 FeiniuApi 反向依赖 NasProvider 并在 401 直接 logout；A-007/A-010 FeiniuApi 上帝类拆分（auth/catalog/playback/download/subtitle/prefs）；A-005 FN Connect entry-token 逻辑抽出 EmbyApi 到 transport 层；A-004 EmbyApi 默认 Dio 无超时；
+- A-006 已修复（`035e1f1`）：普通接口 401 不再由 FeiniuApi 网络层直接 `logout()`，错误仍向调用方透传；A-007/A-010 FeiniuApi 上帝类拆分（auth/catalog/playback/download/subtitle/prefs）；A-005 FN Connect entry-token 逻辑抽出 EmbyApi 到 transport 层；A-004 EmbyApi 默认 Dio 无超时；
 - B-004 DownloadTaskService 上帝服务 + 绑定 FeiniuApi/弹幕/存储；B-015 play_stats 回填绑 FeiniuApi；
 - B-021 ApiUrlHelper 写死飞牛路径；B-024 登录错误 resolver 依赖飞牛异常；B-026 nasImageHeaders 混 FN/Emby 规则；
 - A-030 NasProvider 承担会话横切副作用；B-019 存储服务反向依赖 provider；B-020 存储统计漏算 scoped 统计库；A-034~A-038 下载/详情 controller 直连 FeiniuApi。
@@ -194,7 +197,7 @@ H-004/005/010/017/018/019/020/021/023/024/030 + F-031/F-034：全部是「组件
 **已修复（2026-07-09，本次提交）**：
 - B-022：新增本地字幕异步扫描入口，下载/原生起播路径先异步解析 sidecar 字幕，再构造 `MpvMediaSource`，避免起播链路同步扫目录。
 - F-008：详情页本地下载文件信息改为下载记录变化时异步刷新快照，`build()` 不再执行 `existsSync/statSync`。
-- G-007：下载列表页/下载详情页移除包住整页的高频 service `AnimatedBuilder`，列表结构按签名变化刷新，下载速度/转码进度改为行级局部监听。
+- G-007：已修复回归（`aaea330`）。下载列表页/下载详情页保留行级局部监听，并按任务 ID 读取当前记录，避免闭包持有旧 `DownloadTaskRecord` 导致进度停止刷新。
 - G-015：截图库缩略图按卡片尺寸传入目标解码宽高，全屏预览仍走原图。
 - G-016：分辨率排序 metadata 预热改为小批量加载，避免一次性并发解码全部截图。
 - G-017：截图库可见项过滤/排序只计算一次，并按分组使用懒构建 `SliverGrid`，避免 `Wrap` 一次性构建全部卡片。
@@ -202,7 +205,7 @@ H-004/005/010/017/018/019/020/021/023/024/030 + F-031/F-034：全部是「组件
 **主线程同步 IO**：
 - B-022（起播路径同步扫字幕目录——在原生起播链上，优先）；F-008（详情页 build 内 existsSync/statSync）；B-001（日志导出 getter 同步读 256KB journal）；B-005（下载总量 getter 遍历 lengthSync）；B-008（离线封面同步扫目录）。
 
-**高频重建**：G-007（下载速度 900ms 全页重建 PageView+列表——改行级局部监听）。
+**高频重建**：G-007 已修复回归（下载速度 900ms 全页重建 PageView+列表——改行级局部监听，并按任务 ID 读取当前记录）。
 
 **截图库**：G-015（缩略图按原图解码）、G-016（分辨率排序并发解码全部截图）、G-017（build 双重全量排序 + Wrap 全量构建）均已处理；G-011 存储明细分页已在 `e67bafe` 完成。
 
