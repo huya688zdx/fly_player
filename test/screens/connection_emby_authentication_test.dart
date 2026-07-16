@@ -58,7 +58,10 @@ void main() {
     await tester.enterText(fields.at(0), 'https://emby.example.test/');
     await tester.enterText(fields.at(1), 'alice');
     await tester.enterText(fields.at(2), 'secret');
-    await tester.tap(find.byType(ElevatedButton));
+    final loginButton = find.byType(ElevatedButton);
+    await tester.ensureVisible(loginButton);
+    await tester.pumpAndSettle();
+    await tester.tap(loginButton);
     await tester.pumpAndSettle();
 
     final snapshot = await MediaBackendConnectionStore.load();
