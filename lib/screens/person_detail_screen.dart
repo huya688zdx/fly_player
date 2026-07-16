@@ -174,7 +174,21 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
 
     // 分屏副引擎冷启动时后端会话可能未就绪，先等就绪再读后端（同 play_detail）。
     final session = context.read<BackendSessionProvider>();
-    await session.ensureReady();
+    try {
+      await session.ensureReady();
+    } on BackendSessionUnavailableException catch (error, stackTrace) {
+      if (!mounted) return;
+      setState(() {
+        _error = AppException.from(
+          error,
+          action: 'person detail',
+          fallbackKind: AppExceptionKind.transient,
+          stackTrace: stackTrace,
+        );
+        _isLoading = false;
+      });
+      return;
+    }
     if (!mounted) return;
 
     // 非飞牛后端（Emby）：走中立路径（getItemDetail 取人物 + getPersonItems 取作品），
@@ -813,6 +827,12 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
                       profileWidth: profileWidth,
                       profileHeight: profileHeight,
                     ))
+            : _error != null && !_isNoDataError(_error)
+            ? AppErrorState(
+                error: _error!,
+                localeMap: _localeMap,
+                onRetry: _loadData,
+              )
             : _isNoDataError(_error) || person == null
             ? AppErrorState(
                 error: const AppException(
@@ -821,12 +841,6 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
                   message: 'No data',
                 ),
                 localeMap: _localeMap,
-              )
-            : _error != null
-            ? AppErrorState(
-                error: _error!,
-                localeMap: _localeMap,
-                onRetry: _loadData,
               )
             : CustomScrollView(
                 controller: _scrollController,
