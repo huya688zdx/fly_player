@@ -125,7 +125,10 @@ void main() {
       (_) => provider.currentKind,
     );
 
-    await expectLater(kindAfterReady, throwsA(isA<Exception>()));
+    await expectLater(
+      kindAfterReady,
+      throwsA(isA<BackendSessionUnavailableException>()),
+    );
     expect(provider.isReady, isFalse);
   });
 }
