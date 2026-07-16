@@ -192,6 +192,9 @@ class DownloadTaskService extends ChangeNotifier {
   List<DownloadTaskRecord> get records =>
       List<DownloadTaskRecord>.unmodifiable(_records);
 
+  /// 按任务标识返回当前记录；空标识或不存在的任务返回 `null`。
+  DownloadTaskRecord? recordById(String recordId) => _recordById(recordId);
+
   @visibleForTesting
   void debugReplaceRecordsForTesting(List<DownloadTaskRecord> records) {
     _persistTimer?.cancel();

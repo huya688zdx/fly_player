@@ -536,11 +536,12 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
           key: ValueKey<String>(record.id),
           listenable: _service,
           builder: (context, _) {
+            final currentRecord = _service.recordById(record.id) ?? record;
             return _DownloadRecordRow(
-              record: record,
+              record: currentRecord,
               token: token,
               downloadSpeedBytesPerSecond: _service
-                  .downloadSpeedBytesPerSecondFor(record.id),
+                  .downloadSpeedBytesPerSecondFor(currentRecord.id),
             );
           },
         );
@@ -1112,36 +1113,45 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
                             key: ValueKey<String>(record.id),
                             listenable: _service,
                             builder: (context, _) {
+                              final currentRecord =
+                                  _service.recordById(record.id) ?? record;
                               return _DownloadRecordRow(
-                                record: record,
+                                record: currentRecord,
                                 token: token,
-                                busy: launchingRecordId == record.id,
+                                busy: launchingRecordId == currentRecord.id,
                                 dimmed:
                                     launchingRecordId != null &&
-                                    launchingRecordId != record.id,
+                                    launchingRecordId != currentRecord.id,
                                 downloadSpeedBytesPerSecond: _service
-                                    .downloadSpeedBytesPerSecondFor(record.id),
+                                    .downloadSpeedBytesPerSecondFor(
+                                      currentRecord.id,
+                                    ),
                                 editing: _editing,
                                 selected: _selectedRecordIds.contains(
-                                  record.id,
+                                  currentRecord.id,
                                 ),
                                 onLongPress: launchingRecordId != null
                                     ? null
-                                    : () => _handleRecordLongPress(record.id),
+                                    : () => _handleRecordLongPress(
+                                        currentRecord.id,
+                                      ),
                                 onSelectToggle: _editing
                                     ? (launchingRecordId != null
                                           ? null
                                           : () => _toggleRecordSelection(
-                                              record.id,
+                                              currentRecord.id,
                                             ))
                                     : null,
                                 onTap: launchingRecordId != null
                                     ? null
                                     : _editing
-                                    ? () => _toggleRecordSelection(record.id)
+                                    ? () => _toggleRecordSelection(
+                                        currentRecord.id,
+                                      )
                                     : _selectedTab != DownloadListTab.downloaded
                                     ? null
-                                    : () => _playDownloadedRecord(record),
+                                    : () =>
+                                          _playDownloadedRecord(currentRecord),
                               );
                             },
                           );

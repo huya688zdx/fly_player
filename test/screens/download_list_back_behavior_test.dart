@@ -94,6 +94,61 @@ void main() {
     expect(find.text('编辑'), findsOneWidget);
     expect(find.byType(DownloadGroupDetailScreen), findsOneWidget);
   });
+
+  testWidgets('下载列表使用最新任务记录刷新进度', (tester) async {
+    final record = _downloadingRecord();
+    DownloadTaskService.instance.debugReplaceRecordsForTesting(
+      <DownloadTaskRecord>[record],
+    );
+
+    await tester.pumpWidget(
+      _testApp(
+        observer: _PopCountingObserver(),
+        routePage: const DownloadListScreen(
+          initialTab: DownloadListTab.downloading,
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('128 B / 1.00 KB'), findsOneWidget);
+
+    DownloadTaskService.instance.debugReplaceRecordsForTesting(
+      <DownloadTaskRecord>[
+        record.copyWith(downloadedBytes: 512, updatedAtMs: 3),
+      ],
+    );
+    await tester.pump();
+
+    expect(find.text('512 B / 1.00 KB'), findsOneWidget);
+  });
+
+  testWidgets('下载详情使用最新任务记录刷新进度', (tester) async {
+    final record = _downloadingRecord();
+    DownloadTaskService.instance.debugReplaceRecordsForTesting(
+      <DownloadTaskRecord>[record],
+    );
+
+    await tester.pumpWidget(
+      _testApp(
+        observer: _PopCountingObserver(),
+        routePage: const DownloadGroupDetailScreen(
+          groupId: '白箱 第 1 季',
+          initialTab: DownloadListTab.downloading,
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('128 B / 1.00 KB'), findsOneWidget);
+
+    DownloadTaskService.instance.debugReplaceRecordsForTesting(
+      <DownloadTaskRecord>[
+        record.copyWith(downloadedBytes: 512, updatedAtMs: 3),
+      ],
+    );
+    await tester.pump();
+
+    expect(find.text('512 B / 1.00 KB'), findsOneWidget);
+  });
 }
 
 Widget _testApp({
@@ -140,6 +195,32 @@ DownloadTaskRecord _downloadedRecord(String filePath) {
     totalBytes: 1024,
     downloadedBytes: 1024,
     status: DownloadTaskStatus.downloaded,
+    errorMessage: '',
+    createdAtMs: 1,
+    updatedAtMs: 2,
+    seasonNumber: 1,
+    episodeNumber: 1,
+  );
+}
+
+DownloadTaskRecord _downloadingRecord() {
+  return const DownloadTaskRecord(
+    id: 'record-1',
+    remoteTaskId: 'remote-1',
+    itemGuid: 'item-1',
+    mediaGuid: 'media-1',
+    groupId: 'group-1',
+    groupTitle: '白箱 第 1 季',
+    title: '第 1 集',
+    durationText: '24m',
+    posterUrls: <String>[],
+    groupPosterUrls: <String>[],
+    resolution: '1080P',
+    fileName: 'episode-1.mp4',
+    filePath: '',
+    totalBytes: 1024,
+    downloadedBytes: 128,
+    status: DownloadTaskStatus.downloading,
     errorMessage: '',
     createdAtMs: 1,
     updatedAtMs: 2,
