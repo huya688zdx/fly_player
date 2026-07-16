@@ -15,21 +15,44 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
+internal enum class CredentialReadStatus { VALUE, MISSING, ERROR }
+
+internal data class CredentialReadResult(
+    val status: CredentialReadStatus,
+    val value: String = "",
+) {
+    fun toChannelValue(): Map<String, Any> =
+        when (status) {
+            CredentialReadStatus.VALUE -> mapOf("status" to "value", "value" to value)
+            CredentialReadStatus.MISSING -> mapOf("status" to "missing")
+            CredentialReadStatus.ERROR -> mapOf("status" to "unavailable")
+        }
+}
+
+internal fun readCredentialFile(
+    file: File,
+    reader: (File) -> String,
+): CredentialReadResult {
+    if (!file.exists()) return CredentialReadResult(CredentialReadStatus.MISSING)
+    return try {
+        CredentialReadResult(CredentialReadStatus.VALUE, reader(file))
+    } catch (_: Exception) {
+        CredentialReadResult(CredentialReadStatus.ERROR)
+    }
+}
+
 class SecureCredentialStore(private val context: Context) {
-    fun read(key: String): String {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return ""
-        val file = credentialFile(key)
-        if (!file.exists()) return ""
-        return try {
+    fun read(key: String): Map<String, Any> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            return CredentialReadResult(CredentialReadStatus.ERROR).toChannelValue()
+        }
+        return readCredentialFile(credentialFile(key)) { file ->
             val payload = JSONObject(file.readText(StandardCharsets.UTF_8))
             decrypt(
                 cipherText = payload.optString("encryptedValue"),
                 iv = payload.optString("iv"),
             )
-        } catch (_: Exception) {
-            file.delete()
-            ""
-        }
+        }.toChannelValue()
     }
 
     fun write(
