@@ -33,12 +33,14 @@ void main() {
     expect(find.text('登录'), findsOneWidget);
     expect(find.text('保持登录'), findsOneWidget);
     expect(find.text('重新登录 FN Connect'), findsNothing);
+    expect(find.byType(SegmentedButton<String>), findsNothing);
 
     await tester.dragFrom(const Offset(400, 300), const Offset(360, 0));
     await tester.pumpAndSettle();
 
     expect(find.text('登录'), findsOneWidget);
     expect(find.text('重新登录 FN Connect'), findsOneWidget);
+    expect(find.byType(SegmentedButton<String>), findsOneWidget);
   });
 }
 
