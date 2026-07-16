@@ -79,6 +79,9 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  @visibleForTesting
+  Future<void> reloadSettingsForTesting() => _loadSettings();
+
   Future<void> _handleSessionStateMethodCall(MethodCall call) async {
     if (call.method != 'loggedOut') return;
     await _applyLoggedOutState(notify: true);
@@ -99,23 +102,35 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     final nextUserName = prefs.getString('user_name') ?? '';
     final legacyPassword = prefs.getString('password') ?? '';
     final legacyToken = prefs.getString('token') ?? '';
-    final nextPassword = await _restoreCredential(
+    final restoredPassword = await _restoreCredential(
       _passwordCredentialKey,
       legacyValue: legacyPassword,
+      currentValue: _password,
       shouldKeep: prefs.getBool('remember_password') ?? true,
     );
-    final nextToken = await _restoreCredential(
+    final restoredToken = await _restoreCredential(
       _tokenCredentialKey,
       legacyValue: legacyToken,
-      shouldKeep: legacyToken.isNotEmpty,
+      currentValue: _token,
+      shouldKeep: true,
     );
-    if (legacyPassword.isNotEmpty) {
+    if (restoredPassword.available && legacyPassword.isNotEmpty) {
       await prefs.remove('password');
     }
-    if (legacyToken.isNotEmpty) {
+    if (restoredToken.available && legacyToken.isNotEmpty) {
       await prefs.remove('token');
     }
     if (_disposed) return;
+    if (!restoredToken.available && restoredToken.value.isEmpty) {
+      final wasReady = _isReady;
+      _isReady = false;
+      if (wasReady) {
+        notifyListeners();
+      }
+      return;
+    }
+    final nextPassword = restoredPassword.value;
+    final nextToken = restoredToken.value;
     if (nextToken.isEmpty && nextResolvedBaseUrl.isNotEmpty) {
       nextResolvedBaseUrl = '';
       await prefs.remove('resolved_base_url');
@@ -246,22 +261,28 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     return '$normalizedBaseUrl|$normalizedUserName';
   }
 
-  Future<String> _restoreCredential(
+  Future<({String value, bool available})> _restoreCredential(
     String key, {
     required String legacyValue,
+    required String currentValue,
     required bool shouldKeep,
   }) async {
     if (!shouldKeep) {
       await SecureCredentialStore.delete(key);
-      return '';
+      return (value: '', available: true);
     }
     final stored = await SecureCredentialStore.read(key);
-    if (stored.isNotEmpty) return stored;
+    if (stored.isUnavailable) {
+      return (value: currentValue, available: false);
+    }
+    if (stored.value.isNotEmpty) {
+      return (value: stored.value, available: true);
+    }
     if (legacyValue.isNotEmpty) {
       await SecureCredentialStore.write(key, legacyValue);
-      return legacyValue;
+      return (value: legacyValue, available: true);
     }
-    return '';
+    return (value: '', available: true);
   }
 
   Future<void> _writeOrDelete(String key, String value) async {

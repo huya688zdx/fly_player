@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -5,6 +7,7 @@ import 'package:fly_player/media_backend/media_backend_kind.dart';
 import 'package:fly_player/media_backend/session/media_backend_connection.dart';
 import 'package:fly_player/providers/backend_session_provider.dart';
 import 'package:fly_player/services/media_backend_connection_store.dart';
+import 'package:fly_player/services/secure_credential_store.dart';
 
 void main() {
   setUp(() {
@@ -53,4 +56,75 @@ void main() {
     expect(snapshot.activeKind, MediaBackendKind.emby);
     expect(snapshot.activeConnection.userId, 'user-id');
   });
+
+  test('安全凭据暂不可用时保留已加载的后端会话', () async {
+    final backend = _SwitchableCredentialBackend();
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    await MediaBackendConnectionStore.saveActive(
+      const MediaBackendConnection(
+        kind: MediaBackendKind.emby,
+        serverUrl: 'https://emby.example.test',
+        userId: 'user-id',
+        accessToken: 'access-token',
+      ),
+    );
+    final provider = BackendSessionProvider(autoLoad: false);
+    addTearDown(provider.dispose);
+    await provider.load();
+    backend.unavailable = true;
+
+    await provider.load();
+
+    expect(provider.currentKind, MediaBackendKind.emby);
+    expect(provider.currentConnection?.accessToken, 'access-token');
+    expect(provider.isConfigured, isTrue);
+  });
+
+  test('首次读取安全凭据失败时不会宣告会话已准备', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      MediaBackendConnectionStore.connectionsKey: jsonEncode(<Object?>[
+        <String, Object?>{
+          'kind': 'emby',
+          'serverUrl': 'https://emby.example.test',
+          'hasAccessToken': true,
+        },
+      ]),
+      MediaBackendConnectionStore.activeKindKey: 'emby',
+    });
+    final backend = _SwitchableCredentialBackend()..unavailable = true;
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final provider = BackendSessionProvider(autoLoad: false);
+    addTearDown(provider.dispose);
+
+    await provider.load();
+
+    expect(provider.isReady, isFalse);
+    expect(provider.isConfigured, isFalse);
+  });
+}
+
+class _SwitchableCredentialBackend implements SecureCredentialBackend {
+  final Map<String, String> values = <String, String>{};
+  bool unavailable = false;
+
+  @override
+  Future<SecureCredentialReadResult> read(String key) async {
+    if (unavailable) return const SecureCredentialReadResult.unavailable();
+    final value = values[key] ?? '';
+    return value.isEmpty
+        ? const SecureCredentialReadResult.missing()
+        : SecureCredentialReadResult.found(value);
+  }
+
+  @override
+  Future<void> write(String key, String value) async {
+    values[key] = value;
+  }
+
+  @override
+  Future<void> delete(String key) async {
+    values.remove(key);
+  }
 }
