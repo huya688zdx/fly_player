@@ -913,10 +913,16 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           label: l10n.connectionLogin,
           onPressed: _isSubmitting ? null : _submit,
         ),
-        if (!isEmby) ...[
-          const SizedBox(height: 10),
-          _buildFeiniuFooter(theme, l10n),
-        ],
+        const SizedBox(height: 10),
+        Visibility(
+          visible: !isEmby,
+          maintainState: true,
+          maintainAnimation: true,
+          maintainSize: true,
+          maintainInteractivity: false,
+          maintainSemantics: false,
+          child: _buildFeiniuFooter(theme, l10n),
+        ),
       ],
     );
   }

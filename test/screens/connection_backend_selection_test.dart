@@ -16,6 +16,7 @@ void main() {
   });
 
   testWidgets('默认选中飞牛，切到 Emby 后显示独立连接表单', (tester) async {
+    final semantics = tester.ensureSemantics();
     await tester.pumpWidget(_connectionScreen());
     await tester.pump();
 
@@ -35,7 +36,15 @@ void main() {
     expect(find.text('密码'), findsOneWidget);
     expect(find.text('登录'), findsOneWidget);
     expect(find.text('保持登录'), findsOneWidget);
-    expect(find.text('重新登录 FN Connect'), findsNothing);
+    expect(find.text('重新登录 FN Connect').hitTestable(), findsNothing);
+    final semanticsTree = tester
+        .binding
+        .rootPipelineOwner
+        .semanticsOwner
+        ?.rootSemanticsNode
+        ?.toStringDeep();
+    expect(semanticsTree, isNot(contains('重新登录 FN Connect')));
+    semantics.dispose();
     expect(find.byType(SegmentedButton<String>), findsNothing);
     expect(
       tester.getTopLeft(find.byType(ElevatedButton)).dy,
@@ -48,6 +57,24 @@ void main() {
     expect(find.text('登录'), findsOneWidget);
     expect(find.text('重新登录 FN Connect'), findsOneWidget);
     expect(find.byType(SegmentedButton<String>), findsOneWidget);
+  });
+
+  testWidgets('高屏切换后端时登录按钮保持原位', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(400, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(_connectionScreen());
+    await tester.pumpAndSettle();
+    final feiniuLoginButtonY = tester
+        .getTopLeft(find.byType(ElevatedButton))
+        .dy;
+
+    await tester.tap(find.text('Emby'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getTopLeft(find.byType(ElevatedButton)).dy,
+      closeTo(feiniuLoginButtonY, 0.5),
+    );
   });
 }
 
