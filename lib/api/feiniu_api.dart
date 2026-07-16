@@ -475,9 +475,6 @@ class FeiniuApi {
             '[API][ERR] ${e.requestOptions.path} '
             'http=${e.response?.statusCode} err=${e.message}',
           );
-          if (e.response?.statusCode == 401) {
-            nasProvider.logout();
-          }
           return handler.next(e);
         },
       ),
