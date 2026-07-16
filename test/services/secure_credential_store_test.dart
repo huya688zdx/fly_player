@@ -43,4 +43,53 @@ void main() {
     expect(second.value, 'restored-token');
     expect(calls, 2);
   });
+
+  test('平台写入返回 false 时不会假成功', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('fly_player/secret_store'),
+          (call) async => call.method == 'writeCredential' ? false : null,
+        );
+    _resetSecretStoreAfterTest();
+    SecureCredentialStore.setBackendForTesting(
+      MethodChannelSecureCredentialBackend(forcePlatformChannel: true),
+    );
+
+    await expectLater(
+      SecureCredentialStore.write('session.token', 'secret-value'),
+      throwsA(
+        predicate<Object>(
+          (error) => !error.toString().contains('secret-value'),
+        ),
+      ),
+    );
+  });
+
+  test('平台删除返回 false 时不会假成功', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('fly_player/secret_store'),
+          (call) async => call.method == 'deleteCredential' ? false : null,
+        );
+    _resetSecretStoreAfterTest();
+    SecureCredentialStore.setBackendForTesting(
+      MethodChannelSecureCredentialBackend(forcePlatformChannel: true),
+    );
+
+    await expectLater(
+      SecureCredentialStore.delete('session.token'),
+      throwsA(isA<Exception>()),
+    );
+  });
+}
+
+void _resetSecretStoreAfterTest() {
+  addTearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('fly_player/secret_store'),
+          null,
+        );
+    SecureCredentialStore.resetBackendForTesting();
+  });
 }

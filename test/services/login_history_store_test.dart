@@ -74,14 +74,90 @@ void main() {
     expect(entries.single.rememberPassword, isTrue);
     expect(backend.deletedKeys, isEmpty);
   });
+
+  test('保存另一条历史时不会删除暂不可用条目的既有凭据', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'login_history_v1': <String>[
+        jsonEncode(<String, Object?>{
+          'kind': 'feiniu',
+          'baseUrl': 'https://old-nas.example.test',
+          'userName': 'alice',
+          'rememberPassword': true,
+          'updatedAtMillis': 1,
+        }),
+      ],
+    });
+    final backend = _UnavailableCredentialBackend();
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+
+    await LoginHistoryStore.load();
+    final unavailableKey = backend.lastReadKey;
+    await LoginHistoryStore.save(
+      const LoginHistoryEntry(
+        baseUrl: 'https://new-nas.example.test',
+        userName: 'bob',
+        password: 'new-password',
+        rememberPassword: true,
+        updatedAtMillis: 2,
+      ),
+    );
+
+    expect(unavailableKey, isNotNull);
+    expect(backend.deletedKeys, isNot(contains(unavailableKey)));
+  });
+
+  test('迁移旧密码时安全写入失败会向调用方抛出', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'login_history_v1': <String>[
+        jsonEncode(<String, Object?>{
+          'kind': 'feiniu',
+          'baseUrl': 'https://nas.example.test',
+          'userName': 'alice',
+          'password': 'legacy-password',
+          'rememberPassword': true,
+          'updatedAtMillis': 1,
+        }),
+      ],
+    });
+    SecureCredentialStore.setBackendForTesting(
+      const _FailingCredentialBackend(failWrite: true),
+    );
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+
+    await expectLater(LoginHistoryStore.load(), throwsStateError);
+  });
+
+  test('清理未记住的旧密码时安全删除失败会向调用方抛出', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'login_history_v1': <String>[
+        jsonEncode(<String, Object?>{
+          'kind': 'feiniu',
+          'baseUrl': 'https://nas.example.test',
+          'userName': 'alice',
+          'rememberPassword': false,
+          'updatedAtMillis': 1,
+        }),
+      ],
+    });
+    SecureCredentialStore.setBackendForTesting(
+      const _FailingCredentialBackend(failDelete: true),
+    );
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+
+    await expectLater(LoginHistoryStore.load(), throwsStateError);
+  });
 }
 
 class _UnavailableCredentialBackend implements SecureCredentialBackend {
   final List<String> deletedKeys = <String>[];
+  String? lastReadKey;
 
   @override
-  Future<SecureCredentialReadResult> read(String key) async =>
-      const SecureCredentialReadResult.unavailable();
+  Future<SecureCredentialReadResult> read(String key) async {
+    lastReadKey = key;
+    return const SecureCredentialReadResult.unavailable();
+  }
 
   @override
   Future<void> write(String key, String value) async {}
@@ -89,5 +165,29 @@ class _UnavailableCredentialBackend implements SecureCredentialBackend {
   @override
   Future<void> delete(String key) async {
     deletedKeys.add(key);
+  }
+}
+
+class _FailingCredentialBackend implements SecureCredentialBackend {
+  const _FailingCredentialBackend({
+    this.failWrite = false,
+    this.failDelete = false,
+  });
+
+  final bool failWrite;
+  final bool failDelete;
+
+  @override
+  Future<SecureCredentialReadResult> read(String key) async =>
+      const SecureCredentialReadResult.missing();
+
+  @override
+  Future<void> write(String key, String value) async {
+    if (failWrite) throw StateError('secure write failed');
+  }
+
+  @override
+  Future<void> delete(String key) async {
+    if (failDelete) throw StateError('secure delete failed');
   }
 }

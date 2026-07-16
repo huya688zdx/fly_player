@@ -41,6 +41,11 @@ internal fun readCredentialFile(
     }
 }
 
+internal fun deleteCredentialFile(
+    file: File,
+    deleter: (File) -> Boolean = { target -> target.delete() },
+): Boolean = !file.exists() || deleter(file)
+
 class SecureCredentialStore(private val context: Context) {
     fun read(key: String): Map<String, Any> {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
@@ -61,8 +66,7 @@ class SecureCredentialStore(private val context: Context) {
     ): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false
         if (key.isBlank() || value.isEmpty()) {
-            delete(key)
-            return true
+            return delete(key)
         }
         val encrypted = encrypt(value)
         val payload =
@@ -77,11 +81,7 @@ class SecureCredentialStore(private val context: Context) {
     }
 
     fun delete(key: String): Boolean {
-        val file = credentialFile(key)
-        if (file.exists()) {
-            file.delete()
-        }
-        return true
+        return deleteCredentialFile(credentialFile(key))
     }
 
     private fun credentialFile(key: String): File =
