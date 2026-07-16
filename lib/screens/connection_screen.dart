@@ -676,6 +676,16 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     return RegExp(r'[\u4e00-\u9fff]').hasMatch(value);
   }
 
+  void _syncBaseUrlScheme(String raw) {
+    final scheme = Uri.tryParse(raw.trim())?.scheme.toLowerCase();
+    if ((scheme != 'http' && scheme != 'https') || scheme == _baseUrlScheme) {
+      return;
+    }
+    setState(() {
+      _baseUrlScheme = scheme!;
+    });
+  }
+
   String _normalizeBaseUrlInput(String raw) {
     final trimmed = raw.trim();
     if (trimmed.isEmpty) return '';
@@ -830,7 +840,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   Widget _buildForm(ThemeData theme, AppLocalizations l10n) {
     final isEmby = _selectedBackend == _ConnectionBackend.emby;
     return SizedBox(
-      height: 432,
+      height: 448,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -918,6 +928,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           keyboardType: TextInputType.url,
           textInputAction: TextInputAction.next,
           autofillHints: const <String>[AutofillHints.url],
+          onChanged: isEmby ? null : _syncBaseUrlScheme,
           suffix: IconButton(
             onPressed: _openLoginHistory,
             icon: Icon(
@@ -928,6 +939,10 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             ),
           ),
         ),
+        if (!isEmby) ...[
+          const SizedBox(height: 10),
+          _buildProtocolSelector(theme, l10n),
+        ],
         const SizedBox(height: 12),
         _GlassField(
           controller: userController,
@@ -979,6 +994,51 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
               }
             });
           },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildProtocolSelector(ThemeData theme, AppLocalizations l10n) {
+    return Row(
+      children: [
+        Text(
+          l10n.connectionProtocolLabel,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: const Color(0xFFB6C1D4),
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: SegmentedButton<String>(
+            segments: <ButtonSegment<String>>[
+              ButtonSegment<String>(
+                value: 'http',
+                label: Text(l10n.connectionProtocolHttp),
+              ),
+              ButtonSegment<String>(
+                value: 'https',
+                label: Text(l10n.connectionProtocolHttps),
+              ),
+            ],
+            selected: <String>{_baseUrlScheme},
+            onSelectionChanged: (selected) {
+              if (selected.isEmpty) return;
+              setState(() {
+                _baseUrlScheme = selected.first;
+              });
+            },
+            showSelectedIcon: false,
+            style: SegmentedButton.styleFrom(
+              foregroundColor: const Color(0xFF91A0BB),
+              selectedForegroundColor: Colors.white,
+              backgroundColor: const Color(0xD80B1624),
+              selectedBackgroundColor: const Color(0xFF263A58),
+              side: const BorderSide(color: Color(0xFF405675)),
+              visualDensity: VisualDensity.compact,
+            ),
+          ),
         ),
       ],
     );
@@ -1349,6 +1409,7 @@ class _GlassField extends StatelessWidget {
     this.autofillHints,
     this.obscureText = false,
     this.suffix,
+    this.onChanged,
     this.onSubmitted,
   });
 
@@ -1361,6 +1422,7 @@ class _GlassField extends StatelessWidget {
   final Iterable<String>? autofillHints;
   final bool obscureText;
   final Widget? suffix;
+  final ValueChanged<String>? onChanged;
   final ValueChanged<String>? onSubmitted;
 
   @override
@@ -1393,6 +1455,7 @@ class _GlassField extends StatelessWidget {
               keyboardType: keyboardType,
               textInputAction: textInputAction,
               autofillHints: autofillHints,
+              onChanged: onChanged,
               onSubmitted: onSubmitted,
               style: const TextStyle(
                 color: Colors.white,
