@@ -68,59 +68,76 @@ class LoginHistoryStore {
 
   /// 读取并按最近更新时间排序返回登录历史。
   static Future<List<LoginHistoryEntry>> load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final rawEntries = prefs.getStringList(_historyKey) ?? const <String>[];
+    final snapshot = await _loadSnapshot();
+    return snapshot.entries;
+  }
+
+  static Future<_LoginHistoryLoadSnapshot> _loadSnapshot({
+    SharedPreferences? prefs,
+  }) async {
+    final targetPrefs = prefs ?? await SharedPreferences.getInstance();
+    final rawEntries =
+        targetPrefs.getStringList(_historyKey) ?? const <String>[];
     final entries = <LoginHistoryEntry>[];
     final unavailableCredentialKeys = <String>{};
     var needsRewrite = false;
     for (final raw in rawEntries) {
+      late final _ParsedLoginHistoryEntry parsed;
       try {
         final decoded = jsonDecode(raw);
-        if (decoded is Map<String, dynamic>) {
-          final legacyPassword = (decoded['password'] ?? '').toString();
-          final entryWithoutSecret = LoginHistoryEntry.fromJson(decoded);
-          final restoredPassword = await _restorePassword(
-            entryWithoutSecret,
-            legacyPassword: legacyPassword,
-          );
-          final entry = LoginHistoryEntry(
-            kind: entryWithoutSecret.kind,
-            baseUrl: entryWithoutSecret.baseUrl,
-            userName: entryWithoutSecret.userName,
-            password: restoredPassword.value,
-            rememberPassword: entryWithoutSecret.rememberPassword,
-            updatedAtMillis: entryWithoutSecret.updatedAtMillis,
-          );
-          if (entry.baseUrl.trim().isNotEmpty &&
-              entry.userName.trim().isNotEmpty) {
-            entries.add(entry);
-            if (!restoredPassword.available) {
-              unavailableCredentialKeys.add(_passwordKey(entry));
-            } else if (legacyPassword.isNotEmpty) {
-              needsRewrite = true;
-            }
-          }
+        if (decoded is! Map<String, dynamic>) {
+          needsRewrite = true;
+          continue;
         }
+        parsed = _ParsedLoginHistoryEntry(
+          entry: LoginHistoryEntry.fromJson(decoded),
+          legacyPassword: (decoded['password'] ?? '').toString(),
+        );
       } catch (_) {
         needsRewrite = true;
         continue;
+      }
+      // 凭据 I/O 必须位于坏 JSON 容错范围之外，避免安全存储失败被当成无效历史吞掉。
+      final restoredPassword = await _restorePassword(
+        parsed.entry,
+        legacyPassword: parsed.legacyPassword,
+      );
+      final entry = LoginHistoryEntry(
+        kind: parsed.entry.kind,
+        baseUrl: parsed.entry.baseUrl,
+        userName: parsed.entry.userName,
+        password: restoredPassword.value,
+        rememberPassword: parsed.entry.rememberPassword,
+        updatedAtMillis: parsed.entry.updatedAtMillis,
+      );
+      if (entry.baseUrl.trim().isNotEmpty && entry.userName.trim().isNotEmpty) {
+        entries.add(entry);
+        if (!restoredPassword.available) {
+          unavailableCredentialKeys.add(_passwordKey(entry));
+        } else if (parsed.legacyPassword.isNotEmpty) {
+          needsRewrite = true;
+        }
       }
     }
     entries.sort((a, b) => b.updatedAtMillis.compareTo(a.updatedAtMillis));
     if (needsRewrite) {
       await _writeEntries(
-        prefs,
+        targetPrefs,
         entries,
         preserveCredentialKeys: unavailableCredentialKeys,
       );
     }
-    return entries;
+    return _LoginHistoryLoadSnapshot(
+      entries: entries,
+      unavailableCredentialKeys: unavailableCredentialKeys,
+    );
   }
 
   /// 保存一条登录历史，并按去重规则返回最新列表。
   static Future<List<LoginHistoryEntry>> save(LoginHistoryEntry entry) async {
     final prefs = await SharedPreferences.getInstance();
-    final current = await load();
+    final snapshot = await _loadSnapshot(prefs: prefs);
+    final current = snapshot.entries;
     final next = <LoginHistoryEntry>[
       entry,
       ...current.where((item) => item.dedupeKey != entry.dedupeKey),
@@ -137,27 +154,42 @@ class LoginHistoryStore {
     )) {
       await SecureCredentialStore.delete(_passwordKey(item));
     }
-    await _writeEntries(prefs, next);
+    final preserveCredentialKeys = <String>{
+      ...snapshot.unavailableCredentialKeys,
+    }..remove(_passwordKey(entry));
+    await _writeEntries(
+      prefs,
+      next,
+      preserveCredentialKeys: preserveCredentialKeys,
+    );
     return next;
   }
 
   /// 删除指定登录历史，并返回更新后的列表。
   static Future<List<LoginHistoryEntry>> remove(LoginHistoryEntry entry) async {
     final prefs = await SharedPreferences.getInstance();
-    final current = await load();
+    final snapshot = await _loadSnapshot(prefs: prefs);
+    final current = snapshot.entries;
     final next = current
         .where((item) => item.dedupeKey != entry.dedupeKey)
         .toList(growable: false);
     await SecureCredentialStore.delete(_passwordKey(entry));
-    await _writeEntries(prefs, next);
+    final preserveCredentialKeys = <String>{
+      ...snapshot.unavailableCredentialKeys,
+    }..remove(_passwordKey(entry));
+    await _writeEntries(
+      prefs,
+      next,
+      preserveCredentialKeys: preserveCredentialKeys,
+    );
     return next;
   }
 
   /// 清空全部登录历史记录。
   static Future<void> clear() async {
     final prefs = await SharedPreferences.getInstance();
-    final current = await load();
-    for (final entry in current) {
+    final snapshot = await _loadSnapshot(prefs: prefs);
+    for (final entry in snapshot.entries) {
       await SecureCredentialStore.delete(_passwordKey(entry));
     }
     await prefs.remove(_historyKey);
@@ -209,4 +241,24 @@ class LoginHistoryStore {
     final digest = sha256.convert(utf8.encode(entry.dedupeKey)).toString();
     return 'login_history.password.$digest';
   }
+}
+
+class _LoginHistoryLoadSnapshot {
+  final List<LoginHistoryEntry> entries;
+  final Set<String> unavailableCredentialKeys;
+
+  const _LoginHistoryLoadSnapshot({
+    required this.entries,
+    required this.unavailableCredentialKeys,
+  });
+}
+
+class _ParsedLoginHistoryEntry {
+  final LoginHistoryEntry entry;
+  final String legacyPassword;
+
+  const _ParsedLoginHistoryEntry({
+    required this.entry,
+    required this.legacyPassword,
+  });
 }

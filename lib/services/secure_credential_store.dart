@@ -29,6 +29,16 @@ class SecureCredentialUnavailableException implements Exception {
   String toString() => 'Secure credential is temporarily unavailable: $key';
 }
 
+class SecureCredentialOperationException implements Exception {
+  final String operation;
+  final String key;
+
+  const SecureCredentialOperationException(this.operation, this.key);
+
+  @override
+  String toString() => 'Secure credential $operation failed: $key';
+}
+
 abstract class SecureCredentialBackend {
   Future<SecureCredentialReadResult> read(String key);
   Future<void> write(String key, String value);
@@ -85,10 +95,13 @@ class MethodChannelSecureCredentialBackend implements SecureCredentialBackend {
       _testValues[normalized] = value;
       return;
     }
-    await _channel.invokeMethod<void>('writeCredential', {
+    final succeeded = await _channel.invokeMethod<bool>('writeCredential', {
       'key': normalized,
       'value': value,
     });
+    if (succeeded != true) {
+      throw SecureCredentialOperationException('write', normalized);
+    }
   }
 
   @override
@@ -99,7 +112,12 @@ class MethodChannelSecureCredentialBackend implements SecureCredentialBackend {
       _testValues.remove(normalized);
       return;
     }
-    await _channel.invokeMethod<void>('deleteCredential', {'key': normalized});
+    final succeeded = await _channel.invokeMethod<bool>('deleteCredential', {
+      'key': normalized,
+    });
+    if (succeeded != true) {
+      throw SecureCredentialOperationException('delete', normalized);
+    }
   }
 
   bool get _usesTestMemoryBackend =>
