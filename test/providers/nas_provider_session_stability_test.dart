@@ -10,6 +10,87 @@ import 'package:fly_player/services/secure_credential_store.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  setUp(NasProvider.resetBootstrapForTesting);
+
+  test('并发自动加载入口复用同一次成功读取', () async {
+    SharedPreferences.setMockInitialValues(const <String, Object>{});
+    final backend = _GatedCredentialBackend(
+      const SecureCredentialReadResult.missing(),
+    );
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final provider = NasProvider();
+    addTearDown(provider.dispose);
+    await backend.readStarted.future;
+    final states = <({bool isReady, bool hasFailure})>[];
+    provider.addListener(
+      () => states.add((
+        isReady: provider.isReady,
+        hasFailure: provider.hasLoadFailure,
+      )),
+    );
+
+    final firstRetry = provider.retryLoad();
+    provider.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    final secondRetry = provider.retryLoad();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(backend.readCount, 1);
+    expect(states, isEmpty);
+
+    backend.release();
+    await Future.wait<void>(<Future<void>>[firstRetry, secondRetry]);
+
+    expect(backend.readCount, 2);
+    expect(provider.isReady, isTrue);
+    expect(provider.hasLoadFailure, isFalse);
+    expect(states.last, (isReady: true, hasFailure: false));
+  });
+
+  test('并发自动加载失败只提交一次状态且下一代可恢复', () async {
+    SharedPreferences.setMockInitialValues(const <String, Object>{});
+    final backend = _GatedCredentialBackend(
+      const SecureCredentialReadResult.unavailable(),
+    );
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final provider = NasProvider();
+    addTearDown(provider.dispose);
+    await backend.readStarted.future;
+    final states = <({bool isReady, bool hasFailure})>[];
+    provider.addListener(
+      () => states.add((
+        isReady: provider.isReady,
+        hasFailure: provider.hasLoadFailure,
+      )),
+    );
+
+    final retry = provider.retryLoad();
+    provider.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(backend.readCount, 1);
+    expect(states, isEmpty);
+
+    backend.release();
+    await retry;
+
+    expect(provider.isReady, isFalse);
+    expect(provider.hasLoadFailure, isTrue);
+    expect(states.where((state) => state.hasFailure), hasLength(1));
+
+    backend.startGeneration(const SecureCredentialReadResult.missing());
+    final recovery = provider.retryLoad();
+    await backend.readStarted.future;
+    expect(backend.readCount, 2);
+    backend.release();
+    await recovery;
+
+    expect(backend.readCount, 3);
+    expect(provider.isReady, isTrue);
+    expect(provider.hasLoadFailure, isFalse);
+  });
+
   test('首次凭据不可用时暴露可重试失败并可恢复', () async {
     SharedPreferences.setMockInitialValues(const <String, Object>{});
     final backend = _SwitchableCredentialBackend()..unavailable = true;
@@ -192,4 +273,37 @@ class _SwitchableCredentialBackend implements SecureCredentialBackend {
     }
     values.remove(key);
   }
+}
+
+class _GatedCredentialBackend implements SecureCredentialBackend {
+  _GatedCredentialBackend(SecureCredentialReadResult result) : _result = result;
+
+  SecureCredentialReadResult _result;
+  Completer<void> _release = Completer<void>();
+  Completer<void> readStarted = Completer<void>();
+  int readCount = 0;
+
+  void startGeneration(SecureCredentialReadResult result) {
+    _result = result;
+    _release = Completer<void>();
+    readStarted = Completer<void>();
+  }
+
+  void release() {
+    if (!_release.isCompleted) _release.complete();
+  }
+
+  @override
+  Future<SecureCredentialReadResult> read(String key) async {
+    readCount++;
+    if (!readStarted.isCompleted) readStarted.complete();
+    await _release.future;
+    return _result;
+  }
+
+  @override
+  Future<void> write(String key, String value) async {}
+
+  @override
+  Future<void> delete(String key) async {}
 }

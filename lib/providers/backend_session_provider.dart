@@ -53,6 +53,7 @@ class BackendSessionProvider extends ChangeNotifier
   bool _isReady = false;
   Object? _lastLoadFailure;
   StackTrace? _lastLoadFailureStackTrace;
+  Future<void>? _loadInFlight;
 
   bool get isReady => _isReady;
   bool get hasLoadFailure => _lastLoadFailure != null;
@@ -61,7 +62,39 @@ class BackendSessionProvider extends ChangeNotifier
   MediaBackendConnection? get currentConnection => _snapshot?.activeConnection;
   bool get isConfigured => currentConnection?.isAuthenticated ?? false;
 
-  Future<void> load() async {
+  Future<void> load() => _startOrJoinLoad();
+
+  Future<void> _startOrJoinLoad() {
+    final currentLoad = _loadInFlight;
+    if (currentLoad != null) return currentLoad;
+
+    final completer = Completer<void>();
+    final loadFuture = completer.future;
+    _loadInFlight = loadFuture;
+    unawaited(_runLoadGeneration(loadFuture, completer));
+    return loadFuture;
+  }
+
+  Future<void> _runLoadGeneration(
+    Future<void> loadFuture,
+    Completer<void> completer,
+  ) async {
+    try {
+      await _performLoad();
+      if (identical(_loadInFlight, loadFuture)) {
+        _loadInFlight = null;
+      }
+      completer.complete();
+    } catch (error, stackTrace) {
+      if (identical(_loadInFlight, loadFuture)) {
+        _loadInFlight = null;
+      }
+      completer.completeError(error, stackTrace);
+    }
+  }
+
+  Future<void> _performLoad() async {
+    _beginLoadAttempt();
     try {
       final nextSnapshot = await MediaBackendConnectionStore.load();
       _snapshot = nextSnapshot;
@@ -69,6 +102,7 @@ class BackendSessionProvider extends ChangeNotifier
       _clearLoadFailure();
       notifyListeners();
     } on SecureCredentialUnavailableException catch (error, stackTrace) {
+      _loadInFlight = null;
       _recordLoadFailure(error, stackTrace);
       await logSwallowedError(
         action: 'load backend session credentials',
@@ -76,21 +110,27 @@ class BackendSessionProvider extends ChangeNotifier
         stackTrace: stackTrace,
         source: 'backend_session_provider',
       );
+    } catch (error, stackTrace) {
+      _loadInFlight = null;
+      _recordLoadFailure(error, stackTrace);
+      try {
+        await logSwallowedError(
+          action: 'load backend session credentials',
+          error: error,
+          stackTrace: stackTrace,
+          source: 'backend_session_provider',
+        );
+      } finally {
+        Error.throwWithStackTrace(error, stackTrace);
+      }
     }
   }
 
   Future<void> _loadSafely() async {
-    _beginLoadAttempt();
     try {
       await load();
-    } catch (error, stackTrace) {
-      _recordLoadFailure(error, stackTrace);
-      await logSwallowedError(
-        action: 'load backend session credentials',
-        error: error,
-        stackTrace: stackTrace,
-        source: 'backend_session_provider',
-      );
+    } catch (_) {
+      // 加载代次已在统一边界记录状态和日志；自动入口只负责阻止异常逃逸。
     }
   }
 
@@ -123,16 +163,9 @@ class BackendSessionProvider extends ChangeNotifier
     try {
       await load();
     } catch (error, stackTrace) {
-      _recordLoadFailure(error, stackTrace);
-      await logSwallowedError(
-        action: 'load backend session credentials',
-        error: error,
-        stackTrace: stackTrace,
-        source: 'backend_session_provider',
-      );
       throw BackendSessionUnavailableException(
-        cause: error,
-        stackTrace: stackTrace,
+        cause: _lastLoadFailure ?? error,
+        stackTrace: _lastLoadFailureStackTrace ?? stackTrace,
       );
     }
     if (!_isReady) {

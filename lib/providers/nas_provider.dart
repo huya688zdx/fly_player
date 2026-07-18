@@ -31,6 +31,7 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
   bool _isReady = false;
   Object? _lastLoadFailure;
   StackTrace? _lastLoadFailureStackTrace;
+  Future<void>? _loadSettingsInFlight;
   bool _disposed = false;
 
   String get baseUrl =>
@@ -42,7 +43,8 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
   String get token => _token;
   bool get rememberPassword => _rememberPassword;
   bool get isReady => _isReady;
-  bool get hasLoadFailure => _lastLoadFailure != null;
+  bool get hasLoadFailure =>
+      _lastLoadFailure != null || _lastLoadFailureStackTrace != null;
 
   bool get isConfigured => _baseUrl.isNotEmpty && _token.isNotEmpty;
 
@@ -84,7 +86,12 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   @visibleForTesting
-  Future<void> reloadSettingsForTesting() => _loadSettings();
+  Future<void> reloadSettingsForTesting() => _startOrJoinSettingsLoad();
+
+  @visibleForTesting
+  static void resetBootstrapForTesting() {
+    _bootstrapSnapshot = null;
+  }
 
   Future<void> _handleSessionStateMethodCall(MethodCall call) async {
     if (call.method != 'loggedOut') return;
@@ -114,11 +121,7 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     );
     if (_disposed) return;
     if (!restoredToken.available) {
-      _recordLoadFailure(
-        const SecureCredentialUnavailableException(_tokenCredentialKey),
-        StackTrace.current,
-      );
-      return;
+      throw const SecureCredentialUnavailableException(_tokenCredentialKey);
     }
     if (legacyToken.isNotEmpty) {
       await prefs.remove('token');
@@ -172,18 +175,48 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _loadSettingsSafely() async {
+    try {
+      await _startOrJoinSettingsLoad();
+    } catch (_) {
+      // 加载代次已在统一边界记录状态和日志；自动入口只负责阻止异常逃逸。
+    }
+  }
+
+  Future<void> _startOrJoinSettingsLoad() {
+    final currentLoad = _loadSettingsInFlight;
+    if (currentLoad != null) return currentLoad;
+
+    final completer = Completer<void>();
+    final loadFuture = completer.future;
+    _loadSettingsInFlight = loadFuture;
+    unawaited(_runSettingsLoadGeneration(loadFuture, completer));
+    return loadFuture;
+  }
+
+  Future<void> _runSettingsLoadGeneration(
+    Future<void> loadFuture,
+    Completer<void> completer,
+  ) async {
+    try {
+      await _performSettingsLoad();
+      if (identical(_loadSettingsInFlight, loadFuture)) {
+        _loadSettingsInFlight = null;
+      }
+      completer.complete();
+    } catch (error, stackTrace) {
+      if (identical(_loadSettingsInFlight, loadFuture)) {
+        _loadSettingsInFlight = null;
+      }
+      completer.completeError(error, stackTrace);
+    }
+  }
+
+  Future<void> _performSettingsLoad() async {
     _beginLoadAttempt();
     try {
       await _loadSettings();
-      if (hasLoadFailure) {
-        await logSwallowedError(
-          action: 'load NAS session settings',
-          error: _lastLoadFailure!,
-          stackTrace: _lastLoadFailureStackTrace,
-          source: 'nas_provider',
-        );
-      }
-    } catch (error, stackTrace) {
+    } on SecureCredentialUnavailableException catch (error, stackTrace) {
+      _loadSettingsInFlight = null;
       _recordLoadFailure(error, stackTrace);
       await logSwallowedError(
         action: 'load NAS session settings',
@@ -191,6 +224,19 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
         stackTrace: stackTrace,
         source: 'nas_provider',
       );
+    } catch (error, stackTrace) {
+      _loadSettingsInFlight = null;
+      _recordLoadFailure(error, stackTrace);
+      try {
+        await logSwallowedError(
+          action: 'load NAS session settings',
+          error: error,
+          stackTrace: stackTrace,
+          source: 'nas_provider',
+        );
+      } finally {
+        Error.throwWithStackTrace(error, stackTrace);
+      }
     }
   }
 
