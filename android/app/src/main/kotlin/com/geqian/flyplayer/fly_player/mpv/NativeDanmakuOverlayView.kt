@@ -228,8 +228,6 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
 ) : View(context, attrs) {
     companion object {
         private const val TAG = "FlyPlayerDanmaku"
-        // Plan B v2 occlusion debug logging (planb2 ...). Rate-limited in the draw path.
-        private const val OCCLUSION_DEBUG_LOG = true
         private const val DEFAULT_TARGET_FPS = 60
         private const val MIN_TARGET_FPS = 24
         private const val MAX_TARGET_FPS = 120
@@ -250,25 +248,9 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
         private const val DANMAKU_SPEED_MIN = 0.70f
         private const val DANMAKU_SPEED_MAX = 1.55f
         private const val DANMAKU_SPEED_STEP = (DANMAKU_SPEED_MAX - DANMAKU_SPEED_MIN) / 4f
+        private const val MIN_SCROLL_SPEED_PX_PER_MS = 0.12f
         private const val DUPLICATE_WINDOW_MS = 2500
         private const val DENSITY_BUCKET_SCALE = 1000
-        private const val TIMELINE_RESYNC_THRESHOLD_MS = 160f
-        private const val TIMELINE_SOFT_SYNC_DEAD_ZONE_MS = 12f
-        private const val TIMELINE_SOFT_SYNC_GAIN = 0.12f
-        private const val TIMELINE_SOFT_SYNC_MAX_STEP_MS = 1.5f
-        private const val TIMELINE_SOFT_SYNC_MIN_INTERVAL_MS = 110L
-        private const val TIMELINE_SOFT_SYNC_FORCE_DRIFT_MS = 28f
-        private const val TIMELINE_FORWARD_REBUILD_THRESHOLD_MS = 2500f
-        private const val TIMELINE_CONTINUITY_REBUILD_GUARD_MS = 1800L
-        private const val TIMELINE_CONTINUITY_SOFT_SYNC_SUPPRESS_MS = 360L
-        private const val POSITION_ROLLBACK_TOLERANCE_MS = 48f
-        private const val MAX_POSITION_SAMPLE_PROJECTION_MS = 50f
-        private const val POSITION_SAMPLE_FULL_RELIABILITY_LATENCY_MS = 12f
-        private const val POSITION_SAMPLE_ZERO_RELIABILITY_LATENCY_MS = 42f
-        private const val SEEK_SETTLE_TOLERANCE_MS = 3000f
-        private const val SEEK_GUARD_WINDOW_MS = 4200L
-        private const val PLAYBACK_TRANSITION_GUARD_WINDOW_MS = 1400L
-        private const val PAUSE_TRANSITION_SETTLE_WINDOW_MS = 220L
         private const val MAX_LOOKBACK_MS = 10_000f
         private const val FRAME_LOOKAHEAD_MS = 20f
         private const val TEXT_CACHE_SIZE = 384
@@ -413,19 +395,17 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
     private var drawAccumulatedItems = 0
     private var drawMaxNs = 0L
     private var playbackSyncWindowStartNs = 0L
-    private var playbackSyncSampleCount = 0
+    private val playbackSyncStats = DanmakuPlaybackSyncStatsAccumulator()
     private var playbackSyncAccumulatedSampleLatencyMs = 0f
     private var playbackSyncMaxSampleLatencyMs = 0f
     private var playbackSyncAccumulatedProjectionMs = 0f
     private var playbackSyncMaxProjectionMs = 0f
+    private var playbackSyncAccumulatedRawDriftMs = 0f
+    private var playbackSyncAccumulatedStabilizedDriftMs = 0f
     private var playbackSyncAccumulatedRawDriftAbsMs = 0f
     private var playbackSyncAccumulatedStabilizedDriftAbsMs = 0f
     private var playbackSyncMaxRawDriftAbsMs = 0f
     private var playbackSyncMaxStabilizedDriftAbsMs = 0f
-    private var playbackSyncRebuildCount = 0
-    private var playbackSyncReanchorCount = 0
-    private var playbackSyncSoftSyncPathCount = 0
-    private var playbackSyncSoftSyncAppliedCount = 0
     private var playbackSyncLatencyFilteredCount = 0
 
     private var settings = NativeDanmakuSettings()
@@ -577,7 +557,7 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
     private var lastMaskBiasLogMs = 0L
 
     private fun maybeLogMaskBias(timelineMs: Long, floor: MaskFrame?, next: MaskFrame?, unionDrawn: Boolean) {
-        if (!OCCLUSION_DEBUG_LOG) return
+        if (!Log.isLoggable(TAG, Log.DEBUG)) return
         val now = SystemClock.uptimeMillis()
         if (now - lastMaskBiasLogMs < 1000L) return
         lastMaskBiasLogMs = now
@@ -613,19 +593,9 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
     private var pendingMaskClear: Runnable? = null
     private var appliedRequestedFrameRateHint = Float.NaN
 
-    private var lastKnownPositionMs = 0f
-    private var timelineAnchorPositionMs = 0f
-    private var timelineAnchorTimeNs = 0L
-    private var lastSoftSyncAppliedNs = 0L
-    private var paused = true
-    private var pendingSeekTargetMs: Float? = null
-    private var pendingSeekGuardUntilNs = 0L
-    private var playbackFloorGuardMs: Float? = null
-    private var playbackFloorGuardUntilNs = 0L
-    private var pausedAnchorGuardMs: Float? = null
-    private var pausedAnchorGuardUntilNs = 0L
-    private var timelineContinuityRebuildGuardUntilNs = 0L
-    private var timelineContinuitySoftSyncSuppressUntilNs = 0L
+    private val timelineClock = DanmakuTimelineClock()
+    private val lastKnownPositionMs: Float
+        get() = timelineClock.lastKnownPositionMs
     private var overloadLevel = NativeDanmakuOverloadLevel.NORMAL
     private val recentDrawElapsedNs = ArrayList<Long>(DRAW_SAMPLE_WINDOW_SIZE)
     private var paintSoftStreak = 0
@@ -659,120 +629,43 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
             return
         }
         val nowNs = currentAnimationClockNs(System.nanoTime())
-        val previousPaused = paused
-        val nextPaused = state.playbackPhase != MpvPlaybackPhase.PLAYING.wireValue
-        val sampleTimeNs =
-            state.positionSampleTimeNs
-                .takeIf { it > 0L }
-                ?.coerceAtMost(nowNs)
-                ?: nowNs
-        val sampledPositionMs = state.positionMs.toFloat().coerceAtLeast(0f)
-        val rawNextPositionMs =
-            projectIncomingPositionMs(
-                sampledPositionMs = sampledPositionMs,
-                sampleTimeNs = sampleTimeNs,
+        val previousClockState = timelineClock.state
+        val update =
+            timelineClock.update(
+                positionMs = state.positionMs.toFloat(),
+                sampleTimeNs = state.positionSampleTimeNs,
                 nowNs = nowNs,
-                nextPaused = nextPaused,
-                playbackPhase = state.playbackPhase,
+                phase = state.playbackPhase.toDanmakuTimelinePhase(),
+                playbackSpeed = settings.playbackSpeed,
+                activeSeekEpoch = state.activeSeekEpoch,
+                completedSeekEpoch = state.completedSeekEpoch,
             )
-        val predictedMs = currentTimelineMs(nowNs)
-        val sampleLatencyMs = ((nowNs - sampleTimeNs).coerceAtLeast(0L) / 1_000_000f)
-        val projectionMs = rawNextPositionMs - sampledPositionMs
-        val rawTimelineDriftMs = rawNextPositionMs - predictedMs
-        val latencyAdjustedPositionMs =
-            applyPositionSampleLatencyFilter(
-                rawPositionMs = rawNextPositionMs,
-                predictedMs = predictedMs,
-                sampleLatencyMs = sampleLatencyMs,
-                nextPaused = nextPaused,
-                playbackPhase = state.playbackPhase,
-            )
-        expirePlaybackStateGuards(nowNs)
-        if (state.playbackPhase == MpvPlaybackPhase.SEEKING.wireValue) {
-            armSeekGuard(sampledPositionMs, nowNs)
+        if (previousClockState != DanmakuTimelineState.SEEK_HOLD &&
+            update.state == DanmakuTimelineState.SEEK_HOLD
+        ) {
+            clearTimelineForSeekHold()
+            clearMaskPtsBuffer()
         }
-        val pauseTransition = !previousPaused && nextPaused
-        val resumeTransition = previousPaused && !nextPaused
-        if (pauseTransition) {
-            armPausedAnchorGuard(predictedMs, nowNs)
-        } else if (resumeTransition) {
-            clearPausedAnchorGuard()
-            armTimelineContinuityGuard(nowNs)
-        }
-        if (previousPaused != nextPaused && !nextPaused) {
-            armPlaybackFloorGuard(
-                max(lastKnownPositionMs, predictedMs),
-                nowNs,
-            )
-        }
-        if (nextPaused) {
-            clearPlaybackFloorGuard()
-        }
-        val nextPositionMs =
-            stabilizeIncomingPosition(
-                rawPositionMs = latencyAdjustedPositionMs,
-                predictedMs = predictedMs,
-                nextPaused = nextPaused,
-                playbackPhase = state.playbackPhase,
-                nowNs = nowNs,
-            )
-        val isSeekingState = state.playbackPhase == MpvPlaybackPhase.SEEKING.wireValue
-        val stabilizedTimelineDriftMs = nextPositionMs - predictedMs
-        paused = nextPaused
-        lastKnownPositionMs = nextPositionMs
-        var softSyncApplied = false
-        var shouldResetTimeline = false
-        var reanchorSelected = false
-        var softSyncSelected = false
-        if (comments.isEmpty() || isSeekingState) {
-            shouldResetTimeline = true
-            rebuildTimeline(nextPositionMs, nowNs)
-        } else if (pauseTransition || resumeTransition) {
-            reanchorSelected = true
-            reanchorTimeline(predictedMs, nowNs)
-        } else if (nextPaused) {
-            // Paused mpv state can be resent when controls appear/disappear. Keep
-            // the danmaku frame frozen unless an explicit seek is being reported.
-        } else {
-            val playbackTransitionGuardActive =
-                playbackFloorGuardUntilNs > nowNs && pendingSeekTargetMs == null
-            val timelineRebuildGuardActive =
-                timelineContinuityRebuildGuardUntilNs > nowNs &&
-                    pendingSeekTargetMs == null
-            val softSyncSuppressed =
-                timelineContinuitySoftSyncSuppressUntilNs > nowNs &&
-                    pendingSeekTargetMs == null
-            val negativeDriftRequiresRebuild =
-                stabilizedTimelineDriftMs < -TIMELINE_RESYNC_THRESHOLD_MS
-            val forwardDriftRequiresRebuild =
-                stabilizedTimelineDriftMs > TIMELINE_FORWARD_REBUILD_THRESHOLD_MS
-            shouldResetTimeline =
-                (negativeDriftRequiresRebuild || forwardDriftRequiresRebuild) &&
-                    !playbackTransitionGuardActive &&
-                    !timelineRebuildGuardActive
-            if (shouldResetTimeline) {
-                rebuildTimeline(nextPositionMs, nowNs)
-            } else if (!softSyncSuppressed) {
-                softSyncSelected = true
-                softSyncApplied =
-                    softSyncTimeline(
-                        predictedMs = predictedMs,
-                        targetMs = nextPositionMs,
-                        nowNs = nowNs,
-                    )
-            }
+        when (update.correction) {
+            DanmakuTimelineCorrection.REBUILD ->
+                rebuildTimeline(
+                    positionMs = update.timelineMs,
+                    nowNs = nowNs,
+                )
+            DanmakuTimelineCorrection.NONE,
+            DanmakuTimelineCorrection.REANCHOR,
+            DanmakuTimelineCorrection.SOFT_SYNC,
+            -> Unit
         }
         recordPlaybackSyncStats(
             nowNs = nowNs,
-            sampleLatencyMs = sampleLatencyMs,
-            projectionMs = projectionMs,
-            rawDriftMs = rawTimelineDriftMs,
-            stabilizedDriftMs = stabilizedTimelineDriftMs,
-            rebuildTimeline = shouldResetTimeline,
-            reanchorTimeline = reanchorSelected,
-            softSyncSelected = softSyncSelected,
-            softSyncApplied = softSyncApplied,
-            latencyFiltered = abs(latencyAdjustedPositionMs - rawNextPositionMs) >= 0.5f,
+            sampleLatencyMs = update.sampleLatencyMs,
+            projectionMs = update.projectionMs,
+            rawDriftMs = update.rawDriftMs,
+            stabilizedDriftMs = update.stabilizedDriftMs,
+            metricsEligible = update.metricsEligible,
+            correction = update.correction,
+            latencyFiltered = update.latencyFiltered,
         )
         invalidate()
         if (shouldAnimate()) {
@@ -782,25 +675,19 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
         }
     }
 
-    fun hintSeek(positionMs: Long) {
+    fun hintSeek(
+        positionMs: Long,
+        seekEpoch: Long = 0L,
+    ) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            mainHandler.post { hintSeek(positionMs) }
+            mainHandler.post { hintSeek(positionMs, seekEpoch) }
             return
         }
         val targetMs = positionMs.toFloat().coerceAtLeast(0f)
         val nowNs = currentAnimationClockNs(System.nanoTime())
-        armSeekGuard(targetMs, nowNs)
-        // Buffered Plan B masks belong to the old timeline; drop them after a seek.
+        timelineClock.hintSeek(targetMs, nowNs, seekEpoch)
         clearMaskPtsBuffer()
-        lastKnownPositionMs = targetMs
-        if (settings.enabled && comments.isNotEmpty()) {
-            rebuildTimeline(targetMs, nowNs)
-        } else {
-            reanchorTimeline(targetMs, nowNs)
-            activeItems.clear()
-            clearPendingScrollQueue()
-            duplicateWindow.clear()
-        }
+        clearTimelineForSeekHold()
         invalidate()
         if (shouldAnimate()) {
             scheduleFrame()
@@ -844,13 +731,7 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
         topLaneLastSpeedPxPerMs = FloatArray(0)
         topLaneLastStartMs = FloatArray(0)
         topLaneLastDrawWidthPx = FloatArray(0)
-        lastKnownPositionMs = 0f
-        timelineAnchorPositionMs = 0f
-        timelineAnchorTimeNs = System.nanoTime()
-        lastSoftSyncAppliedNs = 0L
-        clearSeekGuard()
-        clearPlaybackFloorGuard()
-        clearTimelineContinuityGuard()
+        timelineClock.reset(positionMs = 0f, nowNs = System.nanoTime(), paused = true)
         clearMaskState()
         resetPlaybackSyncStats()
         cancelFrame()
@@ -1000,220 +881,23 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
         invalidate()
     }
 
-    private fun stabilizeIncomingPosition(
-        rawPositionMs: Float,
-        predictedMs: Float,
-        nextPaused: Boolean,
-        playbackPhase: String,
-        nowNs: Long,
-    ): Float {
-        var stabilizedMs = rawPositionMs
-        if (!nextPaused &&
-            playbackPhase != MpvPlaybackPhase.SEEKING.wireValue &&
-            stabilizedMs + POSITION_ROLLBACK_TOLERANCE_MS < predictedMs
-        ) {
-            stabilizedMs = predictedMs
+    private fun String.toDanmakuTimelinePhase(): DanmakuTimelinePlaybackPhase {
+        return when (this) {
+            MpvPlaybackPhase.PLAYING.wireValue -> DanmakuTimelinePlaybackPhase.PLAYING
+            MpvPlaybackPhase.SEEKING.wireValue -> DanmakuTimelinePlaybackPhase.SEEKING
+            else -> DanmakuTimelinePlaybackPhase.PAUSED
         }
-        val pendingSeekTargetMs = pendingSeekTargetMs
-        if (pendingSeekTargetMs != null) {
-            val targetDeltaMs = abs(stabilizedMs - pendingSeekTargetMs)
-            if (targetDeltaMs <= SEEK_SETTLE_TOLERANCE_MS) {
-                clearSeekGuard()
-            } else if (pendingSeekGuardUntilNs > nowNs) {
-                val predictedDeltaMs = abs(predictedMs - pendingSeekTargetMs)
-                if (targetDeltaMs > predictedDeltaMs + POSITION_ROLLBACK_TOLERANCE_MS) {
-                    stabilizedMs = max(stabilizedMs, predictedMs)
-                }
-            } else {
-                clearSeekGuard()
-            }
-        }
-        val playbackFloorGuardMs = playbackFloorGuardMs
-        if (playbackFloorGuardMs != null) {
-            if (playbackFloorGuardUntilNs > nowNs) {
-                if (stabilizedMs + POSITION_ROLLBACK_TOLERANCE_MS < playbackFloorGuardMs) {
-                    stabilizedMs = playbackFloorGuardMs
-                } else if (stabilizedMs >= playbackFloorGuardMs - POSITION_ROLLBACK_TOLERANCE_MS) {
-                    clearPlaybackFloorGuard()
-                }
-            } else {
-                clearPlaybackFloorGuard()
-            }
-        }
-        val pausedAnchorGuardMs = pausedAnchorGuardMs
-        if (nextPaused && pausedAnchorGuardMs != null) {
-            if (pausedAnchorGuardUntilNs > nowNs) {
-                stabilizedMs = pausedAnchorGuardMs
-            } else {
-                clearPausedAnchorGuard()
-            }
-        } else if (!nextPaused && pausedAnchorGuardUntilNs != 0L) {
-            clearPausedAnchorGuard()
-        }
-        return stabilizedMs
     }
 
-    private fun projectIncomingPositionMs(
-        sampledPositionMs: Float,
-        sampleTimeNs: Long,
-        nowNs: Long,
-        nextPaused: Boolean,
-        playbackPhase: String,
-    ): Float {
-        if (nextPaused || playbackPhase == MpvPlaybackPhase.SEEKING.wireValue) {
-            return sampledPositionMs
-        }
-        if (sampleTimeNs <= 0L || nowNs <= sampleTimeNs) {
-            return sampledPositionMs
-        }
-        val projectedElapsedMs =
-            ((nowNs - sampleTimeNs).coerceAtLeast(0L) / 1_000_000f)
-                .coerceAtMost(MAX_POSITION_SAMPLE_PROJECTION_MS)
-        return sampledPositionMs +
-            (projectedElapsedMs * settings.playbackSpeed.coerceAtLeast(0.1f))
-    }
-
-    private fun applyPositionSampleLatencyFilter(
-        rawPositionMs: Float,
-        predictedMs: Float,
-        sampleLatencyMs: Float,
-        nextPaused: Boolean,
-        playbackPhase: String,
-    ): Float {
-        if (nextPaused || playbackPhase == MpvPlaybackPhase.SEEKING.wireValue) {
-            return rawPositionMs
-        }
-        val reliability =
-            when {
-                sampleLatencyMs <= POSITION_SAMPLE_FULL_RELIABILITY_LATENCY_MS -> 1f
-                sampleLatencyMs >= POSITION_SAMPLE_ZERO_RELIABILITY_LATENCY_MS -> 0f
-                else -> {
-                    val span =
-                        POSITION_SAMPLE_ZERO_RELIABILITY_LATENCY_MS -
-                            POSITION_SAMPLE_FULL_RELIABILITY_LATENCY_MS
-                    1f - ((sampleLatencyMs - POSITION_SAMPLE_FULL_RELIABILITY_LATENCY_MS) / span)
-                }
-            }.coerceIn(0f, 1f)
-        if (reliability >= 0.999f) {
-            return rawPositionMs
-        }
-        return predictedMs + ((rawPositionMs - predictedMs) * reliability)
-    }
-
-    private fun armSeekGuard(targetMs: Float, nowNs: Long) {
-        pendingSeekTargetMs = targetMs.coerceAtLeast(0f)
-        pendingSeekGuardUntilNs = nowNs + (SEEK_GUARD_WINDOW_MS * 1_000_000L)
-        clearPlaybackFloorGuard()
-        clearTimelineContinuityGuard()
-    }
-
-    private fun clearSeekGuard() {
-        pendingSeekTargetMs = null
-        pendingSeekGuardUntilNs = 0L
-    }
-
-    private fun armPlaybackFloorGuard(positionMs: Float, nowNs: Long) {
-        if (pendingSeekTargetMs != null) {
-            return
-        }
-        playbackFloorGuardMs = positionMs.coerceAtLeast(0f)
-        playbackFloorGuardUntilNs =
-            nowNs + (PLAYBACK_TRANSITION_GUARD_WINDOW_MS * 1_000_000L)
-    }
-
-    private fun clearPlaybackFloorGuard() {
-        playbackFloorGuardMs = null
-        playbackFloorGuardUntilNs = 0L
-    }
-
-    private fun armTimelineContinuityGuard(nowNs: Long) {
-        timelineContinuityRebuildGuardUntilNs =
-            nowNs + (TIMELINE_CONTINUITY_REBUILD_GUARD_MS * 1_000_000L)
-        timelineContinuitySoftSyncSuppressUntilNs =
-            nowNs + (TIMELINE_CONTINUITY_SOFT_SYNC_SUPPRESS_MS * 1_000_000L)
-    }
-
-    private fun clearTimelineContinuityGuard() {
-        timelineContinuityRebuildGuardUntilNs = 0L
-        timelineContinuitySoftSyncSuppressUntilNs = 0L
-    }
-
-    private fun armPausedAnchorGuard(positionMs: Float, nowNs: Long) {
-        pausedAnchorGuardMs = positionMs.coerceAtLeast(0f)
-        pausedAnchorGuardUntilNs =
-            nowNs + (PAUSE_TRANSITION_SETTLE_WINDOW_MS * 1_000_000L)
-    }
-
-    private fun clearPausedAnchorGuard() {
-        pausedAnchorGuardMs = null
-        pausedAnchorGuardUntilNs = 0L
-    }
-
-    private fun reanchorTimeline(positionMs: Float, nowNs: Long) {
-        timelineAnchorPositionMs = positionMs.coerceAtLeast(0f)
-        timelineAnchorTimeNs = nowNs
-    }
-
-    private fun softSyncTimeline(
-        predictedMs: Float,
-        targetMs: Float,
-        nowNs: Long,
-    ): Boolean {
-        val driftMs = targetMs - predictedMs
-        // Avoid pulling the visible danmaku timeline backward during normal
-        // playback. Small negative drifts are common around UI wake/layout
-        // interactions and are more noticeable than a slight forward bias.
-        // Large backward jumps still go through the rebuild / pause / seek
-        // paths before reaching soft sync.
-        if (driftMs < 0f) {
-            return false
-        }
-        if (abs(driftMs) <= TIMELINE_SOFT_SYNC_DEAD_ZONE_MS) {
-            return false
-        }
-        val sinceLastSoftSyncNs =
-            if (lastSoftSyncAppliedNs == 0L) {
-                Long.MAX_VALUE
-            } else {
-                (nowNs - lastSoftSyncAppliedNs).coerceAtLeast(0L)
-            }
-        if (sinceLastSoftSyncNs < (TIMELINE_SOFT_SYNC_MIN_INTERVAL_MS * 1_000_000L) &&
-            abs(driftMs) < TIMELINE_SOFT_SYNC_FORCE_DRIFT_MS
-        ) {
-            return false
-        }
-        val deltaMs =
-            (driftMs * TIMELINE_SOFT_SYNC_GAIN)
-                .coerceIn(
-                    -TIMELINE_SOFT_SYNC_MAX_STEP_MS,
-                    TIMELINE_SOFT_SYNC_MAX_STEP_MS,
-                )
-        val correctedTimelineMs = predictedMs + deltaMs
-        lastSoftSyncAppliedNs = nowNs
-        reanchorTimeline(correctedTimelineMs, nowNs)
-        return true
-    }
-
-    private fun expirePlaybackStateGuards(nowNs: Long) {
-        if (pendingSeekGuardUntilNs != 0L && pendingSeekGuardUntilNs <= nowNs) {
-            clearSeekGuard()
-        }
-        if (playbackFloorGuardUntilNs != 0L && playbackFloorGuardUntilNs <= nowNs) {
-            clearPlaybackFloorGuard()
-        }
-        if (pausedAnchorGuardUntilNs != 0L && pausedAnchorGuardUntilNs <= nowNs) {
-            clearPausedAnchorGuard()
-        }
-        if (timelineContinuityRebuildGuardUntilNs != 0L &&
-            timelineContinuityRebuildGuardUntilNs <= nowNs
-        ) {
-            timelineContinuityRebuildGuardUntilNs = 0L
-        }
-        if (timelineContinuitySoftSyncSuppressUntilNs != 0L &&
-            timelineContinuitySoftSyncSuppressUntilNs <= nowNs
-        ) {
-            timelineContinuitySoftSyncSuppressUntilNs = 0L
-        }
+    private fun clearTimelineForSeekHold() {
+        activeItems.clear()
+        clearPendingScrollQueue()
+        duplicateWindow.clear()
+        topLaneAvailableAtMs.fill(0f)
+        bottomLaneAvailableAtMs.fill(0f)
+        topLaneLastSpeedPxPerMs.fill(0f)
+        topLaneLastStartMs.fill(0f)
+        topLaneLastDrawWidthPx.fill(0f)
     }
 
     fun release() {
@@ -1228,9 +912,7 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
         pendingScrollIds.clear()
         duplicateWindow.clear()
         resetDynamicDanmakuState(clearOverload = true)
-        clearSeekGuard()
-        clearPlaybackFloorGuard()
-        clearTimelineContinuityGuard()
+        timelineClock.reset(positionMs = 0f, nowNs = System.nanoTime(), paused = true)
         clearMaskState()
         resetFrameStats()
         resetPlaybackSyncStats()
@@ -1478,7 +1160,6 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
         val oldFontThickness = settings.fontThickness
         val oldColorEnabled = settings.colorEnabled
         val oldTargetFrameRateHz = settings.targetFrameRateHz
-        val oldPlaybackSpeed = settings.playbackSpeed
         settings = payload.settings
         if (payload.comments != null) {
             comments = payload.comments
@@ -1527,12 +1208,8 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
                 }
             rebuildTimeline(resetPosition)
         } else {
-            timelineAnchorPositionMs = currentTimelineMs
-            timelineAnchorTimeNs = anchorClockNs
+            timelineClock.reanchor(currentTimelineMs, anchorClockNs)
             relayoutActiveItems(currentTimelineMs)
-            if (oldPlaybackSpeed != settings.playbackSpeed) {
-                armTimelineContinuityGuard(anchorClockNs)
-            }
         }
         invalidate()
         if (shouldAnimate()) {
@@ -1754,9 +1431,10 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
         } else {
             clearPendingScrollQueue()
         }
-        lastKnownPositionMs = positionMs.coerceAtLeast(0f)
-        lastSoftSyncAppliedNs = 0L
-        reanchorTimeline(lastKnownPositionMs, nowNs)
+        val replayTimeline = timelineClock.canReplayTimeline
+        if (replayTimeline) {
+            timelineClock.rebuildAt(positionMs, nowNs)
+        }
         activeItems.clear()
         duplicateWindow.clear()
         topLaneAvailableAtMs.fill(0f)
@@ -1766,9 +1444,11 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
         topLaneLastDrawWidthPx.fill(0f)
         nextCommentIndex =
             lowerBoundCommentIndex(
-                max(0f, lastKnownPositionMs - MAX_LOOKBACK_MS).toInt(),
+                max(0f, positionMs - MAX_LOOKBACK_MS).toInt(),
             )
-        replayCommentsUntil(lastKnownPositionMs)
+        if (replayTimeline) {
+            replayCommentsUntil(positionMs)
+        }
     }
 
     private fun relayoutActiveItems(timelineMs: Float) {
@@ -1933,7 +1613,7 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
                 // 不同宽度弹幕呈现不同飘动速度（而非全局单一速度）。
                 val travelDurationMs = currentScrollBaseTravelDurationMs().coerceAtLeast(2000f)
                 val speedPxPerMs =
-                    ((width + bitmap.drawWidth) / travelDurationMs).coerceAtLeast(TIMELINE_SOFT_SYNC_GAIN)
+                    ((width + bitmap.drawWidth) / travelDurationMs).coerceAtLeast(MIN_SCROLL_SPEED_PX_PER_MS)
                 val startMs = if (fromPending) timelineMs else comment.timeMs.toFloat()
                 val releaseAfterMs = (bitmap.drawWidth + currentItemGapPx()) / speedPxPerMs
                 val laneIndex =
@@ -2407,7 +2087,7 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
     }
 
     private fun currentAnimationClockNs(fallbackNs: Long): Long {
-        if (paused) {
+        if (!timelineClock.isAdvancing) {
             return fallbackNs
         }
         val frameNs = renderFrameTimeNs
@@ -2779,42 +2459,32 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
         projectionMs: Float,
         rawDriftMs: Float,
         stabilizedDriftMs: Float,
-        rebuildTimeline: Boolean,
-        reanchorTimeline: Boolean,
-        softSyncSelected: Boolean,
-        softSyncApplied: Boolean,
+        metricsEligible: Boolean,
+        correction: DanmakuTimelineCorrection,
         latencyFiltered: Boolean,
     ) {
         if (playbackSyncWindowStartNs == 0L) {
             playbackSyncWindowStartNs = nowNs
         }
-        playbackSyncSampleCount += 1
-        playbackSyncAccumulatedSampleLatencyMs += sampleLatencyMs
-        playbackSyncMaxSampleLatencyMs = max(playbackSyncMaxSampleLatencyMs, sampleLatencyMs)
-        val absProjectionMs = abs(projectionMs)
-        playbackSyncAccumulatedProjectionMs += absProjectionMs
-        playbackSyncMaxProjectionMs = max(playbackSyncMaxProjectionMs, absProjectionMs)
-        val absRawDriftMs = abs(rawDriftMs)
-        playbackSyncAccumulatedRawDriftAbsMs += absRawDriftMs
-        playbackSyncMaxRawDriftAbsMs = max(playbackSyncMaxRawDriftAbsMs, absRawDriftMs)
-        val absStabilizedDriftMs = abs(stabilizedDriftMs)
-        playbackSyncAccumulatedStabilizedDriftAbsMs += absStabilizedDriftMs
-        playbackSyncMaxStabilizedDriftAbsMs =
-            max(playbackSyncMaxStabilizedDriftAbsMs, absStabilizedDriftMs)
-        if (rebuildTimeline) {
-            playbackSyncRebuildCount += 1
-        }
-        if (reanchorTimeline) {
-            playbackSyncReanchorCount += 1
-        }
-        if (softSyncSelected) {
-            playbackSyncSoftSyncPathCount += 1
-        }
-        if (softSyncApplied) {
-            playbackSyncSoftSyncAppliedCount += 1
-        }
-        if (latencyFiltered) {
-            playbackSyncLatencyFilteredCount += 1
+        playbackSyncStats.record(metricsEligible, correction)
+        if (metricsEligible) {
+            playbackSyncAccumulatedSampleLatencyMs += sampleLatencyMs
+            playbackSyncMaxSampleLatencyMs = max(playbackSyncMaxSampleLatencyMs, sampleLatencyMs)
+            val absProjectionMs = abs(projectionMs)
+            playbackSyncAccumulatedProjectionMs += absProjectionMs
+            playbackSyncMaxProjectionMs = max(playbackSyncMaxProjectionMs, absProjectionMs)
+            playbackSyncAccumulatedRawDriftMs += rawDriftMs
+            playbackSyncAccumulatedStabilizedDriftMs += stabilizedDriftMs
+            val absRawDriftMs = abs(rawDriftMs)
+            playbackSyncAccumulatedRawDriftAbsMs += absRawDriftMs
+            playbackSyncMaxRawDriftAbsMs = max(playbackSyncMaxRawDriftAbsMs, absRawDriftMs)
+            val absStabilizedDriftMs = abs(stabilizedDriftMs)
+            playbackSyncAccumulatedStabilizedDriftAbsMs += absStabilizedDriftMs
+            playbackSyncMaxStabilizedDriftAbsMs =
+                max(playbackSyncMaxStabilizedDriftAbsMs, absStabilizedDriftMs)
+            if (latencyFiltered) {
+                playbackSyncLatencyFilteredCount += 1
+            }
         }
         val windowDurationNs = nowNs - playbackSyncWindowStartNs
         if (windowDurationNs < FPS_LOG_WINDOW_NS) {
@@ -2824,25 +2494,26 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
             resetPlaybackSyncStats(nextWindowStartNs = nowNs)
             return
         }
-        val safeSampleCount = playbackSyncSampleCount.coerceAtLeast(1)
-        Log.d(
+        val safeSampleCount = playbackSyncStats.driftSampleCount.coerceAtLeast(1)
+        Log.v(
             TAG,
             String.format(
                 Locale.US,
-                "[DANMAKU][NATIVE] sync updates=%d avgSampleLatencyMs=%.2f maxSampleLatencyMs=%.2f avgProjectionMs=%.2f maxProjectionMs=%.2f avgAbsRawDriftMs=%.2f maxAbsRawDriftMs=%.2f avgAbsStabilizedDriftMs=%.2f maxAbsStabilizedDriftMs=%.2f rebuild=%d reanchor=%d softSyncPath=%d softSyncApplied=%d latencyFiltered=%d windowMs=%d",
-                playbackSyncSampleCount,
+                "[DANMAKU][NATIVE] sync updates=%d avgSampleLatencyMs=%.2f maxSampleLatencyMs=%.2f avgProjectionMs=%.2f maxProjectionMs=%.2f avgRawDriftMs=%.2f avgStabilizedDriftMs=%.2f avgAbsRawDriftMs=%.2f maxAbsRawDriftMs=%.2f avgAbsStabilizedDriftMs=%.2f maxAbsStabilizedDriftMs=%.2f rebuild=%d reanchor=%d softSyncApplied=%d latencyFiltered=%d windowMs=%d",
+                playbackSyncStats.driftSampleCount,
                 playbackSyncAccumulatedSampleLatencyMs / safeSampleCount.toFloat(),
                 playbackSyncMaxSampleLatencyMs,
                 playbackSyncAccumulatedProjectionMs / safeSampleCount.toFloat(),
                 playbackSyncMaxProjectionMs,
+                playbackSyncAccumulatedRawDriftMs / safeSampleCount.toFloat(),
+                playbackSyncAccumulatedStabilizedDriftMs / safeSampleCount.toFloat(),
                 playbackSyncAccumulatedRawDriftAbsMs / safeSampleCount.toFloat(),
                 playbackSyncMaxRawDriftAbsMs,
                 playbackSyncAccumulatedStabilizedDriftAbsMs / safeSampleCount.toFloat(),
                 playbackSyncMaxStabilizedDriftAbsMs,
-                playbackSyncRebuildCount,
-                playbackSyncReanchorCount,
-                playbackSyncSoftSyncPathCount,
-                playbackSyncSoftSyncAppliedCount,
+                playbackSyncStats.rebuildEventCount,
+                playbackSyncStats.reanchorEventCount,
+                playbackSyncStats.softSyncEventCount,
                 playbackSyncLatencyFilteredCount,
                 windowDurationNs / 1_000_000L,
             ),
@@ -2874,19 +2545,17 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
 
     private fun resetPlaybackSyncStats(nextWindowStartNs: Long = 0L) {
         playbackSyncWindowStartNs = nextWindowStartNs
-        playbackSyncSampleCount = 0
+        playbackSyncStats.reset()
         playbackSyncAccumulatedSampleLatencyMs = 0f
         playbackSyncMaxSampleLatencyMs = 0f
         playbackSyncAccumulatedProjectionMs = 0f
         playbackSyncMaxProjectionMs = 0f
+        playbackSyncAccumulatedRawDriftMs = 0f
+        playbackSyncAccumulatedStabilizedDriftMs = 0f
         playbackSyncAccumulatedRawDriftAbsMs = 0f
         playbackSyncAccumulatedStabilizedDriftAbsMs = 0f
         playbackSyncMaxRawDriftAbsMs = 0f
         playbackSyncMaxStabilizedDriftAbsMs = 0f
-        playbackSyncRebuildCount = 0
-        playbackSyncReanchorCount = 0
-        playbackSyncSoftSyncPathCount = 0
-        playbackSyncSoftSyncAppliedCount = 0
         playbackSyncLatencyFilteredCount = 0
     }
 
@@ -2897,12 +2566,7 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
     }
 
     private fun currentTimelineMs(nowNs: Long): Float {
-        if (paused) {
-            return timelineAnchorPositionMs
-        }
-        val elapsedNs = (nowNs - timelineAnchorTimeNs).coerceAtLeast(0L)
-        val elapsedMs = elapsedNs / 1_000_000f
-        return timelineAnchorPositionMs + (elapsedMs * settings.playbackSpeed.coerceAtLeast(0.1f))
+        return timelineClock.currentTimelineMs(nowNs, settings.playbackSpeed)
     }
 
     private fun shouldAnimate(): Boolean {
@@ -2912,7 +2576,7 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
         if (comments.isEmpty()) {
             return false
         }
-        return !paused || activeItems.isNotEmpty()
+        return timelineClock.isAdvancing || activeItems.isNotEmpty()
     }
 
     private fun scheduleFrame() {
