@@ -36,6 +36,7 @@ class BackendSessionProvider extends ChangeNotifier
 
   @override
   void dispose() {
+    _disposed = true;
     if (_observeLifecycle) {
       WidgetsBinding.instance.removeObserver(this);
     }
@@ -54,6 +55,8 @@ class BackendSessionProvider extends ChangeNotifier
   Object? _lastLoadFailure;
   StackTrace? _lastLoadFailureStackTrace;
   Future<void>? _loadInFlight;
+  Future<void> _operationTail = Future<void>.value();
+  bool _disposed = false;
 
   bool get isReady => _isReady;
   bool get hasLoadFailure => _lastLoadFailure != null;
@@ -75,20 +78,47 @@ class BackendSessionProvider extends ChangeNotifier
     return loadFuture;
   }
 
+  Future<void> _enqueueOperation(Future<void> Function() operation) {
+    final completer = Completer<void>();
+    _operationTail = _operationTail.then<void>((_) async {
+      try {
+        await operation();
+        completer.complete();
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+    return completer.future;
+  }
+
   Future<void> _runLoadGeneration(
     Future<void> loadFuture,
     Completer<void> completer,
   ) async {
     try {
-      await _performLoad();
+      await _enqueueOperation(_performLoad);
       if (identical(_loadInFlight, loadFuture)) {
         _loadInFlight = null;
       }
+      completer.complete();
+    } on SecureCredentialUnavailableException catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load backend session credentials',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'backend_session_provider',
+      );
       completer.complete();
     } catch (error, stackTrace) {
       if (identical(_loadInFlight, loadFuture)) {
         _loadInFlight = null;
       }
+      await logSwallowedError(
+        action: 'load backend session credentials',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'backend_session_provider',
+      );
       completer.completeError(error, stackTrace);
     }
   }
@@ -100,29 +130,15 @@ class BackendSessionProvider extends ChangeNotifier
       _snapshot = nextSnapshot;
       _isReady = true;
       _clearLoadFailure();
-      notifyListeners();
+      if (!_disposed) notifyListeners();
     } on SecureCredentialUnavailableException catch (error, stackTrace) {
       _loadInFlight = null;
       _recordLoadFailure(error, stackTrace);
-      await logSwallowedError(
-        action: 'load backend session credentials',
-        error: error,
-        stackTrace: stackTrace,
-        source: 'backend_session_provider',
-      );
+      Error.throwWithStackTrace(error, stackTrace);
     } catch (error, stackTrace) {
       _loadInFlight = null;
       _recordLoadFailure(error, stackTrace);
-      try {
-        await logSwallowedError(
-          action: 'load backend session credentials',
-          error: error,
-          stackTrace: stackTrace,
-          source: 'backend_session_provider',
-        );
-      } finally {
-        Error.throwWithStackTrace(error, stackTrace);
-      }
+      Error.throwWithStackTrace(error, stackTrace);
     }
   }
 
@@ -139,13 +155,13 @@ class BackendSessionProvider extends ChangeNotifier
   void _beginLoadAttempt() {
     if (!hasLoadFailure) return;
     _clearLoadFailure();
-    notifyListeners();
+    if (!_disposed) notifyListeners();
   }
 
   void _recordLoadFailure(Object error, StackTrace stackTrace) {
     _lastLoadFailure = error;
     _lastLoadFailureStackTrace = stackTrace;
-    notifyListeners();
+    if (!_disposed) notifyListeners();
   }
 
   void _clearLoadFailure() {
@@ -159,7 +175,11 @@ class BackendSessionProvider extends ChangeNotifier
   /// [MediaBackendProvider] 会暂时默认回飞牛（[currentKind] fallback）→ Emby 条目被按飞牛
   /// 查询报 noData。页面在读后端前先 `await ensureReady()` 即可拿到磁盘上的当前后端。
   Future<void> ensureReady() async {
-    if (_isReady) return;
+    final currentLoad = _loadInFlight;
+    if (currentLoad == null) {
+      await _operationTail;
+      if (_isReady) return;
+    }
     try {
       await load();
     } catch (error, stackTrace) {
@@ -176,19 +196,21 @@ class BackendSessionProvider extends ChangeNotifier
     }
   }
 
-  Future<void> saveActive(MediaBackendConnection connection) async {
-    await MediaBackendConnectionStore.saveActive(connection);
-    _snapshot = await MediaBackendConnectionStore.load();
-    _isReady = true;
-    _clearLoadFailure();
-    notifyListeners();
-  }
+  Future<void> saveActive(MediaBackendConnection connection) =>
+      _enqueueOperation(() async {
+        await MediaBackendConnectionStore.saveActive(connection);
+        _snapshot = await MediaBackendConnectionStore.load();
+        _isReady = true;
+        _clearLoadFailure();
+        if (!_disposed) notifyListeners();
+      });
 
-  Future<void> saveConnection(MediaBackendConnection connection) async {
-    await MediaBackendConnectionStore.saveConnection(connection);
-    _snapshot = await MediaBackendConnectionStore.load();
-    _isReady = true;
-    _clearLoadFailure();
-    notifyListeners();
-  }
+  Future<void> saveConnection(MediaBackendConnection connection) =>
+      _enqueueOperation(() async {
+        await MediaBackendConnectionStore.saveConnection(connection);
+        _snapshot = await MediaBackendConnectionStore.load();
+        _isReady = true;
+        _clearLoadFailure();
+        if (!_disposed) notifyListeners();
+      });
 }
