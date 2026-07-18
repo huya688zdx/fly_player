@@ -20,9 +20,9 @@ object ActivityEmbeddingInstaller {
     private val installed = AtomicBoolean(false)
 
     // 分屏规则的宽度阈值：AE 仅当「容器宽 ≥ MIN_WIDTH_DP 且 最小宽 ≥ MIN_SMALLEST_WIDTH_DP」
-    // 时才真正并排。NativePlayerActivity.splitSupported() 必须用同一组阈值 gate，否则手机/
-    // 折叠屏外屏/窄多窗口下宽度不足时 AE 不分屏，startActivity(detail) 会把副栏盖在播放器上、
-    // 播放退后台（手机端实测 bug）。两处同源，避免漂移。
+    // 时才真正并排。NativeSplitGate 必须引用同一组阈值，否则手机/折叠屏外屏/自由窗口下
+    // 宽度不足时 AE 不分屏，startActivity(detail) 会把副栏盖在播放器上、播放退后台。
+    // 入口与规则两处同源，避免再次漂移。
     const val MIN_WIDTH_DP = 840
     const val MIN_SMALLEST_WIDTH_DP = 600
 
