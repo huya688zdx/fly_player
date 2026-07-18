@@ -32,6 +32,8 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
   Object? _lastLoadFailure;
   StackTrace? _lastLoadFailureStackTrace;
   Future<void>? _loadSettingsInFlight;
+  int? _loadSettingsInFlightBarrier;
+  int _mutationBarrier = 0;
   Future<void> _operationTail = Future<void>.value();
   bool _disposed = false;
 
@@ -96,7 +98,7 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _handleSessionStateMethodCall(MethodCall call) async {
     if (call.method != 'loggedOut') return;
-    await _enqueueOperation(() => _applyLoggedOutState(notify: true));
+    await _enqueueMutation(() => _applyLoggedOutState(notify: true));
   }
 
   Future<void> _enqueueOperation(Future<void> Function() operation) {
@@ -110,6 +112,11 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
       }
     });
     return completer.future;
+  }
+
+  Future<void> _enqueueMutation(Future<void> Function() operation) {
+    _mutationBarrier++;
+    return _enqueueOperation(operation);
   }
 
   Future<void> _loadSettings() async {
@@ -198,11 +205,15 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _startOrJoinSettingsLoad() {
     final currentLoad = _loadSettingsInFlight;
-    if (currentLoad != null) return currentLoad;
+    final currentBarrier = _mutationBarrier;
+    if (currentLoad != null && _loadSettingsInFlightBarrier == currentBarrier) {
+      return currentLoad;
+    }
 
     final completer = Completer<void>();
     final loadFuture = completer.future;
     _loadSettingsInFlight = loadFuture;
+    _loadSettingsInFlightBarrier = currentBarrier;
     unawaited(_runSettingsLoadGeneration(loadFuture, completer));
     return loadFuture;
   }
@@ -212,10 +223,8 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     Completer<void> completer,
   ) async {
     try {
-      await _enqueueOperation(_performSettingsLoad);
-      if (identical(_loadSettingsInFlight, loadFuture)) {
-        _loadSettingsInFlight = null;
-      }
+      await _enqueueOperation(() => _performSettingsLoad(loadFuture));
+      _clearSettingsLoadIfCurrent(loadFuture);
       completer.complete();
     } on SecureCredentialUnavailableException catch (error, stackTrace) {
       await logSwallowedError(
@@ -226,9 +235,7 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
       );
       completer.complete();
     } catch (error, stackTrace) {
-      if (identical(_loadSettingsInFlight, loadFuture)) {
-        _loadSettingsInFlight = null;
-      }
+      _clearSettingsLoadIfCurrent(loadFuture);
       await logSwallowedError(
         action: 'load NAS session settings',
         error: error,
@@ -239,16 +246,22 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _performSettingsLoad() async {
+  void _clearSettingsLoadIfCurrent(Future<void> loadFuture) {
+    if (!identical(_loadSettingsInFlight, loadFuture)) return;
+    _loadSettingsInFlight = null;
+    _loadSettingsInFlightBarrier = null;
+  }
+
+  Future<void> _performSettingsLoad(Future<void> loadFuture) async {
     _beginLoadAttempt();
     try {
       await _loadSettings();
     } on SecureCredentialUnavailableException catch (error, stackTrace) {
-      _loadSettingsInFlight = null;
+      _clearSettingsLoadIfCurrent(loadFuture);
       _recordLoadFailure(error, stackTrace);
       Error.throwWithStackTrace(error, stackTrace);
     } catch (error, stackTrace) {
-      _loadSettingsInFlight = null;
+      _clearSettingsLoadIfCurrent(loadFuture);
       _recordLoadFailure(error, stackTrace);
       Error.throwWithStackTrace(error, stackTrace);
     }
@@ -280,7 +293,7 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     required String password,
     bool rememberPassword = true,
     String? token,
-  }) => _enqueueOperation(() async {
+  }) => _enqueueMutation(() async {
     final prefs = await SharedPreferences.getInstance();
     _baseUrl = baseUrl;
     _resolvedBaseUrl = resolvedBaseUrl?.trim() ?? '';
@@ -303,7 +316,7 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (!_disposed) notifyListeners();
   });
 
-  Future<void> updateToken(String token) => _enqueueOperation(() async {
+  Future<void> updateToken(String token) => _enqueueMutation(() async {
     final prefs = await SharedPreferences.getInstance();
     _token = token;
     await _writeOrDelete(_tokenCredentialKey, _token);
@@ -328,7 +341,7 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  Future<void> logout() => _enqueueOperation(() async {
+  Future<void> logout() => _enqueueMutation(() async {
     await _applyLoggedOutState(notify: true);
     await SessionExitBridge.logoutAndResetParallelUi();
   });

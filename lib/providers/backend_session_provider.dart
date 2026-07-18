@@ -55,6 +55,8 @@ class BackendSessionProvider extends ChangeNotifier
   Object? _lastLoadFailure;
   StackTrace? _lastLoadFailureStackTrace;
   Future<void>? _loadInFlight;
+  int? _loadInFlightBarrier;
+  int _mutationBarrier = 0;
   Future<void> _operationTail = Future<void>.value();
   bool _disposed = false;
 
@@ -69,11 +71,15 @@ class BackendSessionProvider extends ChangeNotifier
 
   Future<void> _startOrJoinLoad() {
     final currentLoad = _loadInFlight;
-    if (currentLoad != null) return currentLoad;
+    final currentBarrier = _mutationBarrier;
+    if (currentLoad != null && _loadInFlightBarrier == currentBarrier) {
+      return currentLoad;
+    }
 
     final completer = Completer<void>();
     final loadFuture = completer.future;
     _loadInFlight = loadFuture;
+    _loadInFlightBarrier = currentBarrier;
     unawaited(_runLoadGeneration(loadFuture, completer));
     return loadFuture;
   }
@@ -91,15 +97,18 @@ class BackendSessionProvider extends ChangeNotifier
     return completer.future;
   }
 
+  Future<void> _enqueueMutation(Future<void> Function() operation) {
+    _mutationBarrier++;
+    return _enqueueOperation(operation);
+  }
+
   Future<void> _runLoadGeneration(
     Future<void> loadFuture,
     Completer<void> completer,
   ) async {
     try {
-      await _enqueueOperation(_performLoad);
-      if (identical(_loadInFlight, loadFuture)) {
-        _loadInFlight = null;
-      }
+      await _enqueueOperation(() => _performLoad(loadFuture));
+      _clearLoadIfCurrent(loadFuture);
       completer.complete();
     } on SecureCredentialUnavailableException catch (error, stackTrace) {
       await logSwallowedError(
@@ -110,9 +119,7 @@ class BackendSessionProvider extends ChangeNotifier
       );
       completer.complete();
     } catch (error, stackTrace) {
-      if (identical(_loadInFlight, loadFuture)) {
-        _loadInFlight = null;
-      }
+      _clearLoadIfCurrent(loadFuture);
       await logSwallowedError(
         action: 'load backend session credentials',
         error: error,
@@ -123,7 +130,13 @@ class BackendSessionProvider extends ChangeNotifier
     }
   }
 
-  Future<void> _performLoad() async {
+  void _clearLoadIfCurrent(Future<void> loadFuture) {
+    if (!identical(_loadInFlight, loadFuture)) return;
+    _loadInFlight = null;
+    _loadInFlightBarrier = null;
+  }
+
+  Future<void> _performLoad(Future<void> loadFuture) async {
     _beginLoadAttempt();
     try {
       final nextSnapshot = await MediaBackendConnectionStore.load();
@@ -132,11 +145,11 @@ class BackendSessionProvider extends ChangeNotifier
       _clearLoadFailure();
       if (!_disposed) notifyListeners();
     } on SecureCredentialUnavailableException catch (error, stackTrace) {
-      _loadInFlight = null;
+      _clearLoadIfCurrent(loadFuture);
       _recordLoadFailure(error, stackTrace);
       Error.throwWithStackTrace(error, stackTrace);
     } catch (error, stackTrace) {
-      _loadInFlight = null;
+      _clearLoadIfCurrent(loadFuture);
       _recordLoadFailure(error, stackTrace);
       Error.throwWithStackTrace(error, stackTrace);
     }
@@ -197,7 +210,7 @@ class BackendSessionProvider extends ChangeNotifier
   }
 
   Future<void> saveActive(MediaBackendConnection connection) =>
-      _enqueueOperation(() async {
+      _enqueueMutation(() async {
         await MediaBackendConnectionStore.saveActive(connection);
         _snapshot = await MediaBackendConnectionStore.load();
         _isReady = true;
@@ -206,7 +219,7 @@ class BackendSessionProvider extends ChangeNotifier
       });
 
   Future<void> saveConnection(MediaBackendConnection connection) =>
-      _enqueueOperation(() async {
+      _enqueueMutation(() async {
         await MediaBackendConnectionStore.saveConnection(connection);
         _snapshot = await MediaBackendConnectionStore.load();
         _isReady = true;
