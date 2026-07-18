@@ -846,6 +846,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private var subtitleEntrySpacer: View? = null
     private var qualityEntrySpacer: View? = null
     private lateinit var displayModeButton: ImageButton
+    private var splitVerifyRunnable: Runnable? = null
 
     private lateinit var panelContainer: FrameLayout
     private lateinit var panelScrollView: MaxHeightScrollView
@@ -1806,13 +1807,23 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun splitSupported(): Boolean {
         if (Build.VERSION.SDK_INT < 32) return false
-        // 手机（smallestWidth < 600dp）即使系统报 SPLIT_AVAILABLE 也不该分屏：屏太窄，
-        // ActivityEmbedding 会把副栏盖满、把播放器挤到后台。手机上按钮退化为横竖屏切换。
-        if (!isTablet()) return false
-        return runCatching {
-            androidx.window.embedding.SplitController.getInstance(this).splitSupportStatus ==
-                androidx.window.embedding.SplitController.SplitSupportStatus.SPLIT_AVAILABLE
-        }.getOrDefault(false)
+        // 手机、任务台小窗与未占满显示区域的窄窗口都退化为横竖屏切换；已嵌入态除外。
+        val calculator = androidx.window.layout.WindowMetricsCalculator.getOrCreate()
+        val current = calculator.computeCurrentWindowMetrics(this).bounds
+        val maximum = calculator.computeMaximumWindowMetrics(this).bounds
+        val density = resources.displayMetrics.density
+        return NativeSplitGate.splitEntryAllowed(
+            sdkInt = Build.VERSION.SDK_INT,
+            alreadyEmbedded = isCurrentlySplit(),
+            inMultiWindow = isInMultiWindowMode,
+            windowWidthDp = current.width() / density,
+            windowHeightDp = current.height() / density,
+            windowIsFullDisplay = current.width() >= maximum.width() && current.height() >= maximum.height(),
+            splitAvailable = runCatching {
+                androidx.window.embedding.SplitController.getInstance(this).splitSupportStatus ==
+                    androidx.window.embedding.SplitController.SplitSupportStatus.SPLIT_AVAILABLE
+            }.getOrDefault(false),
+        )
     }
 
     private fun isCurrentlySplit(): Boolean =
@@ -1822,7 +1833,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }.getOrDefault(ParallelWindowCoordinator.isNativeSplitPlayerVisible())
 
     private fun syncSplitFlagFromWindow() {
-        if (inPipMode) return
+        // 进入分屏的宽限期内嵌入态可能暂时为 false，交给双阶段校验确认，避免提前清掉标志
+        // 导致最终校验把失败误当成用户已手动退出。
+        if (inPipMode || splitVerifyRunnable != null) return
         val embedded = isCurrentlySplit()
         if (ParallelWindowCoordinator.isNativeSplitPlayerVisible() != embedded) {
             ParallelWindowCoordinator.setNativeSplitPlayerVisible(embedded)
@@ -1854,6 +1867,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun onDisplayModeButtonClick() {
+        logSplitDiagnostics()
         if (!splitSupported()) {
             toggleOrientation()
             refreshDisplayModeButton()
@@ -1865,6 +1879,26 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             }
         }
         scheduleControlsAutoHide()
+    }
+
+    private fun logSplitDiagnostics() {
+        val calculator = androidx.window.layout.WindowMetricsCalculator.getOrCreate()
+        val current = calculator.computeCurrentWindowMetrics(this).bounds
+        val maximum = calculator.computeMaximumWindowMetrics(this).bounds
+        val splitStatus = runCatching {
+            androidx.window.embedding.SplitController.getInstance(this).splitSupportStatus
+        }.getOrNull()
+        val embedded = runCatching {
+            androidx.window.embedding.ActivityEmbeddingController.getInstance(this)
+                .isActivityEmbedded(this)
+        }.getOrDefault(false)
+        val inMultiWindow = Build.VERSION.SDK_INT >= 24 && isInMultiWindowMode
+        Log.d(
+            "NativePlayerSplit",
+            "display mode click current=$current maximum=$maximum density=${resources.displayMetrics.density} " +
+                "isInMultiWindowMode=$inMultiWindow splitSupportStatus=$splitStatus " +
+                "isActivityEmbedded=$embedded",
+        )
     }
 
     private fun captureAndFreeze(after: () -> Unit) {
@@ -1921,17 +1955,65 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val route = if (itemGuid.isNotEmpty()) "/detail/item?itemGuid=$itemGuid" else "/"
         val detailIntent = DetailActivity.createSplitIntent(this, route)
         runCatching { startActivity(detailIntent) }
+            .onSuccess {
+                ParallelWindowCoordinator.setLastNativePlaybackSplit(this, true)
+                scheduleSplitEntryVerification()
+            }
             .onFailure {
                 ParallelWindowCoordinator.setNativeSplitPlayerVisible(false)
+                ParallelWindowCoordinator.setLastNativePlaybackSplit(this, false)
                 syncOcclusionWithSplitState()
                 showTransientHint(getString(R.string.player_split_start_failed))
                 Log.w("NativePlayerSplit", "enterSplitMode startActivity failed", it)
             }
-        ParallelWindowCoordinator.setLastNativePlaybackSplit(this, true)
         refreshDisplayModeButton()
     }
 
+    private fun scheduleSplitEntryVerification() {
+        cancelSplitEntryVerification()
+        val secondCheck = Runnable { verifySplitEntry(final = true) }
+        val firstCheck = Runnable {
+            if (!verifySplitEntry(final = false)) {
+                splitVerifyRunnable = secondCheck
+                playerSurface.postDelayed(secondCheck, 1000L)
+            }
+        }
+        splitVerifyRunnable = firstCheck
+        playerSurface.postDelayed(firstCheck, 600L)
+    }
+
+    /** @return true 表示已经确认并排，或当前状态无需继续校验。 */
+    private fun verifySplitEntry(final: Boolean): Boolean {
+        splitVerifyRunnable = null
+        if (isFinishing || inPipMode) return true
+        if (!ParallelWindowCoordinator.isNativeSplitPlayerVisible()) return true
+        val embedded = runCatching {
+            androidx.window.embedding.ActivityEmbeddingController.getInstance(this)
+                .isActivityEmbedded(this)
+        }.getOrDefault(false)
+        if (embedded) return true
+        if (!final) return false
+
+        Log.w("NativePlayerSplit", "split entry NOT embedded after grace period, rolling back")
+        ParallelWindowCoordinator.currentSplitDetailHost()?.let { runCatching { it.finish() } }
+        ParallelWindowCoordinator.setNativeSplitPlayerVisible(false)
+        ParallelWindowCoordinator.setLastNativePlaybackSplit(this, false)
+        applyFullscreenOrientation()
+        syncOcclusionWithSplitState()
+        refreshDisplayModeButton()
+        showTransientHint(getString(R.string.player_split_unavailable_window))
+        return true
+    }
+
+    private fun cancelSplitEntryVerification() {
+        if (this::playerSurface.isInitialized) {
+            splitVerifyRunnable?.let { playerSurface.removeCallbacks(it) }
+        }
+        splitVerifyRunnable = null
+    }
+
     private fun exitSplitMode() {
+        cancelSplitEntryVerification()
         ParallelWindowCoordinator.setNativeSplitPlayerVisible(false)
         ParallelWindowCoordinator.currentSplitDetailHost()?.let { host ->
             runCatching { host.finish() }
@@ -1943,6 +2025,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun collapseSplitForPip() {
+        cancelSplitEntryVerification()
         val host = ParallelWindowCoordinator.currentSplitDetailHost()
         if (host == null && !ParallelWindowCoordinator.isNativeSplitPlayerVisible()) return
         host?.let { runCatching { it.finish() } }
@@ -1950,6 +2033,24 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         ParallelWindowCoordinator.setLastNativePlaybackSplit(this, false)
         syncOcclusionWithSplitState()
         Log.d("NativePlayerSplit", "collapseSplitForPip finished detail pane")
+    }
+
+    /** 副栏仍存活但已不再并排时，收掉副栏并恢复纯播放器窗口。 */
+    private fun collapseStrandedSplitDetail() {
+        if (inPipMode || splitVerifyRunnable != null) return
+        val host = ParallelWindowCoordinator.currentSplitDetailHost() ?: return
+        val embedded = runCatching {
+            androidx.window.embedding.ActivityEmbeddingController.getInstance(this)
+                .isActivityEmbedded(this)
+        }.getOrDefault(false)
+        if (embedded) return
+
+        Log.w("NativePlayerSplit", "stranded split detail (not embedded) -> collapse")
+        runCatching { host.finish() }
+        ParallelWindowCoordinator.setNativeSplitPlayerVisible(false)
+        ParallelWindowCoordinator.setLastNativePlaybackSplit(this, false)
+        syncOcclusionWithSplitState()
+        refreshDisplayModeButton()
     }
 
     private fun playNextEpisode(autoPlayAfterLoad: Boolean = true) {
@@ -2499,6 +2600,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         super.onConfigurationChanged(newConfig)
         // 分屏/全屏 resize 或旋转后：把全局标志校准到真实嵌入态（供 FlutterHostActivity 决定
         // 同栈复用/新建 task），再刷新切换按钮图标语义，并重申沉浸式（系统栏隐藏）。
+        collapseStrandedSplitDetail()
         syncSplitFlagFromWindow()
         refreshDisplayModeButton()
         enableImmersiveMode()
@@ -2508,6 +2610,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         applyOrientationToControls()
         // 面板开着时旋转：按新朝向重新锚定（竖屏底部/横屏右侧），内容保留。
         if (panelVisible) showPanelContainer()
+    }
+
+    override fun onMultiWindowModeChanged(isInMultiWindowMode: Boolean, newConfig: Configuration) {
+        super.onMultiWindowModeChanged(isInMultiWindowMode, newConfig)
+        refreshDisplayModeButton()
+        if (isInMultiWindowMode) collapseStrandedSplitDetail()
     }
 
     override fun onPictureInPictureModeChanged(
@@ -9396,6 +9504,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     override fun onDestroy() {
+        cancelSplitEntryVerification()
         cancelControlsAutoHide()
         cancelAutoNext()
         unregisterBatteryReceiver()
