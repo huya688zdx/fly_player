@@ -34,7 +34,7 @@
 | 2026-07-09 | S 安全 | G-029 / G-032 | 已修复 | 两个 WebView 登录页遇到 SSL 证书错误时默认 `cancel()` 并提示，不再静默 `proceed()` 或自动提交凭据。 | 本次提交 | 待验证 | 无 |
 | 2026-07-09 | S 安全 | B-027 | 已修复 | `PrivateNetworkHttpOverrides` 仅允许 RFC1918、loopback、link-local、IPv6 ULA 和显式注册 NAS host 跳过证书校验，公网 IP 不再放行。 | 本次提交 | 待验证 | 无 |
 | 2026-07-09 | S 安全 | B-011 | 已修复 | 新增平台安全凭据存储；登录历史、后端连接、飞牛旧会话的密码/token 迁入安全存储，SharedPreferences 只留非敏感描述和存在标记，并迁移清理旧明文。 | `2ccdb49` | 待验证 | 无 |
-| 2026-07-16 | S 安全加固 | B-011 回归/加固 | 已修复 | 安全凭据读取采用 `value/missing/unavailable` 三态；瞬时读取失败时保留飞牛和服务器族现有会话，Android 读取失败不再删除密文，写入/删除失败向调用方传播；初始化失败可重试且不会误进入登录页；并发启动、前台恢复和快速重试按单一加载代次合并，避免状态覆盖和重复读取。 | `76b19a5` / `c8d2065` / `c1112d8` / `520bb2d` / `d3a600d` / `0c50f24` / `7c6d607` | `flutter test test/services/secure_credential_store_test.dart test/providers/nas_provider_session_stability_test.dart test/providers/backend_session_provider_test.dart test/provider_gate_retry_test.dart test/screens/connection_automatic_load_failure_test.dart`；Android `SecureCredentialStoreTest` | 无 |
+| 2026-07-16 | S 安全加固 | B-011 回归/加固 | 已修复 | 安全凭据读取采用 `value/missing/unavailable` 三态；瞬时读取失败时保留飞牛和服务器族现有会话，Android 读取失败不再删除密文，写入/删除失败向调用方传播；初始化失败可重试且不会误进入登录页；并发启动、前台恢复和快速重试按单一加载代次合并，避免状态覆盖和重复读取；加载与登录、更新 token、退出、后端保存通过异常安全 FIFO 串行，防止旧快照覆盖新会话。 | `76b19a5` / `c8d2065` / `c1112d8` / `520bb2d` / `d3a600d` / `0c50f24` / `7c6d607` / `46a85a6` | `flutter test test/services/secure_credential_store_test.dart test/providers/nas_provider_session_stability_test.dart test/providers/backend_session_provider_test.dart test/provider_gate_retry_test.dart test/screens/connection_automatic_load_failure_test.dart`；Android `SecureCredentialStoreTest` | 无 |
 | 2026-07-16 | M API/服务层 | A-006 | 已修复 | 普通接口返回 401 时，网络层不再直接调用 `logout()` 清除会话；请求错误仍按原路径向调用方透传。 | `035e1f1` | `flutter test test/feiniu_api_fn_connect_test.dart` | 无 |
 | 2026-07-16 | S/P 回归 | 飞牛登录协议选择 | 已修复 | 飞牛登录恢复显式 HTTP/HTTPS 选择，按选择提交实际 URL；Emby 表单与窄屏/大字体响应式布局保持兼容。 | `90896be` / `26efa2e` / `58b956f` | `flutter test test/screens/connection_feiniu_compatibility_test.dart test/screens/connection_backend_selection_test.dart` | 无 |
 | 2026-07-09 | S 安全 | A-019 | 已修复 | Emby 媒体图片 URL 移除 `api_key` query，access token 改走 `MediaImageRef.headers`。 | 本次提交 | 待验证 | 无 |
@@ -114,7 +114,7 @@
 **已修复（2026-07-09，本次提交）**：
 - G-029 / G-032：两个 WebView 登录页遇到 SSL 证书错误时默认 `cancel()` 并提示，不再静默 `proceed()` 自动提交凭据。
 - B-027：全局 `PrivateNetworkHttpOverrides` 仅允许 RFC1918、loopback、link-local、IPv6 ULA 和显式注册 NAS host 跳过证书校验，公网 IP 不再放行。
-- B-011：新增平台安全凭据存储，登录历史、后端连接、飞牛旧会话的密码/token 迁入安全存储，SharedPreferences 只保留非敏感描述和存在标记，并迁移清理旧明文（`2ccdb49`）；后续将读取细化为 `value/missing/unavailable` 三态，瞬时读取失败保留现有会话，Android 读取失败不删除密文，写入/删除失败向调用方传播（`76b19a5`、`c8d2065`、`c1112d8`、`520bb2d`），并让初始化失败可重试且不会误进入登录页（`d3a600d`、`0c50f24`）；并发启动、前台恢复和快速重试按单一加载代次合并，避免状态覆盖和重复读取（`7c6d607`）。
+- B-011：新增平台安全凭据存储，登录历史、后端连接、飞牛旧会话的密码/token 迁入安全存储，SharedPreferences 只保留非敏感描述和存在标记，并迁移清理旧明文（`2ccdb49`）；后续将读取细化为 `value/missing/unavailable` 三态，瞬时读取失败保留现有会话，Android 读取失败不删除密文，写入/删除失败向调用方传播（`76b19a5`、`c8d2065`、`c1112d8`、`520bb2d`），并让初始化失败可重试且不会误进入登录页（`d3a600d`、`0c50f24`）；并发启动、前台恢复和快速重试按单一加载代次合并，避免状态覆盖和重复读取（`7c6d607`）；加载与登录、更新 token、退出、后端保存通过异常安全 FIFO 串行，防止旧快照覆盖新会话（`46a85a6`）。
 - A-019：Emby 媒体图片 URL 移除 `api_key` query，access token 改走 `MediaImageRef.headers`。
 - 飞牛登录协议回归：恢复显式 HTTP/HTTPS 选择，并验证实际提交 URL、Emby 表单及窄屏/大字体响应式布局（`90896be`、`26efa2e`、`58b956f`）。
 
