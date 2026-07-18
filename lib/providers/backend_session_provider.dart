@@ -9,7 +9,10 @@ import '../services/secure_credential_store.dart';
 import '../utils/swallowed_error_logger.dart';
 
 class BackendSessionUnavailableException implements Exception {
-  const BackendSessionUnavailableException();
+  final Object? cause;
+  final StackTrace? stackTrace;
+
+  const BackendSessionUnavailableException({this.cause, this.stackTrace});
 
   @override
   String toString() =>
@@ -48,8 +51,11 @@ class BackendSessionProvider extends ChangeNotifier
 
   MediaBackendConnectionSnapshot? _snapshot;
   bool _isReady = false;
+  Object? _lastLoadFailure;
+  StackTrace? _lastLoadFailureStackTrace;
 
   bool get isReady => _isReady;
+  bool get hasLoadFailure => _lastLoadFailure != null;
   MediaBackendKind get currentKind =>
       _snapshot?.activeKind ?? MediaBackendKind.feiniu;
   MediaBackendConnection? get currentConnection => _snapshot?.activeConnection;
@@ -60,8 +66,10 @@ class BackendSessionProvider extends ChangeNotifier
       final nextSnapshot = await MediaBackendConnectionStore.load();
       _snapshot = nextSnapshot;
       _isReady = true;
+      _clearLoadFailure();
       notifyListeners();
     } on SecureCredentialUnavailableException catch (error, stackTrace) {
+      _recordLoadFailure(error, stackTrace);
       await logSwallowedError(
         action: 'load backend session credentials',
         error: error,
@@ -72,9 +80,11 @@ class BackendSessionProvider extends ChangeNotifier
   }
 
   Future<void> _loadSafely() async {
+    _beginLoadAttempt();
     try {
       await load();
     } catch (error, stackTrace) {
+      _recordLoadFailure(error, stackTrace);
       await logSwallowedError(
         action: 'load backend session credentials',
         error: error,
@@ -82,6 +92,25 @@ class BackendSessionProvider extends ChangeNotifier
         source: 'backend_session_provider',
       );
     }
+  }
+
+  Future<void> retryLoad() => _loadSafely();
+
+  void _beginLoadAttempt() {
+    if (!hasLoadFailure) return;
+    _clearLoadFailure();
+    notifyListeners();
+  }
+
+  void _recordLoadFailure(Object error, StackTrace stackTrace) {
+    _lastLoadFailure = error;
+    _lastLoadFailureStackTrace = stackTrace;
+    notifyListeners();
+  }
+
+  void _clearLoadFailure() {
+    _lastLoadFailure = null;
+    _lastLoadFailureStackTrace = null;
   }
 
   /// 等待会话从磁盘就绪后返回；已就绪则立即返回。
@@ -94,16 +123,23 @@ class BackendSessionProvider extends ChangeNotifier
     try {
       await load();
     } catch (error, stackTrace) {
+      _recordLoadFailure(error, stackTrace);
       await logSwallowedError(
         action: 'load backend session credentials',
         error: error,
         stackTrace: stackTrace,
         source: 'backend_session_provider',
       );
-      throw const BackendSessionUnavailableException();
+      throw BackendSessionUnavailableException(
+        cause: error,
+        stackTrace: stackTrace,
+      );
     }
     if (!_isReady) {
-      throw const BackendSessionUnavailableException();
+      throw BackendSessionUnavailableException(
+        cause: _lastLoadFailure,
+        stackTrace: _lastLoadFailureStackTrace,
+      );
     }
   }
 
@@ -111,6 +147,7 @@ class BackendSessionProvider extends ChangeNotifier
     await MediaBackendConnectionStore.saveActive(connection);
     _snapshot = await MediaBackendConnectionStore.load();
     _isReady = true;
+    _clearLoadFailure();
     notifyListeners();
   }
 
@@ -118,6 +155,7 @@ class BackendSessionProvider extends ChangeNotifier
     await MediaBackendConnectionStore.saveConnection(connection);
     _snapshot = await MediaBackendConnectionStore.load();
     _isReady = true;
+    _clearLoadFailure();
     notifyListeners();
   }
 }
