@@ -18,6 +18,104 @@ void main() {
     SharedPreferences.setMockInitialValues(const <String, Object>{});
   });
 
+  test('阻塞加载完成后 saveActive 的新连接不会被旧快照覆盖', () async {
+    _setStoredEmbyConnection();
+    final backend = _ControlledCredentialBackend()
+      ..values['media_backend_connection.emby.access_token'] = 'old-token'
+      ..blockNextRead(SecureCredentialReadResult.found('old-token'));
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final provider = BackendSessionProvider();
+    addTearDown(provider.dispose);
+    await backend.readStarted.future;
+    final blockedLoad = provider.retryLoad();
+
+    final save = provider.saveActive(
+      const MediaBackendConnection(
+        kind: MediaBackendKind.emby,
+        serverUrl: 'https://new-emby.example.test',
+        displayName: 'New Emby',
+        userId: 'new-user',
+        accessToken: 'new-token',
+      ),
+    );
+    await _drainMicrotasks();
+    final writesWhileLoadBlocked = backend.writeCount;
+
+    backend.releaseRead();
+    await Future.wait<void>(<Future<void>>[blockedLoad, save]);
+
+    expect(writesWhileLoadBlocked, 0);
+    expect(
+      provider.currentConnection?.serverUrl,
+      'https://new-emby.example.test',
+    );
+    expect(provider.currentConnection?.accessToken, 'new-token');
+  });
+
+  test('saveActive 写入期间的恢复加载等待完整 mutation', () async {
+    _setStoredEmbyConnection();
+    final backend = _ControlledCredentialBackend()
+      ..values['media_backend_connection.emby.access_token'] = 'old-token';
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final provider = BackendSessionProvider(autoLoad: false);
+    addTearDown(provider.dispose);
+    await provider.load();
+    backend.blockNextWrite();
+
+    final save = provider.saveActive(
+      const MediaBackendConnection(
+        kind: MediaBackendKind.emby,
+        serverUrl: 'https://new-emby.example.test',
+        displayName: 'New Emby',
+        userId: 'new-user',
+        accessToken: 'new-token',
+      ),
+    );
+    await backend.writeStarted.future;
+    final readsBeforeResume = backend.readCount;
+    provider.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    final resumedLoad = provider.retryLoad();
+    await _drainMicrotasks();
+    final readsDuringMutation = backend.readCount - readsBeforeResume;
+
+    backend.releaseWrite();
+    await Future.wait<void>(<Future<void>>[save, resumedLoad]);
+
+    expect(readsDuringMutation, 0);
+    expect(
+      provider.currentConnection?.serverUrl,
+      'https://new-emby.example.test',
+    );
+    expect(provider.currentConnection?.accessToken, 'new-token');
+  });
+
+  test('save mutation 失败后队列仍可继续执行', () async {
+    final backend = _SwitchableCredentialBackend()..failWrite = true;
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final provider = BackendSessionProvider(autoLoad: false);
+    addTearDown(provider.dispose);
+    const connection = MediaBackendConnection(
+      kind: MediaBackendKind.emby,
+      serverUrl: 'https://emby.example.test',
+      userId: 'user-id',
+      accessToken: 'access-token',
+    );
+
+    await expectLater(
+      provider.saveActive(connection),
+      throwsA(isA<SecureCredentialOperationException>()),
+    );
+
+    backend.failWrite = false;
+    await provider.saveActive(connection);
+
+    expect(provider.currentKind, MediaBackendKind.emby);
+    expect(provider.currentConnection?.accessToken, 'access-token');
+  });
+
   test('构造、恢复、重试、公开加载和 ensureReady 复用同一次成功读取', () async {
     _setStoredEmbyConnection();
     final backend = _GatedCredentialBackend(
@@ -444,4 +542,77 @@ class _GatedCredentialBackend implements SecureCredentialBackend {
 
   @override
   Future<void> delete(String key) async {}
+}
+
+Future<void> _drainMicrotasks() async {
+  for (var index = 0; index < 10; index++) {
+    await Future<void>.delayed(Duration.zero);
+  }
+}
+
+class _ControlledCredentialBackend implements SecureCredentialBackend {
+  final Map<String, String> values = <String, String>{};
+  SecureCredentialReadResult? _blockedReadResult;
+  Completer<void>? _readRelease;
+  Completer<void>? _writeRelease;
+  Completer<void> readStarted = Completer<void>();
+  Completer<void> writeStarted = Completer<void>();
+  int readCount = 0;
+  int writeCount = 0;
+
+  void blockNextRead(SecureCredentialReadResult result) {
+    _blockedReadResult = result;
+    _readRelease = Completer<void>();
+    readStarted = Completer<void>();
+  }
+
+  void releaseRead() {
+    final release = _readRelease;
+    if (release != null && !release.isCompleted) release.complete();
+  }
+
+  void blockNextWrite() {
+    _writeRelease = Completer<void>();
+    writeStarted = Completer<void>();
+  }
+
+  void releaseWrite() {
+    final release = _writeRelease;
+    if (release != null && !release.isCompleted) release.complete();
+  }
+
+  @override
+  Future<SecureCredentialReadResult> read(String key) async {
+    readCount++;
+    final blockedResult = _blockedReadResult;
+    final release = _readRelease;
+    if (blockedResult != null && release != null) {
+      _blockedReadResult = null;
+      if (!readStarted.isCompleted) readStarted.complete();
+      await release.future;
+      if (identical(_readRelease, release)) _readRelease = null;
+      return blockedResult;
+    }
+    final value = values[key] ?? '';
+    return value.isEmpty
+        ? const SecureCredentialReadResult.missing()
+        : SecureCredentialReadResult.found(value);
+  }
+
+  @override
+  Future<void> write(String key, String value) async {
+    writeCount++;
+    final release = _writeRelease;
+    if (release != null) {
+      if (!writeStarted.isCompleted) writeStarted.complete();
+      await release.future;
+      if (identical(_writeRelease, release)) _writeRelease = null;
+    }
+    values[key] = value;
+  }
+
+  @override
+  Future<void> delete(String key) async {
+    values.remove(key);
+  }
 }

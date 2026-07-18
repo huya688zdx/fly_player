@@ -32,6 +32,7 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
   Object? _lastLoadFailure;
   StackTrace? _lastLoadFailureStackTrace;
   Future<void>? _loadSettingsInFlight;
+  Future<void> _operationTail = Future<void>.value();
   bool _disposed = false;
 
   String get baseUrl =>
@@ -95,7 +96,20 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> _handleSessionStateMethodCall(MethodCall call) async {
     if (call.method != 'loggedOut') return;
-    await _applyLoggedOutState(notify: true);
+    await _enqueueOperation(() => _applyLoggedOutState(notify: true));
+  }
+
+  Future<void> _enqueueOperation(Future<void> Function() operation) {
+    final completer = Completer<void>();
+    _operationTail = _operationTail.then<void>((_) async {
+      try {
+        await operation();
+        completer.complete();
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+    return completer.future;
   }
 
   Future<void> _loadSettings() async {
@@ -198,15 +212,29 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     Completer<void> completer,
   ) async {
     try {
-      await _performSettingsLoad();
+      await _enqueueOperation(_performSettingsLoad);
       if (identical(_loadSettingsInFlight, loadFuture)) {
         _loadSettingsInFlight = null;
       }
+      completer.complete();
+    } on SecureCredentialUnavailableException catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load NAS session settings',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'nas_provider',
+      );
       completer.complete();
     } catch (error, stackTrace) {
       if (identical(_loadSettingsInFlight, loadFuture)) {
         _loadSettingsInFlight = null;
       }
+      await logSwallowedError(
+        action: 'load NAS session settings',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'nas_provider',
+      );
       completer.completeError(error, stackTrace);
     }
   }
@@ -218,25 +246,11 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     } on SecureCredentialUnavailableException catch (error, stackTrace) {
       _loadSettingsInFlight = null;
       _recordLoadFailure(error, stackTrace);
-      await logSwallowedError(
-        action: 'load NAS session settings',
-        error: error,
-        stackTrace: stackTrace,
-        source: 'nas_provider',
-      );
+      Error.throwWithStackTrace(error, stackTrace);
     } catch (error, stackTrace) {
       _loadSettingsInFlight = null;
       _recordLoadFailure(error, stackTrace);
-      try {
-        await logSwallowedError(
-          action: 'load NAS session settings',
-          error: error,
-          stackTrace: stackTrace,
-          source: 'nas_provider',
-        );
-      } finally {
-        Error.throwWithStackTrace(error, stackTrace);
-      }
+      Error.throwWithStackTrace(error, stackTrace);
     }
   }
 
@@ -266,7 +280,7 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     required String password,
     bool rememberPassword = true,
     String? token,
-  }) async {
+  }) => _enqueueOperation(() async {
     final prefs = await SharedPreferences.getInstance();
     _baseUrl = baseUrl;
     _resolvedBaseUrl = resolvedBaseUrl?.trim() ?? '';
@@ -286,17 +300,17 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     await _syncPlayStatsOwner(prefs);
 
     _cacheBootstrapSnapshot();
-    notifyListeners();
-  }
+    if (!_disposed) notifyListeners();
+  });
 
-  Future<void> updateToken(String token) async {
+  Future<void> updateToken(String token) => _enqueueOperation(() async {
     final prefs = await SharedPreferences.getInstance();
     _token = token;
     await _writeOrDelete(_tokenCredentialKey, _token);
     await prefs.remove('token');
     _cacheBootstrapSnapshot();
-    notifyListeners();
-  }
+    if (!_disposed) notifyListeners();
+  });
 
   Future<void> _applyLoggedOutState({bool notify = true}) async {
     final prefs = await SharedPreferences.getInstance();
@@ -309,15 +323,15 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     DetailRuntimeCache.instance.clearAll();
     FeiniuApi.clearSharedResourceCache();
     _cacheBootstrapSnapshot();
-    if (notify) {
+    if (notify && !_disposed) {
       notifyListeners();
     }
   }
 
-  Future<void> logout() async {
+  Future<void> logout() => _enqueueOperation(() async {
     await _applyLoggedOutState(notify: true);
     await SessionExitBridge.logoutAndResetParallelUi();
-  }
+  });
 
   void _cacheBootstrapSnapshot() {
     _bootstrapSnapshot = _NasProviderBootstrapSnapshot(
