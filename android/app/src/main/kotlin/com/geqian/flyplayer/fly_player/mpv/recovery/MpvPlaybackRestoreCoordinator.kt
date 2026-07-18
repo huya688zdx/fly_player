@@ -1,7 +1,5 @@
 package com.geqian.flyplayer.fly_player.mpv
 
-import kotlin.math.abs
-
 data class MpvPlaybackRestorePlan(
     val seekPositionMs: Long? = null,
     val applyExternalSubtitle: Boolean = false,
@@ -9,16 +7,16 @@ data class MpvPlaybackRestorePlan(
 )
 
 class MpvPlaybackRestoreCoordinator {
-    companion object {
-        private const val SEEK_SETTLE_TOLERANCE_MS = 3000L
-    }
-
     var pendingSeekPositionMs: Long = 0L
         private set
     val isSeekingOrRestoringVideo: Boolean
         get() = seeking || waitingForVideoAfterSeek
     val hasReachedVideoEof: Boolean
         get() = videoEofReached
+    var activeSeekEpoch: Long = 0L
+        private set
+    var completedSeekEpoch: Long = 0L
+        private set
 
     private var sourceFileLoaded = false
     private var waitingForVideoAfterSeek = false
@@ -26,6 +24,7 @@ class MpvPlaybackRestoreCoordinator {
     private var seeking = false
     private var videoEofReached = false
     private var abnormalVideoRetryCount = 0
+    private var seekingStartedEpoch = 0L
 
     fun onLoadRequested(startPositionMs: Long, hasPendingExternalSubtitle: Boolean) {
         pendingSeekPositionMs = startPositionMs.coerceAtLeast(0L)
@@ -47,15 +46,32 @@ class MpvPlaybackRestoreCoordinator {
         }
     }
 
-    fun onSeekQueued(positionMs: Long): MpvPlaybackRestorePlan {
+    fun onSeekQueued(
+        positionMs: Long,
+        seekEpoch: Long = activeSeekEpoch + 1L,
+    ): MpvPlaybackRestorePlan {
+        val inheritStartedSeeking =
+            seeking &&
+                activeSeekEpoch > completedSeekEpoch &&
+                seekingStartedEpoch == activeSeekEpoch
         pendingSeekPositionMs = positionMs.coerceAtLeast(0L)
         waitingForVideoAfterSeek = pendingSeekPositionMs > 0L
         seeking = pendingSeekPositionMs > 0L
+        if (seekEpoch > activeSeekEpoch) {
+            activeSeekEpoch = seekEpoch
+            seekingStartedEpoch = if (inheritStartedSeeking) activeSeekEpoch else 0L
+        }
         return MpvPlaybackRestorePlan(seekPositionMs = pendingSeekPositionMs)
     }
 
     fun onSeekingChanged(isSeeking: Boolean): MpvPlaybackRestorePlan {
-        seeking = isSeeking
+        if (isSeeking) {
+            seeking = true
+            seekingStartedEpoch = activeSeekEpoch
+        } else if (activeSeekEpoch <= completedSeekEpoch || seekingStartedEpoch == activeSeekEpoch) {
+            seeking = false
+            completedSeekEpoch = activeSeekEpoch
+        }
         return maybeApplySubtitle()
     }
 
@@ -79,12 +95,6 @@ class MpvPlaybackRestoreCoordinator {
         if (!sourceFileLoaded || videoEofReached) return MpvPlaybackRestorePlan()
         if (positionMs >= 0L) {
             waitingForVideoAfterSeek = false
-            val targetReached =
-                pendingSeekPositionMs > 0L &&
-                    abs(positionMs - pendingSeekPositionMs) <= SEEK_SETTLE_TOLERANCE_MS
-            if (targetReached) {
-                seeking = false
-            }
             if (!seeking) {
                 pendingSeekPositionMs = 0L
                 abnormalVideoRetryCount = 0
