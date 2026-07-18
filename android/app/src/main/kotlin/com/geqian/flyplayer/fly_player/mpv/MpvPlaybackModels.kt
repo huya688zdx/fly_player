@@ -252,6 +252,8 @@ data class MpvPlayerState(
     val nativeProxySessionId: String? = null,
     val cacheResourceKey: String? = null,
     val positionSampleTimeNs: Long = 0L,
+    val activeSeekEpoch: Long = 0L,
+    val completedSeekEpoch: Long = 0L,
     val speed: Double = 1.0,
     // 自适应性能阶梯当前级别：0=未降级，1=视频已降画质（方案 B），2=并已请求压弹幕（方案 C）。
     // 宿主据此 toast 提醒用户、并在 >=2 时降低弹幕负载。
@@ -278,6 +280,8 @@ data class MpvPlayerState(
             "error" to error,
             "nativeProxySessionId" to nativeProxySessionId,
             "cacheResourceKey" to cacheResourceKey,
+            "activeSeekEpoch" to activeSeekEpoch,
+            "completedSeekEpoch" to completedSeekEpoch,
             "speed" to speed,
             "performanceFallbackLevel" to performanceFallbackLevel,
         )

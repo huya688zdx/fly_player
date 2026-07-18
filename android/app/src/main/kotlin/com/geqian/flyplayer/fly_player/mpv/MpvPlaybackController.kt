@@ -22,6 +22,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 private const val TAG = "FlyPlayerMpv"
 // 可位流直通的 mpv audio-codec-name 集（对齐 AudioPassthroughSupport.ALL_CODECS）。DTS 系
@@ -81,6 +82,7 @@ class MpvPlaybackController(
     // mpv 的生命周期与属性访问统一放到单线程里，减少与 UI 线程交错时的状态撕裂。
     private val playbackThread = HandlerThread("FlyPlayerMpvPlayback").apply { start() }
     private val playbackHandler = Handler(playbackThread.looper)
+    private val seekEpochSource = AtomicLong(0L)
     private val displayProfile = detectDisplayProfile(context)
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     private val audioOutputDiagnostics = PlaybackAudioOutputDiagnostics(audioManager)
@@ -614,10 +616,13 @@ class MpvPlaybackController(
         }
     }
 
-    fun seek(positionMs: Long): Boolean {
-        if (disposed) return false
+    fun seek(positionMs: Long): Boolean = seekWithEpoch(positionMs) > 0L
+
+    fun seekWithEpoch(positionMs: Long): Long {
+        if (disposed) return 0L
+        val seekEpoch = seekEpochSource.incrementAndGet()
         runOnPlaybackThread {
-            val success = seekTo(positionMs)
+            val success = seekTo(positionMs, seekEpoch)
             val sourceStable = loadState.isCurrentSourceStable(source.url)
             if (!success && !sourceStable) {
                 Log.d(
@@ -640,7 +645,7 @@ class MpvPlaybackController(
                 ),
             )
         }
-        return true
+        return seekEpoch
     }
 
     fun setAudioTrack(trackIndex: Int?, trackGuid: String?): Boolean {
@@ -1177,7 +1182,7 @@ class MpvPlaybackController(
             lastSurfaceTransitionUptimeMs = SystemClock.uptimeMillis()
             val wasPlaying = state.playbackPhase == MpvPlaybackPhase.PLAYING.wireValue
             if (state.positionMs > 0L) {
-                restoreCoordinator.onSeekQueued(state.positionMs)
+                queueSeek(state.positionMs)
             }
             // 听视频模式、或用户开了「熄屏继续播放音频」：熄屏/锁屏丢 surface 时不暂停，
             // 音频继续后台播放——否则一黑屏就静音，「听视频」失去意义。
@@ -1714,6 +1719,8 @@ class MpvPlaybackController(
                 nativeProxySessionId = sourceResolver.activeProxySessionId,
                 cacheResourceKey = sourceResolver.activeCacheResourceKey,
                 positionSampleTimeNs = positionSampleTimeNs,
+                activeSeekEpoch = restoreCoordinator.activeSeekEpoch,
+                completedSeekEpoch = restoreCoordinator.completedSeekEpoch,
             )
         state = enriched
         syncDanmakuOcclusionRuntime()
@@ -1758,7 +1765,7 @@ class MpvPlaybackController(
     }
 
     private fun applyRecoveryExecution(execution: PlaybackRecoveryExecution, reason: String) {
-        execution.queueSeekPositionMs?.takeIf { it > 0L }?.let(restoreCoordinator::onSeekQueued)
+        execution.queueSeekPositionMs?.takeIf { it > 0L }?.let(::queueSeek)
         if (execution.markVideoStreamLost) {
             videoStreamLost = true
             videoStreamLossReason = execution.videoStreamLossReason ?: reason
@@ -2125,10 +2132,13 @@ class MpvPlaybackController(
         )
     }
 
-    private fun seekTo(positionMs: Long): Boolean {
+    private fun seekTo(
+        positionMs: Long,
+        seekEpoch: Long = seekEpochSource.incrementAndGet(),
+    ): Boolean {
         if (!initialized || !mpv.isAvailable()) return false
         if (!hasUsableVideoOutputTarget()) {
-            restoreCoordinator.onSeekQueued(positionMs)
+            queueSeek(positionMs, seekEpoch)
             updateState(
                 state.copy(
                     statusText = "Seeking",
@@ -2138,7 +2148,7 @@ class MpvPlaybackController(
             Log.w(TAG, "seek queued while surface unavailable positionMs=$positionMs")
             return true
         }
-        restoreCoordinator.onSeekQueued(positionMs)
+        queueSeek(positionMs, seekEpoch)
         updateState(
             state.copy(
                 statusText = "Seeking",
@@ -2176,6 +2186,14 @@ class MpvPlaybackController(
                     )
                 }
             }
+    }
+
+    private fun queueSeek(
+        positionMs: Long,
+        seekEpoch: Long = seekEpochSource.incrementAndGet(),
+    ): MpvPlaybackRestorePlan {
+        seekEpochSource.accumulateAndGet(seekEpoch) { current, requested -> maxOf(current, requested) }
+        return restoreCoordinator.onSeekQueued(positionMs, seekEpoch)
     }
 
     override fun eventProperty(property: String, value: Boolean) {

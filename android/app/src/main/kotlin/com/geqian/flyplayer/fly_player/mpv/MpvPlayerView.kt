@@ -100,6 +100,8 @@ class MpvPlayerView(
         },
     )
     private var requestedNativeDanmakuFrameRateHz = DEFAULT_NATIVE_DANMAKU_TARGET_FPS
+    private var lastIssuedSeekEpoch = 0L
+    private var lastIssuedSeekPositionMs = 0L
 
     init {
         rootView.setBackgroundColor(Color.BLACK)
@@ -201,12 +203,25 @@ class MpvPlayerView(
             }
             "seek" -> {
                 val args = methodArgumentsMap(call)
-                controller.seek(args["positionMs"].toLongValue())
+                val positionMs = args["positionMs"].toLongValue()
+                val seekEpoch = controller.seekWithEpoch(positionMs)
+                if (seekEpoch > 0L) {
+                    lastIssuedSeekEpoch = seekEpoch
+                    lastIssuedSeekPositionMs = positionMs
+                    nativeDanmakuOverlayView?.hintSeek(positionMs, seekEpoch)
+                }
                 result.success(null)
             }
             "hintNativeDanmakuSeek" -> {
                 val args = methodArgumentsMap(call)
-                nativeDanmakuOverlayView?.hintSeek(args["positionMs"].toLongValue())
+                val positionMs = args["positionMs"].toLongValue()
+                val seekEpoch =
+                    if (positionMs == lastIssuedSeekPositionMs) {
+                        lastIssuedSeekEpoch
+                    } else {
+                        latestState.activeSeekEpoch
+                    }
+                nativeDanmakuOverlayView?.hintSeek(positionMs, seekEpoch)
                 result.success(null)
             }
             "setAudioTrack" -> {
