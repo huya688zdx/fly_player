@@ -30,6 +30,7 @@
     <string name="player_action_more">更多</string>
     <string name="player_action_reload">重载</string>
     <string name="player_split_start_failed">分屏启动失败</string>
+    <string name="player_split_unavailable_window">当前窗口不支持分屏，已恢复全屏</string>
     <string name="player_last_episode">已经是最后一集了</string>
     <string name="player_danmaku_enabled">弹幕已开启</string>
     <string name="player_danmaku_disabled">弹幕已关闭</string>
