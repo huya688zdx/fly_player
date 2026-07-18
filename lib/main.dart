@@ -45,6 +45,8 @@ import 'ui/media_poster_card.dart';
 import 'ui/route_transition_gate.dart';
 import 'utils/private_network_http_overrides.dart';
 import 'utils/route_query_json.dart';
+import 'utils/app_exception.dart';
+import 'widgets/common/app_error_state.dart';
 
 void main() {
   runZonedGuarded(
@@ -603,6 +605,29 @@ class _ProviderGate extends StatelessWidget {
     final provider = context.watch<NasProvider>();
     final session = context.watch<BackendSessionProvider>();
     final colors = context.appColors;
+    final hasUnreadyLoadFailure =
+        (!provider.isReady && provider.hasLoadFailure) ||
+        (!session.isReady && session.hasLoadFailure);
+    if (hasUnreadyLoadFailure) {
+      return Scaffold(
+        backgroundColor: colors.backgroundBase,
+        body: AppErrorState(
+          error: AppException(
+            kind: AppExceptionKind.transient,
+            action: 'initialize session providers',
+            message: AppLocalizations.of(context).globalLoadFailed,
+          ),
+          onRetry: () {
+            unawaited(
+              Future.wait<void>(<Future<void>>[
+                if (!provider.isReady) provider.retryLoad(),
+                if (!session.isReady) session.retryLoad(),
+              ]),
+            );
+          },
+        ),
+      );
+    }
     if (!provider.isReady || !session.isReady) {
       return Scaffold(
         backgroundColor: colors.backgroundBase,

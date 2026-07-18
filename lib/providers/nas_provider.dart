@@ -29,6 +29,8 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
   String _token = '';
   bool _rememberPassword = true;
   bool _isReady = false;
+  Object? _lastLoadFailure;
+  StackTrace? _lastLoadFailureStackTrace;
   bool _disposed = false;
 
   String get baseUrl =>
@@ -40,6 +42,7 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
   String get token => _token;
   bool get rememberPassword => _rememberPassword;
   bool get isReady => _isReady;
+  bool get hasLoadFailure => _lastLoadFailure != null;
 
   bool get isConfigured => _baseUrl.isNotEmpty && _token.isNotEmpty;
 
@@ -111,13 +114,10 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     );
     if (_disposed) return;
     if (!restoredToken.available) {
-      if (restoredToken.value.isEmpty) {
-        final wasReady = _isReady;
-        _isReady = false;
-        if (wasReady) {
-          notifyListeners();
-        }
-      }
+      _recordLoadFailure(
+        const SecureCredentialUnavailableException(_tokenCredentialKey),
+        StackTrace.current,
+      );
       return;
     }
     if (legacyToken.isNotEmpty) {
@@ -147,7 +147,8 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
         _password != nextPassword ||
         _token != nextToken ||
         _rememberPassword != nextRememberPassword ||
-        !_isReady;
+        !_isReady ||
+        hasLoadFailure;
 
     _baseUrl = nextBaseUrl;
     _resolvedBaseUrl = nextResolvedBaseUrl;
@@ -158,6 +159,7 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     await _syncPlayStatsOwner(prefs);
     if (_disposed) return;
     _isReady = true;
+    _clearLoadFailure();
     _cacheBootstrapSnapshot();
     if (changed) {
       notifyListeners();
@@ -170,9 +172,19 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _loadSettingsSafely() async {
+    _beginLoadAttempt();
     try {
       await _loadSettings();
+      if (hasLoadFailure) {
+        await logSwallowedError(
+          action: 'load NAS session settings',
+          error: _lastLoadFailure!,
+          stackTrace: _lastLoadFailureStackTrace,
+          source: 'nas_provider',
+        );
+      }
     } catch (error, stackTrace) {
+      _recordLoadFailure(error, stackTrace);
       await logSwallowedError(
         action: 'load NAS session settings',
         error: error,
@@ -180,6 +192,25 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
         source: 'nas_provider',
       );
     }
+  }
+
+  Future<void> retryLoad() => _loadSettingsSafely();
+
+  void _beginLoadAttempt() {
+    if (!hasLoadFailure) return;
+    _clearLoadFailure();
+    if (!_disposed) notifyListeners();
+  }
+
+  void _recordLoadFailure(Object error, StackTrace stackTrace) {
+    _lastLoadFailure = error;
+    _lastLoadFailureStackTrace = stackTrace;
+    if (!_disposed) notifyListeners();
+  }
+
+  void _clearLoadFailure() {
+    _lastLoadFailure = null;
+    _lastLoadFailureStackTrace = null;
   }
 
   Future<void> updateSettings({
