@@ -81,6 +81,8 @@ void main() {
     expect(provider.currentKind, MediaBackendKind.emby);
     expect(provider.currentConnection?.accessToken, 'access-token');
     expect(provider.isConfigured, isTrue);
+    expect(provider.isReady, isTrue);
+    expect(provider.hasLoadFailure, isTrue);
   });
 
   test('首次读取安全凭据失败时不会宣告会话已准备', () async {
@@ -104,6 +106,7 @@ void main() {
 
     expect(provider.isReady, isFalse);
     expect(provider.isConfigured, isFalse);
+    expect(provider.hasLoadFailure, isTrue);
   });
 
   test('首次读取安全凭据失败时 ensureReady 不会返回默认后端', () async {
@@ -129,9 +132,22 @@ void main() {
 
     await expectLater(
       kindAfterReady,
-      throwsA(isA<BackendSessionUnavailableException>()),
+      throwsA(
+        isA<BackendSessionUnavailableException>()
+            .having(
+              (error) => error.cause,
+              'cause',
+              isA<SecureCredentialUnavailableException>(),
+            )
+            .having(
+              (error) => error.toString(),
+              'safe message',
+              isNot(contains('media_backend_connection')),
+            ),
+      ),
     );
     expect(provider.isReady, isFalse);
+    expect(provider.hasLoadFailure, isTrue);
   });
 
   test('ensureReady 将凭据迁移写入失败规范化为会话不可用', () async {
@@ -154,9 +170,16 @@ void main() {
 
     await expectLater(
       provider.ensureReady(),
-      throwsA(isA<BackendSessionUnavailableException>()),
+      throwsA(
+        isA<BackendSessionUnavailableException>().having(
+          (error) => error.cause,
+          'cause',
+          isA<SecureCredentialOperationException>(),
+        ),
+      ),
     );
     expect(provider.isReady, isFalse);
+    expect(provider.hasLoadFailure, isTrue);
   });
 
   test('ensureReady 将凭据清理失败规范化为会话不可用', () async {
@@ -177,9 +200,16 @@ void main() {
 
     await expectLater(
       provider.ensureReady(),
-      throwsA(isA<BackendSessionUnavailableException>()),
+      throwsA(
+        isA<BackendSessionUnavailableException>().having(
+          (error) => error.cause,
+          'cause',
+          isA<SecureCredentialOperationException>(),
+        ),
+      ),
     );
     expect(provider.isReady, isFalse);
+    expect(provider.hasLoadFailure, isTrue);
   });
 
   test('回前台自动加载凭据写入失败不泄漏未处理异常', () async {
@@ -209,6 +239,39 @@ void main() {
 
     expect(unhandledErrors, isEmpty);
     expect(provider.isReady, isFalse);
+    expect(provider.hasLoadFailure, isTrue);
+  });
+
+  test('首次会话加载失败后可显式重试恢复', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      MediaBackendConnectionStore.connectionsKey: jsonEncode(<Object?>[
+        <String, Object?>{
+          'kind': 'emby',
+          'serverUrl': 'https://emby.example.test',
+          'hasAccessToken': true,
+        },
+      ]),
+      MediaBackendConnectionStore.activeKindKey: 'emby',
+    });
+    final backend = _SwitchableCredentialBackend()..unavailable = true;
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final provider = BackendSessionProvider(autoLoad: false);
+    addTearDown(provider.dispose);
+
+    await provider.retryLoad();
+    expect(provider.isReady, isFalse);
+    expect(provider.hasLoadFailure, isTrue);
+
+    backend
+      ..unavailable = false
+      ..values['media_backend_connection.emby.access_token'] = 'access-token';
+    await provider.retryLoad();
+
+    expect(provider.isReady, isTrue);
+    expect(provider.hasLoadFailure, isFalse);
+    expect(provider.currentKind, MediaBackendKind.emby);
+    expect(provider.isConfigured, isTrue);
   });
 }
 

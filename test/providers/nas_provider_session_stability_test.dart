@@ -10,6 +10,26 @@ import 'package:fly_player/services/secure_credential_store.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('首次凭据不可用时暴露可重试失败并可恢复', () async {
+    SharedPreferences.setMockInitialValues(const <String, Object>{});
+    final backend = _SwitchableCredentialBackend()..unavailable = true;
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final provider = NasProvider();
+    addTearDown(provider.dispose);
+
+    await provider.retryLoad();
+
+    expect(provider.isReady, isFalse);
+    expect(provider.hasLoadFailure, isTrue);
+
+    backend.unavailable = false;
+    await provider.retryLoad();
+
+    expect(provider.isReady, isTrue);
+    expect(provider.hasLoadFailure, isFalse);
+  });
+
   test('回前台读取安全凭据失败时保留当前 token', () async {
     SharedPreferences.setMockInitialValues(const <String, Object>{});
     final backend = _SwitchableCredentialBackend();
@@ -31,6 +51,8 @@ void main() {
 
     expect(provider.token, 'active-token');
     expect(provider.isConfigured, isTrue);
+    expect(provider.isReady, isTrue);
+    expect(provider.hasLoadFailure, isTrue);
   });
 
   test('token 暂不可用时保留整个当前会话快照', () async {
@@ -68,6 +90,8 @@ void main() {
     expect(provider.token, 'active-token');
     expect(provider.rememberPassword, isTrue);
     expect(provider.isConfigured, isTrue);
+    expect(provider.isReady, isTrue);
+    expect(provider.hasLoadFailure, isTrue);
   });
 
   test('回前台自动迁移写入失败时不泄漏异常并保留当前会话', () async {
@@ -99,6 +123,7 @@ void main() {
     expect(unhandledErrors, isEmpty);
     expect(provider.token, 'active-token');
     expect(provider.isReady, isTrue);
+    expect(provider.hasLoadFailure, isTrue);
   });
 
   test('回前台自动清理凭据失败时不泄漏异常并保留当前会话', () async {
@@ -129,6 +154,7 @@ void main() {
     expect(unhandledErrors, isEmpty);
     expect(provider.password, 'secret');
     expect(provider.isReady, isTrue);
+    expect(provider.hasLoadFailure, isTrue);
   });
 }
 
