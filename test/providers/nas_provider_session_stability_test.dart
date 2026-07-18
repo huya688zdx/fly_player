@@ -13,6 +13,44 @@ void main() {
 
   setUp(NasProvider.resetBootstrapForTesting);
 
+  test('mutation 后的加载不会加入 mutation 前的阻塞代次', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'base_url': 'http://old-nas.example.test',
+      'user_name': 'old-user',
+    });
+    final backend = _ControlledCredentialBackend()
+      ..blockNextRead(SecureCredentialReadResult.found('old-token'));
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final provider = NasProvider();
+    addTearDown(provider.dispose);
+    await backend.readStarted.future;
+    backend.blockNextWrite();
+
+    final update = provider.updateSettings(
+      baseUrl: 'http://new-nas.example.test',
+      userName: 'new-user',
+      password: 'new-password',
+      token: 'new-token',
+    );
+    var secondLoadCompleted = false;
+    final secondLoad = provider.retryLoad()
+      ..then((_) => secondLoadCompleted = true);
+
+    backend.releaseRead();
+    await backend.writeStarted.future;
+    await _drainMicrotasks();
+
+    expect(secondLoadCompleted, isFalse);
+
+    backend.releaseWrite();
+    await Future.wait<void>(<Future<void>>[update, secondLoad]);
+
+    expect(backend.readCount, 4);
+    expect(provider.sourceBaseUrl, 'http://new-nas.example.test');
+    expect(provider.token, 'new-token');
+  });
+
   test('阻塞加载完成后 updateSettings 的新登录不会被旧快照覆盖', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{
       'base_url': 'http://old-nas.example.test',
