@@ -18,6 +18,52 @@ void main() {
     SharedPreferences.setMockInitialValues(const <String, Object>{});
   });
 
+  test('save barrier 后的加载不会加入保存前的阻塞代次', () async {
+    _setStoredEmbyConnection();
+    final backend = _ControlledCredentialBackend()
+      ..values['media_backend_connection.emby.access_token'] = 'old-token'
+      ..blockNextRead(SecureCredentialReadResult.found('old-token'));
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final provider = BackendSessionProvider();
+    addTearDown(provider.dispose);
+    await backend.readStarted.future;
+    backend.blockNextWrite();
+
+    final save = provider.saveActive(
+      const MediaBackendConnection(
+        kind: MediaBackendKind.emby,
+        serverUrl: 'https://new-emby.example.test',
+        displayName: 'New Emby',
+        userId: 'new-user',
+        accessToken: 'new-token',
+      ),
+    );
+    var secondLoadCompleted = false;
+    final secondLoad = provider.retryLoad()
+      ..then((_) => secondLoadCompleted = true);
+    var ensureReadyCompleted = false;
+    final ensureReady = provider.ensureReady()
+      ..then((_) => ensureReadyCompleted = true);
+
+    backend.releaseRead();
+    await backend.writeStarted.future;
+    await _drainMicrotasks();
+
+    expect(secondLoadCompleted, isFalse);
+    expect(ensureReadyCompleted, isFalse);
+
+    backend.releaseWrite();
+    await Future.wait<void>(<Future<void>>[save, secondLoad, ensureReady]);
+
+    expect(backend.readCount, 4);
+    expect(
+      provider.currentConnection?.serverUrl,
+      'https://new-emby.example.test',
+    );
+    expect(provider.currentConnection?.accessToken, 'new-token');
+  });
+
   test('阻塞加载完成后 saveActive 的新连接不会被旧快照覆盖', () async {
     _setStoredEmbyConnection();
     final backend = _ControlledCredentialBackend()
