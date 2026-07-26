@@ -321,12 +321,6 @@
   "fnConnectEntryLoginTitle": "登录 FN Connect（Emby）",
   "fnConnectEntryAuthorizedBack": "我已授权 · 回到 Emby",
   "fnConnectEntryReload": "重新加载",
-  "sslCertificateError": "SSL 证书错误：{description}",
-  "@sslCertificateError": {
-    "placeholders": {
-      "description": {}
-    }
-  },
   "fnConnectWebLoginTitle": "FN Connect：{id}",
   "@fnConnectWebLoginTitle": {
     "placeholders": {
@@ -1667,6 +1661,12 @@
   "commonClickTooFastRetryLater": "点击过快，请稍后再试",
   "commonOperationFailed": "操作失败",
   "commonOperationFailedRetryLater": "操作失败，请稍后重试",
+  "commonSslCertificateError": "SSL 证书错误：{description}",
+  "@commonSslCertificateError": {
+    "placeholders": {
+      "description": {}
+    }
+  },
   "actionFavoriteAdd": "收藏",
   "actionFavoriteRemove": "取消收藏",
   "actionFavoriteAdded": "已加入收藏",
@@ -1870,8 +1870,8 @@
   "trackSubtitleOff": "关闭字幕",
   "trackSubtitleNone": "无字幕",
   "trackAudioNone": "无音频",
-  "audioTrackLanguageLabel": "{language}音频",
-  "@audioTrackLanguageLabel": {
+  "trackAudioLanguageLabel": "{language}音频",
+  "@trackAudioLanguageLabel": {
     "placeholders": {
       "language": {}
     }
