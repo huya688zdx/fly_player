@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -237,6 +238,9 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
   void _onThumbTap(int rowIndex, int itemIndex) {
     if (rowIndex < 0 || rowIndex >= _rows.length) return;
     final row = _rows[rowIndex];
+    // 空行本不该存在（buildPosterBrowseRows 已剔除），与 _focusedItem 对称防御，
+    // 顺带挡住下游 clamp(0, -1)。
+    if (row.items.isEmpty) return;
     if (itemIndex < 0 || itemIndex >= row.items.length) return;
     final item = row.items[itemIndex];
     final alreadyFocused =
@@ -293,6 +297,9 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
       ]);
       await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       if (!mounted) return;
+      // 栈顶校验：点完详情立刻按返回时，本页可能已不在栈顶（pop 进行中），
+      // 此时再 push 会把详情页盖到正在退场的栈上。
+      if (!(ModalRoute.of(context)?.isCurrent ?? false)) return;
       await Navigator.of(context).push(
         AppTransitions.leftToRightPageTurnRoute<void>(
           PlayDetailScreen(itemGuid: item.id),
@@ -482,8 +489,10 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
                         ),
                       ),
                       // 背景压暗层：单图铺满后统一压一层黑，配合左/底渐变保证文字可读。
+                      // 35%：再重会和左渐变叠到近全黑、背景等于白铺；
+                      // 实机验收时按观感微调此值。
                       const SizedBox.expand(
-                        child: ColoredBox(color: Color(0x8006080E)),
+                        child: ColoredBox(color: Color(0x5906080E)),
                       ),
                       // 左侧渐变压暗，保证信息区可读。
                       const DecoratedBox(
@@ -855,7 +864,9 @@ class _PosterBrowseBackdropState extends State<_PosterBrowseBackdrop> {
   @override
   void didUpdateWidget(covariant _PosterBrowseBackdrop oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.urls, widget.urls)) {
+    // 必须按值比较：resolveRefs 每次都现 new 一个 List，identical 恒为 false，
+    // 那样每次父级重建都会把回退索引清零、对已知失败的首候选反复重试。
+    if (!listEquals(oldWidget.urls, widget.urls)) {
       _index = 0;
     }
   }
