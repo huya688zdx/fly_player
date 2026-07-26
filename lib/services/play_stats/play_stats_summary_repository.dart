@@ -1,3 +1,4 @@
+import 'dart:isolate';
 import 'dart:ui';
 
 import 'package:sqflite/sqflite.dart';
@@ -39,6 +40,54 @@ abstract class PlayStatsSummaryRepository {
   Future<List<AnimeStatsRecord>> loadTopAnimesByPlayedMs({int limit = 20});
 }
 
+/// 承载报表快照计算所需的全部原始数据，字段均可跨 isolate 传递。
+class PlayStatsReportSnapshotRequest {
+  final AppLocalizations l10n;
+  final PlayStatsRange range;
+  final int topLimit;
+  final PlayStatsReportAggregator aggregator;
+  final List<Map<String, Object?>> historyRows;
+  final List<Map<String, Object?>> videoRows;
+  final List<Map<String, Object?>> seasonRows;
+
+  /// 根据数据库原始行与聚合参数构造请求。
+  const PlayStatsReportSnapshotRequest({
+    required this.l10n,
+    required this.range,
+    required this.topLimit,
+    required this.aggregator,
+    required this.historyRows,
+    required this.videoRows,
+    required this.seasonRows,
+  });
+}
+
+/// 将数据库原始行映射为记录并聚合为报表快照。
+///
+/// 写成不依赖任何实例状态的顶层纯函数，便于整体丢到后台 isolate 执行：
+/// 行映射里的三列 JSON 解码与聚合器的多轮遍历都不再占用 UI isolate。
+PlayStatsReportSnapshot buildPlayStatsReportSnapshot(
+  PlayStatsReportSnapshotRequest request,
+) {
+  final histories = request.historyRows
+      .map(PlayStatsSqlMapper.playHistoryFromMap)
+      .toList(growable: false);
+  final videos = request.videoRows
+      .map(PlayStatsSqlMapper.videoStatsFromMap)
+      .toList(growable: false);
+  final seasons = request.seasonRows
+      .map(PlayStatsSqlMapper.seasonStatsFromMap)
+      .toList(growable: false);
+  return request.aggregator.buildSnapshot(
+    l10n: request.l10n,
+    range: request.range,
+    histories: histories,
+    videos: videos,
+    seasons: seasons,
+    topLimit: request.topLimit,
+  );
+}
+
 /// 基于 `sqflite` 的播放统计汇总查询实现。
 class SqflitePlayStatsSummaryRepository implements PlayStatsSummaryRepository {
   final PlayStatsDatabase _database;
@@ -58,44 +107,56 @@ class SqflitePlayStatsSummaryRepository implements PlayStatsSummaryRepository {
     int topLimit = 8,
   }) async {
     final db = await _database.rawDatabase;
+    // 同一次快照内只算一次范围起点，历史表与季度表共用同一条时间线。
+    final rangeStartMs = _rangeStartMs(range);
     final historyRows = await db.query(
       'play_history',
-      where: _rangeWhereClause(range),
-      whereArgs: _rangeWhereArgs(range),
+      where: rangeStartMs == null ? null : 'started_at_ms >= ?',
+      whereArgs: rangeStartMs == null ? null : <Object?>[rangeStartMs],
       orderBy: 'started_at_ms DESC',
     );
-    final histories = historyRows
-        .map((row) => PlayStatsSqlMapper.playHistoryFromMap(row))
-        .toList(growable: false);
-    final videoIds = histories
-        .map((item) => item.videoId.trim())
-        .where((item) => item.isNotEmpty)
-        .toSet()
-        .toList(growable: false);
+    final videoIds = <String>{};
+    for (final row in historyRows) {
+      final videoId = (row['video_id']?.toString() ?? '').trim();
+      if (videoId.isNotEmpty) {
+        videoIds.add(videoId);
+      }
+    }
     final videoRows = await _queryRowsByIds(
       db,
       table: 'video_stats',
       idColumn: 'video_id',
-      ids: videoIds,
+      ids: videoIds.toList(growable: false),
       orderBy: 'last_played_at_ms DESC, total_played_ms DESC',
     );
-    final videos = videoRows
-        .map((row) => PlayStatsSqlMapper.videoStatsFromMap(row))
-        .toList(growable: false);
+    // 季度表只有"已完结且落在范围内"的行会影响快照（仅参与完结季度计数），
+    // 其余行聚合器一律丢弃，所以直接在 SQL 侧收敛掉整表搬运与 NOCASE 排序。
     final seasonRows = await db.query(
       'season_stats',
-      orderBy: 'last_played_at_ms DESC, title COLLATE NOCASE ASC',
+      where: rangeStartMs == null
+          ? 'is_completed = 1'
+          : 'is_completed = 1 AND last_played_at_ms >= ?',
+      whereArgs: rangeStartMs == null ? null : <Object?>[rangeStartMs],
     );
-    final seasons = seasonRows
-        .map((row) => PlayStatsSqlMapper.seasonStatsFromMap(row))
-        .toList(growable: false);
-    return _reportAggregator.buildSnapshot(
+    final request = PlayStatsReportSnapshotRequest(
       l10n: l10n,
       range: range,
-      histories: histories,
-      videos: videos,
-      seasons: seasons,
       topLimit: topLimit,
+      aggregator: _reportAggregator,
+      historyRows: _toPlainRows(historyRows),
+      videoRows: _toPlainRows(videoRows),
+      seasonRows: _toPlainRows(seasonRows),
+    );
+    // 行映射与聚合整体丢到后台 isolate，UI isolate 只负责搬运原始行。
+    return Isolate.run(() => buildPlayStatsReportSnapshot(request));
+  }
+
+  /// 把 sqflite 返回的行视图复制成普通 Map，确保可安全跨 isolate 传递。
+  List<Map<String, Object?>> _toPlainRows(List<Map<String, Object?>> rows) {
+    return List<Map<String, Object?>>.generate(
+      rows.length,
+      (index) => Map<String, Object?>.of(rows[index]),
+      growable: false,
     );
   }
 
@@ -565,21 +626,15 @@ FROM season_stats
     return video.videoKind.trim().toLowerCase() == 'movie';
   }
 
-  String? _rangeWhereClause(PlayStatsRange range) {
-    if (range == PlayStatsRange.all) {
-      return null;
-    }
-    return 'started_at_ms >= ?';
-  }
-
-  List<Object?>? _rangeWhereArgs(PlayStatsRange range) {
+  /// 返回统计范围的起始毫秒时间戳；全部范围返回 `null` 表示不加时间过滤。
+  int? _rangeStartMs(PlayStatsRange range) {
     if (range == PlayStatsRange.all) {
       return null;
     }
     final days = range.dayCount ?? 0;
     final cutoff = DateTime.now().subtract(Duration(days: days - 1));
     final start = DateTime(cutoff.year, cutoff.month, cutoff.day);
-    return <Object?>[start.millisecondsSinceEpoch];
+    return start.millisecondsSinceEpoch;
   }
 
   Future<List<Map<String, Object?>>> _queryRowsByIds(
