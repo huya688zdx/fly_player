@@ -51,6 +51,7 @@ class DanmakuSegmentationRuntimeFactory(
     fun create(
         backend: DanmakuAiBackend,
         config: DanmakuDynamicOcclusionConfig,
+        inputWidthOverride: Int? = null,
     ): DanmakuSegmentationRuntime {
         error("Paddle segmentation is not available in the lite build")
     }
