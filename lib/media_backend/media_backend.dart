@@ -56,6 +56,14 @@ abstract class MediaBackend {
   Future<MediaItemCardPage> queryFavoriteItems(MediaCatalogQuery query) async =>
       const MediaItemCardPage();
 
+  /// 查询某个父条目（合集 / 文件夹）的直属子项分页，供合集详情页列表。
+  ///
+  /// [MediaCatalogQuery.catalogId] 即父条目 id。默认返回空（飞牛合集页走自有
+  /// `getItemsPage`(ancestor/parent) 完整路径 + 服务端列表偏好,不经本接口）；Emby 等公共
+  /// 后端 override 为 `ParentId` 子项查询（BoxSet 的成员即其直属子项）。
+  Future<MediaItemCardPage> queryChildItems(MediaCatalogQuery query) async =>
+      const MediaItemCardPage();
+
   /// 单个条目的详情（展示信息）。不含播放接线（轨道 / 句柄 / 直链），那些留播放入口。
   Future<MediaDetail> getItemDetail(String itemId);
 
