@@ -757,15 +757,17 @@ class _MediaListScreenState extends State<MediaListScreen>
           }
           // 原生/分屏不可用(如非 Android、无平行窗口能力)时回退全屏 Navigator.push。
           final neutralNavigator = Navigator.of(context);
-          // push 前预热目标页取色 scheme + 预取 hero backdrop 直链（与详情页背景
-          // 组件同 URL 即同缓存键；URL 自带 api_key，无需 NAS token）。
-          DetailThemePrewarmer.warmUp(
+          // push 前预热目标页取色 scheme + 提前应用全局主题 + 预取 hero backdrop
+          // 直链（与详情页背景组件同 URL 即同缓存键；URL 自带 api_key）。
+          // await：push 同步置起转场计数，晚于它的主题发布会被推迟到转场后。
+          await DetailThemePrewarmer.warmUp(
             context,
             pageKey: item.guid,
             imageUrl: item.backdropUrl.trim().isNotEmpty
                 ? item.backdropUrl
                 : item.poster,
           );
+          if (!mounted) return;
           final heroProvider = DetailHeroImage.directUrlPrecacheProvider(
             url: item.backdropUrl,
             screenWidth: MediaQuery.of(context).size.width,
@@ -825,8 +827,10 @@ class _MediaListScreenState extends State<MediaListScreen>
         }
 
         if (!mounted) return;
-        // push 前预热目标页取色 scheme（seed 命中缓存时详情首帧免 2×~16ms HCT）。
-        DetailThemePrewarmer.warmUp(context, pageKey: item.guid);
+        // push 前预热目标页取色 scheme + 提前应用全局主题（seed 命中缓存时详情
+        // 首帧免 HCT 冷跑，转场里两页已是目标配色）。await 原因见 prewarmer 注释。
+        await DetailThemePrewarmer.warmUp(context, pageKey: item.guid);
+        if (!mounted) return;
         await navigator.push(
           AppTransitions.leftToRightPageTurnRoute(
             PlayDetailScreen(

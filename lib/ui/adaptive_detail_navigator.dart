@@ -215,15 +215,17 @@ class AdaptiveDetailNavigator {
     required DetailPresentation presentation,
   }) async {
     final navigator = Navigator.of(context);
-    // push/pane 打开前预热目标页取色 scheme：seed 命中缓存时详情首帧 build 不再
-    // 冷跑 2×~16ms HCT 求解。静态 scheme 缓存同引擎共享，pane 分支同样受益；
-    // 原生独立引擎分支白热一次（不共享静态缓存），代价可忽略。
+    // push/pane 打开前预热目标页取色 scheme + 提前应用全局运行时主题：seed 命中
+    // 缓存时详情首帧免冷跑 HCT，且转场里新旧两页已是目标配色（不再"进页后整页
+    // 配色晚一步跳变"）。必须 await：push 同步置起转场计数，其后的主题发布会被
+    // 转场收口推迟。内部为微任务级等待，无可感延迟。
     if (request.themePageKey.isNotEmpty) {
-      DetailThemePrewarmer.warmUp(
+      await DetailThemePrewarmer.warmUp(
         context,
         pageKey: request.themePageKey,
         imageUrl: _firstDirectHeroUrl(request),
       );
+      if (!context.mounted) return null;
     }
     final paneHost = PlayerPaneHostScope.maybeOf(context);
     final localRouteName = request.localRouteName;
