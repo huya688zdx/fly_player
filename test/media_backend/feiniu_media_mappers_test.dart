@@ -27,6 +27,7 @@ MediaLibraryItem _libraryItem({
   int localNumberOfEpisodes = 0,
   int numberOfItem = 0,
   List<String> resolutions = const <String>[],
+  String overview = '',
 }) {
   return MediaLibraryItem(
     guid: guid,
@@ -41,7 +42,7 @@ MediaLibraryItem _libraryItem({
     firstAirDate: firstAirDate,
     lastAirDate: lastAirDate,
     voteAverage: voteAverage,
-    overview: '',
+    overview: overview,
     watched: watched,
     watchedTs: 0,
     ts: 0,
@@ -141,6 +142,13 @@ void main() {
     expect(card.posterHeight, 1080);
     expect(card.isLandscapePoster, isTrue);
     expect(card.resolutions, ['2160p', '1080p']);
+  });
+
+  test('mapFeiniuItemCard 透传 overview，genres 飞牛无该概念保持空', () {
+    final card = mapFeiniuItemCard(_libraryItem(overview: 'plot'));
+
+    expect(card.overview, 'plot');
+    expect(card.genres, isEmpty);
   });
 
   test('把飞牛流探测结果映射为中立源信息', () {

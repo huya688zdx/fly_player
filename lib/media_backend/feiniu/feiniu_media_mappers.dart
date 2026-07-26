@@ -42,6 +42,7 @@ MediaItemCard mapFeiniuItemCard(MediaLibraryItem item) {
     durationSeconds: item.duration,
     watched: item.watched != 0,
     rating: item.voteAverage,
+    overview: item.overview,
     releaseDate: item.releaseDate,
     firstAirDate: item.firstAirDate,
     lastAirDate: item.lastAirDate,

@@ -65,6 +65,8 @@ MediaItemCard mapEmbyItemCard(
         ? _ticksToSeconds(userData['PlaybackPositionTicks'])
         : 0,
     rating: _ratingText(item['CommunityRating']),
+    overview: (item['Overview'] ?? '').toString(),
+    genres: _stringList(item['Genres']),
     releaseDate: (item['PremiereDate'] ?? '').toString(),
     seasonNumber: _asInt(item['ParentIndexNumber']),
     episodeNumber: _asInt(item['IndexNumber']),
