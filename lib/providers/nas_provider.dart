@@ -389,7 +389,20 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     required bool shouldKeep,
   }) async {
     if (!shouldKeep) {
-      await SecureCredentialStore.delete(key);
+      // 仅容忍通道未注册的启动竞态（MissingPlugin）：并行引擎在 secret_store
+      // 通道注册前加载时 delete 会抛，残留清理失败不能炸掉整次会话加载，留待
+      // 下次再清。真实的安全存储操作失败仍按原样上抛。
+      try {
+        await SecureCredentialStore.delete(key);
+      } on MissingPluginException catch (error, stackTrace) {
+        await logSwallowedError(
+          action: 'clean stale NAS credential',
+          error: error,
+          stackTrace: stackTrace,
+          source: 'nas_provider',
+          id: key,
+        );
+      }
       return (value: '', available: true);
     }
     final stored = await SecureCredentialStore.read(key);
@@ -400,7 +413,18 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
       return (value: stored.value, available: true);
     }
     if (legacyValue.isNotEmpty) {
-      await SecureCredentialStore.write(key, legacyValue);
+      // 旧版明文凭证迁移写入同理：通道未注册时不阻断加载，值仍可用，下次再迁。
+      try {
+        await SecureCredentialStore.write(key, legacyValue);
+      } on MissingPluginException catch (error, stackTrace) {
+        await logSwallowedError(
+          action: 'migrate legacy NAS credential',
+          error: error,
+          stackTrace: stackTrace,
+          source: 'nas_provider',
+          id: key,
+        );
+      }
       return (value: legacyValue, available: true);
     }
     return (value: '', available: true);
