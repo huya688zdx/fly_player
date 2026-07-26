@@ -4,7 +4,10 @@ import '../l10n/generated/app_localizations.dart';
 import '../media_backend/media_backend_kind.dart';
 import '../media_backend/media_backend_registry.dart';
 import '../services/login_history_store.dart';
+import '../theme/app_theme.dart';
 import '../utils/app_confirm_dialog.dart';
+import '../utils/app_top_tip.dart';
+import '../utils/swallowed_error_logger.dart';
 
 /// 统一的登录历史页面：飞牛与 Emby 历史共用一个列表，每行用后端 logo 区分。
 ///
@@ -31,11 +34,26 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
       confirmText: l10n.commonDelete,
     );
     if (!confirmed) return;
-    final entries = await LoginHistoryStore.remove(entry);
-    if (!mounted) return;
-    setState(() {
-      _entries = entries;
-    });
+    try {
+      final entries = await LoginHistoryStore.remove(entry);
+      if (!mounted) return;
+      setState(() {
+        _entries = entries;
+      });
+    } catch (error, stackTrace) {
+      // 持久化操作可能因安全存储不可用而抛异常，此时保留原列表状态，避免界面显示与实际存储脱节。
+      await logSwallowedError(
+        action: 'delete login history entry',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (!mounted) return;
+      AppTopTip().show(
+        context,
+        message: l10n.commonOperationFailedRetryLater,
+        color: context.appColors.danger,
+      );
+    }
   }
 
   Future<void> _clear() async {
@@ -48,11 +66,26 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
       confirmText: l10n.commonClear,
     );
     if (!confirmed) return;
-    await LoginHistoryStore.clear();
-    if (!mounted) return;
-    setState(() {
-      _entries = const <LoginHistoryEntry>[];
-    });
+    try {
+      await LoginHistoryStore.clear();
+      if (!mounted) return;
+      setState(() {
+        _entries = const <LoginHistoryEntry>[];
+      });
+    } catch (error, stackTrace) {
+      // 持久化操作可能因安全存储不可用而抛异常，此时保留原列表状态，避免界面显示与实际存储脱节。
+      await logSwallowedError(
+        action: 'clear login history',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (!mounted) return;
+      AppTopTip().show(
+        context,
+        message: l10n.commonOperationFailedRetryLater,
+        color: context.appColors.danger,
+      );
+    }
   }
 
   @override

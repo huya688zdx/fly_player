@@ -529,17 +529,14 @@ MediaInfoCard _feiniuVideoCard(VideoStreamInfo video) {
 MediaInfoCard _feiniuAudioCard(AudioTrackOption audio) {
   final lan = MediaLanguageMapper.languageName(audio.language);
   final headerParts = <String>[
-    if (lan != _unknownLanguageName) lan,
+    if (lan.isNotEmpty) lan,
     if (audio.codecName.trim().isNotEmpty) audio.codecName,
     if (audio.channelLayout.trim().isNotEmpty) audio.channelLayout,
   ];
   return MediaInfoCard(
     header: headerParts.join(' '),
     fields: <MediaInfoField>[
-      MediaInfoField(
-        MediaInfoFieldKey.language,
-        lan == _unknownLanguageName ? '' : lan,
-      ),
+      MediaInfoField(MediaInfoFieldKey.language, lan),
       MediaInfoField(MediaInfoFieldKey.encoder, audio.codecName),
       MediaInfoField(MediaInfoFieldKey.profile, audio.profile),
       const MediaInfoField.divider(),
@@ -569,14 +566,11 @@ MediaInfoCard _feiniuSubtitleCard(
           .trim()
           .toUpperCase();
   final header =
-      '${lan == _unknownLanguageName ? l10n.mediaDetailsSubtitleSection : lan} ($fmt)';
+      '${lan.isEmpty ? l10n.mediaDetailsSubtitleSection : lan} ($fmt)';
   return MediaInfoCard(
     header: header,
     fields: <MediaInfoField>[
-      MediaInfoField(
-        MediaInfoFieldKey.language,
-        lan == _unknownLanguageName ? '' : lan,
-      ),
+      MediaInfoField(MediaInfoFieldKey.language, lan),
       MediaInfoField(MediaInfoFieldKey.encoder, fmt.toLowerCase()),
       const MediaInfoField.divider(),
       MediaInfoField(
@@ -596,8 +590,6 @@ MediaInfoCard _feiniuSubtitleCard(
 String _boolRaw(bool value) => value ? '1' : '0';
 
 String _safe(String value) => value.trim().isEmpty ? '-' : value.trim();
-
-const String _unknownLanguageName = '未知';
 
 String _resolution(int w, int h) {
   if (w <= 0 || h <= 0) return '';
