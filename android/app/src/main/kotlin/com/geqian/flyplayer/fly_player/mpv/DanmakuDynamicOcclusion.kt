@@ -1536,7 +1536,7 @@ class DanmakuDynamicOcclusionController(
         }
         if (planBActive()) {
             stopSampling(clearPending = true)
-            ensurePrecomputePipeline().start()
+            startPrecomputePipeline()
             return
         }
         val captureUnavailableReason = captureUnavailableReason()
@@ -2840,24 +2840,31 @@ class DanmakuDynamicOcclusionController(
     private fun planBActive(): Boolean = DANMAKU_AI_PLAN_B && currentPlanBDecodeSource() != null
 
     // --- Plan B v2: producer pipeline (dense decode-ahead masks) ---
+    // evaluateSamplingState 会从播放线程（updateConfig/updatePlaybackState 等）和主线程
+    // （emitPipelineStep/handlePlanBSourceFailure 回投）两侧进入，创建/释放必须持锁：
+    // 无锁的 check-then-act 并发时会各建一个 HandlerThread，先写入的成孤儿永远无人
+    // release（真机进程里多出的 FlyPlayerMaskPipeline 线程即此）。
     private var precomputePipeline: DanmakuMaskPrecomputePipeline? = null
+    private val precomputePipelineLock = Any()
 
-    private fun ensurePrecomputePipeline(): DanmakuMaskPrecomputePipeline {
-        precomputePipeline?.let { return it }
+    private fun startPrecomputePipeline() {
         val pipeline =
-            DanmakuMaskPrecomputePipeline(
-                runtimeFactory = runtimeFactory,
-                configProvider = { config },
-                positionMsProvider = positionProviderMs,
-                playbackSpeedProvider = playbackSpeedProvider,
-                decodeSourceProvider = { currentPlanBDecodeSource() },
-                onStep = { step -> mainHandler.post { emitPipelineStep(step) } },
-                onSourceFailure = { failedSource, reason ->
-                    mainHandler.post { handlePlanBSourceFailure(failedSource, reason) }
-                },
-            )
-        precomputePipeline = pipeline
-        return pipeline
+            synchronized(precomputePipelineLock) {
+                if (disposed) return
+                precomputePipeline
+                    ?: DanmakuMaskPrecomputePipeline(
+                        runtimeFactory = runtimeFactory,
+                        configProvider = { config },
+                        positionMsProvider = positionProviderMs,
+                        playbackSpeedProvider = playbackSpeedProvider,
+                        decodeSourceProvider = { currentPlanBDecodeSource() },
+                        onStep = { step -> mainHandler.post { emitPipelineStep(step) } },
+                        onSourceFailure = { failedSource, reason ->
+                            mainHandler.post { handlePlanBSourceFailure(failedSource, reason) }
+                        },
+                    ).also { precomputePipeline = it }
+            }
+        pipeline.start()
     }
 
     private fun handlePlanBSourceFailure(
@@ -2875,12 +2882,17 @@ class DanmakuDynamicOcclusionController(
     }
 
     private fun stopPrecomputePipeline() {
-        precomputePipeline?.pause()
+        synchronized(precomputePipelineLock) { precomputePipeline }?.pause()
     }
 
     private fun releasePrecomputePipeline() {
-        precomputePipeline?.release()
-        precomputePipeline = null
+        val pipeline =
+            synchronized(precomputePipelineLock) {
+                val current = precomputePipeline
+                precomputePipeline = null
+                current
+            }
+        pipeline?.release()
     }
 
     private fun emitPipelineStep(step: DanmakuMaskPrecomputePipeline.MaskStep) {

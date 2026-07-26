@@ -10,6 +10,7 @@
 // sizes via resizeTensor — call nativeRun with the desired N.
 #include <jni.h>
 #include <android/log.h>
+#include <MNN/ErrorCode.hpp>
 #include <MNN/Interpreter.hpp>
 #include <MNN/Tensor.hpp>
 #include <MNN/MNNForwardType.h>
@@ -40,15 +41,26 @@ MNNForwardType toForwardType(jint backend) {
     }
 }
 
+// currentN stays 0 (invalid) until the whole resize chain succeeds: resizeSession
+// has no return value and can leave the session in a "not resized" state where
+// getSessionOutput still hands back a stale-looking tensor — recording n here
+// would make every later call short-circuit into reading stale output forever.
 bool ensureResized(SegHandle* h, int n) {
     if (h->currentN == n && h->input != nullptr && h->output != nullptr) {
         return true;
     }
+    h->currentN = 0;
+    h->output = nullptr;
     h->net->resizeTensor(h->input, {1, 3, n, n});
     h->net->resizeSession(h->session);
-    h->output = h->net->getSessionOutput(h->session, nullptr);
+    MNN::Tensor* output = h->net->getSessionOutput(h->session, nullptr);
+    if (output == nullptr || output->elementSize() <= 0) {
+        LOGE("session output invalid after resize n=%d", n);
+        return false;
+    }
+    h->output = output;
     h->currentN = n;
-    return h->output != nullptr;
+    return true;
 }
 
 }  // namespace
@@ -121,11 +133,24 @@ Java_com_geqian_flyplayer_fly_1player_mpv_MnnSegNative_nativeRun(
     env->ReleaseFloatArrayElements(input, src, JNI_ABORT);
     h->input->copyFromHostTensor(&hostIn);
 
-    h->net->runSession(h->session);
+    const MNN::ErrorCode status = h->net->runSession(h->session);
+    if (status != MNN::NO_ERROR) {
+        // Session state is suspect (e.g. "Can't run session because not resized");
+        // never read the output tensor — it still holds the previous inference.
+        // Drop currentN so the next call rebuilds the resize state from scratch.
+        LOGE("runSession failed code=%d n=%d", static_cast<int>(status), n);
+        h->currentN = 0;
+        h->output = nullptr;
+        return nullptr;
+    }
 
     MNN::Tensor hostOut(h->output, h->output->getDimensionType());
     h->output->copyToHostTensor(&hostOut);
     const int outCount = hostOut.elementSize();
+    if (outCount <= 0) {
+        LOGE("empty session output n=%d", n);
+        return nullptr;
+    }
     jfloatArray result = env->NewFloatArray(outCount);
     if (result == nullptr) {
         return nullptr;
