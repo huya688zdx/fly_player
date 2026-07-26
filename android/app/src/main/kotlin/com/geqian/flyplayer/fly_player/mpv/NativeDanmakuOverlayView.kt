@@ -435,7 +435,7 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
     // and never extrapolates across a scene cut.
     private class MaskFrame(
         val ptsMs: Long,
-        val bitmap: Bitmap,
+        val bitmap: Bitmap?,
         val vxPerMs: Double,
         val vyPerMs: Double,
         val sceneCut: Boolean,
@@ -487,63 +487,41 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
         vyPerMs: Double,
         sceneCut: Boolean,
         stepMs: Long,
-        source: Bitmap,
+        source: Bitmap?,
     ) {
-        if (source.isRecycled) return
-        val copy = runCatching { source.copy(Bitmap.Config.ARGB_8888, false) }.getOrNull() ?: return
+        val copy =
+            source
+                ?.takeIf { !it.isRecycled }
+                ?.let { runCatching { it.copy(Bitmap.Config.ARGB_8888, false) }.getOrNull() }
+        if (source != null && copy == null) return
         maskPtsBuffer.addLast(MaskFrame(ptsMs, copy, vxPerMs, vyPerMs, sceneCut, stepMs))
         while (maskPtsBuffer.size > maskPtsBufferCap) {
-            maskPtsBuffer.removeFirst().bitmap.takeIf { !it.isRecycled }?.recycle()
+            maskPtsBuffer.removeFirst().bitmap?.takeIf { !it.isRecycled }?.recycle()
         }
         if (stepMs > 0L) {
             maskStaleMaxMs = (stepMs * 3L / 2L).coerceAtLeast(360L)
         }
     }
 
-    // Plan B v2: FLOOR selection — the newest mask whose PTS is <= the current timeline.
-    // Picking the absolute-nearest could grab a FUTURE mask and occlude a spot the video
-    // hasn't reached yet. A future-only buffer (all PTS > t, e.g. right after a seek)
-    // yields null → draw nothing until the matching mask lands.
-    private fun selectMaskForTimeline(timelineMs: Long): MaskFrame? {
-        var best: MaskFrame? = null
-        for (frame in maskPtsBuffer) {
-            if (frame.bitmap.isRecycled) continue
-            if (frame.ptsMs > timelineMs) continue
-            if (best == null || frame.ptsMs > best.ptsMs) {
-                best = frame
-            }
-        }
-        // Too stale → wrong moment; skip rather than occlude the wrong spot.
-        if (best != null && timelineMs - best.ptsMs > maskStaleMaxMs) return null
-        return best
-    }
-
-    // E1: the current time t is bracketed by the buffered floor mask (PTS <= t) and the
-    // next mask (smallest PTS > floor). Drawing both at full alpha covers the subject's
-    // swept path t0→t1 → no "mask lags the moving person" feel, independent of velocity.
     private class MaskBracket(val floor: MaskFrame, val next: MaskFrame?)
 
     private fun selectMaskBracket(timelineMs: Long): MaskBracket? {
-        var floor: MaskFrame? = null
-        for (frame in maskPtsBuffer) {
-            if (frame.bitmap.isRecycled) continue
-            if (frame.ptsMs > timelineMs) continue
-            if (floor == null || frame.ptsMs > floor.ptsMs) floor = frame
-        }
-        val f = floor ?: return null
-        if (timelineMs - f.ptsMs > maskStaleMaxMs) return null
-        var next: MaskFrame? = null
-        for (frame in maskPtsBuffer) {
-            if (frame.bitmap.isRecycled) continue
-            if (frame.ptsMs <= f.ptsMs) continue
-            if (next == null || frame.ptsMs < next.ptsMs) next = frame
-        }
-        return MaskBracket(f, next)
+        val frames = maskPtsBuffer.toList()
+        val selection =
+            DanmakuMaskTimelinePolicy.selectBracket(
+                samples = frames.map { DanmakuMaskTimelineSample(it.ptsMs, it.bitmap == null) },
+                timelineMs = timelineMs,
+                staleMaxMs = maskStaleMaxMs,
+            ) ?: return null
+        return MaskBracket(
+            floor = frames[selection.floorIndex],
+            next = selection.nextIndex?.let(frames::get),
+        )
     }
 
     private fun clearMaskPtsBuffer() {
         for (frame in maskPtsBuffer) {
-            frame.bitmap.takeIf { !it.isRecycled }?.recycle()
+            frame.bitmap?.takeIf { !it.isRecycled }?.recycle()
         }
         maskPtsBuffer.clear()
         // Drop the coverage cache; it may reference a now-recycled buffered mask.
@@ -563,13 +541,14 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
         lastMaskBiasLogMs = now
         var newest = Long.MIN_VALUE
         for (f in maskPtsBuffer) {
-            if (!f.bitmap.isRecycled && f.ptsMs > newest) newest = f.ptsMs
+            if (f.bitmap?.isRecycled == false && f.ptsMs > newest) newest = f.ptsMs
         }
         val pos = lastKnownPositionMs.toLong()
         Log.d(
             TAG,
             "planb2 draw t=$timelineMs pos=$pos tMinusPos=${timelineMs - pos} " +
-                "floorPts=${floor?.ptsMs ?: -1} nextPts=${next?.ptsMs ?: -1} " +
+                "floorPts=${floor?.ptsMs ?: -1} floorEmpty=${floor?.bitmap == null} " +
+                "nextPts=${next?.ptsMs ?: -1} " +
                 "dErr=${if (floor != null) timelineMs - floor.ptsMs else -1} union=$unionDrawn " +
                 "bufferAhead=${if (newest > Long.MIN_VALUE) newest - timelineMs else -1} buf=${maskPtsBuffer.size}",
         )
@@ -784,26 +763,25 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
         maskVelocityX = state.maskVelocityX
         maskVelocityY = state.maskVelocityY
         maskAnchorUptimeMs = SystemClock.uptimeMillis()
-        // Plan B: buffer the precomputed mask under its video PTS for PTS-synced draw.
-        // PTS mode tracks the CURRENT source: a mask carrying a PTS (>0) means Plan B
-        // (local); a mask without one means the live-capture path (network). Only flip
-        // when an actual mask is present so empty/cleared states don't toggle it.
-        if (runtimeMaskBitmap != null && !runtimeMaskBitmap.isRecycled) {
-            if (state.maskPtsMs > 0L) {
-                ptsMaskMode = true
-                occlusionVideoAspect = state.videoAspect.toFloat()
-                pushMaskFrame(
-                    ptsMs = state.maskPtsMs,
-                    vxPerMs = state.maskVelocityX,
-                    vyPerMs = state.maskVelocityY,
-                    sceneCut = state.maskSceneCut,
-                    stepMs = state.effectiveSampleIntervalMs,
-                    source = runtimeMaskBitmap,
-                )
-            } else {
-                ptsMaskMode = false
-                occlusionVideoAspect = 0f
-            }
+        if (state.maskPtsMs > 0L && (state.maskEmptyStep || runtimeMaskBitmap?.isRecycled == false)) {
+            ptsMaskMode = true
+            occlusionVideoAspect = state.videoAspect.toFloat()
+            pushMaskFrame(
+                ptsMs = state.maskPtsMs,
+                vxPerMs = state.maskVelocityX,
+                vyPerMs = state.maskVelocityY,
+                sceneCut = state.maskSceneCut,
+                stepMs = state.effectiveSampleIntervalMs,
+                source = runtimeMaskBitmap,
+            )
+        } else if (runtimeMaskBitmap != null && !runtimeMaskBitmap.isRecycled) {
+            ptsMaskMode = false
+            occlusionVideoAspect = 0f
+        }
+        if (state.maskEmptyStep && state.maskPtsMs > 0L) {
+            cancelPendingMaskClear()
+            invalidate()
+            return
         }
         applyOcclusionState(
             NativeDanmakuOcclusionPayload(
@@ -2639,8 +2617,8 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
     private fun maskCoverageContext(timelineMs: Float): Bitmap? {
         if (occlusionDrawWholeRatio <= 0f) return null
         if (occlusion.mode != NativeDanmakuOcclusionMode.MASK) return null
-        val frame = selectMaskForTimeline(timelineMs.toLong())
-        val mask = if (ptsMaskMode) frame?.bitmap else (frame?.bitmap ?: currentMaskBitmap)
+        val frame = selectMaskBracket(timelineMs.toLong())?.floor
+        val mask = if (ptsMaskMode) frame?.bitmap else currentMaskBitmap
         if (mask == null || mask.isRecycled) return null
         val destinationCoverage = settings.displayAreaRatio.coerceIn(0.25f, 1.0f)
         val visibleDestinationBottom =
@@ -2781,13 +2759,8 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
                     (visibleDestinationBottom + partialMaskBoundaryBleedPx(destinationCoverage))
                         .coerceIn(1f, height.toFloat())
 
-                // Plan B v2 (local): bracket dual-mask. Draw the floor mask (extrapolated by
-                // its own per-step velocity over t-pts, capped at one step) AND, at full
-                // alpha with no extrapolation, the next (future) mask. Their union covers the
-                // subject's swept path t0→t1 → the lag of a moving subject disappears without
-                // relying on velocity accuracy. NO cross-fade: partial alpha = ghost (the
-                // historical "半透明残留" pitfall) — both masks must be full alpha. Static
-                // shots reuse the same bitmap reference → next === floor → union auto-skips.
+                // Plan B：有 next 时 floor 与 next 都零外推；仅缓冲尽头允许 floor
+                // 按自身速度最多外推 150ms。双 mask 始终全 alpha，不做交叉渐隐。
                 if (ptsMaskMode && occlusionVideoAspect > 0f) {
                     val bracket = selectMaskBracket(timelineMs)
                     if (bracket == null) {
@@ -2795,8 +2768,18 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
                         return
                     }
                     val floor = bracket.floor
-                    if (floor.bitmap.isRecycled) return
-                    val extrapMs = (timelineMs - floor.ptsMs).coerceIn(0L, floor.stepMs.coerceAtLeast(1L))
+                    val floorBitmap = floor.bitmap?.takeIf { !it.isRecycled }
+                    if (floorBitmap == null) {
+                        maybeLogMaskBias(timelineMs, floor, bracket.next, false)
+                        return
+                    }
+                    val next = bracket.next
+                    val extrapMs =
+                        DanmakuMaskTimelinePolicy.tailExtrapolationMs(
+                            timelineMs = timelineMs,
+                            floorPtsMs = floor.ptsMs,
+                            hasNext = next != null,
+                        )
                     val maxOffX = width.toFloat() * maskExtrapMaxFraction
                     val maxOffY = height.toFloat() * maskExtrapMaxFraction
                     val offX =
@@ -2807,15 +2790,15 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
                         (floor.vyPerMs * extrapMs.toDouble() * height.toDouble())
                             .toFloat()
                             .coerceIn(-maxOffY, maxOffY)
-                    drawPtsMaskBitmap(canvas, floor.bitmap, offX, offY, destinationBottom)
-                    val next = bracket.next
+                    drawPtsMaskBitmap(canvas, floorBitmap, offX, offY, destinationBottom)
                     val unionDrawn =
-                        next != null &&
+                        next?.bitmap?.let { nextBitmap ->
                             !next.sceneCut &&
-                            !next.bitmap.isRecycled &&
-                            next.bitmap !== floor.bitmap
+                                !nextBitmap.isRecycled &&
+                                nextBitmap !== floorBitmap
+                        } == true
                     if (unionDrawn) {
-                        drawPtsMaskBitmap(canvas, next!!.bitmap, 0f, 0f, destinationBottom)
+                        drawPtsMaskBitmap(canvas, next!!.bitmap!!, 0f, 0f, destinationBottom)
                     }
                     maybeLogMaskBias(timelineMs, floor, next, unionDrawn)
                     return
@@ -2823,12 +2806,12 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
 
                 // Live-capture path (network): single mask, full-view mapping with a source
                 // crop, wall-clock extrapolation off the controller's global velocity.
-                val ptsFrame = selectMaskForTimeline(timelineMs)
                 val currentMask =
                     if (ptsMaskMode) {
-                        ptsFrame?.bitmap ?: return
+                        val bracket = selectMaskBracket(timelineMs) ?: return
+                        bracket.floor.bitmap?.takeIf { !it.isRecycled } ?: return
                     } else {
-                        ptsFrame?.bitmap ?: currentMaskBitmap ?: return
+                        currentMaskBitmap ?: return
                     }
                 if (currentMask.isRecycled) return
                 val sourceCoverage = resolveMaskSourceCoverageRatio(
