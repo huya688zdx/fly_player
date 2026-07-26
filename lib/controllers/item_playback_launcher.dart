@@ -387,14 +387,25 @@ class ItemPlaybackLauncher {
         return candidates.isNotEmpty ? candidates.first : '';
       }
 
+      // 已下载的集优先用本地封面（file://，离线也能显示、无需 token）。
+      // 封面解析已改异步（目录扫描），这里按下标先并发解析一遍再组装，避免循环内串行 await。
+      final records = episodes
+          .map(
+            (MediaLibraryItem ep) => service.downloadedRecordForItem(ep.guid),
+          )
+          .toList(growable: false);
+      final localCovers = await Future.wait(<Future<String>>[
+        for (final record in records)
+          record == null
+              ? Future<String>.value('')
+              : service.resolveExistingLocalCover(record),
+      ]);
       return <Map<String, dynamic>>[
-        for (final MediaLibraryItem ep in episodes)
+        for (var index = 0; index < episodes.length; index++)
           () {
-            // 已下载的集优先用本地封面（file://，离线也能显示、无需 token）。
-            final record = service.downloadedRecordForItem(ep.guid);
-            final localCover = record != null
-                ? service.resolveExistingLocalCover(record)
-                : '';
+            final MediaLibraryItem ep = episodes[index];
+            final record = records[index];
+            final localCover = localCovers[index];
             final usingLocal = localCover.isNotEmpty;
             return <String, dynamic>{
               'itemGuid': ep.guid,

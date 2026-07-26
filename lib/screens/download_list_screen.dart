@@ -885,7 +885,7 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
 
   /// 断网或 NAS 拉整季失败时的回退列表：只展示本组已下载集。
   /// 标题只保留单集标题，原生壳负责拼接「第 N 集」。
-  List<Map<String, dynamic>> _groupEpisodesPayload() {
+  Future<List<Map<String, dynamic>>> _groupEpisodesPayload() async {
     final service = DownloadTaskService.instance;
     final records = service.recordsForGroup(
       widget.groupId,
@@ -894,17 +894,26 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
     final groupedRecords = _groupRecordsByItem(
       records,
     ).map((group) => group.records.first).toList(growable: false);
-    return <Map<String, dynamic>>[
+    // 标题依赖 context（l10n），先在 await 前算完，避免跨异步间隙再碰 context。
+    final titles = <String>[
+      for (final record in groupedRecords) _playerTitleForRecord(record),
+    ];
+    // 封面解析已改异步（目录扫描）；这里并发取，避免在循环里串行 await 把耗时按集数放大。
+    final covers = await Future.wait(<Future<String>>[
       for (final record in groupedRecords)
+        service.resolveExistingLocalCover(record),
+    ]);
+    return <Map<String, dynamic>>[
+      for (var index = 0; index < groupedRecords.length; index++)
         <String, dynamic>{
-          'itemGuid': record.itemGuid.trim().isNotEmpty
-              ? record.itemGuid.trim()
-              : record.id,
-          'episodeNumber': record.episodeNumber,
-          'title': _playerTitleForRecord(record),
+          'itemGuid': groupedRecords[index].itemGuid.trim().isNotEmpty
+              ? groupedRecords[index].itemGuid.trim()
+              : groupedRecords[index].id,
+          'episodeNumber': groupedRecords[index].episodeNumber,
+          'title': titles[index],
           // 离线选集封面：用已下载的本地 cover（file://，原生壳解码后 Glide 加载）。
           // 此前这里完全没带 poster → 从下载页进原生壳的选集一直没有图。
-          'poster': service.resolveExistingLocalCover(record),
+          'poster': covers[index],
           'downloaded': true,
         },
     ];
