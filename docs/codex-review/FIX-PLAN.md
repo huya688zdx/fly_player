@@ -50,7 +50,7 @@
 | 2026-07-12 | X 崩溃/数据丢失 | B-014 | 已修复 | 新增服务器族进度离线队列；Emby/服务器族原生进度 transient 失败入队，成功重放后删除，并记录异常上下文。 | 本次工作区变更 | `flutter test test/services/playback_progress_offline_queue_test.dart test/services/native_playback_reporter_test.dart` | 无 |
 | 2026-07-12 | X 误操作防护 | G-012 | 已修复 | 书签清空与单条删除统一使用确认弹窗，取消时不触发存储变更。 | 本次工作区变更 | 目标 `flutter analyze` | 无 |
 | 2026-07-12 | X 误操作防护 | G-013 | 已修复 | 弹幕保存源的两处删除入口统一使用确认弹窗，取消时保留原记录。 | 本次工作区变更 | 目标 `flutter analyze` | 无 |
-| 2026-07-12 | X 误操作防护 | G-027 | 部分修复 | 登录历史清空与单条删除统一使用确认弹窗，取消时不修改历史。 | 本次工作区变更 | 代码核对 login_history_screen.dart:24-56 | finding 后半（持久化失败无 catch/无用户反馈）未落实；`LoginHistoryStore.remove/clear` 经安全存储可能抛异常 |
+| 2026-07-27 | X 误操作防护 | G-027 | 已修复 | 确认弹窗（2026-07-12）+ 持久化失败反馈补全：remove/clear 补 try/catch，失败不刷新列表、AppTopTip 提示、logSwallowedError 留痕。 | `1a8f47e` | 质量评审通过；失败路径 widget 测试补充在途 | 无 |
 | 2026-07-09 | X 崩溃/数据丢失 | B-007 | 已修复 | 下载转码进度轮询增加 per-record in-flight 防重入，避免并发请求和旧结果覆盖。 | `cf41cf4` | 待验证 | 无 |
 | 2026-07-09 | X 崩溃/数据丢失 | A-008 | 已修复 | `recordPlayback()` 校验后端业务 payload，HTTP 200 但 `code != 0` 会进入统一异常路径。 | `cf41cf4` | 待验证 | 无 |
 | 2026-07-09 | X 生命周期 | H-003 / H-012 / F-035 | 已修复 | 简介“更多/详情”链接改为 `WidgetSpan + GestureDetector`，不再在 build 中创建需 dispose 的 `TapGestureRecognizer`。 | `cf41cf4` | 待验证 | 无 |
@@ -85,6 +85,13 @@
 | 2026-07-09 | I i18n / 模型层文案 | 主题展示文案 | 已修复 | `AppThemeProvider` 不再提供英文主题展示文案；主题预设名与自定义名称建议改由 l10n 生成。 | `840a7c0` | 待验证 | 无 |
 | 2026-07-09 | I i18n / 模型层文案 | 页面硬编码文案 | 已修复 | 路由错误页、FN Connect Web 登录页、媒体信息页、mpv 缓存滑杆端点、详情简介/链接/下载角标等页面硬编码文案已接入 l10n。 | `840a7c0` | 待验证 | 无 |
 | 2026-07-09 | I i18n / 模型层文案 | `TvEpisodeCardData` | 已修复 | 状态颜色从模型层 `Color` 改为语义 tone，组件层再映射主题色。 | `840a7c0` | 待验证 | 无 |
+| 2026-07-27 | I i18n | SSL 文案残留（G-029/G-032 引入） | 已修复 | 两个 WebView 登录页的"SSL 证书错误："硬编码中文改走 l10n（带占位符 key）。 | `8d0b142` | flutter analyze + 登录页测试 31 用例绿；规格/质量双评审过 | key 更名 common 前缀在途 |
+| 2026-07-27 | I/清理 | '未知'永真哨兵 + H-027 死 token | 已修复 | MediaLanguageMapper 修复后残留的永真比较删除（顺带修复空语言前导空格/字幕兜底失效两处显示瑕疵）；detail_tokens 三个玻璃死 token 删除。 | `1a8f47e` | grep 零残留；双评审过 | 无 |
+| 2026-07-27 | I i18n | B-025 | 已修复 | `StreamListOption.audioLabel` 出模型层；"音频"后缀改 lib/ui helper + l10n 组装；语言名表加消费边界注释。 | `4eb47a7` | 新增 helper 单测 5 项绿；双评审过 | arb key track 前缀更名在途 |
+| 2026-07-27 | P 性能 | B-001 / B-005 / B-008 | 已修复 | 日志导出判定、下载总量、本地封面解析全部异步化；批量调用点 Future.wait 并发；await 后 mounted 守卫补齐。 | `f9b5b83` / `12326e2` | 规格评审逐 case 核验行为等价；相关测试 12 项绿 | 范围外仍剩 app_log 6 行、download_task_service 39 行同步 IO（见续作报告） |
+| 2026-07-27 | P 性能 | A-017 | 已修复 | 系列起播 Resume → NextUp → 逐季扫描三级路径；NextUp 走 EmbyApi 内核 Jellyfin 自动继承；逐季回退找到首个未看即停；异常吞掉走回退。 | `f58c9a1` | emby backend 39 用例绿（含 3 新分支测试）；双评审过 | 标签 break 简化等 4 项收尾在途 |
+| 2026-07-27 | P 性能 | H-006 / H-016 / F-036 | 已修复 | 三处 Image.network 按显示尺寸解码（DPR 换算）；H-016 修正为只传 cacheWidth 防竖版海报压扁。 | `4ae56ac` / `6f3ea6b` | flutter analyze 绿；规格评审含几何失真复核 | 无 |
+| 2026-07-27 | M 5.2 | A-004 / A-005 | 已修复 | EmbyApi 默认 Dio 补 10/20/10 超时（注入路径不变，Jellyfin 继承生效）；entry-token 拦截器抽 `fn_entry_token_transport.dart`，cookie 合并复用公共 helper，行为逐字节等价。 | `8763634` | 全量 488 测试绿；新增 9 条单测；规格评审逐行比对等价 | 建议实机过一次 fnos 中转 Emby 登录/播放 |
 
 ## 2. 已删除废弃区（74 条，不修）
 
