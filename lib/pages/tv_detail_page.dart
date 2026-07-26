@@ -888,12 +888,9 @@ class _TvDetailPageState extends State<TvDetailPage>
         : detail.displayTitle;
     final overview = detail.overview.trim();
     final heroUrls = artworkResolver.resolveRef(detail.backdropImage).urls;
-    // 低清铺底：backdrop 加载期间用海报直链垫底（列表网格已加载过同 URL，多数
-    // 纯缓存命中）；无 backdrop 时 hero 本就为空，不垫。
-    final heroLowResUrls =
-        detail.backdropImage.isNotEmpty && detail.primaryImage.isNotEmpty
-        ? artworkResolver.resolveRef(detail.primaryImage).urls
-        : const <String>[];
+    // 注意：不要拿海报当 backdrop 的"低清铺底"——海报与 backdrop 是两张不同的图，
+    // 垫底视觉上是"先显示剧集封面、大图就绪后跳变"（实机确认的错图闪），不是
+    // 低清→高清的渐进。Emby 低清位留空，待 mapper 产出同图小宽度引用再启用。
     final logoUrls = artworkResolver.resolveRef(detail.logoImage).urls;
     final heroTitleChild = logoUrls.isNotEmpty
         ? DetailHeroLogoTitle(
@@ -952,7 +949,7 @@ class _TvDetailPageState extends State<TvDetailPage>
             builder: (context, offset, _) {
               return ImmersiveDetailBackground(
                 urls: heroUrls,
-                lowResUrls: heroLowResUrls,
+                lowResUrls: const <String>[],
                 token: '',
                 scrollOffset: offset,
                 posterHeight: posterHeight,
