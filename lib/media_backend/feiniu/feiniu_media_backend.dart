@@ -83,11 +83,19 @@ class FeiniuMediaBackend implements MediaBackend {
         ItemListRequest(
           ancestorGuid: '',
           pageSize: limit,
+          sortColumn: 'create_time',
+          sortType: 'DESC',
           typeTags: const <String>['Movie', 'TV'],
         ).toJson(),
       );
       return page.items.map(mapFeiniuItemCard).toList(growable: false);
-    } catch (_) {
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'load feiniu latest items',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'feiniu_media_backend',
+      );
       return const <MediaItemCard>[];
     }
   }
