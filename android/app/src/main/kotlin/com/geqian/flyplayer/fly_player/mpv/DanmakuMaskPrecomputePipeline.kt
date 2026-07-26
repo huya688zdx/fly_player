@@ -38,8 +38,9 @@ class DanmakuMaskPrecomputePipeline(
     private val configProvider: () -> DanmakuDynamicOcclusionConfig,
     private val positionMsProvider: () -> Long,
     private val playbackSpeedProvider: () -> Double,
-    private val localPathProvider: () -> String?,
+    private val decodeSourceProvider: () -> DanmakuPlanBDecodeSource?,
     private val onStep: (MaskStep) -> Unit,
+    private val onSourceFailure: (DanmakuPlanBDecodeSource, String) -> Unit,
 ) {
     /**
      * One produced mask on the video timeline. [mask] is a freshly-allocated ARGB
@@ -85,7 +86,8 @@ class DanmakuMaskPrecomputePipeline(
     // --- resources (created lazily on the pipeline thread) ---
     private var runtime: DanmakuSegmentationRuntime? = null
     private var extractor: DanmakuFrameExtractor? = null
-    private var extractorPath: String? = null
+    private var extractorSource: DanmakuPlanBDecodeSource? = null
+    private var firstFrameStartedAtMs = 0L
 
     // --- production cursor (pipeline thread only) ---
     private var nextStepMs = -1L // next video PTS to produce; <0 = needs prime
@@ -211,22 +213,25 @@ class DanmakuMaskPrecomputePipeline(
     }
 
     private fun ensureExtractor(): DanmakuFrameExtractor? {
-        val path = localPathProvider() ?: return null
+        val source = decodeSourceProvider() ?: return null
         val existing = extractor
-        if (existing != null && existing.isOpen && extractorPath == path) {
+        if (existing != null && existing.isOpen && extractorSource == source) {
             return existing
         }
         existing?.close()
         val next = DanmakuFrameExtractor()
-        if (!next.open(path)) {
+        val openStartedAtMs = SystemClock.elapsedRealtime()
+        if (!next.open(source.url, source.headers)) {
             next.close()
             extractor = null
-            extractorPath = null
+            extractorSource = null
+            producing = false
+            onSourceFailure(source, "open_failed")
             return null
         }
         extractor = next
-        extractorPath = path
-        // New source → discard cursor/motion history.
+        extractorSource = source
+        firstFrameStartedAtMs = openStartedAtMs
         nextStepMs = -1L
         prevLumaGrid = null
         inferredLumaGrid = null
@@ -265,10 +270,25 @@ class DanmakuMaskPrecomputePipeline(
                 .onFailure { Log.w(TAG, "decode failed target=${targetMs}ms", it) }
                 .getOrNull()
         if (frame == null) {
-            // EOS or transient decode miss. Don't advance the cursor; back off so we
-            // don't spin. A later position advance / seek re-primes.
+            val failedSource = extractorSource
+            if (firstFrameStartedAtMs > 0L && failedSource != null) {
+                producing = false
+                onSourceFailure(failedSource, "first_frame_failed")
+                return
+            }
             scheduleIdle()
             return
+        }
+        if (firstFrameStartedAtMs > 0L) {
+            val firstFrameMs = SystemClock.elapsedRealtime() - firstFrameStartedAtMs
+            val source = extractorSource
+            if (source?.isNetworkProxy == true && firstFrameMs > NETWORK_FIRST_FRAME_TIMEOUT_MS) {
+                frame.takeIf { !it.isRecycled }?.recycle()
+                producing = false
+                onSourceFailure(source, "first_frame_timeout_${firstFrameMs}ms")
+                return
+            }
+            firstFrameStartedAtMs = 0L
         }
 
         val grid = sampleLumaGrid(frame)
@@ -566,6 +586,7 @@ class DanmakuMaskPrecomputePipeline(
     private companion object {
         const val TAG = "FlyPlayerMaskPipeline"
         const val DEBUG_LOG = true
+        const val NETWORK_FIRST_FRAME_TIMEOUT_MS = 5_000L
 
         // Step grid (video ms per produced mask). Quiet scenes sit at DEFAULT; motion
         // shrinks toward MIN (E2); a real inference's cost (EMA / SUSTAIN) raises the floor

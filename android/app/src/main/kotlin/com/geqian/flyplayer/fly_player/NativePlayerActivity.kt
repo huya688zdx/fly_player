@@ -7751,9 +7751,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         "sampleIntervalMs" to 300L,
         "inputWidth" to 256,
         "renderTargetFrameRateHz" to 60,
-        // 蒙版跟随运动（采样间用估计的画面运动外推蒙版位置）。默认关：网络源截屏路径下
-        // 外推偏移过强会让蒙版漂移；关掉则蒙版在两次采样间保持上次位置。
         "motionTrackingEnabled" to false,
+        "networkPrecomputeEnabled" to true,
     )
 
     // 弹幕「显示外观」偏好键集（持久化；不含 enabled/sourceKey/playbackSpeed 等会话/数据键）。
@@ -7952,6 +7951,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     },
                     panelSegment(getString(R.string.player_text_0238), maskFpsOpts.map { it.first }, maskFpsOpts.indexOfFirst { it.second == curMaskFps }.coerceAtLeast(0)) { i ->
                         occlusionConfig["renderTargetFrameRateHz"] = maskFpsOpts[i].second
+                        applyOcclusionConfig()
+                        persistOcclusion()
+                        renderTopPanel()
+                    },
+                    panelToggle(
+                        getString(R.string.player_occlusion_network_precompute),
+                        occlusionConfig["networkPrecomputeEnabled"] != false,
+                        getString(R.string.player_occlusion_network_precompute_summary),
+                    ) { enabled ->
+                        occlusionConfig["networkPrecomputeEnabled"] = enabled
                         applyOcclusionConfig()
                         persistOcclusion()
                         renderTopPanel()

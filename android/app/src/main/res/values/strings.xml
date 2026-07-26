@@ -466,6 +466,8 @@
     <string name="player_text_0236">采样间隔</string>
     <string name="player_text_0237">输入宽度</string>
     <string name="player_text_0238">遮罩帧率</string>
+    <string name="player_occlusion_network_precompute">网络源预计算遮罩</string>
+    <string name="player_occlusion_network_precompute_summary">通过本地播放代理提前解码。弱网或设备负载过高时可关闭，失败会自动回退实时遮罩。</string>
     <string name="player_text_0239">当前源</string>
     <string name="player_text_0240">无（由编排层注入）</string>
     <string name="player_text_0241">操作</string>

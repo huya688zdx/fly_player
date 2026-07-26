@@ -521,10 +521,8 @@ data class DanmakuDynamicOcclusionConfig(
     val inputHeight: Int,
     val displayAreaRatio: Float,
     val sampleAreaRatio: Float,
-    // Between-sample mask motion extrapolation (the mask "follows" estimated frame
-    // motion between AI samples). On the live-capture path the offset can feel too
-    // strong; this lets the user turn it off (mask just holds its last position).
     val motionTrackingEnabled: Boolean,
+    val networkPrecomputeEnabled: Boolean,
 ) {
     companion object {
         val defaults =
@@ -541,6 +539,7 @@ data class DanmakuDynamicOcclusionConfig(
                 displayAreaRatio = 1.0f,
                 sampleAreaRatio = DANMAKU_AI_DEFAULT_SAMPLE_AREA_RATIO,
                 motionTrackingEnabled = true,
+                networkPrecomputeEnabled = true,
             )
 
         fun fromMap(raw: Map<String, Any?>): DanmakuDynamicOcclusionConfig {
@@ -578,6 +577,8 @@ data class DanmakuDynamicOcclusionConfig(
                         .coerceIn(0.1f, 1.0f),
                 motionTrackingEnabled =
                     raw["motionTrackingEnabled"] as? Boolean ?: defaults.motionTrackingEnabled,
+                networkPrecomputeEnabled =
+                    raw["networkPrecomputeEnabled"] as? Boolean ?: defaults.networkPrecomputeEnabled,
             )
         }
     }
@@ -1128,6 +1129,7 @@ class DanmakuDynamicOcclusionController(
     private var latestMaskAppliedAtUptimeMs = 0L
     private var latestRuntimeMaskBitmap: Bitmap? = null
     private var currentSource: MpvSource? = null
+    private var failedPlanBSourceUrl: String? = null
     private var consecutiveEmptyFrames = 0
     private var activeBackendIndex = 0
     private var activeRuntime: DanmakuSegmentationRuntime? = null
@@ -1225,7 +1227,12 @@ class DanmakuDynamicOcclusionController(
         val backendOrderChanged = next.preferredBackendOrder != config.preferredBackendOrder
         val inputSizeChanged =
             next.inputWidth != config.inputWidth || next.inputHeight != config.inputHeight
+        val networkPrecomputeChanged = next.networkPrecomputeEnabled != config.networkPrecomputeEnabled
         config = next
+        if (networkPrecomputeChanged) {
+            failedPlanBSourceUrl = null
+            releasePrecomputePipeline()
+        }
         if (!next.enabled) {
             stopSampling(clearPending = true)
             releasePrecomputePipeline()
@@ -1235,7 +1242,7 @@ class DanmakuDynamicOcclusionController(
             return
         }
         val captureUnavailableReason = captureUnavailableReason()
-        if (captureUnavailableReason != null) {
+        if (captureUnavailableReason != null && !planBActive()) {
             stopSampling(clearPending = true)
             releaseRuntime()
             clearRuntimeMaskState()
@@ -1302,9 +1309,8 @@ class DanmakuDynamicOcclusionController(
     fun onSourceChanged(source: MpvSource) {
         if (disposed) return
         currentSource = source
-        // Plan B v2: pause the producer so it re-primes (and rebuilds its decoder for a
-        // new URL) on the next evaluateSamplingState; network sources keep it idle.
-        stopPrecomputePipeline()
+        failedPlanBSourceUrl = null
+        releasePrecomputePipeline()
         cacheRestoreEligible = true
         clearRuntimeMaskState()
         capturePending = false
@@ -1505,21 +1511,6 @@ class DanmakuDynamicOcclusionController(
         if (!config.enabled) {
             return
         }
-        val captureUnavailableReason = captureUnavailableReason()
-        if (captureUnavailableReason != null) {
-            stopSampling(clearPending = true)
-            stopPrecomputePipeline()
-            if (resetStaleMask) {
-                clearRuntimeMaskState()
-            }
-            emitUnavailableState(
-                backend = currentBackendOrFallback(),
-                keepEnabled = true,
-                backendWireValue = videoOutputTarget.backend.wireValue,
-                unavailableReason = captureUnavailableReason,
-            )
-            return
-        }
         if (!sourceLoaded || !surfaceReady || !videoOutputReady) {
             stopSampling(clearPending = true)
             stopPrecomputePipeline()
@@ -1542,14 +1533,25 @@ class DanmakuDynamicOcclusionController(
             return
         }
         if (planBActive()) {
-            // Plan B v2: a dedicated producer pipeline drives decode-ahead + dense
-            // masks for local sources. The legacy per-sample loop is not used here.
             stopSampling(clearPending = true)
             ensurePrecomputePipeline().start()
             return
         }
-        // Non-Plan-B (network) source: ensure the pipeline is idle, fall through to
-        // the live-capture sampling loop.
+        val captureUnavailableReason = captureUnavailableReason()
+        if (captureUnavailableReason != null) {
+            stopSampling(clearPending = true)
+            stopPrecomputePipeline()
+            if (resetStaleMask) {
+                clearRuntimeMaskState()
+            }
+            emitUnavailableState(
+                backend = currentBackendOrFallback(),
+                keepEnabled = true,
+                backendWireValue = videoOutputTarget.backend.wireValue,
+                unavailableReason = captureUnavailableReason,
+            )
+            return
+        }
         stopPrecomputePipeline()
         val delayMs = (warmStartDelayUntilUptimeMs - SystemClock.uptimeMillis()).coerceAtLeast(0L)
         if (delayMs > 0L) {
@@ -2823,34 +2825,20 @@ class DanmakuDynamicOcclusionController(
     @Volatile
     private var currentPlanBVideoAspect = 0.0
 
-    // Plan B (decode-ahead) only pays off for LOCAL files (in=88-260ms). For network
-    // streams (NAS proxy http/https), a 2nd HW decoder costs 1.5-2.5s per frame and
-    // contends with mpv — masks come out stale and get dropped. So Plan B is gated to
-    // local sources; network sources fall back to the live-capture (PixelCopy) path.
-    private fun planBActive(): Boolean {
-        if (!DANMAKU_AI_PLAN_B) return false
-        val url = currentSource?.url?.trim().orEmpty()
-        if (url.isEmpty()) return false
-        return url.startsWith("file://") || url.startsWith("/")
+    private fun currentPlanBDecodeSource(): DanmakuPlanBDecodeSource? {
+        val source = currentSource ?: return null
+        return DanmakuPlanBSourcePolicy.resolve(
+            url = source.url,
+            headers = source.headers,
+            networkEnabled = config.networkPrecomputeEnabled,
+            failedUrl = failedPlanBSourceUrl,
+        )
     }
 
-
+    private fun planBActive(): Boolean = DANMAKU_AI_PLAN_B && currentPlanBDecodeSource() != null
 
     // --- Plan B v2: producer pipeline (dense decode-ahead masks) ---
-    // Replaces the per-sample runPlanBPrecompute scheduling for LOCAL sources. The
-    // pipeline owns its own decoder + seg runtime on a background thread and pushes a
-    // mask roughly every ~280ms of video time; we just forward each step to the overlay.
     private var precomputePipeline: DanmakuMaskPrecomputePipeline? = null
-
-    private fun currentLocalDecodePath(): String? {
-        val raw = currentSource?.url?.takeIf { it.isNotBlank() } ?: return null
-        if (!(raw.startsWith("file://") || raw.startsWith("/"))) return null
-        return if (raw.startsWith("file://")) {
-            android.net.Uri.parse(raw).path ?: raw.removePrefix("file://")
-        } else {
-            raw
-        }
-    }
 
     private fun ensurePrecomputePipeline(): DanmakuMaskPrecomputePipeline {
         precomputePipeline?.let { return it }
@@ -2860,11 +2848,28 @@ class DanmakuDynamicOcclusionController(
                 configProvider = { config },
                 positionMsProvider = positionProviderMs,
                 playbackSpeedProvider = playbackSpeedProvider,
-                localPathProvider = { currentLocalDecodePath() },
+                decodeSourceProvider = { currentPlanBDecodeSource() },
                 onStep = { step -> mainHandler.post { emitPipelineStep(step) } },
+                onSourceFailure = { failedSource, reason ->
+                    mainHandler.post { handlePlanBSourceFailure(failedSource, reason) }
+                },
             )
         precomputePipeline = pipeline
         return pipeline
+    }
+
+    private fun handlePlanBSourceFailure(
+        failedSource: DanmakuPlanBDecodeSource,
+        reason: String,
+    ) {
+        if (disposed || currentSource?.url?.trim() != failedSource.sourceUrl) return
+        failedPlanBSourceUrl = failedSource.sourceUrl
+        Log.w(
+            "FlyPlayerDanmaku",
+            "planb2 source disabled reason=$reason source=${failedSource.url.substringBefore('?').take(120)}",
+        )
+        releasePrecomputePipeline()
+        evaluateSamplingState(resetStaleMask = true)
     }
 
     private fun stopPrecomputePipeline() {
