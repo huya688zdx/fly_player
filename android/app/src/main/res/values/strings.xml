@@ -308,7 +308,9 @@
     <string name="player_text_0078">播放行为</string>
     <string name="player_text_0079">片头片尾跳过</string>
     <string name="player_text_0080">书签</string>
-    <string name="player_text_0081">片头片尾跳过</string>
+    <!-- 0081 = 设置面板「播放」分组第 4 行（buildTrackInfoPage 入口），仓库恢复时曾被
+         误填成 0079 的「片头片尾跳过」导致面板出现两条同名项。 -->
+    <string name="player_text_0081">视频/轨道信息</string>
     <string name="player_text_0082">章节</string>
     <string name="player_text_0083">工具</string>
     <string name="player_text_0084">书签</string>
