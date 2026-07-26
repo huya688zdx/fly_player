@@ -422,7 +422,7 @@ class EmbyApi {
       'api_key': accessToken,
       'UserId': userId.trim(),
       'SeriesId': seriesId.trim(),
-      if (limit > 0) 'Limit': limit,
+      'Limit': limit,
       if (fields.trim().isNotEmpty) 'Fields': fields.trim(),
     };
     return _getItemList('$normalizedServerUrl/Shows/NextUp', query);
