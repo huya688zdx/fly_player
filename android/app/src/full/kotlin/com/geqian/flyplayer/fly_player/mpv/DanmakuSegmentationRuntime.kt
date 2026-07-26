@@ -91,12 +91,13 @@ class DanmakuSegmentationRuntimeFactory(
     fun create(
         backend: DanmakuAiBackend,
         config: DanmakuDynamicOcclusionConfig,
+        inputWidthOverride: Int? = null,
     ): DanmakuSegmentationRuntime {
         check(config.preferredBackendOrder.contains(DanmakuAiBackend.PADDLE)) {
             "AI backend must remain enabled"
         }
         return when (backend) {
-            DanmakuAiBackend.PADDLE -> createMnnRuntime()
+            DanmakuAiBackend.PADDLE -> createMnnRuntime(inputWidthOverride)
             DanmakuAiBackend.GPU,
             DanmakuAiBackend.CPU,
             -> error("backend ${backend.wireValue} is no longer supported")
@@ -125,7 +126,7 @@ class DanmakuSegmentationRuntimeFactory(
         return "mnn-cpu soc=$soc"
     }
 
-    private fun createMnnRuntime(): DanmakuSegmentationRuntime {
+    private fun createMnnRuntime(inputWidthOverride: Int?): DanmakuSegmentationRuntime {
         // MNN loads from a file path, so copy the bundled .mnn asset to cache once
         // (cache-aware: skip if already materialized).
         val destDir = File(File(context.cacheDir, DANMAKU_MNN_CACHE_DIR_NAME), "mnn_seg")
@@ -154,7 +155,8 @@ class DanmakuSegmentationRuntimeFactory(
             MnnImageSegmenter.createAnime(path, backend = MnnSegNative.BACKEND_CPU, threads = 4)
                 ?.also { Log.i(TAG, "MNN seg backend=cpu") }
                 ?: error("MNN segmenter init failed: $path")
-        return MnnSegmentationRuntime(segmenter, DANMAKU_MNN_SEG_INPUT_SIZE)
+        val size = inputWidthOverride?.coerceIn(320, DANMAKU_MNN_SEG_INPUT_SIZE) ?: DANMAKU_MNN_SEG_INPUT_SIZE
+        return MnnSegmentationRuntime(segmenter, size)
     }
 
     private fun assetDirectoryExists(assetDir: String): Boolean {

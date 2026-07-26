@@ -428,6 +428,7 @@ data class DanmakuDynamicOcclusionState(
     val maskVelocityY: Double = 0.0,
     // Plan B: video PTS (ms) this mask was computed for; overlay PTS-syncs to it. 0 = none.
     val maskPtsMs: Long = 0L,
+    val maskEmptyStep: Boolean = false,
     // Plan B v2: this mask starts a new scene (cut detected). The renderer won't
     // extrapolate it (or across it). false = continuous with the previous mask.
     val maskSceneCut: Boolean = false,
@@ -460,6 +461,7 @@ data class DanmakuDynamicOcclusionState(
             "maskVelocityX" to maskVelocityX,
             "maskVelocityY" to maskVelocityY,
             "maskPtsMs" to maskPtsMs,
+            "maskEmptyStep" to maskEmptyStep,
             "maskSceneCut" to maskSceneCut,
             "videoAspect" to videoAspect,
         )
@@ -538,7 +540,7 @@ data class DanmakuDynamicOcclusionConfig(
                 inputHeight = DANMAKU_AI_DEFAULT_INPUT_HEIGHT,
                 displayAreaRatio = 1.0f,
                 sampleAreaRatio = DANMAKU_AI_DEFAULT_SAMPLE_AREA_RATIO,
-                motionTrackingEnabled = true,
+                motionTrackingEnabled = false,
                 networkPrecomputeEnabled = true,
             )
 
@@ -2886,13 +2888,7 @@ class DanmakuDynamicOcclusionController(
             step.mask?.takeIf { !it.isRecycled }?.recycle()
             return
         }
-        val mask = step.mask
-        if (mask == null || mask.isRecycled) {
-            // Phase A: an empty step ages out via the overlay staleness guard. The
-            // renderer-side "clear without grace" handling of empty PTS samples lands
-            // in Phase B/C — for now we simply don't push it.
-            return
-        }
+        val mask = step.mask?.takeIf { !it.isRecycled }
         cancelPendingMaskGrace()
         latestMaskPtsMs = step.ptsMs
         currentPlanBVideoAspect = step.videoAspect
@@ -2905,12 +2901,12 @@ class DanmakuDynamicOcclusionController(
         latestMaskHeight = step.maskHeight
         latestMaskTimestampMs = System.currentTimeMillis()
         latestMaskAppliedAtUptimeMs = SystemClock.uptimeMillis()
-        consecutiveEmptyFrames = 0
+        consecutiveEmptyFrames = if (mask == null) consecutiveEmptyFrames + 1 else 0
         replaceRuntimeMaskBitmap(mask)
         emitState(
             DanmakuDynamicOcclusionState(
                 enabled = true,
-                available = true,
+                available = mask != null,
                 backend = DanmakuAiBackend.PADDLE.wireValue,
                 occlusionMode = DanmakuOcclusionMode.MASK.wireValue,
                 updatedAtMs = latestMaskTimestampMs,
@@ -2934,6 +2930,7 @@ class DanmakuDynamicOcclusionController(
                 maskVelocityX = step.vxPerMs,
                 maskVelocityY = step.vyPerMs,
                 maskPtsMs = step.ptsMs,
+                maskEmptyStep = mask == null,
                 maskSceneCut = step.sceneCut,
                 videoAspect = step.videoAspect,
             ),
