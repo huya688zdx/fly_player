@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fly_player/services/play_stats/native_play_stats_recorder.dart';
@@ -145,6 +148,164 @@ void main() {
 
     expect(controller.started[1].meta.title, '第 9 集');
   });
+
+  test('cacheSourceFromLoadArgsJson 传坏 JSON 不崩溃且不入缓存', () async {
+    await recorder.onLaunch(_loadArgs(itemGuid: 'ep-1'));
+
+    // 语法错误的 JSON。
+    recorder.cacheSourceFromLoadArgsJson('{oops');
+    // 合法 JSON 但顶层不是 Map。
+    recorder.cacheSourceFromLoadArgsJson('[1,2]');
+
+    // 两者都不应写入缓存:用一个不带元数据的 itemGuid 触发 onProgress,
+    // 若曾经错误入缓存,这里会拿到脏的 meta。
+    await recorder.onProgress(
+      _progress(itemGuid: 'ep-1', ts: 3, duration: 1200),
+    );
+
+    // 没有崩溃、原有会话正常运作即视为通过。
+    expect(controller.started, hasLength(1));
+    expect(controller.progressUpdates, hasLength(1));
+  });
+
+  test('10 个进度样本 flush 两次 periodic(计数归零后重新累积)', () async {
+    await recorder.onLaunch(_loadArgs(itemGuid: 'ep-1'));
+    for (var i = 0; i < 10; i++) {
+      await recorder.onProgress(
+        _progress(itemGuid: 'ep-1', ts: 3 + i * 3, duration: 1200),
+      );
+    }
+    expect(controller.flushReasons, ['periodic', 'periodic']);
+  });
+
+  test('暂停心跳不计入 flush 采样计数', () async {
+    await recorder.onLaunch(_loadArgs(itemGuid: 'ep-1'));
+    // 4 个播放样本。
+    for (var i = 0; i < 4; i++) {
+      await recorder.onProgress(
+        _progress(itemGuid: 'ep-1', ts: 3 + i * 3, duration: 1200),
+      );
+    }
+    // 若干暂停心跳,不应推进 flush 计数。
+    for (var i = 0; i < 6; i++) {
+      await recorder.onProgress(
+        _progress(itemGuid: 'ep-1', ts: 15, duration: 1200, isPaused: true),
+      );
+    }
+    expect(controller.flushReasons, isEmpty);
+
+    // 再喂 1 个播放样本,凑满 5 个才 flush。
+    await recorder.onProgress(
+      _progress(itemGuid: 'ep-1', ts: 18, duration: 1200),
+    );
+    expect(controller.flushReasons, ['periodic']);
+  });
+
+  test('活跃条目再次 cacheSource 带新时长同步给会话 updateMetadata', () async {
+    await recorder.onLaunch(_loadArgs(itemGuid: 'ep-1', durationSeconds: 1200));
+
+    recorder.cacheSource(_loadArgs(itemGuid: 'ep-1', durationSeconds: 1500));
+
+    expect(controller.metadataUpdates, isNotEmpty);
+    expect(controller.metadataUpdates.last.mediaDurationMs, 1500 * 1000);
+  });
+
+  test('handleIdleTimeout 无活跃会话时 no-op', () async {
+    await recorder.handleIdleTimeout();
+    expect(controller.finishReasons, isEmpty);
+  });
+
+  test('缓存淘汰 FIFO 跳过活跃条目', () async {
+    // 先让 ep-0 成为活跃会话(且是最早缓存的条目)。
+    await recorder.onLaunch(_loadArgs(itemGuid: 'ep-0'));
+    // 再缓存 15 个其它条目,使缓存达到上限(16)。
+    for (var i = 1; i < 16; i++) {
+      recorder.cacheSource(_loadArgs(itemGuid: 'ep-$i'));
+    }
+    // 此时缓存已满,继续缓存新条目应淘汰最早的非活跃条目(ep-1),而不是活跃的 ep-0。
+    recorder.cacheSource(_loadArgs(itemGuid: 'ep-16'));
+
+    // 让活跃会话收口,活跃条目占位释放,再重新切回 ep-0 触发新会话开局,
+    // 通过 meta 是否仍完整来验证 ep-0 在淘汰期间未被挤出缓存。
+    await recorder.handleIdleTimeout();
+    await recorder.onProgress(
+      _progress(itemGuid: 'ep-0', ts: 3, duration: 1200),
+    );
+    expect(controller.started, hasLength(2));
+    expect(controller.started[1].startSource, PlayStartSource.systemResume);
+    expect(controller.started[1].meta.title, '第 1 集');
+
+    // 反证:真正被淘汰的 ep-1 切回时应退化为 _minimalMeta(title 为空)。
+    await recorder.onProgress(
+      _progress(itemGuid: 'ep-1', ts: 3, duration: 1200),
+    );
+    expect(controller.started, hasLength(3));
+    expect(controller.started[2].meta.title, isEmpty);
+  });
+
+  group('Timer 真实触发路径(fake_async 驱动虚拟时间)', () {
+    test('喂一次进度后越过 idleTimeout,看门狗自动收口', () {
+      fakeAsync((async) {
+        final fakeController = _FakeSessionController();
+        final fakeRecorder = NativePlayStatsRecorder(
+          sessionController: fakeController,
+        );
+
+        unawaited(fakeRecorder.onLaunch(_loadArgs(itemGuid: 'ep-1')));
+        async.flushMicrotasks();
+        unawaited(
+          fakeRecorder.onProgress(
+            _progress(itemGuid: 'ep-1', ts: 3, duration: 1200),
+          ),
+        );
+        async.flushMicrotasks();
+
+        async.elapse(const Duration(seconds: 30));
+        async.flushMicrotasks();
+
+        expect(fakeController.finishReasons, ['idle_timeout']);
+
+        fakeRecorder.dispose();
+      });
+    });
+
+    test('未到期不收口;喂狗续命后再到期才收口', () {
+      fakeAsync((async) {
+        final fakeController = _FakeSessionController();
+        final fakeRecorder = NativePlayStatsRecorder(
+          sessionController: fakeController,
+        );
+
+        unawaited(fakeRecorder.onLaunch(_loadArgs(itemGuid: 'ep-1')));
+        async.flushMicrotasks();
+
+        // 推进 29s(未到 30s 阈值)。
+        async.elapse(const Duration(seconds: 29));
+        async.flushMicrotasks();
+        expect(fakeController.finishReasons, isEmpty);
+
+        // 喂一次进度续命,计时器从这里重新计数。
+        unawaited(
+          fakeRecorder.onProgress(
+            _progress(itemGuid: 'ep-1', ts: 29, duration: 1200),
+          ),
+        );
+        async.flushMicrotasks();
+
+        // 再推进 29s,距离续命时刻仍未到 30s,不应收口。
+        async.elapse(const Duration(seconds: 29));
+        async.flushMicrotasks();
+        expect(fakeController.finishReasons, isEmpty);
+
+        // 再推进 2s,累计超过续命后的 30s 阈值,应收口。
+        async.elapse(const Duration(seconds: 2));
+        async.flushMicrotasks();
+        expect(fakeController.finishReasons, ['idle_timeout']);
+
+        fakeRecorder.dispose();
+      });
+    });
+  });
 }
 
 Map<String, dynamic> _loadArgs({
@@ -196,6 +357,7 @@ class _FakeSessionController implements PlayStatsSessionController {
   final List<Map<String, Object?>> progressUpdates = <Map<String, Object?>>[];
   final List<String> flushReasons = <String>[];
   final List<String> finishReasons = <String>[];
+  final List<PlayStatsVideoMeta> metadataUpdates = <PlayStatsVideoMeta>[];
 
   @override
   Future<void> startPlayback(PlayStatsStartContext context) async {
@@ -203,7 +365,9 @@ class _FakeSessionController implements PlayStatsSessionController {
   }
 
   @override
-  void updateMetadata(PlayStatsVideoMeta meta) {}
+  void updateMetadata(PlayStatsVideoMeta meta) {
+    metadataUpdates.add(meta);
+  }
 
   @override
   void updateProgress({
