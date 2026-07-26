@@ -9,6 +9,9 @@ import '../../utils/swallowed_error_logger.dart';
 import 'poster_browse_rows.dart';
 
 /// 飞牛继续观看旁路（getPlayList 保留 ts/duration 富字段）→ 公共卡片。
+///
+/// 仅映射本页面（大屏海报浏览页）用到的字段，非全量搬运；全量映射见 `mapFeiniuItemCard`
+/// （`lib/media_backend/feiniu/feiniu_media_mappers.dart`）。
 MediaItemCard cardFromLibraryItem(MediaLibraryItem item) {
   return MediaItemCard(
     id: item.guid,
@@ -16,6 +19,8 @@ MediaItemCard cardFromLibraryItem(MediaLibraryItem item) {
     secondaryTitle: item.tvTitle,
     type: item.type,
     seriesId: item.ancestorGuid,
+    // item.poster 为空串时 MediaImageRef(url: '') 与 MediaImageRef.empty 语义等价
+    // （见 MediaImageRef.isEmpty），故此处不必像 backdropImage 那样显式判空。
     primaryImage: MediaImageRef(url: item.poster),
     posters: item.posterList
         .map((p) => MediaImageRef(url: p))
