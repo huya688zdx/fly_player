@@ -134,9 +134,11 @@ void main() {
   test('load ignores stored connections with unknown backend kind', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{
       MediaBackendConnectionStore.connectionsKey: jsonEncode(<Object?>[
+        // jellyfin 已是合法 kind（会被正常加载），这里用确实不存在的 kind 钉住
+        // 「未知后端条目被忽略」的语义。
         <String, Object?>{
-          'kind': 'jellyfin',
-          'serverUrl': 'https://jellyfin.example.test',
+          'kind': 'plex',
+          'serverUrl': 'https://plex.example.test',
           'accessToken': 'token',
         },
         const MediaBackendConnection(
@@ -145,7 +147,7 @@ void main() {
           accessToken: 'emby-token',
         ).toJson(),
       ]),
-      MediaBackendConnectionStore.activeKindKey: 'jellyfin',
+      MediaBackendConnectionStore.activeKindKey: 'plex',
     });
 
     final snapshot = await MediaBackendConnectionStore.load();
