@@ -11,6 +11,7 @@ import '../providers/nas_provider.dart';
 import 'app_log_service.dart';
 import 'native_artwork_prefetch.dart';
 import 'native_danmaku_prefetch.dart';
+import 'play_stats/native_play_stats_recorder.dart';
 
 /// 启动纯原生播放壳（`NativePlayerActivity`）的桥。
 ///
@@ -98,6 +99,8 @@ class NativePlayerBridge {
       if (danmakuFilePath != null && danmakuFilePath.isNotEmpty)
         'danmakuFile': danmakuFilePath,
     });
+    // 本地播放统计:原生壳起播即开会话(旧 Flutter 播放器控制器已删,统计在桥收口)。
+    unawaited(NativePlayStatsRecorder.instance.onLaunch(mergedArgs));
   }
 
   /// 绑定原生壳 → Flutter 的反向 handler。详情页 State 在发起原生壳前调用，注入「选集
@@ -174,6 +177,10 @@ class NativePlayerBridge {
               return v.isEmpty ? null : v;
             }(),
           );
+          // 统计元数据缓存:预取/切集/切版本的解析结果都进缓存;会话切换只认 recordProgress。
+          NativePlayStatsRecorder.instance.cacheSourceFromLoadArgsJson(
+            resolved?['loadArgs'],
+          );
           final resultKeys = resolved?.keys.toList() ?? const <String>[];
           final danmakuFile = (resolved?['danmakuFile'] ?? '').toString();
           debugPrint(
@@ -194,7 +201,7 @@ class NativePlayerBridge {
               ? (args['subtitleGuid'] ?? '').toString()
               : null;
           final startMs = (args['startPositionMs'] as num?)?.toInt();
-          return await onReloadServerSession(
+          final reloaded = await onReloadServerSession(
             current,
             MediaSessionReloadIntent(
               audioTrackId: args.containsKey('audioGuid')
@@ -211,6 +218,10 @@ class NativePlayerBridge {
                   : null,
             ),
           );
+          NativePlayStatsRecorder.instance.cacheSourceFromLoadArgsJson(
+            reloaded?['loadArgs'],
+          );
+          return reloaded;
         case 'loadEpisodePickerData':
           if (onLoadEpisodePickerData == null) return null;
           final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
@@ -244,9 +255,12 @@ class NativePlayerBridge {
           return await onResolveSubtitleFile(guid, format: format);
         case 'recordProgress':
           final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
-          await onRecordProgress(
-            args.map((key, value) => MapEntry(key.toString(), value)),
+          final progress = args.map(
+            (key, value) => MapEntry(key.toString(), value),
           );
+          // 本地播放统计先行(内部吞错,不影响服务端进度回写)。
+          unawaited(NativePlayStatsRecorder.instance.onProgress(progress));
+          await onRecordProgress(progress);
           return null;
         case 'recordNativeLog':
           // 原生 mpv 内核的 error/warn 级日志 → 写进应用内日志，使设置→日志界面能看到
