@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/media_backend/media_catalog.dart';
 import 'package:fly_player/media_backend/media_image_ref.dart';
 import 'package:fly_player/media_backend/media_item_card.dart';
+import 'package:fly_player/models/media_library_item.dart';
+import 'package:fly_player/screens/poster_browse/poster_browse_loader.dart';
 import 'package:fly_player/screens/poster_browse/poster_browse_rows.dart';
 
 MediaItemCard card(String id) => MediaItemCard(
@@ -64,5 +66,43 @@ void main() {
       catalogItems: const <String, List<MediaItemCard>>{},
     );
     expect(rows, isEmpty);
+  });
+
+  test('cardFromLibraryItem 保留续播富字段', () {
+    final item = MediaLibraryItem(
+      guid: 'g1',
+      title: '沙丘',
+      tvTitle: '',
+      type: 'Movie',
+      poster: '/p.jpg',
+      releaseDate: '2024-03-01',
+      firstAirDate: '',
+      lastAirDate: '',
+      voteAverage: '8.3',
+      overview: 'plot',
+      watched: 0,
+      watchedTs: 0,
+      ts: 1200,
+      duration: 6000,
+      seasonNumber: 0,
+      episodeNumber: 0,
+      numberOfSeasons: 0,
+      numberOfEpisodes: 0,
+      localNumberOfSeasons: 0,
+      localNumberOfEpisodes: 0,
+      parentGuid: '',
+      parentTitle: '',
+      ancestorGuid: 'series1',
+      ancestorName: '',
+      path: '',
+    );
+    final cardResult = cardFromLibraryItem(item);
+    expect(cardResult.id, 'g1');
+    expect(cardResult.rating, '8.3');
+    expect(cardResult.overview, 'plot');
+    expect(cardResult.resumePositionSeconds, 1200);
+    expect(cardResult.durationSeconds, 6000);
+    expect(cardResult.seriesId, 'series1');
+    expect(cardResult.primaryImage.url, '/p.jpg');
   });
 }
