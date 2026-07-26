@@ -206,6 +206,18 @@
     }
   },
   "personBiographyTitle": "演员简介",
+  "posterBrowseEntryTooltip": "大屏浏览",
+  "posterBrowseRowContinue": "继续观看",
+  "posterBrowseRowLatest": "最近添加",
+  "posterBrowseDetail": "详情",
+  "posterBrowseLoadFailed": "加载失败，点按重试",
+  "posterBrowseRowIndicator": "{current} / {total}",
+  "@posterBrowseRowIndicator": {
+    "placeholders": {
+      "current": { "type": "int" },
+      "total": { "type": "int" }
+    }
+  },
   "routeErrorMissingDetail": "缺少详情参数",
   "routeErrorMissingSeason": "缺少季详情参数",
   "routeErrorMissingPerson": "缺少人物详情参数",
