@@ -8,6 +8,7 @@ import '../api/emby_api.dart';
 import '../api/feiniu_api.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/media_backend_kind.dart';
+import '../media_backend/media_backend_registry.dart';
 import '../media_backend/session/media_backend_connection.dart';
 import '../providers/backend_session_provider.dart';
 import '../providers/nas_provider.dart';
@@ -30,7 +31,26 @@ import 'fn_connect_web_login_page.dart';
 import 'login_history_screen.dart';
 import '../utils/app_confirm_dialog.dart';
 
-enum _ConnectionBackend { feiniu, emby }
+/// 服务器族后端（Emby / Jellyfin…）共用的一套登录表单状态。
+///
+/// 每个注册表登记的服务器族后端各持一份，表单结构一致（地址 / 账号 / 密码 / 记住 /
+/// entry-token），新增后端零表单代码。
+class _ServerLoginFormState {
+  final TextEditingController baseUrl = TextEditingController();
+  final TextEditingController userName = TextEditingController();
+  final TextEditingController password = TextEditingController();
+  bool obscurePassword = true;
+  bool rememberPassword = true;
+
+  /// 已保存/已抓取的 FN Connect 入口令牌（entry-token）。fnos 中转地址登录复用它过边缘闸。
+  String entryToken = '';
+
+  void dispose() {
+    baseUrl.dispose();
+    userName.dispose();
+    password.dispose();
+  }
+}
 
 String effectivePersistedBaseUrlForLogin({
   required String sourceBaseUrl,
@@ -64,29 +84,39 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   final TextEditingController _baseUrlController = TextEditingController();
   final TextEditingController _userNameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _embyBaseUrlController = TextEditingController();
-  final TextEditingController _embyUserNameController = TextEditingController();
-  final TextEditingController _embyPasswordController = TextEditingController();
+
+  /// 服务器族后端各持一套表单状态，按注册表生成（新增后端自动出现）。
+  final Map<MediaBackendKind, _ServerLoginFormState> _serverForms =
+      <MediaBackendKind, _ServerLoginFormState>{
+        for (final descriptor in MediaBackendRegistry.serverDescriptors)
+          descriptor.kind: _ServerLoginFormState(),
+      };
+
+  /// 后端选择条 / 滑动切换的顺序：飞牛（遗留族）在首位，服务器族按注册表顺序。
+  static final List<MediaBackendKind> _backendOrder = <MediaBackendKind>[
+    MediaBackendKind.feiniu,
+    for (final descriptor in MediaBackendRegistry.serverDescriptors)
+      descriptor.kind,
+  ];
+
   final DetailTopTip _topTip = DetailTopTip();
   final ActionRateLimiter _submitLimiter = ActionRateLimiter(
     cooldown: const Duration(milliseconds: 900),
   );
 
-  _ConnectionBackend _selectedBackend = _ConnectionBackend.feiniu;
+  MediaBackendKind _selectedBackend = MediaBackendKind.feiniu;
+
+  /// 表单滑动切换方向：+1 = 新表单从右进（向右侧后端切换），-1 反向。
+  double _slideDx = 1;
   String _baseUrlScheme = 'http';
   double _swipeStartX = 0;
   double _swipeStartY = 0;
   double _swipeLastX = 0;
   double _swipeLastY = 0;
   bool _rememberPassword = true;
-  bool _embyRememberPassword = true;
   bool _obscurePassword = true;
-  bool _obscureEmbyPassword = true;
   bool _isSubmitting = false;
   List<LoginHistoryEntry> _historyEntries = const <LoginHistoryEntry>[];
-
-  /// 已保存/已抓取的 FN Connect 入口令牌（entry-token）。fnos 中转 Emby 登录复用它过边缘闸。
-  String _embyEntryToken = '';
 
   @override
   void initState() {
@@ -107,9 +137,9 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     _baseUrlController.dispose();
     _userNameController.dispose();
     _passwordController.dispose();
-    _embyBaseUrlController.dispose();
-    _embyUserNameController.dispose();
-    _embyPasswordController.dispose();
+    for (final form in _serverForms.values) {
+      form.dispose();
+    }
     super.dispose();
   }
 
@@ -141,24 +171,27 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
   Future<void> _loadStoredBackendConnection() async {
     final snapshot = await MediaBackendConnectionStore.load();
-    final embyConnection = snapshot.connectionFor(MediaBackendKind.emby);
-    if (!mounted || embyConnection == null) return;
+    if (!mounted) return;
     setState(() {
-      if (snapshot.activeKind == MediaBackendKind.emby) {
-        _selectedBackend = _ConnectionBackend.emby;
+      if (_serverForms.containsKey(snapshot.activeKind)) {
+        _selectedBackend = snapshot.activeKind;
       }
-      if (_embyBaseUrlController.text.trim().isEmpty) {
-        _embyBaseUrlController.text = embyConnection.serverUrl;
+      for (final entry in _serverForms.entries) {
+        final connection = snapshot.connectionFor(entry.key);
+        if (connection == null) continue;
+        final form = entry.value;
+        if (form.baseUrl.text.trim().isEmpty) {
+          form.baseUrl.text = connection.serverUrl;
+        }
+        if (form.userName.text.trim().isEmpty) {
+          form.userName.text = connection.userName;
+        }
+        form.rememberPassword = connection.rememberSecret;
+        if (connection.rememberSecret && form.password.text.isEmpty) {
+          form.password.text = connection.secret;
+        }
+        form.entryToken = connection.entryToken;
       }
-      if (_embyUserNameController.text.trim().isEmpty) {
-        _embyUserNameController.text = embyConnection.userName;
-      }
-      _embyRememberPassword = embyConnection.rememberSecret;
-      if (embyConnection.rememberSecret &&
-          _embyPasswordController.text.isEmpty) {
-        _embyPasswordController.text = embyConnection.secret;
-      }
-      _embyEntryToken = embyConnection.entryToken;
     });
   }
 
@@ -196,21 +229,25 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   Future<void> _submit() async {
-    switch (_selectedBackend) {
-      case _ConnectionBackend.feiniu:
-        await _submitWithUnifiedErrors();
-        return;
-      case _ConnectionBackend.emby:
-        await _verifyEmbyConnection();
-        return;
+    if (_selectedBackend.isServerFamily) {
+      await _verifyServerConnection(
+        MediaBackendRegistry.requireDescriptor(_selectedBackend),
+      );
+      return;
     }
+    await _submitWithUnifiedErrors();
   }
 
-  Future<void> _verifyEmbyConnection() async {
+  /// 服务器族（Emby / Jellyfin…）统一登录流程：表单校验 → fnos 中转地址按需抓
+  /// entry-token → 家族 API 认证 → 落连接与登录历史。差异全部来自 [descriptor]。
+  Future<void> _verifyServerConnection(
+    MediaBackendDescriptor descriptor,
+  ) async {
     FocusScope.of(context).unfocus();
-    final baseUrl = _normalizeEmbyBaseUrlInput(_embyBaseUrlController.text);
-    final userName = _embyUserNameController.text.trim();
-    final password = _embyPasswordController.text;
+    final form = _serverForms[descriptor.kind]!;
+    final baseUrl = _normalizeServerBaseUrlInput(form.baseUrl.text);
+    final userName = form.userName.text.trim();
+    final password = form.password.text;
 
     if (_isSubmitting || _submitLimiter.shouldBlock()) {
       _showTopTip(
@@ -221,7 +258,9 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     }
     if (baseUrl.isEmpty) {
       _showTopTip(
-        AppLocalizations.of(context).connectionEmbyServerRequired,
+        AppLocalizations.of(
+          context,
+        ).connectionServerAddressRequired(descriptor.displayName),
         context.appColors.danger,
       );
       return;
@@ -245,21 +284,22 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
     setState(() {
       _isSubmitting = true;
-      _embyBaseUrlController.text = baseUrl;
+      form.baseUrl.text = baseUrl;
     });
 
     try {
-      var entryToken = _embyEntryToken;
-      // fnos 中转域：Emby 藏在飞牛反向代理后面，请求必须带 FN Connect 入口令牌
+      var entryToken = form.entryToken;
+      // fnos 中转域：服务器藏在飞牛反向代理后面，请求必须带 FN Connect 入口令牌
       // （entry-token cookie）过云端边缘闸。没有就先用 WebView 走真实入口登录抓取。
       if (isRelay && entryToken.isEmpty) {
-        final captured = await _captureEmbyEntryToken(baseUrl);
+        final captured = await _captureServerEntryToken(baseUrl);
         if (!mounted) return;
         if (captured == null) return; // 取消/失败，提示已在 helper 内给出
         entryToken = captured;
       }
 
-      final result = await _authenticateEmby(
+      final result = await _authenticateServer(
+        descriptor,
         baseUrl: baseUrl,
         userName: userName,
         password: password,
@@ -271,20 +311,22 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
       if (result.accessToken.trim().isEmpty || result.userId.trim().isEmpty) {
         throw AppException.api(
-          action: 'emby login',
-          message: AppLocalizations.of(context).connectionEmbySessionIncomplete,
+          action: '${descriptor.kind.name} login',
+          message: AppLocalizations.of(
+            context,
+          ).connectionServerSessionIncomplete(descriptor.displayName),
         );
       }
-      _embyEntryToken = entryToken;
+      form.entryToken = entryToken;
       final connection = MediaBackendConnection(
-        kind: MediaBackendKind.emby,
+        kind: descriptor.kind,
         serverUrl: result.serverUrl,
         displayName: result.serverName,
         userName: result.userName,
         userId: result.userId,
         accessToken: result.accessToken,
-        secret: _embyRememberPassword ? password : '',
-        rememberSecret: _embyRememberPassword,
+        secret: form.rememberPassword ? password : '',
+        rememberSecret: form.rememberPassword,
         updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
         entryToken: entryToken,
       );
@@ -292,26 +334,26 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           MediaBackendConnectionStore.saveActive(connection));
       final entries = await LoginHistoryStore.save(
         LoginHistoryEntry(
-          kind: MediaBackendKind.emby,
+          kind: descriptor.kind,
           baseUrl: connection.serverUrl,
           userName: connection.userName,
-          password: _embyRememberPassword ? password : '',
-          rememberPassword: _embyRememberPassword,
+          password: form.rememberPassword ? password : '',
+          rememberPassword: form.rememberPassword,
           updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
         ),
       );
       if (!mounted) return;
       setState(() {
-        _embyBaseUrlController.text = connection.serverUrl;
-        _embyUserNameController.text = connection.userName;
-        _embyPasswordController.text = password;
+        form.baseUrl.text = connection.serverUrl;
+        form.userName.text = connection.userName;
+        form.password.text = password;
         _historyEntries = entries;
       });
     } catch (error, stackTrace) {
       await _reportAndShowLoginError(
         error,
         stackTrace: stackTrace,
-        details: 'emby_login',
+        details: '${descriptor.kind.name}_login',
       );
     } finally {
       if (mounted) {
@@ -322,11 +364,12 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     }
   }
 
-  /// 调用 Emby 登录；fnos 中转域命中云端边缘闸（403）时，自动重抓一次入口令牌再试。
+  /// 调用服务器族登录；fnos 中转域命中云端边缘闸（403）时，自动重抓一次入口令牌再试。
   ///
-  /// 注意：403 = 云端 FN Connect 边缘闸（入口令牌缺失/过期）；Emby 自身用户名密码错误是
-  /// 401，不触发重抓。注入了自定义 [widget.embyApi]（单测）时不重抓。
-  Future<EmbyAuthenticateResult> _authenticateEmby({
+  /// 注意：403 = 云端 FN Connect 边缘闸（入口令牌缺失/过期）；服务器自身用户名密码错误是
+  /// 401，不触发重抓。注入了自定义 [widget.embyApi]（单测，仅 Emby）时不重抓。
+  Future<EmbyAuthenticateResult> _authenticateServer(
+    MediaBackendDescriptor descriptor, {
     required String baseUrl,
     required String userName,
     required String password,
@@ -335,7 +378,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     required ValueChanged<String> onEntryTokenRefreshed,
   }) async {
     EmbyApi build(String token) =>
-        widget.embyApi ?? EmbyApi(entryTokenProvider: () => token);
+        (descriptor.kind == MediaBackendKind.emby ? widget.embyApi : null) ??
+        descriptor.createApiClient(entryTokenProvider: () => token);
     Future<EmbyAuthenticateResult> attempt(String token) =>
         build(token).authenticateByName(
           serverUrl: baseUrl,
@@ -346,7 +390,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       return await attempt(entryToken);
     } on DioException catch (error) {
       if (allowRecapture && error.response?.statusCode == 403) {
-        final recaptured = await _captureEmbyEntryToken(baseUrl);
+        final recaptured = await _captureServerEntryToken(baseUrl);
         if (recaptured == null) rethrow;
         onEntryTokenRefreshed(recaptured);
         return attempt(recaptured);
@@ -356,7 +400,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   /// 打开 WebView 走真实 FN Connect 入口流程，抓取 `entry-token`。取消/失败返回 null。
-  Future<String?> _captureEmbyEntryToken(String baseUrl) async {
+  Future<String?> _captureServerEntryToken(String baseUrl) async {
     if (!mounted) return null;
     final nas = context.read<NasProvider>();
     final token = await Navigator.of(context).push<String>(
@@ -539,18 +583,17 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
   /// 把历史记录回填到对应后端表单，并切换到该后端 Tab。
   void _applyHistorySelection(LoginHistoryEntry entry) {
-    if (entry.kind == MediaBackendKind.emby) {
-      _embyBaseUrlController.text = entry.baseUrl;
-      _embyUserNameController.text = entry.userName;
-      _embyPasswordController.text = entry.rememberPassword
-          ? entry.password
-          : '';
+    final form = _serverForms[entry.kind];
+    if (form != null) {
+      form.baseUrl.text = entry.baseUrl;
+      form.userName.text = entry.userName;
+      form.password.text = entry.rememberPassword ? entry.password : '';
       // 历史记录不含 entry-token；切到不同服务器时清空旧令牌，鉴权流程会按需重抓。
-      _embyEntryToken = '';
+      form.entryToken = '';
       setState(() {
-        _embyRememberPassword = entry.rememberPassword;
-        _selectedBackend = _ConnectionBackend.emby;
+        form.rememberPassword = entry.rememberPassword;
       });
+      _selectBackend(entry.kind);
       return;
     }
     _baseUrlController.text = _displayBaseUrlForLogin(entry.baseUrl);
@@ -559,7 +602,19 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     setState(() {
       _baseUrlScheme = _schemeForLogin(entry.baseUrl);
       _rememberPassword = entry.rememberPassword;
-      _selectedBackend = _ConnectionBackend.feiniu;
+    });
+    _selectBackend(MediaBackendKind.feiniu);
+  }
+
+  /// 切换选中后端并记录滑动方向（新表单从目标方向滑入）。
+  void _selectBackend(MediaBackendKind next) {
+    if (next == _selectedBackend) return;
+    final oldIndex = _backendOrder.indexOf(_selectedBackend);
+    final newIndex = _backendOrder.indexOf(next);
+    if (newIndex < 0) return;
+    setState(() {
+      _slideDx = newIndex > oldIndex ? 1 : -1;
+      _selectedBackend = next;
     });
   }
 
@@ -795,7 +850,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     return buffer.toString();
   }
 
-  String _normalizeEmbyBaseUrlInput(String raw) {
+  String _normalizeServerBaseUrlInput(String raw) {
+    // MediaBrowser 家族（Emby / Jellyfin）网页客户端路径形状一致，共用内核的规整逻辑。
     final normalized = EmbyApi.normalizeServerUrl(raw);
     if (normalized.isEmpty) return '';
     try {
@@ -843,11 +899,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                       _BackendSelector(
                         l10n: l10n,
                         selected: _selectedBackend,
-                        onChanged: (backend) {
-                          setState(() {
-                            _selectedBackend = backend;
-                          });
-                        },
+                        onChanged: _selectBackend,
                       ),
                       const SizedBox(height: 18),
                       _buildForm(theme, l10n),
@@ -878,11 +930,10 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     final dx = _swipeLastX - _swipeStartX;
     final dy = _swipeLastY - _swipeStartY;
     if (dx.abs() < 80 || dx.abs() < dy.abs() * 1.4) return;
-    final next = dx < 0 ? _ConnectionBackend.emby : _ConnectionBackend.feiniu;
-    if (next == _selectedBackend) return;
-    setState(() {
-      _selectedBackend = next;
-    });
+    final currentIndex = _backendOrder.indexOf(_selectedBackend);
+    final nextIndex = dx < 0 ? currentIndex + 1 : currentIndex - 1;
+    if (nextIndex < 0 || nextIndex >= _backendOrder.length) return;
+    _selectBackend(_backendOrder[nextIndex]);
   }
 
   /// 后端表单：单一持久面板 + 内部字段的方向性滑动切换。
@@ -892,7 +943,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   /// `ScaleTransition` 与 layoutBuilder 对齐不一致还会抖。这里面板常驻（阴影只栅格化
   /// 一次），只对内部字段做**纯位移**滑动（无 opacity/scale，无离屏层），顺滑不抖。
   Widget _buildForm(ThemeData theme, AppLocalizations l10n) {
-    final isEmby = _selectedBackend == _ConnectionBackend.emby;
+    final isFeiniu = _selectedBackend == MediaBackendKind.feiniu;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -915,10 +966,10 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
               transitionBuilder: (child, animation) {
                 final key = child.key;
                 final isIncoming =
-                    key is ValueKey<_ConnectionBackend> &&
+                    key is ValueKey<MediaBackendKind> &&
                     key.value == _selectedBackend;
-                // 选 Emby（右侧）时新卡从右进、旧卡向左出；选飞牛（左侧）反向。
-                final dx = isEmby ? 1.0 : -1.0;
+                // 向右侧后端切换时新卡从右进、旧卡向左出；向左侧后端切换反向。
+                final dx = _slideDx;
                 final position = isIncoming
                     ? Tween<Offset>(begin: Offset(dx, 0), end: Offset.zero)
                     : Tween<Offset>(begin: Offset(-dx, 0), end: Offset.zero);
@@ -928,8 +979,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                 );
               },
               child: KeyedSubtree(
-                key: ValueKey<_ConnectionBackend>(_selectedBackend),
-                child: _buildFormFields(theme, l10n, isEmby: isEmby),
+                key: ValueKey<MediaBackendKind>(_selectedBackend),
+                child: _buildFormFields(theme, l10n, backend: _selectedBackend),
               ),
             ),
           ),
@@ -942,7 +993,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         ),
         const SizedBox(height: 10),
         Visibility(
-          visible: !isEmby,
+          visible: isFeiniu,
           maintainState: true,
           maintainAnimation: true,
           maintainSize: true,
@@ -954,39 +1005,39 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     );
   }
 
-  /// 单套表单字段（服务器/账号/密码/记住）。飞牛与 Emby 结构一致，仅控制器与文案不同，
-  /// 共用此构建以保证两态高度严格相等——滑动切换时面板不重排、不抖。
+  /// 单套表单字段（服务器/账号/密码/记住）。飞牛与服务器族结构一致，仅控制器与文案不同，
+  /// 共用此构建以保证各态高度严格相等——滑动切换时面板不重排、不抖。
   Widget _buildFormFields(
     ThemeData theme,
     AppLocalizations l10n, {
-    required bool isEmby,
+    required MediaBackendKind backend,
   }) {
-    final baseController = isEmby ? _embyBaseUrlController : _baseUrlController;
-    final userController = isEmby
-        ? _embyUserNameController
-        : _userNameController;
-    final passwordController = isEmby
-        ? _embyPasswordController
-        : _passwordController;
-    final obscure = isEmby ? _obscureEmbyPassword : _obscurePassword;
-    final remember = isEmby ? _embyRememberPassword : _rememberPassword;
+    final form = _serverForms[backend];
+    final descriptor = form != null
+        ? MediaBackendRegistry.requireDescriptor(backend)
+        : null;
+    final baseController = form?.baseUrl ?? _baseUrlController;
+    final userController = form?.userName ?? _userNameController;
+    final passwordController = form?.password ?? _passwordController;
+    final obscure = form?.obscurePassword ?? _obscurePassword;
+    final remember = form?.rememberPassword ?? _rememberPassword;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _GlassField(
           controller: baseController,
-          labelText: isEmby
-              ? l10n.connectionEmbyServerLabel
+          labelText: descriptor != null
+              ? l10n.connectionServerAddressLabel(descriptor.displayName)
               : l10n.connectionServerLabel,
-          hintText: isEmby
-              ? l10n.connectionEmbyServerExample
+          hintText: descriptor != null
+              ? l10n.connectionServerAddressExample(descriptor.serverUrlExample)
               : l10n.connectionServerExample,
           leadingIcon: Icons.dns_outlined,
           keyboardType: TextInputType.url,
           textInputAction: TextInputAction.next,
           autofillHints: const <String>[AutofillHints.url],
-          onChanged: isEmby ? null : _syncBaseUrlScheme,
+          onChanged: form != null ? null : _syncBaseUrlScheme,
           suffix: IconButton(
             onPressed: _openLoginHistory,
             icon: Icon(
@@ -1004,7 +1055,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             final isStacked = constraints.maxWidth < 300 || textScale > 1.2;
             return SizedBox(
               height: isStacked ? 96 : 40,
-              child: isEmby
+              child: form != null
                   ? const SizedBox.shrink()
                   : _buildProtocolSelector(theme, l10n, isStacked: isStacked),
             );
@@ -1032,8 +1083,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           suffix: IconButton(
             onPressed: () {
               setState(() {
-                if (isEmby) {
-                  _obscureEmbyPassword = !_obscureEmbyPassword;
+                if (form != null) {
+                  form.obscurePassword = !form.obscurePassword;
                 } else {
                   _obscurePassword = !_obscurePassword;
                 }
@@ -1054,8 +1105,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           value: remember,
           onChanged: (value) {
             setState(() {
-              if (isEmby) {
-                _embyRememberPassword = value;
+              if (form != null) {
+                form.rememberPassword = value;
               } else {
                 _rememberPassword = value;
               }
@@ -1223,13 +1274,32 @@ class _BackendSelector extends StatelessWidget {
   });
 
   final AppLocalizations l10n;
-  final _ConnectionBackend selected;
-  final ValueChanged<_ConnectionBackend> onChanged;
+  final MediaBackendKind selected;
+  final ValueChanged<MediaBackendKind> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    final isEmby = selected == _ConnectionBackend.emby;
-    final selectedAlignment = isEmby ? Alignment.center : Alignment.centerLeft;
+    // 选项 = 飞牛（遗留族）+ 注册表登记的服务器族后端，新增后端自动出现。
+    final options = <({MediaBackendKind kind, String label, String asset})>[
+      (
+        kind: MediaBackendKind.feiniu,
+        label: l10n.connectionFeiniuMedia,
+        asset: 'lib/img/feiniu_Logo.png',
+      ),
+      for (final descriptor in MediaBackendRegistry.serverDescriptors)
+        (
+          kind: descriptor.kind,
+          label: descriptor.displayName,
+          asset: descriptor.logoAsset,
+        ),
+    ];
+    final count = options.length;
+    final selectedIndex = options.indexWhere(
+      (option) => option.kind == selected,
+    );
+    final alignmentX = count <= 1
+        ? 0.0
+        : -1 + 2 * (selectedIndex < 0 ? 0 : selectedIndex) / (count - 1);
     return DecoratedBox(
       decoration: BoxDecoration(
         color: const Color(0xC10B1726),
@@ -1240,13 +1310,13 @@ class _BackendSelector extends StatelessWidget {
         padding: const EdgeInsets.all(4),
         child: Stack(
           children: [
-            // 滑动高亮：跟随选中项在左右半区间平滑移动。
+            // 滑动高亮：跟随选中项在各分区间平滑移动。
             AnimatedAlign(
               duration: AppTransitions.contentSwitchDuration,
               curve: Curves.easeOutCubic,
-              alignment: selectedAlignment,
+              alignment: Alignment(alignmentX, 0),
               child: FractionallySizedBox(
-                widthFactor: 1 / 3,
+                widthFactor: 1 / count,
                 child: Container(
                   height: 48,
                   decoration: BoxDecoration(
@@ -1266,28 +1336,15 @@ class _BackendSelector extends StatelessWidget {
             ),
             Row(
               children: [
-                Expanded(
-                  child: _BackendSelectorButton(
-                    label: l10n.connectionFeiniuMedia,
-                    selected: !isEmby,
-                    onTap: () => onChanged(_ConnectionBackend.feiniu),
+                for (final option in options)
+                  Expanded(
+                    child: _BackendSelectorButton(
+                      label: option.label,
+                      assetName: option.asset,
+                      selected: option.kind == selected,
+                      onTap: () => onChanged(option.kind),
+                    ),
                   ),
-                ),
-                Expanded(
-                  child: _BackendSelectorButton(
-                    label: 'Emby',
-                    selected: isEmby,
-                    onTap: () => onChanged(_ConnectionBackend.emby),
-                  ),
-                ),
-                const Expanded(
-                  child: _BackendSelectorButton(
-                    label: 'Jellyfin',
-                    assetName: 'lib/img/jellyfin_logo.png',
-                    selected: false,
-                    enabled: false,
-                  ),
-                ),
               ],
             ),
           ],
@@ -1300,37 +1357,28 @@ class _BackendSelector extends StatelessWidget {
 class _BackendSelectorButton extends StatelessWidget {
   const _BackendSelectorButton({
     required this.label,
+    required this.assetName,
     required this.selected,
-    this.assetName,
-    this.onTap,
-    this.enabled = true,
+    required this.onTap,
   });
 
   final String label;
   final bool selected;
-  final String? assetName;
-  final VoidCallback? onTap;
-  final bool enabled;
+  final String assetName;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final effectiveAssetName =
-        assetName ??
-        (label == 'Emby' ? 'lib/img/Emby_logo.png' : 'lib/img/feiniu_Logo.png');
     return InkWell(
       borderRadius: BorderRadius.circular(14),
-      onTap: enabled ? onTap : null,
+      onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
         child: AnimatedDefaultTextStyle(
           duration: AppTransitions.contentSwitchDuration,
           curve: Curves.easeOutCubic,
           style: TextStyle(
-            color: selected
-                ? Colors.white
-                : enabled
-                ? const Color(0xFFB6C0D1)
-                : const Color(0xFF8390A5),
+            color: selected ? Colors.white : const Color(0xFFB6C0D1),
             fontSize: 15,
             fontWeight: FontWeight.w700,
           ),
@@ -1338,11 +1386,10 @@ class _BackendSelectorButton extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Image.asset(
-                effectiveAssetName,
+                assetName,
                 width: 28,
                 height: 28,
                 fit: BoxFit.contain,
-                opacity: AlwaysStoppedAnimation<double>(enabled ? 1 : 0.58),
               ),
               const SizedBox(width: 10),
               Flexible(

@@ -356,40 +356,46 @@ class MediaBrowserFlavor {
 
 - [x] 新建 `MediaBackendDescriptor` + `MediaBackendRegistry`（见 4.2），先只登记 Emby 一条。
 - [x] `MediaBackendProvider` 改为查注册表构造（飞牛遗留族旁路保持现状）。
-- [ ] `connection_screen.dart` 重构：服务器族表单收敛为一套 controller，label/hint 由描述符
-      +l10n 提供；后端切换 tab 由"飞牛 + 注册表列表"生成。**UI 布局与动效不变**，只换数据驱动。
+- [x] `connection_screen.dart` 重构：服务器族表单收敛为一套 `_ServerLoginFormState`（按注册表
+      按 kind 各持一份），label/hint 由描述符（displayName / serverUrlExample）+参数化 l10n
+      （`connectionServerAddress*`）提供；后端切换 tab 由"飞牛 + 注册表列表"生成，滑动高亮 /
+      表单滑切方向按选项下标计算。**UI 布局与动效不变**。
 - [x] `login_history_screen.dart`：角标/名称/配色从描述符取。
-- [ ] `login_history_store.dart` / `media_backend_connection_store.dart`：确认反序列化对未知
-      kind 的容错（老版本降级默认飞牛的现状保留；新增 kind 值不破坏旧数据）。
+- [x] `login_history_store.dart` / `media_backend_connection_store.dart`：确认反序列化对未知
+      kind 的容错（老版本降级默认飞牛的现状保留；新增 kind 值不破坏旧数据）。单测已用
+      确实不存在的 kind（`plex`）钉住"未知条目被忽略"语义。
 
 **验收**：analyze/test 全绿；连接页三条路径实测：飞牛登录、Emby 直连登录、Emby fnos 中转
 （entry-token）登录均正常；登录历史正确显示与回填。
 
 ### 阶段 4：MediaBrowser 家族客户端抽取
 
-- [ ] `emby_api.dart` → `lib/api/mediabrowser/mediabrowser_api.dart` + flavor（见 4.6），
-      `EmbyApi` 保留为兼容外观，调用点零改动。**本阶段禁止任何请求行为变化**（对比手段：
-      重构前后各抓一次同请求的 headers/URL 日志比对，或为 URL/头构造函数补单测）。
-- [ ] 评估 `EmbyMediaBackend` / mappers 可上提部分 → `MediaBrowserMediaBackend` 基类
-      （保守：只上提确定同形的方法，拿不准的留在 Emby 子类，Jellyfin 接入时再下沉）。
+- [x] **以更小改动面达成同等效果**：未做文件搬家，改为把 `EmbyApi` 就地声明为 MediaBrowser
+      家族内核，鉴权头构造抽成 `@protected` 可覆写缝隙（`authorizationHeaderValue` /
+      `sessionAuthorizationHeaderValue`），Emby 请求行为零变化（有单测钉住不带引号的历史头）。
+      `JellyfinApi extends EmbyApi` 只覆写鉴权头风味。若未来差异扩大再升级为目录级抽取。
+- [x] `EmbyMediaBackend` 即家族共享实现：`JellyfinMediaBackend extends EmbyMediaBackend`，
+      只覆写 `capabilities`（kind）。BIF 端点 Jellyfin 404 → 原生壳回退章节图，无需覆写。
 
 **验收**：analyze/test 全绿；Emby 实机全功能冒烟（登录/首页/列表筛选/详情/收藏/播放/切集/
 进度回写/外挂字幕/seek 缩略图）。
 
 ### 阶段 5：Jellyfin 试点接入（对前四阶段的真实验证）
 
-- [ ] `MediaBackendKind` 加 `jellyfin`；grep 所有 switch/分支点确认无遗漏
-      （阶段 1 后应只剩注册表与描述符处需要加）。
-- [ ] `lib/api/mediabrowser/jellyfin_api.dart`：`JellyfinApi extends MediaBrowserApi`，
-      覆写鉴权头（`Authorization: MediaBrowser Client="…", Device="…", DeviceId="…", Version="…", Token="…"`）
-      与差异端点（起步阶段：认证 `/Users/AuthenticateByName`、items、播放直链
-      `/Videos/{id}/stream?static=true`、进度 `/Sessions/Playing/*`——这些与 Emby 基本同形，
-      预期覆写量很小；章节图/Trickplay 差异大，首版可以不做 seek 缩略图，能力位关掉）。
-- [ ] `lib/media_backend/jellyfin/`：`JellyfinMediaBackend`（继承 `MediaBrowserMediaBackend`
-      或组合复用 Emby mappers，视阶段 4 结果）、`JellyfinPlaybackSourceBridge`（预期与 Emby
-      桥接高度同形，差异只在 URL 构造）。
-- [ ] 注册表登记 Jellyfin 描述符（badge 'JF'、登录表单同服务器族通用形状）。
-- [ ] 契约单测：为 Jellyfin 复制契约用例组（见 4.5）。
+- [x] `MediaBackendKind` 加 `jellyfin`；grep 确认 `jellyfin` 字面量只出现在 api / jellyfin
+      目录 / 注册表 / 枚举，页面层零分支。
+- [x] `lib/api/jellyfin_api.dart`：`JellyfinApi extends EmbyApi`（家族内核），仅覆写认证
+      鉴权头为带引号规范形状（头名沿用 `X-Emby-Authorization` 兼容名）；items / 直链 /
+      进度 / 收藏已看 / 外挂字幕端点与 Emby 同形直用。BIF 缩略图 Jellyfin 404 → 原生壳
+      自动回退章节图（章节图走通用 `/Items/{id}/Images/Chapter/{index}` 路由）。
+- [x] `lib/media_backend/jellyfin/jellyfin_media_backend.dart`：继承 `EmbyMediaBackend`，
+      只覆写 capabilities；播放桥接器复用 Emby 直链桥接（同形）。
+- [x] 注册表登记 Jellyfin 描述符（badge 'JF'、logo、示例地址、API 工厂、后端工厂）；
+      连接页第三 tab 由注册表自动生成并启用（含 fnos 中转 entry-token 流程复用）。
+- [x] 契约单测：`test/api/jellyfin_api_test.dart`（鉴权头两家形状、会话头同形、描述符与
+      后端工厂、isServerFamily）。
+- [ ] **实机验收（待做）**：Jellyfin 实机走通登录 → 首页 → 列表 → 详情 → 原生壳播放 →
+      切集 → 进度回写 → 收藏/已看。
 
 **验收（即本方案总验收）**：Jellyfin 实机走通：登录 → 首页 → 列表 → 详情 → 原生壳播放 →
 切集 → 进度回写 → 收藏/已看。并复核改动面：`git diff --stat` 确认 `lib/pages/`、
