@@ -258,8 +258,13 @@ class NativePlayerBridge {
           final progress = args.map(
             (key, value) => MapEntry(key.toString(), value),
           );
-          // 本地播放统计先行(内部吞错,不影响服务端进度回写)。
-          unawaited(NativePlayStatsRecorder.instance.onProgress(progress));
+          // 本地播放统计先行（内部吞错，不影响服务端进度回写）；给统计侧独立副本，
+          // 隔离后续回写实现原地改写字段的隐性耦合。
+          unawaited(
+            NativePlayStatsRecorder.instance.onProgress(
+              Map<String, dynamic>.of(progress),
+            ),
+          );
           await onRecordProgress(progress);
           return null;
         case 'recordNativeLog':
