@@ -20,6 +20,7 @@ import '../media_backend/session/media_backend_connection.dart';
 import '../providers/backend_session_provider.dart';
 import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
+import '../services/app_log_service.dart';
 import '../services/download_task_service.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../services/home_data_cache.dart';
