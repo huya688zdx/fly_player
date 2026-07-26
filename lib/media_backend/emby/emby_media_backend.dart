@@ -189,6 +189,24 @@ class EmbyMediaBackend implements MediaBackend {
   }
 
   @override
+  Future<List<MediaItemCard>> getLatestItems({int limit = 20}) async {
+    final items = await api.getItems(
+      serverUrl: _serverUrl,
+      userId: _userId,
+      accessToken: _token,
+      limit: limit,
+      recursive: true,
+      includeItemTypes: 'Movie,Series',
+      fields: _cardFields,
+      sortBy: 'DateCreated',
+      sortOrder: 'Descending',
+    );
+    return items
+        .map((e) => mapEmbyItemCard(e, serverUrl: _serverUrl, token: _token))
+        .toList(growable: false);
+  }
+
+  @override
   Future<List<MediaItemCard>> searchItems(String query) async {
     final term = query.trim();
     if (term.isEmpty) return const <MediaItemCard>[];
