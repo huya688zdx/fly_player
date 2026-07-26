@@ -58,13 +58,20 @@ class DanmakuPlanBPoliciesTest {
     }
 
     @Test
-    fun `门控需要连续两步才开启和关闭`() {
+    fun `门控复位后首步立即采纳其后翻转需连续两步`() {
         val gate = DanmakuMaskGate()
 
-        assertEquals(false, gate.accept(0.20f, 0.012f, 0.80f, 0.006f, 0.06f))
+        // 新建/复位后的首步直接采纳（否则每次 sceneCut 后首个有主体的 mask 都被吃掉）。
         assertEquals(true, gate.accept(0.20f, 0.012f, 0.80f, 0.006f, 0.06f))
+        // 稳态翻转（关闭）需连续两步确认。
         assertEquals(true, gate.accept(0.001f, 0.012f, 0.80f, 0.006f, 0.06f))
         assertEquals(false, gate.accept(0.001f, 0.012f, 0.80f, 0.006f, 0.06f))
+        // 稳态翻转（重新开启）同样需连续两步。
+        assertEquals(false, gate.accept(0.20f, 0.012f, 0.80f, 0.006f, 0.06f))
+        assertEquals(true, gate.accept(0.20f, 0.012f, 0.80f, 0.006f, 0.06f))
+        // reset 后再次回到"首步立即采纳"。
+        gate.reset()
+        assertEquals(true, gate.accept(0.20f, 0.012f, 0.80f, 0.006f, 0.06f))
     }
 
     @Test
@@ -79,18 +86,31 @@ class DanmakuPlanBPoliciesTest {
     }
 
     @Test
-    fun `预算紧张先逐级降输入宽度再拉步长`() {
+    fun `预算紧张只拉步长且输入宽钉死512`() {
         val policy = DanmakuPlanBBudgetPolicy(initialInputWidth = 512)
 
-        val first = policy.adapt(budgetEmaMs = 300.0, highMotion = false)
-        val second = policy.adapt(budgetEmaMs = 300.0, highMotion = false)
-        val third = policy.adapt(budgetEmaMs = 600.0, highMotion = false)
+        val relaxed = policy.adapt(budgetEmaMs = 100.0, highMotion = false)
+        val tight = policy.adapt(budgetEmaMs = 300.0, highMotion = false)
+        val extreme = policy.adapt(budgetEmaMs = 600.0, highMotion = false)
 
-        assertEquals(384, first.inputWidth)
-        assertEquals(280L, first.stepMs)
-        assertEquals(320, second.inputWidth)
-        assertEquals(280L, second.stepMs)
-        assertEquals(320, third.inputWidth)
-        assertEquals(640L, third.stepMs)
+        assertEquals(512, relaxed.inputWidth)
+        assertEquals(280L, relaxed.stepMs)
+        assertEquals(false, relaxed.inputWidthChanged)
+        assertEquals(512, tight.inputWidth)
+        assertEquals(375L, tight.stepMs)
+        assertEquals(512, extreme.inputWidth)
+        assertEquals(640L, extreme.stepMs)
+    }
+
+    @Test
+    fun `倍速播放按速度放大可持续步长与上限`() {
+        val policy = DanmakuPlanBBudgetPolicy(initialInputWidth = 512)
+
+        // 2x：450ms 推理 → 可持续步长 450*2/0.8=1125ms（视频时间），上限放大到 1280ms。
+        val doubled = policy.adapt(budgetEmaMs = 450.0, highMotion = false, playbackSpeed = 2.0)
+        assertEquals(1125L, doubled.stepMs)
+        // 1x 行为不变：上限仍是 640ms。
+        val normal = policy.adapt(budgetEmaMs = 900.0, highMotion = false, playbackSpeed = 1.0)
+        assertEquals(640L, normal.stepMs)
     }
 }

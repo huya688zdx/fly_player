@@ -1178,9 +1178,12 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
         )
         if (requiresTimelineRebuild) {
             rebuildLaneLayout()
+            // 换源（sourceKey 变化）默认锚到当前时间轴：播放位置没动，弹幕不能回 0
+            // 重播（回 0 会先重建到 0、再被下一个位置样本拽回，双重重建 + 前跳重放风暴）。
+            // 只有 payload 明确带 initialPositionMs（切集等场景）才用它。
             val resetPosition =
                 if (oldSourceKey != settings.sourceKey) {
-                    payload.initialPositionMs ?: 0f
+                    payload.initialPositionMs ?: currentTimelineMs
                 } else {
                     currentTimelineMs
                 }
@@ -1576,6 +1579,16 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
                 if (!settings.scrollEnabled || laneLayout.topTracks.isEmpty()) {
                     return NativeDanmakuAdmissionResult.SKIPPED
                 }
+                // 过期先丢，别先建位图：时间轴前跳（换源/重建/seek 回放）会把大量
+                // 必然过期的弹幕送进来，逐条 drawText 建位图足以把主线程卡死数秒
+                // （真机 4.3s ANR 级卡顿）。过期弹幕的轨道占位 release 时刻也必然
+                // 已过去（release <= start + 穿屏时长 <= timeline），跳过登记等价。
+                if (!fromPending &&
+                    comment.timeMs.toFloat() +
+                    currentScrollBaseTravelDurationMs().coerceAtLeast(2000f) <= timelineMs
+                ) {
+                    return NativeDanmakuAdmissionResult.DROPPED
+                }
                 val visibleLimit =
                     if (fromPending) pendingVisibleSafetyLimit() else visibleScrollCapacity()
                 if (visibleScrollItemCountAt(timelineMs) >= visibleLimit) {
@@ -1635,9 +1648,15 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
                 if (!settings.topEnabled || laneLayout.topTracks.isEmpty()) {
                     return NativeDanmakuAdmissionResult.SKIPPED
                 }
-                val bitmap = obtainBitmap(comment, textOverride)
                 val durationMs = currentStaticDurationMs()
                 val startMs = comment.timeMs.toFloat()
+                val endMs = startMs + durationMs
+                // 过期先丢（建位图之前）：过期静态弹幕的轨道占位 availableAt =
+                // endMs <= timeline，登记与否等价，直接跳过。
+                if (endMs <= timelineMs) {
+                    return NativeDanmakuAdmissionResult.DROPPED
+                }
+                val bitmap = obtainBitmap(comment, textOverride)
                 val laneIndex =
                     findAvailableLane(topLaneAvailableAtMs, startMs)
                         ?: return NativeDanmakuAdmissionResult.BLOCKED
@@ -1645,10 +1664,6 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
                 // 静态顶部弹幕占用滚动共享的顶部轨道：把该轨道前车速度标记为 0，
                 // 后续滚动弹幕的追及碰撞会按「静态占位」分支只看 availableAtMs。
                 topLaneLastSpeedPxPerMs[laneIndex] = 0f
-                val endMs = startMs + durationMs
-                if (endMs <= timelineMs) {
-                    return NativeDanmakuAdmissionResult.DROPPED
-                }
                 activeItems.add(
                     ActiveDanmakuItem(
                         id = comment.id,
@@ -1668,17 +1683,18 @@ class NativeDanmakuOverlayView @JvmOverloads constructor(
                 if (!settings.bottomEnabled || laneLayout.bottomOffsets.isEmpty()) {
                     return NativeDanmakuAdmissionResult.SKIPPED
                 }
-                val bitmap = obtainBitmap(comment, textOverride)
                 val durationMs = currentStaticDurationMs()
                 val startMs = comment.timeMs.toFloat()
+                val endMs = startMs + durationMs
+                // 同 TOP：过期先丢，避免为必丢弃弹幕建位图。
+                if (endMs <= timelineMs) {
+                    return NativeDanmakuAdmissionResult.DROPPED
+                }
+                val bitmap = obtainBitmap(comment, textOverride)
                 val laneIndex =
                     findAvailableLane(bottomLaneAvailableAtMs, startMs)
                         ?: return NativeDanmakuAdmissionResult.BLOCKED
                 bottomLaneAvailableAtMs[laneIndex] = startMs + durationMs
-                val endMs = startMs + durationMs
-                if (endMs <= timelineMs) {
-                    return NativeDanmakuAdmissionResult.DROPPED
-                }
                 activeItems.add(
                     ActiveDanmakuItem(
                         id = comment.id,
