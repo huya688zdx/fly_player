@@ -38,6 +38,14 @@ abstract class MediaBackend {
     int limit = 30,
   });
 
+  /// 最近添加条目（大屏海报浏览页"最近添加"行）。
+  ///
+  /// 默认返回空列表 = 该后端不提供，UI 隐藏整行不占位。Emby/Jellyfin override 为
+  /// `/Users/{id}/Items` 按 `DateCreated` 倒序；飞牛 override 为 item/list 按
+  /// `create_time DESC` 全局查询（排序不生效/失败时返回空，行自然降级）。
+  Future<List<MediaItemCard>> getLatestItems({int limit = 20}) async =>
+      const <MediaItemCard>[];
+
   /// 按关键字搜索条目。
   Future<List<MediaItemCard>> searchItems(String query);
 
