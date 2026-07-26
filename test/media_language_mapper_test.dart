@@ -13,7 +13,6 @@ void main() {
     test('does not return UI fallback labels from the utility layer', () {
       expect(MediaLanguageMapper.normalizeLanguageCode('unknown'), isNull);
       expect(MediaLanguageMapper.languageName('unknown'), '');
-      expect(MediaLanguageMapper.audioLabel('unknown'), '');
       expect(MediaLanguageMapper.subtitleLabel('unknown'), '');
     });
 

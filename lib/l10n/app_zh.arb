@@ -1824,6 +1824,12 @@
   "trackSubtitleOff": "关闭字幕",
   "trackSubtitleNone": "无字幕",
   "trackAudioNone": "无音频",
+  "audioTrackLanguageLabel": "{language}音频",
+  "@audioTrackLanguageLabel": {
+    "placeholders": {
+      "language": {}
+    }
+  },
   "trackSubtitleUnknownLanguage": "未知语言",
   "trackSubtitleDefaultSuffix": "默认",
   "trackSubtitleExternalSuffix": "外挂",

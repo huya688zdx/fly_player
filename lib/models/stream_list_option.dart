@@ -1,5 +1,3 @@
-import 'package:fly_player/utils/media_language_mapper.dart';
-
 class StreamListOption {
   final String mediaGuid;
   final String videoGuid;
@@ -28,8 +26,6 @@ class StreamListOption {
     ];
     return parts.join(' ');
   }
-
-  String get audioLabel => MediaLanguageMapper.audioLabel(audioLanguage);
 
   static String _formatResolution(String raw) {
     final normalized = _normalizeCapabilityBadge(raw);

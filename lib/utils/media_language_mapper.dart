@@ -1,3 +1,5 @@
+// 本文件的语言名映射表为展示层数据，仅限 UI 侧经 lib/ui/ 下的 helper 消费；
+// 模型/store/provider 层禁止直接 import 本文件拼出用户可见文案。
 class MediaLanguageMapper {
   MediaLanguageMapper._();
 
@@ -317,11 +319,6 @@ class MediaLanguageMapper {
     final normalizedKey = normalizeLanguageCode(key);
     if (normalizedKey == null) return '';
     return _languageNameMap[normalizedKey] ?? _languageNameMap[key] ?? '';
-  }
-
-  static String audioLabel(String raw) {
-    final name = languageName(raw);
-    return name.isEmpty ? '' : '$name\u97f3\u9891';
   }
 
   static String subtitleLabel(String raw) {
