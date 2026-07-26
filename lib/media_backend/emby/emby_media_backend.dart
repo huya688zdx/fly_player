@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import '../../api/emby_api.dart';
 import '../../playback/emby_playback_source_bridge.dart';
@@ -29,8 +31,8 @@ import 'emby_playback_mappers.dart';
 ///
 /// 已实现首页读取（媒体库 / 预览 / 继续观看）、搜索（[searchItems]）、单条目详情展示
 /// （[getItemDetail]）、季集浏览与分类 / 媒体库列表（[queryCatalogItems] +
-/// [getCatalogFilterSchema]）；播放入口（[getPlayback]）尚未实现，throw [UnsupportedError]
-/// （由入口拦截）。详情只承载展示信息，不含播放接线。
+/// [getCatalogFilterSchema]）、播放入口（[getPlayback]：static 直链原画 + 服务端转码
+/// 画质梯度）。详情只承载展示信息，不含播放接线。
 /// 飞牛专属能力（下载 / FN Connect / 片头片尾）在 [capabilities] 中关闭。
 class EmbyMediaBackend implements MediaBackend {
   EmbyMediaBackend({required this.api, required this.connection});
@@ -47,11 +49,20 @@ class EmbyMediaBackend implements MediaBackend {
 
   @override
   MediaBackendCapabilities get capabilities =>
-      const MediaBackendCapabilities.server(kind: MediaBackendKind.emby);
+      const MediaBackendCapabilities.server(
+        kind: MediaBackendKind.emby,
+        // 画质切换走服务端转码会话（HLS），原生壳画质/转码态轨道切换经 reloadServerSession
+        // 反向通道重载（见 ServerReentrySupport）。
+        supportsServerTranscodeSession: true,
+      );
 
   @override
   MediaPlaybackSourceBridge get playbackSourceBridge =>
       const EmbyPlaybackSourceBridge();
+
+  /// catalogId → CollectionType（'movies'/'tvshows'/'boxsets'…），由 [getCatalogs] 回填。
+  /// 合集库（boxsets）的预览 / 列表查询要出 BoxSet 本身而非拍平后的影片，靠它分流。
+  final Map<String, String> _catalogTypesById = <String, String>{};
 
   @override
   Future<List<MediaCatalog>> getCatalogs() async {
@@ -60,9 +71,28 @@ class EmbyMediaBackend implements MediaBackend {
       userId: _userId,
       accessToken: _token,
     );
-    return views
+    final catalogs = views
         .map((v) => mapEmbyView(v, serverUrl: _serverUrl, token: _token))
         .toList(growable: false);
+    for (final catalog in catalogs) {
+      _catalogTypesById[catalog.id] = catalog.type.trim().toLowerCase();
+    }
+    return catalogs;
+  }
+
+  /// 该 catalog 是否为合集库（Emby CollectionType=boxsets）。缓存未命中时（如列表页
+  /// 深链直开、未经首页）拉一次 Views 回填；失败按普通库处理。
+  Future<bool> _isBoxsetsCatalog(String catalogId) async {
+    final id = catalogId.trim();
+    if (id.isEmpty) return false;
+    if (!_catalogTypesById.containsKey(id)) {
+      try {
+        await getCatalogs();
+      } catch (_) {
+        return false;
+      }
+    }
+    return _catalogTypesById[id] == 'boxsets';
   }
 
   @override
@@ -138,8 +168,11 @@ class EmbyMediaBackend implements MediaBackend {
     int page = 1,
     int limit = 30,
   }) async {
-    // Recursive + IncludeItemTypes：把库下的文件夹/合集拍平，直接出影片/剧集本身
+    // Recursive + IncludeItemTypes：把库下的文件夹拍平，直接出影片/剧集本身
     // （否则首页预览会显示无封面的中间文件夹，而非真正的条目）。
+    // 例外：合集库（boxsets）要出的就是 BoxSet 本身——按 Movie,Series 过滤会把合集
+    // 全部滤掉（或由服务端降级返回无图条目），表现为首页合集行整排占位图。
+    final isBoxsets = await _isBoxsetsCatalog(catalogId);
     final items = await api.getItems(
       serverUrl: _serverUrl,
       userId: _userId,
@@ -147,7 +180,7 @@ class EmbyMediaBackend implements MediaBackend {
       parentId: catalogId,
       limit: limit,
       recursive: true,
-      includeItemTypes: 'Movie,Series',
+      includeItemTypes: isBoxsets ? 'BoxSet' : 'Movie,Series',
       fields: _cardFields,
     );
     return items
@@ -185,6 +218,25 @@ class EmbyMediaBackend implements MediaBackend {
     // 地区 / 清晰度 / 音频 / 色域等飞牛维度 Emby 无简单查询口径，本阶段不开（用户认可选项不一致）。
     // 排序字段沿用中立四列（显示名由 UI l10n 给，不下发文案）。题材取数失败（如旧服务器）时
     // 退化为仅类型/年份/排序、不报错。
+    // 合集库（boxsets）：影视分类/题材/年代/剧集状态对合集条目无意义（BoxSet 无这些查询
+    // 口径），只留收藏过滤 + 排序。
+    if (await _isBoxsetsCatalog(catalogId)) {
+      return const MediaCatalogFilterSchema(
+        dimensions: <MediaFilterDimension>[
+          MediaFilterDimension(
+            key: 'favorite',
+            kind: MediaFilterDimensionKind.favorite,
+            options: <MediaFilterOption>[MediaFilterOption(value: '1')],
+          ),
+        ],
+        sortOptions: <MediaSortOption>[
+          MediaSortOption(field: 'create_time'),
+          MediaSortOption(field: 'release_date'),
+          MediaSortOption(field: 'title'),
+          MediaSortOption(field: 'vote_average'),
+        ],
+      );
+    }
     var genreOptions = const <MediaFilterOption>[];
     try {
       final genres = await api.getGenres(
@@ -297,6 +349,8 @@ class EmbyMediaBackend implements MediaBackend {
 
   @override
   Future<MediaItemCardPage> queryCatalogItems(MediaCatalogQuery query) async {
+    // 合集库列表页出 BoxSet 本身（与首页预览同口径），普通库按类型选择拍平出影片/剧集。
+    final isBoxsets = await _isBoxsetsCatalog(query.catalogId);
     final page = await api.getItemPage(
       serverUrl: _serverUrl,
       userId: _userId,
@@ -305,7 +359,9 @@ class EmbyMediaBackend implements MediaBackend {
       startIndex: (query.page - 1) * query.pageSize,
       limit: query.pageSize,
       recursive: true,
-      includeItemTypes: _includeItemTypesFor(query.selection['type']),
+      includeItemTypes: isBoxsets
+          ? 'BoxSet'
+          : _includeItemTypesFor(query.selection['type']),
       genres: (query.selection['genres'] ?? const <String>[]).join('|'),
       years: _yearsFor(query.selection['decade']),
       filters: _filtersFor(query.selection),
@@ -349,6 +405,32 @@ class EmbyMediaBackend implements MediaBackend {
       recursive: true,
       favoritesOnly: true,
       includeItemTypes: _favoriteIncludeItemTypesFor(query.selection['type']),
+      sortBy: _sortFieldFor(query.sortField),
+      sortOrder: query.sortType.trim().toUpperCase() == 'ASC'
+          ? 'Ascending'
+          : 'Descending',
+      fields: _cardFields,
+    );
+    return MediaItemCardPage(
+      items: page.items
+          .map((e) => mapEmbyItemCard(e, serverUrl: _serverUrl, token: _token))
+          .toList(growable: false),
+      total: page.totalRecordCount,
+    );
+  }
+
+  @override
+  Future<MediaItemCardPage> queryChildItems(MediaCatalogQuery query) async {
+    // 合集（BoxSet）成员即其直属子项：ParentId + 非递归。不限 IncludeItemTypes——
+    // 合集内可混影片/剧集，类型分支交给详情路由判型。
+    final page = await api.getItemPage(
+      serverUrl: _serverUrl,
+      userId: _userId,
+      accessToken: _token,
+      parentId: query.catalogId,
+      startIndex: (query.page - 1) * query.pageSize,
+      limit: query.pageSize,
+      recursive: false,
       sortBy: _sortFieldFor(query.sortField),
       sortOrder: query.sortType.trim().toUpperCase() == 'ASC'
           ? 'Ascending'
@@ -591,16 +673,32 @@ class EmbyMediaBackend implements MediaBackend {
     if (sources.isEmpty) {
       throw StateError('Emby 条目 ${request.itemId} 无 MediaSources，无法播放');
     }
-    // 多版本：qualityId（= MediaSourceId）命中则取该版本，否则首源。
-    final qualityId = request.qualityId?.trim() ?? '';
-    final source = qualityId.isNotEmpty
+    // 多版本：qualityId 命中则取该版本，否则首源。裸 MediaSourceId（详情页版本切换）与
+    // 画质候选 id（emby:q: 前缀，反向重载/切档）都归一成版本 id 查找。
+    final versionId = embyQualityVersionId(request.qualityId);
+    final source = versionId.isNotEmpty
         ? sources.firstWhere(
-            (s) => (s['Id'] ?? '').toString() == qualityId,
+            (s) => (s['Id'] ?? '').toString() == versionId,
             orElse: () => sources.first,
           )
         : sources.first;
     final mediaSourceId = (source['Id'] ?? '').toString();
     final container = (source['Container'] ?? '').toString().trim();
+
+    // 画质候选：原画（static 直链）+ 客户端转码梯度。裸 MediaSourceId 只作版本锚——喂给
+    // 选择器会命中 sourceId 压掉 qualityIndex/preferredResolution（反向重载切档就失效），
+    // 故仅画质候选 id 参与选档；版本切换经回退链自然落回原画默认档。
+    final qualities = mapEmbyPlaybackQualities(source);
+    final selectedQuality = selectPlaybackQuality(
+      qualities: qualities,
+      qualityId: isEmbyQualityCandidateId(request.qualityId)
+          ? request.qualityId
+          : null,
+      qualityIndex: request.qualityIndex,
+      preferredResolution: request.preferredQualityResolution,
+    );
+    final transcoding =
+        selectedQuality?.delivery == MediaPlaybackDeliveryKind.transcoding;
 
     final tracks = mapEmbyPlaybackTracks(source);
     final selectedAudio = selectPlaybackTrack(
@@ -611,23 +709,48 @@ class EmbyMediaBackend implements MediaBackend {
     );
     final selectedSubtitle = selectPlaybackTrack(
       tracks: tracks.subtitle,
-      preferredTrackId: request.subtitleTrackId,
+      preferredTrackId: _normalizeSubtitleTrackId(request.subtitleTrackId),
       preferredTrackIndex: request.preferredSubtitleTrackIndex,
       fallbackTrackId: embyDefaultSubtitleId(source),
       explicitlyDisabled: request.subtitleTrackExplicitlyDisabled,
     );
 
-    final streamUrl = api.buildStreamUrl(
-      serverUrl: _serverUrl,
-      itemId: request.itemId,
-      mediaSourceId: mediaSourceId,
-      accessToken: _token,
-      container: container,
-    );
+    // 无论本次落静态直链还是转码，先回收上一个转码会话的服务端 ffmpeg——切回原画/换集
+    // 不停旧任务会让它空转到服务端超时。best-effort、不阻塞起播。
+    _stopActiveTranscodeSession();
+    var playSessionId = '';
+    final String streamUrl;
+    if (transcoding) {
+      playSessionId = _newPlaySessionId();
+      _activePlaySessionId = playSessionId;
+      streamUrl = api.buildHlsStreamUrl(
+        serverUrl: _serverUrl,
+        itemId: request.itemId,
+        mediaSourceId: mediaSourceId,
+        accessToken: _token,
+        playSessionId: playSessionId,
+        videoBitrate: selectedQuality!.bitrate,
+        maxHeight: embyQualityMaxHeight(selectedQuality),
+        // 转码流只携带选中音轨（切音轨走会话重载），字幕不烧录——文本字幕由桥接器转外挂
+        // sub-add 投递。
+        audioStreamIndex: selectedAudio?.index,
+      );
+    } else {
+      streamUrl = api.buildStreamUrl(
+        serverUrl: _serverUrl,
+        itemId: request.itemId,
+        mediaSourceId: mediaSourceId,
+        accessToken: _token,
+        container: container,
+      );
+    }
     final playbackSource = mapEmbyPlaybackSource(
       source,
       url: streamUrl,
       headers: _entryTokenHeaders(),
+      delivery: transcoding
+          ? MediaPlaybackDeliveryKind.transcoding
+          : MediaPlaybackDeliveryKind.directLink,
     );
 
     // 续播位：网络优先（UserData.PlaybackPositionTicks），与飞牛同走对账器（本地 play stats
@@ -669,12 +792,19 @@ class EmbyMediaBackend implements MediaBackend {
       durationSeconds: durationSeconds,
       startPosition: resume.position,
       selectedSource: playbackSource,
+      selectedQuality: selectedQuality,
       selectedAudioTrack: selectedAudio,
       selectedSubtitleTrack: selectedSubtitle,
-      qualities: const <MediaPlaybackQuality>[],
+      qualities: qualities,
       audioTracks: tracks.audio,
       subtitleTracks: tracks.subtitle,
-      session: const MediaPlaybackSession(),
+      session: transcoding
+          ? MediaPlaybackSession(
+              id: playSessionId,
+              serverManaged: true,
+              requiresStop: true,
+            )
+          : const MediaPlaybackSession(),
       seekThumbnails: _buildSeekThumbnails(item, request.itemId),
       // BIF 优先：整片按固定间隔抽帧，密度远高于章节图；服务端未跑「视频预览缩略图
       // 提取」任务时端点 404，原生壳自动退回上面的章节图列表。
@@ -690,6 +820,61 @@ class EmbyMediaBackend implements MediaBackend {
       bundle: bundle,
       backendContext: const EmbyPlaybackContext(),
     );
+  }
+
+  /// 当前活跃的服务端转码会话（PlaySessionId）；空 = 无转码。
+  ///
+  /// 每次 [getPlayback] 出转码流前记账，下一次解析（切档 / 切回原画 / 换集）先回收旧任务。
+  /// 后端实例随连接长活，跨起播共享这份账即可；实例重建时漏掉的一次回收由服务端闲置超时兜底。
+  String _activePlaySessionId = '';
+
+  final Random _playSessionRandom = Random();
+
+  /// 客户端生成 PlaySessionId（时间戳 + 随机 hex）：Emby 转码端点用它跟踪/定位转码任务，
+  /// 不要求服务端预先发号。
+  String _newPlaySessionId() {
+    final buf = StringBuffer('fly')
+      ..write(DateTime.now().millisecondsSinceEpoch.toRadixString(16));
+    for (var i = 0; i < 16; i++) {
+      buf.write(_playSessionRandom.nextInt(16).toRadixString(16));
+    }
+    return buf.toString();
+  }
+
+  /// 回收上一个转码会话的服务端 ffmpeg（`DELETE /Videos/ActiveEncodings`）。
+  /// best-effort、不阻塞调用方；失败仅登记吞错日志。
+  void _stopActiveTranscodeSession() {
+    final sessionId = _activePlaySessionId;
+    if (sessionId.isEmpty) return;
+    _activePlaySessionId = '';
+    unawaited(
+      api
+          .stopActiveEncodings(
+            serverUrl: _serverUrl,
+            accessToken: _token,
+            playSessionId: sessionId,
+          )
+          .catchError((Object error, StackTrace stackTrace) {
+            unawaited(
+              logSwallowedError(
+                action: 'emby stop active encodings',
+                id: sessionId,
+                error: error,
+                stackTrace: stackTrace,
+                source: 'emby_media_backend',
+              ),
+            );
+          }),
+    );
+  }
+
+  /// 反向重载回传的字幕标识可能是外挂字幕自包含 guid（`emby:sub:...`）；归一成容器
+  /// Index 才能命中候选轨（[MediaPlaybackTrack.id] = `'$Index'`）。其余原样透传。
+  String? _normalizeSubtitleTrackId(String? trackId) {
+    final id = trackId?.trim() ?? '';
+    if (id.isEmpty) return trackId;
+    final ref = parseEmbyExternalSubtitleGuid(id);
+    return ref == null ? trackId : '${ref.streamIndex}';
   }
 
   @override
