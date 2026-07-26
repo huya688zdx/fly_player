@@ -9145,6 +9145,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     .load(seekThumbnailGlideModel(url))
                     // 异步加载期间保留当前画面当占位，拖动跨章节不闪空。
                     .placeholder(seekPreviewThumb.drawable)
+                    // 默认 300ms 交叉淡入让「到图」看起来又迟半拍，直接上屏。
+                    .dontAnimate()
                     .into(seekPreviewThumb)
             }
             seekPreviewThumb.visibility = View.VISIBLE
@@ -9218,6 +9220,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             loadArgsMap["seekThumbnailBifUrl"]?.toString().orEmpty(),
             loadArgsHeaderMap(),
         )
+        // 章节图全量预取进 Glide 磁盘/内存缓存：BIF 就绪前（换集后头几秒）拖动走章节图，
+        // 不预取的话每跨一章现发一次网络请求（还过 fnos 中转），缩略图迟到半秒起步。
+        // 章节数通常一二十张、320 宽，代价可忽略。
+        for (thumb in seekThumbnails) {
+            Glide.with(this).load(seekThumbnailGlideModel(thumb.url)).preload()
+        }
     }
 
     /** loadArgs["headers"] → 字符串 map（键值任一为空的条目丢弃）。 */
