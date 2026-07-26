@@ -39,7 +39,13 @@ void main() {
       ),
     );
     expect(find.text('★ 8.9'), findsOneWidget); // a 有评分
-    expect(find.textContaining('★'), findsOneWidget); // b 无评分不占位
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('poster_browse_thumb_b')),
+        matching: find.textContaining('★'),
+      ),
+      findsNothing,
+    ); // b 无评分不占位
     await tester.tap(find.byKey(const ValueKey('poster_browse_thumb_b')));
     expect(tapped, 1);
   });
