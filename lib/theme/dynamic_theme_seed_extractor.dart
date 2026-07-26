@@ -214,7 +214,10 @@ class DynamicThemeSeedExtractor {
       }
       pixels ??= await _pixelsFromProvider(
         ResizeImage(
-          NetworkImage(imageUrl, headers: nasImageHeaders(token, url: imageUrl)),
+          NetworkImage(
+            imageUrl,
+            headers: nasImageHeaders(token, url: imageUrl),
+          ),
           width: _monetMaxDimension,
           height: _monetMaxDimension,
           policy: ResizeImagePolicy.fit,
@@ -279,8 +282,7 @@ class DynamicThemeSeedExtractor {
       final r = ((argb >> 16) & 0xFF) / 255.0;
       final g = ((argb >> 8) & 0xFF) / 255.0;
       final b = (argb & 0xFF) / 255.0;
-      weightedLuminance +=
-          (0.2126 * r + 0.7152 * g + 0.0722 * b) * count;
+      weightedLuminance += (0.2126 * r + 0.7152 * g + 0.0722 * b) * count;
       totalPopulation += count;
     });
     final preferLightSurface =
@@ -294,13 +296,7 @@ class DynamicThemeSeedExtractor {
     final link = ranked.length > 2
         ? ranked[2]
         : (ranked.length > 1 ? ranked[1] : source);
-    return <int>[
-      preferLightSurface ? 1 : 0,
-      source,
-      source,
-      selection,
-      link,
-    ];
+    return <int>[preferLightSurface ? 1 : 0, source, source, selection, link];
   }
 
   /// 解出 ImageProvider 的 ARGB 像素（已由 ResizeImage 缩到莫奈采样尺寸）。
