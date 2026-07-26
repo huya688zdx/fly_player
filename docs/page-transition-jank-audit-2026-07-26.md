@@ -119,7 +119,8 @@ URL 即 ImageCache 缓存键，预取与展示天然同参。测试断言已同�
 低清+大图两张位图）叠加离屏合成，恰逢首帧纹理上传（项目注释自证 ~90ms 尖峰）。
 **修复**（`lib/widgets/detail/immersive_detail_background.dart`）：转场中跳过淡入
 直接不透明呈现（缓存命中的 `wasSynchronouslyLoaded` 快路径不动）。
-**遗留**：主图就绪后低清铺底层仍永久留树参与合成。
+**补修（2026-07-26 第三轮）**：主图首帧就绪后延时 260ms（盖过 180ms 淡入，避免
+中途露底色）卸载低清铺底层，不再永久参与每帧合成；URL 换源/兜底切换时复位重挂。
 
 ### 11. 弹幕设置页 pop 返回冗余重载（medium，已修）
 
@@ -160,11 +161,15 @@ App 树），若主窗口恰在转场中直接砸进动画窗口；Scope 侧全�
 
 ~~1. 取色预热前置~~、~~2. Emby precache 链路~~：均已于 2026-07-26 第二轮落地
 （见发现 8 / 发现 9 的"补修"段）。
+~~3. 低清铺底层就绪后卸载~~：第三轮落地（见发现 10 的"补修"段）。
+~~4. low 项~~ 第三轮处置：tv_season 选集视图设置回调已过闸（等待期间用户手动
+切换过则不覆盖）；seed 持久化 debounce 写盘已挂调度器 idle 位（两个取色缓存）；
+`enableRealtimeBlur` 死代码已删（连带 `_blurImageLayer`/`BackdropFilter` 分支，
+与"回归纯色"决策一致）。**判不修**：`_buildRoute` 兜底同步 jsonDecode——仅旧式
+无 payload-token 回退链路才携带内联 JSON（常规导航走 payload store 不解码），
+改造需动三个路由壳契约，收益/风险不成比例；heroTag 透传（13 文件 45 处）留待
+"补 Hero 目标端 or 整体拆除"一并决策，不做半截清理。
 
-3. **低清铺底层就绪后卸载**（发现 10）；`_ensureImageLayers` 签名需纳入主图就绪态。
-4. low 项酌情：`_buildRoute` 兜底同步 jsonDecode 移入异步路径；tv_season 选集视图
-   设置回调过闸；seed 持久化 debounce 写盘挂 idle；heroTag 死代码清理；
-   `enableRealtimeBlur` 死代码删除。
 5. **实机验收**：DevTools raster/UI 线程帧时长 + saveLayer 计数对比修复前后
    （进详情页、pop 返回、Emby 详情三条路径）。
 
@@ -173,4 +178,5 @@ App 树），若主窗口恰在转场中直接砸进动画窗口；Scope 侧全�
 - `flutter analyze`：0 告警。
 - `flutter test`：444/444 通过（4 条 Emby 图片 URL 断言按新格式同步更新）。
 - 第二轮补修后复验：`flutter analyze` 0 告警、`flutter test` 445/445 通过。
+- 第三轮（低清卸载 + low 项）后复验：`flutter analyze` 0 告警、全量测试通过。
 - 实机帧率验证未做（无设备），见待办 5。
