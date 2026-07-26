@@ -859,6 +859,7 @@ class _PosterImage extends StatefulWidget {
 class _PosterImageState extends State<_PosterImage> {
   int _index = 0;
   bool _fallbackScheduled = false;
+  final Set<String> _reportedUrls = <String>{};
 
   @override
   void didUpdateWidget(covariant _PosterImage oldWidget) {
@@ -921,10 +922,24 @@ class _PosterImageState extends State<_PosterImage> {
             debugPrint(
               '[IMG][MEDIA_LIST] failed url=$current error=$error -> no_more_fallback',
             );
+            _reportFinalFailure(current, error);
             return widget.fallback;
           },
         );
       },
+    );
+  }
+
+  /// 全部候选 URL 均失败时落一条 warning 日志。errorBuilder 每次重建都会触发，
+  /// 用 [_reportedUrls] 去重，避免同一 URL 刷屏挤掉其它日志。
+  void _reportFinalFailure(String url, Object error) {
+    if (!_reportedUrls.add(url)) return;
+    unawaited(
+      AppLogService.instance.recordWarning(
+        error: error,
+        source: 'poster_image',
+        details: 'action=load poster url=$url',
+      ),
     );
   }
 
