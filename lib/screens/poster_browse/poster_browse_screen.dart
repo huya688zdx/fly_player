@@ -234,6 +234,21 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
       return;
     }
     setState(() => _focusByRow[rowIndex] = itemIndex);
+    if (rowIndex != _rowIndex) {
+      // 点半露行的条目：先把该行切成当前行（否则 alreadyFocused 恒 false，
+      // 半露行条目永远进不了详情）。_rowIndex 与节流由 onPageChanged 统一更新，
+      // 切行动画落定后再点同一张即进详情。
+      if (_rowController.hasClients) {
+        unawaited(
+          _rowController.animateToPage(
+            rowIndex,
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeOut,
+          ),
+        );
+      }
+      return;
+    }
     _throttle.schedule(item.id);
   }
 
