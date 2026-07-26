@@ -62,6 +62,7 @@ object ParallelFlutterEngineRegistry {
                     initialRoute,
                 )
             GeneratedPluginRegistrant.registerWith(engine)
+            registerBootstrapSecretStoreChannel(appContext, engine)
             cache.put(engineId, engine)
             return engine
         }
@@ -248,6 +249,44 @@ object ParallelFlutterEngineRegistry {
      */
     fun pauseSplitDetailEngine() {
         FlutterEngineCache.getInstance().get(SPLIT_DETAIL_ENGINE_ID)?.let(::pauseEngine)
+    }
+
+    /**
+     * 引擎创建即注册 secret_store：createAndRunEngine 后 Dart 立刻开跑，会话
+     * Provider 的启动加载会在宿主 Activity attach（configureFlutterEngine）之前
+     * 读写凭证——通道缺席时 delete 抛 MissingPlugin 炸掉整次会话加载，分屏详情
+     * 首开直接落在「加载失败」（真机实锤）。此处注册与主线程同一连续段内完成，
+     * Dart 消息不可能先于它被派发；attach 后宿主的同名 handler 原位替换，语义一致。
+     */
+    private fun registerBootstrapSecretStoreChannel(
+        appContext: Context,
+        engine: FlutterEngine,
+    ) {
+        val danDanPlaySecretStore = DanDanPlaySecretStore(appContext)
+        val secureCredentialStore = SecureCredentialStore(appContext)
+        MethodChannel(
+            engine.dartExecutor.binaryMessenger,
+            "fly_player/secret_store",
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getDanDanPlayConfig" -> result.success(danDanPlaySecretStore.getConfig())
+                "clearDanDanPlayConfig" -> result.success(danDanPlaySecretStore.clearConfig())
+                "readCredential" -> {
+                    val key = call.argument<String>("key").orEmpty()
+                    result.success(secureCredentialStore.read(key))
+                }
+                "writeCredential" -> {
+                    val key = call.argument<String>("key").orEmpty()
+                    val value = call.argument<String>("value").orEmpty()
+                    result.success(secureCredentialStore.write(key, value))
+                }
+                "deleteCredential" -> {
+                    val key = call.argument<String>("key").orEmpty()
+                    result.success(secureCredentialStore.delete(key))
+                }
+                else -> result.notImplemented()
+            }
+        }
     }
 
     private fun resumeEngine(engine: FlutterEngine) {

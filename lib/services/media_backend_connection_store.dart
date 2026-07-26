@@ -1,9 +1,11 @@
 import 'dart:convert';
 
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../media_backend/media_backend_kind.dart';
 import '../media_backend/session/media_backend_connection.dart';
+import '../utils/swallowed_error_logger.dart';
 import 'secure_credential_store.dart';
 
 class MediaBackendConnectionSnapshot {
@@ -276,7 +278,21 @@ class MediaBackendConnectionStore {
     required bool shouldKeep,
   }) async {
     if (!shouldKeep) {
-      await SecureCredentialStore.delete(key);
+      // 仅容忍通道未注册的启动竞态（MissingPlugin）：并行引擎（分屏详情）在
+      // secret_store 通道注册前就可能开始加载，残留清理失败不能让整次会话加载
+      // 失败（真机首开分屏详情"加载失败"实锤），留待下次成功加载再清。真实的
+      // 安全存储操作失败（OperationException）仍按原样上抛。
+      try {
+        await SecureCredentialStore.delete(key);
+      } on MissingPluginException catch (error, stackTrace) {
+        await logSwallowedError(
+          action: 'clean stale backend credential',
+          error: error,
+          stackTrace: stackTrace,
+          source: 'media_backend_connection_store',
+          id: key,
+        );
+      }
       return '';
     }
     final stored = await SecureCredentialStore.read(key);
@@ -285,7 +301,18 @@ class MediaBackendConnectionStore {
     }
     if (stored.value.isNotEmpty) return stored.value;
     if (legacyValue.isNotEmpty) {
-      await SecureCredentialStore.write(key, legacyValue);
+      // 旧版明文凭证迁移写入同理：通道未注册时不阻断本次加载，值仍可用，下次再迁。
+      try {
+        await SecureCredentialStore.write(key, legacyValue);
+      } on MissingPluginException catch (error, stackTrace) {
+        await logSwallowedError(
+          action: 'migrate legacy backend credential',
+          error: error,
+          stackTrace: stackTrace,
+          source: 'media_backend_connection_store',
+          id: key,
+        );
+      }
       return legacyValue;
     }
     return '';
