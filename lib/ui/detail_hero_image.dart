@@ -46,6 +46,28 @@ class DetailHeroImage {
     );
   }
 
+  /// 自鉴权完整直链（Emby 等，URL 自带 `api_key` 与尺寸参数）的预取 provider。
+  /// 不要求 NAS token——可加载性由 URL 自身决定；headers 只影响预取请求本身，
+  /// 不参与 NetworkImage 缓存键（相等只看 url+scale），与背景组件展示天然同键。
+  static ImageProvider? directUrlPrecacheProvider({
+    required String url,
+    Map<String, String> headers = const <String, String>{},
+    required double screenWidth,
+    required double devicePixelRatio,
+  }) {
+    final trimmed = url.trim();
+    if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+      return null;
+    }
+    return ResizeImage(
+      NetworkImage(trimmed, headers: headers.isEmpty ? null : headers),
+      width: cacheWidthFor(
+        targetWidth: screenWidth,
+        devicePixelRatio: devicePixelRatio,
+      ),
+    );
+  }
+
   /// 整页详情 hero 的预取 provider：综合 baseUrl/backdropPath/token + 屏宽/dpr 给出可直接
   /// `precacheImage` 的 provider。backdrop 为空、URL 解析失败或无 token 则返回 null（跳过）。
   static ImageProvider? fullPagePrecacheProvider({
