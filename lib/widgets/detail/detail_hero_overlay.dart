@@ -162,6 +162,11 @@ class _DetailHeroLogoTitleState extends State<DetailHeroLogoTitle> {
     }
 
     final url = widget.urls[_index];
+    // logo 宽度受屏宽约束(数值很大且非真实尺寸),高度才是有效约束;
+    // 只按 maxHeight 换算 cacheHeight,宽度交给解码器按原始比例自适应,
+    // 避免宽高都传导致非等比拉伸。
+    final dpr = MediaQuery.of(context).devicePixelRatio.clamp(1.0, 1.8);
+    final cacheHeight = (widget.maxHeight * dpr).round();
     return ConstrainedBox(
       constraints: BoxConstraints(
         maxWidth: widget.maxWidth,
@@ -172,6 +177,7 @@ class _DetailHeroLogoTitleState extends State<DetailHeroLogoTitle> {
         fit: BoxFit.contain,
         alignment: Alignment.centerLeft,
         filterQuality: FilterQuality.medium,
+        cacheHeight: cacheHeight,
         headers: nasImageHeaders(widget.token, url: url),
         frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
           if (wasSynchronouslyLoaded) return child;
