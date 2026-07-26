@@ -321,6 +321,12 @@
   "fnConnectEntryLoginTitle": "登录 FN Connect（Emby）",
   "fnConnectEntryAuthorizedBack": "我已授权 · 回到 Emby",
   "fnConnectEntryReload": "重新加载",
+  "sslCertificateError": "SSL 证书错误：{description}",
+  "@sslCertificateError": {
+    "placeholders": {
+      "description": {}
+    }
+  },
   "fnConnectWebLoginTitle": "FN Connect：{id}",
   "@fnConnectWebLoginTitle": {
     "placeholders": {

@@ -101,7 +101,9 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
             unawaited(error.cancel());
             if (!mounted || _isClosing) return;
             setState(() {
-              _statusText = 'SSL 证书错误：${error.platform.description}';
+              _statusText = AppLocalizations.of(
+                context,
+              ).sslCertificateError(error.platform.description);
             });
           },
         ),
