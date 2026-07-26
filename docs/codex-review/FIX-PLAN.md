@@ -37,7 +37,7 @@
 | 2026-07-16 | S 安全加固 | B-011 回归/加固 | 已修复 | 安全凭据读取采用 `value/missing/unavailable` 三态；瞬时读取失败时保留飞牛和服务器族现有会话，Android 读取失败不再删除密文，写入/删除失败向调用方传播；初始化失败可重试且不会误进入登录页；并发启动、前台恢复和快速重试按单一加载代次合并，避免状态覆盖和重复读取；加载与登录、更新 token、退出、后端保存通过异常安全 FIFO 串行，防止旧快照覆盖新会话；mutation barrier 保证 `load1 → mutation → load2` 不跨屏障合并。 | `76b19a5` / `c8d2065` / `c1112d8` / `520bb2d` / `d3a600d` / `0c50f24` / `7c6d607` / `46a85a6` / `aa97e58` | `flutter test test/services/secure_credential_store_test.dart test/providers/nas_provider_session_stability_test.dart test/providers/backend_session_provider_test.dart test/provider_gate_retry_test.dart test/screens/connection_automatic_load_failure_test.dart`；Android `SecureCredentialStoreTest` | 无 |
 | 2026-07-16 | M API/服务层 | A-006 | 已修复 | 普通接口返回 401 时，网络层不再直接调用 `logout()` 清除会话；请求错误仍按原路径向调用方透传。 | `035e1f1` | `flutter test test/feiniu_api_fn_connect_test.dart` | 无 |
 | 2026-07-16 | S/P 回归 | 飞牛登录协议选择 | 已修复 | 飞牛登录恢复显式 HTTP/HTTPS 选择，按选择提交实际 URL；Emby 表单与窄屏/大字体响应式布局保持兼容。 | `90896be` / `26efa2e` / `58b956f` | `flutter test test/screens/connection_feiniu_compatibility_test.dart test/screens/connection_backend_selection_test.dart` | 无 |
-| 2026-07-09 | S 安全 | A-019 | 已修复 | Emby 媒体图片 URL 移除 `api_key` query，access token 改走 `MediaImageRef.headers`。 | 本次提交 | 待验证 | 无 |
+| 2026-07-26 | S 安全 | A-019 | 部分修复（已回退） | 2026-07-09 曾移除 `api_key` query 改走 headers；`98c2e1c` 有意回退：旧 UI 图片管线只透传 URL 会丢 headers 致海报全空，且多组件靠 `api_key=` 子串判定自鉴权，token 重新进入 URL（另 `emby_media_backend.dart:1050` 同类）。 | `2ccdb49` → `98c2e1c` 回退 | 代码核对 emby_media_mappers.dart:763-770 | 根治依赖批次 M 5.4 的 MediaImageRequest 抽象 |
 | 2026-07-09 | X 崩溃/数据丢失 | A-001 / F-043 | 已修复 | 新增 `RouteQueryJson` 安全解析 helper，主路由与副栏路由不再因畸形 query JSON 抛异常。 | `1f75fd1` | 待验证 | l10n 文案仍归批次 I 跟进 |
 | 2026-07-09 | X 崩溃/数据丢失 | A-040 / A-044 | 已修复 | `MediaInfo` 与 `PlaybackStreamData.header` 增加嵌套类型防护，非法 payload 降级或跳过，合法数据保留。 | `1f75fd1` | 待验证 | 无 |
 | 2026-07-09 | X 崩溃/数据丢失 | A-025 | 已修复 | 未知后端 kind 不再静默反序列化为飞牛，连接 store 会过滤坏记录。 | `1f75fd1` | 待验证 | 无 |
@@ -50,12 +50,14 @@
 | 2026-07-12 | X 崩溃/数据丢失 | B-014 | 已修复 | 新增服务器族进度离线队列；Emby/服务器族原生进度 transient 失败入队，成功重放后删除，并记录异常上下文。 | 本次工作区变更 | `flutter test test/services/playback_progress_offline_queue_test.dart test/services/native_playback_reporter_test.dart` | 无 |
 | 2026-07-12 | X 误操作防护 | G-012 | 已修复 | 书签清空与单条删除统一使用确认弹窗，取消时不触发存储变更。 | 本次工作区变更 | 目标 `flutter analyze` | 无 |
 | 2026-07-12 | X 误操作防护 | G-013 | 已修复 | 弹幕保存源的两处删除入口统一使用确认弹窗，取消时保留原记录。 | 本次工作区变更 | 目标 `flutter analyze` | 无 |
-| 2026-07-12 | X 误操作防护 | G-027 | 已修复 | 登录历史清空与单条删除统一使用确认弹窗，取消时不修改历史。 | 本次工作区变更 | 目标 `flutter analyze` | 无 |
+| 2026-07-12 | X 误操作防护 | G-027 | 部分修复 | 登录历史清空与单条删除统一使用确认弹窗，取消时不修改历史。 | 本次工作区变更 | 代码核对 login_history_screen.dart:24-56 | finding 后半（持久化失败无 catch/无用户反馈）未落实；`LoginHistoryStore.remove/clear` 经安全存储可能抛异常 |
 | 2026-07-09 | X 崩溃/数据丢失 | B-007 | 已修复 | 下载转码进度轮询增加 per-record in-flight 防重入，避免并发请求和旧结果覆盖。 | `cf41cf4` | 待验证 | 无 |
 | 2026-07-09 | X 崩溃/数据丢失 | A-008 | 已修复 | `recordPlayback()` 校验后端业务 payload，HTTP 200 但 `code != 0` 会进入统一异常路径。 | `cf41cf4` | 待验证 | 无 |
 | 2026-07-09 | X 生命周期 | H-003 / H-012 / F-035 | 已修复 | 简介“更多/详情”链接改为 `WidgetSpan + GestureDetector`，不再在 build 中创建需 dispose 的 `TapGestureRecognizer`。 | `cf41cf4` | 待验证 | 无 |
-| 2026-07-09 | X 生命周期 | H-025 / F-039 | 已修复 | `TextEditingController` 泄漏问题已按分批记录修复。 | 分批章节记录 | 待验证 | 待补充具体提交和验证 |
-| 2026-07-09 | X 生命周期 | H-011 / F-038 / F-030 | 已修复 | 图片 errorBuilder、await 后 setState、bottom sheet pop 后 context 使用等 async gap 问题已按分批记录修复。 | 分批章节记录 | 待验证 | 待补充具体提交和验证 |
+| 2026-07-09 | X 生命周期 | H-025 / F-039 | 已修复 | `TextEditingController` 泄漏问题已修复。 | 分批章节记录 | 2026-07-27 代码核对：mpv_audio_eq_advanced_panel.dart:201-244（try/finally dispose）、media_info_screen.dart:24-27（dispose） | 无 |
+| 2026-07-09 | X 生命周期 | H-011 / F-038 / F-030 | 已修复 | 图片 errorBuilder、await 后 setState、bottom sheet pop 后 context 使用等 async gap 问题已修复。 | 分批章节记录 | 2026-07-27 代码核对：immersive_detail_background.dart:354-358/439-448（mounted+index 校验）、media_info_screen.dart:41-50（双路径 mounted）、favorite_items_screen_sheets.dart:5/63-73（pop 前捕获 provider） | 无 |
+| 2026-07-12 | X 崩溃/数据丢失 | G-010 | 已修复 | 存储页加载改为首帧后执行，带 try/catch/finally 与可重试错误态，`_runSystemAction` 同样 finally 复位。 | 分批章节记录 | 2026-07-27 代码核对：storage_management_screen.dart:67-100/146-189 | 无 |
+| 2026-07-26 | P 性能 | H-009 | 已修复 | 沉浸详情背景删除 BackdropFilter/ImageFiltered 实时模糊路径，改纯 Opacity 图层（随"回归纯色"改造完成）。 | 玻璃回归纯色改造 | 2026-07-27 代码核对：immersive_detail_background.dart:128-140；全库 BackdropFilter 仅剩注释 | 无 |
 | 2026-07-09 | M 多后端抽象 | A-032 / A-039 | 已修复 | 播放 launcher 不再下钻具体 `FeiniuPlaybackContext` / `EmbyPlaybackContext`；新增中立 `MediaPlaybackSourceBridge`，由各后端自供装配器。 | 本次提交 | `test/media_backend/multi_backend_abstraction_boundary_test.dart` | 无 |
 | 2026-07-09 | M 多后端抽象 | B-010 / B-012 | 已修复 | `EmbyNativePickerSupport`、`EmbyPlaybackReporter` 改为服务器族命名；原生反向通道飞牛分支改走 `usesLegacyFeiniuFlow` 能力位。 | 本次提交 | 架构回归测试 | 无 |
 | 2026-07-12 | M 多后端抽象 | 5.1 基础扩展点 | 已修复 | 后端 kind 继续作为显式扩展点，服务器族统一由注册表描述；播放原生重解析改为注入当前后端；飞牛收藏、人物作品、源信息/版本均补齐公共接口，操作目标改用布尔已看态。 | 本次工作区变更 | `flutter test test/media_backend`；目标 `flutter analyze` | 无 |
@@ -76,7 +78,7 @@
 | 2026-07-12 | P 性能 | E-004 | 已修复 | 弹幕文件解析统一通过 `Isolate.run` 执行，网络/本地导入不在 UI isolate 同步解析。 | `735a8e9` | 代码核对：`DanmakuImportParser` | 无 |
 | 2026-07-09 | R 结构 | G-002 | 已修复 | mpv 设置标题/副标题映射双份已收敛到 `MpvSettingsL10n.definitionByKey`。 | `abb06d4` | 待验证 | 无 |
 | 2026-07-09 | R 结构 | G-034 | 已修复 | 两个 Web 登录页的注入脚本抽为共享 `FnWebLoginBridgeScript`，保留 FN OAuth 探测与 entry-token 阻断页检测差异配置。 | `abb06d4` | 待验证 | 无 |
-| 2026-07-09 | R 结构 | H-013 | 已修复 | `TvSeasonDetailPanel` 引入 `TvSeasonPanelHeader/Layout/Actions/Content` 配置对象，现有调用走 `legacy` 过渡工厂。 | `abb06d4` | 待验证 | 无 |
+| 2026-07-09 | R 结构 | H-013 | 部分修复 | `TvSeasonDetailPanel` 引入 `TvSeasonPanelHeader/Layout/Actions/Content` 配置对象。 | `abb06d4` | 代码核对 tv_season_detail_panel.dart:9-104 | 调用方仍全部走 30 参 `legacy` 过渡工厂（:107-137），未迁配置对象、工厂未删 |
 | 2026-07-09 | R 结构 | F-011 / F-013 / F-020 / G-026 / C-001 | 已修复 | 删除不可达或未调用旧代码；`FlutterHostActivity` 补齐 `getGpuProfile` 原生实现。 | `abb06d4` | 待验证 | 无 |
 | 2026-07-09 | I i18n / 模型层文案 | 模型/DTO fallback | 已修复 | 模型/DTO 层不再产出用户可见 fallback；空值保持空或结构化 token，由 UI 层负责本地化展示。 | `840a7c0` | 待验证 | 无 |
 | 2026-07-09 | I i18n / 模型层文案 | `StreamListOption` 与展示名 fallback | 已修复 | `StreamListOption` 移除对 UI mapper 的反向依赖；语言映射、音轨/字幕显示名、人物演职员展示 fallback 改为后端中立输出。 | `840a7c0` | 待验证 | 无 |
@@ -115,7 +117,7 @@
 - G-029 / G-032：两个 WebView 登录页遇到 SSL 证书错误时默认 `cancel()` 并提示，不再静默 `proceed()` 自动提交凭据。
 - B-027：全局 `PrivateNetworkHttpOverrides` 仅允许 RFC1918、loopback、link-local、IPv6 ULA 和显式注册 NAS host 跳过证书校验，公网 IP 不再放行。
 - B-011：新增平台安全凭据存储，登录历史、后端连接、飞牛旧会话的密码/token 迁入安全存储，SharedPreferences 只保留非敏感描述和存在标记，并迁移清理旧明文（`2ccdb49`）；后续将读取细化为 `value/missing/unavailable` 三态，瞬时读取失败保留现有会话，Android 读取失败不删除密文，写入/删除失败向调用方传播（`76b19a5`、`c8d2065`、`c1112d8`、`520bb2d`），并让初始化失败可重试且不会误进入登录页（`d3a600d`、`0c50f24`）；并发启动、前台恢复和快速重试按单一加载代次合并，避免状态覆盖和重复读取（`7c6d607`）；加载与登录、更新 token、退出、后端保存通过异常安全 FIFO 串行，防止旧快照覆盖新会话（`46a85a6`）；mutation barrier 保证 `load1 → mutation → load2` 不跨屏障合并（`aa97e58`）。
-- A-019：Emby 媒体图片 URL 移除 `api_key` query，access token 改走 `MediaImageRef.headers`。
+- A-019：**已回退**。2026-07-09 曾移除 `api_key` query 改走 `MediaImageRef.headers`；`98c2e1c`（2026-07-26）因旧 UI 图片管线只透传 URL 字符串丢 headers（直连登录海报全空）而有意改回 URL 自带 `api_key`，多组件以 `api_key=` 子串判定自鉴权。根治须待批次 M 5.4 的 MediaImageRequest 抽象统一携带 headers。
 - 飞牛登录协议回归：恢复显式 HTTP/HTTPS 选择，并验证实际提交 URL、Emby 表单及窄屏/大字体响应式布局（`90896be`、`26efa2e`、`58b956f`）。
 
 ## 4. 批次 X —— 崩溃与数据丢失（约 25 条）
