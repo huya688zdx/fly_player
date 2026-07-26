@@ -669,15 +669,51 @@ MediaImageRef _primaryImage(
 }) {
   final tags = item['ImageTags'];
   final tag = (tags is Map ? tags['Primary'] : null)?.toString() ?? '';
-  if (id.isEmpty || tag.isEmpty) return MediaImageRef.empty;
+  if (id.isEmpty) return MediaImageRef.empty;
+  if (tag.isNotEmpty) {
+    return MediaImageRef(
+      url: _imageUrl(
+        serverUrl: serverUrl,
+        id: id,
+        kind: 'Primary',
+        tag: tag,
+        token: token,
+        // 海报卡片/详情竖图，对齐飞牛管线的 w≤400 量级。
+        maxWidth: 400,
+      ),
+      headers: _imageHeaders(token),
+    );
+  }
+  // BoxSet 常无自有 Primary 图（合集封面多为成员海报合成 / folder.jpg，服务端不一定下发
+  // Primary tag）：回退 Thumb → 首张 Backdrop，避免合集卡整排占位图。其它类型维持无图即空
+  // （不猜 URL，防成片 404）。
+  if ((item['Type'] ?? '').toString() != 'BoxSet') return MediaImageRef.empty;
+  final thumbTag = (tags is Map ? tags['Thumb'] : null)?.toString() ?? '';
+  if (thumbTag.isNotEmpty) {
+    return MediaImageRef(
+      url: _imageUrl(
+        serverUrl: serverUrl,
+        id: id,
+        kind: 'Thumb',
+        tag: thumbTag,
+        token: token,
+        maxWidth: 400,
+      ),
+      headers: _imageHeaders(token),
+    );
+  }
+  final backdrops = item['BackdropImageTags'];
+  final backdropTag = (backdrops is List && backdrops.isNotEmpty)
+      ? (backdrops.first?.toString() ?? '')
+      : '';
+  if (backdropTag.isEmpty) return MediaImageRef.empty;
   return MediaImageRef(
     url: _imageUrl(
       serverUrl: serverUrl,
       id: id,
-      kind: 'Primary',
-      tag: tag,
+      kind: 'Backdrop',
+      tag: backdropTag,
       token: token,
-      // 海报卡片/详情竖图，对齐飞牛管线的 w≤400 量级。
       maxWidth: 400,
     ),
     headers: _imageHeaders(token),
