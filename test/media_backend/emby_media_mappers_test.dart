@@ -105,6 +105,22 @@ void main() {
       expect(card.durationSeconds, 0);
       expect(card.primaryImage.isEmpty, isTrue);
     });
+
+    test('mapEmbyItemCard 填充 overview 与 genres', () {
+      final card = mapEmbyItemCard(
+        <String, Object?>{
+          'Id': 'i1',
+          'Name': 'Oppenheimer',
+          'Type': 'Movie',
+          'Overview': 'plot text',
+          'Genres': <Object?>['Drama', ' History ', ''],
+        },
+        serverUrl: serverUrl,
+        token: token,
+      );
+      expect(card.overview, 'plot text');
+      expect(card.genres, const <String>['Drama', 'History']);
+    });
   });
 
   group('mapEmbyItemDetail', () {
