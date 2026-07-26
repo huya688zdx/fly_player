@@ -10,13 +10,16 @@ class PosterBrowseFocusThrottle {
   final void Function(String itemId) onSettle;
   final Duration delay;
   Timer? _timer;
+  bool _disposed = false;
 
   void schedule(String itemId) {
+    if (_disposed) return;
     _timer?.cancel();
     _timer = Timer(delay, () => onSettle(itemId));
   }
 
   void dispose() {
+    _disposed = true;
     _timer?.cancel();
     _timer = null;
   }

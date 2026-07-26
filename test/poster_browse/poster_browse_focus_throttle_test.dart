@@ -29,4 +29,15 @@ void main() {
       expect(settled, isEmpty);
     });
   });
+
+  test('dispose 后调用 schedule 不再排新定时器、不触发', () {
+    fakeAsync((async) {
+      final settled = <String>[];
+      final throttle = PosterBrowseFocusThrottle(onSettle: settled.add);
+      throttle.dispose();
+      throttle.schedule('a');
+      async.elapse(const Duration(seconds: 1));
+      expect(settled, isEmpty);
+    });
+  });
 }
