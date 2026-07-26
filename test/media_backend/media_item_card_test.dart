@@ -97,4 +97,20 @@ void main() {
     expect(toggled.rating, '8.5');
     expect(toggled.seasonNumber, 2);
   });
+
+  test('overview 与 genres 默认空且可构造', () {
+    const card = MediaItemCard(
+      id: '1',
+      title: 't',
+      type: 'Movie',
+      primaryImage: MediaImageRef.empty,
+    );
+    expect(card.overview, '');
+    expect(card.genres, isEmpty);
+
+    final filled = card.copyWith(overview: 'plot', genres: const ['科幻']);
+    expect(filled.overview, 'plot');
+    expect(filled.genres, const ['科幻']);
+    expect(filled.id, '1');
+  });
 }
