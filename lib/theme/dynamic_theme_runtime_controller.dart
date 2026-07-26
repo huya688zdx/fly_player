@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_theme.dart';
@@ -283,7 +284,12 @@ class DynamicThemeRuntimeController {
     _persistTimer?.cancel();
     _persistTimer = Timer(_persistDebounceDelay, () {
       _persistTimer = null;
-      unawaited(_persistSeedCache());
+      // seed 常在进场转场内解析入库，debounce 到点仍可能撞转场/动画帧；
+      // 全量 jsonEncode + prefs 写入挂到调度器空闲位执行（帧忙时自动顺延；
+      // 清库等直调路径仍走直写，两边幂等）。
+      SchedulerBinding.instance.scheduleTask<void>(() {
+        unawaited(_persistSeedCache());
+      }, Priority.idle);
     });
   }
 

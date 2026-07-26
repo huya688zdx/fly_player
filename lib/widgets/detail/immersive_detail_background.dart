@@ -1,4 +1,4 @@
-import 'dart:ui';
+import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -34,7 +34,6 @@ class ImmersiveDetailBackground extends StatefulWidget {
   final double bottomFadeExtraHeight;
 
   final double parallaxFactor;
-  final bool enableRealtimeBlur;
   final double overlayOpacity;
   final double maxScrollZoom;
 
@@ -57,7 +56,6 @@ class ImmersiveDetailBackground extends StatefulWidget {
     this.bottomFadeBackgroundColor,
     this.bottomFadeExtraHeight = 180,
     this.parallaxFactor = 0.40,
-    this.enableRealtimeBlur = false,
     this.overlayOpacity = 1.0,
     this.maxScrollZoom = 1.24,
   });
@@ -70,6 +68,12 @@ class ImmersiveDetailBackground extends StatefulWidget {
 class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
   int _index = 0;
 
+  // 主图首帧就绪后延时卸载低清铺底层：低清层只在大图 decode 前有用，之后
+  // 永久留树会让 hero 区每帧多合成一张全幅位图。延时要盖过主图 180ms 淡入，
+  // 避免淡入中途抽掉底图露出底色。
+  bool _mainImageReady = false;
+  Timer? _lowResUnloadTimer;
+
   // Cached image subtrees. Rebuilt only when their inputs (urls/token/index/
   // fit/alignment/gap flags) change — never on scroll. The scroll parallax
   // rebuilds the cheap Transform/Stack layers every frame, but the expensive
@@ -78,13 +82,9 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
   String _imageLayersSig = '';
   Widget? _mainImageLayer;
   Widget? _gapImageLayer;
-  Widget? _blurImageLayer;
   Widget? _lowResImageLayer;
 
-  void _ensureImageLayers({
-    required bool isAndroid,
-    required bool enableGapBlur,
-  }) {
+  void _ensureImageLayers({required bool isAndroid}) {
     final sig = <Object?>[
       widget.urls.join(''),
       widget.token,
@@ -94,7 +94,6 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
       widget.fillGapsWithImage,
       widget.lowResUrls.join(''),
       isAndroid,
-      enableGapBlur,
     ].join('|');
     if (sig == _imageLayersSig && _mainImageLayer != null) {
       return;
@@ -124,6 +123,7 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
       fit: widget.imageFit,
       alignment: widget.imageAlignment,
       onErrorNext: _nextFallbackImage,
+      onFirstFrame: _handleMainImageFirstFrame,
     );
     _gapImageLayer = (widget.fillGapsWithImage && isAndroid)
         ? Opacity(
@@ -138,22 +138,6 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
             ),
           )
         : null;
-    _blurImageLayer = enableGapBlur
-        ? Opacity(
-            opacity: 0.72,
-            child: ImageFiltered(
-              imageFilter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-              child: _BackgroundImage(
-                urls: widget.urls,
-                token: widget.token,
-                index: _index,
-                fit: BoxFit.cover,
-                alignment: widget.imageAlignment,
-                onErrorNext: _nextFallbackImage,
-              ),
-            ),
-          )
-        : null;
   }
 
   @override
@@ -162,7 +146,39 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
     if (!listEquals(oldWidget.urls, widget.urls) ||
         oldWidget.token != widget.token) {
       _index = 0;
+      _resetMainImageReady();
     }
+  }
+
+  @override
+  void dispose() {
+    _lowResUnloadTimer?.cancel();
+    super.dispose();
+  }
+
+  void _resetMainImageReady() {
+    _lowResUnloadTimer?.cancel();
+    _lowResUnloadTimer = null;
+    _mainImageReady = false;
+  }
+
+  // 主图首帧回调来自 frameBuilder（build 期间），不能直接 setState；起一次性
+  // 延时（260ms > 180ms 淡入）后再卸低清层。已就绪/已排程则幂等跳过。
+  void _handleMainImageFirstFrame() {
+    if (_mainImageReady || _lowResUnloadTimer != null || !mounted) {
+      return;
+    }
+    if (_lowResImageLayer == null) {
+      _mainImageReady = true;
+      return;
+    }
+    _lowResUnloadTimer = Timer(const Duration(milliseconds: 260), () {
+      _lowResUnloadTimer = null;
+      if (!mounted) {
+        return;
+      }
+      setState(() => _mainImageReady = true);
+    });
   }
 
   @override
@@ -191,20 +207,11 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
       parallaxMax,
     );
 
-    final blurT = (collapseOffset / 240).clamp(0.0, 1.0);
-    final sigma = lerpDouble(0, 18, blurT) ?? 0;
-
-    final effectiveSigma = (widget.enableRealtimeBlur && !isAndroid)
-        ? sigma
-        : 0.0;
     final zoomT = Curves.easeOutCubic.transform(
       (topOverscroll / 160).clamp(0.0, 1.0),
     );
     final scrollZoom =
         1.0 + ((widget.maxScrollZoom.clamp(1.0, 1.3) - 1.0) * zoomT);
-
-    final enableGapBlur =
-        widget.enableRealtimeBlur && widget.fillGapsWithImage && !isAndroid;
 
     final fusionStart = widget.fadeStart.clamp(0.30, 0.86).toDouble();
     final fusionMid = widget.fadeMid.clamp(fusionStart + 0.06, 0.94).toDouble();
@@ -239,7 +246,7 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
 
     final heroImageHeight = expandedHeroHeight + parallaxMax + 80;
 
-    _ensureImageLayers(isAndroid: isAndroid, enableGapBlur: enableGapBlur);
+    _ensureImageLayers(isAndroid: isAndroid);
 
     return RepaintBoundary(
       child: Stack(
@@ -263,10 +270,10 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          if (_blurImageLayer != null) _blurImageLayer!,
                           if (_gapImageLayer != null) _gapImageLayer!,
-                          // 低清铺底，与主图同一 Transform.scale 对齐，垫在主图之下。
-                          if (_lowResImageLayer != null)
+                          // 低清铺底，与主图同一 Transform.scale 对齐，垫在主图之下；
+                          // 主图就绪（淡入完成）后卸载，不再参与每帧合成。
+                          if (_lowResImageLayer != null && !_mainImageReady)
                             Transform.scale(
                               scale: widget.imageScale * scrollZoom,
                               alignment: widget.imageAlignment,
@@ -289,15 +296,6 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
                       ),
                     ),
                   ),
-
-                  if (effectiveSigma > 0.01)
-                    BackdropFilter(
-                      filter: ImageFilter.blur(
-                        sigmaX: effectiveSigma,
-                        sigmaY: effectiveSigma,
-                      ),
-                      child: const SizedBox.expand(),
-                    ),
                 ],
               ),
             ),
@@ -358,7 +356,11 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
       return;
     }
     if (failedIndex != _index) return;
-    setState(() => _index += 1);
+    setState(() {
+      _index += 1;
+      // 主图换成兜底候选，重新等它的首帧，低清层先回树垫底。
+      _resetMainImageReady();
+    });
   }
 }
 
@@ -370,6 +372,10 @@ class _BackgroundImage extends StatelessWidget {
   final Alignment alignment;
   final ValueChanged<int> onErrorNext;
 
+  /// 首帧就绪（含同步缓存命中）时回调。在 frameBuilder（build 期间）触发，
+  /// 接收方不得直接 setState。仅主图层挂接（低清卸载时机）。
+  final VoidCallback? onFirstFrame;
+
   const _BackgroundImage({
     required this.urls,
     required this.token,
@@ -377,6 +383,7 @@ class _BackgroundImage extends StatelessWidget {
     required this.fit,
     required this.alignment,
     required this.onErrorNext,
+    this.onFirstFrame,
   });
 
   @override
@@ -409,6 +416,9 @@ class _BackgroundImage extends StatelessWidget {
           cacheWidth: cacheWidth,
           headers: nasImageHeaders(token, url: currentUrl),
           frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+            if (wasSynchronouslyLoaded || frame != null) {
+              onFirstFrame?.call();
+            }
             if (wasSynchronouslyLoaded) {
               return child;
             }
