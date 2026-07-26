@@ -105,9 +105,12 @@ class _PlayDetailScreenState extends State<PlayDetailScreen> {
         if (!mounted) return;
         final type = detail.type.trim().toLowerCase();
         setState(() {
+          // 合集（Emby BoxSet）走合集详情页；剧集走 TV 详情；其余（影片/单集）走影片详情。
           _mode = (type == 'series' || type == 'tv')
               ? DetailPageMode.tv
-              : DetailPageMode.movie;
+              : (type == 'boxset'
+                    ? DetailPageMode.library
+                    : DetailPageMode.movie);
           _itemDetail = null;
           _loading = false;
         });

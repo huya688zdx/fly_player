@@ -9,6 +9,12 @@ import '../controllers/item_playback_launcher.dart';
 import '../controllers/media_item_action_sheet_controller.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/action/media_library_item_action_target.dart';
+import '../media_backend/detail/media_detail.dart';
+import '../media_backend/filter/media_catalog_filter.dart';
+import '../media_backend/media_backend.dart';
+import '../media_backend/media_backend_kind.dart';
+import '../media_backend/media_item_card.dart';
+import '../providers/media_backend_provider.dart';
 import '../models/media_collection_view_type.dart';
 import '../models/media_library_item.dart';
 import '../models/play_info.dart';
@@ -68,6 +74,12 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
 
   bool get _isPane => widget.presentation == DetailPresentation.pane;
 
+  /// 飞牛走自有 FeiniuApi 完整路径（列表偏好 / PlayInfo 兜底）；非飞牛（Emby 等）复用本页
+  /// 渲染，数据层走中立 getItemDetail + queryChildItems，隐藏飞牛专属能力。
+  bool get _isFeiniuBackend =>
+      context.read<MediaBackendProvider>().backend.capabilities.kind ==
+      MediaBackendKind.feiniu;
+
   Map<String, dynamic> _detail = const <String, dynamic>{};
   List<MediaLibraryItem> _allItems = const <MediaLibraryItem>[];
   List<MediaLibraryItem> _items = const <MediaLibraryItem>[];
@@ -112,6 +124,38 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
       _loading = true;
       _error = null;
     });
+    if (!_isFeiniuBackend) {
+      // 非飞牛(Emby 合集 BoxSet):中立详情 + 子项查询,不走飞牛列表偏好/PlayInfo 兜底。
+      try {
+        final backend = context.read<MediaBackendProvider>().backend;
+        final neutral = await backend.getItemDetail(widget.itemGuid);
+        final items = await _loadNeutralItems(
+          backend,
+          sortColumn: _sortColumn,
+          sortType: _sortType,
+        );
+        if (!mounted) return;
+        await RouteTransitionGate.of(context);
+        if (!mounted) return;
+        setState(() {
+          _applyDetail(_neutralDetailToMap(neutral));
+          _allItems = items;
+          _items = _applyLocalFilters(items);
+          _loading = false;
+        });
+      } catch (e) {
+        if (!mounted) return;
+        setState(() {
+          _error = AppException.from(
+            e,
+            action: 'media collection detail',
+            fallbackKind: AppExceptionKind.transient,
+          );
+          _loading = false;
+        });
+      }
+      return;
+    }
     try {
       final api = FeiniuApi(context.read<NasProvider>());
       final detail =
@@ -152,6 +196,76 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
         _loading = false;
       });
     }
+  }
+
+  /// 中立详情 → 本页沿用的飞牛详情 map 形状（仅本页实际消费的键）。type 为中立小写类型
+  /// （boxset），不落入 mediadb / directory 的飞牛专属分支。
+  Map<String, dynamic> _neutralDetailToMap(MediaDetail detail) {
+    return <String, dynamic>{
+      'guid': detail.id,
+      'title': detail.displayTitle,
+      'type': detail.type.trim().toLowerCase(),
+      'is_favorite': detail.favorite ? 1 : 0,
+      'is_watched': detail.watched ? 1 : 0,
+    };
+  }
+
+  Future<List<MediaLibraryItem>> _loadNeutralItems(
+    MediaBackend backend, {
+    required String sortColumn,
+    required String sortType,
+  }) async {
+    final result = await backend.queryChildItems(
+      MediaCatalogQuery(
+        catalogId: widget.itemGuid,
+        sortField: sortColumn,
+        sortType: sortType,
+        page: 1,
+        pageSize: 500,
+      ),
+    );
+    return result.items.map(_cardToLibraryItem).toList(growable: false);
+  }
+
+  /// 非飞牛子项卡 → 飞牛列表模型的临时桥接,复用本页整套渲染（列表 / 网格 / 长按），与收藏页
+  /// 同款。待合集页渲染层迁公共卡片后移除。
+  MediaLibraryItem _cardToLibraryItem(MediaItemCard card) {
+    return MediaLibraryItem(
+      guid: card.id,
+      title: card.title,
+      tvTitle: card.secondaryTitle,
+      type: card.type,
+      poster: card.primaryImage.url,
+      posterWidth: card.posterWidth,
+      posterHeight: card.posterHeight,
+      posterList: card.posters
+          .map((ref) => ref.url)
+          .where((url) => url.trim().isNotEmpty)
+          .toList(growable: false),
+      releaseDate: card.releaseDate,
+      firstAirDate: card.firstAirDate,
+      lastAirDate: card.lastAirDate,
+      voteAverage: card.rating,
+      overview: '',
+      watched: card.watched ? 1 : 0,
+      watchedTs: 0,
+      ts: 0,
+      duration: card.durationSeconds,
+      seasonNumber: card.seasonNumber,
+      episodeNumber: card.episodeNumber,
+      numberOfSeasons: card.numberOfSeasons,
+      numberOfEpisodes: card.numberOfEpisodes,
+      localNumberOfSeasons: card.localNumberOfSeasons,
+      localNumberOfEpisodes: card.localNumberOfEpisodes,
+      numberOfItem: card.numberOfItem,
+      parentGuid: '',
+      parentTitle: '',
+      ancestorGuid: card.seriesId,
+      ancestorName: '',
+      path: '',
+      resolutions: card.resolutions,
+      backdropUrl: card.backdropImage.url,
+    );
   }
 
   Future<List<MediaLibraryItem>> _loadItems(
@@ -421,6 +535,11 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
 
   MediaLibraryItem? _primaryPlayableItem() {
     final type = _detailType(_detail);
+    if (type == 'boxset') {
+      // Emby 合集：成员即影片/剧集本身,主播放键起播首个成员（剧集在 _playPrimary 里
+      // 先解析续看/首集）。
+      return _items.isNotEmpty ? _items.first : null;
+    }
     if (type == 'directory') {
       for (final item in _items) {
         if (item.type.trim().toLowerCase() == 'video') {
@@ -456,9 +575,23 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
       return;
     }
     try {
+      var targetGuid = item.guid;
+      final lower = item.type.trim().toLowerCase();
+      if (!_isFeiniuBackend && (lower == 'series' || lower == 'tv')) {
+        // 系列不可直接起播（无 MediaSources）：先解析续看/首集再进播放入口。
+        final resolved = await context
+            .read<MediaBackendProvider>()
+            .backend
+            .resolveSeriesPlaybackTarget(item.guid);
+        if (resolved.trim().isEmpty) {
+          return;
+        }
+        targetGuid = resolved.trim();
+      }
+      if (!mounted) return;
       await const ItemPlaybackLauncher().open(
         context,
-        itemGuid: item.guid,
+        itemGuid: targetGuid,
         fallbackTitle: item.displayTitle,
       );
     } catch (e) {
@@ -482,10 +615,12 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
       return;
     }
     setState(() => _favoriteUpdating = true);
+    final nas = context.read<NasProvider>();
+    final backend = context.read<MediaBackendProvider>().backend;
     try {
-      final next = await FeiniuApi(
-        context.read<NasProvider>(),
-      ).setFavorite(guid, favorite: !_liked);
+      final next = _isFeiniuBackend
+          ? await FeiniuApi(nas).setFavorite(guid, favorite: !_liked)
+          : await backend.setItemFavorite(guid, favorite: !_liked);
       if (!mounted) return;
       setState(() {
         _liked = next;
@@ -518,10 +653,12 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
       return;
     }
     setState(() => _watchedUpdating = true);
+    final nas = context.read<NasProvider>();
+    final backend = context.read<MediaBackendProvider>().backend;
     try {
-      final next = await FeiniuApi(
-        context.read<NasProvider>(),
-      ).setWatched(guid, watched: !_watched);
+      final next = _isFeiniuBackend
+          ? await FeiniuApi(nas).setWatched(guid, watched: !_watched)
+          : await backend.setItemWatched(guid, watched: !_watched);
       if (!mounted) return;
       setState(() {
         _watched = next;
@@ -568,13 +705,21 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
   }
 
   Future<void> _reloadItemsOnly() async {
+    final nas = context.read<NasProvider>();
+    final backend = context.read<MediaBackendProvider>().backend;
     try {
-      final items = await _loadItems(
-        FeiniuApi(context.read<NasProvider>()),
-        detail: _detail,
-        sortColumn: _sortColumn,
-        sortType: _sortType,
-      );
+      final items = _isFeiniuBackend
+          ? await _loadItems(
+              FeiniuApi(nas),
+              detail: _detail,
+              sortColumn: _sortColumn,
+              sortType: _sortType,
+            )
+          : await _loadNeutralItems(
+              backend,
+              sortColumn: _sortColumn,
+              sortType: _sortType,
+            );
       if (!mounted) return;
       setState(() {
         _allItems = items;
@@ -945,11 +1090,14 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
     }
     final provider = context.read<NasProvider>();
     Map<String, dynamic>? initialDetail;
-    try {
-      initialDetail = await FeiniuApi(
-        provider,
-      ).getItemDetail(item.guid).timeout(const Duration(milliseconds: 260));
-    } catch (_) {}
+    // 飞牛专属的详情预取加速；非飞牛由目标页自行按 backend 重取。
+    if (_isFeiniuBackend) {
+      try {
+        initialDetail = await FeiniuApi(
+          provider,
+        ).getItemDetail(item.guid).timeout(const Duration(milliseconds: 260));
+      } catch (_) {}
+    }
     if (!mounted) return;
     AdaptiveDetailNavigator.open<void>(
       context,
