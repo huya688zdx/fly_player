@@ -12,6 +12,7 @@ import '../media_backend/action/media_library_item_action_target.dart';
 import '../media_backend/detail/media_detail.dart';
 import '../media_backend/media_backend.dart';
 import '../media_backend/media_backend_kind.dart';
+import '../media_backend/media_image_ref.dart';
 import '../media_backend/media_item_card.dart';
 import '../models/media_library_item.dart';
 import '../models/person_detail_profile.dart';
@@ -595,7 +596,14 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
     if (item.id.trim().isEmpty) return;
     AdaptiveDetailNavigator.open<void>(
       context,
-      AdaptiveDetailRequest.item(itemGuid: item.id),
+      AdaptiveDetailRequest.item(
+        itemGuid: item.id,
+        // Emby 直链引用：push 前预取详情 hero（背景图优先、海报兜底）。
+        heroImageRefs: <MediaImageRef>[
+          if (item.backdropImage.isNotEmpty) item.backdropImage,
+          if (item.primaryImage.isNotEmpty) item.primaryImage,
+        ],
+      ),
       presentation: _isPane ? DetailPresentation.pane : DetailPresentation.page,
     );
   }
