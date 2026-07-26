@@ -16,16 +16,34 @@ import '../../providers/nas_provider.dart';
 import '../../services/native_playback_reentry.dart';
 import '../../services/native_player_bridge.dart';
 import '../../theme/app_theme.dart';
+import '../../ui/app_transitions.dart';
 import '../../ui/detail_artwork_resolver.dart';
 import '../../ui/detail_theme_prewarmer.dart';
+import '../../utils/async_action_guard.dart';
+import '../../utils/detail_top_tip.dart';
 import '../../utils/swallowed_error_logger.dart';
 import '../../widgets/detail/dynamic_page_theme_scope.dart';
-import '../../widgets/detail/immersive_detail_background.dart';
 import '../play_detail_screen.dart';
 import 'poster_browse_focus_throttle.dart';
 import 'poster_browse_loader.dart';
 import 'poster_browse_rows.dart';
 import 'poster_browse_thumb_strip.dart';
+
+/// 进入横屏沉浸。与 [_exitImmersiveLandscape] 一起写成顶层函数（不依赖 State），
+/// 这样 `_openDetail` 的 finally 在页面已卸载时仍能解锁方向，不会把方向锁泄漏到全 App。
+Future<void> _enterImmersiveLandscape() async {
+  await SystemChrome.setPreferredOrientations(const <DeviceOrientation>[
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
+  ]);
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+}
+
+/// 解除方向锁与沉浸模式，恢复 App 默认（跟随系统方向 + edgeToEdge）。
+Future<void> _exitImmersiveLandscape() async {
+  await SystemChrome.setPreferredOrientations(const <DeviceOrientation>[]);
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+}
 
 /// 大屏海报浏览页：横屏全屏沉浸，聚焦条目 backdrop 铺底，底部多行分类缩略图条。
 ///
@@ -59,49 +77,39 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
 
   late final PageController _rowController;
   late final PosterBrowseFocusThrottle _throttle;
-  Timer? _clockTimer;
 
   /// 原生壳反向通道持有者 token（剧集起播时注册，dispose 解绑）。
   Object? _reentryToken;
+
+  final DetailTopTip _topTip = DetailTopTip();
 
   @override
   void initState() {
     super.initState();
     _rowController = PageController(viewportFraction: 0.62);
     _throttle = PosterBrowseFocusThrottle(onSettle: _onFocusSettled);
-    _clockTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted) setState(() {});
-    });
     unawaited(_enterImmersiveLandscape());
     unawaited(_load());
   }
 
   @override
   void dispose() {
-    _clockTimer?.cancel();
     _throttle.dispose();
     _rowController.dispose();
+    _topTip.dispose();
     if (_reentryToken != null) {
       NativePlayerBridge.unbindReentry(_reentryToken!);
       _reentryToken = null;
     }
-    // 双保险：正常路径由 _openDetail 在推详情前就已恢复；异常 pop / 被系统回收时
+    // 双保险：正常路径由 PopScope / _openDetail 提前恢复；异常 pop、被系统回收时
     // 这里兜底解除横屏锁与沉浸模式，避免把整个 App 留在横屏全屏状态。
     unawaited(_exitImmersiveLandscape());
     super.dispose();
   }
 
-  Future<void> _enterImmersiveLandscape() async {
-    await SystemChrome.setPreferredOrientations(const <DeviceOrientation>[
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
-    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-  }
-
-  Future<void> _exitImmersiveLandscape() async {
-    await SystemChrome.setPreferredOrientations(const <DeviceOrientation>[]);
-    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  void _showTopTip(String message, Color color) {
+    if (!mounted) return;
+    _topTip.show(context, message: message, color: color);
   }
 
   Future<void> _load() async {
@@ -126,6 +134,8 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
           ? null
           : rows.first.items.first;
     });
+    // 首屏落定后立即预取首行相邻大图，首次左右切换不用等下载。
+    _precacheNeighbors();
   }
 
   PosterBrowseRow? get _currentRow {
@@ -153,8 +163,8 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
 
   /// 相邻 ±2 张 backdrop 预取，滑动到位时背景即刻可用。
   ///
-  /// 预取用的 ImageProvider 必须与 [ImmersiveDetailBackground] 渲染侧**逐参一致**
-  /// （同款 `ResizeImage(NetworkImage(...), width: cacheWidth)`），否则缓存键不同，
+  /// 预取用的 ImageProvider 与背景 `Image.network` 渲染侧**逐参一致**：同 url、同
+  /// [_backdropCacheWidth]，故 `ResizeImage(NetworkImage(...))` 缓存键命中；否则
   /// 预取的解码结果渲染时用不上，等于白下一遍。
   void _precacheNeighbors() {
     final row = _currentRow;
@@ -179,12 +189,13 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
     }
   }
 
-  /// 与 `immersive_detail_background.dart` 内部同款公式：dpr 收在 [1.0, 1.6]，
-  /// 目标宽取全屏宽（背景铺满整屏），解码宽再夹到 [560, 1440]。
+  /// 背景解码宽的**唯一定义**：渲染与预取共用，保证 ResizeImage 缓存键一致。
+  /// dpr 收在 [1.0, 1.6]（超高 dpr 设备不值得为铺底图多解一倍像素），
+  /// 目标宽取全屏宽（背景铺满整屏），结果再夹到 [560, 1440]。
   int _backdropCacheWidth() {
-    final media = MediaQuery.of(context);
-    final dpr = media.devicePixelRatio.clamp(1.0, 1.6);
-    return (media.size.width * dpr).round().clamp(560, 1440);
+    // 只依赖 size / dpr 两项，不用 MediaQuery.of（避免任意 metric 变化都触发重建）。
+    final dpr = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 1.6);
+    return (MediaQuery.sizeOf(context).width * dpr).round().clamp(560, 1440);
   }
 
   DetailArtworkResolver _resolver() {
@@ -224,7 +235,9 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
   }
 
   void _onThumbTap(int rowIndex, int itemIndex) {
+    if (rowIndex < 0 || rowIndex >= _rows.length) return;
     final row = _rows[rowIndex];
+    if (itemIndex < 0 || itemIndex >= row.items.length) return;
     final item = row.items[itemIndex];
     final alreadyFocused =
         rowIndex == _rowIndex && (_focusByRow[rowIndex] ?? 0) == itemIndex;
@@ -252,8 +265,18 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
     _throttle.schedule(item.id);
   }
 
-  Future<void> _openDetail(MediaItemCard item) async {
-    // 切竖屏之后的任何异常都必须把横屏沉浸补回来，否则本页会卡在竖屏布局。
+  /// 打开详情。整体过并发闸门：连点不会双 push（转场期间第二次点直接复用同一 Future）。
+  Future<void> _openDetail(MediaItemCard item) {
+    return AsyncActionGuard.run<void>(
+      'poster_browse_detail:${item.id.trim()}',
+      settleDuration: const Duration(milliseconds: 450),
+      action: () => _openDetailInner(item),
+    );
+  }
+
+  Future<void> _openDetailInner(MediaItemCard item) async {
+    // 切竖屏之后的任何异常都必须把方向恢复回来：页面还在就重进横屏沉浸，
+    // 页面已卸载（dispose 的兜底早已跑过）就解锁方向，否则全 App 被锁死在竖屏。
     var orientationSwitched = false;
     try {
       final artwork = _backdropOf(_resolver(), item);
@@ -271,8 +294,8 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
       await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       if (!mounted) return;
       await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => PlayDetailScreen(itemGuid: item.id),
+        AppTransitions.leftToRightPageTurnRoute<void>(
+          PlayDetailScreen(itemGuid: item.id),
         ),
       );
     } catch (error, stackTrace) {
@@ -284,8 +307,10 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
         id: item.id,
       );
     } finally {
-      if (orientationSwitched && mounted) {
-        await _enterImmersiveLandscape();
+      if (orientationSwitched) {
+        await (mounted
+            ? _enterImmersiveLandscape()
+            : _exitImmersiveLandscape());
       }
     }
   }
@@ -295,7 +320,16 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
   /// [ItemPlaybackLauncher] 内部自带 reentry 绑定；[TvSeasonPlaybackLauncher] **不带**，
   /// 剧集分支须由本页按统一约定先 [NativePlaybackReentry.bind] 再 open，
   /// 否则原生壳的选集 / 进度回写 / 画质重解析全部失联。
-  Future<void> _play(MediaItemCard item) async {
+  /// 同样过并发闸门：series 分支的 bind 在 open 之前，连点会重复注册反向通道。
+  Future<void> _play(MediaItemCard item) {
+    return AsyncActionGuard.run<void>(
+      'poster_browse_play:${item.id.trim()}',
+      settleDuration: const Duration(milliseconds: 450),
+      action: () => _playInner(item),
+    );
+  }
+
+  Future<void> _playInner(MediaItemCard item) async {
     try {
       final type = item.type.trim().toLowerCase();
       if (type == 'series' || type == 'tv') {
@@ -305,7 +339,12 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
         final seriesTitle = item.displayTitle;
         final seriesGuid = item.id;
         final target = await backend.resolveSeriesPlaybackTarget(seriesGuid);
-        if (!mounted || target.trim().isEmpty) return;
+        if (!mounted) return;
+        if (target.trim().isEmpty) {
+          // 解析不到可播单集：给用户可见反馈，别静默吞掉一次点击。
+          _showTopTip(l10n.detailPlayInfoFailed, context.appColors.danger);
+          return;
+        }
         // 本页只有条目卡、无本季单集列表，故不给 fallbackEpisodes：
         // 选集数据由后端按 seriesGuid 派生（与剧详情入口同约定）。
         _reentryToken = NativePlaybackReentry.bind(
@@ -362,6 +401,11 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
         source: 'poster_browse_screen',
         id: item.id,
       );
+      if (!mounted) return;
+      _showTopTip(
+        AppLocalizations.of(context).detailPlayInfoFailed,
+        context.appColors.danger,
+      );
     }
   }
 
@@ -405,88 +449,101 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
       intensity: intensity,
       builder: (context, ambientTint) {
         final size = MediaQuery.sizeOf(context);
-        return Scaffold(
-          backgroundColor: ambientTint ?? Colors.black,
-          body: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : _rows.isEmpty
-              ? _buildError(l10n)
-              : Stack(
-                  fit: StackFit.expand,
-                  children: <Widget>[
-                    // 背景交叉淡入：只在节流落定后换图，无低清铺底（垫底图与主图不同源会闪）。
-                    AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 350),
-                      child: KeyedSubtree(
-                        key: ValueKey<String>(settled?.id ?? ''),
-                        child: backdrop.isNotEmpty
-                            ? ImmersiveDetailBackground(
-                                urls: backdrop.urls,
-                                token: token,
-                                scrollOffset: 0,
-                                posterHeight: size.height,
-                                imageAlignment: Alignment.center,
-                                fillGapsWithImage: true,
-                                parallaxFactor: 0,
-                                overlayOpacity: 0.62,
-                                ambientTintOverride: ambientTint,
-                              )
-                            // loose Stack 里 ColoredBox 会缩成 0×0，必须显式撑满。
-                            : SizedBox.expand(
-                                child: ColoredBox(
-                                  color: ambientTint ?? Colors.black,
+        return PopScope(
+          // 返回键先 pop 后 dispose：不在这里提前解锁的话，退场动画整段时间里
+          // 上一页会被横屏渲染。dispose 的兜底保留（异常 pop / 被系统回收）。
+          onPopInvokedWithResult: (_, __) =>
+              unawaited(_exitImmersiveLandscape()),
+          child: Scaffold(
+            backgroundColor: ambientTint ?? Colors.black,
+            body: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _rows.isEmpty
+                ? _buildError(l10n)
+                : Stack(
+                    fit: StackFit.expand,
+                    children: <Widget>[
+                      // 背景交叉淡入：只在节流落定后换图。本页不要 hero/视差，
+                      // 故直接单张 Image 铺满 + 一层压暗，不用 ImmersiveDetailBackground
+                      // （它的垫图层在这里 100% 被主图遮住纯浪费，且会把高度 clamp 到
+                      // 0.78 屏高留出底部色带）。无低清铺底：垫底图与主图不同源会闪。
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 350),
+                        child: KeyedSubtree(
+                          key: ValueKey<String>(settled?.id ?? ''),
+                          child: backdrop.isNotEmpty
+                              ? _buildBackdropImage(backdrop)
+                              // loose Stack 里 ColoredBox 会缩成 0×0，必须显式撑满。
+                              : SizedBox.expand(
+                                  child: ColoredBox(
+                                    color: ambientTint ?? Colors.black,
+                                  ),
                                 ),
-                              ),
-                      ),
-                    ),
-                    // 左侧渐变压暗，保证信息区可读。
-                    const DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                          stops: <double>[0, 0.38, 0.68, 1],
-                          colors: <Color>[
-                            Color(0xEE06080E),
-                            Color(0x8C06080E),
-                            Color(0x1406080E),
-                            Colors.transparent,
-                          ],
                         ),
                       ),
-                    ),
-                    // 底部渐变压暗，托住缩略图行区。
-                    const DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.bottomCenter,
-                          end: Alignment.topCenter,
-                          stops: <double>[0, 0.35, 0.6],
-                          colors: <Color>[
-                            Color(0xF706080E),
-                            Color(0xB806080E),
-                            Colors.transparent,
-                          ],
-                        ),
+                      // 背景压暗层：单图铺满后统一压一层黑，配合左/底渐变保证文字可读。
+                      const SizedBox.expand(
+                        child: ColoredBox(color: Color(0x8006080E)),
                       ),
-                    ),
-                    SafeArea(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: <Widget>[
-                          _buildTopBar(context),
-                          Expanded(child: _buildInfoArea(l10n, settled)),
-                          SizedBox(
-                            height: size.height * 0.36,
-                            child: _buildRowPager(l10n, resolver),
+                      // 左侧渐变压暗，保证信息区可读。
+                      const DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.centerLeft,
+                            end: Alignment.centerRight,
+                            stops: <double>[0, 0.38, 0.68, 1],
+                            colors: <Color>[
+                              Color(0xEE06080E),
+                              Color(0x8C06080E),
+                              Color(0x1406080E),
+                              Colors.transparent,
+                            ],
                           ),
-                        ],
+                        ),
                       ),
-                    ),
-                  ],
-                ),
+                      // 底部渐变压暗，托住缩略图行区。
+                      const DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.bottomCenter,
+                            end: Alignment.topCenter,
+                            stops: <double>[0, 0.35, 0.6],
+                            colors: <Color>[
+                              Color(0xF706080E),
+                              Color(0xB806080E),
+                              Colors.transparent,
+                            ],
+                          ),
+                        ),
+                      ),
+                      SafeArea(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: <Widget>[
+                            _buildTopBar(context),
+                            Expanded(child: _buildInfoArea(l10n, settled)),
+                            SizedBox(
+                              height: size.height * 0.36,
+                              child: _buildRowPager(l10n, resolver),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
         );
       },
+    );
+  }
+
+  /// 背景大图：铺满全屏、`cacheWidth` 与预取共用 [_backdropCacheWidth]。
+  /// 首选 URL 失败时回退候选链下一张（飞牛多候选路径）。
+  Widget _buildBackdropImage(DetailArtwork backdrop) {
+    return _PosterBrowseBackdrop(
+      urls: backdrop.urls,
+      headers: backdrop.headers,
+      cacheWidth: _backdropCacheWidth(),
     );
   }
 
@@ -500,13 +557,7 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
             icon: const Icon(Icons.arrow_back, color: Colors.white),
             onPressed: () => unawaited(Navigator.of(context).maybePop()),
           ),
-          Text(
-            TimeOfDay.now().format(context),
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.6),
-              fontSize: 13,
-            ),
-          ),
+          const _ClockText(),
         ],
       ),
     );
@@ -719,6 +770,115 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
           l10n.posterBrowseLoadFailed,
           style: const TextStyle(color: Colors.white70),
         ),
+      ),
+    );
+  }
+}
+
+/// 顶栏时钟：自持定时器并对齐到下一整分，重建范围只有这一个 Text，
+/// 不会因为刷新时间把整页（含背景大图与缩略图条）拖去重建。
+class _ClockText extends StatefulWidget {
+  const _ClockText();
+
+  @override
+  State<_ClockText> createState() => _ClockTextState();
+}
+
+class _ClockTextState extends State<_ClockText> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleNextTick();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  void _scheduleNextTick() {
+    final now = DateTime.now();
+    // 对齐到下一整分：只在分钟真正跳变时重建一次，不做无谓的 30s 空转。
+    final next = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      now.hour,
+      now.minute,
+    ).add(const Duration(minutes: 1));
+    _timer?.cancel();
+    _timer = Timer(next.difference(now), () {
+      if (!mounted) return;
+      setState(() {});
+      _scheduleNextTick();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      TimeOfDay.now().format(context),
+      style: TextStyle(
+        color: Colors.white.withValues(alpha: 0.6),
+        fontSize: 13,
+      ),
+    );
+  }
+}
+
+/// 背景大图：铺满全屏的单张 `Image.network`，首选 URL 失败按候选链回退。
+///
+/// 不用 `ImmersiveDetailBackground`：本页无滚动视差、无 hero，其垫图层会 100% 被
+/// 主图遮住（过渡期平白多出几张全屏位图与离屏层），且它把高度按 0.78 屏高 clamp，
+/// 在全屏铺底场景下会留出底部色带并把图放大偏上裁切。
+class _PosterBrowseBackdrop extends StatefulWidget {
+  const _PosterBrowseBackdrop({
+    required this.urls,
+    required this.headers,
+    required this.cacheWidth,
+  });
+
+  final List<String> urls;
+  final Map<String, String> headers;
+  final int cacheWidth;
+
+  @override
+  State<_PosterBrowseBackdrop> createState() => _PosterBrowseBackdropState();
+}
+
+class _PosterBrowseBackdropState extends State<_PosterBrowseBackdrop> {
+  int _index = 0;
+
+  @override
+  void didUpdateWidget(covariant _PosterBrowseBackdrop oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.urls, widget.urls)) {
+      _index = 0;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_index >= widget.urls.length) return const SizedBox.expand();
+    return SizedBox.expand(
+      child: Image.network(
+        widget.urls[_index],
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        cacheWidth: widget.cacheWidth,
+        headers: widget.headers.isEmpty ? null : widget.headers,
+        errorBuilder: (_, __, ___) {
+          // 候选链回退：当前候选失败就下一张（飞牛同图多路径）。
+          if (_index + 1 < widget.urls.length) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) setState(() => _index += 1);
+            });
+          }
+          return const SizedBox.expand();
+        },
       ),
     );
   }
