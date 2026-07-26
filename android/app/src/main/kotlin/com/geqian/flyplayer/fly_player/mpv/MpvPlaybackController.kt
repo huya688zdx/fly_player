@@ -201,6 +201,51 @@ class MpvPlaybackController(
             playbackSpeedProvider = { state.speed },
         )
 
+    // time-pos 冻结看门狗：mpv 核心 seek 后偶发挂死时事件全停，属性/日志驱动的恢复
+    // 链路收不到信号，只能靠播放线程上的周期对账兜底。tick 挂在 playbackHandler 上，
+    // 核心挂死不堵 Java 播放线程（堵的是 mpv 自己的线程），所以 tick 仍会跑。
+    private val stallWatchdogPolicy = PlaybackStallWatchdogPolicy()
+    private val stallWatchdogTick =
+        object : Runnable {
+            override fun run() {
+                if (disposed) return
+                val verdict =
+                    stallWatchdogPolicy.onSample(
+                        PlaybackStallWatchdogPolicy.Sample(
+                            eligible = initialized &&
+                                mpv.isAvailable() &&
+                                loadState.sourceFileLoaded &&
+                                state.visualPlaybackReady &&
+                                !state.paused &&
+                                !state.buffering &&
+                                !videoStreamLost &&
+                                !videoTrackSuspended &&
+                                !shouldSuppressAutomaticRecovery() &&
+                                !isSurfaceTransitionInProgress(),
+                            seekingOrRestoring = restoreCoordinator.isSeekingOrRestoringVideo,
+                            positionMs = state.positionMs,
+                            durationMs = state.durationMs,
+                            nowUptimeMs = SystemClock.uptimeMillis(),
+                        ),
+                    )
+                if (verdict.triggerRecovery) {
+                    val reason = "stall-watchdog: time-pos frozen ${verdict.stalledForMs}ms"
+                    Log.w(
+                        TAG,
+                        "$reason attempt=${verdict.attempt} pos=${state.positionMs} playback=${loadState.activePlaybackUrl}",
+                    )
+                    applyRecoveryExecution(
+                        PlaybackRecoveryExecution(
+                            reloadCurrentSource = true,
+                            queueSeekPositionMs = state.positionMs.takeIf { it > 0L },
+                        ),
+                        reason,
+                    )
+                }
+                playbackHandler.postDelayed(this, PlaybackStallWatchdogPolicy.TICK_INTERVAL_MS)
+            }
+        }
+
     private fun verboseLog(message: () -> String) {
         if (ENABLE_MPV_VERBOSE_LOGS) {
             Log.d(TAG, message())
@@ -217,6 +262,10 @@ class MpvPlaybackController(
         }
         runOnPlaybackThread {
             initializeMpv()
+            playbackHandler.postDelayed(
+                stallWatchdogTick,
+                PlaybackStallWatchdogPolicy.TICK_INTERVAL_MS,
+            )
         }
     }
 
@@ -233,6 +282,12 @@ class MpvPlaybackController(
         disposed = true
         mpv.removeObserver(this)
         mpv.removeLogObserver(this)
+        // 遮罩控制器有自己的 HandlerThread（推理 + 预计算管线），不依赖播放线程；必须在
+        // 当前线程先收掉：disposeTask 要排到播放线程执行，mpv 核心挂死堵住播放线程时它
+        // 永远不跑，这些线程会随会话整套泄漏（真机进程里攒出多个 FlyPlayerMaskPipeline
+        // 线程实录）。disposeInternal 里的第二次调用由 disposed 标志幂等吸收。
+        runCatching { danmakuOcclusionController?.dispose() }
+            .onFailure { Log.w(TAG, "early danmaku occlusion dispose failed", it) }
         val disposeTask = FutureTask {
             playbackHandler.removeCallbacksAndMessages(null)
             disposeInternal()
@@ -408,6 +463,7 @@ class MpvPlaybackController(
                 sourceResolver.releaseOnSourceChange(previousUrl, source.url)
             }
             danmakuOcclusionController?.onSourceChanged(source)
+            stallWatchdogPolicy.onSourceChanged()
             resumeAfterSurfaceRestore = false
             loadState.resetForSource(source.url)
             trackSelectionController.reset()
