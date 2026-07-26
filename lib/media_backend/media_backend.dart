@@ -43,6 +43,11 @@ abstract class MediaBackend {
   /// 默认返回空列表 = 该后端不提供，UI 隐藏整行不占位。Emby/Jellyfin override 为
   /// `/Users/{id}/Items` 按 `DateCreated` 倒序；飞牛 override 为 item/list 按
   /// `create_time DESC` 全局查询（排序不生效/失败时返回空，行自然降级）。
+  ///
+  /// 已知语义局限：Emby 走 `/Items?SortBy=DateCreated`，剧集（Series）的 DateCreated
+  /// 是该剧首次入库时间，老剧更新新一集不会重新浮到行首——官方 `/Items/Latest` 才有按集
+  /// 聚合的"最近更新"语义，但会把同一部剧的多集拆成多张卡片重复出现；此处为避免重复
+  /// 条目做的取舍。
   Future<List<MediaItemCard>> getLatestItems({int limit = 20}) async =>
       const <MediaItemCard>[];
 
