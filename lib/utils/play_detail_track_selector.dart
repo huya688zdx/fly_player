@@ -1,6 +1,7 @@
 import '../l10n/generated/app_localizations.dart';
 import '../models/stream_list_option.dart';
 import '../models/stream_track_data.dart';
+import '../ui/audio_track_label_localizer.dart';
 import 'media_language_mapper.dart';
 
 class TrackSelectionSyncResult {
@@ -155,7 +156,9 @@ class PlayDetailTrackSelector {
       if (track.guid == selectedAudioGuid) return track.displayLabel;
     }
     if (audioTracks.isNotEmpty) return audioTracks.first.displayLabel;
-    if (selectedOption != null) return selectedOption.audioLabel;
+    if (selectedOption != null) {
+      return audioTrackLabel(l10n, selectedOption.audioLanguage);
+    }
     return fallbackLabel;
   }
 
