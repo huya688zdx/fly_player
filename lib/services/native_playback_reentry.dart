@@ -7,6 +7,7 @@ import 'native_player_bridge.dart';
 import 'native_reentry_support.dart';
 import 'playback_progress_offline_queue.dart';
 import 'server_native_picker_support.dart';
+import 'server_reentry_support.dart';
 import '../utils/app_exception.dart';
 import '../utils/swallowed_error_logger.dart';
 
@@ -91,6 +92,18 @@ class NativePlaybackReentry {
       onRecordProgress: reporter.report,
       onResolveSubtitleFile: (guid, {format}) =>
           backend.resolveExternalSubtitleFile(guid, format: format),
+      // 服务端转码会话重载（切画质 / 转码态切音轨字幕）按能力位接线：Emby 走
+      // ServerReentrySupport（getPlayback + 桥接器重装配），不支持的后端不绑（原生壳
+      // 画质入口因 qualities 恒空而不会发起该调用）。
+      onReloadServerSession: backend.capabilities.supportsServerTranscodeSession
+          ? (currentLoadArgs, intent) =>
+                ServerReentrySupport.reloadServerSession(
+                  backend,
+                  currentLoadArgs: currentLoadArgs,
+                  intent: intent,
+                  l10n: l10n,
+                )
+          : null,
       onLoadEpisodePickerData: (currentLoadArgs, {seasonGuid}) =>
           ServerNativePickerSupport.loadEpisodePickerData(
             backend,
