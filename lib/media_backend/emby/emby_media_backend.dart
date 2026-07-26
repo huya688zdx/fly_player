@@ -41,7 +41,7 @@ class EmbyMediaBackend implements MediaBackend {
   final MediaBackendConnection connection;
 
   static const String _cardFields =
-      'PrimaryImageAspectRatio,Overview,PremiereDate,CommunityRating,MediaStreams';
+      'PrimaryImageAspectRatio,Overview,PremiereDate,CommunityRating,MediaStreams,Genres';
 
   String get _serverUrl => connection.serverUrl;
   String get _userId => connection.userId;
