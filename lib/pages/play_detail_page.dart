@@ -2850,15 +2850,12 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           builder: (context, offset, _) {
             return ImmersiveDetailBackground(
               urls: persistentHeroUrls,
-              // 低清铺底：飞牛用同路径 360 宽小图；Emby 等中立后端在有 backdrop 时
-              // 用海报直链垫底（列表网格已加载过同 URL，多数纯缓存命中、立即上屏），
-              // 无 backdrop 时主图即海报，不再重复垫同一张。
+              // 低清铺底：飞牛用同路径 360 宽小图（同一张图的低清版）。Emby 留空——
+              // 不要拿海报垫 backdrop：两张不同的图，视觉上是"先显示剧集封面、
+              // 大图就绪后跳变"（实机确认的错图闪），待 mapper 产出同图小宽度
+              // 引用再启用。
               lowResUrls: _neutralDisplayOnly
-                  ? ((_detail?.backdropImage.isNotEmpty ?? false)
-                        ? persistentResolver.resolveRefs(<MediaImageRef>[
-                            _detail!.primaryImage,
-                          ]).urls
-                        : const <String>[])
+                  ? const <String>[]
                   : (persistentHeroPath.isEmpty
                         ? const <String>[]
                         : persistentResolver
