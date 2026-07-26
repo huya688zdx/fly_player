@@ -11,7 +11,10 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.Outline
 import android.graphics.drawable.ClipDrawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.Icon
@@ -24,6 +27,7 @@ import android.net.NetworkRequest
 import android.os.Build
 import android.os.Bundle
 import android.text.TextUtils
+import android.util.LruCache
 import android.util.Rational
 import android.util.Log
 import android.util.TypedValue
@@ -36,6 +40,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageButton
@@ -54,7 +59,6 @@ import com.geqian.flyplayer.fly_player.mpv.MpvPlayerState
 import com.geqian.flyplayer.fly_player.mpv.NativePlayerReverseBridge
 import com.geqian.flyplayer.fly_player.mpv.NativePlayerSurface
 import com.bumptech.glide.Glide
-import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.load.resource.bitmap.CenterCrop
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners
 import org.json.JSONArray
@@ -2792,6 +2796,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             maxWidth = dp(192)
             maxHeight = dp(108)
             visibility = View.GONE
+            // 圆角统一用 outline 裁剪：BIF 帧走主线程同步 setImageBitmap（不经 Glide
+            // transform），章节图的 Glide 异步加载也免掉 RoundedCorners 变换。
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
+                    outline.setRoundRect(0, 0, view.width, view.height, dp(8).toFloat())
+                }
+            }
+            clipToOutline = true
         }
         seekPreviewTime = TextView(this).apply {
             setTextColor(Color.WHITE)
@@ -9106,19 +9118,23 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         seekPreviewTime.text = "${formatTime(targetMs)} / ${formatTime(durationMs)}"
         val bifFrame = seekThumbBifStore.frameFor(targetMs)
         if (bifFrame != null) {
+            // BIF 帧是内存里的几 KB JPEG，主线程同步解码（1~2ms）+ LRU 直接上屏。
+            // 不能走 Glide：into() 开新请求会先清空 ImageView，快速拖动时每换一帧
+            // 闪空一次，就是「缩略图等一会才出现、出现又消失」的直接原因。
             if (bifFrame.index != seekThumbLoadedBifIndex) {
-                seekThumbLoadedBifIndex = bifFrame.index
-                seekThumbLoadedUrl = null
-                Glide.with(this)
-                    .load(bifFrame.bytes)
-                    // 帧字节已在内存/本地 BIF 缓存，Glide 再落盘只是白写。
-                    .diskCacheStrategy(DiskCacheStrategy.NONE)
-                    .transform(RoundedCorners(dp(8)))
-                    .into(seekPreviewThumb)
+                val bitmap = bifFrameBitmap(bifFrame)
+                if (bitmap != null) {
+                    seekThumbLoadedBifIndex = bifFrame.index
+                    seekThumbLoadedUrl = null
+                    seekPreviewThumb.setImageBitmap(bitmap)
+                }
             }
-            seekPreviewThumb.visibility = View.VISIBLE
-            seekPreview.visibility = View.VISIBLE
-            return
+            if (seekThumbLoadedBifIndex >= 0) {
+                seekPreviewThumb.visibility = View.VISIBLE
+                seekPreview.visibility = View.VISIBLE
+                return
+            }
+            // 帧解码失败（异常数据）走章节图兜底。
         }
         val url = nearestSeekThumbnailUrl(targetMs)
         if (url != null) {
@@ -9127,17 +9143,30 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 seekThumbLoadedBifIndex = -1
                 Glide.with(this)
                     .load(seekThumbnailGlideModel(url))
-                    .transform(RoundedCorners(dp(8)))
+                    // 异步加载期间保留当前画面当占位，拖动跨章节不闪空。
+                    .placeholder(seekPreviewThumb.drawable)
                     .into(seekPreviewThumb)
             }
             seekPreviewThumb.visibility = View.VISIBLE
+        } else if (seekThumbLoadedBifIndex >= 0 || seekThumbLoadedUrl != null) {
+            // 无该位置的图但屏上已有一张（如 BIF 就绪前拖到无章节图区段）：保留旧图
+            // 比整块消失再出现的观感稳。
+            seekPreviewThumb.visibility = View.VISIBLE
         } else {
-            seekThumbLoadedUrl = null
-            seekThumbLoadedBifIndex = -1
             seekPreviewThumb.setImageDrawable(null)
             seekPreviewThumb.visibility = View.GONE
         }
         seekPreview.visibility = View.VISIBLE
+    }
+
+    /** BIF 帧同步解码 + LRU（来回拖立即命中）。缓存随换源清空（帧下标跨源无意义）。 */
+    private fun bifFrameBitmap(frame: SeekThumbnailBifStore.Frame): Bitmap? {
+        seekThumbBifBitmapCache.get(frame.index)?.let { return it }
+        val decoded =
+            runCatching { BitmapFactory.decodeByteArray(frame.bytes, 0, frame.bytes.size) }
+                .getOrNull() ?: return null
+        seekThumbBifBitmapCache.put(frame.index, decoded)
+        return decoded
     }
 
     private fun hideSeekPreview() {
@@ -9162,6 +9191,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     // BIF 帧的同款去重（相邻拖动多落在同一帧）；-1 = 当前显示的不是 BIF 帧。
     private var seekThumbLoadedBifIndex = -1
 
+    // BIF 帧解码位图 LRU（按帧下标）：320×180 ARGB 一帧约 225KB，24 帧 ~5.4MB。
+    private val seekThumbBifBitmapCache = LruCache<Int, Bitmap>(24)
+
     // BIF 下载/解析/就绪态。磁盘缓存按 URL 哈希，同条目跨会话复用。
     private val seekThumbBifStore by lazy { SeekThumbnailBifStore(File(cacheDir, "seek_bif")) }
 
@@ -9179,6 +9211,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             ?.sortedBy { it.positionMs }
             ?: emptyList()
         seekThumbLoadedBifIndex = -1
+        seekThumbBifBitmapCache.evictAll()
         // BIF 后台装载：同 URL（同集重载，如切音轨）复用已就绪数据；换集换 URL 旧数据即时作废；
         // 空 URL（飞牛/本地文件）清空。headers 透传播放同款（过 fnos 中转闸的 entry-token cookie）。
         seekThumbBifStore.prepare(
