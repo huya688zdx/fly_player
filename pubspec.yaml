@@ -24,7 +24,8 @@ dependencies:
   flutter_svg: ^2.0.10+1
   fl_chart: ^0.70.2
   url_launcher: ^6.3.1
-  palette_generator: ^0.3.3+6
+  # 真莫奈取色（Celebi 量化 + CAM16 Score）；版本随 Flutter SDK 传递依赖钉死。
+  material_color_utilities: 0.13.0
   webview_flutter: ^4.13.1
   photo_view: ^0.15.0
 

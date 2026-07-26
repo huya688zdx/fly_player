@@ -1,29 +1,17 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
-import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
-import 'package:palette_generator/palette_generator.dart';
+import 'package:material_color_utilities/material_color_utilities.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../utils/nas_image_headers.dart';
 import '../utils/swallowed_error_logger.dart';
-
-class _ScoredSwatch {
-  final Color color;
-  final HSLColor hsl;
-  final double score;
-
-  const _ScoredSwatch({
-    required this.color,
-    required this.hsl,
-    required this.score,
-  });
-}
 
 @immutable
 class DynamicThemeSeed {
@@ -46,8 +34,9 @@ class DynamicThemeSeedExtractor {
   const DynamicThemeSeedExtractor._();
 
   static const int _maxSeedCacheEntries = 256;
-  // v2：Monet 式评分 + 互异色相分配 + 柔和 clamp（旧 v1 缓存按 vibrant/muted+hue-shift，需失效）。
-  static const String _persistentCacheVersion = 'dyn_seed_v2';
+  // v3：真莫奈管线（Celebi 量化 + CAM16 Score），seed 为 Score 排名原色不再 HSL clamp；
+  // 旧 v2 缓存按自制 HSL 评分产出，需失效。
+  static const String _persistentCacheVersion = 'dyn_seed_v3';
   static const String _persistentCachePrefsKey = 'dynamic_theme_seed_cache_v1';
   static const Duration _persistDebounceDelay = Duration(milliseconds: 120);
   static const MethodChannel _themeSamplerChannel = MethodChannel(
@@ -205,6 +194,11 @@ class DynamicThemeSeedExtractor {
     return future;
   }
 
+  // 真莫奈管线：图像缩至 ≤112×112 → Celebi 量化 128 色（Wu+WSMeans，Lab 空间）→
+  // CAM16 Score 评分排名（Android 12 壁纸取色原版算法，material_color_utilities 官方实现）。
+  // Score 第一名即 Monet source color，直接作为 accent/background seed（不做 HSL clamp，
+  // 色调调和交给下游 ColorScheme.fromSeed 的 HCT 音调映射）；selection/link 取 Score
+  // 排名第 2/3 色（互异色相由 Score 内置的 hue 分散逻辑保证），不足时退回第一名。
   static Future<DynamicThemeSeed?> _extractUncached({
     required String imageUrl,
     required String token,
@@ -214,83 +208,31 @@ class DynamicThemeSeedExtractor {
     }
 
     try {
+      Int32List? pixels;
       if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-        final nativeSeed = await _extractOnAndroid(
-          imageUrl: imageUrl,
-          token: token,
-        );
-        if (nativeSeed != null) return nativeSeed;
+        pixels = await _samplePixelsOnAndroid(imageUrl: imageUrl, token: token);
       }
-
-      final palette = await PaletteGenerator.fromImageProvider(
-        NetworkImage(imageUrl, headers: nasImageHeaders(token, url: imageUrl)),
-        maximumColorCount: 24,
-        size: const Size(220, 140),
+      pixels ??= await _pixelsFromProvider(
+        ResizeImage(
+          NetworkImage(imageUrl, headers: nasImageHeaders(token, url: imageUrl)),
+          width: _monetMaxDimension,
+          height: _monetMaxDimension,
+          policy: ResizeImagePolicy.fit,
+        ),
       );
-
-      // Monet 式取色（与原生 ThemeColorSampler 同算法）：对全部量化 swatch 评分（彩度×人口），
-      // accent 取最高分；selection/link 取与已选色相距离够远的真实图像色，无第二色相则退回同
-      // 色相不同明度（不再用人工 hue-shift）。4 seed 下游喂 ColorScheme.fromSeed（HCT）。
-      final swatches = palette.paletteColors;
-      if (swatches.isEmpty) return null;
-
-      var totalPopulation = 0.0;
-      var weightedLuminance = 0.0;
-      final scored = <_ScoredSwatch>[];
-      for (final pc in swatches) {
-        final hsl = HSLColor.fromColor(pc.color);
-        totalPopulation += pc.population;
-        weightedLuminance += _relativeLuminance(pc.color) * pc.population;
-        scored.add(
-          _ScoredSwatch(
-            color: pc.color,
-            hsl: hsl,
-            score: _chromaScore(hsl, pc.population),
-          ),
-        );
+      if (pixels == null || pixels.isEmpty) {
+        return null;
       }
-      scored.sort((a, b) => b.score.compareTo(a.score));
-
-      final preferLightSurface =
-          totalPopulation > 0 && (weightedLuminance / totalPopulation) >= 0.60;
-
-      final dominant = swatches
-          .reduce((a, b) => a.population >= b.population ? a : b)
-          .color;
-      final colorful = scored
-          .where((s) => s.hsl.saturation >= 0.12)
-          .toList(growable: false);
-      final accent =
-          (colorful.isNotEmpty ? colorful.first : scored.first).color;
-      final accentHue = HSLColor.fromColor(accent).hue;
-
-      final selectionSwatch = _firstWhereOrNull(
-        colorful,
-        (s) => _hueDistance(s.hsl.hue, accentHue) >= _minDistinctHue,
-      );
-      final selectionHue = selectionSwatch?.hsl.hue ?? accentHue;
-      final linkSwatch = _firstWhereOrNull(
-        colorful,
-        (s) =>
-            _hueDistance(s.hsl.hue, accentHue) >= _minDistinctHue &&
-            _hueDistance(s.hsl.hue, selectionHue) >= _minDistinctHue,
-      );
-
-      final selectionSource =
-          selectionSwatch?.color ?? _tonalSibling(accent, -0.06);
-      final linkSource = linkSwatch?.color ?? _tonalSibling(accent, 0.10);
-
+      final encoded = await compute(_monetSeedsFromPixels, pixels);
+      if (encoded == null) {
+        return null;
+      }
       return DynamicThemeSeed(
-        backgroundSeed: _backgroundSeedForHsl(
-          HSLColor.fromColor(dominant),
-          preferLightSurface: preferLightSurface,
-        ),
-        accentSeed: _accentSeedForHsl(HSLColor.fromColor(accent)),
-        selectionSeed: _selectionSeedForHsl(
-          HSLColor.fromColor(selectionSource),
-        ),
-        linkSeed: _linkSeedForHsl(HSLColor.fromColor(linkSource)),
-        preferLightSurface: preferLightSurface,
+        backgroundSeed: Color(encoded[1] & 0xFFFFFFFF),
+        accentSeed: Color(encoded[2] & 0xFFFFFFFF),
+        selectionSeed: Color(encoded[3] & 0xFFFFFFFF),
+        linkSeed: Color(encoded[4] & 0xFFFFFFFF),
+        preferLightSurface: encoded[0] != 0,
       );
     } catch (error, stackTrace) {
       await logSwallowedError(
@@ -304,46 +246,132 @@ class DynamicThemeSeedExtractor {
     }
   }
 
-  static const double _minDistinctHue = 32;
+  static const int _monetMaxDimension = 112;
+  static const int _monetQuantizeColors = 128;
 
-  static double _chromaScore(HSLColor hsl, int population) {
-    final toneFalloff = 1.0 - ((hsl.lightness - 0.5).abs() * 0.7);
-    final chroma = hsl.saturation * toneFalloff;
-    final popWeight = math.log(1.0 + population);
-    final grayPenalty = hsl.saturation < 0.10 ? 0.12 : 1.0;
-    final extremePenalty = (hsl.lightness < 0.06 || hsl.lightness > 0.94)
-        ? 0.4
-        : 1.0;
-    return chroma * popWeight * grayPenalty * extremePenalty;
-  }
-
-  static double _relativeLuminance(Color color) {
-    final r = ((color.toARGB32() >> 16) & 0xFF) / 255.0;
-    final g = ((color.toARGB32() >> 8) & 0xFF) / 255.0;
-    final b = (color.toARGB32() & 0xFF) / 255.0;
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  }
-
-  static double _hueDistance(double a, double b) {
-    final diff = (a - b).abs() % 360;
-    return diff > 180 ? 360 - diff : diff;
-  }
-
-  static Color _tonalSibling(Color color, double deltaLightness) {
-    final hsl = HSLColor.fromColor(color);
-    return hsl
-        .withLightness((hsl.lightness + deltaLightness).clamp(0.12, 0.88))
-        .toColor();
-  }
-
-  static _ScoredSwatch? _firstWhereOrNull(
-    List<_ScoredSwatch> list,
-    bool Function(_ScoredSwatch) test,
-  ) {
-    for (final item in list) {
-      if (test(item)) return item;
+  /// isolate 入口：像素 → Celebi 量化 → Score 排名。
+  /// 返回 [preferLight, background, accent, selection, link]，无有效像素时返回 null。
+  static Future<List<int>?> _monetSeedsFromPixels(Int32List rawPixels) async {
+    // Monet 只吃不透明像素（海报圆角/信封边的透明区不参与量化）。
+    final opaque = <int>[];
+    for (final pixel in rawPixels) {
+      if ((pixel >> 24) & 0xFF == 0xFF) {
+        opaque.add(pixel);
+      }
     }
-    return null;
+    if (opaque.isEmpty) {
+      return null;
+    }
+
+    final quantized = await QuantizerCelebi().quantize(
+      opaque,
+      _monetQuantizeColors,
+    );
+    final colorToCount = quantized.colorToCount;
+    if (colorToCount.isEmpty) {
+      return null;
+    }
+
+    // 人口加权亮度判定亮/暗表面（与旧版一致，允许亮色海报出亮主题）。
+    var totalPopulation = 0.0;
+    var weightedLuminance = 0.0;
+    colorToCount.forEach((argb, count) {
+      final r = ((argb >> 16) & 0xFF) / 255.0;
+      final g = ((argb >> 8) & 0xFF) / 255.0;
+      final b = (argb & 0xFF) / 255.0;
+      weightedLuminance +=
+          (0.2126 * r + 0.7152 * g + 0.0722 * b) * count;
+      totalPopulation += count;
+    });
+    final preferLightSurface =
+        totalPopulation > 0 && (weightedLuminance / totalPopulation) >= 0.60;
+
+    // Score 会滤掉低彩度/低占比色并按色相分散排名；全灰图像时回退 Google Blue，
+    // 与 Android 原生莫奈的兜底行为一致。
+    final ranked = Score.score(colorToCount);
+    final source = ranked.first;
+    final selection = ranked.length > 1 ? ranked[1] : source;
+    final link = ranked.length > 2
+        ? ranked[2]
+        : (ranked.length > 1 ? ranked[1] : source);
+    return <int>[
+      preferLightSurface ? 1 : 0,
+      source,
+      source,
+      selection,
+      link,
+    ];
+  }
+
+  /// 解出 ImageProvider 的 ARGB 像素（已由 ResizeImage 缩到莫奈采样尺寸）。
+  static Future<Int32List?> _pixelsFromProvider(ImageProvider provider) async {
+    final stream = provider.resolve(ImageConfiguration.empty);
+    final completer = Completer<ImageInfo>();
+    late final ImageStreamListener listener;
+    listener = ImageStreamListener(
+      (ImageInfo info, bool _) {
+        stream.removeListener(listener);
+        if (!completer.isCompleted) {
+          completer.complete(info);
+        } else {
+          info.dispose();
+        }
+      },
+      onError: (Object error, StackTrace? stackTrace) {
+        stream.removeListener(listener);
+        if (!completer.isCompleted) {
+          completer.completeError(error, stackTrace ?? StackTrace.current);
+        }
+      },
+    );
+    stream.addListener(listener);
+    final info = await completer.future;
+    try {
+      final byteData = await info.image.toByteData(
+        format: ui.ImageByteFormat.rawStraightRgba,
+      );
+      if (byteData == null) {
+        return null;
+      }
+      final rgba = byteData.buffer.asUint8List(
+        byteData.offsetInBytes,
+        byteData.lengthInBytes,
+      );
+      final count = rgba.length ~/ 4;
+      final pixels = Int32List(count);
+      for (var i = 0; i < count; i++) {
+        final offset = i * 4;
+        pixels[i] =
+            (rgba[offset + 3] << 24) |
+            (rgba[offset] << 16) |
+            (rgba[offset + 1] << 8) |
+            rgba[offset + 2];
+      }
+      return pixels;
+    } finally {
+      info.dispose();
+      // 采样图不该占用 Flutter 图片缓存位（页面展示走的是原尺寸 URL 键）。
+      unawaited(provider.evict());
+    }
+  }
+
+  static Future<Int32List?> _samplePixelsOnAndroid({
+    required String imageUrl,
+    required String token,
+  }) async {
+    try {
+      final raw = await _themeSamplerChannel.invokeMapMethod<String, dynamic>(
+        'sampleImagePixels',
+        <String, dynamic>{'imageUrl': imageUrl, 'token': token},
+      );
+      final pixels = raw?['pixels'];
+      if (pixels is Int32List && pixels.isNotEmpty) {
+        return pixels;
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
   }
 
   static DynamicThemeSeed? _touchSeedCache(String normalizedImageKey) {
@@ -498,76 +526,5 @@ class DynamicThemeSeedExtractor {
       linkSeed: Color(linkValue & 0xFFFFFFFF),
       preferLightSurface: (raw['preferLightSurface'] as bool?) ?? false,
     );
-  }
-
-  static Future<DynamicThemeSeed?> _extractOnAndroid({
-    required String imageUrl,
-    required String token,
-  }) async {
-    try {
-      final raw = await _themeSamplerChannel.invokeMapMethod<String, dynamic>(
-        'extractDynamicThemeSeed',
-        <String, dynamic>{'imageUrl': imageUrl, 'token': token},
-      );
-      if (raw == null) return null;
-      final backgroundValue = raw['backgroundSeed'];
-      final accentValue = raw['accentSeed'];
-      final selectionValue = raw['selectionSeed'];
-      final linkValue = raw['linkSeed'];
-      if (backgroundValue is! int ||
-          accentValue is! int ||
-          selectionValue is! int ||
-          linkValue is! int) {
-        return null;
-      }
-      return DynamicThemeSeed(
-        backgroundSeed: Color(backgroundValue & 0xFFFFFFFF),
-        accentSeed: Color(accentValue & 0xFFFFFFFF),
-        selectionSeed: Color(selectionValue & 0xFFFFFFFF),
-        linkSeed: Color(linkValue & 0xFFFFFFFF),
-        preferLightSurface: (raw['preferLightSurface'] as bool?) ?? false,
-      );
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static Color _backgroundSeedForHsl(
-    HSLColor hsl, {
-    required bool preferLightSurface,
-  }) {
-    if (preferLightSurface) {
-      return hsl
-          .withSaturation((hsl.saturation * 0.42).clamp(0.08, 0.22))
-          .withLightness((hsl.lightness * 0.92).clamp(0.74, 0.90))
-          .toColor();
-    }
-    // 柔和：暗表面彩度上限收一档。
-    return hsl
-        .withSaturation((hsl.saturation * 0.80).clamp(0.16, 0.48))
-        .withLightness(((hsl.lightness * 0.58) + 0.02).clamp(0.18, 0.36))
-        .toColor();
-  }
-
-  // 柔和舒适：强调/选中/链接彩度上限整体收一档（与原生 ThemeColorSampler 对齐）。
-  static Color _accentSeedForHsl(HSLColor hsl) {
-    return hsl
-        .withSaturation(hsl.saturation.clamp(0.20, 0.50))
-        .withLightness(hsl.lightness.clamp(0.34, 0.56))
-        .toColor();
-  }
-
-  static Color _selectionSeedForHsl(HSLColor hsl) {
-    return hsl
-        .withSaturation(hsl.saturation.clamp(0.22, 0.52))
-        .withLightness((hsl.lightness - 0.02).clamp(0.30, 0.52))
-        .toColor();
-  }
-
-  static Color _linkSeedForHsl(HSLColor hsl) {
-    return hsl
-        .withSaturation(hsl.saturation.clamp(0.18, 0.48))
-        .withLightness((hsl.lightness + 0.08).clamp(0.42, 0.64))
-        .toColor();
   }
 }

@@ -554,15 +554,15 @@ abstract class FlutterHostActivity : FlutterActivity() {
             trackMethodChannelHandler(channel)
             channel.setMethodCallHandler { call, result ->
                 when (call.method) {
-                    "extractDynamicThemeSeed" -> {
+                    "sampleImagePixels" -> {
                         val imageUrl = call.argument<String>("imageUrl").orEmpty().trim()
                         val token = call.argument<String>("token").orEmpty()
                         if (imageUrl.isEmpty()) {
                             result.success(null)
                             return@setMethodCallHandler
                         }
-                        ThemeColorSampler.sample(imageUrl, token) { seed ->
-                            result.success(seed)
+                        ThemeColorSampler.samplePixels(imageUrl, token) { sampled ->
+                            result.success(sampled)
                         }
                     }
                     else -> result.notImplemented()
