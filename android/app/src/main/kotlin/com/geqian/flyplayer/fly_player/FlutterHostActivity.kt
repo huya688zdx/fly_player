@@ -26,6 +26,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.window.embedding.SplitController
+import androidx.window.layout.WindowMetricsCalculator
 import com.geqian.flyplayer.fly_player.mpv.MpvPlayerViewFactory
 import com.geqian.flyplayer.fly_player.mpv.detectDeviceProfile
 import io.flutter.embedding.android.FlutterActivity
@@ -886,10 +887,18 @@ abstract class FlutterHostActivity : FlutterActivity() {
             logEmbeddingDecision("isParallelWindowSupported=false splitSupportStatus=$splitSupportStatus")
             return false
         }
-        val configuration = resources.configuration
-        val supported = configuration.smallestScreenWidthDp >= MIN_EMBEDDED_SMALLEST_WIDTH_DP
+        // 本方法回答"设备能力"（设置页要不要显示并行窗口入口），不是"当前窗口能不能立即分屏"，
+        // 后者由 canOpenEmbeddedDetail 按窗口实时判定。这里不能用 configuration.smallestScreenWidthDp：
+        // 任务台小窗/系统分屏/副栏内打开设置时，窗口 configuration 会低于阈值，
+        // 导致平板上设置入口时有时无。按整块屏幕（maximumWindowMetrics）判定。
+        val maximumBounds =
+            WindowMetricsCalculator.getOrCreate().computeMaximumWindowMetrics(this).bounds
+        val density = resources.displayMetrics.density
+        val deviceSmallestWidthDp =
+            minOf(maximumBounds.width(), maximumBounds.height()) / density
+        val supported = deviceSmallestWidthDp >= MIN_EMBEDDED_SMALLEST_WIDTH_DP
         logEmbeddingDecision(
-            "isParallelWindowSupported=$supported splitSupportStatus=$splitSupportStatus smallestWidthDp=${configuration.smallestScreenWidthDp}",
+            "isParallelWindowSupported=$supported splitSupportStatus=$splitSupportStatus deviceSmallestWidthDp=$deviceSmallestWidthDp",
         )
         return supported
     }
