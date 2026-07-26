@@ -108,6 +108,11 @@ class FeiniuMediaBackend implements MediaBackend {
   }
 
   @override
+  Future<MediaItemCardPage> queryChildItems(MediaCatalogQuery query) async =>
+      // 飞牛合集页走自有 getItemsPage(ancestor/parent) 完整路径，不经本接口。
+      const MediaItemCardPage();
+
+  @override
   Future<MediaItemCardPage> queryFavoriteItems(MediaCatalogQuery query) async {
     final tags = <String, dynamic>{
       for (final entry in query.selection.entries)
