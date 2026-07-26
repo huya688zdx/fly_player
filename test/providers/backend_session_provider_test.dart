@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:async';
 
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -508,6 +509,26 @@ void main() {
     expect(provider.currentKind, MediaBackendKind.emby);
     expect(provider.isConfigured, isTrue);
   });
+
+  test('通道未注册时清理凭证抛 MissingPlugin 不炸整次会话加载', () async {
+    _setStoredEmbyConnection();
+    // emby 连接无 secret/entryToken → 载入时会对这两个键做清理 delete；
+    // 并行引擎在 secret_store 通道注册前 delete 会抛 MissingPlugin（真机分屏
+    // 详情首开"加载失败"实锤）——该竞态必须不影响会话加载本身。
+    final backend = _ChannelMissingDeleteBackend()
+      ..values['media_backend_connection.emby.access_token'] = 'access-token';
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final provider = BackendSessionProvider(autoLoad: false);
+    addTearDown(provider.dispose);
+
+    await provider.load();
+
+    expect(provider.isReady, isTrue);
+    expect(provider.hasLoadFailure, isFalse);
+    expect(provider.currentConnection?.accessToken, 'access-token');
+    expect(backend.deleteAttempts, greaterThan(0));
+  });
 }
 
 class _SwitchableCredentialBackend implements SecureCredentialBackend {
@@ -541,6 +562,34 @@ class _SwitchableCredentialBackend implements SecureCredentialBackend {
       throw SecureCredentialOperationException('delete', key);
     }
     values.remove(key);
+  }
+}
+
+// 模拟通道未注册：delete 抛 MissingPlugin（与真机 fly_player/secret_store
+// 未注册时的行为一致），读写正常。
+class _ChannelMissingDeleteBackend implements SecureCredentialBackend {
+  final Map<String, String> values = <String, String>{};
+  int deleteAttempts = 0;
+
+  @override
+  Future<SecureCredentialReadResult> read(String key) async {
+    final value = values[key] ?? '';
+    return value.isEmpty
+        ? const SecureCredentialReadResult.missing()
+        : SecureCredentialReadResult.found(value);
+  }
+
+  @override
+  Future<void> write(String key, String value) async {
+    values[key] = value;
+  }
+
+  @override
+  Future<void> delete(String key) async {
+    deleteAttempts++;
+    throw MissingPluginException(
+      'No implementation found for method deleteCredential',
+    );
   }
 }
 
