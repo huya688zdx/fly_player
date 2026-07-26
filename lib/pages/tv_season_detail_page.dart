@@ -939,6 +939,16 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     if (!mounted || viewType == null) return;
     final mode = _episodePickerModeFromSetting(viewType);
     if (_episodePickerMode == mode) return;
+    // initState 发起的网络回包常落在 380ms 进场转场内，切换选集视图会整段重建
+    // 选集区；推迟到转场结束再应用。等待期间用户手动切换过（本地值已变）则以
+    // 手动为准，不用服务端旧值覆盖。
+    final modeBeforeGate = _episodePickerMode;
+    await RouteTransitionGate.of(context);
+    if (!mounted ||
+        _episodePickerMode != modeBeforeGate ||
+        _episodePickerMode == mode) {
+      return;
+    }
     setState(() => _episodePickerMode = mode);
   }
 
