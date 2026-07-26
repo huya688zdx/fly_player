@@ -50,6 +50,16 @@ class _PlayDetailScreenState extends State<PlayDetailScreen> {
     super.initState();
     if (widget.initialItemDetail != null) {
       final initial = widget.initialItemDetail!;
+      // 单集卡直点（无 seriesGuid，如首页「继续观看」）按约定最终解析成**系列
+      // TV 详情**，但卡片级 initial 的 type='episode' 会被 _resolveMode 兜底成
+      // movie——先渲染单集样式 PlayDetailPage（hero 加载出单集封面），_load 判型
+      // 回包后整页翻转成 TvDetailPage（系列大图），产生"先显示单集封面再跳成
+      // 系列大图"的错图闪。该场景 initial 不足以定型：走骨架等判型一次到位。
+      if (_initialTypeOf(initial) == 'episode' &&
+          widget.seriesGuid.trim().isEmpty) {
+        unawaited(_load());
+        return;
+      }
       _itemDetail = initial;
       _mode = _resolveMode(initial);
       _loading = false;
@@ -57,6 +67,16 @@ class _PlayDetailScreenState extends State<PlayDetailScreen> {
       return;
     }
     unawaited(_load());
+  }
+
+  String _initialTypeOf(Map<String, dynamic> detail) {
+    final directType = (detail['type'] ?? '').toString().trim().toLowerCase();
+    if (directType.isNotEmpty) return directType;
+    final item = detail['item'];
+    if (item is Map<String, dynamic>) {
+      return (item['type'] ?? '').toString().trim().toLowerCase();
+    }
+    return '';
   }
 
   Future<void> _load({bool silent = false}) async {
