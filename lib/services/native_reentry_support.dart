@@ -269,25 +269,26 @@ class NativeReentrySupport {
         final right = b.episodeNumber > 0 ? b.episodeNumber : b.numberOfItem;
         return left.compareTo(right);
       });
-      final mapped = <Map<String, dynamic>>[
+      // 本地封面解析已改异步（目录扫描），并发映射避免逐集串行 await。
+      final mapped = await Future.wait(<Future<Map<String, dynamic>>>[
         for (final episode in episodes) _nativeEpisodeMap(nas, episode),
-      ];
+      ]);
       return mapped.isNotEmpty ? mapped : fallbackEpisodes;
     } catch (_) {
       return fallbackEpisodes;
     }
   }
 
-  static Map<String, dynamic> _nativeEpisodeMap(
+  static Future<Map<String, dynamic>> _nativeEpisodeMap(
     NasProvider nas,
     MediaLibraryItem episode,
-  ) {
+  ) async {
     final record = DownloadTaskService.instance.downloadedRecordForItem(
       episode.guid,
     );
     final localCover = record == null
         ? ''
-        : DownloadTaskService.instance.resolveExistingLocalCover(record);
+        : await DownloadTaskService.instance.resolveExistingLocalCover(record);
     final usingLocal = localCover.isNotEmpty;
     return <String, dynamic>{
       'itemGuid': episode.guid,

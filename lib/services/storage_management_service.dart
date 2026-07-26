@@ -429,7 +429,7 @@ class StorageManagementService {
         extraAppDataBytes;
 
     final playback = _normalizeMap(native['playbackCache']);
-    final downloadBytes = downloadService.downloadedBytes;
+    final downloadBytes = await downloadService.downloadedBytes();
     final downloadCount = downloadService.downloadedRecordCount;
     final screenshots = _normalizeMap(native['screenshots']);
     final danmakuAiCache = _normalizeMap(native['danmakuAiCache']);

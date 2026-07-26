@@ -33,7 +33,8 @@ class _AppLogScreenState extends State<AppLogScreen> {
     if (_exporting) return;
     final l10n = AppLocalizations.of(context);
     final service = AppLogService.instance;
-    if (!service.hasExportableLogs) {
+    if (!await service.hasExportableLogs()) {
+      if (!mounted) return;
       _topTip.show(
         context,
         message: l10n.logNoExportableLogs,
