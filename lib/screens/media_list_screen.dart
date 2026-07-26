@@ -30,6 +30,7 @@ import '../theme/app_theme.dart';
 import '../theme/detail_tokens.dart';
 import '../ui/app_transitions.dart';
 import '../ui/layout_adaptive.dart';
+import '../ui/route_transition_gate.dart';
 import '../ui/media_poster_card.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/async_action_guard.dart';
@@ -498,6 +499,13 @@ class _MediaListScreenState extends State<MediaListScreen>
             .expand((items) => items)
             .toList(growable: false),
       );
+      // push 返回的 Future 在 pop 动画第一帧前就 resolve，回包大概率落在
+      // 380ms pop 转场里；等转场结束再应用，且列表未变化时不整页重建。
+      await RouteTransitionGate.of(context);
+      if (!mounted) return;
+      if (HomeDataSnapshot.itemsEqual(_continueWatching, continueWatching)) {
+        return;
+      }
       setState(() {
         _continueWatching = continueWatching;
       });

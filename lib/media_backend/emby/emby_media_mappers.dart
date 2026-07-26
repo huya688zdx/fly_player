@@ -576,6 +576,8 @@ MediaImageRef _logoImage(
       kind: 'Logo',
       tag: tag,
       token: token,
+      // 详情页 logo 显示高度 ≤124，横条图限宽 800 足够高分屏。
+      maxWidth: 800,
     ),
     headers: _imageHeaders(token),
   );
@@ -640,6 +642,8 @@ List<MediaDetailPerson> _people(
               kind: 'Primary',
               tag: tag,
               token: token,
+              // 演职员头像卡片显示宽度 ≤180 逻辑像素。
+              maxWidth: 360,
             ),
             headers: _imageHeaders(token),
           )
@@ -673,6 +677,8 @@ MediaImageRef _primaryImage(
       kind: 'Primary',
       tag: tag,
       token: token,
+      // 海报卡片/详情竖图，对齐飞牛管线的 w≤400 量级。
+      maxWidth: 400,
     ),
     headers: _imageHeaders(token),
   );
@@ -695,6 +701,8 @@ MediaImageRef _backdropImage(
       kind: 'Backdrop',
       tag: tag,
       token: token,
+      // 详情背景 hero 大图，对齐飞牛管线的 w=1200 上限。
+      maxWidth: 1280,
     ),
     headers: _imageHeaders(token),
   );
@@ -706,9 +714,14 @@ String _imageUrl({
   required String kind,
   required String tag,
   required String token,
+  required int maxWidth,
 }) {
   final base = serverUrl.replaceAll(RegExp(r'/$'), '');
   final query = StringBuffer('tag=${Uri.encodeQueryComponent(tag)}');
+  // 必须限制服务端出图尺寸：不带 maxWidth 时 Emby 返回原图（backdrop 常见
+  // 1920~3840 宽、数 MB JPEG），下载/解码/纹理上传恰落在进场转场窗口内。
+  // 注意该 URL 同时是 Flutter ImageCache 的缓存键，预取与展示必须同参。
+  query.write('&maxWidth=$maxWidth&quality=90');
   // token 必须进查询串（`api_key=`），不能只放 [MediaImageRef.headers]：历史 UI 管线
   // （首页/收藏/搜索卡片等 [MediaLibraryItem] 链路）只透传 URL 字符串会丢 headers，
   // 且海报组件在 NAS token 为空时仅凭 `api_key=` 识别自鉴权 URL 放行加载。

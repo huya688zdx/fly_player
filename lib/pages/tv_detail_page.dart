@@ -372,12 +372,18 @@ class _TvDetailPageState extends State<TvDetailPage>
     try {
       final detail = await _loadItemDetail(api, widget.itemGuid);
       if (!mounted) return;
+      // initialItemDetail 快路径下该刷新在 initState 即发起，回包大概率落在
+      // 380ms 进场转场内；网络照常并发，仅把整页重建推迟到转场结束后应用。
+      await RouteTransitionGate.of(context);
+      if (!mounted) return;
       setState(() {
         _applyBaseDetail(detail);
         _suppressGlobalThemeSyncUntilFullDetail = false;
         _error = null;
       });
     } catch (_) {
+      if (!mounted) return;
+      await RouteTransitionGate.of(context);
       if (!mounted) return;
       setState(() {
         _suppressGlobalThemeSyncUntilFullDetail = false;
