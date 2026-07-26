@@ -33,6 +33,12 @@ class MediaItemCard {
   /// 评分文本，保留后端原始展示形式（飞牛为字符串，空表示无评分）。
   final String rating;
 
+  /// 简介文本（首页大屏浏览页信息区用）。空表示后端未提供，UI 隐藏不占位。
+  final String overview;
+
+  /// 题材标签（如 `科幻` / `剧情`）。空表示后端未提供。
+  final List<String> genres;
+
   /// 上映 / 首播日期文本。
   final String releaseDate;
 
@@ -72,6 +78,8 @@ class MediaItemCard {
     this.watched = false,
     this.resumePositionSeconds = 0,
     this.rating = '',
+    this.overview = '',
+    this.genres = const <String>[],
     this.releaseDate = '',
     this.firstAirDate = '',
     this.lastAirDate = '',
@@ -114,6 +122,8 @@ class MediaItemCard {
     bool? watched,
     int? resumePositionSeconds,
     String? rating,
+    String? overview,
+    List<String>? genres,
     String? releaseDate,
     String? firstAirDate,
     String? lastAirDate,
@@ -142,6 +152,8 @@ class MediaItemCard {
       resumePositionSeconds:
           resumePositionSeconds ?? this.resumePositionSeconds,
       rating: rating ?? this.rating,
+      overview: overview ?? this.overview,
+      genres: genres ?? this.genres,
       releaseDate: releaseDate ?? this.releaseDate,
       firstAirDate: firstAirDate ?? this.firstAirDate,
       lastAirDate: lastAirDate ?? this.lastAirDate,
