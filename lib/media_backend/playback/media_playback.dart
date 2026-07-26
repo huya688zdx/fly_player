@@ -265,11 +265,18 @@ class MediaPlaybackBundle {
   /// 原生壳退回纯时间药丸。
   final List<MediaSeekThumbnail> seekThumbnails;
 
+  /// BIF 预览缩略图直链（Roku BIF 格式单文件，整片按固定间隔抽帧）。非空时原生壳
+  /// 优先下载解析 BIF 取帧，未生成（404）/解析失败退回 [seekThumbnails] 章节图。
+  /// 空 = 该后端不支持（飞牛恒空）。URL 已带鉴权 query；过 fnos 中转闸的 cookie
+  /// 由播放 [MediaPlaybackSource.headers] 复用。
+  final String seekThumbnailBifUrl;
+
   const MediaPlaybackBundle({
     required this.itemId,
     required this.selectedSource,
     required this.session,
     this.seekThumbnails = const <MediaSeekThumbnail>[],
+    this.seekThumbnailBifUrl = '',
     this.title = '',
     this.itemType = '',
     this.seriesId = '',
