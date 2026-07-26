@@ -570,7 +570,13 @@ MediaImageRef _logoImage(
   final tag = (tags is Map ? tags['Logo'] : null)?.toString() ?? '';
   if (id.isEmpty || tag.isEmpty) return MediaImageRef.empty;
   return MediaImageRef(
-    url: _imageUrl(serverUrl: serverUrl, id: id, kind: 'Logo', tag: tag),
+    url: _imageUrl(
+      serverUrl: serverUrl,
+      id: id,
+      kind: 'Logo',
+      tag: tag,
+      token: token,
+    ),
     headers: _imageHeaders(token),
   );
 }
@@ -633,6 +639,7 @@ List<MediaDetailPerson> _people(
               id: id,
               kind: 'Primary',
               tag: tag,
+              token: token,
             ),
             headers: _imageHeaders(token),
           )
@@ -660,7 +667,13 @@ MediaImageRef _primaryImage(
   final tag = (tags is Map ? tags['Primary'] : null)?.toString() ?? '';
   if (id.isEmpty || tag.isEmpty) return MediaImageRef.empty;
   return MediaImageRef(
-    url: _imageUrl(serverUrl: serverUrl, id: id, kind: 'Primary', tag: tag),
+    url: _imageUrl(
+      serverUrl: serverUrl,
+      id: id,
+      kind: 'Primary',
+      tag: tag,
+      token: token,
+    ),
     headers: _imageHeaders(token),
   );
 }
@@ -676,7 +689,13 @@ MediaImageRef _backdropImage(
   final tag = tags.first?.toString() ?? '';
   if (tag.isEmpty) return MediaImageRef.empty;
   return MediaImageRef(
-    url: _imageUrl(serverUrl: serverUrl, id: id, kind: 'Backdrop', tag: tag),
+    url: _imageUrl(
+      serverUrl: serverUrl,
+      id: id,
+      kind: 'Backdrop',
+      tag: tag,
+      token: token,
+    ),
     headers: _imageHeaders(token),
   );
 }
@@ -686,9 +705,18 @@ String _imageUrl({
   required String id,
   required String kind,
   required String tag,
+  required String token,
 }) {
   final base = serverUrl.replaceAll(RegExp(r'/$'), '');
-  return '$base/Items/$id/Images/$kind?tag=${Uri.encodeQueryComponent(tag)}';
+  final query = StringBuffer('tag=${Uri.encodeQueryComponent(tag)}');
+  // token 必须进查询串（`api_key=`），不能只放 [MediaImageRef.headers]：历史 UI 管线
+  // （首页/收藏/搜索卡片等 [MediaLibraryItem] 链路）只透传 URL 字符串会丢 headers，
+  // 且海报组件在 NAS token 为空时仅凭 `api_key=` 识别自鉴权 URL 放行加载。
+  final key = token.trim();
+  if (key.isNotEmpty) {
+    query.write('&api_key=${Uri.encodeQueryComponent(key)}');
+  }
+  return '$base/Items/$id/Images/$kind?$query';
 }
 
 Map<String, String> _imageHeaders(String token) {

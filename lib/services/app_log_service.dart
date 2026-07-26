@@ -459,7 +459,29 @@ class AppLogService extends ChangeNotifier {
     unawaited(_persist());
   }
 
+  bool _persistRunning = false;
+  bool _persistPending = false;
+
+  /// 串行化持久化：每条日志都触发一次 [_persist]，并发跑两份会共用同一 `.tmp`，
+  /// 先完成的 rename 把文件移走，后完成的再 rename 即 PathNotFoundException。
+  /// 进行中时只置脏标记，当前轮结束后补写一次即可覆盖突发多条。
   Future<void> _persist() async {
+    if (_persistRunning) {
+      _persistPending = true;
+      return;
+    }
+    _persistRunning = true;
+    try {
+      do {
+        _persistPending = false;
+        await _persistOnce();
+      } while (_persistPending);
+    } finally {
+      _persistRunning = false;
+    }
+  }
+
+  Future<void> _persistOnce() async {
     try {
       final list = _entries
           .map((entry) => entry.toJson())
