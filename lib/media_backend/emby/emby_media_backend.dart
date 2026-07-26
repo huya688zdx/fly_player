@@ -637,30 +637,27 @@ class EmbyMediaBackend implements MediaBackend {
     // 直接落到下面的逐季扫描。
     final nextUp = await _fetchNextUpEpisode(target);
     if (nextUp != null) return nextUp;
-    // 回退（NextUp 不可用或无结果）：按季号升序扫各季，记下最早的「首个未看」与「首集」回退。
+    // 回退（NextUp 不可用或无结果）：按季号升序扫各季，取最早的「有进度 / 未看」那集，
+    // 全看完则回退首集。
     final seasons = await getItemSeasons(target);
     if (seasons.isEmpty) return null;
     final sorted = [...seasons]
       ..sort((a, b) => a.seasonNumber.compareTo(b.seasonNumber));
     MediaEpisodeSummary? firstEpisode;
-    MediaEpisodeSummary? firstUnwatched;
-    outer:
     for (final season in sorted) {
       final episodes = await getSeasonEpisodes(season.id);
       if (episodes.isEmpty) continue;
       firstEpisode ??= episodes.first;
       for (final episode in episodes) {
-        if (episode.resumePositionSeconds > 0) return episode;
-        if (!episode.watched) {
-          // 首个未看即答案，后续季不必再拉（原实现扫完全部季才返回，白付 N-1 次往返）。
-          // 取舍：放弃「首个未看之后还有带进度的集」这一少见态——那属跳看，且它通常已被
-          // 上面的 /Items/Resume 快路径覆盖。
-          firstUnwatched = episode;
-          break outer;
+        // 首个「有进度或未看」的集即答案，命中即返回，后续季不再拉取。
+        // 取舍：放弃「首个未看之后还有带进度的集」这一少见态——那属跳看，且它通常已被
+        // 上面的 /Items/Resume 快路径覆盖。
+        if (episode.resumePositionSeconds > 0 || !episode.watched) {
+          return episode;
         }
       }
     }
-    return firstUnwatched ?? firstEpisode;
+    return firstEpisode;
   }
 
   /// NextUp 快路径：命中返回首条集摘要，端点缺失 / 网络失败 / 空结果一律返回 null 走回退。
@@ -671,6 +668,7 @@ class EmbyMediaBackend implements MediaBackend {
         userId: _userId,
         accessToken: _token,
         seriesId: seriesId,
+        limit: 1,
       );
       for (final item in items) {
         final episode = mapEmbyEpisode(
