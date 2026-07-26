@@ -78,10 +78,10 @@ class DanmakuFrameExtractor : AutoCloseable {
             codec = dec
             videoTrack = track
             lastDecodedUs = -1L
-            Log.i(TAG, "open ok ${sourceWidth}x$sourceHeight mime=$mime url=${url.take(80)}")
+            Log.i(TAG, "open ok ${sourceWidth}x$sourceHeight mime=$mime source=${safeSourceLabel(url)}")
             true
         }.getOrElse { e ->
-            Log.w(TAG, "open failed url=${url.take(80)}", e)
+            Log.w(TAG, "open failed source=${safeSourceLabel(url)}", e)
             close()
             false
         }
@@ -218,6 +218,8 @@ class DanmakuFrameExtractor : AutoCloseable {
         image.close()
         return Bitmap.createBitmap(pixels, outWidth, outHeight, Bitmap.Config.ARGB_8888)
     }
+
+    private fun safeSourceLabel(url: String): String = url.substringBefore('?').take(120)
 
     override fun close() {
         runCatching { codec?.stop() }
