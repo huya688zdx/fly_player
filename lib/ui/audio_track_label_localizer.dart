@@ -9,5 +9,5 @@ import '../utils/media_language_mapper.dart';
 String audioTrackLabel(AppLocalizations l10n, String audioLanguage) {
   final name = MediaLanguageMapper.languageName(audioLanguage);
   if (name.isEmpty) return '';
-  return l10n.audioTrackLanguageLabel(name);
+  return l10n.trackAudioLanguageLabel(name);
 }

@@ -1,5 +1,6 @@
-// 本文件的语言名映射表为展示层数据，仅限 UI 侧经 lib/ui/ 下的 helper 消费；
-// 模型/store/provider 层禁止直接 import 本文件拼出用户可见文案。
+// 完整用户可见文案（如"XX音频"这类拼接）只能经 lib/ui/ 下的 helper 组装；
+// code 规整（normalizeLanguageCode 等）、语言名查表（languageName/subtitleLabel）
+// 允许模型/store 等层直接 import 调用，但模型层禁止拼出用户可见的完整文案。
 class MediaLanguageMapper {
   MediaLanguageMapper._();
 
