@@ -223,10 +223,20 @@
   "connectionOperationFailedRetryLater": "操作失败，请稍后重试",
   "connectionOperationFailedRetry": "操作失败，请重试",
   "connectionServerRequired": "请输入服务器地址",
-  "connectionEmbyServerRequired": "请输入 Emby 服务器地址",
+  "connectionServerAddressRequired": "请输入 {backend} 服务器地址",
+  "@connectionServerAddressRequired": {
+    "placeholders": {
+      "backend": {}
+    }
+  },
   "connectionUserNameRequired": "请输入用户名",
   "connectionPasswordRequired": "请输入密码",
-  "connectionEmbySessionIncomplete": "Emby 登录返回的会话信息不完整",
+  "connectionServerSessionIncomplete": "{backend} 登录返回的会话信息不完整",
+  "@connectionServerSessionIncomplete": {
+    "placeholders": {
+      "backend": {}
+    }
+  },
   "connectionInvalidCredential": "用户名或密码错误",
   "connectionNetworkError": "网络异常，请检查后重试",
   "connectionValidationFailed": "验证失败",
@@ -234,9 +244,19 @@
   "connectionProtocolLabel": "访问协议",
   "connectionProtocolHttp": "HTTP",
   "connectionProtocolHttps": "HTTPS",
-  "connectionEmbyServerLabel": "Emby 服务器地址",
+  "connectionServerAddressLabel": "{backend} 服务器地址",
+  "@connectionServerAddressLabel": {
+    "placeholders": {
+      "backend": {}
+    }
+  },
   "connectionServerExample": "例如：https://feiniu.geqian.sbs:5667",
-  "connectionEmbyServerExample": "例如：https://emby.example.com",
+  "connectionServerAddressExample": "例如：{url}",
+  "@connectionServerAddressExample": {
+    "placeholders": {
+      "url": {}
+    }
+  },
   "connectionAccountLabel": "账号",
   "connectionFeiniuMedia": "飞牛影视",
   "connectionFeiniuNas": "飞牛 NAS",

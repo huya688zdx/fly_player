@@ -27,6 +27,11 @@ class EmbyAuthenticateResult {
   final String userName;
 }
 
+/// Emby API 客户端，兼作 MediaBrowser 家族（Emby / Jellyfin）共享内核。
+///
+/// Jellyfin 是 Emby 3.5 的 fork，REST 端点与本类同形（认证 / 条目 / 播放直链 / 进度回写 /
+/// 收藏已看 / 外挂字幕 / `api_key` 查询串自鉴权），[JellyfinApi] 直接继承本类、只覆写
+/// 鉴权头风味（见 [authorizationHeaderValue]）。新增端点时若两家同形，直接写在本类。
 class EmbyApi {
   EmbyApi({
     Dio? dio,
@@ -169,7 +174,7 @@ class EmbyApi {
         contentType: Headers.jsonContentType,
         headers: <String, Object?>{
           ..._jsonHeaders,
-          'X-Emby-Authorization': _authorizationHeader,
+          'X-Emby-Authorization': authorizationHeaderValue,
         },
       ),
     );
@@ -471,6 +476,72 @@ class EmbyApi {
     return '$normalizedServerUrl/Videos/${itemId.trim()}/$path?$qs';
   }
 
+  /// 服务端转码 HLS 直链——`GET /Videos/{itemId}/master.m3u8`，`api_key` 自鉴权。
+  ///
+  /// 画质切换的转码档投递：服务端按 [videoBitrate]（bps 上限）+ [maxHeight]（竖直分辨率上限）
+  /// 出 h264/aac 的 HLS 流，mpv 直接吃 m3u8。Emby 会先产出完整时长的 playlist、分片按需转码，
+  /// 故 seek 可靠（服务端从目标位重启 ffmpeg）。[playSessionId] 为客户端生成的会话标识，
+  /// 服务端据此跟踪/回收转码任务（切档时配合 [stopActiveEncodings] 停旧任务）。
+  /// [audioStreamIndex] 为选中音轨的容器 Index——转码流只带这一条音轨（切音轨须重载会话）。
+  /// 码率上限内服务端允许视频流拷贝（不强制重编码），带宽语义不变、省服务器 CPU。
+  /// 纯字符串构造，不发请求（过 fnos 中转闸的 entry-token cookie 由播放 headers 携带）。
+  String buildHlsStreamUrl({
+    required String serverUrl,
+    required String itemId,
+    required String mediaSourceId,
+    required String accessToken,
+    required String playSessionId,
+    required int videoBitrate,
+    required int maxHeight,
+    int? audioStreamIndex,
+  }) {
+    final normalizedServerUrl = normalizeServerUrl(serverUrl);
+    final query = <String, String>{
+      'DeviceId': deviceId,
+      if (mediaSourceId.trim().isNotEmpty)
+        'MediaSourceId': mediaSourceId.trim(),
+      if (playSessionId.trim().isNotEmpty)
+        'PlaySessionId': playSessionId.trim(),
+      'VideoCodec': 'h264',
+      'AudioCodec': 'aac',
+      if (videoBitrate > 0) 'VideoBitrate': '$videoBitrate',
+      'AudioBitrate': '192000',
+      if (maxHeight > 0) 'MaxHeight': '$maxHeight',
+      if (audioStreamIndex != null && audioStreamIndex >= 0)
+        'AudioStreamIndex': '$audioStreamIndex',
+      // ts 分片 + 首片即播：mpv/ffmpeg 的 hls demuxer 对 ts 兼容性最好。
+      'SegmentContainer': 'ts',
+      'MinSegments': '1',
+      'api_key': accessToken,
+    };
+    final qs = query.entries
+        .map((e) => '${e.key}=${Uri.encodeQueryComponent(e.value)}')
+        .join('&');
+    return '$normalizedServerUrl/Videos/${itemId.trim()}/master.m3u8?$qs';
+  }
+
+  /// 停止本设备的进行中转码任务——`DELETE /Videos/ActiveEncodings`，`api_key` 自鉴权。
+  ///
+  /// 切画质/切回原画/换集时回收旧转码 ffmpeg（不停会导致服务端旧任务空转到超时）。
+  /// 按 DeviceId（+ 可选 [playSessionId] 精确到会话）定位任务。best-effort：失败由调用方吞。
+  Future<void> stopActiveEncodings({
+    required String serverUrl,
+    required String accessToken,
+    String playSessionId = '',
+  }) async {
+    final normalizedServerUrl = normalizeServerUrl(serverUrl);
+    await _dio.delete<Object?>(
+      '$normalizedServerUrl/Videos/ActiveEncodings',
+      queryParameters: <String, Object?>{
+        'DeviceId': deviceId,
+        if (playSessionId.trim().isNotEmpty)
+          'PlaySessionId': playSessionId.trim(),
+        'api_key': accessToken,
+      },
+      options: Options(headers: _jsonHeaders),
+    );
+  }
+
   /// 章节缩略图直链——`GET /Items/{itemId}/Images/Chapter/{index}`，`api_key` 自鉴权。
   ///
   /// 拖动 seek 预览用：Emby 的「章节图 / 视频预览缩略图提取」任务会在条目 `Chapters` 上
@@ -554,7 +625,7 @@ class EmbyApi {
         // 定位/建立设备会话；缺 Token 时 Emby 以 null 作会话字典键 → 400。
         headers: <String, Object?>{
           ..._jsonHeaders,
-          'X-Emby-Authorization': _sessionAuthorizationHeader(accessToken),
+          'X-Emby-Authorization': sessionAuthorizationHeaderValue(accessToken),
         },
       ),
     );
@@ -592,7 +663,7 @@ class EmbyApi {
         // 定位/建立设备会话；缺 Token 时 Emby 以 null 作会话字典键 → 400。
         headers: <String, Object?>{
           ..._jsonHeaders,
-          'X-Emby-Authorization': _sessionAuthorizationHeader(accessToken),
+          'X-Emby-Authorization': sessionAuthorizationHeaderValue(accessToken),
         },
       ),
     );
@@ -624,7 +695,7 @@ class EmbyApi {
         // 定位/建立设备会话；缺 Token 时 Emby 以 null 作会话字典键 → 400。
         headers: <String, Object?>{
           ..._jsonHeaders,
-          'X-Emby-Authorization': _sessionAuthorizationHeader(accessToken),
+          'X-Emby-Authorization': sessionAuthorizationHeaderValue(accessToken),
         },
       ),
     );
@@ -795,14 +866,21 @@ class EmbyApi {
     Headers.acceptHeader: Headers.jsonContentType,
   };
 
-  String get _authorizationHeader =>
+  /// 认证请求（AuthenticateByName）的 `X-Emby-Authorization` 头值。
+  ///
+  /// MediaBrowser 家族的风味缝隙：Emby 维持历史行为（参数值不带引号）；Jellyfin 子类
+  /// 覆写为带引号的规范格式（Jellyfin 10.8+ 文档形状）。头名固定 `X-Emby-Authorization`
+  /// （Jellyfin 同样接受该兼容头名，无需换名缝隙）。
+  @protected
+  String get authorizationHeaderValue =>
       'MediaBrowser Client=$clientName, Device=$deviceName, '
       'DeviceId=$deviceId, Version=$clientVersion';
 
   /// 会话端点（/Sessions/Playing 系列）用的完整授权头：值加引号 + 带 `Token`（accessToken）。
   /// Emby 的 SessionManager 据此定位/建立设备会话——仅靠 `api_key` query、头里不带 Token 时，
   /// 部分版本以 null token 作字典键抛 `Value cannot be null. (Parameter 'key')` → 400、续播不落库。
-  String _sessionAuthorizationHeader(String token) =>
+  @protected
+  String sessionAuthorizationHeaderValue(String token) =>
       'MediaBrowser Client="$clientName", Device="$deviceName", '
       'DeviceId="$deviceId", Version="$clientVersion", Token="${token.trim()}"';
 
