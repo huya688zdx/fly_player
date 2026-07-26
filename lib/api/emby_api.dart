@@ -3,7 +3,7 @@ import 'dart:math';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
-import '../utils/nas_image_headers.dart';
+import 'fn_entry_token_transport.dart';
 
 class EmbyPublicSystemInfo {
   const EmbyPublicSystemInfo({required this.serverName});
@@ -40,10 +40,24 @@ class EmbyApi {
     this.deviceId = 'fly-player',
     this.clientVersion = '1.0.0',
     String Function()? entryTokenProvider,
-  }) : _dio = dio ?? Dio(),
+  }) : _dio = dio ?? Dio(_defaultBaseOptions()),
        _entryTokenProvider = entryTokenProvider {
-    _installEntryTokenInterceptor();
+    installFnEntryTokenInterceptor(
+      _dio,
+      entryTokenProvider: _entryTokenProvider,
+    );
   }
+
+  /// 默认 Dio 的超时配置——只作用于本类自建的 Dio，外部注入（测试 / 定制）的实例不改动。
+  ///
+  /// 连接 10s 与 FeiniuApi 基线一致；接收放宽到 20s（Dio 的 receiveTimeout 计的是两次数据
+  /// 事件的间隔而非总时长），照顾 fnos 中转闸首字节偏慢的情况。本类所有请求都是短 JSON 或
+  /// 字幕文本，无长轮询 / 大流式下载（视频直链与 BIF 只产 URL 交给原生壳），该档位安全。
+  static BaseOptions _defaultBaseOptions() => BaseOptions(
+    connectTimeout: const Duration(seconds: 10),
+    receiveTimeout: const Duration(seconds: 20),
+    sendTimeout: const Duration(seconds: 10),
+  );
 
   final Dio _dio;
   final String clientName;
@@ -57,71 +71,13 @@ class EmbyApi {
   /// `Cookie: entry-token=<值>` 才能过云端 FN Connect 边缘闸——实测这是唯一被认的凭据
   /// （NAS token / mode=relay 都不行）。每请求动态读取，令牌刷新后无需重建 EmbyApi。
   /// 直连地址（非 fnos）该取值器返回空、不带任何 cookie。
+  ///
+  /// 实际的 cookie 注入与诊断日志由传输层的 [installFnEntryTokenInterceptor] 承担。
   final String Function()? _entryTokenProvider;
 
-  void _installEntryTokenInterceptor() {
-    _dio.interceptors.add(
-      InterceptorsWrapper(
-        onRequest: (options, handler) {
-          if (usesFnConnectRelayCookie(options.uri.toString())) {
-            final token = _entryTokenProvider?.call().trim() ?? '';
-            if (token.isNotEmpty) {
-              options.headers['Cookie'] = _mergeEntryTokenCookie(
-                options.headers['Cookie']?.toString() ?? '',
-                token,
-              );
-            }
-            debugPrint(
-              '[EmbyApi][REQ] ${options.method} ${options.uri} '
-              'entryTokenLen=${token.length}',
-            );
-          }
-          handler.next(options);
-        },
-        onResponse: (response, handler) {
-          final uri = response.requestOptions.uri;
-          if (usesFnConnectRelayCookie(uri.toString())) {
-            final ct = response.headers.value(Headers.contentTypeHeader) ?? '';
-            final raw = response.data;
-            final snippet = raw is String
-                ? raw.replaceAll('\n', ' ')
-                : raw.runtimeType.toString();
-            debugPrint(
-              '[EmbyApi][RESP] http=${response.statusCode} ct=$ct '
-              'path=${uri.path} body=${snippet.length > 160 ? snippet.substring(0, 160) : snippet}',
-            );
-          }
-          handler.next(response);
-        },
-        onError: (error, handler) {
-          final uri = error.requestOptions.uri;
-          if (usesFnConnectRelayCookie(uri.toString())) {
-            final body = error.response?.data;
-            final snippet = body is String
-                ? body.replaceAll('\n', ' ')
-                : body?.runtimeType.toString() ?? '';
-            debugPrint(
-              '[EmbyApi][ERR] http=${error.response?.statusCode} '
-              'type=${error.type} path=${uri.path} '
-              'body=${snippet.length > 160 ? snippet.substring(0, 160) : snippet}',
-            );
-          }
-          handler.next(error);
-        },
-      ),
-    );
-  }
-
-  static String _mergeEntryTokenCookie(String cookie, String token) {
-    final entries = cookie
-        .split(';')
-        .map((entry) => entry.trim())
-        .where((entry) => entry.isNotEmpty)
-        .where((entry) => !entry.toLowerCase().startsWith('entry-token='))
-        .toList();
-    entries.add('entry-token=$token');
-    return entries.join('; ');
-  }
+  /// 传输层配置的只读视图——供测试断言自建 Dio 的超时档位；注入 Dio 时反映注入实例的配置。
+  @visibleForTesting
+  BaseOptions get transportOptions => _dio.options;
 
   static String normalizeServerUrl(String raw) {
     var value = raw.trim();

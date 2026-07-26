@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:fly_player/api/emby_api.dart';
+import 'package:fly_player/api/jellyfin_api.dart';
 
 void main() {
   test('normalizes server URL without backend-specific fields', () {
@@ -42,6 +43,37 @@ void main() {
       EmbyApi.normalizeServerUrl('https://host.example.test/emby/'),
       'https://host.example.test/emby',
     );
+  });
+
+  test('默认 Dio 带连接/接收/发送超时，避免请求无限挂起', () {
+    final api = EmbyApi();
+
+    expect(api.transportOptions.connectTimeout, const Duration(seconds: 10));
+    expect(api.transportOptions.receiveTimeout, const Duration(seconds: 20));
+    expect(api.transportOptions.sendTimeout, const Duration(seconds: 10));
+  });
+
+  test('Jellyfin 继承默认 Dio 超时（不绕过内核构造）', () {
+    final api = JellyfinApi();
+
+    expect(api.transportOptions.connectTimeout, const Duration(seconds: 10));
+    expect(api.transportOptions.receiveTimeout, const Duration(seconds: 20));
+    expect(api.transportOptions.sendTimeout, const Duration(seconds: 10));
+  });
+
+  test('外部注入 Dio 时不改写其超时配置', () {
+    final injected = Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 3),
+        receiveTimeout: const Duration(seconds: 4),
+      ),
+    );
+
+    final api = EmbyApi(dio: injected);
+
+    expect(api.transportOptions.connectTimeout, const Duration(seconds: 3));
+    expect(api.transportOptions.receiveTimeout, const Duration(seconds: 4));
+    expect(api.transportOptions.sendTimeout, isNull);
   });
 
   test('attaches entry-token cookie for .fnos.net hosts', () async {
