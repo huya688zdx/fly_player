@@ -33,7 +33,6 @@ class DetailTokens {
   static const double screenHorizontalPadding = 16;
   static const double contentBottomPadding = 24;
   static const double headerExpandedHeight = 300;
-  static const double headerMaxBlur = 30;
   static const double headerFadeStart = 0.25;
 
   static const double topButtonSize = 36;
@@ -83,13 +82,6 @@ class DetailTokens {
     end: Alignment.bottomCenter,
     colors: [Color(0x10000000), Color(0x4D000000), Color(0xCC07101B)],
     stops: [0.0, 0.6, 1.0],
-  );
-
-  static const LinearGradient glassPanelGradient = LinearGradient(
-    begin: Alignment.topCenter,
-    end: Alignment.bottomCenter,
-    colors: [Color(0x59223550), Color(0xCC07101B), Color(0xEE07101B)],
-    stops: [0.0, 0.56, 1.0],
   );
 
   static Color pageBackgroundOf(BuildContext context) {
@@ -188,20 +180,6 @@ class DetailTokens {
         colors.backgroundBase,
       ],
       stops: const [0.0, 0.6, 1.0],
-    );
-  }
-
-  static LinearGradient glassPanelGradientOf(BuildContext context) {
-    final colors = context.appColors;
-    return LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      colors: [
-        colors.surfaceStrong.withValues(alpha: 0.42),
-        colors.backgroundElevated.withValues(alpha: 0.88),
-        colors.backgroundBase.withValues(alpha: 0.94),
-      ],
-      stops: const [0.0, 0.56, 1.0],
     );
   }
 }
