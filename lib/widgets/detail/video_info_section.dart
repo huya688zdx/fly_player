@@ -213,7 +213,7 @@ String _feiniuAudioLine(AudioTrackOption? audio) {
       : _channelFromCount(audio.channels);
   final rate = audio.sampleRate > 0 ? '${audio.sampleRate} Hz' : '';
   final parts = <String>[
-    if (lan.isNotEmpty && lan != '未知') lan,
+    if (lan.isNotEmpty) lan,
     if (codec.isNotEmpty) codec,
     if (ch.isNotEmpty) ch,
     if (rate.isNotEmpty) rate,
@@ -228,10 +228,7 @@ String _feiniuSubtitleLine(SubtitleTrackOption? subtitle) {
       (subtitle.format.isNotEmpty ? subtitle.format : subtitle.codecName)
           .trim()
           .toUpperCase();
-  final parts = <String>[
-    if (lan.isNotEmpty && lan != '未知') lan,
-    if (fmt.isNotEmpty) fmt,
-  ];
+  final parts = <String>[if (lan.isNotEmpty) lan, if (fmt.isNotEmpty) fmt];
   return parts.join('  ');
 }
 
