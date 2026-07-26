@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../l10n/generated/app_localizations.dart';
@@ -41,17 +43,11 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
         _entries = entries;
       });
     } catch (error, stackTrace) {
-      // 持久化操作可能因安全存储不可用而抛异常，此时保留原列表状态，避免界面显示与实际存储脱节。
-      await logSwallowedError(
+      _reportPersistFailure(
         action: 'delete login history entry',
         error: error,
         stackTrace: stackTrace,
-      );
-      if (!mounted) return;
-      AppTopTip().show(
-        context,
-        message: l10n.commonOperationFailedRetryLater,
-        color: context.appColors.danger,
+        l10n: l10n,
       );
     }
   }
@@ -73,19 +69,33 @@ class _LoginHistoryScreenState extends State<LoginHistoryScreen> {
         _entries = const <LoginHistoryEntry>[];
       });
     } catch (error, stackTrace) {
-      // 持久化操作可能因安全存储不可用而抛异常，此时保留原列表状态，避免界面显示与实际存储脱节。
-      await logSwallowedError(
+      _reportPersistFailure(
         action: 'clear login history',
         error: error,
         stackTrace: stackTrace,
-      );
-      if (!mounted) return;
-      AppTopTip().show(
-        context,
-        message: l10n.commonOperationFailedRetryLater,
-        color: context.appColors.danger,
+        l10n: l10n,
       );
     }
+  }
+
+  /// 持久化操作（删除/清空登录历史）可能因安全存储不可用而抛异常，
+  /// 此时保留原列表状态，仅记录日志并向用户提示失败，避免界面显示与实际存储脱节。
+  /// 日志写入是 best-effort，不得阻塞用户提示。
+  void _reportPersistFailure({
+    required String action,
+    required Object error,
+    required StackTrace stackTrace,
+    required AppLocalizations l10n,
+  }) {
+    unawaited(
+      logSwallowedError(action: action, error: error, stackTrace: stackTrace),
+    );
+    if (!mounted) return;
+    AppTopTip().show(
+      context,
+      message: l10n.commonOperationFailedRetryLater,
+      color: context.appColors.danger,
+    );
   }
 
   @override

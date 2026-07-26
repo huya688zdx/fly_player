@@ -176,7 +176,7 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
             unawaited(error.cancel());
             if (!mounted || _isClosing) return;
             setState(() {
-              _statusText = l10n.sslCertificateError(
+              _statusText = l10n.commonSslCertificateError(
                 error.platform.description,
               );
             });

@@ -103,7 +103,7 @@ class _EmbyFnEntryLoginPageState extends State<EmbyFnEntryLoginPage> {
             setState(() {
               _statusText = AppLocalizations.of(
                 context,
-              ).sslCertificateError(error.platform.description);
+              ).commonSslCertificateError(error.platform.description);
             });
           },
         ),
