@@ -95,6 +95,7 @@ class DanmakuMaskPrecomputePipeline(
     private var primePosMs = -1L
     private var stepMs = STEP_MS_DEFAULT
     private var stepBudgetEmaMs = STEP_BUDGET_SEED_MS
+    private val budgetPolicy = DanmakuPlanBBudgetPolicy(initialInputWidth = 512)
 
     // --- static reuse + motion (pipeline thread only) ---
     private var prevLumaGrid: IntArray? = null
@@ -109,16 +110,7 @@ class DanmakuMaskPrecomputePipeline(
     private var lastCentroidY = -1f
     private var lastCentroidPtsMs = -1L
     private var lastForegroundRatio = 0f
-    // Hysteresis: once a mask is active, hold it through small foreground-ratio dips/spikes
-    // so a subject hovering near MIN/MAX doesn't flip the mask on/off frame-to-frame.
-    private var maskActive = false
-    // Anti-blip: consecutive null inferences inside a continuous shot (no scene cut).
-    // A SINGLE out-of-gate result while the previous step had a subject is far more
-    // likely model jitter than the subject actually leaving — device logs showed isolated
-    // one-step empties in static shots, each punching a ~450ms hole in the renderer's
-    // PTS buffer (mask off → danmaku flashes over the subject → on again). Carry the
-    // previous mask through up to EMPTY_DEBOUNCE_STEPS such steps; sustained emptiness
-    // or a scene cut clears immediately (no residue risk across cuts).
+    private val maskGate = DanmakuMaskGate()
     private var emptyStreak = 0
 
     // Explicit Runnable types: tick and tickReschedule reference each other, so type
@@ -205,7 +197,13 @@ class DanmakuMaskPrecomputePipeline(
         if (!cfg.enabled) return null
         if (!runtimeFactory.shouldAttempt(DanmakuAiBackend.PADDLE)) return null
         val created =
-            runCatching { runtimeFactory.create(DanmakuAiBackend.PADDLE, cfg) }
+            runCatching {
+                runtimeFactory.create(
+                    DanmakuAiBackend.PADDLE,
+                    cfg,
+                    inputWidthOverride = budgetPolicy.inputWidth,
+                )
+            }
                 .onFailure { Log.w(TAG, "seg runtime create failed", it) }
                 .getOrNull()
         runtime = created
@@ -293,6 +291,9 @@ class DanmakuMaskPrecomputePipeline(
 
         val grid = sampleLumaGrid(frame)
         val sceneCut = sceneCutFromSeek || detectSceneCut(prevLumaGrid, grid)
+        if (sceneCut) {
+            maskGate.reset()
+        }
         // E2: how much changed since the previous STEP frame → drives motion-adaptive step.
         val highMotion = !sceneCut && changedCellCount(prevLumaGrid, grid) >= MOTION_SHRINK_CELLS
 
@@ -346,7 +347,10 @@ class DanmakuMaskPrecomputePipeline(
                 lastMaskHeight = maskH
                 inferredLumaGrid = grid
                 consecutiveReuse = 0
-            } else if (!sceneCut && lastMaskValues != null && emptyStreak < EMPTY_DEBOUNCE_STEPS) {
+            } else if (!sceneCut &&
+                lastMaskValues != null &&
+                emptyStreak < EMPTY_DEBOUNCE_STEPS - 1
+            ) {
                 // Anti-blip carry-over: isolated null inside a continuous shot → keep the
                 // previous mask this step. Deliberately does NOT touch inferredLumaGrid /
                 // lastMaskValues: a static scene then keeps the mask alive via plain reuse
@@ -375,7 +379,6 @@ class DanmakuMaskPrecomputePipeline(
                 consecutiveReuse = 0
             }
         }
-        maskActive = maskValues != null
         frame.takeIf { !it.isRecycled }?.recycle()
 
         prevLumaGrid = grid
@@ -400,7 +403,7 @@ class DanmakuMaskPrecomputePipeline(
         lastProducedPtsMs = targetMs
         nextStepMs = targetMs + stepMs
 
-        if (DEBUG_LOG) {
+        if (Log.isLoggable(TAG, Log.DEBUG)) {
             Log.d(
                 TAG,
                 "planb2 pts=${targetMs}ms pos=${pos}ms ahead=${targetMs - pos}ms step=${stepMs}ms " +
@@ -453,7 +456,7 @@ class DanmakuMaskPrecomputePipeline(
         inferredLumaGrid = null
         lastMaskValues = null
         consecutiveReuse = 0
-        maskActive = false
+        maskGate.reset()
         emptyStreak = 0
         lastCentroidX = -1f
         lastCentroidPtsMs = -1L
@@ -462,11 +465,12 @@ class DanmakuMaskPrecomputePipeline(
     }
 
     private fun adaptStep(highMotion: Boolean) {
-        // Motion sets the target floor (140ms moving / 280ms quiet); budget raises it so a
-        // step is never shorter than a real inference can sustain (budget has priority).
-        val motionFloor = if (highMotion) STEP_MS_MIN else STEP_MS_DEFAULT
-        val budgetMin = (stepBudgetEmaMs / STEP_SUSTAIN_RATIO).toLong()
-        stepMs = maxOf(motionFloor, budgetMin).coerceIn(STEP_MS_MIN, STEP_MS_MAX)
+        val decision = budgetPolicy.adapt(stepBudgetEmaMs, highMotion)
+        stepMs = decision.stepMs
+        if (decision.inputWidthChanged) {
+            runCatching { runtime?.close() }
+            runtime = null
+        }
     }
 
     // --- mask building (mirrors DanmakuDynamicOcclusion.buildFullFrameMaskResult) ---
@@ -502,12 +506,17 @@ class DanmakuMaskPrecomputePipeline(
             }
         }
         val ratio = foreground.toFloat() / (w * h).toFloat()
-        // Hysteresis around MIN/MAX: when a mask is already active, require the ratio to fall
-        // further (or rise higher) before turning it off — stops on/off flicker at the edges.
-        val minGate = if (maskActive) MIN_FOREGROUND_RATIO - MIN_FOREGROUND_RATIO_HYST else MIN_FOREGROUND_RATIO
-        val maxGate = if (maskActive) MAX_FOREGROUND_RATIO + MAX_FOREGROUND_RATIO_HYST else MAX_FOREGROUND_RATIO
-        if (ratio < minGate) return null // scenery / no subject
-        if (ratio > maxGate) return null // near-full-screen subject → leave danmaku readable
+        val gateAccepted =
+            maskGate.accept(
+                ratio = ratio,
+                minRatio = MIN_FOREGROUND_RATIO,
+                maxRatio = MAX_FOREGROUND_RATIO,
+                minHysteresis = MIN_FOREGROUND_RATIO_HYST,
+                maxHysteresis = MAX_FOREGROUND_RATIO_HYST,
+            )
+        val minGate = if (maskGate.active) MIN_FOREGROUND_RATIO - MIN_FOREGROUND_RATIO_HYST else MIN_FOREGROUND_RATIO
+        val maxGate = if (maskGate.active) MAX_FOREGROUND_RATIO + MAX_FOREGROUND_RATIO_HYST else MAX_FOREGROUND_RATIO
+        if (!gateAccepted || ratio < minGate || ratio > maxGate) return null
         val mask = FloatArray(w * h)
         val low = MASK_EDGE_LOW
         val span = (MASK_EDGE_HIGH - low).coerceAtLeast(1e-4f)
@@ -585,28 +594,18 @@ class DanmakuMaskPrecomputePipeline(
 
     private companion object {
         const val TAG = "FlyPlayerMaskPipeline"
-        const val DEBUG_LOG = true
         const val NETWORK_FIRST_FRAME_TIMEOUT_MS = 5_000L
 
         // Step grid (video ms per produced mask). Quiet scenes sit at DEFAULT; motion
         // shrinks toward MIN (E2); a real inference's cost (EMA / SUSTAIN) raises the floor
         // so the step is never shorter than inference can keep up with. Seed the budget at a
         // typical 512 CPU inference so the initial step isn't inflated.
-        const val STEP_MS_MIN = 140L
         const val STEP_MS_DEFAULT = 280L
-        // Generous cap: with 512 inference (~450ms on a mid-range tablet) a 480 cap pinned
-        // the duty cycle near 100% — the MNN threads then fight mpv/UI for CPU and latency
-        // spirals to seconds (seen on device). The budget rule needs room to back off;
-        // sparse masks beat a starved buffer + janky playback.
-        const val STEP_MS_MAX = 960L
-        const val STEP_SUSTAIN_RATIO = 0.8 // step >= budgetEma / this
         const val STEP_BUDGET_SEED_MS = 280.0
         const val MOTION_SHRINK_CELLS = 64 // changed cells (of 48×27) vs prev step ⇒ "moving"
         const val CENTROID_RATIO_JUMP = 0.30f // foreground ratio jump > this ⇒ velocity 0 (E3 anti-jitter)
-        // Anti-blip: carry the previous mask through this many isolated null inferences
-        // (continuous shot only). 1 bridges the single-step blips seen on device; a real
-        // subject exit clears at most one step (~300ms) later.
-        const val EMPTY_DEBOUNCE_STEPS = 1
+        // 旧值 1 只兜一次孤立漏检；现在以连续两步作为离场确认阈值。
+        const val EMPTY_DEBOUNCE_STEPS = 2
 
         // Lookahead window. Buffer ahead this far (scaled by playback speed), then idle.
         const val AHEAD_MAX_MS = 2500L
