@@ -110,6 +110,13 @@ class _TvDetailPageState extends State<TvDetailPage>
   bool _seasonItemsResolved = false;
   bool _artworkReady = false;
   bool _suppressGlobalThemeSyncUntilFullDetail = false;
+
+  // 当前 _detail 是否为完整详情（_loadItemDetail/_refreshBaseDetail 回包）。
+  // initial 快路径塞进来的是列表卡片级数据：单集卡的 backdrops 为空，
+  // _backdrops 回退链会拿 still_path（单集封面）当 hero，完整数据到达后再换成
+  // 系列 backdrop——产生"先显示剧集封面再跳成大图"的错图闪。initial 阶段
+  // hero/取色只认真 backdrop（见 _heroBackdropsFor），宁可空底色等一次到位。
+  bool _baseDetailIsFull = false;
   Timer? _deferredTimer;
   late final AnimationController _descriptionPopController;
   late final AnimationController _seasonCardPopController;
@@ -248,6 +255,7 @@ class _TvDetailPageState extends State<TvDetailPage>
       _deferredLoadStarted = false;
       _seasonItemsResolved = false;
       _artworkReady = false;
+      _baseDetailIsFull = false;
       _suppressGlobalThemeSyncUntilFullDetail = false;
       _neutralDisplayOnly = false;
       _neutralDetail = null;
@@ -272,6 +280,7 @@ class _TvDetailPageState extends State<TvDetailPage>
         if (!mounted) return;
         setState(() {
           _applyBaseDetail(detail);
+          _baseDetailIsFull = false;
           _usedInitialDetail = true;
           _suppressGlobalThemeSyncUntilFullDetail = true;
           _loading = false;
@@ -288,6 +297,7 @@ class _TvDetailPageState extends State<TvDetailPage>
       if (!mounted) return;
       setState(() {
         _applyBaseDetail(detail);
+        _baseDetailIsFull = true;
         _suppressGlobalThemeSyncUntilFullDetail = false;
         _loading = false;
       });
@@ -378,6 +388,7 @@ class _TvDetailPageState extends State<TvDetailPage>
       if (!mounted) return;
       setState(() {
         _applyBaseDetail(detail);
+        _baseDetailIsFull = true;
         _suppressGlobalThemeSyncUntilFullDetail = false;
         _error = null;
       });
@@ -583,6 +594,17 @@ class _TvDetailPageState extends State<TvDetailPage>
     final still = (item['still_path'] ?? '').toString();
     if (still.isNotEmpty) return still;
     return (item['posters'] ?? '').toString();
+  }
+
+  // hero 背景 / 取色 / 季卡 backdrop 专用取图：完整详情才允许 still/posters
+  // 回退；initial（列表卡片级）数据只认真 backdrop——单集卡的 still_path 是
+  // 剧集封面，先当 hero 显示会在完整数据到达时被系列 backdrop 替换（错图闪，
+  // 对齐 play_detail `_persistentHeroPath` 的同款教训：宁可空底色一次到位）。
+  String _heroBackdropsFor(Map<String, dynamic> item) {
+    if (_baseDetailIsFull) {
+      return _backdrops(item);
+    }
+    return (item['backdrops'] ?? '').toString();
   }
 
   String _tvPrimaryLabel(Map<String, dynamic> item) {
@@ -1548,7 +1570,7 @@ class _TvDetailPageState extends State<TvDetailPage>
           : _detail;
       final urls = ApiUrlHelper.imageCandidates(
         nasProvider.baseUrl,
-        _backdrops(item),
+        _heroBackdropsFor(item),
         width: 360,
       );
       if (urls.isNotEmpty) {
@@ -1560,7 +1582,7 @@ class _TvDetailPageState extends State<TvDetailPage>
           : widget.initialItemDetail!;
       final urls = ApiUrlHelper.imageCandidates(
         nasProvider.baseUrl,
-        _backdrops(item),
+        _heroBackdropsFor(item),
         width: 360,
       );
       if (urls.isNotEmpty) {
@@ -1677,14 +1699,14 @@ class _TvDetailPageState extends State<TvDetailPage>
             ? const <String>[]
             : ApiUrlHelper.imageCandidates(
                 provider.baseUrl,
-                _backdrops(item),
+                _heroBackdropsFor(item),
                 width: backdropRequestWidth,
               );
         final heroLowResUrls = deferArtwork
             ? const <String>[]
             : ApiUrlHelper.imageCandidates(
                 provider.baseUrl,
-                _backdrops(item),
+                _heroBackdropsFor(item),
                 width: 360,
               );
         final logoUrls = deferArtwork
@@ -1906,7 +1928,9 @@ class _TvDetailPageState extends State<TvDetailPage>
                                             AdaptiveDetailRequest.season(
                                               parentGuid: widget.itemGuid,
                                               seriesTitle: title,
-                                              backdropPath: _backdrops(item),
+                                              backdropPath: _heroBackdropsFor(
+                                                item,
+                                              ),
                                               seasonItem: season,
                                               initialSeasonItems: _seasonItems,
                                             ),
