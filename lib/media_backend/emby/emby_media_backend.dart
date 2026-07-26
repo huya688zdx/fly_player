@@ -190,6 +190,8 @@ class EmbyMediaBackend implements MediaBackend {
 
   @override
   Future<List<MediaItemCard>> getLatestItems({int limit = 20}) async {
+    // 此处故意不吞错——失败直接抛给调用方，由 PosterBrowseLoader 统一 try/catch 降级；
+    // 与飞牛端 override（内部吞错返回空）不对称，是有意为之，不是遗漏。
     final items = await api.getItems(
       serverUrl: _serverUrl,
       userId: _userId,
