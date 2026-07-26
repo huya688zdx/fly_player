@@ -632,23 +632,66 @@ class EmbyMediaBackend implements MediaBackend {
         );
       }
     }
-    // 回退（本系列无续看记录＝没播过）：按季号升序扫各季，记下最早的「首个未看」与「首集」回退。
+    // 无续看记录时的快路径：问服务端 `/Shows/NextUp?SeriesId=`，由它算出「接下来该看哪一集」，
+    // 一次请求定位，免去逐季串行拉集（多季剧集起播的延迟大头）。失败/空结果不影响起播，
+    // 直接落到下面的逐季扫描。
+    final nextUp = await _fetchNextUpEpisode(target);
+    if (nextUp != null) return nextUp;
+    // 回退（NextUp 不可用或无结果）：按季号升序扫各季，记下最早的「首个未看」与「首集」回退。
     final seasons = await getItemSeasons(target);
     if (seasons.isEmpty) return null;
     final sorted = [...seasons]
       ..sort((a, b) => a.seasonNumber.compareTo(b.seasonNumber));
     MediaEpisodeSummary? firstEpisode;
     MediaEpisodeSummary? firstUnwatched;
+    outer:
     for (final season in sorted) {
       final episodes = await getSeasonEpisodes(season.id);
       if (episodes.isEmpty) continue;
       firstEpisode ??= episodes.first;
       for (final episode in episodes) {
         if (episode.resumePositionSeconds > 0) return episode;
-        firstUnwatched ??= episode.watched ? null : episode;
+        if (!episode.watched) {
+          // 首个未看即答案，后续季不必再拉（原实现扫完全部季才返回，白付 N-1 次往返）。
+          // 取舍：放弃「首个未看之后还有带进度的集」这一少见态——那属跳看，且它通常已被
+          // 上面的 /Items/Resume 快路径覆盖。
+          firstUnwatched = episode;
+          break outer;
+        }
       }
     }
     return firstUnwatched ?? firstEpisode;
+  }
+
+  /// NextUp 快路径：命中返回首条集摘要，端点缺失 / 网络失败 / 空结果一律返回 null 走回退。
+  Future<MediaEpisodeSummary?> _fetchNextUpEpisode(String seriesId) async {
+    try {
+      final items = await api.getNextUpEpisodes(
+        serverUrl: _serverUrl,
+        userId: _userId,
+        accessToken: _token,
+        seriesId: seriesId,
+      );
+      for (final item in items) {
+        final episode = mapEmbyEpisode(
+          item,
+          serverUrl: _serverUrl,
+          token: _token,
+        );
+        // 空 id 无法起播（异常返回体），当作未命中。
+        if (episode.id.trim().isNotEmpty) return episode;
+      }
+    } catch (error, stackTrace) {
+      // 只是优化路径：任何异常都不得让起播失败。
+      await logSwallowedError(
+        action: 'resolve emby series next up',
+        id: seriesId,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'emby_media_backend',
+      );
+    }
+    return null;
   }
 
   @override

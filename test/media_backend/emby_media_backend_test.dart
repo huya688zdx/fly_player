@@ -25,6 +25,7 @@ class _FakeEmbyApi extends EmbyApi {
     this.pageItems = const [],
     this.pageTotal = 0,
     this.resumeItems = const [],
+    this.nextUpItems = const [],
   });
 
   final List<Map<String, Object?>> views;
@@ -33,6 +34,7 @@ class _FakeEmbyApi extends EmbyApi {
   final List<Map<String, Object?>> seasons;
   final List<Map<String, Object?>> genres;
   final List<Map<String, Object?>> resumeItems;
+  final List<Map<String, Object?>> nextUpItems;
   // 计数桩：键=IncludeItemTypes（如 'Movie'/'Series'），值=TotalRecordCount。
   final Map<String, int> countByIncludeItemTypes;
   final int favoriteCount;
@@ -66,6 +68,10 @@ class _FakeEmbyApi extends EmbyApi {
   String lastGenresIncludeItemTypes = '';
   // getResumeItems 入参捕获。
   int lastResumeLimit = 0;
+  // getNextUpEpisodes 入参捕获 + 调用计数。
+  String? lastNextUpSeriesId;
+  int lastNextUpLimit = 0;
+  int nextUpCalls = 0;
   // reportPlaybackProgress 入参捕获。
   String? lastProgressItemId;
   String? lastProgressMediaSourceId;
@@ -268,6 +274,21 @@ class _FakeEmbyApi extends EmbyApi {
   }) async {
     lastResumeLimit = limit;
     return resumeItems;
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> getNextUpEpisodes({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    required String seriesId,
+    int limit = 1,
+    String fields = 'Overview,UserData,MediaStreams',
+  }) async {
+    nextUpCalls++;
+    lastNextUpSeriesId = seriesId;
+    lastNextUpLimit = limit;
+    return nextUpItems;
   }
 }
 
@@ -1021,6 +1042,76 @@ void main() {
     );
     expect(await noSeasons.resolveSeriesPlaybackTarget('series-1'), '');
   });
+
+  test('resolveSeriesNextUpEpisode：NextUp 命中 → 直接用首条，不扫季', () async {
+    final api = _FakeEmbyApi(
+      nextUpItems: <Map<String, Object?>>[
+        <String, Object?>{
+          'Id': 's3e5',
+          'Name': '第五集',
+          'ParentIndexNumber': 3,
+          'IndexNumber': 5,
+        },
+      ],
+    );
+    final backend = _SeriesTargetBackend(
+      <MediaSeasonSummary>[_season('s1', 1), _season('s2', 2)],
+      <String, List<MediaEpisodeSummary>>{
+        's1': <MediaEpisodeSummary>[_ep('s1e1')],
+        's2': <MediaEpisodeSummary>[_ep('s2e1')],
+      },
+      api: api,
+    );
+    final ep = await backend.resolveSeriesNextUpEpisode('series-1');
+    expect(ep?.id, 's3e5');
+    expect(ep?.seasonNumber, 3);
+    expect(ep?.episodeNumber, 5);
+    expect(api.lastNextUpSeriesId, 'series-1');
+    expect(api.lastNextUpLimit, 1);
+    // 快路径命中即返回：一次逐季往返都不该发生。
+    expect(backend.seasonsCalls, 0);
+    expect(backend.episodeCalls, isEmpty);
+  });
+
+  test('resolveSeriesNextUpEpisode：NextUp 抛错 → 吞掉并回退逐季扫描', () async {
+    final backend = _SeriesTargetBackend(
+      <MediaSeasonSummary>[_season('s1', 1)],
+      <String, List<MediaEpisodeSummary>>{
+        's1': <MediaEpisodeSummary>[
+          _ep('s1e1', watched: true),
+          _ep('s1e2'),
+        ],
+      },
+      api: _ThrowingNextUpApi(),
+    );
+    expect((await backend.resolveSeriesNextUpEpisode('series-1'))?.id, 's1e2');
+    expect(backend.seasonsCalls, 1);
+    expect(backend.episodeCalls, <String>['s1']);
+  });
+
+  test('resolveSeriesNextUpEpisode：NextUp 空结果 → 首个未看即停，不再拉后续季', () async {
+    final api = _FakeEmbyApi();
+    final backend = _SeriesTargetBackend(
+      <MediaSeasonSummary>[
+        _season('s1', 1),
+        _season('s2', 2),
+        _season('s3', 3),
+      ],
+      <String, List<MediaEpisodeSummary>>{
+        's1': <MediaEpisodeSummary>[
+          _ep('s1e1', watched: true),
+          _ep('s1e2'),
+        ],
+        's2': <MediaEpisodeSummary>[_ep('s2e1')],
+        's3': <MediaEpisodeSummary>[_ep('s3e1')],
+      },
+      api: api,
+    );
+    expect((await backend.resolveSeriesNextUpEpisode('series-1'))?.id, 's1e2');
+    expect(api.nextUpCalls, 1);
+    // 首季即命中首个未看 → s2/s3 不该被拉取。
+    expect(backend.episodeCalls, <String>['s1']);
+  });
 }
 
 MediaSeasonSummary _season(String id, int number) => MediaSeasonSummary(
@@ -1049,27 +1140,52 @@ MediaEpisodeSummary _ep(
 /// 覆写中立季/集查询返回 fixture，钉住 resolveSeriesPlaybackTarget 的续看/首集选取逻辑
 /// （不触 api/mapper）。
 class _SeriesTargetBackend extends EmbyMediaBackend {
-  _SeriesTargetBackend(this.seasonsFixture, this.episodesBySeason)
-    : super(
-        api: _FakeEmbyApi(),
-        connection: const MediaBackendConnection(
-          kind: MediaBackendKind.emby,
-          serverUrl: 'https://emby.example.test',
-          userId: 'user-1',
-          accessToken: 'tok',
-        ),
-      );
+  _SeriesTargetBackend(
+    this.seasonsFixture,
+    this.episodesBySeason, {
+    EmbyApi? api,
+  }) : super(
+         api: api ?? _FakeEmbyApi(),
+         connection: const MediaBackendConnection(
+           kind: MediaBackendKind.emby,
+           serverUrl: 'https://emby.example.test',
+           userId: 'user-1',
+           accessToken: 'tok',
+         ),
+       );
 
   final List<MediaSeasonSummary> seasonsFixture;
   final Map<String, List<MediaEpisodeSummary>> episodesBySeason;
+  // 逐季扫描的往返计数：钉「NextUp 命中不扫季」「首个未看即停」两条省往返断言。
+  int seasonsCalls = 0;
+  final List<String> episodeCalls = <String>[];
 
   @override
-  Future<List<MediaSeasonSummary>> getItemSeasons(String seriesId) async =>
-      seasonsFixture;
+  Future<List<MediaSeasonSummary>> getItemSeasons(String seriesId) async {
+    seasonsCalls++;
+    return seasonsFixture;
+  }
 
   @override
-  Future<List<MediaEpisodeSummary>> getSeasonEpisodes(String seasonId) async =>
-      episodesBySeason[seasonId] ?? const <MediaEpisodeSummary>[];
+  Future<List<MediaEpisodeSummary>> getSeasonEpisodes(String seasonId) async {
+    episodeCalls.add(seasonId);
+    return episodesBySeason[seasonId] ?? const <MediaEpisodeSummary>[];
+  }
+}
+
+/// NextUp 端点不可用（网络/版本缺失）的桩：验证异常被吞、起播回退逐季扫描。
+class _ThrowingNextUpApi extends _FakeEmbyApi {
+  @override
+  Future<List<Map<String, Object?>>> getNextUpEpisodes({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    required String seriesId,
+    int limit = 1,
+    String fields = 'Overview,UserData,MediaStreams',
+  }) async {
+    throw StateError('next up endpoint unavailable');
+  }
 }
 
 class _ThrowingGenresApi extends _FakeEmbyApi {
