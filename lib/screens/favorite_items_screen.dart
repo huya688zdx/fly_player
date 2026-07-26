@@ -9,6 +9,7 @@ import '../controllers/media_item_action_sheet_controller.dart';
 import '../media_backend/action/media_library_item_action_target.dart';
 import '../media_backend/filter/media_catalog_filter.dart';
 import '../media_backend/media_backend_kind.dart';
+import '../media_backend/media_image_ref.dart';
 import '../media_backend/media_item_card.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../models/media_collection_view_type.dart';
@@ -471,6 +472,8 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
       ancestorName: '',
       path: '',
       resolutions: card.resolutions,
+      // 保留 backdrop 直链：点击时 push 前预取详情 hero（与详情页同 URL 同缓存键）。
+      backdropUrl: card.backdropImage.url,
     );
   }
 
@@ -852,6 +855,14 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
       AdaptiveDetailRequest.item(
         itemGuid: item.guid,
         initialItemDetail: initialDetail,
+        // Emby 等直链后端：push 前预取详情 hero（背景图优先、海报兜底）。
+        // 飞牛条目这两个字段是空/相对路径，导航层自动回退旧管线。
+        heroImageRefs: <MediaImageRef>[
+          if (item.backdropUrl.trim().isNotEmpty)
+            MediaImageRef(url: item.backdropUrl),
+          if (item.poster.trim().startsWith('http'))
+            MediaImageRef(url: item.poster),
+        ],
       ),
       presentation: _detailPresentation,
     );
