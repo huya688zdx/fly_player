@@ -98,60 +98,75 @@ class PlayStatsMetadataBackfillService {
     _scheduledTimer?.cancel();
     final api = FeiniuApi(provider);
     final processed = <String>{};
-    while (true) {
-      final candidateIds = <String>[];
-      while (_preferredVideoIds.isNotEmpty && candidateIds.length < limit) {
-        final videoId = _preferredVideoIds.first;
-        _preferredVideoIds.remove(videoId);
-        if (videoId.isEmpty || processed.contains(videoId)) {
-          continue;
-        }
-        candidateIds.add(videoId);
-        processed.add(videoId);
-      }
-      if (candidateIds.length < limit) {
-        final more = await _videoStatsRepository
-            .listMetadataBackfillCandidateIds(limit: limit);
-        for (final videoId in more) {
-          if (candidateIds.length >= limit) {
-            break;
-          }
+    // 本轮是否真的改写过 video_stats/play_history，决定收尾要不要重建聚合表。
+    var aggregatesDirty = false;
+    try {
+      while (true) {
+        final candidateIds = <String>[];
+        while (_preferredVideoIds.isNotEmpty && candidateIds.length < limit) {
+          final videoId = _preferredVideoIds.first;
+          _preferredVideoIds.remove(videoId);
           if (videoId.isEmpty || processed.contains(videoId)) {
             continue;
           }
           candidateIds.add(videoId);
           processed.add(videoId);
         }
+        if (candidateIds.length < limit) {
+          final more = await _videoStatsRepository
+              .listMetadataBackfillCandidateIds(limit: limit);
+          for (final videoId in more) {
+            if (candidateIds.length >= limit) {
+              break;
+            }
+            if (videoId.isEmpty || processed.contains(videoId)) {
+              continue;
+            }
+            candidateIds.add(videoId);
+            processed.add(videoId);
+          }
+        }
+        if (candidateIds.isEmpty) {
+          return;
+        }
+        for (final videoId in candidateIds) {
+          final mutated = await _backfillSingleVideo(
+            api: api,
+            videoId: videoId,
+          );
+          aggregatesDirty = aggregatesDirty || mutated;
+        }
       }
-      if (candidateIds.isEmpty) {
-        return;
-      }
-      for (final videoId in candidateIds) {
-        await _backfillSingleVideo(api: api, videoId: videoId);
+    } finally {
+      // 聚合表是"全表删除后按 video_stats/play_history 重建"，逐视频重建纯属重复劳动；
+      // 整轮回填结束（含中途抛错退出）后统一重建一次即可，期间没有其它读取方依赖它。
+      if (aggregatesDirty) {
+        await _database.transaction<void>(_rebuildAggregateTables);
       }
     }
   }
 
-  Future<void> _backfillSingleVideo({
+  /// 回填单个视频的元数据；返回是否真的写入过数据库。
+  Future<bool> _backfillSingleVideo({
     required FeiniuApi api,
     required String videoId,
   }) async {
     final normalizedVideoId = videoId.trim();
     if (normalizedVideoId.isEmpty) {
-      return;
+      return false;
     }
     final existing = await _videoStatsRepository.getByVideoId(
       normalizedVideoId,
     );
     if (existing == null) {
-      return;
+      return false;
     }
 
     Map<String, dynamic>? itemDetail;
     try {
       itemDetail = await api.getItemDetail(normalizedVideoId);
     } catch (_) {
-      return;
+      return false;
     }
     final isMovie = _isMovieType(_stringValue(itemDetail['type']));
     final ancestorGuid = _stringValue(itemDetail['ancestor_guid']);
@@ -210,7 +225,7 @@ class PlayStatsMetadataBackfillService {
             animeDetail: animeDetail,
           ),
         )) {
-      return;
+      return false;
     }
     final resolvedTaxonomyDetail = _resolveTaxonomyDetail(
       isMovie: isMovie,
@@ -337,8 +352,8 @@ class PlayStatsMetadataBackfillService {
           executor: txn,
         );
       }
-      await _rebuildAggregateTables(txn);
     });
+    return true;
   }
 
   Future<void> _rebuildAggregateTables(DatabaseExecutor txn) async {
