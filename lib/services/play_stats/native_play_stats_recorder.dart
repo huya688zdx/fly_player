@@ -12,7 +12,7 @@ import 'play_stats_session_controller.dart';
 /// 原生壳播放链路的本地统计记录器。
 ///
 /// 旧 Flutter 播放器 controller(统计会话的原驱动方)随原生化删除后,统计写入链路断裂;
-/// 本类在 [NativePlayerBridge] 的收口点重建链路:
+/// 本类在 `NativePlayerBridge` 的收口点重建链路:
 /// - `launch`:起播即开 manual 会话(元数据来自 loadArgs);
 /// - `resolvePlayback`/`reloadServerSession` 返回值:只进 [cacheSource] 缓存——下一集
 ///   预取也走 resolvePlayback,此时条目未必真正播放,不能当会话边界;
@@ -77,7 +77,14 @@ class NativePlayStatsRecorder {
     _excludedGuids.remove(itemGuid);
     if (_metaCache.length >= _metaCacheLimit &&
         !_metaCache.containsKey(itemGuid)) {
-      _metaCache.remove(_metaCache.keys.first);
+      // FIFO 淘汰跳过当前活跃条目,避免播放中条目的元数据被挤掉。
+      final evictKey = _metaCache.keys.firstWhere(
+        (k) => k != _activeItemGuid,
+        orElse: () => '',
+      );
+      if (evictKey.isNotEmpty) {
+        _metaCache.remove(evictKey);
+      }
     }
     final meta = _metaFromLoadArgs(itemGuid, loadArgs);
     _metaCache[itemGuid] = meta;
@@ -107,10 +114,12 @@ class NativePlayStatsRecorder {
     try {
       final itemGuid = (progress['itemGuid'] ?? '').toString().trim();
       if (itemGuid.isEmpty || _excludedGuids.contains(itemGuid)) return;
+      // 只要是原生壳回传的有效条目事件就证明壳活着,先喂看门狗再做后续校验。
+      _restartIdleTimer();
       final durationSec = (progress['duration'] as num?)?.toInt() ?? 0;
       if (durationSec <= 0) return;
       final tsSec = (progress['ts'] as num?)?.toInt() ?? 0;
-      _restartIdleTimer();
+      final isPaused = progress['isPaused'] == true;
       if (itemGuid != _activeItemGuid) {
         // 无活跃会话 = Flutter 引擎重建后的孤儿进度(原生壳还活着),按系统恢复记;
         // 有活跃会话 = 壳内切集/连播(autoNext 原生未回传原因,统一记 manualSwitch)。
@@ -125,14 +134,17 @@ class NativePlayStatsRecorder {
       _sessionController.updateProgress(
         positionMs: tsSec * 1000,
         mediaDurationMs: durationSec * 1000,
-        paused: progress['isPaused'] == true,
+        paused: isPaused,
         now: DateTime.now(),
         playbackCompleted: false,
       );
-      _samplesSinceFlush += 1;
-      if (_samplesSinceFlush >= flushSampleInterval) {
-        _samplesSinceFlush = 0;
-        await _sessionController.flushPlayback(reason: 'periodic');
+      // 暂停心跳不计入 flush 采样计数,避免暂停期间空转把计数堆到阈值。
+      if (!isPaused) {
+        _samplesSinceFlush += 1;
+        if (_samplesSinceFlush >= flushSampleInterval) {
+          _samplesSinceFlush = 0;
+          await _sessionController.flushPlayback(reason: 'periodic');
+        }
       }
     } catch (error, stackTrace) {
       _logSwallowed('onProgress', error, stackTrace);
@@ -217,7 +229,11 @@ class NativePlayStatsRecorder {
         ? identity.animeId
         : tmdbId.isNotEmpty
         ? 'tmdb:$tmdbId'
-        : 'title:${title.toLowerCase()}';
+        : title.isNotEmpty
+        ? 'title:${title.toLowerCase()}'
+        // 标题也为空时退化用 itemGuid 唯一区分,避免所有空标题条目都聚进同一
+        // 'title:' 空串桶;仍保留 'title:' 前缀以维持 isDerivedAnimeId 的识别。
+        : 'title:$itemGuid';
     // 国家/年份/题材/演职员此处拿不到,留空由 PlayStatsMetadataBackfillService 回填
     // (metadata_enriched=0 的记录会被补全)。
     return PlayStatsVideoMeta(
