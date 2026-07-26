@@ -97,6 +97,10 @@ class MpvMediaSource {
   /// 拖动 seek 预览缩略图（按位置升序）。空 = 该条目无缩略图（飞牛恒空），原生壳退回纯时间药丸。
   final List<MpvSeekThumbnail> seekThumbnails;
 
+  /// BIF 预览缩略图直链（Emby「视频预览缩略图提取」产物）。非空时原生壳后台下载解析、
+  /// 拖动取帧优先于 [seekThumbnails]；404/解析失败自动退回章节图。空 = 无 BIF（飞牛恒空）。
+  final String seekThumbnailBifUrl;
+
   bool get serverPlaybackManaged => playbackMode.isServerManaged;
 
   const MpvMediaSource({
@@ -155,6 +159,7 @@ class MpvMediaSource {
     this.subtitleTracks = const <SubtitleTrackOption>[],
     this.qualities = const <PlaybackQualityOption>[],
     this.seekThumbnails = const <MpvSeekThumbnail>[],
+    this.seekThumbnailBifUrl = '',
   });
 
   MpvMediaSource copyWith({
@@ -219,6 +224,7 @@ class MpvMediaSource {
     List<SubtitleTrackOption>? subtitleTracks,
     List<PlaybackQualityOption>? qualities,
     List<MpvSeekThumbnail>? seekThumbnails,
+    String? seekThumbnailBifUrl,
   }) {
     return MpvMediaSource(
       loadNonce: loadNonce ?? this.loadNonce,
@@ -296,6 +302,7 @@ class MpvMediaSource {
       subtitleTracks: subtitleTracks ?? this.subtitleTracks,
       qualities: qualities ?? this.qualities,
       seekThumbnails: seekThumbnails ?? this.seekThumbnails,
+      seekThumbnailBifUrl: seekThumbnailBifUrl ?? this.seekThumbnailBifUrl,
     );
   }
 
@@ -582,6 +589,7 @@ class MpvMediaSource {
       'subtitleTracks': subtitleTracks.map(_subtitleTrackToMap).toList(),
       'qualities': qualities.map(_qualityToMap).toList(),
       'seekThumbnails': seekThumbnails.map((t) => t.toMap()).toList(),
+      'seekThumbnailBifUrl': seekThumbnailBifUrl,
     };
   }
 
@@ -781,6 +789,7 @@ class MpvMediaSource {
             .whereType<MpvSeekThumbnail>()
             .toList(growable: false);
       }(),
+      seekThumbnailBifUrl: raw['seekThumbnailBifUrl']?.toString() ?? '',
     );
   }
 

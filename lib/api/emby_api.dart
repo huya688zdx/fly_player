@@ -499,6 +499,32 @@ class EmbyApi {
         '/Images/Chapter/$chapterIndex?$qs';
   }
 
+  /// BIF 预览缩略图直链——`GET /Videos/{itemId}/index.bif`，`api_key` 自鉴权。
+  ///
+  /// Emby 的「视频预览缩略图提取」任务会按 MediaSource 生成 BIF 文件（Roku BIF 格式：
+  /// 单文件打包整片按固定间隔抽帧的 JPEG + 时间索引，密度远高于章节图）。[width] 为
+  /// 服务端预生成的档位宽度（Emby 默认 320）。未生成时该端点 404，由原生壳退回章节图。
+  /// 纯字符串构造、不发请求（过 fnos 中转闸的 entry-token cookie 由播放 headers 复用）。
+  String buildThumbnailBifUrl({
+    required String serverUrl,
+    required String itemId,
+    required String mediaSourceId,
+    required String accessToken,
+    int width = 320,
+  }) {
+    final normalizedServerUrl = normalizeServerUrl(serverUrl);
+    final query = <String, String>{
+      if (mediaSourceId.trim().isNotEmpty)
+        'MediaSourceId': mediaSourceId.trim(),
+      if (width > 0) 'Width': '$width',
+      'api_key': accessToken,
+    };
+    final qs = query.entries
+        .map((e) => '${e.key}=${Uri.encodeQueryComponent(e.value)}')
+        .join('&');
+    return '$normalizedServerUrl/Videos/${itemId.trim()}/index.bif?$qs';
+  }
+
   /// 播放开始——`POST /Sessions/Playing`，`api_key` 自鉴权。
   ///
   /// 实测 Emby **必须先收到 PlaybackStart 建立播放会话**，之后的 `/Progress` 才会被持久化进

@@ -54,10 +54,12 @@ import com.geqian.flyplayer.fly_player.mpv.MpvPlayerState
 import com.geqian.flyplayer.fly_player.mpv.NativePlayerReverseBridge
 import com.geqian.flyplayer.fly_player.mpv.NativePlayerSurface
 import com.bumptech.glide.Glide
+import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.load.resource.bitmap.CenterCrop
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.math.BigDecimal
 import java.math.RoundingMode
 import kotlin.math.abs
@@ -2572,7 +2574,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         // 清掉切集时的「正在切换…」提示（换源已完成）。
         if (this::centerHint.isInitialized) hideCenterHint()
         hideSeekPreview()
-        // 换源时复位 trickplay 描述：新源的 trickplay 数据应在此按后端能力重新解析（飞牛恒空）。
+        // trickplay 数据（BIF/章节图）已在上方 refreshSeekThumbnails 按新源重新装载（飞牛恒空）。
         // 纯听模式下换集刷新封面/标题。
         if (isAudioOnly && listenLayer?.visibility == View.VISIBLE) refreshListenArtwork()
         // 换集后立刻刷新媒体会话标题/封面（播停态可能不变，不能只靠 applyState 的态变门控）。
@@ -9094,18 +9096,35 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     /**
-     * 拖动 seek 预览：显示「目标位置 / 总时长」时间药丸，并在有缩略图（Emby 章节图）时附带预览图。
+     * 拖动 seek 预览：显示「目标位置 / 总时长」时间药丸，并在有缩略图时附带预览图。
      *
-     * 缩略图来自 loadArgs["seekThumbnails"]（位置升序的 {positionMs,url} 列表），按目标位置取最近
-     * 一张经 Glide 异步加载（自带磁/内存缓存，反复悬停瞬时命中）。无缩略图（飞牛恒空 / 该条目未做
-     * 章节图）时只显示时间药丸。
+     * 取图优先级：BIF（loadArgs["seekThumbnailBifUrl"]，整片按固定间隔抽帧，密度高）→
+     * 章节图（loadArgs["seekThumbnails"]，位置升序的 {positionMs,url} 列表）→ 纯时间药丸。
+     * BIF 帧是内存切片喂 Glide 解码；章节图按 URL 经 Glide 异步加载（自带磁/内存缓存）。
      */
     private fun showSeekPreview(targetMs: Long, durationMs: Long) {
         seekPreviewTime.text = "${formatTime(targetMs)} / ${formatTime(durationMs)}"
+        val bifFrame = seekThumbBifStore.frameFor(targetMs)
+        if (bifFrame != null) {
+            if (bifFrame.index != seekThumbLoadedBifIndex) {
+                seekThumbLoadedBifIndex = bifFrame.index
+                seekThumbLoadedUrl = null
+                Glide.with(this)
+                    .load(bifFrame.bytes)
+                    // 帧字节已在内存/本地 BIF 缓存，Glide 再落盘只是白写。
+                    .diskCacheStrategy(DiskCacheStrategy.NONE)
+                    .transform(RoundedCorners(dp(8)))
+                    .into(seekPreviewThumb)
+            }
+            seekPreviewThumb.visibility = View.VISIBLE
+            seekPreview.visibility = View.VISIBLE
+            return
+        }
         val url = nearestSeekThumbnailUrl(targetMs)
         if (url != null) {
             if (url != seekThumbLoadedUrl) {
                 seekThumbLoadedUrl = url
+                seekThumbLoadedBifIndex = -1
                 Glide.with(this)
                     .load(seekThumbnailGlideModel(url))
                     .transform(RoundedCorners(dp(8)))
@@ -9114,6 +9133,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             seekPreviewThumb.visibility = View.VISIBLE
         } else {
             seekThumbLoadedUrl = null
+            seekThumbLoadedBifIndex = -1
             seekPreviewThumb.setImageDrawable(null)
             seekPreviewThumb.visibility = View.GONE
         }
@@ -9125,11 +9145,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         seekPreview.visibility = View.GONE
         seekPreviewThumb.setImageDrawable(null)
         seekThumbLoadedUrl = null
+        seekThumbLoadedBifIndex = -1
     }
 
-    // ---- 拖动 seek 预览缩略图（Emby 章节图）----
-    // 数据来自 loadArgs["seekThumbnails"]：位置升序的 {positionMs:Long, url:String} 列表（Emby
-    // 章节图，飞牛恒空）。换源（applyLoadArgs）后随 loadArgsMap 一并刷新。
+    // ---- 拖动 seek 预览缩略图（Emby BIF 优先，章节图兜底）----
+    // 章节图数据来自 loadArgs["seekThumbnails"]：位置升序的 {positionMs:Long, url:String} 列表
+    // （飞牛恒空）；BIF 直链来自 loadArgs["seekThumbnailBifUrl"]，后台下载解析、就绪后优先取帧。
+    // 换源（applyLoadArgs）后随 loadArgsMap 一并刷新。
     private data class SeekThumbnail(val positionMs: Long, val url: String)
 
     private var seekThumbnails: List<SeekThumbnail> = emptyList()
@@ -9137,7 +9159,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     // 当前已加载进 ImageView 的缩略图 URL：相邻拖动多落在同一章节、避免重复 Glide 请求与闪烁。
     private var seekThumbLoadedUrl: String? = null
 
-    /** 从当前 loadArgsMap 解析缩略图列表（换源后调用一次，避免每帧重解析）。 */
+    // BIF 帧的同款去重（相邻拖动多落在同一帧）；-1 = 当前显示的不是 BIF 帧。
+    private var seekThumbLoadedBifIndex = -1
+
+    // BIF 下载/解析/就绪态。磁盘缓存按 URL 哈希，同条目跨会话复用。
+    private val seekThumbBifStore by lazy { SeekThumbnailBifStore(File(cacheDir, "seek_bif")) }
+
+    /** 从当前 loadArgsMap 解析缩略图列表（换源后调用一次，避免每帧重解析），并触发 BIF 装载。 */
     private fun refreshSeekThumbnails() {
         val raw = loadArgsMap["seekThumbnails"] as? List<*>
         seekThumbnails = raw
@@ -9150,6 +9178,26 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             }
             ?.sortedBy { it.positionMs }
             ?: emptyList()
+        seekThumbLoadedBifIndex = -1
+        // BIF 后台装载：同 URL（同集重载，如切音轨）复用已就绪数据；换集换 URL 旧数据即时作废；
+        // 空 URL（飞牛/本地文件）清空。headers 透传播放同款（过 fnos 中转闸的 entry-token cookie）。
+        seekThumbBifStore.prepare(
+            loadArgsMap["seekThumbnailBifUrl"]?.toString().orEmpty(),
+            loadArgsHeaderMap(),
+        )
+    }
+
+    /** loadArgs["headers"] → 字符串 map（键值任一为空的条目丢弃）。 */
+    private fun loadArgsHeaderMap(): Map<String, String> {
+        val headers = loadArgsMap["headers"] as? Map<*, *> ?: return emptyMap()
+        val result = HashMap<String, String>()
+        for ((key, value) in headers) {
+            val name = key?.toString().orEmpty()
+            val headerValue = value?.toString().orEmpty()
+            if (name.isEmpty() || headerValue.isEmpty()) continue
+            result[name] = headerValue
+        }
+        return result
     }
 
     /** 取最接近 [positionMs] 的缩略图 URL；无缩略图返回 null。 */

@@ -676,6 +676,14 @@ class EmbyMediaBackend implements MediaBackend {
       subtitleTracks: tracks.subtitle,
       session: const MediaPlaybackSession(),
       seekThumbnails: _buildSeekThumbnails(item, request.itemId),
+      // BIF 优先：整片按固定间隔抽帧，密度远高于章节图；服务端未跑「视频预览缩略图
+      // 提取」任务时端点 404，原生壳自动退回上面的章节图列表。
+      seekThumbnailBifUrl: api.buildThumbnailBifUrl(
+        serverUrl: _serverUrl,
+        itemId: request.itemId,
+        mediaSourceId: mediaSourceId,
+        accessToken: _token,
+      ),
     );
 
     return MediaPlaybackResolution(

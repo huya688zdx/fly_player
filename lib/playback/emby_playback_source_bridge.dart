@@ -132,6 +132,8 @@ class EmbyPlaybackSourceBridge implements MediaPlaybackSourceBridge {
             url: thumb.url,
           ),
       ],
+      // BIF 单文件直链：原生壳后台下载解析、拖动取帧优先于章节图；404 自动退回。
+      seekThumbnailBifUrl: bundle.seekThumbnailBifUrl,
     );
   }
 
