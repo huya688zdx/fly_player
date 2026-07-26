@@ -129,15 +129,24 @@ class AppLogService extends ChangeNotifier {
 
   /// 是否存在可导出的内容：内存条目，或磁盘上的崩溃 journal 文件非空。
   /// 用于导出按钮放行——避免「只有原生崩溃、无 Dart 条目」时被误判为无日志。
-  bool get hasExportableLogs {
+  /// 改成异步：journal 单文件上限 256KB，同步 existsSync + readAsStringSync 会卡 UI 线程。
+  Future<bool> hasExportableLogs() async {
     if (_entries.isNotEmpty) return true;
-    return _crashJournalHasContent(_runtimeCrashJournalFile()) ||
-        _crashJournalHasContent(_nativeCrashJournalFile());
+    if (await _crashJournalHasContent(_runtimeCrashJournalFile())) return true;
+    return _crashJournalHasContent(_nativeCrashJournalFile());
   }
 
-  bool _crashJournalHasContent(File file) {
+  /// journal 是否有实际内容（存在且去掉空白后非空）。只需判定有无，不需要全文，
+  /// 因此流式按块解码并逐块 trim：任一块含非空白字符即可提前收工，不必读满 256KB。
+  Future<bool> _crashJournalHasContent(File file) async {
     try {
-      return file.existsSync() && file.readAsStringSync().trim().isNotEmpty;
+      if (!await file.exists()) return false;
+      if (await file.length() <= 0) return false;
+      // utf8.decoder 在流式模式下会跨块拼接被截断的多字节字符，逐块 trim 与整体 trim 等价。
+      await for (final chunk in file.openRead().transform(utf8.decoder)) {
+        if (chunk.trim().isNotEmpty) return true;
+      }
+      return false;
     } catch (_) {
       return false;
     }

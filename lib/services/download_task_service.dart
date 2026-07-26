@@ -287,17 +287,23 @@ class DownloadTaskService extends ChangeNotifier {
 
   int get downloadedRecordCount => downloadedRecords.length;
 
-  int get downloadedBytes {
-    var total = 0;
-    for (final record in _records) {
-      if (!_isDownloadedRecordAvailable(record)) continue;
-      try {
-        total += File(record.filePath).lengthSync();
-      } catch (_) {
-        total += record.totalBytes;
-      }
+  /// 已下载文件的磁盘实际占用合计。改成异步：记录多时逐条 lengthSync 会卡 UI 线程；
+  /// 这里用 Future.wait 并发取长度，避免串行 await 把耗时按记录数放大。
+  Future<int> downloadedBytes() async {
+    final sizes = await Future.wait(<Future<int>>[
+      for (final record in _records)
+        if (_isDownloadedRecordAvailable(record)) _recordDiskBytes(record),
+    ]);
+    return sizes.fold<int>(0, (sum, value) => sum + value);
+  }
+
+  /// 单条记录的磁盘占用；文件不可读时退回记录里的 totalBytes（沿用旧同步实现语义）。
+  Future<int> _recordDiskBytes(DownloadTaskRecord record) async {
+    try {
+      return await File(record.filePath).length();
+    } catch (_) {
+      return record.totalBytes;
     }
-    return total;
   }
 
   /// 按状态返回排序后的下载任务列表。
@@ -4680,27 +4686,29 @@ class DownloadTaskService extends ChangeNotifier {
     if (suffix == 'group_cover') {
       await _deleteRedundantEpisodeGroupArtwork(videoFilePath);
     }
-    return _existingLocalArtworkUrls(urls);
+    return await _existingLocalArtworkUrls(urls);
   }
 
   /// 解析下载记录可离线使用的封面：优先 record 中已落盘的本地封面（缓存成功时 posterUrls/
   /// groupPosterUrls 即 file://），其次按命名规则探测视频同目录 / group 目录下已下载的 cover
   /// 文件（缓存成功但 record 仍存在线 URL 的兜底）；都没有才返回空，由调用方再退在线 URL。
   /// 离线选集取图（Flutter 选集面板 + 原生壳 episodes）共用此入口。
-  String resolveExistingLocalCover(DownloadTaskRecord record) {
-    final fromRecord = _existingLocalArtworkUrls(<String>[
+  /// 改成异步：原先整条链路（existsSync/listSync/lengthSync）在主 isolate 做目录扫描，
+  /// 选集列表按记录数批量解析时会明显卡顿。
+  Future<String> resolveExistingLocalCover(DownloadTaskRecord record) async {
+    final fromRecord = await _existingLocalArtworkUrls(<String>[
       ...record.posterUrls,
       ...record.groupPosterUrls,
     ]);
     if (fromRecord.isNotEmpty) return fromRecord.first;
-    final probed = _probeDownloadedCoverFiles(record.filePath);
+    final probed = await _probeDownloadedCoverFiles(record.filePath);
     if (probed.isNotEmpty) return probed.first;
     return '';
   }
 
   /// 扫描该下载在磁盘上的相关目录，找出已落盘的封面图（不依赖具体文件名）。优先 cover/
   /// poster 命名，其余图片兜底。覆盖 <视频目录> / <视频目录>/_artwork / group 的 _artwork。
-  List<String> _probeDownloadedCoverFiles(String videoFilePath) {
+  Future<List<String>> _probeDownloadedCoverFiles(String videoFilePath) async {
     final normalized = videoFilePath.trim();
     if (normalized.isEmpty) return const <String>[];
     final sep = Platform.pathSeparator;
@@ -4715,8 +4723,9 @@ class DownloadTaskService extends ChangeNotifier {
     for (final dirPath in dirs) {
       try {
         final dir = Directory(dirPath);
-        if (!dir.existsSync()) continue;
-        for (final entity in dir.listSync(followLinks: false)) {
+        if (!await dir.exists()) continue;
+        final entities = await dir.list(followLinks: false).toList();
+        for (final entity in entities) {
           if (entity is! File) continue;
           final name =
               (entity.uri.pathSegments.isNotEmpty
@@ -4727,7 +4736,7 @@ class DownloadTaskService extends ChangeNotifier {
             (ext) => name.endsWith(ext),
           );
           if (!isImage) continue;
-          if (entity.lengthSync() <= 0) continue;
+          if (await entity.length() <= 0) continue;
           final url = Uri.file(entity.path).toString();
           if (name.contains('cover') || name.contains('poster')) {
             preferred.add(url);
@@ -4740,14 +4749,14 @@ class DownloadTaskService extends ChangeNotifier {
     return <String>[...preferred, ...others];
   }
 
-  List<String> _existingLocalArtworkUrls(List<String> urls) {
+  Future<List<String>> _existingLocalArtworkUrls(List<String> urls) async {
     final result = <String>[];
     for (final url in urls) {
       final path = _localFilePathFromUrl(url) ?? (_isLocalPath(url) ? url : '');
       if (path.trim().isEmpty) continue;
       try {
         final file = File(path);
-        if (file.existsSync() && file.lengthSync() > 0) {
+        if (await file.exists() && await file.length() > 0) {
           result.add(Uri.file(file.path).toString());
         }
       } catch (_) {}
