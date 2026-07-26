@@ -145,6 +145,84 @@ class DanmakuSeekCompletionChainTest {
         assertEquals(false, coordinator.isSeekingOrRestoringVideo)
     }
 
+    @Test
+    fun `seeking 边沿整个丢失时连续推进样本兜底完成 seek`() {
+        val coordinator = MpvPlaybackRestoreCoordinator()
+        coordinator.onLoadRequested(startPositionMs = 0L, hasPendingExternalSubtitle = false)
+        coordinator.onSourceFileLoaded()
+        val clock =
+            DanmakuTimelineClock().apply {
+                reset(positionMs = 10_000f, nowNs = 0L, paused = false)
+            }
+
+        // 缓存内 hr-seek 完成极快，mpv 把 seeking true/false 属性翻转整个合并丢掉：
+        // onSeekingChanged 一次都不会被调用，seeking 只能靠 onSeekQueued 置上。
+        coordinator.onSeekQueued(positionMs = 50_000L, seekEpoch = 1L)
+        clock.hintSeek(positionMs = 50_000f, nowNs = 1_000_000_000L, seekEpoch = 1L)
+
+        // 前两个推进样本不足以兜底完成（也守住"单个近目标样本不得提前完成"的语义）。
+        coordinator.onTimePosition(positionMs = 50_050L)
+        coordinator.onTimePosition(positionMs = 50_250L)
+        assertEquals(true, coordinator.isSeekingOrRestoringVideo)
+        assertEquals(0L, coordinator.completedSeekEpoch)
+
+        // 第 4 个连续推进样本（3 对推进）触发兜底：seek 视为已完成。
+        coordinator.onTimePosition(positionMs = 50_450L)
+        coordinator.onTimePosition(positionMs = 50_650L)
+        assertEquals(false, coordinator.isSeekingOrRestoringVideo)
+        assertEquals(1L, coordinator.completedSeekEpoch)
+
+        // 时间轴时钟据此走正常出 hold 路径：REBUILD 到新位置，弹幕恢复推进。
+        val firstSampleAfterFallback =
+            clock.update(
+                positionMs = 50_650f,
+                sampleTimeNs = 1_200_000_000L,
+                nowNs = 1_200_000_000L,
+                phase = coordinator.timelinePhase(),
+                playbackSpeed = 1f,
+                activeSeekEpoch = coordinator.activeSeekEpoch,
+                completedSeekEpoch = coordinator.completedSeekEpoch,
+            )
+        assertEquals(DanmakuTimelineCorrection.REBUILD, firstSampleAfterFallback.correction)
+        assertEquals(DanmakuTimelineState.PLAYING, clock.state)
+    }
+
+    @Test
+    fun `不推进的样本会重置兜底计数`() {
+        val coordinator = MpvPlaybackRestoreCoordinator()
+        coordinator.onLoadRequested(startPositionMs = 0L, hasPendingExternalSubtitle = false)
+        coordinator.onSourceFileLoaded()
+        coordinator.onSeekQueued(positionMs = 50_000L, seekEpoch = 1L)
+
+        // 同值样本（seek 执行前的停滞位置）不断到达：计数反复清零，不得兜底完成。
+        repeat(6) { coordinator.onTimePosition(positionMs = 49_000L) }
+        assertEquals(true, coordinator.isSeekingOrRestoringVideo)
+
+        // 推进两对后又停滞：仍不完成。
+        coordinator.onTimePosition(positionMs = 49_200L)
+        coordinator.onTimePosition(positionMs = 49_400L)
+        coordinator.onTimePosition(positionMs = 49_400L)
+        coordinator.onTimePosition(positionMs = 49_600L)
+        assertEquals(true, coordinator.isSeekingOrRestoringVideo)
+    }
+
+    @Test
+    fun `新 seek 排队会重置兜底计数`() {
+        val coordinator = MpvPlaybackRestoreCoordinator()
+        coordinator.onLoadRequested(startPositionMs = 0L, hasPendingExternalSubtitle = false)
+        coordinator.onSourceFileLoaded()
+        coordinator.onSeekQueued(positionMs = 50_000L, seekEpoch = 1L)
+
+        coordinator.onTimePosition(positionMs = 50_050L)
+        coordinator.onTimePosition(positionMs = 50_250L)
+        coordinator.onTimePosition(positionMs = 50_450L)
+        // 连拖第二次：计数清零，旧的推进历史不能替新 epoch 兜底完成。
+        coordinator.onSeekQueued(positionMs = 80_000L, seekEpoch = 2L)
+        coordinator.onTimePosition(positionMs = 80_050L)
+        assertEquals(true, coordinator.isSeekingOrRestoringVideo)
+        assertEquals(0L, coordinator.completedSeekEpoch)
+    }
+
     private fun MpvPlaybackRestoreCoordinator.timelinePhase(): DanmakuTimelinePlaybackPhase {
         return if (isSeekingOrRestoringVideo) {
             DanmakuTimelinePlaybackPhase.SEEKING
