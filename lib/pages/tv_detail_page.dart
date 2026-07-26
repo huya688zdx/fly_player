@@ -866,6 +866,12 @@ class _TvDetailPageState extends State<TvDetailPage>
         : detail.displayTitle;
     final overview = detail.overview.trim();
     final heroUrls = artworkResolver.resolveRef(detail.backdropImage).urls;
+    // 低清铺底：backdrop 加载期间用海报直链垫底（列表网格已加载过同 URL，多数
+    // 纯缓存命中）；无 backdrop 时 hero 本就为空，不垫。
+    final heroLowResUrls =
+        detail.backdropImage.isNotEmpty && detail.primaryImage.isNotEmpty
+        ? artworkResolver.resolveRef(detail.primaryImage).urls
+        : const <String>[];
     final logoUrls = artworkResolver.resolveRef(detail.logoImage).urls;
     final heroTitleChild = logoUrls.isNotEmpty
         ? DetailHeroLogoTitle(
@@ -924,7 +930,7 @@ class _TvDetailPageState extends State<TvDetailPage>
             builder: (context, offset, _) {
               return ImmersiveDetailBackground(
                 urls: heroUrls,
-                lowResUrls: const <String>[],
+                lowResUrls: heroLowResUrls,
                 token: '',
                 scrollOffset: offset,
                 posterHeight: posterHeight,

@@ -83,8 +83,13 @@ initState 同步命中 seed 缓存时，首帧 build 内冷跑 2 次 HCT 求解�
 持久化 seed 缓存预载 256 条而 scheme 缓存仅 32 条 LRU，"seed 热 scheme 冷"是常态。
 
 **已修**：`_schemeCacheMaxSize` 32→96（`lib/theme/dynamic_theme_mapper.dart`），
-覆盖一次会话的浏览深度。**遗留**（见"待办"）：列表页 onTap 时对目标 seed 预热、
-持久化缓存加载后 idle 分片预热最近 N 条。
+覆盖一次会话的浏览深度。**补修（2026-07-26 第二轮）**：新增
+`DetailThemePrewarmer`（`lib/ui/detail_theme_prewarmer.dart`），在
+`AdaptiveDetailNavigator.open`（收藏/题材/人物作品/选集/合集全走此口，按
+`AdaptiveDetailRequest.themePageKey`）与首页 `_openItemDetail` 两分支的 push 前，
+按目标页 pageKey 查 seed 缓存并预热 scheme——seed 命中时详情首帧 build 纯缓存
+命中，不再冷跑 2×~16ms HCT。**遗留**：持久化缓存加载后 idle 分片预热最近 N 条
+（优先级低，tap 预热已覆盖主路径）。
 
 ### 9. Emby 图片请求原图（high，已修）
 
@@ -94,9 +99,19 @@ initState 同步命中 seed 缓存时，首帧 build 内冷跑 2 次 HCT 求解�
 **修复**（`lib/media_backend/emby/emby_media_mappers.dart`）：按用途加
 `maxWidth`（Backdrop 1280 / Primary 400 / 头像 360 / Logo 800）+ `quality=90`；
 URL 即 ImageCache 缓存键，预取与展示天然同参。测试断言已同步更新。
-**遗留**：Emby 的 push 前 precache 链路（`adaptive_detail_navigator` 的
-heroBackdropPath 对 Emby 恒空，需把图引用放进 AdaptiveDetailRequest，同 codex
-评审 H-020/H-021）与低清铺底候选。
+**补修（2026-07-26 第二轮，H-019/H-021 方向）**：
+- `AdaptiveDetailRequest` 新增中立 `heroImageRefs`（`MediaImageRef` 列表），
+  `_maybePrecacheHero` 对完整直链按背景组件同款缓存键
+  （`DetailHeroImage.directUrlPrecacheProvider`，不再以 NAS token 为前提）push 前
+  预取；飞牛相对路径回退旧 `heroBackdropPath` 管线。卡片与详情的 backdrop URL 由
+  同一 mapper 函数产出（同 tag + maxWidth=1280），逐字节一致必命中。
+- `MediaLibraryItem` 新增 `backdropUrl` 直链字段，首页 `_cardToMediaItem` 与收藏页
+  `_cardToLibraryItem` 桥接时保留（原先丢弃）；首页 Emby 回退 push 分支、收藏页、
+  题材页、人物作品页均在点击时传入图引用。
+- 低清铺底对 Emby 生效：play_detail / tv_detail 中立分支在有 backdrop 时用海报
+  直链垫底（列表网格已加载过同 URL，多数纯缓存命中）；
+  `ImmersiveDetailBackground` 低清层放行自鉴权 URL（`api_key=`，原先空 NAS token
+  直接不建层）。
 
 ### 10. 背景大图 180ms 淡入撞转场尾段（medium，已修）
 
@@ -143,10 +158,9 @@ App 树），若主窗口恰在转场中直接砸进动画窗口；Scope 侧全�
 
 ## 待办（未修，按价值排序）
 
-1. **取色预热前置**：列表页海报 onTap 时对目标 seed 调 `DynamicThemeMapper.warmUp`，
-   推页时 scheme 已热，消除首帧 2×16ms HCT 求解（发现 8 的根治）。
-2. **Emby precache 链路**：中立图引用进 `AdaptiveDetailRequest`（H-020/H-021），
-   让 push 前 `precacheImage` 与低清铺底对 Emby 生效（发现 9 的剩余半边）。
+~~1. 取色预热前置~~、~~2. Emby precache 链路~~：均已于 2026-07-26 第二轮落地
+（见发现 8 / 发现 9 的"补修"段）。
+
 3. **低清铺底层就绪后卸载**（发现 10）；`_ensureImageLayers` 签名需纳入主图就绪态。
 4. low 项酌情：`_buildRoute` 兜底同步 jsonDecode 移入异步路径；tv_season 选集视图
    设置回调过闸；seed 持久化 debounce 写盘挂 idle；heroTag 死代码清理；
@@ -158,4 +172,5 @@ App 树），若主窗口恰在转场中直接砸进动画窗口；Scope 侧全�
 
 - `flutter analyze`：0 告警。
 - `flutter test`：444/444 通过（4 条 Emby 图片 URL 断言按新格式同步更新）。
+- 第二轮补修后复验：`flutter analyze` 0 告警、`flutter test` 445/445 通过。
 - 实机帧率验证未做（无设备），见待办 5。

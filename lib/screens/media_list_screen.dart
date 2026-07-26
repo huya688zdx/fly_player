@@ -29,6 +29,8 @@ import '../services/parallel_browse_snapshot.dart';
 import '../theme/app_theme.dart';
 import '../theme/detail_tokens.dart';
 import '../ui/app_transitions.dart';
+import '../ui/detail_hero_image.dart';
+import '../ui/detail_theme_prewarmer.dart';
 import '../ui/layout_adaptive.dart';
 import '../ui/route_transition_gate.dart';
 import '../ui/media_poster_card.dart';
@@ -248,6 +250,8 @@ class _MediaListScreenState extends State<MediaListScreen>
       ancestorName: card.secondaryTitle,
       path: card.primaryImage.url,
       resolutions: card.resolutions,
+      // 保留 backdrop 直链：点击时 push 前预取详情 hero（与详情页同 URL 同缓存键）。
+      backdropUrl: card.backdropImage.url,
     );
   }
 
@@ -753,6 +757,28 @@ class _MediaListScreenState extends State<MediaListScreen>
           }
           // 原生/分屏不可用(如非 Android、无平行窗口能力)时回退全屏 Navigator.push。
           final neutralNavigator = Navigator.of(context);
+          // push 前预热目标页取色 scheme + 预取 hero backdrop 直链（与详情页背景
+          // 组件同 URL 即同缓存键；URL 自带 api_key，无需 NAS token）。
+          DetailThemePrewarmer.warmUp(
+            context,
+            pageKey: item.guid,
+            imageUrl: item.backdropUrl.trim().isNotEmpty
+                ? item.backdropUrl
+                : item.poster,
+          );
+          final heroProvider = DetailHeroImage.directUrlPrecacheProvider(
+            url: item.backdropUrl,
+            screenWidth: MediaQuery.of(context).size.width,
+            devicePixelRatio: MediaQuery.of(context).devicePixelRatio,
+          );
+          if (heroProvider != null) {
+            unawaited(
+              precacheImage(
+                heroProvider,
+                neutralNavigator.context,
+              ).catchError((_) {}),
+            );
+          }
           await neutralNavigator.push(
             AppTransitions.leftToRightPageTurnRoute(
               PlayDetailScreen(itemGuid: item.guid, heroTag: heroTag),
@@ -799,6 +825,8 @@ class _MediaListScreenState extends State<MediaListScreen>
         }
 
         if (!mounted) return;
+        // push 前预热目标页取色 scheme（seed 命中缓存时详情首帧免 2×~16ms HCT）。
+        DetailThemePrewarmer.warmUp(context, pageKey: item.guid);
         await navigator.push(
           AppTransitions.leftToRightPageTurnRoute(
             PlayDetailScreen(

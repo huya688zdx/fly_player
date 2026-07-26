@@ -10,6 +10,7 @@ import '../l10n/generated/app_localizations.dart';
 import '../media_backend/filter/media_catalog_filter.dart';
 import '../media_backend/media_backend_kind.dart';
 import '../media_backend/action/media_item_action_target.dart';
+import '../media_backend/media_image_ref.dart';
 import '../media_backend/media_item_card.dart';
 import '../models/media_collection_view_type.dart';
 import '../models/media_item.dart';
@@ -346,6 +347,12 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
         itemGuid: item.id,
         heroTag: heroTag,
         initialItemDetail: initialDetail,
+        // Emby 等直链后端：push 前预取详情 hero（背景图优先、海报兜底）。
+        // 飞牛卡片这两个引用是空/相对路径，导航层自动回退旧管线。
+        heroImageRefs: <MediaImageRef>[
+          if (item.backdropImage.isNotEmpty) item.backdropImage,
+          if (item.primaryImage.isNotEmpty) item.primaryImage,
+        ],
       ),
       presentation: _detailPresentation,
     );

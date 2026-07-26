@@ -102,10 +102,14 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
     _imageLayersSig = sig;
     // 低清铺底层：仅在大图 decode/raster 完成前可见，大图淡入后被其不透明像素覆盖。
     // 取低清候选首选项，立即显示、不淡入（小图解码快，多数已在取色缓存里）。
+    // 与 _BackgroundImage 同款鉴权判定：无 NAS token 但 URL 自带凭据
+    // （Emby `?api_key=`）时照常加载。
     final lowResUrl = widget.lowResUrls.isNotEmpty
         ? widget.lowResUrls.first
         : '';
-    _lowResImageLayer = (lowResUrl.isNotEmpty && widget.token.trim().isNotEmpty)
+    _lowResImageLayer =
+        (lowResUrl.isNotEmpty &&
+            (widget.token.trim().isNotEmpty || lowResUrl.contains('api_key=')))
         ? _LowResBackgroundImage(
             url: lowResUrl,
             token: widget.token,

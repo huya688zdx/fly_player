@@ -30,6 +30,11 @@ class MediaLibraryItem {
   final String path;
   final List<String> resolutions;
 
+  /// 背景大图完整直链（Emby 等自鉴权后端，URL 自带 api_key 与尺寸参数）。
+  /// 用于列表点击 → push 详情前预取 hero，与详情页背景组件同 URL 即同缓存键。
+  /// 飞牛条目不填（其 backdrop 走相对路径 + NAS token 管线）。
+  final String backdropUrl;
+
   MediaLibraryItem({
     required this.guid,
     required this.title,
@@ -61,6 +66,7 @@ class MediaLibraryItem {
     required this.ancestorName,
     required this.path,
     this.resolutions = const <String>[],
+    this.backdropUrl = '',
   });
 
   factory MediaLibraryItem.fromJson(Map<String, dynamic> json) {
@@ -136,6 +142,7 @@ class MediaLibraryItem {
       resolutions: rawResolutions is List
           ? rawResolutions.map((e) => e.toString()).toList(growable: false)
           : const <String>[],
+      backdropUrl: (json['backdrop_url'] ?? '').toString(),
     );
   }
 
@@ -171,6 +178,7 @@ class MediaLibraryItem {
       'ancestor_name': ancestorName,
       'path': path,
       'media_stream': <String, dynamic>{'resolutions': resolutions},
+      'backdrop_url': backdropUrl,
     };
   }
 
@@ -211,6 +219,7 @@ class MediaLibraryItem {
     String? ancestorName,
     String? path,
     List<String>? resolutions,
+    String? backdropUrl,
   }) {
     return MediaLibraryItem(
       guid: guid ?? this.guid,
@@ -244,6 +253,7 @@ class MediaLibraryItem {
       ancestorName: ancestorName ?? this.ancestorName,
       path: path ?? this.path,
       resolutions: resolutions ?? this.resolutions,
+      backdropUrl: backdropUrl ?? this.backdropUrl,
     );
   }
 }
