@@ -1699,13 +1699,6 @@ class _TvDetailPageState extends State<TvDetailPage>
                 _heroBackdropsFor(item),
                 width: backdropRequestWidth,
               );
-        final heroLowResUrls = deferArtwork
-            ? const <String>[]
-            : ApiUrlHelper.imageCandidates(
-                provider.baseUrl,
-                _heroBackdropsFor(item),
-                width: 360,
-              );
         final logoUrls = deferArtwork
             ? const <String>[]
             : ApiUrlHelper.imageCandidates(
@@ -1737,7 +1730,8 @@ class _TvDetailPageState extends State<TvDetailPage>
                 builder: (context, offset, _) {
                   return ImmersiveDetailBackground(
                     urls: heroUrls,
-                    lowResUrls: heroLowResUrls,
+                    // 低清铺底已全链路停用（糊图放大比纯色等待更差，实机决策）。
+                    lowResUrls: const <String>[],
                     token: provider.token,
                     scrollOffset: offset,
                     posterHeight: posterHeight,

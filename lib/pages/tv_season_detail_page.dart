@@ -3012,10 +3012,6 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
           widget.backdropPath,
           width: backdropRequestWidth,
         );
-        final backdropLowResUrls = _imageCandidates(
-          widget.backdropPath,
-          width: 360,
-        );
         final posterUrls = _imageCandidates(season.poster, width: 560);
         final expectedEpisodeCount = _expectedEpisodeCount();
         // 集卡片图不走 _artworkReady 二次门控:集列表已由 _episodeItemsResolved 门控(未就绪
@@ -3085,7 +3081,8 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                     builder: (context, offset, _) {
                       return ImmersiveDetailBackground(
                         urls: backdropUrls,
-                        lowResUrls: backdropLowResUrls,
+                        // 低清铺底已全链路停用（糊图放大比纯色等待更差，实机决策）。
+                        lowResUrls: const <String>[],
                         token: provider.token,
                         scrollOffset: offset,
                         posterHeight: posterHeight,
