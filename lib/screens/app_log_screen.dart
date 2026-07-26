@@ -43,6 +43,8 @@ class _AppLogScreenState extends State<AppLogScreen> {
       return;
     }
 
+    // hasExportableLogs 已改异步，这里跨过了异步间隙，setState 前必须再确认页面还在。
+    if (!mounted) return;
     setState(() => _exporting = true);
     try {
       final result = await service.exportToTxt();
