@@ -186,10 +186,18 @@ class DanmakuMaskPrecomputePipeline(
 
     // --- pipeline thread ---
 
+    private fun currentSpeed(): Double =
+        playbackSpeedProvider().takeIf { it.isFinite() && it > 0.0 } ?: 1.0
+
     private fun aheadMaxMs(): Long {
-        val speed = playbackSpeedProvider().takeIf { it.isFinite() && it > 0.0 } ?: 1.0
-        return (AHEAD_MAX_MS * speed).toLong().coerceIn(AHEAD_MAX_MS, AHEAD_MAX_HARD_CAP_MS)
+        return (AHEAD_MAX_MS * currentSpeed()).toLong().coerceIn(AHEAD_MAX_MS, AHEAD_MAX_HARD_CAP_MS)
     }
+
+    // 重放锚点：生产首步还要花 ~budgetEma 的墙钟，期间播放前进 ema×speed。锚得太近
+    // （固定 300ms）在倍速下必被播放超越 → 每步 reprime（seek 重解码 + sceneCut 重置
+    // 门控）→ 推理耗时膨胀、遮罩全空的恶性循环（真机 2x 实录）。
+    private fun primeLeadMs(): Long =
+        PRIME_AHEAD_MS + (stepBudgetEmaMs * currentSpeed()).toLong()
 
     private fun ensureRuntime(): DanmakuSegmentationRuntime? {
         runtime?.let { return it }
@@ -449,7 +457,7 @@ class DanmakuMaskPrecomputePipeline(
                 posMs < primePosMs - SEEK_BACK_TOLERANCE_MS ||
                 (lastProducedPtsMs in 0 until posMs) // playback overran the buffer
         if (!needPrime) return false
-        nextStepMs = posMs + PRIME_AHEAD_MS
+        nextStepMs = posMs + primeLeadMs()
         lastProducedPtsMs = -1L
         primePosMs = posMs
         prevLumaGrid = null
@@ -465,7 +473,7 @@ class DanmakuMaskPrecomputePipeline(
     }
 
     private fun adaptStep(highMotion: Boolean) {
-        val decision = budgetPolicy.adapt(stepBudgetEmaMs, highMotion)
+        val decision = budgetPolicy.adapt(stepBudgetEmaMs, highMotion, currentSpeed())
         stepMs = decision.stepMs
         if (decision.inputWidthChanged) {
             runCatching { runtime?.close() }
