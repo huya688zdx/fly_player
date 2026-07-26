@@ -13,9 +13,12 @@ import '../../media_backend/media_item_card.dart';
 import '../../providers/app_theme_provider.dart';
 import '../../providers/media_backend_provider.dart';
 import '../../providers/nas_provider.dart';
+import '../../services/native_playback_reentry.dart';
+import '../../services/native_player_bridge.dart';
 import '../../theme/app_theme.dart';
 import '../../ui/detail_artwork_resolver.dart';
 import '../../ui/detail_theme_prewarmer.dart';
+import '../../utils/swallowed_error_logger.dart';
 import '../../widgets/detail/dynamic_page_theme_scope.dart';
 import '../../widgets/detail/immersive_detail_background.dart';
 import '../play_detail_screen.dart';
@@ -58,6 +61,9 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
   late final PosterBrowseFocusThrottle _throttle;
   Timer? _clockTimer;
 
+  /// 原生壳反向通道持有者 token（剧集起播时注册，dispose 解绑）。
+  Object? _reentryToken;
+
   @override
   void initState() {
     super.initState();
@@ -75,6 +81,10 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
     _clockTimer?.cancel();
     _throttle.dispose();
     _rowController.dispose();
+    if (_reentryToken != null) {
+      NativePlayerBridge.unbindReentry(_reentryToken!);
+      _reentryToken = null;
+    }
     // 双保险：正常路径由 _openDetail 在推详情前就已恢复；异常 pop / 被系统回收时
     // 这里兜底解除横屏锁与沉浸模式，避免把整个 App 留在横屏全屏状态。
     unawaited(_exitImmersiveLandscape());
@@ -142,10 +152,15 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
   }
 
   /// 相邻 ±2 张 backdrop 预取，滑动到位时背景即刻可用。
+  ///
+  /// 预取用的 ImageProvider 必须与 [ImmersiveDetailBackground] 渲染侧**逐参一致**
+  /// （同款 `ResizeImage(NetworkImage(...), width: cacheWidth)`），否则缓存键不同，
+  /// 预取的解码结果渲染时用不上，等于白下一遍。
   void _precacheNeighbors() {
     final row = _currentRow;
     if (row == null) return;
     final resolver = _resolver();
+    final cacheWidth = _backdropCacheWidth();
     final center = (_focusByRow[_rowIndex] ?? 0).clamp(0, row.items.length - 1);
     for (var i = center - 2; i <= center + 2; i++) {
       if (i < 0 || i >= row.items.length || i == center) continue;
@@ -153,12 +168,23 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
       if (artwork.isEmpty) continue;
       unawaited(
         precacheImage(
-          NetworkImage(artwork.urls.first, headers: artwork.headers),
+          ResizeImage(
+            NetworkImage(artwork.urls.first, headers: artwork.headers),
+            width: cacheWidth,
+          ),
           context,
           onError: (_, __) {},
         ),
       );
     }
+  }
+
+  /// 与 `immersive_detail_background.dart` 内部同款公式：dpr 收在 [1.0, 1.6]，
+  /// 目标宽取全屏宽（背景铺满整屏），解码宽再夹到 [560, 1440]。
+  int _backdropCacheWidth() {
+    final media = MediaQuery.of(context);
+    final dpr = media.devicePixelRatio.clamp(1.0, 1.6);
+    return (media.size.width * dpr).round().clamp(560, 1440);
   }
 
   DetailArtworkResolver _resolver() {
@@ -212,49 +238,116 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
   }
 
   Future<void> _openDetail(MediaItemCard item) async {
-    final artwork = _backdropOf(_resolver(), item);
-    await DetailThemePrewarmer.warmUp(
-      context,
-      pageKey: item.id,
-      imageUrl: artwork.isNotEmpty ? artwork.urls.first : '',
-    );
-    if (!mounted) return;
-    // 详情页按竖屏设计：进入前恢复竖屏 + edgeToEdge，返回后重回横屏沉浸。
-    await SystemChrome.setPreferredOrientations(const <DeviceOrientation>[
-      DeviceOrientation.portraitUp,
-    ]);
-    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => PlayDetailScreen(itemGuid: item.id),
-      ),
-    );
-    if (!mounted) return;
-    await _enterImmersiveLandscape();
+    // 切竖屏之后的任何异常都必须把横屏沉浸补回来，否则本页会卡在竖屏布局。
+    var orientationSwitched = false;
+    try {
+      final artwork = _backdropOf(_resolver(), item);
+      await DetailThemePrewarmer.warmUp(
+        context,
+        pageKey: item.id,
+        imageUrl: artwork.isNotEmpty ? artwork.urls.first : '',
+      );
+      if (!mounted) return;
+      // 详情页按竖屏设计：进入前恢复竖屏 + edgeToEdge，返回后重回横屏沉浸。
+      orientationSwitched = true;
+      await SystemChrome.setPreferredOrientations(const <DeviceOrientation>[
+        DeviceOrientation.portraitUp,
+      ]);
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => PlayDetailScreen(itemGuid: item.id),
+        ),
+      );
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'poster browse open detail',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'poster_browse_screen',
+        id: item.id,
+      );
+    } finally {
+      if (orientationSwitched && mounted) {
+        await _enterImmersiveLandscape();
+      }
+    }
   }
 
   /// 起播：剧集先解析可播目标（首集 / 续播集），其余走单条目拉起。
-  /// 两个 launcher 内部已自带 reentry 绑定与原生壳启动，此处不重复绑定。
+  ///
+  /// [ItemPlaybackLauncher] 内部自带 reentry 绑定；[TvSeasonPlaybackLauncher] **不带**，
+  /// 剧集分支须由本页按统一约定先 [NativePlaybackReentry.bind] 再 open，
+  /// 否则原生壳的选集 / 进度回写 / 画质重解析全部失联。
   Future<void> _play(MediaItemCard item) async {
-    final type = item.type.trim().toLowerCase();
-    if (type == 'series' || type == 'tv') {
-      final backend = context.read<MediaBackendProvider>().backend;
-      final target = await backend.resolveSeriesPlaybackTarget(item.id);
-      if (!mounted || target.trim().isEmpty) return;
-      await const TvSeasonPlaybackLauncher().open(
+    try {
+      final type = item.type.trim().toLowerCase();
+      if (type == 'series' || type == 'tv') {
+        final nas = context.read<NasProvider>();
+        final backend = context.read<MediaBackendProvider>().backend;
+        final l10n = AppLocalizations.of(context);
+        final seriesTitle = item.displayTitle;
+        final seriesGuid = item.id;
+        final target = await backend.resolveSeriesPlaybackTarget(seriesGuid);
+        if (!mounted || target.trim().isEmpty) return;
+        // 本页只有条目卡、无本季单集列表，故不给 fallbackEpisodes：
+        // 选集数据由后端按 seriesGuid 派生（与剧详情入口同约定）。
+        _reentryToken = NativePlaybackReentry.bind(
+          backend: backend,
+          nas: nas,
+          l10n: l10n,
+          onResolvePlayback:
+              (
+                itemGuid, {
+                qualityIndex,
+                qualityMediaGuid,
+                startPositionMs,
+                subtitleGuid,
+                audioGuid,
+                audioTrackIndex,
+                subtitleTrackIndex,
+                preferredQualityResolution,
+              }) async {
+                if (!mounted) return null;
+                return const TvSeasonPlaybackLauncher().resolveForNative(
+                  context,
+                  itemGuid: itemGuid,
+                  seriesTitle: seriesTitle,
+                  seriesGuid: seriesGuid,
+                  qualityIndex: qualityIndex,
+                  qualityMediaGuid: qualityMediaGuid,
+                  startPositionMs: startPositionMs,
+                  subtitleGuid: subtitleGuid,
+                  audioGuid: audioGuid,
+                  audioTrackIndex: audioTrackIndex,
+                  subtitleTrackIndex: subtitleTrackIndex,
+                  preferredQualityResolution: preferredQualityResolution,
+                );
+              },
+        );
+        await const TvSeasonPlaybackLauncher().open(
+          context,
+          itemGuid: target,
+          seriesTitle: seriesTitle,
+          seriesGuid: seriesGuid,
+        );
+        return;
+      }
+      await const ItemPlaybackLauncher().open(
         context,
-        itemGuid: target,
-        seriesTitle: item.displayTitle,
-        seriesGuid: item.id,
+        itemGuid: item.id,
+        fallbackTitle: item.displayTitle,
       );
-      return;
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'poster browse play',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'poster_browse_screen',
+        id: item.id,
+      );
     }
-    await const ItemPlaybackLauncher().open(
-      context,
-      itemGuid: item.id,
-      fallbackTitle: item.displayTitle,
-    );
   }
 
   String _rowLabel(AppLocalizations l10n, PosterBrowseRow row) {
@@ -271,7 +364,10 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final nas = context.read<NasProvider>();
+    // 渲染路径依赖化：token / baseUrl 刷新（重登录、会话续期）后本页要重建，
+    // 否则图片 URL 与鉴权 header 会停在旧值。动作路径仍用 read（不建依赖）。
+    final token = context.select<NasProvider, String>((nas) => nas.token);
+    final baseUrl = context.select<NasProvider, String>((nas) => nas.baseUrl);
     final dynamicThemeEnabled = context.select<AppThemeProvider, bool>(
       (themeProvider) => themeProvider.dynamicThemeEnabled,
     );
@@ -280,7 +376,7 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
           (themeProvider) => themeProvider.dynamicThemeIntensity,
         );
     final settled = _settled;
-    final resolver = _resolver();
+    final resolver = DetailArtworkResolver(baseUrl: baseUrl, token: token);
     final backdrop = settled == null
         ? DetailArtwork.empty
         : _backdropOf(resolver, settled);
@@ -289,7 +385,7 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
       // 与详情页同键：同一条目的取色 seed 缓存互通，进详情不再重算。
       pageKey: settled?.id ?? 'poster_browse_empty',
       imageUrl: backdrop.isNotEmpty ? backdrop.urls.first : '',
-      token: nas.token,
+      token: token,
       enabled: dynamicThemeEnabled && settled != null,
       intensity: intensity,
       builder: (context, ambientTint) {
@@ -311,7 +407,7 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
                         child: backdrop.isNotEmpty
                             ? ImmersiveDetailBackground(
                                 urls: backdrop.urls,
-                                token: nas.token,
+                                token: token,
                                 scrollOffset: 0,
                                 posterHeight: size.height,
                                 imageAlignment: Alignment.center,
@@ -320,7 +416,12 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
                                 overlayOpacity: 0.62,
                                 ambientTintOverride: ambientTint,
                               )
-                            : ColoredBox(color: ambientTint ?? Colors.black),
+                            // loose Stack 里 ColoredBox 会缩成 0×0，必须显式撑满。
+                            : SizedBox.expand(
+                                child: ColoredBox(
+                                  color: ambientTint ?? Colors.black,
+                                ),
+                              ),
                       ),
                     ),
                     // 左侧渐变压暗，保证信息区可读。
@@ -419,6 +520,8 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
       if (genres.isNotEmpty) _metaText(genres.join(' / ')),
       if (item.durationSeconds > 0)
         _metaText(l10n.detailDurationMinutes(item.durationSeconds ~/ 60)),
+      // 清晰度只取前 2 个：多版本片源常有 4~5 条，全铺会把元信息行挤到换行、
+      // 压掉简介空间；前 2 条已足够表达「最高画质 + 次选」。
       for (final resolution in item.resolutions.take(2)) _metaChip(resolution),
     ];
     return Align(
