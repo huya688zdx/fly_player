@@ -1,4 +1,5 @@
 import '../../api/feiniu_api.dart';
+import '../../api/item_list_request.dart';
 import '../../api/person_list_request.dart';
 import '../../models/person_credit.dart';
 import '../../models/playback_stream.dart';
@@ -71,6 +72,24 @@ class FeiniuMediaBackend implements MediaBackend {
       limit: limit,
     );
     return items.map(mapFeiniuItemCard).toList(growable: false);
+  }
+
+  @override
+  Future<List<MediaItemCard>> getLatestItems({int limit = 20}) async {
+    // 飞牛官方播放器无"最近添加"页，但 item/list 接口支持 create_time 倒序；
+    // 不带 ancestor_guid 即全库查询。失败/排序不生效时返回空，行自然隐藏。
+    try {
+      final page = await api.getItemsPage(
+        ItemListRequest(
+          ancestorGuid: '',
+          pageSize: limit,
+          typeTags: const <String>['Movie', 'TV'],
+        ).toJson(),
+      );
+      return page.items.map(mapFeiniuItemCard).toList(growable: false);
+    } catch (_) {
+      return const <MediaItemCard>[];
+    }
   }
 
   @override

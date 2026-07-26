@@ -115,6 +115,7 @@ void main() {
         localNumberOfEpisodes: 30,
         numberOfItem: 7,
         resolutions: const ['2160p', '1080p'],
+        overview: '剧情简介',
       ),
     );
 
@@ -142,6 +143,7 @@ void main() {
     expect(card.posterHeight, 1080);
     expect(card.isLandscapePoster, isTrue);
     expect(card.resolutions, ['2160p', '1080p']);
+    expect(card.overview, '剧情简介');
   });
 
   test('mapFeiniuItemCard 透传 overview，genres 飞牛无该概念保持空', () {
