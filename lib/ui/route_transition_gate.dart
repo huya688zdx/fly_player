@@ -30,44 +30,62 @@ class RouteTransitionGate {
   static NavigatorObserver get observer =>
       _observer ??= _RouteTransitionGateObserver();
 
-  /// [context] 所在 [ModalRoute] 是否正处于转场（enter/exit 动画运行中）。
-  static bool isTransitioning(BuildContext context) {
-    final animation = ModalRoute.of(context)?.animation;
-    if (animation == null) {
-      return false;
-    }
-    final status = animation.status;
+  static bool _isAnimating(Animation<double>? animation) {
+    final status = animation?.status;
     return status == AnimationStatus.forward ||
         status == AnimationStatus.reverse;
   }
 
-  /// 返回一个 Future：在 [context] 所在 [ModalRoute] 的转场动画结束时 resolve；
-  /// 若该路由已稳定（无动画 / 已 completed / 已 dismissed）则立即 resolve。
+  /// [context] 所在 [ModalRoute] 是否正处于转场（enter/exit 动画运行中）。
+  ///
+  /// 同时检查 primary 与 secondary 动画：本页作为转场中的下层路由时
+  /// （之上正在 push 新页、或上层正被 pop 揭开本页），自己的 primary
+  /// animation 恒为 completed，动的是 secondaryAnimation——只看 primary
+  /// 会让闸门在这两种场景下失效，重活照样砸进转场窗口。
+  static bool isTransitioning(BuildContext context) {
+    final route = ModalRoute.of(context);
+    if (route == null) {
+      return false;
+    }
+    return _isAnimating(route.animation) ||
+        _isAnimating(route.secondaryAnimation);
+  }
+
+  /// 返回一个 Future：在 [context] 所在 [ModalRoute] 参与的转场动画
+  /// （primary 与 secondary）全部结束时 resolve；若该路由已稳定则立即 resolve。
   ///
   /// 注意：调用方在 await 之后必须重新检查 `mounted`，因为转场期间 widget 可能
   /// 已被销毁（例如进入途中又快速 pop）。
   static Future<void> of(BuildContext context) {
-    final animation = ModalRoute.of(context)?.animation;
-    if (animation == null) {
+    final route = ModalRoute.of(context);
+    if (route == null) {
       return Future<void>.value();
     }
-    final status = animation.status;
-    if (status == AnimationStatus.completed ||
-        status == AnimationStatus.dismissed) {
+    final animations = <Animation<double>>[
+      if (route.animation != null) route.animation!,
+      if (route.secondaryAnimation != null) route.secondaryAnimation!,
+    ];
+    if (!animations.any(_isAnimating)) {
       return Future<void>.value();
     }
     final completer = Completer<void>();
-    void listener(AnimationStatus status) {
-      if (status == AnimationStatus.completed ||
-          status == AnimationStatus.dismissed) {
-        animation.removeStatusListener(listener);
-        if (!completer.isCompleted) {
-          completer.complete();
-        }
+    late final void Function(AnimationStatus) listener;
+    listener = (AnimationStatus _) {
+      // 任一动画状态变化后重查两条：primary 刚 completed 时 secondary
+      // 可能又启动（快速连续导航），必须两条都稳定才放行。
+      if (animations.any(_isAnimating)) {
+        return;
       }
+      for (final animation in animations) {
+        animation.removeStatusListener(listener);
+      }
+      if (!completer.isCompleted) {
+        completer.complete();
+      }
+    };
+    for (final animation in animations) {
+      animation.addStatusListener(listener);
     }
-
-    animation.addStatusListener(listener);
     return completer.future;
   }
 }

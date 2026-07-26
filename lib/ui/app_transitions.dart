@@ -15,9 +15,18 @@ class AppTransitions {
       curve: Curves.easeOutCubic,
       reverseCurve: Curves.easeInCubic,
     );
+    // 淡入只占转场前 40%（约 150ms），pop 反向时同样只在头 40% 内淡出：
+    // alpha 一旦到 1.0/0.0，FadeTransition 便跳过 OpacityLayer。整页级分数
+    // 透明度在 Impeller 下没有 raster cache，每帧都是整屏 saveLayer 离屏
+    // 合成——把它压缩到转场头部一小段，而不是贯穿整个 380ms 窗口。
+    final fade = CurvedAnimation(
+      parent: animation,
+      curve: const Interval(0.0, 0.4, curve: Curves.easeOutCubic),
+      reverseCurve: const Interval(0.6, 1.0, curve: Curves.easeInCubic),
+    );
     final slide = Tween<Offset>(begin: begin, end: Offset.zero).animate(curved);
     return FadeTransition(
-      opacity: curved,
+      opacity: fade,
       child: SlideTransition(position: slide, child: child),
     );
   }
@@ -83,9 +92,9 @@ class AppTransitions {
     );
   }
 
-  // Card-like transition: new page slides in from the right, previous page
-  // shifts slightly left and scales down, which keeps the transition feeling
-  // like a full card stack instead of exposing a blank background.
+  // Card-like transition: new page fades in with a slight horizontal slide.
+  // The previous page stays static underneath (secondaryAnimation is
+  // intentionally unused to avoid animating both pages at once).
   static Widget leftToRightPageTurnTransition(
     Widget child,
     Animation<double> animation,

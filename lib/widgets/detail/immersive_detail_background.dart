@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../theme/app_theme.dart';
+import '../../ui/route_transition_gate.dart';
 import '../../utils/nas_image_headers.dart';
 
 class ImmersiveDetailBackground extends StatefulWidget {
@@ -405,6 +406,13 @@ class _BackgroundImage extends StatelessWidget {
           headers: nasImageHeaders(token, url: currentUrl),
           frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
             if (wasSynchronouslyLoaded) {
+              return child;
+            }
+            // 路由转场进行中跳过 180ms 淡入直接呈现：转场自身已把整页包在
+            // FadeTransition 里，再嵌一层分数透明度会在 hero 区域（最高 78%
+            // 屏高、低清+大图两张位图）上叠加离屏合成，恰逢大图首帧纹理
+            // 上传，正是 push 尾段丢帧点。
+            if (RouteTransitionGate.isTransitioning(context)) {
               return child;
             }
             return AnimatedOpacity(

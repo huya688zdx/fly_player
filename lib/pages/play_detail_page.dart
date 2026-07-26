@@ -1391,6 +1391,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
             detail.regionLabels,
           ),
         );
+        // 骨架→正文整树替换等转场结束再应用，避免落在 380ms 转场窗口内
+        // （对齐 tv_detail 中立分支的既有闸门模式）。
+        await RouteTransitionGate.of(context);
+        if (!mounted) return;
         setState(() {
           _detail = localizedDetail;
           _neutralVersions = localizedVersions;
@@ -1432,22 +1436,12 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       // Phase 1: load only base play info for immediate first paint.
       final info = await _loadPlayInfo(api, _currentItemGuid);
       if (!mounted) return;
-      setState(() {
-        _currentItemGuid = info.item.guid.trim().isNotEmpty
-            ? info.item.guid.trim()
-            : _currentItemGuid;
-        _data = info;
-        _liked = info.item.isFavorite == 1;
-        _watched = info.item.isWatched == 1;
-        _imdbId = _extractInitialImdbId();
-        _trimId = _extractInitialTrimId();
-        _rebuildDetail();
-        _loading = false;
-      });
-      _handleDownloadTasksChanged();
-      _startEntryAnimations();
+      _currentItemGuid = info.item.guid.trim().isNotEmpty
+          ? info.item.guid.trim()
+          : _currentItemGuid;
 
-      // Phase 2: load track-related data while header fade is running.
+      // Phase 2 与下载画质预取先行发起，让网络请求与转场动画并行；
+      // 它们应用结果时各自过闸（_loadPhase2 内已有 RouteTransitionGate）。
       unawaited(_loadPhase2(api: api, info: info));
 
       // Pre-fetch download qualities so the download sheet opens instantly.
@@ -1458,6 +1452,22 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           playItem: info.item,
         ),
       );
+
+      // 骨架→正文的整树替换 + 入场动画等转场结束再做，避免与 380ms
+      // enter 动画同窗叠加（对齐 Phase-2 与 tv_detail 的既有闸门模式）。
+      await RouteTransitionGate.of(context);
+      if (!mounted) return;
+      setState(() {
+        _data = info;
+        _liked = info.item.isFavorite == 1;
+        _watched = info.item.isWatched == 1;
+        _imdbId = _extractInitialImdbId();
+        _trimId = _extractInitialTrimId();
+        _rebuildDetail();
+        _loading = false;
+      });
+      _handleDownloadTasksChanged();
+      _startEntryAnimations();
     } catch (e) {
       if (!mounted) return;
       setState(() {
