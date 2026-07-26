@@ -12,10 +12,13 @@ class DynamicThemeMapper {
   // variant, contrastLevel) tuple produces the identical scheme every time.
   static final LinkedHashMap<int, ColorScheme> _schemeCache =
       LinkedHashMap<int, ColorScheme>();
-  // Each sampled page warms two schemes (accent + background). 32 keeps a
-  // healthy window of recently visited pages resident so re-entering them is a
-  // pure cache hit with zero HCT solving.
-  static const int _schemeCacheMaxSize = 32;
+  // Each sampled page warms two schemes (accent + background), and light/dark
+  // brightness double the key space. 96 keeps a full session's browsing depth
+  // resident so re-entering a page is a pure cache hit with zero HCT solving
+  // (~16ms per cold solve; ColorScheme objects are tiny, memory cost is
+  // negligible). The persistent seed cache preloads up to 256 seeds at startup
+  // while this scheme cache starts cold — a larger window narrows that gap.
+  static const int _schemeCacheMaxSize = 96;
 
   /// Pre-computes (and caches) the [ColorScheme]s that [map]/[ambientTint] will
   /// need for this seed, so the work happens off the render frame. Calling this

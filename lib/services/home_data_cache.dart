@@ -177,7 +177,7 @@ class HomeDataSnapshot {
   bool get isEmpty => categories.isEmpty;
 
   /// Compare two category item lists for equality.
-  static bool _itemsEqual(List<MediaLibraryItem> a, List<MediaLibraryItem> b) {
+  static bool itemsEqual(List<MediaLibraryItem> a, List<MediaLibraryItem> b) {
     if (a.length != b.length) return false;
     for (var i = 0; i < a.length; i++) {
       if (a[i].guid != b[i].guid || a[i].ts != b[i].ts) return false;
@@ -194,7 +194,7 @@ class HomeDataSnapshot {
       final bItems = other.itemsByCategory[other.categories[i].id];
       if (aItems == null && bItems == null) continue;
       if (aItems == null || bItems == null) return false;
-      if (!_itemsEqual(aItems, bItems)) return false;
+      if (!itemsEqual(aItems, bItems)) return false;
     }
     return true;
   }

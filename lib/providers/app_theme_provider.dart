@@ -12,6 +12,7 @@ import '../theme/app_theme.dart';
 import '../theme/dynamic_theme_mapper.dart';
 import '../theme/dynamic_theme_seed_extractor.dart';
 import '../theme/glass_quality.dart';
+import '../ui/route_transition_gate.dart';
 import '../utils/swallowed_error_logger.dart';
 
 class AppThemeProvider extends ChangeNotifier {
@@ -1161,7 +1162,35 @@ class AppThemeProvider extends ChangeNotifier {
     );
   }
 
+  bool _runtimeThemePublishWaitingForStableFrame = false;
+
   void _publishRuntimeDynamicThemeToScope() {
+    // 统一收口：setRuntimeColors 的 notifyListeners 会让所有依赖
+    // context.appColors 的 widget 同帧 rebuild（≈ MaterialApp.builder 之下
+    // 整棵 App 树）。平行窗口入站 / 偏好同步等路径没有页面 context，也可能
+    // 恰逢 push/pop 转场——转场中用 postFrame 轮询推迟到稳定后再发布，与
+    // DynamicPageThemeScope 的全局 flush 同款策略。发布读取的是 provider
+    // 当前字段，多次入站天然合并到最新种子。
+    if (RouteTransitionGate.anyRouteTransitioning) {
+      if (_runtimeThemePublishWaitingForStableFrame) return;
+      _runtimeThemePublishWaitingForStableFrame = true;
+      void waitStable(Duration _) {
+        if (_disposed) return;
+        if (RouteTransitionGate.anyRouteTransitioning) {
+          WidgetsBinding.instance.addPostFrameCallback(waitStable);
+          return;
+        }
+        _runtimeThemePublishWaitingForStableFrame = false;
+        _publishRuntimeDynamicThemeToScopeNow();
+      }
+
+      WidgetsBinding.instance.addPostFrameCallback(waitStable);
+      return;
+    }
+    _publishRuntimeDynamicThemeToScopeNow();
+  }
+
+  void _publishRuntimeDynamicThemeToScopeNow() {
     final colors = _runtimeDynamicThemeColors();
     if (colors == null) {
       AppRuntimeColorController.instance.clearRuntimeColors();

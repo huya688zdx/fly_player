@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:provider/provider.dart';
@@ -154,7 +155,15 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
       if (cachedSeed != null) {
         _setResolvedSeedForCurrentTarget(cachedSeed);
         if (!widget.deferLocalThemeApplyUntilGlobalSync) {
-          _seed = cachedSeed;
+          // 数据到达触发的 props 变化常落在 380ms 进场转场内（详情接口
+          // 100-400ms 返回），此处直接翻 _seed 会绕过 _applyResolvedSeedSetState
+          // 的转场闸门，在转场中段引发整页 Theme 切换；转场中改为推迟应用。
+          if (_seed != cachedSeed &&
+              RouteTransitionGate.isTransitioning(context)) {
+            unawaited(_applyResolvedSeedAfterTransition(cachedSeed));
+          } else {
+            _seed = cachedSeed;
+          }
         }
       } else if (!keepPreviousSeed) {
         _clearSeed();
@@ -433,6 +442,7 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
   }
 
   void _debugLogScopeConfig(String phase) {
+    if (!kDebugMode) return;
     debugPrint(
       '[THEME][SCOPE] $phase page=${widget.pageKey.trim()} enabled=${widget.enabled} syncGlobal=${widget.syncGlobalTheme} live=${widget.allowLiveResolve} hasImage=${widget.imageUrl.trim().isNotEmpty} intensity=${widget.intensity.storageValue}',
     );
@@ -456,9 +466,11 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
         normalizedImageUrl.isNotEmpty &&
         seedForGlobal == null;
     if (shouldHoldPreviousTheme) {
-      debugPrint(
-        '[THEME][SCOPE] hold page=$normalizedPageKey awaiting_seed=true',
-      );
+      if (kDebugMode) {
+        debugPrint(
+          '[THEME][SCOPE] hold page=$normalizedPageKey awaiting_seed=true',
+        );
+      }
       _setGlobalThemeResolveHold(true);
       return;
     }
@@ -481,9 +493,11 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
         !_lastSyncedWasClear) {
       return;
     }
-    debugPrint(
-      '[THEME][SCOPE] queue page=$normalizedPageKey enabled=${widget.enabled} syncGlobal=${widget.syncGlobalTheme} hasSeed=${seedForGlobal != null}',
-    );
+    if (kDebugMode) {
+      debugPrint(
+        '[THEME][SCOPE] queue page=$normalizedPageKey enabled=${widget.enabled} syncGlobal=${widget.syncGlobalTheme} hasSeed=${seedForGlobal != null}',
+      );
+    }
     if (!widget.enabled || seedForGlobal == null) {
       _clearGlobalTheme(normalizedPageKey);
       return;
@@ -550,7 +564,9 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
       return;
     }
     _pendingGlobalClearPageKeys.add(normalizedPageKey);
-    debugPrint('[THEME][SCOPE] clear page=$normalizedPageKey');
+    if (kDebugMode) {
+      debugPrint('[THEME][SCOPE] clear page=$normalizedPageKey');
+    }
     _pendingGlobalSyncs.remove(normalizedPageKey);
     _lastSyncedPageKey = normalizedPageKey;
     _lastSyncedSeedSignature = '';
@@ -617,9 +633,11 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
     final pendingSyncs = Map<String, _GlobalSyncEntry>.from(
       _pendingGlobalSyncs,
     );
-    debugPrint(
-      '[THEME][SCOPE] flush clear=${pendingClearPageKeys.length} apply=${pendingSyncs.length}',
-    );
+    if (kDebugMode) {
+      debugPrint(
+        '[THEME][SCOPE] flush clear=${pendingClearPageKeys.length} apply=${pendingSyncs.length}',
+      );
+    }
     _pendingGlobalClearPageKeys.clear();
     _pendingGlobalSyncs.clear();
     // Process clears — skip pageKeys that also have a pending set.
@@ -761,10 +779,11 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
         builder: (context) => widget.builder(context, ambientTint),
       ),
     );
-    if (effectiveTheme != null) {
-      // 同理直接切 ThemeData，不再每帧 lerp 整套组件主题（旧 AnimatedTheme 140ms = P2）。
-      child = Theme(data: effectiveTheme, child: child);
-    }
+    // 始终包一层 Theme（无 seed 时透传 parentTheme）：让 seed null→非 null
+    // 只是 Theme.data 变化而非元素树结构变化，否则整棵页面子树会被 re-inflate
+    // （State 全部重建），恰在主题落地那一帧放大构建成本。
+    // 直接切 ThemeData，不做 AnimatedTheme 每帧 lerp（旧 140ms 动画 = P2）。
+    child = Theme(data: effectiveTheme ?? parentTheme, child: child);
     return child;
   }
 }

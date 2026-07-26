@@ -23,7 +23,7 @@ void main() {
       expect(catalog.type, 'movies');
       expect(
         catalog.primaryImage.url,
-        'https://emby.example.test/Items/lib-1/Images/Primary?tag=abc&api_key=tok',
+        'https://emby.example.test/Items/lib-1/Images/Primary?tag=abc&maxWidth=400&quality=90&api_key=tok',
       );
       expect(catalog.primaryImage.headers['X-Emby-Token'], token);
       expect(catalog.posters, hasLength(1));
@@ -71,12 +71,12 @@ void main() {
       expect(card.releaseDate, '2020-01-01T00:00:00.0000000Z');
       expect(
         card.primaryImage.url,
-        'https://emby.example.test/Items/item-1/Images/Primary?tag=p1&api_key=tok',
+        'https://emby.example.test/Items/item-1/Images/Primary?tag=p1&maxWidth=400&quality=90&api_key=tok',
       );
       expect(card.primaryImage.headers['X-Emby-Token'], token);
       expect(
         card.backdropImage.url,
-        'https://emby.example.test/Items/item-1/Images/Backdrop?tag=b1&api_key=tok',
+        'https://emby.example.test/Items/item-1/Images/Backdrop?tag=b1&maxWidth=1280&quality=90&api_key=tok',
       );
       expect(card.backdropImage.headers['X-Emby-Token'], token);
     });
@@ -168,17 +168,17 @@ void main() {
       expect(detail.resumePositionSeconds, 600);
       expect(
         detail.primaryImage.url,
-        'https://emby.example.test/Items/m-1/Images/Primary?tag=p1&api_key=tok',
+        'https://emby.example.test/Items/m-1/Images/Primary?tag=p1&maxWidth=400&quality=90&api_key=tok',
       );
       expect(detail.primaryImage.headers['X-Emby-Token'], token);
       expect(
         detail.logoImage.url,
-        'https://emby.example.test/Items/m-1/Images/Logo?tag=lg1&api_key=tok',
+        'https://emby.example.test/Items/m-1/Images/Logo?tag=lg1&maxWidth=800&quality=90&api_key=tok',
       );
       expect(detail.logoImage.headers['X-Emby-Token'], token);
       expect(
         detail.backdropImage.url,
-        'https://emby.example.test/Items/m-1/Images/Backdrop?tag=b1&api_key=tok',
+        'https://emby.example.test/Items/m-1/Images/Backdrop?tag=b1&maxWidth=1280&quality=90&api_key=tok',
       );
       expect(detail.backdropImage.headers['X-Emby-Token'], token);
       // 无名演职员被剔除；其余保留顺序、department=Type。
@@ -188,7 +188,7 @@ void main() {
       expect(detail.people[0].department, 'Actor');
       expect(
         detail.people[0].avatar.url,
-        'https://emby.example.test/Items/pp-1/Images/Primary?tag=av1&api_key=tok',
+        'https://emby.example.test/Items/pp-1/Images/Primary?tag=av1&maxWidth=360&quality=90&api_key=tok',
       );
       expect(detail.people[0].avatar.headers['X-Emby-Token'], token);
       expect(detail.people[1].name, 'Denis Villeneuve');
@@ -321,7 +321,7 @@ void main() {
       expect(season.localNumberOfEpisodes, 12);
       expect(
         season.primaryImage.url,
-        'https://emby.example.test/Items/season-1/Images/Primary?tag=sp&api_key=tok',
+        'https://emby.example.test/Items/season-1/Images/Primary?tag=sp&maxWidth=400&quality=90&api_key=tok',
       );
       expect(season.primaryImage.headers['X-Emby-Token'], token);
     });

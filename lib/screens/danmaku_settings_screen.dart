@@ -132,7 +132,9 @@ class _DanmakuSettingsScreenState extends State<DanmakuSettingsScreen> {
         const DanmakuManagerScreen(),
       ),
     );
-    await _load();
+    // 不在 pop 返回时重新 _load()：push 返回的 Future 在 pop 动画第一帧前就
+    // resolve，整库反序列化+整页 setState 会砸进 380ms 退场转场；管理页内的
+    // 任何增删已通过 _savedSourceStore.changes 监听触发过 _load，无需兜底。
   }
 
   @override
