@@ -9584,9 +9584,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val durationSec = state.durationMs / 1000
         if (durationSec <= 0L) return
         val ts = (state.positionMs / 1000).coerceIn(0L, durationSec)
-        if (ts == lastRecordedTs) return
+        val paused = state.paused
+        // 同秒去重只对播放态生效；暂停时放行为心跳，供 Flutter 统计端区分「暂停」与
+        // 「已退出」。pausedHeartbeat 标记重复帧，服务端回写（飞牛/Emby）按它跳过。
+        val pausedHeartbeat = paused && ts == lastRecordedTs
+        if (ts == lastRecordedTs && !paused) return
         lastRecordedTs = ts
         val args = HashMap<String, Any?>()
+        args["isPaused"] = paused
+        args["pausedHeartbeat"] = pausedHeartbeat
         args["itemGuid"] = loadArgsMap["itemGuid"]
         args["mediaGuid"] = loadArgsMap["mediaGuid"]
         args["videoGuid"] = loadArgsMap["videoGuid"]
