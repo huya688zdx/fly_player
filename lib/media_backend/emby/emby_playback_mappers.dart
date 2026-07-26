@@ -11,11 +11,14 @@ import '../playback/media_playback.dart';
 /// `docs/superpowers/specs/2026-06-25-emby-playback-design.md` §2）。
 
 /// 选中 `MediaSource` → 中立播放源。视频属性取首条 video `MediaStream`；[url] 为已拼好的
-/// 直链（[EmbyApi.buildStreamUrl]），[headers] 为过 fnos 边缘闸的 entry-token cookie（或空）。
+/// 直链（[EmbyApi.buildStreamUrl]）或转码 HLS（[EmbyApi.buildHlsStreamUrl]，此时 [delivery]
+/// 传 [MediaPlaybackDeliveryKind.transcoding]），[headers] 为过 fnos 边缘闸的 entry-token
+/// cookie（或空）。
 MediaPlaybackSource mapEmbyPlaybackSource(
   Map<String, Object?> source, {
   required String url,
   Map<String, String> headers = const <String, String>{},
+  MediaPlaybackDeliveryKind delivery = MediaPlaybackDeliveryKind.directLink,
 }) {
   final video = _firstStreamOfType(source, 'video');
   final videoIndex = video == null ? -1 : _asInt(video['Index']);
@@ -23,7 +26,7 @@ MediaPlaybackSource mapEmbyPlaybackSource(
     id: (source['Id'] ?? '').toString(),
     // Emby 无独立视频轨 guid 概念；用视频流容器 index 作中立视频轨标识（缺则空）。
     videoTrackId: videoIndex >= 0 ? '$videoIndex' : '',
-    delivery: MediaPlaybackDeliveryKind.directLink,
+    delivery: delivery,
     url: url,
     headers: headers,
     width: _asInt(video?['Width']),
@@ -38,6 +41,101 @@ MediaPlaybackSource mapEmbyPlaybackSource(
     reliableSeek: true,
     forceNativeProxy: false,
   );
+}
+
+/// Emby 转码画质梯度：每个竖直分辨率档一条（高→低），码率为该档 VideoBitrate 上限（bps）。
+///
+/// Emby 没有服务端预生成的画质列表（对位飞牛 `qualities` 返回）——转码档是客户端自报
+/// MaxHeight+VideoBitrate、服务端按需出流，故梯度在客户端定死。只保留不超过源竖直分辨率
+/// 的档位，避免无意义的放大转码。
+const List<({int height, int bitrate})> _embyTranscodeTiers =
+    <({int height, int bitrate})>[
+      (height: 2160, bitrate: 20000000),
+      (height: 1440, bitrate: 12000000),
+      (height: 1080, bitrate: 8000000),
+      (height: 720, bitrate: 4000000),
+    ];
+
+/// 画质候选标识前缀。候选 id 自包含（`emby:q:<mediaSourceId>:<height>:<bitrate>` /
+/// `emby:q:<mediaSourceId>:original`），[embyQualityVersionId] 可无状态取回版本 id。
+const String _embyQualityIdPrefix = 'emby:q:';
+
+String _embyQualityId(String mediaSourceId, String suffix) =>
+    '$_embyQualityIdPrefix$mediaSourceId:$suffix';
+
+/// 从播放请求的 `qualityId` 还原「版本」（MediaSource）id：
+/// 详情页版本切换传裸 MediaSourceId，画质候选 id 则带 [_embyQualityIdPrefix] 前缀——
+/// 两种都归一成 MediaSourceId 供版本查找（Emby id 为十六进制串，不含 `:`，按段切分安全）。
+String embyQualityVersionId(String? qualityId) {
+  final id = qualityId?.trim() ?? '';
+  if (!id.startsWith(_embyQualityIdPrefix)) return id;
+  final parts = id.substring(_embyQualityIdPrefix.length).split(':');
+  return parts.isEmpty ? '' : parts.first.trim();
+}
+
+/// `qualityId` 是否为画质候选 id（而非裸 MediaSourceId 版本标识）。
+bool isEmbyQualityCandidateId(String? qualityId) =>
+    (qualityId?.trim() ?? '').startsWith(_embyQualityIdPrefix);
+
+/// 画质档的目标竖直分辨率（`"1080P"` → 1080）；解析不出返回 0。
+int embyQualityMaxHeight(MediaPlaybackQuality quality) {
+  final digits = quality.resolution.replaceAll(RegExp(r'[^0-9]'), '');
+  return int.tryParse(digits) ?? 0;
+}
+
+/// 选中 `MediaSource` → 画质候选列表：原画档（static 直链）+ 客户端转码梯度。
+///
+/// 对位飞牛 `mapFeiniuPlaybackQualities`。原画档恒在首位且 `isDefault`（初始起播默认原画，
+/// 与现直链直播行为一致）；转码档只出「低于源竖直分辨率」的档位，源分辨率同档仅在源码率
+/// 明显高于该档上限时保留（如 1080p 高码率原盘 → 1080P 8Mbps 转码档仍有省带宽意义）。
+/// `SupportsTranscoding == false`（服务端明确禁转码）时只出原画档。
+List<MediaPlaybackQuality> mapEmbyPlaybackQualities(
+  Map<String, Object?> source,
+) {
+  final mediaSourceId = (source['Id'] ?? '').toString();
+  final video = _firstStreamOfType(source, 'video');
+  final videoIndex = video == null ? -1 : _asInt(video['Index']);
+  final videoTrackId = videoIndex >= 0 ? '$videoIndex' : '';
+  final height = _asInt(video?['Height']);
+  final streamBitrate = _asInt(video?['BitRate']);
+  final sourceBitrate = streamBitrate > 0
+      ? streamBitrate
+      : _asInt(source['Bitrate']);
+
+  final qualities = <MediaPlaybackQuality>[
+    MediaPlaybackQuality(
+      id: _embyQualityId(mediaSourceId, 'original'),
+      sourceId: mediaSourceId,
+      videoTrackId: videoTrackId,
+      delivery: MediaPlaybackDeliveryKind.original,
+      label: height > 0 ? '${height}P' : '',
+      resolution: height > 0 ? '${height}P' : '',
+      bitrate: sourceBitrate,
+      isDefault: true,
+    ),
+  ];
+  if (source['SupportsTranscoding'] == false || height <= 0) return qualities;
+
+  for (final tier in _embyTranscodeTiers) {
+    if (tier.height > height) continue;
+    // 源同分辨率档：仅当源码率显著高于该档上限（>1.5 倍）时才值得转码降码率。
+    if (tier.height == height &&
+        (sourceBitrate <= 0 || sourceBitrate <= tier.bitrate * 3 ~/ 2)) {
+      continue;
+    }
+    qualities.add(
+      MediaPlaybackQuality(
+        id: _embyQualityId(mediaSourceId, '${tier.height}:${tier.bitrate}'),
+        sourceId: mediaSourceId,
+        videoTrackId: videoTrackId,
+        delivery: MediaPlaybackDeliveryKind.transcoding,
+        label: '${tier.height}P',
+        resolution: '${tier.height}P',
+        bitrate: tier.bitrate,
+      ),
+    );
+  }
+  return qualities;
 }
 
 /// 选中 `MediaSource` → 中立音轨 / 字幕轨候选。
