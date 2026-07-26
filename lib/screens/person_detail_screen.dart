@@ -572,15 +572,28 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
   /// Emby 人物照片：完整 api_key 直链（自鉴权），失败回退人物图标。
   Widget _buildNeutralProfileImage(String url) {
     if (url.trim().isEmpty) return _personPhotoFallback();
-    return Image.network(
-      url,
-      fit: BoxFit.cover,
-      filterQuality: FilterQuality.low,
-      errorBuilder: (_, error, __) {
-        debugPrint(
-          '[IMG][PERSON_PROFILE][neutral] failed url=$url error=$error',
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final dpr = MediaQuery.of(context).devicePixelRatio.clamp(1.0, 1.8);
+        final cacheWidth = constraints.maxWidth.isFinite
+            ? (constraints.maxWidth * dpr).round().clamp(160, 280)
+            : 240;
+        final cacheHeight = constraints.maxHeight.isFinite
+            ? (constraints.maxHeight * dpr).round().clamp(220, 400)
+            : 340;
+        return Image.network(
+          url,
+          fit: BoxFit.cover,
+          filterQuality: FilterQuality.low,
+          cacheWidth: cacheWidth,
+          cacheHeight: cacheHeight,
+          errorBuilder: (_, error, __) {
+            debugPrint(
+              '[IMG][PERSON_PROFILE][neutral] failed url=$url error=$error',
+            );
+            return _personPhotoFallback();
+          },
         );
-        return _personPhotoFallback();
       },
     );
   }

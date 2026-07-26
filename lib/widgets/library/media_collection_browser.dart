@@ -210,9 +210,13 @@ class _ListThumb extends StatelessWidget {
         ),
       );
     }
+    // 列表缩略图固定显示 72x46,按 DPR 换算解码尺寸,避免整图解码浪费内存。
+    final dpr = MediaQuery.of(context).devicePixelRatio.clamp(1.0, 1.8);
     return Image.network(
       urls.first,
       fit: BoxFit.cover,
+      cacheWidth: (72 * dpr).round(),
+      cacheHeight: (46 * dpr).round(),
       headers: nasImageHeaders(token, url: urls.first),
       errorBuilder: (_, __, ___) {
         return Container(
