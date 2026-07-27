@@ -1558,12 +1558,15 @@ class FeiniuApi {
   Future<String?> getPlaylistViewType() async {
     final cached = await _playlistViewPreferenceStore.readViewType();
     if (cached != null) {
-      // 后台对齐服务端，不阻塞本次返回。
+      // 后台对齐服务端，不阻塞本次返回。回写前重新比对本地当前值是否仍等于
+      // 发起请求时读到的值：若不等，说明期间用户已发生新的本地写入（如手动切换），
+      // 放弃本次回写，避免用旧的服务端值覆盖掉用户刚做的选择（丢失更新）。
       unawaited(
-        _fetchServerPlaylistViewType().then((server) {
-          if (server != null) {
-            _playlistViewPreferenceStore.writeViewType(server);
-          }
+        _fetchServerPlaylistViewType().then((server) async {
+          if (server == null) return;
+          final current = await _playlistViewPreferenceStore.readViewType();
+          if (current != cached) return;
+          await _playlistViewPreferenceStore.writeViewType(server);
         }),
       );
       return cached;
