@@ -91,6 +91,126 @@ void main() {
       }
     });
 
+    test('pages/screens 直连 feiniu_api 需在白名单内(白名单只许缩短,修一个删一行)', () {
+      // 静态扫描 lib/pages 与 lib/screens 下所有 .dart 文件是否 import feiniu_api.dart。
+      // 这是"公共页面绕过 MediaBackend 抽象层直连飞牛 API"的历史遗留面,新增 import 必须
+      // 先接入后端抽象再落地,否则本测试会因"未在白名单"而失败;已收口的文件要把它从
+      // 白名单里删掉——白名单只许缩短,不许再增长。
+      const whitelist = <String>{
+        'lib/pages/media_collection_detail_page.dart',
+        'lib/pages/play_detail_entry_page.dart',
+        'lib/pages/play_detail_page.dart',
+        'lib/pages/tv_detail_page.dart',
+        'lib/pages/tv_season_detail_page.dart',
+        'lib/screens/category_items_screen.dart',
+        'lib/screens/connection_screen.dart',
+        'lib/screens/favorite_items_screen.dart',
+        'lib/screens/fn_connect_web_login_page.dart',
+        'lib/screens/media_info_screen.dart',
+        'lib/screens/media_list_screen.dart',
+        'lib/screens/person_detail_screen.dart',
+        'lib/screens/play_detail_screen.dart',
+        'lib/screens/play_stats_debug/play_stats_debug_screen.dart',
+        'lib/screens/play_stats_report_screen.dart',
+        'lib/screens/poster_browse/poster_browse_loader.dart',
+        'lib/screens/poster_browse/poster_browse_screen.dart',
+        'lib/screens/search_screen.dart',
+      };
+
+      final importPattern = RegExp(
+        r'''import\s+['"][^'"]*feiniu_api\.dart['"]''',
+      );
+      final actual = <String>{};
+      for (final root in ['lib/pages', 'lib/screens']) {
+        for (final entity in Directory(root).listSync(recursive: true)) {
+          if (entity is! File || !entity.path.endsWith('.dart')) continue;
+          final normalized = entity.path.replaceAll('\\', '/');
+          if (importPattern.hasMatch(entity.readAsStringSync())) {
+            actual.add(normalized);
+          }
+        }
+      }
+
+      final unexpected = actual.difference(whitelist);
+      final stale = whitelist.difference(actual);
+
+      expect(
+        unexpected,
+        isEmpty,
+        reason: '发现未在白名单内直连 feiniu_api 的文件,新代码请改走 MediaBackend 抽象: $unexpected',
+      );
+      expect(
+        stale,
+        isEmpty,
+        reason: '白名单里的文件已不再直连 feiniu_api,请把这些条目从白名单删除: $stale',
+      );
+    });
+
+    test('公共 UI 层 MediaBackendKind.feiniu 硬分支需在白名单内(白名单只许缩短,修一个删一行)', () {
+      // 统计 lib/pages 与 lib/screens 下 `MediaBackendKind.feiniu` 字面量出现次数,按文件建立
+      // 计数白名单。这是"公共页面直接判断具体后端种类"的历史遗留面,新增判断必须先收敛进
+      // MediaBackendCapabilities 的语义化 getter 再落地;已收口的文件要把整行计数条目删掉——
+      // 白名单只许缩短,不许再增长。
+      const whitelist = <String, int>{
+        'lib/pages/media_collection_detail_page.dart': 1,
+        'lib/pages/play_detail_page.dart': 2,
+        'lib/pages/tv_detail_page.dart': 4,
+        'lib/pages/tv_season_detail_page.dart': 1,
+        'lib/screens/category_items_screen.dart': 2,
+        'lib/screens/connection_screen.dart': 5,
+        'lib/screens/favorite_items_screen.dart': 3,
+        'lib/screens/media_list_screen.dart': 8,
+        'lib/screens/person_detail_screen.dart': 1,
+        'lib/screens/play_detail_screen.dart': 1,
+        'lib/screens/poster_browse/poster_browse_loader.dart': 1,
+      };
+
+      final literalPattern = RegExp(r'MediaBackendKind\.feiniu');
+      final actual = <String, int>{};
+      for (final root in ['lib/pages', 'lib/screens']) {
+        for (final entity in Directory(root).listSync(recursive: true)) {
+          if (entity is! File || !entity.path.endsWith('.dart')) continue;
+          final normalized = entity.path.replaceAll('\\', '/');
+          final count = literalPattern
+              .allMatches(entity.readAsStringSync())
+              .length;
+          if (count > 0) {
+            actual[normalized] = count;
+          }
+        }
+      }
+
+      final unexpectedFiles = actual.keys.toSet().difference(
+        whitelist.keys.toSet(),
+      );
+      final staleFiles = whitelist.keys.toSet().difference(actual.keys.toSet());
+      final mismatched = <String>[
+        for (final key in actual.keys)
+          if (whitelist.containsKey(key) && whitelist[key] != actual[key])
+            '$key: 白名单=${whitelist[key]} 实际=${actual[key]}',
+      ];
+
+      expect(
+        unexpectedFiles,
+        isEmpty,
+        reason:
+            '发现未在白名单内出现 MediaBackendKind.feiniu 硬分支的文件,请收敛到能力模型: '
+            '$unexpectedFiles',
+      );
+      expect(
+        staleFiles,
+        isEmpty,
+        reason:
+            '白名单里的文件已不再出现 MediaBackendKind.feiniu,请把这些条目从白名单删除: '
+            '$staleFiles',
+      );
+      expect(
+        mismatched,
+        isEmpty,
+        reason: '白名单计数与实际不符,请更新为最新计数(计数减少也要同步更新): $mismatched',
+      );
+    });
+
     test('服务器族后端从注册表描述符创建', () {
       final descriptor = MediaBackendRegistry.requireDescriptor(
         MediaBackendKind.emby,
