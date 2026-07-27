@@ -1,11 +1,10 @@
 import 'dart:convert';
 
-import 'package:shared_preferences/shared_preferences.dart';
-
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/detail/media_episode_summary.dart';
 import '../media_backend/detail/media_season_summary.dart';
 import '../media_backend/media_backend.dart';
+import 'playlist_view_preference_store.dart';
 
 /// 服务器族原生壳「选集」反向通道支持。
 ///
@@ -22,9 +21,11 @@ import '../media_backend/media_backend.dart';
 class ServerNativePickerSupport {
   const ServerNativePickerSupport._();
 
-  static const String viewTypeCard = 'card';
-  static const String viewTypeButton = 'button';
-  static const String _viewTypeKey = 'playlist_view_type';
+  static const String viewTypeCard = PlaylistViewPreferenceStore.viewTypeCard;
+  static const String viewTypeButton =
+      PlaylistViewPreferenceStore.viewTypeButton;
+  static const PlaylistViewPreferenceStore _viewPreferenceStore =
+      PlaylistViewPreferenceStore();
 
   /// 选集面板数据：viewType + 季列表 + 指定季剧集。[currentLoadArgs] 为原生壳回传的
   /// 当前 loadArgs(JSON)，含 `seriesGuid` / `seasonGuid`。请求季优先 [seasonGuid]，否则
@@ -112,22 +113,14 @@ class ServerNativePickerSupport {
     if (normalized != viewTypeCard && normalized != viewTypeButton) {
       return false;
     }
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_viewTypeKey, normalized);
-      return true;
-    } catch (_) {
-      return false;
-    }
+    await _viewPreferenceStore.writeViewType(normalized);
+    return true;
   }
 
+  /// 读取本地视图偏好；与飞牛壳口径的差异在此收口——无缓存时默认 'card'
+  /// （飞牛壳无本地缓存会退回服务端真值，服务器族无对应服务端口径，故直接兜底）。
   static Future<String> _loadViewType() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final value = prefs.getString(_viewTypeKey)?.trim();
-      if (value == viewTypeCard || value == viewTypeButton) return value!;
-    } catch (_) {}
-    return viewTypeCard;
+    return (await _viewPreferenceStore.readViewType()) ?? viewTypeCard;
   }
 
   static Future<List<Map<String, dynamic>>> _loadSeasons(

@@ -32,4 +32,13 @@ void main() {
     const store = PlaylistViewPreferenceStore();
     expect(await store.readViewType(), isNull);
   });
+
+  test('writeViewType silently discards an illegal value', () async {
+    const store = PlaylistViewPreferenceStore();
+    await store.writeViewType('bogus');
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('playlist_view_type'), isNull);
+    expect(await store.readViewType(), isNull);
+  });
 }
