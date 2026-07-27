@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:fly_player/l10n/generated/app_localizations.dart';
+import 'package:fly_player/media_backend/feiniu/feiniu_media_detail_variant_mapper.dart';
 import 'package:fly_player/models/stream_list_option.dart';
 import 'package:fly_player/models/stream_track_data.dart';
 import 'package:fly_player/pages/media_detail_overlay_page.dart';
@@ -90,7 +91,7 @@ class PlayDetailSheetController {
     for (final option in streamOptions) {
       final mediaGuid = option.mediaGuid;
       variants.add(
-        MediaDetailVariant.fromFeiniu(
+        mapFeiniuMediaDetailVariant(
           key: mediaGuid,
           title: option.label,
           l10n: l10n,
