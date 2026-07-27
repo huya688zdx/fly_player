@@ -57,4 +57,18 @@ class AppLocaleProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_localeModeKey, mode.storageValue);
   }
+
+  /// 无 BuildContext 场景（如原生播放壳桥接）读取持久化的语言覆盖值：system 模式
+  /// 返回 null（调用方应回退平台语言），zhCN 返回固定的 `zh-CN`。直接读
+  /// SharedPreferences，不依赖 Provider 实例是否已构建/load 完成。
+  static Future<Locale?> loadStoredLocale() async {
+    final prefs = await SharedPreferences.getInstance();
+    final mode = AppLocaleMode.fromStorageValue(
+      prefs.getString(_localeModeKey) ?? '',
+    );
+    return switch (mode) {
+      AppLocaleMode.system => null,
+      AppLocaleMode.zhCN => const Locale('zh', 'CN'),
+    };
+  }
 }
