@@ -1,28 +1,45 @@
 import '../media_backend/media_image_ref.dart';
+import '../media_backend/media_image_request.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/nas_image_headers.dart';
 
-/// 一组解析完成的图片候选 + 访问 header。
+export '../media_backend/media_image_request.dart';
+
+/// 历史命名兼容别名：详情页早期把"URL 候选 + header"叫 DetailArtwork，
+/// 现统一为后端中立的 [MediaImageRequest]（多了 selfAuthenticated 标志）。
+typedef DetailArtwork = MediaImageRequest;
+
+/// URL 是否自带凭据（Emby `?api_key=` 直链）。**全库唯一**允许做该子串
+/// 判定的位置：组件层一律消费 [MediaImageRequest.selfAuthenticated]，
+/// 后端 mapper 走 [MediaImageRef.selfAuthenticated] 显式标注；这里仅为
+/// 旧 URL 字符串管线（MediaLibraryItem 等未携带标志的链路）兜底。
+bool _embedsSelfAuthCredential(String url) => url.contains('api_key=');
+
+/// 把"已拼好的完整 URL 候选 + NAS token"包装成 [MediaImageRequest]。
 ///
-/// 详情页的 `Image.network` 既要 URL 候选(主图失败回退次图),也要鉴权 header。
-/// 飞牛走 NAS token header,Emby 走 URL 内的 `api_key`(header 为空),这里统一表达。
-class DetailArtwork {
-  final List<String> urls;
-  final Map<String, String> headers;
-
-  const DetailArtwork({required this.urls, this.headers = const {}});
-
-  static const empty = DetailArtwork(urls: <String>[]);
-
-  bool get isEmpty => urls.isEmpty;
-  bool get isNotEmpty => urls.isNotEmpty;
+/// 旧组件层 `(urls, token)` 参数对的逐字节等价迁移入口：
+/// - header ≡ 旧组件内 `nasImageHeaders(token, url: 当前候选)`——候选恒同源，
+///   取首个候选算一次即可（与 [DetailArtworkResolver.resolvePath] 同口径）；
+/// - selfAuthenticated ≡ 旧组件内 `url.contains('api_key=')`——同一列表候选
+///   同后端产出、性质一致，取首个候选判定。
+MediaImageRequest mediaImageRequestForUrls(
+  List<String> urls, {
+  required String token,
+}) {
+  if (urls.isEmpty) return MediaImageRequest.empty;
+  return MediaImageRequest(
+    urls: urls,
+    headers: nasImageHeaders(token, url: urls.first),
+    selfAuthenticated: _embedsSelfAuthCredential(urls.first),
+  );
 }
 
 /// 后端中立的详情页图源解析器(纯 UI helper:不碰 BuildContext / 导航 / 播放句柄)。
 ///
 /// 把"一张 [MediaImageRef] 或飞牛相对路径 → 可直接喂 `Image.network` 的 URL 候选 + header"
 /// 的判定收成单一入口,让飞牛 / Emby 成功分支最终共用同一套渲染:
-/// - **完整 http(s) 直链**(Emby 自带 `api_key` 的图):直接用,header 取 ref 自带(通常为空)。
+/// - **完整 http(s) 直链**(Emby 自带 `api_key` 的图):直接用,header 取 ref 自带(通常为空),
+///   自鉴权标志优先取 ref 显式标注、旧字符串链路回退子串兜底。
 /// - **飞牛相对路径**:走 [ApiUrlHelper.imageCandidates] 拼候选 + [nasImageHeaders] 加 NAS token。
 ///
 /// 行为与旧页内联逻辑逐字段等价:`resolvePath(rawPath)` ≡ 旧 `imageCandidates(baseUrl, rawPath)`
@@ -37,45 +54,57 @@ class DetailArtworkResolver {
   const DetailArtworkResolver({required this.baseUrl, required this.token});
 
   /// 解析一张中立图引用。完整直链直接用,否则按飞牛相对路径拼接。
-  DetailArtwork resolveRef(
+  MediaImageRequest resolveRef(
     MediaImageRef ref, {
     int width = 900,
     bool preferDirectPath = false,
   }) {
     final url = ref.url.trim();
-    if (url.isEmpty) return DetailArtwork.empty;
+    if (url.isEmpty) return MediaImageRequest.empty;
     if (url.startsWith('http://') || url.startsWith('https://')) {
-      return DetailArtwork(urls: <String>[url], headers: ref.headers);
+      return MediaImageRequest(
+        urls: <String>[url],
+        headers: ref.headers,
+        selfAuthenticated:
+            ref.selfAuthenticated || _embedsSelfAuthCredential(url),
+      );
     }
     return resolvePath(url, width: width, preferDirectPath: preferDirectPath);
   }
 
   /// 解析飞牛相对路径(等价旧 `imageCandidates` + `nasImageHeaders` 调用)。
-  DetailArtwork resolvePath(
+  MediaImageRequest resolvePath(
     String path, {
     int width = 900,
     bool preferDirectPath = false,
   }) {
     final trimmed = path.trim();
-    if (trimmed.isEmpty) return DetailArtwork.empty;
+    if (trimmed.isEmpty) return MediaImageRequest.empty;
     final urls = ApiUrlHelper.imageCandidates(
       baseUrl,
       trimmed,
       width: width,
       preferDirectPath: preferDirectPath,
     );
-    if (urls.isEmpty) return DetailArtwork.empty;
-    return DetailArtwork(
+    if (urls.isEmpty) return MediaImageRequest.empty;
+    return MediaImageRequest(
       urls: urls,
       headers: nasImageHeaders(token, url: urls.first),
     );
   }
 
+  /// 把"已拼好的完整 URL 候选"包装成请求（用本 resolver 的 token 出 header）。
+  /// 语义同顶层 [mediaImageRequestForUrls]，供已持有 resolver 的调用方少传参。
+  MediaImageRequest resolveUrls(List<String> urls) {
+    return mediaImageRequestForUrls(urls, token: token);
+  }
+
   /// 顺序解析多张图引用并合并候选(背景 hero:背景图优先、退海报)。
-  /// header 取第一张非空的(同后端 header 一致)。
-  DetailArtwork resolveRefs(List<MediaImageRef> refs, {int width = 900}) {
+  /// header 取第一张非空的(同后端 header 一致);自鉴权标志按候选取或。
+  MediaImageRequest resolveRefs(List<MediaImageRef> refs, {int width = 900}) {
     final urls = <String>[];
     var headers = const <String, String>{};
+    var selfAuthenticated = false;
     for (final ref in refs) {
       final artwork = resolveRef(ref, width: width);
       if (artwork.isEmpty) continue;
@@ -83,7 +112,12 @@ class DetailArtworkResolver {
       if (headers.isEmpty && artwork.headers.isNotEmpty) {
         headers = artwork.headers;
       }
+      selfAuthenticated = selfAuthenticated || artwork.selfAuthenticated;
     }
-    return DetailArtwork(urls: urls, headers: headers);
+    return MediaImageRequest(
+      urls: urls,
+      headers: headers,
+      selfAuthenticated: selfAuthenticated,
+    );
   }
 }
