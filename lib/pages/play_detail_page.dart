@@ -776,11 +776,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     final title = detail.title.trim().isNotEmpty
         ? detail.title.trim()
         : detail.displayTitle;
-    final logoUrls = artworkResolver.resolveRef(detail.logoImage).urls;
-    final logoChild = logoUrls.isNotEmpty
+    final logoImages = artworkResolver.resolveRef(detail.logoImage);
+    final logoChild = logoImages.isNotEmpty
         ? DetailHeroLogoTitle(
-            urls: logoUrls,
-            token: '',
+            images: logoImages,
             fallbackTitle: title,
             maxHeight: 112,
             maxWidth:
@@ -832,7 +831,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               p,
               AppLocalizations.of(context),
             ),
-            imageUrls: artworkResolver.resolveRef(p.avatar, width: 180).urls,
+            images: artworkResolver.resolveRef(p.avatar, width: 180),
           ),
         )
         .toList();
@@ -967,7 +966,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                 _buildCreditsSliver(
                   colors: colors,
                   items: creditItems,
-                  token: '',
                   onTap: _openCreditPerson,
                 ),
               // 文件信息：复用飞牛同款 FileInfoSection（独立区块，与飞牛顺序一致排在视频信息前）。
@@ -1058,13 +1056,13 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   }
 
   /// 演职员 sliver(飞牛 + Emby 共享):复刻飞牛树(`_sectionReveal` 入场 + `Container` 内边距 +
-  /// `CreditsSection`)。可见性 / 非空门控由调用方负责;`token` 与 `onTap` 由调用方传入
-  /// (飞牛传 NAS token + `_openCreditPerson`,Emby 传空 token + 无跳转)。`colors` 必须由调用方
-  /// 传 builder 作用域的 `context.appColors`(`DynamicPageThemeScope` 会改写子树主题,不可在此重取)。
+  /// `CreditsSection`)。可见性 / 非空门控由调用方负责;头像鉴权随条目的
+  /// [CreditPersonItem.images] 走(飞牛 NAS header / Emby api_key 直链),`onTap` 由调用方传入。
+  /// `colors` 必须由调用方传 builder 作用域的 `context.appColors`
+  /// (`DynamicPageThemeScope` 会改写子树主题,不可在此重取)。
   Widget _buildCreditsSliver({
     required AppThemeColors colors,
     required List<CreditPersonItem> items,
-    required String token,
     ValueChanged<CreditPersonItem>? onTap,
   }) {
     return SliverToBoxAdapter(
@@ -1080,7 +1078,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           child: CreditsSection(
             title: AppLocalizations.of(context).detailCastCrewTitle,
             items: items,
-            token: token,
             onTap: onTap,
           ),
         ),
@@ -2834,19 +2831,17 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         final persistentHeroPath = _neutralDisplayOnly
             ? ''
             : _persistentHeroPath();
-        final persistentHeroUrls = _neutralDisplayOnly
+        final persistentHeroImages = _neutralDisplayOnly
             ? persistentResolver.resolveRefs(<MediaImageRef>[
                 if (_detail != null) _detail!.backdropImage,
                 if (_detail != null) _detail!.primaryImage,
-              ]).urls
+              ])
             : (persistentHeroPath.isEmpty
-                  ? const <String>[]
-                  : persistentResolver
-                        .resolvePath(
-                          persistentHeroPath,
-                          width: persistentBackdropWidth,
-                        )
-                        .urls);
+                  ? MediaImageRequest.empty
+                  : persistentResolver.resolvePath(
+                      persistentHeroPath,
+                      width: persistentBackdropWidth,
+                    ));
         final persistentPosterHeight = _backdropHeroHeight(
           persistentMedia.size,
         );
@@ -2858,13 +2853,11 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           valueListenable: _scrollOffsetNotifier,
           builder: (context, offset, _) {
             return ImmersiveDetailBackground(
-              urls: persistentHeroUrls,
+              images: persistentHeroImages,
               // 低清铺底已全链路停用（实机决策 2026-07-26）：360 小图放大到大半屏
               // 高糊感明显，慢网下"糊图期"数秒，比纯色等待更差；Emby 侧拿海报垫
               // backdrop 更是两张图跳变。hero 就绪前保持主题底色，一次淡入到位。
               // 组件的垫底/就绪卸载机制保留，将来有"同图小宽度"引用可直接启用。
-              lowResUrls: const <String>[],
-              token: persistentProvider.token,
               scrollOffset: offset,
               posterHeight: persistentPosterHeight,
               imageScale: persistentImageScale,
@@ -2920,14 +2913,12 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                 : (initialDisplayTitle.isNotEmpty
                       ? initialDisplayTitle
                       : fallbackTitle);
-            final logoUrls = deferAuxiliaryArtwork
-                ? const <String>[]
-                : artworkResolver
-                      .resolvePath(
-                        (item['logos'] ?? '').toString(),
-                        width: logoRequestWidth,
-                      )
-                      .urls;
+            final logoImages = deferAuxiliaryArtwork
+                ? MediaImageRequest.empty
+                : artworkResolver.resolvePath(
+                    (item['logos'] ?? '').toString(),
+                    width: logoRequestWidth,
+                  );
             final episodeHeroSubtitle =
                 ((item['type'] ?? '').toString().trim().toLowerCase() ==
                     'episode')
@@ -2949,10 +2940,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
             final initialHeroTitleChild = initialItemType != 'episode'
                 ? (deferAuxiliaryArtwork
                       ? const SizedBox.shrink()
-                      : (logoUrls.isNotEmpty
+                      : (logoImages.isNotEmpty
                             ? DetailHeroLogoTitle(
-                                urls: logoUrls,
-                                token: provider.token,
+                                images: logoImages,
                                 fallbackTitle: title,
                                 maxHeight: 112,
                                 maxWidth:
@@ -3098,18 +3088,18 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           );
           final reserveHeroInfoBlockHeight =
               _isPane || !_heroAsyncSectionsResolved;
-          final logoUrls = deferAuxiliaryArtwork
-              ? const <String>[]
-              : artworkResolver
-                    .resolveRef(detail.logoImage, width: logoRequestWidth)
-                    .urls;
+          final logoImages = deferAuxiliaryArtwork
+              ? MediaImageRequest.empty
+              : artworkResolver.resolveRef(
+                  detail.logoImage,
+                  width: logoRequestWidth,
+                );
           final heroTitleChild = itemType != 'episode'
               ? (deferAuxiliaryArtwork
                     ? const SizedBox.shrink()
-                    : (logoUrls.isNotEmpty
+                    : (logoImages.isNotEmpty
                           ? DetailHeroLogoTitle(
-                              urls: logoUrls,
-                              token: provider.token,
+                              images: logoImages,
                               fallbackTitle: detailTitle,
                               maxHeight: 112,
                               maxWidth:
@@ -3204,9 +3194,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                     e,
                     AppLocalizations.of(context),
                   ),
-                  imageUrls: artworkResolver
-                      .resolveRef(e.avatar, width: 180)
-                      .urls,
+                  images: artworkResolver.resolveRef(e.avatar, width: 180),
                 ),
               )
               .toList();
@@ -3408,7 +3396,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                       _buildCreditsSliver(
                         colors: colors,
                         items: creditItems,
-                        token: provider.token,
                         onTap: _openCreditPerson,
                       ),
                     if (_fileInfoVisible)

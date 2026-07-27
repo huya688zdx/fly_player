@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../../media_backend/media_image_request.dart';
 import '../../theme/app_theme.dart';
 import '../../ui/capability_badge_mapper.dart';
-import '../../utils/nas_image_headers.dart';
 
 class MediaLibraryListTile extends StatelessWidget {
-  final List<String> urls;
-  final String token;
+  final MediaImageRequest images;
   final String title;
   final String subtitle;
   final List<String> resolutions;
@@ -17,8 +16,7 @@ class MediaLibraryListTile extends StatelessWidget {
 
   const MediaLibraryListTile({
     super.key,
-    required this.urls,
-    required this.token,
+    required this.images,
     required this.title,
     required this.subtitle,
     required this.resolutions,
@@ -50,7 +48,7 @@ class MediaLibraryListTile extends StatelessWidget {
               child: SizedBox(
                 width: 72,
                 height: 46,
-                child: _ListThumb(urls: urls, token: token),
+                child: _ListThumb(images: images),
               ),
             ),
             const SizedBox(width: 10),
@@ -128,15 +126,16 @@ String? _resolutionBadgeAsset(List<String> resolutions) {
 }
 
 class _ListThumb extends StatelessWidget {
-  final List<String> urls;
-  final String token;
+  final MediaImageRequest images;
 
-  const _ListThumb({required this.urls, required this.token});
+  const _ListThumb({required this.images});
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    if (urls.isEmpty || token.trim().isEmpty) {
+    // H-018:"能否加载"改由 MediaImageRequest.canLoad 承载——飞牛无 token
+    // 仍回退占位,Emby 自鉴权直链(api_key)即使 NAS token 为空也照常加载。
+    if (!images.canLoad) {
       return Container(
         color: colors.surfaceStrong,
         alignment: Alignment.center,
@@ -153,16 +152,16 @@ class _ListThumb extends StatelessWidget {
         final cacheWidth = constraints.maxWidth.isFinite
             ? (constraints.maxWidth * dpr).round().clamp(96, 220)
             : 160;
-        final cacheHeight = constraints.maxHeight.isFinite
-            ? (constraints.maxHeight * dpr).round().clamp(72, 160)
-            : 104;
+        // 图源是竖版海报(约2:3),此处缩略图框是横版(约16:10)。cacheWidth+
+        // cacheHeight 双维同传会走 ResizeImagePolicy.exact 精确缩放(不保比
+        // 例),把人脸/构图压扁;只传 cacheWidth 单维解码保比例,cover 再按高
+        // 裁剪即可(同 media_collection_browser.dart 的 _ListThumb 修法)。
         return Image.network(
-          urls.first,
+          images.urls.first,
           fit: BoxFit.cover,
           filterQuality: FilterQuality.none,
           cacheWidth: cacheWidth,
-          cacheHeight: cacheHeight,
-          headers: nasImageHeaders(token, url: urls.first),
+          headers: images.headers,
           errorBuilder: (_, __, ___) {
             return Container(
               color: colors.surfaceStrong,

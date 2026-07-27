@@ -22,6 +22,7 @@ import '../services/native_player_bridge.dart';
 import '../theme/app_theme.dart';
 import '../ui/app_transitions.dart';
 import '../ui/capability_badge_mapper.dart';
+import '../ui/detail_artwork_resolver.dart';
 import '../ui/media_detail_components.dart';
 import '../utils/async_action_guard.dart';
 import '../utils/app_top_tip.dart';
@@ -2268,7 +2269,10 @@ class _DownloadPosterImage extends StatelessWidget {
         children: <Widget>[
           ColoredBox(
             color: colors.surfaceStrong.withValues(alpha: 0.92),
-            child: DetailHeroImage(urls: urls, token: token, fit: BoxFit.cover),
+            child: DetailHeroImage(
+              images: mediaImageRequestForUrls(urls, token: token),
+              fit: BoxFit.cover,
+            ),
           ),
           if (normalizedBadge.isNotEmpty)
             Positioned(
@@ -2333,8 +2337,7 @@ class _DownloadGroupPosterImage extends StatelessWidget {
             child: AspectRatio(
               aspectRatio: 2 / 3,
               child: DetailHeroImage(
-                urls: urls,
-                token: token,
+                images: mediaImageRequestForUrls(urls, token: token),
                 fit: BoxFit.contain,
               ),
             ),

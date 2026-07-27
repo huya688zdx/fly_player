@@ -20,6 +20,7 @@ import '../services/embedded_detail_launcher.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_detail_navigator.dart';
 import '../ui/app_transitions.dart';
+import '../ui/detail_artwork_resolver.dart';
 import '../ui/detail_presentation.dart';
 import '../ui/layout_adaptive.dart';
 import '../ui/media_episode_subtitle.dart';
@@ -743,6 +744,25 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
           ),
         )
         .toList(growable: false);
+  }
+
+  /// F-031:海报图请求统一在此产出(经 [mediaImageRequestForUrls] 单一入口),
+  /// 网格/列表构建不再向下透传 baseUrl/token。
+  MediaImageRequest _posterImages(
+    MediaLibraryItem item, {
+    int width = 400,
+    bool preferDirectPath = false,
+  }) {
+    final provider = context.read<NasProvider>();
+    return mediaImageRequestForUrls(
+      _posterCandidates(
+        provider.baseUrl,
+        item,
+        width: width,
+        preferDirectPath: preferDirectPath,
+      ),
+      token: provider.token,
+    );
   }
 
   bool _isPersonItem(MediaLibraryItem item) {

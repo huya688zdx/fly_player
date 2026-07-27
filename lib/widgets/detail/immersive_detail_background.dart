@@ -3,18 +3,18 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../media_backend/media_image_request.dart';
 import '../../theme/app_theme.dart';
 import '../../ui/route_transition_gate.dart';
-import '../../utils/nas_image_headers.dart';
 
 class ImmersiveDetailBackground extends StatefulWidget {
-  final List<String> urls;
+  final MediaImageRequest images;
 
   /// 低清占位图候选（通常是取色用的 ~360px 小图，多数已在缓存）。在大图 decode/raster
   /// 完成前先铺底，避免详情进入时 hero 区有 ~90ms 空白单帧（首次大图 raster 尖峰）。
   /// 大图就绪后由其 frameBuilder 淡入覆盖在低清之上。为空则退回原行为。
-  final List<String> lowResUrls;
-  final String token;
+  /// 注意封面同源垫底规则：垫底图必须与主图同源，调用方宁可传空。
+  final MediaImageRequest lowResImages;
   final double scrollOffset;
   final double posterHeight;
 
@@ -39,9 +39,8 @@ class ImmersiveDetailBackground extends StatefulWidget {
 
   const ImmersiveDetailBackground({
     super.key,
-    required this.urls,
-    this.lowResUrls = const <String>[],
-    required this.token,
+    required this.images,
+    this.lowResImages = MediaImageRequest.empty,
     required this.scrollOffset,
     required this.posterHeight,
     this.imageScale = 1.0,
@@ -86,13 +85,13 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
 
   void _ensureImageLayers({required bool isAndroid}) {
     final sig = <Object?>[
-      widget.urls.join(''),
-      widget.token,
+      widget.images.urls.join(''),
+      widget.images.headers.values.join(''),
       _index,
       widget.imageFit,
       widget.imageAlignment,
       widget.fillGapsWithImage,
-      widget.lowResUrls.join(''),
+      widget.lowResImages.urls.join(''),
       isAndroid,
     ].join('|');
     if (sig == _imageLayersSig && _mainImageLayer != null) {
@@ -101,24 +100,17 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
     _imageLayersSig = sig;
     // 低清铺底层：仅在大图 decode/raster 完成前可见，大图淡入后被其不透明像素覆盖。
     // 取低清候选首选项，立即显示、不淡入（小图解码快，多数已在取色缓存里）。
-    // 与 _BackgroundImage 同款鉴权判定：无 NAS token 但 URL 自带凭据
-    // （Emby `?api_key=`）时照常加载。
-    final lowResUrl = widget.lowResUrls.isNotEmpty
-        ? widget.lowResUrls.first
-        : '';
-    _lowResImageLayer =
-        (lowResUrl.isNotEmpty &&
-            (widget.token.trim().isNotEmpty || lowResUrl.contains('api_key=')))
+    // 与 _BackgroundImage 同款鉴权判定：MediaImageRequest.canLoad 统一承载。
+    _lowResImageLayer = widget.lowResImages.canLoad
         ? _LowResBackgroundImage(
-            url: lowResUrl,
-            token: widget.token,
+            url: widget.lowResImages.urls.first,
+            headers: widget.lowResImages.headers,
             fit: widget.imageFit,
             alignment: widget.imageAlignment,
           )
         : null;
     _mainImageLayer = _BackgroundImage(
-      urls: widget.urls,
-      token: widget.token,
+      images: widget.images,
       index: _index,
       fit: widget.imageFit,
       alignment: widget.imageAlignment,
@@ -129,8 +121,7 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
         ? Opacity(
             opacity: 0.38,
             child: _BackgroundImage(
-              urls: widget.urls,
-              token: widget.token,
+              images: widget.images,
               index: _index,
               fit: BoxFit.cover,
               alignment: widget.imageAlignment,
@@ -143,8 +134,8 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
   @override
   void didUpdateWidget(covariant ImmersiveDetailBackground oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!listEquals(oldWidget.urls, widget.urls) ||
-        oldWidget.token != widget.token) {
+    if (!listEquals(oldWidget.images.urls, widget.images.urls) ||
+        !mapEquals(oldWidget.images.headers, widget.images.headers)) {
       _index = 0;
       _resetMainImageReady();
     }
@@ -352,7 +343,7 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
   }
 
   void _nextFallbackImage(int failedIndex) {
-    if (!mounted || _index + 1 >= widget.urls.length) {
+    if (!mounted || _index + 1 >= widget.images.urls.length) {
       return;
     }
     if (failedIndex != _index) return;
@@ -365,8 +356,7 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
 }
 
 class _BackgroundImage extends StatelessWidget {
-  final List<String> urls;
-  final String token;
+  final MediaImageRequest images;
   final int index;
   final BoxFit fit;
   final Alignment alignment;
@@ -377,8 +367,7 @@ class _BackgroundImage extends StatelessWidget {
   final VoidCallback? onFirstFrame;
 
   const _BackgroundImage({
-    required this.urls,
-    required this.token,
+    required this.images,
     required this.index,
     required this.fit,
     required this.alignment,
@@ -388,12 +377,12 @@ class _BackgroundImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasUrl = urls.isNotEmpty && index < urls.length;
+    final urls = images.urls;
+    final hasUrl = index < urls.length;
     final currentUrl = hasUrl ? urls[index] : '';
-    // 空 token 默认回退底色（飞牛背景图需 NAS token 鉴权）；但 URL 自带凭据时
-    // （如 Emby 的 `?api_key=`，自鉴权、不依赖 NAS token）照常加载。
-    final selfAuthenticated = currentUrl.contains('api_key=');
-    if (!hasUrl || (token.trim().isEmpty && !selfAuthenticated)) {
+    // 无候选或无鉴权（既无 header 也非自鉴权直链）时回退底色，
+    // 判定语义由 MediaImageRequest.canLoad 统一承载。
+    if (!hasUrl || !images.canLoad) {
       return Container(color: context.appColors.surface);
     }
     return LayoutBuilder(
@@ -414,7 +403,7 @@ class _BackgroundImage extends StatelessWidget {
           filterQuality: isAndroid ? FilterQuality.low : FilterQuality.medium,
           gaplessPlayback: true,
           cacheWidth: cacheWidth,
-          headers: nasImageHeaders(token, url: currentUrl),
+          headers: images.headers,
           frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
             if (wasSynchronouslyLoaded || frame != null) {
               onFirstFrame?.call();
@@ -458,13 +447,13 @@ class _BackgroundImage extends StatelessWidget {
 /// 失败则透明（让底色透出）。垫在主图之下，主图淡入后被其不透明像素覆盖。
 class _LowResBackgroundImage extends StatelessWidget {
   final String url;
-  final String token;
+  final Map<String, String> headers;
   final BoxFit fit;
   final Alignment alignment;
 
   const _LowResBackgroundImage({
     required this.url,
-    required this.token,
+    required this.headers,
     required this.fit,
     required this.alignment,
   });
@@ -479,7 +468,7 @@ class _LowResBackgroundImage extends StatelessWidget {
       gaplessPlayback: true,
       // 低清只需小尺寸解码，省内存与上传开销。
       cacheWidth: 480,
-      headers: nasImageHeaders(token, url: url),
+      headers: headers,
       errorBuilder: (_, __, ___) => const SizedBox.shrink(),
     );
   }

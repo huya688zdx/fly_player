@@ -33,7 +33,7 @@ import '../ui/player_pane_host_scope.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
 import '../utils/imdb_launcher.dart';
-import '../utils/nas_image_headers.dart';
+import '../ui/detail_artwork_resolver.dart';
 import '../utils/swallowed_error_logger.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/detail/detail_header.dart';
@@ -553,10 +553,9 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
     );
   }
 
-  Widget _buildProfileImage(List<String> urls, String token) {
+  Widget _buildProfileImage(MediaImageRequest images) {
     return _PersonProfileImage(
-      urls: urls,
-      token: token,
+      images: images,
       fallback: _personPhotoFallback(),
     );
   }
@@ -570,31 +569,11 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
   }
 
   /// Emby 人物照片：完整 api_key 直链（自鉴权），失败回退人物图标。
+  /// F-034:与飞牛照片共用 [_PersonProfileImage],鉴权语义统一进请求对象。
   Widget _buildNeutralProfileImage(String url) {
     if (url.trim().isEmpty) return _personPhotoFallback();
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final dpr = MediaQuery.of(context).devicePixelRatio.clamp(1.0, 1.8);
-        final cacheWidth = constraints.maxWidth.isFinite
-            ? (constraints.maxWidth * dpr).round().clamp(160, 280)
-            : 240;
-        final cacheHeight = constraints.maxHeight.isFinite
-            ? (constraints.maxHeight * dpr).round().clamp(220, 400)
-            : 340;
-        return Image.network(
-          url,
-          fit: BoxFit.cover,
-          filterQuality: FilterQuality.low,
-          cacheWidth: cacheWidth,
-          cacheHeight: cacheHeight,
-          errorBuilder: (_, error, __) {
-            debugPrint(
-              '[IMG][PERSON_PROFILE][neutral] failed url=$url error=$error',
-            );
-            return _personPhotoFallback();
-          },
-        );
-      },
+    return _buildProfileImage(
+      mediaImageRequestForUrls(<String>[url.trim()], token: ''),
     );
   }
 
@@ -731,10 +710,12 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
                 final rating = double.tryParse(item.rating);
                 final isEpisode = item.type.trim().toLowerCase() == 'episode';
                 return MediaPosterCard(
-                  urls: item.primaryImage.url.trim().isNotEmpty
-                      ? <String>[item.primaryImage.url.trim()]
-                      : const <String>[],
-                  token: '',
+                  images: mediaImageRequestForUrls(
+                    item.primaryImage.url.trim().isNotEmpty
+                        ? <String>[item.primaryImage.url.trim()]
+                        : const <String>[],
+                    token: '',
+                  ),
                   title: item.displayTitle,
                   subtitle: _yearFromCard(item),
                   rating: rating,
@@ -878,12 +859,14 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
                               width: profileWidth,
                               height: profileHeight,
                               child: _buildProfileImage(
-                                _imageCandidates(
-                                  provider.baseUrl,
-                                  person.profilePath,
-                                  width: 260,
+                                mediaImageRequestForUrls(
+                                  _imageCandidates(
+                                    provider.baseUrl,
+                                    person.profilePath,
+                                    width: 260,
+                                  ),
+                                  token: provider.token,
                                 ),
-                                provider.token,
                               ),
                             ),
                           ),
@@ -982,12 +965,14 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
                                 .where((e) => e.trim().isNotEmpty)
                                 .toList();
                             return MediaPosterCard(
-                              urls: _imageCandidates(
-                                provider.baseUrl,
-                                item.poster,
-                                width: layout.homePosterRequestWidth,
+                              images: mediaImageRequestForUrls(
+                                _imageCandidates(
+                                  provider.baseUrl,
+                                  item.poster,
+                                  width: layout.homePosterRequestWidth,
+                                ),
+                                token: provider.token,
                               ),
-                              token: provider.token,
                               title: item.displayTitle,
                               subtitle: _year(item),
                               rating: rating,
@@ -1189,15 +1174,10 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
 }
 
 class _PersonProfileImage extends StatefulWidget {
-  final List<String> urls;
-  final String token;
+  final MediaImageRequest images;
   final Widget fallback;
 
-  const _PersonProfileImage({
-    required this.urls,
-    required this.token,
-    required this.fallback,
-  });
+  const _PersonProfileImage({required this.images, required this.fallback});
 
   @override
   State<_PersonProfileImage> createState() => _PersonProfileImageState();
@@ -1209,18 +1189,19 @@ class _PersonProfileImageState extends State<_PersonProfileImage> {
   @override
   void didUpdateWidget(covariant _PersonProfileImage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final urlsChanged = !listEquals(oldWidget.urls, widget.urls);
-    final tokenChanged = oldWidget.token != widget.token;
-    if (urlsChanged || tokenChanged) {
+    final urlsChanged = !listEquals(oldWidget.images.urls, widget.images.urls);
+    final headersChanged = !mapEquals(
+      oldWidget.images.headers,
+      widget.images.headers,
+    );
+    if (urlsChanged || headersChanged) {
       _index = 0;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (widget.urls.isEmpty ||
-        _index >= widget.urls.length ||
-        widget.token.trim().isEmpty) {
+    if (_index >= widget.images.urls.length || !widget.images.canLoad) {
       return widget.fallback;
     }
 
@@ -1233,17 +1214,17 @@ class _PersonProfileImageState extends State<_PersonProfileImage> {
         final cacheHeight = constraints.maxHeight.isFinite
             ? (constraints.maxHeight * dpr).round().clamp(220, 400)
             : 340;
-        final currentUrl = widget.urls[_index];
+        final currentUrl = widget.images.urls[_index];
         return Image.network(
           currentUrl,
           fit: BoxFit.cover,
           filterQuality: FilterQuality.low,
           cacheWidth: cacheWidth,
           cacheHeight: cacheHeight,
-          headers: nasImageHeaders(widget.token, url: currentUrl),
+          headers: widget.images.headers,
           errorBuilder: (_, error, ___) {
-            if (_index + 1 < widget.urls.length) {
-              final nextUrl = widget.urls[_index + 1];
+            if (_index + 1 < widget.images.urls.length) {
+              final nextUrl = widget.images.urls[_index + 1];
               debugPrint(
                 '[IMG][PERSON_PROFILE] failed url=$currentUrl error=$error -> fallback=$nextUrl',
               );

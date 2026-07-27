@@ -1590,16 +1590,17 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         : _neutralSeriesRating.trim();
     final rating = double.tryParse(ratingText) ?? 0;
 
-    // 背景:系列 backdrop 完整直链(Phase C 透传),回退季详情 backdrop/海报。
-    final backdropUrls = widget.backdropPath.trim().isNotEmpty
-        ? <String>[widget.backdropPath.trim()]
-        : artworkResolver
-              .resolveRef(
-                detail.backdropImage.isNotEmpty
-                    ? detail.backdropImage
-                    : detail.primaryImage,
-              )
-              .urls;
+    // 背景:系列 backdrop 完整直链(Phase C 透传,自鉴权判定走统一入口),
+    // 回退季详情 backdrop/海报。
+    final backdropImages = widget.backdropPath.trim().isNotEmpty
+        ? mediaImageRequestForUrls(<String>[
+            widget.backdropPath.trim(),
+          ], token: '')
+        : artworkResolver.resolveRef(
+            detail.backdropImage.isNotEmpty
+                ? detail.backdropImage
+                : detail.primaryImage,
+          );
     // 海报卡:季自身海报(优先季摘要,回退季详情主图)。
     final posterRef = (season != null && season.primaryImage.isNotEmpty)
         ? season.primaryImage
@@ -1618,7 +1619,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
               p,
               AppLocalizations.of(context),
             ),
-            imageUrls: artworkResolver.resolveRef(p.avatar, width: 180).urls,
+            images: artworkResolver.resolveRef(p.avatar, width: 180),
           ),
         )
         .toList();
@@ -1719,9 +1720,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
           valueListenable: _scrollOffsetNotifier,
           builder: (context, offset, _) {
             return ImmersiveDetailBackground(
-              urls: backdropUrls,
-              lowResUrls: const <String>[],
-              token: '',
+              images: backdropImages,
               scrollOffset: offset,
               posterHeight: posterHeight,
               imageScale: 1.0,
@@ -1864,7 +1863,6 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                                 context,
                               ).detailCastCrewTitle,
                               items: creditItems,
-                              token: '',
                               onTap: _openCreditPerson,
                             )
                           : null,
@@ -3037,7 +3035,10 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                 personGuid: p.personGuid,
                 name: p.displayName,
                 subtitle: p.displaySubTitle,
-                imageUrls: _imageCandidates(p.profilePath, width: 180),
+                images: mediaImageRequestForUrls(
+                  _imageCandidates(p.profilePath, width: 180),
+                  token: provider.token,
+                ),
               ),
             )
             .toList();
@@ -3082,10 +3083,11 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                     valueListenable: _scrollOffsetNotifier,
                     builder: (context, offset, _) {
                       return ImmersiveDetailBackground(
-                        urls: backdropUrls,
+                        images: mediaImageRequestForUrls(
+                          backdropUrls,
+                          token: provider.token,
+                        ),
                         // 低清铺底已全链路停用（糊图放大比纯色等待更差，实机决策）。
-                        lowResUrls: const <String>[],
-                        token: provider.token,
                         scrollOffset: offset,
                         posterHeight: posterHeight,
                         imageScale: heroImageScale,
@@ -3314,7 +3316,6 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                                           context,
                                         ).detailCastCrewTitle,
                                         items: creditItems,
-                                        token: provider.token,
                                         onTap: _openCreditPerson,
                                       )
                                     : null,

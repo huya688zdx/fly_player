@@ -1,34 +1,32 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 
+import '../../media_backend/media_image_request.dart';
 import '../../theme/app_theme.dart';
-import '../../utils/nas_image_headers.dart';
 
 class CreditPersonItem {
   final String personGuid;
   final String name;
   final String subtitle;
-  final List<String> imageUrls;
+  final MediaImageRequest images;
 
   const CreditPersonItem({
     this.personGuid = '',
     required this.name,
     required this.subtitle,
-    this.imageUrls = const [],
+    this.images = MediaImageRequest.empty,
   });
 }
 
 class CreditsSection extends StatelessWidget {
   final String title;
   final List<CreditPersonItem> items;
-  final String token;
   final ValueChanged<CreditPersonItem>? onTap;
 
   const CreditsSection({
     super.key,
     required this.title,
     required this.items,
-    required this.token,
     this.onTap,
   });
 
@@ -71,7 +69,6 @@ class CreditsSection extends StatelessWidget {
               final item = items[index];
               return _CreditPersonCard(
                 item: item,
-                token: token,
                 cardWidth: cardWidth,
                 avatarSize: avatarSize,
                 nameSize: nameSize,
@@ -88,7 +85,6 @@ class CreditsSection extends StatelessWidget {
 
 class _CreditPersonCard extends StatelessWidget {
   final CreditPersonItem item;
-  final String token;
   final double cardWidth;
   final double avatarSize;
   final double nameSize;
@@ -97,7 +93,6 @@ class _CreditPersonCard extends StatelessWidget {
 
   const _CreditPersonCard({
     required this.item,
-    required this.token,
     required this.cardWidth,
     required this.avatarSize,
     required this.nameSize,
@@ -118,7 +113,7 @@ class _CreditPersonCard extends StatelessWidget {
             child: SizedBox(
               width: avatarSize,
               height: avatarSize,
-              child: _CreditAvatar(urls: item.imageUrls, token: token),
+              child: _CreditAvatar(images: item.images),
             ),
           ),
           const SizedBox(height: 8),
@@ -158,10 +153,9 @@ class _CreditPersonCard extends StatelessWidget {
 }
 
 class _CreditAvatar extends StatefulWidget {
-  final List<String> urls;
-  final String token;
+  final MediaImageRequest images;
 
-  const _CreditAvatar({required this.urls, required this.token});
+  const _CreditAvatar({required this.images});
 
   @override
   State<_CreditAvatar> createState() => _CreditAvatarState();
@@ -173,9 +167,12 @@ class _CreditAvatarState extends State<_CreditAvatar> {
   @override
   void didUpdateWidget(covariant _CreditAvatar oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final urlsChanged = !listEquals(oldWidget.urls, widget.urls);
-    final tokenChanged = oldWidget.token != widget.token;
-    if (urlsChanged || tokenChanged) {
+    final urlsChanged = !listEquals(oldWidget.images.urls, widget.images.urls);
+    final headersChanged = !mapEquals(
+      oldWidget.images.headers,
+      widget.images.headers,
+    );
+    if (urlsChanged || headersChanged) {
       _index = 0;
     }
   }
@@ -183,12 +180,11 @@ class _CreditAvatarState extends State<_CreditAvatar> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final hasUrl = widget.urls.isNotEmpty && _index < widget.urls.length;
-    // 空 token 默认回退占位（飞牛头像需 NAS token 鉴权）；Emby 头像走 `?api_key=`
-    // 自鉴权直链，空 token 也照常加载。
-    final selfAuthenticated =
-        hasUrl && widget.urls[_index].contains('api_key=');
-    if (!hasUrl || (widget.token.trim().isEmpty && !selfAuthenticated)) {
+    final urls = widget.images.urls;
+    final hasUrl = _index < urls.length;
+    // 无候选或无鉴权(既无 header 也非自鉴权直链)时回退占位,
+    // 判定语义由 MediaImageRequest.canLoad 统一承载。
+    if (!hasUrl || !widget.images.canLoad) {
       return Container(
         color: colors.surfaceStrong,
         alignment: Alignment.center,
@@ -207,13 +203,13 @@ class _CreditAvatarState extends State<_CreditAvatar> {
             ? (constraints.maxWidth * dpr).round().clamp(96, 180)
             : 144;
         return Image.network(
-          widget.urls[_index],
+          urls[_index],
           fit: BoxFit.cover,
           alignment: Alignment.center,
           filterQuality: FilterQuality.low,
           gaplessPlayback: true,
           cacheWidth: cacheW,
-          headers: nasImageHeaders(widget.token, url: widget.urls[_index]),
+          headers: widget.images.headers,
           frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
             if (wasSynchronouslyLoaded) return child;
             return AnimatedOpacity(
@@ -224,9 +220,9 @@ class _CreditAvatarState extends State<_CreditAvatar> {
             );
           },
           errorBuilder: (_, error, ___) {
-            if (_index + 1 < widget.urls.length) {
-              final currentUrl = widget.urls[_index];
-              final nextUrl = widget.urls[_index + 1];
+            if (_index + 1 < urls.length) {
+              final currentUrl = urls[_index];
+              final nextUrl = urls[_index + 1];
               debugPrint(
                 '[IMG][CREDIT_AVATAR] failed url=$currentUrl error=$error -> fallback=$nextUrl',
               );
@@ -236,7 +232,7 @@ class _CreditAvatarState extends State<_CreditAvatar> {
               return const SizedBox.expand();
             }
             debugPrint(
-              '[IMG][CREDIT_AVATAR] failed url=${widget.urls[_index]} error=$error -> no_more_fallback',
+              '[IMG][CREDIT_AVATAR] failed url=${urls[_index]} error=$error -> no_more_fallback',
             );
             return Container(
               color: colors.surfaceStrong,

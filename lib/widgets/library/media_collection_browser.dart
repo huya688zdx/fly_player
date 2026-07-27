@@ -6,10 +6,10 @@ import '../../models/media_collection_view_type.dart';
 import '../../models/media_library_item.dart';
 import '../../theme/app_theme.dart';
 import '../../ui/capability_badge_mapper.dart';
+import '../../ui/detail_artwork_resolver.dart';
 import '../../ui/layout_adaptive.dart';
 import '../../ui/media_poster_card.dart';
 import '../../utils/api_url_helper.dart';
-import '../../utils/nas_image_headers.dart';
 
 class MediaCollectionBrowserSliver extends StatelessWidget {
   final List<MediaLibraryItem> items;
@@ -129,13 +129,15 @@ class _PosterGridSliverLayout extends StatelessWidget {
         delegate: SliverChildBuilderDelegate((context, index) {
           final item = items[index];
           return MediaPosterCard(
-            urls: _posterCandidates(
-              baseUrl,
-              item,
-              width: horizontal ? 720 : layout.categoryGridRequestWidth,
-              preferDirectPath: horizontal,
+            images: mediaImageRequestForUrls(
+              _posterCandidates(
+                baseUrl,
+                item,
+                width: horizontal ? 720 : layout.categoryGridRequestWidth,
+                preferDirectPath: horizontal,
+              ),
+              token: token,
             ),
-            token: token,
             title: item.displayTitle,
             subtitle: _subtitleFor(context, item),
             imageAspectRatioHint: item.hasPosterSize
@@ -192,15 +194,14 @@ class _ResolutionBadge extends StatelessWidget {
 }
 
 class _ListThumb extends StatelessWidget {
-  final List<String> urls;
-  final String token;
+  final MediaImageRequest images;
 
-  const _ListThumb({required this.urls, required this.token});
+  const _ListThumb({required this.images});
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    if (urls.isEmpty || token.trim().isEmpty) {
+    if (!images.canLoad) {
       return Container(
         color: colors.surfaceStrong,
         alignment: Alignment.center,
@@ -216,10 +217,10 @@ class _ListThumb extends StatelessWidget {
     // 只传 cacheWidth 单维解码保比例,cover 才能正常按高裁剪。
     final dpr = MediaQuery.of(context).devicePixelRatio.clamp(1.0, 1.8);
     return Image.network(
-      urls.first,
+      images.urls.first,
       fit: BoxFit.cover,
       cacheWidth: (72 * dpr).round(),
-      headers: nasImageHeaders(token, url: urls.first),
+      headers: images.headers,
       errorBuilder: (_, __, ___) {
         return Container(
           color: colors.surfaceStrong,
@@ -295,7 +296,10 @@ class _ListSliverLayout extends StatelessWidget {
             return const SizedBox(height: 8);
           }
           final item = items[index ~/ 2];
-          final urls = _posterCandidates(baseUrl, item, width: 280);
+          final images = mediaImageRequestForUrls(
+            _posterCandidates(baseUrl, item, width: 280),
+            token: token,
+          );
           return InkWell(
             onTap: () => onItemTap(item),
             onLongPress: () => onItemLongPress(item),
@@ -315,7 +319,7 @@ class _ListSliverLayout extends StatelessWidget {
                     child: SizedBox(
                       width: 72,
                       height: 46,
-                      child: _ListThumb(urls: urls, token: token),
+                      child: _ListThumb(images: images),
                     ),
                   ),
                   const SizedBox(width: 10),

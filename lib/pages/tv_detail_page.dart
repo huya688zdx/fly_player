@@ -887,15 +887,14 @@ class _TvDetailPageState extends State<TvDetailPage>
         ? detail.title.trim()
         : detail.displayTitle;
     final overview = detail.overview.trim();
-    final heroUrls = artworkResolver.resolveRef(detail.backdropImage).urls;
+    final heroImages = artworkResolver.resolveRef(detail.backdropImage);
     // 注意：不要拿海报当 backdrop 的"低清铺底"——海报与 backdrop 是两张不同的图，
     // 垫底视觉上是"先显示剧集封面、大图就绪后跳变"（实机确认的错图闪），不是
     // 低清→高清的渐进。Emby 低清位留空，待 mapper 产出同图小宽度引用再启用。
-    final logoUrls = artworkResolver.resolveRef(detail.logoImage).urls;
-    final heroTitleChild = logoUrls.isNotEmpty
+    final logoImages = artworkResolver.resolveRef(detail.logoImage);
+    final heroTitleChild = logoImages.isNotEmpty
         ? DetailHeroLogoTitle(
-            urls: logoUrls,
-            token: '',
+            images: logoImages,
             fallbackTitle: title,
             maxHeight: 124,
             maxWidth:
@@ -932,7 +931,7 @@ class _TvDetailPageState extends State<TvDetailPage>
               p,
               AppLocalizations.of(context),
             ),
-            imageUrls: artworkResolver.resolveRef(p.avatar, width: 180).urls,
+            images: artworkResolver.resolveRef(p.avatar, width: 180),
           ),
         )
         .toList();
@@ -948,9 +947,7 @@ class _TvDetailPageState extends State<TvDetailPage>
             valueListenable: _scrollOffsetNotifier,
             builder: (context, offset, _) {
               return ImmersiveDetailBackground(
-                urls: heroUrls,
-                lowResUrls: const <String>[],
-                token: '',
+                images: heroImages,
                 scrollOffset: offset,
                 posterHeight: posterHeight,
                 imageScale: heroAdaptive.imageScale * 1.04,
@@ -1095,7 +1092,6 @@ class _TvDetailPageState extends State<TvDetailPage>
                             context,
                           ).detailCastCrewTitle,
                           items: creditItems,
-                          token: '',
                           onTap: _openCreditPerson,
                         ),
                       ],
@@ -1202,13 +1198,10 @@ class _TvDetailPageState extends State<TvDetailPage>
             return SizedBox(
               width: layout.homePosterCardWidth,
               child: MediaPosterCard(
-                urls: artworkResolver
-                    .resolveRef(
-                      season.primaryImage,
-                      width: layout.homePosterRequestWidth,
-                    )
-                    .urls,
-                token: '',
+                images: artworkResolver.resolveRef(
+                  season.primaryImage,
+                  width: layout.homePosterRequestWidth,
+                ),
                 title: _neutralSeasonTitle(season),
                 subtitle: _neutralSeasonSubtitle(season),
                 imageHeight: layout.homePosterImageHeight,
@@ -1692,26 +1685,31 @@ class _TvDetailPageState extends State<TvDetailPage>
                 .clamp(480.0, 1200.0)
                 .round();
 
-        final heroUrls = deferArtwork
-            ? const <String>[]
-            : ApiUrlHelper.imageCandidates(
-                provider.baseUrl,
-                _heroBackdropsFor(item),
-                width: backdropRequestWidth,
+        final heroImages = deferArtwork
+            ? MediaImageRequest.empty
+            : mediaImageRequestForUrls(
+                ApiUrlHelper.imageCandidates(
+                  provider.baseUrl,
+                  _heroBackdropsFor(item),
+                  width: backdropRequestWidth,
+                ),
+                token: provider.token,
               );
-        final logoUrls = deferArtwork
-            ? const <String>[]
-            : ApiUrlHelper.imageCandidates(
-                provider.baseUrl,
-                (item['logos'] ?? '').toString(),
-                width: logoRequestWidth,
+        final logoImages = deferArtwork
+            ? MediaImageRequest.empty
+            : mediaImageRequestForUrls(
+                ApiUrlHelper.imageCandidates(
+                  provider.baseUrl,
+                  (item['logos'] ?? '').toString(),
+                  width: logoRequestWidth,
+                ),
+                token: provider.token,
               );
         final heroTitleChild = deferArtwork
             ? const SizedBox.shrink()
-            : (logoUrls.isNotEmpty
+            : (logoImages.isNotEmpty
                   ? DetailHeroLogoTitle(
-                      urls: logoUrls,
-                      token: provider.token,
+                      images: logoImages,
                       fallbackTitle: title,
                       maxHeight: 124,
                       maxWidth:
@@ -1729,10 +1727,8 @@ class _TvDetailPageState extends State<TvDetailPage>
                 valueListenable: _scrollOffsetNotifier,
                 builder: (context, offset, _) {
                   return ImmersiveDetailBackground(
-                    urls: heroUrls,
+                    images: heroImages,
                     // 低清铺底已全链路停用（糊图放大比纯色等待更差，实机决策）。
-                    lowResUrls: const <String>[],
-                    token: provider.token,
                     scrollOffset: offset,
                     posterHeight: posterHeight,
                     imageScale: heroAdaptive.imageScale * 1.04,
@@ -1894,12 +1890,15 @@ class _TvDetailPageState extends State<TvDetailPage>
                                         // 此时一定要真海报。若再用 _artworkReady 二次门控,季列表
                                         // 网络快于描述揭示定时器时会先渲染占位、待 _artworkReady
                                         // 翻 true 整批换真海报 → 肉眼可见的「刷新」。与演职员同理。
-                                        urls: _posterCandidates(
-                                          provider.baseUrl,
-                                          season.poster,
-                                          width: layout.homePosterRequestWidth,
+                                        images: mediaImageRequestForUrls(
+                                          _posterCandidates(
+                                            provider.baseUrl,
+                                            season.poster,
+                                            width:
+                                                layout.homePosterRequestWidth,
+                                          ),
+                                          token: provider.token,
                                         ),
-                                        token: provider.token,
                                         title: _seasonTitle(season),
                                         subtitle: _seasonSubtitle(season),
                                         rating: (rating != null && rating > 0)
@@ -1954,8 +1953,7 @@ class _TvDetailPageState extends State<TvDetailPage>
                                   return SizedBox(
                                     width: layout.homePosterCardWidth,
                                     child: MediaPosterCard(
-                                      urls: const <String>[],
-                                      token: provider.token,
+                                      images: MediaImageRequest.empty,
                                       title: AppLocalizations.of(
                                         context,
                                       ).detailSeasonNumber(seasonNumber),

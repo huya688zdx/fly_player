@@ -5,20 +5,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../l10n/generated/app_localizations.dart';
+import '../media_backend/media_image_request.dart';
 import '../theme/app_theme.dart';
-import '../utils/nas_image_headers.dart';
 import '../widgets/common/liquid_glass.dart';
 import 'app_transitions.dart';
 
 class DetailHeroImage extends StatefulWidget {
-  final List<String> urls;
-  final String token;
+  final MediaImageRequest images;
   final BoxFit fit;
 
   const DetailHeroImage({
     super.key,
-    required this.urls,
-    required this.token,
+    required this.images,
     this.fit = BoxFit.cover,
   });
 
@@ -32,22 +30,24 @@ class _DetailHeroImageState extends State<DetailHeroImage> {
   @override
   void didUpdateWidget(covariant DetailHeroImage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final urlsChanged = !listEquals(oldWidget.urls, widget.urls);
-    final tokenChanged = oldWidget.token != widget.token;
-    if (urlsChanged || tokenChanged) _index = 0;
+    final urlsChanged = !listEquals(oldWidget.images.urls, widget.images.urls);
+    final headersChanged = !mapEquals(
+      oldWidget.images.headers,
+      widget.images.headers,
+    );
+    if (urlsChanged || headersChanged) _index = 0;
   }
 
   @override
   Widget build(BuildContext context) {
-    if (widget.urls.isEmpty || _index >= widget.urls.length) {
+    if (widget.images.urls.isEmpty || _index >= widget.images.urls.length) {
       return _buildPlaceholder();
     }
-    final url = widget.urls[_index];
+    final url = widget.images.urls[_index];
     final isLocal = _isLocalImageSource(url);
-    // 空 token 默认回退占位(飞牛图需 NAS token);Emby 图走 `?api_key=` 自鉴权直链,
-    // 空 token 也照常加载(与 DetailHeroLogoTitle 同口径)。
-    final selfAuthenticated = url.contains('api_key=');
-    if (!isLocal && widget.token.trim().isEmpty && !selfAuthenticated) {
+    // 本地文件不需鉴权;网络图无鉴权(既无 header 也非自鉴权直链)时回退占位,
+    // 判定语义由 MediaImageRequest.canLoad 统一承载(与 DetailHeroLogoTitle 同口径)。
+    if (!isLocal && !widget.images.canLoad) {
       return _buildPlaceholder();
     }
     return LayoutBuilder(
@@ -59,31 +59,42 @@ class _DetailHeroImageState extends State<DetailHeroImage> {
         final cacheH = constraints.maxHeight.isFinite
             ? (constraints.maxHeight * dpr).round().clamp(120, 2400)
             : null;
+        // cacheWidth/cacheHeight 双维同传会走 ResizeImagePolicy.exact 精确缩放
+        // (不保比例),容器宽高比与源图不同时会把海报压扁;这里改用
+        // ResizeImage + ResizeImagePolicy.fit,在限制框内等比缩放,交由外层
+        // fit 负责裁剪/留白。
+        ImageProvider provider = isLocal
+            ? FileImage(File(_localImagePath(url)))
+            : NetworkImage(url, headers: widget.images.headers);
+        if (cacheW != null || cacheH != null) {
+          provider = ResizeImage(
+            provider,
+            width: cacheW,
+            height: cacheH,
+            policy: ResizeImagePolicy.fit,
+            allowUpscaling: false,
+          );
+        }
         return AppTransitions.crossFadeSwitch(
           switchKey: 'detail-hero-$url',
           duration: AppTransitions.contentSwitchDuration,
           alignment: Alignment.center,
           child: isLocal
-              ? Image.file(
-                  File(_localImagePath(url)),
+              ? Image(
+                  image: provider,
                   key: ValueKey<String>(url),
                   fit: widget.fit,
                   filterQuality: FilterQuality.low,
                   gaplessPlayback: true,
-                  cacheWidth: cacheW,
-                  cacheHeight: cacheH,
                   errorBuilder: (_, error, ___) =>
                       _fallbackOrPlaceholder(currentUrl: url, error: error),
                 )
-              : Image.network(
-                  url,
+              : Image(
+                  image: provider,
                   key: ValueKey<String>(url),
                   fit: widget.fit,
                   filterQuality: FilterQuality.low,
                   gaplessPlayback: true,
-                  cacheWidth: cacheW,
-                  cacheHeight: cacheH,
-                  headers: nasImageHeaders(widget.token, url: url),
                   frameBuilder:
                       (context, child, frame, wasSynchronouslyLoaded) {
                         if (wasSynchronouslyLoaded) return child;
@@ -106,8 +117,8 @@ class _DetailHeroImageState extends State<DetailHeroImage> {
     required String currentUrl,
     required Object error,
   }) {
-    if (_index + 1 < widget.urls.length) {
-      final nextUrl = widget.urls[_index + 1];
+    if (_index + 1 < widget.images.urls.length) {
+      final nextUrl = widget.images.urls[_index + 1];
       debugPrint(
         '[IMG][DETAIL_HERO] failed url=$currentUrl error=$error -> fallback=$nextUrl',
       );

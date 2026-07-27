@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../media_backend/media_image_request.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/detail_tokens.dart';
-import '../../utils/nas_image_headers.dart';
 import 'detail_info_block.dart';
 
 class DetailHeroOverlay extends StatelessWidget {
@@ -118,8 +118,7 @@ class DetailHeroOverlay extends StatelessWidget {
 }
 
 class DetailHeroLogoTitle extends StatefulWidget {
-  final List<String> urls;
-  final String token;
+  final MediaImageRequest images;
   final String fallbackTitle;
   final double maxHeight;
   final double maxWidth;
@@ -127,8 +126,7 @@ class DetailHeroLogoTitle extends StatefulWidget {
 
   const DetailHeroLogoTitle({
     super.key,
-    required this.urls,
-    required this.token,
+    required this.images,
     required this.fallbackTitle,
     required this.maxHeight,
     required this.maxWidth,
@@ -145,23 +143,23 @@ class _DetailHeroLogoTitleState extends State<DetailHeroLogoTitle> {
   @override
   void didUpdateWidget(covariant DetailHeroLogoTitle oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.urls != widget.urls || oldWidget.token != widget.token) {
+    if (oldWidget.images.urls != widget.images.urls ||
+        oldWidget.images.headers != widget.images.headers) {
       _index = 0;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final hasUrl = widget.urls.isNotEmpty && _index < widget.urls.length;
-    // 空 token 默认回退标题文本(飞牛 logo 需 NAS token);Emby logo 走 `?api_key=`
-    // 自鉴权直链,空 token 也照常加载。
-    final selfAuthenticated =
-        hasUrl && widget.urls[_index].contains('api_key=');
-    if (!hasUrl || (widget.token.trim().isEmpty && !selfAuthenticated)) {
+    final urls = widget.images.urls;
+    final hasUrl = _index < urls.length;
+    // 无候选或无鉴权(既无 header 也非自鉴权直链)时回退标题文本,
+    // 判定语义由 MediaImageRequest.canLoad 统一承载。
+    if (!hasUrl || !widget.images.canLoad) {
       return _fallbackTitle(context);
     }
 
-    final url = widget.urls[_index];
+    final url = urls[_index];
     // logo 宽度受屏宽约束(数值很大且非真实尺寸),高度才是有效约束;
     // 只按 maxHeight 换算 cacheHeight,宽度交给解码器按原始比例自适应,
     // 避免宽高都传导致非等比拉伸。
@@ -178,7 +176,7 @@ class _DetailHeroLogoTitleState extends State<DetailHeroLogoTitle> {
         alignment: Alignment.centerLeft,
         filterQuality: FilterQuality.medium,
         cacheHeight: cacheHeight,
-        headers: nasImageHeaders(widget.token, url: url),
+        headers: widget.images.headers,
         frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
           if (wasSynchronouslyLoaded) return child;
           return AnimatedOpacity(
@@ -189,7 +187,7 @@ class _DetailHeroLogoTitleState extends State<DetailHeroLogoTitle> {
           );
         },
         errorBuilder: (context, error, stackTrace) {
-          if (_index + 1 < widget.urls.length) {
+          if (_index + 1 < widget.images.urls.length) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (mounted) {
                 setState(() {

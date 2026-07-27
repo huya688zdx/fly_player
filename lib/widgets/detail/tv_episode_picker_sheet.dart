@@ -7,6 +7,7 @@ import '../../models/tv_episode_browser_models.dart';
 import '../../models/tv_episode_picker_mode.dart';
 import '../../theme/app_theme.dart';
 import '../../ui/app_transitions.dart';
+import '../../ui/detail_artwork_resolver.dart';
 import '../../ui/media_detail_components.dart';
 import '../common/liquid_glass.dart';
 
@@ -458,7 +459,12 @@ class _EpisodeListView extends StatelessWidget {
                   child: SizedBox(
                     width: 122,
                     height: 68,
-                    child: DetailHeroImage(urls: entry.imageUrls, token: token),
+                    child: DetailHeroImage(
+                      images: mediaImageRequestForUrls(
+                        entry.imageUrls,
+                        token: token,
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 14),
