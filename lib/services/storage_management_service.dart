@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -890,22 +891,50 @@ class StorageManagementService {
   static Future<int> _estimatePlayStatsBytes() async {
     try {
       final databasesPath = await getDatabasesPath();
-      final basePath = p.join(
-        databasesPath,
-        SqflitePlayStatsDatabase.databaseName,
-      );
+      final directory = Directory(databasesPath);
+      if (!await directory.exists()) {
+        return 0;
+      }
       var total = 0;
-      for (final path in <String>[basePath, '$basePath-wal', '$basePath-shm']) {
-        final file = File(path);
-        if (await file.exists()) {
-          total += await file.length();
+      await for (final entity in directory.list(followLinks: false)) {
+        if (entity is! File) {
+          continue;
         }
+        if (!isPlayStatsDatabaseFileName(p.basename(entity.path))) {
+          continue;
+        }
+        total += await entity.length();
       }
       return total;
     } catch (_) {
       return 0;
     }
   }
+
+  /// 判断数据库目录下的文件是否属于播放统计。
+  ///
+  /// 统计库按账号分作用域：默认库为 `play_stats.db`，切换账号后还会生成
+  /// `play_stats_<scope>.db`（见 SqflitePlayStatsDatabase 的作用域文件名规则），
+  /// 每个库另有 `-wal` / `-shm` / `-journal` 附属文件。只认默认库会漏算多账号用户的占用。
+  @visibleForTesting
+  static bool isPlayStatsDatabaseFileName(String fileName) {
+    const databaseName = SqflitePlayStatsDatabase.databaseName;
+    const suffix = '.db';
+    if (!databaseName.endsWith(suffix)) {
+      return fileName == databaseName;
+    }
+    final stem = databaseName.substring(0, databaseName.length - suffix.length);
+    if (!fileName.startsWith(stem)) {
+      return false;
+    }
+    return _playStatsDatabaseTailPattern.hasMatch(
+      fileName.substring(stem.length),
+    );
+  }
+
+  static final RegExp _playStatsDatabaseTailPattern = RegExp(
+    r'^(_[A-Za-z0-9_]+)?\.db(-wal|-shm|-journal)?$',
+  );
 
   static Future<int> _estimateDanmakuCacheBytes() async {
     try {
