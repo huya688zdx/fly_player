@@ -41,6 +41,14 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
         ),
         title: Text(AppLocalizations.of(context).homeTitle),
         actions: <Widget>[
+          if (!widget.secondaryHost)
+            IconButton(
+              icon: const Icon(Icons.connected_tv_outlined),
+              tooltip: AppLocalizations.of(context).posterBrowseEntryTooltip,
+              onPressed: () {
+                Navigator.of(context).pushNamed('/screen/poster-browse');
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.search),
             onPressed: () {
