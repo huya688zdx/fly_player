@@ -16,6 +16,9 @@ class DanmakuSavedSourceStore {
   static const String _fileName = 'danmaku_saved_sources_v1.json';
   static const String _autoMatchBlockedByMediaKey = 'autoMatchBlockedByMedia';
   static final ValueNotifier<int> _revision = ValueNotifier<int>(0);
+  // 所有写方法（读整体 payload → 改 → 整体写回）串行化到同一条队列上，
+  // 避免并发写入时后完成的整体覆盖写丢失先完成的改动。
+  static Future<void> _mutationQueue = Future<void>.value();
 
   const DanmakuSavedSourceStore();
 
@@ -85,7 +88,11 @@ class DanmakuSavedSourceStore {
     return value.isEmpty ? null : value;
   }
 
-  Future<void> saveSource(DanmakuSavedSource source) async {
+  Future<void> saveSource(DanmakuSavedSource source) {
+    return _enqueueMutation(() => _saveSource(source));
+  }
+
+  Future<void> _saveSource(DanmakuSavedSource source) async {
     final payload = await _loadPayload();
     final sources = (payload['sources'] as List<dynamic>? ?? const <dynamic>[])
         .whereType<Map>()
@@ -131,6 +138,15 @@ class DanmakuSavedSourceStore {
   Future<void> removeSource({
     required String mediaKey,
     required String sourceKey,
+  }) {
+    return _enqueueMutation(
+      () => _removeSource(mediaKey: mediaKey, sourceKey: sourceKey),
+    );
+  }
+
+  Future<void> _removeSource({
+    required String mediaKey,
+    required String sourceKey,
   }) async {
     final payload = await _loadPayload();
     final sources = (payload['sources'] as List<dynamic>? ?? const <dynamic>[])
@@ -160,6 +176,15 @@ class DanmakuSavedSourceStore {
   Future<void> setActiveSourceKey({
     required String mediaKey,
     required String? sourceKey,
+  }) {
+    return _enqueueMutation(
+      () => _setActiveSourceKey(mediaKey: mediaKey, sourceKey: sourceKey),
+    );
+  }
+
+  Future<void> _setActiveSourceKey({
+    required String mediaKey,
+    required String? sourceKey,
   }) async {
     final payload = await _loadPayload();
     final activeByMedia = Map<String, dynamic>.from(
@@ -179,6 +204,15 @@ class DanmakuSavedSourceStore {
   Future<void> saveAutoMatchBlockedReason({
     required String mediaKey,
     required String reason,
+  }) {
+    return _enqueueMutation(
+      () => _saveAutoMatchBlockedReason(mediaKey: mediaKey, reason: reason),
+    );
+  }
+
+  Future<void> _saveAutoMatchBlockedReason({
+    required String mediaKey,
+    required String reason,
   }) async {
     final normalizedMediaKey = mediaKey.trim();
     final normalizedReason = reason.trim();
@@ -193,7 +227,11 @@ class DanmakuSavedSourceStore {
     _notifyChanged();
   }
 
-  Future<void> clearAutoMatchBlockedReason(String mediaKey) async {
+  Future<void> clearAutoMatchBlockedReason(String mediaKey) {
+    return _enqueueMutation(() => _clearAutoMatchBlockedReason(mediaKey));
+  }
+
+  Future<void> _clearAutoMatchBlockedReason(String mediaKey) async {
     final normalizedMediaKey = mediaKey.trim();
     if (normalizedMediaKey.isEmpty) return;
     final payload = await _loadPayload();
@@ -303,5 +341,20 @@ class DanmakuSavedSourceStore {
 
   void _notifyChanged() {
     _revision.value++;
+  }
+
+  /// 把一次"读整体 payload → 改 → 整体写回"的操作串行化排队执行，
+  /// 保证并发写方法之间不会互相用旧 payload 覆盖对方的改动。
+  Future<T> _enqueueMutation<T>(Future<T> Function() action) {
+    final previous = _mutationQueue;
+    final completer = Completer<void>();
+    _mutationQueue = completer.future;
+    return previous.then((_) async {
+      try {
+        return await action();
+      } finally {
+        completer.complete();
+      }
+    });
   }
 }

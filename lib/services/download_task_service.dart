@@ -705,8 +705,29 @@ class DownloadTaskService extends ChangeNotifier {
         if (updatedRecord != null) {
           _records[index] = updatedRecord;
         }
+        // 与 _runStartDownload 保持一致：重新查询媒体流选项判断当前分辨率是否
+        // 命中已有版本；未命中则说明需要服务端重新转码，必须等待转码完成后再
+        // 下载，否则会立刻请求一个尚未就绪的地址而失败。
+        String? sourceResolution;
+        try {
+          final streamData = await api.getStreamTrackData(
+            pausedRecord.itemGuid,
+          );
+          final matchedOption = _pickStreamOption(
+            streamData.options,
+            resolution: pausedRecord.resolution,
+            mediaGuid: pausedRecord.mediaGuid,
+          );
+          final metadataOption =
+              matchedOption ??
+              (streamData.options.isNotEmpty ? streamData.options.first : null);
+          sourceResolution = metadataOption?.resolutionType;
+        } catch (_) {}
         // Poll for transcode since this is a fresh task.
-        if (_shouldPollTaskProgressForResolution(pausedRecord.resolution)) {
+        if (_shouldPollTaskProgressForResolution(
+          pausedRecord.resolution,
+          sourceResolution: sourceResolution,
+        )) {
           debugPrint('[DL] resume: transcode polling for new task');
           _startDownloadTaskProgressPolling(
             api: api,
@@ -920,7 +941,10 @@ class DownloadTaskService extends ChangeNotifier {
           await raf.close();
         } catch (_) {}
       }
-      _cancelTokens.remove(recordId);
+      // 只清理确实属于本次调用的 token，避免误删后续（暂停后又恢复）注册的新 token。
+      if (identical(_cancelTokens[recordId], cancelToken)) {
+        _cancelTokens.remove(recordId);
+      }
     }
   }
 
@@ -1814,7 +1838,10 @@ class DownloadTaskService extends ChangeNotifier {
           await raf.close();
         } catch (_) {}
       }
-      _cancelTokens.remove(record.id);
+      // 只清理确实属于本次调用的 token，避免误删后续（暂停后又恢复）注册的新 token。
+      if (identical(_cancelTokens[record.id], cancelToken)) {
+        _cancelTokens.remove(record.id);
+      }
     }
   }
 
