@@ -9,6 +9,7 @@ import '../../theme/app_theme.dart';
 import '../common/liquid_glass.dart';
 import '../../theme/download_sheet_theme.dart';
 import '../../ui/capability_badge_mapper.dart';
+import '../../ui/detail_artwork_resolver.dart';
 import '../../ui/media_detail_components.dart';
 
 class TvSeasonDownloadQualityOption {
@@ -788,7 +789,7 @@ class _DownloadPoster extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            DetailHeroImage(urls: urls, token: token),
+            DetailHeroImage(images: mediaImageRequestForUrls(urls, token: token)),
             if (badgeLabel.trim().isNotEmpty)
               Positioned(
                 right: 0,

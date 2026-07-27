@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../theme/app_theme.dart';
 import '../../ui/app_transitions.dart';
+import '../../ui/detail_artwork_resolver.dart';
 import '../../ui/media_detail_components.dart';
 import 'detail_description_section.dart';
 import 'detail_icon_button.dart';
@@ -225,7 +226,12 @@ class TvSeasonDetailPanel extends StatelessWidget {
                 child: SizedBox(
                   width: posterWidth,
                   height: posterCardHeight,
-                  child: DetailHeroImage(urls: posterUrls, token: token),
+                  child: DetailHeroImage(
+                    images: mediaImageRequestForUrls(
+                      posterUrls,
+                      token: token,
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(width: 16),

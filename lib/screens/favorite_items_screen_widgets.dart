@@ -46,12 +46,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
       children: <Widget>[
         _buildSortFilterRow(layout, tab),
         Expanded(
-          child: _buildGrid(
-            tab: tab,
-            baseUrl: provider.baseUrl,
-            token: provider.token,
-            layout: layout,
-          ),
+          child: _buildGrid(tab: tab, layout: layout),
         ),
       ],
     );
@@ -221,8 +216,6 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
 
   Widget _buildGrid({
     required _FavoriteTab tab,
-    required String baseUrl,
-    required String token,
     required MediaLayoutProfile layout,
   }) {
     final data = _dataOf(tab);
@@ -266,8 +259,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
           itemBuilder: (context, index) {
             final item = data.items[index];
             return MediaLibraryListTile(
-              urls: _posterCandidates(baseUrl, item, width: 280),
-              token: token,
+              images: _posterImages(item, width: 280),
               title: item.displayTitle,
               subtitle: _cardSubtitle(item),
               resolutions: item.resolutions
@@ -311,15 +303,14 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
               itemBuilder: (context, index) {
                 final item = data.items[index];
                 final posterItem = _posterWallDisplayItem(item);
-                final urls = _posterCandidates(baseUrl, posterItem, width: 720);
+                final images = _posterImages(posterItem, width: 720);
                 final rating = double.tryParse(posterItem.voteAverage);
                 final resolutions = posterItem.resolutions
                     .map(_resolutionLabel)
                     .where((value) => value.isNotEmpty)
                     .toList();
                 return MediaPosterCard(
-                  urls: urls,
-                  token: token,
+                  images: images,
                   title: item.displayTitle,
                   subtitle: _cardSubtitle(item),
                   imageAspectRatioHint: posterItem.hasPosterSize
@@ -361,8 +352,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
           itemCount: data.items.length,
           itemBuilder: (context, index) {
             final item = data.items[index];
-            final urls = _posterCandidates(
-              baseUrl,
+            final images = _posterImages(
               item,
               width: layout.categoryGridRequestWidth,
             );
@@ -372,8 +362,7 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
                 .where((value) => value.isNotEmpty)
                 .toList();
             return MediaPosterCard(
-              urls: urls,
-              token: token,
+              images: images,
               title: item.displayTitle,
               subtitle: _cardSubtitle(item),
               rating: rating,
