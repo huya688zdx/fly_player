@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import com.geqian.flyplayer.fly_player.R
+import com.geqian.flyplayer.fly_player.localizedString
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -623,18 +624,18 @@ class PersistentPlaybackCacheStore(
             metadata.episodeNumber > 0 -> {
                 val series = metadata.seriesTitle.ifBlank { metadata.title }.trim()
                 when {
-                    metadata.seasonNumber == 0 -> context.getString(
+                    metadata.seasonNumber == 0 -> context.localizedString(
                         R.string.playback_cache_file_series_special_episode,
                         series,
                         metadata.episodeNumber,
                     )
-                    metadata.seasonNumber > 0 -> context.getString(
+                    metadata.seasonNumber > 0 -> context.localizedString(
                         R.string.playback_cache_file_series_season_episode,
                         series,
                         metadata.seasonNumber,
                         metadata.episodeNumber,
                     )
-                    else -> context.getString(
+                    else -> context.localizedString(
                         R.string.playback_cache_file_series_episode,
                         series,
                         metadata.episodeNumber,
@@ -643,7 +644,7 @@ class PersistentPlaybackCacheStore(
             }
             metadata.seasonNumber > 0 -> {
                 val series = metadata.seriesTitle.ifBlank { metadata.title }.trim()
-                context.getString(
+                context.localizedString(
                     R.string.playback_cache_file_series_season,
                     series,
                     metadata.seasonNumber,
@@ -651,7 +652,7 @@ class PersistentPlaybackCacheStore(
             }
             metadata.seasonNumber == 0 && metadata.seriesTitle.isNotBlank() -> {
                 val series = metadata.seriesTitle.trim()
-                context.getString(R.string.playback_cache_file_series_special, series)
+                context.localizedString(R.string.playback_cache_file_series_special, series)
             }
             else -> metadata.title.ifBlank { metadata.mediaGuid.ifBlank { "video" } }.trim()
         }
@@ -666,24 +667,24 @@ class PersistentPlaybackCacheStore(
         }
         when {
             metadata.episodeNumber > 0 && metadata.seasonNumber == 0 -> {
-                segments += context.getString(R.string.playback_cache_special_episode)
-                segments += context.getString(
+                segments += context.localizedString(R.string.playback_cache_special_episode)
+                segments += context.localizedString(
                     R.string.playback_cache_episode_number,
                     metadata.episodeNumber,
                 )
             }
             metadata.episodeNumber > 0 && metadata.seasonNumber > 0 -> {
-                segments += context.getString(
+                segments += context.localizedString(
                     R.string.playback_cache_season_number,
                     metadata.seasonNumber,
                 )
-                segments += context.getString(
+                segments += context.localizedString(
                     R.string.playback_cache_episode_number,
                     metadata.episodeNumber,
                 )
             }
             metadata.seasonNumber > 0 -> {
-                segments += context.getString(
+                segments += context.localizedString(
                     R.string.playback_cache_season_number,
                     metadata.seasonNumber,
                 )
@@ -692,7 +693,7 @@ class PersistentPlaybackCacheStore(
         if (metadata.resolution.isNotBlank()) {
             segments += metadata.resolution
         }
-        return segments.joinToString(context.getString(R.string.playback_cache_entry_separator))
+        return segments.joinToString(context.localizedString(R.string.playback_cache_entry_separator))
     }
 
     private fun uniqueTargetFile(root: File, fileName: String): File {
