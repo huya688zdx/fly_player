@@ -2,7 +2,9 @@ import '../api/emby_api.dart';
 import '../api/feiniu_api.dart';
 import '../api/jellyfin_api.dart';
 import '../providers/nas_provider.dart';
+import '../services/play_stats/play_stats_metadata_gateway.dart';
 import 'feiniu/feiniu_media_backend.dart';
+import 'feiniu/feiniu_play_stats_gateway.dart';
 import 'emby/emby_media_backend.dart';
 import 'jellyfin/jellyfin_media_backend.dart';
 import 'media_backend.dart';
@@ -97,6 +99,20 @@ class MediaBackendRegistry {
   /// 解析飞牛原生回调的入口仍通过此处取得实例，避免调用方散落具体工厂。
   static MediaBackend createLegacyFeiniu(NasProvider nas) {
     return FeiniuMediaBackend(FeiniuApi(nas));
+  }
+
+  /// 创建播放统计所需的元数据网关；未连接后端时返回 null。
+  ///
+  /// 目前只有遗留飞牛后端在 Flutter 侧产出播放统计（服务器族走原生上报），
+  /// 所以这里直接给飞牛实现；后续若有别的后端接入统计，在此按连接态分流即可，
+  /// 统计页与回填服务不必改动。
+  static PlayStatsMetadataGateway? createPlayStatsMetadataGateway(
+    NasProvider nas,
+  ) {
+    if (!nas.isConfigured) {
+      return null;
+    }
+    return FeiniuPlayStatsGateway(FeiniuApi(nas));
   }
 
   static MediaBackendDescriptor? descriptorFor(MediaBackendKind kind) {

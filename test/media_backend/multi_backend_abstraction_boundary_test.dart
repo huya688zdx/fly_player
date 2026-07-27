@@ -91,6 +91,27 @@ void main() {
       }
     });
 
+    test('播放统计模块不直连具体后端 API', () {
+      // 回填与统计页的元数据能力统一走 PlayStatsMetadataGateway 抽象,
+      // 飞牛实现由 MediaBackendRegistry 注入,统计模块自身不得再 import 任何后端客户端。
+      for (final entity in Directory(
+        'lib/services/play_stats',
+      ).listSync(recursive: true)) {
+        if (entity is! File || !entity.path.endsWith('.dart')) continue;
+        final source = entity.readAsStringSync();
+        expect(
+          source,
+          isNot(contains(RegExp(r'''import\s+['"][^'"]*feiniu_api\.dart'''))),
+          reason: '${entity.path} 不应直连 feiniu_api',
+        );
+        expect(
+          source,
+          isNot(contains(RegExp(r'''import\s+['"][^'"]*emby_api\.dart'''))),
+          reason: '${entity.path} 不应直连 emby_api',
+        );
+      }
+    });
+
     test('pages/screens 直连 feiniu_api 需在白名单内(白名单只许缩短,修一个删一行)', () {
       // 静态扫描 lib/pages 与 lib/screens 下所有 .dart 文件是否 import feiniu_api.dart。
       // 这是"公共页面绕过 MediaBackend 抽象层直连飞牛 API"的历史遗留面,新增 import 必须
@@ -110,8 +131,6 @@ void main() {
         'lib/screens/media_list_screen.dart',
         'lib/screens/person_detail_screen.dart',
         'lib/screens/play_detail_screen.dart',
-        'lib/screens/play_stats_debug/play_stats_debug_screen.dart',
-        'lib/screens/play_stats_report_screen.dart',
         'lib/screens/poster_browse/poster_browse_loader.dart',
         'lib/screens/poster_browse/poster_browse_screen.dart',
         'lib/screens/search_screen.dart',
