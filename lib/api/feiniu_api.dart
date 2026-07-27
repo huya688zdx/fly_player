@@ -8,7 +8,6 @@ import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'item_list_request.dart';
 import 'person_list_request.dart';
@@ -25,6 +24,8 @@ import '../models/server_play_session.dart';
 import '../models/stream_list_option.dart';
 import '../models/stream_track_data.dart';
 import '../providers/nas_provider.dart';
+import '../services/playback_client_id_store.dart';
+import '../services/playlist_view_preference_store.dart';
 import '../utils/app_exception.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/private_network_http_overrides.dart';
@@ -425,6 +426,9 @@ class FeiniuApi {
   final Random _random = Random();
   // Deduplicate identical paged-list requests during fast scrolling.
   final Map<String, Future<ItemListPage>> _itemListInflight = {};
+  final PlaylistViewPreferenceStore _playlistViewPreferenceStore =
+      const PlaylistViewPreferenceStore();
+  final PlaybackClientIdStore _playbackClientIdStore = PlaybackClientIdStore();
 
   FeiniuApi(this.nasProvider, {HttpClientAdapter? httpClientAdapter}) {
     if (httpClientAdapter != null) {
@@ -1546,10 +1550,6 @@ class FeiniuApi {
     return setUserDataValue(key, jsonEncode(value), mdbGuid: mdbGuid);
   }
 
-  /// 与原生壳共享的本地视图偏好键。shared_preferences 落盘为 `flutter.playlist_view_type`，
-  /// 原生壳 NativePlayerActivity 直接读同一文件同一键——三端共用一份、不漂移。
-  static const String _playlistViewTypePrefKey = 'playlist_view_type';
-
   /// 读取播放列表视图类型偏好（本地优先）。
   ///
   /// 命中本地缓存即刻返回（开播/打开选集面板秒级正确，不等网络），同时后台异步刷新服务端
@@ -1591,23 +1591,12 @@ class FeiniuApi {
     return null;
   }
 
-  Future<String?> _readLocalPlaylistViewType() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final v = prefs.getString(_playlistViewTypePrefKey)?.trim();
-      return (v == 'button' || v == 'card') ? v : null;
-    } catch (_) {
-      return null;
-    }
+  Future<String?> _readLocalPlaylistViewType() {
+    return _playlistViewPreferenceStore.readViewType();
   }
 
-  Future<void> _writeLocalPlaylistViewType(String viewType) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_playlistViewTypePrefKey, viewType);
-    } catch (_) {
-      // 本地缓存写失败不影响服务端真值。
-    }
+  Future<void> _writeLocalPlaylistViewType(String viewType) {
+    return _playlistViewPreferenceStore.writeViewType(viewType);
   }
 
   /// 获取标签接口的原始数据。
@@ -1809,7 +1798,7 @@ class FeiniuApi {
         _streamPath,
         data: <String, dynamic>{
           'media_guid': mediaGuid,
-          'ip': await _ensurePlaybackClientId(),
+          'ip': await _playbackClientIdStore.ensureClientId(),
           'header': <String, dynamic>{
             'User-Agent': <String>[userAgent],
           },
@@ -2050,7 +2039,7 @@ class FeiniuApi {
       return null;
     }
     try {
-      final clientId = await _ensurePlaybackClientId();
+      final clientId = await _playbackClientIdStore.ensureClientId();
       final response = await _dio.post(
         _playMediaBridgePath,
         data: <String, dynamic>{
@@ -2811,19 +2800,6 @@ class FeiniuApi {
     if (value is List) {
       return value.map(_normalizeForStableJson).toList();
     }
-    return value;
-  }
-
-  Future<String> _ensurePlaybackClientId() async {
-    final prefs = await SharedPreferences.getInstance();
-    final existing = prefs.getString('playback_client_id') ?? '';
-    if (existing.trim().isNotEmpty) return existing;
-
-    final bytes = List<int>.generate(16, (_) => _random.nextInt(256));
-    final value = bytes
-        .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
-        .join();
-    await prefs.setString('playback_client_id', value);
     return value;
   }
 
