@@ -572,7 +572,9 @@ class _EpisodePoster extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          DetailHeroImage(images: mediaImageRequestForUrls(imageUrls, token: token)),
+          DetailHeroImage(
+            images: mediaImageRequestForUrls(imageUrls, token: token),
+          ),
           Positioned.fill(
             child: IgnorePointer(
               child: Align(
