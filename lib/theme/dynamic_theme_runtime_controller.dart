@@ -79,7 +79,7 @@ class DynamicThemeRuntimeController {
   Future<DynamicThemeSeed?> getOrResolve({
     required String key,
     required String imageUrl,
-    required String token,
+    Map<String, String> imageHeaders = const <String, String>{},
   }) {
     final normalizedKey = _normalizedKey(key);
     if (normalizedKey.isEmpty || imageUrl.trim().isEmpty) {
@@ -97,7 +97,7 @@ class DynamicThemeRuntimeController {
     final future =
         DynamicThemeSeedExtractor.extract(
           imageUrl: imageUrl,
-          token: token,
+          imageHeaders: imageHeaders,
         ).then((seed) {
           if (seed != null) {
             _storePageSeedCache(normalizedKey, seed);

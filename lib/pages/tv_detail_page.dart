@@ -1546,39 +1546,39 @@ class _TvDetailPageState extends State<TvDetailPage>
     final nasProvider = context.read<NasProvider>();
     final inPlayerPaneHost = PlayerPaneHostScope.maybeOf(context) != null;
     final deferArtwork = _loading || !_artworkReady;
-    var dynamicThemeImageUrl = '';
+    final dynamicThemeResolver = DetailArtworkResolver(
+      baseUrl: nasProvider.baseUrl,
+      token: nasProvider.token,
+    );
+    var dynamicThemeImages = MediaImageRequest.empty;
     if (_neutralDisplayOnly && _neutralDetail != null) {
       // 中立态:动态取色图源用 Emby 完整直链(backdrop 优先,回退海报),不走飞牛拼接。
       final neutral = _neutralDetail!;
-      final ref = neutral.backdropImage.isNotEmpty
-          ? neutral.backdropImage
-          : neutral.primaryImage;
-      dynamicThemeImageUrl = ref.url;
+      dynamicThemeImages = dynamicThemeResolver.resolveRef(
+        neutral.backdropImage.isNotEmpty
+            ? neutral.backdropImage
+            : neutral.primaryImage,
+      );
     } else if (_detail.isNotEmpty) {
       final item = _detail['item'] is Map<String, dynamic>
           ? _detail['item'] as Map<String, dynamic>
           : _detail;
-      final urls = ApiUrlHelper.imageCandidates(
-        nasProvider.baseUrl,
+      dynamicThemeImages = dynamicThemeResolver.resolvePath(
         _heroBackdropsFor(item),
         width: 360,
       );
-      if (urls.isNotEmpty) {
-        dynamicThemeImageUrl = urls.first;
-      }
     } else if (widget.initialItemDetail != null) {
       final item = widget.initialItemDetail!['item'] is Map<String, dynamic>
           ? widget.initialItemDetail!['item'] as Map<String, dynamic>
           : widget.initialItemDetail!;
-      final urls = ApiUrlHelper.imageCandidates(
-        nasProvider.baseUrl,
+      dynamicThemeImages = dynamicThemeResolver.resolvePath(
         _heroBackdropsFor(item),
         width: 360,
       );
-      if (urls.isNotEmpty) {
-        dynamicThemeImageUrl = urls.first;
-      }
     }
+    final dynamicThemeImageUrl = dynamicThemeImages.urls.isNotEmpty
+        ? dynamicThemeImages.urls.first
+        : '';
     final dynamicThemeKey = _isPane && widget.itemGuid.trim().isNotEmpty
         ? 'tv-season-series:${widget.itemGuid.trim()}'
         : widget.itemGuid;
@@ -1595,7 +1595,7 @@ class _TvDetailPageState extends State<TvDetailPage>
     return DynamicPageThemeScope(
       pageKey: dynamicThemeKey,
       imageUrl: dynamicThemeImageUrl,
-      token: _neutralDisplayOnly ? '' : nasProvider.token,
+      imageHeaders: dynamicThemeImages.headers,
       enabled: dynamicThemeScopeEnabled,
       allowLiveResolve: !deferArtwork,
       syncGlobalTheme: syncGlobalTheme,
