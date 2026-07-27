@@ -42,7 +42,7 @@ import '../utils/app_top_tip.dart';
 import '../widgets/common/app_action_sheet.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/common/liquid_glass.dart';
-import '../utils/nas_image_headers.dart';
+import '../ui/detail_artwork_resolver.dart';
 import 'category_items_screen.dart';
 import 'favorite_items_screen.dart';
 import 'person_detail_screen.dart';
@@ -802,18 +802,15 @@ class _MediaListScreenState extends State<MediaListScreen>
           return;
         }
         if (!mounted) return;
-        final warmupUrls = _posterCandidates(
-          provider.baseUrl,
-          item.poster.trim(),
-          width: 560,
+        final warmupImages = mediaImageRequestForUrls(
+          _posterCandidates(provider.baseUrl, item.poster.trim(), width: 560),
+          token: provider.token,
         );
+        final warmupUrls = warmupImages.urls;
         if (warmupUrls.isNotEmpty) {
           unawaited(
             precacheImage(
-              NetworkImage(
-                warmupUrls.first,
-                headers: nasImageHeaders(provider.token, url: warmupUrls.first),
-              ),
+              NetworkImage(warmupUrls.first, headers: warmupImages.headers),
               navigator.context,
             ).timeout(const Duration(milliseconds: 140)).catchError((
               Object error,

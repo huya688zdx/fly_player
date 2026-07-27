@@ -14,6 +14,7 @@ import '../providers/nas_provider.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../theme/app_theme.dart';
 import '../ui/app_transitions.dart';
+import '../ui/detail_artwork_resolver.dart';
 import '../ui/layout_adaptive.dart';
 import '../ui/media_episode_subtitle.dart';
 import '../ui/media_poster_card.dart';
@@ -432,12 +433,14 @@ class _SearchScreenState extends State<SearchScreen> {
               final item = _results[index];
               final rating = double.tryParse(item.rating);
               return MediaPosterCard(
-                urls: _posterCandidates(
-                  provider.baseUrl,
-                  item.primaryImage.url,
-                  width: layout.categoryGridRequestWidth,
+                images: mediaImageRequestForUrls(
+                  _posterCandidates(
+                    provider.baseUrl,
+                    item.primaryImage.url,
+                    width: layout.categoryGridRequestWidth,
+                  ),
+                  token: provider.token,
                 ),
-                token: provider.token,
                 title: item.displayTitle,
                 subtitle: _cardSubtitle(item),
                 rating: rating,
