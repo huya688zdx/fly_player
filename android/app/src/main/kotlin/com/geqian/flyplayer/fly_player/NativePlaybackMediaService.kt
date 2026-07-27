@@ -120,6 +120,9 @@ class NativePlaybackMediaService : Service() {
             }
 
             ACTION_STOP -> {
+                // 提前置位，让此刻仍在途的封面加载回调（syncArtwork）短路，避免 stopSelf 真正
+                // 触发 onDestroy 之前，延迟到达的封面结果重新 startForeground 把通知复活。
+                released = true
                 stopForegroundCompat()
                 stopSelf()
             }

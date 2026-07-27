@@ -8576,24 +8576,24 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             showTransientHint(localizedString(R.string.player_text_0272))
             return
         }
-        val payload = runCatching {
-            jsonObjectToMap(JSONObject(java.io.File(path).readText()))
-        }.getOrNull()
-        if (payload == null) {
+        // 弹幕文件读取+JSON 解析放后台线程，避免大文件阻塞主线程。
+        parseJsonFileAsync(path) { payload ->
+            if (payload == null) {
+                pendingDanmakuSource = null
+                showTransientHint(localizedString(R.string.player_text_0273))
+                return@parseJsonFileAsync
+            }
+            captureDanmakuSettings(payload)
+            applyPersistedDanmakuPrefs() // 手动加载的弹幕也套用持久化显示偏好
+            // 单次推送（comments + 偏好合并）：二次 settings 推送会 bump generation 把弹幕丢掉。
+            playerSurface.setDanmakuPayload(payloadWithPersistedDanmakuPrefs(payload))
+            setDanmakuEnabled(true)
+            // 记入「已保存来源」
+            pendingDanmakuSource?.let { saveDanmakuSource(it.copy(updatedAt = System.currentTimeMillis())) }
             pendingDanmakuSource = null
-            showTransientHint(localizedString(R.string.player_text_0273))
-            return
+            hidePanel()
+            showTransientHint(localizedString(R.string.player_text_0274))
         }
-        captureDanmakuSettings(payload)
-        applyPersistedDanmakuPrefs() // 手动加载的弹幕也套用持久化显示偏好
-        // 单次推送（comments + 偏好合并）：二次 settings 推送会 bump generation 把弹幕丢掉。
-        playerSurface.setDanmakuPayload(payloadWithPersistedDanmakuPrefs(payload))
-        setDanmakuEnabled(true)
-        // 记入「已保存来源」
-        pendingDanmakuSource?.let { saveDanmakuSource(it.copy(updatedAt = System.currentTimeMillis())) }
-        pendingDanmakuSource = null
-        hidePanel()
-        showTransientHint(localizedString(R.string.player_text_0274))
     }
 
     private fun buildIntroOutroPage() {
@@ -9643,14 +9643,37 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         return mapOf("url" to url, "loadNonce" to 1, "startPositionMs" to 0L)
     }
 
-    /** 从 Intent 指向的 JSON 文件读弹幕 payload（Flutter 端落盘的临时文件）。 */
-    private fun parseJsonFile(key: String): Map<String, Any?>? {
-        val path = intent?.getStringExtra(key)?.trim().orEmpty()
-        if (path.isEmpty()) return null
-        return runCatching {
-            val text = java.io.File(path).readText()
-            jsonObjectToMap(JSONObject(text))
-        }.getOrNull()
+    /**
+     * 从 Intent 指向的 JSON 文件读弹幕 payload（Flutter 端落盘的临时文件）。文件体积可达数百KB
+     * ~数MB，读取+JSON 反序列化放后台线程执行，完成后切回主线程回调 [onReady]，避免阻塞 UI 线程
+     * 与原生弹幕的 Choreographer 帧调度竞争。
+     */
+    private fun parseJsonFileAsync(path: String, onReady: (Map<String, Any?>?) -> Unit) {
+        if (path.isEmpty()) {
+            onReady(null)
+            return
+        }
+        Thread {
+            val payload = runCatching {
+                jsonObjectToMap(JSONObject(java.io.File(path).readText()))
+            }.getOrNull()
+            runOnUiThread { onReady(payload) }
+        }.start()
+    }
+
+    /** 弹幕 payload 解析入口：优先内联 JSON extra（同步，体积小/调试用），否则走文件（异步，体积可能较大）。 */
+    private fun resolveDanmakuPayloadAsync(
+        inlineExtraKey: String,
+        fileExtraKey: String,
+        onReady: (Map<String, Any?>?) -> Unit,
+    ) {
+        val inline = parseJsonExtra(inlineExtraKey)
+        if (inline != null) {
+            onReady(inline)
+            return
+        }
+        val path = intent?.getStringExtra(fileExtraKey)?.trim().orEmpty()
+        parseJsonFileAsync(path, onReady)
     }
 
     private fun parseJsonExtra(key: String): Map<String, Any?>? {

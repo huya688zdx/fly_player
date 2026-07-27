@@ -134,7 +134,8 @@ class DanmakuImportParser {
       final attrs = match.group(1) ?? '';
       final text = _readXmlAttribute(attrs, 'text').trim();
       if (text.isEmpty) continue;
-      final timeMs = _readTimeMs(_readXmlAttribute(attrs, 'time'));
+      // dandanplay XML 的 time 属性语义与 p 字段首段一致,是"秒",非毫秒
+      final timeMs = _readTimeMs(_readXmlAttribute(attrs, 'time'), isMs: false);
       final mode = _readInt(_readXmlAttribute(attrs, 'mode'), fallback: 1);
       final color = _readColor(_readXmlAttribute(attrs, 'color'));
       comments.add(
@@ -167,13 +168,18 @@ class DanmakuImportParser {
       if (item is! Map) continue;
       final map = Map<String, dynamic>.from(item);
       final p = (map['p'] ?? '').toString().trim();
-      dynamic timeRaw = map['timeMs'] ?? map['time'] ?? map['progress'];
+      // 按字段名区分时间单位,不再用数值大小猜测:
+      // timeMs 字段本身就是毫秒;time/progress/p 首段均为"秒"
+      dynamic timeRaw = map['timeMs'];
+      var timeIsMs = timeRaw != null;
+      timeRaw ??= map['time'] ?? map['progress'];
       dynamic modeRaw = map['mode'] ?? map['type'];
       dynamic colorRaw = map['color'];
       if (p.isNotEmpty) {
         final parts = p.split(',');
         if (timeRaw == null && parts.isNotEmpty) {
           timeRaw = parts[0];
+          timeIsMs = false;
         }
         if (modeRaw == null && parts.length > 1) {
           modeRaw = parts[1];
@@ -189,7 +195,7 @@ class DanmakuImportParser {
       comments.add(
         DanmakuComment(
           id: (map['id'] ?? map['cid'] ?? 'json-$i').toString(),
-          timeMs: _readTimeMs(timeRaw),
+          timeMs: _readTimeMs(timeRaw, isMs: timeIsMs),
           text: text,
           type: _mapMode(_readInt(modeRaw, fallback: 1)),
           color: _readColor(colorRaw),
@@ -219,16 +225,18 @@ class DanmakuImportParser {
     return const FormatException('No usable danmaku comments were recognized');
   }
 
-  static int _readTimeMs(dynamic value) {
+  // isMs: 该值是否本就是毫秒(如 timeMs 字段)。为 false 时按"秒"处理并 *1000。
+  // 不再用数值大小(>1000)猜单位——真实 timeMs 完全可能 <1000(开场1秒内的弹幕),
+  // 真实秒数字段也完全可能 >1000(超过16分40秒的视频),数值大小猜不出单位。
+  static int _readTimeMs(dynamic value, {required bool isMs}) {
     return switch (value) {
-      final num number =>
-        number > 1000 ? number.round() : (number * 1000).round(),
-      final String text => _readStringTimeMs(text),
+      final num number => isMs ? number.round() : (number * 1000).round(),
+      final String text => _readStringTimeMs(text, isMs: isMs),
       _ => 0,
     };
   }
 
-  static int _readStringTimeMs(String value) {
+  static int _readStringTimeMs(String value, {required bool isMs}) {
     final text = value.trim();
     if (text.isEmpty) return 0;
     if (text.contains(':')) {
@@ -240,20 +248,9 @@ class DanmakuImportParser {
       }
       return (seconds * 1000).round();
     }
-    if (text.contains('.')) {
-      final seconds = double.tryParse(text);
-      if (seconds == null) return 0;
-      return (seconds * 1000).round();
-    }
-    final parsedInt = int.tryParse(text);
-    if (parsedInt != null) {
-      return parsedInt > 1000 ? parsedInt : parsedInt * 1000;
-    }
-    final parsedDouble = double.tryParse(text);
-    if (parsedDouble == null) return 0;
-    return parsedDouble > 1000
-        ? parsedDouble.round()
-        : (parsedDouble * 1000).round();
+    final parsed = double.tryParse(text);
+    if (parsed == null) return 0;
+    return isMs ? parsed.round() : (parsed * 1000).round();
   }
 
   static int _readInt(dynamic value, {required int fallback}) {
