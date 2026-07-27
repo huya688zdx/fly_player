@@ -14,6 +14,7 @@ import '../theme/app_theme.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/async_action_guard.dart';
 import '../utils/detail_top_tip.dart';
+import '../utils/swallowed_error_logger.dart';
 import '../widgets/detail/tv_season_download_sheet.dart';
 
 /// 负责展示详情页的单条目下载面板。
@@ -48,7 +49,17 @@ class PlayDetailDownloadSheetController {
       if (qualities.isNotEmpty) {
         _cachedQualities[key] = qualities;
       }
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      unawaited(
+        logSwallowedError(
+          action: 'prefetch download qualities',
+          id: key,
+          error: error,
+          stackTrace: stackTrace,
+          source: 'play_detail_download_sheet_controller',
+        ),
+      );
+    }
   }
 
   /// 获取已缓存的 item detail，可能为 null。
@@ -68,7 +79,17 @@ class PlayDetailDownloadSheetController {
       if (detail.isNotEmpty) {
         _cachedItemDetails[key] = detail;
       }
-    } catch (_) {}
+    } catch (error, stackTrace) {
+      unawaited(
+        logSwallowedError(
+          action: 'prefetch download item detail',
+          id: key,
+          error: error,
+          stackTrace: stackTrace,
+          source: 'play_detail_download_sheet_controller',
+        ),
+      );
+    }
   }
 
   /// 加载下载所需数据并展示下载选择面板。[gateway] 由调用页注入（飞牛详情数据网关）。
@@ -94,7 +115,6 @@ class PlayDetailDownloadSheetController {
     }
 
     final provider = context.read<NasProvider>();
-    final api = gateway;
     final colors = context.appColors;
     final downloadService = DownloadTaskService.instance;
 
@@ -170,11 +190,11 @@ class PlayDetailDownloadSheetController {
               final detail =
                   itemDetail ??
                   _cachedItemDetails[itemGuid] ??
-                  await api.getItemDetail(itemGuid);
+                  await gateway.getItemDetail(itemGuid);
               final itemMap = _detailItem(detail);
               unawaited(
                 _resolveGroupMeta(
-                  api,
+                  gateway,
                   provider.baseUrl,
                   detail,
                   itemMap,
@@ -191,7 +211,7 @@ class PlayDetailDownloadSheetController {
               final effectivePlayItemGuid =
                   preferredMediaGuid ??
                   await _resolveDownloadResolutionGuid(
-                    api,
+                    gateway,
                     requestedItemGuid: itemGuid,
                     detail: detail,
                     itemMap: itemMap,
@@ -208,7 +228,7 @@ class PlayDetailDownloadSheetController {
 
               final qualities =
                   _cachedQualities[resolutionGuid] ??
-                  await api.getDownloadResolutionOptions(
+                  await gateway.getDownloadResolutionOptions(
                     resolutionGuid,
                     lan: 'zh-CN',
                   );
