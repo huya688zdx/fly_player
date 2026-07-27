@@ -91,24 +91,36 @@ void main() {
       }
     });
 
-    test('播放统计模块不直连具体后端 API', () {
-      // 回填与统计页的元数据能力统一走 PlayStatsMetadataGateway 抽象,
-      // 飞牛实现由 MediaBackendRegistry 注入,统计模块自身不得再 import 任何后端客户端。
+    test('播放统计模块不直连 lib/api 下任何后端客户端', () {
+      // 回填与统计页的元数据能力统一走 PlayStatsMetadataGateway 抽象,飞牛实现由
+      // MediaBackendRegistry 注入。禁止清单按 lib/api 目录动态生成,新增后端客户端
+      // 或请求模型(jellyfin_api / person_list_request / item_list_request 等)自动纳管,
+      // 不需要在这里补名字。
+      final bannedFileNames = <String>[
+        for (final entity in Directory('lib/api').listSync(recursive: true))
+          if (entity is File && entity.path.endsWith('.dart'))
+            entity.uri.pathSegments.last,
+      ];
+      expect(bannedFileNames, isNotEmpty, reason: 'lib/api 扫描为空,断言会失效');
+
       for (final entity in Directory(
         'lib/services/play_stats',
       ).listSync(recursive: true)) {
         if (entity is! File || !entity.path.endsWith('.dart')) continue;
         final source = entity.readAsStringSync();
-        expect(
-          source,
-          isNot(contains(RegExp(r'''import\s+['"][^'"]*feiniu_api\.dart'''))),
-          reason: '${entity.path} 不应直连 feiniu_api',
-        );
-        expect(
-          source,
-          isNot(contains(RegExp(r'''import\s+['"][^'"]*emby_api\.dart'''))),
-          reason: '${entity.path} 不应直连 emby_api',
-        );
+        for (final fileName in bannedFileNames) {
+          expect(
+            source,
+            isNot(
+              contains(
+                RegExp(
+                  '''import\\s+['"][^'"]*${RegExp.escape(fileName)}['"]''',
+                ),
+              ),
+            ),
+            reason: '${entity.path} 不应直连 lib/api/$fileName',
+          );
+        }
       }
     });
 

@@ -234,14 +234,14 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
   Future<PlayStatsMetadataMaps> _defaultMetadataLoader(
     NasProvider provider,
   ) async {
+    // 连接态由 _loadMetadataMaps 的 isConfigured 早退把关，走到这里网关必然可建；
+    // 真取不到就当加载失败抛出，交给调用方既有的 catch 记录，别用空字典冒充成功
+    // 把已有的题材/地区名清掉。
     final gateway = MediaBackendRegistry.createPlayStatsMetadataGateway(
       provider,
     );
     if (gateway == null) {
-      return const PlayStatsMetadataMaps(
-        genreMap: <int, String>{},
-        countryMap: <String, String>{},
-      );
+      throw StateError('play stats metadata gateway unavailable');
     }
     final results = await Future.wait<dynamic>(<Future<dynamic>>[
       gateway.fetchGenreNames(),

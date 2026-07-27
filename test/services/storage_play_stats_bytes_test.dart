@@ -28,6 +28,7 @@ void main() {
         'play_stats_user_1.db',
         'play_stats_user_1.db-wal',
         'play_stats_user_1.db-shm',
+        'play_stats_user_1.db-journal',
       ]) {
         expect(
           StorageManagementService.isPlayStatsDatabaseFileName(fileName),
@@ -44,6 +45,10 @@ void main() {
         'play_stats.txt',
         'play_stats_user_1.log',
         'other_play_stats.db',
+        // 作用域后缀必须以 _ 开头，紧贴的数字属于别的库名。
+        'play_stats2.db',
+        // 备份/导出件不是活动数据库，不该算进占用。
+        'play_stats.db.bak',
       ]) {
         expect(
           StorageManagementService.isPlayStatsDatabaseFileName(fileName),
