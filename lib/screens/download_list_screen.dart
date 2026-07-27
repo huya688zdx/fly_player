@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../controllers/item_playback_launcher.dart';
 import '../controllers/local_download_source_resolver.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../media_backend/feiniu/feiniu_detail_data_gateway.dart';
 import '../models/download_task_record.dart';
 import '../models/play_info.dart';
 import '../playback/native_playback_host.dart';
@@ -956,7 +957,7 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
     int? startPositionMs,
   }) => resolveLocalDownloadSource(
     record,
-    nas,
+    FeiniuDetailDataGateway.forNas(nas),
     l10n: AppLocalizations.of(context),
     startPositionMs: startPositionMs,
   );

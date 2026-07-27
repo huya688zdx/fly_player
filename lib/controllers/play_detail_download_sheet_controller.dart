@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../api/feiniu_api.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../media_backend/feiniu/feiniu_detail_data_gateway.dart';
 import '../models/play_info.dart';
 import '../models/stream_track_data.dart';
 import '../providers/nas_provider.dart';
@@ -34,7 +34,10 @@ class PlayDetailDownloadSheetController {
   }
 
   /// 预加载播放项对应的下载清晰度列表（在详情页加载时即可异步调用）。
-  static Future<void> prefetchQualities(FeiniuApi api, String itemGuid) async {
+  static Future<void> prefetchQualities(
+    FeiniuDetailDataGateway api,
+    String itemGuid,
+  ) async {
     final key = itemGuid.trim();
     if (key.isEmpty || _cachedQualities.containsKey(key)) return;
     try {
@@ -54,7 +57,10 @@ class PlayDetailDownloadSheetController {
   }
 
   /// 预加载 item detail（在详情页加载时即可异步调用）。
-  static Future<void> prefetchItemDetail(FeiniuApi api, String itemGuid) async {
+  static Future<void> prefetchItemDetail(
+    FeiniuDetailDataGateway api,
+    String itemGuid,
+  ) async {
     final key = itemGuid.trim();
     if (key.isEmpty || _cachedItemDetails.containsKey(key)) return;
     try {
@@ -65,9 +71,10 @@ class PlayDetailDownloadSheetController {
     } catch (_) {}
   }
 
-  /// 加载下载所需数据并展示下载选择面板。
+  /// 加载下载所需数据并展示下载选择面板。[gateway] 由调用页注入（飞牛详情数据网关）。
   Future<void> show(
     BuildContext context, {
+    required FeiniuDetailDataGateway gateway,
     required String itemGuid,
     required PlayItem item,
     SubtitleTrackOption? selectedSubtitleTrack,
@@ -87,7 +94,7 @@ class PlayDetailDownloadSheetController {
     }
 
     final provider = context.read<NasProvider>();
-    final api = FeiniuApi(provider);
+    final api = gateway;
     final colors = context.appColors;
     final downloadService = DownloadTaskService.instance;
 
@@ -360,7 +367,7 @@ class PlayDetailDownloadSheetController {
   }
 
   static Future<String> _resolveDownloadResolutionGuid(
-    FeiniuApi api, {
+    FeiniuDetailDataGateway api, {
     required String requestedItemGuid,
     required Map<String, dynamic> detail,
     required Map<String, dynamic> itemMap,
@@ -417,7 +424,7 @@ class PlayDetailDownloadSheetController {
   }
 
   static Future<_DownloadGroupMeta> _resolveGroupMeta(
-    FeiniuApi api,
+    FeiniuDetailDataGateway api,
     String baseUrl,
     Map<String, dynamic> detail,
     Map<String, dynamic> itemMap,

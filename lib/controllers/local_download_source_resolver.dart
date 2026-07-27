@@ -1,19 +1,20 @@
+import 'dart:async';
 import 'dart:io';
 
-import '../api/feiniu_api.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../media_backend/feiniu/feiniu_detail_data_gateway.dart';
 import '../models/download_task_record.dart';
 import '../models/play_info.dart';
 import '../models/playback_stream.dart';
 import '../models/stream_track_data.dart';
 import '../playback/playback_source.dart';
-import '../providers/nas_provider.dart';
 import '../services/download_task_service.dart';
 import '../utils/play_detail_track_selector.dart';
 import '../utils/playback_resume_position_resolver.dart';
 import '../utils/player_artwork_path_resolver.dart';
 import '../utils/player_title_formatter.dart';
 import '../utils/local_subtitle_bundle.dart';
+import '../utils/swallowed_error_logger.dart';
 
 /// 已下载记录的显示标题（groupTitle + recordTitle 拼合）。
 String localDownloadRecordTitle(DownloadTaskRecord record) {
@@ -30,41 +31,71 @@ String localDownloadRecordTitle(DownloadTaskRecord record) {
   return '$groupTitle $recordTitle';
 }
 
-/// 从下载记录解析本地播放 source。NAS 连接时合并 getPlayInfo/StreamTrack/PlaybackStream
-/// 元数据，未连接用 record 的 audioTracks/subtitleTracks/poster fallback。
+/// 从下载记录解析本地播放 source。NAS 连接时经 [gateway] 合并
+/// getPlayInfo/StreamTrack/PlaybackStream 元数据，未连接用 record 的
+/// audioTracks/subtitleTracks/poster fallback。
 /// [startPositionMs] 覆盖续播位（切集保持当前进度时使用）。
-/// 文件不存在返回 null；任何 NAS 请求失败都静默 fallback，不阻塞播放。
+/// 文件不存在返回 null；任何 NAS 请求失败都降级 fallback（留痕不吞），不阻塞播放。
 Future<({MpvMediaSource source, PlayInfoData? playInfo, String title})?>
 resolveLocalDownloadSource(
   DownloadTaskRecord record,
-  NasProvider nas, {
+  FeiniuDetailDataGateway gateway, {
   required AppLocalizations l10n,
   int? startPositionMs,
 }) async {
   final path = record.filePath.trim();
   if (path.isEmpty || !File(path).existsSync()) return null;
-  final api = FeiniuApi(nas);
   final fallbackTitle = localDownloadRecordTitle(record);
   final normalizedItemGuid = record.itemGuid.trim();
   PlayInfoData? initialPlayInfo;
   StreamTrackData? trackData;
   PlaybackStreamData? playbackStream;
   try {
-    initialPlayInfo = await api.getPlayInfo(normalizedItemGuid);
-  } catch (_) {}
+    initialPlayInfo = await gateway.getPlayInfo(normalizedItemGuid);
+  } catch (error, stackTrace) {
+    unawaited(
+      logSwallowedError(
+        action: 'resolve local download play info',
+        id: normalizedItemGuid,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'local_download_source_resolver',
+      ),
+    );
+  }
   final resolvedMediaGuid = record.mediaGuid.trim().isNotEmpty
       ? record.mediaGuid.trim()
       : (initialPlayInfo?.mediaGuid.trim().isNotEmpty == true
             ? initialPlayInfo!.mediaGuid.trim()
             : normalizedItemGuid);
   try {
-    trackData = await api.getStreamTrackData(normalizedItemGuid);
-  } catch (_) {}
+    trackData = await gateway.getStreamTrackData(normalizedItemGuid);
+  } catch (error, stackTrace) {
+    unawaited(
+      logSwallowedError(
+        action: 'resolve local download stream tracks',
+        id: normalizedItemGuid,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'local_download_source_resolver',
+      ),
+    );
+  }
   try {
     if (resolvedMediaGuid.isNotEmpty) {
-      playbackStream = await api.getPlaybackStream(resolvedMediaGuid);
+      playbackStream = await gateway.getPlaybackStream(resolvedMediaGuid);
     }
-  } catch (_) {}
+  } catch (error, stackTrace) {
+    unawaited(
+      logSwallowedError(
+        action: 'resolve local download playback stream',
+        id: resolvedMediaGuid,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'local_download_source_resolver',
+      ),
+    );
+  }
   final playItem = initialPlayInfo?.item;
   final title = playItem == null
       ? fallbackTitle

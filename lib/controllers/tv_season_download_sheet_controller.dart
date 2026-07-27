@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../api/feiniu_api.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../media_backend/feiniu/feiniu_detail_data_gateway.dart';
 import '../models/media_library_item.dart';
 import '../models/tv_episode_browser_models.dart';
 import '../providers/nas_provider.dart';
@@ -41,7 +41,7 @@ class TvSeasonDownloadSheetController {
   /// 预加载剧集下载所需数据（在季度详情页加载时调用）。
   /// 遍历候选项，直到找到一个同时缓存了 item detail 和分辨率列表的条目。
   static Future<void> prefetchSeasonDownloadData(
-    FeiniuApi api, {
+    FeiniuDetailDataGateway api, {
     required List<String> candidateItemGuids,
   }) async {
     for (final guid in candidateItemGuids) {
@@ -108,9 +108,10 @@ class TvSeasonDownloadSheetController {
     return '';
   }
 
-  /// 加载下载信息并展示季度下载面板。
+  /// 加载下载信息并展示季度下载面板。[gateway] 由调用页注入（飞牛详情数据网关）。
   Future<void> show(
     BuildContext context, {
+    required FeiniuDetailDataGateway gateway,
     MediaLibraryItem? episode,
     List<String> candidateItemGuids = const <String>[],
     List<TvEpisodeCardData> episodeEntries = const <TvEpisodeCardData>[],
@@ -134,7 +135,7 @@ class TvSeasonDownloadSheetController {
     }
 
     final provider = context.read<NasProvider>();
-    final api = FeiniuApi(provider);
+    final api = gateway;
     final colors = context.appColors;
     final downloadService = DownloadTaskService.instance;
 
@@ -346,7 +347,7 @@ class TvSeasonDownloadSheetController {
   }
 
   static Future<void> _loadSheetApiData({
-    required FeiniuApi api,
+    required FeiniuDetailDataGateway api,
     required NasProvider provider,
     MediaLibraryItem? episode,
     required List<String> candidateItemGuids,
@@ -437,7 +438,7 @@ class TvSeasonDownloadSheetController {
   }
 
   static Future<Map<String, dynamic>?> _resolveDownloadDetail(
-    FeiniuApi api, {
+    FeiniuDetailDataGateway api, {
     required MediaLibraryItem? episode,
     required List<String> candidateItemGuids,
   }) async {
@@ -536,7 +537,7 @@ class TvSeasonDownloadSheetController {
   }
 
   static Future<_DownloadGroupMeta> _resolveGroupMeta(
-    FeiniuApi api,
+    FeiniuDetailDataGateway api,
     String baseUrl,
     Map<String, dynamic> detail,
     Map<String, dynamic> item,

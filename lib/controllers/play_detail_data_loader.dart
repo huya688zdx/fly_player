@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import '../api/feiniu_api.dart';
 import '../api/person_list_request.dart';
+import '../media_backend/feiniu/feiniu_detail_data_gateway.dart';
 import '../models/person_credit.dart';
 import '../models/play_info.dart';
 import '../models/stream_list_option.dart';
@@ -118,9 +118,9 @@ class PlayDetailDataLoader {
     pageSize: 200,
   );
 
-  final FeiniuApi api;
+  final FeiniuDetailDataGateway api;
 
-  /// 根据 API 实例构造详情页数据加载器。
+  /// 根据注入的飞牛详情数据网关构造详情页数据加载器。
   const PlayDetailDataLoader(this.api);
 
   /// 首次加载详情页所需的播放信息、轨道与演职员数据。

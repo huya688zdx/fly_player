@@ -19,6 +19,7 @@ import '../models/stream_track_data.dart';
 import '../media_backend/detail/media_detail.dart';
 import '../media_backend/detail/media_source_info.dart';
 import '../media_backend/detail/media_source_version.dart';
+import '../media_backend/feiniu/feiniu_detail_data_gateway.dart';
 import '../media_backend/feiniu/feiniu_detail_mappers.dart';
 import '../media_backend/media_backend_kind.dart';
 import '../media_backend/media_image_ref.dart';
@@ -1447,7 +1448,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       // Pre-fetch download qualities so the download sheet opens instantly.
       unawaited(
         _prefetchDownloadQualities(
-          api: api,
+          gateway: FeiniuDetailDataGateway.forApi(api),
           itemGuid: _currentItemGuid,
           playItem: info.item,
         ),
@@ -2368,8 +2369,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   Future<void> _refreshAfterItemStateChange() async {
     final api = FeiniuApi(context.read<NasProvider>());
     final currentMediaGuid = _currentStreamOption()?.mediaGuid ?? '';
-    final refreshed = await PlayDetailDataLoader(api)
-        .refreshAfterItemStateChange(
+    final refreshed =
+        await PlayDetailDataLoader(
+          FeiniuDetailDataGateway.forApi(api),
+        ).refreshAfterItemStateChange(
           itemGuid: _currentItemGuid,
           currentMediaGuid: currentMediaGuid,
           currentSubtitleGuid: _selectedSubtitleGuid,
@@ -2646,19 +2649,24 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   }
 
   Future<void> _prefetchDownloadQualities({
-    required FeiniuApi api,
+    required FeiniuDetailDataGateway gateway,
     required String itemGuid,
     required PlayItem playItem,
   }) async {
     // Pre-fetch item detail so the download sheet opens instantly.
-    await PlayDetailDownloadSheetController.prefetchItemDetail(api, itemGuid);
+    await PlayDetailDownloadSheetController.prefetchItemDetail(
+      gateway,
+      itemGuid,
+    );
     // Pre-fetch quality options for likely play-item guids.
     final candidates = <String>{
       itemGuid.trim(),
       playItem.guid.trim(),
     }.where((v) => v.isNotEmpty).toSet();
     for (final guid in candidates) {
-      unawaited(PlayDetailDownloadSheetController.prefetchQualities(api, guid));
+      unawaited(
+        PlayDetailDownloadSheetController.prefetchQualities(gateway, guid),
+      );
     }
   }
 
@@ -2683,6 +2691,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     unawaited(
       _downloadSheetController.show(
         context,
+        gateway: FeiniuDetailDataGateway.forNas(context.read<NasProvider>()),
         itemGuid: itemGuid,
         item: item,
         selectedSubtitleTrack: selectedSubtitle,

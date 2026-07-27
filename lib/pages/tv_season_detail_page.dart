@@ -11,6 +11,7 @@ import '../controllers/tv_season_download_sheet_controller.dart';
 import '../controllers/tv_season_playback_launcher.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/action/media_library_item_action_target.dart';
+import '../media_backend/feiniu/feiniu_detail_data_gateway.dart';
 import '../media_backend/detail/media_detail.dart';
 import '../media_backend/detail/media_episode_summary.dart';
 import '../media_backend/detail/media_season_summary.dart';
@@ -2536,7 +2537,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
       widget.seasonItem.guid,
     }.where((g) => g.isNotEmpty).toList(growable: false);
     await TvSeasonDownloadSheetController.prefetchSeasonDownloadData(
-      api,
+      FeiniuDetailDataGateway.forApi(api),
       candidateItemGuids: candidates,
     );
   }
@@ -2546,6 +2547,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     unawaited(
       _downloadSheetController.show(
         context,
+        gateway: FeiniuDetailDataGateway.forNas(context.read<NasProvider>()),
         episode: _selectedDownloadEpisode(),
         candidateItemGuids: <String>[
           _selectedEpisodeGuid,
