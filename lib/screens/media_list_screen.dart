@@ -15,6 +15,7 @@ import '../media_backend/action/media_library_item_action_target.dart';
 import '../media_backend/media_backend.dart';
 import '../media_backend/media_backend_kind.dart';
 import '../media_backend/media_catalog.dart';
+import '../media_backend/media_image_ref.dart';
 import '../media_backend/media_item_card.dart';
 import '../media_backend/session/media_backend_connection.dart';
 import '../providers/backend_session_provider.dart';
@@ -60,6 +61,12 @@ enum _ContinueWatchingAction {
   remove,
 }
 
+typedef _MediaItemsWithImages = ({
+  List<MediaLibraryItem> items,
+  Map<String, MediaImageRequest> imageRequests,
+  Map<String, MediaImageRequest> backdropImageRequests,
+});
+
 class MediaListScreen extends StatefulWidget {
   final bool secondaryHost;
 
@@ -80,6 +87,12 @@ class _MediaListScreenState extends State<MediaListScreen>
   Map<String, List<MediaLibraryItem>> _itemsByCategory =
       <String, List<MediaLibraryItem>>{};
   List<MediaLibraryItem> _continueWatching = <MediaLibraryItem>[];
+  Map<String, List<MediaImageRequest>> _catalogImageRequests =
+      <String, List<MediaImageRequest>>{};
+  Map<String, MediaImageRequest> _itemImageRequests =
+      <String, MediaImageRequest>{};
+  Map<String, MediaImageRequest> _backdropImageRequests =
+      <String, MediaImageRequest>{};
   Map<String, dynamic> _mediaSummary = <String, dynamic>{};
   Map<String, dynamic> _localeMap = <String, dynamic>{};
   String _lastLoadKey = '';
@@ -154,6 +167,9 @@ class _MediaListScreenState extends State<MediaListScreen>
       _categories = <MediaItem>[];
       _itemsByCategory = <String, List<MediaLibraryItem>>{};
       _continueWatching = <MediaLibraryItem>[];
+      _catalogImageRequests = <String, List<MediaImageRequest>>{};
+      _itemImageRequests = <String, MediaImageRequest>{};
+      _backdropImageRequests = <String, MediaImageRequest>{};
       _mediaSummary = <String, dynamic>{};
       _localeMap = <String, dynamic>{};
       _error = null;
@@ -183,6 +199,9 @@ class _MediaListScreenState extends State<MediaListScreen>
       setState(() {
         _categories = snapshot.categories;
         _itemsByCategory = snapshot.itemsByCategory;
+        _catalogImageRequests = <String, List<MediaImageRequest>>{};
+        _itemImageRequests = <String, MediaImageRequest>{};
+        _backdropImageRequests = <String, MediaImageRequest>{};
         _mediaSummary = snapshot.mediaSummary;
         _continueWatching = snapshot.continueWatching;
         _loadingFromCache = true;
@@ -255,39 +274,85 @@ class _MediaListScreenState extends State<MediaListScreen>
     );
   }
 
-  /// 缁х画瑙傜湅鏁版嵁婧愶細椋炵墰璧?FeiniuApi锛堜繚鐣欑画鎾繘搴?`ts`锛夛紝鍏跺畠鍏叡鍚庣锛圗mby锛夎蛋
-  /// `backend.getContinueWatching`锛圼MediaItemCard]鈫抂MediaLibraryItem]锛岄鍏夐樁娈垫棤缁挱杩涘害锛夈€?
-  /// 数据层按后端能力选源，UI 不写具体服务器后端判断。
-  Future<List<MediaLibraryItem>> _loadContinueWatching(
+  static List<MediaImageRequest> _requestsForRefs(
+    DetailArtworkResolver resolver,
+    Iterable<MediaImageRef> refs,
+  ) {
+    return refs
+        .map(resolver.resolveRef)
+        .where((request) => request.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  static _MediaItemsWithImages _cardsToMediaItems(
+    DetailArtworkResolver resolver,
+    Iterable<MediaItemCard> cards,
+  ) {
+    final items = <MediaLibraryItem>[];
+    final imageRequests = <String, MediaImageRequest>{};
+    final backdropImageRequests = <String, MediaImageRequest>{};
+    for (final card in cards) {
+      items.add(_cardToMediaItem(card));
+      final request = resolver.resolveRefs(<MediaImageRef>[
+        card.primaryImage,
+        ...card.posters,
+      ]);
+      if (request.isNotEmpty) {
+        imageRequests[card.id] = request;
+      }
+      final backdropRequest = resolver.resolveRef(card.backdropImage);
+      if (backdropRequest.isNotEmpty) {
+        backdropImageRequests[card.id] = backdropRequest;
+      }
+    }
+    return (
+      items: items,
+      imageRequests: imageRequests,
+      backdropImageRequests: backdropImageRequests,
+    );
+  }
+
+  /// 继续观看数据源：飞牛走 FeiniuApi，其它公共后端走 backend。
+  Future<_MediaItemsWithImages> _loadContinueWatching(
     MediaBackend backend,
-    FeiniuApi api, {
+    FeiniuApi api,
+    DetailArtworkResolver resolver, {
     bool forceRefresh = false,
   }) async {
     if (backend.capabilities.kind == MediaBackendKind.feiniu) {
-      return api.getPlayList(forceRefresh: forceRefresh);
+      return (
+        items: await api.getPlayList(forceRefresh: forceRefresh),
+        imageRequests: const <String, MediaImageRequest>{},
+        backdropImageRequests: const <String, MediaImageRequest>{},
+      );
     }
     final cards = await backend.getContinueWatching(forceRefresh: forceRefresh);
-    return cards.map(_cardToMediaItem).toList();
+    return _cardsToMediaItems(resolver, cards);
   }
 
-  /// 鏌愬簱棰勮鏉＄洰鏁版嵁婧愶細椋炵墰璧?FeiniuApi锛屽叾瀹冨叕鍏卞悗绔蛋 `getCatalogPreviewItems`銆?
-  Future<List<MediaLibraryItem>> _loadCategoryItems(
+  /// 某库预览条目数据源：飞牛走 FeiniuApi，其它公共后端走 backend。
+  Future<_MediaItemsWithImages> _loadCategoryItems(
     MediaBackend backend,
     FeiniuApi api,
+    DetailArtworkResolver resolver,
     String catalogId,
   ) async {
     if (backend.capabilities.kind == MediaBackendKind.feiniu) {
-      return api.getItemsByCategoryGuid(
-        catalogId,
-        page: 1,
-        limit: _categoryPreviewLimit,
+      return (
+        items: await api.getItemsByCategoryGuid(
+          catalogId,
+          page: 1,
+          limit: _categoryPreviewLimit,
+        ),
+        imageRequests: const <String, MediaImageRequest>{},
+        backdropImageRequests: const <String, MediaImageRequest>{},
       );
     }
     final cards = await backend.getCatalogPreviewItems(
       catalogId,
       limit: _categoryPreviewLimit,
     );
-    return cards.map(_cardToMediaItem).toList();
+    return _cardsToMediaItems(resolver, cards);
   }
 
   Future<void> _fetchHomeData() async {
@@ -303,6 +368,10 @@ class _MediaListScreenState extends State<MediaListScreen>
     try {
       final provider = context.read<NasProvider>();
       final api = FeiniuApi(provider);
+      final resolver = DetailArtworkResolver(
+        baseUrl: provider.baseUrl,
+        token: provider.token,
+      );
       final backend = context.read<MediaBackendProvider>().backend;
 
       // 鍒嗙被鍏ュ彛/姒傝璧板叕鍏?MediaBackend銆傜户缁鐪嬩笌鍒嗙被鏉＄洰鎸夊悗绔兘鍔涢€夋簮锛氶鐗涜蛋
@@ -311,31 +380,60 @@ class _MediaListScreenState extends State<MediaListScreen>
       final parallelResults = await Future.wait([
         backend.getCatalogs(),
         backend.getHomeSummary(),
-        _loadContinueWatching(backend, api),
+        _loadContinueWatching(backend, api, resolver),
       ]);
-      final categories = (parallelResults[0] as List<MediaCatalog>)
-          .map(_catalogToMediaItem)
-          .toList();
+      final rawCatalogs = parallelResults[0] as List<MediaCatalog>;
+      final categories = rawCatalogs.map(_catalogToMediaItem).toList();
+      final catalogImageRequests = <String, List<MediaImageRequest>>{
+        for (final catalog in rawCatalogs)
+          catalog.id: _requestsForRefs(
+            resolver,
+            catalog.posters.isNotEmpty
+                ? catalog.posters
+                : <MediaImageRef>[catalog.primaryImage],
+          ),
+      };
       final summary = parallelResults[1] as Map<String, dynamic>;
-      final playList = parallelResults[2] as List<MediaLibraryItem>;
+      final playListResult = parallelResults[2] as _MediaItemsWithImages;
+      final playList = playListResult.items;
       const localeMap = <String, dynamic>{};
 
       // Fetch all category items in parallel.
       final itemsByCategory = <String, List<MediaLibraryItem>>{};
+      final itemImageRequests = <String, MediaImageRequest>{
+        ...playListResult.imageRequests,
+      };
+      final backdropImageRequests = <String, MediaImageRequest>{
+        ...playListResult.backdropImageRequests,
+      };
       final allItems = <MediaLibraryItem>[];
       final categoryFutures = categories.map((category) async {
         try {
-          final items = await _loadCategoryItems(backend, api, category.id);
-          return (category.id, items);
+          final result = await _loadCategoryItems(
+            backend,
+            api,
+            resolver,
+            category.id,
+          );
+          return (category.id, result);
         } catch (error) {
           debugPrint('[UI][HOME] category load failed ${category.id}: $error');
-          return (category.id, <MediaLibraryItem>[]);
+          return (
+            category.id,
+            (
+              items: <MediaLibraryItem>[],
+              imageRequests: <String, MediaImageRequest>{},
+              backdropImageRequests: <String, MediaImageRequest>{},
+            ),
+          );
         }
       }).toList();
       final categoryResults = await Future.wait(categoryFutures);
-      for (final (catId, items) in categoryResults) {
-        itemsByCategory[catId] = items;
-        allItems.addAll(items);
+      for (final (catId, result) in categoryResults) {
+        itemsByCategory[catId] = result.items;
+        allItems.addAll(result.items);
+        itemImageRequests.addAll(result.imageRequests);
+        backdropImageRequests.addAll(result.backdropImageRequests);
       }
 
       final continueWatching = _resolveContinueWatching(
@@ -349,6 +447,9 @@ class _MediaListScreenState extends State<MediaListScreen>
         _categories = categories;
         _itemsByCategory = itemsByCategory;
         _continueWatching = continueWatching;
+        _catalogImageRequests = catalogImageRequests;
+        _itemImageRequests = itemImageRequests;
+        _backdropImageRequests = backdropImageRequests;
         _mediaSummary = summary;
         _localeMap = localeMap;
         _isLoading = false;
@@ -395,34 +496,67 @@ class _MediaListScreenState extends State<MediaListScreen>
 
     try {
       final api = FeiniuApi(provider);
+      final resolver = DetailArtworkResolver(
+        baseUrl: provider.baseUrl,
+        token: provider.token,
+      );
 
       // 鍒嗙被鍏ュ彛/姒傝璧板叕鍏?MediaBackend锛涚户缁鐪嬩笌鍒嗙被鏉＄洰鎸夊悗绔兘鍔涢€夋簮锛堝悓 _fetchHomeData锛夈€?
       final parallelResults = await Future.wait([
         backend.getCatalogs(),
         backend.getHomeSummary(),
-        _loadContinueWatching(backend, api, forceRefresh: true),
+        _loadContinueWatching(backend, api, resolver, forceRefresh: true),
       ]);
-      final categories = (parallelResults[0] as List<MediaCatalog>)
-          .map(_catalogToMediaItem)
-          .toList();
+      final rawCatalogs = parallelResults[0] as List<MediaCatalog>;
+      final categories = rawCatalogs.map(_catalogToMediaItem).toList();
+      final catalogImageRequests = <String, List<MediaImageRequest>>{
+        for (final catalog in rawCatalogs)
+          catalog.id: _requestsForRefs(
+            resolver,
+            catalog.posters.isNotEmpty
+                ? catalog.posters
+                : <MediaImageRef>[catalog.primaryImage],
+          ),
+      };
       final summary = parallelResults[1] as Map<String, dynamic>;
-      final playList = parallelResults[2] as List<MediaLibraryItem>;
+      final playListResult = parallelResults[2] as _MediaItemsWithImages;
+      final playList = playListResult.items;
 
       // Fetch all category items in parallel.
       final itemsByCategory = <String, List<MediaLibraryItem>>{};
+      final itemImageRequests = <String, MediaImageRequest>{
+        ...playListResult.imageRequests,
+      };
+      final backdropImageRequests = <String, MediaImageRequest>{
+        ...playListResult.backdropImageRequests,
+      };
       final allItems = <MediaLibraryItem>[];
       final categoryFutures = categories.map((category) async {
         try {
-          final items = await _loadCategoryItems(backend, api, category.id);
-          return (category.id, items);
+          final result = await _loadCategoryItems(
+            backend,
+            api,
+            resolver,
+            category.id,
+          );
+          return (category.id, result);
         } catch (_) {
-          return (category.id, <MediaLibraryItem>[]);
+          return (
+            category.id,
+            (
+              items: <MediaLibraryItem>[],
+              imageRequests: <String, MediaImageRequest>{},
+              backdropImageRequests: <String, MediaImageRequest>{},
+            ),
+          );
         }
       }).toList();
       final categoryResults = await Future.wait(categoryFutures);
-      for (final (catId, items) in categoryResults) {
-        itemsByCategory[catId] = items;
-        allItems.addAll(items);
+      for (final (catId, result) in categoryResults) {
+        itemsByCategory[catId] = result.items;
+        allItems.addAll(result.items);
+        itemImageRequests.addAll(result.imageRequests);
+        backdropImageRequests.addAll(result.backdropImageRequests);
       }
 
       final continueWatching = _resolveContinueWatching(
@@ -455,11 +589,18 @@ class _MediaListScreenState extends State<MediaListScreen>
           _categories = categories;
           _itemsByCategory = itemsByCategory;
           _continueWatching = continueWatching;
+          _catalogImageRequests = catalogImageRequests;
+          _itemImageRequests = itemImageRequests;
           _mediaSummary = summary;
           _loadingFromCache = false;
         });
       } else {
-        setState(() => _loadingFromCache = false);
+        setState(() {
+          _catalogImageRequests = catalogImageRequests;
+          _itemImageRequests = itemImageRequests;
+          _backdropImageRequests = backdropImageRequests;
+          _loadingFromCache = false;
+        });
       }
 
       // Always update cache with fresh data.
@@ -488,9 +629,14 @@ class _MediaListScreenState extends State<MediaListScreen>
 
     try {
       final api = FeiniuApi(provider);
-      final playList = await _loadContinueWatching(
+      final resolver = DetailArtworkResolver(
+        baseUrl: provider.baseUrl,
+        token: provider.token,
+      );
+      final playListResult = await _loadContinueWatching(
         backend,
         api,
+        resolver,
         forceRefresh: true,
       );
       if (!mounted) return;
@@ -498,7 +644,7 @@ class _MediaListScreenState extends State<MediaListScreen>
       // Emby 等留空)。否则返回时刷新与初始加载口径不一致会导致续播区抖动/消失。
       final continueWatching = _resolveContinueWatching(
         backend,
-        playList,
+        playListResult.items,
         _itemsByCategory.values
             .expand((items) => items)
             .toList(growable: false),
@@ -507,11 +653,23 @@ class _MediaListScreenState extends State<MediaListScreen>
       // 380ms pop 转场里；等转场结束再应用，且列表未变化时不整页重建。
       await RouteTransitionGate.of(context);
       if (!mounted) return;
-      if (HomeDataSnapshot.itemsEqual(_continueWatching, continueWatching)) {
-        return;
-      }
+      final oldContinueIds = _continueWatching.map((item) => item.guid).toSet();
+      final itemsUnchanged = HomeDataSnapshot.itemsEqual(
+        _continueWatching,
+        continueWatching,
+      );
       setState(() {
-        _continueWatching = continueWatching;
+        if (backend.capabilities.kind != MediaBackendKind.feiniu) {
+          for (final id in oldContinueIds) {
+            _itemImageRequests.remove(id);
+            _backdropImageRequests.remove(id);
+          }
+          _itemImageRequests.addAll(playListResult.imageRequests);
+          _backdropImageRequests.addAll(playListResult.backdropImageRequests);
+        }
+        if (!itemsUnchanged) {
+          _continueWatching = continueWatching;
+        }
       });
     } catch (error) {
       debugPrint('[UI][HOME] continue watching refresh failed $error');
@@ -770,13 +928,15 @@ class _MediaListScreenState extends State<MediaListScreen>
           if (!mounted) return;
           // 服务器族 backdropUrl 是完整自鉴权直链;经统一入口包成请求(token 传空,
           // 与旧 directUrlPrecacheProvider 不带 header 的行为一致)。
+          final heroImages = preferPreservedImageRequest(
+            preserved: _backdropImageRequests[item.guid],
+            fallbackUrls: item.backdropUrl.trim().isNotEmpty
+                ? <String>[item.backdropUrl.trim()]
+                : const <String>[],
+            fallbackToken: '',
+          );
           final heroProvider = DetailHeroImage.precacheProvider(
-            images: mediaImageRequestForUrls(
-              item.backdropUrl.trim().isNotEmpty
-                  ? <String>[item.backdropUrl.trim()]
-                  : const <String>[],
-              token: '',
-            ),
+            images: heroImages,
             screenWidth: MediaQuery.of(context).size.width,
             devicePixelRatio: MediaQuery.of(context).devicePixelRatio,
           );
