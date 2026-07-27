@@ -13,6 +13,9 @@ void main() {
     expect(allowed('127.0.0.1'), isTrue);
     expect(allowed('localhost'), isTrue);
     expect(allowed('169.254.10.20'), isTrue);
+    expect(allowed('100.64.0.1'), isTrue);
+    expect(allowed('100.125.130.96'), isTrue);
+    expect(allowed('100.127.255.254'), isTrue);
     expect(allowed('::1'), isTrue);
     expect(allowed('fc00::1'), isTrue);
     expect(allowed('fe80::1'), isTrue);
@@ -20,6 +23,8 @@ void main() {
     expect(allowed('8.8.8.8'), isFalse);
     expect(allowed('1.1.1.1'), isFalse);
     expect(allowed('172.32.0.1'), isFalse);
+    expect(allowed('100.63.255.255'), isFalse);
+    expect(allowed('100.128.0.0'), isFalse);
     expect(allowed('example.com'), isFalse);
 
     PrivateNetworkHttpOverrides.registerNasHost('Nas.Example.Test');
