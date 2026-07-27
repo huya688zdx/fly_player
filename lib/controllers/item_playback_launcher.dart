@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../api/feiniu_api.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../media_backend/feiniu/feiniu_detail_data_gateway.dart';
 import '../media_backend/media_backend.dart';
@@ -373,7 +372,9 @@ class ItemPlaybackLauncher {
   ) async {
     if (seasonGuid.trim().isEmpty || !nas.isConfigured) return const [];
     try {
-      final episodes = await FeiniuApi(nas).getEpisodeList(seasonGuid.trim());
+      final episodes = await FeiniuDetailDataGateway.forNas(
+        nas,
+      ).getEpisodeList(seasonGuid.trim());
       final service = DownloadTaskService.instance;
       // 原生壳无 NasProvider：封面给完整 NAS 图片 URL（转码流视频在 CDN，原生自拼会取错
       // origin）+ token（图片需 NAS 鉴权头）。

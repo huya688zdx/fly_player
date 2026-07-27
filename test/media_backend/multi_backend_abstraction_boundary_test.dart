@@ -113,9 +113,10 @@ void main() {
     });
 
     test('pages/screens 直连 feiniu_api 需在白名单内(白名单只许缩短,修一个删一行)', () {
-      // 静态扫描 lib/pages、lib/screens、lib/widgets、lib/ui 下所有 .dart 文件是否
-      // import feiniu_api.dart。widgets/ui 当前无命中,扩根目录纯为封口,防止未来
-      // 公共组件层新出现直连。
+      // 静态扫描 lib/pages、lib/screens、lib/widgets、lib/ui、lib/controllers 下所有
+      // .dart 文件是否 import feiniu_api.dart。widgets/ui/controllers 当前无命中,
+      // 扩根目录纯为封口,防止未来公共组件层/控制器层新出现直连
+      // (controllers 已全量收口到 FeiniuDetailDataGateway,T13/A-034~A-038)。
       // 这是"公共页面绕过 MediaBackend 抽象层直连飞牛 API"的历史遗留面,新增 import 必须
       // 先接入后端抽象再落地,否则本测试会因"未在白名单"而失败;已收口的文件要把它从
       // 白名单里删掉——白名单只许缩短,不许再增长。
@@ -147,6 +148,7 @@ void main() {
         'lib/screens',
         'lib/widgets',
         'lib/ui',
+        'lib/controllers',
       ]) {
         for (final entity in Directory(root).listSync(recursive: true)) {
           if (entity is! File || !entity.path.endsWith('.dart')) continue;
