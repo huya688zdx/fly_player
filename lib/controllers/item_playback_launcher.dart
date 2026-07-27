@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../api/feiniu_api.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../media_backend/feiniu/feiniu_detail_data_gateway.dart';
 import '../media_backend/media_backend.dart';
 import '../media_backend/media_backend_registry.dart';
 import '../media_backend/playback/media_playback.dart';
@@ -244,7 +245,7 @@ class ItemPlaybackLauncher {
           if (localRecord != null) {
             final local = await resolveLocalDownloadSource(
               localRecord,
-              nas,
+              FeiniuDetailDataGateway.forNas(nas),
               l10n: l10n,
               startPositionMs: startPositionMs,
             );
