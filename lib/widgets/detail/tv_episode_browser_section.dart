@@ -680,7 +680,7 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-class _EpisodeSummaryLine extends StatelessWidget {
+class _EpisodeSummaryLine extends StatefulWidget {
   final String summary;
   final double fontSize;
   final String detailText;
@@ -692,6 +692,24 @@ class _EpisodeSummaryLine extends StatelessWidget {
     required this.detailText,
     required this.onDetailTap,
   });
+
+  @override
+  State<_EpisodeSummaryLine> createState() => _EpisodeSummaryLineState();
+}
+
+class _EpisodeSummaryLineState extends State<_EpisodeSummaryLine> {
+  // 二分查找截断点的缓存:仅当影响排版结果的输入变化时才重新计算,
+  // 避免每次 build(如外层 AnimatedSwitcher/滚动触发的重建)都重跑一遍
+  // TextPainter 排版 + 二分查找。onDetailTap 不参与缓存判定,始终用最新值
+  // 构建 GestureDetector,避免闭包过期。
+  String? _cacheSummary;
+  double? _cacheFontSize;
+  String? _cacheDetailText;
+  double? _cacheMaxWidth;
+  TextDirection? _cacheDirection;
+  TextScaler? _cacheScaler;
+  bool _cacheOverflowed = false;
+  String _cacheFitted = '';
 
   bool _exceedsTwoLines({
     required BuildContext context,
@@ -710,18 +728,18 @@ class _EpisodeSummaryLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    if (summary.trim().isEmpty) {
+    if (widget.summary.trim().isEmpty) {
       return const SizedBox.shrink();
     }
     final normalStyle = TextStyle(
       color: colors.textSecondary,
-      fontSize: fontSize,
+      fontSize: widget.fontSize,
       height: 1.2,
     );
     final detailStyle = TextStyle(
       color: colors.link,
       fontWeight: FontWeight.w600,
-      fontSize: fontSize - 1,
+      fontSize: widget.fontSize - 1,
     );
 
     return LayoutBuilder(
@@ -730,15 +748,66 @@ class _EpisodeSummaryLine extends StatelessWidget {
         final safeWidth = maxWidth > 8 ? maxWidth - 8 : maxWidth;
         if (maxWidth <= 0) return const SizedBox.shrink();
 
-        final plain = TextSpan(text: summary, style: normalStyle);
-        final overflowed = _exceedsTwoLines(
-          context: context,
-          maxWidth: safeWidth,
-          text: plain,
-        );
-        if (!overflowed) {
+        final direction = Directionality.of(context);
+        final scaler = MediaQuery.textScalerOf(context);
+        final cacheHit =
+            _cacheSummary == widget.summary &&
+            _cacheFontSize == widget.fontSize &&
+            _cacheDetailText == widget.detailText &&
+            _cacheMaxWidth == maxWidth &&
+            _cacheDirection == direction &&
+            _cacheScaler == scaler;
+
+        if (!cacheHit) {
+          final plain = TextSpan(text: widget.summary, style: normalStyle);
+          final overflowed = _exceedsTwoLines(
+            context: context,
+            maxWidth: safeWidth,
+            text: plain,
+          );
+          var fitted = '';
+          if (overflowed) {
+            const suffixNormal = '...';
+            int low = 0;
+            int high = widget.summary.length;
+            int best = 0;
+            while (low <= high) {
+              final mid = (low + high) >> 1;
+              final candidate = widget.summary.substring(0, mid).trimRight();
+              final span = TextSpan(
+                children: [
+                  TextSpan(text: candidate, style: normalStyle),
+                  TextSpan(text: suffixNormal, style: normalStyle),
+                  TextSpan(text: widget.detailText, style: detailStyle),
+                ],
+              );
+              final fits = !_exceedsTwoLines(
+                context: context,
+                maxWidth: safeWidth,
+                text: span,
+              );
+              if (fits) {
+                best = mid;
+                low = mid + 1;
+              } else {
+                high = mid - 1;
+              }
+            }
+            fitted = widget.summary.substring(0, best).trimRight();
+          }
+          _cacheSummary = widget.summary;
+          _cacheFontSize = widget.fontSize;
+          _cacheDetailText = widget.detailText;
+          _cacheMaxWidth = maxWidth;
+          _cacheDirection = direction;
+          _cacheScaler = scaler;
+          _cacheOverflowed = overflowed;
+          _cacheFitted = fitted;
+        }
+
+        if (!_cacheOverflowed) {
           return Text(
-            summary,
+            widget.summary,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: normalStyle,
@@ -746,47 +815,20 @@ class _EpisodeSummaryLine extends StatelessWidget {
         }
 
         const suffixNormal = '...';
-        int low = 0;
-        int high = summary.length;
-        int best = 0;
-        while (low <= high) {
-          final mid = (low + high) >> 1;
-          final candidate = summary.substring(0, mid).trimRight();
-          final span = TextSpan(
-            children: [
-              TextSpan(text: candidate, style: normalStyle),
-              TextSpan(text: suffixNormal, style: normalStyle),
-              TextSpan(text: detailText, style: detailStyle),
-            ],
-          );
-          final fits = !_exceedsTwoLines(
-            context: context,
-            maxWidth: safeWidth,
-            text: span,
-          );
-          if (fits) {
-            best = mid;
-            low = mid + 1;
-          } else {
-            high = mid - 1;
-          }
-        }
-
-        final fitted = summary.substring(0, best).trimRight();
         return RichText(
           maxLines: 2,
           overflow: TextOverflow.clip,
           text: TextSpan(
             children: [
-              TextSpan(text: fitted, style: normalStyle),
+              TextSpan(text: _cacheFitted, style: normalStyle),
               TextSpan(text: suffixNormal, style: normalStyle),
               WidgetSpan(
                 alignment: PlaceholderAlignment.baseline,
                 baseline: TextBaseline.alphabetic,
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: onDetailTap,
-                  child: Text(detailText, style: detailStyle),
+                  onTap: widget.onDetailTap,
+                  child: Text(widget.detailText, style: detailStyle),
                 ),
               ),
             ],
