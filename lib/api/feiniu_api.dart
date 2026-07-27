@@ -428,7 +428,8 @@ class FeiniuApi {
   final Map<String, Future<ItemListPage>> _itemListInflight = {};
   final PlaylistViewPreferenceStore _playlistViewPreferenceStore =
       const PlaylistViewPreferenceStore();
-  final PlaybackClientIdStore _playbackClientIdStore = PlaybackClientIdStore();
+  final PlaybackClientIdStore _playbackClientIdStore =
+      const PlaybackClientIdStore();
 
   FeiniuApi(this.nasProvider, {HttpClientAdapter? httpClientAdapter}) {
     if (httpClientAdapter != null) {
@@ -1555,18 +1556,22 @@ class FeiniuApi {
   /// 命中本地缓存即刻返回（开播/打开选集面板秒级正确，不等网络），同时后台异步刷新服务端
   /// 偏好回写本地，使下次取到最新；无本地缓存时退回服务端并写入本地。
   Future<String?> getPlaylistViewType() async {
-    final cached = await _readLocalPlaylistViewType();
+    final cached = await _playlistViewPreferenceStore.readViewType();
     if (cached != null) {
       // 后台对齐服务端，不阻塞本次返回。
       unawaited(
         _fetchServerPlaylistViewType().then((server) {
-          if (server != null) _writeLocalPlaylistViewType(server);
+          if (server != null) {
+            _playlistViewPreferenceStore.writeViewType(server);
+          }
         }),
       );
       return cached;
     }
     final server = await _fetchServerPlaylistViewType();
-    if (server != null) await _writeLocalPlaylistViewType(server);
+    if (server != null) {
+      await _playlistViewPreferenceStore.writeViewType(server);
+    }
     return server;
   }
 
@@ -1576,7 +1581,7 @@ class FeiniuApi {
       debugPrint('[API][USER_DATA] unsupported playlist view type=$viewType');
       return false;
     }
-    await _writeLocalPlaylistViewType(viewType);
+    await _playlistViewPreferenceStore.writeViewType(viewType);
     return setUserDataJsonValue('playlist:setting', <String, dynamic>{
       'view_type': viewType,
     });
@@ -1589,14 +1594,6 @@ class FeiniuApi {
       return viewType;
     }
     return null;
-  }
-
-  Future<String?> _readLocalPlaylistViewType() {
-    return _playlistViewPreferenceStore.readViewType();
-  }
-
-  Future<void> _writeLocalPlaylistViewType(String viewType) {
-    return _playlistViewPreferenceStore.writeViewType(viewType);
   }
 
   /// 获取标签接口的原始数据。
