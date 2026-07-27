@@ -560,8 +560,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
           return SizedBox(
             width: layout.homePosterCardWidth,
             child: MediaPosterCard(
-              urls: urls,
-              token: token,
+              images: mediaImageRequestForUrls(urls, token: token),
               title: item.displayTitle,
               subtitle: _cardSubtitle(item),
               rating: rating,
@@ -761,8 +760,10 @@ class _PosterCluster extends StatelessWidget {
               height: miniPosterHeight,
               child: _GlassMiniPoster(
                 child: _PosterImage(
-                  urls: posterUrls[index],
-                  token: token,
+                  images: mediaImageRequestForUrls(
+                    posterUrls[index],
+                    token: token,
+                  ),
                   lightweight: lightweight,
                   decodeWidth: decodeWidth,
                   fallback: ColoredBox(color: fallbackColor),
@@ -846,15 +847,13 @@ class _ContinueDownloadBadge extends StatelessWidget {
 }
 
 class _PosterImage extends StatefulWidget {
-  final List<String> urls;
-  final String token;
+  final MediaImageRequest images;
   final bool lightweight;
   final int? decodeWidth;
   final Widget fallback;
 
   const _PosterImage({
-    required this.urls,
-    required this.token,
+    required this.images,
     this.lightweight = false,
     this.decodeWidth,
     required this.fallback,
@@ -872,7 +871,7 @@ class _PosterImageState extends State<_PosterImage> {
   @override
   void didUpdateWidget(covariant _PosterImage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!listEquals(oldWidget.urls, widget.urls)) {
+    if (!listEquals(oldWidget.images.urls, widget.images.urls)) {
       _index = 0;
       _fallbackScheduled = false;
     }
@@ -880,15 +879,15 @@ class _PosterImageState extends State<_PosterImage> {
 
   @override
   Widget build(BuildContext context) {
-    final hasUrl = widget.urls.isNotEmpty && _index < widget.urls.length;
-    final activeUrl = hasUrl ? widget.urls[_index] : '';
-    // 空 token 默认回退（飞牛图需 NAS token）；自带凭据 URL（Emby `?api_key=`）照常加载。
-    final selfAuthenticated = activeUrl.contains('api_key=');
-    if (!hasUrl || (widget.token.trim().isEmpty && !selfAuthenticated)) {
+    final urls = widget.images.urls;
+    final hasUrl = _index < urls.length;
+    // 无候选或无鉴权（既无 header 也非自鉴权直链）时回退占位，
+    // 判定语义由 MediaImageRequest.canLoad 统一承载。
+    if (!hasUrl || !widget.images.canLoad) {
       return widget.fallback;
     }
 
-    final current = activeUrl;
+    final current = urls[_index];
     return LayoutBuilder(
       builder: (context, constraints) {
         final dpr = MediaQuery.of(context).devicePixelRatio;
@@ -909,7 +908,7 @@ class _PosterImageState extends State<_PosterImage> {
         return Image.network(
           current,
           fit: BoxFit.cover,
-          headers: nasImageHeaders(widget.token, url: current),
+          headers: widget.images.headers,
           filterQuality: FilterQuality.none,
           gaplessPlayback: true,
           cacheWidth: cacheWidth,
@@ -919,8 +918,8 @@ class _PosterImageState extends State<_PosterImage> {
             return _buildImageFrame(child, loaded);
           },
           errorBuilder: (context, error, stackTrace) {
-            if (_index < widget.urls.length - 1) {
-              final nextUrl = widget.urls[_index + 1];
+            if (_index < widget.images.urls.length - 1) {
+              final nextUrl = widget.images.urls[_index + 1];
               debugPrint(
                 '[IMG][MEDIA_LIST] failed url=$current error=$error -> fallback=$nextUrl',
               );
@@ -961,7 +960,7 @@ class _PosterImageState extends State<_PosterImage> {
     _fallbackScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      if (_index >= widget.urls.length - 1) {
+      if (_index >= widget.images.urls.length - 1) {
         _fallbackScheduled = false;
         return;
       }

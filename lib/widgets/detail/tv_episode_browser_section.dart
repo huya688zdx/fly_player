@@ -6,6 +6,7 @@ import '../../models/tv_episode_picker_mode.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/detail_tokens.dart';
 import '../../ui/app_transitions.dart';
+import '../../ui/detail_artwork_resolver.dart';
 import '../../ui/media_detail_components.dart';
 import '../common/liquid_glass.dart';
 import 'capability_badge.dart';
@@ -571,7 +572,7 @@ class _EpisodePoster extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          DetailHeroImage(urls: imageUrls, token: token),
+          DetailHeroImage(images: mediaImageRequestForUrls(imageUrls, token: token)),
           Positioned.fill(
             child: IgnorePointer(
               child: Align(

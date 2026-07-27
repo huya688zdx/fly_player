@@ -4,14 +4,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../media_backend/media_image_request.dart';
 import '../services/app_log_service.dart';
 import '../theme/app_theme.dart';
-import '../utils/nas_image_headers.dart';
 import 'capability_badge_mapper.dart';
 
 class MediaPosterCard extends StatelessWidget {
-  final List<String> urls;
-  final String token;
+  final MediaImageRequest images;
   final String title;
   final String subtitle;
   final double? imageAspectRatioHint;
@@ -34,8 +33,7 @@ class MediaPosterCard extends StatelessWidget {
 
   const MediaPosterCard({
     super.key,
-    required this.urls,
-    required this.token,
+    required this.images,
     required this.title,
     required this.subtitle,
     required this.imageHeight,
@@ -151,8 +149,7 @@ class MediaPosterCard extends StatelessWidget {
               ),
             ),
             child: _PosterImage(
-              urls: urls,
-              token: token,
+              images: images,
               fit: imageFit,
               aspectRatioHint: imageAspectRatioHint,
               autoFitByImageAspect: autoFitByImageAspect,
@@ -283,8 +280,7 @@ class _PosterCapabilityBadge extends StatelessWidget {
 }
 
 class _PosterImage extends StatefulWidget {
-  final List<String> urls;
-  final String token;
+  final MediaImageRequest images;
   final BoxFit fit;
   final double? aspectRatioHint;
   final bool autoFitByImageAspect;
@@ -292,8 +288,7 @@ class _PosterImage extends StatefulWidget {
   final Widget fallback;
 
   const _PosterImage({
-    required this.urls,
-    required this.token,
+    required this.images,
     required this.fit,
     required this.aspectRatioHint,
     required this.autoFitByImageAspect,
@@ -313,7 +308,7 @@ class _PosterImageState extends State<_PosterImage> {
   @override
   void didUpdateWidget(covariant _PosterImage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!listEquals(oldWidget.urls, widget.urls)) {
+    if (!listEquals(oldWidget.images.urls, widget.images.urls)) {
       _index = 0;
       _fallbackScheduled = false;
     }
@@ -321,16 +316,15 @@ class _PosterImageState extends State<_PosterImage> {
 
   @override
   Widget build(BuildContext context) {
-    final hasUrl = widget.urls.isNotEmpty && _index < widget.urls.length;
-    final activeUrl = hasUrl ? widget.urls[_index] : '';
-    // 空 token 默认回退占位（飞牛图片需 NAS token 鉴权）；但 URL 自带凭据时
-    // （如 Emby 的 `?api_key=`，自鉴权、不依赖 NAS token）照常加载。
-    final selfAuthenticated = activeUrl.contains('api_key=');
-    if (!hasUrl || (widget.token.trim().isEmpty && !selfAuthenticated)) {
+    final urls = widget.images.urls;
+    final hasUrl = _index < urls.length;
+    // 无候选或无鉴权（既无 header 也非自鉴权直链）时回退占位，
+    // 判定语义由 MediaImageRequest.canLoad 统一承载。
+    if (!hasUrl || !widget.images.canLoad) {
       return widget.fallback;
     }
 
-    final url = activeUrl;
+    final url = urls[_index];
     return LayoutBuilder(
       builder: (context, constraints) {
         // devicePixelRatioOf 只订阅 dpr 这一项，避免每张卡因无关的 MediaQuery
@@ -355,7 +349,7 @@ class _PosterImageState extends State<_PosterImage> {
         // 压扁画面破坏宽高比（最终显示仍由外层 BoxFit + 圆角裁剪负责）。
         ImageProvider provider = NetworkImage(
           url,
-          headers: nasImageHeaders(widget.token, url: url),
+          headers: widget.images.headers,
         );
         if (cacheW != null || cacheH != null) {
           provider = ResizeImage(
@@ -378,8 +372,8 @@ class _PosterImageState extends State<_PosterImage> {
             return widget.fallback;
           },
           errorBuilder: (context, error, stackTrace) {
-            if (_index + 1 < widget.urls.length) {
-              final nextUrl = widget.urls[_index + 1];
+            if (_index + 1 < widget.images.urls.length) {
+              final nextUrl = widget.images.urls[_index + 1];
               debugPrint(
                 '[IMG][POSTER] failed url=$url error=$error -> fallback=$nextUrl',
               );
@@ -415,7 +409,7 @@ class _PosterImageState extends State<_PosterImage> {
     _fallbackScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      if (_index + 1 >= widget.urls.length) {
+      if (_index + 1 >= widget.images.urls.length) {
         _fallbackScheduled = false;
         return;
       }

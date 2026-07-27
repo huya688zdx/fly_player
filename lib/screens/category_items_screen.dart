@@ -20,6 +20,7 @@ import '../services/embedded_detail_launcher.dart';
 import '../theme/app_theme.dart';
 import '../ui/adaptive_detail_navigator.dart';
 import '../ui/catalog_filter_localizer.dart';
+import '../ui/detail_artwork_resolver.dart';
 import '../ui/detail_presentation.dart';
 import '../ui/layout_adaptive.dart';
 import '../ui/media_episode_subtitle.dart';
@@ -948,8 +949,10 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                   itemBuilder: (context, index) {
                     final item = _items[index];
                     return MediaLibraryListTile(
-                      urls: _posterCandidates(baseUrl, item, width: 280),
-                      token: token,
+                      images: mediaImageRequestForUrls(
+                        _posterCandidates(baseUrl, item, width: 280),
+                        token: token,
+                      ),
                       title: item.displayTitle,
                       subtitle: _cardSubtitle(item),
                       resolutions: item.resolutions
@@ -1009,8 +1012,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                             .toList();
 
                         return MediaPosterCard(
-                          urls: urls,
-                          token: token,
+                          images: mediaImageRequestForUrls(urls, token: token),
                           title: item.displayTitle,
                           subtitle: _cardSubtitle(item),
                           imageAspectRatioHint: item.hasPosterSize
@@ -1069,8 +1071,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                         .toList();
 
                     return MediaPosterCard(
-                      urls: urls,
-                      token: token,
+                      images: mediaImageRequestForUrls(urls, token: token),
                       title: item.displayTitle,
                       subtitle: _cardSubtitle(item),
                       rating: rating,
