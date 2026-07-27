@@ -415,9 +415,12 @@ internal fun nativePanelShouldShowCompletedOverlay(
     insideCompletionWindow: Boolean,
     positionMs: Long,
     durationMs: Long,
+    autoNextSuppressedForCurrent: Boolean = false,
 ): Boolean {
     if (playbackEnded) return true
-    if (autoPlayEnabled && hasNextEpisode) return false
+    // keep-open 下自然播完不会进 ENDED 相位，只能靠末秒位置兜底；
+    // 用户取消本集连播倒计时后连播视同不生效，否则完成弹层被永久拦截。
+    if (autoPlayEnabled && hasNextEpisode && !autoNextSuppressedForCurrent) return false
     if (durationMs <= 0L || positionMs <= 0L) return false
     val endThresholdMs = (durationMs - 1_000L).coerceAtLeast(0L)
     return positionMs >= endThresholdMs
@@ -6650,6 +6653,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 insideCompletionWindow = insideCompletionWindow,
                 positionMs = state.positionMs,
                 durationMs = state.durationMs,
+                autoNextSuppressedForCurrent = autoNextSuppressedForCurrent,
             )
         when {
             shouldShowAutoNext -> {

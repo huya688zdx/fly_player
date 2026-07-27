@@ -490,6 +490,31 @@ class NativePlayerActivityPanelModelsTest {
                 durationMs = 72_000,
             ),
         )
+        // 用户取消本集连播倒计时后：连播视同不生效，末秒兜底照常弹完成层
+        assertEquals(
+            true,
+            nativePanelShouldShowCompletedOverlay(
+                autoPlayEnabled = true,
+                hasNextEpisode = true,
+                playbackEnded = false,
+                insideCompletionWindow = false,
+                positionMs = 71_400,
+                durationMs = 72_000,
+                autoNextSuppressedForCurrent = true,
+            ),
+        )
+        assertEquals(
+            false,
+            nativePanelShouldShowCompletedOverlay(
+                autoPlayEnabled = true,
+                hasNextEpisode = true,
+                playbackEnded = false,
+                insideCompletionWindow = true,
+                positionMs = 67_000,
+                durationMs = 72_000,
+                autoNextSuppressedForCurrent = true,
+            ),
+        )
     }
 
     @Test
