@@ -17,6 +17,7 @@ import '../models/person_credit.dart';
 import '../models/stream_list_option.dart';
 import '../models/stream_track_data.dart';
 import '../media_backend/detail/media_detail.dart';
+import '../media_backend/detail/media_detail_variant.dart';
 import '../media_backend/detail/media_source_info.dart';
 import '../media_backend/detail/media_source_version.dart';
 import '../media_backend/feiniu/feiniu_detail_data_gateway.dart';
