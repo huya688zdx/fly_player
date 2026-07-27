@@ -789,7 +789,9 @@ class _DownloadPoster extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            DetailHeroImage(images: mediaImageRequestForUrls(urls, token: token)),
+            DetailHeroImage(
+              images: mediaImageRequestForUrls(urls, token: token),
+            ),
             if (badgeLabel.trim().isNotEmpty)
               Positioned(
                 right: 0,
