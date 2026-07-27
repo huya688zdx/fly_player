@@ -227,10 +227,7 @@ class TvSeasonDetailPanel extends StatelessWidget {
                   width: posterWidth,
                   height: posterCardHeight,
                   child: DetailHeroImage(
-                    images: mediaImageRequestForUrls(
-                      posterUrls,
-                      token: token,
-                    ),
+                    images: mediaImageRequestForUrls(posterUrls, token: token),
                   ),
                 ),
               ),
