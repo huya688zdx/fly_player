@@ -49,7 +49,11 @@ class _FileInfoSectionState extends State<FileInfoSection> {
     final f = widget.file;
     if (f == null) return const SizedBox.shrink();
 
-    final friendlyPath = _friendlyPath(f.path, widget.authorizedDirs, l10n);
+    // H-007:是否套用「/vol → 友好路径」映射由调用方经 [showPathToggle] 决定
+    // (飞牛传 true;Emby 等无 /vol 语义的后端传 false,本组件不自判后端)。
+    final friendlyPath = widget.showPathToggle
+        ? _friendlyPath(f.path, widget.authorizedDirs, l10n)
+        : '';
     final displayedPath = _showRawPath || friendlyPath.isEmpty
         ? f.path
         : friendlyPath;

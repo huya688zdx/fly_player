@@ -25,10 +25,10 @@ import '../services/embedded_detail_launcher.dart';
 import '../theme/app_theme.dart';
 import '../theme/detail_tokens.dart';
 import '../ui/adaptive_detail_navigator.dart';
+import '../ui/detail_artwork_resolver.dart';
 import '../ui/detail_presentation.dart';
 import '../ui/player_pane_host_scope.dart';
 import '../ui/route_transition_gate.dart';
-import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
 import '../utils/detail_top_tip.dart';
 import '../utils/swallowed_error_logger.dart';
@@ -1163,15 +1163,14 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
         }
       }
     }
-    final dynamicThemeUrls = dynamicPosterPath.isEmpty
-        ? const <String>[]
-        : ApiUrlHelper.imageCandidates(
-            provider.baseUrl,
-            dynamicPosterPath,
-            width: 320,
-          );
-    final dynamicThemeImageUrl = dynamicThemeUrls.isNotEmpty
-        ? dynamicThemeUrls.first
+    final dynamicThemeImages = dynamicPosterPath.isEmpty
+        ? MediaImageRequest.empty
+        : DetailArtworkResolver(
+            baseUrl: provider.baseUrl,
+            token: provider.token,
+          ).resolvePath(dynamicPosterPath, width: 320);
+    final dynamicThemeImageUrl = dynamicThemeImages.urls.isNotEmpty
+        ? dynamicThemeImages.urls.first
         : '';
     final syncGlobalTheme = dynamicThemeIntensity.allowsGlobalRuntimeThemeSync(
       inPlayerPaneHost: inPlayerPaneHost,
@@ -1181,7 +1180,7 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
     return DynamicPageThemeScope(
       pageKey: widget.itemGuid,
       imageUrl: dynamicThemeImageUrl,
-      token: provider.token,
+      imageHeaders: dynamicThemeImages.headers,
       enabled: dynamicThemeEnabled,
       syncGlobalTheme: syncGlobalTheme,
       deferLocalThemeApplyUntilGlobalSync: _isPane && syncGlobalTheme,

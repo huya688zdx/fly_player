@@ -37,7 +37,10 @@ class DynamicPageThemeScope extends StatefulWidget {
 
   final String pageKey;
   final String imageUrl;
-  final String token;
+
+  /// 访问 [imageUrl] 所需的鉴权 header（H-030:取色链路不再感知 NAS token,
+  /// 由调用方从图片请求对象取 headers;Emby 自鉴权直链传空 map 即可）。
+  final Map<String, String> imageHeaders;
   final bool enabled;
   final bool allowLiveResolve;
   final bool syncGlobalTheme;
@@ -49,7 +52,7 @@ class DynamicPageThemeScope extends StatefulWidget {
     super.key,
     required this.pageKey,
     required this.imageUrl,
-    required this.token,
+    this.imageHeaders = const <String, String>{},
     required this.enabled,
     this.allowLiveResolve = true,
     this.syncGlobalTheme = false,
@@ -129,7 +132,10 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
     _updateGlobalThemeOwnerRegistration(oldWidget: oldWidget);
     final keyChanged = oldWidget.pageKey != widget.pageKey;
     final urlChanged = oldWidget.imageUrl != widget.imageUrl;
-    final tokenChanged = oldWidget.token != widget.token;
+    final tokenChanged = !mapEquals(
+      oldWidget.imageHeaders,
+      widget.imageHeaders,
+    );
     final enabledChanged = oldWidget.enabled != widget.enabled;
     final allowLiveResolveChanged =
         oldWidget.allowLiveResolve != widget.allowLiveResolve;
@@ -332,7 +338,7 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
         .getOrResolve(
           key: widget.pageKey,
           imageUrl: widget.imageUrl,
-          token: widget.token,
+          imageHeaders: widget.imageHeaders,
         )
         .then((seed) {
           if (!mounted ||

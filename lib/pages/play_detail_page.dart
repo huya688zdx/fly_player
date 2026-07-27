@@ -48,6 +48,7 @@ import '../ui/app_transitions.dart';
 import '../ui/capability_badge_mapper.dart';
 import '../ui/credit_person_presenter.dart';
 import '../ui/detail_artwork_resolver.dart';
+import '../ui/feiniu_video_info_lines.dart';
 import '../ui/detail_presentation.dart';
 import '../ui/player_pane_host_scope.dart';
 import '../ui/region_name_localizer.dart';
@@ -2751,38 +2752,34 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       baseUrl: nasProvider.baseUrl,
       token: nasProvider.token,
     );
-    var dynamicThemeImageUrl = '';
+    var dynamicThemeImages = MediaImageRequest.empty;
     if (_neutralDisplayOnly && _detail != null) {
       // Emby 等中立后端:取色图用 _detail 的完整直链(自带 api_key),背景图优先、退海报。
       final neutral = _detail!;
-      final urls = dynamicThemeResolver.resolveRefs(<MediaImageRef>[
+      dynamicThemeImages = dynamicThemeResolver.resolveRefs(<MediaImageRef>[
         neutral.backdropImage,
         neutral.primaryImage,
-      ]).urls;
-      if (urls.isNotEmpty) {
-        dynamicThemeImageUrl = urls.first;
-      }
+      ]);
     } else if (_data != null) {
       final item = _data!.item;
-      final urls = dynamicThemeResolver
-          .resolvePath(_dynamicThemePathForPlayItem(item), width: 360)
-          .urls;
-      if (urls.isNotEmpty) {
-        dynamicThemeImageUrl = urls.first;
-      }
+      dynamicThemeImages = dynamicThemeResolver.resolvePath(
+        _dynamicThemePathForPlayItem(item),
+        width: 360,
+      );
     } else if (widget.initialItemDetail != null) {
       final initialRawItem = widget.initialItemDetail!['item'];
       final initialItemMap = initialRawItem is Map<String, dynamic>
           ? initialRawItem
           : widget.initialItemDetail!;
       final initialItem = PlayItem.fromJson(initialItemMap);
-      final urls = dynamicThemeResolver
-          .resolvePath(_dynamicThemePathForPlayItem(initialItem), width: 360)
-          .urls;
-      if (urls.isNotEmpty) {
-        dynamicThemeImageUrl = urls.first;
-      }
+      dynamicThemeImages = dynamicThemeResolver.resolvePath(
+        _dynamicThemePathForPlayItem(initialItem),
+        width: 360,
+      );
     }
+    final dynamicThemeImageUrl = dynamicThemeImages.urls.isNotEmpty
+        ? dynamicThemeImages.urls.first
+        : '';
     final allowRuntimeThemeSync = dynamicThemeIntensity
         .allowsGlobalRuntimeThemeSync(
           inPlayerPaneHost: inPlayerPaneHost,
@@ -2800,7 +2797,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     return DynamicPageThemeScope(
       pageKey: dynamicThemeKey,
       imageUrl: dynamicThemeImageUrl,
-      token: nasProvider.token,
+      imageHeaders: dynamicThemeImages.headers,
       enabled: dynamicThemeScopeEnabled,
       allowLiveResolve: !deferHeroArtwork && dynamicThemeImageUrl.isNotEmpty,
       syncGlobalTheme: syncGlobalTheme,
@@ -3448,7 +3445,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                               20,
                             ),
                             child: VideoInfoSection(
-                              lines: VideoInfoLines.fromFeiniu(
+                              lines: feiniuVideoInfoLines(
                                 currentVideo,
                                 currentAudio,
                                 currentSubtitle,
