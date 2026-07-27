@@ -391,8 +391,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
                     fit: StackFit.expand,
                     children: <Widget>[
                       _PosterImage(
-                        urls: urls,
-                        token: token,
+                        images: mediaImageRequestForUrls(urls, token: token),
                         lightweight: widget.secondaryHost,
                         decodeWidth: layout.continueDecodeWidth,
                         fallback: Center(
