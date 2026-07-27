@@ -571,17 +571,14 @@ MediaImageRef _logoImage(
   final tags = item['ImageTags'];
   final tag = (tags is Map ? tags['Logo'] : null)?.toString() ?? '';
   if (id.isEmpty || tag.isEmpty) return MediaImageRef.empty;
-  return MediaImageRef(
-    url: _imageUrl(
-      serverUrl: serverUrl,
-      id: id,
-      kind: 'Logo',
-      tag: tag,
-      token: token,
-      // 详情页 logo 显示高度 ≤124，横条图限宽 800 足够高分屏。
-      maxWidth: 800,
-    ),
-    headers: _imageHeaders(token),
+  return _imageRef(
+    serverUrl: serverUrl,
+    id: id,
+    kind: 'Logo',
+    tag: tag,
+    token: token,
+    // 详情页 logo 显示高度 ≤124，横条图限宽 800 足够高分屏。
+    maxWidth: 800,
   );
 }
 
@@ -637,17 +634,14 @@ List<MediaDetailPerson> _people(
     if (name.isEmpty) continue;
     final tag = (person['PrimaryImageTag'] ?? '').toString().trim();
     final avatar = (id.isNotEmpty && tag.isNotEmpty)
-        ? MediaImageRef(
-            url: _imageUrl(
-              serverUrl: serverUrl,
-              id: id,
-              kind: 'Primary',
-              tag: tag,
-              token: token,
-              // 演职员头像卡片显示宽度 ≤180 逻辑像素。
-              maxWidth: 360,
-            ),
-            headers: _imageHeaders(token),
+        ? _imageRef(
+            serverUrl: serverUrl,
+            id: id,
+            kind: 'Primary',
+            tag: tag,
+            token: token,
+            // 演职员头像卡片显示宽度 ≤180 逻辑像素。
+            maxWidth: 360,
           )
         : MediaImageRef.empty;
     result.add(
@@ -673,17 +667,14 @@ MediaImageRef _primaryImage(
   final tag = (tags is Map ? tags['Primary'] : null)?.toString() ?? '';
   if (id.isEmpty) return MediaImageRef.empty;
   if (tag.isNotEmpty) {
-    return MediaImageRef(
-      url: _imageUrl(
-        serverUrl: serverUrl,
-        id: id,
-        kind: 'Primary',
-        tag: tag,
-        token: token,
-        // 海报卡片/详情竖图，对齐飞牛管线的 w≤400 量级。
-        maxWidth: 400,
-      ),
-      headers: _imageHeaders(token),
+    return _imageRef(
+      serverUrl: serverUrl,
+      id: id,
+      kind: 'Primary',
+      tag: tag,
+      token: token,
+      // 海报卡片/详情竖图，对齐飞牛管线的 w≤400 量级。
+      maxWidth: 400,
     );
   }
   // BoxSet 常无自有 Primary 图（合集封面多为成员海报合成 / folder.jpg，服务端不一定下发
@@ -692,16 +683,13 @@ MediaImageRef _primaryImage(
   if ((item['Type'] ?? '').toString() != 'BoxSet') return MediaImageRef.empty;
   final thumbTag = (tags is Map ? tags['Thumb'] : null)?.toString() ?? '';
   if (thumbTag.isNotEmpty) {
-    return MediaImageRef(
-      url: _imageUrl(
-        serverUrl: serverUrl,
-        id: id,
-        kind: 'Thumb',
-        tag: thumbTag,
-        token: token,
-        maxWidth: 400,
-      ),
-      headers: _imageHeaders(token),
+    return _imageRef(
+      serverUrl: serverUrl,
+      id: id,
+      kind: 'Thumb',
+      tag: thumbTag,
+      token: token,
+      maxWidth: 400,
     );
   }
   final backdrops = item['BackdropImageTags'];
@@ -709,16 +697,13 @@ MediaImageRef _primaryImage(
       ? (backdrops.first?.toString() ?? '')
       : '';
   if (backdropTag.isEmpty) return MediaImageRef.empty;
-  return MediaImageRef(
-    url: _imageUrl(
-      serverUrl: serverUrl,
-      id: id,
-      kind: 'Backdrop',
-      tag: backdropTag,
-      token: token,
-      maxWidth: 400,
-    ),
-    headers: _imageHeaders(token),
+  return _imageRef(
+    serverUrl: serverUrl,
+    id: id,
+    kind: 'Backdrop',
+    tag: backdropTag,
+    token: token,
+    maxWidth: 400,
   );
 }
 
@@ -732,17 +717,39 @@ MediaImageRef _backdropImage(
   if (id.isEmpty || tags is! List || tags.isEmpty) return MediaImageRef.empty;
   final tag = tags.first?.toString() ?? '';
   if (tag.isEmpty) return MediaImageRef.empty;
+  return _imageRef(
+    serverUrl: serverUrl,
+    id: id,
+    kind: 'Backdrop',
+    tag: tag,
+    token: token,
+    // 详情背景 hero 大图，对齐飞牛管线的 w=1200 上限。
+    maxWidth: 1280,
+  );
+}
+
+/// Emby 图引用统一出厂口：URL（token 非空时自带 `api_key`）+ header +
+/// 显式自鉴权标志。标志与 [_imageUrl] 是否写入 `api_key` 严格同步，
+/// 前端由此不再嗅探 URL 子串。
+MediaImageRef _imageRef({
+  required String serverUrl,
+  required String id,
+  required String kind,
+  required String tag,
+  required String token,
+  required int maxWidth,
+}) {
   return MediaImageRef(
     url: _imageUrl(
       serverUrl: serverUrl,
       id: id,
-      kind: 'Backdrop',
+      kind: kind,
       tag: tag,
       token: token,
-      // 详情背景 hero 大图，对齐飞牛管线的 w=1200 上限。
-      maxWidth: 1280,
+      maxWidth: maxWidth,
     ),
     headers: _imageHeaders(token),
+    selfAuthenticated: token.trim().isNotEmpty,
   );
 }
 
