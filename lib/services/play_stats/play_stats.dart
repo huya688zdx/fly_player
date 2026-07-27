@@ -3,6 +3,7 @@ export 'play_stats_backfill_service.dart';
 export 'play_stats_database.dart';
 export 'play_stats_identity.dart';
 export 'play_stats_mappers.dart';
+export 'play_stats_metadata_gateway.dart';
 export 'play_stats_models.dart';
 export 'play_stats_repository_impl.dart';
 export 'play_stats_report_aggregator.dart';

@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../api/feiniu_api.dart';
+import '../../media_backend/media_backend_registry.dart';
 import '../../providers/nas_provider.dart';
 import '../../services/embedded_detail_launcher.dart';
 import '../../services/play_stats/play_stats.dart';
@@ -83,15 +83,16 @@ class _PlayStatsDebugPageState extends State<PlayStatsDebugPage> {
   }
 
   Future<void> _loadMetadataMaps() async {
-    final provider = context.read<NasProvider>();
-    if (!provider.isConfigured) {
+    final gateway = MediaBackendRegistry.createPlayStatsMetadataGateway(
+      context.read<NasProvider>(),
+    );
+    if (gateway == null) {
       return;
     }
     try {
-      final api = FeiniuApi(provider);
       final results = await Future.wait<dynamic>(<Future<dynamic>>[
-        api.getTagGenresMap(lan: 'zh-CN'),
-        api.getTagIso3166Map(lan: 'zh-CN'),
+        gateway.fetchGenreNames(),
+        gateway.fetchCountryNames(),
       ]);
       if (!mounted) {
         return;
@@ -128,14 +129,19 @@ class _PlayStatsDebugPageState extends State<PlayStatsDebugPage> {
   Future<void> _triggerMetadataBackfill({
     Iterable<String> preferredVideoIds = const <String>[],
   }) async {
-    final provider = context.read<NasProvider>();
-    if (!provider.isConfigured || _metadataBackfillRunning) {
+    if (_metadataBackfillRunning) {
+      return;
+    }
+    final gateway = MediaBackendRegistry.createPlayStatsMetadataGateway(
+      context.read<NasProvider>(),
+    );
+    if (gateway == null) {
       return;
     }
     setState(() => _metadataBackfillRunning = true);
     try {
       await _backfillService.backfillNow(
-        provider: provider,
+        gateway: gateway,
         preferredVideoIds: preferredVideoIds,
         limit: 12,
       );

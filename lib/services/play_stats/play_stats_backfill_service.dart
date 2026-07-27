@@ -3,23 +3,17 @@ import 'dart:convert';
 
 import 'package:sqflite/sqflite.dart';
 
-import '../../api/feiniu_api.dart';
-import '../../api/person_list_request.dart';
-import '../../models/person_credit.dart';
-import '../../providers/nas_provider.dart';
 import 'play_stats_database.dart';
 import 'play_stats_identity.dart';
 import 'play_stats_mappers.dart';
+import 'play_stats_metadata_gateway.dart';
 import 'play_stats_models.dart';
 import 'play_stats_repositories.dart';
 
 /// 负责为统计记录补全番剧、季度与演职员元数据。
+///
+/// 元数据来源由调用方以 [PlayStatsBackfillGateway] 注入，本服务不直连任何后端 API。
 class PlayStatsMetadataBackfillService {
-  static const PersonListRequest _creditsRequest = PersonListRequest(
-    page: 1,
-    pageSize: 200,
-  );
-
   final PlayStatsDatabase _database;
   final VideoStatsRepository _videoStatsRepository;
   final VideoCreditStatsRepository _videoCreditStatsRepository;
@@ -39,14 +33,11 @@ class PlayStatsMetadataBackfillService {
 
   /// 以延迟执行的方式安排一次元数据回填任务。
   void schedule({
-    required NasProvider provider,
+    required PlayStatsBackfillGateway gateway,
     Iterable<String> preferredVideoIds = const <String>[],
     Duration delay = const Duration(seconds: 8),
     int limit = 8,
   }) {
-    if (!provider.isConfigured) {
-      return;
-    }
     for (final videoId in preferredVideoIds) {
       final normalized = videoId.trim();
       if (normalized.isNotEmpty) {
@@ -58,7 +49,7 @@ class PlayStatsMetadataBackfillService {
       delay,
       () => unawaited(
         backfillNow(
-          provider: provider,
+          gateway: gateway,
           preferredVideoIds: preferredVideoIds,
           limit: limit,
         ),
@@ -68,13 +59,10 @@ class PlayStatsMetadataBackfillService {
 
   /// 立即执行一次元数据回填任务。
   Future<void> backfillNow({
-    required NasProvider provider,
+    required PlayStatsBackfillGateway gateway,
     Iterable<String> preferredVideoIds = const <String>[],
     int limit = 8,
   }) {
-    if (!provider.isConfigured) {
-      return Future<void>.value();
-    }
     for (final videoId in preferredVideoIds) {
       final normalized = videoId.trim();
       if (normalized.isNotEmpty) {
@@ -85,7 +73,7 @@ class PlayStatsMetadataBackfillService {
     if (active != null) {
       return active;
     }
-    final future = _run(provider: provider, limit: limit);
+    final future = _run(gateway: gateway, limit: limit);
     _activeRun = future.whenComplete(() {
       if (identical(_activeRun, future)) {
         _activeRun = null;
@@ -94,9 +82,11 @@ class PlayStatsMetadataBackfillService {
     return _activeRun!;
   }
 
-  Future<void> _run({required NasProvider provider, required int limit}) async {
+  Future<void> _run({
+    required PlayStatsBackfillGateway gateway,
+    required int limit,
+  }) async {
     _scheduledTimer?.cancel();
-    final api = FeiniuApi(provider);
     final processed = <String>{};
     // 本轮是否真的改写过 video_stats/play_history，决定收尾要不要重建聚合表。
     var aggregatesDirty = false;
@@ -131,7 +121,7 @@ class PlayStatsMetadataBackfillService {
         }
         for (final videoId in candidateIds) {
           final mutated = await _backfillSingleVideo(
-            api: api,
+            gateway: gateway,
             videoId: videoId,
           );
           aggregatesDirty = aggregatesDirty || mutated;
@@ -148,7 +138,7 @@ class PlayStatsMetadataBackfillService {
 
   /// 回填单个视频的元数据；返回是否真的写入过数据库。
   Future<bool> _backfillSingleVideo({
-    required FeiniuApi api,
+    required PlayStatsBackfillGateway gateway,
     required String videoId,
   }) async {
     final normalizedVideoId = videoId.trim();
@@ -164,7 +154,7 @@ class PlayStatsMetadataBackfillService {
 
     Map<String, dynamic>? itemDetail;
     try {
-      itemDetail = await api.getItemDetail(normalizedVideoId);
+      itemDetail = await gateway.fetchItemDetail(normalizedVideoId);
     } catch (_) {
       return false;
     }
@@ -177,7 +167,7 @@ class PlayStatsMetadataBackfillService {
     Map<String, dynamic>? seasonDetail;
     if (!isMovie && seasonGuid.isNotEmpty) {
       try {
-        seasonDetail = await api.getItemDetail(seasonGuid);
+        seasonDetail = await gateway.fetchItemDetail(seasonGuid);
       } catch (_) {}
     }
 
@@ -206,7 +196,7 @@ class PlayStatsMetadataBackfillService {
             existing.year <= 0);
     if (shouldLoadAnimeDetail) {
       try {
-        animeDetail = await api.getItemDetail(realAnimeGuid);
+        animeDetail = await gateway.fetchItemDetail(realAnimeGuid);
       } catch (_) {}
     }
     if (existing.metadataEnriched &&
@@ -235,7 +225,7 @@ class PlayStatsMetadataBackfillService {
     );
 
     final creditsResult = await _loadCredits(
-      api: api,
+      gateway: gateway,
       videoId: normalizedVideoId,
       seasonId: seasonGuid,
       allowSeasonFallback: !isMovie,
@@ -500,23 +490,8 @@ GROUP BY anime_id
     }
   }
 
-  List<PlayStatsCredit> _mapCredits(List<PersonCredit> credits) {
-    return credits
-        .where((credit) => credit.personGuid.trim().isNotEmpty)
-        .map(
-          (credit) => PlayStatsCredit(
-            personId: credit.personGuid.trim(),
-            name: credit.displayName,
-            role: credit.role.trim(),
-            job: credit.job.trim().toLowerCase(),
-            order: credit.order,
-          ),
-        )
-        .toList(growable: false);
-  }
-
   Future<_CreditsLoadResult> _loadCredits({
-    required FeiniuApi api,
+    required PlayStatsBackfillGateway gateway,
     required String videoId,
     required String seasonId,
     required bool allowSeasonFallback,
@@ -526,9 +501,7 @@ GROUP BY anime_id
     var resolved = false;
 
     try {
-      final credits = _mapCredits(
-        await api.getPersonList(normalizedVideoId, request: _creditsRequest),
-      );
+      final credits = await gateway.fetchCredits(normalizedVideoId);
       resolved = true;
       if (credits.isNotEmpty) {
         return _CreditsLoadResult(resolved: true, credits: credits);
@@ -539,9 +512,7 @@ GROUP BY anime_id
         normalizedSeasonId.isNotEmpty &&
         normalizedSeasonId != normalizedVideoId) {
       try {
-        final credits = _mapCredits(
-          await api.getPersonList(normalizedSeasonId, request: _creditsRequest),
-        );
+        final credits = await gateway.fetchCredits(normalizedSeasonId);
         return _CreditsLoadResult(resolved: true, credits: credits);
       } catch (_) {}
     }
