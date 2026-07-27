@@ -7,9 +7,8 @@ import '../theme/app_theme.dart';
 import '../ui/app_sheet_transitions.dart';
 
 // 中立模型（MediaDetailVariant / MediaInfoCard）已迁至 media_backend/detail/，
-// 此处 re-export 保持既有调用方 import 不变；飞牛 DTO 映射见
-// `mapFeiniuMediaDetailVariant`（lib/media_backend/feiniu/），不再在 pages 层暴露。
-export '../media_backend/detail/media_detail_variant.dart';
+// 调用方直接 import；飞牛 DTO 映射见 `mapFeiniuMediaDetailVariant`
+// （lib/media_backend/feiniu/），不再在 pages 层暴露。
 
 class MediaDetailOverlayPage extends StatefulWidget {
   final List<MediaDetailVariant> variants;

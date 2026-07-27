@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:fly_player/l10n/generated/app_localizations.dart';
+import 'package:fly_player/media_backend/detail/media_detail_variant.dart';
 import 'package:fly_player/media_backend/feiniu/feiniu_media_detail_variant_mapper.dart';
 import 'package:fly_player/models/stream_list_option.dart';
 import 'package:fly_player/models/stream_track_data.dart';

@@ -135,7 +135,6 @@ class TvSeasonDownloadSheetController {
     }
 
     final provider = context.read<NasProvider>();
-    final api = gateway;
     final colors = context.appColors;
     final downloadService = DownloadTaskService.instance;
 
@@ -221,7 +220,7 @@ class TvSeasonDownloadSheetController {
           // Kick off API loading in background (does not block sheet display).
           unawaited(
             _loadSheetApiData(
-              api: api,
+              api: gateway,
               provider: provider,
               episode: episode,
               candidateItemGuids: candidateItemGuids,
