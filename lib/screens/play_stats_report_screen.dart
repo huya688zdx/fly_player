@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../api/feiniu_api.dart';
 import '../l10n/generated/app_localizations.dart';
+import '../media_backend/media_backend_registry.dart';
 import '../providers/nas_provider.dart';
 import '../services/play_stats/play_stats.dart';
 import '../theme/app_theme.dart';
@@ -234,10 +234,18 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
   Future<PlayStatsMetadataMaps> _defaultMetadataLoader(
     NasProvider provider,
   ) async {
-    final api = FeiniuApi(provider);
+    final gateway = MediaBackendRegistry.createPlayStatsMetadataGateway(
+      provider,
+    );
+    if (gateway == null) {
+      return const PlayStatsMetadataMaps(
+        genreMap: <int, String>{},
+        countryMap: <String, String>{},
+      );
+    }
     final results = await Future.wait<dynamic>(<Future<dynamic>>[
-      api.getTagGenresMap(lan: 'zh-CN'),
-      api.getTagIso3166Map(lan: 'zh-CN'),
+      gateway.fetchGenreNames(),
+      gateway.fetchCountryNames(),
     ]);
     return PlayStatsMetadataMaps(
       genreMap: results[0] as Map<int, String>,
@@ -253,9 +261,13 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
     PlayStatsReportSnapshot snapshot,
   ) async {
     final provider = context.read<NasProvider?>();
-    if (provider == null ||
-        !provider.isConfigured ||
-        _metadataBackfillRunning) {
+    if (provider == null || _metadataBackfillRunning) {
+      return;
+    }
+    final gateway = MediaBackendRegistry.createPlayStatsMetadataGateway(
+      provider,
+    );
+    if (gateway == null) {
       return;
     }
     final ids = <String>{
@@ -269,7 +281,7 @@ class _PlayStatsReportScreenState extends State<PlayStatsReportScreen> {
     setState(() => _metadataBackfillRunning = true);
     try {
       await _backfillService.backfillNow(
-        provider: provider,
+        gateway: gateway,
         preferredVideoIds: ids,
         limit: 12,
       );
