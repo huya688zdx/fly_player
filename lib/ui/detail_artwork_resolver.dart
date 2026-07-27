@@ -15,23 +15,36 @@ typedef DetailArtwork = MediaImageRequest;
 /// 旧 URL 字符串管线（MediaLibraryItem 等未携带标志的链路）兜底。
 bool _embedsSelfAuthCredential(String url) => url.contains('api_key=');
 
-/// 把"已拼好的完整 URL 候选 + NAS token"包装成 [MediaImageRequest]。
+/// 把“已拼好的完整 URL 候选 + NAS token”包装成 [MediaImageRequest]。
 ///
-/// 旧组件层 `(urls, token)` 参数对的逐字节等价迁移入口：
-/// - header ≡ 旧组件内 `nasImageHeaders(token, url: 当前候选)`——候选恒同源，
-///   取首个候选算一次即可（与 [DetailArtworkResolver.resolvePath] 同口径）；
-/// - selfAuthenticated ≡ 旧组件内 `url.contains('api_key=')`——同一列表候选
-///   同后端产出、性质一致，取首个候选判定。
+/// 旧组件层 `(urls, token)` 参数对的兼容入口：
+/// - URL 自带 `api_key` 时视为自鉴权直链，不得附加 NAS token；
+/// - 其它候选使用 `nasImageHeaders(token, url: 当前候选)`；候选由同一后端
+///   产出，取首个候选计算 headers 与自鉴权状态。
 MediaImageRequest mediaImageRequestForUrls(
   List<String> urls, {
   required String token,
 }) {
   if (urls.isEmpty) return MediaImageRequest.empty;
+  final selfAuthenticated = _embedsSelfAuthCredential(urls.first);
   return MediaImageRequest(
     urls: urls,
-    headers: nasImageHeaders(token, url: urls.first),
-    selfAuthenticated: _embedsSelfAuthCredential(urls.first),
+    headers: selfAuthenticated
+        ? const <String, String>{}
+        : nasImageHeaders(token, url: urls.first),
+    selfAuthenticated: selfAuthenticated,
   );
+}
+
+/// 优先使用后端已产出的中立图片请求；仅旧字符串链路缺少请求时，
+/// 才用当前 NAS token 包装候选 URL。
+MediaImageRequest preferPreservedImageRequest({
+  required MediaImageRequest? preserved,
+  required List<String> fallbackUrls,
+  required String fallbackToken,
+}) {
+  if (preserved != null && preserved.isNotEmpty) return preserved;
+  return mediaImageRequestForUrls(fallbackUrls, token: fallbackToken);
 }
 
 /// 后端中立的详情页图源解析器(纯 UI helper:不碰 BuildContext / 导航 / 播放句柄)。
