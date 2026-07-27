@@ -10,7 +10,6 @@ import 'package:flutter/services.dart';
 import 'package:material_color_utilities/material_color_utilities.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../utils/nas_image_headers.dart';
 import '../utils/swallowed_error_logger.dart';
 
 @immutable
@@ -160,9 +159,11 @@ class DynamicThemeSeedExtractor {
     }
   }
 
+  /// H-030:取色链路后端中立化——只收「图 URL + 访问该 URL 的鉴权 header」,
+  /// 不再感知 NAS token。header 由调用方从图片请求对象(MediaImageRequest)取得。
   static Future<DynamicThemeSeed?> extract({
     required String imageUrl,
-    required String token,
+    Map<String, String> imageHeaders = const <String, String>{},
   }) async {
     final normalizedImageKey = normalizeImageIdentity(imageUrl);
     if (normalizedImageKey.isNotEmpty) {
@@ -177,17 +178,18 @@ class DynamicThemeSeedExtractor {
       }
     }
 
-    final future = _extractUncached(imageUrl: imageUrl, token: token)
-        .timeout(const Duration(seconds: 10), onTimeout: () => null)
-        .then((seed) {
-          if (normalizedImageKey.isNotEmpty) {
-            _inflight.remove(normalizedImageKey);
-            if (seed != null) {
-              _storeSeedCache(normalizedImageKey, seed);
-            }
-          }
-          return seed;
-        });
+    final future =
+        _extractUncached(imageUrl: imageUrl, imageHeaders: imageHeaders)
+            .timeout(const Duration(seconds: 10), onTimeout: () => null)
+            .then((seed) {
+              if (normalizedImageKey.isNotEmpty) {
+                _inflight.remove(normalizedImageKey);
+                if (seed != null) {
+                  _storeSeedCache(normalizedImageKey, seed);
+                }
+              }
+              return seed;
+            });
     if (normalizedImageKey.isNotEmpty) {
       _inflight[normalizedImageKey] = future;
     }
@@ -201,7 +203,7 @@ class DynamicThemeSeedExtractor {
   // 排名第 2/3 色（互异色相由 Score 内置的 hue 分散逻辑保证），不足时退回第一名。
   static Future<DynamicThemeSeed?> _extractUncached({
     required String imageUrl,
-    required String token,
+    required Map<String, String> imageHeaders,
   }) async {
     if (imageUrl.trim().isEmpty) {
       return null;
@@ -210,14 +212,14 @@ class DynamicThemeSeedExtractor {
     try {
       Int32List? pixels;
       if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-        pixels = await _samplePixelsOnAndroid(imageUrl: imageUrl, token: token);
+        pixels = await _samplePixelsOnAndroid(
+          imageUrl: imageUrl,
+          imageHeaders: imageHeaders,
+        );
       }
       pixels ??= await _pixelsFromProvider(
         ResizeImage(
-          NetworkImage(
-            imageUrl,
-            headers: nasImageHeaders(token, url: imageUrl),
-          ),
+          NetworkImage(imageUrl, headers: imageHeaders),
           width: _monetMaxDimension,
           height: _monetMaxDimension,
           policy: ResizeImagePolicy.fit,
@@ -353,12 +355,18 @@ class DynamicThemeSeedExtractor {
 
   static Future<Int32List?> _samplePixelsOnAndroid({
     required String imageUrl,
-    required String token,
+    required Map<String, String> imageHeaders,
   }) async {
     try {
+      // 原生采样通道契约不变:仍传 token 字符串(原生侧自组 Authorization 头)。
+      // 飞牛 header 的 Authorization 值即 NAS token;Emby 自鉴权直链无该键,传空串,
+      // 原生侧按无 token 直连(URL 自带 api_key),与旧行为一致。
       final raw = await _themeSamplerChannel.invokeMapMethod<String, dynamic>(
         'sampleImagePixels',
-        <String, dynamic>{'imageUrl': imageUrl, 'token': token},
+        <String, dynamic>{
+          'imageUrl': imageUrl,
+          'token': imageHeaders['Authorization'] ?? '',
+        },
       );
       final pixels = raw?['pixels'];
       if (pixels is Int32List && pixels.isNotEmpty) {

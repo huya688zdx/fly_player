@@ -774,16 +774,22 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
     final provider = context.read<NasProvider>();
     final inPlayerPaneHost = PlayerPaneHostScope.maybeOf(context) != null;
     // 动态取色图源:Emby 用人物 Primary 完整直链(api_key 自鉴权);飞牛用 profilePath 相对路径。
-    final dynamicThemeUrls = _neutralDisplayOnly
-        ? ((_neutralDetail?.primaryImage.url.trim().isNotEmpty ?? false)
-              ? <String>[_neutralDetail!.primaryImage.url.trim()]
-              : const <String>[])
+    final dynamicThemeImages = _neutralDisplayOnly
+        ? mediaImageRequestForUrls(
+            (_neutralDetail?.primaryImage.url.trim().isNotEmpty ?? false)
+                ? <String>[_neutralDetail!.primaryImage.url.trim()]
+                : const <String>[],
+            token: '',
+          )
         : (_person == null || _person!.profilePath.trim().isEmpty
-              ? const <String>[]
-              : _imageCandidates(
-                  provider.baseUrl,
-                  _person!.profilePath,
-                  width: 240,
+              ? MediaImageRequest.empty
+              : mediaImageRequestForUrls(
+                  _imageCandidates(
+                    provider.baseUrl,
+                    _person!.profilePath,
+                    width: 240,
+                  ),
+                  token: provider.token,
                 ));
     final syncGlobalTheme = dynamicThemeIntensity.allowsGlobalRuntimeThemeSync(
       inPlayerPaneHost: inPlayerPaneHost,
@@ -792,8 +798,10 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
 
     return DynamicPageThemeScope(
       pageKey: widget.personGuid,
-      imageUrl: dynamicThemeUrls.isNotEmpty ? dynamicThemeUrls.first : '',
-      token: _neutralDisplayOnly ? '' : provider.token,
+      imageUrl: dynamicThemeImages.urls.isNotEmpty
+          ? dynamicThemeImages.urls.first
+          : '',
+      imageHeaders: dynamicThemeImages.headers,
       enabled: dynamicThemeEnabled,
       syncGlobalTheme: syncGlobalTheme,
       deferLocalThemeApplyUntilGlobalSync: _isPane && syncGlobalTheme,

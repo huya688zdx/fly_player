@@ -2,9 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/generated/app_localizations.dart';
 import '../../media_backend/detail/media_source_info.dart';
-import '../../models/stream_track_data.dart';
 import '../../theme/app_theme.dart';
-import '../../utils/media_language_mapper.dart';
 import '../common/liquid_glass.dart';
 
 /// 「视频信息」区块的后端中立数据——已格式化好的三行（视频 / 音频 / 字幕）文本。
@@ -24,20 +22,9 @@ class VideoInfoLines {
       audio.trim().isNotEmpty ||
       subtitle.trim().isNotEmpty;
 
-  /// 飞牛：从当前选中流的视频 / 音频 / 字幕轨道 DTO 格式化（保持原飞牛文案逐字不变）。
-  factory VideoInfoLines.fromFeiniu(
-    VideoStreamInfo? video,
-    AudioTrackOption? audio,
-    SubtitleTrackOption? subtitle,
-  ) {
-    return VideoInfoLines(
-      video: _feiniuVideoLine(video),
-      audio: _feiniuAudioLine(audio),
-      subtitle: _feiniuSubtitleLine(subtitle),
-    );
-  }
-
   /// Emby 等公共后端：从中立 [MediaSourceInfo] 的各流摘要取每类型首条，拼成单行。
+  /// 飞牛的行格式化在调用方侧 `lib/ui/feiniu_video_info_lines.dart`（H-015:
+  /// 本组件不再持有任何后端专属格式化）。
   factory VideoInfoLines.fromSource(MediaSourceInfo info) {
     return VideoInfoLines(
       video: _sourceLineFor(info, MediaStreamType.video),
@@ -181,63 +168,6 @@ class _InfoRow extends StatelessWidget {
       ],
     );
   }
-}
-
-String _feiniuVideoLine(VideoStreamInfo? video) {
-  if (video == null) return '';
-  final res = video.resolutionType.trim().isEmpty ? '' : video.resolutionType;
-  final codec = video.codecName.trim().isEmpty
-      ? ''
-      : video.codecName.toUpperCase();
-  final mbps = video.bps > 0
-      ? '${(video.bps / 1000000.0).toStringAsFixed(2)} mbps'
-      : '';
-  final bit = video.bitDepth > 0 ? '${video.bitDepth} bit' : '';
-  final parts = <String>[
-    if (res.isNotEmpty) res,
-    if (codec.isNotEmpty) codec,
-    if (mbps.isNotEmpty) mbps,
-    if (bit.isNotEmpty) bit,
-  ];
-  return parts.join(' ');
-}
-
-String _feiniuAudioLine(AudioTrackOption? audio) {
-  if (audio == null) return '';
-  final lan = MediaLanguageMapper.languageName(audio.language);
-  final codec = audio.codecName.trim().isEmpty
-      ? ''
-      : audio.codecName.toUpperCase();
-  final ch = audio.channelLayout.trim().isNotEmpty
-      ? audio.channelLayout.trim()
-      : _channelFromCount(audio.channels);
-  final rate = audio.sampleRate > 0 ? '${audio.sampleRate} Hz' : '';
-  final parts = <String>[
-    if (lan.isNotEmpty) lan,
-    if (codec.isNotEmpty) codec,
-    if (ch.isNotEmpty) ch,
-    if (rate.isNotEmpty) rate,
-  ];
-  return parts.join('  ');
-}
-
-String _feiniuSubtitleLine(SubtitleTrackOption? subtitle) {
-  if (subtitle == null) return '';
-  final lan = MediaLanguageMapper.languageName(subtitle.language);
-  final fmt =
-      (subtitle.format.isNotEmpty ? subtitle.format : subtitle.codecName)
-          .trim()
-          .toUpperCase();
-  final parts = <String>[if (lan.isNotEmpty) lan, if (fmt.isNotEmpty) fmt];
-  return parts.join('  ');
-}
-
-String _channelFromCount(int channels) {
-  if (channels == 1) return '1.0ch';
-  if (channels == 2) return '2.0ch';
-  if (channels == 6) return '5.1ch';
-  if (channels == 8) return '7.1ch';
-  return channels > 0 ? '$channels ch' : '';
 }
 
 /// 中立 [MediaSourceInfo] 某类型首条流 → 单行（`label  summary`）。

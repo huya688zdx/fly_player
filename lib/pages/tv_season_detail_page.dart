@@ -2911,14 +2911,13 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         .select<AppThemeProvider, AppDynamicThemeIntensity>(
           (themeProvider) => themeProvider.dynamicThemeIntensity,
         );
-    final nasProvider = context.read<NasProvider>();
     final inPlayerPaneHost = PlayerPaneHostScope.maybeOf(context) != null;
     final dynamicThemeKey = _seasonDynamicThemeKey();
 
     return DynamicPageThemeScope(
       pageKey: dynamicThemeKey,
+      // 季页不自取色(enabled:false),无图无 header。
       imageUrl: '',
-      token: nasProvider.token,
       // Season pages never sample their own color. They display the sticky
       // global runtime color carried over from whatever episode/detail page
       // last sampled it, so popping back from an episode keeps the episode's
