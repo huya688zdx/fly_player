@@ -1,5 +1,6 @@
 import '../../api/feiniu_api.dart';
 import '../../api/person_list_request.dart';
+import '../../models/media_library_item.dart';
 import '../../models/person_credit.dart';
 import '../../models/play_info.dart';
 import '../../models/playback_stream.dart';
@@ -44,6 +45,11 @@ abstract class FeiniuDetailDataGateway {
     String playItemGuid, {
     required String lan,
   });
+
+  /// 某一季的选集列表（原生壳选集 payload 消费原始飞牛条目字段：
+  /// watched int 透传 / poster 原始路径，故走飞牛专属 gateway 而非公共
+  /// `MediaBackend.getSeasonEpisodes` 的中立摘要）。
+  Future<List<MediaLibraryItem>> getEpisodeList(String seasonGuid);
 }
 
 /// [FeiniuDetailDataGateway] 默认实现：直通 [FeiniuApi]。
@@ -79,4 +85,8 @@ class FeiniuApiDetailDataGateway implements FeiniuDetailDataGateway {
     String playItemGuid, {
     required String lan,
   }) => api.getDownloadResolutionOptions(playItemGuid, lan: lan);
+
+  @override
+  Future<List<MediaLibraryItem>> getEpisodeList(String seasonGuid) =>
+      api.getEpisodeList(seasonGuid);
 }
