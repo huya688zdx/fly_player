@@ -79,6 +79,8 @@ void main() {
         'lib/screens/media_list_screen.dart',
         'lib/screens/media_list_screen_widgets.dart',
         'lib/screens/login_history_screen.dart',
+        'lib/screens/poster_browse/poster_browse_screen.dart',
+        'lib/screens/poster_browse/poster_browse_loader.dart',
       ];
 
       for (final path in publicBoundaryFiles) {

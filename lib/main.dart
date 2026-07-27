@@ -28,6 +28,7 @@ import 'screens/favorite_items_screen.dart';
 import 'screens/media_list_screen.dart';
 import 'screens/parallel_placeholder_screen.dart';
 import 'screens/person_detail_screen.dart';
+import 'screens/poster_browse/poster_browse_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/screenshot_preview_screen.dart';
 import 'services/app_log_service.dart';
@@ -507,6 +508,12 @@ Route<dynamic> _buildRoute(RouteSettings settings) {
       settings: settings,
     );
   }
+  if (uri != null && uri.path == '/screen/poster-browse') {
+    return AppTransitions.leftToRightPageTurnRoute<void>(
+      const PosterBrowseRoute(),
+      settings: settings,
+    );
+  }
   if (uri != null && uri.path == '/screen/favorites') {
     return AppTransitions.leftToRightPageTurnRoute<void>(
       const FavoriteRoute(),
@@ -799,6 +806,15 @@ class SearchRoute extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const _ProviderGate(child: SearchScreen(secondaryHost: true));
+  }
+}
+
+class PosterBrowseRoute extends StatelessWidget {
+  const PosterBrowseRoute({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const _ProviderGate(child: PosterBrowseScreen());
   }
 }
 
