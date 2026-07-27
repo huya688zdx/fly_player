@@ -18,7 +18,6 @@ class PlayStatsMetadataBackfillService {
   final VideoStatsRepository _videoStatsRepository;
   final VideoCreditStatsRepository _videoCreditStatsRepository;
 
-  Timer? _scheduledTimer;
   final Set<String> _preferredVideoIds = <String>{};
   Future<void>? _activeRun;
 
@@ -31,33 +30,11 @@ class PlayStatsMetadataBackfillService {
        _videoStatsRepository = videoStatsRepository,
        _videoCreditStatsRepository = videoCreditStatsRepository;
 
-  /// 以延迟执行的方式安排一次元数据回填任务。
-  void schedule({
-    required PlayStatsBackfillGateway gateway,
-    Iterable<String> preferredVideoIds = const <String>[],
-    Duration delay = const Duration(seconds: 8),
-    int limit = 8,
-  }) {
-    for (final videoId in preferredVideoIds) {
-      final normalized = videoId.trim();
-      if (normalized.isNotEmpty) {
-        _preferredVideoIds.add(normalized);
-      }
-    }
-    _scheduledTimer?.cancel();
-    _scheduledTimer = Timer(
-      delay,
-      () => unawaited(
-        backfillNow(
-          gateway: gateway,
-          preferredVideoIds: preferredVideoIds,
-          limit: limit,
-        ),
-      ),
-    );
-  }
-
   /// 立即执行一次元数据回填任务。
+  ///
+  /// 只提供"立即执行"一种入口：网关由调用方按当前连接态现取现传，延迟调度会让
+  /// 定时器攥着一个可能已随登出失效的网关，等回调触发时既绕过了调用方的连接态
+  /// 守卫，也无从判断该不该继续跑。
   Future<void> backfillNow({
     required PlayStatsBackfillGateway gateway,
     Iterable<String> preferredVideoIds = const <String>[],
@@ -86,7 +63,6 @@ class PlayStatsMetadataBackfillService {
     required PlayStatsBackfillGateway gateway,
     required int limit,
   }) async {
-    _scheduledTimer?.cancel();
     final processed = <String>{};
     // 本轮是否真的改写过 video_stats/play_history，决定收尾要不要重建聚合表。
     var aggregatesDirty = false;
