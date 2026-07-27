@@ -6,10 +6,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 class PlaybackClientIdStore {
   static const String _clientIdKey = 'playback_client_id';
 
-  final Random _random = Random();
-
   /// 创建一个播放客户端标识存储实例。
-  PlaybackClientIdStore();
+  const PlaybackClientIdStore();
 
   /// 获取已持久化的客户端标识；不存在则生成新值并写入本地。
   Future<String> ensureClientId() async {
@@ -17,7 +15,8 @@ class PlaybackClientIdStore {
     final existing = prefs.getString(_clientIdKey) ?? '';
     if (existing.trim().isNotEmpty) return existing;
 
-    final bytes = List<int>.generate(16, (_) => _random.nextInt(256));
+    final random = Random();
+    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
     final value = bytes
         .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
         .join();

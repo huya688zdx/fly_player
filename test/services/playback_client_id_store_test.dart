@@ -11,10 +11,11 @@ void main() {
   test(
     'ensureClientId generates and persists a new id under legacy key',
     () async {
-      final store = PlaybackClientIdStore();
+      const store = PlaybackClientIdStore();
 
       final value = await store.ensureClientId();
       expect(value, isNotEmpty);
+      expect(value, matches(RegExp(r'^[0-9a-f]{32}$')));
 
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString('playback_client_id'), value);
@@ -25,13 +26,13 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{
       'playback_client_id': 'existing-id',
     });
-    final store = PlaybackClientIdStore();
+    const store = PlaybackClientIdStore();
 
     expect(await store.ensureClientId(), 'existing-id');
   });
 
   test('ensureClientId is stable across repeated calls', () async {
-    final store = PlaybackClientIdStore();
+    const store = PlaybackClientIdStore();
 
     final first = await store.ensureClientId();
     final second = await store.ensureClientId();
