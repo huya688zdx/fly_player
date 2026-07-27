@@ -1,4 +1,13 @@
-# 大屏海报浏览页 — 执行进度报告（2026-07-27 中断点）
+# 大屏海报浏览页 — 执行进度报告
+
+> **2026-07-27 终态更新（本文档下方"已完成/剩余工作"为早期快照，以本节为准）**
+>
+> **A-H 全部执行组收口**。最终状态：
+> - 功能全部落在分支 `poster-browse`（worktree `F:\fly_play_poster_browse`），HEAD `a65cb7e`。分支相对 main(3748b04) 含：98b47f6（小屏横屏布局自适应+三档尺寸回归测试，修终审 Critical C-1）、a65cb7e（meta 定高裁剪 P-1/P-3）。此前 E/F/G 组 9 个 commit 已并入 main（merge 73c5a10）。
+> - 验证：干净环境全量 `flutter analyze` 零告警、`flutter test` 499/499 绿（后又 17/17 poster_browse + 172 media_backend 复验）、`flutter build apk --debug` 出 full/lite 双 flavor APK。
+> - 整体终审 Approved：跨层字段链路闭合、端到端链路闭合、方向锁与 reentry 复核通过；终审发现的 C-1（360dp 横屏按钮点不到）已修并有 57 档高度扫描+反向验证的回归护栏。
+> - **唯一未完成动作：`git merge poster-browse` 回 main。** 被另一会话阻塞：其"图片鉴权 MediaImageRequest 重构"有未提交改动压在 `poster_browse_screen.dart`（把 `DynamicPageThemeScope` 的 `token:` 参数适配为 `imageHeaders:`）。**待其提交后在主目录执行 `git merge poster-browse --no-edit`**；若该行冲突，保留对方的 `imageHeaders: backdrop.headers` 写法。合并后 `git worktree remove F:\fly_play_poster_browse` + `git branch -d poster-browse`。
+> - 实机验收清单（合并后执行，三后端各过一遍）：①入口进出横竖屏往返 5 次不卡横屏（含详情页内被系统回收的异常路径）；②行构成与空行隐藏（飞牛"最近添加"排序不生效→整行消失）；③焦点切换 300ms 节流不闪、快速滑动背景不逐帧闪；④评分两处显示/缺失隐藏；⑤同 guid 进详情配色零闪；⑥剧集起播后原生壳选集面板/进度回写/画质重解析正常（reentry 修复实证，必测）；⑦连点两次"详情"不双开；⑧弱网纯 ambient 色底无糊图；⑨360dp 高横屏手机：按钮可点、进度条完整、紧凑档观感（缩略图 44-50/标题 20pt/meta 单行裁剪）；⑩压暗值 0x59 观感（亮暗 backdrop 两端）；⑪播放返回后继续观看进度条不刷新（已知遗留，看是否需补）；⑫翻行瞬间行名/条目 300ms 错配观感。
 
 计划文档：`docs/superpowers/plans/2026-07-26-poster-browse.md`（12 任务，按 A-H 八个执行组子代理驱动执行）
 设计规格：`docs/superpowers/specs/2026-07-26-poster-browse-design.md`
