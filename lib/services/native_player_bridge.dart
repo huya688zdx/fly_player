@@ -3,14 +3,18 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart' show Locale;
 
 import '../danmaku/settings/danmaku_settings_store.dart';
+import '../l10n/generated/app_localizations.dart';
 import '../media_backend/playback/media_session_reload.dart';
 import '../playback/settings/mpv_settings_store.dart';
+import '../providers/app_locale_provider.dart';
 import '../providers/nas_provider.dart';
 import 'app_log_service.dart';
 import 'native_artwork_prefetch.dart';
 import 'native_danmaku_prefetch.dart';
+import 'native_player_localized_strings.dart';
 
 /// 启动纯原生播放壳（`NativePlayerActivity`）的桥。
 ///
@@ -89,6 +93,13 @@ class NativePlayerBridge {
       };
     } catch (_) {
       // 读取失败则不注入，原生壳回退到自身已存的镜像。
+    }
+    // 原生壳文案：以 Flutter l10n 为单一事实源注入（key=Android 资源条目名），使通知栏/
+    // 播放器内文案跟随应用内语言设置而非系统语言。原生缺表时回退自带的 strings.xml 兜底。
+    try {
+      mergedArgs['localizedStrings'] = await _loadLocalizedStrings();
+    } catch (_) {
+      // 注入失败原生壳回退 strings.xml 兜底。
     }
     // 封面离线预取：把网络封面缓存为本地文件，原生壳优先取本地路径（纯听背景/海报、
     // MediaSession 通知封面），断网也能显示。失败静默（原生回退网络 URL）。
@@ -366,7 +377,7 @@ class NativePlayerBridge {
           // Flutter 播放器）的改动回到原生壳即时生效，而非只在启动注入那一刻。
           final mpvBundle = await const MpvSettingsStore().loadBundle();
           final danmaku = await const DanmakuSettingsStore().load();
-          return <String, dynamic>{
+          final result = <String, dynamic>{
             'mpvAdvancedSettings': mpvBundle.settings,
             'videoAdjustments': mpvBundle.videoAdjustments,
             'danmakuDisplaySettings': <String, Object?>{
@@ -385,6 +396,14 @@ class NativePlayerBridge {
               'avoidSubtitleArea': danmaku.avoidSubtitleArea,
             },
           };
+          // 原生壳前台恢复时一并刷新文案：覆盖播放中途切换应用语言的场景，不必等下次
+          // 重新 launch。读取失败则不带该字段，原生壳保留已安装的旧表。
+          try {
+            result['localizedStrings'] = await _loadLocalizedStrings();
+          } catch (_) {
+            // 忽略，保留原生壳已安装的旧表。
+          }
+          return result;
         case 'listSavedMpvPresets':
           // 原生壳画质/音频抽屉里列出 Flutter「保存预设」供选择。
           final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
@@ -486,6 +505,22 @@ class NativePlayerBridge {
       nas: nas,
     );
     return true;
+  }
+
+  /// 取原生壳文案表：语言取 [AppLocaleProvider] 持久化的应用内覆盖值（system 模式为
+  /// null 时回退 `PlatformDispatcher.instance.locale` 即系统语言），再用其查找对应的
+  /// [AppLocalizations] 文案实例。查不到（当前仅支持 zh/zh_CN）时回退中文，保证原生壳
+  /// 始终能拿到一份完整表。
+  static Future<Map<String, String>> _loadLocalizedStrings() async {
+    final override = await AppLocaleProvider.loadStoredLocale();
+    final locale = override ?? PlatformDispatcher.instance.locale;
+    AppLocalizations l10n;
+    try {
+      l10n = lookupAppLocalizations(locale);
+    } catch (_) {
+      l10n = lookupAppLocalizations(const Locale('zh'));
+    }
+    return buildNativePlayerLocalizedStrings(l10n);
   }
 
   /// 把封面缓存为本地文件并写进 [args] 的 `posterLocalPath`。仅在有 [nas]（需鉴权下载）、

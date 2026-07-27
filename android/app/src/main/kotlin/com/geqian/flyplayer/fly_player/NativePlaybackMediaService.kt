@@ -193,32 +193,32 @@ class NativePlaybackMediaService : Service() {
     private fun buildNotification(s: SessionState): Notification {
         val rewind = NotificationCompat.Action(
             android.R.drawable.ic_media_rew,
-            getString(R.string.notification_action_rewind_10s),
+            localizedString(R.string.notification_action_rewind_10s),
             commandIntent(NativeMediaCommandCoordinator.ACTION_REWIND, 21),
         )
         val playPause = if (s.isPlaying) {
             NotificationCompat.Action(
                 android.R.drawable.ic_media_pause,
-                getString(R.string.notification_action_pause),
+                localizedString(R.string.notification_action_pause),
                 commandIntent(NativeMediaCommandCoordinator.ACTION_PAUSE, 22),
             )
         } else {
             NotificationCompat.Action(
                 android.R.drawable.ic_media_play,
-                getString(R.string.notification_action_play),
+                localizedString(R.string.notification_action_play),
                 commandIntent(NativeMediaCommandCoordinator.ACTION_PLAY, 23),
             )
         }
         val forward = NotificationCompat.Action(
             android.R.drawable.ic_media_ff,
-            getString(R.string.notification_action_forward_10s),
+            localizedString(R.string.notification_action_forward_10s),
             commandIntent(NativeMediaCommandCoordinator.ACTION_FORWARD, 24),
         )
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(s.title)
-            .setContentText(s.subtitle.ifBlank { getString(R.string.notification_now_playing) })
+            .setContentText(s.subtitle.ifBlank { localizedString(R.string.notification_now_playing) })
             .setContentIntent(contentIntent())
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOnlyAlertOnce(true)
@@ -235,7 +235,7 @@ class NativePlaybackMediaService : Service() {
             builder.addAction(
                 NotificationCompat.Action(
                     android.R.drawable.ic_media_next,
-                    getString(R.string.notification_action_next_episode),
+                    localizedString(R.string.notification_action_next_episode),
                     commandIntent(NativeMediaCommandCoordinator.ACTION_NEXT, 25),
                 ),
             )
@@ -353,10 +353,10 @@ class NativePlaybackMediaService : Service() {
         if (manager.getNotificationChannel(CHANNEL_ID) != null) return
         val channel = NotificationChannel(
             CHANNEL_ID,
-            getString(R.string.notification_channel_playback_name),
+            localizedString(R.string.notification_channel_playback_name),
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
-            description = getString(R.string.notification_channel_playback_description)
+            description = localizedString(R.string.notification_channel_playback_description)
             setShowBadge(false)
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }

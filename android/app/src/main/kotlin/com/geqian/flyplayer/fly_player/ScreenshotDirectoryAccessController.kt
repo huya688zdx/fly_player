@@ -29,8 +29,8 @@ internal class ScreenshotDirectoryAccessController(
         if (rootId.isNullOrBlank()) {
             return mapOf(
                 "id" to "",
-                "name" to treeName.ifBlank { context.getString(R.string.screenshot_selected_directory) },
-                "locationLabel" to treeName.ifBlank { context.getString(R.string.screenshot_custom_directory) },
+                "name" to treeName.ifBlank { context.localizedString(R.string.screenshot_selected_directory) },
+                "locationLabel" to treeName.ifBlank { context.localizedString(R.string.screenshot_custom_directory) },
                 "available" to false,
             )
         }
@@ -40,7 +40,7 @@ internal class ScreenshotDirectoryAccessController(
                 queryDirectoryName(treeUri, rootId).ifBlank { treeName }
             } else {
                 treeName
-            }.ifBlank { context.getString(R.string.screenshot_selected_directory) }
+            }.ifBlank { context.localizedString(R.string.screenshot_selected_directory) }
         return mapOf(
             "id" to rootId,
             "name" to resolvedName,
@@ -88,7 +88,7 @@ internal class ScreenshotDirectoryAccessController(
         }
         val directoryLabel =
             queryDirectoryName(treeUri, rootId).ifBlank {
-                storedTreeName().ifBlank { context.getString(R.string.screenshot_custom_directory) }
+                storedTreeName().ifBlank { context.localizedString(R.string.screenshot_custom_directory) }
             }
         val childrenUri =
             DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, rootId)

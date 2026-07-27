@@ -101,7 +101,7 @@ internal class ScreenshotLibraryController(
             sources +=
                 FileSource(
                     kind = "app",
-                    locationLabel = context.getString(R.string.screenshot_app_pictures_directory),
+                    locationLabel = context.localizedString(R.string.screenshot_app_pictures_directory),
                     root = it,
                 )
         }
@@ -109,7 +109,7 @@ internal class ScreenshotLibraryController(
             sources +=
                 FileSource(
                     kind = "app",
-                    locationLabel = context.getString(R.string.screenshot_app_dcim_directory),
+                    locationLabel = context.localizedString(R.string.screenshot_app_dcim_directory),
                     root = it,
                 )
         }

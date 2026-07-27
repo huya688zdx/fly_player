@@ -7,6 +7,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import com.geqian.flyplayer.fly_player.R
 import com.geqian.flyplayer.fly_player.ScreenshotDirectoryAccessController
+import com.geqian.flyplayer.fly_player.localizedString
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -271,7 +272,7 @@ internal class MpvCaptureExportController(
 
         source?.captureResolutionLabel()?.let { segments += it }
         if (includeSubtitles) {
-            segments += context.getString(R.string.capture_include_subtitles)
+            segments += context.localizedString(R.string.capture_include_subtitles)
         }
 
         val stem =
@@ -318,18 +319,18 @@ internal class MpvCaptureExportController(
                 normalizedMediaType.contains("film")
         when {
             episodeNumber > 0 && seasonNumber == 0 -> {
-                labels += context.getString(R.string.capture_special_episode)
-                labels += context.getString(R.string.capture_episode_number, episodeNumber)
+                labels += context.localizedString(R.string.capture_special_episode)
+                labels += context.localizedString(R.string.capture_episode_number, episodeNumber)
             }
             episodeNumber > 0 && seasonNumber > 0 -> {
-                labels += context.getString(R.string.capture_season_number, seasonNumber)
-                labels += context.getString(R.string.capture_episode_number, episodeNumber)
+                labels += context.localizedString(R.string.capture_season_number, seasonNumber)
+                labels += context.localizedString(R.string.capture_episode_number, episodeNumber)
             }
             seasonNumber > 0 -> {
-                labels += context.getString(R.string.capture_season_number, seasonNumber)
+                labels += context.localizedString(R.string.capture_season_number, seasonNumber)
             }
             isMovie -> {
-                labels += context.getString(R.string.capture_movie)
+                labels += context.localizedString(R.string.capture_movie)
             }
             normalizedMediaType.isNotEmpty() -> {
                 labels += mediaType.trim()

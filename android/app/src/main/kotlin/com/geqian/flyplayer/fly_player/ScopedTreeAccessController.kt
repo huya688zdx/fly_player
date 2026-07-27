@@ -169,9 +169,9 @@ class ScopedTreeAccessController(
         val displayName =
             documentInfo.name.ifBlank {
                 if (documentId == DocumentsContract.getTreeDocumentId(treeUri)) {
-                    context.getString(R.string.storage_authorized_folder)
+                    context.localizedString(R.string.storage_authorized_folder)
                 } else {
-                    context.getString(R.string.storage_folder)
+                    context.localizedString(R.string.storage_folder)
                 }
             }
         return mapOf("id" to documentId, "name" to displayName)
