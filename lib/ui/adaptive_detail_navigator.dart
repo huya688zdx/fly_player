@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../media_backend/media_image_ref.dart';
 import '../models/media_library_item.dart';
 import '../providers/nas_provider.dart';
+import 'detail_artwork_resolver.dart';
 import 'detail_hero_image.dart';
 import 'detail_theme_prewarmer.dart';
 import '../services/detail_route_payload_store.dart';
@@ -274,30 +275,30 @@ class AdaptiveDetailNavigator {
     // 中立直链引用（Emby 等自鉴权 URL）优先：URL 自带凭据与尺寸参数，直接按
     // 背景组件同款缓存键预取，不依赖 NAS token（H-019/H-021）。只预取首个直链
     // 候选——它就是详情 hero 实际展示位；后续候选是失败兜底，不值得预热流量。
+    // 图请求统一经 DetailArtworkResolver 产出（直链透传 ref 自带 header/自鉴权
+    // 标志；飞牛 backdrop 相对路径拼候选 + NAS header），预取口不再自持鉴权分支。
+    final nas = context.read<NasProvider>();
+    final resolver = DetailArtworkResolver(
+      baseUrl: nas.baseUrl,
+      token: nas.token,
+    );
     final directUrl = _firstDirectHeroUrl(request);
+    final MediaImageRequest heroImages;
     if (directUrl.isNotEmpty) {
       final ref = request.heroImageRefs.firstWhere(
         (ref) => ref.url.trim() == directUrl,
       );
-      final provider = DetailHeroImage.directUrlPrecacheProvider(
-        url: directUrl,
-        headers: ref.headers,
-        screenWidth: mq.size.width,
-        devicePixelRatio: mq.devicePixelRatio,
+      heroImages = resolver.resolveRef(ref);
+    } else {
+      final backdrop = request.heroBackdropPath?.trim() ?? '';
+      if (backdrop.isEmpty) return;
+      heroImages = resolver.resolvePath(
+        backdrop,
+        width: DetailHeroImage.fullPageServerWidth,
       );
-      if (provider != null) {
-        // 用根 context 预取，避免被 push 后 route 切换打断；错误静默忽略。
-        precacheImage(provider, context).catchError((_) {});
-      }
-      return;
     }
-    final backdrop = request.heroBackdropPath?.trim() ?? '';
-    if (backdrop.isEmpty) return;
-    final nas = context.read<NasProvider>();
-    final provider = DetailHeroImage.fullPagePrecacheProvider(
-      baseUrl: nas.baseUrl,
-      backdropPath: backdrop,
-      token: nas.token,
+    final provider = DetailHeroImage.precacheProvider(
+      images: heroImages,
       screenWidth: mq.size.width,
       devicePixelRatio: mq.devicePixelRatio,
     );

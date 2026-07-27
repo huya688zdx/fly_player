@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../utils/api_url_helper.dart';
-import '../utils/nas_image_headers.dart';
+import '../media_backend/media_image_request.dart';
 
 /// 详情页 hero 背景图的统一构造口（URL / cacheWidth / ImageProvider）。
 ///
@@ -14,6 +13,10 @@ import '../utils/nas_image_headers.dart';
 /// （NetworkImage 相等只看 url+scale，headers 不参与；ResizeImage 相等看 provider+width+
 /// height(null)+policy(exact 默认)+allowUpscaling(false 默认)）。本 helper 集中这套算法，
 /// 避免与背景组件里的公式漂移。
+///
+/// 鉴权中立（H-019/H-021 收口）：只消费 [MediaImageRequest]（URL 候选 + header +
+/// 自鉴权标志），不感知 NAS token / Emby `api_key` 等后端私有语义；请求对象由
+/// `DetailArtworkResolver` / `mediaImageRequestForUrls` 单一入口产出。
 ///
 /// 注意：仅对**同引擎整页详情**有效（手机/整页）。平板嵌入详情走独立 Flutter 引擎、独立
 /// ImageCache，主引擎预取进不到副引擎缓存——那条路径由低清占位（lowResUrls）兜底。
@@ -33,61 +36,23 @@ class DetailHeroImage {
     return (targetWidth * dpr).round().clamp(560, 1440);
   }
 
-  /// 构造与背景组件缓存键一致的 ImageProvider；url/token 为空则返回 null。
-  static ImageProvider? provider({
-    required String url,
-    required String token,
-    required int cacheWidth,
-  }) {
-    if (url.trim().isEmpty || token.trim().isEmpty) return null;
-    return ResizeImage(
-      NetworkImage(url, headers: nasImageHeaders(token, url: url)),
-      width: cacheWidth,
-    );
-  }
-
-  /// 自鉴权完整直链（Emby 等，URL 自带 `api_key` 与尺寸参数）的预取 provider。
-  /// 不要求 NAS token——可加载性由 URL 自身决定；headers 只影响预取请求本身，
-  /// 不参与 NetworkImage 缓存键（相等只看 url+scale），与背景组件展示天然同键。
-  static ImageProvider? directUrlPrecacheProvider({
-    required String url,
-    Map<String, String> headers = const <String, String>{},
+  /// 构造与背景组件缓存键一致的预取 provider：取请求首候选（即详情 hero 实际展示位）。
+  /// 请求不可加载（无候选，或既无 header 鉴权也非自鉴权直链——与展示端回退底色同口径）
+  /// 时返回 null（跳过预取）。headers 只影响预取请求本身，不参与 NetworkImage 缓存键。
+  static ImageProvider? precacheProvider({
+    required MediaImageRequest images,
     required double screenWidth,
     required double devicePixelRatio,
   }) {
-    final trimmed = url.trim();
-    if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
-      return null;
-    }
+    if (!images.canLoad) return null;
+    final url = images.urls.first.trim();
+    if (url.isEmpty) return null;
     return ResizeImage(
-      NetworkImage(trimmed, headers: headers.isEmpty ? null : headers),
-      width: cacheWidthFor(
-        targetWidth: screenWidth,
-        devicePixelRatio: devicePixelRatio,
+      NetworkImage(
+        url,
+        headers: images.headers.isEmpty ? null : images.headers,
       ),
-    );
-  }
-
-  /// 整页详情 hero 的预取 provider：综合 baseUrl/backdropPath/token + 屏宽/dpr 给出可直接
-  /// `precacheImage` 的 provider。backdrop 为空、URL 解析失败或无 token 则返回 null（跳过）。
-  static ImageProvider? fullPagePrecacheProvider({
-    required String baseUrl,
-    required String backdropPath,
-    required String token,
-    required double screenWidth,
-    required double devicePixelRatio,
-  }) {
-    if (backdropPath.trim().isEmpty || token.trim().isEmpty) return null;
-    final urls = ApiUrlHelper.imageCandidates(
-      baseUrl,
-      backdropPath,
-      width: fullPageServerWidth,
-    );
-    if (urls.isEmpty) return null;
-    return provider(
-      url: urls.first,
-      token: token,
-      cacheWidth: cacheWidthFor(
+      width: cacheWidthFor(
         targetWidth: screenWidth,
         devicePixelRatio: devicePixelRatio,
       ),

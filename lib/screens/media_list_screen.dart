@@ -768,8 +768,15 @@ class _MediaListScreenState extends State<MediaListScreen>
                 : item.poster,
           );
           if (!mounted) return;
-          final heroProvider = DetailHeroImage.directUrlPrecacheProvider(
-            url: item.backdropUrl,
+          // 服务器族 backdropUrl 是完整自鉴权直链;经统一入口包成请求(token 传空,
+          // 与旧 directUrlPrecacheProvider 不带 header 的行为一致)。
+          final heroProvider = DetailHeroImage.precacheProvider(
+            images: mediaImageRequestForUrls(
+              item.backdropUrl.trim().isNotEmpty
+                  ? <String>[item.backdropUrl.trim()]
+                  : const <String>[],
+              token: '',
+            ),
             screenWidth: MediaQuery.of(context).size.width,
             devicePixelRatio: MediaQuery.of(context).devicePixelRatio,
           );

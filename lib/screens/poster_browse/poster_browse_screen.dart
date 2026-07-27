@@ -451,7 +451,7 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
       // 与详情页同键：同一条目的取色 seed 缓存互通，进详情不再重算。
       pageKey: settled?.id ?? 'poster_browse_empty',
       imageUrl: backdrop.isNotEmpty ? backdrop.urls.first : '',
-      token: token,
+      imageHeaders: backdrop.headers,
       enabled: dynamicThemeEnabled && settled != null,
       intensity: intensity,
       builder: (context, ambientTint) {
