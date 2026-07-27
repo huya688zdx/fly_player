@@ -326,19 +326,26 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
               ? <String>[category.path!]
               : const <String>[];
           final posterLimit = widget.secondaryHost ? 1 : 2;
-          final posters = source.take(posterLimit).toList();
+          final preservedImages = _catalogImageRequests[category.id];
+          final posterRequests =
+              preservedImages != null && preservedImages.isNotEmpty
+              ? preservedImages.take(posterLimit).toList(growable: false)
+              : source
+                    .take(posterLimit)
+                    .map(
+                      (path) => mediaImageRequestForUrls(
+                        _posterCandidates(
+                          baseUrl,
+                          path,
+                          width: layout.categoryMiniPosterRequestWidth,
+                        ),
+                        token: token,
+                      ),
+                    )
+                    .toList(growable: false);
           return _CategoryPosterCard(
             title: category.name,
-            posterUrls: posters
-                .map(
-                  (path) => _posterCandidates(
-                    baseUrl,
-                    path,
-                    width: layout.categoryMiniPosterRequestWidth,
-                  ),
-                )
-                .toList(),
-            token: token,
+            posterImages: posterRequests,
             lightweight: widget.secondaryHost,
             cardWidth: layout.categoryCardWidth,
             miniPosterWidth: layout.categoryMiniPosterWidth,
@@ -391,7 +398,11 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
                     fit: StackFit.expand,
                     children: <Widget>[
                       _PosterImage(
-                        images: mediaImageRequestForUrls(urls, token: token),
+                        images: preferPreservedImageRequest(
+                          preserved: _itemImageRequests[item.guid],
+                          fallbackUrls: urls,
+                          fallbackToken: token,
+                        ),
                         lightweight: widget.secondaryHost,
                         decodeWidth: layout.continueDecodeWidth,
                         fallback: Center(
@@ -559,7 +570,11 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
           return SizedBox(
             width: layout.homePosterCardWidth,
             child: MediaPosterCard(
-              images: mediaImageRequestForUrls(urls, token: token),
+              images: preferPreservedImageRequest(
+                preserved: _itemImageRequests[item.guid],
+                fallbackUrls: urls,
+                fallbackToken: token,
+              ),
               title: item.displayTitle,
               subtitle: _cardSubtitle(item),
               rating: rating,
@@ -586,8 +601,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
 
 class _CategoryPosterCard extends StatelessWidget {
   final String title;
-  final List<List<String>> posterUrls;
-  final String token;
+  final List<MediaImageRequest> posterImages;
   final bool lightweight;
   final double cardWidth;
   final double miniPosterWidth;
@@ -597,8 +611,7 @@ class _CategoryPosterCard extends StatelessWidget {
 
   const _CategoryPosterCard({
     required this.title,
-    required this.posterUrls,
-    required this.token,
+    required this.posterImages,
     this.lightweight = false,
     required this.cardWidth,
     required this.miniPosterWidth,
@@ -611,7 +624,7 @@ class _CategoryPosterCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final isLightSurface = colors.backgroundBase.computeLuminance() >= 0.58;
-    final normalized = posterUrls.take(3).toList();
+    final normalized = posterImages.take(3).toList();
     final radius = BorderRadius.circular(16);
 
     // 纯色化：回归纯色风格，分类卡用实色底 + 细边，去掉白渐变/镜面高光/发丝边。
@@ -644,8 +657,7 @@ class _CategoryPosterCard extends StatelessWidget {
                         padding: const EdgeInsets.fromLTRB(10, 10, 10, 30),
                         child: Center(
                           child: _PosterCluster(
-                            posterUrls: normalized,
-                            token: token,
+                            posterImages: normalized,
                             lightweight: lightweight,
                             miniPosterWidth: miniPosterWidth,
                             miniPosterHeight: miniPosterHeight,
@@ -714,8 +726,7 @@ class _CategoryPosterCard extends StatelessWidget {
 
 /// 分类卡内的海报簇：1~3 张迷你海报，轻微倾斜叠放，每张带玻璃描边。
 class _PosterCluster extends StatelessWidget {
-  final List<List<String>> posterUrls;
-  final String token;
+  final List<MediaImageRequest> posterImages;
   final bool lightweight;
   final double miniPosterWidth;
   final double miniPosterHeight;
@@ -723,8 +734,7 @@ class _PosterCluster extends StatelessWidget {
   final Color fallbackColor;
 
   const _PosterCluster({
-    required this.posterUrls,
-    required this.token,
+    required this.posterImages,
     required this.lightweight,
     required this.miniPosterWidth,
     required this.miniPosterHeight,
@@ -734,7 +744,7 @@ class _PosterCluster extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (posterUrls.isEmpty) {
+    if (posterImages.isEmpty) {
       return SizedBox(
         width: miniPosterWidth,
         height: miniPosterHeight,
@@ -744,13 +754,13 @@ class _PosterCluster extends StatelessWidget {
 
     return Row(
       mainAxisSize: MainAxisSize.min,
-      children: List.generate(posterUrls.length, (index) {
-        final tilt = posterUrls.length == 1
+      children: List.generate(posterImages.length, (index) {
+        final tilt = posterImages.length == 1
             ? 0.0
             : (index.isEven ? -0.018 : 0.018);
         return Padding(
           padding: EdgeInsets.only(
-            right: index == posterUrls.length - 1 ? 0 : 5,
+            right: index == posterImages.length - 1 ? 0 : 5,
           ),
           child: Transform.rotate(
             angle: tilt,
@@ -759,10 +769,7 @@ class _PosterCluster extends StatelessWidget {
               height: miniPosterHeight,
               child: _GlassMiniPoster(
                 child: _PosterImage(
-                  images: mediaImageRequestForUrls(
-                    posterUrls[index],
-                    token: token,
-                  ),
+                  images: posterImages[index],
                   lightweight: lightweight,
                   decodeWidth: decodeWidth,
                   fallback: ColoredBox(color: fallbackColor),

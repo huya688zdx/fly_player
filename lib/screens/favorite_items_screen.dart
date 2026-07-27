@@ -82,6 +82,8 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
   Map<String, String> _locateFromApi = <String, String>{};
   final Map<String, MediaLibraryItem> _episodePosterParentCache =
       <String, MediaLibraryItem>{};
+  final Map<String, MediaImageRequest> _itemImageRequests =
+      <String, MediaImageRequest>{};
   final Set<String> _episodePosterParentPending = <String>{};
 
   _FavoriteTab _selectedTab = _FavoriteTab.all;
@@ -531,18 +533,20 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
     try {
       final pageNo = reset ? 1 : (data.currentPage + 1);
       final backend = context.read<MediaBackendProvider>().backend;
+      final provider = context.read<NasProvider>();
       final List<MediaLibraryItem> fetchedItems;
+      final Map<String, MediaImageRequest> fetchedImageRequests;
       final int fetchedTotal;
       if (backend.capabilities.kind == MediaBackendKind.feiniu) {
-        final page = await FeiniuApi(context.read<NasProvider>())
-            .getFavoritePage(
-              tags: _requestTags(tab),
-              sortType: _sortType,
-              sortColumn: _sortColumn,
-              page: pageNo,
-              pageSize: _pageSize,
-            );
+        final page = await FeiniuApi(provider).getFavoritePage(
+          tags: _requestTags(tab),
+          sortType: _sortType,
+          sortColumn: _sortColumn,
+          page: pageNo,
+          pageSize: _pageSize,
+        );
         fetchedItems = page.items;
+        fetchedImageRequests = const <String, MediaImageRequest>{};
         fetchedTotal = page.total;
       } else {
         // 非飞牛:走中立 queryFavoriteItems,卡片映射为列表模型以复用本页整套渲染。
@@ -562,10 +566,29 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
         fetchedItems = result.items
             .map(_cardToLibraryItem)
             .toList(growable: false);
+        final resolver = DetailArtworkResolver(
+          baseUrl: provider.baseUrl,
+          token: provider.token,
+        );
+        fetchedImageRequests = <String, MediaImageRequest>{
+          for (final card in result.items)
+            if (card.id.trim().isNotEmpty)
+              card.id: resolver.resolveRefs(<MediaImageRef>[
+                card.primaryImage,
+                ...card.posters,
+              ]),
+        };
         fetchedTotal = result.total;
       }
       if (!mounted) return;
       setState(() {
+        final replacedItemIds = reset
+            ? data.items.map((item) => item.guid).toSet()
+            : const <String>{};
+        for (final id in replacedItemIds) {
+          _itemImageRequests.remove(id);
+        }
+        _itemImageRequests.addAll(fetchedImageRequests);
         data.total = fetchedTotal;
         data.currentPage = pageNo;
         data.items = reset
@@ -754,14 +777,15 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
     bool preferDirectPath = false,
   }) {
     final provider = context.read<NasProvider>();
-    return mediaImageRequestForUrls(
-      _posterCandidates(
+    return preferPreservedImageRequest(
+      preserved: _itemImageRequests[item.guid],
+      fallbackUrls: _posterCandidates(
         provider.baseUrl,
         item,
         width: width,
         preferDirectPath: preferDirectPath,
       ),
-      token: provider.token,
+      fallbackToken: provider.token,
     );
   }
 
