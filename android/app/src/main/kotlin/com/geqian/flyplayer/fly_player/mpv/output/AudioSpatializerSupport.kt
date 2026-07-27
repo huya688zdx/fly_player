@@ -7,6 +7,7 @@ import android.media.AudioManager
 import android.os.Build
 import android.util.Log
 import com.geqian.flyplayer.fly_player.R
+import com.geqian.flyplayer.fly_player.localizedString
 
 /**
  * 手机端「杜比全景声 / 空间音频」能力探测。
@@ -33,11 +34,11 @@ object AudioSpatializerSupport {
     ) {
         /** 诊断面板用的一行摘要。 */
         fun summary(context: Context): String = when {
-            !supported -> context.getString(R.string.mpv_spatializer_unsupported)
-            !available -> context.getString(R.string.mpv_spatializer_hardware_unavailable)
-            !enabled -> context.getString(R.string.mpv_spatializer_disabled)
-            canSpatialize51 -> context.getString(R.string.mpv_spatializer_enabled, immersiveLevel)
-            else -> context.getString(R.string.mpv_spatializer_enabled_not_virtualizable)
+            !supported -> context.localizedString(R.string.mpv_spatializer_unsupported)
+            !available -> context.localizedString(R.string.mpv_spatializer_hardware_unavailable)
+            !enabled -> context.localizedString(R.string.mpv_spatializer_disabled)
+            canSpatialize51 -> context.localizedString(R.string.mpv_spatializer_enabled, immersiveLevel)
+            else -> context.localizedString(R.string.mpv_spatializer_enabled_not_virtualizable)
         }
 
         /** 满足触发条件：可用 + 已开启 + 能虚拟化 5.1。 */
@@ -95,9 +96,9 @@ object AudioSpatializerSupport {
     // Spatializer 沉浸级别常量值（部分常量在 compileSdk 上不可见，用字面值）：
     // 0=NONE 1=MULTICHANNEL 2=MCHAN_BED_PLUS_OBJECTS(声床+对象，即真 Atmos)。
     private fun immersiveLevelLabel(context: Context, level: Int): String = when (level) {
-        0 -> context.getString(R.string.mpv_spatializer_level_none)
-        1 -> context.getString(R.string.mpv_spatializer_level_multichannel)
-        2 -> context.getString(R.string.mpv_spatializer_level_bed_objects)
-        else -> context.getString(R.string.mpv_spatializer_level_unknown, level)
+        0 -> context.localizedString(R.string.mpv_spatializer_level_none)
+        1 -> context.localizedString(R.string.mpv_spatializer_level_multichannel)
+        2 -> context.localizedString(R.string.mpv_spatializer_level_bed_objects)
+        else -> context.localizedString(R.string.mpv_spatializer_level_unknown, level)
     }
 }

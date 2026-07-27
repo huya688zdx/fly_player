@@ -13,6 +13,7 @@ import android.provider.MediaStore
 import android.util.Log
 import android.view.Surface
 import com.geqian.flyplayer.fly_player.R
+import com.geqian.flyplayer.fly_player.localizedString
 import `is`.xyz.mpv.MPVLib
 import java.io.File
 import java.io.FileInputStream
@@ -393,7 +394,7 @@ class MpvPlaybackController(
             return mapOf(
                 "success" to false,
                 "enabled" to state.listenVideoModeEnabled,
-                "message" to context.getString(R.string.mpv_player_released),
+                "message" to context.localizedString(R.string.mpv_player_released),
             )
         }
         return callOnPlaybackThread { setListenVideoModeInternal(enabled) }
@@ -403,7 +404,7 @@ class MpvPlaybackController(
         if (disposed) {
             return mapOf(
                 "success" to false,
-                "message" to context.getString(R.string.mpv_player_released),
+                "message" to context.localizedString(R.string.mpv_player_released),
             )
         }
         return callOnPlaybackThread { captureFrameInternal(args) }
@@ -2684,7 +2685,7 @@ class MpvPlaybackController(
         advancedSettingsController.apply(initialized, mpv.isAvailable(), source)
         updateState(
             state.copy(
-                statusText = context.getString(R.string.mpv_audio_passthrough_fallback),
+                statusText = context.localizedString(R.string.mpv_audio_passthrough_fallback),
                 error = null,
             ),
         )
@@ -3066,7 +3067,7 @@ class MpvPlaybackController(
         val fallbackReasons = mutableListOf<String>()
         if (forcedHwdec != null) fallbackReasons += "hwdec→$forcedHwdec"
         if (forcedPipeline != null) fallbackReasons +=
-            context.getString(R.string.mpv_fallback_reason_color, forcedPipeline)
+            context.localizedString(R.string.mpv_fallback_reason_color, forcedPipeline)
         // 直通仅对 spdif 可位流的压缩编码生效（见 AudioPassthroughSupport.ALL_CODECS：
         // ac3/eac3/dts/dts-hd/truehd）。FLAC/PCM/AAC/Opus 等即便配置开了直通也会被解码成 PCM，
         // 故诊断按「设置开直通 且 当前轨编码本身能位流」上报，避免把解码中的 FLAC 误标「直通(flac)」。
