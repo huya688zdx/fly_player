@@ -10,15 +10,18 @@ class PosterBrowseEnrichment {
   final MediaDetail? itemDetail;
   final MediaDetail? seriesDetail;
   final MediaSeasonSummary? season;
+  final bool hasLookupFailure;
 
   const PosterBrowseEnrichment({
     this.itemDetail,
     this.seriesDetail,
     this.season,
+    this.hasLookupFailure = false,
   });
 
   bool get isFailure =>
-      itemDetail == null && seriesDetail == null && season == null;
+      hasLookupFailure ||
+      (itemDetail == null && seriesDetail == null && season == null);
 }
 
 /// 海报浏览页素材懒补全器。
@@ -45,7 +48,8 @@ class PosterBrowseArtworkEnricher {
       LinkedHashMap<String, PosterBrowseEnrichment>();
   final Map<String, Future<PosterBrowseEnrichment>> _inFlight =
       <String, Future<PosterBrowseEnrichment>>{};
-  final Map<String, DateTime> _negativeUntil = <String, DateTime>{};
+  final Map<String, _TemporaryFailure> _temporaryFailures =
+      <String, _TemporaryFailure>{};
   int _clearGeneration = 0;
 
   /// 测试可见：当前成功 LRU 缓存条目数。
@@ -53,14 +57,12 @@ class PosterBrowseArtworkEnricher {
 
   Future<PosterBrowseEnrichment> enrich(MediaItemCard card) {
     final key = _cacheKey(card);
-    final negativeExpiresAt = _negativeUntil[key];
-    if (negativeExpiresAt != null) {
-      if (_now().isBefore(negativeExpiresAt)) {
-        return Future<PosterBrowseEnrichment>.value(
-          const PosterBrowseEnrichment(),
-        );
+    final temporaryFailure = _temporaryFailures[key];
+    if (temporaryFailure != null) {
+      if (_now().isBefore(temporaryFailure.expiresAt)) {
+        return Future<PosterBrowseEnrichment>.value(temporaryFailure.result);
       }
-      _negativeUntil.remove(key);
+      _temporaryFailures.remove(key);
     }
 
     final cached = _cache.remove(key);
@@ -85,9 +87,12 @@ class PosterBrowseArtworkEnricher {
             return result;
           }
           if (result.isFailure) {
-            _negativeUntil[key] = _now().add(failureTtl);
+            _temporaryFailures[key] = _TemporaryFailure(
+              result: result,
+              expiresAt: _now().add(failureTtl),
+            );
           } else {
-            _negativeUntil.remove(key);
+            _temporaryFailures.remove(key);
             _cache[key] = result;
             _trimCache();
           }
@@ -134,7 +139,7 @@ class PosterBrowseArtworkEnricher {
     _clearGeneration += 1;
     _cache.clear();
     _inFlight.clear();
-    _negativeUntil.clear();
+    _temporaryFailures.clear();
   }
 
   String _cacheKey(MediaItemCard card) => '$sessionKey|${card.id.trim()}';
@@ -145,38 +150,53 @@ class PosterBrowseArtworkEnricher {
     final cardId = card.id.trim();
     final shouldLoadSeries = seriesId.isNotEmpty && seriesId != cardId;
 
-    Future<MediaDetail?>? seriesDetailFuture;
-    Future<List<MediaSeasonSummary>>? seasonsFuture;
+    Future<_Lookup<MediaDetail>>? seriesDetailFuture;
+    Future<_Lookup<List<MediaSeasonSummary>>>? seasonsFuture;
     if (shouldLoadSeries) {
       seriesDetailFuture = _loadDetail(seriesId);
       seasonsFuture = _loadSeasons(seriesId);
     }
 
-    final itemDetail = await itemDetailFuture;
-    final seriesDetail = await seriesDetailFuture;
-    final seasons = await seasonsFuture ?? const <MediaSeasonSummary>[];
-    final season = _matchSeason(seasons, card.seasonNumber);
+    final itemDetailLookup = await itemDetailFuture;
+    final seriesDetailLookup = seriesDetailFuture == null
+        ? const _Lookup<MediaDetail>.empty()
+        : await seriesDetailFuture;
+    final seasonsLookup = seasonsFuture == null
+        ? const _Lookup<List<MediaSeasonSummary>>.value(<MediaSeasonSummary>[])
+        : await seasonsFuture;
+    final season = _matchSeason(
+      seasonsLookup.value ?? const <MediaSeasonSummary>[],
+      card.seasonNumber,
+    );
 
     return PosterBrowseEnrichment(
-      itemDetail: itemDetail,
-      seriesDetail: seriesDetail,
+      itemDetail: itemDetailLookup.value,
+      seriesDetail: seriesDetailLookup.value,
       season: season,
+      hasLookupFailure:
+          itemDetailLookup.failed ||
+          seriesDetailLookup.failed ||
+          seasonsLookup.failed,
     );
   }
 
-  Future<MediaDetail?> _loadDetail(String itemId) async {
+  Future<_Lookup<MediaDetail>> _loadDetail(String itemId) async {
     try {
-      return await backend.getItemDetail(itemId);
+      return _Lookup<MediaDetail>.value(await backend.getItemDetail(itemId));
     } catch (_) {
-      return null;
+      return const _Lookup<MediaDetail>.failed();
     }
   }
 
-  Future<List<MediaSeasonSummary>> _loadSeasons(String seriesId) async {
+  Future<_Lookup<List<MediaSeasonSummary>>> _loadSeasons(
+    String seriesId,
+  ) async {
     try {
-      return await backend.getItemSeasons(seriesId);
+      return _Lookup<List<MediaSeasonSummary>>.value(
+        await backend.getItemSeasons(seriesId),
+      );
     } catch (_) {
-      return const <MediaSeasonSummary>[];
+      return const _Lookup<List<MediaSeasonSummary>>.failed();
     }
   }
 
@@ -202,4 +222,20 @@ class PosterBrowseArtworkEnricher {
     final remainder = value % length;
     return remainder < 0 ? remainder + length : remainder;
   }
+}
+
+class _Lookup<T> {
+  final T? value;
+  final bool failed;
+
+  const _Lookup.value(this.value) : failed = false;
+  const _Lookup.empty() : value = null, failed = false;
+  const _Lookup.failed() : value = null, failed = true;
+}
+
+class _TemporaryFailure {
+  final PosterBrowseEnrichment result;
+  final DateTime expiresAt;
+
+  const _TemporaryFailure({required this.result, required this.expiresAt});
 }

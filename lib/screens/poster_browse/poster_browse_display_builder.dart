@@ -13,13 +13,14 @@ class PosterBrowseDisplayBuilder {
     MediaDetail? seriesDetail,
     MediaSeasonSummary? season,
   }) {
-    final isEpisode = card.type.trim().toLowerCase() == 'episode';
+    final normalizedType = card.type.trim().toLowerCase();
+    final isEpisode = normalizedType == 'episode';
+    final isSeason = normalizedType == 'season';
+    final seriesTitle = seriesDetail?.title.trim() ?? '';
     final title = isEpisode
-        ? _firstText(<String?>[
-            seriesDetail?.title,
-            card.secondaryTitle,
-            card.title,
-          ])
+        ? _firstText(<String?>[seriesTitle, card.secondaryTitle, card.title])
+        : isSeason && seriesTitle.isNotEmpty
+        ? seriesTitle
         : _firstText(<String?>[itemDetail?.displayTitle, card.displayTitle]);
     final cardTitle = card.title.trim();
     final episodeTitle = isEpisode && cardTitle != title ? cardTitle : '';
@@ -72,10 +73,13 @@ class PosterBrowseDisplayBuilder {
         season?.primaryImage ?? MediaImageRef.empty,
         seriesDetail?.primaryImage ?? MediaImageRef.empty,
       ]),
-      logoImages: _dedupeImages(<MediaImageRef>[
-        itemDetail?.logoImage ?? MediaImageRef.empty,
-        seriesDetail?.logoImage ?? MediaImageRef.empty,
-      ]),
+      logoImages: _dedupeImages(
+        _logoCandidates(
+          itemDetail: itemDetail,
+          seriesDetail: seriesDetail,
+          preferSeries: isEpisode || isSeason,
+        ),
+      ),
       posterImages: _dedupeImages(
         _posterCandidates(
           card: card,
@@ -101,6 +105,18 @@ class PosterBrowseDisplayBuilder {
         : formatted;
   }
 
+  static List<MediaImageRef> _logoCandidates({
+    required MediaDetail? itemDetail,
+    required MediaDetail? seriesDetail,
+    required bool preferSeries,
+  }) {
+    final itemLogo = itemDetail?.logoImage ?? MediaImageRef.empty;
+    final seriesLogo = seriesDetail?.logoImage ?? MediaImageRef.empty;
+    return preferSeries
+        ? <MediaImageRef>[seriesLogo, itemLogo]
+        : <MediaImageRef>[itemLogo, seriesLogo];
+  }
+
   static List<MediaImageRef> _posterCandidates({
     required MediaItemCard card,
     MediaDetail? seriesDetail,
@@ -114,12 +130,13 @@ class PosterBrowseDisplayBuilder {
         ...card.posters,
         seasonPrimary,
         seriesPrimary,
+        card.primaryImage,
       ];
     }
     return <MediaImageRef>[
+      ...card.posters,
       seasonPrimary,
       seriesPrimary,
-      ...card.posters,
       card.primaryImage,
     ];
   }

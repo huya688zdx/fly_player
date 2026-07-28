@@ -39,6 +39,8 @@ MediaItemCard cardFromLibraryItem(MediaLibraryItem item) {
     numberOfEpisodes: item.numberOfEpisodes,
     localNumberOfSeasons: item.localNumberOfSeasons,
     localNumberOfEpisodes: item.localNumberOfEpisodes,
+    posterWidth: item.posterWidth,
+    posterHeight: item.posterHeight,
     resolutions: item.resolutions,
   );
 }
