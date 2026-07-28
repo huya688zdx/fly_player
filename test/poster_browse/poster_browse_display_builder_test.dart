@@ -27,10 +27,12 @@ void main() {
     String type = 'Movie',
     String seriesId = '',
     MediaImageRef primaryImage = const MediaImageRef(url: 'card-primary'),
+    List<MediaImageRef> posters = const <MediaImageRef>[],
     MediaImageRef backdropImage = const MediaImageRef(url: 'card-backdrop'),
     String rating = '',
     String overview = '',
     String releaseDate = '',
+    String firstAirDate = '',
     int seasonNumber = 0,
     int episodeNumber = 0,
     int numberOfSeasons = 0,
@@ -50,11 +52,13 @@ void main() {
       type: type,
       seriesId: seriesId,
       primaryImage: primaryImage,
+      posters: posters,
       backdropImage: backdropImage,
       rating: rating,
       overview: overview,
       genres: genres,
       releaseDate: releaseDate,
+      firstAirDate: firstAirDate,
       seasonNumber: seasonNumber,
       episodeNumber: episodeNumber,
       numberOfSeasons: numberOfSeasons,
@@ -126,9 +130,13 @@ void main() {
         id: 'episode-7',
         title: '第七集',
         secondaryTitle: '卡片剧名',
-        type: 'Episode',
-        seriesId: 'series-42',
+        type: ' Episode ',
+        seriesId: ' series-42 ',
         primaryImage: image('card-primary-landscape'),
+        posters: <MediaImageRef>[
+          image('card-poster-a'),
+          image('card-poster-b'),
+        ],
         backdropImage: image('card-backdrop'),
         rating: '8.0',
         seasonNumber: 1,
@@ -154,7 +162,7 @@ void main() {
     );
 
     expect(result.isEpisode, isTrue);
-    expect(result.type, 'Episode');
+    expect(result.type, ' Episode ');
     expect(result.title, '剧集详情标题');
     expect(result.episodeTitle, '第七集');
     expect(result.seasonNumber, 1);
@@ -168,6 +176,8 @@ void main() {
     expect(result.posterImages.map((image) => image.url), [
       'season-primary',
       'series-primary',
+      'card-poster-a',
+      'card-poster-b',
       'card-primary-landscape',
     ]);
     expect(result.backgroundImages.map((image) => image.url), [
@@ -192,7 +202,7 @@ void main() {
   test('电影优先使用 itemDetail 展示字段且详情目标是自身', () {
     final result = builder.build(
       card: card(
-        id: 'movie-card',
+        id: ' movie-card ',
         title: '卡片电影',
         secondaryTitle: '卡片展示名',
         type: 'Movie',
@@ -228,12 +238,17 @@ void main() {
     expect(result.detailTargetId, 'movie-card');
   });
 
-  test('无详情时使用 card genres 和 overview 回退', () {
+  test('无详情时使用 card genres、overview 和 firstAirDate 回退', () {
     final result = builder.build(
-      card: card(overview: '卡片简介', genres: const <String>['卡片题材', '悬疑']),
+      card: card(
+        overview: '卡片简介',
+        firstAirDate: '2019-05-06',
+        genres: const <String>['卡片题材', '悬疑'],
+      ),
     );
 
     expect(result.overview, '卡片简介');
+    expect(result.releaseYear, '2019');
     expect(result.genres, ['卡片题材', '悬疑']);
   });
 
@@ -260,6 +275,31 @@ void main() {
     expect(localCount.numberOfEpisodes, 20);
     expect(serverCount.numberOfSeasons, 1);
     expect(serverCount.numberOfEpisodes, 10);
+  });
+
+  test('飞牛多 poster 候选在竖版 primary 后按顺序参与去重', () {
+    final result = builder.build(
+      card: card(
+        primaryImage: image('card-primary-portrait'),
+        posters: <MediaImageRef>[
+          image('card-poster-a'),
+          image('card-poster-b'),
+          image('card-poster-a'),
+        ],
+        posterWidth: 100,
+        posterHeight: 150,
+      ),
+      seriesDetail: detail(primaryImage: image('series-primary')),
+      season: season(primaryImage: image('season-primary')),
+    );
+
+    expect(result.posterImages.map((image) => image.url), [
+      'card-primary-portrait',
+      'card-poster-a',
+      'card-poster-b',
+      'season-primary',
+      'series-primary',
+    ]);
   });
 
   test('图片去重保留首个相同鉴权候选并区分 headers 与显式自鉴权语义', () {
@@ -341,6 +381,10 @@ void main() {
       posterImages: replacementPosters,
     );
 
+    replacementBackground.add(image('background-late'));
+    replacementLogos.add(image('logo-late'));
+    replacementPosters.add(image('poster-late'));
+
     expect(updated.card.id, 'replacement-card');
     expect(updated.title, '新标题');
     expect(updated.episodeTitle, '新单集标题');
@@ -357,9 +401,15 @@ void main() {
     expect(updated.durationSeconds, 900);
     expect(updated.genres, ['新题材']);
     expect(updated.resolutions, ['8K']);
-    expect(updated.backgroundImages, same(replacementBackground));
-    expect(updated.logoImages, same(replacementLogos));
-    expect(updated.posterImages, same(replacementPosters));
+    expect(updated.backgroundImages.map((image) => image.url), [
+      'background-new',
+    ]);
+    expect(updated.logoImages.map((image) => image.url), ['logo-new']);
+    expect(updated.posterImages.map((image) => image.url), ['poster-new']);
+    expect(
+      () => updated.backgroundImages.add(image('background-unsupported')),
+      throwsUnsupportedError,
+    );
 
     expect(original.card.id, 'original-card');
     expect(original.type, 'Episode');
