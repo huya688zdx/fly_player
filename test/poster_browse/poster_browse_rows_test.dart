@@ -67,6 +67,8 @@ void main() {
       tvTitle: '',
       type: 'Movie',
       poster: '/p.jpg',
+      posterWidth: 720,
+      posterHeight: 1080,
       releaseDate: '2024-03-01',
       firstAirDate: '',
       lastAirDate: '',
@@ -101,6 +103,8 @@ void main() {
     expect(cardResult.numberOfEpisodes, 13);
     expect(cardResult.localNumberOfSeasons, 2);
     expect(cardResult.localNumberOfEpisodes, 11);
+    expect(cardResult.posterWidth, 720);
+    expect(cardResult.posterHeight, 1080);
     expect(cardResult.primaryImage.url, '/p.jpg');
   });
 
@@ -211,14 +215,12 @@ class _FakeMediaBackend extends MediaBackend {
     this.continueWatching = const <MediaItemCard>[],
     this.latestItems = const <MediaItemCard>[],
     this.catalogPreviewItems = const <String, List<MediaItemCard>>{},
-    this.failingCatalogIds = const <String>{},
   });
 
   final List<MediaCatalog> catalogs;
   final List<MediaItemCard> continueWatching;
   final List<MediaItemCard> latestItems;
   final Map<String, List<MediaItemCard>> catalogPreviewItems;
-  final Set<String> failingCatalogIds;
   int getCatalogsCallCount = 0;
   int getCatalogPreviewItemsCallCount = 0;
 
@@ -250,9 +252,6 @@ class _FakeMediaBackend extends MediaBackend {
     int limit = 30,
   }) async {
     getCatalogPreviewItemsCallCount += 1;
-    if (failingCatalogIds.contains(catalogId)) {
-      throw Exception('boom: $catalogId');
-    }
     return catalogPreviewItems[catalogId] ?? const <MediaItemCard>[];
   }
 
