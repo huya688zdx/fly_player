@@ -203,6 +203,124 @@ void main() {
     expect(backend.detailCalls['missing'], 2);
   });
 
+  test('item 成功但 series detail 异常时返回 item 并按短 TTL 重试父级', () async {
+    var current = DateTime(2026, 7, 28, 11);
+    final itemDetail = detail('episode-1', type: 'Episode');
+    final seriesDetail = detail('series-1', type: 'TV');
+    final backend = _FakeMediaBackend(
+      details: <String, MediaDetail>{'episode-1': itemDetail},
+      failingDetailIds: <String>{'series-1'},
+    );
+    final enricher = PosterBrowseArtworkEnricher(
+      backend: backend,
+      sessionKey: 'session-a',
+      failureTtl: const Duration(seconds: 30),
+      now: () => current,
+    );
+    final target = card(
+      id: 'episode-1',
+      type: 'Episode',
+      seriesId: 'series-1',
+      seasonNumber: 1,
+    );
+
+    final first = await enricher.enrich(target);
+    final second = await enricher.enrich(target);
+    backend.failingDetailIds.remove('series-1');
+    backend.details['series-1'] = seriesDetail;
+    current = current.add(const Duration(seconds: 31));
+    final third = await enricher.enrich(target);
+
+    expect(first.itemDetail, same(itemDetail));
+    expect(first.seriesDetail, isNull);
+    expect(first.hasLookupFailure, isTrue);
+    expect(second.itemDetail, same(itemDetail));
+    expect(second.seriesDetail, isNull);
+    expect(third.itemDetail, same(itemDetail));
+    expect(third.seriesDetail, same(seriesDetail));
+    expect(third.hasLookupFailure, isFalse);
+    expect(backend.detailCalls['episode-1'], 2);
+    expect(backend.detailCalls['series-1'], 2);
+  });
+
+  test('seasons 异常按部分失败短缓存，正常空 seasons 不算失败', () async {
+    var current = DateTime(2026, 7, 28, 12);
+    final itemDetail = detail('episode-1', type: 'Episode');
+    final seriesDetail = detail('series-1', type: 'TV');
+    final season1 = season('season-1', 1);
+    final backend = _FakeMediaBackend(
+      details: <String, MediaDetail>{
+        'episode-1': itemDetail,
+        'series-1': seriesDetail,
+      },
+      seasons: <String, List<MediaSeasonSummary>>{},
+      failingSeasonIds: <String>{'series-1'},
+    );
+    final enricher = PosterBrowseArtworkEnricher(
+      backend: backend,
+      sessionKey: 'session-a',
+      failureTtl: const Duration(seconds: 30),
+      now: () => current,
+    );
+    final target = card(
+      id: 'episode-1',
+      type: 'Episode',
+      seriesId: 'series-1',
+      seasonNumber: 1,
+    );
+
+    final first = await enricher.enrich(target);
+    final second = await enricher.enrich(target);
+    backend.failingSeasonIds.remove('series-1');
+    backend.seasons['series-1'] = <MediaSeasonSummary>[season1];
+    current = current.add(const Duration(seconds: 31));
+    final third = await enricher.enrich(target);
+
+    expect(first.itemDetail, same(itemDetail));
+    expect(first.seriesDetail, same(seriesDetail));
+    expect(first.season, isNull);
+    expect(first.hasLookupFailure, isTrue);
+    expect(second.hasLookupFailure, isTrue);
+    expect(third.season, same(season1));
+    expect(third.hasLookupFailure, isFalse);
+    expect(backend.seasonCalls['series-1'], 2);
+
+    final emptySeasonsBackend = _FakeMediaBackend(
+      details: <String, MediaDetail>{
+        'episode-2': detail('episode-2', type: 'Episode'),
+        'series-2': detail('series-2', type: 'TV'),
+      },
+      seasons: const <String, List<MediaSeasonSummary>>{'series-2': []},
+    );
+    final emptySeasonsEnricher = PosterBrowseArtworkEnricher(
+      backend: emptySeasonsBackend,
+      sessionKey: 'session-a',
+      failureTtl: const Duration(seconds: 30),
+      now: () => current,
+    );
+
+    final emptySeasons = await emptySeasonsEnricher.enrich(
+      card(
+        id: 'episode-2',
+        type: 'Episode',
+        seriesId: 'series-2',
+        seasonNumber: 1,
+      ),
+    );
+
+    expect(emptySeasons.season, isNull);
+    expect(emptySeasons.hasLookupFailure, isFalse);
+    await emptySeasonsEnricher.enrich(
+      card(
+        id: 'episode-2',
+        type: 'Episode',
+        seriesId: 'series-2',
+        seasonNumber: 1,
+      ),
+    );
+    expect(emptySeasonsBackend.seasonCalls['series-2'], 1);
+  });
+
   test('不同 session 实例不共享缓存', () async {
     final backend = _FakeMediaBackend(
       details: <String, MediaDetail>{'a': detail('a')},
@@ -270,12 +388,14 @@ class _FakeMediaBackend extends MediaBackend {
     this.details = const <String, MediaDetail>{},
     this.seasons = const <String, List<MediaSeasonSummary>>{},
     this.failingDetailIds = const <String>{},
+    this.failingSeasonIds = const <String>{},
     this.detailCompleters = const <String, Completer<MediaDetail>>{},
   });
 
   final Map<String, MediaDetail> details;
   final Map<String, List<MediaSeasonSummary>> seasons;
   final Set<String> failingDetailIds;
+  final Set<String> failingSeasonIds;
   final Map<String, Completer<MediaDetail>> detailCompleters;
   final Map<String, int> detailCalls = <String, int>{};
   final Map<String, int> seasonCalls = <String, int>{};
@@ -341,6 +461,9 @@ class _FakeMediaBackend extends MediaBackend {
   @override
   Future<List<MediaSeasonSummary>> getItemSeasons(String seriesId) async {
     seasonCalls[seriesId] = (seasonCalls[seriesId] ?? 0) + 1;
+    if (failingSeasonIds.contains(seriesId)) {
+      throw Exception('seasons missing: $seriesId');
+    }
     return seasons[seriesId] ?? const <MediaSeasonSummary>[];
   }
 

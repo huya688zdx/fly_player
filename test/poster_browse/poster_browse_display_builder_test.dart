@@ -170,14 +170,14 @@ void main() {
     expect(result.ratingText, '9.1');
     expect(result.detailTargetId, 'series-42');
     expect(result.logoImages.map((image) => image.url), [
-      'item-logo',
       'series-logo',
+      'item-logo',
     ]);
     expect(result.posterImages.map((image) => image.url), [
-      'season-primary',
-      'series-primary',
       'card-poster-a',
       'card-poster-b',
+      'season-primary',
+      'series-primary',
       'card-primary-landscape',
     ]);
     expect(result.backgroundImages.map((image) => image.url), [
@@ -187,6 +187,38 @@ void main() {
       'card-primary-landscape',
       'season-primary',
       'series-primary',
+    ]);
+  });
+
+  test('季条目使用作品标题且优先系列 logo', () {
+    final result = builder.build(
+      card: card(
+        id: 'season-1-card',
+        title: '卡片季标题',
+        type: ' Season ',
+        seriesId: 'series-42',
+      ),
+      itemDetail: detail(
+        id: 'season-1-detail',
+        title: '详情季标题',
+        secondaryTitle: '详情季展示名',
+        type: 'Season',
+        logoImage: image('season-logo'),
+      ),
+      seriesDetail: detail(
+        id: 'series-42',
+        title: '作品标题',
+        type: 'TV',
+        logoImage: image('series-logo'),
+      ),
+    );
+
+    expect(result.isEpisode, isFalse);
+    expect(result.title, '作品标题');
+    expect(result.episodeTitle, isEmpty);
+    expect(result.logoImages.map((image) => image.url), [
+      'series-logo',
+      'season-logo',
     ]);
   });
 
