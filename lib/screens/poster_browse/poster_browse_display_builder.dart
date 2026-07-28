@@ -26,6 +26,8 @@ class PosterBrowseDisplayBuilder {
     final rating = _firstText(<String?>[itemDetail?.rating, card.rating]);
     final detailSeasons = itemDetail?.numberOfSeasons ?? 0;
     final detailEpisodes = itemDetail?.numberOfEpisodes ?? 0;
+    final seriesId = card.seriesId.trim();
+    final cardId = card.id.trim();
 
     return PosterBrowseDisplayItem(
       card: card,
@@ -38,11 +40,10 @@ class PosterBrowseDisplayBuilder {
         itemDetail?.releaseDate,
         itemDetail?.airDate,
         card.releaseDate,
+        card.firstAirDate,
       ]),
       overview: _firstText(<String?>[itemDetail?.overview, card.overview]),
-      detailTargetId: isEpisode && card.seriesId.trim().isNotEmpty
-          ? card.seriesId
-          : card.id,
+      detailTargetId: isEpisode && seriesId.isNotEmpty ? seriesId : cardId,
       seasonNumber: card.seasonNumber,
       episodeNumber: card.episodeNumber,
       numberOfSeasons: _positiveFirst(<int>[
@@ -75,12 +76,13 @@ class PosterBrowseDisplayBuilder {
         itemDetail?.logoImage ?? MediaImageRef.empty,
         seriesDetail?.logoImage ?? MediaImageRef.empty,
       ]),
-      posterImages: _dedupeImages(<MediaImageRef>[
-        if (card.hasPosterSize && !card.isLandscapePoster) card.primaryImage,
-        season?.primaryImage ?? MediaImageRef.empty,
-        seriesDetail?.primaryImage ?? MediaImageRef.empty,
-        card.primaryImage,
-      ]),
+      posterImages: _dedupeImages(
+        _posterCandidates(
+          card: card,
+          season: season,
+          seriesDetail: seriesDetail,
+        ),
+      ),
     );
   }
 
@@ -97,6 +99,29 @@ class PosterBrowseDisplayBuilder {
     return formatted.endsWith('.0')
         ? formatted.substring(0, formatted.length - 2)
         : formatted;
+  }
+
+  static List<MediaImageRef> _posterCandidates({
+    required MediaItemCard card,
+    MediaDetail? seriesDetail,
+    MediaSeasonSummary? season,
+  }) {
+    final seasonPrimary = season?.primaryImage ?? MediaImageRef.empty;
+    final seriesPrimary = seriesDetail?.primaryImage ?? MediaImageRef.empty;
+    if (card.hasPosterSize && !card.isLandscapePoster) {
+      return <MediaImageRef>[
+        card.primaryImage,
+        ...card.posters,
+        seasonPrimary,
+        seriesPrimary,
+      ];
+    }
+    return <MediaImageRef>[
+      seasonPrimary,
+      seriesPrimary,
+      ...card.posters,
+      card.primaryImage,
+    ];
   }
 
   static String _firstText(Iterable<String?> values) {

@@ -22,7 +22,7 @@ class PosterBrowseDisplayItem {
   final List<MediaImageRef> logoImages;
   final List<MediaImageRef> posterImages;
 
-  const PosterBrowseDisplayItem({
+  PosterBrowseDisplayItem({
     required this.card,
     required this.title,
     required this.episodeTitle,
@@ -37,14 +37,18 @@ class PosterBrowseDisplayItem {
     required this.numberOfSeasons,
     required this.numberOfEpisodes,
     required this.durationSeconds,
-    required this.genres,
-    required this.resolutions,
-    required this.backgroundImages,
-    required this.logoImages,
-    required this.posterImages,
-  });
+    required List<String> genres,
+    required List<String> resolutions,
+    required List<MediaImageRef> backgroundImages,
+    required List<MediaImageRef> logoImages,
+    required List<MediaImageRef> posterImages,
+  }) : genres = List<String>.unmodifiable(genres),
+       resolutions = List<String>.unmodifiable(resolutions),
+       backgroundImages = List<MediaImageRef>.unmodifiable(backgroundImages),
+       logoImages = List<MediaImageRef>.unmodifiable(logoImages),
+       posterImages = List<MediaImageRef>.unmodifiable(posterImages);
 
-  bool get isEpisode => type.toLowerCase() == 'episode';
+  bool get isEpisode => type.trim().toLowerCase() == 'episode';
 
   PosterBrowseDisplayItem copyWith({
     MediaItemCard? card,
