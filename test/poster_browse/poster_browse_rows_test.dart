@@ -31,43 +31,20 @@ MediaItemCard card(String id) => MediaItemCard(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('三类行按序组装，空行整行剔除', () {
+  test('两类行按序组装，空行整行剔除', () {
     final rows = buildPosterBrowseRows(
       continueWatching: <MediaItemCard>[card('c1')],
       latestItems: const <MediaItemCard>[], // 空 → 隐藏
-      catalogs: const <MediaCatalog>[
-        MediaCatalog(
-          id: 'lib1',
-          title: '电影库',
-          type: 'movies',
-          primaryImage: MediaImageRef.empty,
-        ),
-        MediaCatalog(
-          id: 'lib2',
-          title: '空库',
-          type: 'tvshows',
-          primaryImage: MediaImageRef.empty,
-        ),
-      ],
-      catalogItems: <String, List<MediaItemCard>>{
-        'lib1': <MediaItemCard>[card('m1'), card('m2')],
-        'lib2': const <MediaItemCard>[], // 空 → 隐藏
-      },
     );
-    expect(rows, hasLength(2));
+    expect(rows, hasLength(1));
     expect(rows[0].kind, PosterBrowseRowKind.continueWatching);
-    expect(rows[1].kind, PosterBrowseRowKind.catalog);
-    expect(rows[1].catalogId, 'lib1');
-    expect(rows[1].catalogTitle, '电影库');
-    expect(rows[1].items.map((e) => e.id), ['m1', 'm2']);
+    expect(rows[0].items.map((e) => e.id), ['c1']);
   });
 
-  test('最近添加行在继续观看之后、媒体库之前', () {
+  test('最近添加行在继续观看之后', () {
     final rows = buildPosterBrowseRows(
       continueWatching: <MediaItemCard>[card('c1')],
       latestItems: <MediaItemCard>[card('l1')],
-      catalogs: const <MediaCatalog>[],
-      catalogItems: const <String, List<MediaItemCard>>{},
     );
     expect(rows.map((r) => r.kind), <PosterBrowseRowKind>[
       PosterBrowseRowKind.continueWatching,
@@ -79,8 +56,6 @@ void main() {
     final rows = buildPosterBrowseRows(
       continueWatching: const <MediaItemCard>[],
       latestItems: const <MediaItemCard>[],
-      catalogs: const <MediaCatalog>[],
-      catalogItems: const <String, List<MediaItemCard>>{},
     );
     expect(rows, isEmpty);
   });
@@ -101,12 +76,12 @@ void main() {
       watchedTs: 0,
       ts: 1200,
       duration: 6000,
-      seasonNumber: 0,
-      episodeNumber: 0,
-      numberOfSeasons: 0,
-      numberOfEpisodes: 0,
-      localNumberOfSeasons: 0,
-      localNumberOfEpisodes: 0,
+      seasonNumber: 1,
+      episodeNumber: 7,
+      numberOfSeasons: 2,
+      numberOfEpisodes: 13,
+      localNumberOfSeasons: 2,
+      localNumberOfEpisodes: 11,
       parentGuid: '',
       parentTitle: '',
       ancestorGuid: 'series1',
@@ -120,6 +95,12 @@ void main() {
     expect(cardResult.resumePositionSeconds, 1200);
     expect(cardResult.durationSeconds, 6000);
     expect(cardResult.seriesId, 'series1');
+    expect(cardResult.seasonNumber, 1);
+    expect(cardResult.episodeNumber, 7);
+    expect(cardResult.numberOfSeasons, 2);
+    expect(cardResult.numberOfEpisodes, 13);
+    expect(cardResult.localNumberOfSeasons, 2);
+    expect(cardResult.localNumberOfEpisodes, 11);
     expect(cardResult.primaryImage.url, '/p.jpg');
   });
 
@@ -165,18 +146,12 @@ void main() {
       api = _FakeFeiniuApi(nas);
     });
 
-    test('单 catalog 失败只影响该行', () async {
+    test('只返回继续观看与最近添加且不请求媒体库', () async {
       final backend = _FakeMediaBackend(
         catalogs: const <MediaCatalog>[
           MediaCatalog(
-            id: 'ok',
-            title: '正常库',
-            type: 'movies',
-            primaryImage: MediaImageRef.empty,
-          ),
-          MediaCatalog(
-            id: 'bad',
-            title: '异常库',
+            id: 'lib1',
+            title: '不应请求的媒体库',
             type: 'movies',
             primaryImage: MediaImageRef.empty,
           ),
@@ -184,9 +159,8 @@ void main() {
         continueWatching: <MediaItemCard>[card('c1')],
         latestItems: <MediaItemCard>[card('l1')],
         catalogPreviewItems: <String, List<MediaItemCard>>{
-          'ok': <MediaItemCard>[card('m1')],
+          'lib1': <MediaItemCard>[card('m1')],
         },
-        failingCatalogIds: const <String>{'bad'},
       );
 
       final rows = await const PosterBrowseLoader().load(
@@ -197,13 +171,12 @@ void main() {
       expect(rows.map((r) => r.kind), <PosterBrowseRowKind>[
         PosterBrowseRowKind.continueWatching,
         PosterBrowseRowKind.latest,
-        PosterBrowseRowKind.catalog,
       ]);
-      expect(rows.last.catalogId, 'ok');
-      expect(rows.last.items.map((e) => e.id), <String>['m1']);
+      expect(backend.getCatalogsCallCount, 0);
+      expect(backend.getCatalogPreviewItemsCallCount, 0);
     });
 
-    test('catalogs 为空时仍返回继续观看/最近添加行', () async {
+    test('媒体库为空时仍返回继续观看和最近添加行', () async {
       final backend = _FakeMediaBackend(
         continueWatching: <MediaItemCard>[card('c1')],
         latestItems: <MediaItemCard>[card('l1')],
@@ -219,6 +192,8 @@ void main() {
         PosterBrowseRowKind.continueWatching,
         PosterBrowseRowKind.latest,
       ]);
+      expect(backend.getCatalogsCallCount, 0);
+      expect(backend.getCatalogPreviewItemsCallCount, 0);
     });
   });
 }
@@ -244,6 +219,8 @@ class _FakeMediaBackend extends MediaBackend {
   final List<MediaItemCard> latestItems;
   final Map<String, List<MediaItemCard>> catalogPreviewItems;
   final Set<String> failingCatalogIds;
+  int getCatalogsCallCount = 0;
+  int getCatalogPreviewItemsCallCount = 0;
 
   @override
   MediaBackendCapabilities get capabilities =>
@@ -253,7 +230,10 @@ class _FakeMediaBackend extends MediaBackend {
   MediaPlaybackSourceBridge get playbackSourceBridge => _NoopBridge();
 
   @override
-  Future<List<MediaCatalog>> getCatalogs() async => catalogs;
+  Future<List<MediaCatalog>> getCatalogs() async {
+    getCatalogsCallCount += 1;
+    return catalogs;
+  }
 
   @override
   Future<Map<String, dynamic>> getHomeSummary() => throw UnimplementedError();
@@ -269,6 +249,7 @@ class _FakeMediaBackend extends MediaBackend {
     int page = 1,
     int limit = 30,
   }) async {
+    getCatalogPreviewItemsCallCount += 1;
     if (failingCatalogIds.contains(catalogId)) {
       throw Exception('boom: $catalogId');
     }
