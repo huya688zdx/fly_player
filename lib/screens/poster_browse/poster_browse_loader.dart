@@ -1,7 +1,6 @@
 import '../../api/feiniu_api.dart';
 import '../../media_backend/media_backend.dart';
 import '../../media_backend/media_backend_kind.dart';
-import '../../media_backend/media_catalog.dart';
 import '../../media_backend/media_image_ref.dart';
 import '../../media_backend/media_item_card.dart';
 import '../../models/media_library_item.dart';
@@ -34,11 +33,17 @@ MediaItemCard cardFromLibraryItem(MediaLibraryItem item) {
     rating: item.voteAverage,
     releaseDate: item.releaseDate,
     overview: item.overview,
+    seasonNumber: item.seasonNumber,
+    episodeNumber: item.episodeNumber,
+    numberOfSeasons: item.numberOfSeasons,
+    numberOfEpisodes: item.numberOfEpisodes,
+    localNumberOfSeasons: item.localNumberOfSeasons,
+    localNumberOfEpisodes: item.localNumberOfEpisodes,
     resolutions: item.resolutions,
   );
 }
 
-/// 页面数据加载：三源并行，单源失败该行隐藏；全部行为空视为整页失败（由页面判定）。
+/// 页面数据加载：继续观看与最近添加并行，单源失败该行隐藏；全部行为空视为整页失败（由页面判定）。
 class PosterBrowseLoader {
   const PosterBrowseLoader();
 
@@ -49,7 +54,6 @@ class PosterBrowseLoader {
   }) async {
     var continueWatching = const <MediaItemCard>[];
     var latest = const <MediaItemCard>[];
-    var catalogs = const <MediaCatalog>[];
     await Future.wait<void>(<Future<void>>[
       () async {
         try {
@@ -75,46 +79,11 @@ class PosterBrowseLoader {
           );
         }
       }(),
-      () async {
-        try {
-          catalogs = await backend.getCatalogs();
-        } catch (error, stackTrace) {
-          await logSwallowedError(
-            action: 'poster browse load catalogs',
-            error: error,
-            stackTrace: stackTrace,
-            source: 'poster_browse_loader',
-          );
-        }
-      }(),
     ]);
-
-    final catalogItems = <String, List<MediaItemCard>>{};
-    await Future.wait<void>(
-      catalogs.map((catalog) async {
-        try {
-          catalogItems[catalog.id] = await backend.getCatalogPreviewItems(
-            catalog.id,
-            limit: rowItemLimit,
-          );
-        } catch (error, stackTrace) {
-          await logSwallowedError(
-            action: 'poster browse load catalog preview items',
-            error: error,
-            stackTrace: stackTrace,
-            source: 'poster_browse_loader',
-            id: catalog.id,
-          );
-          catalogItems[catalog.id] = const <MediaItemCard>[];
-        }
-      }),
-    );
 
     return buildPosterBrowseRows(
       continueWatching: continueWatching.take(rowItemLimit).toList(),
-      latestItems: latest,
-      catalogs: catalogs,
-      catalogItems: catalogItems,
+      latestItems: latest.take(rowItemLimit).toList(),
     );
   }
 
