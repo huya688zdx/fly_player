@@ -1,0 +1,223 @@
+import 'package:flutter/material.dart';
+
+import '../../l10n/generated/app_localizations.dart';
+import '../../media_backend/media_image_request.dart';
+import '../../media_backend/media_item_card.dart';
+import 'poster_browse_display_item.dart';
+import 'poster_browse_media_info.dart';
+import 'poster_browse_poster_track.dart';
+import 'poster_browse_rows.dart';
+
+class PosterBrowseLargeLayout extends StatelessWidget {
+  final List<PosterBrowseRow> rows;
+  final PosterBrowseDisplayItem Function(MediaItemCard card) displayItemOf;
+  final int selectedRow;
+  final int focusedIndex;
+  final PosterBrowseDisplayItem focusedItem;
+  final MediaImageRequest logoRequest;
+  final String secondaryLabel;
+  final List<Widget> metaWidgets;
+  final MediaImageRequest Function(PosterBrowseDisplayItem item) imageOf;
+  final String Function(PosterBrowseDisplayItem item) secondaryLabelOf;
+  final void Function(int index) onSelectRow;
+  final void Function(int index) onSelectItem;
+  final VoidCallback onPlay;
+  final VoidCallback onDetail;
+  final VoidCallback onBack;
+
+  const PosterBrowseLargeLayout({
+    super.key,
+    required this.rows,
+    required this.displayItemOf,
+    required this.selectedRow,
+    required this.focusedIndex,
+    required this.focusedItem,
+    required this.logoRequest,
+    required this.secondaryLabel,
+    required this.metaWidgets,
+    required this.imageOf,
+    required this.secondaryLabelOf,
+    required this.onSelectRow,
+    required this.onSelectItem,
+    required this.onPlay,
+    required this.onDetail,
+    required this.onBack,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final visibleRows = rows.take(2).toList(growable: false);
+    final currentRow = _selectedRowOrNull(visibleRows);
+    final currentItems = currentRow == null
+        ? const <PosterBrowseDisplayItem>[]
+        : currentRow.items.map(displayItemOf).toList(growable: false);
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(28, 16, 28, 22),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _BackButton(onPressed: onBack),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(left: 36, right: 36, top: 24),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 560),
+                    child: PosterBrowseMediaInfo(
+                      item: focusedItem,
+                      logoRequest: logoRequest,
+                      secondaryLabel: secondaryLabel,
+                      metaWidgets: metaWidgets,
+                      compact: false,
+                      onPlay: onPlay,
+                      onDetail: onDetail,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            _RowSelector(
+              rows: visibleRows,
+              selectedRow: selectedRow,
+              onSelectRow: onSelectRow,
+            ),
+            const SizedBox(height: 14),
+            SizedBox(
+              height: 242,
+              child: PosterBrowsePosterTrack(
+                items: currentItems,
+                focusedIndex: focusedIndex,
+                showProgress:
+                    currentRow?.kind == PosterBrowseRowKind.continueWatching,
+                imageOf: imageOf,
+                secondaryLabelOf: secondaryLabelOf,
+                onItemTap: onSelectItem,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  PosterBrowseRow? _selectedRowOrNull(List<PosterBrowseRow> visibleRows) {
+    if (visibleRows.isEmpty) {
+      return null;
+    }
+    if (selectedRow < 0 || selectedRow >= visibleRows.length) {
+      return visibleRows.first;
+    }
+    return visibleRows[selectedRow];
+  }
+}
+
+class _BackButton extends StatelessWidget {
+  final VoidCallback onPressed;
+
+  const _BackButton({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      onPressed: onPressed,
+      icon: const Icon(Icons.arrow_back),
+      color: Colors.white,
+      style: IconButton.styleFrom(
+        backgroundColor: Colors.black.withValues(alpha: 0.24),
+      ),
+    );
+  }
+}
+
+class _RowSelector extends StatelessWidget {
+  final List<PosterBrowseRow> rows;
+  final int selectedRow;
+  final void Function(int index) onSelectRow;
+
+  const _RowSelector({
+    required this.rows,
+    required this.selectedRow,
+    required this.onSelectRow,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (rows.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Wrap(
+      spacing: 10,
+      runSpacing: 8,
+      children: [
+        for (var index = 0; index < rows.length; index++)
+          _RowChip(
+            label: _rowLabel(AppLocalizations.of(context), rows[index]),
+            selected: index == selectedRow,
+            onTap: () => onSelectRow(index),
+          ),
+      ],
+    );
+  }
+
+  String _rowLabel(AppLocalizations l10n, PosterBrowseRow row) {
+    switch (row.kind) {
+      case PosterBrowseRowKind.continueWatching:
+        return l10n.posterBrowseRowContinue;
+      case PosterBrowseRowKind.latest:
+        return l10n.posterBrowseRowLatest;
+    }
+  }
+}
+
+class _RowChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _RowChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final foreground = selected
+        ? theme.colorScheme.onPrimary
+        : Colors.white.withValues(alpha: 0.78);
+    final background = selected
+        ? theme.colorScheme.primary.withValues(alpha: 0.92)
+        : Colors.white.withValues(alpha: 0.12);
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: onTap,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: selected
+                ? theme.colorScheme.primary
+                : Colors.white.withValues(alpha: 0.14),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Text(
+            label,
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: foreground,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
