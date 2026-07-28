@@ -8,8 +8,16 @@ import 'package:fly_player/screens/poster_browse/poster_browse_display_builder.d
 void main() {
   const builder = PosterBrowseDisplayBuilder();
 
-  MediaImageRef image(String url, {Map<String, String> headers = const {}}) {
-    return MediaImageRef(url: url, headers: headers);
+  MediaImageRef image(
+    String url, {
+    Map<String, String> headers = const {},
+    bool selfAuthenticated = false,
+  }) {
+    return MediaImageRef(
+      url: url,
+      headers: headers,
+      selfAuthenticated: selfAuthenticated,
+    );
   }
 
   MediaItemCard card({
@@ -21,6 +29,7 @@ void main() {
     MediaImageRef primaryImage = const MediaImageRef(url: 'card-primary'),
     MediaImageRef backdropImage = const MediaImageRef(url: 'card-backdrop'),
     String rating = '',
+    String overview = '',
     String releaseDate = '',
     int seasonNumber = 0,
     int episodeNumber = 0,
@@ -43,6 +52,8 @@ void main() {
       primaryImage: primaryImage,
       backdropImage: backdropImage,
       rating: rating,
+      overview: overview,
+      genres: genres,
       releaseDate: releaseDate,
       seasonNumber: seasonNumber,
       episodeNumber: episodeNumber,
@@ -217,6 +228,15 @@ void main() {
     expect(result.detailTargetId, 'movie-card');
   });
 
+  test('无详情时使用 card genres 和 overview 回退', () {
+    final result = builder.build(
+      card: card(overview: '卡片简介', genres: const <String>['卡片题材', '悬疑']),
+    );
+
+    expect(result.overview, '卡片简介');
+    expect(result.genres, ['卡片题材', '悬疑']);
+  });
+
   test('计数按 detail、大于零的本地计数、服务端计数优先级补全', () {
     final detailCount = builder.build(
       card: card(numberOfSeasons: 1, numberOfEpisodes: 10),
@@ -242,13 +262,13 @@ void main() {
     expect(serverCount.numberOfEpisodes, 10);
   });
 
-  test('图片去重保留首个相同鉴权候选并区分 headers 与自鉴权语义', () {
+  test('图片去重保留首个相同鉴权候选并区分 headers 与显式自鉴权语义', () {
     final result = builder.build(
       card: card(
-        primaryImage: image('same'),
+        primaryImage: image('same', selfAuthenticated: true),
         backdropImage: image(
           'same',
-          headers: const {'Authorization': 'Bearer a'},
+          headers: const {'Authorization': 'Bearer a', 'X-Trace': '1'},
         ),
         posterWidth: 100,
         posterHeight: 150,
@@ -256,28 +276,97 @@ void main() {
       itemDetail: detail(
         backdropImage: image(
           'same',
-          headers: const {'Authorization': 'Bearer b'},
+          headers: const {'X-Trace': '1', 'Authorization': 'Bearer a'},
         ),
       ),
       seriesDetail: detail(
-        primaryImage: image('same?api_key=token'),
-        backdropImage: image(
-          'same',
-          headers: const {'Authorization': 'Bearer a'},
-        ),
+        primaryImage: image('same', selfAuthenticated: false),
+        backdropImage: image('same?api_key=token', selfAuthenticated: false),
       ),
-      season: season(primaryImage: image('same')),
+      season: season(primaryImage: image('same', selfAuthenticated: true)),
     );
 
     expect(result.backgroundImages.map((image) => image.url), [
       'same',
-      'same',
-      'same',
       'same?api_key=token',
+      'same',
+      'same',
     ]);
-    expect(result.backgroundImages[0].headers, {'Authorization': 'Bearer a'});
-    expect(result.backgroundImages[1].headers, {'Authorization': 'Bearer b'});
-    expect(result.backgroundImages[2].headers, isEmpty);
-    expect(result.backgroundImages[3].headers, isEmpty);
+    expect(result.backgroundImages[0].headers, {
+      'Authorization': 'Bearer a',
+      'X-Trace': '1',
+    });
+    expect(result.backgroundImages[1].headers, isEmpty);
+    expect(result.backgroundImages[1].selfAuthenticated, isFalse);
+    expect(result.backgroundImages[2].selfAuthenticated, isTrue);
+    expect(result.backgroundImages[3].selfAuthenticated, isFalse);
+  });
+
+  test('copyWith 覆盖所有可补全字段且保持原对象不变', () {
+    final original = builder.build(
+      card: card(
+        id: 'original-card',
+        type: 'Episode',
+        seriesId: 'original-series',
+        seasonNumber: 1,
+        episodeNumber: 2,
+        numberOfSeasons: 3,
+        numberOfEpisodes: 4,
+      ),
+    );
+    final replacementCard = card(id: 'replacement-card');
+    final replacementBackground = <MediaImageRef>[image('background-new')];
+    final replacementLogos = <MediaImageRef>[image('logo-new')];
+    final replacementPosters = <MediaImageRef>[image('poster-new')];
+
+    final updated = original.copyWith(
+      card: replacementCard,
+      title: '新标题',
+      episodeTitle: '新单集标题',
+      type: 'Movie',
+      seriesId: 'new-series',
+      ratingText: '9.8',
+      releaseYear: '2026',
+      overview: '新简介',
+      detailTargetId: 'new-target',
+      seasonNumber: 5,
+      episodeNumber: 6,
+      numberOfSeasons: 7,
+      numberOfEpisodes: 8,
+      durationSeconds: 900,
+      genres: const <String>['新题材'],
+      resolutions: const <String>['8K'],
+      backgroundImages: replacementBackground,
+      logoImages: replacementLogos,
+      posterImages: replacementPosters,
+    );
+
+    expect(updated.card.id, 'replacement-card');
+    expect(updated.title, '新标题');
+    expect(updated.episodeTitle, '新单集标题');
+    expect(updated.type, 'Movie');
+    expect(updated.seriesId, 'new-series');
+    expect(updated.ratingText, '9.8');
+    expect(updated.releaseYear, '2026');
+    expect(updated.overview, '新简介');
+    expect(updated.detailTargetId, 'new-target');
+    expect(updated.seasonNumber, 5);
+    expect(updated.episodeNumber, 6);
+    expect(updated.numberOfSeasons, 7);
+    expect(updated.numberOfEpisodes, 8);
+    expect(updated.durationSeconds, 900);
+    expect(updated.genres, ['新题材']);
+    expect(updated.resolutions, ['8K']);
+    expect(updated.backgroundImages, same(replacementBackground));
+    expect(updated.logoImages, same(replacementLogos));
+    expect(updated.posterImages, same(replacementPosters));
+
+    expect(original.card.id, 'original-card');
+    expect(original.type, 'Episode');
+    expect(original.seriesId, 'original-series');
+    expect(original.seasonNumber, 1);
+    expect(original.episodeNumber, 2);
+    expect(original.numberOfSeasons, 3);
+    expect(original.numberOfEpisodes, 4);
   });
 }

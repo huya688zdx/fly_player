@@ -39,7 +39,7 @@ class PosterBrowseDisplayBuilder {
         itemDetail?.airDate,
         card.releaseDate,
       ]),
-      overview: _firstText(<String?>[itemDetail?.overview]),
+      overview: _firstText(<String?>[itemDetail?.overview, card.overview]),
       detailTargetId: isEpisode && card.seriesId.trim().isNotEmpty
           ? card.seriesId
           : card.id,
@@ -135,18 +135,7 @@ class PosterBrowseDisplayBuilder {
     if (itemDetail != null && itemDetail.genreLabels.isNotEmpty) {
       return itemDetail.genreLabels;
     }
-    try {
-      final value = (card as dynamic).genres;
-      if (value is List<String>) {
-        return value;
-      }
-      if (value is List) {
-        return value.whereType<String>().toList(growable: false);
-      }
-    } on NoSuchMethodError {
-      return const <String>[];
-    }
-    return const <String>[];
+    return card.genres;
   }
 
   static List<MediaImageRef> _dedupeImages(Iterable<MediaImageRef> images) {
@@ -177,7 +166,7 @@ class PosterBrowseDisplayBuilder {
               '${entry.key.length}:${entry.key}${entry.value.length}:${entry.value}',
         )
         .join('|');
-    final selfAuthenticated = image.url.contains('api_key=');
+    final selfAuthenticated = image.selfAuthenticated;
     return '${image.url.length}:${image.url}|$selfAuthenticated|$headerKey';
   }
 }
