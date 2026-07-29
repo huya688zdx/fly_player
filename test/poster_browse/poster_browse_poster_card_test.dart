@@ -11,6 +11,7 @@ import 'package:fly_player/media_backend/media_item_card.dart';
 import 'package:fly_player/screens/poster_browse/poster_browse_display_item.dart';
 import 'package:fly_player/screens/poster_browse/poster_browse_media_info.dart';
 import 'package:fly_player/screens/poster_browse/poster_browse_poster_card.dart';
+import 'package:fly_player/widgets/detail/detail_hero_overlay.dart';
 
 void main() {
   late HttpOverrides? previousHttpOverrides;
@@ -149,7 +150,7 @@ void main() {
     expect(find.text('HDR'), findsOneWidget);
 
     final overview = tester.widget<Text>(find.text('一段跨越星际的旅程。'));
-    expect(overview.maxLines, 2);
+    expect(overview.maxLines, 3);
 
     await tester.tap(find.text('播放'));
     await tester.tap(find.text('详情'));
@@ -171,9 +172,43 @@ void main() {
     );
 
     final compactOverview = tester.widget<Text>(find.text('一段跨越星际的旅程。'));
-    expect(compactOverview.maxLines, 1);
+    expect(compactOverview.maxLines, 3);
     expect(find.text('播放'), findsOneWidget);
     expect(find.text('详情'), findsOneWidget);
+  });
+
+  testWidgets('横屏紧凑信息区为 Logo 保留放大后的固定槽位', (tester) async {
+    await tester.pumpWidget(
+      _localizedApp(
+        SizedBox(
+          width: 560,
+          child: PosterBrowseMediaInfo(
+            item: _item(title: '白箱'),
+            logoRequest: const MediaImageRequest(
+              urls: <String>['https://images.example.test/logo.png'],
+              selfAuthenticated: true,
+            ),
+            secondaryLabel: '第 1 季 第 23 集',
+            metaWidgets: const <Widget>[],
+            compact: true,
+            onPlay: () {},
+            onDetail: () {},
+          ),
+        ),
+      ),
+    );
+
+    final logo = tester.widget<DetailHeroLogoTitle>(
+      find.byType(DetailHeroLogoTitle),
+    );
+    expect(logo.maxWidth, greaterThanOrEqualTo(340));
+    expect(logo.maxHeight, greaterThanOrEqualTo(96));
+    expect(
+      tester
+          .getSize(find.byKey(const ValueKey('poster_browse_title_slot')))
+          .height,
+      greaterThanOrEqualTo(96),
+    );
   });
 
   testWidgets('标题和 Logo 共用固定槽位，不改变后续信息的纵向位置', (tester) async {

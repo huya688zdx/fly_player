@@ -194,7 +194,9 @@ void main() {
           ],
           focusedItem: _displayItem(
             cards.first,
-            overview: '一段足够长但应该被紧凑信息区裁剪的简介文本。',
+            overview:
+                '这是一段用于验证手机竖屏三行简介布局的长文本，内容需要明显超过两行，'
+                '同时还要保留评分、清晰度、播放按钮、详情按钮和下方海报轮盘。',
           ),
           metaWidgets: const <Widget>[Text('4K'), Text('HDR'), Text('杜比视界')],
         ),
@@ -212,7 +214,12 @@ void main() {
               items: cards,
             ),
           ],
-          focusedItem: _displayItem(cards.first),
+          focusedItem: _displayItem(
+            cards.first,
+            overview:
+                '这是一段用于验证手机横屏三行简介布局的长文本，内容需要明显超过两行，'
+                '并确保按钮仍然能够完整显示和响应点击。',
+          ),
         ),
       ),
     );
