@@ -65,6 +65,98 @@ void main() {
     expect(rows, isEmpty);
   });
 
+  test('目录元数据失败时追加可重试占位并保留继续观看', () {
+    final rows = buildPosterBrowseRows(
+      continueWatching: <MediaItemCard>[card('continue')],
+      catalogs: const <MediaCatalog>[],
+      catalogsLoadFailed: true,
+    );
+
+    expect(rows.map((row) => row.kind), <PosterBrowseRowKind>[
+      PosterBrowseRowKind.continueWatching,
+      PosterBrowseRowKind.catalogIndex,
+    ]);
+    expect(rows.last.catalogId, isEmpty);
+    expect(rows.last.items, isEmpty);
+    expect(rows.last.loadState, PosterBrowseRowLoadState.failed);
+  });
+
+  test('无继续观看时目录元数据失败占位仍让页面壳可见', () {
+    final rows = buildPosterBrowseRows(
+      continueWatching: const <MediaItemCard>[],
+      catalogs: const <MediaCatalog>[],
+      catalogsLoadFailed: true,
+    );
+
+    expect(rows, hasLength(1));
+    expect(rows.single.kind, PosterBrowseRowKind.catalogIndex);
+  });
+
+  test('目录元数据重试成功按后端顺序用全部目录替换占位', () {
+    final rows = <PosterBrowseRow>[
+      PosterBrowseRow(
+        kind: PosterBrowseRowKind.continueWatching,
+        items: <MediaItemCard>[card('continue')],
+      ),
+      const PosterBrowseRow(
+        kind: PosterBrowseRowKind.catalogIndex,
+        items: <MediaItemCard>[],
+        loadState: PosterBrowseRowLoadState.loading,
+      ),
+    ];
+
+    final replaced = replacePosterBrowseCatalogIndexRow(
+      rows: rows,
+      rowIndex: 1,
+      catalogs: const <MediaCatalog>[
+        MediaCatalog(
+          id: 'two',
+          title: '目录二',
+          type: 'tv',
+          primaryImage: MediaImageRef.empty,
+        ),
+        MediaCatalog(
+          id: 'one',
+          title: '目录一',
+          type: 'movie',
+          primaryImage: MediaImageRef.empty,
+        ),
+      ],
+    );
+
+    expect(replaced.map((row) => row.kind), <PosterBrowseRowKind>[
+      PosterBrowseRowKind.continueWatching,
+      PosterBrowseRowKind.catalog,
+      PosterBrowseRowKind.catalog,
+    ]);
+    expect(replaced.skip(1).map((row) => row.catalogId), <String>[
+      'two',
+      'one',
+    ]);
+    expect(
+      replaced
+          .skip(1)
+          .every((row) => row.loadState == PosterBrowseRowLoadState.idle),
+      isTrue,
+    );
+  });
+
+  test('目录元数据重试成功但真实为空时移除占位', () {
+    final replaced = replacePosterBrowseCatalogIndexRow(
+      rows: const <PosterBrowseRow>[
+        PosterBrowseRow(
+          kind: PosterBrowseRowKind.catalogIndex,
+          items: <MediaItemCard>[],
+          loadState: PosterBrowseRowLoadState.loading,
+        ),
+      ],
+      rowIndex: 0,
+      catalogs: const <MediaCatalog>[],
+    );
+
+    expect(replaced, isEmpty);
+  });
+
   test('cardFromLibraryItem 保留续播富字段(ts 优先)', () {
     final item = MediaLibraryItem(
       guid: 'g1',
@@ -402,7 +494,9 @@ void main() {
 
     expect(rows.map((row) => row.kind), <PosterBrowseRowKind>[
       PosterBrowseRowKind.continueWatching,
+      PosterBrowseRowKind.catalogIndex,
     ]);
+    expect(rows.last.loadState, PosterBrowseRowLoadState.failed);
   });
 
   test('继续观看加载失败时仍保留目录', () async {
@@ -424,6 +518,18 @@ void main() {
     );
 
     expect(rows.map((row) => row.catalogId), <String>['catalog']);
+  });
+
+  test('目录元数据重试只请求 catalogs 且失败后可再次请求', () async {
+    final backend = _FakeMediaBackend(throwCatalogs: true);
+    const loader = PosterBrowseLoader();
+
+    await expectLater(loader.loadCatalogs(backend), throwsStateError);
+    await expectLater(loader.loadCatalogs(backend), throwsStateError);
+
+    expect(backend.getCatalogsCallCount, 2);
+    expect(backend.getContinueWatchingCallCount, 0);
+    expect(backend.getCatalogPreviewItemsCallCount, 0);
   });
 }
 
@@ -456,6 +562,7 @@ class _FakeMediaBackend extends MediaBackend {
   final bool throwCatalogs;
   final bool throwContinueWatching;
   int getCatalogsCallCount = 0;
+  int getContinueWatchingCallCount = 0;
   int getCatalogPreviewItemsCallCount = 0;
   int getLatestItemsCallCount = 0;
   final List<String> requestedCatalogIds = <String>[];
@@ -484,6 +591,7 @@ class _FakeMediaBackend extends MediaBackend {
   Future<List<MediaItemCard>> getContinueWatching({
     bool forceRefresh = false,
   }) async {
+    getContinueWatchingCallCount += 1;
     if (throwContinueWatching) {
       throw StateError('continue watching failed');
     }

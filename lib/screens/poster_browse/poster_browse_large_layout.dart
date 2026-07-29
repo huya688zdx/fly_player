@@ -193,6 +193,8 @@ class _RowSelector extends StatelessWidget {
         return l10n.posterBrowseRowLatest;
       case PosterBrowseRowKind.catalog:
         return row.title;
+      case PosterBrowseRowKind.catalogIndex:
+        return l10n.posterBrowseRowCatalogs;
     }
   }
 }

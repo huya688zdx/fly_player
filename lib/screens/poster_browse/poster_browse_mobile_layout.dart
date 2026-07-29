@@ -237,6 +237,8 @@ class _RowSelector extends StatelessWidget {
         return l10n.posterBrowseRowLatest;
       case PosterBrowseRowKind.catalog:
         return row.title;
+      case PosterBrowseRowKind.catalogIndex:
+        return l10n.posterBrowseRowCatalogs;
     }
   }
 }
@@ -258,8 +260,8 @@ class _RowButton extends StatelessWidget {
     return Semantics(
       button: true,
       selected: selected,
-      child: SizedBox(
-        height: 48,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
         child: InkWell(
           borderRadius: BorderRadius.circular(999),
           onTap: onTap,

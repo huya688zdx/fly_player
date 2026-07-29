@@ -58,6 +58,7 @@ class PosterBrowseLoader {
     final isFeiniu = backend.capabilities.kind == MediaBackendKind.feiniu;
     var continueWatching = const <MediaItemCard>[];
     var catalogs = const <MediaCatalog>[];
+    var catalogsLoadFailed = false;
 
     await Future.wait<void>(<Future<void>>[
       () async {
@@ -80,6 +81,7 @@ class PosterBrowseLoader {
         try {
           catalogs = await backend.getCatalogs();
         } catch (error, stackTrace) {
+          catalogsLoadFailed = true;
           await logSwallowedError(
             action: 'poster browse load catalogs',
             error: error,
@@ -93,7 +95,12 @@ class PosterBrowseLoader {
     return buildPosterBrowseRows(
       continueWatching: continueWatching.take(rowItemLimit).toList(),
       catalogs: catalogs,
+      catalogsLoadFailed: catalogsLoadFailed,
     );
+  }
+
+  Future<List<MediaCatalog>> loadCatalogs(MediaBackend backend) {
+    return backend.getCatalogs();
   }
 
   Future<List<MediaItemCard>> _loadContinueWatching(

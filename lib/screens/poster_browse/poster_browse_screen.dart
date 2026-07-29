@@ -395,6 +395,96 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
     }
   }
 
+  Future<void> _reloadCatalogsRow(int rowIndex) async {
+    if (rowIndex < 0 || rowIndex >= _rows.length) return;
+    final row = _rows[rowIndex];
+    if (row.kind != PosterBrowseRowKind.catalogIndex ||
+        row.loadState != PosterBrowseRowLoadState.failed) {
+      return;
+    }
+
+    final backend = _backend;
+    final loadKey = _loadKey;
+    if (backend == null || loadKey == null) return;
+    final generation = _loadGeneration;
+
+    setState(() {
+      _replaceRow(
+        rowIndex,
+        row.copyWith(loadState: PosterBrowseRowLoadState.loading),
+      );
+    });
+
+    try {
+      final catalogs = await const PosterBrowseLoader().loadCatalogs(backend);
+      if (!_isCurrentCatalogIndexLoad(
+        backend: backend,
+        generation: generation,
+        loadKey: loadKey,
+        rowIndex: rowIndex,
+      )) {
+        return;
+      }
+      final shouldSelect = PosterBrowseScreenPolicy.shouldSelectReloadedCatalog(
+        catalogIndexRow: rowIndex,
+        currentSelectedRow: _selection.selectedRow,
+      );
+
+      setState(() {
+        _rows = replacePosterBrowseCatalogIndexRow(
+          rows: _rows,
+          rowIndex: rowIndex,
+          catalogs: catalogs,
+        );
+        _selection.normalizeForRows(
+          _rows.map((item) => item.items.length).toList(growable: false),
+        );
+        if (catalogs.isNotEmpty && shouldSelect) {
+          _selection.selectRow(rowIndex);
+        }
+      });
+
+      if (catalogs.isNotEmpty) {
+        await _ensureCatalogLoaded(rowIndex, selectWhenReady: shouldSelect);
+      }
+    } catch (error, stackTrace) {
+      if (!_isCurrentCatalogIndexLoad(
+        backend: backend,
+        generation: generation,
+        loadKey: loadKey,
+        rowIndex: rowIndex,
+      )) {
+        return;
+      }
+      setState(() {
+        _replaceRow(
+          rowIndex,
+          _rows[rowIndex].copyWith(loadState: PosterBrowseRowLoadState.failed),
+        );
+      });
+      await logSwallowedError(
+        action: 'poster browse reload catalogs',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'poster_browse_screen',
+      );
+    }
+  }
+
+  bool _isCurrentCatalogIndexLoad({
+    required MediaBackend backend,
+    required int generation,
+    required String loadKey,
+    required int rowIndex,
+  }) {
+    return identical(backend, _backend) &&
+        _isCurrentLoad(generation: generation, loadKey: loadKey) &&
+        rowIndex >= 0 &&
+        rowIndex < _rows.length &&
+        _rows[rowIndex].kind == PosterBrowseRowKind.catalogIndex &&
+        _rows[rowIndex].loadState == PosterBrowseRowLoadState.loading;
+  }
+
   bool _isCurrentCatalogLoad({
     required int generation,
     required String loadKey,
@@ -444,12 +534,13 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
   }
 
   PosterBrowseDisplayItem? get _settledItem {
-    final id = _settledItemId;
-    if (id != null) {
-      final display = _displayById[id];
-      if (display != null) return display;
-    }
-    return _focusedItem;
+    final focused = _focusedItem;
+    return PosterBrowseScreenPolicy.settledItemFor<PosterBrowseDisplayItem>(
+      settledItemId: _settledItemId,
+      focusedItemId: focused?.card.id,
+      displayById: _displayById,
+      focusedItem: focused,
+    );
   }
 
   void _handleThrottledSettle(String itemId) {
@@ -632,7 +723,16 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
     if (decision.selectImmediately) {
       setState(() {
         _selection.selectRow(rowIndex);
+        if (decision.invalidateFocus) {
+          _focusGeneration += 1;
+          _settledItemId = null;
+        }
       });
+    }
+
+    if (decision.reloadCatalogs) {
+      unawaited(_reloadCatalogsRow(rowIndex));
+      return;
     }
 
     if (decision.loadCatalog) {
@@ -900,7 +1000,7 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
         : _backgroundRequestOf(resolver, settledItem, backgroundSpec);
 
     return DynamicPageThemeScope(
-      pageKey: _settledItemId ?? 'poster_browse_empty',
+      pageKey: settledItem?.card.id ?? 'poster_browse_empty',
       imageUrl: background.isNotEmpty ? background.urls.first : '',
       imageHeaders: background.headers,
       enabled: dynamicThemeEnabled && settledItem != null,
