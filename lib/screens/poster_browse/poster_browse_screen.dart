@@ -916,7 +916,10 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
       if (!(ModalRoute.of(context)?.isCurrent ?? false)) return;
       await Navigator.of(context).push(
         AppTransitions.leftToRightPageTurnRoute<void>(
-          PlayDetailScreen(itemGuid: targetId),
+          PlayDetailScreen(
+            itemGuid: targetId,
+            seriesGuid: item.isEpisode ? item.seriesId.trim() : '',
+          ),
         ),
       );
     } catch (error, stackTrace) {
