@@ -37,6 +37,7 @@ import 'poster_browse_loader.dart';
 import 'poster_browse_mobile_layout.dart';
 import 'poster_browse_orientation_controller.dart';
 import 'poster_browse_rows.dart';
+import 'poster_browse_screen_policy.dart';
 import 'poster_browse_selection_state.dart';
 import 'poster_browse_text_presenter.dart';
 
@@ -621,23 +622,24 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
   void _handleSelectRow(int rowIndex) {
     if (rowIndex < 0 || rowIndex >= _rows.length) return;
     final row = _rows[rowIndex];
+    final decision = PosterBrowseScreenPolicy.selectionFor(row);
 
     if (row.kind == PosterBrowseRowKind.catalog) {
       _catalogLoadCoordinator.select(row.catalogId);
     } else {
       _catalogLoadCoordinator.clearSelection();
     }
-    setState(() {
-      _selection.selectRow(rowIndex);
-    });
+    if (decision.selectImmediately) {
+      setState(() {
+        _selection.selectRow(rowIndex);
+      });
+    }
 
-    if (row.items.isEmpty) {
-      if (row.kind == PosterBrowseRowKind.catalog &&
-          row.loadState != PosterBrowseRowLoadState.loaded) {
-        unawaited(_ensureCatalogLoaded(rowIndex, selectWhenReady: true));
-      }
+    if (decision.loadCatalog) {
+      unawaited(_ensureCatalogLoaded(rowIndex, selectWhenReady: true));
       return;
     }
+    if (!decision.settleItem) return;
 
     final normalized = _normalizeSelection(
       rowIndex: rowIndex,
@@ -908,19 +910,25 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
           onPopInvokedWithResult: (_, __) => unawaited(_restoreOrientation()),
           child: Scaffold(
             backgroundColor: ambientTint ?? Colors.black,
-            body: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _rows.isEmpty
-                ? _buildError(l10n)
-                : _buildLoadedBody(
-                    context: context,
-                    ambientTint: ambientTint,
-                    resolver: resolver,
-                    focusedItem: focusedItem,
-                    settledItem: settledItem,
-                    background: background,
-                    backgroundSpec: backgroundSpec,
-                  ),
+            body: switch (PosterBrowseScreenPolicy.bodyFor(
+              loading: _loading,
+              hasRows: _rows.isNotEmpty,
+              hasFocusedItem: focusedItem != null,
+            )) {
+              PosterBrowseScreenBody.loading => const Center(
+                child: CircularProgressIndicator(),
+              ),
+              PosterBrowseScreenBody.error => _buildError(l10n),
+              PosterBrowseScreenBody.shell => _buildLoadedBody(
+                context: context,
+                ambientTint: ambientTint,
+                resolver: resolver,
+                focusedItem: focusedItem,
+                settledItem: settledItem,
+                background: background,
+                backgroundSpec: backgroundSpec,
+              ),
+            },
           ),
         );
       },
@@ -1017,6 +1025,7 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
                 onSelectRow: _handleSelectRow,
                 onSelectItem: _handleMobileSettled,
                 onCenteredTap: _handleCenteredTap,
+                onRetryCurrentRow: () => _handleSelectRow(selectedRow),
                 onPlay: focusedItem == null
                     ? () {}
                     : () => unawaited(_play(focusedItem)),
@@ -1038,6 +1047,7 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
                 secondaryLabelOf: presenter.secondaryLabel,
                 onSelectRow: _handleSelectRow,
                 onSelectItem: _handleLargeSelectItem,
+                onRetryCurrentRow: () => _handleSelectRow(selectedRow),
                 onPlay: focusedItem == null
                     ? () {}
                     : () => unawaited(_play(focusedItem)),

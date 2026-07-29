@@ -6,6 +6,7 @@ import '../../media_backend/media_item_card.dart';
 import 'poster_browse_arc_carousel.dart';
 import 'poster_browse_display_item.dart';
 import 'poster_browse_media_info.dart';
+import 'poster_browse_row_status.dart';
 import 'poster_browse_rows.dart';
 
 class PosterBrowseMobileLayout extends StatelessWidget {
@@ -22,6 +23,7 @@ class PosterBrowseMobileLayout extends StatelessWidget {
   final void Function(int index) onSelectRow;
   final void Function(int index) onSelectItem;
   final void Function(int index) onCenteredTap;
+  final VoidCallback onRetryCurrentRow;
   final VoidCallback onPlay;
   final VoidCallback onDetail;
   final VoidCallback onBack;
@@ -41,6 +43,7 @@ class PosterBrowseMobileLayout extends StatelessWidget {
     required this.onSelectRow,
     required this.onSelectItem,
     required this.onCenteredTap,
+    required this.onRetryCurrentRow,
     required this.onPlay,
     required this.onDetail,
     required this.onBack,
@@ -165,22 +168,7 @@ class PosterBrowseMobileLayout extends StatelessWidget {
       );
     }
 
-    final l10n = AppLocalizations.of(context);
-    return Center(
-      child: switch (currentRow?.loadState) {
-        PosterBrowseRowLoadState.failed => Text(
-          l10n.posterBrowseLoadFailed,
-          style: const TextStyle(color: Colors.white70),
-        ),
-        PosterBrowseRowLoadState.loaded => Text(
-          l10n.posterBrowseCatalogEmpty,
-          style: const TextStyle(color: Colors.white70),
-        ),
-        _ => const CircularProgressIndicator(
-          key: ValueKey('poster_browse_row_loading'),
-        ),
-      },
-    );
+    return PosterBrowseRowStatus(row: currentRow, onRetry: onRetryCurrentRow);
   }
 }
 
@@ -216,7 +204,7 @@ class _RowSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 32,
+      height: 48,
       child: rows.length < 2
           ? const SizedBox.shrink()
           : SingleChildScrollView(
@@ -267,16 +255,25 @@ class _RowButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return InkWell(
-      borderRadius: BorderRadius.circular(999),
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
-        child: Text(
-          label,
-          style: theme.textTheme.titleMedium?.copyWith(
-            color: selected ? Colors.white : Colors.white54,
-            fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: SizedBox(
+        height: 48,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(999),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: Center(
+              child: Text(
+                label,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: selected ? Colors.white : Colors.white54,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                ),
+              ),
+            ),
           ),
         ),
       ),

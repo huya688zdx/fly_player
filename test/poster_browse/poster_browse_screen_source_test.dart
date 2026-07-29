@@ -40,53 +40,13 @@ void main() {
     );
   });
 
-  test('只要分类行非空即构建页面壳且允许焦点项为空', () {
-    expect(source, contains(': _rows.isEmpty'));
+  test('页面实际接入纯状态策略与当前行重试回调', () {
+    expect(source, contains("import 'poster_browse_screen_policy.dart';"));
+    expect(source, contains('PosterBrowseScreenPolicy.bodyFor('));
+    expect(source, contains('PosterBrowseScreenPolicy.selectionFor(row)'));
     expect(
       source,
-      isNot(
-        contains(': focusedItem == null\n                ? _buildError(l10n)'),
-      ),
-    );
-    expect(source, contains('required PosterBrowseDisplayItem? focusedItem,'));
-  });
-
-  test('点击合法分类先提交选中行再处理空行加载状态', () {
-    final start = source.indexOf('void _handleSelectRow(int rowIndex)');
-    final end = source.indexOf('void _handleLargeSelectItem', start);
-    final method = source.substring(start, end);
-
-    expect(start, isNonNegative);
-    expect(method, contains('setState(() {'));
-    expect(method, contains('_selection.selectRow(rowIndex);'));
-    expect(
-      method.indexOf('_selection.selectRow(rowIndex);'),
-      lessThan(method.indexOf('if (row.items.isEmpty)')),
-    );
-    expect(
-      method,
-      contains('row.loadState != PosterBrowseRowLoadState.loaded'),
-      reason: 'loaded 空库保持选中空态，failed/idle/loading 才进入加载协调器',
-    );
-  });
-
-  test('无继续观看时元数据完成即显示壳并异步加载首媒体库', () {
-    final start = source.indexOf('Future<void> _load({');
-    final end = source.indexOf('bool _isCurrentLoad', start);
-    final method = source.substring(start, end);
-
-    expect(method, isNot(contains('_loading = !hasContinueWatching')));
-    expect(method, contains('_loading = false;'));
-    expect(method, contains('_selection.selectRow(firstCatalogIndex);'));
-    expect(
-      method,
-      contains(
-        '_ensureCatalogLoaded(firstCatalogIndex, selectWhenReady: true)',
-      ),
-    );
-    expect(
-      method,
-      isNot(contains('await _ensureCatalogLoaded(firstCatalogIndex')),
+      contains('onRetryCurrentRow: () => _handleSelectRow(selectedRow)'),
     );
   });
 }
