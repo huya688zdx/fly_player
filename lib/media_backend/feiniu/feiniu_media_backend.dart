@@ -33,8 +33,12 @@ import 'feiniu_playback_mappers.dart';
 /// 间接访问飞牛，飞牛表现必须与迁移前一致。
 class FeiniuMediaBackend implements MediaBackend {
   final FeiniuApi api;
+  final Map<String, Map<String, dynamic>> _seasonDetailCache =
+      <String, Map<String, dynamic>>{};
+  final Map<String, Future<Map<String, dynamic>>> _seasonDetailInFlight =
+      <String, Future<Map<String, dynamic>>>{};
 
-  const FeiniuMediaBackend(this.api);
+  FeiniuMediaBackend(this.api);
 
   @override
   MediaBackendCapabilities get capabilities =>
@@ -187,6 +191,28 @@ class FeiniuMediaBackend implements MediaBackend {
         value != ancestorId;
   }
 
+  Future<Map<String, dynamic>> _loadSeasonDetail(String seasonId) {
+    final cached = _seasonDetailCache[seasonId];
+    if (cached != null) return Future<Map<String, dynamic>>.value(cached);
+    final existing = _seasonDetailInFlight[seasonId];
+    if (existing != null) return existing;
+
+    late final Future<Map<String, dynamic>> future;
+    future = api
+        .getItemDetail(seasonId)
+        .then((detail) {
+          _seasonDetailCache[seasonId] = detail;
+          return detail;
+        })
+        .whenComplete(() {
+          if (identical(_seasonDetailInFlight[seasonId], future)) {
+            _seasonDetailInFlight.remove(seasonId);
+          }
+        });
+    _seasonDetailInFlight[seasonId] = future;
+    return future;
+  }
+
   Future<String> _resolveSeriesId({
     required String itemId,
     required PlayItem item,
@@ -224,7 +250,7 @@ class FeiniuMediaBackend implements MediaBackend {
     }
 
     try {
-      final seasonDetail = await api.getItemDetail(seasonId);
+      final seasonDetail = await _loadSeasonDetail(seasonId);
       final parentCandidate = _detailText(seasonDetail, 'parent_guid');
       final seasonAncestorId = _detailText(seasonDetail, 'ancestor_guid');
       final effectiveAncestorId = ancestorId.isNotEmpty

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/api/feiniu_api.dart';
 import 'package:fly_player/api/person_list_request.dart';
@@ -45,12 +47,15 @@ class _FakeFeiniuApi extends FeiniuApi {
     this.failingPlayInfoIds = const <String>{},
     this.playInfos = const <String, PlayInfoData>{},
     this.rawDetails = const <String, Map<String, dynamic>>{},
+    this.rawDetailCompleters =
+        const <String, Completer<Map<String, dynamic>>>{},
   });
 
   final bool failDictionaries;
   final Set<String> failingPlayInfoIds;
   final Map<String, PlayInfoData> playInfos;
   final Map<String, Map<String, dynamic>> rawDetails;
+  final Map<String, Completer<Map<String, dynamic>>> rawDetailCompleters;
   int personListCalls = 0;
   final List<String> itemDetailRequests = <String>[];
 
@@ -65,6 +70,8 @@ class _FakeFeiniuApi extends FeiniuApi {
   @override
   Future<Map<String, dynamic>> getItemDetail(String itemGuid) async {
     itemDetailRequests.add(itemGuid);
+    final completer = rawDetailCompleters[itemGuid];
+    if (completer != null) return completer.future;
     return rawDetails[itemGuid] ?? <String, dynamic>{'imdb_id': 'tt999'};
   }
 
@@ -287,6 +294,69 @@ void main() {
 
       expect(detail.seriesId, 'series-real');
       expect(api.itemDetailRequests, <String>['episode-3', 'season-1']);
+    });
+
+    test('同季多个单集并发解析时合并并缓存季详情请求', () async {
+      final nas = NasProvider();
+      addTearDown(nas.dispose);
+      final seasonDetail = Completer<Map<String, dynamic>>();
+      final api = _FakeFeiniuApi(
+        nas,
+        playInfos: <String, PlayInfoData>{
+          for (final id in <String>['episode-3', 'episode-4'])
+            id: _playInfo(
+              itemGuid: id,
+              type: 'Episode',
+              grandGuid: 'library-root',
+              parentGuid: 'season-1',
+            ),
+        },
+        rawDetails: <String, Map<String, dynamic>>{
+          for (final id in <String>['episode-3', 'episode-4'])
+            id: <String, dynamic>{
+              'item': <String, dynamic>{
+                'guid': id,
+                'type': 'Episode',
+                'title': id,
+                'parent_guid': 'season-1',
+                'ancestor_guid': 'library-root',
+              },
+            },
+        },
+        rawDetailCompleters: <String, Completer<Map<String, dynamic>>>{
+          'season-1': seasonDetail,
+        },
+      );
+      final backend = FeiniuMediaBackend(api);
+
+      final first = backend.getItemDetail('episode-3');
+      final second = backend.getItemDetail('episode-4');
+      await pumpEventQueue(times: 20);
+
+      expect(
+        api.itemDetailRequests.where((id) => id == 'season-1'),
+        hasLength(1),
+      );
+      seasonDetail.complete(<String, dynamic>{
+        'item': <String, dynamic>{
+          'guid': 'season-1',
+          'type': 'Season',
+          'parent_guid': 'series-real',
+          'ancestor_guid': 'library-root',
+        },
+      });
+
+      final details = await Future.wait([first, second]);
+      expect(details.map((detail) => detail.seriesId), <String>[
+        'series-real',
+        'series-real',
+      ]);
+
+      await backend.getItemDetail('episode-3');
+      expect(
+        api.itemDetailRequests.where((id) => id == 'season-1'),
+        hasLength(1),
+      );
     });
 
     test('剧集播放信息不可用时仍从原始 item 详情映射自身素材', () async {
