@@ -218,6 +218,42 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('手机横屏信息按钮不会被轮盘手势层遮挡', (tester) async {
+    var playTapped = false;
+    var detailTapped = false;
+    final cards = [
+      _card(id: 'continue-1', title: '第一部'),
+      _card(id: 'continue-2', title: '第二部'),
+      _card(id: 'continue-3', title: '第三部'),
+    ];
+
+    await tester.binding.setSurfaceSize(const Size(844, 390));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      _localizedApp(
+        _layout(
+          rows: [
+            PosterBrowseRow(
+              kind: PosterBrowseRowKind.continueWatching,
+              items: cards,
+            ),
+          ],
+          focusedItem: _displayItem(cards.first, overview: '横屏下仍需显示的简介。'),
+          metaWidgets: const <Widget>[Text('4K'), Text('HDR')],
+          onPlay: () => playTapped = true,
+          onDetail: () => detailTapped = true,
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('播放'));
+    await tester.tap(find.text('详情'));
+
+    expect(playTapped, isTrue);
+    expect(detailTapped, isTrue);
+  });
 }
 
 PosterBrowseMobileLayout _layout({
