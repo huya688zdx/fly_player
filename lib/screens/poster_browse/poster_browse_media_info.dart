@@ -36,16 +36,26 @@ class PosterBrowseMediaInfo extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        DetailHeroLogoTitle(
-          images: logoRequest,
-          fallbackTitle: item.title,
-          maxHeight: compact ? 74 : 112,
-          maxWidth: compact ? 240 : 420,
-          fallbackFontSize: compact ? 28 : 38,
+        SizedBox(
+          key: const ValueKey('poster_browse_title_slot'),
+          height: compact ? 74 : 112,
+          child: Align(
+            alignment: Alignment.bottomLeft,
+            child: ClipRect(
+              child: DetailHeroLogoTitle(
+                images: logoRequest,
+                fallbackTitle: item.title,
+                maxHeight: compact ? 74 : 112,
+                maxWidth: compact ? 240 : 420,
+                fallbackFontSize: compact ? 28 : 38,
+              ),
+            ),
+          ),
         ),
         if (secondary.isNotEmpty) ...[
           SizedBox(height: spacing),
           Text(
+            key: const ValueKey('poster_browse_secondary_label'),
             secondary,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
