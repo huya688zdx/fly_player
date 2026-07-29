@@ -25,6 +25,7 @@ import '../../utils/swallowed_error_logger.dart';
 import '../../widgets/detail/dynamic_page_theme_scope.dart';
 import '../play_detail_screen.dart';
 import 'poster_browse_artwork_enricher.dart';
+import 'poster_browse_background_policy.dart';
 import 'poster_browse_display_builder.dart';
 import 'poster_browse_display_item.dart';
 import 'poster_browse_focus_throttle.dart';
@@ -67,7 +68,6 @@ class PosterBrowseScreen extends StatefulWidget {
 
 class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
   static const int _rowItemLimit = 20;
-  static const int _backdropWidth = 1280;
   static const int _logoWidth = 640;
   static const int _posterWidth = 360;
 
@@ -325,7 +325,13 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
 
     final enricher = _enricher;
     if (enricher == null || loadKey == null) return;
-    unawaited(enricher.prefetchWindow(row.items, normalized.itemIndex));
+    unawaited(
+      enricher.prefetchWindow(
+        row.items,
+        normalized.itemIndex,
+        radius: _backgroundSpec().prefetchRadius,
+      ),
+    );
 
     try {
       final enrichment = await enricher.enrich(card);
@@ -371,10 +377,11 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
 
     final row = _rows[normalized.rowIndex];
     final resolver = _resolver();
-    final cacheWidth = _backdropCacheWidth();
+    final spec = _backgroundSpec();
+    final cacheWidth = spec.cacheWidth;
     for (
-      var index = normalized.itemIndex - 2;
-      index <= normalized.itemIndex + 2;
+      var index = normalized.itemIndex - spec.prefetchRadius;
+      index <= normalized.itemIndex + spec.prefetchRadius;
       index += 1
     ) {
       if (index < 0 ||
@@ -383,7 +390,7 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
         continue;
       }
       final display = _displayItemOf(row.items[index]);
-      final request = _backgroundRequestOf(resolver, display);
+      final request = _backgroundRequestOf(resolver, display, spec);
       if (request.isEmpty) continue;
       unawaited(
         precacheImage(
@@ -398,9 +405,11 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
     }
   }
 
-  int _backdropCacheWidth() {
-    final dpr = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 1.6);
-    return (MediaQuery.sizeOf(context).width * dpr).round().clamp(560, 1440);
+  PosterBrowseBackgroundSpec _backgroundSpec() {
+    return PosterBrowseBackgroundPolicy.resolve(
+      logicalSize: MediaQuery.sizeOf(context),
+      devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+    );
   }
 
   DetailArtworkResolver _resolver() {
@@ -411,8 +420,18 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
   MediaImageRequest _backgroundRequestOf(
     DetailArtworkResolver resolver,
     PosterBrowseDisplayItem item,
+    PosterBrowseBackgroundSpec spec,
   ) {
-    return resolver.resolveRefs(item.backgroundImages, width: _backdropWidth);
+    final preferred = spec.usePosterImages
+        ? item.posterImages
+        : item.backgroundImages;
+    final fallback = spec.usePosterImages
+        ? item.backgroundImages
+        : item.posterImages;
+    return resolver.resolveRefs(
+      preferred.isNotEmpty ? preferred : fallback,
+      width: spec.requestWidth,
+    );
   }
 
   MediaImageRequest _logoRequestOf(
@@ -526,7 +545,11 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
   }) async {
     var orientationRestored = false;
     try {
-      final artwork = _backgroundRequestOf(_resolver(), item);
+      final artwork = _backgroundRequestOf(
+        _resolver(),
+        item,
+        _backgroundSpec(),
+      );
       await DetailThemePrewarmer.warmUp(
         context,
         pageKey: targetId,
@@ -671,11 +694,12 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
         );
 
     final resolver = DetailArtworkResolver(baseUrl: baseUrl, token: token);
+    final backgroundSpec = _backgroundSpec();
     final settledItem = _settledItem;
     final focusedItem = _focusedItem;
     final background = settledItem == null
         ? MediaImageRequest.empty
-        : _backgroundRequestOf(resolver, settledItem);
+        : _backgroundRequestOf(resolver, settledItem, backgroundSpec);
 
     return DynamicPageThemeScope(
       pageKey: _settledItemId ?? 'poster_browse_empty',
@@ -699,6 +723,7 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
                     focusedItem: focusedItem,
                     settledItem: settledItem ?? focusedItem,
                     background: background,
+                    backgroundSpec: backgroundSpec,
                   ),
           ),
         );
@@ -713,6 +738,7 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
     required PosterBrowseDisplayItem focusedItem,
     required PosterBrowseDisplayItem settledItem,
     required MediaImageRequest background,
+    required PosterBrowseBackgroundSpec backgroundSpec,
   }) {
     final l10n = AppLocalizations.of(context);
     final presenter = PosterBrowseTextPresenter(l10n: l10n);
@@ -736,7 +762,7 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
           child: KeyedSubtree(
             key: ValueKey<String>(settledItem.card.id),
             child: background.isNotEmpty
-                ? _buildBackdropImage(background)
+                ? _buildBackdropImage(background, backgroundSpec)
                 : SizedBox.expand(
                     child: ColoredBox(color: ambientTint ?? Colors.black),
                   ),
@@ -858,11 +884,16 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
     );
   }
 
-  Widget _buildBackdropImage(MediaImageRequest backdrop) {
+  Widget _buildBackdropImage(
+    MediaImageRequest backdrop,
+    PosterBrowseBackgroundSpec spec,
+  ) {
     return _PosterBrowseBackdrop(
       urls: backdrop.urls,
       headers: backdrop.headers,
-      cacheWidth: _backdropCacheWidth(),
+      cacheWidth: spec.cacheWidth,
+      fit: spec.fit,
+      alignment: spec.alignment,
     );
   }
 
@@ -892,11 +923,15 @@ class _PosterBrowseBackdrop extends StatefulWidget {
     required this.urls,
     required this.headers,
     required this.cacheWidth,
+    required this.fit,
+    required this.alignment,
   });
 
   final List<String> urls;
   final Map<String, String> headers;
   final int cacheWidth;
+  final BoxFit fit;
+  final Alignment alignment;
 
   @override
   State<_PosterBrowseBackdrop> createState() => _PosterBrowseBackdropState();
@@ -919,7 +954,9 @@ class _PosterBrowseBackdropState extends State<_PosterBrowseBackdrop> {
     return SizedBox.expand(
       child: Image.network(
         widget.urls[_index],
-        fit: BoxFit.cover,
+        fit: widget.fit,
+        alignment: widget.alignment,
+        filterQuality: FilterQuality.medium,
         gaplessPlayback: true,
         cacheWidth: widget.cacheWidth,
         headers: widget.headers.isEmpty ? null : widget.headers,

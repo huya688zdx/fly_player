@@ -109,8 +109,16 @@ class PosterBrowseArtworkEnricher {
     return future;
   }
 
-  Future<void> prefetchWindow(List<MediaItemCard> items, int center) async {
-    final indices = windowIndices(center: center, length: items.length);
+  Future<void> prefetchWindow(
+    List<MediaItemCard> items,
+    int center, {
+    int radius = 2,
+  }) async {
+    final indices = windowIndices(
+      center: center,
+      length: items.length,
+      radius: radius,
+    );
     await Future.wait<void>(
       indices.map((index) async {
         try {
@@ -122,13 +130,18 @@ class PosterBrowseArtworkEnricher {
     );
   }
 
-  static List<int> windowIndices({required int center, required int length}) {
+  static List<int> windowIndices({
+    required int center,
+    required int length,
+    int radius = 2,
+  }) {
     if (length <= 0) {
       return const <int>[];
     }
     final indices = <int>[];
     final seen = <int>{};
-    for (var offset = -2; offset <= 2; offset += 1) {
+    final safeRadius = radius.clamp(0, length);
+    for (var offset = -safeRadius; offset <= safeRadius; offset += 1) {
       final index = _positiveModulo(center + offset, length);
       if (seen.add(index)) {
         indices.add(index);
