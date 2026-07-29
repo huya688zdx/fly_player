@@ -26,6 +26,7 @@ void main() {
     final first = session.load(' library-a ');
     final second = session.load('library-a');
 
+    expect(identical(first, second), isTrue);
     expect(backend.calls, 1);
     expect(backend.catalogIds, <String>[' library-a ']);
     completer.complete(<MediaItemCard>[card('a')]);
@@ -37,6 +38,21 @@ void main() {
     expect(identical(results[0], results[1]), isTrue);
     expect(await session.load(' library-a '), same(results[0]));
     expect(backend.calls, 1);
+  });
+
+  test('成功结果不可修改', () async {
+    final backend = _FakeMediaBackend(
+      responses: <String, Future<List<MediaItemCard>>>{
+        'library-a': Future<List<MediaItemCard>>.value(<MediaItemCard>[
+          card('a'),
+        ]),
+      },
+    );
+    final session = PosterBrowseCatalogSession(backend: backend, itemLimit: 3);
+
+    final result = await session.load('library-a');
+
+    expect(() => result.add(card('b')), throwsUnsupportedError);
   });
 
   test('请求失败不会缓存，后续调用会重试并继续抛出异常', () async {
@@ -54,6 +70,34 @@ void main() {
 
     expect(await session.load('library-a'), hasLength(1));
     expect(backend.calls, 2);
+  });
+
+  test('后端同步抛错会以 Future 失败，并可在后续调用重试', () async {
+    final backend = _FakeMediaBackend(
+      synchronousFailures: 1,
+      responses: <String, Future<List<MediaItemCard>>>{
+        'library-a': Future<List<MediaItemCard>>.value(<MediaItemCard>[
+          card('a'),
+        ]),
+      },
+    );
+    final session = PosterBrowseCatalogSession(backend: backend, itemLimit: 3);
+
+    final first = session.load('library-a');
+    await expectLater(first, throwsA(isA<StateError>()));
+
+    expect((await session.load('library-a')).single.id, 'a');
+    expect(backend.calls, 2);
+  });
+
+  test('负数 itemLimit 会在构造时失败', () {
+    expect(
+      () => PosterBrowseCatalogSession(
+        backend: _FakeMediaBackend(),
+        itemLimit: -1,
+      ),
+      throwsArgumentError,
+    );
   });
 
   test('将 itemLimit 透传给后端，并截断到该上限', () async {
@@ -124,10 +168,12 @@ class _FakeMediaBackend extends MediaBackend {
   _FakeMediaBackend({
     this.responses = const <String, Future<List<MediaItemCard>>>{},
     this.queuedResponses = const <Future<List<MediaItemCard>>>[],
+    this.synchronousFailures = 0,
   });
 
   final Map<String, Future<List<MediaItemCard>>> responses;
   final List<Future<List<MediaItemCard>>> queuedResponses;
+  int synchronousFailures;
   final List<String> catalogIds = <String>[];
   final List<int> limits = <int>[];
   int calls = 0;
@@ -141,10 +187,15 @@ class _FakeMediaBackend extends MediaBackend {
     calls += 1;
     catalogIds.add(catalogId);
     limits.add(limit);
+    if (synchronousFailures > 0) {
+      synchronousFailures -= 1;
+      throw StateError('synchronous failure');
+    }
     if (queuedResponses.isNotEmpty) {
       return queuedResponses.removeAt(0);
     }
-    return responses[catalogId] ?? Future<List<MediaItemCard>>.value();
+    return responses[catalogId] ??
+        Future<List<MediaItemCard>>.value(<MediaItemCard>[]);
   }
 
   @override
