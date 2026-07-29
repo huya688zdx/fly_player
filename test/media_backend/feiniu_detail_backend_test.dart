@@ -11,13 +11,23 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// 覆写详情编排所需的方法，使 [FeiniuMediaBackend] 的转发逻辑可在无网络下测试。
 class _FakeFeiniuApi extends FeiniuApi {
-  _FakeFeiniuApi(super.nas, {this.failDictionaries = false});
+  _FakeFeiniuApi(
+    super.nas, {
+    this.failDictionaries = false,
+    this.failingPlayInfoIds = const <String>{},
+    this.rawDetails = const <String, Map<String, dynamic>>{},
+  });
 
   final bool failDictionaries;
+  final Set<String> failingPlayInfoIds;
+  final Map<String, Map<String, dynamic>> rawDetails;
   int personListCalls = 0;
 
   @override
   Future<PlayInfoData> getPlayInfo(String itemGuid) async {
+    if (failingPlayInfoIds.contains(itemGuid)) {
+      throw Exception('play info unavailable: $itemGuid');
+    }
     return PlayInfoData.fromJson(<String, dynamic>{
       'grand_guid': 'g',
       'type': 'Movie',
@@ -42,7 +52,7 @@ class _FakeFeiniuApi extends FeiniuApi {
 
   @override
   Future<Map<String, dynamic>> getItemDetail(String itemGuid) async {
-    return <String, dynamic>{'imdb_id': 'tt999'};
+    return rawDetails[itemGuid] ?? <String, dynamic>{'imdb_id': 'tt999'};
   }
 
   @override
@@ -191,6 +201,39 @@ void main() {
       expect(detail.id, 'item-1');
       expect(detail.genreLabels, <String>['28']);
       expect(detail.regionLabels, <String>['US']);
+    });
+
+    test('剧集播放信息不可用时仍从原始 item 详情映射自身素材', () async {
+      final nas = NasProvider();
+      addTearDown(nas.dispose);
+      final api = _FakeFeiniuApi(
+        nas,
+        failingPlayInfoIds: <String>{'series-1'},
+        rawDetails: <String, Map<String, dynamic>>{
+          'series-1': <String, dynamic>{
+            'grand_guid': 'series-1',
+            'item': <String, dynamic>{
+              'guid': 'series-1',
+              'type': 'TV',
+              'title': '葬送的芙莉莲',
+              'posters': '/series-poster.jpg',
+              'backdrops': '/series-backdrop.jpg',
+              'logos': '/series-logo.png',
+              'genres': <int>[],
+              'production_countries': <String>[],
+            },
+          },
+        },
+      );
+      final backend = FeiniuMediaBackend(api);
+
+      final detail = await backend.getItemDetail('series-1');
+
+      expect(detail.id, 'series-1');
+      expect(detail.seriesId, 'series-1');
+      expect(detail.primaryImage.url, '/series-poster.jpg');
+      expect(detail.backdropImage.url, '/series-backdrop.jpg');
+      expect(detail.logoImage.url, '/series-logo.png');
     });
 
     test('getItemSeasons / getSeasonEpisodes 转发并映射', () async {

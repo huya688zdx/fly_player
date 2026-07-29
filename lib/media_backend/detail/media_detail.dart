@@ -14,6 +14,9 @@ class MediaDetail {
   /// 稳定类型枚举（Movie / TV / Episode / ...），供 UI 路由与展示分支使用。
   final String type;
 
+  /// 单集所属系列的稳定标识。非单集或后端未提供时为空。
+  final String seriesId;
+
   final String title;
 
   /// 副标题（剧集名等）。为空时 [displayTitle] 回退到 [title]。
@@ -75,6 +78,7 @@ class MediaDetail {
     required this.type,
     required this.title,
     required this.primaryImage,
+    this.seriesId = '',
     this.secondaryTitle = '',
     this.parentTitle = '',
     this.overview = '',
@@ -116,6 +120,7 @@ class MediaDetail {
   MediaDetail copyWith({
     String? id,
     String? type,
+    String? seriesId,
     String? title,
     String? secondaryTitle,
     String? parentTitle,
@@ -148,6 +153,7 @@ class MediaDetail {
     return MediaDetail(
       id: id ?? this.id,
       type: type ?? this.type,
+      seriesId: seriesId ?? this.seriesId,
       title: title ?? this.title,
       secondaryTitle: secondaryTitle ?? this.secondaryTitle,
       parentTitle: parentTitle ?? this.parentTitle,
