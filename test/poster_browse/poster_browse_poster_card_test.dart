@@ -175,6 +175,45 @@ void main() {
     expect(find.text('播放'), findsOneWidget);
     expect(find.text('详情'), findsOneWidget);
   });
+
+  testWidgets('标题和 Logo 共用固定槽位，不改变后续信息的纵向位置', (tester) async {
+    final item = _item(title: '短标题', overview: '简介');
+
+    Future<double> secondaryTop(MediaImageRequest logoRequest) async {
+      await tester.pumpWidget(
+        _localizedApp(
+          SizedBox(
+            width: 520,
+            child: PosterBrowseMediaInfo(
+              item: item,
+              logoRequest: logoRequest,
+              secondaryLabel: '2026 · 动画',
+              metaWidgets: const <Widget>[Text('1080p')],
+              compact: false,
+              onPlay: () {},
+              onDetail: () {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return tester
+          .getTopLeft(
+            find.byKey(const ValueKey('poster_browse_secondary_label')),
+          )
+          .dy;
+    }
+
+    final withoutLogo = await secondaryTop(MediaImageRequest.empty);
+    final withLogo = await secondaryTop(
+      const MediaImageRequest(
+        urls: <String>['https://images.example.test/logo.png'],
+        selfAuthenticated: true,
+      ),
+    );
+
+    expect(withLogo, withoutLogo);
+  });
 }
 
 Widget _localizedApp(Widget child) {
