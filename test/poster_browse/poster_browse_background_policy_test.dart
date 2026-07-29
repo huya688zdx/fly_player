@@ -17,6 +17,20 @@ void main() {
     expect(spec.prefetchRadius, 1);
   });
 
+  test('手机竖屏使用竖版封面并按逻辑宽度限制解码尺寸', () {
+    final spec = PosterBrowseBackgroundPolicy.resolve(
+      logicalSize: const Size(390, 844),
+      devicePixelRatio: 3,
+    );
+
+    expect(spec.usePosterImages, isTrue);
+    expect(spec.fit, BoxFit.contain);
+    expect(spec.alignment, Alignment.topCenter);
+    expect(spec.requestWidth, 960);
+    expect(spec.cacheWidth, 960);
+    expect(spec.prefetchRadius, 1);
+  });
+
   test('大屏使用横版背景并按视口限制解码宽度', () {
     final spec = PosterBrowseBackgroundPolicy.resolve(
       logicalSize: const Size(1920, 1080),
@@ -31,14 +45,17 @@ void main() {
     expect(spec.prefetchRadius, 2);
   });
 
-  test('手机竖屏仍使用横版背景且解码宽度不会无限放大', () {
+  test('600 宽竖屏平板仍使用横版背景', () {
     final spec = PosterBrowseBackgroundPolicy.resolve(
-      logicalSize: const Size(390, 844),
-      devicePixelRatio: 3,
+      logicalSize: const Size(600, 900),
+      devicePixelRatio: 2,
     );
 
     expect(spec.usePosterImages, isFalse);
-    expect(spec.cacheWidth, 1170);
+    expect(spec.fit, BoxFit.cover);
+    expect(spec.alignment, Alignment.center);
+    expect(spec.requestWidth, 1200);
+    expect(spec.cacheWidth, 1200);
     expect(spec.prefetchRadius, 2);
   });
 }
