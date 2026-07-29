@@ -53,69 +53,96 @@ class PosterBrowseMobileLayout extends StatelessWidget {
     final currentItems = currentRow == null
         ? const <PosterBrowseDisplayItem>[]
         : currentRow.items.map(displayItemOf).toList(growable: false);
-    final size = MediaQuery.sizeOf(context);
-    final compactHeight = size.height < 520;
-    final carouselHeight = compactHeight ? 178.0 : 258.0;
-    final infoTop = compactHeight ? 54.0 : 92.0;
-    final infoMaxWidth = size.width.clamp(0.0, 390.0).toDouble();
-
     return SafeArea(
-      child: Stack(
-        children: [
-          Positioned(left: 8, top: 6, child: _BackButton(onPressed: onBack)),
-          Positioned(
-            left: 24,
-            right: 24,
-            top: infoTop,
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: infoMaxWidth),
-                child: PosterBrowseMediaInfo(
-                  item: focusedItem,
-                  logoRequest: logoRequest,
-                  secondaryLabel: secondaryLabel,
-                  metaWidgets: metaWidgets,
-                  compact: true,
-                  onPlay: onPlay,
-                  onDetail: onDetail,
+      child: LayoutBuilder(
+        builder: (context, constraints) => _buildForSize(
+          size: constraints.biggest,
+          visibleRows: visibleRows,
+          currentRow: currentRow,
+          currentItems: currentItems,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildForSize({
+    required Size size,
+    required List<PosterBrowseRow> visibleRows,
+    required PosterBrowseRow? currentRow,
+    required List<PosterBrowseDisplayItem> currentItems,
+  }) {
+    final compactHeight = size.height < 520;
+    final isLandscape = size.width > size.height;
+    final carouselHeight = compactHeight ? 236.0 : 258.0;
+    final infoTop = compactHeight ? 54.0 : 92.0;
+    final infoMaxWidth = isLandscape
+        ? (size.width * 0.44).clamp(300.0, 390.0).toDouble()
+        : size.width.clamp(0.0, 390.0).toDouble();
+    final carouselPanel = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Spacer(),
+        Padding(
+          padding: EdgeInsets.fromLTRB(24, 0, 24, compactHeight ? 6 : 14),
+          child: _RowSelector(
+            rows: visibleRows,
+            selectedRow: selectedRow,
+            onSelectRow: onSelectRow,
+          ),
+        ),
+        currentItems.isEmpty
+            ? const SizedBox.shrink()
+            : SizedBox(
+                key: const ValueKey('poster_browse_mobile_carousel'),
+                height: carouselHeight,
+                child: PosterBrowseArcCarousel(
+                  items: currentItems,
+                  initialIndex: focusedIndex,
+                  showProgress:
+                      currentRow?.kind == PosterBrowseRowKind.continueWatching,
+                  imageOf: imageOf,
+                  secondaryLabelOf: secondaryLabelOf,
+                  onSettled: onSelectItem,
+                  onCenteredTap: onCenteredTap,
                 ),
+              ),
+      ],
+    );
+
+    return Stack(
+      children: [
+        Positioned(left: 8, top: 6, child: _BackButton(onPressed: onBack)),
+        Positioned(
+          left: 24,
+          right: 24,
+          top: infoTop,
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: infoMaxWidth),
+              child: PosterBrowseMediaInfo(
+                item: focusedItem,
+                logoRequest: logoRequest,
+                secondaryLabel: secondaryLabel,
+                metaWidgets: metaWidgets,
+                compact: true,
+                onPlay: onPlay,
+                onDetail: onDetail,
               ),
             ),
           ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Spacer(),
-              Padding(
-                padding: EdgeInsets.fromLTRB(24, 0, 24, compactHeight ? 6 : 14),
-                child: _RowSelector(
-                  rows: visibleRows,
-                  selectedRow: selectedRow,
-                  onSelectRow: onSelectRow,
-                ),
-              ),
-              currentItems.isEmpty
-                  ? const SizedBox.shrink()
-                  : SizedBox(
-                      key: const ValueKey('poster_browse_mobile_carousel'),
-                      height: carouselHeight,
-                      child: PosterBrowseArcCarousel(
-                        items: currentItems,
-                        initialIndex: focusedIndex,
-                        showProgress:
-                            currentRow?.kind ==
-                            PosterBrowseRowKind.continueWatching,
-                        imageOf: imageOf,
-                        secondaryLabelOf: secondaryLabelOf,
-                        onSettled: onSelectItem,
-                        onCenteredTap: onCenteredTap,
-                      ),
-                    ),
-            ],
-          ),
-        ],
-      ),
+        ),
+        if (isLandscape)
+          Positioned(
+            left: infoMaxWidth + 48,
+            right: 0,
+            top: 0,
+            bottom: 0,
+            child: carouselPanel,
+          )
+        else
+          carouselPanel,
+      ],
     );
   }
 
