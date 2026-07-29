@@ -65,6 +65,7 @@ void main() {
           secondaryLabelOf: (item) => item.releaseYear,
           onSelectRow: (_) {},
           onSelectItem: (_) {},
+          onRetryCurrentRow: () {},
           onPlay: () {},
           onDetail: () {},
           onBack: () {},
@@ -178,6 +179,7 @@ void main() {
           secondaryLabelOf: (_) => '',
           onSelectRow: (index) => selectedRow = index,
           onSelectItem: (_) {},
+          onRetryCurrentRow: () {},
           onPlay: () => playTapped = true,
           onDetail: () => detailTapped = true,
           onBack: () => backTapped = true,
@@ -261,6 +263,7 @@ void main() {
           secondaryLabelOf: (_) => '',
           onSelectRow: (index) => selectedRow = index,
           onSelectItem: (_) {},
+          onRetryCurrentRow: () {},
           onPlay: () {},
           onDetail: () {},
           onBack: () {},
@@ -277,6 +280,19 @@ void main() {
       tester.widget<SingleChildScrollView>(scrollFinder).scrollDirection,
       Axis.horizontal,
     );
+    final firstButton = find.ancestor(
+      of: find.text('电影精选分类'),
+      matching: find.byType(InkWell),
+    );
+    expect(tester.getSize(firstButton).height, greaterThanOrEqualTo(48));
+    expect(
+      tester
+          .getSemantics(find.bySemanticsLabel('电影精选分类'))
+          .getSemanticsData()
+          .flagsCollection
+          .isButton,
+      isTrue,
+    );
 
     await tester.drag(scrollFinder, const Offset(-600, 0));
     await tester.pumpAndSettle();
@@ -286,6 +302,7 @@ void main() {
 
   testWidgets('大屏海报轨区域按当前分类显示加载失败和空库状态', (tester) async {
     final focusedCard = _card(id: 'fallback', title: '背景影片');
+    var retryCount = 0;
 
     Widget buildLayout(PosterBrowseRowLoadState loadState) {
       return _localizedApp(
@@ -296,11 +313,6 @@ void main() {
               title: '电影',
               items: const <MediaItemCard>[],
               loadState: loadState,
-            ),
-            const PosterBrowseRow(
-              kind: PosterBrowseRowKind.catalog,
-              title: '动漫 TV',
-              items: <MediaItemCard>[],
             ),
           ],
           displayItemOf: (card) => _displayItem(card),
@@ -314,6 +326,7 @@ void main() {
           secondaryLabelOf: (_) => '',
           onSelectRow: (_) {},
           onSelectItem: (_) {},
+          onRetryCurrentRow: () => retryCount += 1,
           onPlay: () {},
           onDetail: () {},
           onBack: () {},
@@ -334,6 +347,8 @@ void main() {
     await tester.pumpWidget(buildLayout(PosterBrowseRowLoadState.failed));
     expect(find.text('加载失败，点按重试'), findsOneWidget);
     expect(find.byType(PosterBrowsePosterTrack), findsNothing);
+    await tester.tap(find.text('加载失败，点按重试'));
+    expect(retryCount, 1);
 
     await tester.pumpWidget(buildLayout(PosterBrowseRowLoadState.loaded));
     expect(find.text('此媒体库暂无内容'), findsOneWidget);
@@ -371,6 +386,7 @@ void main() {
           secondaryLabelOf: (_) => '',
           onSelectRow: (_) {},
           onSelectItem: (_) {},
+          onRetryCurrentRow: () {},
           onPlay: () {},
           onDetail: () {},
           onBack: () {},
