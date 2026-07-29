@@ -185,6 +185,9 @@ class PosterBrowseArtworkEnricher {
       seasonsLookup.value ?? const <MediaSeasonSummary>[],
       card.seasonNumber,
     );
+    final unresolvedEpisodeSeries =
+        itemDetailLookup.value?.type.trim().toLowerCase() == 'episode' &&
+        seriesId.isEmpty;
 
     return PosterBrowseEnrichment(
       itemDetail: itemDetailLookup.value,
@@ -194,7 +197,8 @@ class PosterBrowseArtworkEnricher {
       hasLookupFailure:
           itemDetailLookup.failed ||
           seriesDetailLookup.failed ||
-          seasonsLookup.failed,
+          seasonsLookup.failed ||
+          unresolvedEpisodeSeries,
     );
   }
 
