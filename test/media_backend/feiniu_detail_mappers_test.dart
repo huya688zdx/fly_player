@@ -68,6 +68,7 @@ void main() {
       );
 
       expect(detail.id, 'item-1');
+      expect(detail.seriesId, 'g');
       expect(detail.type, 'Movie');
       expect(detail.title, '电影标题');
       expect(detail.overview, '简介内容');
