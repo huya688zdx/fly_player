@@ -443,6 +443,50 @@ void main() {
     await tester.tap(find.text('加载失败，点按重试'));
     expect(retryCount, 1);
   });
+  testWidgets('大屏海报轨为双行标题和副标题保留完整高度', (tester) async {
+    final card = _card(
+      id: 'long-title',
+      title: '吹响吧！上低音号特别篇',
+      resumePositionSeconds: 30,
+      durationSeconds: 120,
+    );
+
+    await tester.binding.setSurfaceSize(const Size(1920, 1080));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      _localizedApp(
+        PosterBrowseLargeLayout(
+          rows: <PosterBrowseRow>[
+            PosterBrowseRow(
+              kind: PosterBrowseRowKind.continueWatching,
+              items: <MediaItemCard>[card],
+            ),
+          ],
+          displayItemOf: _displayItem,
+          selectedRow: 0,
+          focusedIndex: 0,
+          focusedItem: _displayItem(card),
+          logoRequest: MediaImageRequest.empty,
+          secondaryLabel: '第 1 季 第 1 集',
+          metaWidgets: const <Widget>[],
+          imageOf: _loadableImageOf,
+          secondaryLabelOf: (_) => '第 1 季 第 1 集',
+          onSelectRow: (_) {},
+          onSelectItem: (_) {},
+          onRetryCurrentRow: () {},
+          onPlay: () {},
+          onDetail: () {},
+          onBack: () {},
+        ),
+      ),
+    );
+
+    expect(
+      tester.getSize(find.byType(PosterBrowsePosterTrack)).height,
+      greaterThanOrEqualTo(264),
+    );
+    expect(tester.takeException(), isNull);
+  });
 }
 
 Widget _localizedApp(Widget child) {

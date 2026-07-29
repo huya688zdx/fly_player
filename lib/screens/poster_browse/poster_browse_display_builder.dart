@@ -90,6 +90,7 @@ class PosterBrowseDisplayBuilder {
       posterImages: _dedupeImages(
         _posterCandidates(
           card: card,
+          itemDetail: itemDetail,
           season: season,
           seriesDetail: seriesDetail,
           preferSeries: isEpisode,
@@ -127,10 +128,12 @@ class PosterBrowseDisplayBuilder {
 
   static List<MediaImageRef> _posterCandidates({
     required MediaItemCard card,
+    MediaDetail? itemDetail,
     MediaDetail? seriesDetail,
     MediaSeasonSummary? season,
     required bool preferSeries,
   }) {
+    final itemPrimary = itemDetail?.primaryImage ?? MediaImageRef.empty;
     final seasonPrimary = season?.primaryImage ?? MediaImageRef.empty;
     final seriesPrimary = seriesDetail?.primaryImage ?? MediaImageRef.empty;
     if (preferSeries) {
@@ -143,6 +146,7 @@ class PosterBrowseDisplayBuilder {
     }
     if (card.hasPosterSize && !card.isLandscapePoster) {
       return <MediaImageRef>[
+        itemPrimary,
         card.primaryImage,
         ...card.posters,
         seasonPrimary,
@@ -151,6 +155,7 @@ class PosterBrowseDisplayBuilder {
       ];
     }
     return <MediaImageRef>[
+      itemPrimary,
       ...card.posters,
       seasonPrimary,
       seriesPrimary,
@@ -166,17 +171,19 @@ class PosterBrowseDisplayBuilder {
     required bool preferSeries,
   }) {
     final itemBackdrop = itemDetail?.backdropImage ?? MediaImageRef.empty;
+    final itemPrimary = itemDetail?.primaryImage ?? MediaImageRef.empty;
     final seriesBackdrop = seriesDetail?.backdropImage ?? MediaImageRef.empty;
     final seasonPrimary = season?.primaryImage ?? MediaImageRef.empty;
     final seriesPrimary = seriesDetail?.primaryImage ?? MediaImageRef.empty;
     if (preferSeries) {
       return <MediaImageRef>[
-        seriesBackdrop,
-        itemBackdrop,
         card.backdropImage,
+        card.primaryImage,
+        itemBackdrop,
+        itemPrimary,
+        seriesBackdrop,
         seriesPrimary,
         seasonPrimary,
-        card.primaryImage,
       ];
     }
     return <MediaImageRef>[

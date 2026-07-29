@@ -49,6 +49,7 @@ class PosterBrowseLargeLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final compactInfo = MediaQuery.sizeOf(context).height < 900;
     final currentRow = _selectedRowOrNull(rows);
     final currentItems = currentRow == null
         ? const <PosterBrowseDisplayItem>[]
@@ -75,7 +76,7 @@ class PosterBrowseLargeLayout extends StatelessWidget {
                             logoRequest: logoRequest,
                             secondaryLabel: secondaryLabel,
                             metaWidgets: metaWidgets,
-                            compact: false,
+                            compact: compactInfo,
                             onPlay: onPlay,
                             onDetail: onDetail,
                           ),
@@ -90,7 +91,7 @@ class PosterBrowseLargeLayout extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             SizedBox(
-              height: 242,
+              height: 264,
               child: _buildTrackArea(context, currentRow, currentItems),
             ),
           ],
