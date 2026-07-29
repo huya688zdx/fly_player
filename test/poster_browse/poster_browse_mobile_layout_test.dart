@@ -302,6 +302,19 @@ void main() {
       tester.widget<SingleChildScrollView>(scrollFinder).scrollDirection,
       Axis.horizontal,
     );
+    final firstButton = find.ancestor(
+      of: find.text('电影精选分类'),
+      matching: find.byType(InkWell),
+    );
+    expect(tester.getSize(firstButton).height, greaterThanOrEqualTo(48));
+    expect(
+      tester
+          .getSemantics(find.bySemanticsLabel('电影精选分类'))
+          .getSemanticsData()
+          .flagsCollection
+          .isButton,
+      isTrue,
+    );
 
     await tester.drag(scrollFinder, const Offset(-500, 0));
     await tester.pumpAndSettle();
@@ -311,6 +324,7 @@ void main() {
 
   testWidgets('手机轮播区域按当前分类显示加载失败和空库状态', (tester) async {
     final focusedCard = _card(id: 'fallback', title: '背景影片');
+    var retryCount = 0;
 
     Widget buildLayout(PosterBrowseRowLoadState loadState) {
       return _localizedApp(
@@ -322,13 +336,9 @@ void main() {
               items: const <MediaItemCard>[],
               loadState: loadState,
             ),
-            const PosterBrowseRow(
-              kind: PosterBrowseRowKind.catalog,
-              title: '动漫 TV',
-              items: <MediaItemCard>[],
-            ),
           ],
           focusedItem: _displayItem(focusedCard),
+          onRetryCurrentRow: () => retryCount += 1,
         ),
       );
     }
@@ -346,6 +356,8 @@ void main() {
     await tester.pumpWidget(buildLayout(PosterBrowseRowLoadState.failed));
     expect(find.text('加载失败，点按重试'), findsOneWidget);
     expect(find.byType(PosterBrowseArcCarousel), findsNothing);
+    await tester.tap(find.text('加载失败，点按重试'));
+    expect(retryCount, 1);
 
     await tester.pumpWidget(buildLayout(PosterBrowseRowLoadState.loaded));
     expect(find.text('此媒体库暂无内容'), findsOneWidget);
@@ -394,6 +406,7 @@ PosterBrowseMobileLayout _layout({
   void Function(int index)? onSelectRow,
   void Function(int index)? onSelectItem,
   void Function(int index)? onCenteredTap,
+  VoidCallback? onRetryCurrentRow,
   VoidCallback? onPlay,
   VoidCallback? onDetail,
   VoidCallback? onBack,
@@ -412,6 +425,7 @@ PosterBrowseMobileLayout _layout({
     onSelectRow: onSelectRow ?? (_) {},
     onSelectItem: onSelectItem ?? (_) {},
     onCenteredTap: onCenteredTap ?? (_) {},
+    onRetryCurrentRow: onRetryCurrentRow ?? () {},
     onPlay: onPlay ?? () {},
     onDetail: onDetail ?? () {},
     onBack: onBack ?? () {},

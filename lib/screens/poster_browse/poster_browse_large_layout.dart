@@ -6,6 +6,7 @@ import '../../media_backend/media_item_card.dart';
 import 'poster_browse_display_item.dart';
 import 'poster_browse_media_info.dart';
 import 'poster_browse_poster_track.dart';
+import 'poster_browse_row_status.dart';
 import 'poster_browse_rows.dart';
 
 class PosterBrowseLargeLayout extends StatelessWidget {
@@ -21,6 +22,7 @@ class PosterBrowseLargeLayout extends StatelessWidget {
   final String Function(PosterBrowseDisplayItem item) secondaryLabelOf;
   final void Function(int index) onSelectRow;
   final void Function(int index) onSelectItem;
+  final VoidCallback onRetryCurrentRow;
   final VoidCallback onPlay;
   final VoidCallback onDetail;
   final VoidCallback onBack;
@@ -39,6 +41,7 @@ class PosterBrowseLargeLayout extends StatelessWidget {
     required this.secondaryLabelOf,
     required this.onSelectRow,
     required this.onSelectItem,
+    required this.onRetryCurrentRow,
     required this.onPlay,
     required this.onDetail,
     required this.onBack,
@@ -122,22 +125,7 @@ class PosterBrowseLargeLayout extends StatelessWidget {
       );
     }
 
-    final l10n = AppLocalizations.of(context);
-    return Center(
-      child: switch (currentRow?.loadState) {
-        PosterBrowseRowLoadState.failed => Text(
-          l10n.posterBrowseLoadFailed,
-          style: const TextStyle(color: Colors.white70),
-        ),
-        PosterBrowseRowLoadState.loaded => Text(
-          l10n.posterBrowseCatalogEmpty,
-          style: const TextStyle(color: Colors.white70),
-        ),
-        _ => const CircularProgressIndicator(
-          key: ValueKey('poster_browse_row_loading'),
-        ),
-      },
-    );
+    return PosterBrowseRowStatus(row: currentRow, onRetry: onRetryCurrentRow);
   }
 }
 
@@ -177,7 +165,7 @@ class _RowSelector extends StatelessWidget {
     }
 
     return SizedBox(
-      height: 38,
+      height: 48,
       child: SingleChildScrollView(
         key: const ValueKey('poster_browse_row_selector_scroll'),
         scrollDirection: Axis.horizontal,
@@ -230,26 +218,38 @@ class _RowChip extends StatelessWidget {
         ? theme.colorScheme.primary.withValues(alpha: 0.92)
         : Colors.white.withValues(alpha: 0.12);
 
-    return InkWell(
-      borderRadius: BorderRadius.circular(999),
-      onTap: onTap,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: background,
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: SizedBox(
+        height: 48,
+        child: InkWell(
           borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: selected
-                ? theme.colorScheme.primary
-                : Colors.white.withValues(alpha: 0.14),
-          ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Text(
-            label,
-            style: theme.textTheme.labelLarge?.copyWith(
-              color: foreground,
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+          onTap: onTap,
+          child: Center(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: background,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: selected
+                      ? theme.colorScheme.primary
+                      : Colors.white.withValues(alpha: 0.14),
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: Text(
+                  label,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: foreground,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                ),
+              ),
             ),
           ),
         ),
