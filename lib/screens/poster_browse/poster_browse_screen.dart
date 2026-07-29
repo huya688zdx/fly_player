@@ -26,8 +26,10 @@ import '../../widgets/detail/dynamic_page_theme_scope.dart';
 import '../play_detail_screen.dart';
 import 'poster_browse_artwork_enricher.dart';
 import 'poster_browse_background_policy.dart';
+import 'poster_browse_catalog_session.dart';
 import 'poster_browse_display_builder.dart';
 import 'poster_browse_display_item.dart';
+import 'poster_browse_enrichment_commit_policy.dart';
 import 'poster_browse_focus_throttle.dart';
 import 'poster_browse_large_layout.dart';
 import 'poster_browse_loader.dart';
@@ -88,6 +90,8 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
   int _loadGeneration = 0;
   bool _loading = true;
   bool? _isPhone;
+  MediaBackend? _backend;
+  PosterBrowseCatalogSession? _catalogSession;
   PosterBrowseArtworkEnricher? _enricher;
   String? _loadKey;
   Object? _reentryToken;
@@ -119,9 +123,15 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
       baseUrl: nas.baseUrl,
       token: nas.token,
     );
-    if (_loadKey == nextLoadKey) return;
+    if (identical(_backend, backend) && _loadKey == nextLoadKey) return;
 
+    _backend = backend;
     _loadKey = nextLoadKey;
+    _catalogSession?.clear();
+    _catalogSession = PosterBrowseCatalogSession(
+      backend: backend,
+      itemLimit: _rowItemLimit,
+    );
     _enricher?.clear();
     _enricher = PosterBrowseArtworkEnricher(
       backend: backend,
@@ -134,6 +144,7 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
   void dispose() {
     _focusThrottle.dispose();
     _topTip.dispose();
+    _catalogSession?.clear();
     _enricher?.clear();
     _loadGeneration += 1;
     _focusGeneration += 1;
@@ -215,17 +226,37 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
         rows.map((row) => row.items.length).toList(growable: false),
       );
 
+      final firstCatalogIndex = rows.indexWhere(
+        (row) => row.kind == PosterBrowseRowKind.catalog,
+      );
+      final hasContinueWatching =
+          rows.isNotEmpty &&
+          rows.first.kind == PosterBrowseRowKind.continueWatching &&
+          rows.first.items.isNotEmpty;
+
       setState(() {
         _rows = rows;
         _displayById
           ..clear()
           ..addAll(displayById);
-        _loading = false;
+        _loading = !hasContinueWatching && firstCatalogIndex >= 0;
         _settledItemId = null;
       });
 
-      if (rows.isNotEmpty && rows.first.items.isNotEmpty) {
+      if (hasContinueWatching) {
         unawaited(_settle(rowIndex: 0, itemIndex: 0));
+        if (firstCatalogIndex >= 0) {
+          unawaited(
+            _ensureCatalogLoaded(firstCatalogIndex, selectWhenReady: false),
+          );
+        }
+        return;
+      }
+
+      if (firstCatalogIndex >= 0) {
+        await _ensureCatalogLoaded(firstCatalogIndex, selectWhenReady: true);
+        if (!_isCurrentLoad(generation: generation, loadKey: loadKey)) return;
+        setState(() => _loading = false);
       }
     } catch (error, stackTrace) {
       if (!_isCurrentLoad(generation: generation, loadKey: loadKey)) return;
@@ -248,6 +279,116 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
 
   bool _isCurrentLoad({required int generation, required String loadKey}) {
     return mounted && generation == _loadGeneration && loadKey == _loadKey;
+  }
+
+  Future<void> _ensureCatalogLoaded(
+    int rowIndex, {
+    required bool selectWhenReady,
+  }) async {
+    if (rowIndex < 0 || rowIndex >= _rows.length) return;
+    final row = _rows[rowIndex];
+    if (row.kind != PosterBrowseRowKind.catalog) return;
+
+    if (row.loadState == PosterBrowseRowLoadState.loaded) {
+      if (selectWhenReady && row.items.isNotEmpty) {
+        await _settle(rowIndex: rowIndex, itemIndex: 0);
+      }
+      return;
+    }
+
+    final session = _catalogSession;
+    final loadKey = _loadKey;
+    if (session == null || loadKey == null) return;
+    final generation = _loadGeneration;
+    final catalogId = row.catalogId;
+
+    if (row.loadState != PosterBrowseRowLoadState.loading) {
+      setState(() {
+        _replaceRow(
+          rowIndex,
+          row.copyWith(loadState: PosterBrowseRowLoadState.loading),
+        );
+      });
+    }
+
+    try {
+      final items = await session.load(row.catalogId);
+      if (!_isCurrentCatalogLoad(
+        generation: generation,
+        loadKey: loadKey,
+        session: session,
+        rowIndex: rowIndex,
+        catalogId: catalogId,
+      )) {
+        return;
+      }
+
+      final displayById = <String, PosterBrowseDisplayItem>{
+        for (final card in items) card.id: _displayBuilder.build(card: card),
+      };
+      setState(() {
+        final currentRow = _rows[rowIndex];
+        _replaceRow(
+          rowIndex,
+          currentRow.copyWith(
+            items: items,
+            loadState: PosterBrowseRowLoadState.loaded,
+          ),
+        );
+        _displayById.addAll(displayById);
+        _selection.normalizeForRows(
+          _rows.map((item) => item.items.length).toList(growable: false),
+        );
+      });
+
+      if (selectWhenReady && items.isNotEmpty) {
+        await _settle(rowIndex: rowIndex, itemIndex: 0);
+      }
+    } catch (error, stackTrace) {
+      if (!_isCurrentCatalogLoad(
+        generation: generation,
+        loadKey: loadKey,
+        session: session,
+        rowIndex: rowIndex,
+        catalogId: catalogId,
+      )) {
+        return;
+      }
+      setState(() {
+        _replaceRow(
+          rowIndex,
+          _rows[rowIndex].copyWith(loadState: PosterBrowseRowLoadState.failed),
+        );
+      });
+      await logSwallowedError(
+        action: 'poster browse load catalog',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'poster_browse_screen',
+        id: catalogId,
+      );
+    }
+  }
+
+  bool _isCurrentCatalogLoad({
+    required int generation,
+    required String loadKey,
+    required PosterBrowseCatalogSession session,
+    required int rowIndex,
+    required String catalogId,
+  }) {
+    return _isCurrentLoad(generation: generation, loadKey: loadKey) &&
+        identical(session, _catalogSession) &&
+        rowIndex >= 0 &&
+        rowIndex < _rows.length &&
+        _rows[rowIndex].kind == PosterBrowseRowKind.catalog &&
+        _rows[rowIndex].catalogId == catalogId;
+  }
+
+  void _replaceRow(int rowIndex, PosterBrowseRow row) {
+    final rows = List<PosterBrowseRow>.of(_rows);
+    rows[rowIndex] = row;
+    _rows = List<PosterBrowseRow>.unmodifiable(rows);
   }
 
   _NormalizedSelection? _normalizeSelection({
@@ -309,6 +450,7 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
     final card = row.items[normalized.itemIndex];
     final generation = _focusGeneration + 1;
     _focusGeneration = generation;
+    final requestLoadGeneration = _loadGeneration;
     final loadKey = _loadKey;
 
     setState(() {
@@ -345,16 +487,20 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
         resolvedSeriesId: enrichment.resolvedSeriesId,
       );
 
-      if (generation != _focusGeneration) {
-        _displayById[card.id] = enrichedDisplay;
-        return;
-      }
-
-      setState(() => _displayById[card.id] = enrichedDisplay);
-      _precacheNeighbors(
-        rowIndex: normalized.rowIndex,
-        itemIndex: normalized.itemIndex,
+      final decision = PosterBrowseEnrichmentCommitPolicy.resolve(
+        requestLoadGeneration: requestLoadGeneration,
+        currentLoadGeneration: _loadGeneration,
+        requestFocusGeneration: generation,
+        currentFocusGeneration: _focusGeneration,
       );
+      if (!decision.commitDisplay) return;
+      setState(() => _displayById[card.id] = enrichedDisplay);
+      if (decision.applyFocusEffects) {
+        _precacheNeighbors(
+          rowIndex: normalized.rowIndex,
+          itemIndex: normalized.itemIndex,
+        );
+      }
     } catch (error, stackTrace) {
       if (!mounted || loadKey != _loadKey) return;
       await logSwallowedError(
@@ -449,6 +595,16 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
   }
 
   void _handleSelectRow(int rowIndex) {
+    if (rowIndex < 0 || rowIndex >= _rows.length) return;
+    final row = _rows[rowIndex];
+    if (row.items.isEmpty) {
+      if (row.kind == PosterBrowseRowKind.catalog &&
+          row.loadState != PosterBrowseRowLoadState.loaded) {
+        unawaited(_ensureCatalogLoaded(rowIndex, selectWhenReady: true));
+      }
+      return;
+    }
+
     final normalized = _normalizeSelection(
       rowIndex: rowIndex,
       itemIndex: _selection.indexForRow(rowIndex),
@@ -520,7 +676,13 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
       baseUrl: nas.baseUrl,
       token: nas.token,
     );
+    _backend = backend;
     _loadKey = loadKey;
+    _catalogSession?.clear();
+    _catalogSession = PosterBrowseCatalogSession(
+      backend: backend,
+      itemLimit: _rowItemLimit,
+    );
     _enricher?.clear();
     _enricher = PosterBrowseArtworkEnricher(
       backend: backend,
