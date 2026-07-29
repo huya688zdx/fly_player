@@ -12,8 +12,12 @@ class PosterBrowseDisplayBuilder {
     MediaDetail? itemDetail,
     MediaDetail? seriesDetail,
     MediaSeasonSummary? season,
+    String resolvedSeriesId = '',
   }) {
-    final normalizedType = card.type.trim().toLowerCase();
+    final resolvedType = itemDetail?.type.trim().isNotEmpty == true
+        ? itemDetail!.type.trim()
+        : card.type.trim();
+    final normalizedType = resolvedType.toLowerCase();
     final isEpisode = normalizedType == 'episode';
     final isSeason = normalizedType == 'season';
     final seriesTitle = seriesDetail?.title.trim() ?? '';
@@ -27,15 +31,17 @@ class PosterBrowseDisplayBuilder {
     final rating = _firstText(<String?>[itemDetail?.rating, card.rating]);
     final detailSeasons = itemDetail?.numberOfSeasons ?? 0;
     final detailEpisodes = itemDetail?.numberOfEpisodes ?? 0;
-    final seriesId = card.seriesId.trim();
+    final seriesId = resolvedSeriesId.trim().isNotEmpty
+        ? resolvedSeriesId.trim()
+        : card.seriesId.trim();
     final cardId = card.id.trim();
 
     return PosterBrowseDisplayItem(
       card: card,
       title: title,
       episodeTitle: episodeTitle,
-      type: card.type,
-      seriesId: card.seriesId,
+      type: resolvedType,
+      seriesId: seriesId,
       ratingText: formatRating(rating),
       releaseYear: _releaseYear(<String?>[
         itemDetail?.releaseDate,
@@ -65,14 +71,15 @@ class PosterBrowseDisplayBuilder {
       resolutions: itemDetail != null && itemDetail.resolutions.isNotEmpty
           ? itemDetail.resolutions
           : card.resolutions,
-      backgroundImages: _dedupeImages(<MediaImageRef>[
-        card.backdropImage,
-        itemDetail?.backdropImage ?? MediaImageRef.empty,
-        seriesDetail?.backdropImage ?? MediaImageRef.empty,
-        card.primaryImage,
-        season?.primaryImage ?? MediaImageRef.empty,
-        seriesDetail?.primaryImage ?? MediaImageRef.empty,
-      ]),
+      backgroundImages: _dedupeImages(
+        _backgroundCandidates(
+          card: card,
+          itemDetail: itemDetail,
+          seriesDetail: seriesDetail,
+          season: season,
+          preferSeries: isEpisode,
+        ),
+      ),
       logoImages: _dedupeImages(
         _logoCandidates(
           itemDetail: itemDetail,
@@ -85,6 +92,7 @@ class PosterBrowseDisplayBuilder {
           card: card,
           season: season,
           seriesDetail: seriesDetail,
+          preferSeries: isEpisode,
         ),
       ),
     );
@@ -121,9 +129,18 @@ class PosterBrowseDisplayBuilder {
     required MediaItemCard card,
     MediaDetail? seriesDetail,
     MediaSeasonSummary? season,
+    required bool preferSeries,
   }) {
     final seasonPrimary = season?.primaryImage ?? MediaImageRef.empty;
     final seriesPrimary = seriesDetail?.primaryImage ?? MediaImageRef.empty;
+    if (preferSeries) {
+      return <MediaImageRef>[
+        seriesPrimary,
+        seasonPrimary,
+        ...card.posters,
+        card.primaryImage,
+      ];
+    }
     if (card.hasPosterSize && !card.isLandscapePoster) {
       return <MediaImageRef>[
         card.primaryImage,
@@ -138,6 +155,37 @@ class PosterBrowseDisplayBuilder {
       seasonPrimary,
       seriesPrimary,
       card.primaryImage,
+    ];
+  }
+
+  static List<MediaImageRef> _backgroundCandidates({
+    required MediaItemCard card,
+    required MediaDetail? itemDetail,
+    required MediaDetail? seriesDetail,
+    required MediaSeasonSummary? season,
+    required bool preferSeries,
+  }) {
+    final itemBackdrop = itemDetail?.backdropImage ?? MediaImageRef.empty;
+    final seriesBackdrop = seriesDetail?.backdropImage ?? MediaImageRef.empty;
+    final seasonPrimary = season?.primaryImage ?? MediaImageRef.empty;
+    final seriesPrimary = seriesDetail?.primaryImage ?? MediaImageRef.empty;
+    if (preferSeries) {
+      return <MediaImageRef>[
+        seriesBackdrop,
+        itemBackdrop,
+        card.backdropImage,
+        seriesPrimary,
+        seasonPrimary,
+        card.primaryImage,
+      ];
+    }
+    return <MediaImageRef>[
+      card.backdropImage,
+      itemBackdrop,
+      seriesBackdrop,
+      card.primaryImage,
+      seasonPrimary,
+      seriesPrimary,
     ];
   }
 
