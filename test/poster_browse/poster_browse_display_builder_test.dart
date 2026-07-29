@@ -77,6 +77,7 @@ void main() {
     String title = '详情标题',
     String secondaryTitle = '',
     String type = 'Movie',
+    String seriesId = '',
     MediaImageRef primaryImage = const MediaImageRef(url: 'detail-primary'),
     MediaImageRef backdropImage = const MediaImageRef(url: 'detail-backdrop'),
     MediaImageRef logoImage = const MediaImageRef(url: 'detail-logo'),
@@ -95,6 +96,7 @@ void main() {
       title: title,
       secondaryTitle: secondaryTitle,
       type: type,
+      seriesId: seriesId,
       primaryImage: primaryImage,
       backdropImage: backdropImage,
       logoImage: logoImage,
@@ -130,8 +132,8 @@ void main() {
         id: 'episode-7',
         title: '第七集',
         secondaryTitle: '卡片剧名',
-        type: ' Episode ',
-        seriesId: ' series-42 ',
+        type: 'Movie',
+        seriesId: 'library-root',
         primaryImage: image('card-primary-landscape'),
         posters: <MediaImageRef>[
           image('card-poster-a'),
@@ -146,6 +148,7 @@ void main() {
       ),
       itemDetail: detail(
         type: 'Episode',
+        seriesId: 'series-42',
         rating: '9.123',
         backdropImage: image('item-backdrop'),
         logoImage: image('item-logo'),
@@ -159,10 +162,11 @@ void main() {
         logoImage: image('series-logo'),
       ),
       season: season(primaryImage: image('season-primary')),
+      resolvedSeriesId: 'series-42',
     );
 
     expect(result.isEpisode, isTrue);
-    expect(result.type, ' Episode ');
+    expect(result.type, 'Episode');
     expect(result.title, '剧集详情标题');
     expect(result.episodeTitle, '第七集');
     expect(result.seasonNumber, 1);
@@ -174,20 +178,21 @@ void main() {
       'item-logo',
     ]);
     expect(result.posterImages.map((image) => image.url), [
+      'series-primary',
+      'season-primary',
       'card-poster-a',
       'card-poster-b',
-      'season-primary',
-      'series-primary',
       'card-primary-landscape',
     ]);
     expect(result.backgroundImages.map((image) => image.url), [
-      'card-backdrop',
-      'item-backdrop',
       'series-backdrop',
-      'card-primary-landscape',
-      'season-primary',
+      'item-backdrop',
+      'card-backdrop',
       'series-primary',
+      'season-primary',
+      'card-primary-landscape',
     ]);
+    expect(result.card.id, 'episode-7');
   });
 
   test('季条目使用作品标题且优先系列 logo', () {

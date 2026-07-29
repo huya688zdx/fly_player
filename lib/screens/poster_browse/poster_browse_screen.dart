@@ -336,6 +336,7 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
         itemDetail: enrichment.itemDetail,
         seriesDetail: enrichment.seriesDetail,
         season: enrichment.season,
+        resolvedSeriesId: enrichment.resolvedSeriesId,
       );
 
       if (generation != _focusGeneration) {
