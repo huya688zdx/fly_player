@@ -13,9 +13,18 @@ void main() {
 
   test('目录行通过共享 session Future 按需加载', () {
     expect(source, contains("import 'poster_browse_catalog_session.dart';"));
+    expect(
+      source,
+      contains("import 'poster_browse_catalog_load_coordinator.dart';"),
+    );
     expect(source, contains('Future<void> _ensureCatalogLoaded('));
-    expect(source, contains('await session.load(row.catalogId)'));
+    expect(source, contains('await ticket.future'));
     expect(source, contains('selectWhenReady: true'));
+    expect(
+      source,
+      contains('_displayById.putIfAbsent('),
+      reason: '目录初始展示不得覆盖已提交的 enrichment 展示',
+    );
   });
 
   test('素材补全按世代策略通过 setState 即时提交', () {
