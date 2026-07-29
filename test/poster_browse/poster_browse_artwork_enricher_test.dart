@@ -37,10 +37,11 @@ void main() {
     );
   }
 
-  MediaDetail detail(String id, {String type = 'Movie'}) {
+  MediaDetail detail(String id, {String type = 'Movie', String seriesId = ''}) {
     return MediaDetail(
       id: id,
       type: type,
+      seriesId: seriesId,
       title: '详情 $id',
       primaryImage: MediaImageRef(url: 'detail-$id'),
     );
@@ -86,6 +87,41 @@ void main() {
     expect(result.seriesDetail, same(seriesDetail));
     expect(result.season, same(season2));
     expect(backend.detailCalls['episode-1'], 1);
+    expect(backend.detailCalls['series-1'], 1);
+    expect(backend.seasonCalls['series-1'], 1);
+  });
+
+  test('item detail 的真实 seriesId 覆盖卡片错误祖先关系', () async {
+    final itemDetail = detail(
+      'episode-1',
+      type: 'Episode',
+      seriesId: 'series-1',
+    );
+    final seriesDetail = detail('series-1', type: 'TV');
+    final backend = _FakeMediaBackend(
+      details: <String, MediaDetail>{
+        'episode-1': itemDetail,
+        'series-1': seriesDetail,
+      },
+      seasons: const <String, List<MediaSeasonSummary>>{'series-1': []},
+    );
+    final enricher = PosterBrowseArtworkEnricher(
+      backend: backend,
+      sessionKey: 'session-a',
+    );
+
+    final result = await enricher.enrich(
+      card(
+        id: 'episode-1',
+        type: 'Movie',
+        seriesId: 'library-root',
+        seasonNumber: 1,
+      ),
+    );
+
+    expect(result.resolvedSeriesId, 'series-1');
+    expect(result.seriesDetail, same(seriesDetail));
+    expect(backend.detailCalls['library-root'], isNull);
     expect(backend.detailCalls['series-1'], 1);
     expect(backend.seasonCalls['series-1'], 1);
   });

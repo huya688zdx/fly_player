@@ -10,12 +10,14 @@ class PosterBrowseEnrichment {
   final MediaDetail? itemDetail;
   final MediaDetail? seriesDetail;
   final MediaSeasonSummary? season;
+  final String resolvedSeriesId;
   final bool hasLookupFailure;
 
   const PosterBrowseEnrichment({
     this.itemDetail,
     this.seriesDetail,
     this.season,
+    this.resolvedSeriesId = '',
     this.hasLookupFailure = false,
   });
 
@@ -145,8 +147,11 @@ class PosterBrowseArtworkEnricher {
   String _cacheKey(MediaItemCard card) => '$sessionKey|${card.id.trim()}';
 
   Future<PosterBrowseEnrichment> _load(MediaItemCard card) async {
-    final itemDetailFuture = _loadDetail(card.id);
-    final seriesId = card.seriesId.trim();
+    final itemDetailLookup = await _loadDetail(card.id);
+    final detailSeriesId = itemDetailLookup.value?.seriesId.trim() ?? '';
+    final seriesId = detailSeriesId.isNotEmpty
+        ? detailSeriesId
+        : card.seriesId.trim();
     final cardId = card.id.trim();
     final shouldLoadSeries = seriesId.isNotEmpty && seriesId != cardId;
 
@@ -157,7 +162,6 @@ class PosterBrowseArtworkEnricher {
       seasonsFuture = _loadSeasons(seriesId);
     }
 
-    final itemDetailLookup = await itemDetailFuture;
     final seriesDetailLookup = seriesDetailFuture == null
         ? const _Lookup<MediaDetail>.empty()
         : await seriesDetailFuture;
@@ -173,6 +177,7 @@ class PosterBrowseArtworkEnricher {
       itemDetail: itemDetailLookup.value,
       seriesDetail: seriesDetailLookup.value,
       season: season,
+      resolvedSeriesId: seriesId,
       hasLookupFailure:
           itemDetailLookup.failed ||
           seriesDetailLookup.failed ||
