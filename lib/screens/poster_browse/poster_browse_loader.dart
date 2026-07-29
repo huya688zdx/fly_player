@@ -1,6 +1,7 @@
 import '../../api/feiniu_api.dart';
 import '../../media_backend/media_backend.dart';
 import '../../media_backend/media_backend_kind.dart';
+import '../../media_backend/media_catalog.dart';
 import '../../media_backend/media_image_ref.dart';
 import '../../media_backend/media_item_card.dart';
 import '../../models/media_library_item.dart';
@@ -54,12 +55,19 @@ class PosterBrowseLoader {
     required FeiniuApi api,
     int rowItemLimit = 20,
   }) async {
+    final isFeiniu = backend.capabilities.kind == MediaBackendKind.feiniu;
     var continueWatching = const <MediaItemCard>[];
-    var latest = const <MediaItemCard>[];
+    var secondaryItems = const <MediaItemCard>[];
+    var secondaryKind = PosterBrowseRowKind.latest;
+    var secondaryTitle = '';
     await Future.wait<void>(<Future<void>>[
       () async {
         try {
-          continueWatching = await _loadContinueWatching(backend, api);
+          continueWatching = await _loadContinueWatching(
+            backend,
+            api,
+            isFeiniu: isFeiniu,
+          );
         } catch (error, stackTrace) {
           await logSwallowedError(
             action: 'poster browse load continue watching',
@@ -71,10 +79,31 @@ class PosterBrowseLoader {
       }(),
       () async {
         try {
-          latest = await backend.getLatestItems(limit: rowItemLimit);
+          if (isFeiniu) {
+            final catalogs = await backend.getCatalogs();
+            MediaCatalog? seriesCatalog;
+            for (final catalog in catalogs) {
+              if (catalog.type.trim().toLowerCase() == 'series') {
+                seriesCatalog = catalog;
+                break;
+              }
+            }
+            if (seriesCatalog != null) {
+              secondaryItems = await backend.getCatalogPreviewItems(
+                seriesCatalog.id,
+                limit: rowItemLimit,
+              );
+              secondaryKind = PosterBrowseRowKind.catalog;
+              secondaryTitle = seriesCatalog.title;
+            }
+          } else {
+            secondaryItems = await backend.getLatestItems(limit: rowItemLimit);
+          }
         } catch (error, stackTrace) {
           await logSwallowedError(
-            action: 'poster browse load latest items',
+            action: isFeiniu
+                ? 'poster browse load series catalog'
+                : 'poster browse load latest items',
             error: error,
             stackTrace: stackTrace,
             source: 'poster_browse_loader',
@@ -85,16 +114,19 @@ class PosterBrowseLoader {
 
     return buildPosterBrowseRows(
       continueWatching: continueWatching.take(rowItemLimit).toList(),
-      latestItems: latest.take(rowItemLimit).toList(),
+      latestItems: secondaryItems.take(rowItemLimit).toList(),
+      secondaryKind: secondaryKind,
+      secondaryTitle: secondaryTitle,
     );
   }
 
   /// 数据层按后端能力选源（与首页 _loadContinueWatching 同款分流），UI 不判后端。
   Future<List<MediaItemCard>> _loadContinueWatching(
     MediaBackend backend,
-    FeiniuApi api,
-  ) async {
-    if (backend.capabilities.kind == MediaBackendKind.feiniu) {
+    FeiniuApi api, {
+    required bool isFeiniu,
+  }) async {
+    if (isFeiniu) {
       final items = await api.getPlayList();
       return items.map(cardFromLibraryItem).toList(growable: false);
     }
