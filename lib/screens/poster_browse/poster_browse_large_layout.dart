@@ -169,6 +169,8 @@ class _RowSelector extends StatelessWidget {
         return l10n.posterBrowseRowContinue;
       case PosterBrowseRowKind.latest:
         return l10n.posterBrowseRowLatest;
+      case PosterBrowseRowKind.catalog:
+        return row.title;
     }
   }
 }
