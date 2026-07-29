@@ -40,13 +40,22 @@ class DetailLoadingSkeleton extends StatelessWidget {
     const pad = DetailTokens.screenHorizontalPadding;
     final buttonHeight = _isPane ? 48.0 : 56.0;
     final topReserve = media.padding.top + 12 + DetailTokens.topButtonSize + 8;
+    final heroBottomPadding = _isPane ? 12.0 : 20.0;
     final bodyWidth = size.width - pad * 2;
     // Poster card: matches tv_season_detail_page / TvSeasonDetailPanel
-    final posterWidth = (size.width * (_isPane ? 0.24 : 0.30)).clamp(
+    final desiredPosterWidth = (size.width * (_isPane ? 0.24 : 0.30)).clamp(
       120.0,
       _isPane ? 150.0 : 180.0,
     );
-    final posterHeight = posterWidth * 1.45;
+    final availablePosterHeight = math.max(
+      96.0,
+      heroHeight - topReserve - heroBottomPadding - 1,
+    );
+    final posterHeight = math.min(
+      desiredPosterWidth * 1.45,
+      availablePosterHeight,
+    );
+    final posterWidth = math.min(desiredPosterWidth, posterHeight / 1.45);
     // Fill remaining space beside poster
     final textZoneWidth = bodyWidth - posterWidth - 16;
     final titleWidth = textZoneWidth * 0.88;
@@ -79,7 +88,7 @@ class DetailLoadingSkeleton extends StatelessWidget {
                   pad,
                   topReserve,
                   pad,
-                  _isPane ? 12 : 20,
+                  heroBottomPadding,
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

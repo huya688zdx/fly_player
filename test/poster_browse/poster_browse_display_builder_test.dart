@@ -185,12 +185,13 @@ void main() {
       'card-primary-landscape',
     ]);
     expect(result.backgroundImages.map((image) => image.url), [
-      'series-backdrop',
-      'item-backdrop',
       'card-backdrop',
+      'card-primary-landscape',
+      'item-backdrop',
+      'detail-primary',
+      'series-backdrop',
       'series-primary',
       'season-primary',
-      'card-primary-landscape',
     ]);
     expect(result.card.id, 'episode-7');
   });
@@ -227,7 +228,7 @@ void main() {
 
     expect(result.title, '真实剧集标题');
     expect(result.posterImages.first.url, 'series-primary');
-    expect(result.backgroundImages.first.url, 'series-backdrop');
+    expect(result.backgroundImages.first.url, 'episode-backdrop');
     expect(result.logoImages.first.url, 'series-logo');
     expect(result.card.id, 'episode-7');
     expect(result.detailTargetId, 'series-42');
@@ -311,6 +312,7 @@ void main() {
     expect(result.genres, ['剧情', '科幻']);
     expect(result.resolutions, ['4K', 'HDR']);
     expect(result.detailTargetId, 'movie-card');
+    expect(result.posterImages.first.url, 'detail-primary');
   });
 
   test('无详情时使用 card genres、overview 和 firstAirDate 回退', () {
