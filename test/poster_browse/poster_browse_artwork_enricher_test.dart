@@ -287,6 +287,40 @@ void main() {
     expect(backend.detailCalls['series-1'], 2);
   });
 
+  test('单集详情暂未解析出 seriesId 时进入短缓存并在 TTL 后重试', () async {
+    var current = DateTime(2026, 7, 29, 10);
+    final unresolved = detail('episode-1', type: 'Episode');
+    final resolved = detail('episode-1', type: 'Episode', seriesId: 'series-1');
+    final seriesDetail = detail('series-1', type: 'TV');
+    final backend = _FakeMediaBackend(
+      details: <String, MediaDetail>{'episode-1': unresolved},
+      seasons: const <String, List<MediaSeasonSummary>>{'series-1': []},
+    );
+    final enricher = PosterBrowseArtworkEnricher(
+      backend: backend,
+      sessionKey: 'session-a',
+      failureTtl: const Duration(seconds: 30),
+      now: () => current,
+    );
+    final target = card(id: 'episode-1', type: 'Episode');
+
+    final first = await enricher.enrich(target);
+    final second = await enricher.enrich(target);
+    backend.details['episode-1'] = resolved;
+    backend.details['series-1'] = seriesDetail;
+    current = current.add(const Duration(seconds: 31));
+    final third = await enricher.enrich(target);
+
+    expect(first.itemDetail, same(unresolved));
+    expect(first.hasLookupFailure, isTrue);
+    expect(second.itemDetail, same(unresolved));
+    expect(third.itemDetail, same(resolved));
+    expect(third.seriesDetail, same(seriesDetail));
+    expect(third.hasLookupFailure, isFalse);
+    expect(backend.detailCalls['episode-1'], 2);
+    expect(backend.detailCalls['series-1'], 1);
+  });
+
   test('seasons 异常按部分失败短缓存，正常空 seasons 不算失败', () async {
     var current = DateTime(2026, 7, 28, 12);
     final itemDetail = detail('episode-1', type: 'Episode');
