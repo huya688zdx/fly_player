@@ -195,6 +195,44 @@ void main() {
     expect(result.card.id, 'episode-7');
   });
 
+  test('纠正后的飞牛单集使用真实剧集素材且保留原播放卡片', () {
+    final result = builder.build(
+      card: card(
+        id: 'episode-7',
+        title: '第七集',
+        secondaryTitle: '',
+        type: 'Episode',
+        seriesId: '',
+        primaryImage: image('episode-still'),
+        backdropImage: image('episode-backdrop'),
+        seasonNumber: 1,
+        episodeNumber: 7,
+      ),
+      itemDetail: detail(
+        id: 'episode-7',
+        type: 'Episode',
+        seriesId: 'series-42',
+        backdropImage: image('item-backdrop'),
+      ),
+      seriesDetail: detail(
+        id: 'series-42',
+        type: 'TV',
+        title: '真实剧集标题',
+        primaryImage: image('series-primary'),
+        backdropImage: image('series-backdrop'),
+        logoImage: image('series-logo'),
+      ),
+      resolvedSeriesId: 'series-42',
+    );
+
+    expect(result.title, '真实剧集标题');
+    expect(result.posterImages.first.url, 'series-primary');
+    expect(result.backgroundImages.first.url, 'series-backdrop');
+    expect(result.logoImages.first.url, 'series-logo');
+    expect(result.card.id, 'episode-7');
+    expect(result.detailTargetId, 'series-42');
+  });
+
   test('季条目使用作品标题且优先系列 logo', () {
     final result = builder.build(
       card: card(
