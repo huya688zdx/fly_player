@@ -199,6 +199,50 @@ void main() {
       expect(backend.getCatalogsCallCount, 0);
       expect(backend.getCatalogPreviewItemsCallCount, 0);
     });
+
+    test('飞牛使用首个 Series 目录替代最近添加并保留后端标题', () async {
+      final backend = _FakeMediaBackend(
+        kind: MediaBackendKind.feiniu,
+        catalogs: const <MediaCatalog>[
+          MediaCatalog(
+            id: 'movies',
+            title: '动漫电影',
+            type: 'Movie',
+            primaryImage: MediaImageRef.empty,
+          ),
+          MediaCatalog(
+            id: 'series',
+            title: '动漫 TV',
+            type: 'sErIeS',
+            primaryImage: MediaImageRef.empty,
+          ),
+          MediaCatalog(
+            id: 'series-2',
+            title: '其他剧集',
+            type: 'Series',
+            primaryImage: MediaImageRef.empty,
+          ),
+        ],
+        latestItems: <MediaItemCard>[card('latest-should-not-load')],
+        catalogPreviewItems: <String, List<MediaItemCard>>{
+          'series': <MediaItemCard>[card('series-1')],
+        },
+      );
+
+      final rows = await const PosterBrowseLoader().load(
+        backend: backend,
+        api: api,
+      );
+
+      expect(rows, hasLength(1));
+      expect(rows.single.kind, PosterBrowseRowKind.catalog);
+      expect(rows.single.title, '动漫 TV');
+      expect(rows.single.items.single.id, 'series-1');
+      expect(backend.getCatalogsCallCount, 1);
+      expect(backend.getCatalogPreviewItemsCallCount, 1);
+      expect(backend.requestedCatalogIds, <String>['series']);
+      expect(backend.getLatestItemsCallCount, 0);
+    });
   });
 }
 
@@ -206,27 +250,37 @@ void main() {
 /// 的参数类型要求。
 class _FakeFeiniuApi extends FeiniuApi {
   _FakeFeiniuApi(super.nasProvider);
+
+  @override
+  Future<List<MediaLibraryItem>> getPlayList({
+    bool forceRefresh = false,
+  }) async => const <MediaLibraryItem>[];
 }
 
 /// 最小公共后端 Fake，走非飞牛 kind（服务器族路径），可配置各源数据与单 catalog 失败。
 class _FakeMediaBackend extends MediaBackend {
   _FakeMediaBackend({
+    this.kind = MediaBackendKind.emby,
     this.catalogs = const <MediaCatalog>[],
     this.continueWatching = const <MediaItemCard>[],
     this.latestItems = const <MediaItemCard>[],
     this.catalogPreviewItems = const <String, List<MediaItemCard>>{},
   });
 
+  final MediaBackendKind kind;
   final List<MediaCatalog> catalogs;
   final List<MediaItemCard> continueWatching;
   final List<MediaItemCard> latestItems;
   final Map<String, List<MediaItemCard>> catalogPreviewItems;
   int getCatalogsCallCount = 0;
   int getCatalogPreviewItemsCallCount = 0;
+  int getLatestItemsCallCount = 0;
+  final List<String> requestedCatalogIds = <String>[];
 
   @override
-  MediaBackendCapabilities get capabilities =>
-      const MediaBackendCapabilities.server(kind: MediaBackendKind.emby);
+  MediaBackendCapabilities get capabilities => kind == MediaBackendKind.feiniu
+      ? const MediaBackendCapabilities.feiniu()
+      : MediaBackendCapabilities.server(kind: kind);
 
   @override
   MediaPlaybackSourceBridge get playbackSourceBridge => _NoopBridge();
@@ -252,12 +306,15 @@ class _FakeMediaBackend extends MediaBackend {
     int limit = 30,
   }) async {
     getCatalogPreviewItemsCallCount += 1;
+    requestedCatalogIds.add(catalogId);
     return catalogPreviewItems[catalogId] ?? const <MediaItemCard>[];
   }
 
   @override
-  Future<List<MediaItemCard>> getLatestItems({int limit = 20}) async =>
-      latestItems;
+  Future<List<MediaItemCard>> getLatestItems({int limit = 20}) async {
+    getLatestItemsCallCount += 1;
+    return latestItems;
+  }
 
   @override
   Future<List<MediaItemCard>> searchItems(String query) =>

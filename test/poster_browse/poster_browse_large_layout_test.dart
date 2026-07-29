@@ -49,7 +49,8 @@ void main() {
               items: [continueCard],
             ),
             PosterBrowseRow(
-              kind: PosterBrowseRowKind.latest,
+              kind: PosterBrowseRowKind.catalog,
+              title: '动漫 TV',
               items: [latestCard],
             ),
           ],
@@ -73,9 +74,10 @@ void main() {
 
     expect(find.byType(PosterBrowseMediaInfo), findsOneWidget);
     expect(find.byType(PosterBrowsePosterTrack), findsOneWidget);
+    expect(find.text('动漫 TV'), findsOneWidget);
     expect(find.text('银翼杀手'), findsWidgets);
     expect(find.text('继续观看'), findsOneWidget);
-    expect(find.text('最近添加'), findsOneWidget);
+    expect(find.text('最近添加'), findsNothing);
     expect(
       find.byKey(const ValueKey('poster_browse_mobile_carousel')),
       findsNothing,
