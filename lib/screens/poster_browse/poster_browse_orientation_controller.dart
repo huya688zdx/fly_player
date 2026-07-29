@@ -34,7 +34,11 @@ final class PosterBrowseOrientationController {
   Future<void> enter({required bool isPhone}) async {
     await _systemUi.setOrientations(
       isPhone
-          ? const [DeviceOrientation.portraitUp]
+          ? const [
+              DeviceOrientation.portraitUp,
+              DeviceOrientation.landscapeLeft,
+              DeviceOrientation.landscapeRight,
+            ]
           : const [
               DeviceOrientation.landscapeLeft,
               DeviceOrientation.landscapeRight,

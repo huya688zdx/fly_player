@@ -13,18 +13,19 @@ void main() {
   });
 
   group('PosterBrowseOrientationController', () {
-    test('手机进入时先锁定竖屏再启用沉浸模式', () async {
+    test('手机进入时允许竖屏和双向横屏再启用沉浸模式', () async {
       final systemUi = RecordingSystemUi();
       final controller = PosterBrowseOrientationController(systemUi: systemUi);
 
       await controller.enter(isPhone: true);
 
       expect(systemUi.calls, [
-        isA<_OrientationsCall>().having(
-          (call) => call.orientations,
-          'orientations',
-          [DeviceOrientation.portraitUp],
-        ),
+        isA<_OrientationsCall>()
+            .having((call) => call.orientations, 'orientations', [
+              DeviceOrientation.portraitUp,
+              DeviceOrientation.landscapeLeft,
+              DeviceOrientation.landscapeRight,
+            ]),
         isA<_ModeCall>().having(
           (call) => call.mode,
           'mode',
