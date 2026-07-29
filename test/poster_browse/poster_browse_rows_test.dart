@@ -28,34 +28,35 @@ MediaItemCard card(String id) => MediaItemCard(
   primaryImage: MediaImageRef.empty,
 );
 
+FeiniuApi standaloneApi() => _FakeFeiniuApi(NasProvider());
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('两类行按序组装，空行整行剔除', () {
+  test('只有继续观看时仅生成继续观看行', () {
     final rows = buildPosterBrowseRows(
       continueWatching: <MediaItemCard>[card('c1')],
-      latestItems: const <MediaItemCard>[], // 空 → 隐藏
+      catalogs: const <MediaCatalog>[],
     );
     expect(rows, hasLength(1));
     expect(rows[0].kind, PosterBrowseRowKind.continueWatching);
     expect(rows[0].items.map((e) => e.id), ['c1']);
   });
 
-  test('最近添加行在继续观看之后', () {
+  test('目录为空时不生成目录行', () {
     final rows = buildPosterBrowseRows(
       continueWatching: <MediaItemCard>[card('c1')],
-      latestItems: <MediaItemCard>[card('l1')],
+      catalogs: const <MediaCatalog>[],
     );
     expect(rows.map((r) => r.kind), <PosterBrowseRowKind>[
       PosterBrowseRowKind.continueWatching,
-      PosterBrowseRowKind.latest,
     ]);
   });
 
   test('全空返回空列表', () {
     final rows = buildPosterBrowseRows(
       continueWatching: const <MediaItemCard>[],
-      latestItems: const <MediaItemCard>[],
+      catalogs: const <MediaCatalog>[],
     );
     expect(rows, isEmpty);
   });
@@ -187,7 +188,7 @@ void main() {
       api = _FakeFeiniuApi(nas);
     });
 
-    test('只返回继续观看与最近添加且不请求媒体库', () async {
+    test('继续观看与目录均返回且不请求预览', () async {
       final backend = _FakeMediaBackend(
         catalogs: const <MediaCatalog>[
           MediaCatalog(
@@ -198,7 +199,6 @@ void main() {
           ),
         ],
         continueWatching: <MediaItemCard>[card('c1')],
-        latestItems: <MediaItemCard>[card('l1')],
         catalogPreviewItems: <String, List<MediaItemCard>>{
           'lib1': <MediaItemCard>[card('m1')],
         },
@@ -211,16 +211,15 @@ void main() {
 
       expect(rows.map((r) => r.kind), <PosterBrowseRowKind>[
         PosterBrowseRowKind.continueWatching,
-        PosterBrowseRowKind.latest,
+        PosterBrowseRowKind.catalog,
       ]);
-      expect(backend.getCatalogsCallCount, 0);
+      expect(backend.getCatalogsCallCount, 1);
       expect(backend.getCatalogPreviewItemsCallCount, 0);
     });
 
-    test('媒体库为空时仍返回继续观看和最近添加行', () async {
+    test('目录为空时仍返回继续观看行', () async {
       final backend = _FakeMediaBackend(
         continueWatching: <MediaItemCard>[card('c1')],
-        latestItems: <MediaItemCard>[card('l1')],
       );
 
       final rows = await const PosterBrowseLoader().load(
@@ -228,16 +227,15 @@ void main() {
         api: api,
       );
 
-      expect(rows, hasLength(2));
+      expect(rows, hasLength(1));
       expect(rows.map((r) => r.kind), <PosterBrowseRowKind>[
         PosterBrowseRowKind.continueWatching,
-        PosterBrowseRowKind.latest,
       ]);
-      expect(backend.getCatalogsCallCount, 0);
+      expect(backend.getCatalogsCallCount, 1);
       expect(backend.getCatalogPreviewItemsCallCount, 0);
     });
 
-    test('飞牛使用首个 TV 或 Series 目录替代最近添加并保留后端标题', () async {
+    test('飞牛返回全部目录并保留目录标题', () async {
       final backend = _FakeMediaBackend(
         kind: MediaBackendKind.feiniu,
         catalogs: const <MediaCatalog>[
@@ -260,7 +258,6 @@ void main() {
             primaryImage: MediaImageRef.empty,
           ),
         ],
-        latestItems: <MediaItemCard>[card('latest-should-not-load')],
         catalogPreviewItems: <String, List<MediaItemCard>>{
           'anime-tv': <MediaItemCard>[card('series-1')],
         },
@@ -271,15 +268,158 @@ void main() {
         api: api,
       );
 
-      expect(rows, hasLength(1));
-      expect(rows.single.kind, PosterBrowseRowKind.catalog);
-      expect(rows.single.title, '动漫 TV');
-      expect(rows.single.items.single.id, 'series-1');
+      expect(rows, hasLength(3));
+      expect(rows[1].kind, PosterBrowseRowKind.catalog);
+      expect(rows[1].title, '动漫 TV');
+      expect(rows[1].items, isEmpty);
       expect(backend.getCatalogsCallCount, 1);
-      expect(backend.getCatalogPreviewItemsCallCount, 1);
-      expect(backend.requestedCatalogIds, <String>['anime-tv']);
+      expect(backend.getCatalogPreviewItemsCallCount, 0);
+      expect(backend.requestedCatalogIds, isEmpty);
       expect(backend.getLatestItemsCallCount, 0);
     });
+  });
+
+  test('继续观看在前，并按后端原始顺序保留全部目录元数据', () {
+    final rows = buildPosterBrowseRows(
+      continueWatching: <MediaItemCard>[card('c1')],
+      catalogs: const <MediaCatalog>[
+        MediaCatalog(
+          id: 'movies',
+          title: '电影库',
+          type: 'movies',
+          primaryImage: MediaImageRef.empty,
+        ),
+        MediaCatalog(
+          id: 'shows',
+          title: '剧集库',
+          type: 'tvshows',
+          primaryImage: MediaImageRef.empty,
+        ),
+        MediaCatalog(
+          id: 'empty',
+          title: '空目录',
+          type: 'mixed',
+          primaryImage: MediaImageRef.empty,
+        ),
+      ],
+    );
+
+    expect(rows.map((row) => row.kind), <PosterBrowseRowKind>[
+      PosterBrowseRowKind.continueWatching,
+      PosterBrowseRowKind.catalog,
+      PosterBrowseRowKind.catalog,
+      PosterBrowseRowKind.catalog,
+    ]);
+    expect(rows.first.items.map((item) => item.id), <String>['c1']);
+    expect(rows.skip(1).map((row) => row.catalogId), <String>[
+      'movies',
+      'shows',
+      'empty',
+    ]);
+    expect(rows.skip(1).map((row) => row.title), <String>['电影库', '剧集库', '空目录']);
+    expect(rows.skip(1).every((row) => row.items.isEmpty), isTrue);
+    expect(
+      rows
+          .skip(1)
+          .every((row) => row.loadState == PosterBrowseRowLoadState.idle),
+      isTrue,
+    );
+  });
+
+  test('无继续观看时仍返回全部目录', () {
+    final rows = buildPosterBrowseRows(
+      continueWatching: const <MediaItemCard>[],
+      catalogs: const <MediaCatalog>[
+        MediaCatalog(
+          id: 'one',
+          title: '目录一',
+          type: 'movies',
+          primaryImage: MediaImageRef.empty,
+        ),
+        MediaCatalog(
+          id: 'two',
+          title: '目录二',
+          type: 'tvshows',
+          primaryImage: MediaImageRef.empty,
+        ),
+      ],
+    );
+
+    expect(rows.map((row) => row.catalogId), <String>['one', 'two']);
+    expect(
+      rows.every((row) => row.kind == PosterBrowseRowKind.catalog),
+      isTrue,
+    );
+  });
+
+  test('飞牛、Emby 与 Jellyfin 都读取目录且不请求 latest 或 preview', () async {
+    for (final kind in <MediaBackendKind>[
+      MediaBackendKind.feiniu,
+      MediaBackendKind.emby,
+      MediaBackendKind.jellyfin,
+    ]) {
+      final backend = _FakeMediaBackend(
+        kind: kind,
+        catalogs: const <MediaCatalog>[
+          MediaCatalog(
+            id: 'catalog',
+            title: '目录',
+            type: 'tv',
+            primaryImage: MediaImageRef.empty,
+          ),
+        ],
+        continueWatching: <MediaItemCard>[card('continue')],
+        catalogPreviewItems: <String, List<MediaItemCard>>{
+          'catalog': <MediaItemCard>[card('preview')],
+        },
+      );
+
+      await const PosterBrowseLoader().load(
+        backend: backend,
+        api: standaloneApi(),
+      );
+
+      expect(backend.getCatalogsCallCount, 1, reason: '$kind');
+      expect(backend.getLatestItemsCallCount, 0, reason: '$kind');
+      expect(backend.getCatalogPreviewItemsCallCount, 0, reason: '$kind');
+    }
+  });
+
+  test('目录加载失败时仍保留继续观看', () async {
+    final backend = _FakeMediaBackend(
+      continueWatching: <MediaItemCard>[card('continue')],
+      throwCatalogs: true,
+    );
+
+    final rows = await const PosterBrowseLoader().load(
+      backend: backend,
+      api: standaloneApi(),
+    );
+
+    expect(rows.map((row) => row.kind), <PosterBrowseRowKind>[
+      PosterBrowseRowKind.continueWatching,
+    ]);
+  });
+
+  test('继续观看加载失败时仍保留目录', () async {
+    final backend = _FakeMediaBackend(
+      catalogs: const <MediaCatalog>[
+        MediaCatalog(
+          id: 'catalog',
+          title: '目录',
+          type: 'tv',
+          primaryImage: MediaImageRef.empty,
+        ),
+      ],
+      throwContinueWatching: true,
+    );
+
+    final rows = await const PosterBrowseLoader().load(
+      backend: backend,
+      api: standaloneApi(),
+    );
+
+    expect(rows.map((row) => row.catalogId), <String>['catalog']);
   });
 }
 
@@ -302,6 +442,8 @@ class _FakeMediaBackend extends MediaBackend {
     this.continueWatching = const <MediaItemCard>[],
     this.latestItems = const <MediaItemCard>[],
     this.catalogPreviewItems = const <String, List<MediaItemCard>>{},
+    this.throwCatalogs = false,
+    this.throwContinueWatching = false,
   });
 
   final MediaBackendKind kind;
@@ -309,6 +451,8 @@ class _FakeMediaBackend extends MediaBackend {
   final List<MediaItemCard> continueWatching;
   final List<MediaItemCard> latestItems;
   final Map<String, List<MediaItemCard>> catalogPreviewItems;
+  final bool throwCatalogs;
+  final bool throwContinueWatching;
   int getCatalogsCallCount = 0;
   int getCatalogPreviewItemsCallCount = 0;
   int getLatestItemsCallCount = 0;
@@ -325,6 +469,9 @@ class _FakeMediaBackend extends MediaBackend {
   @override
   Future<List<MediaCatalog>> getCatalogs() async {
     getCatalogsCallCount += 1;
+    if (throwCatalogs) {
+      throw StateError('catalogs failed');
+    }
     return catalogs;
   }
 
@@ -334,7 +481,12 @@ class _FakeMediaBackend extends MediaBackend {
   @override
   Future<List<MediaItemCard>> getContinueWatching({
     bool forceRefresh = false,
-  }) async => continueWatching;
+  }) async {
+    if (throwContinueWatching) {
+      throw StateError('continue watching failed');
+    }
+    return continueWatching;
+  }
 
   @override
   Future<List<MediaItemCard>> getCatalogPreviewItems(

@@ -8,10 +8,7 @@ import '../../models/media_library_item.dart';
 import '../../utils/swallowed_error_logger.dart';
 import 'poster_browse_rows.dart';
 
-/// 飞牛继续观看旁路（getPlayList 保留 ts/duration 富字段）→ 公共卡片。
-///
-/// 仅映射本页面（大屏海报浏览页）用到的字段，非全量搬运；全量映射见 `mapFeiniuItemCard`
-/// （`lib/media_backend/feiniu/feiniu_media_mappers.dart`）。
+/// 将飞牛播放列表项映射为大屏浏览所需的卡片，并保留续播相关富字段。
 MediaItemCard cardFromLibraryItem(MediaLibraryItem item) {
   final tvTitle = item.tvTitle.trim();
   final ancestorName = item.ancestorName.trim();
@@ -24,11 +21,9 @@ MediaItemCard cardFromLibraryItem(MediaLibraryItem item) {
     secondaryTitle: cleanSeriesTitle,
     type: item.type,
     seriesId: '',
-    // item.poster 为空串时 MediaImageRef(url: '') 与 MediaImageRef.empty 语义等价
-    // （见 MediaImageRef.isEmpty），故此处不必像 backdropImage 那样显式判空。
     primaryImage: MediaImageRef(url: item.poster),
     posters: item.posterList
-        .map((p) => MediaImageRef(url: p))
+        .map((poster) => MediaImageRef(url: poster))
         .toList(growable: false),
     backdropImage: item.backdropUrl.trim().isNotEmpty
         ? MediaImageRef(url: item.backdropUrl)
@@ -51,7 +46,7 @@ MediaItemCard cardFromLibraryItem(MediaLibraryItem item) {
   );
 }
 
-/// 页面数据加载：继续观看与最近添加并行，单源失败该行隐藏；全部行为空视为整页失败（由页面判定）。
+/// 并行加载继续观看与全部目录；任一数据源失败都不会阻断另一数据源。
 class PosterBrowseLoader {
   const PosterBrowseLoader();
 
@@ -62,9 +57,8 @@ class PosterBrowseLoader {
   }) async {
     final isFeiniu = backend.capabilities.kind == MediaBackendKind.feiniu;
     var continueWatching = const <MediaItemCard>[];
-    var secondaryItems = const <MediaItemCard>[];
-    var secondaryKind = PosterBrowseRowKind.latest;
-    var secondaryTitle = '';
+    var catalogs = const <MediaCatalog>[];
+
     await Future.wait<void>(<Future<void>>[
       () async {
         try {
@@ -84,32 +78,10 @@ class PosterBrowseLoader {
       }(),
       () async {
         try {
-          if (isFeiniu) {
-            final catalogs = await backend.getCatalogs();
-            MediaCatalog? seriesCatalog;
-            for (final catalog in catalogs) {
-              final type = catalog.type.trim().toLowerCase();
-              if (type == 'tv' || type == 'series') {
-                seriesCatalog = catalog;
-                break;
-              }
-            }
-            if (seriesCatalog != null) {
-              secondaryItems = await backend.getCatalogPreviewItems(
-                seriesCatalog.id,
-                limit: rowItemLimit,
-              );
-              secondaryKind = PosterBrowseRowKind.catalog;
-              secondaryTitle = seriesCatalog.title;
-            }
-          } else {
-            secondaryItems = await backend.getLatestItems(limit: rowItemLimit);
-          }
+          catalogs = await backend.getCatalogs();
         } catch (error, stackTrace) {
           await logSwallowedError(
-            action: isFeiniu
-                ? 'poster browse load series catalog'
-                : 'poster browse load latest items',
+            action: 'poster browse load catalogs',
             error: error,
             stackTrace: stackTrace,
             source: 'poster_browse_loader',
@@ -120,13 +92,10 @@ class PosterBrowseLoader {
 
     return buildPosterBrowseRows(
       continueWatching: continueWatching.take(rowItemLimit).toList(),
-      latestItems: secondaryItems.take(rowItemLimit).toList(),
-      secondaryKind: secondaryKind,
-      secondaryTitle: secondaryTitle,
+      catalogs: catalogs,
     );
   }
 
-  /// 数据层按后端能力选源（与首页 _loadContinueWatching 同款分流），UI 不判后端。
   Future<List<MediaItemCard>> _loadContinueWatching(
     MediaBackend backend,
     FeiniuApi api, {
