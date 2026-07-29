@@ -36,6 +36,7 @@ import 'poster_browse_large_layout.dart';
 import 'poster_browse_loader.dart';
 import 'poster_browse_mobile_layout.dart';
 import 'poster_browse_orientation_controller.dart';
+import 'poster_browse_row_artwork_warmup.dart';
 import 'poster_browse_rows.dart';
 import 'poster_browse_screen_policy.dart';
 import 'poster_browse_selection_state.dart';
@@ -254,6 +255,13 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
       });
 
       if (hasContinueWatching) {
+        unawaited(
+          _warmContinueWatchingRow(
+            rowIndex: 0,
+            loadGeneration: generation,
+            loadKey: loadKey,
+          ),
+        );
         unawaited(_settle(rowIndex: 0, itemIndex: 0));
         if (firstCatalogIndex >= 0) {
           unawaited(
@@ -522,6 +530,53 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
     return _displayById[card.id] ?? _displayBuilder.build(card: card);
   }
 
+  Future<void> _warmContinueWatchingRow({
+    required int rowIndex,
+    required int loadGeneration,
+    required String loadKey,
+  }) async {
+    if (rowIndex < 0 || rowIndex >= _rows.length) return;
+    final row = _rows[rowIndex];
+    if (row.kind != PosterBrowseRowKind.continueWatching || row.items.isEmpty) {
+      return;
+    }
+    final enricher = _enricher;
+    if (enricher == null) return;
+
+    bool isActive() {
+      return _isCurrentLoad(generation: loadGeneration, loadKey: loadKey) &&
+          identical(enricher, _enricher);
+    }
+
+    await const PosterBrowseRowArtworkWarmup(maxConcurrent: 2).run(
+      items: row.items,
+      load: enricher.enrich,
+      isActive: isActive,
+      onLoaded: (card, enrichment) {
+        if (!isActive()) return;
+        final display = _displayBuilder.build(
+          card: card,
+          itemDetail: enrichment.itemDetail,
+          seriesDetail: enrichment.seriesDetail,
+          season: enrichment.season,
+          resolvedSeriesId: enrichment.resolvedSeriesId,
+        );
+        setState(() => _displayById[card.id] = display);
+      },
+      onError: (card, error, stackTrace) {
+        unawaited(
+          logSwallowedError(
+            action: 'poster browse warm continue watching artwork',
+            error: error,
+            stackTrace: stackTrace,
+            source: 'poster_browse_screen',
+            id: card.id,
+          ),
+        );
+      },
+    );
+  }
+
   PosterBrowseDisplayItem? get _focusedItem {
     final normalized = _normalizeSelection(
       rowIndex: _selection.selectedRow,
@@ -583,13 +638,15 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
 
     final enricher = _enricher;
     if (enricher == null || loadKey == null) return;
-    unawaited(
-      enricher.prefetchWindow(
-        row.items,
-        normalized.itemIndex,
-        radius: _backgroundSpec().prefetchRadius,
-      ),
-    );
+    if (row.kind != PosterBrowseRowKind.continueWatching) {
+      unawaited(
+        enricher.prefetchWindow(
+          row.items,
+          normalized.itemIndex,
+          radius: _backgroundSpec().prefetchRadius,
+        ),
+      );
+    }
 
     try {
       final enrichment = await enricher.enrich(card);
