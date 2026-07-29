@@ -38,15 +38,15 @@ class PosterBrowseMediaInfo extends StatelessWidget {
       children: [
         SizedBox(
           key: const ValueKey('poster_browse_title_slot'),
-          height: compact ? 74 : 112,
+          height: compact ? 96 : 112,
           child: Align(
             alignment: Alignment.bottomLeft,
             child: ClipRect(
               child: DetailHeroLogoTitle(
                 images: logoRequest,
                 fallbackTitle: item.title,
-                maxHeight: compact ? 74 : 112,
-                maxWidth: compact ? 240 : 420,
+                maxHeight: compact ? 96 : 112,
+                maxWidth: compact ? 340 : 420,
                 fallbackFontSize: compact ? 28 : 38,
               ),
             ),
@@ -77,7 +77,7 @@ class PosterBrowseMediaInfo extends StatelessWidget {
           SizedBox(height: spacing),
           Text(
             overview,
-            maxLines: compact ? 1 : 2,
+            maxLines: 3,
             overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: Colors.white.withValues(alpha: 0.86),

@@ -50,7 +50,7 @@ class PosterBrowseDisplayBuilder {
         card.firstAirDate,
       ]),
       overview: _firstText(<String?>[itemDetail?.overview, card.overview]),
-      detailTargetId: isEpisode && seriesId.isNotEmpty ? seriesId : cardId,
+      detailTargetId: cardId,
       seasonNumber: card.seasonNumber,
       episodeNumber: card.episodeNumber,
       numberOfSeasons: _positiveFirst(<int>[

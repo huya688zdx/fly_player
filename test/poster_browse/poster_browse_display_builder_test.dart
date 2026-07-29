@@ -172,7 +172,7 @@ void main() {
     expect(result.seasonNumber, 1);
     expect(result.episodeNumber, 7);
     expect(result.ratingText, '9.1');
-    expect(result.detailTargetId, 'series-42');
+    expect(result.detailTargetId, 'episode-7');
     expect(result.logoImages.map((image) => image.url), [
       'series-logo',
       'item-logo',
@@ -231,7 +231,7 @@ void main() {
     expect(result.backgroundImages.first.url, 'episode-backdrop');
     expect(result.logoImages.first.url, 'series-logo');
     expect(result.card.id, 'episode-7');
-    expect(result.detailTargetId, 'series-42');
+    expect(result.detailTargetId, 'episode-7');
   });
 
   test('季条目使用作品标题且优先系列 logo', () {

@@ -67,4 +67,13 @@ void main() {
       contains("pageKey: settledItem?.card.id ?? 'poster_browse_empty'"),
     );
   });
+
+  test('单集详情使用单集目标并携带所属剧上下文', () {
+    expect(source, contains('PlayDetailScreen('));
+    expect(source, contains('itemGuid: targetId'));
+    expect(
+      source,
+      contains("seriesGuid: item.isEpisode ? item.seriesId.trim() : '',"),
+    );
+  });
 }
