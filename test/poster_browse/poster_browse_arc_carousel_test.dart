@@ -46,6 +46,25 @@ void main() {
       expect(clamped.opacity, inInclusiveRange(0.30, 1.0));
       expect(clamped.rotation, inInclusiveRange(-0.34, 0.34));
     });
+
+    test('spacingFor 在窄屏收紧并随可用宽度平滑增加', () {
+      expect(
+        PosterBrowseArcMath.spacingFor(viewportWidth: 390, cardWidth: 116),
+        closeTo(150.8, 0.01),
+      );
+      expect(
+        PosterBrowseArcMath.spacingFor(viewportWidth: 844, cardWidth: 116),
+        closeTo(179.8, 0.01),
+      );
+      expect(
+        PosterBrowseArcMath.spacingFor(viewportWidth: 240, cardWidth: 116),
+        greaterThanOrEqualTo(140),
+      );
+      expect(
+        PosterBrowseArcMath.spacingFor(viewportWidth: 1600, cardWidth: 116),
+        lessThanOrEqualTo(190),
+      );
+    });
   });
 
   testWidgets('三项初始居中并拖动到相邻真实项后保持中心 focused', (tester) async {

@@ -33,6 +33,15 @@ abstract final class PosterBrowseArcMath {
     return modulo < 0 ? modulo + length : modulo;
   }
 
+  static double spacingFor({
+    required double viewportWidth,
+    required double cardWidth,
+  }) {
+    final widthProgress = ((viewportWidth - 390) / (844 - 390)).clamp(0.0, 1.0);
+    final ratio = 1.30 + widthProgress * 0.25;
+    return (cardWidth * ratio).clamp(cardWidth + 24, 190).toDouble();
+  }
+
   static PosterBrowseArcTransform transformFor(double delta) {
     final clampedDelta = delta.clamp(-visibleRadius, visibleRadius).toDouble();
     final distance = clampedDelta.abs();
@@ -60,7 +69,7 @@ class PosterBrowseArcCarousel extends StatefulWidget {
   final ValueChanged<int> onSettled;
   final ValueChanged<int> onCenteredTap;
   final double cardWidth;
-  final double spacing;
+  final double? spacing;
 
   const PosterBrowseArcCarousel({
     super.key,
@@ -72,7 +81,7 @@ class PosterBrowseArcCarousel extends StatefulWidget {
     required this.onSettled,
     required this.onCenteredTap,
     this.cardWidth = 116,
-    this.spacing = 220,
+    this.spacing,
   });
 
   @override
@@ -133,18 +142,35 @@ class _PosterBrowseArcCarouselState extends State<PosterBrowseArcCarousel>
       return const SizedBox.shrink();
     }
 
-    final cards = _visibleCards();
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onHorizontalDragStart: widget.items.length > 1 ? _handleDragStart : null,
-      onHorizontalDragUpdate: widget.items.length > 1
-          ? _handleDragUpdate
-          : null,
-      onHorizontalDragEnd: widget.items.length > 1 ? _handleDragEnd : null,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: cards.map(_buildPositionedCard).toList(growable: false),
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final viewportWidth = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : MediaQuery.sizeOf(context).width;
+        final spacing =
+            widget.spacing ??
+            PosterBrowseArcMath.spacingFor(
+              viewportWidth: viewportWidth,
+              cardWidth: widget.cardWidth,
+            );
+        final cards = _visibleCards();
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragStart: widget.items.length > 1
+              ? _handleDragStart
+              : null,
+          onHorizontalDragUpdate: widget.items.length > 1
+              ? (details) => _handleDragUpdate(details, spacing)
+              : null,
+          onHorizontalDragEnd: widget.items.length > 1 ? _handleDragEnd : null,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: cards
+                .map((card) => _buildPositionedCard(card, spacing))
+                .toList(growable: false),
+          ),
+        );
+      },
     );
   }
 
@@ -195,7 +221,7 @@ class _PosterBrowseArcCarouselState extends State<PosterBrowseArcCarousel>
     return uniqueCards;
   }
 
-  Widget _buildPositionedCard(_VisibleArcCard card) {
+  Widget _buildPositionedCard(_VisibleArcCard card, double spacing) {
     final item = widget.items[card.realIndex];
     final imageRequest = widget.imageOf(item);
     final transform = card.transform;
@@ -204,7 +230,7 @@ class _PosterBrowseArcCarouselState extends State<PosterBrowseArcCarousel>
     return Positioned.fill(
       child: Transform.translate(
         offset: Offset(
-          transform.horizontalOffset * widget.spacing,
+          transform.horizontalOffset * spacing,
           -transform.verticalOffset,
         ),
         child: Center(
@@ -241,10 +267,10 @@ class _PosterBrowseArcCarouselState extends State<PosterBrowseArcCarousel>
     _dragStartPage = _page;
   }
 
-  void _handleDragUpdate(DragUpdateDetails details) {
+  void _handleDragUpdate(DragUpdateDetails details, double spacing) {
     final delta = details.primaryDelta ?? details.delta.dx;
     setState(() {
-      _page -= delta / widget.spacing;
+      _page -= delta / spacing;
     });
   }
 
