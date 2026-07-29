@@ -400,6 +400,49 @@ void main() {
     expect(find.text('详情'), findsNothing);
     expect(tester.takeException(), isNull);
   });
+  testWidgets('大屏目录索引失败行显示媒体库标签与重试按钮', (tester) async {
+    var retryCount = 0;
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      _localizedApp(
+        PosterBrowseLargeLayout(
+          rows: const <PosterBrowseRow>[
+            PosterBrowseRow(
+              kind: PosterBrowseRowKind.continueWatching,
+              items: <MediaItemCard>[],
+            ),
+            PosterBrowseRow(
+              kind: PosterBrowseRowKind.catalogIndex,
+              items: <MediaItemCard>[],
+              loadState: PosterBrowseRowLoadState.failed,
+            ),
+          ],
+          displayItemOf: (card) => _displayItem(card),
+          selectedRow: 1,
+          focusedIndex: 0,
+          focusedItem: null,
+          logoRequest: MediaImageRequest.empty,
+          secondaryLabel: '',
+          metaWidgets: const <Widget>[],
+          imageOf: (_) => MediaImageRequest.empty,
+          secondaryLabelOf: (_) => '',
+          onSelectRow: (_) {},
+          onSelectItem: (_) {},
+          onRetryCurrentRow: () => retryCount += 1,
+          onPlay: () {},
+          onDetail: () {},
+          onBack: () {},
+        ),
+      ),
+    );
+
+    expect(find.text('媒体库'), findsOneWidget);
+    expect(find.text('加载失败，点按重试'), findsOneWidget);
+    await tester.tap(find.text('加载失败，点按重试'));
+    expect(retryCount, 1);
+  });
 }
 
 Widget _localizedApp(Widget child) {
