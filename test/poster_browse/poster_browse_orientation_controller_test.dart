@@ -3,48 +3,39 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/screens/poster_browse/poster_browse_orientation_controller.dart';
 
 void main() {
-  group('PosterBrowseDeviceProfile', () {
-    test('最短边小于 600 时为手机，否则不是手机', () {
-      expect(PosterBrowseDeviceProfile.isPhone(const Size(844, 390)), isTrue);
-      expect(PosterBrowseDeviceProfile.isPhone(const Size(390, 844)), isTrue);
-      expect(PosterBrowseDeviceProfile.isPhone(const Size(1280, 800)), isFalse);
-      expect(PosterBrowseDeviceProfile.isPhone(const Size(600, 900)), isFalse);
+  group('PosterBrowseWindowProfile', () {
+    test('布局只跟随当前窗口方向而不跟随设备尺寸', () {
+      expect(
+        PosterBrowseWindowProfile.useMobileLayout(const Size(844, 390)),
+        isFalse,
+      );
+      expect(
+        PosterBrowseWindowProfile.useMobileLayout(const Size(390, 844)),
+        isTrue,
+      );
+      expect(
+        PosterBrowseWindowProfile.useMobileLayout(const Size(1280, 800)),
+        isFalse,
+      );
+      expect(
+        PosterBrowseWindowProfile.useMobileLayout(const Size(600, 900)),
+        isTrue,
+      );
     });
   });
 
   group('PosterBrowseOrientationController', () {
-    test('手机进入时允许竖屏和双向横屏再启用沉浸模式', () async {
+    test('进入时清空方向限制再启用沉浸模式', () async {
       final systemUi = RecordingSystemUi();
       final controller = PosterBrowseOrientationController(systemUi: systemUi);
 
-      await controller.enter(isPhone: true);
-
-      expect(systemUi.calls, [
-        isA<_OrientationsCall>()
-            .having((call) => call.orientations, 'orientations', [
-              DeviceOrientation.portraitUp,
-              DeviceOrientation.landscapeLeft,
-              DeviceOrientation.landscapeRight,
-            ]),
-        isA<_ModeCall>().having(
-          (call) => call.mode,
-          'mode',
-          SystemUiMode.immersiveSticky,
-        ),
-      ]);
-    });
-
-    test('大屏进入时先锁定横屏再启用沉浸模式', () async {
-      final systemUi = RecordingSystemUi();
-      final controller = PosterBrowseOrientationController(systemUi: systemUi);
-
-      await controller.enter(isPhone: false);
+      await controller.enter();
 
       expect(systemUi.calls, [
         isA<_OrientationsCall>().having(
           (call) => call.orientations,
           'orientations',
-          [DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight],
+          isEmpty,
         ),
         isA<_ModeCall>().having(
           (call) => call.mode,

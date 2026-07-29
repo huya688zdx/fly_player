@@ -1,7 +1,8 @@
 import 'package:flutter/services.dart';
 
-abstract final class PosterBrowseDeviceProfile {
-  static bool isPhone(Size logicalSize) => logicalSize.shortestSide < 600;
+abstract final class PosterBrowseWindowProfile {
+  static bool useMobileLayout(Size logicalSize) =>
+      logicalSize.width <= logicalSize.height;
 }
 
 abstract interface class PosterBrowseSystemUi {
@@ -31,19 +32,8 @@ final class PosterBrowseOrientationController {
 
   final PosterBrowseSystemUi _systemUi;
 
-  Future<void> enter({required bool isPhone}) async {
-    await _systemUi.setOrientations(
-      isPhone
-          ? const [
-              DeviceOrientation.portraitUp,
-              DeviceOrientation.landscapeLeft,
-              DeviceOrientation.landscapeRight,
-            ]
-          : const [
-              DeviceOrientation.landscapeLeft,
-              DeviceOrientation.landscapeRight,
-            ],
-    );
+  Future<void> enter() async {
+    await _systemUi.setOrientations(const <DeviceOrientation>[]);
     await _systemUi.setMode(SystemUiMode.immersiveSticky);
   }
 
