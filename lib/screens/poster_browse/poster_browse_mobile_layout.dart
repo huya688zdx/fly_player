@@ -13,7 +13,7 @@ class PosterBrowseMobileLayout extends StatelessWidget {
   final PosterBrowseDisplayItem Function(MediaItemCard card) displayItemOf;
   final int selectedRow;
   final int focusedIndex;
-  final PosterBrowseDisplayItem focusedItem;
+  final PosterBrowseDisplayItem? focusedItem;
   final MediaImageRequest logoRequest;
   final String secondaryLabel;
   final List<Widget> metaWidgets;
@@ -48,16 +48,16 @@ class PosterBrowseMobileLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final visibleRows = rows.take(2).toList(growable: false);
-    final currentRow = _selectedRowOrNull(visibleRows);
+    final currentRow = _selectedRowOrNull(rows);
     final currentItems = currentRow == null
         ? const <PosterBrowseDisplayItem>[]
         : currentRow.items.map(displayItemOf).toList(growable: false);
     return SafeArea(
       child: LayoutBuilder(
         builder: (context, constraints) => _buildForSize(
+          context: context,
           size: constraints.biggest,
-          visibleRows: visibleRows,
+          visibleRows: rows,
           currentRow: currentRow,
           currentItems: currentItems,
         ),
@@ -66,6 +66,7 @@ class PosterBrowseMobileLayout extends StatelessWidget {
   }
 
   Widget _buildForSize({
+    required BuildContext context,
     required Size size,
     required List<PosterBrowseRow> visibleRows,
     required PosterBrowseRow? currentRow,
@@ -90,22 +91,10 @@ class PosterBrowseMobileLayout extends StatelessWidget {
             onSelectRow: onSelectRow,
           ),
         ),
-        currentItems.isEmpty
-            ? const SizedBox.shrink()
-            : SizedBox(
-                key: const ValueKey('poster_browse_mobile_carousel'),
-                height: carouselHeight,
-                child: PosterBrowseArcCarousel(
-                  items: currentItems,
-                  initialIndex: focusedIndex,
-                  showProgress:
-                      currentRow?.kind == PosterBrowseRowKind.continueWatching,
-                  imageOf: imageOf,
-                  secondaryLabelOf: secondaryLabelOf,
-                  onSettled: onSelectItem,
-                  onCenteredTap: onCenteredTap,
-                ),
-              ),
+        SizedBox(
+          height: carouselHeight,
+          child: _buildCarouselArea(context, currentRow, currentItems),
+        ),
       ],
     );
 
@@ -120,15 +109,17 @@ class PosterBrowseMobileLayout extends StatelessWidget {
             alignment: Alignment.centerLeft,
             child: ConstrainedBox(
               constraints: BoxConstraints(maxWidth: infoMaxWidth),
-              child: PosterBrowseMediaInfo(
-                item: focusedItem,
-                logoRequest: logoRequest,
-                secondaryLabel: secondaryLabel,
-                metaWidgets: metaWidgets,
-                compact: true,
-                onPlay: onPlay,
-                onDetail: onDetail,
-              ),
+              child: focusedItem == null
+                  ? const SizedBox.shrink()
+                  : PosterBrowseMediaInfo(
+                      item: focusedItem!,
+                      logoRequest: logoRequest,
+                      secondaryLabel: secondaryLabel,
+                      metaWidgets: metaWidgets,
+                      compact: true,
+                      onPlay: onPlay,
+                      onDetail: onDetail,
+                    ),
             ),
           ),
         ),
@@ -154,6 +145,42 @@ class PosterBrowseMobileLayout extends StatelessWidget {
       return visibleRows.first;
     }
     return visibleRows[selectedRow];
+  }
+
+  Widget _buildCarouselArea(
+    BuildContext context,
+    PosterBrowseRow? currentRow,
+    List<PosterBrowseDisplayItem> currentItems,
+  ) {
+    if (currentItems.isNotEmpty) {
+      return PosterBrowseArcCarousel(
+        key: const ValueKey('poster_browse_mobile_carousel'),
+        items: currentItems,
+        initialIndex: focusedIndex,
+        showProgress: currentRow?.kind == PosterBrowseRowKind.continueWatching,
+        imageOf: imageOf,
+        secondaryLabelOf: secondaryLabelOf,
+        onSettled: onSelectItem,
+        onCenteredTap: onCenteredTap,
+      );
+    }
+
+    final l10n = AppLocalizations.of(context);
+    return Center(
+      child: switch (currentRow?.loadState) {
+        PosterBrowseRowLoadState.failed => Text(
+          l10n.posterBrowseLoadFailed,
+          style: const TextStyle(color: Colors.white70),
+        ),
+        PosterBrowseRowLoadState.loaded => Text(
+          l10n.posterBrowseCatalogEmpty,
+          style: const TextStyle(color: Colors.white70),
+        ),
+        _ => const CircularProgressIndicator(
+          key: ValueKey('poster_browse_row_loading'),
+        ),
+      },
+    );
   }
 }
 
@@ -188,21 +215,29 @@ class _RowSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (rows.length < 2) {
-      return const SizedBox.shrink();
-    }
-
-    return Wrap(
-      spacing: 18,
-      runSpacing: 8,
-      children: [
-        for (var index = 0; index < rows.length; index++)
-          _RowButton(
-            label: _rowLabel(AppLocalizations.of(context), rows[index]),
-            selected: index == selectedRow,
-            onTap: () => onSelectRow(index),
-          ),
-      ],
+    return SizedBox(
+      height: 32,
+      child: rows.length < 2
+          ? const SizedBox.shrink()
+          : SingleChildScrollView(
+              key: const ValueKey('poster_browse_row_selector_scroll'),
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (var index = 0; index < rows.length; index++) ...[
+                    if (index > 0) const SizedBox(width: 18),
+                    _RowButton(
+                      label: _rowLabel(
+                        AppLocalizations.of(context),
+                        rows[index],
+                      ),
+                      selected: index == selectedRow,
+                      onTap: () => onSelectRow(index),
+                    ),
+                  ],
+                ],
+              ),
+            ),
     );
   }
 

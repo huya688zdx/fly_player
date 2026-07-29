@@ -217,6 +217,173 @@ void main() {
     expect(box.size, Size.zero);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('大屏分类选择器展示全部分类并横向滚动选择第四项', (tester) async {
+    var selectedRow = -1;
+    final focusedCard = _card(id: 'catalog-1', title: '电影');
+
+    await tester.binding.setSurfaceSize(const Size(520, 760));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      _localizedApp(
+        PosterBrowseLargeLayout(
+          rows: [
+            PosterBrowseRow(
+              kind: PosterBrowseRowKind.catalog,
+              title: '电影精选分类',
+              items: [focusedCard],
+            ),
+            const PosterBrowseRow(
+              kind: PosterBrowseRowKind.catalog,
+              title: '热门电视剧',
+              items: <MediaItemCard>[],
+            ),
+            const PosterBrowseRow(
+              kind: PosterBrowseRowKind.catalog,
+              title: '纪录片天地',
+              items: <MediaItemCard>[],
+            ),
+            const PosterBrowseRow(
+              kind: PosterBrowseRowKind.catalog,
+              title: '动漫 TV',
+              items: <MediaItemCard>[],
+            ),
+          ],
+          displayItemOf: (card) => _displayItem(card),
+          selectedRow: 0,
+          focusedIndex: 0,
+          focusedItem: _displayItem(focusedCard),
+          logoRequest: MediaImageRequest.empty,
+          secondaryLabel: '',
+          metaWidgets: const <Widget>[],
+          imageOf: (_) => MediaImageRequest.empty,
+          secondaryLabelOf: (_) => '',
+          onSelectRow: (index) => selectedRow = index,
+          onSelectItem: (_) {},
+          onPlay: () {},
+          onDetail: () {},
+          onBack: () {},
+        ),
+      ),
+    );
+
+    final scrollFinder = find.byKey(
+      const ValueKey('poster_browse_row_selector_scroll'),
+    );
+    expect(find.text('动漫 TV'), findsOneWidget);
+    expect(scrollFinder, findsOneWidget);
+    expect(
+      tester.widget<SingleChildScrollView>(scrollFinder).scrollDirection,
+      Axis.horizontal,
+    );
+
+    await tester.drag(scrollFinder, const Offset(-600, 0));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('动漫 TV'));
+    expect(selectedRow, 3);
+  });
+
+  testWidgets('大屏海报轨区域按当前分类显示加载失败和空库状态', (tester) async {
+    final focusedCard = _card(id: 'fallback', title: '背景影片');
+
+    Widget buildLayout(PosterBrowseRowLoadState loadState) {
+      return _localizedApp(
+        PosterBrowseLargeLayout(
+          rows: [
+            PosterBrowseRow(
+              kind: PosterBrowseRowKind.catalog,
+              title: '电影',
+              items: const <MediaItemCard>[],
+              loadState: loadState,
+            ),
+            const PosterBrowseRow(
+              kind: PosterBrowseRowKind.catalog,
+              title: '动漫 TV',
+              items: <MediaItemCard>[],
+            ),
+          ],
+          displayItemOf: (card) => _displayItem(card),
+          selectedRow: 0,
+          focusedIndex: 0,
+          focusedItem: _displayItem(focusedCard),
+          logoRequest: MediaImageRequest.empty,
+          secondaryLabel: '',
+          metaWidgets: const <Widget>[],
+          imageOf: (_) => MediaImageRequest.empty,
+          secondaryLabelOf: (_) => '',
+          onSelectRow: (_) {},
+          onSelectItem: (_) {},
+          onPlay: () {},
+          onDetail: () {},
+          onBack: () {},
+        ),
+      );
+    }
+
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(buildLayout(PosterBrowseRowLoadState.loading));
+    expect(
+      find.byKey(const ValueKey('poster_browse_row_loading')),
+      findsOneWidget,
+    );
+    expect(find.byType(PosterBrowsePosterTrack), findsNothing);
+
+    await tester.pumpWidget(buildLayout(PosterBrowseRowLoadState.failed));
+    expect(find.text('加载失败，点按重试'), findsOneWidget);
+    expect(find.byType(PosterBrowsePosterTrack), findsNothing);
+
+    await tester.pumpWidget(buildLayout(PosterBrowseRowLoadState.loaded));
+    expect(find.text('此媒体库暂无内容'), findsOneWidget);
+    expect(find.byType(PosterBrowsePosterTrack), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('大屏当前分类无焦点项时隐藏信息区并保留分类选择器', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      _localizedApp(
+        PosterBrowseLargeLayout(
+          rows: const [
+            PosterBrowseRow(
+              kind: PosterBrowseRowKind.catalog,
+              title: '电影',
+              items: <MediaItemCard>[],
+            ),
+            PosterBrowseRow(
+              kind: PosterBrowseRowKind.catalog,
+              title: '动漫 TV',
+              items: <MediaItemCard>[],
+            ),
+          ],
+          displayItemOf: (card) => _displayItem(card),
+          selectedRow: 0,
+          focusedIndex: 0,
+          focusedItem: null,
+          logoRequest: MediaImageRequest.empty,
+          secondaryLabel: '',
+          metaWidgets: const <Widget>[],
+          imageOf: (_) => MediaImageRequest.empty,
+          secondaryLabelOf: (_) => '',
+          onSelectRow: (_) {},
+          onSelectItem: (_) {},
+          onPlay: () {},
+          onDetail: () {},
+          onBack: () {},
+        ),
+      ),
+    );
+
+    expect(find.byType(PosterBrowseMediaInfo), findsNothing);
+    expect(find.text('动漫 TV'), findsOneWidget);
+    expect(find.text('播放'), findsNothing);
+    expect(find.text('详情'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 Widget _localizedApp(Widget child) {
