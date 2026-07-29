@@ -2,6 +2,7 @@ import '../../api/feiniu_api.dart';
 import '../../api/item_list_request.dart';
 import '../../api/person_list_request.dart';
 import '../../models/person_credit.dart';
+import '../../models/play_info.dart';
 import '../../models/playback_stream.dart';
 import '../../models/stream_track_data.dart';
 import '../../playback/feiniu_playback_source_bridge.dart';
@@ -166,8 +167,27 @@ class FeiniuMediaBackend implements MediaBackend {
 
   @override
   Future<MediaDetail> getItemDetail(String itemId) async {
-    final info = await api.getPlayInfo(itemId);
     final rawDetail = await api.getItemDetail(itemId);
+    final rawItem = extractFeiniuDetailPlayItem(rawDetail);
+    PlayInfoData? info;
+    Object? playInfoError;
+    StackTrace? playInfoStackTrace;
+    try {
+      info = await api.getPlayInfo(itemId);
+    } catch (error, stackTrace) {
+      playInfoError = error;
+      playInfoStackTrace = stackTrace;
+      if (rawItem == null) rethrow;
+    }
+    if (playInfoError != null) {
+      await logSwallowedError(
+        action: 'load feiniu item play info for detail',
+        id: itemId,
+        error: playInfoError,
+        stackTrace: playInfoStackTrace ?? StackTrace.current,
+        source: 'feiniu_media_backend',
+      );
+    }
     final imdbId = extractFeiniuImdbId(rawDetail);
     var credits = const <PersonCredit>[];
     try {
@@ -211,8 +231,21 @@ class FeiniuMediaBackend implements MediaBackend {
       );
       regionNames = const <String, String>{};
     }
-    return mapFeiniuItemDetail(
-      info,
+    final normalizedItemId = itemId.trim();
+    final item = rawItem?.guid.trim() == normalizedItemId
+        ? rawItem!
+        : info?.item ?? rawItem!;
+    final rawSeriesId = (rawDetail['grand_guid'] ?? '').toString().trim();
+    final seriesId = rawSeriesId.isNotEmpty
+        ? rawSeriesId
+        : info?.grandGuid.trim() ?? '';
+    final networkPosition = info?.ts ?? 0;
+    return mapFeiniuPlayItemDetail(
+      item,
+      seriesId: seriesId,
+      resumePositionSeconds: networkPosition > 0
+          ? networkPosition
+          : item.watchedTs,
       genresMap: genresMap,
       regionNames: regionNames,
       credits: credits,

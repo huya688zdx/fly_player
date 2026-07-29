@@ -24,10 +24,31 @@ MediaDetail mapFeiniuItemDetail(
   List<PersonCredit> credits = const <PersonCredit>[],
   String imdbId = '',
 }) {
-  final item = info.item;
+  return mapFeiniuPlayItemDetail(
+    info.item,
+    seriesId: info.grandGuid,
+    resumePositionSeconds: info.ts > 0 ? info.ts : info.item.watchedTs,
+    genresMap: genresMap,
+    regionNames: regionNames,
+    credits: credits,
+    imdbId: imdbId,
+  );
+}
+
+/// 把飞牛原始 item 映射为公共详情；用于不可播放的 TV/Series 条目详情。
+MediaDetail mapFeiniuPlayItemDetail(
+  PlayItem item, {
+  required String seriesId,
+  required int resumePositionSeconds,
+  required Map<int, String> genresMap,
+  required Map<String, String> regionNames,
+  List<PersonCredit> credits = const <PersonCredit>[],
+  String imdbId = '',
+}) {
   return MediaDetail(
     id: item.guid,
     type: item.type,
+    seriesId: seriesId,
     title: item.title,
     secondaryTitle: item.tvTitle,
     parentTitle: item.parentTitle,
@@ -57,11 +78,18 @@ MediaDetail mapFeiniuItemDetail(
     colorRanges: item.colorRanges,
     watched: item.isWatched != 0,
     favorite: item.isFavorite != 0,
-    // 续播位置：ts 为 0 时回退 watchedTs，复刻详情页 `ts > 0 ? ts : watchedTs`。
-    resumePositionSeconds: info.ts > 0 ? info.ts : item.watchedTs,
+    resumePositionSeconds: resumePositionSeconds,
     externalIds: MediaExternalIds(tmdbId: item.trimId, imdbId: imdbId),
     people: credits.map(_mapCredit).toList(growable: false),
   );
+}
+
+/// 从飞牛 item/detail 原始响应中提取展示条目。
+PlayItem? extractFeiniuDetailPlayItem(Map<String, dynamic> detail) {
+  final rawItem = detail['item'];
+  final item = rawItem is Map<String, dynamic> ? rawItem : detail;
+  if ((item['guid'] ?? '').toString().trim().isEmpty) return null;
+  return PlayItem.fromJson(item);
 }
 
 /// 把飞牛季条目 [MediaLibraryItem] 映射为公共 [MediaSeasonSummary]。
