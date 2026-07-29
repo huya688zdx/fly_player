@@ -13,12 +13,17 @@ import 'poster_browse_rows.dart';
 /// 仅映射本页面（大屏海报浏览页）用到的字段，非全量搬运；全量映射见 `mapFeiniuItemCard`
 /// （`lib/media_backend/feiniu/feiniu_media_mappers.dart`）。
 MediaItemCard cardFromLibraryItem(MediaLibraryItem item) {
+  final tvTitle = item.tvTitle.trim();
+  final ancestorName = item.ancestorName.trim();
+  final cleanSeriesTitle = tvTitle.isNotEmpty && tvTitle != ancestorName
+      ? tvTitle
+      : '';
   return MediaItemCard(
     id: item.guid,
     title: item.title,
-    secondaryTitle: item.tvTitle,
+    secondaryTitle: cleanSeriesTitle,
     type: item.type,
-    seriesId: item.ancestorGuid,
+    seriesId: '',
     // item.poster 为空串时 MediaImageRef(url: '') 与 MediaImageRef.empty 语义等价
     // （见 MediaImageRef.isEmpty），故此处不必像 backdropImage 那样显式判空。
     primaryImage: MediaImageRef(url: item.poster),
@@ -83,7 +88,8 @@ class PosterBrowseLoader {
             final catalogs = await backend.getCatalogs();
             MediaCatalog? seriesCatalog;
             for (final catalog in catalogs) {
-              if (catalog.type.trim().toLowerCase() == 'series') {
+              final type = catalog.type.trim().toLowerCase();
+              if (type == 'tv' || type == 'series') {
                 seriesCatalog = catalog;
                 break;
               }

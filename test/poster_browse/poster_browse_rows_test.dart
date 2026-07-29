@@ -96,7 +96,7 @@ void main() {
     expect(cardResult.overview, 'plot');
     expect(cardResult.resumePositionSeconds, 1200);
     expect(cardResult.durationSeconds, 6000);
-    expect(cardResult.seriesId, 'series1');
+    expect(cardResult.seriesId, isEmpty);
     expect(cardResult.seasonNumber, 1);
     expect(cardResult.episodeNumber, 7);
     expect(cardResult.numberOfSeasons, 2);
@@ -106,6 +106,43 @@ void main() {
     expect(cardResult.posterWidth, 720);
     expect(cardResult.posterHeight, 1080);
     expect(cardResult.primaryImage.url, '/p.jpg');
+  });
+
+  test('cardFromLibraryItem 隔离媒体库根目录与污染标题', () {
+    final item = MediaLibraryItem(
+      guid: 'episode-3',
+      title: '不灭之焰',
+      tvTitle: '动漫 TV',
+      type: 'Episode',
+      poster: '/episode-still.jpg',
+      releaseDate: '',
+      firstAirDate: '',
+      lastAirDate: '',
+      voteAverage: '8',
+      overview: '',
+      watched: 0,
+      watchedTs: 0,
+      ts: 120,
+      duration: 1380,
+      seasonNumber: 1,
+      episodeNumber: 3,
+      numberOfSeasons: 0,
+      numberOfEpisodes: 0,
+      localNumberOfSeasons: 0,
+      localNumberOfEpisodes: 0,
+      parentGuid: 'season-1',
+      parentTitle: '第 1 季',
+      ancestorGuid: 'library-root',
+      ancestorName: '动漫 TV',
+      path: '',
+    );
+
+    final result = cardFromLibraryItem(item);
+
+    expect(result.id, 'episode-3');
+    expect(result.seriesId, isEmpty);
+    expect(result.secondaryTitle, isEmpty);
+    expect(result.displayTitle, '不灭之焰');
   });
 
   test('cardFromLibraryItem：ts 为 0 时回退 watchedTs', () {
@@ -200,7 +237,7 @@ void main() {
       expect(backend.getCatalogPreviewItemsCallCount, 0);
     });
 
-    test('飞牛使用首个 Series 目录替代最近添加并保留后端标题', () async {
+    test('飞牛使用首个 TV 或 Series 目录替代最近添加并保留后端标题', () async {
       final backend = _FakeMediaBackend(
         kind: MediaBackendKind.feiniu,
         catalogs: const <MediaCatalog>[
@@ -211,9 +248,9 @@ void main() {
             primaryImage: MediaImageRef.empty,
           ),
           MediaCatalog(
-            id: 'series',
+            id: 'anime-tv',
             title: '动漫 TV',
-            type: 'sErIeS',
+            type: 'TV',
             primaryImage: MediaImageRef.empty,
           ),
           MediaCatalog(
@@ -225,7 +262,7 @@ void main() {
         ],
         latestItems: <MediaItemCard>[card('latest-should-not-load')],
         catalogPreviewItems: <String, List<MediaItemCard>>{
-          'series': <MediaItemCard>[card('series-1')],
+          'anime-tv': <MediaItemCard>[card('series-1')],
         },
       );
 
@@ -240,7 +277,7 @@ void main() {
       expect(rows.single.items.single.id, 'series-1');
       expect(backend.getCatalogsCallCount, 1);
       expect(backend.getCatalogPreviewItemsCallCount, 1);
-      expect(backend.requestedCatalogIds, <String>['series']);
+      expect(backend.requestedCatalogIds, <String>['anime-tv']);
       expect(backend.getLatestItemsCallCount, 0);
     });
   });
