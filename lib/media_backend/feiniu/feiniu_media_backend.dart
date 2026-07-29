@@ -165,6 +165,91 @@ class FeiniuMediaBackend implements MediaBackend {
     pageSize: 200,
   );
 
+  String _detailText(Map<String, dynamic> detail, String key) {
+    final direct = (detail[key] ?? '').toString().trim();
+    if (direct.isNotEmpty) return direct;
+    final nested = detail['item'];
+    return nested is Map<String, dynamic>
+        ? (nested[key] ?? '').toString().trim()
+        : '';
+  }
+
+  bool _isValidSeriesId(
+    String candidate, {
+    required String itemId,
+    required String seasonId,
+    required String ancestorId,
+  }) {
+    final value = candidate.trim();
+    return value.isNotEmpty &&
+        value != itemId &&
+        value != seasonId &&
+        value != ancestorId;
+  }
+
+  Future<String> _resolveSeriesId({
+    required String itemId,
+    required PlayItem item,
+    required PlayInfoData? info,
+    required Map<String, dynamic> rawDetail,
+  }) async {
+    final normalizedItemId = itemId.trim();
+    final itemType = item.type.trim();
+    final type = (itemType.isNotEmpty ? itemType : info?.type ?? '')
+        .trim()
+        .toLowerCase();
+    if (type == 'tv' || type == 'series') {
+      final ownId = item.guid.trim();
+      return ownId.isNotEmpty ? ownId : normalizedItemId;
+    }
+    if (type != 'episode') return '';
+
+    final ancestorId = _detailText(rawDetail, 'ancestor_guid');
+    final infoParentId = info?.parentGuid.trim() ?? '';
+    final rawParentId = _detailText(rawDetail, 'parent_guid');
+    final seasonId = infoParentId.isNotEmpty ? infoParentId : rawParentId;
+    final directCandidate = info?.grandGuid.trim() ?? '';
+    if (_isValidSeriesId(
+      directCandidate,
+      itemId: normalizedItemId,
+      seasonId: seasonId,
+      ancestorId: ancestorId,
+    )) {
+      return directCandidate;
+    }
+    if (seasonId.isEmpty ||
+        seasonId == normalizedItemId ||
+        seasonId == ancestorId) {
+      return '';
+    }
+
+    try {
+      final seasonDetail = await api.getItemDetail(seasonId);
+      final parentCandidate = _detailText(seasonDetail, 'parent_guid');
+      final seasonAncestorId = _detailText(seasonDetail, 'ancestor_guid');
+      final effectiveAncestorId = ancestorId.isNotEmpty
+          ? ancestorId
+          : seasonAncestorId;
+      return _isValidSeriesId(
+            parentCandidate,
+            itemId: normalizedItemId,
+            seasonId: seasonId,
+            ancestorId: effectiveAncestorId,
+          )
+          ? parentCandidate
+          : '';
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'resolve feiniu episode series parent',
+        id: itemId,
+        error: error,
+        stackTrace: stackTrace,
+        source: 'feiniu_media_backend',
+      );
+      return '';
+    }
+  }
+
   @override
   Future<MediaDetail> getItemDetail(String itemId) async {
     final rawDetail = await api.getItemDetail(itemId);
@@ -235,10 +320,12 @@ class FeiniuMediaBackend implements MediaBackend {
     final item = rawItem?.guid.trim() == normalizedItemId
         ? rawItem!
         : info?.item ?? rawItem!;
-    final rawSeriesId = (rawDetail['grand_guid'] ?? '').toString().trim();
-    final seriesId = rawSeriesId.isNotEmpty
-        ? rawSeriesId
-        : info?.grandGuid.trim() ?? '';
+    final seriesId = await _resolveSeriesId(
+      itemId: normalizedItemId,
+      item: item,
+      info: info,
+      rawDetail: rawDetail,
+    );
     final networkPosition = info?.ts ?? 0;
     return mapFeiniuPlayItemDetail(
       item,
