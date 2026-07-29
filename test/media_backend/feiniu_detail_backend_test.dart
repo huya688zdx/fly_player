@@ -9,49 +9,62 @@ import 'package:fly_player/models/play_info.dart';
 import 'package:fly_player/providers/nas_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+PlayInfoData _playInfo({
+  required String itemGuid,
+  String type = 'Movie',
+  String grandGuid = 'g',
+  String parentGuid = 'p',
+}) {
+  return PlayInfoData.fromJson(<String, dynamic>{
+    'grand_guid': grandGuid,
+    'type': type,
+    'ts': 0,
+    'media_guid': 'media-$itemGuid',
+    'video_guid': 'video-$itemGuid',
+    'audio_guid': '',
+    'subtitle_guid': '',
+    'parent_guid': parentGuid,
+    'item': <String, dynamic>{
+      'guid': itemGuid,
+      'trim_id': 'tmdb-1',
+      'type': type,
+      'title': type == 'Episode' ? '不灭之焰' : '电影',
+      'genres': <int>[28],
+      'production_countries': <String>['US'],
+      'is_watched': 1,
+      'is_favorite': 0,
+    },
+  });
+}
+
 /// 覆写详情编排所需的方法，使 [FeiniuMediaBackend] 的转发逻辑可在无网络下测试。
 class _FakeFeiniuApi extends FeiniuApi {
   _FakeFeiniuApi(
     super.nas, {
     this.failDictionaries = false,
     this.failingPlayInfoIds = const <String>{},
+    this.playInfos = const <String, PlayInfoData>{},
     this.rawDetails = const <String, Map<String, dynamic>>{},
   });
 
   final bool failDictionaries;
   final Set<String> failingPlayInfoIds;
+  final Map<String, PlayInfoData> playInfos;
   final Map<String, Map<String, dynamic>> rawDetails;
   int personListCalls = 0;
+  final List<String> itemDetailRequests = <String>[];
 
   @override
   Future<PlayInfoData> getPlayInfo(String itemGuid) async {
     if (failingPlayInfoIds.contains(itemGuid)) {
       throw Exception('play info unavailable: $itemGuid');
     }
-    return PlayInfoData.fromJson(<String, dynamic>{
-      'grand_guid': 'g',
-      'type': 'Movie',
-      'ts': 0,
-      'media_guid': 'm',
-      'video_guid': 'v',
-      'audio_guid': 'a',
-      'subtitle_guid': 's',
-      'parent_guid': 'p',
-      'item': <String, dynamic>{
-        'guid': itemGuid,
-        'trim_id': 'tmdb-1',
-        'type': 'Movie',
-        'title': '电影',
-        'genres': <int>[28],
-        'production_countries': <String>['US'],
-        'is_watched': 1,
-        'is_favorite': 0,
-      },
-    });
+    return playInfos[itemGuid] ?? _playInfo(itemGuid: itemGuid);
   }
 
   @override
   Future<Map<String, dynamic>> getItemDetail(String itemGuid) async {
+    itemDetailRequests.add(itemGuid);
     return rawDetails[itemGuid] ?? <String, dynamic>{'imdb_id': 'tt999'};
   }
 
@@ -201,6 +214,79 @@ void main() {
       expect(detail.id, 'item-1');
       expect(detail.genreLabels, <String>['28']);
       expect(detail.regionLabels, <String>['US']);
+    });
+
+    test('单集优先使用有效 grandGuid，忽略原始详情中的根目录 grand_guid', () async {
+      final nas = NasProvider();
+      addTearDown(nas.dispose);
+      final api = _FakeFeiniuApi(
+        nas,
+        playInfos: <String, PlayInfoData>{
+          'episode-3': _playInfo(
+            itemGuid: 'episode-3',
+            type: 'Episode',
+            grandGuid: 'series-real',
+            parentGuid: 'season-1',
+          ),
+        },
+        rawDetails: const <String, Map<String, dynamic>>{
+          'episode-3': <String, dynamic>{
+            'grand_guid': 'library-root',
+            'item': <String, dynamic>{
+              'guid': 'episode-3',
+              'type': 'Episode',
+              'title': '不灭之焰',
+              'parent_guid': 'season-1',
+              'ancestor_guid': 'library-root',
+            },
+          },
+        },
+      );
+
+      final detail = await FeiniuMediaBackend(api).getItemDetail('episode-3');
+
+      expect(detail.seriesId, 'series-real');
+      expect(api.itemDetailRequests, <String>['episode-3']);
+    });
+
+    test('grandGuid 指向根目录时按单集到季到剧集父链解析', () async {
+      final nas = NasProvider();
+      addTearDown(nas.dispose);
+      final api = _FakeFeiniuApi(
+        nas,
+        playInfos: <String, PlayInfoData>{
+          'episode-3': _playInfo(
+            itemGuid: 'episode-3',
+            type: 'Episode',
+            grandGuid: 'library-root',
+            parentGuid: 'season-1',
+          ),
+        },
+        rawDetails: const <String, Map<String, dynamic>>{
+          'episode-3': <String, dynamic>{
+            'item': <String, dynamic>{
+              'guid': 'episode-3',
+              'type': 'Episode',
+              'title': '不灭之焰',
+              'parent_guid': 'season-1',
+              'ancestor_guid': 'library-root',
+            },
+          },
+          'season-1': <String, dynamic>{
+            'item': <String, dynamic>{
+              'guid': 'season-1',
+              'type': 'Season',
+              'parent_guid': 'series-real',
+              'ancestor_guid': 'library-root',
+            },
+          },
+        },
+      );
+
+      final detail = await FeiniuMediaBackend(api).getItemDetail('episode-3');
+
+      expect(detail.seriesId, 'series-real');
+      expect(api.itemDetailRequests, <String>['episode-3', 'season-1']);
     });
 
     test('剧集播放信息不可用时仍从原始 item 详情映射自身素材', () async {
