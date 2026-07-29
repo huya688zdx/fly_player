@@ -160,6 +160,14 @@ void main() {
       <int>[0, 1],
     );
     expect(
+      PosterBrowseArtworkEnricher.windowIndices(
+        center: 0,
+        length: 6,
+        radius: 1,
+      ),
+      <int>[5, 0, 1],
+    );
+    expect(
       PosterBrowseArtworkEnricher.windowIndices(center: 0, length: 0),
       isEmpty,
     );
