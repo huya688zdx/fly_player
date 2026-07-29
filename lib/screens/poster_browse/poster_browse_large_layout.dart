@@ -13,7 +13,7 @@ class PosterBrowseLargeLayout extends StatelessWidget {
   final PosterBrowseDisplayItem Function(MediaItemCard card) displayItemOf;
   final int selectedRow;
   final int focusedIndex;
-  final PosterBrowseDisplayItem focusedItem;
+  final PosterBrowseDisplayItem? focusedItem;
   final MediaImageRequest logoRequest;
   final String secondaryLabel;
   final List<Widget> metaWidgets;
@@ -46,8 +46,7 @@ class PosterBrowseLargeLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final visibleRows = rows.take(2).toList(growable: false);
-    final currentRow = _selectedRowOrNull(visibleRows);
+    final currentRow = _selectedRowOrNull(rows);
     final currentItems = currentRow == null
         ? const <PosterBrowseDisplayItem>[]
         : currentRow.items.map(displayItemOf).toList(growable: false);
@@ -66,36 +65,30 @@ class PosterBrowseLargeLayout extends StatelessWidget {
                   alignment: Alignment.centerLeft,
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 560),
-                    child: PosterBrowseMediaInfo(
-                      item: focusedItem,
-                      logoRequest: logoRequest,
-                      secondaryLabel: secondaryLabel,
-                      metaWidgets: metaWidgets,
-                      compact: false,
-                      onPlay: onPlay,
-                      onDetail: onDetail,
-                    ),
+                    child: focusedItem == null
+                        ? const SizedBox.shrink()
+                        : PosterBrowseMediaInfo(
+                            item: focusedItem!,
+                            logoRequest: logoRequest,
+                            secondaryLabel: secondaryLabel,
+                            metaWidgets: metaWidgets,
+                            compact: false,
+                            onPlay: onPlay,
+                            onDetail: onDetail,
+                          ),
                   ),
                 ),
               ),
             ),
             _RowSelector(
-              rows: visibleRows,
+              rows: rows,
               selectedRow: selectedRow,
               onSelectRow: onSelectRow,
             ),
             const SizedBox(height: 14),
             SizedBox(
               height: 242,
-              child: PosterBrowsePosterTrack(
-                items: currentItems,
-                focusedIndex: focusedIndex,
-                showProgress:
-                    currentRow?.kind == PosterBrowseRowKind.continueWatching,
-                imageOf: imageOf,
-                secondaryLabelOf: secondaryLabelOf,
-                onItemTap: onSelectItem,
-              ),
+              child: _buildTrackArea(context, currentRow, currentItems),
             ),
           ],
         ),
@@ -111,6 +104,40 @@ class PosterBrowseLargeLayout extends StatelessWidget {
       return visibleRows.first;
     }
     return visibleRows[selectedRow];
+  }
+
+  Widget _buildTrackArea(
+    BuildContext context,
+    PosterBrowseRow? currentRow,
+    List<PosterBrowseDisplayItem> currentItems,
+  ) {
+    if (currentItems.isNotEmpty) {
+      return PosterBrowsePosterTrack(
+        items: currentItems,
+        focusedIndex: focusedIndex,
+        showProgress: currentRow?.kind == PosterBrowseRowKind.continueWatching,
+        imageOf: imageOf,
+        secondaryLabelOf: secondaryLabelOf,
+        onItemTap: onSelectItem,
+      );
+    }
+
+    final l10n = AppLocalizations.of(context);
+    return Center(
+      child: switch (currentRow?.loadState) {
+        PosterBrowseRowLoadState.failed => Text(
+          l10n.posterBrowseLoadFailed,
+          style: const TextStyle(color: Colors.white70),
+        ),
+        PosterBrowseRowLoadState.loaded => Text(
+          l10n.posterBrowseCatalogEmpty,
+          style: const TextStyle(color: Colors.white70),
+        ),
+        _ => const CircularProgressIndicator(
+          key: ValueKey('poster_browse_row_loading'),
+        ),
+      },
+    );
   }
 }
 
@@ -149,17 +176,24 @@ class _RowSelector extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
-    return Wrap(
-      spacing: 10,
-      runSpacing: 8,
-      children: [
-        for (var index = 0; index < rows.length; index++)
-          _RowChip(
-            label: _rowLabel(AppLocalizations.of(context), rows[index]),
-            selected: index == selectedRow,
-            onTap: () => onSelectRow(index),
-          ),
-      ],
+    return SizedBox(
+      height: 38,
+      child: SingleChildScrollView(
+        key: const ValueKey('poster_browse_row_selector_scroll'),
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            for (var index = 0; index < rows.length; index++) ...[
+              if (index > 0) const SizedBox(width: 10),
+              _RowChip(
+                label: _rowLabel(AppLocalizations.of(context), rows[index]),
+                selected: index == selectedRow,
+                onTap: () => onSelectRow(index),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 

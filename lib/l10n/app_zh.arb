@@ -211,6 +211,7 @@
   "posterBrowseRowLatest": "最近添加",
   "posterBrowseDetail": "详情",
   "posterBrowseLoadFailed": "加载失败，点按重试",
+  "posterBrowseCatalogEmpty": "此媒体库暂无内容",
   "posterBrowseRowIndicator": "{current} / {total}",
   "@posterBrowseRowIndicator": {
     "placeholders": {

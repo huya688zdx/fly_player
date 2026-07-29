@@ -245,8 +245,11 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
         _displayById
           ..clear()
           ..addAll(displayById);
-        _loading = !hasContinueWatching && firstCatalogIndex >= 0;
+        _loading = false;
         _settledItemId = null;
+        if (!hasContinueWatching && firstCatalogIndex >= 0) {
+          _selection.selectRow(firstCatalogIndex);
+        }
       });
 
       if (hasContinueWatching) {
@@ -260,9 +263,9 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
       }
 
       if (firstCatalogIndex >= 0) {
-        await _ensureCatalogLoaded(firstCatalogIndex, selectWhenReady: true);
-        if (!_isCurrentLoad(generation: generation, loadKey: loadKey)) return;
-        setState(() => _loading = false);
+        unawaited(
+          _ensureCatalogLoaded(firstCatalogIndex, selectWhenReady: true),
+        );
       }
     } catch (error, stackTrace) {
       if (!_isCurrentLoad(generation: generation, loadKey: loadKey)) return;
@@ -618,6 +621,16 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
   void _handleSelectRow(int rowIndex) {
     if (rowIndex < 0 || rowIndex >= _rows.length) return;
     final row = _rows[rowIndex];
+
+    if (row.kind == PosterBrowseRowKind.catalog) {
+      _catalogLoadCoordinator.select(row.catalogId);
+    } else {
+      _catalogLoadCoordinator.clearSelection();
+    }
+    setState(() {
+      _selection.selectRow(rowIndex);
+    });
+
     if (row.items.isEmpty) {
       if (row.kind == PosterBrowseRowKind.catalog &&
           row.loadState != PosterBrowseRowLoadState.loaded) {
@@ -626,18 +639,11 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
       return;
     }
 
-    if (row.kind == PosterBrowseRowKind.catalog) {
-      _catalogLoadCoordinator.select(row.catalogId);
-    } else {
-      _catalogLoadCoordinator.clearSelection();
-    }
-
     final normalized = _normalizeSelection(
       rowIndex: rowIndex,
       itemIndex: _selection.indexForRow(rowIndex),
     );
     if (normalized == null) return;
-    _selection.selectRow(normalized.rowIndex);
     unawaited(
       _settle(rowIndex: normalized.rowIndex, itemIndex: normalized.itemIndex),
     );
@@ -904,14 +910,14 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
             backgroundColor: ambientTint ?? Colors.black,
             body: _loading
                 ? const Center(child: CircularProgressIndicator())
-                : focusedItem == null
+                : _rows.isEmpty
                 ? _buildError(l10n)
                 : _buildLoadedBody(
                     context: context,
                     ambientTint: ambientTint,
                     resolver: resolver,
                     focusedItem: focusedItem,
-                    settledItem: settledItem ?? focusedItem,
+                    settledItem: settledItem,
                     background: background,
                     backgroundSpec: backgroundSpec,
                   ),
@@ -925,16 +931,22 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
     required BuildContext context,
     required Color? ambientTint,
     required DetailArtworkResolver resolver,
-    required PosterBrowseDisplayItem focusedItem,
-    required PosterBrowseDisplayItem settledItem,
+    required PosterBrowseDisplayItem? focusedItem,
+    required PosterBrowseDisplayItem? settledItem,
     required MediaImageRequest background,
     required PosterBrowseBackgroundSpec backgroundSpec,
   }) {
     final l10n = AppLocalizations.of(context);
     final presenter = PosterBrowseTextPresenter(l10n: l10n);
-    final secondaryLabel = presenter.secondaryLabel(focusedItem);
-    final metaWidgets = _buildMetaWidgets(presenter.metaTexts(focusedItem));
-    final logoRequest = _logoRequestOf(resolver, focusedItem);
+    final secondaryLabel = focusedItem == null
+        ? ''
+        : presenter.secondaryLabel(focusedItem);
+    final metaWidgets = focusedItem == null
+        ? const <Widget>[]
+        : _buildMetaWidgets(presenter.metaTexts(focusedItem));
+    final logoRequest = focusedItem == null
+        ? MediaImageRequest.empty
+        : _logoRequestOf(resolver, focusedItem);
     final selectedRow = clampPosterBrowseIndex(
       _selection.selectedRow,
       _rows.length,
@@ -950,7 +962,9 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
         AnimatedSwitcher(
           duration: const Duration(milliseconds: 350),
           child: KeyedSubtree(
-            key: ValueKey<String>(settledItem.card.id),
+            key: ValueKey<String>(
+              settledItem?.card.id ?? 'poster_browse_empty',
+            ),
             child: background.isNotEmpty
                 ? _buildBackdropImage(background, backgroundSpec)
                 : SizedBox.expand(
@@ -1003,8 +1017,12 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
                 onSelectRow: _handleSelectRow,
                 onSelectItem: _handleMobileSettled,
                 onCenteredTap: _handleCenteredTap,
-                onPlay: () => unawaited(_play(focusedItem)),
-                onDetail: () => unawaited(_openDetail(focusedItem)),
+                onPlay: focusedItem == null
+                    ? () {}
+                    : () => unawaited(_play(focusedItem)),
+                onDetail: focusedItem == null
+                    ? () {}
+                    : () => unawaited(_openDetail(focusedItem)),
                 onBack: () => unawaited(_handleBack()),
               )
             : PosterBrowseLargeLayout(
@@ -1020,8 +1038,12 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
                 secondaryLabelOf: presenter.secondaryLabel,
                 onSelectRow: _handleSelectRow,
                 onSelectItem: _handleLargeSelectItem,
-                onPlay: () => unawaited(_play(focusedItem)),
-                onDetail: () => unawaited(_openDetail(focusedItem)),
+                onPlay: focusedItem == null
+                    ? () {}
+                    : () => unawaited(_play(focusedItem)),
+                onDetail: focusedItem == null
+                    ? () {}
+                    : () => unawaited(_openDetail(focusedItem)),
                 onBack: () => unawaited(_handleBack()),
               ),
       ],
