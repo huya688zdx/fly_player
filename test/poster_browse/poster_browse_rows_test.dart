@@ -28,7 +28,11 @@ MediaItemCard card(String id) => MediaItemCard(
   primaryImage: MediaImageRef.empty,
 );
 
-FeiniuApi standaloneApi() => _FakeFeiniuApi(NasProvider());
+FeiniuApi standaloneApi() {
+  final nas = NasProvider();
+  addTearDown(nas.dispose);
+  return _FakeFeiniuApi(nas);
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -440,7 +444,6 @@ class _FakeMediaBackend extends MediaBackend {
     this.kind = MediaBackendKind.emby,
     this.catalogs = const <MediaCatalog>[],
     this.continueWatching = const <MediaItemCard>[],
-    this.latestItems = const <MediaItemCard>[],
     this.catalogPreviewItems = const <String, List<MediaItemCard>>{},
     this.throwCatalogs = false,
     this.throwContinueWatching = false,
@@ -449,7 +452,6 @@ class _FakeMediaBackend extends MediaBackend {
   final MediaBackendKind kind;
   final List<MediaCatalog> catalogs;
   final List<MediaItemCard> continueWatching;
-  final List<MediaItemCard> latestItems;
   final Map<String, List<MediaItemCard>> catalogPreviewItems;
   final bool throwCatalogs;
   final bool throwContinueWatching;
@@ -502,7 +504,7 @@ class _FakeMediaBackend extends MediaBackend {
   @override
   Future<List<MediaItemCard>> getLatestItems({int limit = 20}) async {
     getLatestItemsCallCount += 1;
-    return latestItems;
+    return const <MediaItemCard>[];
   }
 
   @override
