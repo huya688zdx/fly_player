@@ -49,4 +49,22 @@ void main() {
       contains('onRetryCurrentRow: () => _handleSelectRow(selectedRow)'),
     );
   });
+
+  test('目录索引重试只刷新目录元数据并用全部目录替换占位', () {
+    expect(source, contains('Future<void> _reloadCatalogsRow('));
+    expect(source, contains('loadCatalogs(backend)'));
+    expect(source, contains('replacePosterBrowseCatalogIndexRow('));
+    expect(source, contains('if (decision.reloadCatalogs)'));
+    expect(
+      source,
+      contains('_ensureCatalogLoaded(rowIndex, selectWhenReady: shouldSelect)'),
+    );
+  });
+
+  test('动态主题页键使用身份校验后的 settled item', () {
+    expect(
+      source,
+      contains("pageKey: settledItem?.card.id ?? 'poster_browse_empty'"),
+    );
+  });
 }

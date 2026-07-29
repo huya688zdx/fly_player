@@ -2,7 +2,7 @@ import '../../media_backend/media_catalog.dart';
 import '../../media_backend/media_item_card.dart';
 
 /// 大屏海报浏览页的一行分类；行标题由 UI 按 [kind] 或目录元数据处理。
-enum PosterBrowseRowKind { continueWatching, latest, catalog }
+enum PosterBrowseRowKind { continueWatching, latest, catalog, catalogIndex }
 
 /// 目录行的按需加载状态。
 enum PosterBrowseRowLoadState { idle, loading, loaded, failed }
@@ -41,6 +41,7 @@ class PosterBrowseRow {
 List<PosterBrowseRow> buildPosterBrowseRows({
   required List<MediaItemCard> continueWatching,
   required List<MediaCatalog> catalogs,
+  bool catalogsLoadFailed = false,
 }) {
   return <PosterBrowseRow>[
     if (continueWatching.isNotEmpty)
@@ -48,6 +49,31 @@ List<PosterBrowseRow> buildPosterBrowseRows({
         kind: PosterBrowseRowKind.continueWatching,
         items: continueWatching,
       ),
+    ..._catalogRows(catalogs),
+    if (catalogsLoadFailed)
+      const PosterBrowseRow(
+        kind: PosterBrowseRowKind.catalogIndex,
+        items: <MediaItemCard>[],
+        loadState: PosterBrowseRowLoadState.failed,
+      ),
+  ];
+}
+
+List<PosterBrowseRow> replacePosterBrowseCatalogIndexRow({
+  required List<PosterBrowseRow> rows,
+  required int rowIndex,
+  required List<MediaCatalog> catalogs,
+}) {
+  assert(rowIndex >= 0 && rowIndex < rows.length);
+  assert(rows[rowIndex].kind == PosterBrowseRowKind.catalogIndex);
+  final result = List<PosterBrowseRow>.of(rows)
+    ..removeAt(rowIndex)
+    ..insertAll(rowIndex, _catalogRows(catalogs));
+  return List<PosterBrowseRow>.unmodifiable(result);
+}
+
+List<PosterBrowseRow> _catalogRows(List<MediaCatalog> catalogs) {
+  return <PosterBrowseRow>[
     for (final catalog in catalogs)
       PosterBrowseRow(
         kind: PosterBrowseRowKind.catalog,

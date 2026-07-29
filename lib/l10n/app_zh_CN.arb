@@ -210,6 +210,7 @@
   "posterBrowseEntryTooltip": "大屏浏览",
   "posterBrowseRowContinue": "继续观看",
   "posterBrowseRowLatest": "最近添加",
+  "posterBrowseRowCatalogs": "媒体库",
   "posterBrowseDetail": "详情",
   "posterBrowseLoadFailed": "加载失败，点按重试",
   "posterBrowseCatalogEmpty": "此媒体库暂无内容",

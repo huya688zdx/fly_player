@@ -395,6 +395,77 @@ void main() {
     expect(find.text('详情'), findsNothing);
     expect(tester.takeException(), isNull);
   });
+  testWidgets('手机目录索引失败行显示媒体库标签与重试按钮', (tester) async {
+    var retryCount = 0;
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      _localizedApp(
+        _layout(
+          rows: const <PosterBrowseRow>[
+            PosterBrowseRow(
+              kind: PosterBrowseRowKind.continueWatching,
+              items: <MediaItemCard>[],
+            ),
+            PosterBrowseRow(
+              kind: PosterBrowseRowKind.catalogIndex,
+              items: <MediaItemCard>[],
+              loadState: PosterBrowseRowLoadState.failed,
+            ),
+          ],
+          selectedRow: 1,
+          focusedItem: null,
+          onRetryCurrentRow: () => retryCount += 1,
+        ),
+      ),
+    );
+
+    expect(find.text('媒体库'), findsOneWidget);
+    expect(find.text('加载失败，点按重试'), findsOneWidget);
+    await tester.tap(find.text('加载失败，点按重试'));
+    expect(retryCount, 1);
+  });
+
+  testWidgets('手机分类短标题触控区域宽高至少 48', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      _localizedApp(
+        _layout(
+          rows: const <PosterBrowseRow>[
+            PosterBrowseRow(
+              kind: PosterBrowseRowKind.continueWatching,
+              items: <MediaItemCard>[],
+            ),
+            PosterBrowseRow(
+              kind: PosterBrowseRowKind.catalog,
+              title: '剧',
+              items: <MediaItemCard>[],
+            ),
+          ],
+          selectedRow: 1,
+          focusedItem: null,
+        ),
+      ),
+    );
+
+    final button = find.ancestor(
+      of: find.text('剧'),
+      matching: find.byType(InkWell),
+    );
+    expect(tester.getSize(button).width, greaterThanOrEqualTo(48));
+    expect(tester.getSize(button).height, greaterThanOrEqualTo(48));
+    expect(
+      tester
+          .getSemantics(find.bySemanticsLabel('剧'))
+          .getSemanticsData()
+          .flagsCollection
+          .isButton,
+      isTrue,
+    );
+  });
 }
 
 PosterBrowseMobileLayout _layout({
