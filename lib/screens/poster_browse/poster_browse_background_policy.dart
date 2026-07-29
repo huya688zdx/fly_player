@@ -28,14 +28,16 @@ abstract final class PosterBrowseBackgroundPolicy {
   }) {
     final dpr = devicePixelRatio.clamp(1.0, 3.0);
     final isPhone = PosterBrowseDeviceProfile.isPhone(logicalSize);
-    final usePosterImages = isPhone && logicalSize.width > logicalSize.height;
 
-    if (usePosterImages) {
-      final width = ((logicalSize.height / 1.5) * dpr).round().clamp(360, 720);
+    if (isPhone) {
+      final isLandscape = logicalSize.width > logicalSize.height;
+      final width = isLandscape
+          ? ((logicalSize.height / 1.5) * dpr).round().clamp(360, 720)
+          : (logicalSize.width * dpr).round().clamp(360, 960);
       return PosterBrowseBackgroundSpec(
         usePosterImages: true,
         fit: BoxFit.contain,
-        alignment: Alignment.centerRight,
+        alignment: isLandscape ? Alignment.centerRight : Alignment.topCenter,
         requestWidth: width,
         cacheWidth: width,
         prefetchRadius: 1,
