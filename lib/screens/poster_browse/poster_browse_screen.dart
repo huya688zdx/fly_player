@@ -11,6 +11,7 @@ import '../../l10n/generated/app_localizations.dart';
 import '../../media_backend/media_backend.dart';
 import '../../media_backend/media_item_card.dart';
 import '../../providers/app_theme_provider.dart';
+import '../../providers/backend_session_provider.dart';
 import '../../providers/media_backend_provider.dart';
 import '../../providers/nas_provider.dart';
 import '../../services/native_playback_reentry.dart';
@@ -25,6 +26,7 @@ import '../../utils/swallowed_error_logger.dart';
 import '../../widgets/detail/dynamic_page_theme_scope.dart';
 import '../play_detail_screen.dart';
 import 'poster_browse_artwork_enricher.dart';
+import 'poster_browse_artwork_prewarmer.dart';
 import 'poster_browse_background_policy.dart';
 import 'poster_browse_catalog_load_coordinator.dart';
 import 'poster_browse_catalog_session.dart';
@@ -39,18 +41,9 @@ import 'poster_browse_orientation_controller.dart';
 import 'poster_browse_row_artwork_warmup.dart';
 import 'poster_browse_rows.dart';
 import 'poster_browse_screen_policy.dart';
+import 'poster_browse_session_key.dart';
 import 'poster_browse_selection_state.dart';
 import 'poster_browse_text_presenter.dart';
-
-/// 海报浏览页的会话边界。token 只取内存 hash，避免把原文带入日志或诊断输出。
-@visibleForTesting
-String buildPosterBrowseSessionKey({
-  required Object backendKind,
-  required String baseUrl,
-  required String token,
-}) {
-  return '${backendKind.toString()}|${baseUrl.trim()}|${token.hashCode}';
-}
 
 @visibleForTesting
 int clampPosterBrowseIndex(int index, int length) {
@@ -94,7 +87,7 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
   int _focusGeneration = 0;
   int _loadGeneration = 0;
   bool _loading = true;
-  bool? _isPhone;
+  bool _immersiveModeEntered = false;
   MediaBackend? _backend;
   PosterBrowseCatalogSession? _catalogSession;
   PosterBrowseArtworkEnricher? _enricher;
@@ -113,20 +106,21 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
 
-    final isPhone = PosterBrowseDeviceProfile.isPhone(
-      MediaQuery.sizeOf(context),
-    );
-    if (_isPhone != isPhone) {
-      _isPhone = isPhone;
-      unawaited(_enterImmersiveMode(isPhone: isPhone));
+    if (!_immersiveModeEntered) {
+      _immersiveModeEntered = true;
+      unawaited(_enterImmersiveMode());
     }
 
     final backend = Provider.of<MediaBackendProvider>(context).backend;
     final nas = Provider.of<NasProvider>(context);
-    final nextLoadKey = buildPosterBrowseSessionKey(
+    final backendSession = Provider.of<BackendSessionProvider>(context);
+    final connection = backendSession.currentConnection;
+    final nextLoadKey = buildPosterBrowseBackendSessionKey(
       backendKind: backend.capabilities.kind,
-      baseUrl: nas.baseUrl,
-      token: nas.token,
+      nasBaseUrl: nas.baseUrl,
+      nasToken: nas.token,
+      serverBaseUrl: connection?.serverUrl ?? '',
+      serverToken: connection?.accessToken ?? '',
     );
     if (identical(_backend, backend) && _loadKey == nextLoadKey) return;
 
@@ -163,9 +157,9 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
     super.dispose();
   }
 
-  Future<void> _enterImmersiveMode({required bool isPhone}) async {
+  Future<void> _enterImmersiveMode() async {
     try {
-      await _orientationController.enter(isPhone: isPhone);
+      await _orientationController.enter();
     } catch (error, stackTrace) {
       await logSwallowedError(
         action: 'poster browse enter immersive mode',
@@ -225,7 +219,17 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
       final displayById = <String, PosterBrowseDisplayItem>{};
       for (final row in rows) {
         for (final card in row.items) {
-          displayById[card.id] = _displayBuilder.build(card: card);
+          final prewarmed = PosterBrowseArtworkPrewarmCache.shared.peek(
+            sessionKey: loadKey,
+            itemId: card.id,
+          );
+          displayById[card.id] = _displayBuilder.build(
+            card: card,
+            itemDetail: prewarmed?.itemDetail,
+            seriesDetail: prewarmed?.seriesDetail,
+            season: prewarmed?.season,
+            resolvedSeriesId: prewarmed?.resolvedSeriesId ?? '',
+          );
         }
       }
 
@@ -550,7 +554,8 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
 
     await const PosterBrowseRowArtworkWarmup(maxConcurrent: 2).run(
       items: row.items,
-      load: enricher.enrich,
+      load: (card) =>
+          _loadEnrichment(enricher: enricher, card: card, loadKey: loadKey),
       isActive: isActive,
       onLoaded: (card, enrichment) {
         if (!isActive()) return;
@@ -575,6 +580,18 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
         );
       },
     );
+  }
+
+  Future<PosterBrowseEnrichment> _loadEnrichment({
+    required PosterBrowseArtworkEnricher enricher,
+    required MediaItemCard card,
+    required String loadKey,
+  }) {
+    return PosterBrowseArtworkPrewarmCache.shared.futureFor(
+          sessionKey: loadKey,
+          itemId: card.id,
+        ) ??
+        enricher.enrich(card);
   }
 
   PosterBrowseDisplayItem? get _focusedItem {
@@ -649,7 +666,11 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
     }
 
     try {
-      final enrichment = await enricher.enrich(card);
+      final enrichment = await _loadEnrichment(
+        enricher: enricher,
+        card: card,
+        loadKey: loadKey,
+      );
       if (!mounted || loadKey != _loadKey) return;
 
       final enrichedDisplay = _displayBuilder.build(
@@ -863,10 +884,14 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
   Future<void> _retryLoad() async {
     final backend = context.read<MediaBackendProvider>().backend;
     final nas = context.read<NasProvider>();
-    final loadKey = buildPosterBrowseSessionKey(
+    final backendSession = context.read<BackendSessionProvider>();
+    final connection = backendSession.currentConnection;
+    final loadKey = buildPosterBrowseBackendSessionKey(
       backendKind: backend.capabilities.kind,
-      baseUrl: nas.baseUrl,
-      token: nas.token,
+      nasBaseUrl: nas.baseUrl,
+      nasToken: nas.token,
+      serverBaseUrl: connection?.serverUrl ?? '',
+      serverToken: connection?.accessToken ?? '',
     );
     _backend = backend;
     _loadKey = loadKey;
@@ -933,7 +958,7 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
     } finally {
       if (orientationRestored) {
         if (mounted) {
-          await _enterImmersiveMode(isPhone: _isPhone ?? true);
+          await _enterImmersiveMode();
         } else {
           await _restoreOrientation();
         }
@@ -1120,9 +1145,9 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
       _rows.length,
     );
     final focusedIndex = _focusedIndexForRow(selectedRow);
-    final isPhone =
-        _isPhone ??
-        PosterBrowseDeviceProfile.isPhone(MediaQuery.sizeOf(context));
+    final useMobileLayout = PosterBrowseWindowProfile.useMobileLayout(
+      MediaQuery.sizeOf(context),
+    );
 
     return Stack(
       fit: StackFit.expand,
@@ -1170,7 +1195,7 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
             ),
           ),
         ),
-        isPhone
+        useMobileLayout
             ? PosterBrowseMobileLayout(
                 rows: _rows,
                 displayItemOf: _displayItemOf,

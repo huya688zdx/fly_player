@@ -48,6 +48,10 @@ import 'category_items_screen.dart';
 import 'favorite_items_screen.dart';
 import 'person_detail_screen.dart';
 import 'play_detail_screen.dart';
+import 'poster_browse/poster_browse_artwork_enricher.dart';
+import 'poster_browse/poster_browse_artwork_prewarmer.dart';
+import 'poster_browse/poster_browse_loader.dart';
+import 'poster_browse/poster_browse_session_key.dart';
 import 'search_screen.dart';
 
 part 'media_list_screen_actions.dart';
@@ -104,6 +108,7 @@ class _MediaListScreenState extends State<MediaListScreen>
   // 仅当用户从本页打开过条目(可能已播放)后,回前台才刷新一次「继续观看」。避免每次 resume
   // 都拉取(用户要求:考虑性能、不要实时刷新)。打开条目时置位,刷新后清零。
   bool _pendingContinueWatchingRefresh = false;
+  int _posterBrowsePrewarmGeneration = 0;
 
   int get _continueLimit =>
       widget.secondaryHost ? _secondaryContinueLimit : _fallbackContinueLimit;
@@ -135,6 +140,7 @@ class _MediaListScreenState extends State<MediaListScreen>
 
   @override
   void dispose() {
+    _posterBrowsePrewarmGeneration += 1;
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -164,6 +170,7 @@ class _MediaListScreenState extends State<MediaListScreen>
         session.currentKind.isServerFamily && session.isConfigured;
     if (!serverReady && !provider.isConfigured) {
       _lastLoadKey = '';
+      _posterBrowsePrewarmGeneration += 1;
       _categories = <MediaItem>[];
       _itemsByCategory = <String, List<MediaLibraryItem>>{};
       _continueWatching = <MediaLibraryItem>[];
@@ -182,6 +189,7 @@ class _MediaListScreenState extends State<MediaListScreen>
         ? '${session.currentKind.name}|${connection?.serverUrl ?? ''}|${connection?.accessToken ?? ''}'
         : '${provider.baseUrl}|${provider.token}';
     if (loadKey != _lastLoadKey) {
+      _posterBrowsePrewarmGeneration += 1;
       _lastLoadKey = loadKey;
       if (serverReady) {
         // 服务器族首页不读飞牛 HomeDataCache，避免跨后端串内容。
@@ -457,6 +465,14 @@ class _MediaListScreenState extends State<MediaListScreen>
         _error = null;
       });
 
+      unawaited(
+        _prewarmPosterBrowseArtwork(
+          backend: backend,
+          nas: provider,
+          items: continueWatching,
+        ),
+      );
+
       // Persist to cache锛堜粎椋炵墰锛欻omeDataCache 鏄鐗涙€佺紦瀛橈紝Emby 鏁版嵁涓嶅啓鍏ラ伩鍏嶈法鍚庣涓插唴瀹癸級銆?
       if (backend.capabilities.kind == MediaBackendKind.feiniu) {
         unawaited(
@@ -603,6 +619,14 @@ class _MediaListScreenState extends State<MediaListScreen>
         });
       }
 
+      unawaited(
+        _prewarmPosterBrowseArtwork(
+          backend: backend,
+          nas: provider,
+          items: continueWatching,
+        ),
+      );
+
       // Always update cache with fresh data.
       unawaited(
         HomeDataCache.save(
@@ -671,9 +695,49 @@ class _MediaListScreenState extends State<MediaListScreen>
           _continueWatching = continueWatching;
         }
       });
+      unawaited(
+        _prewarmPosterBrowseArtwork(
+          backend: backend,
+          nas: provider,
+          items: continueWatching,
+        ),
+      );
     } catch (error) {
       debugPrint('[UI][HOME] continue watching refresh failed $error');
     }
+  }
+
+  Future<void> _prewarmPosterBrowseArtwork({
+    required MediaBackend backend,
+    required NasProvider nas,
+    required List<MediaLibraryItem> items,
+  }) async {
+    if (items.isEmpty) return;
+    final backendSession = context.read<BackendSessionProvider>();
+    final connection = backendSession.currentConnection;
+    final sessionKey = buildPosterBrowseBackendSessionKey(
+      backendKind: backend.capabilities.kind,
+      nasBaseUrl: nas.baseUrl,
+      nasToken: nas.token,
+      serverBaseUrl: connection?.serverUrl ?? '',
+      serverToken: connection?.accessToken ?? '',
+    );
+    final generation = _posterBrowsePrewarmGeneration + 1;
+    _posterBrowsePrewarmGeneration = generation;
+    final enricher = PosterBrowseArtworkEnricher(
+      backend: backend,
+      sessionKey: sessionKey,
+      maxEntries: 4,
+    );
+
+    await PosterBrowseArtworkPrewarmCache.shared.warmFirst(
+      sessionKey: sessionKey,
+      items: items.map(cardFromLibraryItem).toList(growable: false),
+      limit: 4,
+      maxConcurrent: 1,
+      load: enricher.enrich,
+      isActive: () => mounted && generation == _posterBrowsePrewarmGeneration,
+    );
   }
 
   void _showHomeSnackBar(String message, {Color? backgroundColor}) {
