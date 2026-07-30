@@ -11,6 +11,7 @@ void main() {
 
     expect(spec.usePosterImages, isFalse);
     expect(spec.fit, BoxFit.cover);
+    expect(spec.useCoverUnderlay, isFalse);
     expect(spec.alignment, Alignment.center);
     expect(spec.requestWidth, 1440);
     expect(spec.cacheWidth, 1440);
@@ -25,6 +26,7 @@ void main() {
 
     expect(spec.usePosterImages, isTrue);
     expect(spec.fit, BoxFit.contain);
+    expect(spec.useCoverUnderlay, isTrue);
     expect(spec.alignment, Alignment.topCenter);
     expect(spec.requestWidth, 960);
     expect(spec.cacheWidth, 960);
@@ -39,6 +41,7 @@ void main() {
 
     expect(spec.usePosterImages, isFalse);
     expect(spec.fit, BoxFit.cover);
+    expect(spec.useCoverUnderlay, isFalse);
     expect(spec.alignment, Alignment.center);
     expect(spec.requestWidth, 1440);
     expect(spec.cacheWidth, 1440);
@@ -53,6 +56,7 @@ void main() {
 
     expect(spec.usePosterImages, isTrue);
     expect(spec.fit, BoxFit.contain);
+    expect(spec.useCoverUnderlay, isTrue);
     expect(spec.alignment, Alignment.topCenter);
     expect(spec.requestWidth, 960);
     expect(spec.cacheWidth, 960);
