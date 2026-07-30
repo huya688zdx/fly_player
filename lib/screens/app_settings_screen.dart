@@ -10,6 +10,7 @@ import '../providers/app_locale_provider.dart';
 import '../providers/app_theme_provider.dart';
 import '../providers/nas_provider.dart';
 import '../providers/parallel_window_settings_provider.dart';
+import '../providers/startup_preferences_provider.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../services/fn_connect_web_session_service.dart';
 import '../theme/app_theme.dart';
@@ -29,6 +30,30 @@ class AppSettingsScreen extends StatelessWidget {
   final bool secondaryHost;
 
   const AppSettingsScreen({super.key, this.secondaryHost = false});
+
+  Future<void> _setStartupPosterHome(
+    BuildContext context,
+    StartupPreferencesProvider preferences,
+    bool value,
+  ) async {
+    try {
+      await preferences.setOpenPosterHomeOnStartup(value);
+    } catch (error, stackTrace) {
+      await AppErrorReporter.report(
+        error,
+        action: 'save startup poster home preference',
+        source: 'app_settings_screen',
+        stackTrace: stackTrace,
+        fallbackKind: AppExceptionKind.transient,
+      );
+      if (!context.mounted) return;
+      AppTopTip().show(
+        context,
+        message: AppLocalizations.of(context).commonOperationFailedRetryLater,
+        color: context.appColors.danger,
+      );
+    }
+  }
 
   Future<void> _openSettingsDestination(
     BuildContext context,
@@ -191,6 +216,14 @@ class AppSettingsScreen extends StatelessWidget {
   ) {
     final l10n = AppLocalizations.of(context);
     final entries = <SettingsSearchEntry>[
+      SettingsSearchEntry(
+        id: 'startup_poster_home',
+        title: l10n.settingsStartupPosterHomeTitle,
+        subtitle: l10n.settingsStartupPosterHomeSubtitle,
+        location: l10n.settingsLocationRoot,
+        keywords: _keywords(l10n.settingsStartupPosterHomeKeywords),
+        onSelect: () async {},
+      ),
       SettingsSearchEntry(
         id: 'theme_settings',
         title: l10n.settingsThemeTitle,
@@ -526,6 +559,7 @@ class AppSettingsScreen extends StatelessWidget {
     final localeProvider = context.watch<AppLocaleProvider>();
     final themeProvider = context.watch<AppThemeProvider>();
     final parallelSettings = context.watch<ParallelWindowSettingsProvider>();
+    final startupPreferences = context.watch<StartupPreferencesProvider>();
     final media = MediaQuery.of(context);
     final compact = media.size.width < 720;
     final titleSize = AdaptiveText.roleSize(
@@ -642,6 +676,24 @@ class AppSettingsScreen extends StatelessWidget {
                                   onTap: () {
                                     unawaited(_openLanguageSheet(context));
                                   },
+                                ),
+                                const _SettingsGroupDivider(),
+                                _SettingsSwitchTile(
+                                  icon: Icons.slideshow_rounded,
+                                  title: l10n.settingsStartupPosterHomeTitle,
+                                  subtitle:
+                                      l10n.settingsStartupPosterHomeSubtitle,
+                                  value: startupPreferences
+                                      .openPosterHomeOnStartup,
+                                  onChanged: startupPreferences.isReady
+                                      ? (value) => unawaited(
+                                          _setStartupPosterHome(
+                                            context,
+                                            startupPreferences,
+                                            value,
+                                          ),
+                                        )
+                                      : null,
                                 ),
                                 const _SettingsGroupDivider(),
                                 _SettingsEntryTile(
@@ -913,6 +965,77 @@ class _SettingsEntryTile extends StatelessWidget {
               Icons.chevron_right_rounded,
               color: colors.textMuted,
               size: 24,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsSwitchTile extends StatelessWidget {
+  const _SettingsSwitchTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return InkWell(
+      onTap: onChanged == null ? null : () => onChanged!(!value),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+        child: Row(
+          children: <Widget>[
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: colors.surfaceSubtle,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              alignment: Alignment.center,
+              child: Icon(icon, color: colors.textPrimary, size: 22),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: colors.textPrimary,
+                      fontSize: AdaptiveText.roleSize(16),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: colors.textSecondary,
+                      fontSize: AdaptiveText.roleSize(13.2),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Switch.adaptive(
+              key: const ValueKey<String>('startup_poster_home_switch'),
+              value: value,
+              onChanged: onChanged,
             ),
           ],
         ),

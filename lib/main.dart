@@ -18,6 +18,7 @@ import 'providers/backend_session_provider.dart';
 import 'providers/media_backend_provider.dart';
 import 'providers/nas_provider.dart';
 import 'providers/parallel_window_settings_provider.dart';
+import 'providers/startup_preferences_provider.dart';
 import 'screens/app_settings_screen.dart';
 import 'screens/category_items_screen.dart';
 import 'screens/connection_screen.dart';
@@ -48,6 +49,7 @@ import 'utils/private_network_http_overrides.dart';
 import 'utils/route_query_json.dart';
 import 'utils/app_exception.dart';
 import 'widgets/common/app_error_state.dart';
+import 'widgets/startup_destination_gate.dart';
 
 void main() {
   runZonedGuarded(
@@ -378,6 +380,7 @@ class FlyPlayerApp extends StatelessWidget {
               previous ?? MediaBackendProvider(nas, session),
         ),
         ChangeNotifierProvider(create: (_) => ParallelWindowSettingsProvider()),
+        ChangeNotifierProvider(create: (_) => StartupPreferencesProvider()),
         ChangeNotifierProvider(create: (_) => AppThemeProvider()),
         ChangeNotifierProvider(create: (_) => AppLocaleProvider()),
       ],
@@ -658,7 +661,15 @@ class AppEntry extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _ProviderGate(child: MainNavigation(initialTab: initialTab));
+    final nas = context.watch<NasProvider>();
+    final session = context.watch<BackendSessionProvider>();
+    final serverFamilyReady =
+        session.currentKind.isServerFamily && session.isConfigured;
+    return StartupDestinationGate(
+      decisionReady: nas.isReady && session.isReady,
+      canOpenDestination: nas.isConfigured || serverFamilyReady,
+      child: _ProviderGate(child: MainNavigation(initialTab: initialTab)),
+    );
   }
 }
 
