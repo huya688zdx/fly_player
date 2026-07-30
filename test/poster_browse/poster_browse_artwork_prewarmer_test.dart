@@ -8,6 +8,32 @@ import 'package:fly_player/screens/poster_browse/poster_browse_artwork_enricher.
 import 'package:fly_player/screens/poster_browse/poster_browse_artwork_prewarmer.dart';
 
 void main() {
+  test('首屏循环列表优先预热中心、左邻和右邻，包含末尾卡片', () async {
+    final started = <String>[];
+
+    await PosterBrowseArtworkPrewarmCache(maxEntries: 8).warmFirst(
+      sessionKey: 'session-a',
+      items: <MediaItemCard>[
+        _card('a'),
+        _card('b'),
+        _card('c'),
+        _card('d'),
+        _card('e'),
+        _card('f'),
+      ],
+      centerIndex: 0,
+      limit: 4,
+      maxConcurrent: 1,
+      load: (card) async {
+        started.add(card.id);
+        return _success(card.id);
+      },
+      isActive: () => true,
+    );
+
+    expect(started, <String>['a', 'f', 'b', 'e']);
+  });
+
   test('只按单并发预热前四项，失败不阻断后续条目', () async {
     final completers = <String, Completer<PosterBrowseEnrichment>>{};
     final started = <String>[];
