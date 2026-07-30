@@ -11,6 +11,7 @@ class PosterBrowseBackgroundSpec {
     required this.requestWidth,
     required this.cacheWidth,
     required this.prefetchRadius,
+    required this.useCoverUnderlay,
   });
 
   final bool usePosterImages;
@@ -19,6 +20,7 @@ class PosterBrowseBackgroundSpec {
   final int requestWidth;
   final int cacheWidth;
   final int prefetchRadius;
+  final bool useCoverUnderlay;
 }
 
 abstract final class PosterBrowseBackgroundPolicy {
@@ -40,6 +42,7 @@ abstract final class PosterBrowseBackgroundPolicy {
         requestWidth: width,
         cacheWidth: width,
         prefetchRadius: 1,
+        useCoverUnderlay: true,
       );
     }
 
@@ -51,6 +54,7 @@ abstract final class PosterBrowseBackgroundPolicy {
       requestWidth: width,
       cacheWidth: width,
       prefetchRadius: 2,
+      useCoverUnderlay: false,
     );
   }
 }

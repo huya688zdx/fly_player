@@ -766,7 +766,16 @@ class _MediaListScreenState extends State<MediaListScreen>
     required NasProvider nas,
     required List<MediaItemCard> cards,
   }) async {
-    if (cards.isEmpty) return;
+    if (cards.isEmpty || !mounted) return;
+    final size = MediaQuery.sizeOf(context);
+    final visibleCount = PosterBrowseInitialArtworkPolicy.visibleCountFor(
+      width: size.width,
+      height: size.height,
+    );
+    final centerIndex = PosterBrowseInitialArtworkPolicy.centerIndexFor(
+      width: size.width,
+      height: size.height,
+    );
     final backendSession = context.read<BackendSessionProvider>();
     final connection = backendSession.currentConnection;
     final sessionKey = buildPosterBrowseBackendSessionKey(
@@ -787,8 +796,8 @@ class _MediaListScreenState extends State<MediaListScreen>
     await PosterBrowseArtworkPrewarmCache.shared.warmFirst(
       sessionKey: sessionKey,
       items: cards,
-      centerIndex: 0,
-      limit: 4,
+      centerIndex: centerIndex,
+      limit: visibleCount,
       maxConcurrent: 1,
       load: enricher.enrich,
       isActive: () => mounted && generation == _posterBrowsePrewarmGeneration,
