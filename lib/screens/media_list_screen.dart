@@ -326,15 +326,21 @@ class _MediaListScreenState extends State<MediaListScreen>
     FeiniuApi api,
     DetailArtworkResolver resolver, {
     bool forceRefresh = false,
+    ValueChanged<List<MediaItemCard>>? onCardsLoaded,
   }) async {
     if (backend.capabilities.kind == MediaBackendKind.feiniu) {
+      final items = await api.getPlayList(forceRefresh: forceRefresh);
+      onCardsLoaded?.call(
+        items.map(cardFromLibraryItem).toList(growable: false),
+      );
       return (
-        items: await api.getPlayList(forceRefresh: forceRefresh),
+        items: items,
         imageRequests: const <String, MediaImageRequest>{},
         backdropImageRequests: const <String, MediaImageRequest>{},
       );
     }
     final cards = await backend.getContinueWatching(forceRefresh: forceRefresh);
+    onCardsLoaded?.call(cards);
     return _cardsToMediaItems(resolver, cards);
   }
 
@@ -388,7 +394,20 @@ class _MediaListScreenState extends State<MediaListScreen>
       final parallelResults = await Future.wait([
         backend.getCatalogs(),
         backend.getHomeSummary(),
-        _loadContinueWatching(backend, api, resolver),
+        _loadContinueWatching(
+          backend,
+          api,
+          resolver,
+          onCardsLoaded: (cards) {
+            unawaited(
+              _prewarmPosterBrowseArtwork(
+                backend: backend,
+                nas: provider,
+                cards: cards,
+              ),
+            );
+          },
+        ),
       ]);
       final rawCatalogs = parallelResults[0] as List<MediaCatalog>;
       final categories = rawCatalogs.map(_catalogToMediaItem).toList();
@@ -465,13 +484,17 @@ class _MediaListScreenState extends State<MediaListScreen>
         _error = null;
       });
 
-      unawaited(
-        _prewarmPosterBrowseArtwork(
-          backend: backend,
-          nas: provider,
-          items: continueWatching,
-        ),
-      );
+      if (playList.isEmpty && continueWatching.isNotEmpty) {
+        unawaited(
+          _prewarmPosterBrowseArtwork(
+            backend: backend,
+            nas: provider,
+            cards: continueWatching
+                .map(cardFromLibraryItem)
+                .toList(growable: false),
+          ),
+        );
+      }
 
       // Persist to cache锛堜粎椋炵墰锛欻omeDataCache 鏄鐗涙€佺紦瀛橈紝Emby 鏁版嵁涓嶅啓鍏ラ伩鍏嶈法鍚庣涓插唴瀹癸級銆?
       if (backend.capabilities.kind == MediaBackendKind.feiniu) {
@@ -521,7 +544,21 @@ class _MediaListScreenState extends State<MediaListScreen>
       final parallelResults = await Future.wait([
         backend.getCatalogs(),
         backend.getHomeSummary(),
-        _loadContinueWatching(backend, api, resolver, forceRefresh: true),
+        _loadContinueWatching(
+          backend,
+          api,
+          resolver,
+          forceRefresh: true,
+          onCardsLoaded: (cards) {
+            unawaited(
+              _prewarmPosterBrowseArtwork(
+                backend: backend,
+                nas: provider,
+                cards: cards,
+              ),
+            );
+          },
+        ),
       ]);
       final rawCatalogs = parallelResults[0] as List<MediaCatalog>;
       final categories = rawCatalogs.map(_catalogToMediaItem).toList();
@@ -619,13 +656,17 @@ class _MediaListScreenState extends State<MediaListScreen>
         });
       }
 
-      unawaited(
-        _prewarmPosterBrowseArtwork(
-          backend: backend,
-          nas: provider,
-          items: continueWatching,
-        ),
-      );
+      if (playList.isEmpty && continueWatching.isNotEmpty) {
+        unawaited(
+          _prewarmPosterBrowseArtwork(
+            backend: backend,
+            nas: provider,
+            cards: continueWatching
+                .map(cardFromLibraryItem)
+                .toList(growable: false),
+          ),
+        );
+      }
 
       // Always update cache with fresh data.
       unawaited(
@@ -662,6 +703,15 @@ class _MediaListScreenState extends State<MediaListScreen>
         api,
         resolver,
         forceRefresh: true,
+        onCardsLoaded: (cards) {
+          unawaited(
+            _prewarmPosterBrowseArtwork(
+              backend: backend,
+              nas: provider,
+              cards: cards,
+            ),
+          );
+        },
       );
       if (!mounted) return;
       // 与 _fetchHomeData 一致:经 _resolveContinueWatching 统一(飞牛空时回退分类挑选,
@@ -695,13 +745,17 @@ class _MediaListScreenState extends State<MediaListScreen>
           _continueWatching = continueWatching;
         }
       });
-      unawaited(
-        _prewarmPosterBrowseArtwork(
-          backend: backend,
-          nas: provider,
-          items: continueWatching,
-        ),
-      );
+      if (playListResult.items.isEmpty && continueWatching.isNotEmpty) {
+        unawaited(
+          _prewarmPosterBrowseArtwork(
+            backend: backend,
+            nas: provider,
+            cards: continueWatching
+                .map(cardFromLibraryItem)
+                .toList(growable: false),
+          ),
+        );
+      }
     } catch (error) {
       debugPrint('[UI][HOME] continue watching refresh failed $error');
     }
@@ -710,9 +764,9 @@ class _MediaListScreenState extends State<MediaListScreen>
   Future<void> _prewarmPosterBrowseArtwork({
     required MediaBackend backend,
     required NasProvider nas,
-    required List<MediaLibraryItem> items,
+    required List<MediaItemCard> cards,
   }) async {
-    if (items.isEmpty) return;
+    if (cards.isEmpty) return;
     final backendSession = context.read<BackendSessionProvider>();
     final connection = backendSession.currentConnection;
     final sessionKey = buildPosterBrowseBackendSessionKey(
@@ -732,7 +786,8 @@ class _MediaListScreenState extends State<MediaListScreen>
 
     await PosterBrowseArtworkPrewarmCache.shared.warmFirst(
       sessionKey: sessionKey,
-      items: items.map(cardFromLibraryItem).toList(growable: false),
+      items: cards,
+      centerIndex: 0,
       limit: 4,
       maxConcurrent: 1,
       load: enricher.enrich,

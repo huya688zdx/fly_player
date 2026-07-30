@@ -15,6 +15,9 @@ void main() {
     );
     expect(source, contains('limit: 4'));
     expect(source, contains('maxConcurrent: 1'));
+    expect(source, contains('onCardsLoaded:'));
+    expect(source, contains('cards: cards'));
+    expect(source, contains('centerIndex: 0'));
     expect(source, contains('unawaited('));
     expect(source, contains('_prewarmPosterBrowseArtwork('));
   });

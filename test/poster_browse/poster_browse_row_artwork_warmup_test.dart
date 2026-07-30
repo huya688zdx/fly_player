@@ -7,6 +7,29 @@ import 'package:fly_player/screens/poster_browse/poster_browse_artwork_enricher.
 import 'package:fly_player/screens/poster_browse/poster_browse_row_artwork_warmup.dart';
 
 void main() {
+  test('初始焦点为首项时先补全循环列表左右邻居', () async {
+    final loaded = <String>[];
+
+    await const PosterBrowseRowArtworkWarmup(maxConcurrent: 1).run(
+      items: <MediaItemCard>[
+        _card('a'),
+        _card('b'),
+        _card('c'),
+        _card('d'),
+        _card('e'),
+      ],
+      centerIndex: 0,
+      load: (card) async {
+        loaded.add(card.id);
+        return const PosterBrowseEnrichment();
+      },
+      onLoaded: (_, __) {},
+      isActive: () => true,
+    );
+
+    expect(loaded.take(3), <String>['a', 'e', 'b']);
+  });
+
   test('继续观看整行按上限并发补全，并把每一项结果提交给页面', () async {
     final completers = <String, Completer<PosterBrowseEnrichment>>{};
     final submitted = <String>[];

@@ -58,6 +58,17 @@ abstract final class PosterBrowseArcMath {
       zIndex: 1000 - (distance * 100).round(),
     );
   }
+
+  static bool hasSameItemOrder(
+    List<PosterBrowseDisplayItem> before,
+    List<PosterBrowseDisplayItem> after,
+  ) {
+    if (before.length != after.length) return false;
+    for (var index = 0; index < before.length; index += 1) {
+      if (before[index].card.id != after[index].card.id) return false;
+    }
+    return true;
+  }
 }
 
 class PosterBrowseArcCarousel extends StatefulWidget {
@@ -115,8 +126,7 @@ class _PosterBrowseArcCarouselState extends State<PosterBrowseArcCarousel>
   @override
   void didUpdateWidget(covariant PosterBrowseArcCarousel oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.items, widget.items) ||
-        oldWidget.items.length != widget.items.length ||
+    if (!PosterBrowseArcMath.hasSameItemOrder(oldWidget.items, widget.items) ||
         oldWidget.initialIndex != widget.initialIndex) {
       _controller.stop();
       _pageAnimation = null;
