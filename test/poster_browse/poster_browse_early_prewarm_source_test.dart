@@ -13,11 +13,15 @@ void main() {
       source,
       contains('PosterBrowseArtworkPrewarmCache.shared.warmFirst('),
     );
-    expect(source, contains('limit: 4'));
+    expect(source, contains('limit: visibleCount'));
     expect(source, contains('maxConcurrent: 1'));
     expect(source, contains('onCardsLoaded:'));
     expect(source, contains('cards: cards'));
-    expect(source, contains('centerIndex: 0'));
+    expect(source, contains('centerIndex: centerIndex'));
+    expect(
+      source,
+      contains('PosterBrowseInitialArtworkPolicy.visibleCountFor'),
+    );
     expect(source, contains('unawaited('));
     expect(source, contains('_prewarmPosterBrowseArtwork('));
   });
@@ -33,5 +37,9 @@ void main() {
       contains('PosterBrowseArtworkPrewarmCache.shared.futureFor('),
     );
     expect(source, contains('final prewarmed ='));
+    expect(source, contains('await _hydrateInitialVisibleArtwork('));
+    expect(source, contains('initialEnrichmentById'));
+    expect(source, contains('while (isActive())'));
+    expect(source, contains('if (latestProfile == profile)'));
   });
 }
