@@ -554,6 +554,7 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
 
     await const PosterBrowseRowArtworkWarmup(maxConcurrent: 2).run(
       items: row.items,
+      centerIndex: 0,
       load: (card) =>
           _loadEnrichment(enricher: enricher, card: card, loadKey: loadKey),
       isActive: isActive,

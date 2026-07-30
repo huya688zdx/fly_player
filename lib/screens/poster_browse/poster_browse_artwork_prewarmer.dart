@@ -4,6 +4,7 @@ import 'dart:math' as math;
 
 import '../../media_backend/media_item_card.dart';
 import 'poster_browse_artwork_enricher.dart';
+import 'poster_browse_artwork_priority.dart';
 
 typedef PosterBrowsePrewarmLoad =
     Future<PosterBrowseEnrichment> Function(MediaItemCard card);
@@ -45,6 +46,7 @@ class PosterBrowseArtworkPrewarmCache {
     required List<MediaItemCard> items,
     required PosterBrowsePrewarmLoad load,
     required bool Function() isActive,
+    int? centerIndex,
     int limit = 4,
     int maxConcurrent = 1,
   }) async {
@@ -52,11 +54,11 @@ class PosterBrowseArtworkPrewarmCache {
       return;
     }
 
-    final seen = <String>{};
-    final queue = <MediaItemCard>[
-      for (final item in items.take(limit))
-        if (item.id.trim().isNotEmpty && seen.add(item.id.trim())) item,
-    ];
+    final queue = prioritizePosterBrowseArtworkItems(
+      items: items,
+      centerIndex: centerIndex,
+      limit: limit,
+    );
     var nextIndex = 0;
 
     Future<void> worker() async {

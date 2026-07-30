@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import '../../media_backend/media_item_card.dart';
 import 'poster_browse_artwork_enricher.dart';
+import 'poster_browse_artwork_priority.dart';
 
 typedef PosterBrowseArtworkLoad =
     Future<PosterBrowseEnrichment> Function(MediaItemCard card);
@@ -26,13 +27,13 @@ class PosterBrowseRowArtworkWarmup {
     required PosterBrowseArtworkLoad load,
     required PosterBrowseArtworkLoaded onLoaded,
     required bool Function() isActive,
+    int? centerIndex,
     PosterBrowseArtworkLoadError? onError,
   }) async {
-    final seen = <String>{};
-    final queue = <MediaItemCard>[
-      for (final item in items)
-        if (seen.add(item.id.trim())) item,
-    ];
+    final queue = prioritizePosterBrowseArtworkItems(
+      items: items,
+      centerIndex: centerIndex,
+    );
     if (queue.isEmpty || !isActive()) return;
 
     var nextIndex = 0;
