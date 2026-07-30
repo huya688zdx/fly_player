@@ -216,13 +216,22 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
       );
       if (!_isCurrentLoad(generation: generation, loadKey: loadKey)) return;
 
+      final initialEnrichmentById = await _hydrateInitialVisibleArtwork(
+        rows: rows,
+        loadGeneration: generation,
+        loadKey: loadKey,
+      );
+      if (!_isCurrentLoad(generation: generation, loadKey: loadKey)) return;
+
       final displayById = <String, PosterBrowseDisplayItem>{};
       for (final row in rows) {
         for (final card in row.items) {
-          final prewarmed = PosterBrowseArtworkPrewarmCache.shared.peek(
-            sessionKey: loadKey,
-            itemId: card.id,
-          );
+          final prewarmed =
+              initialEnrichmentById[card.id] ??
+              PosterBrowseArtworkPrewarmCache.shared.peek(
+                sessionKey: loadKey,
+                itemId: card.id,
+              );
           displayById[card.id] = _displayBuilder.build(
             card: card,
             itemDetail: prewarmed?.itemDetail,
@@ -301,6 +310,65 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
 
   bool _isCurrentLoad({required int generation, required String loadKey}) {
     return mounted && generation == _loadGeneration && loadKey == _loadKey;
+  }
+
+  Future<Map<String, PosterBrowseEnrichment>> _hydrateInitialVisibleArtwork({
+    required List<PosterBrowseRow> rows,
+    required int loadGeneration,
+    required String loadKey,
+  }) async {
+    final continueRow = rows
+        .where(
+          (row) =>
+              row.kind == PosterBrowseRowKind.continueWatching &&
+              row.items.isNotEmpty,
+        )
+        .firstOrNull;
+    final enricher = _enricher;
+    if (continueRow == null || enricher == null || !mounted) {
+      return const <String, PosterBrowseEnrichment>{};
+    }
+
+    bool isActive() {
+      return _isCurrentLoad(generation: loadGeneration, loadKey: loadKey) &&
+          identical(enricher, _enricher);
+    }
+
+    ({int visibleCount, int? centerIndex}) currentProfile() {
+      final size = MediaQuery.sizeOf(context);
+      return (
+        visibleCount: PosterBrowseInitialArtworkPolicy.visibleCountFor(
+          width: size.width,
+          height: size.height,
+        ),
+        centerIndex: PosterBrowseInitialArtworkPolicy.centerIndexFor(
+          width: size.width,
+          height: size.height,
+        ),
+      );
+    }
+
+    final resolved = <String, PosterBrowseEnrichment>{};
+    final attemptedProfiles = <({int visibleCount, int? centerIndex})>{};
+    while (isActive()) {
+      final profile = currentProfile();
+      if (!attemptedProfiles.add(profile)) break;
+      resolved.addAll(
+        await PosterBrowseArtworkPrewarmCache.shared.resolveVisible(
+          sessionKey: loadKey,
+          items: continueRow.items,
+          centerIndex: profile.centerIndex,
+          limit: profile.visibleCount,
+          maxConcurrent: 2,
+          load: enricher.enrich,
+          isActive: isActive,
+        ),
+      );
+      if (!isActive()) break;
+      final latestProfile = currentProfile();
+      if (latestProfile == profile) break;
+    }
+    return resolved;
   }
 
   Future<void> _ensureCatalogLoaded(
@@ -1302,6 +1370,7 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
       cacheWidth: spec.cacheWidth,
       fit: spec.fit,
       alignment: spec.alignment,
+      useCoverUnderlay: spec.useCoverUnderlay,
     );
   }
 
@@ -1333,6 +1402,7 @@ class _PosterBrowseBackdrop extends StatefulWidget {
     required this.cacheWidth,
     required this.fit,
     required this.alignment,
+    required this.useCoverUnderlay,
   });
 
   final List<String> urls;
@@ -1340,6 +1410,7 @@ class _PosterBrowseBackdrop extends StatefulWidget {
   final int cacheWidth;
   final BoxFit fit;
   final Alignment alignment;
+  final bool useCoverUnderlay;
 
   @override
   State<_PosterBrowseBackdrop> createState() => _PosterBrowseBackdropState();
@@ -1359,15 +1430,22 @@ class _PosterBrowseBackdropState extends State<_PosterBrowseBackdrop> {
   @override
   Widget build(BuildContext context) {
     if (_index >= widget.urls.length) return const SizedBox.expand();
-    return SizedBox.expand(
-      child: Image.network(
+    final imageProvider = ResizeImage.resizeIfNeeded(
+      widget.cacheWidth,
+      null,
+      NetworkImage(
         widget.urls[_index],
+        headers: widget.headers.isEmpty ? null : widget.headers,
+      ),
+    );
+
+    Widget foreground() {
+      return Image(
+        image: imageProvider,
         fit: widget.fit,
         alignment: widget.alignment,
         filterQuality: FilterQuality.medium,
         gaplessPlayback: true,
-        cacheWidth: widget.cacheWidth,
-        headers: widget.headers.isEmpty ? null : widget.headers,
         errorBuilder: (_, __, ___) {
           if (_index + 1 < widget.urls.length) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1376,6 +1454,29 @@ class _PosterBrowseBackdropState extends State<_PosterBrowseBackdrop> {
           }
           return const SizedBox.expand();
         },
+      );
+    }
+
+    if (!widget.useCoverUnderlay) {
+      return SizedBox.expand(child: foreground());
+    }
+
+    return SizedBox.expand(
+      child: Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          Image(
+            image: imageProvider,
+            fit: BoxFit.cover,
+            alignment: Alignment.center,
+            filterQuality: FilterQuality.low,
+            gaplessPlayback: true,
+            color: Colors.black.withValues(alpha: 0.42),
+            colorBlendMode: BlendMode.darken,
+            errorBuilder: (_, __, ___) => const SizedBox.expand(),
+          ),
+          foreground(),
+        ],
       ),
     );
   }
