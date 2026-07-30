@@ -65,6 +65,20 @@ void main() {
         lessThanOrEqualTo(190),
       );
     });
+
+    test('仅条目素材变化时不视为轮播结构变化', () {
+      expect(
+        PosterBrowseArcMath.hasSameItemOrder(_items(8), _items(8)),
+        isTrue,
+      );
+      expect(
+        PosterBrowseArcMath.hasSameItemOrder(
+          _items(8),
+          <PosterBrowseDisplayItem>[_items(8)[1], _items(8)[0]],
+        ),
+        isFalse,
+      );
+    });
   });
 
   testWidgets('三项初始居中并拖动到相邻真实项后保持中心 focused', (tester) async {
@@ -213,6 +227,44 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(errors, isEmpty);
+  });
+
+  testWidgets('同一批条目异步换图时保留正在拖动的位置', (tester) async {
+    Widget carousel(List<PosterBrowseDisplayItem> items) {
+      return _app(
+        PosterBrowseArcCarousel(
+          items: items,
+          initialIndex: 0,
+          showProgress: false,
+          imageOf: (_) => MediaImageRequest.empty,
+          secondaryLabelOf: (_) => '',
+          onSettled: (_) {},
+          onCenteredTap: (_) {},
+        ),
+      );
+    }
+
+    await tester.pumpWidget(carousel(_items(8)));
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byType(PosterBrowseArcCarousel)),
+    );
+    await gesture.moveBy(const Offset(-60, 0));
+    await tester.pump();
+
+    final draggedX = tester
+        .getCenter(find.byKey(const ValueKey('poster_browse_arc_card_0')))
+        .dx;
+
+    await tester.pumpWidget(carousel(_items(8)));
+    await tester.pump();
+
+    final rebuiltX = tester
+        .getCenter(find.byKey(const ValueKey('poster_browse_arc_card_0')))
+        .dx;
+    expect(rebuiltX, closeTo(draggedX, 0.5));
+
+    await gesture.up();
+    await tester.pumpAndSettle();
   });
 }
 
