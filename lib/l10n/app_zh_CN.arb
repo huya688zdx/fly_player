@@ -339,6 +339,9 @@
     }
   },
   "settingsThemeKeywords": "主题|配色|颜色|外观",
+  "settingsStartupPosterHomeTitle": "启动直达海报首页",
+  "settingsStartupPosterHomeSubtitle": "已有有效登录会话时，打开应用直接进入沉浸式海报浏览。",
+  "settingsStartupPosterHomeKeywords": "启动|首页|海报|海报首页|沉浸式|默认进入",
   "settingsCustomThemeTitle": "自定义主题",
   "settingsCustomThemeSubtitle": "已保存主题管理",
   "settingsCustomThemeKeywords": "自定义主题|保存主题|主题管理",

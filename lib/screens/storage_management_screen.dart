@@ -10,6 +10,7 @@ import '../models/download_task_record.dart';
 import '../providers/app_theme_provider.dart';
 import '../providers/nas_provider.dart';
 import '../providers/parallel_window_settings_provider.dart';
+import '../providers/startup_preferences_provider.dart';
 import '../services/download_task_service.dart';
 import '../services/storage_management_service.dart';
 import '../theme/app_theme.dart';
@@ -827,6 +828,8 @@ class _StorageAppDataScreenState extends State<StorageAppDataScreen> {
                       themeProvider: context.read<AppThemeProvider>(),
                       parallelWindowSettingsProvider: context
                           .read<ParallelWindowSettingsProvider>(),
+                      startupPreferencesProvider: context
+                          .read<StartupPreferencesProvider>(),
                     ),
                   ),
                 ),

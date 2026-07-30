@@ -9,6 +9,7 @@ import 'package:fly_player/l10n/generated/app_localizations_zh.dart';
 import 'package:fly_player/providers/app_locale_provider.dart';
 import 'package:fly_player/providers/app_theme_provider.dart';
 import 'package:fly_player/providers/parallel_window_settings_provider.dart';
+import 'package:fly_player/providers/startup_preferences_provider.dart';
 import 'package:fly_player/screens/app_settings_screen.dart';
 
 void main() {
@@ -51,6 +52,7 @@ void main() {
           ChangeNotifierProvider(
             create: (_) => ParallelWindowSettingsProvider(),
           ),
+          ChangeNotifierProvider(create: (_) => StartupPreferencesProvider()),
         ],
         child: const MaterialApp(
           locale: Locale('zh', 'CN'),
@@ -70,5 +72,34 @@ void main() {
 
     expect(find.text(l10n.mpvSettingDebandTitle), findsOneWidget);
     expect(find.text('Deband'), findsNothing);
+  });
+
+  testWidgets('设置搜索可通过启动和海报关键词命中启动目的地设置', (tester) async {
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => AppLocaleProvider()),
+          ChangeNotifierProvider(create: (_) => AppThemeProvider()),
+          ChangeNotifierProvider(
+            create: (_) => ParallelWindowSettingsProvider(),
+          ),
+          ChangeNotifierProvider(create: (_) => StartupPreferencesProvider()),
+        ],
+        child: const MaterialApp(
+          locale: Locale('zh', 'CN'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: AppSettingsScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.search_rounded).first);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '海报首页');
+    await tester.pumpAndSettle();
+
+    expect(find.text('启动直达海报首页'), findsOneWidget);
   });
 }

@@ -13,6 +13,7 @@ import '../l10n/generated/app_localizations.dart';
 import '../playback/bookmarks/bookmark_store.dart';
 import '../providers/app_theme_provider.dart';
 import '../providers/parallel_window_settings_provider.dart';
+import '../providers/startup_preferences_provider.dart';
 import '../services/app_log_service.dart';
 import '../services/login_history_store.dart';
 import '../models/download_task_record.dart';
@@ -363,6 +364,7 @@ class StorageManagementService {
     'screenshot_save_path_mode',
     _danmakuSettingsKey,
     _settingsSearchUsageKey,
+    StartupPreferencesProvider.preferenceKey,
   };
 
   /// 加载当前应用可展示的存储概览统计。
@@ -608,6 +610,7 @@ class StorageManagementService {
   Future<void> resetSettings({
     required AppThemeProvider themeProvider,
     required ParallelWindowSettingsProvider parallelWindowSettingsProvider,
+    required StartupPreferencesProvider startupPreferencesProvider,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     final keys = prefs.getKeys();
@@ -619,7 +622,10 @@ class StorageManagementService {
           key == _savedPicturePresetsKey ||
           key == _savedAudioPresetsKey ||
           key == _mpvAudioEqPresetsKey) {
-        await prefs.remove(key);
+        final removed = await prefs.remove(key);
+        if (!removed) {
+          throw StateError('设置项重置失败: $key');
+        }
       }
     }
     await DynamicThemeRuntimeController.instance.clearCachedSeeds(prefs: prefs);
@@ -634,6 +640,7 @@ class StorageManagementService {
     );
     await themeProvider.load();
     await parallelWindowSettingsProvider.load();
+    await startupPreferencesProvider.load();
   }
 
   /// 清空应用日志与崩溃日志。
