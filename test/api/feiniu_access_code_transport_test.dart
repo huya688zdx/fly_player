@@ -78,6 +78,31 @@ void main() {
         ),
         isFalse,
       );
+      expect(
+        isSameHttpOrigin('https://nas.example.test:70000', '/items'),
+        isFalse,
+      );
+      expect(
+        isSameHttpOrigin(
+          'https://nas.example.test:70000',
+          'https://nas.example.test:70000/items',
+        ),
+        isFalse,
+      );
+      expect(
+        isSameHttpOrigin(
+          'https://nas.example.test:0',
+          'https://nas.example.test:0/items',
+        ),
+        isFalse,
+      );
+      expect(
+        () => isSameHttpOrigin(
+          'https://nas.example.test:999999999999999999999999999999',
+          '/items',
+        ),
+        returnsNormally,
+      );
     });
   });
 
@@ -138,6 +163,71 @@ void main() {
       );
       expect(captured[2].headers.containsKey('x-access-code'), isFalse);
       expect(captured[2].headers.containsKey('x-access-source'), isFalse);
+    });
+
+    test('第三方请求会剥离默认和请求级的大小写混合敏感头', () async {
+      final captured = <RequestOptions>[];
+      final dio = Dio(
+        BaseOptions(
+          headers: <String, Object?>{
+            'X-Access-Code': '默认访问码',
+            'x-ACCESS-source': '默认来源',
+          },
+        ),
+      )..httpClientAdapter = _CapturingAdapter(captured);
+      installFeiniuAccessCodeInterceptor(
+        dio,
+        baseUrl: 'https://nas.example.test',
+        accessCodeProvider: () => 'current',
+      );
+
+      await dio.get<Object?>(
+        'https://third.example.test/items',
+        options: Options(
+          headers: <String, Object?>{
+            'x-Access-Code': '请求访问码',
+            'X-ACCESS-SOURCE': '请求来源',
+          },
+        ),
+      );
+
+      expect(_hasAccessCodeHeader(captured.single.headers), isFalse);
+      expect(_hasAccessSourceHeader(captured.single.headers), isFalse);
+    });
+
+    test('同源请求覆盖预置敏感头并注入当前访问码', () async {
+      final captured = <RequestOptions>[];
+      final dio = Dio(
+        BaseOptions(
+          headers: <String, Object?>{
+            'X-Access-Code': '旧访问码',
+            'X-ACCESS-SOURCE': '旧来源',
+          },
+        ),
+      )..httpClientAdapter = _CapturingAdapter(captured);
+      installFeiniuAccessCodeInterceptor(
+        dio,
+        baseUrl: 'https://nas.example.test',
+        accessCodeProvider: () => 'current',
+      );
+
+      await dio.get<Object?>(
+        'https://nas.example.test/items',
+        options: Options(
+          headers: <String, Object?>{
+            'x-Access-Code': '请求旧访问码',
+            'x-access-source': '请求旧来源',
+          },
+        ),
+      );
+
+      expect(
+        captured.single.headers['x-access-code'],
+        base64Encode(utf8.encode('current')),
+      );
+      expect(captured.single.headers['x-access-source'], 'app');
+      expect(_accessCodeHeaderCount(captured.single.headers), 1);
+      expect(_accessSourceHeaderCount(captured.single.headers), 1);
     });
 
     test('200 挑战 HTML 映射为 required 哨兵', () async {
@@ -285,3 +375,16 @@ class _ResponseAdapter implements HttpClientAdapter {
   @override
   void close({bool force = false}) {}
 }
+
+bool _hasAccessCodeHeader(Map<String, dynamic> headers) =>
+    _accessCodeHeaderCount(headers) > 0;
+
+bool _hasAccessSourceHeader(Map<String, dynamic> headers) =>
+    _accessSourceHeaderCount(headers) > 0;
+
+int _accessCodeHeaderCount(Map<String, dynamic> headers) =>
+    headers.keys.where((name) => name.toLowerCase() == 'x-access-code').length;
+
+int _accessSourceHeaderCount(Map<String, dynamic> headers) => headers.keys
+    .where((name) => name.toLowerCase() == 'x-access-source')
+    .length;
