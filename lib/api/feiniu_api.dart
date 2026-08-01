@@ -858,6 +858,7 @@ class FeiniuApi {
       );
     }
 
+    AppException? accessCodeError;
     AppException? unauthorizedError;
     AppException? firstTransientError;
     AppException? firstFatalError;
@@ -911,7 +912,10 @@ class FeiniuApi {
           'label=${candidate.label} baseUrl=${candidate.baseUrl} '
           'message=${exception.message}',
         );
-        if (exception.isUnauthorized) {
+        if (exception.message == feiniuAccessCodeRequiredSentinel ||
+            exception.message == feiniuAccessCodeInvalidSentinel) {
+          accessCodeError ??= exception;
+        } else if (exception.isUnauthorized) {
           unauthorizedError ??= exception;
         } else if (exception.isTransient) {
           firstTransientError ??= exception;
@@ -922,6 +926,7 @@ class FeiniuApi {
     }
 
     final finalError =
+        accessCodeError ??
         unauthorizedError ??
         (firstTransientError != null
             ? AppException.api(
