@@ -120,6 +120,113 @@ void main() {
     );
   });
 
+  test('记住访问码但安全键缺失时 fresh provider 不恢复共享会话', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'base_url': 'http://nas.example.test',
+      'resolved_base_url': 'http://resolved-nas.example.test',
+      'user_name': 'alice',
+      'remember_password': true,
+      'nas_access_code_enabled': true,
+    });
+    final backend = _SwitchableCredentialBackend()
+      ..values['nas_session.token'] = 'shared-token';
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final provider = NasProvider();
+    addTearDown(provider.dispose);
+
+    await provider.reloadSettingsForTesting();
+
+    expect(provider.isReady, isTrue);
+    expect(provider.hasLoadFailure, isFalse);
+    expect(provider.accessCode, isEmpty);
+    expect(provider.token, isEmpty);
+    expect(provider.resolvedBaseUrl, isEmpty);
+    expect(provider.isConfigured, isFalse);
+    expect(backend.values['nas_session.token'], 'shared-token');
+    final prefs = await SharedPreferences.getInstance();
+    expect(
+      prefs.getString('resolved_base_url'),
+      'http://resolved-nas.example.test',
+    );
+  });
+
+  test('记住访问码但安全存储暂不可用时 fresh provider 暴露可重试失败', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'base_url': 'http://nas.example.test',
+      'resolved_base_url': 'http://resolved-nas.example.test',
+      'user_name': 'alice',
+      'remember_password': true,
+      'nas_access_code_enabled': true,
+    });
+    final backend = _SwitchableCredentialBackend()
+      ..values['nas_session.token'] = 'shared-token'
+      ..unavailableKeys.add('nas_session.access_code');
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final provider = NasProvider();
+    addTearDown(provider.dispose);
+
+    await provider.reloadSettingsForTesting();
+
+    expect(provider.isReady, isFalse);
+    expect(provider.hasLoadFailure, isTrue);
+    expect(provider.accessCode, isEmpty);
+    expect(provider.token, isEmpty);
+    expect(provider.isConfigured, isFalse);
+    expect(backend.values['nas_session.token'], 'shared-token');
+    final prefs = await SharedPreferences.getInstance();
+    expect(
+      prefs.getString('resolved_base_url'),
+      'http://resolved-nas.example.test',
+    );
+
+    backend.unavailableKeys.remove('nas_session.access_code');
+    backend.values['nas_session.access_code'] = 'restored-access-code';
+    await provider.retryLoad();
+
+    expect(provider.isReady, isTrue);
+    expect(provider.hasLoadFailure, isFalse);
+    expect(provider.accessCode, 'restored-access-code');
+    expect(provider.token, 'shared-token');
+    expect(provider.resolvedBaseUrl, 'http://resolved-nas.example.test');
+    expect(provider.isConfigured, isTrue);
+  });
+
+  test('当前访问码为空且安全存储暂不可用时清空本地会话但保留共享状态', () async {
+    SharedPreferences.setMockInitialValues(const <String, Object>{});
+    final backend = _SwitchableCredentialBackend();
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final provider = NasProvider();
+    addTearDown(provider.dispose);
+    await provider.reloadSettingsForTesting();
+    await provider.updateSettings(
+      baseUrl: 'http://nas.example.test',
+      resolvedBaseUrl: 'http://resolved-nas.example.test',
+      userName: 'alice',
+      password: 'secret',
+      accessCode: '',
+      token: 'shared-token',
+    );
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('nas_access_code_enabled', true);
+    backend.unavailableKeys.add('nas_session.access_code');
+
+    await provider.reloadSettingsForTesting();
+
+    expect(provider.hasLoadFailure, isTrue);
+    expect(provider.accessCode, isEmpty);
+    expect(provider.token, isEmpty);
+    expect(provider.resolvedBaseUrl, isEmpty);
+    expect(provider.isConfigured, isFalse);
+    expect(backend.values['nas_session.token'], 'shared-token');
+    expect(
+      prefs.getString('resolved_base_url'),
+      'http://resolved-nas.example.test',
+    );
+  });
+
   test('访问码安全写入失败时不提交 provider、偏好和其他安全凭据', () async {
     SharedPreferences.setMockInitialValues(const <String, Object>{});
     final backend = _SwitchableCredentialBackend();
