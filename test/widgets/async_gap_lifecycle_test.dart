@@ -20,7 +20,7 @@ void main() {
     expect(source, contains('void _nextFallbackImage(int failedIndex)'));
     expect(
       source,
-      contains('if (!mounted || _index + 1 >= widget.urls.length)'),
+      contains('if (!mounted || _index + 1 >= widget.images.urls.length)'),
     );
     expect(source, contains('if (failedIndex != _index) return;'));
   });
