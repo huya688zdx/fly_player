@@ -22,7 +22,43 @@ void main() {
     expect(find.text('查看已下载数据'), findsOneWidget);
     expect(find.text('重新登录 FN Connect'), findsOneWidget);
     expect(find.text('登录'), findsOneWidget);
-    expect(find.byType(TextField), findsNWidgets(3));
+    expect(find.text('访问码（可选）'), findsOneWidget);
+    expect(find.byKey(const Key('feiniuAccessCodeField')), findsOneWidget);
+    expect(find.byType(TextField), findsNWidgets(4));
+  });
+
+  testWidgets('飞牛登录会将访问码原值传给回调', (tester) async {
+    String? submittedAccessCode;
+    await _pumpConnectionScreen(
+      tester,
+      baseUrl: 'https://nas.example.test',
+      feiniuLogin:
+          ({
+            required baseUrl,
+            required userName,
+            required password,
+            required accessCode,
+          }) async {
+            submittedAccessCode = accessCode;
+            return LoginWithBaseUrlResult(
+              token: 'token',
+              resolvedBaseUrl: baseUrl,
+            );
+          },
+    );
+
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(2), 'secret');
+    await tester.enterText(
+      find.byKey(const Key('feiniuAccessCodeField')),
+      '  2468 ',
+    );
+    await tester.ensureVisible(find.byType(ElevatedButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(ElevatedButton));
+    await tester.pumpAndSettle();
+
+    expect(submittedAccessCode, '  2468 ');
   });
 
   testWidgets('飞牛 HTTP 地址显示无协议服务器并选中 HTTP', (tester) async {
@@ -126,6 +162,7 @@ Future<void> _pumpConnectionScreen(
     required String baseUrl,
     required String userName,
     required String password,
+    required String accessCode,
   })?
   feiniuLogin,
   TextScaler textScaler = TextScaler.noScaling,
@@ -174,7 +211,12 @@ Future<String?> _submitPastedAddress(
     tester,
     baseUrl: 'https://nas.example.test:5667',
     feiniuLogin:
-        ({required baseUrl, required userName, required password}) async {
+        ({
+          required baseUrl,
+          required userName,
+          required password,
+          required accessCode,
+        }) async {
           submittedBaseUrl = baseUrl;
           return LoginWithBaseUrlResult(
             token: 'token',
