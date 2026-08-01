@@ -19,9 +19,27 @@ class RouteTransitionGate {
 
   // 当前正在跑 enter/exit 动画的 PageRoute 数量，由 [observer] 维护。
   static int _activeTransitions = 0;
+  static bool? _debugTransitioningOverride;
+  static Future<void>? _debugWaitOverride;
 
   /// 是否有任意路由正处于转场动画中。
-  static bool get anyRouteTransitioning => _activeTransitions > 0;
+  static bool get anyRouteTransitioning =>
+      _debugTransitioningOverride ?? _activeTransitions > 0;
+
+  @visibleForTesting
+  static void debugOverrideTransition({
+    required bool isTransitioning,
+    required Future<void> wait,
+  }) {
+    _debugTransitioningOverride = isTransitioning;
+    _debugWaitOverride = wait;
+  }
+
+  @visibleForTesting
+  static void debugResetTransitionOverride() {
+    _debugTransitioningOverride = null;
+    _debugWaitOverride = null;
+  }
 
   static _RouteTransitionGateObserver? _observer;
 
@@ -43,6 +61,8 @@ class RouteTransitionGate {
   /// animation 恒为 completed，动的是 secondaryAnimation——只看 primary
   /// 会让闸门在这两种场景下失效，重活照样砸进转场窗口。
   static bool isTransitioning(BuildContext context) {
+    final debugOverride = _debugTransitioningOverride;
+    if (debugOverride != null) return debugOverride;
     final route = ModalRoute.of(context);
     if (route == null) {
       return false;
@@ -57,6 +77,8 @@ class RouteTransitionGate {
   /// 注意：调用方在 await 之后必须重新检查 `mounted`，因为转场期间 widget 可能
   /// 已被销毁（例如进入途中又快速 pop）。
   static Future<void> of(BuildContext context) {
+    final debugOverride = _debugWaitOverride;
+    if (debugOverride != null) return debugOverride;
     final route = ModalRoute.of(context);
     if (route == null) {
       return Future<void>.value();
