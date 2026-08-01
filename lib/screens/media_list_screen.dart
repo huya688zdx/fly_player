@@ -733,7 +733,7 @@ class _MediaListScreenState extends State<MediaListScreen>
         continueWatching,
       );
       setState(() {
-        if (backend.capabilities.kind != MediaBackendKind.feiniu) {
+        if (backend.capabilities.kind.isServerFamily) {
           for (final id in oldContinueIds) {
             _itemImageRequests.remove(id);
             _backdropImageRequests.remove(id);
