@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/media_backend/media_backend_kind.dart';
 import 'package:fly_player/ui/detail_artwork_resolver.dart';
@@ -83,5 +85,16 @@ void main() {
     );
 
     expect(credentials, (token: '', accessCode: '', baseUrl: ''));
+  });
+
+  test('收藏页服务器族图片 resolver 使用后端隔离凭据', () {
+    final source = File(
+      'lib/screens/favorite_items_screen.dart',
+    ).readAsStringSync();
+
+    expect(source, contains('mediaImageCredentialsForBackend('));
+    expect(source, contains('baseUrl: imageCredentials.baseUrl'));
+    expect(source, contains('token: imageCredentials.token'));
+    expect(source, contains('accessCode: imageCredentials.accessCode'));
   });
 }

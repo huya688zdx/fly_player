@@ -43,6 +43,69 @@ void main() {
   });
 
   group('resolveRef（中立图引用）', () {
+    test('完整飞牛同源直链合并 NAS 鉴权、访问码与 ref 其它请求头', () {
+      const url = '$baseUrl/media/poster/full.jpg';
+      const ref = MediaImageRef(
+        url: url,
+        headers: <String, String>{
+          'X-Test': 'keep',
+          'X-Access-Code': 'stale-code',
+          'X-Access-Source': 'stale-source',
+        },
+      );
+
+      final artwork = resolver.resolveRef(ref);
+
+      final expectedNasHeaders = nasImageHeaders(
+        token,
+        url: url,
+        accessCode: accessCode,
+        baseUrl: baseUrl,
+      );
+      expect(artwork.headers['Authorization'], token);
+      expect(artwork.headers['Trim-MC-token'], token);
+      expect(artwork.headers['X-Test'], 'keep');
+      expect(
+        artwork.headers.entries
+            .where((entry) => entry.key.toLowerCase() == 'x-access-code')
+            .map((entry) => entry.value),
+        <String>[expectedNasHeaders['x-access-code']!],
+      );
+      expect(
+        artwork.headers.entries
+            .where((entry) => entry.key.toLowerCase() == 'x-access-source')
+            .map((entry) => entry.value),
+        <String>['app'],
+      );
+    });
+
+    test('完整飞牛同源自鉴权 ref 不附加 NAS 凭据', () {
+      const url = '$baseUrl/media/poster/self-auth.jpg';
+      const ref = MediaImageRef(
+        url: url,
+        headers: <String, String>{'X-Test': 'keep'},
+        selfAuthenticated: true,
+      );
+
+      final artwork = resolver.resolveRef(ref);
+
+      expect(artwork.headers, <String, String>{'X-Test': 'keep'});
+      expect(artwork.selfAuthenticated, isTrue);
+    });
+
+    test('完整飞牛同源 api_key 直链不附加 NAS 凭据', () {
+      const url = '$baseUrl/media/poster/api-key.jpg?api_key=KEY';
+      const ref = MediaImageRef(
+        url: url,
+        headers: <String, String>{'X-Test': 'keep'},
+      );
+
+      final artwork = resolver.resolveRef(ref);
+
+      expect(artwork.headers, <String, String>{'X-Test': 'keep'});
+      expect(artwork.selfAuthenticated, isTrue);
+    });
+
     test('完整 Emby api_key 直链沿用 ref 头且不附加访问码', () {
       const url = 'http://emby.example:8096/Items/1/Images/Primary?api_key=KEY';
       const ref = MediaImageRef(url: url, headers: {'X-Test': '1'});
@@ -54,10 +117,30 @@ void main() {
 
     test('第三方 https 直链不附加飞牛头', () {
       const url = 'https://cdn.example/a.jpg';
-      const ref = MediaImageRef(url: url);
+      const ref = MediaImageRef(
+        url: url,
+        headers: <String, String>{'X-Test': 'keep'},
+      );
       final artwork = resolver.resolveRef(ref);
       expect(artwork.urls, <String>[url]);
-      expect(artwork.headers, isEmpty);
+      expect(artwork.headers, <String, String>{'X-Test': 'keep'});
+    });
+
+    test('完整飞牛跨协议或端口直链只保留 ref 请求头', () {
+      for (final url in <String>[
+        'https://nas.example:5666/media/poster.jpg',
+        'http://nas.example:5667/media/poster.jpg',
+      ]) {
+        final artwork = resolver.resolveRef(
+          MediaImageRef(
+            url: url,
+            headers: const <String, String>{'X-Test': 'keep'},
+          ),
+        );
+        expect(artwork.headers, <String, String>{
+          'X-Test': 'keep',
+        }, reason: url);
+      }
     });
 
     test('相对路径 ref 走飞牛拼接', () {
