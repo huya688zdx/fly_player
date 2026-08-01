@@ -424,6 +424,7 @@ class FeiniuApi {
 
   final NasProvider nasProvider;
   final Dio _dio = Dio();
+  late final String _boundBaseUrl;
   final Random _random = Random();
   // Deduplicate identical paged-list requests during fast scrolling.
   final Map<String, Future<ItemListPage>> _itemListInflight = {};
@@ -433,36 +434,43 @@ class FeiniuApi {
       const PlaybackClientIdStore();
 
   FeiniuApi(this.nasProvider, {HttpClientAdapter? httpClientAdapter}) {
+    _boundBaseUrl = ApiUrlHelper.normalizeBaseUrl(nasProvider.baseUrl);
     if (httpClientAdapter != null) {
       _dio.httpClientAdapter = httpClientAdapter;
     }
-    _dio.options.baseUrl = ApiUrlHelper.normalizeBaseUrl(nasProvider.baseUrl);
+    _dio.options.baseUrl = _boundBaseUrl;
     _dio.options.connectTimeout = const Duration(seconds: 10);
     _dio.options.receiveTimeout = const Duration(seconds: 10);
     _configureHttpsTrust(_dio, nasProvider.baseUrl);
     installFeiniuAccessCodeInterceptor(
       _dio,
-      baseUrl: ApiUrlHelper.normalizeBaseUrl(nasProvider.baseUrl),
-      accessCodeProvider: () => nasProvider.accessCode,
+      baseUrl: _boundBaseUrl,
+      accessCodeProvider: () =>
+          _isProviderStillBoundToOrigin() ? nasProvider.accessCode : '',
     );
 
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
+          _removeManagedNasAuthHeaders(options.headers);
+          final shouldAttachNasAuth =
+              _isProviderStillBoundToOrigin() &&
+              isSameHttpOrigin(_boundBaseUrl, options.uri.toString());
           _apiVerboseLog(
             '[API][REQ] ${options.method} ${options.baseUrl}${options.path} '
             'query=${options.queryParameters}',
           );
-          if (nasProvider.token.isNotEmpty) {
+          if (shouldAttachNasAuth && nasProvider.token.isNotEmpty) {
             options.headers['Authorization'] = nasProvider.token;
             options.headers['Trim-MC-token'] = nasProvider.token;
           }
-          if (shouldUseRelayModeCookieForBaseUrl(options.baseUrl)) {
+          if (shouldAttachNasAuth &&
+              shouldUseRelayModeCookieForBaseUrl(options.uri.toString())) {
             options.headers['Cookie'] = _mergeRelayCookie(
               options.headers['Cookie']?.toString() ?? '',
             );
           }
-          if (_shouldAttachAuthx(options.path)) {
+          if (shouldAttachNasAuth && _shouldAttachAuthx(options.uri.path)) {
             options.headers['Authx'] = _buildAuthxHeader(options);
           }
           return handler.next(options);
@@ -2776,6 +2784,24 @@ class FeiniuApi {
       ApiUrlHelper.normalizeBaseUrl(nasProvider.baseUrl),
       uri.toString(),
     );
+  }
+
+  bool _isProviderStillBoundToOrigin() {
+    return isSameHttpOrigin(
+      _boundBaseUrl,
+      ApiUrlHelper.normalizeBaseUrl(nasProvider.baseUrl),
+    );
+  }
+
+  void _removeManagedNasAuthHeaders(Map<String, dynamic> headers) {
+    for (final name in headers.keys.toList()) {
+      final normalized = name.toLowerCase();
+      if (normalized == 'authorization' ||
+          normalized == 'trim-mc-token' ||
+          normalized == 'authx') {
+        headers.remove(name);
+      }
+    }
   }
 
   // Authx is required by most protected endpoints. 新版后端严格校验签名：
