@@ -361,11 +361,93 @@ void main() {
         base64Encode(utf8.encode('first')),
       );
       expect(requests[0].headers['x-access-source'], 'app');
+      expect(requests[0].headers['Authorization'], 'token');
+      expect(requests[0].headers['Trim-MC-token'], 'token');
+      expect(requests[0].headers, contains('Authx'));
       expect(
         requests[1].headers['x-access-code'],
         base64Encode(utf8.encode('second')),
       );
       expect(requests[1].headers['x-access-source'], 'app');
+      expect(requests[1].headers['Authorization'], 'token');
+      expect(requests[1].headers['Trim-MC-token'], 'token');
+      expect(requests[1].headers, contains('Authx'));
+    });
+
+    test('绝对第三方和同 host 跨 scheme 请求不携带 NAS 凭据', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final requests = <RequestOptions>[];
+      final adapter = _FakeDioAdapter((options) {
+        requests.add(options);
+        return _bytesResponse();
+      });
+      final provider = NasProvider();
+      addTearDown(provider.dispose);
+      await provider.updateSettings(
+        baseUrl: 'https://relay.fnos.net',
+        userName: 'user',
+        password: 'password',
+        accessCode: 'code',
+        token: 'token',
+      );
+      final api = FeiniuApi(provider, httpClientAdapter: adapter);
+
+      await api.downloadImageBytes(
+        'https://third.example.test/v/api/v1/media/range/poster',
+      );
+      await api.downloadImageBytes(
+        'http://relay.fnos.net/v/api/v1/media/range/poster',
+      );
+
+      expect(requests, hasLength(2));
+      for (final request in requests) {
+        expect(_headerValue(request.headers, 'Authorization'), isNull);
+        expect(_headerValue(request.headers, 'Trim-MC-token'), isNull);
+        expect(_headerValue(request.headers, 'Authx'), isNull);
+        expect(_headerValue(request.headers, 'x-access-code'), isNull);
+        expect(_headerValue(request.headers, 'x-access-source'), isNull);
+        expect(
+          _headerValue(request.headers, 'Cookie')?.toString() ?? '',
+          isNot(contains('mode=relay')),
+        );
+      }
+    });
+
+    test('provider 换源后旧实例向旧 origin 发请求时不携带任何 NAS 凭据', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final requests = <RequestOptions>[];
+      final adapter = _FakeDioAdapter((options) {
+        requests.add(options);
+        return _jsonResponse(<String, Object?>{'code': 0});
+      });
+      final provider = NasProvider();
+      addTearDown(provider.dispose);
+      await provider.updateSettings(
+        baseUrl: 'https://old-nas.example.test:5667',
+        userName: 'user',
+        password: 'password',
+        accessCode: 'old-code',
+        token: 'old-token',
+      );
+      final api = FeiniuApi(provider, httpClientAdapter: adapter);
+      await provider.updateSettings(
+        baseUrl: 'https://new-nas.example.test:5667',
+        userName: 'user',
+        password: 'password',
+        accessCode: 'new-code',
+        token: 'new-token',
+      );
+
+      await _recordPlayback(api);
+
+      expect(requests, hasLength(1));
+      final request = requests.single;
+      expect(request.uri.host, 'old-nas.example.test');
+      expect(_headerValue(request.headers, 'Authorization'), isNull);
+      expect(_headerValue(request.headers, 'Trim-MC-token'), isNull);
+      expect(_headerValue(request.headers, 'Authx'), isNull);
+      expect(_headerValue(request.headers, 'x-access-code'), isNull);
+      expect(_headerValue(request.headers, 'x-access-source'), isNull);
     });
 
     test('直接登录请求携带访问码', () async {
@@ -603,6 +685,26 @@ ResponseBody _jsonResponse(
       Headers.contentTypeHeader: <String>[Headers.jsonContentType],
     },
   );
+}
+
+ResponseBody _bytesResponse() {
+  return ResponseBody.fromBytes(
+    <int>[1, 2, 3],
+    200,
+    headers: <String, List<String>>{
+      Headers.contentTypeHeader: <String>['application/octet-stream'],
+    },
+  );
+}
+
+Object? _headerValue(Map<String, dynamic> headers, String name) {
+  final normalizedName = name.toLowerCase();
+  for (final entry in headers.entries) {
+    if (entry.key.toLowerCase() == normalizedName) {
+      return entry.value;
+    }
+  }
+  return null;
 }
 
 ResponseBody _htmlResponse(String body, {required int statusCode}) {
