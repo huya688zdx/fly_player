@@ -4668,14 +4668,14 @@ class DownloadTaskService extends ChangeNotifier {
     try {
       final shouldWrite = overwrite || !targetFile.existsSync();
       if (shouldWrite) {
+        final headers = FeiniuApi(
+          provider,
+        ).buildSignedHeadersForUrl(firstUrl, includeInitialRangeHeader: false);
         final response = await Dio().get<List<int>>(
           firstUrl,
           options: Options(
             responseType: ResponseType.bytes,
-            headers: <String, String>{
-              'Authorization': provider.token,
-              'Trim-MC-token': provider.token,
-            },
+            headers: headers,
             receiveTimeout: const Duration(seconds: 30),
             sendTimeout: const Duration(seconds: 15),
             validateStatus: (status) => status == 200,
