@@ -90,6 +90,7 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
   DynamicThemeSeed? _resolvedSeed;
   String _seedPageKey = '';
   String _seedImageUrl = '';
+  Map<String, String> _seedImageHeaders = const <String, String>{};
   int _requestVersion = 0;
   Timer? _resolveTimer;
   AppThemeProvider? _themeProvider;
@@ -108,6 +109,7 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
     final cachedSeed = DynamicThemeRuntimeController.instance.cachedSeedFor(
       widget.pageKey,
       imageUrl: widget.imageUrl,
+      imageHeaders: widget.imageHeaders,
     );
     if (cachedSeed != null) {
       _setResolvedSeedForCurrentTarget(cachedSeed);
@@ -149,11 +151,17 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
         allowLiveResolveChanged ||
         syncGlobalThemeChanged ||
         intensityChanged) {
+      _requestVersion++;
+      _resolveTimer?.cancel();
       _debugLogScopeConfig('update');
+      final imageHeaders = Map<String, String>.unmodifiable(
+        widget.imageHeaders,
+      );
       final cachedSeed = widget.enabled
           ? DynamicThemeRuntimeController.instance.cachedSeedFor(
               widget.pageKey,
               imageUrl: widget.imageUrl,
+              imageHeaders: imageHeaders,
             )
           : null;
       final keepPreviousSeed =
@@ -166,7 +174,7 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
           // 的转场闸门，在转场中段引发整页 Theme 切换；转场中改为推迟应用。
           if (_seed != cachedSeed &&
               RouteTransitionGate.isTransitioning(context)) {
-            unawaited(_applyResolvedSeedAfterTransition(cachedSeed));
+            _applyResolvedSeedSetState(cachedSeed);
           } else {
             _seed = cachedSeed;
           }
@@ -284,12 +292,22 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
     }
     final targetPageKey = widget.pageKey.trim();
     final targetImageUrl = widget.imageUrl.trim();
+    final targetImageHeaders = Map<String, String>.unmodifiable(
+      widget.imageHeaders,
+    );
+    final targetVersion = _requestVersion;
     final restored = await DynamicThemeRuntimeController.instance
-        .restoreCachedSeed(key: widget.pageKey, imageUrl: widget.imageUrl);
+        .restoreCachedSeed(
+          key: widget.pageKey,
+          imageUrl: widget.imageUrl,
+          imageHeaders: targetImageHeaders,
+        );
     if (!mounted ||
+        targetVersion != _requestVersion ||
         !widget.enabled ||
         widget.pageKey.trim() != targetPageKey ||
         widget.imageUrl.trim() != targetImageUrl ||
+        !mapEquals(widget.imageHeaders, targetImageHeaders) ||
         restored == null) {
       return;
     }
@@ -305,6 +323,9 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
   void _resolve() {
     _requestVersion++;
     final currentVersion = _requestVersion;
+    final targetImageHeaders = Map<String, String>.unmodifiable(
+      widget.imageHeaders,
+    );
     if (!widget.enabled ||
         widget.pageKey.trim().isEmpty ||
         widget.imageUrl.trim().isEmpty) {
@@ -318,6 +339,7 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
     final cached = DynamicThemeRuntimeController.instance.cachedSeedFor(
       widget.pageKey,
       imageUrl: widget.imageUrl,
+      imageHeaders: targetImageHeaders,
     );
     if (cached != null) {
       _setResolvedSeedForCurrentTarget(cached);
@@ -338,11 +360,12 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
         .getOrResolve(
           key: widget.pageKey,
           imageUrl: widget.imageUrl,
-          imageHeaders: widget.imageHeaders,
+          imageHeaders: targetImageHeaders,
         )
         .then((seed) {
           if (!mounted ||
               currentVersion != _requestVersion ||
+              !mapEquals(widget.imageHeaders, targetImageHeaders) ||
               !widget.enabled) {
             return;
           }
@@ -368,7 +391,15 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
       return;
     }
     if (RouteTransitionGate.isTransitioning(context)) {
-      unawaited(_applyResolvedSeedAfterTransition(seed));
+      unawaited(
+        _applyResolvedSeedAfterTransition(
+          seed,
+          requestVersion: _requestVersion,
+          pageKey: widget.pageKey.trim(),
+          imageUrl: widget.imageUrl.trim(),
+          imageHeaders: Map<String, String>.unmodifiable(widget.imageHeaders),
+        ),
+      );
       return;
     }
     setState(() {
@@ -379,9 +410,21 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
     });
   }
 
-  Future<void> _applyResolvedSeedAfterTransition(DynamicThemeSeed? seed) async {
+  Future<void> _applyResolvedSeedAfterTransition(
+    DynamicThemeSeed? seed, {
+    required int requestVersion,
+    required String pageKey,
+    required String imageUrl,
+    required Map<String, String> imageHeaders,
+  }) async {
     await RouteTransitionGate.of(context);
-    if (!mounted || _seed == seed) {
+    if (!mounted ||
+        !widget.enabled ||
+        requestVersion != _requestVersion ||
+        widget.pageKey.trim() != pageKey ||
+        widget.imageUrl.trim() != imageUrl ||
+        !mapEquals(widget.imageHeaders, imageHeaders) ||
+        _seed == seed) {
       return;
     }
     setState(() {
@@ -403,7 +446,8 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
   bool _seedMatchesCurrentTarget(DynamicThemeSeed? seed) {
     return seed != null &&
         _seedPageKey == widget.pageKey.trim() &&
-        _seedImageUrl == widget.imageUrl.trim();
+        _seedImageUrl == widget.imageUrl.trim() &&
+        mapEquals(_seedImageHeaders, widget.imageHeaders);
   }
 
   bool _shouldDeferLocalThemeApply() {
@@ -435,11 +479,13 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
     _resolvedSeed = null;
     _seedPageKey = '';
     _seedImageUrl = '';
+    _seedImageHeaders = const <String, String>{};
   }
 
   void _markSeedForCurrentTarget() {
     _seedPageKey = widget.pageKey.trim();
     _seedImageUrl = widget.imageUrl.trim();
+    _seedImageHeaders = Map<String, String>.unmodifiable(widget.imageHeaders);
   }
 
   void _clearSeed() {
@@ -521,6 +567,9 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
           ? _buildDeferredLocalThemeApply(
               pageKey: normalizedPageKey,
               imageUrl: normalizedImageUrl,
+              imageHeaders: Map<String, String>.unmodifiable(
+                widget.imageHeaders,
+              ),
               seed: seedForGlobal,
             )
           : null,
@@ -534,13 +583,15 @@ class _DynamicPageThemeScopeState extends State<DynamicPageThemeScope> {
   VoidCallback _buildDeferredLocalThemeApply({
     required String pageKey,
     required String imageUrl,
+    required Map<String, String> imageHeaders,
     required DynamicThemeSeed seed,
   }) {
     return () {
       if (!mounted ||
           !widget.enabled ||
           widget.pageKey.trim() != pageKey ||
-          widget.imageUrl.trim() != imageUrl) {
+          widget.imageUrl.trim() != imageUrl ||
+          !mapEquals(widget.imageHeaders, imageHeaders)) {
         return;
       }
       if (_seed == seed) {

@@ -1073,6 +1073,9 @@ class _MediaListScreenState extends State<MediaListScreen>
             imageUrl: item.backdropUrl.trim().isNotEmpty
                 ? item.backdropUrl
                 : item.poster,
+            imageHeaders:
+                _backdropImageRequests[item.guid]?.headers ??
+                const <String, String>{},
           );
           if (!mounted) return;
           // 服务器族 backdropUrl 是完整自鉴权直链;经统一入口包成请求(token 传空,

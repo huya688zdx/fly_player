@@ -1017,6 +1017,7 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
         context,
         pageKey: targetId,
         imageUrl: artwork.isNotEmpty ? artwork.urls.first : '',
+        imageHeaders: artwork.headers,
       );
       orientationRestored = true;
       await _restoreOrientation();

@@ -10,6 +10,7 @@ void main() {
         nasImageHeaders(
           'Bearer token',
           url: 'https://geqian688.fnos.net/a.png',
+          baseUrl: 'https://geqian688.fnos.net',
         ),
         containsPair('Cookie', 'mode=relay'),
       );
@@ -17,7 +18,11 @@ void main() {
 
     test('普通 NAS 图片请求不补 relay cookie', () {
       expect(
-        nasImageHeaders('Bearer token', url: 'https://192.168.6.120/a.png'),
+        nasImageHeaders(
+          'Bearer token',
+          url: 'https://192.168.6.120/a.png',
+          baseUrl: 'https://192.168.6.120',
+        ),
         isNot(contains('Cookie')),
       );
     });
@@ -52,6 +57,9 @@ void main() {
           accessCode: 'secret',
           baseUrl: 'https://nas.example:5667',
         );
+        expect(headers, isNot(contains('Authorization')), reason: url);
+        expect(headers, isNot(contains('Trim-MC-token')), reason: url);
+        expect(headers, isNot(contains('Cookie')), reason: url);
         expect(headers, isNot(contains('x-access-code')), reason: url);
         expect(headers, isNot(contains('x-access-source')), reason: url);
       }
@@ -79,6 +87,20 @@ void main() {
 
       expect(headers['x-access-code'], base64Encode(utf8.encode('code')));
       expect(headers['x-access-source'], 'app');
+    });
+
+    test('FN Connect 相对 URL 携带同源 NAS 头和 relay cookie', () {
+      final headers = nasImageHeaders(
+        'Bearer token',
+        url: '/media/poster.jpg',
+        accessCode: 'code',
+        baseUrl: 'https://device.fnos.net',
+      );
+
+      expect(headers['Authorization'], 'Bearer token');
+      expect(headers['Trim-MC-token'], 'Bearer token');
+      expect(headers['Cookie'], 'mode=relay');
+      expect(headers, contains('x-access-code'));
     });
   });
 }

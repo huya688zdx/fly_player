@@ -4,6 +4,7 @@ import '../media_backend/media_image_ref.dart';
 import '../media_backend/media_image_request.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/nas_image_headers.dart';
+import 'package:flutter/foundation.dart';
 
 export '../media_backend/media_image_request.dart';
 
@@ -51,16 +52,32 @@ MediaImageRequest mediaImageRequestForUrls(
 }) {
   if (urls.isEmpty) return MediaImageRequest.empty;
   final selfAuthenticated = _embedsSelfAuthCredential(urls.first);
+  final headers = selfAuthenticated
+      ? const <String, String>{}
+      : nasImageHeaders(
+          token,
+          url: urls.first,
+          accessCode: accessCode,
+          baseUrl: baseUrl,
+        );
+  final compatibleUrls = selfAuthenticated
+      ? urls
+      : urls
+            .where(
+              (url) => mapEquals(
+                headers,
+                nasImageHeaders(
+                  token,
+                  url: url,
+                  accessCode: accessCode,
+                  baseUrl: baseUrl,
+                ),
+              ),
+            )
+            .toList(growable: false);
   return MediaImageRequest(
-    urls: urls,
-    headers: selfAuthenticated
-        ? const <String, String>{}
-        : nasImageHeaders(
-            token,
-            url: urls.first,
-            accessCode: accessCode,
-            baseUrl: baseUrl,
-          ),
+    urls: compatibleUrls,
+    headers: headers,
     selfAuthenticated: selfAuthenticated,
   );
 }
@@ -120,7 +137,7 @@ class DetailArtworkResolver {
     if (url.startsWith('http://') || url.startsWith('https://')) {
       final selfAuthenticated =
           ref.selfAuthenticated || _embedsSelfAuthCredential(url);
-      if (selfAuthenticated || !isSameHttpOrigin(baseUrl, url)) {
+      if (selfAuthenticated) {
         return MediaImageRequest(
           urls: <String>[url],
           headers: ref.headers,
@@ -128,15 +145,12 @@ class DetailArtworkResolver {
         );
       }
 
-      final headers = <String, String>{...ref.headers};
-      for (final name in headers.keys.toList(growable: false)) {
-        final normalizedName = name.toLowerCase();
-        if (normalizedName == 'x-access-code' ||
-            normalizedName == 'x-access-source') {
-          headers.remove(name);
-        }
+      final headers = _withoutNasManagedHeaders(ref.headers);
+      if (!isSameHttpOrigin(baseUrl, url)) {
+        return MediaImageRequest(urls: <String>[url], headers: headers);
       }
-      headers.addAll(
+      _mergeCurrentNasHeaders(
+        headers,
         nasImageHeaders(
           token,
           url: url,
@@ -190,21 +204,83 @@ class DetailArtworkResolver {
   /// header 取第一张非空的(同后端 header 一致);自鉴权标志按候选取或。
   MediaImageRequest resolveRefs(List<MediaImageRef> refs, {int width = 900}) {
     final urls = <String>[];
-    var headers = const <String, String>{};
+    Map<String, String>? headers;
     var selfAuthenticated = false;
     for (final ref in refs) {
       final artwork = resolveRef(ref, width: width);
       if (artwork.isEmpty) continue;
-      urls.addAll(artwork.urls);
-      if (headers.isEmpty && artwork.headers.isNotEmpty) {
-        headers = artwork.headers;
+      if (headers != null &&
+          (!mapEquals(headers, artwork.headers) ||
+              selfAuthenticated != artwork.selfAuthenticated)) {
+        continue;
       }
-      selfAuthenticated = selfAuthenticated || artwork.selfAuthenticated;
+      urls.addAll(artwork.urls);
+      if (headers == null) {
+        headers = artwork.headers;
+        selfAuthenticated = artwork.selfAuthenticated;
+      }
     }
     return MediaImageRequest(
       urls: urls,
-      headers: headers,
+      headers: headers ?? const <String, String>{},
       selfAuthenticated: selfAuthenticated,
     );
   }
 }
+
+Map<String, String> _withoutNasManagedHeaders(Map<String, String> source) {
+  final result = <String, String>{};
+  final cookies = <String>[];
+  for (final entry in source.entries) {
+    final name = entry.key.toLowerCase();
+    if (name == 'authorization' ||
+        name == 'trim-mc-token' ||
+        name == 'x-access-code' ||
+        name == 'x-access-source') {
+      continue;
+    }
+    if (name == 'cookie') {
+      cookies.addAll(_cookiesExceptRelayMode(entry.value));
+      continue;
+    }
+    result[entry.key] = entry.value;
+  }
+  if (cookies.isNotEmpty) {
+    result['Cookie'] = cookies.join('; ');
+  }
+  return result;
+}
+
+void _mergeCurrentNasHeaders(
+  Map<String, String> target,
+  Map<String, String> current,
+) {
+  final preservedCookies = target.remove('Cookie');
+  final currentCookies = current['Cookie'];
+  for (final entry in current.entries) {
+    if (entry.key.toLowerCase() != 'cookie') {
+      target[entry.key] = entry.value;
+    }
+  }
+  final cookies = <String>[
+    if (preservedCookies != null) ..._cookiesExceptRelayMode(preservedCookies),
+    if (currentCookies != null) ..._cookiesExceptRelayMode(currentCookies),
+  ];
+  if (currentCookies != null) {
+    cookies.add('mode=relay');
+  }
+  if (cookies.isNotEmpty) {
+    target['Cookie'] = cookies.join('; ');
+  }
+}
+
+List<String> _cookiesExceptRelayMode(String rawCookie) => rawCookie
+    .split(';')
+    .map((entry) => entry.trim())
+    .where((entry) => entry.isNotEmpty)
+    .where((entry) {
+      final separator = entry.indexOf('=');
+      final name = separator < 0 ? entry : entry.substring(0, separator);
+      return name.trim().toLowerCase() != 'mode';
+    })
+    .toList(growable: false);
