@@ -112,7 +112,85 @@ void main() {
     expect(restartedProvider.token, isEmpty);
     expect(restartedProvider.resolvedBaseUrl, isEmpty);
     expect(restartedProvider.isConfigured, isFalse);
-    expect(backend.values['nas_session.token'], isNull);
+    expect(backend.values['nas_session.token'], 'active-token');
+    final prefs = await SharedPreferences.getInstance();
+    expect(
+      prefs.getString('resolved_base_url'),
+      'http://resolved-nas.example.test',
+    );
+  });
+
+  test('访问码安全写入失败时不提交 provider、偏好和其他安全凭据', () async {
+    SharedPreferences.setMockInitialValues(const <String, Object>{});
+    final backend = _SwitchableCredentialBackend();
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final provider = NasProvider();
+    addTearDown(provider.dispose);
+    await provider.reloadSettingsForTesting();
+    await provider.updateSettings(
+      baseUrl: 'http://old-nas.example.test',
+      resolvedBaseUrl: 'http://old-resolved.example.test',
+      userName: 'old-user',
+      password: 'old-password',
+      accessCode: 'old-access-code',
+      token: 'old-token',
+    );
+    backend.failWriteKeys.add('nas_session.access_code');
+
+    await expectLater(
+      provider.updateSettings(
+        baseUrl: 'http://new-nas.example.test',
+        resolvedBaseUrl: 'http://new-resolved.example.test',
+        userName: 'new-user',
+        password: 'new-password',
+        accessCode: 'new-access-code',
+        token: 'new-token',
+      ),
+      throwsA(isA<SecureCredentialOperationException>()),
+    );
+
+    await _expectOldProviderAndPersistentState(provider, backend);
+    backend.failWriteKeys.clear();
+    await provider.reloadSettingsForTesting();
+    await _expectOldProviderAndPersistentState(provider, backend);
+  });
+
+  test('访问码安全删除失败时不提交 provider、偏好和其他安全凭据', () async {
+    SharedPreferences.setMockInitialValues(const <String, Object>{});
+    final backend = _SwitchableCredentialBackend();
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final provider = NasProvider();
+    addTearDown(provider.dispose);
+    await provider.reloadSettingsForTesting();
+    await provider.updateSettings(
+      baseUrl: 'http://old-nas.example.test',
+      resolvedBaseUrl: 'http://old-resolved.example.test',
+      userName: 'old-user',
+      password: 'old-password',
+      accessCode: 'old-access-code',
+      token: 'old-token',
+    );
+    backend.failDeleteKeys.add('nas_session.access_code');
+
+    await expectLater(
+      provider.updateSettings(
+        baseUrl: 'http://new-nas.example.test',
+        resolvedBaseUrl: 'http://new-resolved.example.test',
+        userName: 'new-user',
+        password: 'new-password',
+        accessCode: 'runtime-access-code',
+        rememberPassword: false,
+        token: 'new-token',
+      ),
+      throwsA(isA<SecureCredentialOperationException>()),
+    );
+
+    await _expectOldProviderAndPersistentState(provider, backend);
+    backend.failDeleteKeys.clear();
+    await provider.reloadSettingsForTesting();
+    await _expectOldProviderAndPersistentState(provider, backend);
   });
 
   test('空访问码关闭访问码标记且未记住访问码会在登出时清空', () async {
@@ -546,6 +624,8 @@ void main() {
 class _SwitchableCredentialBackend implements SecureCredentialBackend {
   final Map<String, String> values = <String, String>{};
   final Set<String> unavailableKeys = <String>{};
+  final Set<String> failWriteKeys = <String>{};
+  final Set<String> failDeleteKeys = <String>{};
   bool unavailable = false;
   bool failWrite = false;
   bool failDelete = false;
@@ -565,7 +645,7 @@ class _SwitchableCredentialBackend implements SecureCredentialBackend {
 
   @override
   Future<void> write(String key, String value) async {
-    if (failWrite) {
+    if (failWrite || failWriteKeys.contains(key)) {
       if (!writeAttempt.isCompleted) writeAttempt.complete();
       throw SecureCredentialOperationException('write', key);
     }
@@ -574,12 +654,37 @@ class _SwitchableCredentialBackend implements SecureCredentialBackend {
 
   @override
   Future<void> delete(String key) async {
-    if (failDelete) {
+    if (failDelete || failDeleteKeys.contains(key)) {
       if (!deleteAttempt.isCompleted) deleteAttempt.complete();
       throw SecureCredentialOperationException('delete', key);
     }
     values.remove(key);
   }
+}
+
+Future<void> _expectOldProviderAndPersistentState(
+  NasProvider provider,
+  _SwitchableCredentialBackend backend,
+) async {
+  expect(provider.sourceBaseUrl, 'http://old-nas.example.test');
+  expect(provider.resolvedBaseUrl, 'http://old-resolved.example.test');
+  expect(provider.userName, 'old-user');
+  expect(provider.password, 'old-password');
+  expect(provider.accessCode, 'old-access-code');
+  expect(provider.token, 'old-token');
+  expect(provider.rememberPassword, isTrue);
+  expect(backend.values['nas_session.password'], 'old-password');
+  expect(backend.values['nas_session.access_code'], 'old-access-code');
+  expect(backend.values['nas_session.token'], 'old-token');
+  final prefs = await SharedPreferences.getInstance();
+  expect(prefs.getString('base_url'), 'http://old-nas.example.test');
+  expect(
+    prefs.getString('resolved_base_url'),
+    'http://old-resolved.example.test',
+  );
+  expect(prefs.getString('user_name'), 'old-user');
+  expect(prefs.getBool('remember_password'), isTrue);
+  expect(prefs.getBool('nas_access_code_enabled'), isTrue);
 }
 
 class _GatedCredentialBackend implements SecureCredentialBackend {

@@ -348,6 +348,81 @@ void main() {
       isNot(contains(backend.unavailableAccessCodeKey)),
     );
   });
+
+  test('密码暂不可用时同条目的新访问码仍独立写入', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'login_history_v1': <String>[
+        jsonEncode(<String, Object?>{
+          'kind': 'feiniu',
+          'baseUrl': 'https://nas.example.test',
+          'userName': 'alice',
+          'rememberPassword': true,
+          'updatedAtMillis': 1,
+        }),
+      ],
+    });
+    final backend = _RecordingCredentialBackend()
+      ..unavailableKeyPrefixes.add('login_history.password.');
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+
+    await LoginHistoryStore.save(
+      const LoginHistoryEntry(
+        baseUrl: 'https://nas.example.test',
+        userName: 'alice',
+        password: '',
+        accessCode: 'new-access-code',
+        rememberPassword: true,
+        updatedAtMillis: 2,
+      ),
+    );
+
+    final passwordKey = backend.touchedKeys.singleWhere(
+      (key) => key.startsWith('login_history.password.'),
+    );
+    expect(backend.deletedKeys, isNot(contains(passwordKey)));
+    expect(backend.values.values, contains('new-access-code'));
+    expect(
+      (await LoginHistoryStore.load()).single.accessCode,
+      'new-access-code',
+    );
+  });
+
+  test('访问码暂不可用时同条目的新密码仍独立写入', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'login_history_v1': <String>[
+        jsonEncode(<String, Object?>{
+          'kind': 'feiniu',
+          'baseUrl': 'https://nas.example.test',
+          'userName': 'alice',
+          'rememberPassword': true,
+          'updatedAtMillis': 1,
+        }),
+      ],
+    });
+    final backend = _RecordingCredentialBackend()
+      ..unavailableKeyPrefixes.add('login_history.access_code.');
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+
+    await LoginHistoryStore.save(
+      const LoginHistoryEntry(
+        baseUrl: 'https://nas.example.test',
+        userName: 'alice',
+        password: 'new-password',
+        accessCode: '',
+        rememberPassword: true,
+        updatedAtMillis: 2,
+      ),
+    );
+
+    final accessCodeKey = backend.touchedKeys.singleWhere(
+      (key) => key.startsWith('login_history.access_code.'),
+    );
+    expect(backend.deletedKeys, isNot(contains(accessCodeKey)));
+    expect(backend.values.values, contains('new-password'));
+    expect((await LoginHistoryStore.load()).single.password, 'new-password');
+  });
 }
 
 class _UnavailableCredentialBackend implements SecureCredentialBackend {
@@ -396,10 +471,15 @@ class _FailingCredentialBackend implements SecureCredentialBackend {
 class _RecordingCredentialBackend implements SecureCredentialBackend {
   final Map<String, String> values = <String, String>{};
   final Set<String> touchedKeys = <String>{};
+  final Set<String> deletedKeys = <String>{};
+  final Set<String> unavailableKeyPrefixes = <String>{};
 
   @override
   Future<SecureCredentialReadResult> read(String key) async {
     touchedKeys.add(key);
+    if (unavailableKeyPrefixes.any(key.startsWith)) {
+      return const SecureCredentialReadResult.unavailable();
+    }
     final value = values[key] ?? '';
     return value.isEmpty
         ? const SecureCredentialReadResult.missing()
@@ -415,6 +495,7 @@ class _RecordingCredentialBackend implements SecureCredentialBackend {
   @override
   Future<void> delete(String key) async {
     touchedKeys.add(key);
+    deletedKeys.add(key);
     values.remove(key);
   }
 }
