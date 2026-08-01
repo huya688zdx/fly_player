@@ -154,6 +154,8 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
         restoredAccessCode.value.isEmpty) {
       _token = '';
       _resolvedBaseUrl = '';
+      _isReady = false;
+      _bootstrapSnapshot = null;
       throw const SecureCredentialUnavailableException(
         _accessCodeCredentialKey,
       );
