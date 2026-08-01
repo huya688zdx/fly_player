@@ -71,6 +71,7 @@ void installFeiniuAccessCodeInterceptor(
   dio.interceptors.add(
     InterceptorsWrapper(
       onRequest: (options, handler) {
+        _removeFeiniuAccessCodeHeaders(options.headers);
         options.headers.addAll(
           buildFeiniuAccessCodeHeadersForUrl(
             accessCode: accessCodeProvider(),
@@ -119,7 +120,18 @@ bool _isHttpUriWithHost(Uri? uri) {
     return false;
   }
   final scheme = uri.scheme.toLowerCase();
-  return scheme == 'http' || scheme == 'https';
+  if (scheme != 'http' && scheme != 'https') {
+    return false;
+  }
+  try {
+    if (!uri.hasPort) {
+      return true;
+    }
+    final port = uri.port;
+    return port >= 1 && port <= 65535;
+  } on FormatException {
+    return false;
+  }
 }
 
 int _effectivePort(Uri uri) {
@@ -136,4 +148,13 @@ bool _isAccessCodeInvalidResponse(Response<dynamic>? response) {
   }
   final contentType = response?.headers.value(Headers.contentTypeHeader) ?? '';
   return contentType.toLowerCase().split(';').first.trim() == 'text/html';
+}
+
+void _removeFeiniuAccessCodeHeaders(Map<String, dynamic> headers) {
+  for (final name in headers.keys.toList()) {
+    final normalized = name.toLowerCase();
+    if (normalized == 'x-access-code' || normalized == 'x-access-source') {
+      headers.remove(name);
+    }
+  }
 }
