@@ -1,6 +1,7 @@
+import '../api/feiniu_access_code_transport.dart';
+import '../media_backend/media_backend_kind.dart';
 import '../media_backend/media_image_ref.dart';
 import '../media_backend/media_image_request.dart';
-import '../media_backend/media_backend_kind.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/nas_image_headers.dart';
 
@@ -117,12 +118,33 @@ class DetailArtworkResolver {
     final url = ref.url.trim();
     if (url.isEmpty) return MediaImageRequest.empty;
     if (url.startsWith('http://') || url.startsWith('https://')) {
-      return MediaImageRequest(
-        urls: <String>[url],
-        headers: ref.headers,
-        selfAuthenticated:
-            ref.selfAuthenticated || _embedsSelfAuthCredential(url),
+      final selfAuthenticated =
+          ref.selfAuthenticated || _embedsSelfAuthCredential(url);
+      if (selfAuthenticated || !isSameHttpOrigin(baseUrl, url)) {
+        return MediaImageRequest(
+          urls: <String>[url],
+          headers: ref.headers,
+          selfAuthenticated: selfAuthenticated,
+        );
+      }
+
+      final headers = <String, String>{...ref.headers};
+      for (final name in headers.keys.toList(growable: false)) {
+        final normalizedName = name.toLowerCase();
+        if (normalizedName == 'x-access-code' ||
+            normalizedName == 'x-access-source') {
+          headers.remove(name);
+        }
+      }
+      headers.addAll(
+        nasImageHeaders(
+          token,
+          url: url,
+          accessCode: accessCode,
+          baseUrl: baseUrl,
+        ),
       );
+      return MediaImageRequest(urls: <String>[url], headers: headers);
     }
     return resolvePath(url, width: width, preferDirectPath: preferDirectPath);
   }
