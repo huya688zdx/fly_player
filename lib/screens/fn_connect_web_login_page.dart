@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../api/feiniu_api.dart';
+import '../api/feiniu_access_code_transport.dart';
 import '../l10n/generated/app_localizations.dart';
 import 'fn_web_login_bridge_script.dart';
 import '../utils/login_error_resolver.dart';
@@ -55,6 +56,25 @@ class FnConnectWebLoginEntry {
       relayBaseUrls: relayBaseUrls,
       cookieHosts: hosts,
     );
+  }
+
+  /// 仅允许把访问码发送到已发现的中继源或已确认的 NAS 源。
+  bool allowsAccessCodeFor({
+    required String targetBaseUrl,
+    String resolvedBaseUrl = '',
+  }) {
+    final target = Uri.tryParse(targetBaseUrl);
+    final host = target?.host.toLowerCase() ?? '';
+    if (host == officialPrimaryHost || host == officialSecondaryHost) {
+      return false;
+    }
+    if (relayBaseUrls.any(
+      (relayBaseUrl) => isSameHttpOrigin(relayBaseUrl, targetBaseUrl),
+    )) {
+      return true;
+    }
+    return resolvedBaseUrl.isNotEmpty &&
+        isSameHttpOrigin(resolvedBaseUrl, targetBaseUrl);
   }
 
   static String _originFromRelayHost(String rawHost) {
@@ -222,7 +242,7 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
         final config = await FeiniuApi.fetchFnConnectOauthConfig(
           baseUrl: baseUrl,
           cookie: 'mode=relay',
-          accessCode: widget.accessCode,
+          accessCode: _accessCodeFor(baseUrl),
         );
         _cookieString = 'mode=relay';
         await _navigateToSignin(baseUrl: config.baseUrl, appId: config.appId);
@@ -327,7 +347,7 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
       final config = await FeiniuApi.fetchFnConnectOauthConfig(
         baseUrl: currentBaseUrl,
         cookie: cookie,
-        accessCode: widget.accessCode,
+        accessCode: _accessCodeFor(currentBaseUrl),
       );
       await _navigateToSignin(baseUrl: config.baseUrl, appId: config.appId);
     } catch (error, stackTrace) {
@@ -446,12 +466,21 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
       final result = await FeiniuApi.loginWithFnConnectOauthCode(
         baseUrl: baseUrl,
         code: code,
-        accessCode: widget.accessCode,
+        accessCode: _accessCodeFor(baseUrl),
       );
       _completeSuccess(result);
     } catch (error) {
       _completeFailure(LoginErrorResolver.resolve(error, l10n: l10n));
     }
+  }
+
+  String _accessCodeFor(String targetBaseUrl) {
+    return _entry.allowsAccessCodeFor(
+          targetBaseUrl: targetBaseUrl,
+          resolvedBaseUrl: _resolvedBaseUrl,
+        )
+        ? widget.accessCode
+        : '';
   }
 
   String _extractCodeFromBridgePayload(Map<String, dynamic> payload) {

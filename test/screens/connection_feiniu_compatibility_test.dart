@@ -9,6 +9,7 @@ import 'package:fly_player/media_backend/media_backend_kind.dart';
 import 'package:fly_player/providers/nas_provider.dart';
 import 'package:fly_player/screens/connection_screen.dart';
 import 'package:fly_player/services/login_history_store.dart';
+import 'package:fly_player/services/secure_credential_store.dart';
 import 'package:fly_player/theme/app_theme.dart';
 
 void main() {
@@ -25,8 +26,57 @@ void main() {
     expect(find.text('重新登录 FN Connect'), findsOneWidget);
     expect(find.text('登录'), findsOneWidget);
     expect(find.text('访问码（可选）'), findsOneWidget);
-    expect(find.byKey(const Key('feiniuAccessCodeField')), findsOneWidget);
+    expect(
+      tester.widget(find.byKey(const Key('feiniuAccessCodeField'))),
+      isA<TextField>(),
+    );
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('feiniuAccessCodeField')))
+          .obscureText,
+      isTrue,
+    );
     expect(find.byType(TextField), findsNWidgets(4));
+  });
+
+  testWidgets('访问码默认遮挡且眼睛按钮可切换明文状态', (tester) async {
+    await _pumpConnectionScreen(tester, baseUrl: 'https://nas.example.test');
+    final accessCodeFinder = find.byKey(const Key('feiniuAccessCodeField'));
+    await tester.ensureVisible(accessCodeFinder);
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<TextField>(accessCodeFinder).obscureText, isTrue);
+    await tester.tap(find.byIcon(Icons.visibility_off_outlined).last);
+    await tester.pump();
+    expect(tester.widget<TextField>(accessCodeFinder).obscureText, isFalse);
+  });
+
+  testWidgets('访问码字段Done动作会提交原值', (tester) async {
+    String? submittedAccessCode;
+    await _pumpConnectionScreen(
+      tester,
+      baseUrl: 'https://nas.example.test',
+      feiniuLogin:
+          ({
+            required baseUrl,
+            required userName,
+            required password,
+            required accessCode,
+          }) async {
+            submittedAccessCode = accessCode;
+            return LoginWithBaseUrlResult(
+              token: 'token',
+              resolvedBaseUrl: baseUrl,
+            );
+          },
+    );
+    final accessCodeFinder = find.byKey(const Key('feiniuAccessCodeField'));
+    await tester.ensureVisible(accessCodeFinder);
+    await tester.enterText(accessCodeFinder, 'done-access-code');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    expect(submittedAccessCode, 'done-access-code');
   });
 
   testWidgets('飞牛登录会将访问码原值传给回调', (tester) async {
@@ -77,10 +127,7 @@ void main() {
     await tester.tap(find.text('飞牛影视'));
     await tester.pumpAndSettle();
     final accessCodeField = tester.widget<TextField>(
-      find.descendant(
-        of: find.byKey(const Key('feiniuAccessCodeField')),
-        matching: find.byType(TextField),
-      ),
+      find.byKey(const Key('feiniuAccessCodeField')),
     );
     expect(accessCodeField.controller!.text, 'temporary-access-code');
   });
@@ -115,12 +162,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       tester
-          .widget<TextField>(
-            find.descendant(
-              of: find.byKey(const Key('feiniuAccessCodeField')),
-              matching: find.byType(TextField),
-            ),
-          )
+          .widget<TextField>(find.byKey(const Key('feiniuAccessCodeField')))
           .controller!
           .text,
       feiniuHistory.accessCode,
@@ -136,12 +178,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       tester
-          .widget<TextField>(
-            find.descendant(
-              of: find.byKey(const Key('feiniuAccessCodeField')),
-              matching: find.byType(TextField),
-            ),
-          )
+          .widget<TextField>(find.byKey(const Key('feiniuAccessCodeField')))
           .controller!
           .text,
       isEmpty,
@@ -255,6 +292,12 @@ Future<void> _pumpConnectionScreen(
   List<LoginHistoryEntry> historyEntries = const <LoginHistoryEntry>[],
   TextScaler textScaler = TextScaler.noScaling,
 }) async {
+  NasProvider.resetBootstrapForTesting();
+  SecureCredentialStore.setBackendForTesting(MemorySecureCredentialBackend());
+  addTearDown(() {
+    SecureCredentialStore.resetBackendForTesting();
+    NasProvider.resetBootstrapForTesting();
+  });
   SharedPreferences.setMockInitialValues(<String, Object>{
     'base_url': baseUrl,
     'user_name': 'alice',

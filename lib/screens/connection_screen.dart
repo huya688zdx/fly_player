@@ -1118,7 +1118,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         const SizedBox(height: 12),
         if (form == null)
           _GlassField(
-            key: const Key('feiniuAccessCodeField'),
+            key: const Key('feiniuAccessCodeFieldContainer'),
+            textFieldKey: const Key('feiniuAccessCodeField'),
             controller: _accessCodeController,
             labelText: l10n.connectionAccessCodeOptional,
             hintText: '',
@@ -1584,6 +1585,7 @@ class _GlassField extends StatelessWidget {
     this.suffix,
     this.onChanged,
     this.onSubmitted,
+    this.textFieldKey,
   });
 
   final TextEditingController controller;
@@ -1597,6 +1599,7 @@ class _GlassField extends StatelessWidget {
   final Widget? suffix;
   final ValueChanged<String>? onChanged;
   final ValueChanged<String>? onSubmitted;
+  final Key? textFieldKey;
 
   @override
   Widget build(BuildContext context) {
@@ -1623,6 +1626,7 @@ class _GlassField extends StatelessWidget {
           ],
           Expanded(
             child: TextField(
+              key: textFieldKey,
               controller: controller,
               obscureText: obscureText,
               keyboardType: keyboardType,
