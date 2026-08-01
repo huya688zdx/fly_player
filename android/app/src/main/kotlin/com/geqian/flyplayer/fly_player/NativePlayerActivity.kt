@@ -798,8 +798,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         const val REQUEST_PICK_SUBTITLE = 4202
         // 弹幕「从文件导入」只接受弹幕评论文件（弹弹/B站 XML、JSON）。
         val DANMAKU_IMPORT_EXTENSIONS = setOf("xml", "json")
-        // 外挂字幕导入仅接受 mpv 能直接 sub-add 的文本字幕格式。
-        val SUBTITLE_IMPORT_EXTENSIONS = setOf("srt", "ass", "ssa", "vtt", "sub", "ttml")
+        // 外挂字幕导入仅接受 mpv 能直接 sub-add 的格式：文本字幕（srt/ass/…）与
+        // PGS/SUP 位图字幕（libavformat sup demuxer + hdmv_pgs_subtitle 解码器）。
+        val SUBTITLE_IMPORT_EXTENSIONS = setOf("srt", "ass", "ssa", "vtt", "sub", "ttml", "sup", "pgs")
         const val CONTROLS_AUTO_HIDE_MS = 3500L
         const val CHROME_FADE_MS = 220L
         const val TRANSIENT_HINT_MS = 1200L
@@ -5357,7 +5358,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             type = "*/*"
             putExtra(
                 Intent.EXTRA_MIME_TYPES,
-                arrayOf("application/x-subrip", "text/vtt", "text/plain", "*/*"),
+                arrayOf("application/x-subrip", "text/vtt", "text/plain", "application/x-pgs", "*/*"),
             )
         }
         runCatching { startActivityForResult(intent, REQUEST_PICK_SUBTITLE) }
