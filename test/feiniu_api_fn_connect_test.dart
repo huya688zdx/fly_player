@@ -206,6 +206,81 @@ void main() {
       expect(requests.last.headers['x-access-source'], 'app');
     });
 
+    test('全部候选失败时保留 200 访问码挑战的 required 哨兵', () async {
+      final adapter = _fnConnectLoginAdapter(<String, ResponseBody Function()>{
+        '203.0.113.10': () => _htmlResponse(
+          '<input id="access-code-input" action="/access_code_verify">',
+          statusCode: 200,
+        ),
+      });
+
+      await expectLater(
+        _loginWithFnConnect(adapter),
+        throwsA(
+          isA<FnConnectLoginException>().having(
+            (error) => error.error.message,
+            'message',
+            feiniuAccessCodeRequiredSentinel,
+          ),
+        ),
+      );
+    });
+
+    test('全部候选失败时保留 429 HTML 的 invalid 哨兵', () async {
+      final adapter = _fnConnectLoginAdapter(<String, ResponseBody Function()>{
+        '203.0.113.10': () =>
+            _htmlResponse('<html>denied</html>', statusCode: 429),
+      });
+
+      await expectLater(
+        _loginWithFnConnect(adapter),
+        throwsA(
+          isA<FnConnectLoginException>().having(
+            (error) => error.error.message,
+            'message',
+            feiniuAccessCodeInvalidSentinel,
+          ),
+        ),
+      );
+    });
+
+    test('普通 401 之后的访问码 invalid 错误优先返回', () async {
+      final adapter = _fnConnectLoginAdapter(<String, ResponseBody Function()>{
+        '203.0.113.10': () => _jsonResponse(<String, Object?>{
+          'message': 'password incorrect',
+        }, statusCode: 401),
+        '203.0.113.11': () =>
+            _htmlResponse('<html>denied</html>', statusCode: 401),
+      });
+
+      await expectLater(
+        _loginWithFnConnect(adapter),
+        throwsA(
+          isA<FnConnectLoginException>().having(
+            (error) => error.error.message,
+            'message',
+            feiniuAccessCodeInvalidSentinel,
+          ),
+        ),
+      );
+    });
+
+    test('访问码错误之后的候选登录成功仍返回成功结果', () async {
+      final adapter = _fnConnectLoginAdapter(<String, ResponseBody Function()>{
+        '203.0.113.10': () =>
+            _htmlResponse('<html>denied</html>', statusCode: 429),
+        '203.0.113.11': () => _jsonResponse(<String, Object?>{
+          'code': 0,
+          'data': <String, Object?>{'token': 'later-token'},
+        }),
+      });
+
+      final result = await _loginWithFnConnect(adapter);
+
+      expect(result.token, 'later-token');
+      expect(result.resolvedBaseUrl, 'https://203.0.113.11:5667');
+    });
+
     test('OAuth 配置与换码的 NAS 请求携带访问码', () async {
       final requests = <RequestOptions>[];
       final adapter = _FakeDioAdapter((options) {
@@ -527,6 +602,43 @@ ResponseBody _jsonResponse(
     headers: <String, List<String>>{
       Headers.contentTypeHeader: <String>[Headers.jsonContentType],
     },
+  );
+}
+
+ResponseBody _htmlResponse(String body, {required int statusCode}) {
+  return ResponseBody.fromString(
+    body,
+    statusCode,
+    headers: <String, List<String>>{
+      Headers.contentTypeHeader: <String>['text/html'],
+    },
+  );
+}
+
+HttpClientAdapter _fnConnectLoginAdapter(
+  Map<String, ResponseBody Function()> candidateResponses,
+) {
+  return _FakeDioAdapter((options) {
+    if (options.uri.host == 'fnos.net') {
+      return _jsonResponse(<String, Object?>{
+        'code': 0,
+        'data': <String, Object?>{
+          'publicIpv4': candidateResponses.keys.toList(growable: false),
+          'port': <String, Object?>{'httpPort': 5666, 'httpsPort': 5667},
+        },
+      });
+    }
+    return candidateResponses[options.uri.host]!();
+  });
+}
+
+Future<LoginWithBaseUrlResult> _loginWithFnConnect(HttpClientAdapter adapter) {
+  return FeiniuApi.loginWithBaseUrl(
+    baseUrl: 'fnabc1',
+    userName: 'user',
+    password: 'password',
+    accessCode: 'code',
+    httpClientAdapter: adapter,
   );
 }
 
