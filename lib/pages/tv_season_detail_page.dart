@@ -1375,10 +1375,10 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
   Future<TvEpisodePickerPayload> _neutralEpisodePickerPayload(
     String seasonGuid,
   ) async {
-    final provider = context.read<NasProvider>();
-    final resolver = DetailArtworkResolver(
-      baseUrl: provider.baseUrl,
-      token: provider.token,
+    const resolver = DetailArtworkResolver(
+      baseUrl: '',
+      token: '',
+      accessCode: '',
     );
     List<MediaEpisodeSummary> episodes;
     if (seasonGuid == _selectedSeasonGuid) {
@@ -1425,6 +1425,8 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
       rangeSize: _episodePageSize,
       emptyText: AppLocalizations.of(context).detailEpisodeEmpty,
       token: '',
+      accessCode: '',
+      baseUrl: '',
       loader: _neutralEpisodePickerPayload,
       onModeChanged: (mode) async {
         if (!mounted) return;
@@ -1536,10 +1538,10 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
         .backend
         .capabilities
         .supportsFavorite;
-    final provider = context.read<NasProvider>();
-    final artworkResolver = DetailArtworkResolver(
-      baseUrl: provider.baseUrl,
-      token: provider.token,
+    const artworkResolver = DetailArtworkResolver(
+      baseUrl: '',
+      token: '',
+      accessCode: '',
     );
     final media = MediaQuery.of(context);
     final screenSize = media.size;
@@ -1593,9 +1595,12 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     // 背景:系列 backdrop 完整直链(Phase C 透传,自鉴权判定走统一入口),
     // 回退季详情 backdrop/海报。
     final backdropImages = widget.backdropPath.trim().isNotEmpty
-        ? mediaImageRequestForUrls(<String>[
-            widget.backdropPath.trim(),
-          ], token: '')
+        ? mediaImageRequestForUrls(
+            <String>[widget.backdropPath.trim()],
+            token: '',
+            accessCode: '',
+            baseUrl: '',
+          )
         : artworkResolver.resolveRef(
             detail.backdropImage.isNotEmpty
                 ? detail.backdropImage
@@ -1798,6 +1803,8 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                       title: title,
                       titleFontSize: titleFontSize,
                       token: '',
+                      accessCode: '',
+                      baseUrl: '',
                       ambientTint: ambientTint,
                       posterUrls: posterUrls,
                       posterWidth: posterWidth.toDouble(),
@@ -1845,6 +1852,8 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                                 context,
                               ).commonDetails,
                               token: '',
+                              accessCode: '',
+                              baseUrl: '',
                               mode: _episodePickerMode,
                               onSeasonSelected: _switchSeasonNeutral,
                               onRangeSelected: (index) {
@@ -2873,6 +2882,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
 
   Future<void> _openEpisodePicker(BuildContext sheetContext) async {
     if (_seasonItems.isEmpty) return;
+    final nas = context.read<NasProvider>();
     final result = await TvEpisodePickerSheet.show(
       sheetContext,
       title: AppLocalizations.of(context).detailEpisodeTitle,
@@ -2882,7 +2892,9 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
       initialMode: _episodePickerMode,
       rangeSize: _episodePageSize,
       emptyText: AppLocalizations.of(context).detailEpisodeEmpty,
-      token: context.read<NasProvider>().token,
+      token: nas.token,
+      accessCode: nas.accessCode,
+      baseUrl: nas.baseUrl,
       loader: _episodePickerPayloadForSeason,
       onModeChanged: _persistEpisodePickerMode,
     );
@@ -3037,6 +3049,8 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                 images: mediaImageRequestForUrls(
                   _imageCandidates(p.profilePath, width: 180),
                   token: provider.token,
+                  accessCode: provider.accessCode,
+                  baseUrl: provider.baseUrl,
                 ),
               ),
             )
@@ -3085,6 +3099,8 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                         images: mediaImageRequestForUrls(
                           backdropUrls,
                           token: provider.token,
+                          accessCode: provider.accessCode,
+                          baseUrl: provider.baseUrl,
                         ),
                         // 低清铺底已全链路停用（糊图放大比纯色等待更差，实机决策）。
                         scrollOffset: offset,
@@ -3195,6 +3211,8 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                                 title: title,
                                 titleFontSize: titleFontSize,
                                 token: provider.token,
+                                accessCode: provider.accessCode,
+                                baseUrl: provider.baseUrl,
                                 ambientTint: ambientTint,
                                 posterUrls: posterUrls,
                                 posterWidth: posterWidth,
@@ -3283,6 +3301,8 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                                         emptyText: episodeEmptyText,
                                         detailText: episodeDetailText,
                                         token: provider.token,
+                                        accessCode: provider.accessCode,
+                                        baseUrl: provider.baseUrl,
                                         mode: _episodePickerMode,
                                         onSeasonSelected: _switchSeason,
                                         onRangeSelected: (index) {

@@ -387,6 +387,16 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Widget _buildResultsGrid(NasProvider provider, MediaLayoutProfile layout) {
     final colors = context.appColors;
+    final imageCredentials = mediaImageCredentialsForBackend(
+      backendKind: context
+          .read<MediaBackendProvider>()
+          .backend
+          .capabilities
+          .kind,
+      token: provider.token,
+      accessCode: provider.accessCode,
+      baseUrl: provider.baseUrl,
+    );
     if (_query.trim().isEmpty) {
       return _buildHistorySection();
     }
@@ -439,7 +449,9 @@ class _SearchScreenState extends State<SearchScreen> {
                     item.primaryImage.url,
                     width: layout.categoryGridRequestWidth,
                   ),
-                  token: provider.token,
+                  token: imageCredentials.token,
+                  accessCode: imageCredentials.accessCode,
+                  baseUrl: imageCredentials.baseUrl,
                 ),
                 title: item.displayTitle,
                 subtitle: _cardSubtitle(item),

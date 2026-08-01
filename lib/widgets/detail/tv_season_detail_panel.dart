@@ -11,6 +11,8 @@ class TvSeasonPanelHeader {
   final String title;
   final double titleFontSize;
   final String token;
+  final String accessCode;
+  final String baseUrl;
   final Color? ambientTint;
   final List<String> posterUrls;
   final Animation<double> metaOpacity;
@@ -20,6 +22,8 @@ class TvSeasonPanelHeader {
     required this.title,
     required this.titleFontSize,
     required this.token,
+    required this.accessCode,
+    required this.baseUrl,
     required this.ambientTint,
     required this.posterUrls,
     required this.metaOpacity,
@@ -110,6 +114,8 @@ class TvSeasonDetailPanel extends StatelessWidget {
     required String title,
     required double titleFontSize,
     required String token,
+    required String accessCode,
+    required String baseUrl,
     required Color? ambientTint,
     required List<String> posterUrls,
     required double posterWidth,
@@ -143,6 +149,8 @@ class TvSeasonDetailPanel extends StatelessWidget {
         title: title,
         titleFontSize: titleFontSize,
         token: token,
+        accessCode: accessCode,
+        baseUrl: baseUrl,
         ambientTint: ambientTint,
         posterUrls: posterUrls,
         metaOpacity: headerMetaOpacity,
@@ -186,6 +194,8 @@ class TvSeasonDetailPanel extends StatelessWidget {
     final title = header.title;
     final titleFontSize = header.titleFontSize;
     final token = header.token;
+    final accessCode = header.accessCode;
+    final baseUrl = header.baseUrl;
     final posterUrls = header.posterUrls;
     final headerMetaOpacity = header.metaOpacity;
     final metaContent = header.metaContent;
@@ -227,7 +237,12 @@ class TvSeasonDetailPanel extends StatelessWidget {
                   width: posterWidth,
                   height: posterCardHeight,
                   child: DetailHeroImage(
-                    images: mediaImageRequestForUrls(posterUrls, token: token),
+                    images: mediaImageRequestForUrls(
+                      posterUrls,
+                      token: token,
+                      accessCode: accessCode,
+                      baseUrl: baseUrl,
+                    ),
                   ),
                 ),
               ),

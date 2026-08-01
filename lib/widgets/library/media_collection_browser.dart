@@ -15,6 +15,7 @@ class MediaCollectionBrowserSliver extends StatelessWidget {
   final List<MediaLibraryItem> items;
   final String baseUrl;
   final String token;
+  final String accessCode;
   final MediaCollectionViewType viewType;
   final ValueChanged<MediaLibraryItem> onItemTap;
   final ValueChanged<MediaLibraryItem> onItemLongPress;
@@ -25,6 +26,7 @@ class MediaCollectionBrowserSliver extends StatelessWidget {
     required this.items,
     required this.baseUrl,
     required this.token,
+    required this.accessCode,
     required this.viewType,
     required this.onItemTap,
     required this.onItemLongPress,
@@ -54,6 +56,7 @@ class MediaCollectionBrowserSliver extends StatelessWidget {
           items: items,
           baseUrl: baseUrl,
           token: token,
+          accessCode: accessCode,
           onItemTap: onItemTap,
           onItemLongPress: onItemLongPress,
           onItemMoreTap: onItemMoreTap,
@@ -63,6 +66,7 @@ class MediaCollectionBrowserSliver extends StatelessWidget {
           items: items,
           baseUrl: baseUrl,
           token: token,
+          accessCode: accessCode,
           horizontal: true,
           onItemTap: onItemTap,
           onItemLongPress: onItemLongPress,
@@ -72,6 +76,7 @@ class MediaCollectionBrowserSliver extends StatelessWidget {
           items: items,
           baseUrl: baseUrl,
           token: token,
+          accessCode: accessCode,
           horizontal: false,
           onItemTap: onItemTap,
           onItemLongPress: onItemLongPress,
@@ -84,6 +89,7 @@ class _PosterGridSliverLayout extends StatelessWidget {
   final List<MediaLibraryItem> items;
   final String baseUrl;
   final String token;
+  final String accessCode;
   final bool horizontal;
   final ValueChanged<MediaLibraryItem> onItemTap;
   final ValueChanged<MediaLibraryItem> onItemLongPress;
@@ -92,6 +98,7 @@ class _PosterGridSliverLayout extends StatelessWidget {
     required this.items,
     required this.baseUrl,
     required this.token,
+    required this.accessCode,
     required this.horizontal,
     required this.onItemTap,
     required this.onItemLongPress,
@@ -137,6 +144,8 @@ class _PosterGridSliverLayout extends StatelessWidget {
                 preferDirectPath: horizontal,
               ),
               token: token,
+              accessCode: accessCode,
+              baseUrl: baseUrl,
             ),
             title: item.displayTitle,
             subtitle: _subtitleFor(context, item),
@@ -271,6 +280,7 @@ class _ListSliverLayout extends StatelessWidget {
   final List<MediaLibraryItem> items;
   final String baseUrl;
   final String token;
+  final String accessCode;
   final ValueChanged<MediaLibraryItem> onItemTap;
   final ValueChanged<MediaLibraryItem> onItemLongPress;
   final ValueChanged<MediaLibraryItem> onItemMoreTap;
@@ -279,6 +289,7 @@ class _ListSliverLayout extends StatelessWidget {
     required this.items,
     required this.baseUrl,
     required this.token,
+    required this.accessCode,
     required this.onItemTap,
     required this.onItemLongPress,
     required this.onItemMoreTap,
@@ -299,6 +310,8 @@ class _ListSliverLayout extends StatelessWidget {
           final images = mediaImageRequestForUrls(
             _posterCandidates(baseUrl, item, width: 280),
             token: token,
+            accessCode: accessCode,
+            baseUrl: baseUrl,
           );
           return InkWell(
             onTap: () => onItemTap(item),
