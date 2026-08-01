@@ -230,6 +230,29 @@ void main() {
       expect(_accessSourceHeaderCount(captured.single.headers), 1);
     });
 
+    test('仅同源非空访问码请求关闭自动重定向', () async {
+      final captured = <RequestOptions>[];
+      var code = 'code';
+      final dio = _dioWith(captured);
+      installFeiniuAccessCodeInterceptor(
+        dio,
+        baseUrl: 'https://nas.example.test',
+        accessCodeProvider: () => code,
+      );
+
+      await dio.get<Object?>('https://nas.example.test/items');
+      code = '   ';
+      await dio.get<Object?>('https://nas.example.test/empty');
+      code = 'code';
+      await dio.get<Object?>('https://third.example.test/items');
+
+      expect(captured[0].followRedirects, isFalse);
+      expect(captured[1].followRedirects, isTrue);
+      expect(captured[2].followRedirects, isTrue);
+      expect(_hasAccessCodeHeader(captured[2].headers), isFalse);
+      expect(_hasAccessSourceHeader(captured[2].headers), isFalse);
+    });
+
     test('200 挑战 HTML 映射为 required 哨兵', () async {
       final dio = _dioWithResponse(
         statusCode: 200,
@@ -252,6 +275,48 @@ void main() {
           ),
         ),
       );
+    });
+
+    test('直接第三方 200 挑战 HTML 作为普通响应返回', () async {
+      final dio = _dioWithResponse(
+        statusCode: 200,
+        body: '<input id="access-code-input" action="/access_code_verify">',
+        contentType: 'text/html',
+      );
+      installFeiniuAccessCodeInterceptor(
+        dio,
+        baseUrl: 'https://nas.example.test',
+        accessCodeProvider: () => 'code',
+      );
+
+      final response = await dio.get<String>('https://third.example.test/page');
+
+      expect(response.data, contains('access-code-input'));
+    });
+
+    test('最终 realUri 跨源的 200 挑战 HTML 作为普通响应返回', () async {
+      final dio = _dioWithResponse(
+        statusCode: 200,
+        body: '<input id="access-code-input" action="/access_code_verify">',
+        contentType: 'text/html',
+        redirects: <RedirectRecord>[
+          RedirectRecord(
+            302,
+            'GET',
+            Uri.parse('https://third.example.test/page'),
+          ),
+        ],
+      );
+      installFeiniuAccessCodeInterceptor(
+        dio,
+        baseUrl: 'https://nas.example.test',
+        accessCodeProvider: () => 'code',
+      );
+
+      final response = await dio.get<String>('https://nas.example.test/page');
+
+      expect(response.realUri.host, 'third.example.test');
+      expect(response.data, contains('access-code-input'));
     });
 
     for (final statusCode in <int>[401, 403, 429]) {
@@ -310,6 +375,75 @@ void main() {
         ),
       );
     });
+
+    for (final statusCode in <int>[401, 403, 429]) {
+      test('直接第三方 $statusCode text/html 保持原始 Dio 错误', () async {
+        final dio = _dioWithResponse(
+          statusCode: statusCode,
+          body: '<html>拒绝</html>',
+          contentType: 'text/html',
+        );
+        installFeiniuAccessCodeInterceptor(
+          dio,
+          baseUrl: 'https://nas.example.test',
+          accessCodeProvider: () => 'code',
+        );
+
+        await expectLater(
+          dio.get<Object?>('https://third.example.test/page'),
+          throwsA(
+            isA<DioException>()
+                .having(
+                  (error) => error.message,
+                  'message',
+                  isNot(feiniuAccessCodeInvalidSentinel),
+                )
+                .having(
+                  (error) => error.response?.realUri.host,
+                  'realUri.host',
+                  'third.example.test',
+                ),
+          ),
+        );
+      });
+    }
+
+    test('最终 realUri 跨源的 403 text/html 保持原始 Dio 错误', () async {
+      final dio = _dioWithResponse(
+        statusCode: 403,
+        body: '<html>拒绝</html>',
+        contentType: 'text/html',
+        redirects: <RedirectRecord>[
+          RedirectRecord(
+            302,
+            'GET',
+            Uri.parse('https://third.example.test/page'),
+          ),
+        ],
+      );
+      installFeiniuAccessCodeInterceptor(
+        dio,
+        baseUrl: 'https://nas.example.test',
+        accessCodeProvider: () => 'code',
+      );
+
+      await expectLater(
+        dio.get<Object?>('https://nas.example.test/page'),
+        throwsA(
+          isA<DioException>()
+              .having(
+                (error) => error.message,
+                'message',
+                isNot(feiniuAccessCodeInvalidSentinel),
+              )
+              .having(
+                (error) => error.response?.realUri.host,
+                'realUri.host',
+                'third.example.test',
+              ),
+        ),
+      );
+    });
   });
 }
 
@@ -320,11 +454,13 @@ Dio _dioWithResponse({
   required int statusCode,
   required String body,
   required String contentType,
+  List<RedirectRecord>? redirects,
 }) => Dio()
   ..httpClientAdapter = _ResponseAdapter(
     statusCode: statusCode,
     body: body,
     contentType: contentType,
+    redirects: redirects,
   );
 
 class _CapturingAdapter extends _ResponseAdapter {
@@ -353,20 +489,23 @@ class _ResponseAdapter implements HttpClientAdapter {
     required this.statusCode,
     required this.body,
     required this.contentType,
+    this.redirects,
   });
 
   final int statusCode;
   final String body;
   final String contentType;
+  final List<RedirectRecord>? redirects;
 
   @override
   Future<ResponseBody> fetch(
     RequestOptions options,
     Stream<Uint8List>? requestStream,
     Future<void>? cancelFuture,
-  ) async => ResponseBody.fromString(
-    body,
+  ) async => ResponseBody(
+    Stream<Uint8List>.value(Uint8List.fromList(utf8.encode(body))),
     statusCode,
+    redirects: redirects,
     headers: <String, List<String>>{
       Headers.contentTypeHeader: <String>[contentType],
     },

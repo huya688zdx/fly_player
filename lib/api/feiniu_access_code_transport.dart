@@ -72,17 +72,20 @@ void installFeiniuAccessCodeInterceptor(
     InterceptorsWrapper(
       onRequest: (options, handler) {
         _removeFeiniuAccessCodeHeaders(options.headers);
-        options.headers.addAll(
-          buildFeiniuAccessCodeHeadersForUrl(
-            accessCode: accessCodeProvider(),
-            baseUrl: baseUrl,
-            url: options.uri.toString(),
-          ),
+        final accessCodeHeaders = buildFeiniuAccessCodeHeadersForUrl(
+          accessCode: accessCodeProvider(),
+          baseUrl: baseUrl,
+          url: options.uri.toString(),
         );
+        options.headers.addAll(accessCodeHeaders);
+        if (accessCodeHeaders.isNotEmpty) {
+          options.followRedirects = false;
+        }
         handler.next(options);
       },
       onResponse: (response, handler) {
-        if (isFeiniuAccessCodeChallengeHtml(response.data)) {
+        if (isSameHttpOrigin(baseUrl, response.realUri.toString()) &&
+            isFeiniuAccessCodeChallengeHtml(response.data)) {
           handler.reject(
             DioException(
               requestOptions: response.requestOptions,
@@ -96,7 +99,10 @@ void installFeiniuAccessCodeInterceptor(
         handler.next(response);
       },
       onError: (error, handler) {
-        if (_isAccessCodeInvalidResponse(error.response)) {
+        final response = error.response;
+        if (response != null &&
+            isSameHttpOrigin(baseUrl, response.realUri.toString()) &&
+            _isAccessCodeInvalidResponse(response)) {
           handler.next(
             DioException(
               requestOptions: error.requestOptions,
