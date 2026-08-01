@@ -281,6 +281,8 @@
   "loginErrorGenericFailure": "登录失败，请重试",
   "loginErrorInvalidServerAddress": "服务器地址格式不正确",
   "loginErrorInvalidCredentials": "用户名或密码错误",
+  "loginErrorAccessCodeRequired": "该服务器需要访问码",
+  "loginErrorAccessCodeInvalid": "访问码错误或已失效",
   "loginErrorAccountDisabled": "账号已被禁用，请联系管理员",
   "loginErrorAccountLocked": "登录失败次数过多，请稍后再试",
   "loginErrorNetworkUnavailable": "无法连接到服务器，请检查地址、端口和网络",
