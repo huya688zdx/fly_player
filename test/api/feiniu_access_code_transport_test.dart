@@ -294,6 +294,78 @@ void main() {
       expect(response.data, contains('access-code-input'));
     });
 
+    test('直接第三方相对重定向后的 200 挑战 HTML 作为普通响应返回', () async {
+      final dio = _dioWithResponse(
+        statusCode: 200,
+        body: '<input id="access-code-input" action="/access_code_verify">',
+        contentType: 'text/html',
+        redirects: <RedirectRecord>[
+          RedirectRecord(302, 'GET', Uri.parse('/login')),
+        ],
+      );
+      installFeiniuAccessCodeInterceptor(
+        dio,
+        baseUrl: 'https://nas.example.test',
+        accessCodeProvider: () => 'code',
+      );
+
+      final response = await dio.get<String>('https://third.example.test/page');
+
+      expect(response.data, contains('access-code-input'));
+    });
+
+    test('NAS 跨源后再相对重定向的 200 挑战 HTML 作为普通响应返回', () async {
+      final dio = _dioWithResponse(
+        statusCode: 200,
+        body: '<input id="access-code-input" action="/access_code_verify">',
+        contentType: 'text/html',
+        redirects: <RedirectRecord>[
+          RedirectRecord(
+            302,
+            'GET',
+            Uri.parse('https://third.example.test/page'),
+          ),
+          RedirectRecord(302, 'GET', Uri.parse('/login')),
+        ],
+      );
+      installFeiniuAccessCodeInterceptor(
+        dio,
+        baseUrl: 'https://nas.example.test',
+        accessCodeProvider: () => 'code',
+      );
+
+      final response = await dio.get<String>('https://nas.example.test/page');
+
+      expect(response.data, contains('access-code-input'));
+    });
+
+    test('NAS 站内相对重定向后的 200 挑战 HTML 映射为 required 哨兵', () async {
+      final dio = _dioWithResponse(
+        statusCode: 200,
+        body: '<input id="access-code-input" action="/access_code_verify">',
+        contentType: 'text/html',
+        redirects: <RedirectRecord>[
+          RedirectRecord(302, 'GET', Uri.parse('/login')),
+        ],
+      );
+      installFeiniuAccessCodeInterceptor(
+        dio,
+        baseUrl: 'https://nas.example.test',
+        accessCodeProvider: () => 'code',
+      );
+
+      await expectLater(
+        dio.get<String>('https://nas.example.test/page'),
+        throwsA(
+          isA<DioException>().having(
+            (error) => error.message,
+            'message',
+            feiniuAccessCodeRequiredSentinel,
+          ),
+        ),
+      );
+    });
+
     test('最终 realUri 跨源的 200 挑战 HTML 作为普通响应返回', () async {
       final dio = _dioWithResponse(
         statusCode: 200,
@@ -407,6 +479,92 @@ void main() {
         );
       });
     }
+
+    test('直接第三方相对重定向后的 403 text/html 保持原始 Dio 错误', () async {
+      final dio = _dioWithResponse(
+        statusCode: 403,
+        body: '<html>拒绝</html>',
+        contentType: 'text/html',
+        redirects: <RedirectRecord>[
+          RedirectRecord(302, 'GET', Uri.parse('/login')),
+        ],
+      );
+      installFeiniuAccessCodeInterceptor(
+        dio,
+        baseUrl: 'https://nas.example.test',
+        accessCodeProvider: () => 'code',
+      );
+
+      await expectLater(
+        dio.get<Object?>('https://third.example.test/page'),
+        throwsA(
+          isA<DioException>().having(
+            (error) => error.message,
+            'message',
+            isNot(feiniuAccessCodeInvalidSentinel),
+          ),
+        ),
+      );
+    });
+
+    test('NAS 跨源后再相对重定向的 403 text/html 保持原始 Dio 错误', () async {
+      final dio = _dioWithResponse(
+        statusCode: 403,
+        body: '<html>拒绝</html>',
+        contentType: 'text/html',
+        redirects: <RedirectRecord>[
+          RedirectRecord(
+            302,
+            'GET',
+            Uri.parse('https://third.example.test/page'),
+          ),
+          RedirectRecord(302, 'GET', Uri.parse('/login')),
+        ],
+      );
+      installFeiniuAccessCodeInterceptor(
+        dio,
+        baseUrl: 'https://nas.example.test',
+        accessCodeProvider: () => 'code',
+      );
+
+      await expectLater(
+        dio.get<Object?>('https://nas.example.test/page'),
+        throwsA(
+          isA<DioException>().having(
+            (error) => error.message,
+            'message',
+            isNot(feiniuAccessCodeInvalidSentinel),
+          ),
+        ),
+      );
+    });
+
+    test('NAS 站内相对重定向后的 401 text/html 映射为 invalid 哨兵', () async {
+      final dio = _dioWithResponse(
+        statusCode: 401,
+        body: '<html>拒绝</html>',
+        contentType: 'text/html',
+        redirects: <RedirectRecord>[
+          RedirectRecord(302, 'GET', Uri.parse('/login')),
+        ],
+      );
+      installFeiniuAccessCodeInterceptor(
+        dio,
+        baseUrl: 'https://nas.example.test',
+        accessCodeProvider: () => 'code',
+      );
+
+      await expectLater(
+        dio.get<Object?>('https://nas.example.test/page'),
+        throwsA(
+          isA<DioException>().having(
+            (error) => error.message,
+            'message',
+            feiniuAccessCodeInvalidSentinel,
+          ),
+        ),
+      );
+    });
 
     test('最终 realUri 跨源的 403 text/html 保持原始 Dio 错误', () async {
       final dio = _dioWithResponse(

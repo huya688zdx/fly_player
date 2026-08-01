@@ -84,7 +84,10 @@ void installFeiniuAccessCodeInterceptor(
         handler.next(options);
       },
       onResponse: (response, handler) {
-        if (isSameHttpOrigin(baseUrl, response.realUri.toString()) &&
+        if (isSameHttpOrigin(
+              baseUrl,
+              _resolveFinalResponseUri(response).toString(),
+            ) &&
             isFeiniuAccessCodeChallengeHtml(response.data)) {
           handler.reject(
             DioException(
@@ -101,7 +104,10 @@ void installFeiniuAccessCodeInterceptor(
       onError: (error, handler) {
         final response = error.response;
         if (response != null &&
-            isSameHttpOrigin(baseUrl, response.realUri.toString()) &&
+            isSameHttpOrigin(
+              baseUrl,
+              _resolveFinalResponseUri(response).toString(),
+            ) &&
             _isAccessCodeInvalidResponse(response)) {
           handler.next(
             DioException(
@@ -163,4 +169,12 @@ void _removeFeiniuAccessCodeHeaders(Map<String, dynamic> headers) {
       headers.remove(name);
     }
   }
+}
+
+Uri _resolveFinalResponseUri(Response<dynamic> response) {
+  var current = response.requestOptions.uri;
+  for (final redirect in response.redirects) {
+    current = current.resolveUri(redirect.location);
+  }
+  return current;
 }
