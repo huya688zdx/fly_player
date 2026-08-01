@@ -358,15 +358,11 @@ class DynamicThemeSeedExtractor {
     required Map<String, String> imageHeaders,
   }) async {
     try {
-      // 原生采样通道契约不变:仍传 token 字符串(原生侧自组 Authorization 头)。
-      // 飞牛 header 的 Authorization 值即 NAS token;Emby 自鉴权直链无该键,传空串,
-      // 原生侧按无 token 直连(URL 自带 api_key),与旧行为一致。
+      // 原生采样通道接收完整图片请求头，由 Flutter 图片请求对象统一决定鉴权内容。
+      // 飞牛同源图可同时携带 token 与访问码；服务器族自鉴权直链继续传空映射。
       final raw = await _themeSamplerChannel.invokeMapMethod<String, dynamic>(
         'sampleImagePixels',
-        <String, dynamic>{
-          'imageUrl': imageUrl,
-          'token': imageHeaders['Authorization'] ?? '',
-        },
+        <String, dynamic>{'imageUrl': imageUrl, 'headers': imageHeaders},
       );
       final pixels = raw?['pixels'];
       if (pixels is Int32List && pixels.isNotEmpty) {

@@ -823,7 +823,21 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
 
   DetailArtworkResolver _resolver() {
     final nas = context.read<NasProvider>();
-    return DetailArtworkResolver(baseUrl: nas.baseUrl, token: nas.token);
+    final credentials = mediaImageCredentialsForBackend(
+      backendKind: context
+          .read<MediaBackendProvider>()
+          .backend
+          .capabilities
+          .kind,
+      token: nas.token,
+      accessCode: nas.accessCode,
+      baseUrl: nas.baseUrl,
+    );
+    return DetailArtworkResolver(
+      baseUrl: credentials.baseUrl,
+      token: credentials.token,
+      accessCode: credentials.accessCode,
+    );
   }
 
   MediaImageRequest _backgroundRequestOf(
@@ -1137,6 +1151,14 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
     final l10n = AppLocalizations.of(context);
     final token = context.select<NasProvider, String>((nas) => nas.token);
     final baseUrl = context.select<NasProvider, String>((nas) => nas.baseUrl);
+    final accessCode = context.select<NasProvider, String>(
+      (nas) => nas.accessCode,
+    );
+    final backendKind = context
+        .watch<MediaBackendProvider>()
+        .backend
+        .capabilities
+        .kind;
     final dynamicThemeEnabled = context.select<AppThemeProvider, bool>(
       (themeProvider) => themeProvider.dynamicThemeEnabled,
     );
@@ -1145,7 +1167,17 @@ class _PosterBrowseScreenState extends State<PosterBrowseScreen> {
           (themeProvider) => themeProvider.dynamicThemeIntensity,
         );
 
-    final resolver = DetailArtworkResolver(baseUrl: baseUrl, token: token);
+    final credentials = mediaImageCredentialsForBackend(
+      backendKind: backendKind,
+      token: token,
+      accessCode: accessCode,
+      baseUrl: baseUrl,
+    );
+    final resolver = DetailArtworkResolver(
+      baseUrl: credentials.baseUrl,
+      token: credentials.token,
+      accessCode: credentials.accessCode,
+    );
     final backgroundSpec = _backgroundSpec();
     final settledItem = _settledItem;
     final focusedItem = _focusedItem;

@@ -191,6 +191,8 @@ class TvSeasonDownloadSheetController {
                 ? <String>[initialPosterUrl]
                 : const <String>[],
             token: provider.token,
+            accessCode: provider.accessCode,
+            baseUrl: provider.baseUrl,
             posterBadgeLabel: _posterBadgeLabel(sourceResolution),
             episodeEntries: episodeEntries,
             qualityOptions: cachedQualityOptions,
@@ -399,6 +401,8 @@ class TvSeasonDownloadSheetController {
         itemTitle: _buildItemTitle(item, episode, seriesTitle, l10n),
         posterUrls: _posterUrls(provider.baseUrl, item, episode),
         token: initialPayload.token,
+        accessCode: initialPayload.accessCode,
+        baseUrl: initialPayload.baseUrl,
         posterBadgeLabel: _posterBadgeLabel(sourceResolution),
         episodeEntries: initialPayload.episodeEntries,
         qualityOptions: qualities
