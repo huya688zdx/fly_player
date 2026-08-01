@@ -270,11 +270,12 @@ class LoginHistoryStore {
   }) async {
     for (final entry in entries) {
       final key = _passwordKey(entry);
-      if (preserveCredentialKeys.contains(key)) continue;
-      if (entry.rememberPassword && entry.password.isNotEmpty) {
-        await SecureCredentialStore.write(key, entry.password);
-      } else {
-        await SecureCredentialStore.delete(key);
+      if (!preserveCredentialKeys.contains(key)) {
+        if (entry.rememberPassword && entry.password.isNotEmpty) {
+          await SecureCredentialStore.write(key, entry.password);
+        } else {
+          await SecureCredentialStore.delete(key);
+        }
       }
       if (entry.kind != MediaBackendKind.feiniu) continue;
       final accessCodeKey = _accessCodeKey(entry);
