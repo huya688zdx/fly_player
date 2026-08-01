@@ -6,23 +6,35 @@ Map<String, String> nasImageHeaders(
   String accessCode = '',
   String baseUrl = '',
 }) {
+  final targetUrl = url ?? '';
+  if (!isSameHttpOrigin(baseUrl, targetUrl)) {
+    return const <String, String>{};
+  }
   final trimmedToken = token.trim();
   final headers = <String, String>{};
   if (trimmedToken.isNotEmpty) {
     headers['Authorization'] = trimmedToken;
     headers['Trim-MC-token'] = trimmedToken;
   }
-  if (trimmedToken.isNotEmpty && usesFnConnectRelayCookie(url)) {
+  if (trimmedToken.isNotEmpty &&
+      usesFnConnectRelayCookie(_resolveAgainstBase(baseUrl, targetUrl))) {
     headers['Cookie'] = 'mode=relay';
   }
   headers.addAll(
     buildFeiniuAccessCodeHeadersForUrl(
       accessCode: accessCode,
       baseUrl: baseUrl,
-      url: url ?? '',
+      url: targetUrl,
     ),
   );
   return headers;
+}
+
+String _resolveAgainstBase(String baseUrl, String url) {
+  final base = Uri.tryParse(baseUrl);
+  final target = Uri.tryParse(url);
+  if (base == null || target == null) return url;
+  return base.resolveUri(target).toString();
 }
 
 /// 合并 entry-token 到既有 Cookie 串：去重旧 `entry-token=` 后追加，供 Emby HTTP 拦截器与

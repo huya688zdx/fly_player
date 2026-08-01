@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../media_backend/media_image_ref.dart';
+import '../media_backend/media_backend_kind.dart';
 import '../models/media_library_item.dart';
+import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
 import 'detail_artwork_resolver.dart';
 import 'detail_hero_image.dart';
@@ -17,6 +19,30 @@ import 'app_transitions.dart';
 import 'detail_presentation.dart';
 import 'player_pane_host_scope.dart';
 import '../utils/async_action_guard.dart';
+
+MediaImageRequest resolveAdaptiveDetailHeroRequest({
+  required MediaBackendKind backendKind,
+  MediaImageRef? directRef,
+  String heroBackdropPath = '',
+  required MediaImageCredentials Function() feiniuCredentialsProvider,
+  int width = DetailHeroImage.fullPageServerWidth,
+}) {
+  final credentials = !backendKind.isServerFamily
+      ? feiniuCredentialsProvider()
+      : (token: '', accessCode: '', baseUrl: '');
+  final resolver = DetailArtworkResolver(
+    baseUrl: credentials.baseUrl,
+    token: credentials.token,
+    accessCode: credentials.accessCode,
+  );
+  if (directRef != null && directRef.isNotEmpty) {
+    return resolver.resolveRef(directRef, width: width);
+  }
+  if (backendKind.isServerFamily) {
+    return MediaImageRequest.empty;
+  }
+  return resolver.resolvePath(heroBackdropPath, width: width);
+}
 
 class AdaptiveDetailRequest {
   final Route<dynamic> Function(DetailPresentation presentation) buildRoute;
@@ -221,10 +247,12 @@ class AdaptiveDetailNavigator {
     // 配色晚一步跳变"）。必须 await：push 同步置起转场计数，其后的主题发布会被
     // 转场收口推迟。内部为微任务级等待，无可感延迟。
     if (request.themePageKey.isNotEmpty) {
+      final heroImages = _resolveHeroImages(context, request);
       await DetailThemePrewarmer.warmUp(
         context,
         pageKey: request.themePageKey,
-        imageUrl: _firstDirectHeroUrl(request),
+        imageUrl: heroImages.isNotEmpty ? heroImages.urls.first : '',
+        imageHeaders: heroImages.headers,
       );
       if (!context.mounted) return null;
     }
@@ -253,14 +281,38 @@ class AdaptiveDetailNavigator {
   }
 
   /// 首个完整直链 hero 引用的 URL（无则空串）。同时是取色 seed 图缓存的回退查询键。
-  static String _firstDirectHeroUrl(AdaptiveDetailRequest request) {
+  static MediaImageRef? _firstDirectHeroRef(AdaptiveDetailRequest request) {
     for (final ref in request.heroImageRefs) {
       final url = ref.url.trim();
       if (url.startsWith('http://') || url.startsWith('https://')) {
-        return url;
+        return ref;
       }
     }
-    return '';
+    return null;
+  }
+
+  static MediaImageRequest _resolveHeroImages(
+    BuildContext context,
+    AdaptiveDetailRequest request,
+  ) {
+    final backendKind = context
+        .read<MediaBackendProvider>()
+        .backend
+        .capabilities
+        .kind;
+    return resolveAdaptiveDetailHeroRequest(
+      backendKind: backendKind,
+      directRef: _firstDirectHeroRef(request),
+      heroBackdropPath: request.heroBackdropPath ?? '',
+      feiniuCredentialsProvider: () {
+        final nas = context.read<NasProvider>();
+        return (
+          token: nas.token,
+          accessCode: nas.accessCode,
+          baseUrl: nas.baseUrl,
+        );
+      },
+    );
   }
 
   static void _maybePrecacheHero(
@@ -277,27 +329,7 @@ class AdaptiveDetailNavigator {
     // 候选——它就是详情 hero 实际展示位；后续候选是失败兜底，不值得预热流量。
     // 图请求统一经 DetailArtworkResolver 产出（直链透传 ref 自带 header/自鉴权
     // 标志；飞牛 backdrop 相对路径拼候选 + NAS header），预取口不再自持鉴权分支。
-    final nas = context.read<NasProvider>();
-    final directUrl = _firstDirectHeroUrl(request);
-    final resolver = DetailArtworkResolver(
-      baseUrl: directUrl.isEmpty ? nas.baseUrl : '',
-      token: directUrl.isEmpty ? nas.token : '',
-      accessCode: directUrl.isEmpty ? nas.accessCode : '',
-    );
-    final MediaImageRequest heroImages;
-    if (directUrl.isNotEmpty) {
-      final ref = request.heroImageRefs.firstWhere(
-        (ref) => ref.url.trim() == directUrl,
-      );
-      heroImages = resolver.resolveRef(ref);
-    } else {
-      final backdrop = request.heroBackdropPath?.trim() ?? '';
-      if (backdrop.isEmpty) return;
-      heroImages = resolver.resolvePath(
-        backdrop,
-        width: DetailHeroImage.fullPageServerWidth,
-      );
-    }
+    final heroImages = _resolveHeroImages(context, request);
     final provider = DetailHeroImage.precacheProvider(
       images: heroImages,
       screenWidth: mq.size.width,
