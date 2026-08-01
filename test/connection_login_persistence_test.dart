@@ -8,11 +8,82 @@ import 'package:fly_player/api/feiniu_api.dart';
 import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/providers/nas_provider.dart';
 import 'package:fly_player/screens/connection_screen.dart';
+import 'package:fly_player/screens/fn_connect_web_login_page.dart';
 import 'package:fly_player/services/login_history_store.dart';
 import 'package:fly_player/services/secure_credential_store.dart';
 import 'package:fly_player/theme/app_theme.dart';
 
 void main() {
+  group('FN Connect Web 访问码目标策略', () {
+    final entry = FnConnectWebLoginEntry.resolve(
+      fnConnectId: 'abc123',
+      relayHosts: const <String>['relay.example.test:7443'],
+    );
+
+    test('拒绝精确官方域且不受scheme和端口影响', () {
+      expect(
+        entry.allowsAccessCodeFor(targetBaseUrl: 'https://5ddd.com/abc123'),
+        isFalse,
+      );
+      expect(
+        entry.allowsAccessCodeFor(targetBaseUrl: 'http://5ddd.com:8080'),
+        isFalse,
+      );
+      expect(
+        entry.allowsAccessCodeFor(
+          targetBaseUrl: 'https://fnos.net:7443',
+          resolvedBaseUrl: 'https://fnos.net:7443',
+        ),
+        isFalse,
+      );
+    });
+
+    test('仅允许严格同源relay或已确认地址', () {
+      expect(
+        entry.allowsAccessCodeFor(
+          targetBaseUrl: 'https://relay.example.test:7443/system/config',
+        ),
+        isTrue,
+      );
+      final fnosRelayEntry = FnConnectWebLoginEntry.resolve(
+        fnConnectId: 'abc123',
+        relayHosts: const <String>['user-relay.fnos.net'],
+      );
+      expect(
+        fnosRelayEntry.allowsAccessCodeFor(
+          targetBaseUrl: 'https://user-relay.fnos.net/system/config',
+        ),
+        isTrue,
+      );
+      expect(
+        entry.allowsAccessCodeFor(
+          targetBaseUrl: 'https://nas-user.fnos.net:5667',
+          resolvedBaseUrl: 'https://nas-user.fnos.net:5667',
+        ),
+        isTrue,
+      );
+      expect(
+        entry.allowsAccessCodeFor(
+          targetBaseUrl: 'http://relay.example.test:7443',
+        ),
+        isFalse,
+      );
+      expect(
+        entry.allowsAccessCodeFor(
+          targetBaseUrl: 'https://relay.example.test:5667',
+        ),
+        isFalse,
+      );
+      expect(
+        entry.allowsAccessCodeFor(
+          targetBaseUrl: 'https://unknown.example.test',
+          resolvedBaseUrl: 'https://nas-user.fnos.net:5667',
+        ),
+        isFalse,
+      );
+    });
+  });
+
   group('effectivePersistedBaseUrlForLogin', () {
     test('FN Connect 登录成功后运行时地址保存 resolvedBaseUrl', () {
       const result = LoginWithBaseUrlResult(
@@ -104,6 +175,7 @@ void main() {
 }
 
 Future<_PersistenceHarness> _pumpPersistenceScreen(WidgetTester tester) async {
+  NasProvider.resetBootstrapForTesting();
   SharedPreferences.setMockInitialValues(<String, Object>{
     'base_url': 'https://nas.example.test',
     'user_name': 'alice',
@@ -112,7 +184,10 @@ Future<_PersistenceHarness> _pumpPersistenceScreen(WidgetTester tester) async {
   });
   final backend = _TrackingCredentialBackend();
   SecureCredentialStore.setBackendForTesting(backend);
-  addTearDown(SecureCredentialStore.resetBackendForTesting);
+  addTearDown(() {
+    SecureCredentialStore.resetBackendForTesting();
+    NasProvider.resetBootstrapForTesting();
+  });
   final provider = NasProvider();
   addTearDown(provider.dispose);
   await provider.reloadSettingsForTesting();
