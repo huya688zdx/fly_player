@@ -5,8 +5,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:fly_player/api/feiniu_api.dart';
 import 'package:fly_player/l10n/generated/app_localizations.dart';
+import 'package:fly_player/media_backend/media_backend_kind.dart';
 import 'package:fly_player/providers/nas_provider.dart';
 import 'package:fly_player/screens/connection_screen.dart';
+import 'package:fly_player/services/login_history_store.dart';
 import 'package:fly_player/theme/app_theme.dart';
 
 void main() {
@@ -59,6 +61,91 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(submittedAccessCode, '  2468 ');
+  });
+
+  testWidgets('切换服务器族后返回飞牛会保留尚未提交的访问码', (tester) async {
+    await _pumpConnectionScreen(tester, baseUrl: 'https://nas.example.test');
+    await tester.enterText(
+      find.byKey(const Key('feiniuAccessCodeField')),
+      'temporary-access-code',
+    );
+
+    await tester.tap(find.text('Emby'));
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsNWidgets(3));
+
+    await tester.tap(find.text('飞牛影视'));
+    await tester.pumpAndSettle();
+    final accessCodeField = tester.widget<TextField>(
+      find.descendant(
+        of: find.byKey(const Key('feiniuAccessCodeField')),
+        matching: find.byType(TextField),
+      ),
+    );
+    expect(accessCodeField.controller!.text, 'temporary-access-code');
+  });
+
+  testWidgets('选择历史会回填飞牛访问码并在服务器族条目时清空', (tester) async {
+    const feiniuHistory = LoginHistoryEntry(
+      baseUrl: 'https://history-feiniu.example.test',
+      userName: 'history-user',
+      password: 'history-password',
+      accessCode: 'history-access-code',
+      rememberPassword: true,
+      updatedAtMillis: 2,
+    );
+    const embyHistory = LoginHistoryEntry(
+      kind: MediaBackendKind.emby,
+      baseUrl: 'https://history-emby.example.test',
+      userName: 'emby-user',
+      password: 'emby-password',
+      rememberPassword: true,
+      updatedAtMillis: 1,
+    );
+    await _pumpConnectionScreen(
+      tester,
+      baseUrl: 'https://nas.example.test',
+      historyEntries: const <LoginHistoryEntry>[feiniuHistory, embyHistory],
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.history_rounded));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(feiniuHistory.baseUrl));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<TextField>(
+            find.descendant(
+              of: find.byKey(const Key('feiniuAccessCodeField')),
+              matching: find.byType(TextField),
+            ),
+          )
+          .controller!
+          .text,
+      feiniuHistory.accessCode,
+    );
+
+    await tester.tap(find.byIcon(Icons.history_rounded));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(embyHistory.baseUrl));
+    await tester.pumpAndSettle();
+    expect(find.byType(TextField), findsNWidgets(3));
+
+    await tester.tap(find.text('飞牛影视'));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<TextField>(
+            find.descendant(
+              of: find.byKey(const Key('feiniuAccessCodeField')),
+              matching: find.byType(TextField),
+            ),
+          )
+          .controller!
+          .text,
+      isEmpty,
+    );
   });
 
   testWidgets('飞牛 HTTP 地址显示无协议服务器并选中 HTTP', (tester) async {
@@ -165,6 +252,7 @@ Future<void> _pumpConnectionScreen(
     required String accessCode,
   })?
   feiniuLogin,
+  List<LoginHistoryEntry> historyEntries = const <LoginHistoryEntry>[],
   TextScaler textScaler = TextScaler.noScaling,
 }) async {
   SharedPreferences.setMockInitialValues(<String, Object>{
@@ -176,6 +264,10 @@ Future<void> _pumpConnectionScreen(
   final provider = NasProvider();
   addTearDown(provider.dispose);
   await provider.reloadSettingsForTesting();
+  await LoginHistoryStore.clear();
+  for (final entry in historyEntries) {
+    await LoginHistoryStore.save(entry);
+  }
   await tester.pumpWidget(
     MultiProvider(
       providers: [ChangeNotifierProvider.value(value: provider)],
