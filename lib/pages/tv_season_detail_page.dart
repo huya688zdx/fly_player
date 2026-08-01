@@ -662,12 +662,26 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
     Map<String, dynamic> initialDetail,
   ) {
     final episodeGuid = episode.guid.trim();
-    if (episodeGuid.isEmpty) {
+    final backendKind = context
+        .read<MediaBackendProvider>()
+        .backend
+        .capabilities
+        .kind;
+    if (episodeGuid.isEmpty || backendKind.isServerFamily) {
       return;
     }
+    final imageUrl = _episodeDynamicThemeImageUrl(initialDetail);
+    if (imageUrl.isEmpty) return;
+    final nas = context.read<NasProvider>();
+    final imageRequest = DetailArtworkResolver(
+      baseUrl: nas.baseUrl,
+      token: nas.token,
+      accessCode: nas.accessCode,
+    ).resolveUrls(<String>[imageUrl]);
     DynamicThemeRuntimeController.instance.primePageSeed(
       key: episodeGuid,
-      imageUrl: _episodeDynamicThemeImageUrl(initialDetail),
+      imageUrl: imageUrl,
+      imageHeaders: imageRequest.headers,
     );
   }
 

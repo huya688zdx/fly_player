@@ -33,7 +33,9 @@ class DetailThemePrewarmer {
     BuildContext context, {
     required String pageKey,
     String imageUrl = '',
+    Map<String, String> imageHeaders = const <String, String>{},
   }) async {
+    final imageHeadersSnapshot = Map<String, String>.unmodifiable(imageHeaders);
     final normalizedKey = pageKey.trim();
     if (normalizedKey.isEmpty) {
       return;
@@ -51,6 +53,7 @@ class DetailThemePrewarmer {
     final seed = await DynamicThemeRuntimeController.instance.restoreCachedSeed(
       key: normalizedKey,
       imageUrl: imageUrl,
+      imageHeaders: imageHeadersSnapshot,
     );
     if (seed == null) {
       return;

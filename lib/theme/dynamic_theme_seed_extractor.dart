@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
+import 'dart:math';
 import 'dart:ui' as ui;
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -35,7 +37,7 @@ class DynamicThemeSeedExtractor {
   static const int _maxSeedCacheEntries = 256;
   // v3：真莫奈管线（Celebi 量化 + CAM16 Score），seed 为 Score 排名原色不再 HSL clamp；
   // 旧 v2 缓存按自制 HSL 评分产出，需失效。
-  static const String _persistentCacheVersion = 'dyn_seed_v3';
+  static const String _persistentCacheVersion = 'dyn_seed_v5';
   static const String _persistentCachePrefsKey = 'dynamic_theme_seed_cache_v1';
   static const Duration _persistDebounceDelay = Duration(milliseconds: 120);
   static const MethodChannel _themeSamplerChannel = MethodChannel(
@@ -49,9 +51,17 @@ class DynamicThemeSeedExtractor {
   static Timer? _persistTimer;
   static bool _persistentCacheLoaded = false;
   static bool _persistScheduled = false;
+  static final List<int> _imageHeadersHmacKey = List<int>.generate(
+    32,
+    (_) => Random.secure().nextInt(256),
+    growable: false,
+  );
 
-  static DynamicThemeSeed? cachedSeedForImageUrl(String imageUrl) {
-    final normalizedImageKey = normalizeImageIdentity(imageUrl);
+  static DynamicThemeSeed? cachedSeedForImageUrl(
+    String imageUrl, {
+    Map<String, String> imageHeaders = const <String, String>{},
+  }) {
+    final normalizedImageKey = scopedImageCacheKey(imageUrl, imageHeaders);
     if (normalizedImageKey.isEmpty) {
       return null;
     }
@@ -64,9 +74,14 @@ class DynamicThemeSeedExtractor {
   }
 
   static Future<DynamicThemeSeed?> restoreCachedSeedForImageUrl(
-    String imageUrl,
-  ) async {
-    final normalizedImageKey = normalizeImageIdentity(imageUrl);
+    String imageUrl, {
+    Map<String, String> imageHeaders = const <String, String>{},
+  }) async {
+    final imageHeadersSnapshot = Map<String, String>.unmodifiable(imageHeaders);
+    final normalizedImageKey = scopedImageCacheKey(
+      imageUrl,
+      imageHeadersSnapshot,
+    );
     if (normalizedImageKey.isEmpty) {
       return null;
     }
@@ -159,13 +174,48 @@ class DynamicThemeSeedExtractor {
     }
   }
 
+  static String imageHeadersScopeDigest(Map<String, String> imageHeaders) {
+    if (imageHeaders.isEmpty) return 'public';
+    final entries =
+        imageHeaders.entries
+            .map(
+              (entry) => <String>[
+                entry.key.trim().toLowerCase(),
+                entry.value.trim(),
+              ],
+            )
+            .toList(growable: false)
+          ..sort((left, right) {
+            final byName = left.first.compareTo(right.first);
+            return byName != 0 ? byName : left.last.compareTo(right.last);
+          });
+    return Hmac(
+      sha256,
+      _imageHeadersHmacKey,
+    ).convert(utf8.encode(jsonEncode(entries))).toString();
+  }
+
+  static String scopedImageCacheKey(
+    String imageUrl,
+    Map<String, String> imageHeaders,
+  ) {
+    final normalizedUrl = normalizeImageIdentity(imageUrl);
+    if (normalizedUrl.isEmpty) return '';
+    final visibility = imageHeaders.isEmpty ? 'public' : 'private';
+    return '$visibility:$normalizedUrl#headers=${imageHeadersScopeDigest(imageHeaders)}';
+  }
+
   /// H-030:取色链路后端中立化——只收「图 URL + 访问该 URL 的鉴权 header」,
   /// 不再感知 NAS token。header 由调用方从图片请求对象(MediaImageRequest)取得。
   static Future<DynamicThemeSeed?> extract({
     required String imageUrl,
     Map<String, String> imageHeaders = const <String, String>{},
   }) async {
-    final normalizedImageKey = normalizeImageIdentity(imageUrl);
+    final imageHeadersSnapshot = Map<String, String>.unmodifiable(imageHeaders);
+    final normalizedImageKey = scopedImageCacheKey(
+      imageUrl,
+      imageHeadersSnapshot,
+    );
     if (normalizedImageKey.isNotEmpty) {
       await _ensurePersistentCacheLoaded();
       final cached = _touchSeedCache(normalizedImageKey);
@@ -179,7 +229,7 @@ class DynamicThemeSeedExtractor {
     }
 
     final future =
-        _extractUncached(imageUrl: imageUrl, imageHeaders: imageHeaders)
+        _extractUncached(imageUrl: imageUrl, imageHeaders: imageHeadersSnapshot)
             .timeout(const Duration(seconds: 10), onTimeout: () => null)
             .then((seed) {
               if (normalizedImageKey.isNotEmpty) {
@@ -440,7 +490,7 @@ class DynamicThemeSeedExtractor {
         }
         final key = entry['key']?.toString().trim() ?? '';
         final seed = _seedFromJson(entry);
-        if (key.isEmpty || seed == null) {
+        if (!_isPersistentCacheKey(key) || seed == null) {
           continue;
         }
         _seedCache.remove(key);
@@ -481,6 +531,7 @@ class DynamicThemeSeedExtractor {
       final payload = <String, Object?>{
         'version': _persistentCacheVersion,
         'entries': _seedCache.entries
+            .where((entry) => _isPersistentCacheKey(entry.key))
             .map(
               (entry) => <String, Object?>{
                 'key': entry.key,
@@ -497,6 +548,8 @@ class DynamicThemeSeedExtractor {
       // Ignore cache persistence failures and keep runtime cache only.
     }
   }
+
+  static bool _isPersistentCacheKey(String key) => key.startsWith('public:');
 
   static Map<String, Object?> _seedToJson(DynamicThemeSeed seed) {
     return <String, Object?>{
