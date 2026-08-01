@@ -566,10 +566,16 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
         fetchedItems = result.items
             .map(_cardToLibraryItem)
             .toList(growable: false);
-        final resolver = DetailArtworkResolver(
-          baseUrl: provider.baseUrl,
+        final imageCredentials = mediaImageCredentialsForBackend(
+          backendKind: backend.capabilities.kind,
           token: provider.token,
           accessCode: provider.accessCode,
+          baseUrl: provider.baseUrl,
+        );
+        final resolver = DetailArtworkResolver(
+          baseUrl: imageCredentials.baseUrl,
+          token: imageCredentials.token,
+          accessCode: imageCredentials.accessCode,
         );
         fetchedImageRequests = <String, MediaImageRequest>{
           for (final card in result.items)
