@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import '../api/feiniu_access_code_transport.dart';
 import '../api/feiniu_api.dart';
 import '../l10n/generated/app_localizations.dart';
 import 'app_exception.dart';
@@ -18,6 +19,13 @@ class LoginErrorResolver {
     final appError = _extractAppException(error);
     final status = appError?.httpStatus;
     final code = appError?.code;
+
+    if (raw == feiniuAccessCodeRequiredSentinel) {
+      return strings.loginErrorAccessCodeRequired;
+    }
+    if (raw == feiniuAccessCodeInvalidSentinel) {
+      return strings.loginErrorAccessCodeInvalid;
+    }
 
     if (code == -2 || code == -15 || status == 401 || status == 403) {
       return strings.loginErrorInvalidCredentials;
