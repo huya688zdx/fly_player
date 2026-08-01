@@ -31,6 +31,7 @@ void main() {
       baseUrl: 'http://new-nas.example.test',
       userName: 'new-user',
       password: 'new-password',
+      accessCode: 'new-access-code',
       token: 'new-token',
     );
     var secondLoadCompleted = false;
@@ -46,9 +47,148 @@ void main() {
     backend.releaseWrite();
     await Future.wait<void>(<Future<void>>[update, secondLoad]);
 
-    expect(backend.readCount, 4);
+    expect(backend.readCount, 6);
     expect(provider.sourceBaseUrl, 'http://new-nas.example.test');
+    expect(provider.accessCode, 'new-access-code');
     expect(provider.token, 'new-token');
+  });
+
+  test('记住凭据时访问码只写入安全存储', () async {
+    SharedPreferences.setMockInitialValues(const <String, Object>{});
+    final backend = _SwitchableCredentialBackend();
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final provider = NasProvider();
+    addTearDown(provider.dispose);
+    await provider.reloadSettingsForTesting();
+
+    await provider.updateSettings(
+      baseUrl: 'http://nas.example.test',
+      userName: 'alice',
+      password: 'secret',
+      accessCode: 'access-secret',
+      token: 'active-token',
+    );
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(provider.accessCode, 'access-secret');
+    expect(backend.values['nas_session.access_code'], 'access-secret');
+    expect(prefs.getBool('nas_access_code_enabled'), isTrue);
+    expect(prefs.getString('access_code'), isNull);
+    expect(prefs.getString('nas_access_code'), isNull);
+  });
+
+  test('未记住访问码时当前进程重载保留会话而新进程强制重新登录', () async {
+    SharedPreferences.setMockInitialValues(const <String, Object>{});
+    final backend = _SwitchableCredentialBackend();
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final currentProvider = NasProvider();
+    await currentProvider.reloadSettingsForTesting();
+
+    await currentProvider.updateSettings(
+      baseUrl: 'http://nas.example.test',
+      resolvedBaseUrl: 'http://resolved-nas.example.test',
+      userName: 'alice',
+      password: 'secret',
+      accessCode: 'runtime-access-code',
+      rememberPassword: false,
+      token: 'active-token',
+    );
+    await currentProvider.reloadSettingsForTesting();
+
+    expect(currentProvider.accessCode, 'runtime-access-code');
+    expect(currentProvider.token, 'active-token');
+    expect(currentProvider.isConfigured, isTrue);
+    expect(backend.values['nas_session.access_code'], isNull);
+
+    currentProvider.dispose();
+    NasProvider.resetBootstrapForTesting();
+    final restartedProvider = NasProvider();
+    addTearDown(restartedProvider.dispose);
+    await restartedProvider.reloadSettingsForTesting();
+
+    expect(restartedProvider.accessCode, isEmpty);
+    expect(restartedProvider.token, isEmpty);
+    expect(restartedProvider.resolvedBaseUrl, isEmpty);
+    expect(restartedProvider.isConfigured, isFalse);
+    expect(backend.values['nas_session.token'], isNull);
+  });
+
+  test('空访问码关闭访问码标记且未记住访问码会在登出时清空', () async {
+    SharedPreferences.setMockInitialValues(const <String, Object>{});
+    final backend = _SwitchableCredentialBackend();
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    const embeddingChannel = MethodChannel('fly_player/embedding');
+    messenger.setMockMethodCallHandler(embeddingChannel, (_) async => null);
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(embeddingChannel, null),
+    );
+    final provider = NasProvider();
+    addTearDown(provider.dispose);
+    await provider.reloadSettingsForTesting();
+
+    await provider.updateSettings(
+      baseUrl: 'http://nas.example.test',
+      userName: 'alice',
+      password: 'secret',
+      accessCode: '',
+      token: 'active-token',
+    );
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getBool('nas_access_code_enabled'), isFalse);
+    expect(backend.values['nas_session.access_code'], isNull);
+
+    await provider.updateSettings(
+      baseUrl: 'http://nas.example.test',
+      userName: 'alice',
+      password: 'secret',
+      accessCode: 'remembered-access-code',
+      token: 'active-token',
+    );
+    await provider.logout();
+    expect(provider.accessCode, 'remembered-access-code');
+    expect(backend.values['nas_session.access_code'], 'remembered-access-code');
+
+    await provider.updateSettings(
+      baseUrl: 'http://nas.example.test',
+      userName: 'alice',
+      password: 'secret',
+      accessCode: 'runtime-only',
+      rememberPassword: false,
+      token: 'active-token',
+    );
+    await provider.logout();
+
+    expect(provider.accessCode, isEmpty);
+    expect(backend.values['nas_session.access_code'], isNull);
+  });
+
+  test('访问码安全存储暂不可用时保留当前运行态访问码', () async {
+    SharedPreferences.setMockInitialValues(const <String, Object>{});
+    final backend = _SwitchableCredentialBackend();
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final provider = NasProvider();
+    addTearDown(provider.dispose);
+    await provider.reloadSettingsForTesting();
+    await provider.updateSettings(
+      baseUrl: 'http://nas.example.test',
+      userName: 'alice',
+      password: 'secret',
+      accessCode: 'active-access-code',
+      token: 'active-token',
+    );
+    backend.unavailableKeys.add('nas_session.access_code');
+
+    await provider.reloadSettingsForTesting();
+
+    expect(provider.accessCode, 'active-access-code');
+    expect(provider.token, 'active-token');
+    expect(provider.isConfigured, isTrue);
   });
 
   test('阻塞加载完成后 updateSettings 的新登录不会被旧快照覆盖', () async {
@@ -104,6 +244,7 @@ void main() {
       password: 'secret',
       token: 'active-token',
     );
+    final deletesBeforeBlockedLoad = backend.deleteCount;
     backend.blockNextRead(SecureCredentialReadResult.found('active-token'));
     provider.didChangeAppLifecycleState(AppLifecycleState.resumed);
     await backend.readStarted.future;
@@ -116,7 +257,7 @@ void main() {
     backend.releaseRead();
     await Future.wait<void>(<Future<void>>[blockedLoad, logout]);
 
-    expect(deletesWhileLoadBlocked, 0);
+    expect(deletesWhileLoadBlocked, deletesBeforeBlockedLoad);
     expect(provider.token, isEmpty);
     expect(provider.isConfigured, isFalse);
   });
@@ -204,7 +345,7 @@ void main() {
     backend.release();
     await Future.wait<void>(<Future<void>>[firstRetry, secondRetry]);
 
-    expect(backend.readCount, 2);
+    expect(backend.readCount, 3);
     expect(provider.isReady, isTrue);
     expect(provider.hasLoadFailure, isFalse);
     expect(states.last, (isReady: true, hasFailure: false));
@@ -245,11 +386,11 @@ void main() {
     backend.startGeneration(const SecureCredentialReadResult.missing());
     final recovery = provider.retryLoad();
     await backend.readStarted.future;
-    expect(backend.readCount, 2);
+    expect(backend.readCount, 3);
     backend.release();
     await recovery;
 
-    expect(backend.readCount, 3);
+    expect(backend.readCount, 5);
     expect(provider.isReady, isTrue);
     expect(provider.hasLoadFailure, isFalse);
   });
@@ -404,6 +545,7 @@ void main() {
 
 class _SwitchableCredentialBackend implements SecureCredentialBackend {
   final Map<String, String> values = <String, String>{};
+  final Set<String> unavailableKeys = <String>{};
   bool unavailable = false;
   bool failWrite = false;
   bool failDelete = false;
@@ -412,7 +554,9 @@ class _SwitchableCredentialBackend implements SecureCredentialBackend {
 
   @override
   Future<SecureCredentialReadResult> read(String key) async {
-    if (unavailable) return const SecureCredentialReadResult.unavailable();
+    if (unavailable || unavailableKeys.contains(key)) {
+      return const SecureCredentialReadResult.unavailable();
+    }
     final value = values[key] ?? '';
     return value.isEmpty
         ? const SecureCredentialReadResult.missing()
