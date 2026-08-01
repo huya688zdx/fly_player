@@ -630,9 +630,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     setState(() {
       _slideDx = newIndex > oldIndex ? 1 : -1;
       _selectedBackend = next;
-      if (next.isServerFamily) {
-        _accessCodeController.clear();
-      }
     });
   }
 
