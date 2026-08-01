@@ -236,7 +236,8 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
-    final token = context.watch<NasProvider>().token;
+    final nas = context.watch<NasProvider>();
+    final token = nas.token;
 
     return PopScope<Object?>(
       canPop: !_editing,
@@ -331,11 +332,15 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
                     _buildDownloadedPage(
                       context: context,
                       token: token,
+                      accessCode: nas.accessCode,
+                      baseUrl: nas.baseUrl,
                       groups: _downloadedGroupsSnapshot,
                     ),
                     _buildDownloadingPage(
                       context: context,
                       token: token,
+                      accessCode: nas.accessCode,
+                      baseUrl: nas.baseUrl,
                       records: _activeRecordsSnapshot,
                     ),
                   ],
@@ -450,6 +455,8 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
   Widget _buildDownloadedPage({
     required BuildContext context,
     required String token,
+    required String accessCode,
+    required String baseUrl,
     required List<DownloadTaskGroup> groups,
   }) {
     final colors = context.appColors;
@@ -485,6 +492,8 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
           key: ValueKey<String>(group.id),
           group: group,
           token: token,
+          accessCode: accessCode,
+          baseUrl: baseUrl,
           tab: DownloadListTab.downloaded,
           editing: _editing,
           selected: _selectedGroupIds.contains(group.id),
@@ -503,6 +512,8 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
   Widget _buildDownloadingPage({
     required BuildContext context,
     required String token,
+    required String accessCode,
+    required String baseUrl,
     required List<DownloadTaskRecord> records,
   }) {
     final colors = context.appColors;
@@ -542,6 +553,8 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
             return _DownloadRecordRow(
               record: currentRecord,
               token: token,
+              accessCode: accessCode,
+              baseUrl: baseUrl,
               downloadSpeedBytesPerSecond: _service
                   .downloadSpeedBytesPerSecondFor(currentRecord.id),
             );
@@ -967,7 +980,8 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final l10n = AppLocalizations.of(context);
-    final token = context.watch<NasProvider>().token;
+    final nas = context.watch<NasProvider>();
+    final token = nas.token;
     final group = _groupSnapshot;
     final title = group?.title.trim().isNotEmpty == true
         ? group!.title
@@ -1076,6 +1090,8 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
                               key: ValueKey<String>(lead.id),
                               record: lead,
                               token: token,
+                              accessCode: nas.accessCode,
+                              baseUrl: nas.baseUrl,
                               busy: launchingRecordId == lead.id,
                               dimmed:
                                   launchingRecordId != null &&
@@ -1092,6 +1108,8 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
                             key: ValueKey<String>('versions:${group.key}'),
                             records: group.records,
                             token: token,
+                            accessCode: nas.accessCode,
+                            baseUrl: nas.baseUrl,
                             expanded: expanded,
                             busyRecordId: launchingRecordId,
                             onToggle: () {
@@ -1129,6 +1147,8 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
                               return _DownloadRecordRow(
                                 record: currentRecord,
                                 token: token,
+                                accessCode: nas.accessCode,
+                                baseUrl: nas.baseUrl,
                                 busy: launchingRecordId == currentRecord.id,
                                 dimmed:
                                     launchingRecordId != null &&
@@ -1402,6 +1422,8 @@ void _writeDownloadRecordStructure(
 class _DownloadRecordVersionGroup extends StatelessWidget {
   final List<DownloadTaskRecord> records;
   final String token;
+  final String accessCode;
+  final String baseUrl;
   final bool expanded;
   final String? busyRecordId;
   final VoidCallback onToggle;
@@ -1412,6 +1434,8 @@ class _DownloadRecordVersionGroup extends StatelessWidget {
     super.key,
     required this.records,
     required this.token,
+    required this.accessCode,
+    required this.baseUrl,
     required this.expanded,
     required this.busyRecordId,
     required this.onToggle,
@@ -1429,6 +1453,8 @@ class _DownloadRecordVersionGroup extends StatelessWidget {
         _DownloadRecordRow(
           record: lead,
           token: token,
+          accessCode: accessCode,
+          baseUrl: baseUrl,
           busy: busyRecordId == lead.id,
           dimmed: busyRecordId != null && busyRecordId != lead.id,
           onLongPress: () => onRecordLongPress(lead),
@@ -1459,6 +1485,8 @@ class _DownloadRecordVersionGroup extends StatelessWidget {
                           key: ValueKey<String>('version-${records[index].id}'),
                           record: records[index],
                           token: token,
+                          accessCode: accessCode,
+                          baseUrl: baseUrl,
                           titleOverride: _versionTitle(records[index], l10n),
                           busy: busyRecordId == records[index].id,
                           dimmed:
@@ -1564,6 +1592,8 @@ class _VersionToggleButton extends StatelessWidget {
 class _DownloadGroupCard extends StatelessWidget {
   final DownloadTaskGroup group;
   final String token;
+  final String accessCode;
+  final String baseUrl;
   final DownloadListTab tab;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
@@ -1575,6 +1605,8 @@ class _DownloadGroupCard extends StatelessWidget {
     super.key,
     required this.group,
     required this.token,
+    required this.accessCode,
+    required this.baseUrl,
     required this.tab,
     required this.onTap,
     this.onLongPress,
@@ -1634,6 +1666,8 @@ class _DownloadGroupCard extends StatelessWidget {
               child: _DownloadGroupPosterImage(
                 urls: lead.groupPosterUrls,
                 token: token,
+                accessCode: accessCode,
+                baseUrl: baseUrl,
                 badgeLabel: localizeDownloadResolution(lead.resolution, l10n),
               ),
             ),
@@ -1702,6 +1736,8 @@ class _DownloadGroupCard extends StatelessWidget {
 class _DownloadRecordRow extends StatelessWidget {
   final DownloadTaskRecord record;
   final String token;
+  final String accessCode;
+  final String baseUrl;
   final int downloadSpeedBytesPerSecond;
   final bool busy;
   final bool dimmed;
@@ -1717,6 +1753,8 @@ class _DownloadRecordRow extends StatelessWidget {
     super.key,
     required this.record,
     required this.token,
+    required this.accessCode,
+    required this.baseUrl,
     this.downloadSpeedBytesPerSecond = 0,
     this.busy = false,
     this.dimmed = false,
@@ -1965,6 +2003,8 @@ class _DownloadRecordRow extends StatelessWidget {
             child: _DownloadPosterImage(
               urls: record.posterUrls,
               token: token,
+              accessCode: accessCode,
+              baseUrl: baseUrl,
               badgeLabel: localizeDownloadResolution(record.resolution, l10n),
             ),
           ),
@@ -2248,11 +2288,15 @@ class _AnimatedSelectionSlot extends StatelessWidget {
 class _DownloadPosterImage extends StatelessWidget {
   final List<String> urls;
   final String token;
+  final String accessCode;
+  final String baseUrl;
   final String badgeLabel;
 
   const _DownloadPosterImage({
     required this.urls,
     required this.token,
+    required this.accessCode,
+    required this.baseUrl,
     required this.badgeLabel,
   });
 
@@ -2270,7 +2314,12 @@ class _DownloadPosterImage extends StatelessWidget {
           ColoredBox(
             color: colors.surfaceStrong.withValues(alpha: 0.92),
             child: DetailHeroImage(
-              images: mediaImageRequestForUrls(urls, token: token),
+              images: mediaImageRequestForUrls(
+                urls,
+                token: token,
+                accessCode: accessCode,
+                baseUrl: baseUrl,
+              ),
               fit: BoxFit.cover,
             ),
           ),
@@ -2313,11 +2362,15 @@ class _DownloadPosterImage extends StatelessWidget {
 class _DownloadGroupPosterImage extends StatelessWidget {
   final List<String> urls;
   final String token;
+  final String accessCode;
+  final String baseUrl;
   final String badgeLabel;
 
   const _DownloadGroupPosterImage({
     required this.urls,
     required this.token,
+    required this.accessCode,
+    required this.baseUrl,
     required this.badgeLabel,
   });
 
@@ -2337,7 +2390,12 @@ class _DownloadGroupPosterImage extends StatelessWidget {
             child: AspectRatio(
               aspectRatio: 2 / 3,
               child: DetailHeroImage(
-                images: mediaImageRequestForUrls(urls, token: token),
+                images: mediaImageRequestForUrls(
+                  urls,
+                  token: token,
+                  accessCode: accessCode,
+                  baseUrl: baseUrl,
+                ),
                 fit: BoxFit.contain,
               ),
             ),

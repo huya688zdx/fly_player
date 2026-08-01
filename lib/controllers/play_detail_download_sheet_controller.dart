@@ -145,6 +145,8 @@ class PlayDetailDownloadSheetController {
             itemTitle: _buildTitle(item, l10n),
             posterUrls: posterUrls,
             token: provider.token,
+            accessCode: provider.accessCode,
+            baseUrl: provider.baseUrl,
             posterBadgeLabel: _posterBadgeLabel(knownResolution),
             qualityOptions: knownResolution.isEmpty
                 ? const <TvSeasonDownloadQualityOption>[]
@@ -250,6 +252,8 @@ class PlayDetailDownloadSheetController {
                 itemTitle: _buildTitle(item, l10n),
                 posterUrls: posterUrls,
                 token: provider.token,
+                accessCode: provider.accessCode,
+                baseUrl: provider.baseUrl,
                 posterBadgeLabel: _posterBadgeLabel(sourceResolution),
                 qualityOptions: qualities
                     .map(

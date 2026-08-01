@@ -569,6 +569,7 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
         final resolver = DetailArtworkResolver(
           baseUrl: provider.baseUrl,
           token: provider.token,
+          accessCode: provider.accessCode,
         );
         fetchedImageRequests = <String, MediaImageRequest>{
           for (final card in result.items)
@@ -785,7 +786,9 @@ class _FavoriteItemsScreenState extends State<FavoriteItemsScreen>
         width: width,
         preferDirectPath: preferDirectPath,
       ),
-      fallbackToken: provider.token,
+      fallbackToken: _isFeiniuBackend ? provider.token : '',
+      fallbackAccessCode: _isFeiniuBackend ? provider.accessCode : '',
+      fallbackBaseUrl: _isFeiniuBackend ? provider.baseUrl : '',
     );
   }
 

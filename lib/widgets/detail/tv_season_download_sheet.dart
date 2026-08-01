@@ -31,6 +31,8 @@ class TvSeasonDownloadSheetPayload {
   final String itemTitle;
   final List<String> posterUrls;
   final String token;
+  final String accessCode;
+  final String baseUrl;
   final String posterBadgeLabel;
   final List<TvEpisodeCardData> episodeEntries;
   final List<TvSeasonDownloadQualityOption> qualityOptions;
@@ -53,6 +55,8 @@ class TvSeasonDownloadSheetPayload {
     required this.itemTitle,
     required this.posterUrls,
     required this.token,
+    required this.accessCode,
+    required this.baseUrl,
     required this.posterBadgeLabel,
     this.episodeEntries = const <TvEpisodeCardData>[],
     required this.qualityOptions,
@@ -77,6 +81,8 @@ class TvSeasonDownloadSheetPayload {
       itemTitle: itemTitle,
       posterUrls: posterUrls,
       token: token,
+      accessCode: accessCode,
+      baseUrl: baseUrl,
       posterBadgeLabel: posterBadgeLabel,
       episodeEntries: episodeEntries,
       qualityOptions: qualityOptions,
@@ -390,6 +396,8 @@ class _TvSeasonDownloadSheetState extends State<TvSeasonDownloadSheet> {
                       },
                       visibleEntries: visibleEntries,
                       token: payload.token,
+                      accessCode: payload.accessCode,
+                      baseUrl: payload.baseUrl,
                       downloadLabel: payload.downloadLabel,
                       downloadingLabel: payload.downloadingLabel,
                       downloadedLabel: payload.downloadedLabel,
@@ -484,6 +492,8 @@ class _DownloadSingleCard extends StatelessWidget {
           _DownloadPoster(
             urls: payload.posterUrls,
             token: payload.token,
+            accessCode: payload.accessCode,
+            baseUrl: payload.baseUrl,
             badgeLabel: payload.posterBadgeLabel,
           ),
           const SizedBox(width: 12),
@@ -550,6 +560,8 @@ class _DownloadEpisodeListSection extends StatelessWidget {
   final ValueChanged<int> onRangeSelected;
   final List<TvEpisodeCardData> visibleEntries;
   final String token;
+  final String accessCode;
+  final String baseUrl;
   final String downloadLabel;
   final String downloadingLabel;
   final String downloadedLabel;
@@ -563,6 +575,8 @@ class _DownloadEpisodeListSection extends StatelessWidget {
     required this.onRangeSelected,
     required this.visibleEntries,
     required this.token,
+    required this.accessCode,
+    required this.baseUrl,
     required this.downloadLabel,
     required this.downloadingLabel,
     required this.downloadedLabel,
@@ -587,6 +601,8 @@ class _DownloadEpisodeListSection extends StatelessWidget {
             key: ValueKey<String>(visibleEntries[i].guid),
             entry: visibleEntries[i],
             token: token,
+            accessCode: accessCode,
+            baseUrl: baseUrl,
             downloadLabel: downloadLabel,
             downloadingLabel: downloadingLabel,
             downloadedLabel: downloadedLabel,
@@ -654,6 +670,8 @@ class _DownloadRangeTabs extends StatelessWidget {
 class _DownloadEpisodeRow extends StatelessWidget {
   final TvEpisodeCardData entry;
   final String token;
+  final String accessCode;
+  final String baseUrl;
   final String downloadLabel;
   final String downloadingLabel;
   final String downloadedLabel;
@@ -665,6 +683,8 @@ class _DownloadEpisodeRow extends StatelessWidget {
     super.key,
     required this.entry,
     required this.token,
+    required this.accessCode,
+    required this.baseUrl,
     required this.downloadLabel,
     required this.downloadingLabel,
     required this.downloadedLabel,
@@ -705,6 +725,8 @@ class _DownloadEpisodeRow extends StatelessWidget {
           _DownloadPoster(
             urls: entry.imageUrls,
             token: token,
+            accessCode: accessCode,
+            baseUrl: baseUrl,
             badgeLabel: resolutionLabel,
           ),
           const SizedBox(width: 12),
@@ -768,11 +790,15 @@ class _DownloadEpisodeRow extends StatelessWidget {
 class _DownloadPoster extends StatelessWidget {
   final List<String> urls;
   final String token;
+  final String accessCode;
+  final String baseUrl;
   final String badgeLabel;
 
   const _DownloadPoster({
     required this.urls,
     required this.token,
+    required this.accessCode,
+    required this.baseUrl,
     required this.badgeLabel,
   });
 
@@ -790,7 +816,12 @@ class _DownloadPoster extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             DetailHeroImage(
-              images: mediaImageRequestForUrls(urls, token: token),
+              images: mediaImageRequestForUrls(
+                urls,
+                token: token,
+                accessCode: accessCode,
+                baseUrl: baseUrl,
+              ),
             ),
             if (badgeLabel.trim().isNotEmpty)
               Positioned(

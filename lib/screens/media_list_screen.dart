@@ -382,11 +382,18 @@ class _MediaListScreenState extends State<MediaListScreen>
     try {
       final provider = context.read<NasProvider>();
       final api = FeiniuApi(provider);
-      final resolver = DetailArtworkResolver(
-        baseUrl: provider.baseUrl,
-        token: provider.token,
-      );
       final backend = context.read<MediaBackendProvider>().backend;
+      final imageCredentials = mediaImageCredentialsForBackend(
+        backendKind: backend.capabilities.kind,
+        token: provider.token,
+        accessCode: provider.accessCode,
+        baseUrl: provider.baseUrl,
+      );
+      final resolver = DetailArtworkResolver(
+        baseUrl: imageCredentials.baseUrl,
+        token: imageCredentials.token,
+        accessCode: imageCredentials.accessCode,
+      );
 
       // 鍒嗙被鍏ュ彛/姒傝璧板叕鍏?MediaBackend銆傜户缁鐪嬩笌鍒嗙被鏉＄洰鎸夊悗绔兘鍔涢€夋簮锛氶鐗涜蛋
       // FeiniuApi锛堜繚鐣欑画鎾繘搴︾瓑瀵屽瓧娈碉級锛孍mby 绛夎蛋 backend锛堣 _loadContinueWatching /
@@ -535,9 +542,16 @@ class _MediaListScreenState extends State<MediaListScreen>
 
     try {
       final api = FeiniuApi(provider);
-      final resolver = DetailArtworkResolver(
-        baseUrl: provider.baseUrl,
+      final imageCredentials = mediaImageCredentialsForBackend(
+        backendKind: backend.capabilities.kind,
         token: provider.token,
+        accessCode: provider.accessCode,
+        baseUrl: provider.baseUrl,
+      );
+      final resolver = DetailArtworkResolver(
+        baseUrl: imageCredentials.baseUrl,
+        token: imageCredentials.token,
+        accessCode: imageCredentials.accessCode,
       );
 
       // 鍒嗙被鍏ュ彛/姒傝璧板叕鍏?MediaBackend锛涚户缁鐪嬩笌鍒嗙被鏉＄洰鎸夊悗绔兘鍔涢€夋簮锛堝悓 _fetchHomeData锛夈€?
@@ -694,9 +708,16 @@ class _MediaListScreenState extends State<MediaListScreen>
 
     try {
       final api = FeiniuApi(provider);
-      final resolver = DetailArtworkResolver(
-        baseUrl: provider.baseUrl,
+      final imageCredentials = mediaImageCredentialsForBackend(
+        backendKind: backend.capabilities.kind,
         token: provider.token,
+        accessCode: provider.accessCode,
+        baseUrl: provider.baseUrl,
+      );
+      final resolver = DetailArtworkResolver(
+        baseUrl: imageCredentials.baseUrl,
+        token: imageCredentials.token,
+        accessCode: imageCredentials.accessCode,
       );
       final playListResult = await _loadContinueWatching(
         backend,
@@ -1062,6 +1083,8 @@ class _MediaListScreenState extends State<MediaListScreen>
                 ? <String>[item.backdropUrl.trim()]
                 : const <String>[],
             fallbackToken: '',
+            fallbackAccessCode: '',
+            fallbackBaseUrl: '',
           );
           final heroProvider = DetailHeroImage.precacheProvider(
             images: heroImages,
@@ -1100,6 +1123,8 @@ class _MediaListScreenState extends State<MediaListScreen>
         final warmupImages = mediaImageRequestForUrls(
           _posterCandidates(provider.baseUrl, item.poster.trim(), width: 560),
           token: provider.token,
+          accessCode: provider.accessCode,
+          baseUrl: provider.baseUrl,
         );
         final warmupUrls = warmupImages.urls;
         if (warmupUrls.isNotEmpty) {

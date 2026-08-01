@@ -278,11 +278,12 @@ class AdaptiveDetailNavigator {
     // 图请求统一经 DetailArtworkResolver 产出（直链透传 ref 自带 header/自鉴权
     // 标志；飞牛 backdrop 相对路径拼候选 + NAS header），预取口不再自持鉴权分支。
     final nas = context.read<NasProvider>();
-    final resolver = DetailArtworkResolver(
-      baseUrl: nas.baseUrl,
-      token: nas.token,
-    );
     final directUrl = _firstDirectHeroUrl(request);
+    final resolver = DetailArtworkResolver(
+      baseUrl: directUrl.isEmpty ? nas.baseUrl : '',
+      token: directUrl.isEmpty ? nas.token : '',
+      accessCode: directUrl.isEmpty ? nas.accessCode : '',
+    );
     final MediaImageRequest heroImages;
     if (directUrl.isNotEmpty) {
       final ref = request.heroImageRefs.firstWhere(

@@ -1,15 +1,27 @@
-Map<String, String> nasImageHeaders(String token, {String? url}) {
+import '../api/feiniu_access_code_transport.dart';
+
+Map<String, String> nasImageHeaders(
+  String token, {
+  String? url,
+  String accessCode = '',
+  String baseUrl = '',
+}) {
   final trimmedToken = token.trim();
-  if (trimmedToken.isEmpty) {
-    return const <String, String>{};
+  final headers = <String, String>{};
+  if (trimmedToken.isNotEmpty) {
+    headers['Authorization'] = trimmedToken;
+    headers['Trim-MC-token'] = trimmedToken;
   }
-  final headers = <String, String>{
-    'Authorization': trimmedToken,
-    'Trim-MC-token': trimmedToken,
-  };
-  if (usesFnConnectRelayCookie(url)) {
+  if (trimmedToken.isNotEmpty && usesFnConnectRelayCookie(url)) {
     headers['Cookie'] = 'mode=relay';
   }
+  headers.addAll(
+    buildFeiniuAccessCodeHeadersForUrl(
+      accessCode: accessCode,
+      baseUrl: baseUrl,
+      url: url ?? '',
+    ),
+  );
   return headers;
 }
 

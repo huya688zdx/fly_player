@@ -816,6 +816,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
   @override
   Widget build(BuildContext context) {
     final provider = context.read<NasProvider>();
+    final isFeiniu = _isFeiniuBackend;
     final colors = context.appColors;
     return Scaffold(
       backgroundColor: colors.backgroundBase,
@@ -842,11 +843,15 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
         ),
         title: Text(widget.category.name),
       ),
-      body: _buildBody(provider.baseUrl, provider.token),
+      body: _buildBody(
+        isFeiniu ? provider.baseUrl : '',
+        isFeiniu ? provider.token : '',
+        isFeiniu ? provider.accessCode : '',
+      ),
     );
   }
 
-  Widget _buildBody(String baseUrl, String token) {
+  Widget _buildBody(String baseUrl, String token, String accessCode) {
     final layout = MediaLayoutProfile.of(context);
     final colors = context.appColors;
     if (_isLoading) return const Center(child: CircularProgressIndicator());
@@ -952,6 +957,8 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                       images: mediaImageRequestForUrls(
                         _posterCandidates(baseUrl, item, width: 280),
                         token: token,
+                        accessCode: accessCode,
+                        baseUrl: baseUrl,
                       ),
                       title: item.displayTitle,
                       subtitle: _cardSubtitle(item),
@@ -1012,7 +1019,12 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                             .toList();
 
                         return MediaPosterCard(
-                          images: mediaImageRequestForUrls(urls, token: token),
+                          images: mediaImageRequestForUrls(
+                            urls,
+                            token: token,
+                            accessCode: accessCode,
+                            baseUrl: baseUrl,
+                          ),
                           title: item.displayTitle,
                           subtitle: _cardSubtitle(item),
                           imageAspectRatioHint: item.hasPosterSize
@@ -1071,7 +1083,12 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
                         .toList();
 
                     return MediaPosterCard(
-                      images: mediaImageRequestForUrls(urls, token: token),
+                      images: mediaImageRequestForUrls(
+                        urls,
+                        token: token,
+                        accessCode: accessCode,
+                        baseUrl: baseUrl,
+                      ),
                       title: item.displayTitle,
                       subtitle: _cardSubtitle(item),
                       rating: rating,
