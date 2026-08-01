@@ -149,10 +149,17 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
           )
         : (value: _accessCode, available: true);
     if (_disposed) return;
+    if (accessCodeEnabled &&
+        !restoredAccessCode.available &&
+        restoredAccessCode.value.isEmpty) {
+      _token = '';
+      _resolvedBaseUrl = '';
+      throw const SecureCredentialUnavailableException(
+        _accessCodeCredentialKey,
+      );
+    }
     final requiresLocalLogin =
-        accessCodeEnabled &&
-        !nextRememberPassword &&
-        restoredAccessCode.value.isEmpty;
+        accessCodeEnabled && restoredAccessCode.value.isEmpty;
     final restoredToken = requiresLocalLogin
         ? (value: '', available: true)
         : await _restoreCredential(
