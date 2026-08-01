@@ -88,6 +88,7 @@ class FnConnectWebLoginPage extends StatefulWidget {
   final String fnConnectId;
   final String userName;
   final String password;
+  final String accessCode;
   final List<String> relayHosts;
 
   const FnConnectWebLoginPage({
@@ -95,6 +96,7 @@ class FnConnectWebLoginPage extends StatefulWidget {
     required this.fnConnectId,
     required this.userName,
     required this.password,
+    this.accessCode = '',
     this.relayHosts = const <String>[],
   });
 
@@ -220,6 +222,7 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
         final config = await FeiniuApi.fetchFnConnectOauthConfig(
           baseUrl: baseUrl,
           cookie: 'mode=relay',
+          accessCode: widget.accessCode,
         );
         _cookieString = 'mode=relay';
         await _navigateToSignin(baseUrl: config.baseUrl, appId: config.appId);
@@ -324,6 +327,7 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
       final config = await FeiniuApi.fetchFnConnectOauthConfig(
         baseUrl: currentBaseUrl,
         cookie: cookie,
+        accessCode: widget.accessCode,
       );
       await _navigateToSignin(baseUrl: config.baseUrl, appId: config.appId);
     } catch (error, stackTrace) {
@@ -442,6 +446,7 @@ class _FnConnectWebLoginPageState extends State<FnConnectWebLoginPage> {
       final result = await FeiniuApi.loginWithFnConnectOauthCode(
         baseUrl: baseUrl,
         code: code,
+        accessCode: widget.accessCode,
       );
       _completeSuccess(result);
     } catch (error) {

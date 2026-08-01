@@ -230,6 +230,7 @@
   "connectionAppName": "飞牛播放器",
   "connectionUserNameHint": "用户名",
   "connectionPasswordHint": "密码",
+  "connectionAccessCodeOptional": "访问码（可选）",
   "connectionRememberLogin": "保持登录",
   "connectionHttpsAccess": "HTTPS 安全访问",
   "connectionLogin": "登录",
