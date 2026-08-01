@@ -1,10 +1,31 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:fly_player/api/feiniu_access_code_transport.dart';
 import 'package:fly_player/utils/app_exception.dart';
 import 'package:fly_player/utils/login_error_resolver.dart';
 
 void main() {
   group('LoginErrorResolver', () {
+    test('访问码 required 哨兵优先于 401 账号错误映射', () {
+      final error = AppException.api(
+        action: 'login',
+        message: feiniuAccessCodeRequiredSentinel,
+        httpStatus: 401,
+      );
+
+      expect(LoginErrorResolver.resolve(error), '该服务器需要访问码');
+    });
+
+    test('访问码 invalid 哨兵优先于 403 账号错误映射', () {
+      final error = AppException.api(
+        action: 'login',
+        message: feiniuAccessCodeInvalidSentinel,
+        httpStatus: 403,
+      );
+
+      expect(LoginErrorResolver.resolve(error), '访问码错误或已失效');
+    });
+
     test('maps invalid credentials to a unified message', () {
       final error = AppException.api(
         action: 'login',
