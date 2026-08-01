@@ -209,17 +209,56 @@ void main() {
       accessCode: '',
       token: 'shared-token',
     );
+    expect(provider.isReady, isTrue);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('nas_access_code_enabled', true);
     backend.unavailableKeys.add('nas_session.access_code');
 
     await provider.reloadSettingsForTesting();
 
+    expect(provider.isReady, isFalse);
     expect(provider.hasLoadFailure, isTrue);
     expect(provider.accessCode, isEmpty);
     expect(provider.token, isEmpty);
     expect(provider.resolvedBaseUrl, isEmpty);
     expect(provider.isConfigured, isFalse);
+    expect(backend.values['nas_session.token'], 'shared-token');
+    expect(
+      prefs.getString('resolved_base_url'),
+      'http://resolved-nas.example.test',
+    );
+  });
+
+  test('访问码加载失败后新 provider 不从旧 bootstrap 恢复会话', () async {
+    SharedPreferences.setMockInitialValues(const <String, Object>{});
+    final backend = _SwitchableCredentialBackend();
+    SecureCredentialStore.setBackendForTesting(backend);
+    addTearDown(SecureCredentialStore.resetBackendForTesting);
+    final currentProvider = NasProvider();
+    await currentProvider.reloadSettingsForTesting();
+    await currentProvider.updateSettings(
+      baseUrl: 'http://nas.example.test',
+      resolvedBaseUrl: 'http://resolved-nas.example.test',
+      userName: 'alice',
+      password: 'secret',
+      accessCode: '',
+      token: 'shared-token',
+    );
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('nas_access_code_enabled', true);
+    backend.unavailableKeys.add('nas_session.access_code');
+    await currentProvider.reloadSettingsForTesting();
+    currentProvider.dispose();
+
+    final restartedProvider = NasProvider();
+    addTearDown(restartedProvider.dispose);
+
+    expect(restartedProvider.isReady, isFalse);
+    expect(restartedProvider.token, isEmpty);
+    expect(restartedProvider.resolvedBaseUrl, isEmpty);
+    expect(restartedProvider.isConfigured, isFalse);
+    await restartedProvider.reloadSettingsForTesting();
+    expect(restartedProvider.hasLoadFailure, isTrue);
     expect(backend.values['nas_session.token'], 'shared-token');
     expect(
       prefs.getString('resolved_base_url'),
