@@ -23,6 +23,29 @@ class JellyfinApi extends EmbyApi {
     super.entryTokenProvider,
   });
 
+  /// Jellyfin 继续观看通过用户条目筛选获取，不使用 Emby 专用的 `/Items/Resume`。
+  @override
+  Future<List<Map<String, Object?>>> getResumeItems({
+    required String serverUrl,
+    required String userId,
+    required String accessToken,
+    int limit = 20,
+    String fields = '',
+  }) {
+    return getItems(
+      serverUrl: serverUrl,
+      userId: userId,
+      accessToken: accessToken,
+      limit: limit,
+      isResumable: true,
+      recursive: true,
+      includeItemTypes: 'Movie,Episode',
+      fields: fields,
+      sortBy: 'DatePlayed',
+      sortOrder: 'Descending',
+    );
+  }
+
   @override
   String get authorizationHeaderValue =>
       'MediaBrowser Client="$clientName", Device="$deviceName", '
