@@ -49,53 +49,72 @@ class PosterBrowseLargeLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final compactInfo = MediaQuery.sizeOf(context).height < 900;
     final currentRow = _selectedRowOrNull(rows);
     final currentItems = currentRow == null
         ? const <PosterBrowseDisplayItem>[]
         : currentRow.items.map(displayItemOf).toList(growable: false);
 
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(28, 16, 28, 22),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _BackButton(onPressed: onBack),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.only(left: 36, right: 36, top: 24),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 560),
-                    child: focusedItem == null
-                        ? const SizedBox.shrink()
-                        : PosterBrowseMediaInfo(
-                            item: focusedItem!,
-                            logoRequest: logoRequest,
-                            secondaryLabel: secondaryLabel,
-                            metaWidgets: metaWidgets,
-                            compact: compactInfo,
-                            onPlay: onPlay,
-                            onDetail: onDetail,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final viewportHeight = constraints.maxHeight;
+          final showMediaInfo = viewportHeight >= 600;
+          final compressChrome = viewportHeight < 412;
+          final verticalInset = compressChrome ? 8.0 : null;
+
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              28,
+              verticalInset ?? 16,
+              28,
+              verticalInset ?? 22,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _BackButton(onPressed: onBack),
+                Expanded(
+                  child: showMediaInfo
+                      ? Padding(
+                          padding: const EdgeInsets.only(
+                            left: 36,
+                            right: 36,
+                            top: 24,
                           ),
-                  ),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 560),
+                              child: focusedItem == null
+                                  ? const SizedBox.shrink()
+                                  : PosterBrowseMediaInfo(
+                                      item: focusedItem!,
+                                      logoRequest: logoRequest,
+                                      secondaryLabel: secondaryLabel,
+                                      metaWidgets: metaWidgets,
+                                      compact: viewportHeight < 900,
+                                      onPlay: onPlay,
+                                      onDetail: onDetail,
+                                    ),
+                            ),
+                          ),
+                        )
+                      : const SizedBox.shrink(),
                 ),
-              ),
+                _RowSelector(
+                  rows: rows,
+                  selectedRow: selectedRow,
+                  onSelectRow: onSelectRow,
+                ),
+                SizedBox(height: compressChrome ? 8 : 14),
+                SizedBox(
+                  height: 264,
+                  child: _buildTrackArea(context, currentRow, currentItems),
+                ),
+              ],
             ),
-            _RowSelector(
-              rows: rows,
-              selectedRow: selectedRow,
-              onSelectRow: onSelectRow,
-            ),
-            const SizedBox(height: 14),
-            SizedBox(
-              height: 280,
-              child: _buildTrackArea(context, currentRow, currentItems),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
