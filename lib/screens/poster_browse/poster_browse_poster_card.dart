@@ -37,9 +37,11 @@ class PosterBrowsePosterCard extends StatelessWidget {
         onTap: onTap,
         child: SizedBox(
           width: width,
-          child: Transform.scale(
+          child: AnimatedScale(
             scale: focused ? 1.025 : 1.0,
             alignment: Alignment.topCenter,
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,

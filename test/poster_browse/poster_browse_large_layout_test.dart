@@ -10,6 +10,7 @@ import 'package:fly_player/media_backend/media_image_request.dart';
 import 'package:fly_player/media_backend/media_item_card.dart';
 import 'package:fly_player/screens/poster_browse/poster_browse_display_item.dart';
 import 'package:fly_player/screens/poster_browse/poster_browse_large_layout.dart';
+import 'package:fly_player/screens/poster_browse/poster_browse_landscape_gesture_panel.dart';
 import 'package:fly_player/screens/poster_browse/poster_browse_media_info.dart';
 import 'package:fly_player/screens/poster_browse/poster_browse_poster_card.dart';
 import 'package:fly_player/screens/poster_browse/poster_browse_poster_track.dart';
@@ -489,6 +490,7 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(tester.getSize(find.byType(PosterBrowsePosterTrack)).height, 264);
+    expect(find.byType(PosterBrowseLandscapeGesturePanel), findsOneWidget);
     expect(find.byType(PosterBrowseMediaInfo), findsNothing);
 
     final cardFinder = find.byType(PosterBrowsePosterCard);
@@ -500,6 +502,16 @@ void main() {
     );
     expect(title.maxLines, 2);
     expect(subtitle.maxLines, 1);
+
+    await tester.timedDrag(
+      find.byKey(const ValueKey('poster_browse_landscape_gesture_panel')),
+      const Offset(0, 180),
+      const Duration(milliseconds: 300),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PosterBrowseMediaInfo), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }
 

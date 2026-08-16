@@ -4,8 +4,8 @@ import '../../l10n/generated/app_localizations.dart';
 import '../../media_backend/media_image_request.dart';
 import '../../media_backend/media_item_card.dart';
 import 'poster_browse_display_item.dart';
+import 'poster_browse_landscape_gesture_panel.dart';
 import 'poster_browse_media_info.dart';
-import 'poster_browse_poster_track.dart';
 import 'poster_browse_row_status.dart';
 import 'poster_browse_rows.dart';
 
@@ -135,13 +135,37 @@ class PosterBrowseLargeLayout extends StatelessWidget {
     List<PosterBrowseDisplayItem> currentItems,
   ) {
     if (currentItems.isNotEmpty) {
-      return PosterBrowsePosterTrack(
+      return PosterBrowseLandscapeGesturePanel(
         items: currentItems,
         focusedIndex: focusedIndex,
         showProgress: currentRow?.kind == PosterBrowseRowKind.continueWatching,
         imageOf: imageOf,
         secondaryLabelOf: secondaryLabelOf,
         onItemTap: onSelectItem,
+        collapsedContent: focusedItem == null
+            ? const SizedBox.shrink()
+            : Padding(
+                padding: const EdgeInsets.fromLTRB(36, 0, 36, 4),
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 560),
+                    child: PosterBrowseMediaInfo(
+                      key: ValueKey(
+                        'poster_browse_collapsed_info_${focusedItem!.card.id}',
+                      ),
+                      item: focusedItem!,
+                      logoRequest: logoRequest,
+                      secondaryLabel: secondaryLabel,
+                      metaWidgets: metaWidgets,
+                      compact: true,
+                      collapsed: true,
+                      onPlay: onPlay,
+                      onDetail: onDetail,
+                    ),
+                  ),
+                ),
+              ),
       );
     }
 
