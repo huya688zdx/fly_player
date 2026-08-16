@@ -262,7 +262,6 @@ class _CatalogNetworkImageState extends State<_CatalogNetworkImage> {
           fit: BoxFit.cover,
           gaplessPlayback: true,
           cacheWidth: _stableCacheExtent(constraints.maxWidth, dpr),
-          cacheHeight: _stableCacheExtent(constraints.maxHeight, dpr),
           errorBuilder: (context, error, stackTrace) {
             _scheduleFallback();
             return fallback;
