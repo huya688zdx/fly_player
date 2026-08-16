@@ -92,17 +92,57 @@ void main() {
     expect(widgetsSource, contains('subtitleFontWeight: FontWeight.w400'));
     expect(
       widgetsSource,
-      contains('stableImageDecodeLogicalWidth: layout.continueDecodeWidth'),
+      contains('stableImageCacheWidth: layout.continueDecodeWidth'),
     );
     expect(
       widgetsSource,
-      contains('stableImageDecodeLogicalWidth: layout.miniPosterDecodeWidth'),
+      contains('stableImageCacheWidth: layout.homeCatalogDecodeWidth'),
+    );
+    expect(widgetsSource, isNot(contains('miniPosterDecodeWidth')));
+    expect(
+      widgetsSource,
+      contains(
+        'layout.homePosterRowHeightFor(MediaQuery.textScalerOf(context))',
+      ),
+    );
+    expect(
+      "heroTag: 'home_continue_\${item.guid}'".allMatches(widgetsSource),
+      hasLength(3),
     );
 
     expect(screenSource, contains('Future<void> _playContinueItem('));
     expect(screenSource, contains('_pendingContinueWatchingRefresh = true'));
     expect(screenSource, contains('ItemPlaybackLauncher().open('));
     expect(screenSource, contains('unawaited(_refreshContinueWatching())'));
+
+    final playMethodStart = screenSource.indexOf(
+      'Future<void> _playContinueItem(',
+    );
+    final playMethodEnd = screenSource.indexOf(
+      'bool _isEpisodeItem(',
+      playMethodStart,
+    );
+    final playMethodSource = screenSource.substring(
+      playMethodStart,
+      playMethodEnd,
+    );
+    expect(playMethodSource, contains('try {'));
+    expect(playMethodSource, contains('catch (error, stackTrace)'));
+    expect(playMethodSource, contains('finally {'));
+    expect(playMethodSource, contains('logSwallowedError('));
+    expect(playMethodSource, contains('stackTrace: stackTrace'));
+    expect(playMethodSource, contains('detailPlayInfoFailed'));
+    expect(playMethodSource, contains('_showHomeSnackBar('));
+    expect(
+      playMethodSource,
+      contains('_pendingContinueWatchingRefresh = false'),
+    );
+    expect(
+      playMethodSource.indexOf('ItemPlaybackLauncher().open('),
+      lessThan(
+        playMethodSource.indexOf('unawaited(_refreshContinueWatching())'),
+      ),
+    );
   });
 
   test('旧首页固定卡片尺寸已从布局配置移除', () {
