@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/media_backend/media_image_request.dart';
@@ -14,6 +17,38 @@ Widget testApp(Widget child) => MaterialApp(
   theme: AppThemeBuilder.build(AppThemePreset.midnight),
   home: Scaffold(body: SizedBox(width: 390, child: child)),
 );
+
+String networkUrlOf(Image image) {
+  final provider = image.image;
+  final network = provider is ResizeImage
+      ? provider.imageProvider as NetworkImage
+      : provider as NetworkImage;
+  return network.url;
+}
+
+class _PendingHttpClient implements HttpClient {
+  @override
+  Future<HttpClientRequest> getUrl(Uri url) =>
+      Completer<HttpClientRequest>().future;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+Future<void> withPendingHttp(Future<void> Function() body) =>
+    _withPendingNetworkImageClient(body);
+
+Future<void> _withPendingNetworkImageClient(
+  Future<void> Function() body,
+) async {
+  final previousProvider = debugNetworkImageHttpClientProvider;
+  debugNetworkImageHttpClientProvider = _PendingHttpClient.new;
+  try {
+    await body();
+  } finally {
+    debugNetworkImageHttpClientProvider = previousProvider;
+  }
+}
 
 void main() {
   testWidgets('单图媒体库卡铺满裁切且不再使用迷你海报', (tester) async {
@@ -107,5 +142,106 @@ void main() {
     );
     expect(tapped, 'lib-empty');
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('媒体库图片候选失败时不连跳且限制解码尺寸', (tester) async {
+    const candidates = MediaImageRequest(
+      urls: <String>[
+        'https://example.test/first.jpg',
+        'https://example.test/second.jpg',
+        'https://example.test/third.jpg',
+      ],
+      selfAuthenticated: true,
+    );
+    await tester.pumpWidget(
+      testApp(
+        HomeCatalogSection(
+          style: HomeCatalogStyle.landscapeArtwork,
+          items: const <HomeCatalogCardData>[
+            HomeCatalogCardData(
+              id: 'fallback',
+              title: '候选图',
+              mediaType: HomeCatalogMediaType.movies,
+              imageRequests: <MediaImageRequest>[candidates],
+            ),
+          ],
+          onTap: (_) {},
+        ),
+      ),
+    );
+
+    final finder = find.byKey(const ValueKey<String>('catalog-image-fallback'));
+    var image = tester.widget<Image>(finder);
+    expect(networkUrlOf(image), endsWith('/first.jpg'));
+    final resized = image.image as ResizeImage;
+    expect(resized.width, isNotNull);
+    expect(resized.width, greaterThan(0));
+
+    final context = tester.element(finder);
+    image.errorBuilder!(context, StateError('首次失败'), StackTrace.empty);
+    image.errorBuilder!(context, StateError('重复回调'), StackTrace.empty);
+    await tester.pump();
+    await tester.pump();
+
+    image = tester.widget<Image>(finder);
+    expect(networkUrlOf(image), endsWith('/second.jpg'));
+
+    final secondContext = tester.element(finder);
+    image.errorBuilder!(secondContext, StateError('第二候选失败'), StackTrace.empty);
+    await tester.pump();
+    await tester.pump();
+    expect(networkUrlOf(tester.widget<Image>(finder)), endsWith('/third.jpg'));
+  });
+
+  testWidgets('媒体库图片请求变化会取消旧请求待执行的回退', (tester) async {
+    await withPendingHttp(() async {
+      Widget section(MediaImageRequest request) => testApp(
+        HomeCatalogSection(
+          style: HomeCatalogStyle.landscapeArtwork,
+          items: <HomeCatalogCardData>[
+            HomeCatalogCardData(
+              id: 'replace',
+              title: '替换请求',
+              mediaType: HomeCatalogMediaType.movies,
+              imageRequests: <MediaImageRequest>[request],
+            ),
+          ],
+          onTap: (_) {},
+        ),
+      );
+
+      await tester.pumpWidget(
+        section(
+          const MediaImageRequest(
+            urls: <String>['https://old.test/1.jpg', 'https://old.test/2.jpg'],
+            selfAuthenticated: true,
+          ),
+        ),
+      );
+      final finder = find.byKey(
+        const ValueKey<String>('catalog-image-replace'),
+      );
+      final oldImage = tester.widget<Image>(finder);
+      oldImage.errorBuilder!(
+        tester.element(finder),
+        StateError('旧请求失败'),
+        StackTrace.empty,
+      );
+
+      await tester.pumpWidget(
+        section(
+          const MediaImageRequest(
+            urls: <String>['https://new.test/1.jpg', 'https://new.test/2.jpg'],
+            selfAuthenticated: true,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        networkUrlOf(tester.widget<Image>(finder)),
+        'https://new.test/1.jpg',
+      );
+    });
   });
 }
