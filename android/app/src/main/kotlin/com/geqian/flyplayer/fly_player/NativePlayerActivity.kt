@@ -26,6 +26,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.text.TextUtils
 import android.util.LruCache
 import android.util.Rational
@@ -641,14 +642,75 @@ internal fun nativePanelCanPreloadNextEpisode(
     nextEpisodePreloadEnabled: Boolean,
 ): Boolean = autoPlayEnabled && nextEpisodePreloadEnabled
 
+internal const val NATIVE_GESTURE_MODE_PENDING = 0
+internal const val NATIVE_GESTURE_MODE_SEEK = 1
+internal const val NATIVE_GESTURE_MODE_BRIGHTNESS = 2
+internal const val NATIVE_GESTURE_MODE_VOLUME = 3
+internal const val NATIVE_GESTURE_MODE_SYSTEM = 4
+
 internal fun nativePanelShouldLetSystemHandleTopPullDown(
     startY: Float,
     statusBarInsetPx: Int,
     density: Float,
 ): Boolean {
-    val fallbackPx = (36f * density.coerceAtLeast(0.1f)).roundToInt()
+    val fallbackPx = (72f * density.coerceAtLeast(0.1f)).roundToInt()
     val reservedTopPx = maxOf(statusBarInsetPx, fallbackPx)
     return startY in 0f..reservedTopPx.toFloat()
+}
+
+internal fun nativePanelResolveGestureMode(
+    dx: Float,
+    dy: Float,
+    startX: Float,
+    startRawY: Float,
+    viewportWidth: Int,
+    viewportHeight: Int,
+    touchSlop: Int,
+    statusBarInsetPx: Int,
+    density: Float,
+): Int {
+    val width = viewportWidth.coerceAtLeast(1)
+    val height = viewportHeight.coerceAtLeast(1)
+    val absDx = abs(dx)
+    val absDy = abs(dy)
+    // 先越过比系统 touchSlop 更明确的意图阈值，再锁定手势方向。
+    val intentThresholdPx = maxOf(
+        touchSlop.coerceAtLeast(1) * 2f,
+        minOf(width, height) / 30f,
+    )
+    if (maxOf(absDx, absDy) < intentThresholdPx) {
+        return NATIVE_GESTURE_MODE_PENDING
+    }
+    // 顶边交给系统状态栏；即使系统稍后才接管，也不能先改播放参数。
+    if (nativePanelShouldLetSystemHandleTopPullDown(startRawY, statusBarInsetPx, density)) {
+        return NATIVE_GESTURE_MODE_SYSTEM
+    }
+
+    val directionDominance = 1.35f
+    return when {
+        absDx >= absDy * directionDominance -> NATIVE_GESTURE_MODE_SEEK
+        absDy >= absDx * directionDominance && startX < width / 2f ->
+            NATIVE_GESTURE_MODE_BRIGHTNESS
+        absDy >= absDx * directionDominance -> NATIVE_GESTURE_MODE_VOLUME
+        else -> NATIVE_GESTURE_MODE_PENDING
+    }
+}
+
+internal fun nativePanelShouldCommitSeekGesture(
+    gestureMode: Int,
+    cancelled: Boolean,
+): Boolean = !cancelled && gestureMode == NATIVE_GESTURE_MODE_SEEK
+
+internal fun nativePanelResolveGestureBrightness(
+    windowBrightness: Float,
+    systemBrightness: Int?,
+): Float {
+    val current = when {
+        windowBrightness.isFinite() && windowBrightness >= 0f -> windowBrightness
+        systemBrightness != null && systemBrightness >= 0 -> systemBrightness / 255f
+        else -> 0.5f
+    }
+    return current.coerceIn(0.01f, 1f)
 }
 
 internal fun nativePanelShouldAutoEnterPip(
@@ -937,14 +999,15 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             centerHint.text = localizedString(R.string.player_weak_network_loading)
         }
     }
-    // 手势状态：0 无 / 1 横拖 seek / 2 左侧亮度 / 3 右侧音量
-    private var gestureMode = 0
+    // 手势状态：等待 / 横拖 seek / 左侧亮度 / 右侧音量 / 系统边缘手势。
+    private var gestureMode = NATIVE_GESTURE_MODE_PENDING
     private var gestureSeekStartMs = 0L
     private var gestureSeekTargetMs = 0L
     private var gestureSeekHapticBucket = -1L
     private var gestureBrightnessStart = 0.5f
     private var gestureVolumeStart = 0
     private var speedBoosting = false
+    private var systemGestureInProgress = false
     // 「点空白关面板」期间吞掉整段手势：DOWN 关面板后，剩余 MOVE/UP 不能漏给手势识别器，
     // 否则会带着上一段手势的陈旧 e1 触发 seek（表现为进度条左右波动）。
     private var swallowingPanelDismiss = false
@@ -2942,14 +3005,22 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         gestureDetector = GestureDetector(this, GestureListener())
         gestureView.setOnTouchListener { _, event ->
-            if (event.actionMasked == MotionEvent.ACTION_DOWN &&
-                nativePanelShouldLetSystemHandleTopPullDown(
-                    event.y,
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                val topCoordinate = minOf(event.y, event.rawY).coerceAtLeast(0f)
+                systemGestureInProgress = nativePanelShouldLetSystemHandleTopPullDown(
+                    topCoordinate,
                     statusBarTopInsetPx,
                     resources.displayMetrics.density,
                 )
-            ) {
-                return@setOnTouchListener false
+            }
+            if (systemGestureInProgress) {
+                if (event.actionMasked == MotionEvent.ACTION_UP ||
+                    event.actionMasked == MotionEvent.ACTION_CANCEL
+                ) {
+                    systemGestureInProgress = false
+                }
+                // 系统沉浸式边缘手势由窗口管理器接管，播放器不再解析这段事件流。
+                return@setOnTouchListener true
             }
             if (isLocked) {
                 if (event.actionMasked == MotionEvent.ACTION_DOWN) {
@@ -2969,10 +3040,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 return@setOnTouchListener true
             }
             gestureDetector.onTouchEvent(event)
-            if (event.actionMasked == MotionEvent.ACTION_UP ||
-                event.actionMasked == MotionEvent.ACTION_CANCEL
-            ) {
-                onGestureEnd()
+            when (event.actionMasked) {
+                MotionEvent.ACTION_UP -> onGestureEnd(cancelled = false)
+                MotionEvent.ACTION_CANCEL -> onGestureEnd(cancelled = true)
             }
             true
         }
@@ -9005,29 +9075,40 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val dy = e2.y - e1.y
         val w = window.decorView.width.coerceAtLeast(1)
         val h = window.decorView.height.coerceAtLeast(1)
-        if (gestureMode == 0) {
-            if (abs(dx) < touchSlop && abs(dy) < touchSlop) return
-            gestureMode = when {
-                abs(dx) > abs(dy) -> {
+        if (gestureMode == NATIVE_GESTURE_MODE_PENDING) {
+            gestureMode = nativePanelResolveGestureMode(
+                dx = dx,
+                dy = dy,
+                startX = e1.x,
+                startRawY = e1.rawY,
+                viewportWidth = w,
+                viewportHeight = h,
+                touchSlop = touchSlop,
+                statusBarInsetPx = statusBarTopInsetPx,
+                density = resources.displayMetrics.density,
+            )
+            when (gestureMode) {
+                NATIVE_GESTURE_MODE_PENDING,
+                NATIVE_GESTURE_MODE_SYSTEM,
+                -> return
+                NATIVE_GESTURE_MODE_SEEK -> {
                     gestureSeekStartMs = playerSurface.state.positionMs
+                    gestureSeekTargetMs = gestureSeekStartMs
                     gestureSeekHapticBucket = gestureSeekStartMs / 5_000L
                     hapticTick()
                     cancelControlsAutoHide()
-                    1
                 }
-                e1.x < w / 2f -> {
+                NATIVE_GESTURE_MODE_BRIGHTNESS -> {
                     gestureBrightnessStart = currentBrightness()
-                    2
                 }
-                else -> {
+                NATIVE_GESTURE_MODE_VOLUME -> {
                     gestureVolumeStart =
                         audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-                    3
                 }
             }
         }
         when (gestureMode) {
-            1 -> {
+            NATIVE_GESTURE_MODE_SEEK -> {
                 val durationMs = lastDurationMs
                 if (durationMs > 0) {
                     // 全屏宽对应 ±120 秒 seek 量。
@@ -9042,14 +9123,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                     showSeekPreview(gestureSeekTargetMs, durationMs)
                 }
             }
-            2 -> {
+            NATIVE_GESTURE_MODE_BRIGHTNESS -> {
                 val next = (gestureBrightnessStart - dy / h).coerceIn(0.01f, 1f)
                 val lp = window.attributes
                 lp.screenBrightness = next
                 window.attributes = lp
                 showCenterHint(localizedString(R.string.player_brightness_percent, (next * 100).toInt()))
             }
-            3 -> {
+            NATIVE_GESTURE_MODE_VOLUME -> {
                 val max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
                 val next = (gestureVolumeStart - dy / h * max).toInt().coerceIn(0, max)
                 audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0)
@@ -9058,27 +9139,54 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         }
     }
 
-    private fun onGestureEnd() {
+    private fun onGestureEnd(cancelled: Boolean) {
         if (speedBoosting) {
             speedBoosting = false
-            hapticTick()
+            if (!cancelled) hapticTick()
             playerSurface.setSpeed(1.0)
             pushDanmakuPlaybackSpeed(1.0)
         }
-        if (gestureMode == 1) {
+        if (cancelled) {
+            when (gestureMode) {
+                NATIVE_GESTURE_MODE_BRIGHTNESS -> {
+                    val lp = window.attributes
+                    lp.screenBrightness = gestureBrightnessStart
+                    window.attributes = lp
+                }
+                NATIVE_GESTURE_MODE_VOLUME -> {
+                    audioManager.setStreamVolume(
+                        AudioManager.STREAM_MUSIC,
+                        gestureVolumeStart,
+                        0,
+                    )
+                }
+            }
+            if (gestureMode == NATIVE_GESTURE_MODE_SEEK && controlsVisible) {
+                scheduleControlsAutoHide()
+            }
+        } else if (nativePanelShouldCommitSeekGesture(gestureMode, cancelled)) {
             hapticTick()
             playerSurface.seek(gestureSeekTargetMs)
             scheduleControlsAutoHide()
         }
-        gestureMode = 0
+        gestureMode = NATIVE_GESTURE_MODE_PENDING
         gestureSeekHapticBucket = -1L
         hideCenterHint()
         hideSeekPreview()
     }
 
     private fun currentBrightness(): Float {
-        val value = window.attributes.screenBrightness
-        return if (value >= 0f) value else 0.5f
+        val systemBrightness = runCatching {
+            Settings.System.getInt(
+                contentResolver,
+                Settings.System.SCREEN_BRIGHTNESS,
+                -1,
+            )
+        }.getOrNull()
+        return nativePanelResolveGestureBrightness(
+            windowBrightness = window.attributes.screenBrightness,
+            systemBrightness = systemBrightness,
+        )
     }
 
     private fun hapticTick() {
