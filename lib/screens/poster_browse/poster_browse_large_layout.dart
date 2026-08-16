@@ -91,7 +91,7 @@ class PosterBrowseLargeLayout extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             SizedBox(
-              height: 264,
+              height: 280,
               child: _buildTrackArea(context, currentRow, currentItems),
             ),
           ],
