@@ -5,9 +5,7 @@ void main() {
   MediaLayoutProfile profile({
     required double screenWidth,
     required bool isTablet,
-    required double continueCardWidth,
     required double homePosterCardWidth,
-    required double categoryMiniPosterWidth,
   }) {
     return MediaLayoutProfile(
       screenWidth: screenWidth,
@@ -15,13 +13,6 @@ void main() {
       pageHorizontalPadding: 0,
       sectionGap: 0,
       itemGap: 0,
-      categoryStripHeight: 0,
-      categoryCardWidth: 0,
-      categoryMiniPosterWidth: categoryMiniPosterWidth,
-      categoryMiniPosterHeight: 0,
-      continueCardWidth: continueCardWidth,
-      continueImageHeight: 0,
-      continueRowHeight: 0,
       homePosterCardWidth: homePosterCardWidth,
       homePosterImageHeight: 0,
       homePosterRowHeight: 0,
@@ -39,16 +30,12 @@ void main() {
     final fullWidth = profile(
       screenWidth: 1400,
       isTablet: true,
-      continueCardWidth: 260,
       homePosterCardWidth: 176,
-      categoryMiniPosterWidth: 52,
     );
     final splitPane = profile(
       screenWidth: 520,
       isTablet: false,
-      continueCardWidth: 188,
       homePosterCardWidth: 115,
-      categoryMiniPosterWidth: 36,
     );
 
     expect(

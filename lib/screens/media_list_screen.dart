@@ -21,14 +21,12 @@ import '../media_backend/session/media_backend_connection.dart';
 import '../providers/backend_session_provider.dart';
 import '../providers/media_backend_provider.dart';
 import '../providers/nas_provider.dart';
-import '../services/app_log_service.dart';
 import '../services/download_task_service.dart';
 import '../services/embedded_detail_launcher.dart';
 import '../services/home_data_cache.dart';
 import '../services/session_exit_bridge.dart';
 import '../services/parallel_browse_snapshot.dart';
 import '../theme/app_theme.dart';
-import '../theme/detail_tokens.dart';
 import '../ui/app_transitions.dart';
 import '../ui/detail_hero_image.dart';
 import '../ui/detail_theme_prewarmer.dart';
@@ -40,6 +38,7 @@ import '../utils/async_action_guard.dart';
 import '../utils/app_confirm_dialog.dart';
 import '../utils/app_exception.dart';
 import '../utils/app_top_tip.dart';
+import '../utils/play_detail_formatters.dart';
 import '../utils/swallowed_error_logger.dart';
 import '../widgets/common/app_action_sheet.dart';
 import '../widgets/common/app_error_state.dart';
@@ -49,6 +48,9 @@ import 'category_items_screen.dart';
 import 'favorite_items_screen.dart';
 import 'home/home_presentation_profile.dart';
 import 'home/home_view_data.dart';
+import 'home/widgets/home_catalog_section.dart';
+import 'home/widgets/home_continue_watching_section.dart';
+import 'home/widgets/home_section_header.dart';
 import 'person_detail_screen.dart';
 import 'play_detail_screen.dart';
 import 'poster_browse/poster_browse_artwork_enricher.dart';
@@ -1442,6 +1444,19 @@ class _MediaListScreenState extends State<MediaListScreen>
         unawaited(_refreshContinueWatching());
       },
     );
+  }
+
+  /// 从首页继续观看卡直接恢复播放，返回首页后只刷新续看区块。
+  Future<void> _playContinueItem(MediaLibraryItem item) async {
+    if (item.guid.trim().isEmpty) return;
+    _pendingContinueWatchingRefresh = true;
+    await const ItemPlaybackLauncher().open(
+      context,
+      itemGuid: item.guid,
+      fallbackTitle: item.displayTitle,
+    );
+    if (!mounted) return;
+    unawaited(_refreshContinueWatching());
   }
 
   bool _isEpisodeItem(MediaLibraryItem item) {
