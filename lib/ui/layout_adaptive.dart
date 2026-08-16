@@ -8,15 +8,6 @@ class MediaLayoutProfile {
   final double sectionGap;
   final double itemGap;
 
-  final double categoryStripHeight;
-  final double categoryCardWidth;
-  final double categoryMiniPosterWidth;
-  final double categoryMiniPosterHeight;
-
-  final double continueCardWidth;
-  final double continueImageHeight;
-  final double continueRowHeight;
-
   final double homePosterCardWidth;
   final double homePosterImageHeight;
   final double homePosterRowHeight;
@@ -35,13 +26,6 @@ class MediaLayoutProfile {
     required this.pageHorizontalPadding,
     required this.sectionGap,
     required this.itemGap,
-    required this.categoryStripHeight,
-    required this.categoryCardWidth,
-    required this.categoryMiniPosterWidth,
-    required this.categoryMiniPosterHeight,
-    required this.continueCardWidth,
-    required this.continueImageHeight,
-    required this.continueRowHeight,
     required this.homePosterCardWidth,
     required this.homePosterImageHeight,
     required this.homePosterRowHeight,
@@ -111,17 +95,10 @@ class MediaLayoutProfile {
 
     final hp = tablet ? 12.0 : 8.0;
     final gap = tablet ? 10.0 : 8.0;
-    final continueW = tablet ? (width * 0.19).clamp(180.0, 260.0) : 188.0;
-    final continueImgH = continueW * 0.56;
-
     final posterW = tablet
         ? (width / (columns + 0.8)).clamp(122.0, 176.0)
         : 115.0;
     final posterImgH = posterW * 1.48;
-
-    final categoryW = tablet ? (width * 0.135).clamp(138.0, 198.0) : 138.0;
-    final miniPosterW = (categoryW * 0.29).clamp(36.0, 52.0);
-    final miniPosterH = miniPosterW * 1.48;
 
     return MediaLayoutProfile(
       screenWidth: width,
@@ -129,13 +106,6 @@ class MediaLayoutProfile {
       pageHorizontalPadding: hp,
       sectionGap: tablet ? 14 : 12,
       itemGap: gap,
-      categoryStripHeight: tablet ? 108 : 98,
-      categoryCardWidth: categoryW,
-      categoryMiniPosterWidth: miniPosterW,
-      categoryMiniPosterHeight: miniPosterH,
-      continueCardWidth: continueW,
-      continueImageHeight: continueImgH,
-      continueRowHeight: continueImgH + (tablet ? 66 : 60),
       homePosterCardWidth: posterW,
       homePosterImageHeight: posterImgH,
       homePosterRowHeight: posterImgH + (tablet ? 62 : 60),

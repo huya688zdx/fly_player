@@ -43,7 +43,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
         titleTextStyle: TextStyle(
           color: colors.textPrimary,
           fontSize: 20,
-          fontWeight: FontWeight.w700,
+          fontWeight: FontWeight.w600,
         ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
@@ -134,7 +134,22 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
       );
     }
 
-    if (_categories.isEmpty) {
+    final backendKind = context
+        .read<MediaBackendProvider>()
+        .backend
+        .capabilities
+        .kind;
+    final profile = HomePresentationProfile.forKind(backendKind);
+    final sections = visibleHomeSections(
+      profile: profile,
+      hasCatalogs: _categories.isNotEmpty,
+      hasContinueWatching: _continueWatching.isNotEmpty,
+      hasSummary: _mediaSummary.isNotEmpty,
+      hasNextUp: _nextUp.isNotEmpty,
+      hasLatest: _latest.isNotEmpty,
+    );
+
+    if (sections.isEmpty) {
       return Center(
         child: Text(
           AppLocalizations.of(context).commonEmpty,
@@ -160,51 +175,33 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
               layout.pageHorizontalPadding,
               layout.itemGap,
               layout.pageHorizontalPadding,
-              14,
-            ),
-            sliver: SliverToBoxAdapter(
-              child: RepaintBoundary(
-                child: _buildHomeTopSection(
-                  baseUrl: baseUrl,
-                  token: token,
-                  accessCode: accessCode,
-                  layout: layout,
-                  favorite: favorite,
-                  total: total,
-                  movie: movie,
-                  tv: tv,
-                  other: other,
-                  hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
-                ),
-              ),
-            ),
-          ),
-          SliverPadding(
-            padding: EdgeInsets.fromLTRB(
-              layout.pageHorizontalPadding,
-              0,
-              layout.pageHorizontalPadding,
               20,
             ),
             sliver: SliverList.builder(
-              itemCount: _categories.length,
+              itemCount: sections.length,
               itemBuilder: (context, index) {
-                final category = _categories[index];
+                final section = sections[index];
                 return Padding(
-                  padding: const EdgeInsets.only(bottom: 14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      _buildSectionTitle(category),
-                      const SizedBox(height: 8),
-                      _buildPosterRow(
-                        _itemsByCategory[category.id] ?? <MediaLibraryItem>[],
-                        baseUrl,
-                        token,
-                        accessCode,
-                        layout,
-                      ),
-                    ],
+                  padding: EdgeInsets.only(
+                    bottom: index == sections.length - 1
+                        ? 0
+                        : layout.sectionGap,
+                  ),
+                  child: RepaintBoundary(
+                    child: _buildHomeSection(
+                      section: section,
+                      profile: profile,
+                      baseUrl: baseUrl,
+                      token: token,
+                      accessCode: accessCode,
+                      layout: layout,
+                      favorite: favorite,
+                      total: total,
+                      movie: movie,
+                      tv: tv,
+                      other: other,
+                      hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
+                    ),
                   ),
                 );
               },
@@ -215,7 +212,9 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     );
   }
 
-  Widget _buildHomeTopSection({
+  Widget _buildHomeSection({
+    required HomeSectionKind section,
+    required HomePresentationProfile profile,
     required String baseUrl,
     required String token,
     required String accessCode,
@@ -227,275 +226,382 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     required int other,
     required bool hasRuntimeDynamicTheme,
   }) {
-    final colors = context.appColors;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        _buildCategoryStrip(baseUrl, token, accessCode, layout),
-        const SizedBox(height: 10),
-        if (_continueWatching.isNotEmpty) ...<Widget>[
-          Text(
-            AppLocalizations.of(context).homeContinueWatching,
-            style: TextStyle(
-              color: colors.textPrimary,
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
+    final l10n = AppLocalizations.of(context);
+    return switch (section) {
+      HomeSectionKind.catalogs => _buildHomeCatalogs(
+        profile: profile,
+        baseUrl: baseUrl,
+        token: token,
+        accessCode: accessCode,
+        layout: layout,
+      ),
+      HomeSectionKind.continueWatching => _buildHomeContinueWatching(
+        baseUrl: baseUrl,
+        token: token,
+        accessCode: accessCode,
+        layout: layout,
+      ),
+      HomeSectionKind.summary => _buildHomeSummary(
+        favorite: favorite,
+        total: total,
+        movie: movie,
+        tv: tv,
+        other: other,
+        hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
+      ),
+      HomeSectionKind.nextUp => _buildHomeMediaShelf(
+        title: l10n.nativeNotificationActionNextEpisode,
+        items: _nextUp,
+        heroTagPrefix: 'home_next_up',
+        baseUrl: baseUrl,
+        token: token,
+        accessCode: accessCode,
+        layout: layout,
+      ),
+      HomeSectionKind.latest => _buildHomeMediaShelf(
+        title: l10n.posterBrowseRowLatest,
+        items: _latest,
+        heroTagPrefix: 'home_latest',
+        baseUrl: baseUrl,
+        token: token,
+        accessCode: accessCode,
+        layout: layout,
+      ),
+      HomeSectionKind.catalogPreviews => _buildCatalogPreviews(
+        baseUrl: baseUrl,
+        token: token,
+        accessCode: accessCode,
+        layout: layout,
+      ),
+    };
+  }
+
+  Widget _buildHomeCatalogs({
+    required HomePresentationProfile profile,
+    required String baseUrl,
+    required String token,
+    required String accessCode,
+    required MediaLayoutProfile layout,
+  }) {
+    final categoriesById = <String, MediaItem>{
+      for (final category in _categories) category.id: category,
+    };
+    final items = _categories
+        .map(
+          (category) => HomeCatalogCardData(
+            id: category.id,
+            title: category.name,
+            mediaType: _homeCatalogMediaType(category),
+            imageRequests: _homeCatalogImageRequests(
+              category,
+              style: profile.catalogStyle,
+              baseUrl: baseUrl,
+              token: token,
+              accessCode: accessCode,
+              requestWidth: layout.categoryMiniPosterRequestWidth,
             ),
           ),
-          const SizedBox(height: 6),
-          SizedBox(
-            height: layout.continueRowHeight,
-            child: ListView.separated(
-              padding: EdgeInsets.zero,
-              scrollDirection: Axis.horizontal,
-              cacheExtent: _rowCacheExtent(layout.continueCardWidth),
-              itemCount: _continueWatching.length,
-              separatorBuilder: (_, __) => SizedBox(width: layout.itemGap),
-              itemBuilder: (context, index) {
-                final item = _continueWatching[index];
-                return _buildContinueItem(
+        )
+        .toList(growable: false);
+    return HomeCatalogSection(
+      title: AppLocalizations.of(context).posterBrowseRowCatalogs,
+      items: items,
+      style: profile.catalogStyle,
+      onTap: (item) {
+        final category = categoriesById[item.id];
+        if (category != null) _openCategory(category);
+      },
+    );
+  }
+
+  List<MediaImageRequest> _homeCatalogImageRequests(
+    MediaItem category, {
+    required HomeCatalogStyle style,
+    required String baseUrl,
+    required String token,
+    required String accessCode,
+    required int requestWidth,
+  }) {
+    final sourcePaths = category.posters.isNotEmpty
+        ? category.posters
+        : (category.path?.trim().isNotEmpty ?? false)
+        ? <String>[category.path!.trim()]
+        : const <String>[];
+    final preserved = _catalogImageRequests[category.id] ?? const [];
+    final limit = style == HomeCatalogStyle.posterMosaic ? 3 : 1;
+    final candidateCount = min(
+      max(sourcePaths.length, preserved.length),
+      limit,
+    );
+    return List<MediaImageRequest>.generate(candidateCount, (index) {
+      final preservedRequest = index < preserved.length
+          ? preserved[index]
+          : null;
+      final fallbackUrls = index < sourcePaths.length
+          ? _posterCandidates(baseUrl, sourcePaths[index], width: requestWidth)
+          : const <String>[];
+      return preferPreservedImageRequest(
+        preserved: preservedRequest?.canLoad == true ? preservedRequest : null,
+        fallbackUrls: fallbackUrls,
+        fallbackToken: token,
+        fallbackAccessCode: accessCode,
+        fallbackBaseUrl: baseUrl,
+      );
+    }).where((request) => request.canLoad).toList(growable: false);
+  }
+
+  HomeCatalogMediaType _homeCatalogMediaType(MediaItem category) {
+    return switch (category.type?.trim().toLowerCase()) {
+      'movie' || 'movies' => HomeCatalogMediaType.movies,
+      'tv' || 'series' || 'tvshows' => HomeCatalogMediaType.series,
+      'boxset' ||
+      'boxsets' ||
+      'collection' ||
+      'collections' => HomeCatalogMediaType.collections,
+      'mixed' => HomeCatalogMediaType.mixed,
+      _ => HomeCatalogMediaType.other,
+    };
+  }
+
+  Widget _buildHomeContinueWatching({
+    required String baseUrl,
+    required String token,
+    required String accessCode,
+    required MediaLayoutProfile layout,
+  }) {
+    return ListenableBuilder(
+      listenable: DownloadTaskService.instance,
+      builder: (context, _) {
+        final itemsById = <String, MediaLibraryItem>{
+          for (final item in _continueWatching) item.guid: item,
+        };
+        final cards = _continueWatching
+            .map(
+              (item) => HomeContinueCardData(
+                id: item.guid,
+                title: item.displayTitle,
+                contextText: _continueContextText(item),
+                progress: _progressValue(item),
+                imageRequest: _homeContinueImageRequest(
                   item,
-                  baseUrl,
-                  token,
-                  accessCode,
-                  layout,
-                );
-              },
-            ),
+                  baseUrl: baseUrl,
+                  token: token,
+                  accessCode: accessCode,
+                  requestWidth: layout.homeContinueRequestWidth,
+                ),
+                downloaded: DownloadTaskService.instance
+                    .actionStateForItem(item.guid)
+                    .downloaded,
+              ),
+            )
+            .toList(growable: false);
+        return HomeContinueWatchingSection(
+          title: AppLocalizations.of(context).homeContinueWatching,
+          items: cards,
+          onOpenDetail: (card) {
+            final item = itemsById[card.id];
+            if (item != null) {
+              _openItemDetail(item, heroTag: 'home_continue_${item.guid}');
+            }
+          },
+          onPlay: (card) {
+            final item = itemsById[card.id];
+            if (item != null) unawaited(_playContinueItem(item));
+          },
+          onLongPress: (card) {
+            final item = itemsById[card.id];
+            if (item != null) {
+              unawaited(
+                _showContinueWatchingActionsV2(
+                  item,
+                  heroTag: 'home_continue_${item.guid}',
+                ),
+              );
+            }
+          },
+        );
+      },
+    );
+  }
+
+  MediaImageRequest _homeContinueImageRequest(
+    MediaLibraryItem item, {
+    required String baseUrl,
+    required String token,
+    required String accessCode,
+    required int requestWidth,
+  }) {
+    final backdropFallback = item.backdropUrl.trim().isEmpty
+        ? const <String>[]
+        : <String>[item.backdropUrl.trim()];
+    final backdrop = preferPreservedImageRequest(
+      preserved: _backdropImageRequests[item.guid],
+      fallbackUrls: backdropFallback,
+      fallbackToken: token,
+      fallbackAccessCode: accessCode,
+      fallbackBaseUrl: baseUrl,
+    );
+    final poster = preferPreservedImageRequest(
+      preserved: _itemImageRequests[item.guid],
+      fallbackUrls: _posterCandidates(
+        baseUrl,
+        item.poster,
+        width: requestWidth,
+      ),
+      fallbackToken: token,
+      fallbackAccessCode: accessCode,
+      fallbackBaseUrl: baseUrl,
+    );
+    if (!backdrop.canLoad) return poster;
+    if (!poster.canLoad ||
+        !mapEquals(backdrop.headers, poster.headers) ||
+        backdrop.selfAuthenticated != poster.selfAuthenticated) {
+      return backdrop;
+    }
+    return MediaImageRequest(
+      urls: <String>{...backdrop.urls, ...poster.urls}.toList(growable: false),
+      headers: backdrop.headers,
+      selfAuthenticated: backdrop.selfAuthenticated,
+    );
+  }
+
+  String _continueContextText(MediaLibraryItem item) {
+    final l10n = AppLocalizations.of(context);
+    final typeText = item.type.trim().toLowerCase() == 'movie'
+        ? l10n.listTypeMovie
+        : _continueEpisodeText(item);
+    final position = item.ts > 0 ? item.ts : item.watchedTs;
+    final remaining = PlayDetailFormatters.remainText(
+      item.duration,
+      position,
+      l10n,
+    );
+    return <String>[typeText, if (remaining.isNotEmpty) remaining].join(' · ');
+  }
+
+  Widget _buildHomeSummary({
+    required int favorite,
+    required int total,
+    required int movie,
+    required int tv,
+    required int other,
+    required bool hasRuntimeDynamicTheme,
+  }) {
+    final l10n = AppLocalizations.of(context);
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: _buildStatCard(
+            l10n.actionFavoriteAdd,
+            favorite,
+            hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
+            onTap: _openFavorites,
           ),
-          const SizedBox(height: 10),
-        ],
-        Row(
-          children: <Widget>[
-            Expanded(
-              child: _buildStatCard(
-                AppLocalizations.of(context).actionFavoriteAdd,
-                favorite,
-                hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
-                onTap: _openFavorites,
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: _buildStatCard(
-                AppLocalizations.of(context).mediaAllItemsTitle,
-                total,
-                hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
-                onTap: _openAllItems,
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: _buildStatCard(
-                AppLocalizations.of(context).listTypeMovie,
-                movie,
-                hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
-                onTap: () => _openAllItemsByType(
-                  AppLocalizations.of(context).listTypeMovie,
-                  const <String>['Movie'],
-                ),
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: _buildStatCard(
-                AppLocalizations.of(context).listTypeTv,
-                tv,
-                hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
-                onTap: () => _openAllItemsByType(
-                  AppLocalizations.of(context).listTypeTv,
-                  const <String>['TV'],
-                ),
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: _buildStatCard(
-                AppLocalizations.of(context).commonOther,
-                other,
-                hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
-                onTap: () => _openAllItemsByType(
-                  AppLocalizations.of(context).commonOther,
-                  const <String>['Directory', 'Video'],
-                ),
-              ),
-            ),
-          ],
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: _buildStatCard(
+            l10n.mediaAllItemsTitle,
+            total,
+            hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
+            onTap: _openAllItems,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: _buildStatCard(
+            l10n.listTypeMovie,
+            movie,
+            hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
+            onTap: () => _openAllItemsByType(l10n.listTypeMovie, const <String>[
+              'Movie',
+            ]),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: _buildStatCard(
+            l10n.listTypeTv,
+            tv,
+            hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
+            onTap: () =>
+                _openAllItemsByType(l10n.listTypeTv, const <String>['TV']),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: _buildStatCard(
+            l10n.commonOther,
+            other,
+            hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
+            onTap: () => _openAllItemsByType(l10n.commonOther, const <String>[
+              'Directory',
+              'Video',
+            ]),
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildCategoryStrip(
-    String baseUrl,
-    String token,
-    String accessCode,
-    MediaLayoutProfile layout,
-  ) {
-    final count = min(_categories.length, widget.secondaryHost ? 6 : 10);
-    return SizedBox(
-      height: layout.categoryStripHeight,
-      child: ListView.separated(
-        padding: EdgeInsets.zero,
-        scrollDirection: Axis.horizontal,
-        cacheExtent: _rowCacheExtent(layout.categoryCardWidth),
-        itemCount: count,
-        separatorBuilder: (_, __) => SizedBox(width: layout.itemGap),
-        itemBuilder: (context, index) {
-          final category = _categories[index];
-          final source = category.posters.isNotEmpty
-              ? category.posters
-              : (category.path?.isNotEmpty ?? false)
-              ? <String>[category.path!]
-              : const <String>[];
-          final posterLimit = widget.secondaryHost ? 1 : 2;
-          final preservedImages = _catalogImageRequests[category.id];
-          final posterRequests =
-              preservedImages != null && preservedImages.isNotEmpty
-              ? preservedImages.take(posterLimit).toList(growable: false)
-              : source
-                    .take(posterLimit)
-                    .map(
-                      (path) => mediaImageRequestForUrls(
-                        _posterCandidates(
-                          baseUrl,
-                          path,
-                          width: layout.categoryMiniPosterRequestWidth,
-                        ),
-                        token: token,
-                        accessCode: accessCode,
-                        baseUrl: baseUrl,
-                      ),
-                    )
-                    .toList(growable: false);
-          return _CategoryPosterCard(
-            title: category.name,
-            posterImages: posterRequests,
-            lightweight: widget.secondaryHost,
-            cardWidth: layout.categoryCardWidth,
-            miniPosterWidth: layout.categoryMiniPosterWidth,
-            miniPosterHeight: layout.categoryMiniPosterHeight,
-            decodeWidth: layout.miniPosterDecodeWidth,
-            onTap: () => _openCategory(category),
-          );
-        },
-      ),
+  Widget _buildHomeMediaShelf({
+    required String title,
+    required List<MediaLibraryItem> items,
+    required String heroTagPrefix,
+    required String baseUrl,
+    required String token,
+    required String accessCode,
+    required MediaLayoutProfile layout,
+  }) {
+    if (items.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        HomeSectionHeader(title: title),
+        const SizedBox(height: 8),
+        _buildPosterRow(
+          items,
+          baseUrl,
+          token,
+          accessCode,
+          layout,
+          heroTagPrefix: heroTagPrefix,
+        ),
+      ],
     );
   }
 
-  Widget _buildContinueItem(
-    MediaLibraryItem item,
-    String baseUrl,
-    String token,
-    String accessCode,
-    MediaLayoutProfile layout,
-  ) {
-    final colors = context.appColors;
-    final heroTag = 'home_continue_${item.guid}';
-    final urls = _posterCandidates(
-      baseUrl,
-      item.poster,
-      width: layout.homeContinueRequestWidth,
-    );
-    final progress = _progressValue(item);
-    final progressActiveColor = DetailTokens.progressActiveOf(context);
-    return InkWell(
-      onTap: () => _openItemDetail(item, heroTag: heroTag),
-      onLongPress: () {
-        unawaited(_showContinueWatchingActionsV2(item, heroTag: heroTag));
-      },
-      borderRadius: BorderRadius.circular(10),
-      child: RepaintBoundary(
-        child: SizedBox(
-          width: layout.continueCardWidth,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Hero(
-                tag: heroTag,
-                child: Container(
-                  height: layout.continueImageHeight,
-                  clipBehavior: Clip.hardEdge,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(10),
-                    color: colors.surface,
-                  ),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: <Widget>[
-                      _PosterImage(
-                        images: preferPreservedImageRequest(
-                          preserved: _itemImageRequests[item.guid],
-                          fallbackUrls: urls,
-                          fallbackToken: token,
-                          fallbackAccessCode: accessCode,
-                          fallbackBaseUrl: baseUrl,
-                        ),
-                        lightweight: widget.secondaryHost,
-                        decodeWidth: layout.continueDecodeWidth,
-                        fallback: Center(
-                          child: Icon(
-                            Icons.movie,
-                            color: colors.textMuted.withValues(alpha: 0.5),
-                          ),
-                        ),
-                      ),
-                      Positioned(
-                        top: 8,
-                        right: 8,
-                        child: _ContinueDownloadBadge(itemGuid: item.guid),
-                      ),
-                      if (progress > 0)
-                        Positioned(
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          child: LayoutBuilder(
-                            builder: (context, constraints) {
-                              final visualWidth =
-                                  (constraints.maxWidth * progress).clamp(
-                                    4.0,
-                                    constraints.maxWidth,
-                                  );
-                              return Align(
-                                alignment: Alignment.centerLeft,
-                                child: SizedBox(
-                                  width: visualWidth,
-                                  height: 5,
-                                  child: ColoredBox(color: progressActiveColor),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                item.displayTitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: colors.textPrimary,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 1),
-              Text(
-                item.type.trim().toLowerCase() == 'movie'
-                    ? AppLocalizations.of(context).listTypeMovie
-                    : _continueEpisodeText(item),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: colors.textSecondary, fontSize: 13),
-              ),
-            ],
+  Widget _buildCatalogPreviews({
+    required String baseUrl,
+    required String token,
+    required String accessCode,
+    required MediaLayoutProfile layout,
+  }) {
+    final categories = _categories
+        .where(
+          (category) =>
+              (_itemsByCategory[category.id] ?? const <MediaLibraryItem>[])
+                  .isNotEmpty,
+        )
+        .toList(growable: false);
+    if (categories.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        for (var index = 0; index < categories.length; index++) ...<Widget>[
+          if (index > 0) SizedBox(height: layout.sectionGap),
+          _buildSectionTitle(categories[index]),
+          const SizedBox(height: 8),
+          _buildPosterRow(
+            _itemsByCategory[categories[index].id]!,
+            baseUrl,
+            token,
+            accessCode,
+            layout,
+            heroTagPrefix: 'home_catalog_${categories[index].id}',
           ),
-        ),
-      ),
+        ],
+      ],
     );
   }
 
@@ -523,7 +629,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
               '$value',
               style: TextStyle(
                 color: colors.textPrimary,
-                fontWeight: FontWeight.bold,
+                fontWeight: FontWeight.w600,
                 fontSize: 18,
               ),
             ),
@@ -544,7 +650,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
             style: TextStyle(
               color: colors.textPrimary,
               fontSize: 18,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w600,
             ),
           ),
           const SizedBox(width: 4),
@@ -559,8 +665,9 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     String baseUrl,
     String token,
     String accessCode,
-    MediaLayoutProfile layout,
-  ) {
+    MediaLayoutProfile layout, {
+    required String heroTagPrefix,
+  }) {
     final colors = context.appColors;
     if (items.isEmpty) {
       return SizedBox(
@@ -615,11 +722,13 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
               decodeWidth: layout.homePosterDecodeWidth,
               titleFontSize: layout.homePosterTitleFontSize,
               subtitleFontSize: layout.homePosterSubtitleFontSize,
+              titleFontWeight: FontWeight.w500,
+              subtitleFontWeight: FontWeight.w400,
               imageFit: _isEpisodeItem(item) ? BoxFit.contain : BoxFit.cover,
-              heroTag: 'home_row_${item.guid}_$index',
+              heroTag: '${heroTagPrefix}_${item.guid}_$index',
               onTap: () => _openItemDetail(
                 item,
-                heroTag: 'home_row_${item.guid}_$index',
+                heroTag: '${heroTagPrefix}_${item.guid}_$index',
               ),
               onLongPress: () => _showPosterItemActions(item),
             ),
@@ -627,384 +736,5 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
         },
       ),
     );
-  }
-}
-
-class _CategoryPosterCard extends StatelessWidget {
-  final String title;
-  final List<MediaImageRequest> posterImages;
-  final bool lightweight;
-  final double cardWidth;
-  final double miniPosterWidth;
-  final double miniPosterHeight;
-  final int decodeWidth;
-  final VoidCallback? onTap;
-
-  const _CategoryPosterCard({
-    required this.title,
-    required this.posterImages,
-    this.lightweight = false,
-    required this.cardWidth,
-    required this.miniPosterWidth,
-    required this.miniPosterHeight,
-    required this.decodeWidth,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    final isLightSurface = colors.backgroundBase.computeLuminance() >= 0.58;
-    final normalized = posterImages.take(3).toList();
-    final radius = BorderRadius.circular(16);
-
-    // 纯色化：回归纯色风格，分类卡用实色底 + 细边，去掉白渐变/镜面高光/发丝边。
-    final bottomVeil = isLightSurface
-        ? colors.backgroundBase.withValues(alpha: 0.12)
-        : colors.backgroundBase.withValues(alpha: 0.30);
-
-    return RepaintBoundary(
-      child: SizedBox(
-        width: cardWidth,
-        child: ClipRRect(
-          borderRadius: radius,
-          // 静态磨砂渐变模拟玻璃：卡片成为可缓存的静态层，滚动时不再逐帧模糊。
-          child: Material(
-            type: MaterialType.transparency,
-            child: InkWell(
-              onTap: onTap,
-              borderRadius: radius,
-              child: Ink(
-                decoration: BoxDecoration(
-                  borderRadius: radius,
-                  border: Border.all(color: colors.borderSubtle, width: 0.7),
-                  color: colors.surfaceStrong,
-                ),
-                child: Stack(
-                  children: <Widget>[
-                    // 海报簇（轻微倾斜叠放）。
-                    Positioned.fill(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(10, 10, 10, 30),
-                        child: Center(
-                          child: _PosterCluster(
-                            posterImages: normalized,
-                            lightweight: lightweight,
-                            miniPosterWidth: miniPosterWidth,
-                            miniPosterHeight: miniPosterHeight,
-                            decodeWidth: decodeWidth,
-                            fallbackColor: colors.surfaceStrong.withValues(
-                              alpha: isLightSurface ? 0.30 : 0.18,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    // 底部柔化，保证标题清晰可读。
-                    Positioned.fill(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            stops: const <double>[0.0, 0.6, 1.0],
-                            colors: <Color>[
-                              Colors.transparent,
-                              Colors.transparent,
-                              bottomVeil,
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      left: 8,
-                      right: 8,
-                      bottom: 8,
-                      child: Text(
-                        title,
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textScaler: const TextScaler.linear(1.0),
-                        style: TextStyle(
-                          color: colors.textPrimary,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          height: 1.05,
-                          shadows: <Shadow>[
-                            Shadow(
-                              color: colors.backgroundBase.withValues(
-                                alpha: isLightSurface ? 0.28 : 0.46,
-                              ),
-                              blurRadius: 5,
-                              offset: const Offset(0, 1),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// 分类卡内的海报簇：1~3 张迷你海报，轻微倾斜叠放，每张带玻璃描边。
-class _PosterCluster extends StatelessWidget {
-  final List<MediaImageRequest> posterImages;
-  final bool lightweight;
-  final double miniPosterWidth;
-  final double miniPosterHeight;
-  final int decodeWidth;
-  final Color fallbackColor;
-
-  const _PosterCluster({
-    required this.posterImages,
-    required this.lightweight,
-    required this.miniPosterWidth,
-    required this.miniPosterHeight,
-    required this.decodeWidth,
-    required this.fallbackColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    if (posterImages.isEmpty) {
-      return SizedBox(
-        width: miniPosterWidth,
-        height: miniPosterHeight,
-        child: _GlassMiniPoster(child: ColoredBox(color: fallbackColor)),
-      );
-    }
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: List.generate(posterImages.length, (index) {
-        final tilt = posterImages.length == 1
-            ? 0.0
-            : (index.isEven ? -0.018 : 0.018);
-        return Padding(
-          padding: EdgeInsets.only(
-            right: index == posterImages.length - 1 ? 0 : 5,
-          ),
-          child: Transform.rotate(
-            angle: tilt,
-            child: SizedBox(
-              width: miniPosterWidth,
-              height: miniPosterHeight,
-              child: _GlassMiniPoster(
-                child: _PosterImage(
-                  images: posterImages[index],
-                  lightweight: lightweight,
-                  decodeWidth: decodeWidth,
-                  fallback: ColoredBox(color: fallbackColor),
-                ),
-              ),
-            ),
-          ),
-        );
-      }),
-    );
-  }
-}
-
-/// 迷你海报的玻璃描边外框，圆角 + 半透明白边。
-class _GlassMiniPoster extends StatelessWidget {
-  final Widget child;
-
-  const _GlassMiniPoster({required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    final isLightSurface = colors.backgroundBase.computeLuminance() >= 0.58;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(5),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: isLightSurface ? 0.48 : 0.18),
-          width: 0.6,
-        ),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(5),
-        clipBehavior: Clip.hardEdge,
-        child: child,
-      ),
-    );
-  }
-}
-
-class _ContinueDownloadBadge extends StatelessWidget {
-  final String itemGuid;
-
-  const _ContinueDownloadBadge({required this.itemGuid});
-
-  static const Color _backgroundColor = Color(0x94000000);
-  static const Color _borderColor = Color(0xB33A82F7);
-  static const Color _textColor = Color(0xFFF3F8FF);
-
-  @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: DownloadTaskService.instance,
-      builder: (context, child) {
-        final downloaded = DownloadTaskService.instance
-            .actionStateForItem(itemGuid)
-            .downloaded;
-        if (!downloaded) {
-          return const SizedBox.shrink();
-        }
-        return child!;
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: _backgroundColor,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: _borderColor, width: 0.8),
-        ),
-        child: Text(
-          AppLocalizations.of(context).downloadDownloaded,
-          style: const TextStyle(
-            color: _textColor,
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _PosterImage extends StatefulWidget {
-  final MediaImageRequest images;
-  final bool lightweight;
-  final int? decodeWidth;
-  final Widget fallback;
-
-  const _PosterImage({
-    required this.images,
-    this.lightweight = false,
-    this.decodeWidth,
-    required this.fallback,
-  });
-
-  @override
-  State<_PosterImage> createState() => _PosterImageState();
-}
-
-class _PosterImageState extends State<_PosterImage> {
-  int _index = 0;
-  bool _fallbackScheduled = false;
-  final Set<String> _reportedUrls = <String>{};
-
-  @override
-  void didUpdateWidget(covariant _PosterImage oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (!listEquals(oldWidget.images.urls, widget.images.urls)) {
-      _index = 0;
-      _fallbackScheduled = false;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final urls = widget.images.urls;
-    final hasUrl = _index < urls.length;
-    // 无候选或无鉴权（既无 header 也非自鉴权直链）时回退占位，
-    // 判定语义由 MediaImageRequest.canLoad 统一承载。
-    if (!hasUrl || !widget.images.canLoad) {
-      return widget.fallback;
-    }
-
-    final current = urls[_index];
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final dpr = MediaQuery.of(context).devicePixelRatio;
-        // 稳定解码宽度优先：用与窗口无关的 decodeWidth(高按源图比例推导)，避免进/退分屏
-        // 时 cacheWidth 变化导致图片缓存 key 失配、海报重解码闪烁。
-        final stableW = widget.decodeWidth;
-        final cacheWidth =
-            stableW ??
-            (constraints.maxWidth.isFinite
-                ? (constraints.maxWidth * dpr).round().clamp(80, 1000)
-                : null);
-        final cacheHeight = stableW != null
-            ? null
-            : (constraints.maxHeight.isFinite
-                  ? (constraints.maxHeight * dpr).round().clamp(80, 1000)
-                  : null);
-
-        return Image.network(
-          current,
-          fit: BoxFit.cover,
-          headers: widget.images.headers,
-          filterQuality: FilterQuality.none,
-          gaplessPlayback: true,
-          cacheWidth: cacheWidth,
-          cacheHeight: cacheHeight,
-          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-            final loaded = wasSynchronouslyLoaded || frame != null;
-            return _buildImageFrame(child, loaded);
-          },
-          errorBuilder: (context, error, stackTrace) {
-            if (_index < widget.images.urls.length - 1) {
-              final nextUrl = widget.images.urls[_index + 1];
-              debugPrint(
-                '[IMG][MEDIA_LIST] failed url=$current error=$error -> fallback=$nextUrl',
-              );
-              _scheduleFallback();
-              return widget.fallback;
-            }
-            debugPrint(
-              '[IMG][MEDIA_LIST] failed url=$current error=$error -> no_more_fallback',
-            );
-            _reportFinalFailure(current, error);
-            return widget.fallback;
-          },
-        );
-      },
-    );
-  }
-
-  /// 全部候选 URL 均失败时落一条 warning 日志。errorBuilder 每次重建都会触发，
-  /// 用 [_reportedUrls] 去重，避免同一 URL 刷屏挤掉其它日志。
-  void _reportFinalFailure(String url, Object error) {
-    if (!_reportedUrls.add(url)) return;
-    unawaited(
-      AppLogService.instance.recordWarning(
-        error: error,
-        source: 'poster_image',
-        details: 'action=load poster url=$url',
-      ),
-    );
-  }
-
-  Widget _buildImageFrame(Widget child, bool loaded) {
-    if (loaded) return child;
-    return widget.fallback;
-  }
-
-  void _scheduleFallback() {
-    if (_fallbackScheduled) return;
-    _fallbackScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      if (_index >= widget.images.urls.length - 1) {
-        _fallbackScheduled = false;
-        return;
-      }
-      setState(() {
-        _fallbackScheduled = false;
-        _index += 1;
-      });
-    });
   }
 }

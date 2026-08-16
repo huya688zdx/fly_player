@@ -13,7 +13,7 @@ void main() {
 
     final homeFeedSource = source.substring(
       refreshIndex,
-      source.indexOf('  Widget _buildHomeTopSection', refreshIndex),
+      source.indexOf('  Widget _buildHomeSection', refreshIndex),
     );
 
     expect(homeFeedSource, contains('ClampingScrollPhysics'));
