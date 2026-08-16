@@ -307,7 +307,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
       title: AppLocalizations.of(context).posterBrowseRowCatalogs,
       items: items,
       style: profile.catalogStyle,
-      stableImageDecodeLogicalWidth: layout.miniPosterDecodeWidth,
+      stableImageCacheWidth: layout.homeCatalogDecodeWidth,
       onTap: (item) {
         final category = categoriesById[item.id];
         if (category != null) _openCategory(category);
@@ -393,13 +393,14 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
                 downloaded: DownloadTaskService.instance
                     .actionStateForItem(item.guid)
                     .downloaded,
+                heroTag: 'home_continue_${item.guid}',
               ),
             )
             .toList(growable: false);
         return HomeContinueWatchingSection(
           title: AppLocalizations.of(context).homeContinueWatching,
           items: cards,
-          stableImageDecodeLogicalWidth: layout.continueDecodeWidth,
+          stableImageCacheWidth: layout.continueDecodeWidth,
           onOpenDetail: (card) {
             final item = itemsById[card.id];
             if (item != null) {
@@ -685,7 +686,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
 
     final maxCount = min(items.length, 12);
     return SizedBox(
-      height: layout.homePosterRowHeight,
+      height: layout.homePosterRowHeightFor(MediaQuery.textScalerOf(context)),
       child: ListView.separated(
         padding: EdgeInsets.zero,
         scrollDirection: Axis.horizontal,

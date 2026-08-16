@@ -32,7 +32,7 @@ class HomeCatalogSection extends StatelessWidget {
     required this.items,
     required this.style,
     required this.onTap,
-    this.stableImageDecodeLogicalWidth,
+    this.stableImageCacheWidth,
     this.title = '媒体库',
   });
 
@@ -40,8 +40,8 @@ class HomeCatalogSection extends StatelessWidget {
   final HomeCatalogStyle style;
   final ValueChanged<HomeCatalogCardData> onTap;
 
-  /// 稳定的逻辑解码宽度；只影响图片缓存键，不参与响应式卡片布局。
-  final int? stableImageDecodeLogicalWidth;
+  /// 稳定的物理像素解码宽度；只影响图片缓存键，不参与响应式布局。
+  final int? stableImageCacheWidth;
   final String title;
 
   @override
@@ -61,7 +61,7 @@ class HomeCatalogSection extends StatelessWidget {
             item: item,
             style: style,
             width: width,
-            stableImageDecodeLogicalWidth: stableImageDecodeLogicalWidth,
+            stableImageCacheWidth: stableImageCacheWidth,
             onTap: () => onTap(item),
           ),
           idealItemWidth: geometry.idealWidth,
@@ -101,14 +101,14 @@ class _CatalogCard extends StatelessWidget {
     required this.item,
     required this.style,
     required this.width,
-    required this.stableImageDecodeLogicalWidth,
+    required this.stableImageCacheWidth,
     required this.onTap,
   });
 
   final HomeCatalogCardData item;
   final HomeCatalogStyle style;
   final double width;
-  final int? stableImageDecodeLogicalWidth;
+  final int? stableImageCacheWidth;
   final VoidCallback onTap;
 
   @override
@@ -133,7 +133,7 @@ class _CatalogCard extends StatelessWidget {
                 _CatalogArtwork(
                   item: item,
                   style: style,
-                  stableImageDecodeLogicalWidth: stableImageDecodeLogicalWidth,
+                  stableImageCacheWidth: stableImageCacheWidth,
                 ),
                 const DecoratedBox(
                   decoration: BoxDecoration(
@@ -174,12 +174,12 @@ class _CatalogArtwork extends StatelessWidget {
   const _CatalogArtwork({
     required this.item,
     required this.style,
-    required this.stableImageDecodeLogicalWidth,
+    required this.stableImageCacheWidth,
   });
 
   final HomeCatalogCardData item;
   final HomeCatalogStyle style;
-  final int? stableImageDecodeLogicalWidth;
+  final int? stableImageCacheWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -203,7 +203,7 @@ class _CatalogArtwork extends StatelessWidget {
       return _CatalogNetworkImage(
         imageKey: ValueKey<String>('catalog-image-${item.id}'),
         request: loadable.first,
-        stableDecodeLogicalWidth: stableImageDecodeLogicalWidth,
+        stableImageCacheWidth: stableImageCacheWidth,
       );
     }
 
@@ -218,7 +218,7 @@ class _CatalogArtwork extends StatelessWidget {
                     : 'catalog-image-${item.id}-$index',
               ),
               request: loadable[index],
-              stableDecodeLogicalWidth: stableImageDecodeLogicalWidth,
+              stableImageCacheWidth: stableImageCacheWidth,
             ),
           ),
       ],
@@ -238,12 +238,12 @@ class _CatalogNetworkImage extends StatefulWidget {
   const _CatalogNetworkImage({
     required this.imageKey,
     required this.request,
-    required this.stableDecodeLogicalWidth,
+    required this.stableImageCacheWidth,
   });
 
   final Key imageKey;
   final MediaImageRequest request;
-  final int? stableDecodeLogicalWidth;
+  final int? stableImageCacheWidth;
 
   @override
   State<_CatalogNetworkImage> createState() => _CatalogNetworkImageState();
@@ -277,16 +277,16 @@ class _CatalogNetworkImageState extends State<_CatalogNetworkImage> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final dpr = MediaQuery.devicePixelRatioOf(context);
-        final decodeLogicalWidth =
-            widget.stableDecodeLogicalWidth ?? constraints.maxWidth;
+        final requestedCacheWidth =
+            widget.stableImageCacheWidth?.toDouble() ??
+            constraints.maxWidth * MediaQuery.devicePixelRatioOf(context);
         return Image.network(
           widget.request.urls[_index],
           key: widget.imageKey,
           headers: widget.request.headers,
           fit: BoxFit.cover,
           gaplessPlayback: true,
-          cacheWidth: _stableCacheExtent(decodeLogicalWidth.toDouble(), dpr),
+          cacheWidth: _bucketCacheWidth(requestedCacheWidth),
           errorBuilder: (context, error, stackTrace) {
             _scheduleFallback();
             return fallback;
@@ -316,9 +316,8 @@ class _CatalogNetworkImageState extends State<_CatalogNetworkImage> {
   }
 }
 
-int? _stableCacheExtent(double logicalExtent, double devicePixelRatio) {
-  if (!logicalExtent.isFinite || logicalExtent <= 0) return null;
-  final pixels = logicalExtent * devicePixelRatio;
+int? _bucketCacheWidth(double physicalWidth) {
+  if (!physicalWidth.isFinite || physicalWidth <= 0) return null;
   // 32px 分桶避免轻微分屏/旋转抖动不断生成新的图片缓存键。
-  return ((pixels / 32).round() * 32).clamp(64, 2048).toInt();
+  return ((physicalWidth / 32).round() * 32).clamp(64, 2048).toInt();
 }

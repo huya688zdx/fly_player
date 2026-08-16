@@ -15,6 +15,7 @@ class HomeContinueCardData {
     required this.progress,
     required this.imageRequest,
     required this.downloaded,
+    this.heroTag,
   });
 
   final String id;
@@ -23,6 +24,7 @@ class HomeContinueCardData {
   final double progress;
   final MediaImageRequest imageRequest;
   final bool downloaded;
+  final String? heroTag;
 }
 
 /// 图片优先的继续观看区块。
@@ -33,7 +35,7 @@ class HomeContinueWatchingSection extends StatelessWidget {
     required this.onOpenDetail,
     required this.onPlay,
     required this.onLongPress,
-    this.stableImageDecodeLogicalWidth,
+    this.stableImageCacheWidth,
     this.title = '继续观看',
   });
 
@@ -42,8 +44,8 @@ class HomeContinueWatchingSection extends StatelessWidget {
   final ValueChanged<HomeContinueCardData> onPlay;
   final ValueChanged<HomeContinueCardData> onLongPress;
 
-  /// 稳定的逻辑解码宽度；只影响图片缓存键，不参与响应式卡片布局。
-  final int? stableImageDecodeLogicalWidth;
+  /// 稳定的物理像素解码宽度；只影响图片缓存键，不参与响应式布局。
+  final int? stableImageCacheWidth;
   final String title;
 
   @override
@@ -64,7 +66,7 @@ class HomeContinueWatchingSection extends StatelessWidget {
           itemBuilder: (context, item, width) => _ContinueCard(
             item: item,
             width: width,
-            stableImageDecodeLogicalWidth: stableImageDecodeLogicalWidth,
+            stableImageCacheWidth: stableImageCacheWidth,
             onOpenDetail: () => onOpenDetail(item),
             onPlay: () => onPlay(item),
             onLongPress: () => onLongPress(item),
@@ -79,7 +81,7 @@ class _ContinueCard extends StatelessWidget {
   const _ContinueCard({
     required this.item,
     required this.width,
-    required this.stableImageDecodeLogicalWidth,
+    required this.stableImageCacheWidth,
     required this.onOpenDetail,
     required this.onPlay,
     required this.onLongPress,
@@ -87,7 +89,7 @@ class _ContinueCard extends StatelessWidget {
 
   final HomeContinueCardData item;
   final double width;
-  final int? stableImageDecodeLogicalWidth;
+  final int? stableImageCacheWidth;
   final VoidCallback onOpenDetail;
   final VoidCallback onPlay;
   final VoidCallback onLongPress;
@@ -98,6 +100,14 @@ class _ContinueCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final radius = BorderRadius.circular(14);
     final imageHeight = width / (16 / 10);
+    final artwork = _ContinueArtwork(
+      item: item,
+      stableImageCacheWidth: stableImageCacheWidth,
+    );
+    final heroTag = item.heroTag?.trim() ?? '';
+    final heroArtwork = heroTag.isEmpty
+        ? artwork
+        : Hero(tag: heroTag, child: artwork);
 
     return Material(
       key: ValueKey<String>('continue-card-${item.id}'),
@@ -117,11 +127,7 @@ class _ContinueCard extends StatelessWidget {
                 child: Stack(
                   fit: StackFit.expand,
                   children: <Widget>[
-                    _ContinueArtwork(
-                      item: item,
-                      stableImageDecodeLogicalWidth:
-                          stableImageDecodeLogicalWidth,
-                    ),
+                    heroArtwork,
                     const DecoratedBox(
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
@@ -219,11 +225,11 @@ class _ContinueCard extends StatelessWidget {
 class _ContinueArtwork extends StatelessWidget {
   const _ContinueArtwork({
     required this.item,
-    required this.stableImageDecodeLogicalWidth,
+    required this.stableImageCacheWidth,
   });
 
   final HomeContinueCardData item;
-  final int? stableImageDecodeLogicalWidth;
+  final int? stableImageCacheWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -238,7 +244,7 @@ class _ContinueArtwork extends StatelessWidget {
     return _FallbackNetworkImage(
       imageKey: ValueKey<String>('continue-image-${item.id}'),
       request: request,
-      stableDecodeLogicalWidth: stableImageDecodeLogicalWidth,
+      stableImageCacheWidth: stableImageCacheWidth,
       fallback: ColoredBox(
         color: colors.surfaceStrong,
         child: Icon(Icons.movie_outlined, color: colors.textMuted, size: 36),
@@ -274,13 +280,13 @@ class _FallbackNetworkImage extends StatefulWidget {
   const _FallbackNetworkImage({
     required this.imageKey,
     required this.request,
-    required this.stableDecodeLogicalWidth,
+    required this.stableImageCacheWidth,
     required this.fallback,
   });
 
   final Key imageKey;
   final MediaImageRequest request;
-  final int? stableDecodeLogicalWidth;
+  final int? stableImageCacheWidth;
   final Widget fallback;
 
   @override
@@ -312,16 +318,16 @@ class _FallbackNetworkImageState extends State<_FallbackNetworkImage> {
     }
     return LayoutBuilder(
       builder: (context, constraints) {
-        final dpr = MediaQuery.devicePixelRatioOf(context);
-        final decodeLogicalWidth =
-            widget.stableDecodeLogicalWidth ?? constraints.maxWidth;
+        final requestedCacheWidth =
+            widget.stableImageCacheWidth?.toDouble() ??
+            constraints.maxWidth * MediaQuery.devicePixelRatioOf(context);
         return Image.network(
           widget.request.urls[_index],
           key: widget.imageKey,
           headers: widget.request.headers,
           fit: BoxFit.cover,
           gaplessPlayback: true,
-          cacheWidth: _stableCacheExtent(decodeLogicalWidth.toDouble(), dpr),
+          cacheWidth: _bucketCacheWidth(requestedCacheWidth),
           errorBuilder: (context, error, stackTrace) {
             _scheduleFallback();
             return widget.fallback;
@@ -351,9 +357,8 @@ class _FallbackNetworkImageState extends State<_FallbackNetworkImage> {
   }
 }
 
-int? _stableCacheExtent(double logicalExtent, double devicePixelRatio) {
-  if (!logicalExtent.isFinite || logicalExtent <= 0) return null;
-  final pixels = logicalExtent * devicePixelRatio;
+int? _bucketCacheWidth(double physicalWidth) {
+  if (!physicalWidth.isFinite || physicalWidth <= 0) return null;
   // 32px 分桶避免轻微分屏/旋转抖动不断生成新的图片缓存键。
-  return ((pixels / 32).round() * 32).clamp(64, 2048).toInt();
+  return ((physicalWidth / 32).round() * 32).clamp(64, 2048).toInt();
 }
