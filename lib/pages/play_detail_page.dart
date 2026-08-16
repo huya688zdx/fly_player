@@ -36,6 +36,7 @@ import '../danmaku/settings/danmaku_settings_store.dart';
 import '../controllers/item_playback_launcher.dart';
 import '../services/app_log_service.dart';
 import '../services/detail_runtime_cache.dart';
+import '../services/manual_subtitle_store.dart';
 import '../services/native_danmaku_prefetch.dart';
 import '../services/native_playback_reentry.dart';
 import '../services/native_player_bridge.dart';
@@ -61,6 +62,7 @@ import '../utils/detail_layout_solver.dart';
 import '../utils/detail_top_tip.dart';
 import '../utils/imdb_launcher.dart';
 import '../utils/local_subtitle_bundle.dart';
+import '../utils/manual_subtitle_tracks.dart';
 import '../utils/media_language_mapper.dart';
 import '../utils/player_artwork_path_resolver.dart';
 import '../utils/playback_resume_position_resolver.dart';
@@ -182,6 +184,10 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   int? _selectedStreamIndex;
   String? _selectedSubtitleGuid;
   String? _selectedAudioGuid;
+  // 当前媒体的手动导入本地字幕元数据缓存（详情页面板展示 + 合并播放轨用）。
+  List<ManualSubtitleEntry> _manualSubtitleEntries =
+      const <ManualSubtitleEntry>[];
+  VoidCallback? _manualSubtitleRevisionListener;
   String _imdbId = '';
   String _trimId = '';
   bool _liked = false;
@@ -391,6 +397,12 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     ).animate(descriptionCurve);
     _scrollController.addListener(_onScroll);
     _downloadTaskService.addListener(_handleDownloadTasksChanged);
+    _manualSubtitleRevisionListener = () {
+      unawaited(_refreshManualSubtitleEntries());
+    };
+    const ManualSubtitleStore().revision.addListener(
+      _manualSubtitleRevisionListener!,
+    );
     unawaited(_downloadTaskService.initialize());
     _load();
   }
@@ -406,6 +418,13 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     _descriptionPopController.dispose();
     _scrollController.removeListener(_onScroll);
     _downloadTaskService.removeListener(_handleDownloadTasksChanged);
+    final subtitleRevisionListener = _manualSubtitleRevisionListener;
+    if (subtitleRevisionListener != null) {
+      const ManualSubtitleStore().revision.removeListener(
+        subtitleRevisionListener,
+      );
+      _manualSubtitleRevisionListener = null;
+    }
     _scrollController.dispose();
     _scrollOffsetNotifier.dispose();
     PlayDetailDownloadSheetController.clearCache();
@@ -430,6 +449,8 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       unawaited(_refreshAfterItemStateChange());
+      // 原生播放器内可能导入了本地字幕，回前台时刷新本地字幕轨（配合 store reload）。
+      unawaited(_refreshManualSubtitleEntries());
     });
   }
 
@@ -1581,6 +1602,8 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         _locateMapZhCn = locateMap;
         _rebuildDetail();
       });
+      // 轨道数据就绪后加载手动导入的本地字幕（面板合并展示）。
+      unawaited(_refreshManualSubtitleEntries());
     } catch (error, stackTrace) {
       unawaited(
         AppErrorReporter.report(
@@ -1787,10 +1810,20 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   }
 
   List<SubtitleTrackOption> _currentSubtitleTracks() {
-    return PlayDetailTrackSelector.subtitleTracksForCurrentMedia(
+    final backendTracks = PlayDetailTrackSelector.subtitleTracksForCurrentMedia(
       options: _streamOptions,
       selectedIndex: _selectedStreamIndex,
       trackData: _streamTrackData,
+    );
+    // 合并当前媒体的手动导入本地字幕轨（SAF 添加，持久化）。
+    final mediaGuid = _currentStreamOption()?.mediaGuid ?? '';
+    final manualTracks = manualSubtitleTracksForMedia(
+      mediaGuid,
+      _manualSubtitleEntries,
+    );
+    return PlayDetailTrackSelector.mergeSubtitleTracks(
+      primaryTracks: backendTracks,
+      extraTracks: manualTracks,
     );
   }
 
@@ -1810,6 +1843,60 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     );
   }
 
+  /// 重新加载当前媒体的手动导入本地字幕元数据（store 变更 / 原生壳导入通知 / 回前台时刷新）。
+  Future<void> _refreshManualSubtitleEntries() async {
+    final itemGuid = _currentItemGuid;
+    final mediaGuid = _currentStreamOption()?.mediaGuid ?? '';
+    // 按 itemGuid 优先匹配（mediaGuid 经画质归一化可能不一致），回退 mediaGuid。
+    const store = ManualSubtitleStore();
+    final entries = await store.loadForItem(itemGuid, mediaGuid: mediaGuid);
+    final persistedSelection = await store.selectedGuidForItem(
+      itemGuid,
+      mediaGuid: mediaGuid,
+    );
+    if (!mounted ||
+        itemGuid != _currentItemGuid ||
+        mediaGuid != (_currentStreamOption()?.mediaGuid ?? '')) {
+      return;
+    }
+    var nextSelectedSubtitleGuid = _selectedSubtitleGuid;
+    if (persistedSelection != null &&
+        entries.any((entry) => entry.guid == persistedSelection)) {
+      nextSelectedSubtitleGuid = persistedSelection;
+    } else if (isManualSubtitleGuid(nextSelectedSubtitleGuid ?? '') &&
+        !entries.any((entry) => entry.guid == nextSelectedSubtitleGuid)) {
+      nextSelectedSubtitleGuid = null;
+    }
+    final entriesChanged =
+        _manualSubtitleEntries.length != entries.length ||
+        !_sameManualSubtitleEntries(_manualSubtitleEntries, entries);
+    final selectionChanged = nextSelectedSubtitleGuid != _selectedSubtitleGuid;
+    if (entriesChanged || selectionChanged) {
+      setState(() {
+        _manualSubtitleEntries = entries;
+        _selectedSubtitleGuid = nextSelectedSubtitleGuid;
+      });
+    } else {
+      _manualSubtitleEntries = entries;
+    }
+  }
+
+  static bool _sameManualSubtitleEntries(
+    List<ManualSubtitleEntry> a,
+    List<ManualSubtitleEntry> b,
+  ) {
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (a[i].guid != b[i].guid ||
+          a[i].path != b[i].path ||
+          a[i].fileName != b[i].fileName ||
+          a[i].format != b[i].format) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   void _syncTrackSelectionForCurrentMedia() {
     final synced = PlayDetailTrackSelector.syncTrackSelectionForCurrentMedia(
       currentSubtitleGuid: _selectedSubtitleGuid,
@@ -1822,6 +1909,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   }
 
   Future<void> _showSubtitleSheet(BuildContext sheetContext) async {
+    // 打开前刷新本地字幕元数据，确保原生壳刚导入的字幕立即出现在面板。
+    await _refreshManualSubtitleEntries();
+    if (!mounted || !sheetContext.mounted) return;
     final tracks = _currentSubtitleTracks();
     if (tracks.isEmpty) return;
     if (mounted) {
@@ -1836,9 +1926,33 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       setState(() => _subtitleSelectorExpanded = false);
     }
     if (!mounted || result == null) return;
+    // 删除标记：删除本地字幕（prefs 元数据 + 私有目录文件），随后重开面板。
+    final deleteGuid = PlayDetailSheetController.subtitleDeleteGuidOf(result);
+    if (deleteGuid != null && deleteGuid.isNotEmpty) {
+      await _deleteManualSubtitle(deleteGuid);
+      await _refreshManualSubtitleEntries();
+      if (mounted) {
+        await _showSubtitleSheet(context);
+      }
+      return;
+    }
+    await const ManualSubtitleStore().setSelectedGuid(
+      itemGuid: _currentItemGuid,
+      mediaGuid: _currentStreamOption()?.mediaGuid ?? '',
+      guid: isManualSubtitleGuid(result) ? result : null,
+    );
+    if (!mounted) return;
     setState(() {
       _selectedSubtitleGuid = result;
     });
+  }
+
+  /// 删除一条手动导入的本地字幕：先删私有目录文件，再删 prefs 元数据。
+  Future<void> _deleteManualSubtitle(String guid) async {
+    final deleted = await const ManualSubtitleStore().deleteByGuid(guid);
+    if (deleted && mounted && _selectedSubtitleGuid == guid) {
+      setState(() => _selectedSubtitleGuid = null);
+    }
   }
 
   Future<void> _showAudioSheet(BuildContext sheetContext) async {
@@ -2189,6 +2303,25 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       mediaGuid: resolvedMediaGuid,
       videoFilePath: record.filePath,
     );
+    // 合并当前媒体的持久化手动导入本地字幕（SAF 添加），使本地文件播放也能 sub-add。
+    final manualEntries = await const ManualSubtitleStore().loadForMedia(
+      resolvedMediaGuid,
+    );
+    final manualTracks = manualSubtitleTracksForMedia(
+      resolvedMediaGuid,
+      manualEntries,
+    );
+    final manualBundle = LocalSubtitleBundle(
+      tracks: manualTracks,
+      fileByGuid: <String, String>{
+        for (final entry in manualEntries) entry.guid: entry.path,
+      },
+      preferredGuid: manualTracks.isEmpty ? null : manualTracks.first.guid,
+    );
+    final mergedLocalSubtitleBundle = LocalSubtitleBundle.merge(
+      localSubtitleBundle,
+      manualBundle,
+    );
     final source = MpvMediaSource.localFile(
       filePath: record.filePath,
       itemGuid: _currentItemGuid,
@@ -2216,7 +2349,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
       subtitleTrackGuid: _selectedSubtitleGuid?.trim().isNotEmpty == true
           ? _selectedSubtitleGuid
           : data.subtitleGuid,
-      localSubtitleBundle: localSubtitleBundle,
+      localSubtitleBundle: mergedLocalSubtitleBundle,
       resolution: record.resolution,
       bitrate: 0,
       durationSeconds: effectiveDuration,
@@ -2314,6 +2447,8 @@ class _PlayDetailPageState extends State<PlayDetailPage>
             nas: nas,
             l10n: l10n,
             fallbackEpisodes: () => capturedEpisodes,
+            onLocalSubtitleImported: (_) => _refreshManualSubtitleEntries(),
+            onLocalSubtitleRemoved: (_) => _refreshManualSubtitleEntries(),
             onResolvePlayback:
                 (
                   itemGuid, {

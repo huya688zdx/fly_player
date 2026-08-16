@@ -145,6 +145,8 @@ class NativePlayerBridge {
     Future<Map<String, dynamic>?> Function(String seasonGuid)?
     onLoadSeasonEpisodes,
     Future<bool> Function(String viewType)? onSetEpisodePickerViewType,
+    Future<void> Function(Map<String, dynamic> args)? onLocalSubtitleImported,
+    Future<void> Function(Map<String, dynamic> args)? onLocalSubtitleRemoved,
   }) {
     final token = Object();
     _activeBindToken = token;
@@ -443,6 +445,17 @@ class NativePlayerBridge {
             'settings': bundle.settings,
             'videoAdjustments': bundle.videoAdjustments,
           };
+        case 'localSubtitleImported':
+          // 原生壳手动导入本地字幕（SAF「+添加」）→ 通知详情页刷新字幕面板。
+          // 元数据已由原生侧写入共享 SharedPreferences，这里仅触发界面刷新。
+          final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          await onLocalSubtitleImported?.call(Map<String, dynamic>.from(args));
+          return true;
+        case 'localSubtitleRemoved':
+          // 原生壳删除本地字幕 → 通知详情页刷新字幕面板。
+          final args = (call.arguments as Map?) ?? const <Object?, Object?>{};
+          await onLocalSubtitleRemoved?.call(Map<String, dynamic>.from(args));
+          return true;
         default:
           throw MissingPluginException('native_player reentry: ${call.method}');
       }

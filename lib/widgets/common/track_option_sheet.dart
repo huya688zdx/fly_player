@@ -10,10 +10,14 @@ class TrackOptionSheetItem {
   final String title;
   final String subtitle;
 
+  /// 非空时该项显示删除按钮；点击回调后由外部负责移除该项并刷新面板。
+  final VoidCallback? onDelete;
+
   const TrackOptionSheetItem({
     required this.id,
     required this.title,
     this.subtitle = '',
+    this.onDelete,
   });
 }
 
@@ -166,6 +170,7 @@ class _OptionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final onDelete = item.onDelete;
     return Material(
       color: colors.surfaceSubtle,
       borderRadius: BorderRadius.circular(12),
@@ -206,6 +211,18 @@ class _OptionTile extends StatelessWidget {
                   ],
                 ),
               ),
+              if (onDelete != null)
+                IconButton(
+                  onPressed: onDelete,
+                  icon: Icon(
+                    Icons.delete_outline,
+                    color: colors.textSecondary,
+                    size: 20,
+                  ),
+                  tooltip: MaterialLocalizations.of(
+                    context,
+                  ).deleteButtonTooltip,
+                ),
             ],
           ),
         ),
