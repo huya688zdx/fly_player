@@ -24,6 +24,19 @@ class HomeSectionLoadResult<T> {
   T valueOr(T fallback) => isSuccess ? value : fallback;
 }
 
+/// 一个首页媒体区块及其两类图片请求。
+class HomeMediaSectionData {
+  const HomeMediaSectionData({
+    this.items = const <MediaLibraryItem>[],
+    this.imageRequests = const <String, MediaImageRequest>{},
+    this.backdropImageRequests = const <String, MediaImageRequest>{},
+  });
+
+  final List<MediaLibraryItem> items;
+  final Map<String, MediaImageRequest> imageRequests;
+  final Map<String, MediaImageRequest> backdropImageRequests;
+}
+
 /// 为并发首页加载分配递增代次，只允许最后启动的请求落地。
 class HomeLoadGeneration {
   int _value = 0;
@@ -32,8 +45,35 @@ class HomeLoadGeneration {
 
   bool isCurrent(int generation) => generation == _value;
 
-  void invalidate() {
-    _value += 1;
+  int invalidate() => ++_value;
+}
+
+/// 串行协调首页缓存写入，并确保队列中只有最新代次可以开始执行。
+class HomeCacheWriteCoordinator {
+  Future<void> _tail = Future<void>.value();
+  int _latestGeneration = 0;
+
+  void advanceTo(int generation) {
+    if (generation > _latestGeneration) {
+      _latestGeneration = generation;
+    }
+  }
+
+  Future<bool> schedule({
+    required int generation,
+    required Future<void> Function() write,
+    bool Function()? canWrite,
+  }) {
+    advanceTo(generation);
+    final operation = _tail.then((_) async {
+      if (generation != _latestGeneration || !(canWrite?.call() ?? true)) {
+        return false;
+      }
+      await write();
+      return true;
+    });
+    _tail = operation.then<void>((_) {}).catchError((Object _) {});
+    return operation;
   }
 }
 
@@ -95,6 +135,75 @@ class HomeViewData {
         backdropImageRequests ?? this.backdropImageRequests,
       ),
     );
+  }
+}
+
+/// 把三个可选媒体区块合并到必选首页数据中。
+///
+/// 成功结果（包括空列表）替换旧区块；失败结果保留旧区块及其图片请求。
+HomeViewData mergeHomeOptionalSections({
+  required HomeViewData current,
+  required HomeViewData refreshedBase,
+  required HomeSectionLoadResult<HomeMediaSectionData> continueWatching,
+  required HomeSectionLoadResult<HomeMediaSectionData> nextUp,
+  required HomeSectionLoadResult<HomeMediaSectionData> latest,
+}) {
+  final itemImageRequests = Map<String, MediaImageRequest>.of(
+    refreshedBase.itemImageRequests,
+  );
+  final backdropImageRequests = Map<String, MediaImageRequest>.of(
+    refreshedBase.backdropImageRequests,
+  );
+
+  List<MediaLibraryItem> mergeSection(
+    List<MediaLibraryItem> currentItems,
+    HomeSectionLoadResult<HomeMediaSectionData> result,
+  ) {
+    if (result.isSuccess) {
+      final section = result.value;
+      itemImageRequests.addAll(section.imageRequests);
+      backdropImageRequests.addAll(section.backdropImageRequests);
+      return section.items;
+    }
+    _preserveRequestsForItems(
+      currentItems,
+      source: current.itemImageRequests,
+      target: itemImageRequests,
+    );
+    _preserveRequestsForItems(
+      currentItems,
+      source: current.backdropImageRequests,
+      target: backdropImageRequests,
+    );
+    return currentItems;
+  }
+
+  final resolvedContinueWatching = mergeSection(
+    current.continueWatching,
+    continueWatching,
+  );
+  final resolvedNextUp = mergeSection(current.nextUp, nextUp);
+  final resolvedLatest = mergeSection(current.latest, latest);
+
+  return refreshedBase.copyWith(
+    continueWatching: resolvedContinueWatching,
+    nextUp: resolvedNextUp,
+    latest: resolvedLatest,
+    itemImageRequests: itemImageRequests,
+    backdropImageRequests: backdropImageRequests,
+  );
+}
+
+void _preserveRequestsForItems(
+  Iterable<MediaLibraryItem> items, {
+  required Map<String, MediaImageRequest> source,
+  required Map<String, MediaImageRequest> target,
+}) {
+  for (final item in items) {
+    final request = source[item.guid];
+    if (request != null) {
+      target[item.guid] = request;
+    }
   }
 }
 
