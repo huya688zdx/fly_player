@@ -11,6 +11,7 @@ class PosterBrowseMediaInfo extends StatelessWidget {
   final String secondaryLabel;
   final List<Widget> metaWidgets;
   final bool compact;
+  final bool collapsed;
   final VoidCallback onPlay;
   final VoidCallback onDetail;
 
@@ -21,6 +22,7 @@ class PosterBrowseMediaInfo extends StatelessWidget {
     required this.secondaryLabel,
     required this.metaWidgets,
     required this.compact,
+    this.collapsed = false,
     required this.onPlay,
     required this.onDetail,
   });
@@ -30,7 +32,8 @@ class PosterBrowseMediaInfo extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     final overview = item.overview.trim();
     final secondary = secondaryLabel.trim();
-    final spacing = compact ? 8.0 : 12.0;
+    final spacing = collapsed ? 5.0 : (compact ? 8.0 : 12.0);
+    final titleHeight = collapsed ? 60.0 : (compact ? 96.0 : 112.0);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -38,16 +41,16 @@ class PosterBrowseMediaInfo extends StatelessWidget {
       children: [
         SizedBox(
           key: const ValueKey('poster_browse_title_slot'),
-          height: compact ? 96 : 112,
+          height: titleHeight,
           child: Align(
             alignment: Alignment.bottomLeft,
             child: ClipRect(
               child: DetailHeroLogoTitle(
                 images: logoRequest,
                 fallbackTitle: item.title,
-                maxHeight: compact ? 96 : 112,
-                maxWidth: compact ? 340 : 420,
-                fallbackFontSize: compact ? 28 : 38,
+                maxHeight: titleHeight,
+                maxWidth: collapsed ? 320 : (compact ? 340 : 420),
+                fallbackFontSize: collapsed ? 24 : (compact ? 28 : 38),
               ),
             ),
           ),
@@ -66,10 +69,10 @@ class PosterBrowseMediaInfo extends StatelessWidget {
           ),
         ],
         if (metaWidgets.isNotEmpty) ...[
-          SizedBox(height: compact ? 6 : 10),
+          SizedBox(height: collapsed ? 4 : (compact ? 6 : 10)),
           Wrap(
-            spacing: compact ? 6 : 8,
-            runSpacing: compact ? 5 : 6,
+            spacing: collapsed ? 5 : (compact ? 6 : 8),
+            runSpacing: collapsed ? 3 : (compact ? 5 : 6),
             children: metaWidgets,
           ),
         ],
@@ -77,7 +80,7 @@ class PosterBrowseMediaInfo extends StatelessWidget {
           SizedBox(height: spacing),
           Text(
             overview,
-            maxLines: 3,
+            maxLines: collapsed ? 2 : 3,
             overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: Colors.white.withValues(alpha: 0.86),
@@ -85,19 +88,19 @@ class PosterBrowseMediaInfo extends StatelessWidget {
             ),
           ),
         ],
-        SizedBox(height: compact ? 12 : 18),
+        SizedBox(height: collapsed ? 6 : (compact ? 12 : 18)),
         Wrap(
-          spacing: compact ? 8 : 12,
-          runSpacing: compact ? 8 : 10,
+          spacing: collapsed ? 6 : (compact ? 8 : 12),
+          runSpacing: collapsed ? 4 : (compact ? 8 : 10),
           children: [
             ElevatedButton(
               onPressed: onPlay,
               style: ElevatedButton.styleFrom(
                 padding: EdgeInsets.symmetric(
-                  horizontal: compact ? 16 : 22,
-                  vertical: compact ? 9 : 12,
+                  horizontal: collapsed ? 12 : (compact ? 16 : 22),
+                  vertical: collapsed ? 6 : (compact ? 9 : 12),
                 ),
-                visualDensity: compact
+                visualDensity: compact || collapsed
                     ? VisualDensity.compact
                     : VisualDensity.standard,
               ),
@@ -109,10 +112,10 @@ class PosterBrowseMediaInfo extends StatelessWidget {
                 foregroundColor: Colors.white,
                 side: BorderSide(color: Colors.white.withValues(alpha: 0.72)),
                 padding: EdgeInsets.symmetric(
-                  horizontal: compact ? 14 : 20,
-                  vertical: compact ? 9 : 12,
+                  horizontal: collapsed ? 12 : (compact ? 14 : 20),
+                  vertical: collapsed ? 6 : (compact ? 9 : 12),
                 ),
-                visualDensity: compact
+                visualDensity: compact || collapsed
                     ? VisualDensity.compact
                     : VisualDensity.standard,
               ),
