@@ -284,6 +284,27 @@ void main() {
     expect(items, isEmpty);
   });
 
+  test('getNextUpEpisodes 全局查询不发送 SeriesId', () async {
+    late RequestOptions captured;
+    final adapter = _FakeDioAdapter((options) {
+      captured = options;
+      return const _JsonResponse(<String, Object?>{'Items': <Object?>[]});
+    });
+    final api = EmbyApi(dio: Dio(BaseOptions())..httpClientAdapter = adapter);
+
+    final items = await api.getNextUpEpisodes(
+      serverUrl: 'https://emby.example.test',
+      userId: 'user-1',
+      accessToken: 'tok',
+      limit: 8,
+    );
+
+    expect(captured.uri.path, '/Shows/NextUp');
+    expect(captured.uri.queryParameters.containsKey('SeriesId'), isFalse);
+    expect(captured.uri.queryParameters['Limit'], '8');
+    expect(items, isEmpty);
+  });
+
   test('getItemCount：Limit=0 + IncludeItemTypes，取 TotalRecordCount', () async {
     late RequestOptions captured;
     final adapter = _FakeDioAdapter((options) {

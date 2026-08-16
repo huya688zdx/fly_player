@@ -31,6 +31,10 @@ abstract class MediaBackend {
   /// 继续观看列表。
   Future<List<MediaItemCard>> getContinueWatching({bool forceRefresh = false});
 
+  /// 下一集推荐列表。默认返回空列表，表示该后端不提供此首页分区。
+  Future<List<MediaItemCard>> getNextUpItems({int limit = 20}) async =>
+      const <MediaItemCard>[];
+
   /// 某个媒体库的预览条目。
   Future<List<MediaItemCard>> getCatalogPreviewItems(
     String catalogId, {
