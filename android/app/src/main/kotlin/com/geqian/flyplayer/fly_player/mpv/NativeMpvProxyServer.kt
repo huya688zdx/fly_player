@@ -324,14 +324,19 @@ private class ExtremePlaybackCacheSession(
             val client = upstreamClient ?: return false
             val buildRequest = upstreamRequestBuilder ?: return false
             val resolvedRemoteUrl = upstreamResolvedRemoteUrl
-            val request =
-                buildRequest(
-                    resolvedRemoteUrl,
-                    "bytes=$start-$safeEnd",
-                    "GET",
-                ) ?: return false
             val response =
-                runCatching { client.newCall(request).execute() }
+                runCatching {
+                    NativeProxyHeaderPolicy.executeSameOriginRedirects(
+                        client = client,
+                        initialUrl = resolvedRemoteUrl,
+                    ) { redirectedUrl ->
+                        buildRequest(
+                            redirectedUrl,
+                            "bytes=$start-$safeEnd",
+                            "GET",
+                        )
+                    }
+                }
                     .onFailure(::fail)
                     .getOrNull() ?: return false
             response.use { upstream ->
@@ -662,17 +667,6 @@ private class NativeProxyHttpServer(
             MIME_PLAINTEXT,
             "invalid upstream url",
         )
-        val upstreamRequest = buildUpstreamRequest(
-            proxySession = proxySession,
-            resolvedRemoteUrl = resolvedRemoteUrl,
-            session = session,
-            method = method,
-        )
-            ?: return newFixedLengthResponse(
-                NanoHTTPD.Response.Status.BAD_REQUEST,
-                MIME_PLAINTEXT,
-                "invalid upstream url",
-            )
         val client = if (proxySession.disableTlsVerify) {
             UnsafeOkHttpClient.instance
         } else {
@@ -702,7 +696,13 @@ private class NativeProxyHttpServer(
             )
         }
         return runCatching {
-            client.newCall(upstreamRequest).execute()
+            executeUpstream(
+                proxySession = proxySession,
+                client = client,
+                resolvedRemoteUrl = resolvedRemoteUrl,
+                method = method,
+                session = session,
+            )
         }.mapCatching { upstreamResponse ->
             proxyVerboseLog {
                 "upstream method=$method range=${session.headers["range"] ?: "-"} status=${upstreamResponse.code} remote=$resolvedRemoteUrl"
@@ -814,18 +814,14 @@ private class NativeProxyHttpServer(
             return response
         }
         val end = (start + CHUNKED_PROXY_CHUNK_SIZE - 1L).coerceAtMost(meta.totalSize - 1L)
-        val upstreamRequest = buildUpstreamRequest(
-            proxySession = proxySession,
-            resolvedRemoteUrl = resolvedRemoteUrl,
-            method = "GET",
-            rangeOverride = "bytes=$start-$end",
-        ) ?: return newFixedLengthResponse(
-            NativeProxyHttpStatus(400, "Bad Request"),
-            MIME_PLAINTEXT,
-            "invalid upstream url",
-        )
         return runCatching {
-            client.newCall(upstreamRequest).execute()
+            executeUpstream(
+                proxySession = proxySession,
+                client = client,
+                resolvedRemoteUrl = resolvedRemoteUrl,
+                method = "GET",
+                rangeOverride = "bytes=$start-$end",
+            )
         }.mapCatching { upstreamResponse ->
             proxyVerboseLog {
                 "chunked upstream range=bytes=$start-$end status=${upstreamResponse.code} remote=$resolvedRemoteUrl"
@@ -955,13 +951,15 @@ private class NativeProxyHttpServer(
         resolvedRemoteUrl: String,
     ): NativeProxyRemoteMeta? {
         remoteMetaCache[resolvedRemoteUrl]?.let { return it }
-        val request = buildUpstreamRequest(
-            proxySession = proxySession,
-            resolvedRemoteUrl = resolvedRemoteUrl,
-            method = "GET",
-            rangeOverride = "bytes=0-0",
-        ) ?: return null
-        val response = runCatching { client.newCall(request).execute() }.getOrNull() ?: return null
+        val response = runCatching {
+            executeUpstream(
+                proxySession = proxySession,
+                client = client,
+                resolvedRemoteUrl = resolvedRemoteUrl,
+                method = "GET",
+                rangeOverride = "bytes=0-0",
+            )
+        }.getOrNull() ?: return null
         response.use { upstreamResponse ->
             val body = upstreamResponse.body
             val mimeType = body?.contentType()?.toString() ?: "application/octet-stream"
@@ -1055,6 +1053,27 @@ private class NativeProxyHttpServer(
         }
         return remoteUrl.resolve(relativeReference)?.toString()
     }
+
+    private fun executeUpstream(
+        proxySession: NativeProxySession,
+        client: OkHttpClient,
+        resolvedRemoteUrl: String,
+        method: String,
+        session: IHTTPSession? = null,
+        rangeOverride: String? = null,
+    ): OkHttpResponse =
+        NativeProxyHeaderPolicy.executeSameOriginRedirects(
+            client = client,
+            initialUrl = resolvedRemoteUrl,
+        ) { redirectedUrl ->
+            buildUpstreamRequest(
+                proxySession = proxySession,
+                resolvedRemoteUrl = redirectedUrl,
+                method = method,
+                session = session,
+                rangeOverride = rangeOverride,
+            )
+        }
 
     private fun buildUpstreamRequest(
         proxySession: NativeProxySession,
@@ -1199,6 +1218,8 @@ private fun skipFully(input: InputStream, byteCount: Long) {
 private object SafeOkHttpClient {
     val instance: OkHttpClient by lazy {
         OkHttpClient.Builder()
+            .followRedirects(false)
+            .followSslRedirects(false)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
             .writeTimeout(0, TimeUnit.MILLISECONDS)
@@ -1222,6 +1243,8 @@ private object UnsafeOkHttpClient {
         OkHttpClient.Builder()
             .sslSocketFactory(sslContext.socketFactory, trustManager)
             .hostnameVerifier(HostnameVerifier { _, _ -> true })
+            .followRedirects(false)
+            .followSslRedirects(false)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
             .writeTimeout(0, TimeUnit.MILLISECONDS)
@@ -1462,7 +1485,7 @@ private fun shouldUseChunkedRangeProxy(remoteUrl: String): Boolean {
     return host.contains("drive.quark.cn") || host.contains("quark.cn") || host.contains("uc.cn")
 }
 
-private fun buildSignedHeaders(
+internal fun buildSignedHeaders(
     remoteUrl: String,
     method: String,
     authToken: String,
@@ -1477,27 +1500,7 @@ private fun buildSignedHeaders(
     }?.value
     val range = incomingRange?.trim().takeUnless { it.isNullOrEmpty() } ?: initialRange
     val builder = Headers.Builder()
-    forwardHeaders.entries.forEach { (key, value) ->
-        if (value.isBlank()) return@forEach
-        val lower = key.lowercase(Locale.US)
-        if (
-            lower == "authorization" ||
-            lower == "trim-mc-token" ||
-            lower == "user-agent" ||
-            lower == "range" ||
-            lower == "authx" ||
-            lower == "host" ||
-            lower == "connection" ||
-            lower == "keep-alive" ||
-            lower == "transfer-encoding" ||
-            lower == "te" ||
-            lower == "trailer" ||
-            lower == "upgrade" ||
-            lower == "proxy-authorization" ||
-            lower == "proxy-connection"
-        ) {
-            return@forEach
-        }
+    NativeProxyHeaderPolicy.copyForwardable(forwardHeaders).forEach { (key, value) ->
         builder.addUnsafeNonAscii(key, value)
     }
     if (authToken.isNotBlank()) {
