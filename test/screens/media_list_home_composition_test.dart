@@ -90,6 +90,14 @@ void main() {
     expect(widgetsSource, isNot(contains('TextScaler.linear(1')));
     expect(widgetsSource, contains('titleFontWeight: FontWeight.w500'));
     expect(widgetsSource, contains('subtitleFontWeight: FontWeight.w400'));
+    expect(
+      widgetsSource,
+      contains('stableImageDecodeLogicalWidth: layout.continueDecodeWidth'),
+    );
+    expect(
+      widgetsSource,
+      contains('stableImageDecodeLogicalWidth: layout.miniPosterDecodeWidth'),
+    );
 
     expect(screenSource, contains('Future<void> _playContinueItem('));
     expect(screenSource, contains('_pendingContinueWatchingRefresh = true'));

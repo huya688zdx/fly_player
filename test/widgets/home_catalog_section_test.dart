@@ -18,6 +18,23 @@ Widget testApp(Widget child) => MaterialApp(
   home: Scaffold(body: SizedBox(width: 390, child: child)),
 );
 
+Widget responsiveTestApp({
+  required double width,
+  required double devicePixelRatio,
+  required Widget child,
+}) => MaterialApp(
+  theme: AppThemeBuilder.build(AppThemePreset.midnight),
+  home: MediaQuery(
+    data: MediaQueryData(
+      size: Size(width, 800),
+      devicePixelRatio: devicePixelRatio,
+    ),
+    child: Scaffold(
+      body: SizedBox(width: width, child: child),
+    ),
+  ),
+);
+
 String networkUrlOf(Image image) {
   final provider = image.image;
   final network = provider is ResizeImage
@@ -244,5 +261,62 @@ void main() {
         'https://new.test/1.jpg',
       );
     });
+  });
+
+  testWidgets('稳定解码宽度不随响应式视觉卡宽改变', (tester) async {
+    final items = List<HomeCatalogCardData>.generate(
+      4,
+      (index) => HomeCatalogCardData(
+        id: 'stable-$index',
+        title: '媒体库 $index',
+        mediaType: HomeCatalogMediaType.movies,
+        imageRequests: const <MediaImageRequest>[loadableImage],
+      ),
+    );
+
+    Widget section(double width) => responsiveTestApp(
+      width: width,
+      devicePixelRatio: 2.5,
+      child: HomeCatalogSection(
+        style: HomeCatalogStyle.landscapeArtwork,
+        items: items,
+        stableImageDecodeLogicalWidth: 180,
+        onTap: (_) {},
+      ),
+    );
+
+    await tester.pumpWidget(section(336));
+    final narrowCardWidth = tester
+        .getSize(find.byKey(const ValueKey<String>('catalog-card-stable-0')))
+        .width;
+    final narrowDecodeWidth =
+        (tester
+                    .widget<Image>(
+                      find.byKey(
+                        const ValueKey<String>('catalog-image-stable-0'),
+                      ),
+                    )
+                    .image
+                as ResizeImage)
+            .width;
+
+    await tester.pumpWidget(section(570));
+    final wideCardWidth = tester
+        .getSize(find.byKey(const ValueKey<String>('catalog-card-stable-0')))
+        .width;
+    final wideDecodeWidth =
+        (tester
+                    .widget<Image>(
+                      find.byKey(
+                        const ValueKey<String>('catalog-image-stable-0'),
+                      ),
+                    )
+                    .image
+                as ResizeImage)
+            .width;
+
+    expect(narrowCardWidth, isNot(wideCardWidth));
+    expect(narrowDecodeWidth, wideDecodeWidth);
+    expect(narrowDecodeWidth, 448);
   });
 }
