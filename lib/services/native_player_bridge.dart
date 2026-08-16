@@ -15,6 +15,7 @@ import 'app_log_service.dart';
 import 'native_artwork_prefetch.dart';
 import 'native_danmaku_prefetch.dart';
 import 'native_player_localized_strings.dart';
+import 'native_reentry_support.dart';
 
 /// 启动纯原生播放壳（`NativePlayerActivity`）的桥。
 ///
@@ -531,8 +532,18 @@ class NativePlayerBridge {
   ) async {
     if (nas == null) return;
     final posterPath = (args['posterPath'] ?? '').toString().trim();
+    if (posterPath.isEmpty) return;
+    args.addAll(
+      NativeReentrySupport.buildNativeImageFields(
+        poster: posterPath,
+        token: nas.token,
+        accessCode: nas.accessCode,
+        baseUrl: nas.baseUrl,
+        usingLocal: false,
+      ),
+    );
     final existing = (args['posterLocalPath'] ?? '').toString().trim();
-    if (posterPath.isEmpty || existing.isNotEmpty) return;
+    if (existing.isNotEmpty) return;
     final local = await NativeArtworkPrefetch.resolveToFile(nas, posterPath);
     if (local != null && local.isNotEmpty) {
       args['posterLocalPath'] = local;
