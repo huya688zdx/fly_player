@@ -103,9 +103,9 @@ flutter test test/poster_browse/poster_browse_landscape_gesture_panel_test.dart
 
 预期：大屏仍直接创建 `PosterBrowsePosterTrack`，面板类型断言失败。
 
-- [ ] **Step 3：接入面板并增加焦点缓动**
+- [ ] **Step 3：接入面板、紧凑信息并增加焦点缓动**
 
-在 `_buildTrackArea` 的非空分支返回 `PosterBrowseLandscapeGesturePanel`，透传现有全部海报参数和 `onSelectItem`。把海报卡的静态 `Transform.scale` 替换为 `AnimatedScale(duration: 180ms, curve: Curves.easeOutCubic)`，不改变尺寸、文本或点击逻辑。
+在 `_buildTrackArea` 的非空分支返回 `PosterBrowseLandscapeGesturePanel`，透传现有全部海报参数、`onSelectItem` 和以当前焦点 ID 为 key 的紧凑信息组件。紧凑信息保留标题、季集、元信息、两行简介和播放/详情按钮；把手放在底部。收起状态继续允许左右单步切换。把海报卡的静态 `Transform.scale` 替换为 `AnimatedScale(duration: 180ms, curve: Curves.easeOutCubic)`，不改变尺寸、文本或点击逻辑。
 
 - [ ] **Step 4：运行大屏和面板测试并确认 GREEN**
 
