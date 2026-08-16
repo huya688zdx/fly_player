@@ -26,6 +26,12 @@ void main() {
       throwsUnsupportedError,
     );
   });
+
+  test('默认下一集列表为空', () async {
+    final backend = _MinimalBackend();
+
+    expect(await backend.getNextUpItems(limit: 8), isEmpty);
+  });
 }
 
 class _MinimalBackend extends MediaBackend {

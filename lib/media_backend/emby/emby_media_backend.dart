@@ -152,6 +152,20 @@ class EmbyMediaBackend implements MediaBackend {
         .toList(growable: false);
   }
 
+  @override
+  Future<List<MediaItemCard>> getNextUpItems({int limit = 20}) async {
+    final items = await api.getNextUpEpisodes(
+      serverUrl: _serverUrl,
+      userId: _userId,
+      accessToken: _token,
+      limit: limit,
+      fields: _cardFields,
+    );
+    return items
+        .map((e) => mapEmbyItemCard(e, serverUrl: _serverUrl, token: _token))
+        .toList(growable: false);
+  }
+
   /// 续播行是横版卡：电影用 backdrop（竖版海报塞横版会变形），剧集 Primary 本身是横版剧照
   /// 保持不动。其余无 backdrop 的保持 Primary。
   MediaItemCard _continueWatchingCard(MediaItemCard card) {
