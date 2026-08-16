@@ -67,6 +67,7 @@ import org.json.JSONObject
 import java.io.File
 import java.math.BigDecimal
 import java.math.RoundingMode
+import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -176,11 +177,10 @@ internal fun nativePanelSubtitleCanRemove(track: Map<String, Any?>): Boolean {
  * 决定某条字幕轨该走「内嵌轨选择」(setSubtitleTrack) 还是「外挂文件 sub-add」
  * (setExternalSubtitleFile)。
  *
- * 关键：位图字幕（PGS/SUP/VobSub）在 mpv 里**只能作为内嵌轨播放**——服务端即便把它额外
- * 抽取并标成 isExternal/extraFile，resolveSubtitleFile 也无法把位图变成可 sub-add 的文本
- * .ass。因此位图判断必须**优先于** isExternal/extraFile 标志，否则手动切到 SUP/PGS 会误走
- * 外挂路径下发错误字幕（表现为切 SUP 失败、或切回 SUP 掉成别的字幕）。
- * 用户「+添加」的本地字幕（local: guid）则始终走外挂文件。
+ * 服务端位图轨（PGS/SUP/VobSub）不能经过 resolveSubtitleFile 转成文本 .ass，必须继续按
+ * 内嵌轨选择；因此其位图判断要优先于服务端的 isExternal/extraFile 标志。
+ * 用户「+添加」的本地字幕带 local: guid，已有真实文件路径，可由 mpv 通过 sub-add 加载，
+ * 包括本地 SUP/PGS 文件，所以 local: 判断必须最先执行。
  */
 internal fun nativeSubtitleUsesExternalFile(track: Map<String, Any?>): Boolean {
     val guid = track["guid"]?.toString()?.trim()?.lowercase().orEmpty()
@@ -862,7 +862,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val DANMAKU_IMPORT_EXTENSIONS = setOf("xml", "json")
         // 外挂字幕导入仅接受 mpv 能直接 sub-add 的格式：文本字幕（srt/ass/…）与
         // PGS/SUP 位图字幕（libavformat sup demuxer + hdmv_pgs_subtitle 解码器）。
-        val SUBTITLE_IMPORT_EXTENSIONS = setOf("srt", "ass", "ssa", "vtt", "sub", "ttml", "sup", "pgs")
+        val SUBTITLE_IMPORT_EXTENSIONS = NATIVE_SUBTITLE_IMPORT_EXTENSIONS
         const val CONTROLS_AUTO_HIDE_MS = 3500L
         const val CHROME_FADE_MS = 220L
         const val TRANSIENT_HINT_MS = 1200L
@@ -2390,17 +2390,18 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             finish()
             return
         }
-        mediaTitle = resolveTitle(loadArgs)
-        loadArgsMap = loadArgs
+        val effectiveLoadArgs = NativeSubtitleImportStore.restoreLoadArgs(this, loadArgs)
+        mediaTitle = resolveTitle(effectiveLoadArgs)
+        loadArgsMap = effectiveLoadArgs
         // 完整 loadArgs 进入（初始启动主链路）：安装 Flutter 下发的本地化文案表；
         // 失败静默，不影响播放主流程（缺失时后续 localizedString 自动回退 strings.xml）。
         runCatching {
-            NativeLocalizedStrings.installFromMap(loadArgs["localizedStrings"] as? Map<*, *>)
+            NativeLocalizedStrings.installFromMap(effectiveLoadArgs["localizedStrings"] as? Map<*, *>)
         }
         refreshSeekThumbnails()
 
         // creationParams = loadArgs 超集 + 原生壳标志（surface 后端 + 原生弹幕）。
-        val creationParams = HashMap<String, Any?>(loadArgs).apply {
+        val creationParams = HashMap<String, Any?>(effectiveLoadArgs).apply {
             put("videoOutputBackend", "surface")
             put("enableNativeDanmakuRenderer", true)
         }
@@ -2440,7 +2441,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         // 弹幕优先走文件（Flutter 拉好后落临时文件，避开 Intent 的 TransactionTooLarge），其次直接
         // JSON extra（小量/调试）；文件体积可能达数 MB，读取+JSON 解析放后台线程，避免阻塞主线程首帧。
         resolveDanmakuPayloadAsync(EXTRA_DANMAKU_PAYLOAD, EXTRA_DANMAKU_FILE) { danmakuPayload ->
-            applyLoadArgs(loadArgs, danmakuPayload)
+            applyLoadArgs(effectiveLoadArgs, danmakuPayload)
             scheduleControlsAutoHide()
             registerBackHandler()
             maybeAutoEnterSplit()
@@ -2560,10 +2561,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     /** onCreate 与 onNewIntent 共用：装载（或换）一路 source + 弹幕，并刷新标题/上下文。 */
     private fun applyLoadArgs(loadArgs: Map<String, Any?>, danmakuPayload: Map<String, Any?>?) {
+        val effectiveLoadArgs = NativeSubtitleImportStore.restoreLoadArgs(this, loadArgs)
         // 捕获换源前的集身份：用于判断是否「真的切了集」（vs 同集切画质/版本/音轨字幕重载）。
         // 必须在 loadArgsMap 被覆盖前取。
         val previousItemGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
-        val nextItemGuid = loadArgs["itemGuid"]?.toString().orEmpty()
+        val nextItemGuid = effectiveLoadArgs["itemGuid"]?.toString().orEmpty()
         val compactCount = (danmakuPayload?.get("commentsCompact") as? List<*>)?.size
         val verboseCount = (danmakuPayload?.get("comments") as? List<*>)?.size
         Log.d(
@@ -2573,12 +2575,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 "sourceKey=${danmakuPayload?.get("sourceKey")?.toString().orEmpty()}",
         )
         reportProgress() // 切集前先把上一集进度写回（首次 onCreate 时 duration=0 自动跳过）
-        mediaTitle = resolveTitle(loadArgs)
-        loadArgsMap = loadArgs
+        mediaTitle = resolveTitle(effectiveLoadArgs)
+        loadArgsMap = effectiveLoadArgs
         refreshSeekThumbnails()
         // 换源/切集后，当前选中轨道复位为新一集 loadArgs 给出的初值。
-        selectedAudioGuid = loadArgs["audioTrackGuid"]?.toString().orEmpty()
-        selectedSubtitleGuid = loadArgs["subtitleTrackGuid"]?.toString().orEmpty()
+        selectedAudioGuid = effectiveLoadArgs["audioTrackGuid"]?.toString().orEmpty()
+        selectedSubtitleGuid = effectiveLoadArgs["subtitleTrackGuid"]?.toString().orEmpty()
         pendingInitialSubtitle = true
         pendingPersistedSettings = true // 换源后首帧就绪时重套已存的 mpv/画面/字幕样式设置
         refreshRateApplied = false // 换源后按新片 fps 重新匹配刷新率
@@ -2594,7 +2596,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         // 切画质/换源后刷新画质入口按钮文案（之前只在构建时设一次，切完不变）。
         if (this::qualityButton.isInitialized) qualityButton.text = currentQualityLabel()
         refreshEpisodeEntryButton()
-        playerSurface.load(loadArgs)
+        playerSurface.load(effectiveLoadArgs)
         val effectiveDanmaku = danmakuPayload
             ?: if (intent?.getBooleanExtra(EXTRA_DANMAKU_TEST, false) == true) {
                 buildTestDanmakuPayload()
@@ -2612,7 +2614,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             )
             playerSurface.setDanmakuPayload(payloadWithPersistedDanmakuPrefs(effectiveDanmaku))
         } else if (previousItemGuid.isNotEmpty() &&
-            loadArgs["itemGuid"]?.toString().orEmpty().let { it.isNotEmpty() && it != previousItemGuid }
+            effectiveLoadArgs["itemGuid"]?.toString().orEmpty()
+                .let { it.isNotEmpty() && it != previousItemGuid }
         ) {
             // 真的切了集、但这一集没取到弹幕（自动匹配失败/该入口未回传 danmakuFile 等）：
             // 必须清掉上一集的弹幕，否则旧集弹幕会一直串台到新集（看完下一集/跳集仍是旧弹幕）。
@@ -2647,7 +2650,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         introSkipDismissed = false
         outroSkipDismissed = false
         clearCompletion()
-        maybeShowResumePrompt(loadArgs)
+        maybeShowResumePrompt(effectiveLoadArgs)
         // 清掉切集时的「正在切换…」提示（换源已完成）。
         if (this::centerHint.isInitialized) hideCenterHint()
         hideSeekPreview()
@@ -5390,6 +5393,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun selectSubtitleFromPanel(guid: String) {
         selectedSubtitleGuid = guid
+        NativeSubtitleImportStore.setSelectedGuid(
+            context = this,
+            itemGuid = loadArgsMap["itemGuid"]?.toString().orEmpty(),
+            mediaGuid = loadArgsMap["mediaGuid"]?.toString().orEmpty(),
+            guid = guid.takeIf(::isLocalSubtitleGuid),
+        )
         // 轨道变了：清掉按旧序号预取的下一集，使其按新选择重取（Bug B 序号继承）。
         clearNextEpisodePreload()
         // 本地外挂字幕走 mpv sub-add，与转码流无关——即便服务端托管也直接本地加载，
@@ -5412,7 +5421,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     private fun isLocalSubtitleGuid(guid: String): Boolean =
         guid.trim().lowercase().startsWith("local:sub:")
 
-    /** 外挂字幕「+添加」：SAF 选字幕文件 → 校验格式 → 拷到缓存 → 注入轨道列表并加载。 */
+    /** 外挂字幕「+添加」：SAF 选字幕文件 → 校验格式 → 拷到私有持久目录 → 注入轨道并加载。 */
     private fun pickLocalSubtitleFile() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
@@ -5428,31 +5437,98 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun importSubtitleFromUri(uri: android.net.Uri) {
         val name = queryDisplayName(uri) ?: "subtitle.srt"
-        val ext = name.substringAfterLast('.', "").lowercase()
-        if (ext !in SUBTITLE_IMPORT_EXTENSIONS) {
+        val ext = name.substringAfterLast('.', "").trim().lowercase()
+        if (!nativeSubtitleImportFormatSupported(name)) {
             showTransientHint(localizedString(R.string.player_text_0048))
             return
         }
         runCatching {
             contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
+        // 文件复制是异步操作；归属必须使用导入开始时的条目，不能在完成后读取可能已切集的状态。
+        val capturedMediaGuid = loadArgsMap["mediaGuid"]?.toString().orEmpty()
+        val capturedItemGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
         showCenterHint(localizedString(R.string.player_text_0049))
         Thread {
-            val path = copyUriToCache(uri)
+            // 字幕文件落应用私有外部目录（不再用 cacheDir，避免被系统清理/误用弹幕命名）。
+            val file = NativeSubtitleImportStore.copyUriToSubtitlesDir(this, uri, name)
+            if (file == null) {
+                runOnUiThread {
+                    hideCenterHint()
+                    showTransientHint(localizedString(R.string.player_text_0050))
+                }
+                return@Thread
+            }
+            val guid = "local:sub:${UUID.randomUUID()}"
+            val saved = NativeSubtitleImportStore.saveEntryAndSelect(
+                this,
+                NativeSubtitleEntry(
+                    guid = guid,
+                    mediaGuid = capturedMediaGuid,
+                    itemGuid = capturedItemGuid,
+                    fileName = name,
+                    path = file.absolutePath,
+                    format = ext,
+                    importedAtMs = System.currentTimeMillis(),
+                ),
+            )
+            if (!saved) {
+                runCatching { file.delete() }
+                runOnUiThread {
+                    hideCenterHint()
+                    showTransientHint(localizedString(R.string.player_text_0050))
+                }
+                return@Thread
+            }
             runOnUiThread {
                 hideCenterHint()
-                if (path == null) {
-                    showTransientHint(localizedString(R.string.player_text_0050))
-                    return@runOnUiThread
+                val currentItemGuid = loadArgsMap["itemGuid"]?.toString().orEmpty()
+                val currentMediaGuid = loadArgsMap["mediaGuid"]?.toString().orEmpty()
+                val stillSameItem = if (capturedItemGuid.isNotEmpty()) {
+                    currentItemGuid == capturedItemGuid
+                } else {
+                    currentMediaGuid == capturedMediaGuid
                 }
-                addLocalSubtitleTrack(label = name.substringBeforeLast('.', name), format = ext, path = path)
+                if (stillSameItem) {
+                    addLocalSubtitleTrack(
+                        label = name.substringBeforeLast('.', name),
+                        format = ext,
+                        path = file.absolutePath,
+                        persistedGuid = guid,
+                    )
+                }
+                // 反向通道通知 Flutter 刷新详情页字幕面板。
+                NativePlayerReverseBridge.dispatch(
+                    method = "localSubtitleImported",
+                    args = mapOf(
+                        "guid" to guid,
+                        "mediaGuid" to capturedMediaGuid,
+                        "itemGuid" to capturedItemGuid,
+                        "fileName" to name,
+                        "path" to file.absolutePath,
+                        "format" to ext,
+                    ),
+                    onResult = { },
+                    onError = { },
+                )
             }
         }.start()
     }
 
+    /**
+     * 向当前播放会话注入一条本地字幕轨并加载。
+     *
+     * 返回生成的字幕 guid；`persistedGuid` 传入时复用（供持久化链路在同一 guid 下
+     * 把元数据写入共享 prefs），为 null 时内部生成新的 UUID。
+     */
     @Suppress("UNCHECKED_CAST")
-    private fun addLocalSubtitleTrack(label: String, format: String, path: String) {
-        val guid = "local:sub:${System.currentTimeMillis()}"
+    private fun addLocalSubtitleTrack(
+        label: String,
+        format: String,
+        path: String,
+        persistedGuid: String? = null,
+    ): String {
+        val guid = persistedGuid ?: "local:sub:${UUID.randomUUID()}"
         val track = mapOf<String, Any?>(
             "guid" to guid,
             "title" to label,
@@ -5472,10 +5548,16 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         playerSurface.setExternalSubtitleFile(path)
         renderTopPanel()
         showTransientHint(localizedString(R.string.player_text_0051))
+        return guid
     }
 
     @Suppress("UNCHECKED_CAST")
     private fun removeLocalSubtitle(guid: String) {
+        // 先删私有目录文件，成功后再清元数据与选择；失败时保留面板状态，不伪装成已删除。
+        if (!NativeSubtitleImportStore.deleteEntryAndFile(this, guid)) {
+            showTransientHint(localizedString(R.string.player_text_0050))
+            return
+        }
         val tracks = (loadArgsMap["subtitleTracks"] as? List<*>)
             ?.mapNotNull { it as? Map<String, Any?> }
             ?.filterNot { it["guid"]?.toString() == guid }
@@ -5491,6 +5573,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             selectedSubtitleGuid = ""
             playerSurface.setSubtitleTrack(null, null)
         }
+        // 反向通道通知 Flutter 刷新详情页字幕面板。
+        NativePlayerReverseBridge.dispatch(
+            method = "localSubtitleRemoved",
+            args = mapOf("guid" to guid),
+            onResult = { },
+            onError = { },
+        )
         renderTopPanel()
         showTransientHint(localizedString(R.string.player_text_0052))
     }

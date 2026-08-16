@@ -19,6 +19,34 @@ class LocalSubtitleBundle {
     fileByGuid: <String, String>{},
     preferredGuid: null,
   );
+
+  /// 合并两个本地字幕 bundle（按 guid 去重），保留先者的 preferredGuid。
+  /// 用于把自动发现的同目录字幕与持久化的手动导入字幕合并成一个 bundle。
+  static LocalSubtitleBundle merge(
+    LocalSubtitleBundle a,
+    LocalSubtitleBundle b,
+  ) {
+    final tracks = <SubtitleTrackOption>[];
+    final fileByGuid = <String, String>{};
+    final seenGuids = <String>{};
+
+    void append(LocalSubtitleBundle source) {
+      for (final track in source.tracks) {
+        final guid = track.guid.trim();
+        if (guid.isEmpty || !seenGuids.add(guid)) continue;
+        tracks.add(track);
+      }
+      fileByGuid.addAll(source.fileByGuid);
+    }
+
+    append(a);
+    append(b);
+    return LocalSubtitleBundle(
+      tracks: tracks,
+      fileByGuid: fileByGuid,
+      preferredGuid: a.preferredGuid ?? b.preferredGuid,
+    );
+  }
 }
 
 LocalSubtitleBundle discoverLocalSubtitleBundle({
@@ -107,6 +135,22 @@ String _subtitleExtension(String fileName) {
   final lastDot = fileName.lastIndexOf('.');
   if (lastDot < 0 || lastDot == fileName.length - 1) return '';
   return fileName.substring(lastDot + 1).toLowerCase();
+}
+
+/// 从一组本地字幕文件路径构造字幕 bundle（供持久化手动导入的字幕复用）。
+///
+/// 与 [discoverLocalSubtitleBundle] 的轨道构造语义一致：guid 用 `local:<file://path>`、
+/// 负 index 表达外挂轨、isExternal/extraFile=1、位图按扩展名推导。
+LocalSubtitleBundle bundleFromLocalFiles({
+  required String mediaGuid,
+  required List<String> filePaths,
+}) {
+  final files = filePaths
+      .map((path) => File(path))
+      .where((file) => file.existsSync())
+      .toList(growable: false);
+  if (files.isEmpty) return LocalSubtitleBundle.empty;
+  return _bundleFromCandidates(mediaGuid: mediaGuid, candidates: files);
 }
 
 LocalSubtitleBundle _bundleFromCandidates({
