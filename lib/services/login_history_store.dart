@@ -15,6 +15,7 @@ class LoginHistoryEntry {
   final String baseUrl;
   final String userName;
   final String password;
+  final String accessCode;
   final bool rememberPassword;
   final int updatedAtMillis;
 
@@ -24,6 +25,7 @@ class LoginHistoryEntry {
     required this.baseUrl,
     required this.userName,
     required this.password,
+    this.accessCode = '',
     required this.rememberPassword,
     required this.updatedAtMillis,
   });
@@ -79,7 +81,8 @@ class LoginHistoryStore {
     final rawEntries =
         targetPrefs.getStringList(_historyKey) ?? const <String>[];
     final entries = <LoginHistoryEntry>[];
-    final unavailableCredentialKeys = <String>{};
+    final unavailablePasswordKeys = <String>{};
+    final unavailableAccessCodeKeys = <String>{};
     var needsRewrite = false;
     for (final raw in rawEntries) {
       late final _ParsedLoginHistoryEntry parsed;
@@ -88,6 +91,9 @@ class LoginHistoryStore {
         if (decoded is! Map<String, dynamic>) {
           needsRewrite = true;
           continue;
+        }
+        if (decoded.containsKey('accessCode')) {
+          needsRewrite = true;
         }
         parsed = _ParsedLoginHistoryEntry(
           entry: LoginHistoryEntry.fromJson(decoded),
@@ -102,20 +108,26 @@ class LoginHistoryStore {
         parsed.entry,
         legacyPassword: parsed.legacyPassword,
       );
+      final restoredAccessCode = await _restoreAccessCode(parsed.entry);
       final entry = LoginHistoryEntry(
         kind: parsed.entry.kind,
         baseUrl: parsed.entry.baseUrl,
         userName: parsed.entry.userName,
         password: restoredPassword.value,
+        accessCode: restoredAccessCode.value,
         rememberPassword: parsed.entry.rememberPassword,
         updatedAtMillis: parsed.entry.updatedAtMillis,
       );
       if (entry.baseUrl.trim().isNotEmpty && entry.userName.trim().isNotEmpty) {
         entries.add(entry);
         if (!restoredPassword.available) {
-          unavailableCredentialKeys.add(_passwordKey(entry));
+          unavailablePasswordKeys.add(_passwordKey(entry));
         } else if (parsed.legacyPassword.isNotEmpty) {
           needsRewrite = true;
+        }
+        if (!restoredAccessCode.available &&
+            entry.kind == MediaBackendKind.feiniu) {
+          unavailableAccessCodeKeys.add(_accessCodeKey(entry));
         }
       }
     }
@@ -124,12 +136,16 @@ class LoginHistoryStore {
       await _writeEntries(
         targetPrefs,
         entries,
-        preserveCredentialKeys: unavailableCredentialKeys,
+        preserveCredentialKeys: <String>{
+          ...unavailablePasswordKeys,
+          ...unavailableAccessCodeKeys,
+        },
       );
     }
     return _LoginHistoryLoadSnapshot(
       entries: entries,
-      unavailableCredentialKeys: unavailableCredentialKeys,
+      unavailablePasswordKeys: unavailablePasswordKeys,
+      unavailableAccessCodeKeys: unavailableAccessCodeKeys,
     );
   }
 
@@ -145,20 +161,25 @@ class LoginHistoryStore {
     if (next.length > _maxHistoryCount) {
       final removed = next.sublist(_maxHistoryCount);
       for (final item in removed) {
-        await SecureCredentialStore.delete(_passwordKey(item));
+        await _deleteCredentialKeys(item);
       }
       next.removeRange(_maxHistoryCount, next.length);
     }
     for (final item in current.where(
       (item) => !next.any((nextItem) => nextItem.dedupeKey == item.dedupeKey),
     )) {
-      await SecureCredentialStore.delete(_passwordKey(item));
+      await _deleteCredentialKeys(item);
     }
     final preserveCredentialKeys = <String>{
-      ...snapshot.unavailableCredentialKeys,
+      ...snapshot.unavailablePasswordKeys,
+      ...snapshot.unavailableAccessCodeKeys,
     };
     if (!entry.rememberPassword || entry.password.isNotEmpty) {
       preserveCredentialKeys.remove(_passwordKey(entry));
+    }
+    if (entry.kind == MediaBackendKind.feiniu &&
+        (!entry.rememberPassword || entry.accessCode.isNotEmpty)) {
+      preserveCredentialKeys.remove(_accessCodeKey(entry));
     }
     await _writeEntries(
       prefs,
@@ -176,10 +197,14 @@ class LoginHistoryStore {
     final next = current
         .where((item) => item.dedupeKey != entry.dedupeKey)
         .toList(growable: false);
-    await SecureCredentialStore.delete(_passwordKey(entry));
-    final preserveCredentialKeys = <String>{
-      ...snapshot.unavailableCredentialKeys,
-    }..remove(_passwordKey(entry));
+    await _deleteCredentialKeys(entry);
+    final preserveCredentialKeys =
+        <String>{
+            ...snapshot.unavailablePasswordKeys,
+            ...snapshot.unavailableAccessCodeKeys,
+          }
+          ..remove(_passwordKey(entry))
+          ..remove(_accessCodeKey(entry));
     await _writeEntries(
       prefs,
       next,
@@ -193,7 +218,7 @@ class LoginHistoryStore {
     final prefs = await SharedPreferences.getInstance();
     final snapshot = await _loadSnapshot(prefs: prefs);
     for (final entry in snapshot.entries) {
-      await SecureCredentialStore.delete(_passwordKey(entry));
+      await _deleteCredentialKeys(entry);
     }
     await prefs.remove(_historyKey);
   }
@@ -220,6 +245,24 @@ class LoginHistoryStore {
     return (value: '', available: true);
   }
 
+  static Future<({String value, bool available})> _restoreAccessCode(
+    LoginHistoryEntry entry,
+  ) async {
+    if (entry.kind != MediaBackendKind.feiniu) {
+      return (value: '', available: true);
+    }
+    final key = _accessCodeKey(entry);
+    if (!entry.rememberPassword) {
+      await SecureCredentialStore.delete(key);
+      return (value: '', available: true);
+    }
+    final stored = await SecureCredentialStore.read(key);
+    if (stored.isUnavailable) {
+      return (value: '', available: false);
+    }
+    return (value: stored.value, available: true);
+  }
+
   static Future<void> _writeEntries(
     SharedPreferences prefs,
     List<LoginHistoryEntry> entries, {
@@ -227,11 +270,20 @@ class LoginHistoryStore {
   }) async {
     for (final entry in entries) {
       final key = _passwordKey(entry);
-      if (preserveCredentialKeys.contains(key)) continue;
-      if (entry.rememberPassword && entry.password.isNotEmpty) {
-        await SecureCredentialStore.write(key, entry.password);
+      if (!preserveCredentialKeys.contains(key)) {
+        if (entry.rememberPassword && entry.password.isNotEmpty) {
+          await SecureCredentialStore.write(key, entry.password);
+        } else {
+          await SecureCredentialStore.delete(key);
+        }
+      }
+      if (entry.kind != MediaBackendKind.feiniu) continue;
+      final accessCodeKey = _accessCodeKey(entry);
+      if (preserveCredentialKeys.contains(accessCodeKey)) continue;
+      if (entry.rememberPassword && entry.accessCode.isNotEmpty) {
+        await SecureCredentialStore.write(accessCodeKey, entry.accessCode);
       } else {
-        await SecureCredentialStore.delete(key);
+        await SecureCredentialStore.delete(accessCodeKey);
       }
     }
     await prefs.setStringList(
@@ -244,15 +296,29 @@ class LoginHistoryStore {
     final digest = sha256.convert(utf8.encode(entry.dedupeKey)).toString();
     return 'login_history.password.$digest';
   }
+
+  static String _accessCodeKey(LoginHistoryEntry entry) {
+    final digest = sha256.convert(utf8.encode(entry.dedupeKey)).toString();
+    return 'login_history.access_code.$digest';
+  }
+
+  static Future<void> _deleteCredentialKeys(LoginHistoryEntry entry) async {
+    await SecureCredentialStore.delete(_passwordKey(entry));
+    if (entry.kind == MediaBackendKind.feiniu) {
+      await SecureCredentialStore.delete(_accessCodeKey(entry));
+    }
+  }
 }
 
 class _LoginHistoryLoadSnapshot {
   final List<LoginHistoryEntry> entries;
-  final Set<String> unavailableCredentialKeys;
+  final Set<String> unavailablePasswordKeys;
+  final Set<String> unavailableAccessCodeKeys;
 
   const _LoginHistoryLoadSnapshot({
     required this.entries,
-    required this.unavailableCredentialKeys,
+    required this.unavailablePasswordKeys,
+    required this.unavailableAccessCodeKeys,
   });
 }
 

@@ -11,6 +11,7 @@ import '../playback/player_source_controller.dart';
 import '../providers/nas_provider.dart';
 import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
+import '../utils/nas_image_headers.dart';
 import 'download_task_service.dart';
 import 'playback_progress_offline_queue.dart';
 
@@ -29,6 +30,41 @@ class NativeReentrySupport {
 
   static const String playlistViewTypeCard = 'card';
   static const String playlistViewTypeButton = 'button';
+
+  static Map<String, dynamic> buildNativeImageFields({
+    required String poster,
+    required String token,
+    required String accessCode,
+    required String baseUrl,
+    required bool usingLocal,
+  }) {
+    final imageHeaders = usingLocal
+        ? const <String, String>{}
+        : nasImageHeaders(
+            token,
+            url: poster,
+            accessCode: accessCode,
+            baseUrl: baseUrl,
+          );
+    return <String, dynamic>{
+      'imageHeaders': imageHeaders,
+      'imageAuth': imageHeaders['Authorization'] ?? '',
+    };
+  }
+
+  static Map<String, dynamic> buildNativeEpisodeImageFields({
+    required String poster,
+    required String token,
+    required String accessCode,
+    required String baseUrl,
+    required bool usingLocal,
+  }) => buildNativeImageFields(
+    poster: poster,
+    token: token,
+    accessCode: accessCode,
+    baseUrl: baseUrl,
+    usingLocal: usingLocal,
+  );
 
   /// 原生壳选集面板的数据源：视图偏好、季列表、指定季剧集都仍由 Flutter/NAS 层负责。
   static Future<Map<String, dynamic>?> loadEpisodePickerData(
@@ -290,6 +326,9 @@ class NativeReentrySupport {
         ? ''
         : await DownloadTaskService.instance.resolveExistingLocalCover(record);
     final usingLocal = localCover.isNotEmpty;
+    final poster = usingLocal
+        ? localCover
+        : _nativePosterUrl(nas, episode.poster);
     return <String, dynamic>{
       'itemGuid': episode.guid,
       'seasonGuid': episode.parentGuid,
@@ -298,8 +337,14 @@ class NativeReentrySupport {
           ? '${episode.episodeNumber}'
           : (episode.numberOfItem > 0 ? '${episode.numberOfItem}' : ''),
       'title': _nativeEpisodeTitle(episode),
-      'poster': usingLocal ? localCover : _nativePosterUrl(nas, episode.poster),
-      'imageAuth': usingLocal ? '' : nas.token,
+      'poster': poster,
+      ...buildNativeEpisodeImageFields(
+        poster: poster,
+        token: nas.token,
+        accessCode: nas.accessCode,
+        baseUrl: nas.baseUrl,
+        usingLocal: usingLocal,
+      ),
       'duration': episode.duration,
       'watched': episode.watched,
       'watchedTs': episode.watchedTs,

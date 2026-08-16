@@ -20,12 +20,14 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
   static const String _playStatsOwnerKeyPref = 'play_stats_owner_key';
   static const String _passwordCredentialKey = 'nas_session.password';
   static const String _tokenCredentialKey = 'nas_session.token';
+  static const String _accessCodeCredentialKey = 'nas_session.access_code';
   static _NasProviderBootstrapSnapshot? _bootstrapSnapshot;
 
   String _baseUrl = '';
   String _resolvedBaseUrl = '';
   String _userName = '';
   String _password = '';
+  String _accessCode = '';
   String _token = '';
   bool _rememberPassword = true;
   bool _isReady = false;
@@ -43,6 +45,7 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
   String get resolvedBaseUrl => _resolvedBaseUrl;
   String get userName => _userName;
   String get password => _password;
+  String get accessCode => _accessCode;
   String get token => _token;
   bool get rememberPassword => _rememberPassword;
   bool get isReady => _isReady;
@@ -59,6 +62,7 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
       _resolvedBaseUrl = bootstrap.resolvedBaseUrl;
       _userName = bootstrap.userName;
       _password = bootstrap.password;
+      _accessCode = bootstrap.accessCode;
       _token = bootstrap.token;
       _rememberPassword = bootstrap.rememberPassword;
       _isReady = true;
@@ -134,41 +138,70 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     final nextUserName = prefs.getString('user_name') ?? '';
     final legacyPassword = prefs.getString('password') ?? '';
     final legacyToken = prefs.getString('token') ?? '';
-    final restoredToken = await _restoreCredential(
-      _tokenCredentialKey,
-      legacyValue: legacyToken,
-      currentValue: _token,
-      shouldKeep: true,
-    );
+    final nextRememberPassword = prefs.getBool('remember_password') ?? true;
+    final accessCodeEnabled = prefs.getBool('nas_access_code_enabled') ?? false;
+    final restoredAccessCode = nextRememberPassword
+        ? await _restoreCredential(
+            _accessCodeCredentialKey,
+            legacyValue: '',
+            currentValue: _accessCode,
+            shouldKeep: true,
+          )
+        : (value: _accessCode, available: true);
+    if (_disposed) return;
+    if (accessCodeEnabled &&
+        !restoredAccessCode.available &&
+        restoredAccessCode.value.isEmpty) {
+      _token = '';
+      _resolvedBaseUrl = '';
+      _isReady = false;
+      _bootstrapSnapshot = null;
+      throw const SecureCredentialUnavailableException(
+        _accessCodeCredentialKey,
+      );
+    }
+    final requiresLocalLogin =
+        accessCodeEnabled && restoredAccessCode.value.isEmpty;
+    final restoredToken = requiresLocalLogin
+        ? (value: '', available: true)
+        : await _restoreCredential(
+            _tokenCredentialKey,
+            legacyValue: legacyToken,
+            currentValue: _token,
+            shouldKeep: true,
+          );
     if (_disposed) return;
     if (!restoredToken.available) {
       throw const SecureCredentialUnavailableException(_tokenCredentialKey);
     }
-    if (legacyToken.isNotEmpty) {
+    if (!requiresLocalLogin && legacyToken.isNotEmpty) {
       await prefs.remove('token');
     }
     final restoredPassword = await _restoreCredential(
       _passwordCredentialKey,
       legacyValue: legacyPassword,
       currentValue: _password,
-      shouldKeep: prefs.getBool('remember_password') ?? true,
+      shouldKeep: nextRememberPassword,
     );
     if (restoredPassword.available && legacyPassword.isNotEmpty) {
       await prefs.remove('password');
     }
     if (_disposed) return;
     final nextPassword = restoredPassword.value;
+    final nextAccessCode = restoredAccessCode.value;
     final nextToken = restoredToken.value;
     if (nextToken.isEmpty && nextResolvedBaseUrl.isNotEmpty) {
       nextResolvedBaseUrl = '';
-      await prefs.remove('resolved_base_url');
+      if (!requiresLocalLogin) {
+        await prefs.remove('resolved_base_url');
+      }
     }
-    final nextRememberPassword = prefs.getBool('remember_password') ?? true;
     final changed =
         _baseUrl != nextBaseUrl ||
         _resolvedBaseUrl != nextResolvedBaseUrl ||
         _userName != nextUserName ||
         _password != nextPassword ||
+        _accessCode != nextAccessCode ||
         _token != nextToken ||
         _rememberPassword != nextRememberPassword ||
         !_isReady ||
@@ -178,6 +211,7 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     _resolvedBaseUrl = nextResolvedBaseUrl;
     _userName = nextUserName;
     _password = nextPassword;
+    _accessCode = nextAccessCode;
     _token = nextToken;
     _rememberPassword = nextRememberPassword;
     await _syncPlayStatsOwner(prefs);
@@ -291,21 +325,41 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     String? resolvedBaseUrl,
     required String userName,
     required String password,
+    String accessCode = '',
     bool rememberPassword = true,
     String? token,
   }) => _enqueueMutation(() async {
     final prefs = await SharedPreferences.getInstance();
-    _baseUrl = baseUrl;
-    _resolvedBaseUrl = resolvedBaseUrl?.trim() ?? '';
-    _userName = userName;
-    _rememberPassword = rememberPassword;
-    _password = rememberPassword ? password : '';
-    if (token != null) _token = token;
+    final nextBaseUrl = baseUrl;
+    final nextResolvedBaseUrl = resolvedBaseUrl?.trim() ?? '';
+    final nextUserName = userName;
+    final nextRememberPassword = rememberPassword;
+    final nextPassword = rememberPassword ? password : '';
+    final nextAccessCode = accessCode;
+    final nextToken = token ?? _token;
+
+    if (nextRememberPassword) {
+      await _writeOrDelete(_accessCodeCredentialKey, nextAccessCode);
+    } else {
+      await SecureCredentialStore.delete(_accessCodeCredentialKey);
+    }
+
+    _baseUrl = nextBaseUrl;
+    _resolvedBaseUrl = nextResolvedBaseUrl;
+    _userName = nextUserName;
+    _rememberPassword = nextRememberPassword;
+    _password = nextPassword;
+    _accessCode = nextAccessCode;
+    _token = nextToken;
 
     await prefs.setString('base_url', _baseUrl);
     await prefs.setString('resolved_base_url', _resolvedBaseUrl);
     await prefs.setString('user_name', _userName);
     await prefs.setBool('remember_password', _rememberPassword);
+    await prefs.setBool(
+      'nas_access_code_enabled',
+      nextAccessCode.trim().isNotEmpty,
+    );
     await _writeOrDelete(_passwordCredentialKey, _password);
     await _writeOrDelete(_tokenCredentialKey, _token);
     await prefs.remove('password');
@@ -329,6 +383,9 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
     final prefs = await SharedPreferences.getInstance();
     _token = '';
     _resolvedBaseUrl = '';
+    if (!_rememberPassword) {
+      _accessCode = '';
+    }
     await SecureCredentialStore.delete(_tokenCredentialKey);
     await prefs.remove('token');
     await prefs.remove('resolved_base_url');
@@ -352,6 +409,7 @@ class NasProvider extends ChangeNotifier with WidgetsBindingObserver {
       resolvedBaseUrl: _resolvedBaseUrl,
       userName: _userName,
       password: _password,
+      accessCode: _accessCode,
       token: _token,
       rememberPassword: _rememberPassword,
     );
@@ -444,6 +502,7 @@ class _NasProviderBootstrapSnapshot {
   final String resolvedBaseUrl;
   final String userName;
   final String password;
+  final String accessCode;
   final String token;
   final bool rememberPassword;
 
@@ -452,6 +511,7 @@ class _NasProviderBootstrapSnapshot {
     required this.resolvedBaseUrl,
     required this.userName,
     required this.password,
+    required this.accessCode,
     required this.token,
     required this.rememberPassword,
   });
