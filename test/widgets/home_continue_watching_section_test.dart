@@ -169,6 +169,51 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('续看卡只为图片节点提供与详情匹配的 Hero', (tester) async {
+    const fixture = HomeContinueCardData(
+      id: 'hero-item',
+      title: 'Hero 标题',
+      contextText: '第 1 季 · 第 2 集',
+      progress: .3,
+      imageRequest: MediaImageRequest(
+        urls: <String>['https://example.test/hero.jpg'],
+        selfAuthenticated: true,
+      ),
+      downloaded: false,
+      heroTag: 'home_continue_hero-item',
+    );
+
+    await tester.pumpWidget(
+      testApp(
+        HomeContinueWatchingSection(
+          items: const <HomeContinueCardData>[fixture],
+          onOpenDetail: (_) {},
+          onPlay: (_) {},
+          onLongPress: (_) {},
+        ),
+      ),
+    );
+
+    final hero = tester.widget<Hero>(find.byType(Hero));
+    expect(hero.tag, 'home_continue_hero-item');
+    expect(
+      find.descendant(
+        of: find.byType(Hero),
+        matching: find.byKey(
+          const ValueKey<String>('continue-image-hero-item'),
+        ),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.ancestor(
+        of: find.byKey(const ValueKey<String>('continue-play-hero-item')),
+        matching: find.byType(Hero),
+      ),
+      findsNothing,
+    );
+  });
+
   testWidgets('窄屏二倍和三倍文字保持完整布局', (tester) async {
     for (final scale in <double>[2, 3]) {
       await tester.pumpWidget(
@@ -303,7 +348,7 @@ void main() {
     });
   });
 
-  testWidgets('稳定解码宽度不随响应式续看卡宽改变', (tester) async {
+  testWidgets('稳定物理解码宽度不随 DPR 和续看卡宽改变', (tester) async {
     final items = List<HomeContinueCardData>.generate(
       4,
       (index) => HomeContinueCardData(
@@ -319,19 +364,19 @@ void main() {
       ),
     );
 
-    Widget section(double width) => responsiveTestApp(
+    Widget section(double width, double devicePixelRatio) => responsiveTestApp(
       width: width,
-      devicePixelRatio: 2,
+      devicePixelRatio: devicePixelRatio,
       child: HomeContinueWatchingSection(
         items: items,
-        stableImageDecodeLogicalWidth: 200,
+        stableImageCacheWidth: 520,
         onOpenDetail: (_) {},
         onPlay: (_) {},
         onLongPress: (_) {},
       ),
     );
 
-    await tester.pumpWidget(section(336));
+    await tester.pumpWidget(section(336, 1));
     final narrowCardWidth = tester
         .getSize(find.byKey(const ValueKey<String>('continue-card-stable-0')))
         .width;
@@ -346,7 +391,7 @@ void main() {
                 as ResizeImage)
             .width;
 
-    await tester.pumpWidget(section(570));
+    await tester.pumpWidget(section(570, 3));
     final wideCardWidth = tester
         .getSize(find.byKey(const ValueKey<String>('continue-card-stable-0')))
         .width;
@@ -363,6 +408,18 @@ void main() {
 
     expect(narrowCardWidth, isNot(wideCardWidth));
     expect(narrowDecodeWidth, wideDecodeWidth);
-    expect(narrowDecodeWidth, 416);
+    expect(narrowDecodeWidth, 512);
+    expect(
+      (tester
+                  .widget<Image>(
+                    find.byKey(
+                      const ValueKey<String>('continue-image-stable-0'),
+                    ),
+                  )
+                  .image
+              as ResizeImage)
+          .height,
+      isNull,
+    );
   });
 }
