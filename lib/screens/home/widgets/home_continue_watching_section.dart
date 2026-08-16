@@ -132,17 +132,28 @@ class _ContinueCard extends StatelessWidget {
                       ),
                     Positioned(
                       right: 8,
-                      bottom: 9,
+                      bottom: 4,
                       child: IconButton(
                         key: ValueKey<String>('continue-play-${item.id}'),
                         onPressed: onPlay,
                         tooltip: '继续播放',
-                        icon: const Icon(Icons.play_arrow_rounded, size: 22),
+                        icon: DecoratedBox(
+                          key: ValueKey<String>(
+                            'continue-play-visual-${item.id}',
+                          ),
+                          decoration: BoxDecoration(
+                            color: scheme.primary,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const SizedBox.square(
+                            dimension: 38,
+                            child: Icon(Icons.play_arrow_rounded, size: 22),
+                          ),
+                        ),
                         style: IconButton.styleFrom(
-                          backgroundColor: scheme.primary,
                           foregroundColor: scheme.onPrimary,
-                          minimumSize: const Size.square(38),
-                          maximumSize: const Size.square(38),
+                          minimumSize: const Size.square(48),
+                          maximumSize: const Size.square(48),
                           padding: EdgeInsets.zero,
                         ),
                       ),
@@ -260,13 +271,19 @@ class _FallbackNetworkImage extends StatefulWidget {
 
 class _FallbackNetworkImageState extends State<_FallbackNetworkImage> {
   int _index = 0;
+  bool _fallbackScheduled = false;
+  int _requestGeneration = 0;
 
   @override
   void didUpdateWidget(covariant _FallbackNetworkImage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!listEquals(oldWidget.request.urls, widget.request.urls) ||
-        !mapEquals(oldWidget.request.headers, widget.request.headers)) {
+        !mapEquals(oldWidget.request.headers, widget.request.headers) ||
+        oldWidget.request.selfAuthenticated !=
+            widget.request.selfAuthenticated) {
       _index = 0;
+      _fallbackScheduled = false;
+      _requestGeneration++;
     }
   }
 
@@ -275,20 +292,49 @@ class _FallbackNetworkImageState extends State<_FallbackNetworkImage> {
     if (!widget.request.canLoad || _index >= widget.request.urls.length) {
       return widget.fallback;
     }
-    return Image.network(
-      widget.request.urls[_index],
-      key: widget.imageKey,
-      headers: widget.request.headers,
-      fit: BoxFit.cover,
-      gaplessPlayback: true,
-      errorBuilder: (context, error, stackTrace) {
-        if (_index + 1 < widget.request.urls.length) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) setState(() => _index++);
-          });
-        }
-        return widget.fallback;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final dpr = MediaQuery.devicePixelRatioOf(context);
+        return Image.network(
+          widget.request.urls[_index],
+          key: widget.imageKey,
+          headers: widget.request.headers,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          cacheWidth: _stableCacheExtent(constraints.maxWidth, dpr),
+          cacheHeight: _stableCacheExtent(constraints.maxHeight, dpr),
+          errorBuilder: (context, error, stackTrace) {
+            _scheduleFallback();
+            return widget.fallback;
+          },
+        );
       },
     );
   }
+
+  void _scheduleFallback() {
+    if (_fallbackScheduled || _index + 1 >= widget.request.urls.length) {
+      return;
+    }
+    _fallbackScheduled = true;
+    final scheduledGeneration = _requestGeneration;
+    final scheduledIndex = _index;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || scheduledGeneration != _requestGeneration) return;
+      setState(() {
+        _fallbackScheduled = false;
+        if (_index == scheduledIndex &&
+            _index + 1 < widget.request.urls.length) {
+          _index++;
+        }
+      });
+    });
+  }
+}
+
+int? _stableCacheExtent(double logicalExtent, double devicePixelRatio) {
+  if (!logicalExtent.isFinite || logicalExtent <= 0) return null;
+  final pixels = logicalExtent * devicePixelRatio;
+  // 32px 分桶避免轻微分屏/旋转抖动不断生成新的图片缓存键。
+  return ((pixels / 32).round() * 32).clamp(64, 2048).toInt();
 }

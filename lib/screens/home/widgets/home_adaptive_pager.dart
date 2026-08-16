@@ -78,8 +78,18 @@ class _HomeAdaptivePagerState<T> extends State<HomeAdaptivePager<T>> {
         final ids = widget.items.map(widget.itemId).toList(growable: false);
         _restoreControllerIfNeeded(layout, ids);
 
-        final textHeight =
-            widget.textLinesHeight * textScale.clamp(1.0, 1.5).toDouble();
+        // 文字区基线包含两行正文和行间距。用 TextScaler 对真实字号的映射
+        // 推导高度，兼容 Android 的非线性大字模式，也不会截断 2x/3x 文字。
+        final textScaler = MediaQuery.textScalerOf(context);
+        final scaledBodyRatio = textScaler.scale(14) / 14;
+        final scaledMetadataRatio = textScaler.scale(12) / 12;
+        final textHeightRatio = scaledBodyRatio > scaledMetadataRatio
+            ? scaledBodyRatio
+            : scaledMetadataRatio;
+        final textHeight = widget.textLinesHeight == 0
+            ? 0.0
+            : widget.textLinesHeight *
+                  textHeightRatio.clamp(1.0, double.infinity);
         final pageHeight =
             layout.cardWidth / widget.itemAspectRatio + textHeight;
         final hasIndicator = layout.pageCount > 1;
