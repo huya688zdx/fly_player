@@ -153,13 +153,27 @@ class PlayDetailTrackSelector {
   }) {
     final fallbackLabel = l10n.trackAudioNone;
     for (final track in audioTracks) {
-      if (track.guid == selectedAudioGuid) return track.displayLabel;
+      if (track.guid == selectedAudioGuid) return audioOptionTitle(track);
     }
-    if (audioTracks.isNotEmpty) return audioTracks.first.displayLabel;
+    if (audioTracks.isNotEmpty) return audioOptionTitle(audioTracks.first);
     if (selectedOption != null) {
       return audioTrackLabel(l10n, selectedOption.audioLanguage);
     }
     return fallbackLabel;
+  }
+
+  static String audioOptionTitle(AudioTrackOption track) {
+    final mapped = MediaLanguageMapper.languageName(track.language).trim();
+    if (mapped.isNotEmpty) return mapped;
+    final raw = track.language.trim();
+    final normalized = raw.toLowerCase();
+    if (normalized.isEmpty ||
+        normalized == 'und' ||
+        normalized == 'unknown' ||
+        normalized == 'zz-unknow') {
+      return '';
+    }
+    return raw;
   }
 
   static String subtitleDisplayLabel(
@@ -188,6 +202,8 @@ class PlayDetailTrackSelector {
         : language;
     final suffix = track.isDefaultOption
         ? l10n.trackSubtitleDefaultSuffix
+        : track.guid.startsWith('local:sub:')
+        ? l10n.trackSubtitleLocalImportedSuffix
         : (track.isExternal == 1 ? l10n.trackSubtitleExternalSuffix : '');
     return suffix.isEmpty ? normalized : '$normalized-$suffix';
   }

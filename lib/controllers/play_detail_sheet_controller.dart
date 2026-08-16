@@ -6,6 +6,7 @@ import 'package:fly_player/media_backend/feiniu/feiniu_media_detail_variant_mapp
 import 'package:fly_player/models/stream_list_option.dart';
 import 'package:fly_player/models/stream_track_data.dart';
 import 'package:fly_player/pages/media_detail_overlay_page.dart';
+import 'package:fly_player/ui/app_sheet_transitions.dart';
 import 'package:fly_player/utils/play_detail_track_selector.dart';
 import 'package:fly_player/widgets/common/track_option_sheet.dart';
 
@@ -14,6 +15,9 @@ class PlayDetailSheetController {
   const PlayDetailSheetController._();
 
   /// 展示字幕轨选择面板并返回新的字幕标识。
+  ///
+  /// 对 `local:sub:` 手动导入轨渲染删除按钮；点击后面板关闭并返回删除标记
+  /// `[subtitleDeleteMarkerPrefix]<guid>`，调用方据此删除并重新打开面板。
   static Future<String?> showSubtitleSheet(
     BuildContext context, {
     required List<SubtitleTrackOption> subtitleTracks,
@@ -33,6 +37,15 @@ class PlayDetailSheetController {
             e,
             l10n: l10n,
           ),
+          onDelete: e.guid.startsWith('local:sub:')
+              ? () {
+                  final marker = '$subtitleDeleteMarkerPrefix${e.guid}';
+                  if (AppSheetTransitions.maybeClose<String>(context, marker)) {
+                    return;
+                  }
+                  Navigator.of(context).pop(marker);
+                }
+              : null,
         ),
       ),
     ];
@@ -51,6 +64,16 @@ class PlayDetailSheetController {
     return result == offId ? '' : result;
   }
 
+  /// 删除标记前缀：返回 `'<前缀><guid>'` 表示删除该本地字幕轨。
+  static const String subtitleDeleteMarkerPrefix = '__subtitle_delete__:';
+
+  /// 判断 [result] 是否为删除请求，是则返回被删字幕 guid，否则返回 null。
+  static String? subtitleDeleteGuidOf(String? result) {
+    if (result == null) return null;
+    if (!result.startsWith(subtitleDeleteMarkerPrefix)) return null;
+    return result.substring(subtitleDeleteMarkerPrefix.length);
+  }
+
   /// 展示音轨选择面板并返回新的音轨标识。
   static Future<String?> showAudioSheet(
     BuildContext context, {
@@ -63,7 +86,7 @@ class PlayDetailSheetController {
         .map(
           (e) => TrackOptionSheetItem(
             id: e.guid,
-            title: e.displayLabel,
+            title: PlayDetailTrackSelector.audioOptionTitle(e),
             subtitle: e.detailLabel,
           ),
         )
