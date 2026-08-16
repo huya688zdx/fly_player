@@ -69,6 +69,16 @@ void main() {
     expect(_hasStackAncestor(tester, find.text('沙丘')), isFalse);
     expect(_hasStackAncestor(tester, find.text('2024 · 科幻')), isFalse);
 
+    final focusScale = tester.widget<AnimatedScale>(
+      find.descendant(
+        of: find.byType(PosterBrowsePosterCard),
+        matching: find.byType(AnimatedScale),
+      ),
+    );
+    expect(focusScale.scale, 1.025);
+    expect(focusScale.duration, const Duration(milliseconds: 180));
+    expect(focusScale.curve, Curves.easeOutCubic);
+
     await tester.tap(find.byType(PosterBrowsePosterCard));
     expect(tapped, isTrue);
   });
@@ -209,6 +219,41 @@ void main() {
           .height,
       greaterThanOrEqualTo(96),
     );
+  });
+
+  testWidgets('横屏收起态信息在有限高度内保留两行简介和操作按钮', (tester) async {
+    await tester.pumpWidget(
+      _localizedApp(
+        SizedBox(
+          width: 560,
+          height: 236,
+          child: PosterBrowseMediaInfo(
+            item: _item(title: '白箱', overview: '这是一段用于验证收起状态信息布局的较长简介。'),
+            logoRequest: MediaImageRequest.empty,
+            secondaryLabel: '第 1 季 第 23 集',
+            metaWidgets: const <Widget>[Text('★ 8.8'), Text('2026')],
+            compact: true,
+            collapsed: true,
+            onPlay: () {},
+            onDetail: () {},
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      tester
+          .getSize(find.byKey(const ValueKey('poster_browse_title_slot')))
+          .height,
+      60,
+    );
+    expect(
+      tester.widget<Text>(find.text('这是一段用于验证收起状态信息布局的较长简介。')).maxLines,
+      2,
+    );
+    expect(find.text('播放'), findsOneWidget);
+    expect(find.text('详情'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('标题和 Logo 共用固定槽位，不改变后续信息的纵向位置', (tester) async {
