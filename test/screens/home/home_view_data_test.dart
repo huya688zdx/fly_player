@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fly_player/media_backend/media_image_request.dart';
 import 'package:fly_player/models/media_item.dart';
 import 'package:fly_player/models/media_library_item.dart';
@@ -116,5 +118,130 @@ void main() {
     expect(generation.isCurrent(second), isTrue);
     generation.invalidate();
     expect(generation.isCurrent(second), isFalse);
+  });
+
+  test('首页可选区块合并时失败保留旧值与图片，成功空值清空', () {
+    final current = populated().copyWith(
+      itemImageRequests: const <String, MediaImageRequest>{
+        'resume': image,
+        'next': image,
+        'latest': image,
+      },
+      backdropImageRequests: const <String, MediaImageRequest>{
+        'resume': image,
+        'next': image,
+        'latest': image,
+      },
+    );
+    const refreshedBase = HomeViewData(summary: <String, dynamic>{'movie': 2});
+
+    final merged = mergeHomeOptionalSections(
+      current: current,
+      refreshedBase: refreshedBase,
+      continueWatching:
+          const HomeSectionLoadResult<HomeMediaSectionData>.failure(),
+      nextUp: const HomeSectionLoadResult<HomeMediaSectionData>.failure(),
+      latest: const HomeSectionLoadResult<HomeMediaSectionData>.success(
+        HomeMediaSectionData(),
+      ),
+    );
+
+    expect(merged.continueWatching, <MediaLibraryItem>[resume]);
+    expect(merged.nextUp, <MediaLibraryItem>[nextUp]);
+    expect(merged.latest, isEmpty);
+    expect(
+      merged.itemImageRequests.keys,
+      containsAll(<String>['resume', 'next']),
+    );
+    expect(merged.itemImageRequests, isNot(contains('latest')));
+    expect(
+      merged.backdropImageRequests.keys,
+      containsAll(<String>['resume', 'next']),
+    );
+    expect(merged.backdropImageRequests, isNot(contains('latest')));
+  });
+
+  test('首页可选区块成功时替换旧条目及对应图片', () {
+    final current = populated();
+    const replacementImage = MediaImageRequest(
+      urls: <String>['https://replacement'],
+    );
+
+    final merged = mergeHomeOptionalSections(
+      current: current,
+      refreshedBase: const HomeViewData.empty(),
+      continueWatching: HomeSectionLoadResult<HomeMediaSectionData>.success(
+        HomeMediaSectionData(
+          items: <MediaLibraryItem>[preview],
+          imageRequests: const <String, MediaImageRequest>{
+            'preview': replacementImage,
+          },
+          backdropImageRequests: const <String, MediaImageRequest>{
+            'preview': replacementImage,
+          },
+        ),
+      ),
+      nextUp: const HomeSectionLoadResult<HomeMediaSectionData>.failure(),
+      latest: const HomeSectionLoadResult<HomeMediaSectionData>.failure(),
+    );
+
+    expect(merged.continueWatching, <MediaLibraryItem>[preview]);
+    expect(merged.itemImageRequests['preview'], same(replacementImage));
+    expect(merged.backdropImageRequests['preview'], same(replacementImage));
+    expect(merged.itemImageRequests, isNot(contains('resume')));
+  });
+
+  test('缓存写入串行执行，旧代已运行时新代最终落盘', () async {
+    final coordinator = HomeCacheWriteCoordinator();
+    final firstStarted = Completer<void>();
+    final releaseFirst = Completer<void>();
+    final writes = <String>[];
+
+    final first = coordinator.schedule(
+      generation: 1,
+      write: () async {
+        writes.add('gen1-start');
+        firstStarted.complete();
+        await releaseFirst.future;
+        writes.add('gen1-end');
+      },
+    );
+    await firstStarted.future;
+    final second = coordinator.schedule(
+      generation: 2,
+      write: () async => writes.add('gen2'),
+    );
+
+    releaseFirst.complete();
+    expect(await first, isTrue);
+    expect(await second, isTrue);
+    expect(writes, <String>['gen1-start', 'gen1-end', 'gen2']);
+    expect(writes.last, 'gen2');
+  });
+
+  test('缓存写入真正开始前若已过期则跳过', () async {
+    final coordinator = HomeCacheWriteCoordinator();
+    final firstStarted = Completer<void>();
+    final releaseFirst = Completer<void>();
+    var staleWriteRan = false;
+
+    final first = coordinator.schedule(
+      generation: 1,
+      write: () async {
+        firstStarted.complete();
+        await releaseFirst.future;
+      },
+    );
+    await firstStarted.future;
+    final stale = coordinator.schedule(
+      generation: 2,
+      write: () async => staleWriteRan = true,
+    );
+    coordinator.advanceTo(3);
+
+    releaseFirst.complete();
+    await first;
+    expect(await stale, isFalse);
+    expect(staleWriteRan, isFalse);
   });
 }
