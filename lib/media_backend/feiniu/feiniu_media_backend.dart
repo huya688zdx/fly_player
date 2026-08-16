@@ -66,6 +66,10 @@ class FeiniuMediaBackend implements MediaBackend {
   }
 
   @override
+  Future<List<MediaItemCard>> getNextUpItems({int limit = 20}) async =>
+      const <MediaItemCard>[];
+
+  @override
   Future<List<MediaItemCard>> getCatalogPreviewItems(
     String catalogId, {
     int page = 1,
