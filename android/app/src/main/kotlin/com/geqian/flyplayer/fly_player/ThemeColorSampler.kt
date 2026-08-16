@@ -5,8 +5,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Handler
 import android.os.Looper
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.util.concurrent.Executors
 import java.util.LinkedHashMap
 import kotlin.math.max
@@ -20,7 +18,6 @@ object ThemeColorSampler {
     // 每条目 ≤112×112×4B ≈ 50KB，12 条 ≈ 600KB；seed 级缓存由 Flutter 侧持久化承担。
     private const val MAX_CACHE_ENTRIES = 12
     private const val TARGET_MAX_DIMENSION = 112
-    private val client = OkHttpClient()
     private val executor = Executors.newFixedThreadPool(2)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val lock = Any()
@@ -31,10 +28,13 @@ object ThemeColorSampler {
 
     fun samplePixels(
         imageUrl: String,
-        token: String,
+        headers: Map<String, String>,
         callback: (Map<String, Any>?) -> Unit,
     ) {
-        val normalizedImageKey = normalizeImageIdentity(imageUrl)
+        val safeHeaders = NativeImageRequestHeaders.fromAny(headers)
+        val normalizedImageIdentity = normalizeImageIdentity(imageUrl)
+        val normalizedImageKey =
+            NativeImageRequestHeaders.cacheIdentity(normalizedImageIdentity, safeHeaders)
         var cachedResult: Map<String, Any>? = null
         var hasCachedResult = false
         var joinedInflight = false
@@ -65,7 +65,7 @@ object ThemeColorSampler {
                 runCatching {
                     sampleInternal(
                         imageUrl = imageUrl,
-                        token = token,
+                        headers = safeHeaders,
                     )
                 }.getOrNull()
             val callbacks =
@@ -88,24 +88,16 @@ object ThemeColorSampler {
 
     private fun sampleInternal(
         imageUrl: String,
-        token: String,
+        headers: Map<String, String>,
     ): Map<String, Any>? {
         if (imageUrl.isBlank()) return null
 
-        val requestBuilder = Request.Builder().url(imageUrl)
-        if (token.isNotBlank()) {
-            requestBuilder.header("Authorization", token)
-            requestBuilder.header("Trim-MC-token", token)
-        }
-        client.newCall(requestBuilder.build()).execute().use { response ->
-            if (!response.isSuccessful) return null
-            val bytes = response.body?.bytes() ?: return null
-            val bitmap = decodeBitmap(bytes) ?: return null
-            return try {
-                buildPixelMap(bitmap)
-            } finally {
-                bitmap.recycle()
-            }
+        val bytes = NativeSafeImageHttp.fetchBytes(imageUrl, headers) ?: return null
+        val bitmap = decodeBitmap(bytes) ?: return null
+        return try {
+            buildPixelMap(bitmap)
+        } finally {
+            bitmap.recycle()
         }
     }
 

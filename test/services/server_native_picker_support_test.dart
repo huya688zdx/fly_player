@@ -114,6 +114,7 @@ void main() {
     expect(first['watched'], 1);
     expect(first['duration'], 1500);
     expect(first['imageAuth'], '');
+    expect(first['imageHeaders'], isEmpty);
     expect(first['poster'], 'https://emby.test/ep-1.jpg');
   });
 
