@@ -186,7 +186,7 @@ class ServerNativePickerSupport {
 
   /// 中立选集 → 原生壳选集行 map。键对齐飞牛 `_nativeEpisodeMap`：原生面板读 `duration`
   /// （秒）/ `watched`（1/0）/ `poster` 渲染时长 / 已观看角标 / 缩略图。服务器族封面应由后端
-  /// 提供可直接消费的 URL，故 `imageAuth` 留空。
+  /// 提供可直接消费的 URL，故图片凭据字段均留空。
   static Map<String, dynamic> _episodeMap(
     String seasonGuid,
     MediaEpisodeSummary episode,
@@ -198,6 +198,7 @@ class ServerNativePickerSupport {
       'shortLabel': episode.episodeNumber > 0 ? '${episode.episodeNumber}' : '',
       'title': episode.title,
       'poster': episode.primaryImage.url,
+      'imageHeaders': const <String, String>{},
       'imageAuth': '',
       'duration': episode.durationSeconds,
       'watched': episode.watched ? 1 : 0,

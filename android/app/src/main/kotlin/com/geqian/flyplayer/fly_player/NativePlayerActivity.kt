@@ -2271,43 +2271,40 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         return nativePanelResolveImageUrl(path, videoUrl)
     }
 
-    private fun currentArtwork(): Pair<String, String> {
+    private fun currentArtwork(): Pair<String, Map<String, String>> {
         val localPoster = loadArgsMap["posterLocalPath"]?.toString()?.trim().orEmpty()
-        if (localPoster.isNotEmpty()) return localPoster to ""
+        if (localPoster.isNotEmpty()) return localPoster to emptyMap()
         val guid = loadArgsMap["itemGuid"]?.toString().orEmpty()
         val ep = episodeList().firstOrNull { it["itemGuid"]?.toString() == guid }
         val epPoster = resolveImageUrl(ep?.get("poster")?.toString())
         if (epPoster.isNotEmpty()) {
-            return epPoster to ep?.get("imageAuth")?.toString().orEmpty()
+            return epPoster to
+                NativeImageRequestHeaders.fromAnyOrLegacy(
+                    ep?.get("imageHeaders"),
+                    ep?.get("imageAuth")?.toString().orEmpty(),
+                )
         }
         val poster = resolveImageUrl(loadArgsMap["posterPath"]?.toString())
-        val auth = episodeList()
-            .firstNotNullOfOrNull { it["imageAuth"]?.toString()?.takeIf { s -> s.isNotEmpty() } }
-            .orEmpty()
-        return poster to auth
+        val headers =
+            NativeImageRequestHeaders.fromAnyOrLegacy(
+                loadArgsMap["imageHeaders"],
+                loadArgsMap["imageAuth"]?.toString().orEmpty(),
+            )
+        return poster to headers
     }
 
-    private fun artworkGlideModel(artUrl: String, artAuth: String): Any {
-        return if (artAuth.isNotEmpty()) {
-            com.bumptech.glide.load.model.GlideUrl(
-                artUrl,
-                com.bumptech.glide.load.model.LazyHeaders.Builder()
-                    .addHeader("Authorization", artAuth)
-                    .addHeader("Trim-MC-token", artAuth)
-                    .build(),
-            )
-        } else {
-            artUrl
-        }
-    }
+    private fun artworkGlideModel(
+        artUrl: String,
+        headers: Map<String, String>,
+    ): Any = NativeSafeImageGlide.model(this, artUrl, headers)
 
     private fun refreshListenArtwork() {
         if (!this::listenPosterImage.isInitialized || !this::listenBackdropImage.isInitialized) return
-        val (artUrl, artAuth) = currentArtwork()
+        val (artUrl, artHeaders) = currentArtwork()
         listenTitleLabel.text = mediaTitle.ifEmpty { loadArgsMap["seriesTitle"]?.toString().orEmpty() }
         listenSubtitleLabel.text = mediaSubtitle()
         if (artUrl.isEmpty()) return
-        val model = artworkGlideModel(artUrl, artAuth)
+        val model = artworkGlideModel(artUrl, artHeaders)
         Glide.with(this).load(model).transform(CenterCrop(), RoundedCorners(dp(12))).into(listenPosterImage)
         Glide.with(this).load(model).centerCrop().into(listenBackdropImage)
     }
@@ -4478,18 +4475,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
             val posterUrl = resolveImageUrl(episode["poster"]?.toString())
             if (posterUrl.isNotEmpty()) {
-                val imageAuth = episode["imageAuth"]?.toString().orEmpty()
-                val model: Any = if (imageAuth.isNotEmpty()) {
-                    com.bumptech.glide.load.model.GlideUrl(
-                        posterUrl,
-                        com.bumptech.glide.load.model.LazyHeaders.Builder()
-                            .addHeader("Authorization", imageAuth)
-                            .addHeader("Trim-MC-token", imageAuth)
-                            .build(),
+                val imageHeaders =
+                    NativeImageRequestHeaders.fromAnyOrLegacy(
+                        episode["imageHeaders"],
+                        episode["imageAuth"]?.toString().orEmpty(),
                     )
-                } else {
-                    posterUrl
-                }
+                val model = artworkGlideModel(posterUrl, imageHeaders)
                 Glide.with(this)
                     .load(model)
                     .transform(CenterCrop(), RoundedCorners(dp(8)))
@@ -6620,10 +6611,10 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         completedTitle.text = mediaTitle.ifEmpty { loadArgsMap["seriesTitle"]?.toString().orEmpty() }
         completedNextButton.visibility =
             if (autoPlayEnabled && hasNextEpisode()) View.VISIBLE else View.GONE
-        val (artUrl, artAuth) = currentArtwork()
+        val (artUrl, artHeaders) = currentArtwork()
         if (artUrl.isNotEmpty()) {
             Glide.with(this)
-                .load(artworkGlideModel(artUrl, artAuth))
+                .load(artworkGlideModel(artUrl, artHeaders))
                 .transform(CenterCrop(), RoundedCorners(dp(16)))
                 .into(completedPosterImage)
         } else {
@@ -9377,18 +9368,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
      * 需要 `Cookie: entry-token=…`，鉴权 api_key 已在 URL）。无 headers 时退回裸 URL 字符串。
      */
     private fun seekThumbnailGlideModel(url: String): Any {
-        val headers = loadArgsMap["headers"] as? Map<*, *>
-        if (headers.isNullOrEmpty()) return url
-        val builder = com.bumptech.glide.load.model.LazyHeaders.Builder()
-        var any = false
-        for ((key, value) in headers) {
-            val name = key?.toString().orEmpty()
-            val headerValue = value?.toString().orEmpty()
-            if (name.isEmpty() || headerValue.isEmpty()) continue
-            builder.addHeader(name, headerValue)
-            any = true
-        }
-        return if (any) com.bumptech.glide.load.model.GlideUrl(url, builder.build()) else url
+        val headers = NativeImageRequestHeaders.fromAny(loadArgsMap["headers"])
+        return NativeSafeImageGlide.model(this, url, headers)
     }
 
     // ---- 控制交互 ----
@@ -9442,13 +9423,13 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     /** 把当前播放状态推给前台服务（启动/刷新通知与媒体会话）。 */
     private fun updateMediaSession(state: MpvPlayerState) {
-        val (artUrl, artAuth) = currentArtwork()
+        val (artUrl, artHeaders) = currentArtwork()
         NativePlaybackMediaService.update(
             context = this,
             title = mediaTitle.ifEmpty { loadArgsMap["seriesTitle"]?.toString().orEmpty() },
             subtitle = mediaSubtitle(),
             artworkUrl = artUrl,
-            artworkAuth = artAuth,
+            artworkHeaders = artHeaders,
             isPlaying = !state.paused,
             positionMs = state.positionMs,
             durationMs = state.durationMs,

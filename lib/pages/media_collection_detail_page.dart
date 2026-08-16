@@ -1166,8 +1166,9 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
     final dynamicThemeImages = dynamicPosterPath.isEmpty
         ? MediaImageRequest.empty
         : DetailArtworkResolver(
-            baseUrl: provider.baseUrl,
-            token: provider.token,
+            baseUrl: _isFeiniuBackend ? provider.baseUrl : '',
+            token: _isFeiniuBackend ? provider.token : '',
+            accessCode: _isFeiniuBackend ? provider.accessCode : '',
           ).resolvePath(dynamicPosterPath, width: 320);
     final dynamicThemeImageUrl = dynamicThemeImages.urls.isNotEmpty
         ? dynamicThemeImages.urls.first
@@ -1416,8 +1417,9 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
                   ),
                   sliver: MediaCollectionBrowserSliver(
                     items: _items,
-                    baseUrl: provider.baseUrl,
-                    token: provider.token,
+                    baseUrl: _isFeiniuBackend ? provider.baseUrl : '',
+                    token: _isFeiniuBackend ? provider.token : '',
+                    accessCode: _isFeiniuBackend ? provider.accessCode : '',
                     viewType: _viewType,
                     onItemTap: _openItemDetail,
                     onItemLongPress: _showItemActions,

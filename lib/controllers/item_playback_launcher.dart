@@ -14,6 +14,7 @@ import '../controllers/play_detail_data_loader.dart';
 import '../danmaku/settings/danmaku_settings_store.dart';
 import '../services/native_danmaku_prefetch.dart';
 import '../services/native_playback_reentry.dart';
+import '../services/native_reentry_support.dart';
 import '../services/native_player_bridge.dart';
 import '../services/server_native_picker_support.dart';
 import '../models/play_info.dart';
@@ -409,6 +410,7 @@ class ItemPlaybackLauncher {
             final record = records[index];
             final localCover = localCovers[index];
             final usingLocal = localCover.isNotEmpty;
+            final poster = usingLocal ? localCover : posterUrl(ep.poster);
             return <String, dynamic>{
               'itemGuid': ep.guid,
               'episodeNumber': ep.episodeNumber,
@@ -421,8 +423,14 @@ class ItemPlaybackLauncher {
                 ),
                 '',
               ),
-              'poster': usingLocal ? localCover : posterUrl(ep.poster),
-              'imageAuth': usingLocal ? '' : token,
+              'poster': poster,
+              ...NativeReentrySupport.buildNativeEpisodeImageFields(
+                poster: poster,
+                token: token,
+                accessCode: nas.accessCode,
+                baseUrl: nas.baseUrl,
+                usingLocal: usingLocal,
+              ),
               'duration': ep.duration,
               'watched': ep.watched,
               'downloaded': record != null,

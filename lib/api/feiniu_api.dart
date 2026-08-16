@@ -9,6 +9,7 @@ import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:flutter/foundation.dart';
 
+import 'feiniu_access_code_transport.dart';
 import 'item_list_request.dart';
 import 'person_list_request.dart';
 import '../models/authorized_dir_entry.dart';
@@ -423,6 +424,7 @@ class FeiniuApi {
 
   final NasProvider nasProvider;
   final Dio _dio = Dio();
+  late final String _boundBaseUrl;
   final Random _random = Random();
   // Deduplicate identical paged-list requests during fast scrolling.
   final Map<String, Future<ItemListPage>> _itemListInflight = {};
@@ -432,31 +434,43 @@ class FeiniuApi {
       const PlaybackClientIdStore();
 
   FeiniuApi(this.nasProvider, {HttpClientAdapter? httpClientAdapter}) {
+    _boundBaseUrl = ApiUrlHelper.normalizeBaseUrl(nasProvider.baseUrl);
     if (httpClientAdapter != null) {
       _dio.httpClientAdapter = httpClientAdapter;
     }
-    _dio.options.baseUrl = ApiUrlHelper.normalizeBaseUrl(nasProvider.baseUrl);
+    _dio.options.baseUrl = _boundBaseUrl;
     _dio.options.connectTimeout = const Duration(seconds: 10);
     _dio.options.receiveTimeout = const Duration(seconds: 10);
     _configureHttpsTrust(_dio, nasProvider.baseUrl);
+    installFeiniuAccessCodeInterceptor(
+      _dio,
+      baseUrl: _boundBaseUrl,
+      accessCodeProvider: () =>
+          _isProviderStillBoundToOrigin() ? nasProvider.accessCode : '',
+    );
 
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
+          _removeManagedNasAuthHeaders(options.headers);
+          final shouldAttachNasAuth =
+              _isProviderStillBoundToOrigin() &&
+              isSameHttpOrigin(_boundBaseUrl, options.uri.toString());
           _apiVerboseLog(
             '[API][REQ] ${options.method} ${options.baseUrl}${options.path} '
             'query=${options.queryParameters}',
           );
-          if (nasProvider.token.isNotEmpty) {
+          if (shouldAttachNasAuth && nasProvider.token.isNotEmpty) {
             options.headers['Authorization'] = nasProvider.token;
             options.headers['Trim-MC-token'] = nasProvider.token;
           }
-          if (shouldUseRelayModeCookieForBaseUrl(options.baseUrl)) {
+          if (shouldAttachNasAuth &&
+              shouldUseRelayModeCookieForBaseUrl(options.uri.toString())) {
             options.headers['Cookie'] = _mergeRelayCookie(
               options.headers['Cookie']?.toString() ?? '',
             );
           }
-          if (_shouldAttachAuthx(options.path)) {
+          if (shouldAttachNasAuth && _shouldAttachAuthx(options.uri.path)) {
             options.headers['Authx'] = _buildAuthxHeader(options);
           }
           return handler.next(options);
@@ -543,6 +557,8 @@ class FeiniuApi {
     required String baseUrl,
     required String userName,
     required String password,
+    String accessCode = '',
+    HttpClientAdapter? httpClientAdapter,
   }) async {
     final fnConnectId = extractFnConnectIdFromInput(baseUrl);
     if (fnConnectId != null) {
@@ -550,6 +566,8 @@ class FeiniuApi {
         fnConnectId: fnConnectId,
         userName: userName,
         password: password,
+        accessCode: accessCode,
+        httpClientAdapter: httpClientAdapter,
       );
     }
 
@@ -565,7 +583,11 @@ class FeiniuApi {
         );
       }
     }
-    final dio = _buildLoginDio(normalizedBaseUrl);
+    final dio = _buildLoginDio(
+      normalizedBaseUrl,
+      accessCode: accessCode,
+      httpClientAdapter: httpClientAdapter,
+    );
     final token = await _performLogin(
       dio,
       userName,
@@ -625,13 +647,25 @@ class FeiniuApi {
     }
   }
 
-  static Dio _buildLoginDio(String baseUrl) {
+  static Dio _buildLoginDio(
+    String baseUrl, {
+    String accessCode = '',
+    HttpClientAdapter? httpClientAdapter,
+  }) {
     final normalizedBaseUrl = ApiUrlHelper.normalizeBaseUrl(baseUrl);
     final dio = Dio()
       ..options.baseUrl = normalizedBaseUrl
       ..options.connectTimeout = const Duration(seconds: 10)
       ..options.receiveTimeout = const Duration(seconds: 12);
+    if (httpClientAdapter != null) {
+      dio.httpClientAdapter = httpClientAdapter;
+    }
     _configureHttpsTrust(dio, normalizedBaseUrl);
+    installFeiniuAccessCodeInterceptor(
+      dio,
+      baseUrl: normalizedBaseUrl,
+      accessCodeProvider: () => accessCode,
+    );
     return dio;
   }
 
@@ -639,9 +673,15 @@ class FeiniuApi {
   static Future<FnConnectOauthConfig> fetchFnConnectOauthConfig({
     required String baseUrl,
     required String cookie,
+    String accessCode = '',
+    HttpClientAdapter? httpClientAdapter,
   }) async {
     final normalizedBaseUrl = ApiUrlHelper.normalizeBaseUrl(baseUrl);
-    final dio = _buildPublicApiDio(normalizedBaseUrl);
+    final dio = _buildPublicApiDio(
+      normalizedBaseUrl,
+      accessCode: accessCode,
+      httpClientAdapter: httpClientAdapter,
+    );
     try {
       final response = await dio.get(
         _systemConfigPath,
@@ -712,10 +752,16 @@ class FeiniuApi {
   static Future<LoginWithBaseUrlResult> loginWithFnConnectOauthCode({
     required String baseUrl,
     required String code,
+    String accessCode = '',
+    HttpClientAdapter? httpClientAdapter,
   }) async {
     final normalizedBaseUrl = ApiUrlHelper.normalizeBaseUrl(baseUrl);
     final body = <String, dynamic>{'source': 'Trim-NAS', 'code': code};
-    final dio = _buildPublicApiDio(normalizedBaseUrl);
+    final dio = _buildPublicApiDio(
+      normalizedBaseUrl,
+      accessCode: accessCode,
+      httpClientAdapter: httpClientAdapter,
+    );
     try {
       final response = await dio.post(
         _authPath,
@@ -765,10 +811,15 @@ class FeiniuApi {
     required String fnConnectId,
     required String userName,
     required String password,
+    String accessCode = '',
+    HttpClientAdapter? httpClientAdapter,
   }) async {
     late final _FnConnectDiscoveryData discovery;
     try {
-      discovery = await _fetchFnConnectDiscovery(fnConnectId);
+      discovery = await _fetchFnConnectDiscovery(
+        fnConnectId,
+        httpClientAdapter: httpClientAdapter,
+      );
     } catch (error) {
       final exception = AppException.from(
         error,
@@ -815,6 +866,7 @@ class FeiniuApi {
       );
     }
 
+    AppException? accessCodeError;
     AppException? unauthorizedError;
     AppException? firstTransientError;
     AppException? firstFatalError;
@@ -825,7 +877,11 @@ class FeiniuApi {
         'label=${candidate.label} baseUrl=${candidate.baseUrl}',
       );
       try {
-        final dio = _buildLoginDio(candidate.baseUrl);
+        final dio = _buildLoginDio(
+          candidate.baseUrl,
+          accessCode: accessCode,
+          httpClientAdapter: httpClientAdapter,
+        );
         final token = await _performLogin(
           dio,
           userName,
@@ -864,7 +920,10 @@ class FeiniuApi {
           'label=${candidate.label} baseUrl=${candidate.baseUrl} '
           'message=${exception.message}',
         );
-        if (exception.isUnauthorized) {
+        if (exception.message == feiniuAccessCodeRequiredSentinel ||
+            exception.message == feiniuAccessCodeInvalidSentinel) {
+          accessCodeError ??= exception;
+        } else if (exception.isUnauthorized) {
           unauthorizedError ??= exception;
         } else if (exception.isTransient) {
           firstTransientError ??= exception;
@@ -875,6 +934,7 @@ class FeiniuApi {
     }
 
     final finalError =
+        accessCodeError ??
         unauthorizedError ??
         (firstTransientError != null
             ? AppException.api(
@@ -893,8 +953,9 @@ class FeiniuApi {
   }
 
   static Future<_FnConnectDiscoveryData> _fetchFnConnectDiscovery(
-    String fnConnectId,
-  ) async {
+    String fnConnectId, {
+    HttpClientAdapter? httpClientAdapter,
+  }) async {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final body = <String, dynamic>{'fnId': fnConnectId};
     final bodyText = jsonEncode(body);
@@ -918,6 +979,9 @@ class FeiniuApi {
       ..options.baseUrl = _fnConnectServiceBaseUrl
       ..options.connectTimeout = const Duration(seconds: 6)
       ..options.receiveTimeout = const Duration(seconds: 8);
+    if (httpClientAdapter != null) {
+      dio.httpClientAdapter = httpClientAdapter;
+    }
     try {
       final response = await dio.post(
         _fnConnectServicePath,
@@ -1034,13 +1098,25 @@ class FeiniuApi {
     return 'failed';
   }
 
-  static Dio _buildPublicApiDio(String baseUrl) {
+  static Dio _buildPublicApiDio(
+    String baseUrl, {
+    String accessCode = '',
+    HttpClientAdapter? httpClientAdapter,
+  }) {
     final normalizedBaseUrl = ApiUrlHelper.normalizeBaseUrl(baseUrl);
     final dio = Dio()
       ..options.baseUrl = normalizedBaseUrl
       ..options.connectTimeout = const Duration(seconds: 10)
       ..options.receiveTimeout = const Duration(seconds: 15);
+    if (httpClientAdapter != null) {
+      dio.httpClientAdapter = httpClientAdapter;
+    }
     _configureHttpsTrust(dio, normalizedBaseUrl);
+    installFeiniuAccessCodeInterceptor(
+      dio,
+      baseUrl: normalizedBaseUrl,
+      accessCodeProvider: () => accessCode,
+    );
     return dio;
   }
 
@@ -2142,6 +2218,19 @@ class FeiniuApi {
         body: body,
       );
     }
+    for (final name in headers.keys.toList()) {
+      final normalized = name.toLowerCase();
+      if (normalized == 'x-access-code' || normalized == 'x-access-source') {
+        headers.remove(name);
+      }
+    }
+    headers.addAll(
+      buildFeiniuAccessCodeHeadersForUrl(
+        accessCode: nasProvider.accessCode,
+        baseUrl: ApiUrlHelper.normalizeBaseUrl(nasProvider.baseUrl),
+        url: url,
+      ),
+    );
     return headers;
   }
 
@@ -2690,31 +2779,29 @@ class FeiniuApi {
   }
 
   bool _shouldAttachNasAuthToUrl(Uri? uri) {
-    if (uri == null) return true;
-    final scheme = uri.scheme.toLowerCase();
-    if (scheme != 'http' && scheme != 'https') {
-      return true;
-    }
-    final targetHost = uri.host.trim().toLowerCase();
-    if (targetHost.isEmpty) {
-      return true;
-    }
-    final baseUri = Uri.tryParse(
+    if (uri == null) return false;
+    return isSameHttpOrigin(
+      ApiUrlHelper.normalizeBaseUrl(nasProvider.baseUrl),
+      uri.toString(),
+    );
+  }
+
+  bool _isProviderStillBoundToOrigin() {
+    return isSameHttpOrigin(
+      _boundBaseUrl,
       ApiUrlHelper.normalizeBaseUrl(nasProvider.baseUrl),
     );
-    final baseHost = baseUri?.host.trim().toLowerCase() ?? '';
-    if (baseHost.isEmpty) {
-      return true;
+  }
+
+  void _removeManagedNasAuthHeaders(Map<String, dynamic> headers) {
+    for (final name in headers.keys.toList()) {
+      final normalized = name.toLowerCase();
+      if (normalized == 'authorization' ||
+          normalized == 'trim-mc-token' ||
+          normalized == 'authx') {
+        headers.remove(name);
+      }
     }
-    if (targetHost != baseHost) {
-      return false;
-    }
-    final targetPort = uri.hasPort ? uri.port : (scheme == 'https' ? 443 : 80);
-    final baseScheme = (baseUri?.scheme ?? '').toLowerCase();
-    final basePort = baseUri == null
-        ? targetPort
-        : (baseUri.hasPort ? baseUri.port : (baseScheme == 'https' ? 443 : 80));
-    return targetPort == basePort;
   }
 
   // Authx is required by most protected endpoints. 新版后端严格校验签名：

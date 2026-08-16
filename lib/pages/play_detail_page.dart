@@ -759,12 +759,12 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         .read<MediaBackendProvider>()
         .backend
         .capabilities;
-    final provider = context.read<NasProvider>();
     // 与飞牛分支同一图源入口:Emby 引用是完整 api_key 直链,resolveRef 直接透传
     // (baseUrl/token 仅对飞牛相对路径生效,此处不影响 Emby)。
-    final artworkResolver = DetailArtworkResolver(
-      baseUrl: provider.baseUrl,
-      token: provider.token,
+    const artworkResolver = DetailArtworkResolver(
+      baseUrl: '',
+      token: '',
+      accessCode: '',
     );
     final media = MediaQuery.of(context);
     final screenSize = media.size;
@@ -2749,8 +2749,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         : widget.itemGuid;
     // 取色图源同样经 resolver 统一解析(与背景 hero 同一入口);此处只取首候选喂调色板。
     final dynamicThemeResolver = DetailArtworkResolver(
-      baseUrl: nasProvider.baseUrl,
-      token: nasProvider.token,
+      baseUrl: _neutralDisplayOnly ? '' : nasProvider.baseUrl,
+      token: _neutralDisplayOnly ? '' : nasProvider.token,
+      accessCode: _neutralDisplayOnly ? '' : nasProvider.accessCode,
     );
     var dynamicThemeImages = MediaImageRequest.empty;
     if (_neutralDisplayOnly && _detail != null) {
@@ -2823,8 +2824,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
         // (直接用),飞牛的 _persistentHeroPath 是相对路径(走 imageCandidates + NAS token)。
         // 两分支同一入口,输出与旧内联逻辑逐字节等价。
         final persistentResolver = DetailArtworkResolver(
-          baseUrl: persistentProvider.baseUrl,
-          token: persistentProvider.token,
+          baseUrl: _neutralDisplayOnly ? '' : persistentProvider.baseUrl,
+          token: _neutralDisplayOnly ? '' : persistentProvider.token,
+          accessCode: _neutralDisplayOnly ? '' : persistentProvider.accessCode,
         );
         final persistentHeroPath = _neutralDisplayOnly
             ? ''
@@ -2875,8 +2877,9 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           } else {
             final provider = context.read<NasProvider>();
             final artworkResolver = DetailArtworkResolver(
-              baseUrl: provider.baseUrl,
-              token: provider.token,
+              baseUrl: _neutralDisplayOnly ? '' : provider.baseUrl,
+              token: _neutralDisplayOnly ? '' : provider.token,
+              accessCode: _neutralDisplayOnly ? '' : provider.accessCode,
             );
             final media = MediaQuery.of(context);
             final logoRequestWidth =
@@ -2998,6 +3001,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           final artworkResolver = DetailArtworkResolver(
             baseUrl: provider.baseUrl,
             token: provider.token,
+            accessCode: provider.accessCode,
           );
           final data = _data!;
           final item = data.item;

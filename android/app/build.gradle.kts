@@ -163,6 +163,7 @@ dependencies {
     // full flavor 的 MNN .so + 模型按 sourceSet 隔离在 src/full（jniLibs/assets），
     // 无需在此声明依赖。
     testImplementation("junit:junit:4.13.2")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }
 
 flutter {

@@ -858,10 +858,10 @@ class _TvDetailPageState extends State<TvDetailPage>
         .read<MediaBackendProvider>()
         .backend
         .capabilities;
-    final provider = context.read<NasProvider>();
-    final artworkResolver = DetailArtworkResolver(
-      baseUrl: provider.baseUrl,
-      token: provider.token,
+    const artworkResolver = DetailArtworkResolver(
+      baseUrl: '',
+      token: '',
+      accessCode: '',
     );
     final layout = MediaLayoutProfile.of(context);
     final media = MediaQuery.of(context);
@@ -1547,8 +1547,9 @@ class _TvDetailPageState extends State<TvDetailPage>
     final inPlayerPaneHost = PlayerPaneHostScope.maybeOf(context) != null;
     final deferArtwork = _loading || !_artworkReady;
     final dynamicThemeResolver = DetailArtworkResolver(
-      baseUrl: nasProvider.baseUrl,
-      token: nasProvider.token,
+      baseUrl: _neutralDisplayOnly ? '' : nasProvider.baseUrl,
+      token: _neutralDisplayOnly ? '' : nasProvider.token,
+      accessCode: _neutralDisplayOnly ? '' : nasProvider.accessCode,
     );
     var dynamicThemeImages = MediaImageRequest.empty;
     if (_neutralDisplayOnly && _neutralDetail != null) {
@@ -1694,6 +1695,8 @@ class _TvDetailPageState extends State<TvDetailPage>
                   width: backdropRequestWidth,
                 ),
                 token: provider.token,
+                accessCode: provider.accessCode,
+                baseUrl: provider.baseUrl,
               );
         final logoImages = deferArtwork
             ? MediaImageRequest.empty
@@ -1704,6 +1707,8 @@ class _TvDetailPageState extends State<TvDetailPage>
                   width: logoRequestWidth,
                 ),
                 token: provider.token,
+                accessCode: provider.accessCode,
+                baseUrl: provider.baseUrl,
               );
         final heroTitleChild = deferArtwork
             ? const SizedBox.shrink()
@@ -1898,6 +1903,8 @@ class _TvDetailPageState extends State<TvDetailPage>
                                                 layout.homePosterRequestWidth,
                                           ),
                                           token: provider.token,
+                                          accessCode: provider.accessCode,
+                                          baseUrl: provider.baseUrl,
                                         ),
                                         title: _seasonTitle(season),
                                         subtitle: _seasonSubtitle(season),

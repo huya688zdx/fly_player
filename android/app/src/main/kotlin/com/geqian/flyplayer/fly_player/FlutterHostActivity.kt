@@ -557,12 +557,13 @@ abstract class FlutterHostActivity : FlutterActivity() {
                 when (call.method) {
                     "sampleImagePixels" -> {
                         val imageUrl = call.argument<String>("imageUrl").orEmpty().trim()
-                        val token = call.argument<String>("token").orEmpty()
+                        val headers =
+                            NativeImageRequestHeaders.fromAny(call.argument<Any?>("headers"))
                         if (imageUrl.isEmpty()) {
                             result.success(null)
                             return@setMethodCallHandler
                         }
-                        ThemeColorSampler.samplePixels(imageUrl, token) { sampled ->
+                        ThemeColorSampler.samplePixels(imageUrl, headers) { sampled ->
                             result.success(sampled)
                         }
                     }
