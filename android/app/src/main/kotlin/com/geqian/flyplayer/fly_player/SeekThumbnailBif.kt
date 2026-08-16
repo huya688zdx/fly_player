@@ -1,12 +1,8 @@
 package com.geqian.flyplayer.fly_player
 
 import android.util.Log
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.security.MessageDigest
-import java.util.concurrent.TimeUnit
-import okhttp3.OkHttpClient
-import okhttp3.Request
 
 /**
  * Roku BIF（Base Index Frames）解析：Emby「视频预览缩略图提取」任务按 MediaSource 生成的
@@ -112,26 +108,22 @@ class SeekThumbnailBifStore(private val cacheDir: File) {
     class Frame(val index: Int, val bytes: ByteArray)
 
     private val lock = Any()
-    private var currentUrl = ""
+    private var currentIdentity = ""
     private var loading = false
     private var generation = 0
 
     @Volatile
     private var index: BifThumbnails.Index? = null
 
-    private val http by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .build()
-    }
-
     /** 装载入口（onCreate / 换源均走这里）：空 URL 清空；同 URL 已就绪/在途则复用。 */
     fun prepare(url: String, headers: Map<String, String>) {
+        val safeHeaders = NativeImageRequestHeaders.fromAny(headers)
+        val requestIdentity =
+            if (safeHeaders.isEmpty()) url else NativeImageRequestHeaders.cacheIdentity(url, safeHeaders)
         val myGeneration: Int
         synchronized(lock) {
-            if (url == currentUrl && (index != null || loading || url.isEmpty())) return
-            currentUrl = url
+            if (requestIdentity == currentIdentity && (index != null || loading || url.isEmpty())) return
+            currentIdentity = requestIdentity
             index = null
             generation++
             if (url.isEmpty()) {
@@ -143,7 +135,7 @@ class SeekThumbnailBifStore(private val cacheDir: File) {
         }
         Thread {
             val parsed = try {
-                loadOrDownload(url, headers)
+                loadOrDownload(url, safeHeaders, requestIdentity)
             } catch (e: Throwable) {
                 Log.w(TAG, "bif load failed: ${e.message}")
                 null
@@ -171,9 +163,10 @@ class SeekThumbnailBifStore(private val cacheDir: File) {
     private fun loadOrDownload(
         url: String,
         headers: Map<String, String>,
+        requestIdentity: String,
     ): BifThumbnails.Index? {
         cacheDir.mkdirs()
-        val cacheFile = File(cacheDir, "${sha1(url)}.bif")
+        val cacheFile = File(cacheDir, "${sha1(requestIdentity)}.bif")
         if (cacheFile.isFile) {
             val cached = BifThumbnails.parse(cacheFile.readBytes())
             if (cached != null) {
@@ -182,18 +175,12 @@ class SeekThumbnailBifStore(private val cacheDir: File) {
             }
             cacheFile.delete() // 脏缓存（半截下载/格式变化）重下
         }
-        val request = Request.Builder().url(url).apply {
-            for ((name, value) in headers) {
-                if (name.isNotEmpty() && value.isNotEmpty()) addHeader(name, value)
-            }
-        }.build()
-        val bytes = http.newCall(request).execute().use { response ->
-            // 404 = 服务端未跑「视频预览缩略图提取」任务，属常态，静默退回章节图。
-            if (!response.isSuccessful) return null
-            val body = response.body ?: return null
-            if (body.contentLength() > MAX_BIF_BYTES) return null
-            readCapped(body.byteStream(), MAX_BIF_BYTES) ?: return null
-        }
+        val bytes =
+            NativeSafeImageHttp.fetchBytes(
+                url,
+                headers,
+                maxBytes = MAX_BIF_BYTES,
+            ) ?: return null
         val parsed = BifThumbnails.parse(bytes) ?: return null
         // 先写临时文件再改名，避免半截文件被后续会话当有效缓存。
         val tmp = File(cacheDir, "${cacheFile.name}.tmp")
@@ -205,21 +192,6 @@ class SeekThumbnailBifStore(private val cacheDir: File) {
         }
         evictOld(keep = cacheFile.name)
         return parsed
-    }
-
-    /** 限量读取；超过 [cap] 视为异常数据放弃（防脏服务端把内存拖爆）。 */
-    private fun readCapped(input: java.io.InputStream, cap: Long): ByteArray? {
-        val out = ByteArrayOutputStream()
-        val buffer = ByteArray(64 * 1024)
-        var total = 0L
-        while (true) {
-            val read = input.read(buffer)
-            if (read < 0) break
-            total += read
-            if (total > cap) return null
-            out.write(buffer, 0, read)
-        }
-        return out.toByteArray()
     }
 
     /** 缓存目录只留最近 [MAX_CACHE_FILES] 个 BIF（LRU by lastModified），当前文件豁免。 */
