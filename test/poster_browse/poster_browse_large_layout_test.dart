@@ -443,7 +443,7 @@ void main() {
     await tester.tap(find.text('加载失败，点按重试'));
     expect(retryCount, 1);
   });
-  testWidgets('大屏海报轨在 960×432 横屏最大文字缩放下保留双行标题和副标题', (tester) async {
+  testWidgets('大屏海报轨在 853×384 真机横屏下不溢出并保留卡片文案', (tester) async {
     final card = _card(
       id: 'long-title',
       title: '吹响吧！上低音号特别篇',
@@ -451,14 +451,14 @@ void main() {
       durationSeconds: 120,
     );
 
-    await tester.binding.setSurfaceSize(const Size(960, 432));
+    await tester.binding.setSurfaceSize(const Size(853, 384));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
       _localizedApp(
         MediaQuery(
           data: const MediaQueryData(
-            size: Size(960, 432),
-            textScaler: TextScaler.linear(1.35),
+            size: Size(853, 384),
+            textScaler: TextScaler.linear(1.08),
           ),
           child: PosterBrowseLargeLayout(
             rows: <PosterBrowseRow>[
@@ -488,10 +488,18 @@ void main() {
     );
 
     expect(tester.takeException(), isNull);
-    expect(
-      tester.getSize(find.byType(PosterBrowsePosterTrack)).height,
-      greaterThanOrEqualTo(280),
+    expect(tester.getSize(find.byType(PosterBrowsePosterTrack)).height, 264);
+    expect(find.byType(PosterBrowseMediaInfo), findsNothing);
+
+    final cardFinder = find.byType(PosterBrowsePosterCard);
+    final title = tester.widget<Text>(
+      find.descendant(of: cardFinder, matching: find.text(card.title)),
     );
+    final subtitle = tester.widget<Text>(
+      find.descendant(of: cardFinder, matching: find.text('第 1 季 第 1 集')),
+    );
+    expect(title.maxLines, 2);
+    expect(subtitle.maxLines, 1);
   });
 }
 
