@@ -153,7 +153,7 @@
 --enable-decoder=webvtt
 --enable-decoder=movtext       # mp4 内嵌字幕
 --enable-decoder=microdvd
---enable-decoder=hdmv_pgs_subtitle   # PGS (蓝光)
+--enable-decoder=pgssub        # PGS (蓝光；codec 长名为 hdmv_pgs_subtitle)
 --enable-decoder=dvdsub        # VobSub
 --enable-decoder=dvbsub
 --enable-decoder=text
@@ -184,6 +184,7 @@
 --enable-demuxer=webvtt
 --enable-demuxer=subrip
 --enable-demuxer=microdvd
+--enable-demuxer=sup           # 裸 SUP/PGS 外挂字幕
 --enable-demuxer=image2        # 封面图
 
 # ---- demuxer 探测必需的额外解码 ----
@@ -193,6 +194,7 @@
 --enable-bsf=hevc_mp4toannexb
 --enable-bsf=extract_extradata
 --enable-bsf=vp9_superframe
+--enable-bsf=pgs_frame_merge   # 合并 PGS display set，供外挂 SUP/PGS 解码
 
 # ---- 滤镜（mpv 视频处理依赖一部分 swscale/必需 filter）----
 # mpv 自己有 vo=gpu 做缩放/色彩，ffmpeg filter 大多用不到。

@@ -52,6 +52,8 @@ class NativePlaybackReentry {
     required AppLocalizations l10n,
     required ResolvePlaybackHandler onResolvePlayback,
     List<Map<String, dynamic>> Function()? fallbackEpisodes,
+    Future<void> Function(Map<String, dynamic> args)? onLocalSubtitleImported,
+    Future<void> Function(Map<String, dynamic> args)? onLocalSubtitleRemoved,
   }) {
     if (backend.capabilities.usesLegacyFeiniuFlow) {
       return NativePlayerBridge.bindReentry(
@@ -82,6 +84,8 @@ class NativePlaybackReentry {
             ),
         onSetEpisodePickerViewType: (viewType) =>
             NativeReentrySupport.setEpisodePickerViewType(nas, viewType),
+        onLocalSubtitleImported: onLocalSubtitleImported,
+        onLocalSubtitleRemoved: onLocalSubtitleRemoved,
       );
     }
     // 每次 bind 建一个有状态的进度上报器：服务器族须先 PlaybackStart 建会话进度才持久化，
@@ -120,6 +124,8 @@ class NativePlaybackReentry {
           ),
       onSetEpisodePickerViewType: (viewType) =>
           ServerNativePickerSupport.setEpisodePickerViewType(viewType),
+      onLocalSubtitleImported: onLocalSubtitleImported,
+      onLocalSubtitleRemoved: onLocalSubtitleRemoved,
     );
   }
 }

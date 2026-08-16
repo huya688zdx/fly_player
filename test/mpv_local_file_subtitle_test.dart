@@ -121,4 +121,110 @@ void main() {
       },
     );
   });
+
+  group('bundleFromLocalFiles', () {
+    test('maps SRT as text and SUP/PGS as bitmap external tracks', () {
+      final tempDir = Directory.systemTemp.createTempSync(
+        'fly_player_manual_subtitle_formats_',
+      );
+      addTearDown(() {
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+      final paths = <String>[
+        for (final format in <String>['srt', 'sup', 'pgs'])
+          '${tempDir.path}${Platform.pathSeparator}episode.$format',
+      ];
+      for (final path in paths) {
+        File(path).writeAsBytesSync(<int>[0x50, 0x47]);
+      }
+
+      final bundle = bundleFromLocalFiles(
+        mediaGuid: 'media-1',
+        filePaths: paths,
+      );
+
+      expect(bundle.tracks, hasLength(3));
+      expect(bundle.fileByGuid.values.toSet(), paths.toSet());
+      final byFormat = <String, SubtitleTrackOption>{
+        for (final track in bundle.tracks) track.format: track,
+      };
+      expect(byFormat['srt']!.isBitmap, 0);
+      expect(byFormat['sup']!.isBitmap, 1);
+      expect(byFormat['pgs']!.isBitmap, 1);
+      for (final track in bundle.tracks) {
+        expect(track.isExternal, 1);
+        expect(track.extraFile, 1);
+      }
+    });
+
+    test('builds tracks and file map from explicit file paths', () {
+      final tempDir = Directory.systemTemp.createTempSync(
+        'fly_player_bundle_from_files_',
+      );
+      addTearDown(() {
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+      final supPath = '${tempDir.path}${Platform.pathSeparator}demo.sup';
+      final assPath = '${tempDir.path}${Platform.pathSeparator}demo.ass';
+      File(supPath).writeAsStringSync('sup');
+      File(assPath).writeAsStringSync('ass');
+
+      final bundle = bundleFromLocalFiles(
+        mediaGuid: 'media-1',
+        filePaths: <String>[supPath, assPath],
+      );
+
+      expect(bundle.tracks, hasLength(2));
+      expect(bundle.fileByGuid, hasLength(2));
+      // 位图字幕按扩展名推导 isBitmap。
+      final supTrack = bundle.tracks.firstWhere((t) => t.format == 'sup');
+      expect(supTrack.isBitmap, 1);
+      expect(supTrack.isExternal, 1);
+      expect(supTrack.extraFile, 1);
+      expect(bundle.fileByGuid[supTrack.guid], supPath);
+      final assTrack = bundle.tracks.firstWhere((t) => t.format == 'ass');
+      expect(assTrack.isBitmap, 0);
+    });
+
+    test('skips nonexistent files', () {
+      final bundle = bundleFromLocalFiles(
+        mediaGuid: 'media-1',
+        filePaths: <String>['C:/does/not/exist.sup', 'C:/also/missing.srt'],
+      );
+      expect(bundle.tracks, isEmpty);
+      expect(bundle.fileByGuid, isEmpty);
+    });
+
+    test('merge combines two bundles deduping by guid', () {
+      final tempDir = Directory.systemTemp.createTempSync(
+        'fly_player_bundle_merge_',
+      );
+      addTearDown(() {
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+      final aPath = '${tempDir.path}${Platform.pathSeparator}demo.a.sup';
+      final bPath = '${tempDir.path}${Platform.pathSeparator}demo.b.ass';
+      File(aPath).writeAsStringSync('a');
+      File(bPath).writeAsStringSync('b');
+
+      final bundleA = bundleFromLocalFiles(
+        mediaGuid: 'media-1',
+        filePaths: <String>[aPath],
+      );
+      final bundleB = bundleFromLocalFiles(
+        mediaGuid: 'media-1',
+        filePaths: <String>[bPath, aPath],
+      );
+      final merged = LocalSubtitleBundle.merge(bundleA, bundleB);
+
+      expect(merged.tracks, hasLength(2));
+      expect(merged.fileByGuid, hasLength(2));
+    });
+  });
 }

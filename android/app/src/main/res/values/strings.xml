@@ -275,7 +275,7 @@
     <string name="player_text_0045">关闭</string>
     <string name="player_text_0046">字幕删除待接入</string>
     <string name="player_text_0047">无法打开文件选择器</string>
-    <string name="player_text_0048">仅支持 SRT / ASS / SSA / VTT / SUB / SUP / PGS 字幕</string>
+    <string name="player_text_0048">仅支持 SRT / ASS / SSA / VTT / SUB / TTML / SUP / PGS 字幕</string>
     <string name="player_text_0049">导入字幕中…</string>
     <string name="player_text_0050">读取文件失败</string>
     <string name="player_text_0051">字幕已加载</string>
