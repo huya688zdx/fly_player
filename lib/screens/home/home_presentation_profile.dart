@@ -61,3 +61,23 @@ class HomePresentationProfile {
     };
   }
 }
+
+/// 按平台配置顺序筛出当前真正有内容的首页区块。
+List<HomeSectionKind> visibleHomeSections({
+  required HomePresentationProfile profile,
+  required bool hasCatalogs,
+  required bool hasContinueWatching,
+  required bool hasSummary,
+  required bool hasNextUp,
+  required bool hasLatest,
+}) {
+  bool hasContent(HomeSectionKind section) => switch (section) {
+    HomeSectionKind.catalogs || HomeSectionKind.catalogPreviews => hasCatalogs,
+    HomeSectionKind.continueWatching => hasContinueWatching,
+    HomeSectionKind.summary => hasSummary,
+    HomeSectionKind.nextUp => hasNextUp,
+    HomeSectionKind.latest => hasLatest,
+  };
+
+  return profile.sectionOrder.where(hasContent).toList(growable: false);
+}
