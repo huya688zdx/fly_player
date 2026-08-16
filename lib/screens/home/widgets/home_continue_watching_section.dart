@@ -302,7 +302,6 @@ class _FallbackNetworkImageState extends State<_FallbackNetworkImage> {
           fit: BoxFit.cover,
           gaplessPlayback: true,
           cacheWidth: _stableCacheExtent(constraints.maxWidth, dpr),
-          cacheHeight: _stableCacheExtent(constraints.maxHeight, dpr),
           errorBuilder: (context, error, stackTrace) {
             _scheduleFallback();
             return widget.fallback;

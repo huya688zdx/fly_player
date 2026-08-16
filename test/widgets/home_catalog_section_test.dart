@@ -176,6 +176,7 @@ void main() {
     final resized = image.image as ResizeImage;
     expect(resized.width, isNotNull);
     expect(resized.width, greaterThan(0));
+    expect(resized.height, isNull);
 
     final context = tester.element(finder);
     image.errorBuilder!(context, StateError('首次失败'), StackTrace.empty);
