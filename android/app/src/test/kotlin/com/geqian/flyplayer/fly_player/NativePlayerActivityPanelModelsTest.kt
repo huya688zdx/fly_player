@@ -545,11 +545,157 @@ class NativePlayerActivityPanelModelsTest {
             ),
         )
         assertEquals(
-            false,
+            true,
             nativePanelShouldLetSystemHandleTopPullDown(
                 startY = 64f,
                 statusBarInsetPx = 24,
                 density = 1f,
+            ),
+        )
+        assertEquals(
+            false,
+            nativePanelShouldLetSystemHandleTopPullDown(
+                startY = 96f,
+                statusBarInsetPx = 24,
+                density = 1f,
+            ),
+        )
+    }
+
+    @Test
+    fun gestureDirectionWaitsUntilIntentIsClear() {
+        assertEquals(
+            NATIVE_GESTURE_MODE_PENDING,
+            nativePanelResolveGestureMode(
+                dx = 30f,
+                dy = 8f,
+                startX = 300f,
+                startRawY = 300f,
+                viewportWidth = 1920,
+                viewportHeight = 1080,
+                touchSlop = 24,
+                statusBarInsetPx = 24,
+                density = 3f,
+            ),
+        )
+        assertEquals(
+            NATIVE_GESTURE_MODE_PENDING,
+            nativePanelResolveGestureMode(
+                dx = 48f,
+                dy = 54f,
+                startX = 300f,
+                startRawY = 300f,
+                viewportWidth = 1920,
+                viewportHeight = 1080,
+                touchSlop = 24,
+                statusBarInsetPx = 24,
+                density = 3f,
+            ),
+        )
+    }
+
+    @Test
+    fun gestureDirectionLocksOnlyToDominantAxis() {
+        assertEquals(
+            NATIVE_GESTURE_MODE_SEEK,
+            nativePanelResolveGestureMode(
+                dx = 90f,
+                dy = 20f,
+                startX = 300f,
+                startRawY = 300f,
+                viewportWidth = 1920,
+                viewportHeight = 1080,
+                touchSlop = 24,
+                statusBarInsetPx = 24,
+                density = 3f,
+            ),
+        )
+        assertEquals(
+            NATIVE_GESTURE_MODE_BRIGHTNESS,
+            nativePanelResolveGestureMode(
+                dx = 15f,
+                dy = -90f,
+                startX = 300f,
+                startRawY = 300f,
+                viewportWidth = 1920,
+                viewportHeight = 1080,
+                touchSlop = 24,
+                statusBarInsetPx = 24,
+                density = 3f,
+            ),
+        )
+        assertEquals(
+            NATIVE_GESTURE_MODE_VOLUME,
+            nativePanelResolveGestureMode(
+                dx = 15f,
+                dy = 90f,
+                startX = 1500f,
+                startRawY = 300f,
+                viewportWidth = 1920,
+                viewportHeight = 1080,
+                touchSlop = 24,
+                statusBarInsetPx = 24,
+                density = 3f,
+            ),
+        )
+    }
+
+    @Test
+    fun topEdgeGestureNeverBecomesPlaybackControl() {
+        assertEquals(
+            NATIVE_GESTURE_MODE_SYSTEM,
+            nativePanelResolveGestureMode(
+                dx = 80f,
+                dy = 100f,
+                startX = 300f,
+                startRawY = 40f,
+                viewportWidth = 1920,
+                viewportHeight = 1080,
+                touchSlop = 24,
+                statusBarInsetPx = 24,
+                density = 3f,
+            ),
+        )
+    }
+
+    @Test
+    fun cancelledGestureNeverCommitsSeek() {
+        assertEquals(
+            true,
+            nativePanelShouldCommitSeekGesture(
+                gestureMode = NATIVE_GESTURE_MODE_SEEK,
+                cancelled = false,
+            ),
+        )
+        assertEquals(
+            false,
+            nativePanelShouldCommitSeekGesture(
+                gestureMode = NATIVE_GESTURE_MODE_SEEK,
+                cancelled = true,
+            ),
+        )
+        assertEquals(
+            false,
+            nativePanelShouldCommitSeekGesture(
+                gestureMode = NATIVE_GESTURE_MODE_BRIGHTNESS,
+                cancelled = false,
+            ),
+        )
+    }
+    @Test
+    fun gestureBrightnessStartsFromCurrentWindowOrSystemBrightness() {
+        assertEquals(
+            0.72f,
+            nativePanelResolveGestureBrightness(
+                windowBrightness = 0.72f,
+                systemBrightness = 128,
+            ),
+        )
+        assertEquals(
+            128f / 255f,
+            nativePanelResolveGestureBrightness(
+                windowBrightness = -1f,
+                systemBrightness = 128,
             ),
         )
     }
