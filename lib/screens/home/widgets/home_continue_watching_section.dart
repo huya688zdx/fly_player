@@ -33,6 +33,7 @@ class HomeContinueWatchingSection extends StatelessWidget {
     required this.onOpenDetail,
     required this.onPlay,
     required this.onLongPress,
+    this.stableImageDecodeLogicalWidth,
     this.title = '继续观看',
   });
 
@@ -40,6 +41,9 @@ class HomeContinueWatchingSection extends StatelessWidget {
   final ValueChanged<HomeContinueCardData> onOpenDetail;
   final ValueChanged<HomeContinueCardData> onPlay;
   final ValueChanged<HomeContinueCardData> onLongPress;
+
+  /// 稳定的逻辑解码宽度；只影响图片缓存键，不参与响应式卡片布局。
+  final int? stableImageDecodeLogicalWidth;
   final String title;
 
   @override
@@ -60,6 +64,7 @@ class HomeContinueWatchingSection extends StatelessWidget {
           itemBuilder: (context, item, width) => _ContinueCard(
             item: item,
             width: width,
+            stableImageDecodeLogicalWidth: stableImageDecodeLogicalWidth,
             onOpenDetail: () => onOpenDetail(item),
             onPlay: () => onPlay(item),
             onLongPress: () => onLongPress(item),
@@ -74,6 +79,7 @@ class _ContinueCard extends StatelessWidget {
   const _ContinueCard({
     required this.item,
     required this.width,
+    required this.stableImageDecodeLogicalWidth,
     required this.onOpenDetail,
     required this.onPlay,
     required this.onLongPress,
@@ -81,6 +87,7 @@ class _ContinueCard extends StatelessWidget {
 
   final HomeContinueCardData item;
   final double width;
+  final int? stableImageDecodeLogicalWidth;
   final VoidCallback onOpenDetail;
   final VoidCallback onPlay;
   final VoidCallback onLongPress;
@@ -110,7 +117,11 @@ class _ContinueCard extends StatelessWidget {
                 child: Stack(
                   fit: StackFit.expand,
                   children: <Widget>[
-                    _ContinueArtwork(item: item),
+                    _ContinueArtwork(
+                      item: item,
+                      stableImageDecodeLogicalWidth:
+                          stableImageDecodeLogicalWidth,
+                    ),
                     const DecoratedBox(
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
@@ -206,9 +217,13 @@ class _ContinueCard extends StatelessWidget {
 }
 
 class _ContinueArtwork extends StatelessWidget {
-  const _ContinueArtwork({required this.item});
+  const _ContinueArtwork({
+    required this.item,
+    required this.stableImageDecodeLogicalWidth,
+  });
 
   final HomeContinueCardData item;
+  final int? stableImageDecodeLogicalWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -223,6 +238,7 @@ class _ContinueArtwork extends StatelessWidget {
     return _FallbackNetworkImage(
       imageKey: ValueKey<String>('continue-image-${item.id}'),
       request: request,
+      stableDecodeLogicalWidth: stableImageDecodeLogicalWidth,
       fallback: ColoredBox(
         color: colors.surfaceStrong,
         child: Icon(Icons.movie_outlined, color: colors.textMuted, size: 36),
@@ -258,11 +274,13 @@ class _FallbackNetworkImage extends StatefulWidget {
   const _FallbackNetworkImage({
     required this.imageKey,
     required this.request,
+    required this.stableDecodeLogicalWidth,
     required this.fallback,
   });
 
   final Key imageKey;
   final MediaImageRequest request;
+  final int? stableDecodeLogicalWidth;
   final Widget fallback;
 
   @override
@@ -295,13 +313,15 @@ class _FallbackNetworkImageState extends State<_FallbackNetworkImage> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final dpr = MediaQuery.devicePixelRatioOf(context);
+        final decodeLogicalWidth =
+            widget.stableDecodeLogicalWidth ?? constraints.maxWidth;
         return Image.network(
           widget.request.urls[_index],
           key: widget.imageKey,
           headers: widget.request.headers,
           fit: BoxFit.cover,
           gaplessPlayback: true,
-          cacheWidth: _stableCacheExtent(constraints.maxWidth, dpr),
+          cacheWidth: _stableCacheExtent(decodeLogicalWidth.toDouble(), dpr),
           errorBuilder: (context, error, stackTrace) {
             _scheduleFallback();
             return widget.fallback;

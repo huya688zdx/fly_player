@@ -307,6 +307,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
       title: AppLocalizations.of(context).posterBrowseRowCatalogs,
       items: items,
       style: profile.catalogStyle,
+      stableImageDecodeLogicalWidth: layout.miniPosterDecodeWidth,
       onTap: (item) {
         final category = categoriesById[item.id];
         if (category != null) _openCategory(category);
@@ -398,6 +399,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
         return HomeContinueWatchingSection(
           title: AppLocalizations.of(context).homeContinueWatching,
           items: cards,
+          stableImageDecodeLogicalWidth: layout.continueDecodeWidth,
           onOpenDetail: (card) {
             final item = itemsById[card.id];
             if (item != null) {

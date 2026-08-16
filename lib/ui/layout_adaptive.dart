@@ -50,13 +50,13 @@ class MediaLayoutProfile {
   int get homePosterRequestWidth => _homePosterRequestWidth;
   int get categoryMiniPosterRequestWidth => _categoryMiniPosterRequestWidth;
 
-  // 稳定解码宽度(像素)：仅取「卡片宽度上界(下方 of() 里 clamp 的 ceiling) × 2」，
-  // **刻意不依赖当前窗口/分屏宽度**。进/退分屏时卡片会随 pane 缩放，但解码尺寸恒定，
-  // 于是 Image 的 ResizeImage(cacheWidth) 缓存 key 不变 → 命中图片缓存、海报不重解码闪烁。
-  // (dpr 在同机型上恒定，这里用固定 ×2 作代理；上界变更需同步这几个常量。)
+  // 共享首页区块消费 continue/mini 两个稳定逻辑宽度，再乘设备 DPR 生成 cacheWidth；
+  // 它们刻意不依赖当前响应式卡宽，旋转和分屏只改变视觉宽度，不改变图片缓存键。
   int get continueDecodeWidth => _continueDecodeWidth;
-  int get homePosterDecodeWidth => _homePosterDecodeWidth;
   int get miniPosterDecodeWidth => _miniPosterDecodeWidth;
+
+  // 传统海报行仍直接消费固定物理解码宽度。
+  int get homePosterDecodeWidth => _homePosterDecodeWidth;
 
   int get categoryGridRequestWidth =>
       (categoryGridCardWidth * 2.5).round().clamp(240, 960);
