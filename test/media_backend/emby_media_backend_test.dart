@@ -71,6 +71,7 @@ class _FakeEmbyApi extends EmbyApi {
   // getNextUpEpisodes 入参捕获 + 调用计数。
   String? lastNextUpSeriesId;
   int lastNextUpLimit = 0;
+  String lastNextUpFields = '';
   int nextUpCalls = 0;
   // reportPlaybackProgress 入参捕获。
   String? lastProgressItemId;
@@ -281,13 +282,14 @@ class _FakeEmbyApi extends EmbyApi {
     required String serverUrl,
     required String userId,
     required String accessToken,
-    required String seriesId,
+    String seriesId = '',
     int limit = 1,
     String fields = 'Overview,UserData,MediaStreams',
   }) async {
     nextUpCalls++;
     lastNextUpSeriesId = seriesId;
     lastNextUpLimit = limit;
+    lastNextUpFields = fields;
     return nextUpItems;
   }
 }
@@ -384,6 +386,43 @@ void main() {
     expect(items[0].resolutions, <String>['4K']);
     // 单集:Primary 本身横版剧照,保持不动。
     expect(items[1].primaryImage.url, contains('/Images/Primary?tag=ep1'));
+  });
+
+  test('getNextUpItems：全局 NextUp 映射为公共单集卡片', () async {
+    final api = _FakeEmbyApi(
+      nextUpItems: <Map<String, Object?>>[
+        <String, Object?>{
+          'Id': 'ep-10',
+          'Name': '第十集',
+          'Type': 'Episode',
+          'SeriesId': 'series-1',
+          'SeriesName': '白箱',
+          'ParentIndexNumber': 1,
+          'IndexNumber': 10,
+          'RunTimeTicks': 14400000000,
+          'UserData': <String, Object?>{'PlaybackPositionTicks': 3000000000},
+        },
+      ],
+    );
+    final backend = EmbyMediaBackend(api: api, connection: connection);
+
+    final items = await backend.getNextUpItems(limit: 8);
+
+    expect(api.lastNextUpSeriesId, '');
+    expect(api.lastNextUpLimit, 8);
+    expect(
+      api.lastNextUpFields,
+      'PrimaryImageAspectRatio,Overview,PremiereDate,CommunityRating,MediaStreams,Genres',
+    );
+    expect(items, hasLength(1));
+    expect(items.first.id, 'ep-10');
+    expect(items.first.type, 'Episode');
+    expect(items.first.seriesId, 'series-1');
+    expect(items.first.secondaryTitle, '白箱');
+    expect(items.first.seasonNumber, 1);
+    expect(items.first.episodeNumber, 10);
+    expect(items.first.durationSeconds, 1440);
+    expect(items.first.resumePositionSeconds, 300);
   });
 
   test('searchItems：SearchTerm + Movie,Series,Episode', () async {
@@ -1077,10 +1116,7 @@ void main() {
     final backend = _SeriesTargetBackend(
       <MediaSeasonSummary>[_season('s1', 1)],
       <String, List<MediaEpisodeSummary>>{
-        's1': <MediaEpisodeSummary>[
-          _ep('s1e1', watched: true),
-          _ep('s1e2'),
-        ],
+        's1': <MediaEpisodeSummary>[_ep('s1e1', watched: true), _ep('s1e2')],
       },
       api: _ThrowingNextUpApi(),
     );
@@ -1098,10 +1134,7 @@ void main() {
         _season('s3', 3),
       ],
       <String, List<MediaEpisodeSummary>>{
-        's1': <MediaEpisodeSummary>[
-          _ep('s1e1', watched: true),
-          _ep('s1e2'),
-        ],
+        's1': <MediaEpisodeSummary>[_ep('s1e1', watched: true), _ep('s1e2')],
         's2': <MediaEpisodeSummary>[_ep('s2e1')],
         's3': <MediaEpisodeSummary>[_ep('s3e1')],
       },
@@ -1180,7 +1213,7 @@ class _ThrowingNextUpApi extends _FakeEmbyApi {
     required String serverUrl,
     required String userId,
     required String accessToken,
-    required String seriesId,
+    String seriesId = '',
     int limit = 1,
     String fields = 'Overview,UserData,MediaStreams',
   }) async {
