@@ -159,7 +159,7 @@ class EmbyMediaBackend implements MediaBackend {
       userId: _userId,
       accessToken: _token,
       limit: limit,
-      fields: _cardFields,
+      fields: '$_cardFields,UserData',
     );
     return items
         .map((e) => mapEmbyItemCard(e, serverUrl: _serverUrl, token: _token))
