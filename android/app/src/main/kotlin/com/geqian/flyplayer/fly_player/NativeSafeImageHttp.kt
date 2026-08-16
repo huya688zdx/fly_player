@@ -5,6 +5,12 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
+import javax.net.ssl.HostnameVerifier
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 
 /** 图片字节下载器：敏感头请求只手动跟随同源重定向。 */
 object NativeSafeImageHttp {
@@ -16,6 +22,7 @@ object NativeSafeImageHttp {
             .followRedirects(false)
             .followSslRedirects(false)
             .build()
+    private val privateTlsSensitiveClient = buildPrivateTlsClient()
 
     fun fetchBytes(
         imageUrl: String,
@@ -63,7 +70,10 @@ object NativeSafeImageHttp {
                     Request.Builder().url(currentUrl).apply {
                         safeHeaders.forEach { (key, value) -> header(key, value) }
                     }.build()
-                execute(sensitiveClient, request).use { response ->
+                val usePrivateTls =
+                    NativeAuthenticatedImageTlsPolicy.allowsPrivateCertificate(currentUrl)
+                val client = if (usePrivateTls) privateTlsSensitiveClient else sensitiveClient
+                execute(client, request).use { response ->
                     if (response.isSuccessful) return readBounded(response.body)
                     if (!NativeImageRedirectPolicy.isRedirect(response.code)) return null
                     if (followedRedirects >= NativeImageRedirectPolicy.MAX_REDIRECTS) return null
@@ -114,5 +124,33 @@ object NativeSafeImageHttp {
             }
             return null
         }
+    }
+
+    private fun buildPrivateTlsClient(): OkHttpClient {
+        val trustManager =
+            object : X509TrustManager {
+                override fun checkClientTrusted(
+                    chain: Array<out X509Certificate>?,
+                    authType: String?,
+                ) = Unit
+
+                override fun checkServerTrusted(
+                    chain: Array<out X509Certificate>?,
+                    authType: String?,
+                ) = Unit
+
+                override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+            }
+        val sslContext =
+            SSLContext.getInstance("TLS").apply {
+                init(null, arrayOf<TrustManager>(trustManager), SecureRandom())
+            }
+        return OkHttpClient.Builder()
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .sslSocketFactory(sslContext.socketFactory, trustManager)
+            // 该客户端只会由“携带 NAS 鉴权头且 URL 为 HTTPS”的分支选中。
+            .hostnameVerifier(HostnameVerifier { _, _ -> true })
+            .build()
     }
 }

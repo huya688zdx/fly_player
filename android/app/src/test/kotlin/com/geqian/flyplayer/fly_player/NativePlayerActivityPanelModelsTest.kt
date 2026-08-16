@@ -167,6 +167,13 @@ class NativePlayerActivityPanelModelsTest {
     }
 
     @Test
+    fun episodeRefreshRenderDecisionSkipsStableSettledContent() {
+        assertEquals(false, nativePanelShouldRenderEpisodeRefresh(wasLoading = false, contentChanged = false))
+        assertEquals(true, nativePanelShouldRenderEpisodeRefresh(wasLoading = true, contentChanged = false))
+        assertEquals(true, nativePanelShouldRenderEpisodeRefresh(wasLoading = false, contentChanged = true))
+    }
+
+    @Test
     fun audioSummaryUsesSelectedGuid() {
         val tracks = listOf(
             mapOf<String, Any?>("guid" to "a1", "title" to "AAC", "language" to "zh"),
