@@ -3,8 +3,19 @@ part of 'media_list_screen.dart';
 extension _MediaListScreenWidgets on _MediaListScreenState {
   Widget _buildScreen(BuildContext context) {
     final provider = context.read<NasProvider>();
-    final baseUrl = provider.baseUrl;
-    final token = provider.token;
+    final imageCredentials = mediaImageCredentialsForBackend(
+      backendKind: context
+          .read<MediaBackendProvider>()
+          .backend
+          .capabilities
+          .kind,
+      token: provider.token,
+      accessCode: provider.accessCode,
+      baseUrl: provider.baseUrl,
+    );
+    final baseUrl = imageCredentials.baseUrl;
+    final token = imageCredentials.token;
+    final accessCode = imageCredentials.accessCode;
     final colors = context.appColors;
     final hasRuntimeDynamicTheme = context.hasRuntimeAppColors;
     final topSurfaceColor = hasRuntimeDynamicTheme
@@ -17,6 +28,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     final body = _buildBody(
       baseUrl,
       token,
+      accessCode,
       hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
     );
 
@@ -85,7 +97,8 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
 
   Widget _buildBody(
     String baseUrl,
-    String token, {
+    String token,
+    String accessCode, {
     required bool hasRuntimeDynamicTheme,
   }) {
     final layout = MediaLayoutProfile.of(context);
@@ -154,6 +167,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
                 child: _buildHomeTopSection(
                   baseUrl: baseUrl,
                   token: token,
+                  accessCode: accessCode,
                   layout: layout,
                   favorite: favorite,
                   total: total,
@@ -187,6 +201,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
                         _itemsByCategory[category.id] ?? <MediaLibraryItem>[],
                         baseUrl,
                         token,
+                        accessCode,
                         layout,
                       ),
                     ],
@@ -203,6 +218,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
   Widget _buildHomeTopSection({
     required String baseUrl,
     required String token,
+    required String accessCode,
     required MediaLayoutProfile layout,
     required int favorite,
     required int total,
@@ -215,7 +231,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        _buildCategoryStrip(baseUrl, token, layout),
+        _buildCategoryStrip(baseUrl, token, accessCode, layout),
         const SizedBox(height: 10),
         if (_continueWatching.isNotEmpty) ...<Widget>[
           Text(
@@ -237,7 +253,13 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
               separatorBuilder: (_, __) => SizedBox(width: layout.itemGap),
               itemBuilder: (context, index) {
                 final item = _continueWatching[index];
-                return _buildContinueItem(item, baseUrl, token, layout);
+                return _buildContinueItem(
+                  item,
+                  baseUrl,
+                  token,
+                  accessCode,
+                  layout,
+                );
               },
             ),
           ),
@@ -307,6 +329,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
   Widget _buildCategoryStrip(
     String baseUrl,
     String token,
+    String accessCode,
     MediaLayoutProfile layout,
   ) {
     final count = min(_categories.length, widget.secondaryHost ? 6 : 10);
@@ -340,6 +363,8 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
                           width: layout.categoryMiniPosterRequestWidth,
                         ),
                         token: token,
+                        accessCode: accessCode,
+                        baseUrl: baseUrl,
                       ),
                     )
                     .toList(growable: false);
@@ -362,6 +387,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     MediaLibraryItem item,
     String baseUrl,
     String token,
+    String accessCode,
     MediaLayoutProfile layout,
   ) {
     final colors = context.appColors;
@@ -402,6 +428,8 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
                           preserved: _itemImageRequests[item.guid],
                           fallbackUrls: urls,
                           fallbackToken: token,
+                          fallbackAccessCode: accessCode,
+                          fallbackBaseUrl: baseUrl,
                         ),
                         lightweight: widget.secondaryHost,
                         decodeWidth: layout.continueDecodeWidth,
@@ -530,6 +558,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     List<MediaLibraryItem> items,
     String baseUrl,
     String token,
+    String accessCode,
     MediaLayoutProfile layout,
   ) {
     final colors = context.appColors;
@@ -574,6 +603,8 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
                 preserved: _itemImageRequests[item.guid],
                 fallbackUrls: urls,
                 fallbackToken: token,
+                fallbackAccessCode: accessCode,
+                fallbackBaseUrl: baseUrl,
               ),
               title: item.displayTitle,
               subtitle: _cardSubtitle(item),

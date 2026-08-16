@@ -22,6 +22,8 @@ class TvEpisodeBrowserSection extends StatelessWidget {
   final String emptyText;
   final String detailText;
   final String token;
+  final String accessCode;
+  final String baseUrl;
   final TvEpisodePickerMode mode;
   final ValueChanged<String> onSeasonSelected;
   final ValueChanged<int> onRangeSelected;
@@ -42,6 +44,8 @@ class TvEpisodeBrowserSection extends StatelessWidget {
     required this.emptyText,
     required this.detailText,
     required this.token,
+    required this.accessCode,
+    required this.baseUrl,
     required this.mode,
     required this.onSeasonSelected,
     required this.onRangeSelected,
@@ -144,6 +148,8 @@ class TvEpisodeBrowserSection extends StatelessWidget {
                   ),
                   entries: visibleEntries,
                   token: token,
+                  accessCode: accessCode,
+                  baseUrl: baseUrl,
                   detailText: detailText,
                   onEpisodeSelected: onEpisodeSelected,
                   onEpisodeLongPress: onEpisodeLongPress,
@@ -286,6 +292,8 @@ class _RangeChips extends StatelessWidget {
 class _PreviewGrid extends StatelessWidget {
   final List<TvEpisodeCardData> entries;
   final String token;
+  final String accessCode;
+  final String baseUrl;
   final String detailText;
   final ValueChanged<String> onEpisodeSelected;
   final ValueChanged<String> onEpisodeLongPress;
@@ -295,6 +303,8 @@ class _PreviewGrid extends StatelessWidget {
     super.key,
     required this.entries,
     required this.token,
+    required this.accessCode,
+    required this.baseUrl,
     required this.detailText,
     required this.onEpisodeSelected,
     required this.onEpisodeLongPress,
@@ -333,6 +343,8 @@ class _PreviewGrid extends StatelessWidget {
                   child: _PreviewCard(
                     entry: entry,
                     token: token,
+                    accessCode: accessCode,
+                    baseUrl: baseUrl,
                     imageHeight: imageHeight,
                     detailText: detailText,
                     onSelect: () => onEpisodeSelected(entry.guid),
@@ -389,6 +401,8 @@ class _EpisodeButtonStrip extends StatelessWidget {
 class _PreviewCard extends StatelessWidget {
   final TvEpisodeCardData entry;
   final String token;
+  final String accessCode;
+  final String baseUrl;
   final double imageHeight;
   final String detailText;
   final VoidCallback onSelect;
@@ -398,6 +412,8 @@ class _PreviewCard extends StatelessWidget {
   const _PreviewCard({
     required this.entry,
     required this.token,
+    required this.accessCode,
+    required this.baseUrl,
     required this.imageHeight,
     required this.detailText,
     required this.onSelect,
@@ -424,6 +440,8 @@ class _PreviewCard extends StatelessWidget {
                 child: _EpisodePoster(
                   imageUrls: entry.imageUrls,
                   token: token,
+                  accessCode: accessCode,
+                  baseUrl: baseUrl,
                   resolutions: entry.resolutions,
                   showWatchedIcon: entry.completed,
                   progress: entry.progress,
@@ -550,6 +568,8 @@ class _EpisodeCompletedBadge extends StatelessWidget {
 class _EpisodePoster extends StatelessWidget {
   final List<String> imageUrls;
   final String token;
+  final String accessCode;
+  final String baseUrl;
   final List<String> resolutions;
   final bool showWatchedIcon;
   final double progress;
@@ -557,6 +577,8 @@ class _EpisodePoster extends StatelessWidget {
   const _EpisodePoster({
     required this.imageUrls,
     required this.token,
+    required this.accessCode,
+    required this.baseUrl,
     required this.resolutions,
     required this.showWatchedIcon,
     required this.progress,
@@ -573,7 +595,12 @@ class _EpisodePoster extends StatelessWidget {
         fit: StackFit.expand,
         children: [
           DetailHeroImage(
-            images: mediaImageRequestForUrls(imageUrls, token: token),
+            images: mediaImageRequestForUrls(
+              imageUrls,
+              token: token,
+              accessCode: accessCode,
+              baseUrl: baseUrl,
+            ),
           ),
           Positioned.fill(
             child: IgnorePointer(

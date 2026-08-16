@@ -573,7 +573,12 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
   Widget _buildNeutralProfileImage(String url) {
     if (url.trim().isEmpty) return _personPhotoFallback();
     return _buildProfileImage(
-      mediaImageRequestForUrls(<String>[url.trim()], token: ''),
+      mediaImageRequestForUrls(
+        <String>[url.trim()],
+        token: '',
+        accessCode: '',
+        baseUrl: '',
+      ),
     );
   }
 
@@ -715,6 +720,8 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
                         ? <String>[item.primaryImage.url.trim()]
                         : const <String>[],
                     token: '',
+                    accessCode: '',
+                    baseUrl: '',
                   ),
                   title: item.displayTitle,
                   subtitle: _yearFromCard(item),
@@ -780,6 +787,8 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
                 ? <String>[_neutralDetail!.primaryImage.url.trim()]
                 : const <String>[],
             token: '',
+            accessCode: '',
+            baseUrl: '',
           )
         : (_person == null || _person!.profilePath.trim().isEmpty
               ? MediaImageRequest.empty
@@ -790,6 +799,8 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
                     width: 240,
                   ),
                   token: provider.token,
+                  accessCode: provider.accessCode,
+                  baseUrl: provider.baseUrl,
                 ));
     final syncGlobalTheme = dynamicThemeIntensity.allowsGlobalRuntimeThemeSync(
       inPlayerPaneHost: inPlayerPaneHost,
@@ -874,6 +885,8 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
                                     width: 260,
                                   ),
                                   token: provider.token,
+                                  accessCode: provider.accessCode,
+                                  baseUrl: provider.baseUrl,
                                 ),
                               ),
                             ),
@@ -980,6 +993,8 @@ class _PersonDetailScreenState extends State<PersonDetailScreen> {
                                   width: layout.homePosterRequestWidth,
                                 ),
                                 token: provider.token,
+                                accessCode: provider.accessCode,
+                                baseUrl: provider.baseUrl,
                               ),
                               title: item.displayTitle,
                               subtitle: _year(item),
