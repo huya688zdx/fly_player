@@ -244,4 +244,48 @@ void main() {
     expect(await stale, isFalse);
     expect(staleWriteRan, isFalse);
   });
+
+  test('首页失败回退仅复用同一 loadKey 的快照', () {
+    final snapshot = populated();
+
+    final sameSession = homeDataFallbackForLoadKey(
+      snapshot: snapshot,
+      snapshotLoadKey: 'emby|server-a|token',
+      requestLoadKey: 'emby|server-a|token',
+    );
+    final anotherSession = homeDataFallbackForLoadKey(
+      snapshot: snapshot,
+      snapshotLoadKey: 'emby|server-a|token',
+      requestLoadKey: 'jellyfin|server-b|token',
+    );
+
+    expect(sameSession, same(snapshot));
+    expect(anotherSession.nextUp, isEmpty);
+    expect(anotherSession.itemImageRequests, isEmpty);
+    expect(anotherSession.backdropImageRequests, isEmpty);
+  });
+
+  test('新会话可选接口失败不会合入旧会话区块和图片', () {
+    final oldSnapshot = populated();
+    final fallback = homeDataFallbackForLoadKey(
+      snapshot: oldSnapshot,
+      snapshotLoadKey: 'emby|server-a|token',
+      requestLoadKey: 'emby|server-b|token',
+    );
+
+    final merged = mergeHomeOptionalSections(
+      current: fallback,
+      refreshedBase: const HomeViewData(summary: <String, dynamic>{'movie': 4}),
+      continueWatching:
+          const HomeSectionLoadResult<HomeMediaSectionData>.failure(),
+      nextUp: const HomeSectionLoadResult<HomeMediaSectionData>.failure(),
+      latest: const HomeSectionLoadResult<HomeMediaSectionData>.failure(),
+    );
+
+    expect(merged.continueWatching, isEmpty);
+    expect(merged.nextUp, isEmpty);
+    expect(merged.latest, isEmpty);
+    expect(merged.itemImageRequests, isEmpty);
+    expect(merged.backdropImageRequests, isEmpty);
+  });
 }

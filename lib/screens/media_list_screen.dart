@@ -97,6 +97,7 @@ class _MediaListScreenState extends State<MediaListScreen>
   static const int _secondaryCategoryPreviewLimit = 8;
 
   HomeViewData _homeData = const HomeViewData.empty();
+  String _homeDataLoadKey = '';
   final HomeLoadGeneration _homeLoadGeneration = HomeLoadGeneration();
   final HomeCacheWriteCoordinator _homeCacheWrites =
       HomeCacheWriteCoordinator();
@@ -244,6 +245,7 @@ class _MediaListScreenState extends State<MediaListScreen>
       _lastLoadKey = '';
       _posterBrowsePrewarmGeneration += 1;
       _homeData = const HomeViewData.empty();
+      _homeDataLoadKey = '';
       _localeMap = <String, dynamic>{};
       _error = null;
       _isLoading = false;
@@ -257,6 +259,10 @@ class _MediaListScreenState extends State<MediaListScreen>
     if (loadKey != _lastLoadKey) {
       _posterBrowsePrewarmGeneration += 1;
       _lastLoadKey = loadKey;
+      if (_homeDataLoadKey != loadKey) {
+        _homeData = const HomeViewData.empty();
+        _homeDataLoadKey = loadKey;
+      }
       if (serverReady) {
         // 服务器族首页不读飞牛 HomeDataCache，避免跨后端串内容。
         _fetchHomeData();
@@ -268,6 +274,7 @@ class _MediaListScreenState extends State<MediaListScreen>
 
   Future<void> _tryLoadFromCacheThenRefresh() async {
     final loadGeneration = _beginHomeLoad();
+    final loadKey = _lastLoadKey;
     final snapshot = await HomeDataCache.load();
     if (!_isCurrentHomeLoad(loadGeneration)) return;
     if (snapshot != null && snapshot.categories.isNotEmpty) {
@@ -281,6 +288,7 @@ class _MediaListScreenState extends State<MediaListScreen>
         _continueWatching = snapshot.continueWatching;
         _nextUp = <MediaLibraryItem>[];
         _latest = <MediaLibraryItem>[];
+        _homeDataLoadKey = loadKey;
         _loadingFromCache = true;
         _isLoading = false;
         _error = null;
@@ -509,6 +517,7 @@ class _MediaListScreenState extends State<MediaListScreen>
 
   Future<void> _fetchHomeData() async {
     final loadGeneration = _beginHomeLoad();
+    final loadKey = _lastLoadKey;
     debugPrint('[UI][HOME] start loading home data');
     final usingSpinner = !_loadingFromCache;
     if (usingSpinner) {
@@ -675,7 +684,11 @@ class _MediaListScreenState extends State<MediaListScreen>
             )
           : const HomeSectionLoadResult<HomeMediaSectionData>.failure();
       final homeData = mergeHomeOptionalSections(
-        current: _homeData,
+        current: homeDataFallbackForLoadKey(
+          snapshot: _homeData,
+          snapshotLoadKey: _homeDataLoadKey,
+          requestLoadKey: loadKey,
+        ),
         refreshedBase: HomeViewData(
           catalogs: categories,
           catalogPreviewItems: itemsByCategory,
@@ -692,6 +705,7 @@ class _MediaListScreenState extends State<MediaListScreen>
       if (!_isCurrentHomeLoad(loadGeneration)) return;
       setState(() {
         _homeData = homeData;
+        _homeDataLoadKey = loadKey;
         _localeMap = localeMap;
         _isLoading = false;
         _loadingFromCache = false;
@@ -736,6 +750,7 @@ class _MediaListScreenState extends State<MediaListScreen>
 
   Future<void> _backgroundRefresh() async {
     final loadGeneration = _beginHomeLoad();
+    final loadKey = _lastLoadKey;
     debugPrint('[UI][HOME] background refresh start');
     final provider = context.read<NasProvider>();
     final backend = context.read<MediaBackendProvider>().backend;
@@ -897,7 +912,11 @@ class _MediaListScreenState extends State<MediaListScreen>
             )
           : const HomeSectionLoadResult<HomeMediaSectionData>.failure();
       final homeData = mergeHomeOptionalSections(
-        current: _homeData,
+        current: homeDataFallbackForLoadKey(
+          snapshot: _homeData,
+          snapshotLoadKey: _homeDataLoadKey,
+          requestLoadKey: loadKey,
+        ),
         refreshedBase: HomeViewData(
           catalogs: categories,
           catalogPreviewItems: itemsByCategory,
@@ -914,6 +933,7 @@ class _MediaListScreenState extends State<MediaListScreen>
       if (!_isCurrentHomeLoad(loadGeneration)) return;
       setState(() {
         _homeData = homeData;
+        _homeDataLoadKey = loadKey;
         _loadingFromCache = false;
       });
 
