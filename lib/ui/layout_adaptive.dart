@@ -43,23 +43,36 @@ class MediaLayoutProfile {
   static const int _categoryMiniPosterRequestWidth = 156;
   static const int _continueDecodeWidth = 520;
   static const int _homePosterDecodeWidth = 352;
-  static const int _miniPosterDecodeWidth = 104;
+  static const int _homeCatalogDecodeWidth = 440;
 
   // 首页海报的网络请求宽度固定取卡片上界，避免飞牛 ?w= 随分屏宽度变化。
   int get homeContinueRequestWidth => _homeContinueRequestWidth;
   int get homePosterRequestWidth => _homePosterRequestWidth;
   int get categoryMiniPosterRequestWidth => _categoryMiniPosterRequestWidth;
 
-  // 共享首页区块消费 continue/mini 两个稳定逻辑宽度，再乘设备 DPR 生成 cacheWidth；
-  // 它们刻意不依赖当前响应式卡宽，旋转和分屏只改变视觉宽度，不改变图片缓存键。
+  // 共享首页区块直接消费稳定物理像素宽度，不再乘设备 DPR；
+  // 旋转和分屏只改变视觉卡宽，不改变图片缓存键。
   int get continueDecodeWidth => _continueDecodeWidth;
-  int get miniPosterDecodeWidth => _miniPosterDecodeWidth;
+  int get homeCatalogDecodeWidth => _homeCatalogDecodeWidth;
 
   // 传统海报行仍直接消费固定物理解码宽度。
   int get homePosterDecodeWidth => _homePosterDecodeWidth;
 
   int get categoryGridRequestWidth =>
       (categoryGridCardWidth * 2.5).round().clamp(240, 960);
+
+  /// 首页横向海报行高：图片高度固定，文字区随系统真实缩放扩展。
+  double homePosterRowHeightFor(TextScaler textScaler) {
+    final titleLineHeight = textScaler.scale(homePosterTitleFontSize) * 1.4;
+    final subtitleLineHeight =
+        textScaler.scale(homePosterSubtitleFontSize) * 1.4;
+    final requiredTextHeight = 3 + titleLineHeight + subtitleLineHeight + 4;
+    final baselineTextHeight = homePosterRowHeight - homePosterImageHeight;
+    final textHeight = requiredTextHeight > baselineTextHeight
+        ? requiredTextHeight
+        : baselineTextHeight;
+    return homePosterImageHeight + textHeight;
+  }
 
   double get categoryGridCardWidth {
     final availableWidth =

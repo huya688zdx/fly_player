@@ -1450,12 +1450,32 @@ class _MediaListScreenState extends State<MediaListScreen>
   Future<void> _playContinueItem(MediaLibraryItem item) async {
     if (item.guid.trim().isEmpty) return;
     _pendingContinueWatchingRefresh = true;
-    await const ItemPlaybackLauncher().open(
-      context,
-      itemGuid: item.guid,
-      fallbackTitle: item.displayTitle,
-    );
-    if (!mounted) return;
+    var playbackReturned = false;
+    try {
+      await const ItemPlaybackLauncher().open(
+        context,
+        itemGuid: item.guid,
+        fallbackTitle: item.displayTitle,
+      );
+      playbackReturned = true;
+    } catch (error, stackTrace) {
+      await logSwallowedError(
+        action: 'play continue watching item',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'media_list_screen',
+        id: item.guid,
+      );
+      if (!mounted) return;
+      _showHomeSnackBar(
+        AppLocalizations.of(context).detailPlayInfoFailed,
+        backgroundColor: context.appColors.danger,
+      );
+    } finally {
+      // 拉起失败或正常返回都不遗留生命周期刷新标记；成功路径在下方立即刷新。
+      _pendingContinueWatchingRefresh = false;
+    }
+    if (!playbackReturned || !mounted) return;
     unawaited(_refreshContinueWatching());
   }
 

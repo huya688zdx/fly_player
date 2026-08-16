@@ -263,7 +263,7 @@ void main() {
     });
   });
 
-  testWidgets('稳定解码宽度不随响应式视觉卡宽改变', (tester) async {
+  testWidgets('稳定物理解码宽度不随 DPR 和响应式卡宽改变', (tester) async {
     final items = List<HomeCatalogCardData>.generate(
       4,
       (index) => HomeCatalogCardData(
@@ -274,18 +274,18 @@ void main() {
       ),
     );
 
-    Widget section(double width) => responsiveTestApp(
+    Widget section(double width, double devicePixelRatio) => responsiveTestApp(
       width: width,
-      devicePixelRatio: 2.5,
+      devicePixelRatio: devicePixelRatio,
       child: HomeCatalogSection(
         style: HomeCatalogStyle.landscapeArtwork,
         items: items,
-        stableImageDecodeLogicalWidth: 180,
+        stableImageCacheWidth: 440,
         onTap: (_) {},
       ),
     );
 
-    await tester.pumpWidget(section(336));
+    await tester.pumpWidget(section(336, 1));
     final narrowCardWidth = tester
         .getSize(find.byKey(const ValueKey<String>('catalog-card-stable-0')))
         .width;
@@ -300,7 +300,7 @@ void main() {
                 as ResizeImage)
             .width;
 
-    await tester.pumpWidget(section(570));
+    await tester.pumpWidget(section(570, 3));
     final wideCardWidth = tester
         .getSize(find.byKey(const ValueKey<String>('catalog-card-stable-0')))
         .width;
@@ -318,5 +318,17 @@ void main() {
     expect(narrowCardWidth, isNot(wideCardWidth));
     expect(narrowDecodeWidth, wideDecodeWidth);
     expect(narrowDecodeWidth, 448);
+    expect(
+      (tester
+                  .widget<Image>(
+                    find.byKey(
+                      const ValueKey<String>('catalog-image-stable-0'),
+                    ),
+                  )
+                  .image
+              as ResizeImage)
+          .height,
+      isNull,
+    );
   });
 }
