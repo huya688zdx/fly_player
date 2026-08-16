@@ -7,10 +7,15 @@ import 'package:fly_player/utils/nas_image_headers.dart';
 void main() {
   const baseUrl = 'http://nas.example:5666';
   const token = 'nas-token-xyz';
-  const resolver = DetailArtworkResolver(baseUrl: baseUrl, token: token);
+  const accessCode = '访问码';
+  const resolver = DetailArtworkResolver(
+    baseUrl: baseUrl,
+    token: token,
+    accessCode: accessCode,
+  );
 
   group('resolvePath（飞牛相对路径）', () {
-    test('与旧 imageCandidates + nasImageHeaders 逐字段等价', () {
+    test('与 imageCandidates + nasImageHeaders 逐字段等价', () {
       const path = '/media/poster/abc.jpg';
       final expectedUrls = ApiUrlHelper.imageCandidates(
         baseUrl,
@@ -19,7 +24,16 @@ void main() {
       );
       final artwork = resolver.resolvePath(path, width: 1200);
       expect(artwork.urls, expectedUrls);
-      expect(artwork.headers, nasImageHeaders(token, url: expectedUrls.first));
+      expect(
+        artwork.headers,
+        nasImageHeaders(
+          token,
+          url: expectedUrls.first,
+          accessCode: accessCode,
+          baseUrl: baseUrl,
+        ),
+      );
+      expect(artwork.headers, contains('x-access-code'));
     });
 
     test('空路径返回空', () {
@@ -29,23 +43,173 @@ void main() {
   });
 
   group('resolveRef（中立图引用）', () {
-    test('完整 http 直链（Emby api_key）直接用 + ref 自带 header', () {
+    test('完整飞牛同源直链合并 NAS 鉴权、访问码与 ref 其它请求头', () {
+      const url = '$baseUrl/media/poster/full.jpg';
+      const ref = MediaImageRef(
+        url: url,
+        headers: <String, String>{
+          'X-Test': 'keep',
+          'X-Access-Code': 'stale-code',
+          'X-Access-Source': 'stale-source',
+        },
+      );
+
+      final artwork = resolver.resolveRef(ref);
+
+      final expectedNasHeaders = nasImageHeaders(
+        token,
+        url: url,
+        accessCode: accessCode,
+        baseUrl: baseUrl,
+      );
+      expect(artwork.headers['Authorization'], token);
+      expect(artwork.headers['Trim-MC-token'], token);
+      expect(artwork.headers['X-Test'], 'keep');
+      expect(
+        artwork.headers.entries
+            .where((entry) => entry.key.toLowerCase() == 'x-access-code')
+            .map((entry) => entry.value),
+        <String>[expectedNasHeaders['x-access-code']!],
+      );
+      expect(
+        artwork.headers.entries
+            .where((entry) => entry.key.toLowerCase() == 'x-access-source')
+            .map((entry) => entry.value),
+        <String>['app'],
+      );
+    });
+
+    test('完整同源引用替换旧 NAS 头并保留不冲突 Cookie', () {
+      const relayResolver = DetailArtworkResolver(
+        baseUrl: 'https://device.fnos.net',
+        token: 'fresh-token',
+        accessCode: 'fresh-code',
+      );
+      const ref = MediaImageRef(
+        url: 'https://device.fnos.net/poster.jpg',
+        headers: <String, String>{
+          'authorization': 'stale-token',
+          'TRIM-MC-TOKEN': 'stale-token',
+          'X-Access-Code': 'stale-code',
+          'x-ACCESS-source': 'stale-source',
+          'cookie': 'session=keep; MODE=old; theme=dark; mode=duplicate',
+          'X-Test': 'keep',
+        },
+      );
+
+      final artwork = relayResolver.resolveRef(ref);
+
+      expect(artwork.headers['Authorization'], 'fresh-token');
+      expect(artwork.headers['Trim-MC-token'], 'fresh-token');
+      expect(artwork.headers['X-Test'], 'keep');
+      expect(
+        artwork.headers.entries.where(
+          (entry) => entry.key.toLowerCase() == 'authorization',
+        ),
+        hasLength(1),
+      );
+      expect(
+        artwork.headers.entries.where(
+          (entry) => entry.key.toLowerCase() == 'trim-mc-token',
+        ),
+        hasLength(1),
+      );
+      final cookie = artwork.headers['Cookie']!;
+      expect(cookie, contains('session=keep'));
+      expect(cookie, contains('theme=dark'));
+      expect(
+        RegExp(r'(^|;\s*)mode=', caseSensitive: false).allMatches(cookie),
+        hasLength(1),
+      );
+      expect(cookie, contains('mode=relay'));
+    });
+
+    test('跨源引用不会沿用旧 NAS 管理头', () {
+      const ref = MediaImageRef(
+        url: 'https://cdn.example/poster.jpg',
+        headers: <String, String>{
+          'Authorization': 'stale-token',
+          'trim-mc-token': 'stale-token',
+          'X-Access-Code': 'stale-code',
+          'x-access-source': 'stale-source',
+          'Cookie': 'mode=relay; session=keep',
+          'X-Test': 'keep',
+        },
+      );
+
+      final artwork = resolver.resolveRef(ref);
+
+      expect(artwork.headers, <String, String>{
+        'Cookie': 'session=keep',
+        'X-Test': 'keep',
+      });
+    });
+
+    test('完整飞牛同源自鉴权 ref 不附加 NAS 凭据', () {
+      const url = '$baseUrl/media/poster/self-auth.jpg';
+      const ref = MediaImageRef(
+        url: url,
+        headers: <String, String>{'X-Test': 'keep'},
+        selfAuthenticated: true,
+      );
+
+      final artwork = resolver.resolveRef(ref);
+
+      expect(artwork.headers, <String, String>{'X-Test': 'keep'});
+      expect(artwork.selfAuthenticated, isTrue);
+    });
+
+    test('完整飞牛同源 api_key 直链不附加 NAS 凭据', () {
+      const url = '$baseUrl/media/poster/api-key.jpg?api_key=KEY';
+      const ref = MediaImageRef(
+        url: url,
+        headers: <String, String>{'X-Test': 'keep'},
+      );
+
+      final artwork = resolver.resolveRef(ref);
+
+      expect(artwork.headers, <String, String>{'X-Test': 'keep'});
+      expect(artwork.selfAuthenticated, isTrue);
+    });
+
+    test('完整 Emby api_key 直链沿用 ref 头且不附加访问码', () {
       const url = 'http://emby.example:8096/Items/1/Images/Primary?api_key=KEY';
       const ref = MediaImageRef(url: url, headers: {'X-Test': '1'});
       final artwork = resolver.resolveRef(ref);
       expect(artwork.urls, <String>[url]);
       expect(artwork.headers, {'X-Test': '1'});
+      expect(artwork.headers, isNot(contains('x-access-code')));
     });
 
-    test('https 直链同样直接用', () {
+    test('第三方 https 直链不附加飞牛头', () {
       const url = 'https://cdn.example/a.jpg';
-      const ref = MediaImageRef(url: url);
+      const ref = MediaImageRef(
+        url: url,
+        headers: <String, String>{'X-Test': 'keep'},
+      );
       final artwork = resolver.resolveRef(ref);
       expect(artwork.urls, <String>[url]);
-      expect(artwork.headers, isEmpty);
+      expect(artwork.headers, <String, String>{'X-Test': 'keep'});
     });
 
-    test('相对路径 ref 走飞牛拼接（等价 resolvePath）', () {
+    test('完整飞牛跨协议或端口直链只保留 ref 请求头', () {
+      for (final url in <String>[
+        'https://nas.example:5666/media/poster.jpg',
+        'http://nas.example:5667/media/poster.jpg',
+      ]) {
+        final artwork = resolver.resolveRef(
+          MediaImageRef(
+            url: url,
+            headers: const <String, String>{'X-Test': 'keep'},
+          ),
+        );
+        expect(artwork.headers, <String, String>{
+          'X-Test': 'keep',
+        }, reason: url);
+      }
+    });
+
+    test('相对路径 ref 走飞牛拼接', () {
       const path = '/media/backdrop/x.jpg';
       const ref = MediaImageRef(url: path);
       final artwork = resolver.resolveRef(ref, width: 360);
@@ -80,6 +244,16 @@ void main() {
         primary,
       ]);
       expect(artwork.urls, <String>['https://cdn.example/p.jpg']);
+    });
+
+    test('不会把同源 NAS 头复用于跨源回退图', () {
+      final artwork = resolver.resolveRefs(const <MediaImageRef>[
+        MediaImageRef(url: '$baseUrl/backdrop.jpg'),
+        MediaImageRef(url: 'https://cdn.example/fallback.jpg'),
+      ]);
+
+      expect(artwork.urls, <String>['$baseUrl/backdrop.jpg']);
+      expect(artwork.headers, contains('Authorization'));
     });
   });
 }

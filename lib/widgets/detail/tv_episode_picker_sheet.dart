@@ -41,6 +41,8 @@ class TvEpisodePickerSheet {
     required int rangeSize,
     required String emptyText,
     required String token,
+    required String accessCode,
+    required String baseUrl,
     required TvEpisodePickerLoader loader,
     required TvEpisodePickerModeChanged onModeChanged,
   }) {
@@ -58,6 +60,8 @@ class TvEpisodePickerSheet {
           rangeSize: rangeSize,
           emptyText: emptyText,
           token: token,
+          accessCode: accessCode,
+          baseUrl: baseUrl,
           loader: loader,
           onModeChanged: onModeChanged,
         );
@@ -75,6 +79,8 @@ class _TvEpisodePickerSheetBody extends StatefulWidget {
   final int rangeSize;
   final String emptyText;
   final String token;
+  final String accessCode;
+  final String baseUrl;
   final TvEpisodePickerLoader loader;
   final TvEpisodePickerModeChanged onModeChanged;
 
@@ -87,6 +93,8 @@ class _TvEpisodePickerSheetBody extends StatefulWidget {
     required this.rangeSize,
     required this.emptyText,
     required this.token,
+    required this.accessCode,
+    required this.baseUrl,
     required this.loader,
     required this.onModeChanged,
   });
@@ -358,6 +366,8 @@ class _TvEpisodePickerSheetBodyState extends State<_TvEpisodePickerSheetBody> {
                         ),
                         entries: visibleEntries,
                         token: widget.token,
+                        accessCode: widget.accessCode,
+                        baseUrl: widget.baseUrl,
                         onTap: (guid) => Navigator.of(context).pop(
                           TvEpisodePickerSheetResult(
                             seasonGuid: _selectedSeasonGuid,
@@ -421,12 +431,16 @@ List<List<TvEpisodeCardData>> _buildEpisodeRanges(
 class _EpisodeListView extends StatelessWidget {
   final List<TvEpisodeCardData> entries;
   final String token;
+  final String accessCode;
+  final String baseUrl;
   final ValueChanged<String> onTap;
 
   const _EpisodeListView({
     super.key,
     required this.entries,
     required this.token,
+    required this.accessCode,
+    required this.baseUrl,
     required this.onTap,
   });
 
@@ -463,6 +477,8 @@ class _EpisodeListView extends StatelessWidget {
                       images: mediaImageRequestForUrls(
                         entry.imageUrls,
                         token: token,
+                        accessCode: accessCode,
+                        baseUrl: baseUrl,
                       ),
                     ),
                   ),

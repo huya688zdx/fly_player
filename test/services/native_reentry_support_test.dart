@@ -1,8 +1,68 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/media_backend/playback/media_session_reload.dart';
 import 'package:fly_player/services/native_reentry_support.dart';
 
 void main() {
+  group('NativeReentrySupport.buildNativeEpisodeImageFields', () {
+    test('根海报字段与选集字段共用同一同源策略', () {
+      final fields = NativeReentrySupport.buildNativeImageFields(
+        poster: 'https://nas.test:5666/poster.jpg',
+        token: 'nas-token',
+        accessCode: '访问码',
+        baseUrl: 'https://nas.test:5666',
+        usingLocal: false,
+      );
+
+      expect(fields['imageAuth'], 'nas-token');
+      expect(
+        fields['imageHeaders'],
+        containsPair('x-access-code', base64Encode(utf8.encode('访问码'))),
+      );
+    });
+
+    test('同源飞牛海报输出完整图片头并保留旧 imageAuth', () {
+      final fields = NativeReentrySupport.buildNativeEpisodeImageFields(
+        poster: 'https://nas.test:5666/poster.jpg',
+        token: 'nas-token',
+        accessCode: '访问码',
+        baseUrl: 'https://nas.test:5666',
+        usingLocal: false,
+      );
+
+      expect(fields['imageAuth'], 'nas-token');
+      expect(fields['imageHeaders'], <String, String>{
+        'Authorization': 'nas-token',
+        'Trim-MC-token': 'nas-token',
+        'x-access-code': base64Encode(utf8.encode('访问码')),
+        'x-access-source': 'app',
+      });
+    });
+
+    test('本地和跨源海报均不携带飞牛凭据', () {
+      for (final fields in <Map<String, dynamic>>[
+        NativeReentrySupport.buildNativeEpisodeImageFields(
+          poster: 'file:///storage/poster.jpg',
+          token: 'nas-token',
+          accessCode: 'code',
+          baseUrl: 'https://nas.test:5666',
+          usingLocal: true,
+        ),
+        NativeReentrySupport.buildNativeEpisodeImageFields(
+          poster: 'https://cdn.test/poster.jpg',
+          token: 'nas-token',
+          accessCode: 'code',
+          baseUrl: 'https://nas.test:5666',
+          usingLocal: false,
+        ),
+      ]) {
+        expect(fields['imageAuth'], isEmpty);
+        expect(fields['imageHeaders'], isEmpty);
+      }
+    });
+  });
+
   group('NativeReentrySupport.resolveReloadRequestParams', () {
     const currentStart = Duration(seconds: 120);
 

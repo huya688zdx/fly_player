@@ -20,8 +20,6 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.media.app.NotificationCompat.MediaStyle
 import com.bumptech.glide.Glide
-import com.bumptech.glide.load.model.GlideUrl
-import com.bumptech.glide.load.model.LazyHeaders
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -281,7 +279,8 @@ class NativePlaybackMediaService : Service() {
     // ---- 封面异步加载（Glide，带 NAS 鉴权头） ----
 
     private fun syncArtwork(s: SessionState) {
-        val key = "${s.artworkUrl}|${s.artworkAuth}"
+        val key =
+            "${s.artworkUrl}|${NativeImageRequestHeaders.fingerprint(s.artworkHeaders)}"
         if (s.artworkUrl.isBlank()) {
             artworkKey = ""
             artworkBitmap = null
@@ -291,19 +290,14 @@ class NativePlaybackMediaService : Service() {
         if (key == artworkInFlightKey) return
         artworkKey = key
         artworkInFlightKey = key
+        val model =
+            NativeSafeImageGlide.model(
+                applicationContext,
+                s.artworkUrl,
+                s.artworkHeaders,
+            )
         artworkExecutor.execute {
             val bitmap = runCatching {
-                val model: Any = if (s.artworkAuth.isNotEmpty()) {
-                    GlideUrl(
-                        s.artworkUrl,
-                        LazyHeaders.Builder()
-                            .addHeader("Authorization", s.artworkAuth)
-                            .addHeader("Trim-MC-token", s.artworkAuth)
-                            .build(),
-                    )
-                } else {
-                    s.artworkUrl
-                }
                 Glide.with(applicationContext)
                     .asBitmap()
                     .load(model)
@@ -371,7 +365,7 @@ class NativePlaybackMediaService : Service() {
         val title: String,
         val subtitle: String,
         val artworkUrl: String,
-        val artworkAuth: String,
+        val artworkHeaders: Map<String, String>,
         val isPlaying: Boolean,
         val positionMs: Long,
         val durationMs: Long,
@@ -385,7 +379,13 @@ class NativePlaybackMediaService : Service() {
                     title = title,
                     subtitle = intent.getStringExtra("subtitle").orEmpty(),
                     artworkUrl = intent.getStringExtra("artworkUrl").orEmpty(),
-                    artworkAuth = intent.getStringExtra("artworkAuth").orEmpty(),
+                    artworkHeaders =
+                        NativeImageRequestHeaders.fromAnyOrLegacy(
+                            NativeImageRequestHeaders.fromFlatList(
+                                intent.getStringArrayListExtra("artworkHeaders"),
+                            ),
+                            intent.getStringExtra("artworkAuth").orEmpty(),
+                        ),
                     isPlaying = intent.getBooleanExtra("isPlaying", false),
                     positionMs = intent.getLongExtra("positionMs", 0L),
                     durationMs = intent.getLongExtra("durationMs", 0L),
@@ -412,7 +412,7 @@ class NativePlaybackMediaService : Service() {
             title: String,
             subtitle: String,
             artworkUrl: String,
-            artworkAuth: String,
+            artworkHeaders: Map<String, String>,
             isPlaying: Boolean,
             positionMs: Long,
             durationMs: Long,
@@ -424,7 +424,10 @@ class NativePlaybackMediaService : Service() {
                 putExtra("title", title)
                 putExtra("subtitle", subtitle)
                 putExtra("artworkUrl", artworkUrl)
-                putExtra("artworkAuth", artworkAuth)
+                putStringArrayListExtra(
+                    "artworkHeaders",
+                    NativeImageRequestHeaders.toFlatList(artworkHeaders),
+                )
                 putExtra("isPlaying", isPlaying)
                 putExtra("positionMs", positionMs)
                 putExtra("durationMs", durationMs)

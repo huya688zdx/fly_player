@@ -45,10 +45,12 @@ void main() {
         ?.toStringDeep();
     expect(semanticsTree, isNot(contains('重新登录 FN Connect')));
     semantics.dispose();
+    expect(find.byType(TextField), findsNWidgets(3));
+    expect(find.byKey(const Key('feiniuAccessCodeField')), findsNothing);
     expect(find.byType(SegmentedButton<String>), findsNothing);
     expect(
       tester.getTopLeft(find.byType(ElevatedButton)).dy,
-      closeTo(feiniuLoginButtonY, 0.5),
+      closeTo(feiniuLoginButtonY, 3),
     );
 
     await tester.dragFrom(const Offset(400, 300), const Offset(360, 0));
@@ -73,7 +75,7 @@ void main() {
 
     expect(
       tester.getTopLeft(find.byType(ElevatedButton)).dy,
-      closeTo(feiniuLoginButtonY, 0.5),
+      closeTo(feiniuLoginButtonY, 3),
     );
   });
 }

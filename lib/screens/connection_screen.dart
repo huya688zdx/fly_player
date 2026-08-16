@@ -68,6 +68,7 @@ typedef FeiniuLoginCallback =
       required String baseUrl,
       required String userName,
       required String password,
+      required String accessCode,
     });
 
 class ConnectionScreen extends StatefulWidget {
@@ -84,6 +85,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   final TextEditingController _baseUrlController = TextEditingController();
   final TextEditingController _userNameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _accessCodeController = TextEditingController();
 
   /// 服务器族后端各持一套表单状态，按注册表生成（新增后端自动出现）。
   final Map<MediaBackendKind, _ServerLoginFormState> _serverForms =
@@ -115,6 +117,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   double _swipeLastY = 0;
   bool _rememberPassword = true;
   bool _obscurePassword = true;
+  bool _obscureAccessCode = true;
   bool _isSubmitting = false;
   List<LoginHistoryEntry> _historyEntries = const <LoginHistoryEntry>[];
 
@@ -126,6 +129,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     _baseUrlScheme = _schemeForLogin(provider.sourceBaseUrl);
     _userNameController.text = provider.userName;
     _passwordController.text = provider.password;
+    _accessCodeController.text = provider.accessCode;
     _rememberPassword = provider.rememberPassword;
     unawaited(_loadLoginHistorySafely());
     unawaited(_loadStoredBackendConnectionSafely());
@@ -137,6 +141,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     _baseUrlController.dispose();
     _userNameController.dispose();
     _passwordController.dispose();
+    _accessCodeController.dispose();
     for (final form in _serverForms.values) {
       form.dispose();
     }
@@ -441,6 +446,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     final baseUrl = _normalizeBaseUrlInput(_baseUrlController.text);
     final userName = _userNameController.text.trim();
     final password = _passwordController.text;
+    final accessCode = _accessCodeController.text;
 
     if (baseUrl.isEmpty) {
       _showTopTip(
@@ -476,12 +482,14 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             baseUrl: baseUrl,
             userName: userName,
             password: password,
+            accessCode: accessCode,
           );
       if (!mounted) return;
       await _applyLoginResult(
         sourceBaseUrl: baseUrl,
         userName: userName,
         password: password,
+        accessCode: accessCode,
         loginResult: loginResult,
       );
     } on FnConnectLoginException catch (error) {
@@ -489,6 +497,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         baseUrl: baseUrl,
         userName: userName,
         password: password,
+        accessCode: accessCode,
         error: error,
       );
       if (!mounted) return;
@@ -497,6 +506,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           sourceBaseUrl: baseUrl,
           userName: userName,
           password: password,
+          accessCode: accessCode,
           loginResult: fallbackResult!.loginResult!,
         );
       } else if (fallbackResult?.errorMessage?.trim().isNotEmpty == true) {
@@ -526,6 +536,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     required String sourceBaseUrl,
     required String userName,
     required String password,
+    required String accessCode,
     required LoginWithBaseUrlResult loginResult,
   }) async {
     final persistedBaseUrl = effectivePersistedBaseUrlForLogin(
@@ -539,6 +550,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           : loginResult.resolvedBaseUrl,
       userName: userName,
       password: password,
+      accessCode: accessCode,
       rememberPassword: _rememberPassword,
       token: loginResult.token,
     );
@@ -547,6 +559,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         baseUrl: sourceBaseUrl,
         userName: userName,
         password: _rememberPassword ? password : '',
+        accessCode: _rememberPassword ? accessCode : '',
         rememberPassword: _rememberPassword,
         updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
       ),
@@ -588,6 +601,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       form.baseUrl.text = entry.baseUrl;
       form.userName.text = entry.userName;
       form.password.text = entry.rememberPassword ? entry.password : '';
+      _accessCodeController.clear();
       // 历史记录不含 entry-token；切到不同服务器时清空旧令牌，鉴权流程会按需重抓。
       form.entryToken = '';
       setState(() {
@@ -599,6 +613,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     _baseUrlController.text = _displayBaseUrlForLogin(entry.baseUrl);
     _userNameController.text = entry.userName;
     _passwordController.text = entry.rememberPassword ? entry.password : '';
+    _accessCodeController.text = entry.rememberPassword ? entry.accessCode : '';
     setState(() {
       _baseUrlScheme = _schemeForLogin(entry.baseUrl);
       _rememberPassword = entry.rememberPassword;
@@ -672,6 +687,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     required String baseUrl,
     required String userName,
     required String password,
+    required String accessCode,
     required FnConnectLoginException error,
   }) async {
     final fnConnectId = FeiniuApi.extractFnConnectIdFromInput(baseUrl);
@@ -690,6 +706,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           fnConnectId: fnConnectId,
           userName: userName,
           password: password,
+          accessCode: accessCode,
           relayHosts:
               error.diagnostic.discovery?.relayHosts ?? const <String>[],
         ),
@@ -1098,6 +1115,36 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             ),
           ),
         ),
+        const SizedBox(height: 12),
+        if (form == null)
+          _GlassField(
+            key: const Key('feiniuAccessCodeFieldContainer'),
+            textFieldKey: const Key('feiniuAccessCodeField'),
+            controller: _accessCodeController,
+            labelText: l10n.connectionAccessCodeOptional,
+            hintText: '',
+            leadingIcon: Icons.key_rounded,
+            obscureText: _obscureAccessCode,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _submit(),
+            suffix: IconButton(
+              onPressed: () {
+                setState(() {
+                  _obscureAccessCode = !_obscureAccessCode;
+                });
+              },
+              icon: Icon(
+                _obscureAccessCode
+                    ? Icons.visibility_off_outlined
+                    : Icons.visibility_outlined,
+                color: const Color(0xFF8795AD),
+              ),
+            ),
+          )
+        else
+          const ExcludeSemantics(
+            child: IgnorePointer(child: SizedBox(height: 64)),
+          ),
         const SizedBox(height: 14),
         _buildRememberRow(
           theme,
@@ -1526,6 +1573,7 @@ class _LoginFormPanel extends StatelessWidget {
 
 class _GlassField extends StatelessWidget {
   const _GlassField({
+    super.key,
     required this.controller,
     required this.hintText,
     this.labelText,
@@ -1537,6 +1585,7 @@ class _GlassField extends StatelessWidget {
     this.suffix,
     this.onChanged,
     this.onSubmitted,
+    this.textFieldKey,
   });
 
   final TextEditingController controller;
@@ -1550,6 +1599,7 @@ class _GlassField extends StatelessWidget {
   final Widget? suffix;
   final ValueChanged<String>? onChanged;
   final ValueChanged<String>? onSubmitted;
+  final Key? textFieldKey;
 
   @override
   Widget build(BuildContext context) {
@@ -1576,6 +1626,7 @@ class _GlassField extends StatelessWidget {
           ],
           Expanded(
             child: TextField(
+              key: textFieldKey,
               controller: controller,
               obscureText: obscureText,
               keyboardType: keyboardType,

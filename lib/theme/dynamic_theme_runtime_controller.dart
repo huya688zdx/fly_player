@@ -16,7 +16,7 @@ class DynamicThemeRuntimeController {
 
   // v6 / v2：配合 Monet 式取色升级（互异色相分配 + 柔和 clamp），让页级 seed 缓存失效重算。
   static const String _cacheVersion = 'dyn_v6';
-  static const String _persistentCacheVersion = 'dyn_page_seed_v2';
+  static const String _persistentCacheVersion = 'dyn_page_seed_v4';
   static const String _persistentCachePrefsKey =
       'dynamic_theme_page_seed_cache_v1';
   static const int _maxSeedCacheEntries = 256;
@@ -34,8 +34,12 @@ class DynamicThemeRuntimeController {
   bool _persistentCacheLoaded = false;
   bool _persistScheduled = false;
 
-  DynamicThemeSeed? cachedSeedFor(String key, {String imageUrl = ''}) {
-    final normalizedKey = _normalizedKey(key);
+  DynamicThemeSeed? cachedSeedFor(
+    String key, {
+    String imageUrl = '',
+    Map<String, String> imageHeaders = const <String, String>{},
+  }) {
+    final normalizedKey = _normalizedKey(key, imageHeaders);
     final cached = normalizedKey.isEmpty
         ? null
         : _touchPageSeedCache(normalizedKey);
@@ -45,6 +49,7 @@ class DynamicThemeRuntimeController {
     _primePersistentCacheLoad();
     final imageCached = DynamicThemeSeedExtractor.cachedSeedForImageUrl(
       imageUrl,
+      imageHeaders: imageHeaders,
     );
     if (imageCached != null && normalizedKey.isNotEmpty) {
       _storePageSeedCache(normalizedKey, imageCached);
@@ -55,8 +60,10 @@ class DynamicThemeRuntimeController {
   Future<DynamicThemeSeed?> restoreCachedSeed({
     required String key,
     required String imageUrl,
+    Map<String, String> imageHeaders = const <String, String>{},
   }) async {
-    final normalizedKey = _normalizedKey(key);
+    final imageHeadersSnapshot = Map<String, String>.unmodifiable(imageHeaders);
+    final normalizedKey = _normalizedKey(key, imageHeadersSnapshot);
     var cached = normalizedKey.isEmpty
         ? null
         : _touchPageSeedCache(normalizedKey);
@@ -69,7 +76,10 @@ class DynamicThemeRuntimeController {
       return cached;
     }
     final imageCached =
-        await DynamicThemeSeedExtractor.restoreCachedSeedForImageUrl(imageUrl);
+        await DynamicThemeSeedExtractor.restoreCachedSeedForImageUrl(
+          imageUrl,
+          imageHeaders: imageHeadersSnapshot,
+        );
     if (imageCached != null && normalizedKey.isNotEmpty) {
       _storePageSeedCache(normalizedKey, imageCached);
     }
@@ -81,11 +91,16 @@ class DynamicThemeRuntimeController {
     required String imageUrl,
     Map<String, String> imageHeaders = const <String, String>{},
   }) {
-    final normalizedKey = _normalizedKey(key);
+    final imageHeadersSnapshot = Map<String, String>.unmodifiable(imageHeaders);
+    final normalizedKey = _normalizedKey(key, imageHeadersSnapshot);
     if (normalizedKey.isEmpty || imageUrl.trim().isEmpty) {
       return Future<DynamicThemeSeed?>.value(null);
     }
-    final cached = cachedSeedFor(key, imageUrl: imageUrl);
+    final cached = cachedSeedFor(
+      key,
+      imageUrl: imageUrl,
+      imageHeaders: imageHeadersSnapshot,
+    );
     if (cached != null) {
       return Future<DynamicThemeSeed?>.value(cached);
     }
@@ -97,7 +112,7 @@ class DynamicThemeRuntimeController {
     final future =
         DynamicThemeSeedExtractor.extract(
           imageUrl: imageUrl,
-          imageHeaders: imageHeaders,
+          imageHeaders: imageHeadersSnapshot,
         ).then((seed) {
           if (seed != null) {
             _storePageSeedCache(normalizedKey, seed);
@@ -112,10 +127,11 @@ class DynamicThemeRuntimeController {
 
   AppThemeColors mapCachedOrNull({
     required String key,
+    Map<String, String> imageHeaders = const <String, String>{},
     required AppThemeColors baseColors,
     required AppDynamicThemeIntensity intensity,
   }) {
-    final seed = cachedSeedFor(key);
+    final seed = cachedSeedFor(key, imageHeaders: imageHeaders);
     if (seed == null) return baseColors;
     return DynamicThemeMapper.map(
       baseColors: baseColors,
@@ -128,18 +144,23 @@ class DynamicThemeRuntimeController {
     required String key,
     String sourceKey = '',
     String imageUrl = '',
+    Map<String, String> imageHeaders = const <String, String>{},
     DynamicThemeSeed? seed,
   }) {
-    final normalizedKey = _normalizedKey(key);
+    final normalizedKey = _normalizedKey(key, imageHeaders);
     if (normalizedKey.isEmpty) {
       return;
     }
     final resolvedSeed =
         seed ??
         (sourceKey.trim().isNotEmpty
-            ? cachedSeedFor(sourceKey, imageUrl: imageUrl)
+            ? cachedSeedFor(
+                sourceKey,
+                imageUrl: imageUrl,
+                imageHeaders: imageHeaders,
+              )
             : null) ??
-        cachedSeedFor(key, imageUrl: imageUrl);
+        cachedSeedFor(key, imageUrl: imageUrl, imageHeaders: imageHeaders);
     if (resolvedSeed == null) {
       return;
     }
@@ -148,6 +169,13 @@ class DynamicThemeRuntimeController {
 
   Future<void> warmUpPersistentCache() async {
     await _ensurePersistentCacheLoaded();
+  }
+
+  Future<void> flushPendingWrites({SharedPreferences? prefs}) async {
+    _persistTimer?.cancel();
+    _persistTimer = null;
+    if (!_persistScheduled) return;
+    await _persistSeedCache(prefs: prefs);
   }
 
   int estimatePersistentCacheBytes(SharedPreferences prefs) {
@@ -188,10 +216,17 @@ class DynamicThemeRuntimeController {
     await targetPrefs.remove(_persistentCachePrefsKey);
   }
 
-  String _normalizedKey(String key) {
+  String _normalizedKey(
+    String key, [
+    Map<String, String> imageHeaders = const <String, String>{},
+  ]) {
     final trimmed = key.trim();
     if (trimmed.isEmpty) return '';
-    return '$_cacheVersion:$trimmed';
+    final scope = DynamicThemeSeedExtractor.imageHeadersScopeDigest(
+      imageHeaders,
+    );
+    final visibility = imageHeaders.isEmpty ? 'public' : 'private';
+    return '$visibility:$_cacheVersion:$trimmed#headers=$scope';
   }
 
   DynamicThemeSeed? _touchPageSeedCache(String normalizedKey) {
@@ -257,7 +292,7 @@ class DynamicThemeRuntimeController {
         }
         final key = entry['key']?.toString().trim() ?? '';
         final seed = _seedFromJson(entry);
-        if (key.isEmpty || seed == null) {
+        if (!_isPersistentCacheKey(key) || seed == null) {
           continue;
         }
         _pageSeedCache.remove(key);
@@ -303,6 +338,7 @@ class DynamicThemeRuntimeController {
       final payload = <String, Object?>{
         'version': _persistentCacheVersion,
         'entries': _pageSeedCache.entries
+            .where((entry) => _isPersistentCacheKey(entry.key))
             .map(
               (entry) => <String, Object?>{
                 'key': entry.key,
@@ -324,6 +360,8 @@ class DynamicThemeRuntimeController {
       );
     }
   }
+
+  bool _isPersistentCacheKey(String key) => key.startsWith('public:');
 
   Map<String, Object?> _seedToJson(DynamicThemeSeed seed) {
     return <String, Object?>{

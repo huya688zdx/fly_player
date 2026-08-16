@@ -19,8 +19,6 @@ import android.util.Log
 import android.util.LruCache
 import androidx.core.app.NotificationCompat
 import androidx.media.app.NotificationCompat.MediaStyle
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -328,7 +326,8 @@ class PlaybackSessionManager(
     private fun syncArtwork(payload: PlaybackSessionPayload) {
         // 先尝试命中当前 payload 或内存缓存，只有都失败时才启动后台抓取。
         val candidateUrls = artworkCandidateUrls(payload)
-        val nextArtworkCandidateKey = artworkCandidateKey(candidateUrls)
+        val safeHeaders = NativeImageRequestHeaders.fromAny(payload.artworkHeaders)
+        val nextArtworkCandidateKey = artworkCandidateKey(candidateUrls, safeHeaders)
         if (nextArtworkCandidateKey.isEmpty()) {
             Log.d(logTag, "Artwork skipped: no candidate urls")
             artworkCandidateKey = ""
@@ -343,10 +342,13 @@ class PlaybackSessionManager(
         }
         artworkCandidateKey = nextArtworkCandidateKey
         artworkResolvedUrl = ""
-        artworkBitmap = candidateUrls.firstNotNullOfOrNull { artworkCache.get(it) }
+        artworkBitmap = candidateUrls.firstNotNullOfOrNull { url ->
+            artworkCache.get(artworkCacheKey(url, safeHeaders))
+        }
         if (artworkBitmap != null) {
-            artworkResolvedUrl =
-                candidateUrls.firstOrNull { artworkCache.get(it) === artworkBitmap }.orEmpty()
+            artworkResolvedUrl = candidateUrls.firstOrNull { url ->
+                artworkCache.get(artworkCacheKey(url, safeHeaders)) === artworkBitmap
+            }.orEmpty()
             Log.d(logTag, "Artwork memory cache hit: $artworkResolvedUrl")
             return
         }
@@ -360,7 +362,7 @@ class PlaybackSessionManager(
             "Artwork fetch start candidates=${candidateUrls.size} headers=${payload.artworkHeaders.keys.joinToString()}",
         )
         artworkExecutor.execute {
-            val artworkResult = loadArtworkBitmap(candidateUrls, payload.artworkHeaders)
+            val artworkResult = loadArtworkBitmap(candidateUrls, safeHeaders)
             mainHandler.post {
                 if (released || artworkFetchInFlightUrl != nextArtworkCandidateKey) {
                     return@post
@@ -371,8 +373,13 @@ class PlaybackSessionManager(
                     return@post
                 }
                 val (resolvedUrl, bitmap) = artworkResult
-                artworkCache.put(resolvedUrl, bitmap)
-                val latestCandidateKey = lastPayload?.let(::artworkCandidateKey).orEmpty()
+                artworkCache.put(artworkCacheKey(resolvedUrl, safeHeaders), bitmap)
+                val latestCandidateKey = lastPayload?.let { latest ->
+                    artworkCandidateKey(
+                        artworkCandidateUrls(latest),
+                        NativeImageRequestHeaders.fromAny(latest.artworkHeaders),
+                    )
+                }.orEmpty()
                 if (latestCandidateKey != nextArtworkCandidateKey) {
                     return@post
                 }
@@ -396,10 +403,20 @@ class PlaybackSessionManager(
             }
 
     private fun artworkCandidateKey(payload: PlaybackSessionPayload): String =
-        artworkCandidateKey(artworkCandidateUrls(payload))
+        artworkCandidateKey(
+            artworkCandidateUrls(payload),
+            NativeImageRequestHeaders.fromAny(payload.artworkHeaders),
+        )
 
-    private fun artworkCandidateKey(candidateUrls: List<String>): String =
-        candidateUrls.joinToString(separator = "|")
+    private fun artworkCandidateKey(
+        candidateUrls: List<String>,
+        headers: Map<String, String>,
+    ): String = NativeImageRequestHeaders.candidateIdentity(candidateUrls, headers)
+
+    private fun artworkCacheKey(
+        url: String,
+        headers: Map<String, String>,
+    ): String = NativeImageRequestHeaders.cacheIdentity(url, headers)
 
     private fun pendingIntentFlags(): Int =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -421,32 +438,21 @@ class PlaybackSessionManager(
             val bitmap =
                 runCatching {
                     Log.d(logTag, "Artwork request: $url")
-                    val requestBuilder = Request.Builder().url(url)
-                    headers.forEach { (key, value) ->
-                        requestBuilder.header(key, value)
+                    val bytes = NativeSafeImageHttp.fetchBytes(url, headers)
+                    if (bytes == null || bytes.isEmpty()) {
+                        Log.w(logTag, "Artwork empty or rejected body for $url")
+                        return@runCatching null
                     }
-                    val request = requestBuilder.build()
-                    artworkClient.newCall(request).execute().use { response ->
-                        if (!response.isSuccessful) {
-                            Log.w(logTag, "Artwork http ${response.code} for $url")
-                            return@use null
-                        }
-                        val bytes = response.body?.bytes()
-                        if (bytes == null || bytes.isEmpty()) {
-                            Log.w(logTag, "Artwork empty body for $url")
-                            return@use null
-                        }
-                        val bitmap = decodeArtworkBitmap(bytes)
-                        if (bitmap == null) {
-                            Log.w(logTag, "Artwork decode failed for $url bytes=${bytes.size}")
-                        } else {
-                            Log.d(
-                                logTag,
-                                "Artwork decoded for $url bytes=${bytes.size} size=${bitmap.width}x${bitmap.height}",
-                            )
-                        }
-                        bitmap
+                    val bitmap = decodeArtworkBitmap(bytes)
+                    if (bitmap == null) {
+                        Log.w(logTag, "Artwork decode failed for $url bytes=${bytes.size}")
+                    } else {
+                        Log.d(
+                            logTag,
+                            "Artwork decoded for $url bytes=${bytes.size} size=${bitmap.width}x${bitmap.height}",
+                        )
                     }
+                    bitmap
                 }.getOrElse { error ->
                     Log.w(logTag, "Artwork request error for $url: ${error.message}")
                     null
@@ -521,7 +527,6 @@ class PlaybackSessionManager(
 
     companion object {
         private const val SESSION_TAG = "fly_player_playback_session"
-        private val artworkClient = OkHttpClient()
         private val artworkCache =
             object : LruCache<String, Bitmap>(12 * 1024 * 1024) {
                 override fun sizeOf(
