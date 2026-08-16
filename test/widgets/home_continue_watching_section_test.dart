@@ -21,6 +21,23 @@ Widget testApp(Widget child) => MaterialApp(
   home: Scaffold(body: SizedBox(width: 390, child: child)),
 );
 
+Widget responsiveTestApp({
+  required double width,
+  required double devicePixelRatio,
+  required Widget child,
+}) => MaterialApp(
+  theme: AppThemeBuilder.build(AppThemePreset.midnight),
+  home: MediaQuery(
+    data: MediaQueryData(
+      size: Size(width, 800),
+      devicePixelRatio: devicePixelRatio,
+    ),
+    child: Scaffold(
+      body: SizedBox(width: width, child: child),
+    ),
+  ),
+);
+
 String networkUrlOf(Image image) {
   final provider = image.image;
   final network = provider is ResizeImage
@@ -284,5 +301,68 @@ void main() {
         'https://new.test/1.jpg',
       );
     });
+  });
+
+  testWidgets('稳定解码宽度不随响应式续看卡宽改变', (tester) async {
+    final items = List<HomeContinueCardData>.generate(
+      4,
+      (index) => HomeContinueCardData(
+        id: 'stable-$index',
+        title: '续看 $index',
+        contextText: '测试',
+        progress: .2,
+        imageRequest: const MediaImageRequest(
+          urls: <String>['https://example.test/stable.jpg'],
+          selfAuthenticated: true,
+        ),
+        downloaded: false,
+      ),
+    );
+
+    Widget section(double width) => responsiveTestApp(
+      width: width,
+      devicePixelRatio: 2,
+      child: HomeContinueWatchingSection(
+        items: items,
+        stableImageDecodeLogicalWidth: 200,
+        onOpenDetail: (_) {},
+        onPlay: (_) {},
+        onLongPress: (_) {},
+      ),
+    );
+
+    await tester.pumpWidget(section(336));
+    final narrowCardWidth = tester
+        .getSize(find.byKey(const ValueKey<String>('continue-card-stable-0')))
+        .width;
+    final narrowDecodeWidth =
+        (tester
+                    .widget<Image>(
+                      find.byKey(
+                        const ValueKey<String>('continue-image-stable-0'),
+                      ),
+                    )
+                    .image
+                as ResizeImage)
+            .width;
+
+    await tester.pumpWidget(section(570));
+    final wideCardWidth = tester
+        .getSize(find.byKey(const ValueKey<String>('continue-card-stable-0')))
+        .width;
+    final wideDecodeWidth =
+        (tester
+                    .widget<Image>(
+                      find.byKey(
+                        const ValueKey<String>('continue-image-stable-0'),
+                      ),
+                    )
+                    .image
+                as ResizeImage)
+            .width;
+
+    expect(narrowCardWidth, isNot(wideCardWidth));
+    expect(narrowDecodeWidth, wideDecodeWidth);
+    expect(narrowDecodeWidth, 416);
   });
 }

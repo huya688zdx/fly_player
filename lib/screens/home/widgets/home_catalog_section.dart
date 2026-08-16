@@ -32,12 +32,16 @@ class HomeCatalogSection extends StatelessWidget {
     required this.items,
     required this.style,
     required this.onTap,
+    this.stableImageDecodeLogicalWidth,
     this.title = '媒体库',
   });
 
   final List<HomeCatalogCardData> items;
   final HomeCatalogStyle style;
   final ValueChanged<HomeCatalogCardData> onTap;
+
+  /// 稳定的逻辑解码宽度；只影响图片缓存键，不参与响应式卡片布局。
+  final int? stableImageDecodeLogicalWidth;
   final String title;
 
   @override
@@ -57,6 +61,7 @@ class HomeCatalogSection extends StatelessWidget {
             item: item,
             style: style,
             width: width,
+            stableImageDecodeLogicalWidth: stableImageDecodeLogicalWidth,
             onTap: () => onTap(item),
           ),
           idealItemWidth: geometry.idealWidth,
@@ -96,12 +101,14 @@ class _CatalogCard extends StatelessWidget {
     required this.item,
     required this.style,
     required this.width,
+    required this.stableImageDecodeLogicalWidth,
     required this.onTap,
   });
 
   final HomeCatalogCardData item;
   final HomeCatalogStyle style;
   final double width;
+  final int? stableImageDecodeLogicalWidth;
   final VoidCallback onTap;
 
   @override
@@ -123,7 +130,11 @@ class _CatalogCard extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: <Widget>[
-                _CatalogArtwork(item: item, style: style),
+                _CatalogArtwork(
+                  item: item,
+                  style: style,
+                  stableImageDecodeLogicalWidth: stableImageDecodeLogicalWidth,
+                ),
                 const DecoratedBox(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
@@ -160,10 +171,15 @@ class _CatalogCard extends StatelessWidget {
 }
 
 class _CatalogArtwork extends StatelessWidget {
-  const _CatalogArtwork({required this.item, required this.style});
+  const _CatalogArtwork({
+    required this.item,
+    required this.style,
+    required this.stableImageDecodeLogicalWidth,
+  });
 
   final HomeCatalogCardData item;
   final HomeCatalogStyle style;
+  final int? stableImageDecodeLogicalWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -187,6 +203,7 @@ class _CatalogArtwork extends StatelessWidget {
       return _CatalogNetworkImage(
         imageKey: ValueKey<String>('catalog-image-${item.id}'),
         request: loadable.first,
+        stableDecodeLogicalWidth: stableImageDecodeLogicalWidth,
       );
     }
 
@@ -201,6 +218,7 @@ class _CatalogArtwork extends StatelessWidget {
                     : 'catalog-image-${item.id}-$index',
               ),
               request: loadable[index],
+              stableDecodeLogicalWidth: stableImageDecodeLogicalWidth,
             ),
           ),
       ],
@@ -217,10 +235,15 @@ class _CatalogArtwork extends StatelessWidget {
 }
 
 class _CatalogNetworkImage extends StatefulWidget {
-  const _CatalogNetworkImage({required this.imageKey, required this.request});
+  const _CatalogNetworkImage({
+    required this.imageKey,
+    required this.request,
+    required this.stableDecodeLogicalWidth,
+  });
 
   final Key imageKey;
   final MediaImageRequest request;
+  final int? stableDecodeLogicalWidth;
 
   @override
   State<_CatalogNetworkImage> createState() => _CatalogNetworkImageState();
@@ -255,13 +278,15 @@ class _CatalogNetworkImageState extends State<_CatalogNetworkImage> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final dpr = MediaQuery.devicePixelRatioOf(context);
+        final decodeLogicalWidth =
+            widget.stableDecodeLogicalWidth ?? constraints.maxWidth;
         return Image.network(
           widget.request.urls[_index],
           key: widget.imageKey,
           headers: widget.request.headers,
           fit: BoxFit.cover,
           gaplessPlayback: true,
-          cacheWidth: _stableCacheExtent(constraints.maxWidth, dpr),
+          cacheWidth: _stableCacheExtent(decodeLogicalWidth.toDouble(), dpr),
           errorBuilder: (context, error, stackTrace) {
             _scheduleFallback();
             return fallback;
