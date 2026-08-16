@@ -443,7 +443,7 @@ void main() {
     await tester.tap(find.text('加载失败，点按重试'));
     expect(retryCount, 1);
   });
-  testWidgets('大屏海报轨为双行标题和副标题保留完整高度', (tester) async {
+  testWidgets('大屏海报轨在 960×432 横屏最大文字缩放下保留双行标题和副标题', (tester) async {
     final card = _card(
       id: 'long-title',
       title: '吹响吧！上低音号特别篇',
@@ -451,41 +451,47 @@ void main() {
       durationSeconds: 120,
     );
 
-    await tester.binding.setSurfaceSize(const Size(1920, 1080));
+    await tester.binding.setSurfaceSize(const Size(960, 432));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
       _localizedApp(
-        PosterBrowseLargeLayout(
-          rows: <PosterBrowseRow>[
-            PosterBrowseRow(
-              kind: PosterBrowseRowKind.continueWatching,
-              items: <MediaItemCard>[card],
-            ),
-          ],
-          displayItemOf: _displayItem,
-          selectedRow: 0,
-          focusedIndex: 0,
-          focusedItem: _displayItem(card),
-          logoRequest: MediaImageRequest.empty,
-          secondaryLabel: '第 1 季 第 1 集',
-          metaWidgets: const <Widget>[],
-          imageOf: _loadableImageOf,
-          secondaryLabelOf: (_) => '第 1 季 第 1 集',
-          onSelectRow: (_) {},
-          onSelectItem: (_) {},
-          onRetryCurrentRow: () {},
-          onPlay: () {},
-          onDetail: () {},
-          onBack: () {},
+        MediaQuery(
+          data: const MediaQueryData(
+            size: Size(960, 432),
+            textScaler: TextScaler.linear(1.35),
+          ),
+          child: PosterBrowseLargeLayout(
+            rows: <PosterBrowseRow>[
+              PosterBrowseRow(
+                kind: PosterBrowseRowKind.continueWatching,
+                items: <MediaItemCard>[card],
+              ),
+            ],
+            displayItemOf: _displayItem,
+            selectedRow: 0,
+            focusedIndex: 0,
+            focusedItem: _displayItem(card),
+            logoRequest: MediaImageRequest.empty,
+            secondaryLabel: '第 1 季 第 1 集',
+            metaWidgets: const <Widget>[],
+            imageOf: _loadableImageOf,
+            secondaryLabelOf: (_) => '第 1 季 第 1 集',
+            onSelectRow: (_) {},
+            onSelectItem: (_) {},
+            onRetryCurrentRow: () {},
+            onPlay: () {},
+            onDetail: () {},
+            onBack: () {},
+          ),
         ),
       ),
     );
 
+    expect(tester.takeException(), isNull);
     expect(
       tester.getSize(find.byType(PosterBrowsePosterTrack)).height,
-      greaterThanOrEqualTo(264),
+      greaterThanOrEqualTo(280),
     );
-    expect(tester.takeException(), isNull);
   });
 }
 
