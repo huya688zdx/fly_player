@@ -40,6 +40,7 @@ import '../utils/async_action_guard.dart';
 import '../utils/app_confirm_dialog.dart';
 import '../utils/app_exception.dart';
 import '../utils/app_top_tip.dart';
+import '../utils/swallowed_error_logger.dart';
 import '../widgets/common/app_action_sheet.dart';
 import '../widgets/common/app_error_state.dart';
 import '../widgets/common/liquid_glass.dart';
@@ -73,6 +74,12 @@ typedef _MediaItemsWithImages = ({
   Map<String, MediaImageRequest> backdropImageRequests,
 });
 
+const _MediaItemsWithImages _emptyMediaItemsWithImages = (
+  items: <MediaLibraryItem>[],
+  imageRequests: <String, MediaImageRequest>{},
+  backdropImageRequests: <String, MediaImageRequest>{},
+);
+
 class MediaListScreen extends StatefulWidget {
   final bool secondaryHost;
 
@@ -90,6 +97,10 @@ class _MediaListScreenState extends State<MediaListScreen>
   static const int _secondaryCategoryPreviewLimit = 8;
 
   HomeViewData _homeData = const HomeViewData.empty();
+  final HomeLoadGeneration _homeLoadGeneration = HomeLoadGeneration();
+
+  bool _isCurrentHomeLoad(int generation) =>
+      mounted && _homeLoadGeneration.isCurrent(generation);
 
   List<MediaItem> get _categories => _homeData.catalogs;
   set _categories(List<MediaItem> value) {
@@ -182,6 +193,7 @@ class _MediaListScreenState extends State<MediaListScreen>
 
   @override
   void dispose() {
+    _homeLoadGeneration.invalidate();
     _posterBrowsePrewarmGeneration += 1;
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -211,6 +223,7 @@ class _MediaListScreenState extends State<MediaListScreen>
     final serverReady =
         session.currentKind.isServerFamily && session.isConfigured;
     if (!serverReady && !provider.isConfigured) {
+      _homeLoadGeneration.invalidate();
       _lastLoadKey = '';
       _posterBrowsePrewarmGeneration += 1;
       _homeData = const HomeViewData.empty();
@@ -237,9 +250,10 @@ class _MediaListScreenState extends State<MediaListScreen>
   }
 
   Future<void> _tryLoadFromCacheThenRefresh() async {
+    final loadGeneration = _homeLoadGeneration.begin();
     final snapshot = await HomeDataCache.load();
+    if (!_isCurrentHomeLoad(loadGeneration)) return;
     if (snapshot != null && snapshot.categories.isNotEmpty) {
-      if (!mounted) return;
       setState(() {
         _categories = snapshot.categories;
         _itemsByCategory = snapshot.itemsByCategory;
@@ -259,6 +273,7 @@ class _MediaListScreenState extends State<MediaListScreen>
       return;
     }
     // No cache 鈥?full load with spinner.
+    if (!_isCurrentHomeLoad(loadGeneration)) return;
     _fetchHomeData();
   }
 
@@ -358,6 +373,19 @@ class _MediaListScreenState extends State<MediaListScreen>
     );
   }
 
+  static void _preserveImageRequests(
+    Iterable<MediaLibraryItem> items, {
+    required Map<String, MediaImageRequest> source,
+    required Map<String, MediaImageRequest> target,
+  }) {
+    for (final item in items) {
+      final request = source[item.guid];
+      if (request != null) {
+        target[item.guid] = request;
+      }
+    }
+  }
+
   /// 继续观看数据源：飞牛走 FeiniuApi，其它公共后端走 backend。
   Future<_MediaItemsWithImages> _loadContinueWatching(
     MediaBackend backend,
@@ -382,19 +410,28 @@ class _MediaListScreenState extends State<MediaListScreen>
     return _cardsToMediaItems(resolver, cards);
   }
 
-  Future<List<MediaItemCard>> _loadOptionalCards(
+  Future<HomeSectionLoadResult<List<MediaItemCard>>> _loadOptionalCards(
     String label,
     Future<List<MediaItemCard>> Function() loader,
   ) async {
     try {
-      return await loader();
-    } catch (error) {
-      debugPrint('[UI][HOME] optional section failed $label: $error');
-      return const <MediaItemCard>[];
+      return HomeSectionLoadResult<List<MediaItemCard>>.success(await loader());
+    } catch (error, stackTrace) {
+      debugPrint(
+        '[UI][HOME] optional section failed $label: $error\n$stackTrace',
+      );
+      await logSwallowedError(
+        action: 'optional section failed $label',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'home',
+      );
+      return const HomeSectionLoadResult<List<MediaItemCard>>.failure();
     }
   }
 
-  Future<_MediaItemsWithImages> _loadContinueWatchingSafely(
+  Future<HomeSectionLoadResult<_MediaItemsWithImages>>
+  _loadContinueWatchingSafely(
     MediaBackend backend,
     FeiniuApi api,
     DetailArtworkResolver resolver, {
@@ -402,20 +439,27 @@ class _MediaListScreenState extends State<MediaListScreen>
     ValueChanged<List<MediaItemCard>>? onCardsLoaded,
   }) async {
     try {
-      return await _loadContinueWatching(
-        backend,
-        api,
-        resolver,
-        forceRefresh: forceRefresh,
-        onCardsLoaded: onCardsLoaded,
+      return HomeSectionLoadResult<_MediaItemsWithImages>.success(
+        await _loadContinueWatching(
+          backend,
+          api,
+          resolver,
+          forceRefresh: forceRefresh,
+          onCardsLoaded: onCardsLoaded,
+        ),
       );
-    } catch (error) {
-      debugPrint('[UI][HOME] optional section failed continueWatching: $error');
-      return (
-        items: const <MediaLibraryItem>[],
-        imageRequests: const <String, MediaImageRequest>{},
-        backdropImageRequests: const <String, MediaImageRequest>{},
+    } catch (error, stackTrace) {
+      debugPrint(
+        '[UI][HOME] optional section failed continueWatching: '
+        '$error\n$stackTrace',
       );
+      await logSwallowedError(
+        action: 'optional section failed continueWatching',
+        error: error,
+        stackTrace: stackTrace,
+        source: 'home',
+      );
+      return const HomeSectionLoadResult<_MediaItemsWithImages>.failure();
     }
   }
 
@@ -445,6 +489,7 @@ class _MediaListScreenState extends State<MediaListScreen>
   }
 
   Future<void> _fetchHomeData() async {
+    final loadGeneration = _homeLoadGeneration.begin();
     debugPrint('[UI][HOME] start loading home data');
     final usingSpinner = !_loadingFromCache;
     if (usingSpinner) {
@@ -486,6 +531,7 @@ class _MediaListScreenState extends State<MediaListScreen>
           api,
           resolver,
           onCardsLoaded: (cards) {
+            if (!_isCurrentHomeLoad(loadGeneration)) return;
             unawaited(
               _prewarmPosterBrowseArtwork(
                 backend: backend,
@@ -500,14 +546,23 @@ class _MediaListScreenState extends State<MediaListScreen>
                 'nextUp',
                 () => backend.getNextUpItems(limit: 8),
               )
-            : Future<List<MediaItemCard>>.value(const <MediaItemCard>[]),
+            : Future<HomeSectionLoadResult<List<MediaItemCard>>>.value(
+                const HomeSectionLoadResult<List<MediaItemCard>>.success(
+                  <MediaItemCard>[],
+                ),
+              ),
         needsLatest
             ? _loadOptionalCards(
                 'latest',
                 () => backend.getLatestItems(limit: 12),
               )
-            : Future<List<MediaItemCard>>.value(const <MediaItemCard>[]),
+            : Future<HomeSectionLoadResult<List<MediaItemCard>>>.value(
+                const HomeSectionLoadResult<List<MediaItemCard>>.success(
+                  <MediaItemCard>[],
+                ),
+              ),
       ]);
+      if (!_isCurrentHomeLoad(loadGeneration)) return;
       final rawCatalogs = parallelResults[0] as List<MediaCatalog>;
       final categories = rawCatalogs.map(_catalogToMediaItem).toList();
       final catalogImageRequests = <String, List<MediaImageRequest>>{
@@ -520,15 +575,21 @@ class _MediaListScreenState extends State<MediaListScreen>
           ),
       };
       final summary = parallelResults[1] as Map<String, dynamic>;
-      final playListResult = parallelResults[2] as _MediaItemsWithImages;
+      final playListLoad =
+          parallelResults[2] as HomeSectionLoadResult<_MediaItemsWithImages>;
+      final playListResult = playListLoad.valueOr(_emptyMediaItemsWithImages);
       final playList = playListResult.items;
+      final nextUpLoad =
+          parallelResults[3] as HomeSectionLoadResult<List<MediaItemCard>>;
+      final latestLoad =
+          parallelResults[4] as HomeSectionLoadResult<List<MediaItemCard>>;
       final nextUpResult = _cardsToMediaItems(
         resolver,
-        parallelResults[3] as List<MediaItemCard>,
+        nextUpLoad.valueOr(const <MediaItemCard>[]),
       );
       final latestResult = _cardsToMediaItems(
         resolver,
-        parallelResults[4] as List<MediaItemCard>,
+        latestLoad.valueOr(const <MediaItemCard>[]),
       );
       const localeMap = <String, dynamic>{};
 
@@ -567,6 +628,7 @@ class _MediaListScreenState extends State<MediaListScreen>
         }
       }).toList();
       final categoryResults = await Future.wait(categoryFutures);
+      if (!_isCurrentHomeLoad(loadGeneration)) return;
       for (final (catId, result) in categoryResults) {
         itemsByCategory[catId] = result.items;
         allItems.addAll(result.items);
@@ -580,7 +642,7 @@ class _MediaListScreenState extends State<MediaListScreen>
         allItems,
       );
 
-      if (!mounted) return;
+      if (!_isCurrentHomeLoad(loadGeneration)) return;
       setState(() {
         _categories = categories;
         _itemsByCategory = itemsByCategory;
@@ -598,6 +660,7 @@ class _MediaListScreenState extends State<MediaListScreen>
       });
 
       if (playList.isEmpty && continueWatching.isNotEmpty) {
+        if (!_isCurrentHomeLoad(loadGeneration)) return;
         unawaited(
           _prewarmPosterBrowseArtwork(
             backend: backend,
@@ -611,6 +674,7 @@ class _MediaListScreenState extends State<MediaListScreen>
 
       // Persist to cache锛堜粎椋炵墰锛欻omeDataCache 鏄鐗涙€佺紦瀛橈紝Emby 鏁版嵁涓嶅啓鍏ラ伩鍏嶈法鍚庣涓插唴瀹癸級銆?
       if (backend.capabilities.kind == MediaBackendKind.feiniu) {
+        if (!_isCurrentHomeLoad(loadGeneration)) return;
         unawaited(
           HomeDataCache.save(
             categories: categories,
@@ -622,7 +686,7 @@ class _MediaListScreenState extends State<MediaListScreen>
       }
     } catch (error) {
       debugPrint('[UI][HOME] load failed $error');
-      if (!mounted) return;
+      if (!_isCurrentHomeLoad(loadGeneration)) return;
       // If we have stale cache data, keep showing it.
       if (_loadingFromCache) return;
       setState(() {
@@ -637,6 +701,7 @@ class _MediaListScreenState extends State<MediaListScreen>
   }
 
   Future<void> _backgroundRefresh() async {
+    final loadGeneration = _homeLoadGeneration.begin();
     debugPrint('[UI][HOME] background refresh start');
     final provider = context.read<NasProvider>();
     final backend = context.read<MediaBackendProvider>().backend;
@@ -675,6 +740,7 @@ class _MediaListScreenState extends State<MediaListScreen>
           resolver,
           forceRefresh: true,
           onCardsLoaded: (cards) {
+            if (!_isCurrentHomeLoad(loadGeneration)) return;
             unawaited(
               _prewarmPosterBrowseArtwork(
                 backend: backend,
@@ -689,14 +755,23 @@ class _MediaListScreenState extends State<MediaListScreen>
                 'nextUp',
                 () => backend.getNextUpItems(limit: 8),
               )
-            : Future<List<MediaItemCard>>.value(const <MediaItemCard>[]),
+            : Future<HomeSectionLoadResult<List<MediaItemCard>>>.value(
+                const HomeSectionLoadResult<List<MediaItemCard>>.success(
+                  <MediaItemCard>[],
+                ),
+              ),
         needsLatest
             ? _loadOptionalCards(
                 'latest',
                 () => backend.getLatestItems(limit: 12),
               )
-            : Future<List<MediaItemCard>>.value(const <MediaItemCard>[]),
+            : Future<HomeSectionLoadResult<List<MediaItemCard>>>.value(
+                const HomeSectionLoadResult<List<MediaItemCard>>.success(
+                  <MediaItemCard>[],
+                ),
+              ),
       ]);
+      if (!_isCurrentHomeLoad(loadGeneration)) return;
       final rawCatalogs = parallelResults[0] as List<MediaCatalog>;
       final categories = rawCatalogs.map(_catalogToMediaItem).toList();
       final catalogImageRequests = <String, List<MediaImageRequest>>{
@@ -709,15 +784,21 @@ class _MediaListScreenState extends State<MediaListScreen>
           ),
       };
       final summary = parallelResults[1] as Map<String, dynamic>;
-      final playListResult = parallelResults[2] as _MediaItemsWithImages;
+      final playListLoad =
+          parallelResults[2] as HomeSectionLoadResult<_MediaItemsWithImages>;
+      final playListResult = playListLoad.valueOr(_emptyMediaItemsWithImages);
       final playList = playListResult.items;
+      final nextUpLoad =
+          parallelResults[3] as HomeSectionLoadResult<List<MediaItemCard>>;
+      final latestLoad =
+          parallelResults[4] as HomeSectionLoadResult<List<MediaItemCard>>;
       final nextUpResult = _cardsToMediaItems(
         resolver,
-        parallelResults[3] as List<MediaItemCard>,
+        nextUpLoad.valueOr(const <MediaItemCard>[]),
       );
       final latestResult = _cardsToMediaItems(
         resolver,
-        parallelResults[4] as List<MediaItemCard>,
+        latestLoad.valueOr(const <MediaItemCard>[]),
       );
 
       // Fetch all category items in parallel.
@@ -754,6 +835,7 @@ class _MediaListScreenState extends State<MediaListScreen>
         }
       }).toList();
       final categoryResults = await Future.wait(categoryFutures);
+      if (!_isCurrentHomeLoad(loadGeneration)) return;
       for (final (catId, result) in categoryResults) {
         itemsByCategory[catId] = result.items;
         allItems.addAll(result.items);
@@ -761,60 +843,69 @@ class _MediaListScreenState extends State<MediaListScreen>
         backdropImageRequests.addAll(result.backdropImageRequests);
       }
 
-      final continueWatching = _resolveContinueWatching(
-        backend,
-        playList,
-        allItems,
-      );
+      final continueWatching = playListLoad.isSuccess
+          ? _resolveContinueWatching(backend, playList, allItems)
+          : _continueWatching;
+      final nextUp = nextUpLoad.isSuccess ? nextUpResult.items : _nextUp;
+      final latest = latestLoad.isSuccess ? latestResult.items : _latest;
 
-      if (!mounted) return;
-
-      // Only update UI if data changed.
-      final newSnapshot = HomeDataSnapshot(
-        categories: categories,
-        itemsByCategory: itemsByCategory,
-        mediaSummary: summary,
-        continueWatching: continueWatching,
-        cachedAt: DateTime.now(),
-      );
-
-      final currentSnapshot = HomeDataSnapshot(
-        categories: _categories,
-        itemsByCategory: _itemsByCategory,
-        mediaSummary: _mediaSummary,
-        continueWatching: _continueWatching,
-        cachedAt: DateTime.now(),
-      );
-      final optionalSectionsUnchanged =
-          HomeDataSnapshot.itemsEqual(_nextUp, nextUpResult.items) &&
-          HomeDataSnapshot.itemsEqual(_latest, latestResult.items);
-
-      if (!newSnapshot.isSameAs(currentSnapshot) ||
-          !optionalSectionsUnchanged) {
-        setState(() {
-          _categories = categories;
-          _itemsByCategory = itemsByCategory;
-          _continueWatching = continueWatching;
-          _nextUp = nextUpResult.items;
-          _latest = latestResult.items;
-          _catalogImageRequests = catalogImageRequests;
-          _itemImageRequests = itemImageRequests;
-          _backdropImageRequests = backdropImageRequests;
-          _mediaSummary = summary;
-          _loadingFromCache = false;
-        });
-      } else {
-        setState(() {
-          _nextUp = nextUpResult.items;
-          _latest = latestResult.items;
-          _catalogImageRequests = catalogImageRequests;
-          _itemImageRequests = itemImageRequests;
-          _backdropImageRequests = backdropImageRequests;
-          _loadingFromCache = false;
-        });
+      if (!playListLoad.isSuccess) {
+        _preserveImageRequests(
+          _continueWatching,
+          source: _itemImageRequests,
+          target: itemImageRequests,
+        );
+        _preserveImageRequests(
+          _continueWatching,
+          source: _backdropImageRequests,
+          target: backdropImageRequests,
+        );
+      }
+      if (!nextUpLoad.isSuccess) {
+        _preserveImageRequests(
+          _nextUp,
+          source: _itemImageRequests,
+          target: itemImageRequests,
+        );
+        _preserveImageRequests(
+          _nextUp,
+          source: _backdropImageRequests,
+          target: backdropImageRequests,
+        );
+      }
+      if (!latestLoad.isSuccess) {
+        _preserveImageRequests(
+          _latest,
+          source: _itemImageRequests,
+          target: itemImageRequests,
+        );
+        _preserveImageRequests(
+          _latest,
+          source: _backdropImageRequests,
+          target: backdropImageRequests,
+        );
       }
 
-      if (playList.isEmpty && continueWatching.isNotEmpty) {
+      if (!_isCurrentHomeLoad(loadGeneration)) return;
+      setState(() {
+        _homeData = HomeViewData(
+          catalogs: categories,
+          catalogPreviewItems: itemsByCategory,
+          continueWatching: continueWatching,
+          nextUp: nextUp,
+          latest: latest,
+          summary: summary,
+          catalogImageRequests: catalogImageRequests,
+          itemImageRequests: itemImageRequests,
+          backdropImageRequests: backdropImageRequests,
+        );
+        _loadingFromCache = false;
+      });
+
+      if (playListLoad.isSuccess &&
+          playList.isEmpty &&
+          continueWatching.isNotEmpty) {
+        if (!_isCurrentHomeLoad(loadGeneration)) return;
         unawaited(
           _prewarmPosterBrowseArtwork(
             backend: backend,
@@ -827,6 +918,7 @@ class _MediaListScreenState extends State<MediaListScreen>
       }
 
       // Always update cache with fresh data.
+      if (!_isCurrentHomeLoad(loadGeneration)) return;
       unawaited(
         HomeDataCache.save(
           categories: categories,
@@ -837,12 +929,13 @@ class _MediaListScreenState extends State<MediaListScreen>
       );
     } catch (error) {
       debugPrint('[UI][HOME] background refresh failed: $error');
-      if (!mounted) return;
+      if (!_isCurrentHomeLoad(loadGeneration)) return;
       setState(() => _loadingFromCache = false);
     }
   }
 
   Future<void> _refreshContinueWatching() async {
+    final refreshLoadKey = _lastLoadKey;
     final provider = context.read<NasProvider>();
     final backend = context.read<MediaBackendProvider>().backend;
     if (backend.capabilities.kind == MediaBackendKind.feiniu &&
@@ -869,6 +962,7 @@ class _MediaListScreenState extends State<MediaListScreen>
         resolver,
         forceRefresh: true,
         onCardsLoaded: (cards) {
+          if (!mounted || refreshLoadKey != _lastLoadKey) return;
           unawaited(
             _prewarmPosterBrowseArtwork(
               backend: backend,
@@ -878,7 +972,7 @@ class _MediaListScreenState extends State<MediaListScreen>
           );
         },
       );
-      if (!mounted) return;
+      if (!mounted || refreshLoadKey != _lastLoadKey) return;
       // 与 _fetchHomeData 一致:经 _resolveContinueWatching 统一(飞牛空时回退分类挑选,
       // Emby 等留空)。否则返回时刷新与初始加载口径不一致会导致续播区抖动/消失。
       final continueWatching = _resolveContinueWatching(
@@ -891,24 +985,36 @@ class _MediaListScreenState extends State<MediaListScreen>
       // push 返回的 Future 在 pop 动画第一帧前就 resolve，回包大概率落在
       // 380ms pop 转场里；等转场结束再应用，且列表未变化时不整页重建。
       await RouteTransitionGate.of(context);
-      if (!mounted) return;
+      if (!mounted || refreshLoadKey != _lastLoadKey) return;
       final oldContinueIds = _continueWatching.map((item) => item.guid).toSet();
       final itemsUnchanged = HomeDataSnapshot.itemsEqual(
         _continueWatching,
         continueWatching,
       );
+      var itemImageRequests = _itemImageRequests;
+      var backdropImageRequests = _backdropImageRequests;
+      if (backend.capabilities.kind.isServerFamily) {
+        itemImageRequests = Map<String, MediaImageRequest>.of(
+          _itemImageRequests,
+        );
+        backdropImageRequests = Map<String, MediaImageRequest>.of(
+          _backdropImageRequests,
+        );
+        for (final id in oldContinueIds) {
+          itemImageRequests.remove(id);
+          backdropImageRequests.remove(id);
+        }
+        itemImageRequests.addAll(playListResult.imageRequests);
+        backdropImageRequests.addAll(playListResult.backdropImageRequests);
+      }
       setState(() {
-        if (backend.capabilities.kind.isServerFamily) {
-          for (final id in oldContinueIds) {
-            _itemImageRequests.remove(id);
-            _backdropImageRequests.remove(id);
-          }
-          _itemImageRequests.addAll(playListResult.imageRequests);
-          _backdropImageRequests.addAll(playListResult.backdropImageRequests);
-        }
-        if (!itemsUnchanged) {
-          _continueWatching = continueWatching;
-        }
+        _homeData = _homeData.copyWith(
+          continueWatching: itemsUnchanged
+              ? _continueWatching
+              : continueWatching,
+          itemImageRequests: itemImageRequests,
+          backdropImageRequests: backdropImageRequests,
+        );
       });
       if (playListResult.items.isEmpty && continueWatching.isNotEmpty) {
         unawaited(
