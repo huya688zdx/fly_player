@@ -763,6 +763,11 @@ internal data class NativeEpisodeRefreshMerge(
     val changed: Boolean,
 )
 
+internal fun nativePanelShouldRenderEpisodeRefresh(
+    wasLoading: Boolean,
+    contentChanged: Boolean,
+): Boolean = wasLoading || contentChanged
+
 internal fun nativePanelMergeEpisodeRefresh(
     currentEpisodes: List<Map<String, Any?>>,
     refreshedEpisodes: List<Map<String, Any?>>,
@@ -4116,11 +4121,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
             episodes = parseNativePanelMaps(map?.get("episodes")),
             fallbackEpisodes = episodePanelEpisodes.ifEmpty { episodeList() },
         )
+        val wasLoading = episodePanelLoading
         episodePanelLoading = false
         // 已完整落地过一次：本次回包仅做增量（同步当前季观看状态），不覆盖用户可能已改的
         // 选中季 / 视图 / 分页 / 展开等状态——从源头规避「在途回包改回本地状态」整类竞态。
         if (episodePickerLoadedOnce) {
-            applyEpisodePickerRefresh(data)
+            applyEpisodePickerRefresh(data, wasLoading)
             return
         }
         episodePickerLoadedOnce = true
@@ -4155,11 +4161,14 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
      * 增量刷新：仅把回包里**当前季**的观看状态合并进现有列表，其余一概不动。
      * 回包对应"正在播放季"；若用户已切去浏览别的季（季不匹配）则不合并，仅重绘。
      */
-    private fun applyEpisodePickerRefresh(data: NativeEpisodePickerData) {
+    private fun applyEpisodePickerRefresh(
+        data: NativeEpisodePickerData,
+        wasLoading: Boolean,
+    ) {
         if (data.episodes.isEmpty() ||
             data.selectedSeasonGuid != episodePanelSelectedSeasonGuid
         ) {
-            if (panelVisible) renderTopPanel()
+            if (panelVisible && wasLoading) renderTopPanel()
             return
         }
         val merge = nativePanelMergeEpisodeRefresh(episodePanelEpisodes, data.episodes)
@@ -4170,7 +4179,9 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 loadArgsMap = HashMap(loadArgsMap).apply { put("episodes", merge.episodes) }
             }
         }
-        if (panelVisible) renderTopPanel()
+        if (panelVisible && nativePanelShouldRenderEpisodeRefresh(wasLoading, merge.changed)) {
+            renderTopPanel()
+        }
     }
 
     private fun parseNativePanelMaps(raw: Any?): List<Map<String, Any?>> {
