@@ -11,6 +11,8 @@ class PosterBrowsePosterTrack extends StatelessWidget {
   final MediaImageRequest Function(PosterBrowseDisplayItem item) imageOf;
   final String Function(PosterBrowseDisplayItem item) secondaryLabelOf;
   final void Function(int index) onItemTap;
+  final ScrollController? controller;
+  final ScrollPhysics? physics;
 
   const PosterBrowsePosterTrack({
     super.key,
@@ -20,6 +22,8 @@ class PosterBrowsePosterTrack extends StatelessWidget {
     required this.imageOf,
     required this.secondaryLabelOf,
     required this.onItemTap,
+    this.controller,
+    this.physics,
   });
 
   @override
@@ -29,6 +33,8 @@ class PosterBrowsePosterTrack extends StatelessWidget {
     }
 
     return ListView.separated(
+      controller: controller,
+      physics: physics,
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
       itemCount: items.length,
