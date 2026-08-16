@@ -228,13 +228,19 @@ class _CatalogNetworkImage extends StatefulWidget {
 
 class _CatalogNetworkImageState extends State<_CatalogNetworkImage> {
   int _index = 0;
+  bool _fallbackScheduled = false;
+  int _requestGeneration = 0;
 
   @override
   void didUpdateWidget(covariant _CatalogNetworkImage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!listEquals(oldWidget.request.urls, widget.request.urls) ||
-        !mapEquals(oldWidget.request.headers, widget.request.headers)) {
+        !mapEquals(oldWidget.request.headers, widget.request.headers) ||
+        oldWidget.request.selfAuthenticated !=
+            widget.request.selfAuthenticated) {
       _index = 0;
+      _fallbackScheduled = false;
+      _requestGeneration++;
     }
   }
 
@@ -246,20 +252,49 @@ class _CatalogNetworkImageState extends State<_CatalogNetworkImage> {
       return fallback;
     }
 
-    return Image.network(
-      widget.request.urls[_index],
-      key: widget.imageKey,
-      headers: widget.request.headers,
-      fit: BoxFit.cover,
-      gaplessPlayback: true,
-      errorBuilder: (context, error, stackTrace) {
-        if (_index + 1 < widget.request.urls.length) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) setState(() => _index++);
-          });
-        }
-        return fallback;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final dpr = MediaQuery.devicePixelRatioOf(context);
+        return Image.network(
+          widget.request.urls[_index],
+          key: widget.imageKey,
+          headers: widget.request.headers,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          cacheWidth: _stableCacheExtent(constraints.maxWidth, dpr),
+          cacheHeight: _stableCacheExtent(constraints.maxHeight, dpr),
+          errorBuilder: (context, error, stackTrace) {
+            _scheduleFallback();
+            return fallback;
+          },
+        );
       },
     );
   }
+
+  void _scheduleFallback() {
+    if (_fallbackScheduled || _index + 1 >= widget.request.urls.length) {
+      return;
+    }
+    _fallbackScheduled = true;
+    final scheduledGeneration = _requestGeneration;
+    final scheduledIndex = _index;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || scheduledGeneration != _requestGeneration) return;
+      setState(() {
+        _fallbackScheduled = false;
+        if (_index == scheduledIndex &&
+            _index + 1 < widget.request.urls.length) {
+          _index++;
+        }
+      });
+    });
+  }
+}
+
+int? _stableCacheExtent(double logicalExtent, double devicePixelRatio) {
+  if (!logicalExtent.isFinite || logicalExtent <= 0) return null;
+  final pixels = logicalExtent * devicePixelRatio;
+  // 32px 分桶避免轻微分屏/旋转抖动不断生成新的图片缓存键。
+  return ((pixels / 32).round() * 32).clamp(64, 2048).toInt();
 }

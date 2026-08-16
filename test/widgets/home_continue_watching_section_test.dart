@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/media_backend/media_image_request.dart';
@@ -17,6 +20,38 @@ Widget testApp(Widget child) => MaterialApp(
   theme: AppThemeBuilder.build(AppThemePreset.midnight),
   home: Scaffold(body: SizedBox(width: 390, child: child)),
 );
+
+String networkUrlOf(Image image) {
+  final provider = image.image;
+  final network = provider is ResizeImage
+      ? provider.imageProvider as NetworkImage
+      : provider as NetworkImage;
+  return network.url;
+}
+
+class _PendingHttpClient implements HttpClient {
+  @override
+  Future<HttpClientRequest> getUrl(Uri url) =>
+      Completer<HttpClientRequest>().future;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+Future<void> withPendingHttp(Future<void> Function() body) =>
+    _withPendingNetworkImageClient(body);
+
+Future<void> _withPendingNetworkImageClient(
+  Future<void> Function() body,
+) async {
+  final previousProvider = debugNetworkImageHttpClientProvider;
+  debugNetworkImageHttpClientProvider = _PendingHttpClient.new;
+  try {
+    await body();
+  } finally {
+    debugNetworkImageHttpClientProvider = previousProvider;
+  }
+}
 
 void main() {
   testWidgets('续看卡主体、播放键、长按分别调用独立回调', (tester) async {
@@ -102,13 +137,151 @@ void main() {
     );
     final scheme = AppThemeBuilder.build(AppThemePreset.midnight).colorScheme;
     expect(
-      playButton.style?.backgroundColor?.resolve(<WidgetState>{}),
-      scheme.primary,
-    );
-    expect(
       playButton.style?.foregroundColor?.resolve(<WidgetState>{}),
       scheme.onPrimary,
     );
+    final visual = tester.widget<DecoratedBox>(
+      find.byKey(const ValueKey<String>('continue-play-visual-image-item')),
+    );
+    expect((visual.decoration as BoxDecoration).color, scheme.primary);
+    final targetSize = tester.getSize(
+      find.byKey(const ValueKey<String>('continue-play-image-item')),
+    );
+    expect(targetSize.width, greaterThanOrEqualTo(48));
+    expect(targetSize.height, greaterThanOrEqualTo(48));
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('窄屏二倍和三倍文字保持完整布局', (tester) async {
+    for (final scale in <double>[2, 3]) {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppThemeBuilder.build(AppThemePreset.midnight),
+          home: Scaffold(
+            body: MediaQuery(
+              data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+              child: SizedBox(
+                width: 320,
+                child: HomeContinueWatchingSection(
+                  items: const <HomeContinueCardData>[continueFixture],
+                  onOpenDetail: (_) {},
+                  onPlay: (_) {},
+                  onLongPress: (_) {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(tester.takeException(), isNull, reason: '文字缩放 $scale 不应溢出');
+    }
+  });
+
+  testWidgets('续看图片候选失败时每帧只前进一个并限制解码尺寸', (tester) async {
+    const fixture = HomeContinueCardData(
+      id: 'fallback',
+      title: '候选图',
+      contextText: '测试',
+      progress: 0,
+      imageRequest: MediaImageRequest(
+        urls: <String>[
+          'https://example.test/first.jpg',
+          'https://example.test/second.jpg',
+          'https://example.test/third.jpg',
+        ],
+        selfAuthenticated: true,
+      ),
+      downloaded: false,
+    );
+    await tester.pumpWidget(
+      testApp(
+        HomeContinueWatchingSection(
+          items: const <HomeContinueCardData>[fixture],
+          onOpenDetail: (_) {},
+          onPlay: (_) {},
+          onLongPress: (_) {},
+        ),
+      ),
+    );
+
+    final finder = find.byKey(
+      const ValueKey<String>('continue-image-fallback'),
+    );
+    var image = tester.widget<Image>(finder);
+    expect(networkUrlOf(image), endsWith('/first.jpg'));
+    final resized = image.image as ResizeImage;
+    expect(resized.width, isNotNull);
+    expect(resized.width, greaterThan(0));
+
+    final context = tester.element(finder);
+    image.errorBuilder!(context, StateError('首次失败'), StackTrace.empty);
+    image.errorBuilder!(context, StateError('重复回调'), StackTrace.empty);
+    await tester.pump();
+    await tester.pump();
+
+    image = tester.widget<Image>(finder);
+    expect(networkUrlOf(image), endsWith('/second.jpg'));
+
+    final secondContext = tester.element(finder);
+    image.errorBuilder!(secondContext, StateError('第二候选失败'), StackTrace.empty);
+    await tester.pump();
+    await tester.pump();
+    expect(networkUrlOf(tester.widget<Image>(finder)), endsWith('/third.jpg'));
+  });
+
+  testWidgets('续看图片请求变化会取消旧请求待执行的回退', (tester) async {
+    await withPendingHttp(() async {
+      Widget section(MediaImageRequest request) => testApp(
+        HomeContinueWatchingSection(
+          items: <HomeContinueCardData>[
+            HomeContinueCardData(
+              id: 'replace',
+              title: '替换请求',
+              contextText: '测试',
+              progress: 0,
+              imageRequest: request,
+              downloaded: false,
+            ),
+          ],
+          onOpenDetail: (_) {},
+          onPlay: (_) {},
+          onLongPress: (_) {},
+        ),
+      );
+
+      await tester.pumpWidget(
+        section(
+          const MediaImageRequest(
+            urls: <String>['https://old.test/1.jpg', 'https://old.test/2.jpg'],
+            selfAuthenticated: true,
+          ),
+        ),
+      );
+      final finder = find.byKey(
+        const ValueKey<String>('continue-image-replace'),
+      );
+      final oldImage = tester.widget<Image>(finder);
+      oldImage.errorBuilder!(
+        tester.element(finder),
+        StateError('旧请求失败'),
+        StackTrace.empty,
+      );
+
+      await tester.pumpWidget(
+        section(
+          const MediaImageRequest(
+            urls: <String>['https://new.test/1.jpg', 'https://new.test/2.jpg'],
+            selfAuthenticated: true,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        networkUrlOf(tester.widget<Image>(finder)),
+        'https://new.test/1.jpg',
+      );
+    });
   });
 }
