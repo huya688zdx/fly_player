@@ -194,6 +194,17 @@ HomeViewData mergeHomeOptionalSections({
   );
 }
 
+/// 返回可用于本次加载失败回退的快照；跨会话时禁止复用旧媒体数据。
+HomeViewData homeDataFallbackForLoadKey({
+  required HomeViewData snapshot,
+  required String snapshotLoadKey,
+  required String requestLoadKey,
+}) {
+  return snapshotLoadKey == requestLoadKey
+      ? snapshot
+      : const HomeViewData.empty();
+}
+
 void _preserveRequestsForItems(
   Iterable<MediaLibraryItem> items, {
   required Map<String, MediaImageRequest> source,
