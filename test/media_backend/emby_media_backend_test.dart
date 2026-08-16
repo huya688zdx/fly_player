@@ -412,7 +412,7 @@ void main() {
     expect(api.lastNextUpLimit, 8);
     expect(
       api.lastNextUpFields,
-      'PrimaryImageAspectRatio,Overview,PremiereDate,CommunityRating,MediaStreams,Genres',
+      'PrimaryImageAspectRatio,Overview,PremiereDate,CommunityRating,MediaStreams,Genres,UserData',
     );
     expect(items, hasLength(1));
     expect(items.first.id, 'ep-10');
