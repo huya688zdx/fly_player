@@ -1,6 +1,9 @@
 import 'package:flutter/widgets.dart';
 
 class MediaLayoutProfile {
+  /// 首页目录图片请求的稳定宽度，供布局 fallback 与数据层 fresh 请求共用。
+  static const int homeCatalogRequestWidthValue = 440;
+
   final double screenWidth;
   final bool isTablet;
 
@@ -39,7 +42,7 @@ class MediaLayoutProfile {
   });
 
   static const int _homeContinueRequestWidth = 520;
-  static const int _homePosterRequestWidth = 440;
+  static const int _homePosterRequestWidth = homeCatalogRequestWidthValue;
   static const int _continueDecodeWidth = 520;
   static const int _homePosterDecodeWidth = 352;
   static const int _homeCatalogDecodeWidth = 440;
@@ -49,7 +52,7 @@ class MediaLayoutProfile {
   int get homePosterRequestWidth => _homePosterRequestWidth;
   // 首页目录大卡的网络请求宽度固定取首页海报请求上界，避免首帧缩略图
   // 与后台刷新后的图片使用不同 URL/cache key。
-  int get homeCatalogRequestWidth => _homePosterRequestWidth;
+  int get homeCatalogRequestWidth => homeCatalogRequestWidthValue;
 
   // 共享首页区块直接消费稳定物理像素宽度，不再乘设备 DPR；
   // 旋转和分屏只改变视觉卡宽，不改变图片缓存键。
