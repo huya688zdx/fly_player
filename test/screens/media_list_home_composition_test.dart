@@ -80,6 +80,12 @@ void main() {
     final screenSource = File(
       'lib/screens/media_list_screen.dart',
     ).readAsStringSync();
+    final actionsSource = File(
+      'lib/screens/media_list_screen_actions.dart',
+    ).readAsStringSync();
+    final continueWidgetSource = File(
+      'lib/screens/home/widgets/home_continue_watching_section.dart',
+    ).readAsStringSync();
 
     expect(widgetsSource, contains('HomeCatalogSection('));
     expect(widgetsSource, contains('HomeContinueWatchingSection('));
@@ -105,10 +111,11 @@ void main() {
         'layout.homePosterRowHeightFor(MediaQuery.textScalerOf(context))',
       ),
     );
-    expect(
-      "heroTag: 'home_continue_\${item.guid}'".allMatches(widgetsSource),
-      hasLength(3),
-    );
+    expect(widgetsSource, isNot(contains("heroTag: 'home_continue_")));
+    expect(actionsSource, isNot(contains('required String heroTag')));
+    expect(continueWidgetSource, isNot(contains('heroTag')));
+    expect('continueDetailTarget('.allMatches(widgetsSource), hasLength(1));
+    expect('continueDetailTarget('.allMatches(actionsSource), hasLength(1));
 
     expect(screenSource, contains('Future<void> _playContinueItem('));
     expect(screenSource, contains('_pendingContinueWatchingRefresh = true'));
@@ -128,21 +135,38 @@ void main() {
     );
     expect(playMethodSource, contains('try {'));
     expect(playMethodSource, contains('catch (error, stackTrace)'));
-    expect(playMethodSource, contains('finally {'));
+    expect(playMethodSource, isNot(contains('finally {')));
     expect(playMethodSource, contains('logSwallowedError('));
     expect(playMethodSource, contains('stackTrace: stackTrace'));
     expect(playMethodSource, contains('detailPlayInfoFailed'));
     expect(playMethodSource, contains('_showHomeSnackBar('));
     expect(
       playMethodSource,
+      isNot(contains('unawaited(_refreshContinueWatching())')),
+    );
+
+    final catchStart = playMethodSource.indexOf('catch (error, stackTrace)');
+    final catchSource = playMethodSource.substring(catchStart);
+    expect(catchSource, contains('_pendingContinueWatchingRefresh = false'));
+
+    final lifecycleStart = screenSource.indexOf(
+      'void didChangeAppLifecycleState(AppLifecycleState state)',
+    );
+    final lifecycleEnd = screenSource.indexOf(
+      'void didChangeDependencies()',
+      lifecycleStart,
+    );
+    final lifecycleSource = screenSource.substring(
+      lifecycleStart,
+      lifecycleEnd,
+    );
+    expect(lifecycleSource, contains('state == AppLifecycleState.resumed'));
+    expect(lifecycleSource, contains('_pendingContinueWatchingRefresh'));
+    expect(
+      lifecycleSource,
       contains('_pendingContinueWatchingRefresh = false'),
     );
-    expect(
-      playMethodSource.indexOf('ItemPlaybackLauncher().open('),
-      lessThan(
-        playMethodSource.indexOf('unawaited(_refreshContinueWatching())'),
-      ),
-    );
+    expect(lifecycleSource, contains('unawaited(_refreshContinueWatching())'));
   });
 
   test('旧首页固定卡片尺寸已从布局配置移除', () {
