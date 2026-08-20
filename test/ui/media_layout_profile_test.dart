@@ -48,14 +48,16 @@ void main() {
     );
     expect(splitPane.homePosterRequestWidth, fullWidth.homePosterRequestWidth);
     expect(
-      splitPane.categoryMiniPosterRequestWidth,
-      fullWidth.categoryMiniPosterRequestWidth,
+      splitPane.homeCatalogRequestWidth,
+      fullWidth.homeCatalogRequestWidth,
     );
     expect(splitPane.continueDecodeWidth, fullWidth.continueDecodeWidth);
     expect(splitPane.homePosterDecodeWidth, fullWidth.homePosterDecodeWidth);
     expect(splitPane.homeCatalogDecodeWidth, fullWidth.homeCatalogDecodeWidth);
     expect(splitPane.continueDecodeWidth, 520);
     expect(splitPane.homeCatalogDecodeWidth, 440);
+    expect(splitPane.homeCatalogRequestWidth, 440);
+    expect(splitPane.homeCatalogRequestWidth, isNonNegative);
   });
 
   testWidgets('首页海报行按真实文字缩放为两行文字留足高度', (tester) async {
