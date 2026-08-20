@@ -46,11 +46,11 @@ class HomeHorizontalShelf<T> extends StatelessWidget {
           return const SizedBox.shrink();
         }
 
-        final upperBound = math.min(
-          maxWidth,
-          math.min(idealItemWidth, maxItemWidth),
-        );
-        if (upperBound <= 0) {
+        final configuredUpper = math.min(idealItemWidth, maxItemWidth);
+        final configuredLower = math.min(minItemWidth, configuredUpper);
+        final lowerBound = math.min(maxWidth, configuredLower);
+        final upperBound = math.min(maxWidth, configuredUpper);
+        if (lowerBound <= 0 || upperBound <= 0) {
           return const SizedBox.shrink();
         }
 
@@ -59,11 +59,7 @@ class HomeHorizontalShelf<T> extends StatelessWidget {
             : maxWidth >= 500
             ? .40
             : .56;
-        final cardWidth = maxWidth < minItemWidth
-            ? maxWidth
-            : minItemWidth > upperBound
-            ? 0.0
-            : (maxWidth * fraction).clamp(minItemWidth, upperBound);
+        final cardWidth = (maxWidth * fraction).clamp(lowerBound, upperBound);
         if (!_isPositiveFinite(cardWidth)) {
           return const SizedBox.shrink();
         }
