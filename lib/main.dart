@@ -44,6 +44,7 @@ import 'theme/glass_quality.dart';
 import 'ui/adaptive_text.dart';
 import 'ui/app_transitions.dart';
 import 'ui/media_poster_card.dart';
+import 'ui/main_navigation_metrics.dart';
 import 'ui/route_transition_gate.dart';
 import 'utils/private_network_http_overrides.dart';
 import 'utils/route_query_json.dart';
@@ -1086,7 +1087,7 @@ class _LiquidGlassBottomNavigation extends StatelessWidget {
     final horizontalPadding = MediaQuery.sizeOf(context).width >= 700
         ? 96.0
         : 38.0;
-    final bottomPadding = bottomInset + 8 < 10 ? 10.0 : bottomInset + 8;
+    final bottomPadding = MainNavigationMetrics.outerBottomPadding(bottomInset);
     final inactive = colors.textMuted.withValues(alpha: 0.86);
     final active = colors.selectionStrong;
 
@@ -1100,7 +1101,7 @@ class _LiquidGlassBottomNavigation extends StatelessWidget {
           bottomPadding,
         ),
         child: SizedBox(
-          height: 72,
+          height: MainNavigationMetrics.barHeight,
           child: ValueListenableBuilder<LiquidGlassLevel>(
             valueListenable: liquidGlassLevel,
             builder: (context, level, child) {
