@@ -194,7 +194,6 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
                   child: RepaintBoundary(
                     child: _buildHomeSection(
                       section: section,
-                      profile: profile,
                       baseUrl: baseUrl,
                       token: token,
                       accessCode: accessCode,
@@ -218,7 +217,6 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
 
   Widget _buildHomeSection({
     required HomeSectionKind section,
-    required HomePresentationProfile profile,
     required String baseUrl,
     required String token,
     required String accessCode,
@@ -233,7 +231,6 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     final l10n = AppLocalizations.of(context);
     return switch (section) {
       HomeSectionKind.catalogs => _buildHomeCatalogs(
-        profile: profile,
         baseUrl: baseUrl,
         token: token,
         accessCode: accessCode,
@@ -281,7 +278,6 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
   }
 
   Widget _buildHomeCatalogs({
-    required HomePresentationProfile profile,
     required String baseUrl,
     required String token,
     required String accessCode,
@@ -298,7 +294,6 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
             mediaType: _homeCatalogMediaType(category),
             imageRequests: _homeCatalogImageRequests(
               category,
-              style: profile.catalogStyle,
               baseUrl: baseUrl,
               token: token,
               accessCode: accessCode,
@@ -310,7 +305,6 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     return HomeCatalogSection(
       title: AppLocalizations.of(context).posterBrowseRowCatalogs,
       items: items,
-      style: profile.catalogStyle,
       stableImageCacheWidth: layout.homeCatalogDecodeWidth,
       onTap: (item) {
         final category = categoriesById[item.id];
@@ -321,7 +315,6 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
 
   List<MediaImageRequest> _homeCatalogImageRequests(
     MediaItem category, {
-    required HomeCatalogStyle style,
     required String baseUrl,
     required String token,
     required String accessCode,
@@ -333,7 +326,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
         ? <String>[category.path!.trim()]
         : const <String>[];
     final preserved = _catalogImageRequests[category.id] ?? const [];
-    final limit = style == HomeCatalogStyle.posterMosaic ? 3 : 1;
+    const limit = 2;
     final candidateCount = min(
       max(sourcePaths.length, preserved.length),
       limit,

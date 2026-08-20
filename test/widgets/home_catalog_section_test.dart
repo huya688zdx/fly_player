@@ -4,18 +4,22 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/media_backend/media_image_request.dart';
-import 'package:fly_player/screens/home/home_presentation_profile.dart';
 import 'package:fly_player/screens/home/widgets/home_catalog_section.dart';
 import 'package:fly_player/theme/app_theme.dart';
 
 const loadableImage = MediaImageRequest(
   urls: <String>['https://example.test/artwork.jpg'],
+  headers: <String, String>{'Authorization': 'Bearer test'},
   selfAuthenticated: true,
 );
 
-Widget testApp(Widget child) => MaterialApp(
+Widget testApp(Widget child, {AppThemeColors? runtimeColors}) => MaterialApp(
   theme: AppThemeBuilder.build(AppThemePreset.midnight),
-  home: Scaffold(body: SizedBox(width: 390, child: child)),
+  home: AppRuntimeColorScope(
+    colors: runtimeColors,
+    hasRuntimeColors: runtimeColors != null,
+    child: Scaffold(body: SizedBox(width: 390, child: child)),
+  ),
 );
 
 Widget responsiveTestApp({
@@ -36,11 +40,14 @@ Widget responsiveTestApp({
 );
 
 String networkUrlOf(Image image) {
+  return networkImageOf(image).url;
+}
+
+NetworkImage networkImageOf(Image image) {
   final provider = image.image;
-  final network = provider is ResizeImage
+  return provider is ResizeImage
       ? provider.imageProvider as NetworkImage
       : provider as NetworkImage;
-  return network.url;
 }
 
 class _PendingHttpClient implements HttpClient {
@@ -68,54 +75,16 @@ Future<void> _withPendingNetworkImageClient(
 }
 
 void main() {
-  testWidgets('单图媒体库卡铺满裁切且不再使用迷你海报', (tester) async {
+  testWidgets('媒体库卡最多展示两张严格 2:3 海报且标题位于图片区下方', (tester) async {
     await tester.pumpWidget(
       testApp(
         HomeCatalogSection(
-          style: HomeCatalogStyle.landscapeArtwork,
           items: const <HomeCatalogCardData>[
             HomeCatalogCardData(
               id: 'lib-1',
               title: '动漫 TV',
               mediaType: HomeCatalogMediaType.series,
-              imageRequests: <MediaImageRequest>[loadableImage],
-            ),
-          ],
-          onTap: (_) {},
-        ),
-      ),
-    );
-
-    expect(
-      tester
-          .widget<Image>(
-            find.byKey(const ValueKey<String>('catalog-image-lib-1')),
-          )
-          .fit,
-      BoxFit.cover,
-    );
-    expect(
-      find.byKey(const ValueKey<String>('catalog-mini-poster-lib-1')),
-      findsNothing,
-    );
-    expect(
-      tester.widget<Text>(find.text('动漫 TV')).style?.fontWeight,
-      FontWeight.w500,
-    );
-  });
-
-  testWidgets('飞牛海报簇使用最多三张真实图片铺满主体', (tester) async {
-    await tester.pumpWidget(
-      testApp(
-        HomeCatalogSection(
-          style: HomeCatalogStyle.posterMosaic,
-          items: const <HomeCatalogCardData>[
-            HomeCatalogCardData(
-              id: 'lib-1',
-              title: '动漫电影',
-              mediaType: HomeCatalogMediaType.movies,
               imageRequests: <MediaImageRequest>[
-                loadableImage,
                 loadableImage,
                 loadableImage,
                 loadableImage,
@@ -127,19 +96,51 @@ void main() {
       ),
     );
 
-    expect(find.byType(Image), findsNWidgets(3));
+    final firstPoster = find.byKey(
+      const ValueKey<String>('catalog-poster-lib-1-0'),
+    );
+    final secondPoster = find.byKey(
+      const ValueKey<String>('catalog-poster-lib-1-1'),
+    );
+    expect(firstPoster, findsOneWidget);
+    expect(secondPoster, findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('catalog-poster-lib-1-2')),
+      findsNothing,
+    );
+    for (final poster in <Finder>[firstPoster, secondPoster]) {
+      final size = tester.getSize(poster);
+      expect(size.height / size.width, closeTo(1.5, .01));
+    }
+    expect(find.byType(Image), findsNWidgets(2));
     for (final image in tester.widgetList<Image>(find.byType(Image))) {
       expect(image.fit, BoxFit.cover);
     }
+    final firstImage = tester.widget<Image>(
+      find.byKey(const ValueKey<String>('catalog-image-lib-1')),
+    );
+    expect(networkImageOf(firstImage).headers, loadableImage.headers);
+    expect((firstImage.image as ResizeImage).width, greaterThan(0));
+    expect((firstImage.image as ResizeImage).height, isNull);
+
+    final artworkRect = tester.getRect(
+      find.byKey(const ValueKey<String>('catalog-artwork-lib-1')),
+    );
+    final titleRect = tester.getRect(
+      find.byKey(const ValueKey<String>('catalog-title-lib-1')),
+    );
+    expect(titleRect.top, greaterThanOrEqualTo(artworkRect.bottom - 1));
+    expect(find.byType(PageView), findsNothing);
+    expect(find.byType(Scrollbar), findsNothing);
+    expect(find.textContaining('个'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('方形媒体库卡缺图时显示媒体类型图标并可点击', (tester) async {
+  testWidgets('缺图媒体库卡显示媒体类型图标并可点击', (tester) async {
     var tapped = '';
     await tester.pumpWidget(
       testApp(
         HomeCatalogSection(
-          style: HomeCatalogStyle.artworkGrid,
           items: const <HomeCatalogCardData>[
             HomeCatalogCardData(
               id: 'lib-empty',
@@ -161,6 +162,47 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('媒体库卡使用动态主题背景与半透明强调色边框', (tester) async {
+    const accent = Color(0xFF12A4D9);
+    const surface = Color(0xFF24313A);
+    final baseColors = AppThemeBuilder.build(
+      AppThemePreset.midnight,
+    ).extension<AppThemeColors>()!;
+    final runtimeColors = baseColors.copyWith(
+      accent: accent,
+      surfaceStrong: surface,
+    );
+
+    await tester.pumpWidget(
+      testApp(
+        HomeCatalogSection(
+          items: const <HomeCatalogCardData>[
+            HomeCatalogCardData(
+              id: 'themed',
+              title: '动态主题',
+              mediaType: HomeCatalogMediaType.mixed,
+              imageRequests: <MediaImageRequest>[],
+            ),
+          ],
+          onTap: (_) {},
+        ),
+        runtimeColors: runtimeColors,
+      ),
+    );
+
+    final material = tester.widget<Material>(
+      find.byKey(const ValueKey<String>('catalog-card-themed')),
+    );
+    final shape = material.shape! as RoundedRectangleBorder;
+    expect(material.color, surface);
+    expect(shape.side.color, accent.withValues(alpha: .18));
+    expect(shape.borderRadius, BorderRadius.circular(15));
+    expect(
+      tester.widget<Text>(find.text('动态主题')).style?.color,
+      runtimeColors.textPrimary,
+    );
+  });
+
   testWidgets('媒体库图片候选失败时不连跳且限制解码尺寸', (tester) async {
     const candidates = MediaImageRequest(
       urls: <String>[
@@ -173,7 +215,6 @@ void main() {
     await tester.pumpWidget(
       testApp(
         HomeCatalogSection(
-          style: HomeCatalogStyle.landscapeArtwork,
           items: const <HomeCatalogCardData>[
             HomeCatalogCardData(
               id: 'fallback',
@@ -215,7 +256,6 @@ void main() {
     await withPendingHttp(() async {
       Widget section(MediaImageRequest request) => testApp(
         HomeCatalogSection(
-          style: HomeCatalogStyle.landscapeArtwork,
           items: <HomeCatalogCardData>[
             HomeCatalogCardData(
               id: 'replace',
@@ -278,14 +318,13 @@ void main() {
       width: width,
       devicePixelRatio: devicePixelRatio,
       child: HomeCatalogSection(
-        style: HomeCatalogStyle.landscapeArtwork,
         items: items,
         stableImageCacheWidth: 440,
         onTap: (_) {},
       ),
     );
 
-    await tester.pumpWidget(section(336, 1));
+    await tester.pumpWidget(section(280, 1));
     final narrowCardWidth = tester
         .getSize(find.byKey(const ValueKey<String>('catalog-card-stable-0')))
         .width;

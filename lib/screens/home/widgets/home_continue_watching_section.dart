@@ -53,7 +53,7 @@ class HomeContinueWatchingSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        HomeSectionHeader(title: title, trailingText: '${items.length} 条'),
+        HomeSectionHeader(title: title),
         const SizedBox(height: 12),
         HomeAdaptivePager<HomeContinueCardData>(
           items: items,
