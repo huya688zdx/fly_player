@@ -365,10 +365,11 @@ class _MediaListScreenState extends State<MediaListScreen>
 
   static List<MediaImageRequest> _requestsForRefs(
     DetailArtworkResolver resolver,
-    Iterable<MediaImageRef> refs,
-  ) {
+    Iterable<MediaImageRef> refs, {
+    required int width,
+  }) {
     return refs
-        .map(resolver.resolveRef)
+        .map((ref) => resolver.resolveRef(ref, width: width))
         .where((request) => request.isNotEmpty)
         .toList(growable: false);
   }
@@ -603,6 +604,7 @@ class _MediaListScreenState extends State<MediaListScreen>
             catalog.posters.isNotEmpty
                 ? catalog.posters
                 : <MediaImageRef>[catalog.primaryImage],
+            width: MediaLayoutProfile.homeCatalogRequestWidthValue,
           ),
       };
       final summary = parallelResults[1] as Map<String, dynamic>;
@@ -833,6 +835,7 @@ class _MediaListScreenState extends State<MediaListScreen>
             catalog.posters.isNotEmpty
                 ? catalog.posters
                 : <MediaImageRef>[catalog.primaryImage],
+            width: MediaLayoutProfile.homeCatalogRequestWidthValue,
           ),
       };
       final summary = parallelResults[1] as Map<String, dynamic>;
