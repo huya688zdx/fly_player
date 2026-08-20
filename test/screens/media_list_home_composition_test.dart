@@ -104,6 +104,11 @@ void main() {
       widgetsSource,
       contains('stableImageCacheWidth: layout.homeCatalogDecodeWidth'),
     );
+    expect(
+      widgetsSource,
+      contains('requestWidth: layout.homeCatalogRequestWidth'),
+    );
+    expect(widgetsSource, isNot(contains('categoryMiniPosterRequestWidth')));
     expect(widgetsSource, isNot(contains('miniPosterDecodeWidth')));
     expect(
       widgetsSource,

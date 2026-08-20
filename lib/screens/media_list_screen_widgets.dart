@@ -298,7 +298,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
               baseUrl: baseUrl,
               token: token,
               accessCode: accessCode,
-              requestWidth: layout.categoryMiniPosterRequestWidth,
+              requestWidth: layout.homeCatalogRequestWidth,
             ),
           ),
         )
