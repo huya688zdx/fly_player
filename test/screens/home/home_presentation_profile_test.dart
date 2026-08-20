@@ -4,44 +4,43 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('HomePresentationProfile', () {
-    test('飞牛使用海报拼贴，并按飞牛首页顺序展示', () {
-      final profile = HomePresentationProfile.forKind(MediaBackendKind.feiniu);
+    test('三平台共同区块都保持媒体库、续看、下一集与最近添加顺序', () {
+      for (final kind in MediaBackendKind.values) {
+        final order = HomePresentationProfile.forKind(kind).sectionOrder;
+        final catalogs = order.indexOf(HomeSectionKind.catalogs);
+        final continueWatching = order.indexOf(
+          HomeSectionKind.continueWatching,
+        );
+        final nextUp = order.indexOf(HomeSectionKind.nextUp);
+        final latest = order.indexOf(HomeSectionKind.latest);
 
-      expect(profile.catalogStyle, HomeCatalogStyle.posterMosaic);
-      expect(profile.sectionOrder, <HomeSectionKind>[
+        expect(catalogs, lessThan(continueWatching), reason: kind.name);
+        if (nextUp >= 0) {
+          expect(continueWatching, lessThan(nextUp), reason: kind.name);
+        }
+        if (latest >= 0) {
+          expect(continueWatching, lessThan(latest), reason: kind.name);
+        }
+      }
+    });
+
+    test('三平台采用同一套完整首页顺序', () {
+      const expected = <HomeSectionKind>[
         HomeSectionKind.catalogs,
         HomeSectionKind.continueWatching,
+        HomeSectionKind.nextUp,
+        HomeSectionKind.latest,
         HomeSectionKind.summary,
         HomeSectionKind.catalogPreviews,
-      ]);
-    });
+      ];
 
-    test('Emby 使用横向图片，并优先展示继续观看', () {
-      final profile = HomePresentationProfile.forKind(MediaBackendKind.emby);
-
-      expect(profile.catalogStyle, HomeCatalogStyle.landscapeArtwork);
-      expect(profile.sectionOrder, <HomeSectionKind>[
-        HomeSectionKind.continueWatching,
-        HomeSectionKind.catalogs,
-        HomeSectionKind.nextUp,
-        HomeSectionKind.latest,
-        HomeSectionKind.catalogPreviews,
-      ]);
-    });
-
-    test('Jellyfin 使用图片网格，并优先展示动态内容', () {
-      final profile = HomePresentationProfile.forKind(
-        MediaBackendKind.jellyfin,
-      );
-
-      expect(profile.catalogStyle, HomeCatalogStyle.artworkGrid);
-      expect(profile.sectionOrder, <HomeSectionKind>[
-        HomeSectionKind.continueWatching,
-        HomeSectionKind.nextUp,
-        HomeSectionKind.latest,
-        HomeSectionKind.catalogs,
-        HomeSectionKind.catalogPreviews,
-      ]);
+      for (final kind in MediaBackendKind.values) {
+        expect(
+          HomePresentationProfile.forKind(kind).sectionOrder,
+          expected,
+          reason: kind.name,
+        );
+      }
     });
   });
 }

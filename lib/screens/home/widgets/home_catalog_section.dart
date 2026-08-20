@@ -3,8 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../../media_backend/media_image_request.dart';
 import '../../../theme/app_theme.dart';
-import '../home_presentation_profile.dart';
-import 'home_adaptive_pager.dart';
+import 'home_horizontal_shelf.dart';
 import 'home_section_header.dart';
 
 /// 媒体库内容类型，仅用于选择无图占位图标。
@@ -25,19 +24,17 @@ class HomeCatalogCardData {
   final List<MediaImageRequest> imageRequests;
 }
 
-/// 按平台展示风格渲染的图片优先媒体库入口。
+/// 使用竖版海报簇渲染的媒体库入口。
 class HomeCatalogSection extends StatelessWidget {
   const HomeCatalogSection({
     super.key,
     required this.items,
-    required this.style,
     required this.onTap,
     this.stableImageCacheWidth,
     this.title = '媒体库',
   });
 
   final List<HomeCatalogCardData> items;
-  final HomeCatalogStyle style;
   final ValueChanged<HomeCatalogCardData> onTap;
 
   /// 稳定的物理像素解码宽度；只影响图片缓存键，不参与响应式布局。
@@ -48,65 +45,41 @@ class HomeCatalogSection extends StatelessWidget {
   Widget build(BuildContext context) {
     if (items.isEmpty) return const SizedBox.shrink();
 
-    final geometry = _CatalogGeometry.forStyle(style);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        HomeSectionHeader(title: title, trailingText: '${items.length} 个'),
+        HomeSectionHeader(title: title),
         const SizedBox(height: 12),
-        HomeAdaptivePager<HomeCatalogCardData>(
+        HomeHorizontalShelf<HomeCatalogCardData>(
+          storageKey: 'catalogs',
           items: items,
-          itemId: (item) => item.id,
           itemBuilder: (context, item, width) => _CatalogCard(
             item: item,
-            style: style,
             width: width,
             stableImageCacheWidth: stableImageCacheWidth,
             onTap: () => onTap(item),
           ),
-          idealItemWidth: geometry.idealWidth,
-          itemAspectRatio: geometry.aspectRatio,
+          minItemWidth: 156,
+          maxItemWidth: 184,
+          idealItemWidth: 184,
+          itemAspectRatio: 1.08,
           textLinesHeight: 0,
-          maxColumns: 5,
+          gap: 12,
         ),
       ],
     );
   }
 }
 
-class _CatalogGeometry {
-  const _CatalogGeometry({required this.idealWidth, required this.aspectRatio});
-
-  final double idealWidth;
-  final double aspectRatio;
-
-  static _CatalogGeometry forStyle(HomeCatalogStyle style) => switch (style) {
-    HomeCatalogStyle.posterMosaic => const _CatalogGeometry(
-      idealWidth: 190,
-      aspectRatio: 3 / 2,
-    ),
-    HomeCatalogStyle.landscapeArtwork => const _CatalogGeometry(
-      idealWidth: 210,
-      aspectRatio: 3 / 2,
-    ),
-    HomeCatalogStyle.artworkGrid => const _CatalogGeometry(
-      idealWidth: 172,
-      aspectRatio: 1,
-    ),
-  };
-}
-
 class _CatalogCard extends StatelessWidget {
   const _CatalogCard({
     required this.item,
-    required this.style,
     required this.width,
     required this.stableImageCacheWidth,
     required this.onTap,
   });
 
   final HomeCatalogCardData item;
-  final HomeCatalogStyle style;
   final double width;
   final int? stableImageCacheWidth;
   final VoidCallback onTap;
@@ -114,55 +87,50 @@ class _CatalogCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final aspectRatio = _CatalogGeometry.forStyle(style).aspectRatio;
     final radius = BorderRadius.circular(15);
     return SizedBox(
       width: width,
-      child: AspectRatio(
-        aspectRatio: aspectRatio,
-        child: Material(
-          key: ValueKey<String>('catalog-card-${item.id}'),
-          color: colors.surfaceStrong,
+      child: Material(
+        key: ValueKey<String>('catalog-card-${item.id}'),
+        color: colors.surfaceStrong,
+        shape: RoundedRectangleBorder(
           borderRadius: radius,
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: onTap,
-            child: Stack(
-              fit: StackFit.expand,
-              children: <Widget>[
-                _CatalogArtwork(
+          side: BorderSide(color: colors.accent.withValues(alpha: .18)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Column(
+            children: <Widget>[
+              Expanded(
+                child: _CatalogArtwork(
+                  key: ValueKey<String>('catalog-artwork-${item.id}'),
                   item: item,
-                  style: style,
                   stableImageCacheWidth: stableImageCacheWidth,
                 ),
-                const DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      stops: <double>[0.52, 1],
-                      colors: <Color>[Colors.transparent, Color(0xC2000000)],
+              ),
+              SizedBox(
+                height: 36,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      item.title,
+                      key: ValueKey<String>('catalog-title-${item.id}'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: colors.textPrimary,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        height: 1.15,
+                      ),
                     ),
                   ),
                 ),
-                Positioned(
-                  left: 12,
-                  right: 12,
-                  bottom: 10,
-                  child: Text(
-                    item.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      height: 1.15,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
@@ -172,56 +140,82 @@ class _CatalogCard extends StatelessWidget {
 
 class _CatalogArtwork extends StatelessWidget {
   const _CatalogArtwork({
+    super.key,
     required this.item,
-    required this.style,
     required this.stableImageCacheWidth,
   });
 
   final HomeCatalogCardData item;
-  final HomeCatalogStyle style;
   final int? stableImageCacheWidth;
 
   @override
   Widget build(BuildContext context) {
     final loadable = item.imageRequests
         .where((request) => request.canLoad)
-        .take(style == HomeCatalogStyle.posterMosaic ? 3 : 1)
+        .take(2)
         .toList(growable: false);
-    if (loadable.isEmpty) {
-      final colors = context.appColors;
-      return ColoredBox(
-        color: colors.surfaceStrong,
-        child: Icon(
-          _iconFor(item.mediaType),
-          color: colors.textMuted,
-          size: 38,
-        ),
-      );
-    }
-
-    if (style != HomeCatalogStyle.posterMosaic) {
-      return _CatalogNetworkImage(
-        imageKey: ValueKey<String>('catalog-image-${item.id}'),
-        request: loadable.first,
-        stableImageCacheWidth: stableImageCacheWidth,
-      );
-    }
-
-    return Row(
-      children: <Widget>[
-        for (var index = 0; index < loadable.length; index++)
-          Expanded(
-            child: _CatalogNetworkImage(
-              imageKey: ValueKey<String>(
-                index == 0
-                    ? 'catalog-image-${item.id}'
-                    : 'catalog-image-${item.id}-$index',
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final posterHeight = (constraints.maxHeight - 14).clamp(
+          0.0,
+          constraints.maxHeight,
+        );
+        final posterWidth = posterHeight * 2 / 3;
+        final posterCount = loadable.isEmpty ? 1 : loadable.length;
+        return Stack(
+          clipBehavior: Clip.none,
+          children: <Widget>[
+            for (var index = 0; index < posterCount; index++)
+              Center(
+                child: Transform.translate(
+                  offset: posterCount == 1
+                      ? Offset.zero
+                      : Offset(
+                          (index == 0 ? -.18 : .18) * posterWidth,
+                          index == 0 ? 3 : -3,
+                        ),
+                  child: SizedBox(
+                    width: posterWidth,
+                    height: posterHeight,
+                    child: AspectRatio(
+                      key: ValueKey<String>('catalog-poster-${item.id}-$index'),
+                      aspectRatio: 2 / 3,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(9),
+                        child: index < loadable.length
+                            ? _CatalogNetworkImage(
+                                imageKey: ValueKey<String>(
+                                  index == 0
+                                      ? 'catalog-image-${item.id}'
+                                      : 'catalog-image-${item.id}-$index',
+                                ),
+                                request: loadable[index],
+                                stableImageCacheWidth: stableImageCacheWidth,
+                              )
+                            : _CatalogPlaceholder(mediaType: item.mediaType),
+                      ),
+                    ),
+                  ),
+                ),
               ),
-              request: loadable[index],
-              stableImageCacheWidth: stableImageCacheWidth,
-            ),
-          ),
-      ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _CatalogPlaceholder extends StatelessWidget {
+  const _CatalogPlaceholder({required this.mediaType});
+
+  final HomeCatalogMediaType mediaType;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return ColoredBox(
+      color: colors.surfaceStrong,
+      child: Icon(_iconFor(mediaType), color: colors.textMuted, size: 38),
     );
   }
 

@@ -87,7 +87,7 @@ void main() {
     );
 
     expect(find.text('查看全部'), findsNothing);
-    expect(find.text('1 条'), findsOneWidget);
+    expect(find.text('1 条'), findsNothing);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('continue-card-item-1')),
