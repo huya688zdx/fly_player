@@ -95,7 +95,7 @@ class PosterBrowseLargeLayoutMetrics {
       posterCardTitleMaxLines: presentation.titleMaxLines,
       showPosterCardSecondary: presentation.showSecondary,
       showPosterCardTitle: presentation.showTitle,
-      compactFocusScale: compressChrome ? 1.0 : 1.025,
+      compactFocusScale: presentation.focusScale,
     );
   }
 }
@@ -105,12 +105,14 @@ class _PosterPresentation {
   final int titleMaxLines;
   final bool showSecondary;
   final bool showTitle;
+  final double focusScale;
 
   const _PosterPresentation({
     required this.width,
     required this.titleMaxLines,
     required this.showSecondary,
     required this.showTitle,
+    required this.focusScale,
   });
 }
 
@@ -123,15 +125,6 @@ _PosterPresentation _selectPosterPresentation({
   required String Function(PosterBrowseDisplayItem item)? secondaryLabelOf,
   required bool compact,
 }) {
-  if (!compact) {
-    return const _PosterPresentation(
-      width: PosterBrowseLargeLayoutMetrics.defaultPosterCardWidth,
-      titleMaxLines: 2,
-      showSecondary: true,
-      showTitle: true,
-    );
-  }
-
   final candidates = <({int titleMaxLines, bool showSecondary})>[
     (titleMaxLines: 2, showSecondary: true),
     (titleMaxLines: 2, showSecondary: false),
@@ -144,6 +137,27 @@ _PosterPresentation _selectPosterPresentation({
   final availableCardHeight = math
       .max(0, trackHeight - PosterBrowsePosterTrack.verticalPadding)
       .toDouble();
+  final defaultFocusScale = compact ? 1.0 : 1.025;
+  if (_posterWidthFits(
+    width: PosterBrowseLargeLayoutMetrics.defaultPosterCardWidth,
+    availableCardHeight: availableCardHeight,
+    titleMaxLines: 2,
+    showSecondary: true,
+    textScaler: textScaler,
+    titleStyle: titleStyle,
+    secondaryStyle: secondaryStyle,
+    items: samples,
+    secondaryLabelOf: secondaryLabelOf,
+    focusScale: defaultFocusScale,
+  )) {
+    return _PosterPresentation(
+      width: PosterBrowseLargeLayoutMetrics.defaultPosterCardWidth,
+      titleMaxLines: 2,
+      showSecondary: true,
+      showTitle: true,
+      focusScale: defaultFocusScale,
+    );
+  }
 
   for (final candidate in candidates) {
     final width = _maxFittingPosterWidth(
@@ -155,6 +169,7 @@ _PosterPresentation _selectPosterPresentation({
       secondaryStyle: secondaryStyle,
       items: samples,
       secondaryLabelOf: secondaryLabelOf,
+      focusScale: 1.0,
     );
     if (width != null) {
       return _PosterPresentation(
@@ -162,6 +177,7 @@ _PosterPresentation _selectPosterPresentation({
         titleMaxLines: candidate.titleMaxLines,
         showSecondary: candidate.showSecondary,
         showTitle: true,
+        focusScale: 1.0,
       );
     }
   }
@@ -171,6 +187,36 @@ _PosterPresentation _selectPosterPresentation({
     titleMaxLines: 1,
     showSecondary: false,
     showTitle: false,
+    focusScale: 1.0,
+  );
+}
+
+bool _posterWidthFits({
+  required double width,
+  required double availableCardHeight,
+  required int titleMaxLines,
+  required bool showSecondary,
+  required TextScaler textScaler,
+  required TextStyle titleStyle,
+  required TextStyle secondaryStyle,
+  required List<PosterBrowseDisplayItem> items,
+  required String Function(PosterBrowseDisplayItem item)? secondaryLabelOf,
+  required double focusScale,
+}) {
+  return items.every(
+    (item) =>
+        PosterBrowsePosterCardMetrics.contentHeight(
+              width: width,
+              title: item.title,
+              secondaryLabel: secondaryLabelOf?.call(item) ?? item.episodeTitle,
+              titleStyle: titleStyle,
+              secondaryStyle: secondaryStyle,
+              titleMaxLines: titleMaxLines,
+              showSecondary: showSecondary,
+              textScaler: textScaler,
+            ) *
+            focusScale <=
+        availableCardHeight + 0.5,
   );
 }
 
@@ -183,6 +229,7 @@ double? _maxFittingPosterWidth({
   required TextStyle secondaryStyle,
   required List<PosterBrowseDisplayItem> items,
   required String Function(PosterBrowseDisplayItem item)? secondaryLabelOf,
+  required double focusScale,
 }) {
   if (availableCardHeight <= 0) {
     return null;
@@ -192,15 +239,17 @@ double? _maxFittingPosterWidth({
     return items.every(
       (item) =>
           PosterBrowsePosterCardMetrics.contentHeight(
-            width: width,
-            title: item.title,
-            secondaryLabel: secondaryLabelOf?.call(item) ?? item.episodeTitle,
-            titleStyle: titleStyle,
-            secondaryStyle: secondaryStyle,
-            titleMaxLines: titleMaxLines,
-            showSecondary: showSecondary,
-            textScaler: textScaler,
-          ) <=
+                width: width,
+                title: item.title,
+                secondaryLabel:
+                    secondaryLabelOf?.call(item) ?? item.episodeTitle,
+                titleStyle: titleStyle,
+                secondaryStyle: secondaryStyle,
+                titleMaxLines: titleMaxLines,
+                showSecondary: showSecondary,
+                textScaler: textScaler,
+              ) *
+              focusScale <=
           availableCardHeight + 0.5,
     );
   }
