@@ -89,11 +89,15 @@ void main() {
     final continueWidgetSource = File(
       'lib/screens/home/widgets/home_continue_watching_section.dart',
     ).readAsStringSync();
+    final landscapeWidgetSource = File(
+      'lib/screens/home/widgets/home_landscape_media_section.dart',
+    ).readAsStringSync();
 
     expect(widgetsSource, contains('HomeCatalogSection('));
     expect(widgetsSource, isNot(contains('catalogStyle')));
     expect(widgetsSource, contains('const limit = 2;'));
     expect(widgetsSource, contains('HomeContinueWatchingSection('));
+    expect(widgetsSource, contains('HomeLandscapeMediaSection('));
     expect(widgetsSource, contains('visibleHomeSections('));
     expect(widgetsSource, isNot(contains('Widget _buildContinueItem(')));
     expect(widgetsSource, isNot(contains('class _CategoryPosterCard')));
@@ -104,6 +108,12 @@ void main() {
     expect(
       widgetsSource,
       contains('stableImageCacheWidth: layout.continueDecodeWidth'),
+    );
+    expect(
+      'stableImageCacheWidth: layout.continueDecodeWidth'.allMatches(
+        widgetsSource,
+      ),
+      hasLength(2),
     );
     expect(
       widgetsSource,
@@ -125,6 +135,7 @@ void main() {
     expect(actionsSource, isNot(contains('required String heroTag')));
     expect(continueWidgetSource, isNot(contains('heroTag')));
     expect(continueWidgetSource, isNot(contains('trailingText')));
+    expect(landscapeWidgetSource, isNot(contains('MediaPosterCard')));
     expect('continueDetailTarget('.allMatches(widgetsSource), hasLength(1));
     expect('continueDetailTarget('.allMatches(actionsSource), hasLength(1));
 
@@ -180,6 +191,121 @@ void main() {
     expect(lifecycleSource, contains('unawaited(_refreshContinueWatching())'));
   });
 
+  test('nextUp 使用 backdrop 优先的横版架且 latest 保持竖版海报', () {
+    final screenSource = File(
+      'lib/screens/media_list_screen.dart',
+    ).readAsStringSync();
+    final widgetsSource = File(
+      'lib/screens/media_list_screen_widgets.dart',
+    ).readAsStringSync();
+
+    expect(
+      screenSource,
+      contains("import 'home/widgets/home_landscape_media_section.dart';"),
+    );
+    expect(widgetsSource, contains('Widget _buildHomeNextUpShelf({'));
+    expect(widgetsSource, contains("storageKey: 'next-up'"));
+    expect(widgetsSource, contains('contextText: _continueEpisodeText(item)'));
+    expect(
+      '_homeLandscapeImageRequest('.allMatches(widgetsSource),
+      hasLength(3),
+    );
+    expect(
+      'requestWidth: layout.homeContinueRequestWidth'.allMatches(widgetsSource),
+      hasLength(2),
+    );
+
+    final sectionSwitchStart = widgetsSource.indexOf('return switch (section)');
+    final sectionSwitchEnd = widgetsSource.indexOf(
+      'Widget _buildHomeCatalogs',
+      sectionSwitchStart,
+    );
+    final sectionSwitch = widgetsSource.substring(
+      sectionSwitchStart,
+      sectionSwitchEnd,
+    );
+    expect(
+      sectionSwitch,
+      contains('HomeSectionKind.nextUp => _buildHomeNextUpShelf('),
+    );
+    expect(
+      sectionSwitch,
+      contains('HomeSectionKind.latest => _buildHomeMediaShelf('),
+    );
+
+    final helperStart = widgetsSource.indexOf(
+      'MediaImageRequest _homeLandscapeImageRequest(',
+    );
+    final helperEnd = widgetsSource.indexOf(
+      'String _continueContextText(',
+      helperStart,
+    );
+    final helperSource = widgetsSource.substring(helperStart, helperEnd);
+    expect(
+      helperSource.indexOf('_backdropImageRequests[item.guid]'),
+      lessThan(helperSource.indexOf('_itemImageRequests[item.guid]')),
+    );
+
+    final contextStart = widgetsSource.indexOf('String _continueContextText(');
+    final contextEnd = widgetsSource.indexOf(
+      'Widget _buildHomeSummary(',
+      contextStart,
+    );
+    final contextSource = widgetsSource.substring(contextStart, contextEnd);
+    expect(contextSource, contains('_continueEpisodeText(item)'));
+    expect(contextSource, isNot(contains('remainText')));
+    expect(contextSource, isNot(contains('remaining')));
+    expect(contextSource, isNot(contains('position')));
+    expect(screenSource, isNot(contains('play_detail_formatters.dart')));
+  });
+
+  test('旧分页器与孤立响应式布局已删除', () {
+    for (final path in <String>[
+      'lib/screens/home/widgets/home_'
+          'adaptive_'
+          'pager.dart',
+      'test/widgets/home_'
+          'adaptive_'
+          'pager_test.dart',
+      'lib/screens/home/home_responsive_layout.dart',
+      'test/screens/home/home_responsive_layout_test.dart',
+    ]) {
+      expect(File(path).existsSync(), isFalse, reason: path);
+    }
+
+    for (final path in <String>[
+      'lib/screens/home/widgets/home_continue_watching_section.dart',
+      'lib/screens/home/widgets/home_catalog_section.dart',
+      'lib/screens/home/widgets/home_horizontal_shelf.dart',
+      'lib/screens/home/widgets/home_landscape_media_section.dart',
+      'lib/screens/media_list_screen.dart',
+      'lib/screens/media_list_screen_widgets.dart',
+    ]) {
+      final source = File(path).readAsStringSync();
+      expect(
+        source,
+        isNot(
+          contains(
+            'HomeAdaptive'
+            'Pager',
+          ),
+        ),
+        reason: path,
+      );
+      expect(
+        source,
+        isNot(
+          contains(
+            'home_'
+            'adaptive_'
+            'pager',
+          ),
+        ),
+        reason: path,
+      );
+    }
+  });
+
   test('媒体库生产组件使用连续横向架且不再渲染标题计数', () {
     final source = File(
       'lib/screens/home/widgets/home_catalog_section.dart',
@@ -192,7 +318,15 @@ void main() {
     expect(source, contains('idealItemWidth: 184'));
     expect(source, contains('itemAspectRatio: 1.08'));
     expect(source, contains('.take(2)'));
-    expect(source, isNot(contains('HomeAdaptivePager')));
+    expect(
+      source,
+      isNot(
+        contains(
+          'HomeAdaptive'
+          'Pager',
+        ),
+      ),
+    );
     expect(source, isNot(contains('trailingText')));
   });
 

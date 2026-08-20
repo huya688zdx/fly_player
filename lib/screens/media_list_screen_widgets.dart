@@ -250,10 +250,9 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
         other: other,
         hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
       ),
-      HomeSectionKind.nextUp => _buildHomeMediaShelf(
+      HomeSectionKind.nextUp => _buildHomeNextUpShelf(
         title: l10n.nativeNotificationActionNextEpisode,
         items: _nextUp,
-        heroTagPrefix: 'home_next_up',
         baseUrl: baseUrl,
         token: token,
         accessCode: accessCode,
@@ -380,7 +379,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
                 title: item.displayTitle,
                 contextText: _continueContextText(item),
                 progress: _progressValue(item),
-                imageRequest: _homeContinueImageRequest(
+                imageRequest: _homeLandscapeImageRequest(
                   item,
                   baseUrl: baseUrl,
                   token: token,
@@ -427,7 +426,50 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     );
   }
 
-  MediaImageRequest _homeContinueImageRequest(
+  Widget _buildHomeNextUpShelf({
+    required String title,
+    required List<MediaLibraryItem> items,
+    required String baseUrl,
+    required String token,
+    required String accessCode,
+    required MediaLayoutProfile layout,
+  }) {
+    final itemsById = <String, MediaLibraryItem>{
+      for (final item in items) item.guid: item,
+    };
+    final cards = items
+        .map(
+          (item) => HomeLandscapeCardData(
+            id: item.guid,
+            title: item.displayTitle,
+            contextText: _continueEpisodeText(item),
+            imageRequest: _homeLandscapeImageRequest(
+              item,
+              baseUrl: baseUrl,
+              token: token,
+              accessCode: accessCode,
+              requestWidth: layout.homeContinueRequestWidth,
+            ),
+          ),
+        )
+        .toList(growable: false);
+    return HomeLandscapeMediaSection(
+      title: title,
+      storageKey: 'next-up',
+      items: cards,
+      stableImageCacheWidth: layout.continueDecodeWidth,
+      onOpenDetail: (card) {
+        final item = itemsById[card.id];
+        if (item != null) _openItemDetail(item);
+      },
+      onLongPress: (card) {
+        final item = itemsById[card.id];
+        if (item != null) _showPosterItemActions(item);
+      },
+    );
+  }
+
+  MediaImageRequest _homeLandscapeImageRequest(
     MediaLibraryItem item, {
     required String baseUrl,
     required String token,
@@ -470,16 +512,9 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
 
   String _continueContextText(MediaLibraryItem item) {
     final l10n = AppLocalizations.of(context);
-    final typeText = item.type.trim().toLowerCase() == 'movie'
+    return item.type.trim().toLowerCase() == 'movie'
         ? l10n.listTypeMovie
         : _continueEpisodeText(item);
-    final position = item.ts > 0 ? item.ts : item.watchedTs;
-    final remaining = PlayDetailFormatters.remainText(
-      item.duration,
-      position,
-      l10n,
-    );
-    return <String>[typeText, if (remaining.isNotEmpty) remaining].join(' · ');
   }
 
   Widget _buildHomeSummary({
