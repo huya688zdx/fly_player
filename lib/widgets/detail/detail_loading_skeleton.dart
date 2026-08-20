@@ -105,11 +105,11 @@ class DetailLoadingSkeleton extends StatelessWidget {
                 ),
                 child: LayoutBuilder(
                   builder: (context, heroConstraints) {
-                    if (heroConstraints.maxHeight <
-                        _SkeletonMetrics.heroContentMinHeight) {
+                    if (heroConstraints.maxHeight < _heroContentMinHeight) {
                       return const SizedBox.shrink();
                     }
                     return Column(
+                      key: const ValueKey('detail-skeleton-hero-content'),
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Spacer(),
@@ -167,11 +167,11 @@ class DetailLoadingSkeleton extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(pad, 0, pad, 0),
                   child: LayoutBuilder(
                     builder: (context, bodyConstraints) {
-                      if (bodyConstraints.maxHeight <
-                          _SkeletonMetrics.compactBodyHeight) {
+                      if (bodyConstraints.maxHeight < _bodyReserve) {
                         return const SizedBox.shrink();
                       }
                       return Column(
+                        key: const ValueKey('detail-skeleton-body-content'),
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           SizedBox(height: _isPane ? 18 : 24),
@@ -223,6 +223,10 @@ class DetailLoadingSkeleton extends StatelessWidget {
   double get _bodyReserve => _isPane
       ? _SkeletonMetrics.paneBodyReserve
       : _SkeletonMetrics.pageBodyReserve;
+
+  double get _heroContentMinHeight => _isPane
+      ? _SkeletonMetrics.paneHeroContentHeight
+      : _SkeletonMetrics.pageHeroContentHeight;
 }
 
 class _SkeletonMetrics {
@@ -232,8 +236,8 @@ class _SkeletonMetrics {
   static const paneMaxHero = 380.0;
   static const pageBodyReserve = 130.0;
   static const paneBodyReserve = 116.0;
-  static const compactBodyHeight = 48.0;
-  static const heroContentMinHeight = 54.0;
+  static const pageHeroContentHeight = 68.0;
+  static const paneHeroContentHeight = 64.0;
 }
 
 class _Bar extends StatelessWidget {
