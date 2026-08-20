@@ -34,17 +34,15 @@ Future<T?> showAppActionSheet<T>(
       final l10n = AppLocalizations.of(context);
       final media = MediaQuery.of(context);
       final screenWidth = media.size.width;
-      final textScale = media.textScaler.scale(1).clamp(1.0, 1.12);
+      final inheritedScale = media.textScaler.scale(1);
+      final columns = screenWidth >= 360 && inheritedScale < 1.3 ? 2 : 1;
       final horizontalPadding = (screenWidth * 0.045).clamp(16.0, 22.0);
       final topPadding = (screenWidth * 0.038).clamp(12.0, 16.0);
       final titleFontSize = (screenWidth * 0.052).clamp(17.0, 19.0);
       final titleBottomGap = (screenWidth * 0.046).clamp(16.0, 20.0);
-      final buttonHeight = (screenWidth * 0.158).clamp(56.0, 66.0);
+      const buttonHeight = 50.0;
       final buttonRadius = (screenWidth * 0.04).clamp(14.0, 17.0);
-      final buttonFontSize = (screenWidth * 0.056 * textScale).clamp(
-        17.0,
-        20.0,
-      );
+      const buttonFontSize = 16.0;
       final buttonGap = (screenWidth * 0.032).clamp(10.0, 14.0);
       final bottomInset = media.padding.bottom > 0
           ? media.padding.bottom
@@ -81,17 +79,30 @@ Future<T?> showAppActionSheet<T>(
                     ),
                   ),
                   SizedBox(height: titleBottomGap),
-                  for (final option in options) ...[
-                    _ActionSheetButton(
-                      label: option.label,
-                      destructive: option.destructive,
-                      height: buttonHeight,
-                      radius: buttonRadius,
-                      fontSize: buttonFontSize,
-                      onTap: () => Navigator.of(context).pop(option.value),
+                  GridView.builder(
+                    key: ValueKey('action-sheet-grid-$columns'),
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: columns,
+                      mainAxisExtent: buttonHeight,
+                      crossAxisSpacing: buttonGap,
+                      mainAxisSpacing: buttonGap,
                     ),
-                    SizedBox(height: buttonGap),
-                  ],
+                    itemCount: options.length,
+                    itemBuilder: (context, index) {
+                      final option = options[index];
+                      return _ActionSheetButton(
+                        label: option.label,
+                        destructive: option.destructive,
+                        height: buttonHeight,
+                        radius: buttonRadius,
+                        fontSize: buttonFontSize,
+                        onTap: () => Navigator.of(context).pop(option.value),
+                      );
+                    },
+                  ),
+                  SizedBox(height: buttonGap),
                   _ActionSheetButton(
                     label: cancelText ?? l10n.commonCancel,
                     secondary: true,
@@ -133,13 +144,21 @@ class _ActionSheetButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final backgroundColor = destructive
-        ? colors.danger
+        ? Color.alphaBlend(
+            colors.danger.withValues(alpha: .14),
+            colors.surfaceStrong,
+          )
         : secondary
         ? colors.surfaceStrong
         : colors.accent;
-    final foregroundColor = secondary
-        ? colors.textSecondary
-        : colors.textPrimary;
+    final foregroundColor = destructive
+        ? (ThemeData.estimateBrightnessForColor(backgroundColor) ==
+                  Brightness.dark
+              ? Colors.white
+              : const Color(0xFF1B1B1B))
+        : secondary
+        ? colors.textPrimary
+        : Theme.of(context).colorScheme.onPrimary;
 
     return SizedBox(
       height: height,
