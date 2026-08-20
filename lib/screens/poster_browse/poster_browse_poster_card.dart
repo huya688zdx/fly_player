@@ -2,6 +2,66 @@ import 'package:flutter/material.dart';
 
 import 'poster_browse_display_item.dart';
 
+@immutable
+class PosterBrowsePosterCardMetrics {
+  static const double imageAspectRatio = 1.5;
+  static const double imageTextGap = 8;
+  static const double secondaryTextGap = 3;
+
+  const PosterBrowsePosterCardMetrics._();
+
+  static double textHeight({
+    required String text,
+    required TextStyle style,
+    required int maxLines,
+    required double width,
+    required TextScaler textScaler,
+  }) {
+    if (text.trim().isEmpty || maxLines <= 0 || width <= 0) {
+      return 0;
+    }
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: TextDirection.ltr,
+      textScaler: textScaler,
+      maxLines: maxLines,
+      ellipsis: '…',
+    )..layout(maxWidth: width);
+    return painter.height;
+  }
+
+  static double contentHeight({
+    required double width,
+    required String title,
+    required String secondaryLabel,
+    required TextStyle titleStyle,
+    required TextStyle secondaryStyle,
+    required int titleMaxLines,
+    required bool showSecondary,
+    required TextScaler textScaler,
+  }) {
+    final titleHeight = textHeight(
+      text: title,
+      style: titleStyle,
+      maxLines: titleMaxLines,
+      width: width,
+      textScaler: textScaler,
+    );
+    final secondaryText = showSecondary ? secondaryLabel.trim() : '';
+    final secondaryHeight = textHeight(
+      text: secondaryText,
+      style: secondaryStyle,
+      maxLines: 1,
+      width: width,
+      textScaler: textScaler,
+    );
+    return width * imageAspectRatio +
+        imageTextGap +
+        titleHeight +
+        (secondaryHeight > 0 ? secondaryTextGap + secondaryHeight : 0);
+  }
+}
+
 class PosterBrowsePosterCard extends StatelessWidget {
   static const double defaultWidth = 116;
 
@@ -13,6 +73,11 @@ class PosterBrowsePosterCard extends StatelessWidget {
   final String secondaryLabel;
   final VoidCallback onTap;
   final double width;
+  final double? availableHeight;
+  final int titleMaxLines;
+  final bool showSecondary;
+  final bool showTitle;
+  final double focusScale;
 
   const PosterBrowsePosterCard({
     super.key,
@@ -24,11 +89,49 @@ class PosterBrowsePosterCard extends StatelessWidget {
     required this.secondaryLabel,
     required this.onTap,
     this.width = defaultWidth,
+    this.availableHeight,
+    this.titleMaxLines = 2,
+    this.showSecondary = true,
+    this.showTitle = true,
+    this.focusScale = 1.025,
   });
 
   @override
   Widget build(BuildContext context) {
-    final imageHeight = width * 1.5;
+    if (availableHeight != null && availableHeight! <= 0) {
+      return SizedBox(width: width, height: 0);
+    }
+    final theme = Theme.of(context);
+    final titleStyle = theme.textTheme.bodyMedium?.copyWith(
+      fontWeight: focused ? FontWeight.w600 : FontWeight.w500,
+    );
+    final secondaryStyle = theme.textTheme.bodySmall?.copyWith(
+      color: theme.textTheme.bodySmall?.color?.withValues(alpha: 0.72),
+    );
+    final textHeight = showTitle
+        ? PosterBrowsePosterCardMetrics.contentHeight(
+                width: width,
+                title: item.title,
+                secondaryLabel: showSecondary ? secondaryLabel : '',
+                titleStyle: titleStyle ?? const TextStyle(),
+                secondaryStyle: secondaryStyle ?? const TextStyle(),
+                titleMaxLines: titleMaxLines,
+                showSecondary: showSecondary,
+                textScaler: MediaQuery.textScalerOf(context),
+              ) -
+              width * PosterBrowsePosterCardMetrics.imageAspectRatio -
+              PosterBrowsePosterCardMetrics.imageTextGap
+        : 0;
+    final imageHeight = availableHeight == null
+        ? width * PosterBrowsePosterCardMetrics.imageAspectRatio
+        : (availableHeight! -
+                  textHeight -
+                  PosterBrowsePosterCardMetrics.imageTextGap)
+              .clamp(
+                0.0,
+                width * PosterBrowsePosterCardMetrics.imageAspectRatio,
+              )
+              .toDouble();
     final progressValue = _progressValue;
 
     return Semantics(
@@ -39,8 +142,9 @@ class PosterBrowsePosterCard extends StatelessWidget {
         onTap: onTap,
         child: SizedBox(
           width: width,
+          height: availableHeight,
           child: Transform.scale(
-            scale: focused ? 1.025 : 1.0,
+            scale: focused ? focusScale : 1.0,
             alignment: Alignment.topCenter,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -97,26 +201,22 @@ class PosterBrowsePosterCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  item.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontWeight: focused ? FontWeight.w600 : FontWeight.w500,
-                  ),
-                ),
-                if (secondaryLabel.trim().isNotEmpty) ...[
-                  const SizedBox(height: 3),
+                if (showTitle) ...[
                   Text(
-                    secondaryLabel.trim(),
-                    maxLines: 1,
+                    item.title,
+                    maxLines: titleMaxLines,
                     overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(
-                        context,
-                      ).textTheme.bodySmall?.color?.withValues(alpha: 0.72),
-                    ),
+                    style: titleStyle,
                   ),
+                  if (showSecondary && secondaryLabel.trim().isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      secondaryLabel.trim(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: secondaryStyle,
+                    ),
+                  ],
                 ],
               ],
             ),
