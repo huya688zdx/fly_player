@@ -105,6 +105,7 @@ class _ContinueCard extends StatelessWidget {
         : const Color(0xFF1B1B1B);
     final radius = BorderRadius.circular(14);
     final imageHeight = width / (16 / 10);
+    final compactDownloaded = item.downloaded && width < 176;
     final artwork = _ContinueArtwork(
       item: item,
       stableImageCacheWidth: stableImageCacheWidth,
@@ -142,10 +143,10 @@ class _ContinueCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    if (item.downloaded)
+                    if (item.downloaded && !compactDownloaded)
                       const Positioned(
-                        left: 9,
-                        bottom: 11,
+                        top: 9,
+                        right: 9,
                         child: _DownloadedBadge(),
                       ),
                     Positioned(
@@ -205,17 +206,20 @@ class _ContinueCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 3),
-            Text(
-              item.contextText,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: colors.textMuted,
-                fontSize: 12,
-                fontWeight: FontWeight.w400,
-                height: 1.15,
+            if (compactDownloaded)
+              const _DownloadedBadge()
+            else
+              Text(
+                item.contextText,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: colors.textMuted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w400,
+                  height: 1.15,
+                ),
               ),
-            ),
           ],
         ),
       ),
@@ -271,6 +275,8 @@ class _DownloadedBadge extends StatelessWidget {
         child: ExcludeSemantics(
           child: Text(
             label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               color: Colors.white,
               fontSize: 11,

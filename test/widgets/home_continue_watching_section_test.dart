@@ -17,7 +17,12 @@ const continueFixture = HomeContinueCardData(
   downloaded: false,
 );
 
-Widget testApp(Widget child, {AppThemeColors? runtimeColors}) => MaterialApp(
+Widget testApp(
+  Widget child, {
+  AppThemeColors? runtimeColors,
+  double width = 390,
+  TextScaler textScaler = TextScaler.noScaling,
+}) => MaterialApp(
   theme: AppThemeBuilder.build(AppThemePreset.midnight),
   locale: const Locale('zh', 'CN'),
   localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -25,7 +30,12 @@ Widget testApp(Widget child, {AppThemeColors? runtimeColors}) => MaterialApp(
   home: AppRuntimeColorScope(
     colors: runtimeColors,
     hasRuntimeColors: runtimeColors != null,
-    child: Scaffold(body: SizedBox(width: 390, child: child)),
+    child: MediaQuery(
+      data: MediaQueryData(size: Size(width, 800), textScaler: textScaler),
+      child: Scaffold(
+        body: SizedBox(width: width, child: child),
+      ),
+    ),
   ),
 );
 
@@ -52,6 +62,17 @@ String networkUrlOf(Image image) {
       ? provider.imageProvider as NetworkImage
       : provider as NetworkImage;
   return network.url;
+}
+
+Finder downloadedBadgeFinder() => find.byWidgetPredicate(
+  (widget) => widget is Semantics && widget.properties.label == '已下载',
+);
+
+void expectRectInside(Rect inner, Rect outer) {
+  expect(inner.left, greaterThanOrEqualTo(outer.left));
+  expect(inner.top, greaterThanOrEqualTo(outer.top));
+  expect(inner.right, lessThanOrEqualTo(outer.right));
+  expect(inner.bottom, lessThanOrEqualTo(outer.bottom));
 }
 
 class _PendingHttpClient implements HttpClient {
@@ -260,6 +281,106 @@ void main() {
       find.byKey(const ValueKey<String>('continue-play-visual-image-item')),
     );
     expect((darkVisual.decoration as BoxDecoration).color, darkAccent);
+  });
+
+  testWidgets('常规卡宽的下载文字在图片右上且播放键在右下', (tester) async {
+    const fixture = HomeContinueCardData(
+      id: 'regular-download',
+      title: '常规布局',
+      contextText: '第 1 季 · 第 2 集',
+      progress: .4,
+      imageRequest: MediaImageRequest.empty,
+      downloaded: true,
+    );
+
+    for (final width in <double>[176, 360]) {
+      await tester.pumpWidget(
+        testApp(
+          HomeContinueWatchingSection(
+            items: const <HomeContinueCardData>[fixture],
+            onOpenDetail: (_) {},
+            onPlay: (_) {},
+            onLongPress: (_) {},
+          ),
+          width: width,
+        ),
+      );
+
+      final card = tester.getRect(
+        find.byKey(const ValueKey<String>('continue-card-regular-download')),
+      );
+      final artwork = tester.getRect(find.byType(ClipRRect));
+      final badge = tester.getRect(downloadedBadgeFinder());
+      final play = tester.getRect(
+        find.byKey(const ValueKey<String>('continue-play-regular-download')),
+      );
+
+      expectRectInside(badge, card);
+      expectRectInside(play, card);
+      expect(badge.overlaps(play), isFalse);
+      expect(badge.top - artwork.top, closeTo(9, .01));
+      expect(artwork.right - badge.right, closeTo(9, .01));
+      expect(artwork.right - play.right, closeTo(8, .01));
+      expect(artwork.bottom - play.bottom, closeTo(4, .01));
+      expect(find.text(fixture.contextText), findsOneWidget);
+      expect(tester.takeException(), isNull, reason: '卡宽 $width');
+    }
+  });
+
+  testWidgets('极窄卡宽把下载文字移到元信息行并避开播放键', (tester) async {
+    const fixture = HomeContinueCardData(
+      id: 'compact-download',
+      title: '极窄布局下仍然需要看到标题',
+      contextText: '第 1 季 · 第 12 集',
+      progress: .7,
+      imageRequest: MediaImageRequest.empty,
+      downloaded: true,
+    );
+    const cases = <({double width, double scale})>[
+      (width: 160, scale: 3),
+      (width: 120, scale: 2),
+      (width: 120, scale: 3),
+    ];
+
+    for (final testCase in cases) {
+      await tester.pumpWidget(
+        testApp(
+          HomeContinueWatchingSection(
+            items: const <HomeContinueCardData>[fixture],
+            onOpenDetail: (_) {},
+            onPlay: (_) {},
+            onLongPress: (_) {},
+          ),
+          width: testCase.width,
+          textScaler: TextScaler.linear(testCase.scale),
+        ),
+      );
+
+      final card = tester.getRect(
+        find.byKey(const ValueKey<String>('continue-card-compact-download')),
+      );
+      final artwork = tester.getRect(find.byType(ClipRRect));
+      final badge = tester.getRect(downloadedBadgeFinder());
+      final play = tester.getRect(
+        find.byKey(const ValueKey<String>('continue-play-compact-download')),
+      );
+
+      expectRectInside(badge, card);
+      expectRectInside(play, card);
+      expect(badge.overlaps(play), isFalse);
+      expect(badge.top, greaterThanOrEqualTo(artwork.bottom));
+      expect(find.text(fixture.contextText), findsNothing);
+      expect(
+        tester.widget<Text>(find.text('已下载')).overflow,
+        TextOverflow.ellipsis,
+      );
+      expect(tester.widget<Text>(find.text('已下载')).maxLines, 1);
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: '卡宽 ${testCase.width}，文字 ${testCase.scale}x',
+      );
+    }
   });
 
   testWidgets('续看卡使用普通路由转场且不创建单端 Hero', (tester) async {
