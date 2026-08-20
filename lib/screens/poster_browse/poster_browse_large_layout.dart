@@ -5,9 +5,72 @@ import '../../media_backend/media_image_request.dart';
 import '../../media_backend/media_item_card.dart';
 import 'poster_browse_display_item.dart';
 import 'poster_browse_media_info.dart';
+import 'poster_browse_poster_card.dart';
 import 'poster_browse_poster_track.dart';
 import 'poster_browse_row_status.dart';
 import 'poster_browse_rows.dart';
+
+@immutable
+class PosterBrowseLargeLayoutMetrics {
+  static const double compactViewportHeight = 412;
+  static const double mediaInfoViewportHeight = 600;
+  static const double compactVerticalPadding = 8;
+  static const double regularTopPadding = 16;
+  static const double regularBottomPadding = 22;
+  static const double toolbarHeight = 48;
+  static const double compactTrackGap = 8;
+  static const double regularTrackGap = 14;
+  static const double maxTrackHeight = 264;
+  static const double defaultPosterCardWidth =
+      PosterBrowsePosterCard.defaultWidth;
+  static const double minPosterCardWidth = 104;
+  static const double posterTrackVerticalPadding = 12;
+  static const double posterCardTextHeightBudget = 68;
+  static const double posterImageAspectRatio = 1.5;
+
+  final bool compressChrome;
+  final bool showMediaInfo;
+  final double trackHeight;
+
+  const PosterBrowseLargeLayoutMetrics({
+    required this.compressChrome,
+    required this.showMediaInfo,
+    required this.trackHeight,
+  });
+
+  factory PosterBrowseLargeLayoutMetrics.fromViewportHeight(
+    double viewportHeight,
+  ) {
+    final compressChrome = viewportHeight < compactViewportHeight;
+    final contentHeight =
+        viewportHeight -
+        (compressChrome
+            ? compactVerticalPadding * 2
+            : regularTopPadding + regularBottomPadding);
+    final trackHeight = compressChrome
+        ? (contentHeight - toolbarHeight - compactTrackGap)
+              .clamp(0.0, maxTrackHeight)
+              .toDouble()
+        : maxTrackHeight;
+
+    return PosterBrowseLargeLayoutMetrics(
+      compressChrome: compressChrome,
+      showMediaInfo: viewportHeight >= mediaInfoViewportHeight,
+      trackHeight: trackHeight,
+    );
+  }
+
+  double get posterCardWidth {
+    if (!compressChrome) {
+      return defaultPosterCardWidth;
+    }
+    final imageHeight =
+        trackHeight - posterTrackVerticalPadding - posterCardTextHeightBudget;
+    return (imageHeight / posterImageAspectRatio)
+        .clamp(minPosterCardWidth, defaultPosterCardWidth)
+        .toDouble();
+  }
+}
 
 class PosterBrowseLargeLayout extends StatelessWidget {
   final List<PosterBrowseRow> rows;
@@ -58,58 +121,93 @@ class PosterBrowseLargeLayout extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final viewportHeight = constraints.maxHeight;
-          final showMediaInfo = viewportHeight >= 600;
-          final compressChrome = viewportHeight < 412;
-          final verticalInset = compressChrome ? 8.0 : null;
+          final metrics = PosterBrowseLargeLayoutMetrics.fromViewportHeight(
+            viewportHeight,
+          );
 
           return Padding(
             padding: EdgeInsets.fromLTRB(
               28,
-              verticalInset ?? 16,
+              metrics.compressChrome
+                  ? PosterBrowseLargeLayoutMetrics.compactVerticalPadding
+                  : PosterBrowseLargeLayoutMetrics.regularTopPadding,
               28,
-              verticalInset ?? 22,
+              metrics.compressChrome
+                  ? PosterBrowseLargeLayoutMetrics.compactVerticalPadding
+                  : PosterBrowseLargeLayoutMetrics.regularBottomPadding,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _BackButton(onPressed: onBack),
-                Expanded(
-                  child: showMediaInfo
-                      ? Padding(
-                          padding: const EdgeInsets.only(
-                            left: 36,
-                            right: 36,
-                            top: 24,
+                if (metrics.compressChrome)
+                  SizedBox(
+                    key: const ValueKey('poster_browse_short_toolbar'),
+                    height: PosterBrowseLargeLayoutMetrics.toolbarHeight,
+                    child: Row(
+                      children: [
+                        _BackButton(onPressed: onBack),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: _RowSelector(
+                            rows: rows,
+                            selectedRow: selectedRow,
+                            onSelectRow: onSelectRow,
                           ),
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: ConstrainedBox(
-                              constraints: const BoxConstraints(maxWidth: 560),
-                              child: focusedItem == null
-                                  ? const SizedBox.shrink()
-                                  : PosterBrowseMediaInfo(
-                                      item: focusedItem!,
-                                      logoRequest: logoRequest,
-                                      secondaryLabel: secondaryLabel,
-                                      metaWidgets: metaWidgets,
-                                      compact: viewportHeight < 900,
-                                      onPlay: onPlay,
-                                      onDetail: onDetail,
-                                    ),
+                        ),
+                      ],
+                    ),
+                  )
+                else ...[
+                  _BackButton(onPressed: onBack),
+                  Expanded(
+                    child: metrics.showMediaInfo
+                        ? Padding(
+                            padding: const EdgeInsets.only(
+                              left: 36,
+                              right: 36,
+                              top: 24,
                             ),
-                          ),
-                        )
-                      : const SizedBox.shrink(),
-                ),
-                _RowSelector(
-                  rows: rows,
-                  selectedRow: selectedRow,
-                  onSelectRow: onSelectRow,
-                ),
-                SizedBox(height: compressChrome ? 8 : 14),
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  maxWidth: 560,
+                                ),
+                                child: focusedItem == null
+                                    ? const SizedBox.shrink()
+                                    : PosterBrowseMediaInfo(
+                                        item: focusedItem!,
+                                        logoRequest: logoRequest,
+                                        secondaryLabel: secondaryLabel,
+                                        metaWidgets: metaWidgets,
+                                        compact: viewportHeight < 900,
+                                        onPlay: onPlay,
+                                        onDetail: onDetail,
+                                      ),
+                              ),
+                            ),
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                  _RowSelector(
+                    rows: rows,
+                    selectedRow: selectedRow,
+                    onSelectRow: onSelectRow,
+                  ),
+                ],
                 SizedBox(
-                  height: 264,
-                  child: _buildTrackArea(context, currentRow, currentItems),
+                  height: metrics.compressChrome
+                      ? PosterBrowseLargeLayoutMetrics.compactTrackGap
+                      : PosterBrowseLargeLayoutMetrics.regularTrackGap,
+                ),
+                SizedBox(
+                  height: metrics.trackHeight,
+                  child: _buildTrackArea(
+                    context,
+                    currentRow,
+                    currentItems,
+                    cardWidth: metrics.posterCardWidth,
+                  ),
                 ),
               ],
             ),
@@ -132,8 +230,9 @@ class PosterBrowseLargeLayout extends StatelessWidget {
   Widget _buildTrackArea(
     BuildContext context,
     PosterBrowseRow? currentRow,
-    List<PosterBrowseDisplayItem> currentItems,
-  ) {
+    List<PosterBrowseDisplayItem> currentItems, {
+    required double cardWidth,
+  }) {
     if (currentItems.isNotEmpty) {
       return PosterBrowsePosterTrack(
         items: currentItems,
@@ -142,6 +241,7 @@ class PosterBrowseLargeLayout extends StatelessWidget {
         imageOf: imageOf,
         secondaryLabelOf: secondaryLabelOf,
         onItemTap: onSelectItem,
+        cardWidth: cardWidth,
       );
     }
 
