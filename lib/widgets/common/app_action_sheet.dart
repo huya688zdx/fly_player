@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -40,7 +42,10 @@ Future<T?> showAppActionSheet<T>(
       final topPadding = (screenWidth * 0.038).clamp(12.0, 16.0);
       final titleFontSize = (screenWidth * 0.052).clamp(17.0, 19.0);
       final titleBottomGap = (screenWidth * 0.046).clamp(16.0, 20.0);
-      const buttonHeight = 50.0;
+      final scaledButtonText = media.textScaler.scale(16);
+      final buttonHeight = columns == 1
+          ? math.max(50.0, scaledButtonText * 2.6).toDouble()
+          : 50.0;
       final buttonRadius = (screenWidth * 0.04).clamp(14.0, 17.0);
       const buttonFontSize = 16.0;
       final buttonGap = (screenWidth * 0.032).clamp(10.0, 14.0);
