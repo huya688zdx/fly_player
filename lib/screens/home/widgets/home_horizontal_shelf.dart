@@ -34,8 +34,8 @@ class HomeHorizontalShelf<T> extends StatelessWidget {
         !_isPositiveFinite(minItemWidth) ||
         !_isPositiveFinite(maxItemWidth) ||
         !_isPositiveFinite(itemAspectRatio) ||
-        !_isPositiveFinite(textLinesHeight) ||
-        !_isPositiveFinite(gap)) {
+        !_isNonNegativeFinite(textLinesHeight) ||
+        !_isNonNegativeFinite(gap)) {
       return const SizedBox.shrink();
     }
 
@@ -50,7 +50,7 @@ class HomeHorizontalShelf<T> extends StatelessWidget {
           maxWidth,
           math.min(idealItemWidth, maxItemWidth),
         );
-        if (upperBound <= 0 || minItemWidth > upperBound) {
+        if (upperBound <= 0) {
           return const SizedBox.shrink();
         }
 
@@ -59,7 +59,11 @@ class HomeHorizontalShelf<T> extends StatelessWidget {
             : maxWidth >= 500
             ? .40
             : .56;
-        final cardWidth = (maxWidth * fraction).clamp(minItemWidth, upperBound);
+        final cardWidth = maxWidth < minItemWidth
+            ? maxWidth
+            : minItemWidth > upperBound
+            ? 0.0
+            : (maxWidth * fraction).clamp(minItemWidth, upperBound);
         if (!_isPositiveFinite(cardWidth)) {
           return const SizedBox.shrink();
         }
@@ -100,4 +104,7 @@ class HomeHorizontalShelf<T> extends StatelessWidget {
   }
 
   static bool _isPositiveFinite(double value) => value.isFinite && value > 0;
+
+  static bool _isNonNegativeFinite(double value) =>
+      value.isFinite && value >= 0;
 }

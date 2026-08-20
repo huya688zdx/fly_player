@@ -10,6 +10,8 @@ void main() {
     double idealItemWidth = 320,
     double minItemWidth = 140,
     double maxItemWidth = 360,
+    double textLinesHeight = 44,
+    double gap = 12,
   }) {
     return MaterialApp(
       home: Scaffold(
@@ -26,6 +28,8 @@ void main() {
                 minItemWidth: minItemWidth,
                 maxItemWidth: maxItemWidth,
                 itemAspectRatio: 16 / 10,
+                textLinesHeight: textLinesHeight,
+                gap: gap,
                 itemBuilder: (context, item, cardWidth) => Container(
                   key: ValueKey<int>(item),
                   width: cardWidth,
@@ -104,6 +108,29 @@ void main() {
 
     await tester.pumpWidget(buildShelf(width: 360, idealItemWidth: double.nan));
     expect(find.byType(ListView), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('零文字区高度仍渲染且容器只保留媒体区高度', (tester) async {
+    await tester.pumpWidget(buildShelf(width: 360, textLinesHeight: 0));
+
+    final cardWidth = tester.getSize(find.byKey(const ValueKey<int>(0))).width;
+    expect(find.byType(ListView), findsOneWidget);
+    expect(
+      tester.getSize(find.byType(ListView)).height,
+      closeTo(cardWidth / (16 / 10), .01),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('极窄约束下卡片退化为可用宽度且零间距合法', (tester) async {
+    await tester.pumpWidget(buildShelf(width: 80, minItemWidth: 140, gap: 0));
+
+    expect(find.byType(ListView), findsOneWidget);
+    expect(
+      tester.getSize(find.byKey(const ValueKey<int>(0))).width,
+      closeTo(80, .01),
+    );
     expect(tester.takeException(), isNull);
   });
 }
