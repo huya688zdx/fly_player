@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/media_backend/media_image_request.dart';
 import 'package:fly_player/screens/home/widgets/home_continue_watching_section.dart';
 import 'package:fly_player/theme/app_theme.dart';
@@ -16,9 +17,16 @@ const continueFixture = HomeContinueCardData(
   downloaded: false,
 );
 
-Widget testApp(Widget child) => MaterialApp(
+Widget testApp(Widget child, {AppThemeColors? runtimeColors}) => MaterialApp(
   theme: AppThemeBuilder.build(AppThemePreset.midnight),
-  home: Scaffold(body: SizedBox(width: 390, child: child)),
+  locale: const Locale('zh', 'CN'),
+  localizationsDelegates: AppLocalizations.localizationsDelegates,
+  supportedLocales: AppLocalizations.supportedLocales,
+  home: AppRuntimeColorScope(
+    colors: runtimeColors,
+    hasRuntimeColors: runtimeColors != null,
+    child: Scaffold(body: SizedBox(width: 390, child: child)),
+  ),
 );
 
 Widget responsiveTestApp({
@@ -108,7 +116,50 @@ void main() {
     expect(detail, 1);
   });
 
-  testWidgets('续看使用可访问字重、封面裁切和语义主题色', (tester) async {
+  testWidgets('八张续看卡使用连续横向架并可停在首卡宽度内', (tester) async {
+    final items = List<HomeContinueCardData>.generate(
+      8,
+      (index) => HomeContinueCardData(
+        id: 'scroll-$index',
+        title: '续看 $index',
+        contextText: '第 1 季 · 第 ${index + 1} 集',
+        progress: .2,
+        imageRequest: MediaImageRequest.empty,
+        downloaded: false,
+      ),
+    );
+
+    await tester.pumpWidget(
+      testApp(
+        HomeContinueWatchingSection(
+          items: items,
+          onOpenDetail: (_) {},
+          onPlay: (_) {},
+          onLongPress: (_) {},
+        ),
+      ),
+    );
+
+    expect(find.byType(ListView), findsOneWidget);
+    expect(find.byType(PageView), findsNothing);
+    expect(find.byType(Scrollbar), findsNothing);
+    expect(find.bySemanticsLabel(RegExp('第 .* 页')), findsNothing);
+    expect(find.textContaining('8 条'), findsNothing);
+
+    final cardWidth = tester
+        .getSize(find.byKey(const ValueKey<String>('continue-card-scroll-0')))
+        .width;
+    final position = tester
+        .state<ScrollableState>(find.byType(Scrollable))
+        .position;
+    await tester.drag(find.byType(ListView), const Offset(-95, 0));
+    await tester.pumpAndSettle();
+
+    expect(position.pixels, greaterThan(0));
+    expect(position.pixels, lessThan(cardWidth));
+  });
+
+  testWidgets('续看使用动态强调色、对比前景和本地化下载文字', (tester) async {
     const imageFixture = HomeContinueCardData(
       id: 'image-item',
       title: '标题',
@@ -120,6 +171,12 @@ void main() {
       ),
       downloaded: true,
     );
+    const accent = Color(0xFFFFE14A);
+    final baseColors = AppThemeBuilder.build(
+      AppThemePreset.midnight,
+    ).extension<AppThemeColors>()!;
+    final runtimeColors = baseColors.copyWith(accent: accent);
+
     await tester.pumpWidget(
       testApp(
         HomeContinueWatchingSection(
@@ -128,6 +185,7 @@ void main() {
           onPlay: (_) {},
           onLongPress: (_) {},
         ),
+        runtimeColors: runtimeColors,
       ),
     );
 
@@ -147,26 +205,61 @@ void main() {
     final progress = tester.widget<LinearProgressIndicator>(
       find.byKey(const ValueKey<String>('continue-progress-image-item')),
     );
-    expect(progress.color, AppThemePalette.fallback.accent);
+    expect(progress.color, accent);
 
     final playButton = tester.widget<IconButton>(
       find.byKey(const ValueKey<String>('continue-play-image-item')),
     );
-    final scheme = AppThemeBuilder.build(AppThemePreset.midnight).colorScheme;
     expect(
       playButton.style?.foregroundColor?.resolve(<WidgetState>{}),
-      scheme.onPrimary,
+      const Color(0xFF1B1B1B),
     );
     final visual = tester.widget<DecoratedBox>(
       find.byKey(const ValueKey<String>('continue-play-visual-image-item')),
     );
-    expect((visual.decoration as BoxDecoration).color, scheme.primary);
+    expect((visual.decoration as BoxDecoration).color, accent);
+    expect(find.text('已下载'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) => widget is Semantics && widget.properties.label == '已下载',
+      ),
+      findsOneWidget,
+    );
+    expect(find.byIcon(Icons.download_done_rounded), findsNothing);
+    final downloaded = tester.widget<Text>(find.text('已下载'));
+    expect(downloaded.style?.color, Colors.white);
+    expect(downloaded.style?.fontSize, 11);
+    expect(downloaded.style?.fontWeight, FontWeight.w600);
     final targetSize = tester.getSize(
       find.byKey(const ValueKey<String>('continue-play-image-item')),
     );
     expect(targetSize.width, greaterThanOrEqualTo(48));
     expect(targetSize.height, greaterThanOrEqualTo(48));
     expect(tester.takeException(), isNull);
+
+    const darkAccent = Color(0xFF173A5E);
+    await tester.pumpWidget(
+      testApp(
+        HomeContinueWatchingSection(
+          items: const <HomeContinueCardData>[imageFixture],
+          onOpenDetail: (_) {},
+          onPlay: (_) {},
+          onLongPress: (_) {},
+        ),
+        runtimeColors: baseColors.copyWith(accent: darkAccent),
+      ),
+    );
+    final darkPlayButton = tester.widget<IconButton>(
+      find.byKey(const ValueKey<String>('continue-play-image-item')),
+    );
+    expect(
+      darkPlayButton.style?.foregroundColor?.resolve(<WidgetState>{}),
+      Colors.white,
+    );
+    final darkVisual = tester.widget<DecoratedBox>(
+      find.byKey(const ValueKey<String>('continue-play-visual-image-item')),
+    );
+    expect((darkVisual.decoration as BoxDecoration).color, darkAccent);
   });
 
   testWidgets('续看卡使用普通路由转场且不创建单端 Hero', (tester) async {
