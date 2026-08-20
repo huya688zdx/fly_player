@@ -1,9 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../../l10n/generated/app_localizations.dart';
 import '../../../media_backend/media_image_request.dart';
 import '../../../theme/app_theme.dart';
-import 'home_adaptive_pager.dart';
+import 'home_horizontal_shelf.dart';
 import 'home_section_header.dart';
 
 /// 继续观看卡片所需的后端中立展示数据。
@@ -55,12 +56,9 @@ class HomeContinueWatchingSection extends StatelessWidget {
       children: <Widget>[
         HomeSectionHeader(title: title),
         const SizedBox(height: 12),
-        HomeAdaptivePager<HomeContinueCardData>(
+        HomeHorizontalShelf<HomeContinueCardData>(
+          storageKey: 'continue-watching',
           items: items,
-          itemId: (item) => item.id,
-          idealItemWidth: 190,
-          itemAspectRatio: 16 / 10,
-          maxColumns: 5,
           itemBuilder: (context, item, width) => _ContinueCard(
             item: item,
             width: width,
@@ -69,6 +67,12 @@ class HomeContinueWatchingSection extends StatelessWidget {
             onPlay: () => onPlay(item),
             onLongPress: () => onLongPress(item),
           ),
+          minItemWidth: 176,
+          maxItemWidth: 210,
+          idealItemWidth: 210,
+          itemAspectRatio: 16 / 10,
+          textLinesHeight: 44,
+          gap: 12,
         ),
       ],
     );
@@ -95,7 +99,10 @@ class _ContinueCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final scheme = Theme.of(context).colorScheme;
+    final playForeground =
+        ThemeData.estimateBrightnessForColor(colors.accent) == Brightness.dark
+        ? Colors.white
+        : const Color(0xFF1B1B1B);
     final radius = BorderRadius.circular(14);
     final imageHeight = width / (16 / 10);
     final artwork = _ContinueArtwork(
@@ -153,7 +160,7 @@ class _ContinueCard extends StatelessWidget {
                             'continue-play-visual-${item.id}',
                           ),
                           decoration: BoxDecoration(
-                            color: scheme.primary,
+                            color: colors.accent,
                             shape: BoxShape.circle,
                           ),
                           child: const SizedBox.square(
@@ -162,7 +169,7 @@ class _ContinueCard extends StatelessWidget {
                           ),
                         ),
                         style: IconButton.styleFrom(
-                          foregroundColor: scheme.onPrimary,
+                          foregroundColor: playForeground,
                           minimumSize: const Size.square(48),
                           maximumSize: const Size.square(48),
                           padding: EdgeInsets.zero,
@@ -252,18 +259,25 @@ class _DownloadedBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final label = AppLocalizations.of(context).downloadDownloaded;
     return Semantics(
-      label: '已下载',
+      label: label,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
         decoration: BoxDecoration(
           color: Colors.black.withValues(alpha: .58),
           borderRadius: BorderRadius.circular(7),
         ),
-        child: const Icon(
-          Icons.download_done_rounded,
-          color: Colors.white,
-          size: 15,
+        child: ExcludeSemantics(
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              height: 1.1,
+            ),
+          ),
         ),
       ),
     );
