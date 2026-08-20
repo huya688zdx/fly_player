@@ -40,7 +40,6 @@ class MediaLayoutProfile {
 
   static const int _homeContinueRequestWidth = 520;
   static const int _homePosterRequestWidth = 440;
-  static const int _categoryMiniPosterRequestWidth = 156;
   static const int _continueDecodeWidth = 520;
   static const int _homePosterDecodeWidth = 352;
   static const int _homeCatalogDecodeWidth = 440;
@@ -48,7 +47,9 @@ class MediaLayoutProfile {
   // 首页海报的网络请求宽度固定取卡片上界，避免飞牛 ?w= 随分屏宽度变化。
   int get homeContinueRequestWidth => _homeContinueRequestWidth;
   int get homePosterRequestWidth => _homePosterRequestWidth;
-  int get categoryMiniPosterRequestWidth => _categoryMiniPosterRequestWidth;
+  // 首页目录大卡的网络请求宽度固定取首页海报请求上界，避免首帧缩略图
+  // 与后台刷新后的图片使用不同 URL/cache key。
+  int get homeCatalogRequestWidth => _homePosterRequestWidth;
 
   // 共享首页区块直接消费稳定物理像素宽度，不再乘设备 DPR；
   // 旋转和分屏只改变视觉卡宽，不改变图片缓存键。
