@@ -21,5 +21,19 @@ void main() {
 
     expect(buildSource, contains('extendBody: true'));
     expect(buildSource, contains('_LiquidGlassBottomNavigation'));
+
+    final navigationSource = source.substring(
+      source.indexOf('class _LiquidGlassBottomNavigation'),
+    );
+    expect(navigationSource, contains('MainNavigationMetrics.barHeight'));
+    expect(
+      navigationSource,
+      contains('MainNavigationMetrics.outerBottomPadding'),
+    );
+
+    final homeSource = File(
+      'lib/screens/media_list_screen_widgets.dart',
+    ).readAsStringSync();
+    expect(homeSource, contains('MainNavigationMetrics.contentBottomInset'));
   });
 }

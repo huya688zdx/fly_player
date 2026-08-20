@@ -31,6 +31,7 @@ import '../ui/app_transitions.dart';
 import '../ui/detail_hero_image.dart';
 import '../ui/detail_theme_prewarmer.dart';
 import '../ui/layout_adaptive.dart';
+import '../ui/main_navigation_metrics.dart';
 import '../ui/route_transition_gate.dart';
 import '../ui/media_poster_card.dart';
 import '../utils/api_url_helper.dart';

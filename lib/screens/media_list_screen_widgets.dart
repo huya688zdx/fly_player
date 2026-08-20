@@ -175,7 +175,11 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
               layout.pageHorizontalPadding,
               layout.itemGap,
               layout.pageHorizontalPadding,
-              20,
+              widget.secondaryHost
+                  ? 20
+                  : MainNavigationMetrics.contentBottomInset(
+                      MediaQuery.viewPaddingOf(context).bottom,
+                    ),
             ),
             sliver: SliverList.builder(
               itemCount: sections.length,
