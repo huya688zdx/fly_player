@@ -36,8 +36,8 @@ Future<T?> showAppActionSheet<T>(
       final l10n = AppLocalizations.of(context);
       final media = MediaQuery.of(context);
       final screenWidth = media.size.width;
-      final inheritedScale = media.textScaler.scale(1);
-      final columns = screenWidth >= 360 && inheritedScale < 1.3 ? 2 : 1;
+      final buttonTextScale = media.textScaler.scale(16) / 16;
+      final columns = screenWidth >= 360 && buttonTextScale < 1.3 ? 2 : 1;
       final horizontalPadding = (screenWidth * 0.045).clamp(16.0, 22.0);
       final topPadding = (screenWidth * 0.038).clamp(12.0, 16.0);
       final titleFontSize = (screenWidth * 0.052).clamp(17.0, 19.0);
@@ -52,71 +52,81 @@ Future<T?> showAppActionSheet<T>(
       final bottomInset = media.padding.bottom > 0
           ? media.padding.bottom
           : 16.0;
+      final viewInsetsBottom = media.viewInsets.bottom;
+      final availableHeight = math.max(
+        0.0,
+        media.size.height - viewInsetsBottom,
+      );
 
       return SafeArea(
         top: false,
-        child: Container(
-          padding: EdgeInsets.fromLTRB(
-            horizontalPadding,
-            topPadding,
-            horizontalPadding,
-            bottomInset,
-          ),
-          decoration: BoxDecoration(
-            color: colors.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-            border: Border.all(color: colors.borderSubtle),
-          ),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxHeight: media.size.height * 0.82),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    title,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: colors.textPrimary,
-                      fontSize: titleFontSize,
-                      fontWeight: FontWeight.w500,
+        child: Padding(
+          padding: EdgeInsets.only(bottom: viewInsetsBottom),
+          child: Container(
+            padding: EdgeInsets.fromLTRB(
+              horizontalPadding,
+              topPadding,
+              horizontalPadding,
+              bottomInset,
+            ),
+            decoration: BoxDecoration(
+              color: colors.surface,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(28),
+              ),
+              border: Border.all(color: colors.borderSubtle),
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: availableHeight * 0.82),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      title,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: colors.textPrimary,
+                        fontSize: titleFontSize,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
-                  ),
-                  SizedBox(height: titleBottomGap),
-                  GridView.builder(
-                    key: ValueKey('action-sheet-grid-$columns'),
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: columns,
-                      mainAxisExtent: buttonHeight,
-                      crossAxisSpacing: buttonGap,
-                      mainAxisSpacing: buttonGap,
+                    SizedBox(height: titleBottomGap),
+                    GridView.builder(
+                      key: ValueKey('action-sheet-grid-$columns'),
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: columns,
+                        mainAxisExtent: buttonHeight,
+                        crossAxisSpacing: buttonGap,
+                        mainAxisSpacing: buttonGap,
+                      ),
+                      itemCount: options.length,
+                      itemBuilder: (context, index) {
+                        final option = options[index];
+                        return _ActionSheetButton(
+                          label: option.label,
+                          destructive: option.destructive,
+                          height: buttonHeight,
+                          radius: buttonRadius,
+                          fontSize: buttonFontSize,
+                          onTap: () => Navigator.of(context).pop(option.value),
+                        );
+                      },
                     ),
-                    itemCount: options.length,
-                    itemBuilder: (context, index) {
-                      final option = options[index];
-                      return _ActionSheetButton(
-                        label: option.label,
-                        destructive: option.destructive,
-                        height: buttonHeight,
-                        radius: buttonRadius,
-                        fontSize: buttonFontSize,
-                        onTap: () => Navigator.of(context).pop(option.value),
-                      );
-                    },
-                  ),
-                  SizedBox(height: buttonGap),
-                  _ActionSheetButton(
-                    label: cancelText ?? l10n.commonCancel,
-                    secondary: true,
-                    height: buttonHeight,
-                    radius: buttonRadius,
-                    fontSize: buttonFontSize,
-                    onTap: () => Navigator.of(context).pop(),
-                  ),
-                ],
+                    SizedBox(height: buttonGap),
+                    _ActionSheetButton(
+                      label: cancelText ?? l10n.commonCancel,
+                      secondary: true,
+                      height: buttonHeight,
+                      radius: buttonRadius,
+                      fontSize: buttonFontSize,
+                      onTap: () => Navigator.of(context).pop(),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
