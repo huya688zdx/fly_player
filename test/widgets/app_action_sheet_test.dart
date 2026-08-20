@@ -5,17 +5,31 @@ import 'package:fly_player/l10n/generated/app_localizations.dart';
 import 'package:fly_player/theme/app_theme.dart';
 import 'package:fly_player/widgets/common/app_action_sheet.dart';
 
+class _NonlinearTextScaler extends TextScaler {
+  const _NonlinearTextScaler();
+
+  @override
+  double scale(double fontSize) =>
+      fontSize <= 1 ? fontSize * 1.2 : fontSize * 1.5;
+
+  @override
+  double get textScaleFactor => 1.2;
+}
+
 Widget _testApp({
   required double width,
   double height = 800,
   required double textScale,
+  TextScaler? customTextScaler,
+  double viewInsetsBottom = 0,
   required WidgetBuilder builder,
   Color? customAccentColor,
 }) {
   return MediaQuery(
     data: MediaQueryData(
       size: Size(width, height),
-      textScaler: TextScaler.linear(textScale),
+      textScaler: customTextScaler ?? TextScaler.linear(textScale),
+      viewInsets: EdgeInsets.only(bottom: viewInsetsBottom),
     ),
     child: MaterialApp(
       locale: const Locale('zh'),
@@ -35,6 +49,8 @@ Future<void> _openSheet(
   required double width,
   double height = 800,
   required double textScale,
+  TextScaler? customTextScaler,
+  double viewInsetsBottom = 0,
   Color? customAccentColor,
   List<AppActionSheetOption<String>>? options,
 }) async {
@@ -43,6 +59,8 @@ Future<void> _openSheet(
       width: width,
       height: height,
       textScale: textScale,
+      customTextScaler: customTextScaler,
+      viewInsetsBottom: viewInsetsBottom,
       customAccentColor: customAccentColor,
       builder: (context) => Scaffold(
         body: Center(
@@ -106,7 +124,8 @@ void main() {
           .ancestor(of: find.text(label), matching: find.byType(FilledButton))
           .first,
     );
-    expect(buttonRect.height, greaterThanOrEqualTo(83.2 - 1));
+    final scaledButtonText = const TextScaler.linear(2).scale(16);
+    expect(buttonRect.height, greaterThanOrEqualTo(scaledButtonText * 2.6 - 1));
     expect(textRect.top, greaterThanOrEqualTo(buttonRect.top - 1));
     expect(textRect.bottom, lessThanOrEqualTo(buttonRect.bottom + 1));
     expect(tester.takeException(), isNull);
@@ -140,13 +159,101 @@ void main() {
     expect(buttonRect.bottom, lessThan(before.bottom));
     expect(buttonRect.top, greaterThanOrEqualTo(0));
     expect(buttonRect.center.dy, lessThanOrEqualTo(500));
-    expect(buttonRect.height, greaterThanOrEqualTo(124.8 - 1));
+    final scaledButtonText = const TextScaler.linear(3).scale(16);
+    expect(buttonRect.height, greaterThanOrEqualTo(scaledButtonText * 2.6 - 1));
     final textRect = tester.getRect(find.text(label));
     expect(textRect.top, greaterThanOrEqualTo(buttonRect.top - 1));
     expect(textRect.bottom, lessThanOrEqualTo(buttonRect.bottom + 1));
     expect(tester.takeException(), isNull);
     await tester.tap(buttonFinder);
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('非线性缩放按16号字判断单列且长标签完整', (tester) async {
+    const label = '从“继续观看”中移除';
+    const scaler = _NonlinearTextScaler();
+    expect(scaler.scale(1) / 1, lessThan(1.3));
+    expect(scaler.scale(16) / 16, greaterThanOrEqualTo(1.3));
+    await _openSheet(
+      tester,
+      width: 390,
+      textScale: 1,
+      customTextScaler: scaler,
+      options: const [AppActionSheetOption(value: 'remove', label: label)],
+    );
+
+    expect(find.byKey(const ValueKey('action-sheet-grid-1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('action-sheet-grid-2')), findsNothing);
+    final textRect = tester.getRect(find.text(label));
+    final buttonRect = tester.getRect(
+      find
+          .ancestor(of: find.text(label), matching: find.byType(FilledButton))
+          .first,
+    );
+    expect(buttonRect.height, greaterThanOrEqualTo(scaler.scale(16) * 2.6 - 1));
+    expect(textRect.top, greaterThanOrEqualTo(buttonRect.top - 1));
+    expect(textRect.bottom, lessThanOrEqualTo(buttonRect.bottom + 1));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('键盘占用空间时面板位于键盘上方且可滚动取消', (tester) async {
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    const options = [
+      AppActionSheetOption(value: 'option-0', label: '操作0'),
+      AppActionSheetOption(value: 'option-1', label: '操作1'),
+      AppActionSheetOption(value: 'option-2', label: '操作2'),
+      AppActionSheetOption(value: 'option-3', label: '操作3'),
+      AppActionSheetOption(value: 'option-4', label: '操作4'),
+      AppActionSheetOption(value: 'option-5', label: '操作5'),
+      AppActionSheetOption(value: 'option-6', label: '操作6'),
+      AppActionSheetOption(value: 'option-7', label: '操作7'),
+      AppActionSheetOption(value: 'option-8', label: '操作8'),
+      AppActionSheetOption(value: 'option-9', label: '操作9'),
+    ];
+
+    for (final height in [500.0, 700.0]) {
+      await tester.binding.setSurfaceSize(Size(390, height));
+      await tester.pumpWidget(
+        _testApp(
+          width: 390,
+          height: height,
+          textScale: 1,
+          viewInsetsBottom: 240,
+          builder: (context) => const Scaffold(),
+        ),
+      );
+      final context = tester.element(find.byType(Scaffold));
+      final cancelled = showAppActionSheet<String>(
+        context,
+        title: '媒体操作',
+        cancelText: '取消',
+        options: options,
+      );
+      await tester.pumpAndSettle();
+
+      final sheet = find
+          .ancestor(of: find.text('取消'), matching: find.byType(Container))
+          .last;
+      final sheetRect = tester.getRect(sheet);
+      expect(sheetRect.bottom, lessThanOrEqualTo(height - 240 + 1));
+
+      final scrollable = find.byType(SingleChildScrollView);
+      expect(scrollable, findsOneWidget);
+      final cancelButton = find
+          .ancestor(of: find.text('取消'), matching: find.byType(FilledButton))
+          .first;
+      final before = tester.getRect(cancelButton);
+      expect(before.bottom, greaterThan(height - 240));
+      await tester.drag(scrollable, const Offset(0, -2000));
+      await tester.pumpAndSettle();
+      final after = tester.getRect(cancelButton);
+      expect(after.bottom, lessThan(before.bottom));
+      expect(after.center.dy, lessThanOrEqualTo(height - 240 + 1));
+      await tester.tap(cancelButton);
+      await tester.pumpAndSettle();
+      expect(await cancelled, isNull);
+      expect(tester.takeException(), isNull);
+    }
   });
 
   testWidgets('泛型选项点击返回对应值且取消返回null', (tester) async {
