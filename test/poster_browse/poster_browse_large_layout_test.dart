@@ -97,6 +97,12 @@ void main() {
       findsNothing,
     );
     expect(tester.takeException(), isNull);
+    expect(
+      tester
+          .widget<PosterBrowsePosterCard>(find.byType(PosterBrowsePosterCard))
+          .focusScale,
+      1.025,
+    );
   });
 
   testWidgets('海报轨使用竖版卡片显示条目焦点进度并回调点击下标', (tester) async {
@@ -571,6 +577,11 @@ void main() {
 
     expect(tester.takeException(), isNull);
     _expectPosterCardsWithinTrack(tester);
+    final cardWidget = tester.widget<PosterBrowsePosterCard>(
+      find.byType(PosterBrowsePosterCard),
+    );
+    expect(cardWidget.width, lessThan(116));
+    expect(cardWidget.showSecondary, isFalse);
   });
 
   testWidgets('短横屏大字号长文案卡片不超出轨道视口', (tester) async {
@@ -621,6 +632,160 @@ void main() {
     );
     expect(cardWidget.showSecondary, isFalse);
     expect(cardWidget.titleMaxLines, 2);
+  });
+
+  testWidgets('普通短屏大字号长文案卡片不超出轨道视口', (tester) async {
+    final card = _card(
+      id: 'regular-large-text',
+      title: '这是一个非常长的影片标题用于验证普通大字号布局',
+    );
+
+    await tester.binding.setSurfaceSize(const Size(853, 500));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      _localizedApp(
+        MediaQuery(
+          data: const MediaQueryData(
+            size: Size(853, 500),
+            textScaler: TextScaler.linear(2.0),
+          ),
+          child: PosterBrowseLargeLayout(
+            rows: [
+              PosterBrowseRow(
+                kind: PosterBrowseRowKind.continueWatching,
+                items: [card],
+              ),
+            ],
+            displayItemOf: _displayItem,
+            selectedRow: 0,
+            focusedIndex: 0,
+            focusedItem: _displayItem(card),
+            logoRequest: MediaImageRequest.empty,
+            secondaryLabel: '第 1 季 第 1 集',
+            metaWidgets: const <Widget>[],
+            imageOf: _loadableImageOf,
+            secondaryLabelOf: (_) => '第 1 季 第 1 集',
+            onSelectRow: (_) {},
+            onSelectItem: (_) {},
+            onRetryCurrentRow: () {},
+            onPlay: () {},
+            onDetail: () {},
+            onBack: () {},
+          ),
+        ),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    _expectPosterCardsWithinTrack(tester);
+    final cardWidget = tester.widget<PosterBrowsePosterCard>(
+      find.byType(PosterBrowsePosterCard),
+    );
+    expect(cardWidget.width, lessThan(116));
+    expect(cardWidget.showSecondary, isFalse);
+  });
+
+  testWidgets('媒体信息大屏字号长文案卡片不超出轨道视口', (tester) async {
+    final card = _card(
+      id: 'media-info-large-text',
+      title: '这是一个非常长的影片标题用于验证媒体信息大字号布局',
+    );
+
+    await tester.binding.setSurfaceSize(const Size(853, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      _localizedApp(
+        MediaQuery(
+          data: const MediaQueryData(
+            size: Size(853, 700),
+            textScaler: TextScaler.linear(2.0),
+          ),
+          child: PosterBrowseLargeLayout(
+            rows: [
+              PosterBrowseRow(
+                kind: PosterBrowseRowKind.continueWatching,
+                items: [card],
+              ),
+            ],
+            displayItemOf: _displayItem,
+            selectedRow: 0,
+            focusedIndex: 0,
+            focusedItem: _displayItem(card),
+            logoRequest: MediaImageRequest.empty,
+            secondaryLabel: '第 1 季 第 1 集',
+            metaWidgets: const <Widget>[],
+            imageOf: _loadableImageOf,
+            secondaryLabelOf: (_) => '第 1 季 第 1 集',
+            onSelectRow: (_) {},
+            onSelectItem: (_) {},
+            onRetryCurrentRow: () {},
+            onBack: () {},
+            onPlay: () {},
+            onDetail: () {},
+          ),
+        ),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(PosterBrowseMediaInfo), findsOneWidget);
+    _expectPosterCardsWithinTrack(tester);
+    final cardWidget = tester.widget<PosterBrowsePosterCard>(
+      find.byType(PosterBrowsePosterCard),
+    );
+    expect(cardWidget.width, lessThan(116));
+    expect(cardWidget.showSecondary, isFalse);
+  });
+
+  testWidgets('卡片极短可用高度不渲染无意义间距且不溢出', (tester) async {
+    final card = _displayItem(_card(id: 'tiny-card', title: '极短卡片标题'));
+
+    for (final height in [0.0, 8.0]) {
+      await tester.pumpWidget(
+        _localizedApp(
+          SizedBox(
+            width: 200,
+            height: 12,
+            child: PosterBrowsePosterCard(
+              item: card,
+              focused: true,
+              showProgress: false,
+              imageUrl: '',
+              imageHeaders: const <String, String>{},
+              secondaryLabel: '副标题',
+              onTap: () {},
+              availableHeight: height,
+              showTitle: false,
+              showSecondary: false,
+              focusScale: 1,
+            ),
+          ),
+        ),
+      );
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(
+        _localizedApp(
+          SizedBox(
+            width: 200,
+            height: 12,
+            child: PosterBrowsePosterTrack(
+              items: [card],
+              focusedIndex: 0,
+              showProgress: false,
+              imageOf: (_) => MediaImageRequest.empty,
+              secondaryLabelOf: (_) => '副标题',
+              onItemTap: (_) {},
+              cardHeight: height,
+              showTitle: false,
+              showSecondary: false,
+              focusScale: 1,
+            ),
+          ),
+        ),
+      );
+      expect(tester.takeException(), isNull);
+    }
   });
 }
 

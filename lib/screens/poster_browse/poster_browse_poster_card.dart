@@ -122,11 +122,12 @@ class PosterBrowsePosterCard extends StatelessWidget {
               width * PosterBrowsePosterCardMetrics.imageAspectRatio -
               PosterBrowsePosterCardMetrics.imageTextGap
         : 0;
+    final imageTextGap = showTitle
+        ? PosterBrowsePosterCardMetrics.imageTextGap
+        : 0.0;
     final imageHeight = availableHeight == null
         ? width * PosterBrowsePosterCardMetrics.imageAspectRatio
-        : (availableHeight! -
-                  textHeight -
-                  PosterBrowsePosterCardMetrics.imageTextGap)
+        : (availableHeight! - textHeight - imageTextGap)
               .clamp(
                 0.0,
                 width * PosterBrowsePosterCardMetrics.imageAspectRatio,
@@ -200,7 +201,10 @@ class PosterBrowsePosterCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                const SizedBox(height: 8),
+                if (showTitle)
+                  const SizedBox(
+                    height: PosterBrowsePosterCardMetrics.imageTextGap,
+                  ),
                 if (showTitle) ...[
                   Text(
                     item.title,
