@@ -1,7 +1,10 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../l10n/generated/app_localizations.dart';
 import '../../media_backend/media_image_request.dart';
+import '../../media_backend/media_image_ref.dart';
 import '../../media_backend/media_item_card.dart';
 import 'poster_browse_display_item.dart';
 import 'poster_browse_media_info.dart';
@@ -23,53 +26,234 @@ class PosterBrowseLargeLayoutMetrics {
   static const double maxTrackHeight = 264;
   static const double defaultPosterCardWidth =
       PosterBrowsePosterCard.defaultWidth;
-  static const double minPosterCardWidth = 104;
+  static const double minPosterCardWidth = 88;
   static const double posterTrackVerticalPadding = 12;
-  static const double posterCardTextHeightBudget = 68;
-  static const double posterImageAspectRatio = 1.5;
 
   final bool compressChrome;
   final bool showMediaInfo;
   final double trackHeight;
+  final double posterCardWidth;
+  final int posterCardTitleMaxLines;
+  final bool showPosterCardSecondary;
+  final bool showPosterCardTitle;
+  final double compactFocusScale;
 
   const PosterBrowseLargeLayoutMetrics({
     required this.compressChrome,
     required this.showMediaInfo,
     required this.trackHeight,
+    required this.posterCardWidth,
+    required this.posterCardTitleMaxLines,
+    required this.showPosterCardSecondary,
+    required this.showPosterCardTitle,
+    required this.compactFocusScale,
   });
 
   factory PosterBrowseLargeLayoutMetrics.fromViewportHeight(
-    double viewportHeight,
-  ) {
-    final compressChrome = viewportHeight < compactViewportHeight;
+    double viewportHeight, {
+    TextScaler textScaler = const TextScaler.linear(1),
+    TextStyle titleStyle = const TextStyle(fontSize: 14),
+    TextStyle secondaryStyle = const TextStyle(fontSize: 12),
+    Iterable<PosterBrowseDisplayItem> items = const <PosterBrowseDisplayItem>[],
+    String Function(PosterBrowseDisplayItem item)? secondaryLabelOf,
+  }) {
+    final safeViewportHeight = viewportHeight.isFinite
+        ? math.max(0, viewportHeight)
+        : 0.0;
+    final compressChrome = safeViewportHeight < compactViewportHeight;
     final contentHeight =
-        viewportHeight -
+        safeViewportHeight -
         (compressChrome
             ? compactVerticalPadding * 2
             : regularTopPadding + regularBottomPadding);
-    final trackHeight = compressChrome
-        ? (contentHeight - toolbarHeight - compactTrackGap)
-              .clamp(0.0, maxTrackHeight)
-              .toDouble()
-        : maxTrackHeight;
+    final trackHeight =
+        (compressChrome
+                ? math.max(
+                    0,
+                    math.min(
+                      maxTrackHeight,
+                      contentHeight - toolbarHeight - compactTrackGap,
+                    ),
+                  )
+                : maxTrackHeight)
+            .toDouble();
+    final presentation = _selectPosterPresentation(
+      trackHeight: trackHeight,
+      textScaler: textScaler,
+      titleStyle: titleStyle,
+      secondaryStyle: secondaryStyle,
+      items: items,
+      secondaryLabelOf: secondaryLabelOf,
+      compact: compressChrome,
+    );
 
     return PosterBrowseLargeLayoutMetrics(
       compressChrome: compressChrome,
-      showMediaInfo: viewportHeight >= mediaInfoViewportHeight,
+      showMediaInfo: safeViewportHeight >= mediaInfoViewportHeight,
       trackHeight: trackHeight,
+      posterCardWidth: presentation.width,
+      posterCardTitleMaxLines: presentation.titleMaxLines,
+      showPosterCardSecondary: presentation.showSecondary,
+      showPosterCardTitle: presentation.showTitle,
+      compactFocusScale: compressChrome ? 1.0 : 1.025,
+    );
+  }
+}
+
+class _PosterPresentation {
+  final double width;
+  final int titleMaxLines;
+  final bool showSecondary;
+  final bool showTitle;
+
+  const _PosterPresentation({
+    required this.width,
+    required this.titleMaxLines,
+    required this.showSecondary,
+    required this.showTitle,
+  });
+}
+
+_PosterPresentation _selectPosterPresentation({
+  required double trackHeight,
+  required TextScaler textScaler,
+  required TextStyle titleStyle,
+  required TextStyle secondaryStyle,
+  required Iterable<PosterBrowseDisplayItem> items,
+  required String Function(PosterBrowseDisplayItem item)? secondaryLabelOf,
+  required bool compact,
+}) {
+  if (!compact) {
+    return const _PosterPresentation(
+      width: PosterBrowseLargeLayoutMetrics.defaultPosterCardWidth,
+      titleMaxLines: 2,
+      showSecondary: true,
+      showTitle: true,
     );
   }
 
-  double get posterCardWidth {
-    if (!compressChrome) {
-      return defaultPosterCardWidth;
+  final candidates = <({int titleMaxLines, bool showSecondary})>[
+    (titleMaxLines: 2, showSecondary: true),
+    (titleMaxLines: 2, showSecondary: false),
+    (titleMaxLines: 1, showSecondary: false),
+  ];
+  final itemList = items.toList(growable: false);
+  final samples = itemList.isEmpty
+      ? <PosterBrowseDisplayItem>[_samplePosterDisplayItem()]
+      : itemList;
+  final availableCardHeight = math
+      .max(0, trackHeight - PosterBrowsePosterTrack.verticalPadding)
+      .toDouble();
+
+  for (final candidate in candidates) {
+    final width = _maxFittingPosterWidth(
+      availableCardHeight: availableCardHeight,
+      titleMaxLines: candidate.titleMaxLines,
+      showSecondary: candidate.showSecondary,
+      textScaler: textScaler,
+      titleStyle: titleStyle,
+      secondaryStyle: secondaryStyle,
+      items: samples,
+      secondaryLabelOf: secondaryLabelOf,
+    );
+    if (width != null) {
+      return _PosterPresentation(
+        width: width,
+        titleMaxLines: candidate.titleMaxLines,
+        showSecondary: candidate.showSecondary,
+        showTitle: true,
+      );
     }
-    final imageHeight =
-        trackHeight - posterTrackVerticalPadding - posterCardTextHeightBudget;
-    return (imageHeight / posterImageAspectRatio)
-        .clamp(minPosterCardWidth, defaultPosterCardWidth)
-        .toDouble();
   }
+
+  return const _PosterPresentation(
+    width: PosterBrowseLargeLayoutMetrics.minPosterCardWidth,
+    titleMaxLines: 1,
+    showSecondary: false,
+    showTitle: false,
+  );
+}
+
+double? _maxFittingPosterWidth({
+  required double availableCardHeight,
+  required int titleMaxLines,
+  required bool showSecondary,
+  required TextScaler textScaler,
+  required TextStyle titleStyle,
+  required TextStyle secondaryStyle,
+  required List<PosterBrowseDisplayItem> items,
+  required String Function(PosterBrowseDisplayItem item)? secondaryLabelOf,
+}) {
+  if (availableCardHeight <= 0) {
+    return null;
+  }
+
+  bool fits(double width) {
+    return items.every(
+      (item) =>
+          PosterBrowsePosterCardMetrics.contentHeight(
+            width: width,
+            title: item.title,
+            secondaryLabel: secondaryLabelOf?.call(item) ?? item.episodeTitle,
+            titleStyle: titleStyle,
+            secondaryStyle: secondaryStyle,
+            titleMaxLines: titleMaxLines,
+            showSecondary: showSecondary,
+            textScaler: textScaler,
+          ) <=
+          availableCardHeight + 0.5,
+    );
+  }
+
+  const minWidth = PosterBrowseLargeLayoutMetrics.minPosterCardWidth;
+  const maxWidth = PosterBrowseLargeLayoutMetrics.defaultPosterCardWidth;
+  if (!fits(minWidth)) {
+    return null;
+  }
+  if (fits(maxWidth)) {
+    return maxWidth;
+  }
+
+  var low = minWidth;
+  var high = maxWidth;
+  for (var i = 0; i < 20; i++) {
+    final middle = (low + high) / 2;
+    if (fits(middle)) {
+      low = middle;
+    } else {
+      high = middle;
+    }
+  }
+  return low;
+}
+
+PosterBrowseDisplayItem _samplePosterDisplayItem() {
+  return PosterBrowseDisplayItem(
+    card: const MediaItemCard(
+      id: 'layout-sample',
+      title: '标题',
+      type: 'Movie',
+      primaryImage: MediaImageRef.empty,
+    ),
+    title: '标题',
+    episodeTitle: '副标题',
+    type: 'Movie',
+    seriesId: '',
+    ratingText: '',
+    releaseYear: '',
+    overview: '',
+    detailTargetId: 'layout-sample',
+    seasonNumber: 0,
+    episodeNumber: 0,
+    numberOfSeasons: 0,
+    numberOfEpisodes: 0,
+    durationSeconds: 0,
+    genres: const <String>[],
+    resolutions: const <String>[],
+    backgroundImages: const <MediaImageRef>[],
+    logoImages: const <MediaImageRef>[],
+    posterImages: const <MediaImageRef>[],
+  );
 }
 
 class PosterBrowseLargeLayout extends StatelessWidget {
@@ -121,8 +305,14 @@ class PosterBrowseLargeLayout extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final viewportHeight = constraints.maxHeight;
+          final theme = Theme.of(context);
           final metrics = PosterBrowseLargeLayoutMetrics.fromViewportHeight(
             viewportHeight,
+            textScaler: MediaQuery.textScalerOf(context),
+            titleStyle: theme.textTheme.bodyMedium ?? const TextStyle(),
+            secondaryStyle: theme.textTheme.bodySmall ?? const TextStyle(),
+            items: currentItems,
+            secondaryLabelOf: secondaryLabelOf,
           );
 
           return Padding(
@@ -207,6 +397,13 @@ class PosterBrowseLargeLayout extends StatelessWidget {
                     currentRow,
                     currentItems,
                     cardWidth: metrics.posterCardWidth,
+                    titleMaxLines: metrics.posterCardTitleMaxLines,
+                    showSecondary: metrics.showPosterCardSecondary,
+                    showTitle: metrics.showPosterCardTitle,
+                    focusScale: metrics.compactFocusScale,
+                    availableHeight:
+                        metrics.trackHeight -
+                        PosterBrowsePosterTrack.verticalPadding,
                   ),
                 ),
               ],
@@ -232,6 +429,11 @@ class PosterBrowseLargeLayout extends StatelessWidget {
     PosterBrowseRow? currentRow,
     List<PosterBrowseDisplayItem> currentItems, {
     required double cardWidth,
+    required int titleMaxLines,
+    required bool showSecondary,
+    required bool showTitle,
+    required double focusScale,
+    required double availableHeight,
   }) {
     if (currentItems.isNotEmpty) {
       return PosterBrowsePosterTrack(
@@ -242,6 +444,11 @@ class PosterBrowseLargeLayout extends StatelessWidget {
         secondaryLabelOf: secondaryLabelOf,
         onItemTap: onSelectItem,
         cardWidth: cardWidth,
+        cardHeight: math.max(0, availableHeight),
+        titleMaxLines: titleMaxLines,
+        showSecondary: showSecondary,
+        showTitle: showTitle,
+        focusScale: focusScale,
       );
     }
 
