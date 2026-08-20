@@ -27,6 +27,19 @@ void main() {
     HttpOverrides.global = previousHttpOverrides;
   });
 
+  test('短横屏布局指标按 SafeArea 后的有效高度计算轨道与卡片宽度', () {
+    final compact = PosterBrowseLargeLayoutMetrics.fromViewportHeight(322.9);
+    final regular = PosterBrowseLargeLayoutMetrics.fromViewportHeight(800);
+
+    expect(compact.compressChrome, isTrue);
+    expect(compact.showMediaInfo, isFalse);
+    expect(compact.trackHeight, closeTo(250.9, 0.001));
+    expect(compact.posterCardWidth, lessThan(116));
+    expect(regular.compressChrome, isFalse);
+    expect(regular.trackHeight, 264);
+    expect(regular.posterCardWidth, 116);
+  });
+
   testWidgets('大屏布局显示共享信息区海报轨标题回退和两个分组', (tester) async {
     final continueCard = _card(
       id: 'continue-1',
@@ -458,7 +471,9 @@ void main() {
         MediaQuery(
           data: const MediaQueryData(
             size: Size(853, 384),
-            textScaler: TextScaler.linear(1.08),
+            padding: EdgeInsets.only(top: 24, bottom: 37.1),
+            viewPadding: EdgeInsets.only(top: 24, bottom: 37.1),
+            textScaler: TextScaler.linear(1.0),
           ),
           child: PosterBrowseLargeLayout(
             rows: <PosterBrowseRow>[
@@ -488,7 +503,14 @@ void main() {
     );
 
     expect(tester.takeException(), isNull);
-    expect(tester.getSize(find.byType(PosterBrowsePosterTrack)).height, 264);
+    expect(
+      tester.getSize(find.byType(PosterBrowsePosterTrack)).height,
+      closeTo(250.9, 0.001),
+    );
+    expect(
+      tester.getSize(find.byKey(const ValueKey('poster_browse_short_toolbar'))),
+      const Size(797, 48),
+    );
     expect(find.byType(PosterBrowseMediaInfo), findsNothing);
 
     final cardFinder = find.byType(PosterBrowsePosterCard);
