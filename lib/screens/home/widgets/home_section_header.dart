@@ -4,10 +4,9 @@ import '../../../theme/app_theme.dart';
 
 /// 首页区块的统一标题行。
 class HomeSectionHeader extends StatelessWidget {
-  const HomeSectionHeader({super.key, required this.title, this.trailingText});
+  const HomeSectionHeader({super.key, required this.title});
 
   final String title;
-  final String? trailingText;
 
   @override
   Widget build(BuildContext context) {
@@ -26,17 +25,6 @@ class HomeSectionHeader extends StatelessWidget {
             ),
           ),
         ),
-        if (trailingText case final text?) ...<Widget>[
-          const SizedBox(width: 12),
-          Text(
-            text,
-            style: TextStyle(
-              color: colors.textMuted,
-              fontSize: 13,
-              fontWeight: FontWeight.w400,
-            ),
-          ),
-        ],
       ],
     );
   }

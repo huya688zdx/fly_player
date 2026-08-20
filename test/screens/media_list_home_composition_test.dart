@@ -17,14 +17,14 @@ void main() {
       );
 
       expect(sections, <HomeSectionKind>[
+        HomeSectionKind.catalogs,
         HomeSectionKind.continueWatching,
         HomeSectionKind.latest,
-        HomeSectionKind.catalogs,
         HomeSectionKind.catalogPreviews,
       ]);
     });
 
-    test('飞牛不展示配置之外的 NextUp 和最近添加', () {
+    test('飞牛也按统一顺序展示有内容的 NextUp 和最近添加', () {
       final sections = visibleHomeSections(
         profile: HomePresentationProfile.forKind(MediaBackendKind.feiniu),
         hasCatalogs: true,
@@ -37,12 +37,14 @@ void main() {
       expect(sections, <HomeSectionKind>[
         HomeSectionKind.catalogs,
         HomeSectionKind.continueWatching,
+        HomeSectionKind.nextUp,
+        HomeSectionKind.latest,
         HomeSectionKind.summary,
         HomeSectionKind.catalogPreviews,
       ]);
     });
 
-    test('Emby 隐藏空续看和最近添加且忽略摘要', () {
+    test('Emby 隐藏空续看和最近添加并保留有内容的摘要', () {
       final sections = visibleHomeSections(
         profile: HomePresentationProfile.forKind(MediaBackendKind.emby),
         hasCatalogs: true,
@@ -55,6 +57,7 @@ void main() {
       expect(sections, <HomeSectionKind>[
         HomeSectionKind.catalogs,
         HomeSectionKind.nextUp,
+        HomeSectionKind.summary,
         HomeSectionKind.catalogPreviews,
       ]);
     });
@@ -88,6 +91,8 @@ void main() {
     ).readAsStringSync();
 
     expect(widgetsSource, contains('HomeCatalogSection('));
+    expect(widgetsSource, isNot(contains('catalogStyle')));
+    expect(widgetsSource, contains('const limit = 2;'));
     expect(widgetsSource, contains('HomeContinueWatchingSection('));
     expect(widgetsSource, contains('visibleHomeSections('));
     expect(widgetsSource, isNot(contains('Widget _buildContinueItem(')));
@@ -119,6 +124,7 @@ void main() {
     expect(widgetsSource, isNot(contains("heroTag: 'home_continue_")));
     expect(actionsSource, isNot(contains('required String heroTag')));
     expect(continueWidgetSource, isNot(contains('heroTag')));
+    expect(continueWidgetSource, isNot(contains('trailingText')));
     expect('continueDetailTarget('.allMatches(widgetsSource), hasLength(1));
     expect('continueDetailTarget('.allMatches(actionsSource), hasLength(1));
 
@@ -172,6 +178,22 @@ void main() {
       contains('_pendingContinueWatchingRefresh = false'),
     );
     expect(lifecycleSource, contains('unawaited(_refreshContinueWatching())'));
+  });
+
+  test('媒体库生产组件使用连续横向架且不再渲染标题计数', () {
+    final source = File(
+      'lib/screens/home/widgets/home_catalog_section.dart',
+    ).readAsStringSync();
+
+    expect(source, contains('HomeHorizontalShelf<HomeCatalogCardData>('));
+    expect(source, contains("storageKey: 'catalogs'"));
+    expect(source, contains('minItemWidth: 156'));
+    expect(source, contains('maxItemWidth: 184'));
+    expect(source, contains('idealItemWidth: 184'));
+    expect(source, contains('itemAspectRatio: 1.08'));
+    expect(source, contains('.take(2)'));
+    expect(source, isNot(contains('HomeAdaptivePager')));
+    expect(source, isNot(contains('trailingText')));
   });
 
   test('旧首页固定卡片尺寸已从布局配置移除', () {
