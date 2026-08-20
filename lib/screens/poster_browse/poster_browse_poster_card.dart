@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'poster_browse_display_item.dart';
 
 class PosterBrowsePosterCard extends StatelessWidget {
+  static const double defaultWidth = 116;
+
   final PosterBrowseDisplayItem item;
   final bool focused;
   final bool showProgress;
@@ -21,7 +23,7 @@ class PosterBrowsePosterCard extends StatelessWidget {
     required this.imageHeaders,
     required this.secondaryLabel,
     required this.onTap,
-    this.width = 116,
+    this.width = defaultWidth,
   });
 
   @override

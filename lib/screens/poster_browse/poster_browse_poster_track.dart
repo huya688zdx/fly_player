@@ -11,6 +11,7 @@ class PosterBrowsePosterTrack extends StatelessWidget {
   final MediaImageRequest Function(PosterBrowseDisplayItem item) imageOf;
   final String Function(PosterBrowseDisplayItem item) secondaryLabelOf;
   final void Function(int index) onItemTap;
+  final double? cardWidth;
 
   const PosterBrowsePosterTrack({
     super.key,
@@ -20,6 +21,7 @@ class PosterBrowsePosterTrack extends StatelessWidget {
     required this.imageOf,
     required this.secondaryLabelOf,
     required this.onItemTap,
+    this.cardWidth,
   });
 
   @override
@@ -46,6 +48,7 @@ class PosterBrowsePosterTrack extends StatelessWidget {
           imageHeaders: canLoad ? request.headers : const <String, String>{},
           secondaryLabel: secondaryLabelOf(item),
           onTap: () => onItemTap(index),
+          width: cardWidth ?? PosterBrowsePosterCard.defaultWidth,
         );
       },
     );
