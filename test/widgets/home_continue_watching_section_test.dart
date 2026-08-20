@@ -323,11 +323,15 @@ void main() {
       expect(artwork.right - play.right, closeTo(8, .01));
       expect(artwork.bottom - play.bottom, closeTo(4, .01));
       expect(find.text(fixture.contextText), findsOneWidget);
+      expect(
+        tester.getSize(find.byType(ListView)).height,
+        closeTo(card.width / (16 / 10) + 44, .01),
+      );
       expect(tester.takeException(), isNull, reason: '卡宽 $width');
     }
   });
 
-  testWidgets('极窄卡宽把下载文字移到元信息行并避开播放键', (tester) async {
+  testWidgets('极窄卡宽保留季集并在其下独立显示下载文字', (tester) async {
     const fixture = HomeContinueCardData(
       id: 'compact-download',
       title: '极窄布局下仍然需要看到标题',
@@ -360,6 +364,9 @@ void main() {
         find.byKey(const ValueKey<String>('continue-card-compact-download')),
       );
       final artwork = tester.getRect(find.byType(ClipRRect));
+      final contextFinder = find.text(fixture.contextText);
+      expect(contextFinder, findsOneWidget);
+      final context = tester.getRect(contextFinder);
       final badge = tester.getRect(downloadedBadgeFinder());
       final play = tester.getRect(
         find.byKey(const ValueKey<String>('continue-play-compact-download')),
@@ -367,9 +374,14 @@ void main() {
 
       expectRectInside(badge, card);
       expectRectInside(play, card);
+      expectRectInside(context, card);
       expect(badge.overlaps(play), isFalse);
-      expect(badge.top, greaterThanOrEqualTo(artwork.bottom));
-      expect(find.text(fixture.contextText), findsNothing);
+      expect(context.top, greaterThanOrEqualTo(artwork.bottom));
+      expect(badge.top - context.bottom, closeTo(3, .01));
+      expect(
+        tester.getSize(find.byType(ListView)).height,
+        closeTo(card.width / (16 / 10) + 68 * testCase.scale, .01),
+      );
       expect(
         tester.widget<Text>(find.text('已下载')).overflow,
         TextOverflow.ellipsis,

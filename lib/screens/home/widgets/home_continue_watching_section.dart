@@ -51,30 +51,35 @@ class HomeContinueWatchingSection extends StatelessWidget {
   Widget build(BuildContext context) {
     if (items.isEmpty) return const SizedBox.shrink();
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        HomeSectionHeader(title: title),
-        const SizedBox(height: 12),
-        HomeHorizontalShelf<HomeContinueCardData>(
-          storageKey: 'continue-watching',
-          items: items,
-          itemBuilder: (context, item, width) => _ContinueCard(
-            item: item,
-            width: width,
-            stableImageCacheWidth: stableImageCacheWidth,
-            onOpenDetail: () => onOpenDetail(item),
-            onPlay: () => onPlay(item),
-            onLongPress: () => onLongPress(item),
-          ),
-          minItemWidth: 176,
-          maxItemWidth: 210,
-          idealItemWidth: 210,
-          itemAspectRatio: 16 / 10,
-          textLinesHeight: 44,
-          gap: 12,
-        ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 176;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            HomeSectionHeader(title: title),
+            const SizedBox(height: 12),
+            HomeHorizontalShelf<HomeContinueCardData>(
+              storageKey: 'continue-watching',
+              items: items,
+              itemBuilder: (context, item, width) => _ContinueCard(
+                item: item,
+                width: width,
+                stableImageCacheWidth: stableImageCacheWidth,
+                onOpenDetail: () => onOpenDetail(item),
+                onPlay: () => onPlay(item),
+                onLongPress: () => onLongPress(item),
+              ),
+              minItemWidth: 176,
+              maxItemWidth: 210,
+              idealItemWidth: 210,
+              itemAspectRatio: 16 / 10,
+              textLinesHeight: compact ? 68 : 44,
+              gap: 12,
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -206,20 +211,21 @@ class _ContinueCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 3),
-            if (compactDownloaded)
-              const _DownloadedBadge()
-            else
-              Text(
-                item.contextText,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: colors.textMuted,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w400,
-                  height: 1.15,
-                ),
+            Text(
+              item.contextText,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: colors.textMuted,
+                fontSize: 12,
+                fontWeight: FontWeight.w400,
+                height: 1.15,
               ),
+            ),
+            if (compactDownloaded) ...<Widget>[
+              const SizedBox(height: 3),
+              const _DownloadedBadge(),
+            ],
           ],
         ),
       ),
