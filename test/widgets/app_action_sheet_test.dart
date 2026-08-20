@@ -99,27 +99,19 @@ void main() {
     expect(find.byKey(const ValueKey('action-sheet-grid-2')), findsNothing);
   });
 
-  testWidgets('强调色按钮使用onPrimary前景色', (tester) async {
-    const accent = Color(0xFFE8C547);
-    await _openSheet(
-      tester,
-      width: 390,
-      textScale: 1,
-      customAccentColor: accent,
-    );
+  testWidgets('普通按钮使用surfaceStrong背景和textPrimary前景色', (tester) async {
+    await _openSheet(tester, width: 390, textScale: 1);
 
     final button = tester.widget<FilledButton>(
       find
           .ancestor(of: find.text('查看详情'), matching: find.byType(FilledButton))
           .first,
     );
-    expect(
-      button.style?.foregroundColor?.resolve({}),
-      AppThemeBuilder.build(
-        AppThemePreset.midnight,
-        customAccentColor: accent,
-      ).colorScheme.onPrimary,
-    );
+    final colors = Theme.of(
+      tester.element(find.text('查看详情')),
+    ).extension<AppThemeColors>()!;
+    expect(button.style?.backgroundColor?.resolve({}), colors.surfaceStrong);
+    expect(button.style?.foregroundColor?.resolve({}), colors.textPrimary);
   });
 
   testWidgets('危险按钮使用混合背景和亮度语义前景色', (tester) async {

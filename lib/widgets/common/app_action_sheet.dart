@@ -148,17 +148,13 @@ class _ActionSheetButton extends StatelessWidget {
             colors.danger.withValues(alpha: .14),
             colors.surfaceStrong,
           )
-        : secondary
-        ? colors.surfaceStrong
-        : colors.accent;
+        : colors.surfaceStrong;
     final foregroundColor = destructive
         ? (ThemeData.estimateBrightnessForColor(backgroundColor) ==
                   Brightness.dark
               ? Colors.white
               : const Color(0xFF1B1B1B))
-        : secondary
-        ? colors.textPrimary
-        : Theme.of(context).colorScheme.onPrimary;
+        : colors.textPrimary;
 
     return SizedBox(
       height: height,
