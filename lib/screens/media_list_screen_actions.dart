@@ -54,10 +54,7 @@ extension _MediaListScreenActions on _MediaListScreenState {
     return (watched: watched, favorite: favorite);
   }
 
-  Future<void> _showContinueWatchingActionsV2(
-    MediaLibraryItem item, {
-    required String heroTag,
-  }) async {
+  Future<void> _showContinueWatchingActionsV2(MediaLibraryItem item) async {
     await AsyncActionGuard.run<void>(
       'continue_watch_sheet:${item.guid.trim()}',
       settleDuration: const Duration(milliseconds: 450),
@@ -104,7 +101,9 @@ extension _MediaListScreenActions on _MediaListScreenState {
         try {
           switch (action) {
             case _ContinueWatchingAction.viewDetail:
-              await _openItemDetail(item, heroTag: heroTag);
+              await _openItemDetail(
+                continueDetailTarget(item, backend.capabilities.kind),
+              );
               break;
             case _ContinueWatchingAction.markWatched:
               final nextWatched = !flags.watched;

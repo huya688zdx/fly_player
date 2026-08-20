@@ -46,6 +46,7 @@ import '../widgets/common/liquid_glass.dart';
 import '../ui/detail_artwork_resolver.dart';
 import 'category_items_screen.dart';
 import 'favorite_items_screen.dart';
+import 'home/continue_detail_target.dart';
 import 'home/home_presentation_profile.dart';
 import 'home/home_view_data.dart';
 import 'home/widgets/home_catalog_section.dart';
@@ -1450,15 +1451,14 @@ class _MediaListScreenState extends State<MediaListScreen>
   Future<void> _playContinueItem(MediaLibraryItem item) async {
     if (item.guid.trim().isEmpty) return;
     _pendingContinueWatchingRefresh = true;
-    var playbackReturned = false;
     try {
       await const ItemPlaybackLauncher().open(
         context,
         itemGuid: item.guid,
         fallbackTitle: item.displayTitle,
       );
-      playbackReturned = true;
     } catch (error, stackTrace) {
+      _pendingContinueWatchingRefresh = false;
       await logSwallowedError(
         action: 'play continue watching item',
         error: error,
@@ -1471,12 +1471,7 @@ class _MediaListScreenState extends State<MediaListScreen>
         AppLocalizations.of(context).detailPlayInfoFailed,
         backgroundColor: context.appColors.danger,
       );
-    } finally {
-      // 拉起失败或正常返回都不遗留生命周期刷新标记；成功路径在下方立即刷新。
-      _pendingContinueWatchingRefresh = false;
     }
-    if (!playbackReturned || !mounted) return;
-    unawaited(_refreshContinueWatching());
   }
 
   bool _isEpisodeItem(MediaLibraryItem item) {

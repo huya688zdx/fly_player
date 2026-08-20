@@ -393,7 +393,6 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
                 downloaded: DownloadTaskService.instance
                     .actionStateForItem(item.guid)
                     .downloaded,
-                heroTag: 'home_continue_${item.guid}',
               ),
             )
             .toList(growable: false);
@@ -404,7 +403,16 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
           onOpenDetail: (card) {
             final item = itemsById[card.id];
             if (item != null) {
-              _openItemDetail(item, heroTag: 'home_continue_${item.guid}');
+              _openItemDetail(
+                continueDetailTarget(
+                  item,
+                  context
+                      .read<MediaBackendProvider>()
+                      .backend
+                      .capabilities
+                      .kind,
+                ),
+              );
             }
           },
           onPlay: (card) {
@@ -414,12 +422,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
           onLongPress: (card) {
             final item = itemsById[card.id];
             if (item != null) {
-              unawaited(
-                _showContinueWatchingActionsV2(
-                  item,
-                  heroTag: 'home_continue_${item.guid}',
-                ),
-              );
+              unawaited(_showContinueWatchingActionsV2(item));
             }
           },
         );

@@ -15,7 +15,6 @@ class HomeContinueCardData {
     required this.progress,
     required this.imageRequest,
     required this.downloaded,
-    this.heroTag,
   });
 
   final String id;
@@ -24,7 +23,6 @@ class HomeContinueCardData {
   final double progress;
   final MediaImageRequest imageRequest;
   final bool downloaded;
-  final String? heroTag;
 }
 
 /// 图片优先的继续观看区块。
@@ -104,10 +102,6 @@ class _ContinueCard extends StatelessWidget {
       item: item,
       stableImageCacheWidth: stableImageCacheWidth,
     );
-    final heroTag = item.heroTag?.trim() ?? '';
-    final heroArtwork = heroTag.isEmpty
-        ? artwork
-        : Hero(tag: heroTag, child: artwork);
 
     return Material(
       key: ValueKey<String>('continue-card-${item.id}'),
@@ -127,7 +121,7 @@ class _ContinueCard extends StatelessWidget {
                 child: Stack(
                   fit: StackFit.expand,
                   children: <Widget>[
-                    heroArtwork,
+                    artwork,
                     const DecoratedBox(
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
