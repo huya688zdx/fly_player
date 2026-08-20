@@ -169,7 +169,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('续看卡只为图片节点提供与详情匹配的 Hero', (tester) async {
+  testWidgets('续看卡使用普通路由转场且不创建单端 Hero', (tester) async {
     const fixture = HomeContinueCardData(
       id: 'hero-item',
       title: 'Hero 标题',
@@ -180,7 +180,6 @@ void main() {
         selfAuthenticated: true,
       ),
       downloaded: false,
-      heroTag: 'home_continue_hero-item',
     );
 
     await tester.pumpWidget(
@@ -194,23 +193,10 @@ void main() {
       ),
     );
 
-    final hero = tester.widget<Hero>(find.byType(Hero));
-    expect(hero.tag, 'home_continue_hero-item');
+    expect(find.byType(Hero), findsNothing);
     expect(
-      find.descendant(
-        of: find.byType(Hero),
-        matching: find.byKey(
-          const ValueKey<String>('continue-image-hero-item'),
-        ),
-      ),
+      find.byKey(const ValueKey<String>('continue-image-hero-item')),
       findsOneWidget,
-    );
-    expect(
-      find.ancestor(
-        of: find.byKey(const ValueKey<String>('continue-play-hero-item')),
-        matching: find.byType(Hero),
-      ),
-      findsNothing,
     );
   });
 
