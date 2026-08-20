@@ -50,4 +50,84 @@ void main() {
       greaterThanOrEqualTo(300),
     );
   });
+
+  testWidgets('详情加载骨架在 hero 内容净高临界区隐藏内容', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(853, 270));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(const MaterialApp(home: DetailLoadingSkeleton()));
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.byKey(const ValueKey('detail-skeleton-hero-content')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('详情加载骨架在 page body 预算不足时不渲染完整 body', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(853, 100));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(const MaterialApp(home: DetailLoadingSkeleton()));
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.byKey(const ValueKey('detail-skeleton-body-content')),
+      findsNothing,
+    );
+    expect(
+      tester.getSize(find.byKey(const ValueKey('detail-skeleton-hero'))).height,
+      greaterThanOrEqualTo(0),
+    );
+  });
+
+  testWidgets('详情加载骨架在 pane hero 内容净高临界区隐藏内容', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(853, 245));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: DetailLoadingSkeleton(presentation: DetailPresentation.pane),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.byKey(const ValueKey('detail-skeleton-hero-content')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('详情加载骨架在键盘压缩高度临界区无溢出', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(853, 272));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(const MaterialApp(home: DetailLoadingSkeleton()));
+    expect(tester.takeException(), isNull);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('detail-skeleton-hero'))).height,
+      greaterThanOrEqualTo(0),
+    );
+
+    await tester.binding.setSurfaceSize(const Size(853, 285));
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('详情加载骨架在 pane body 预算不足时不渲染完整 body', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(853, 100));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: DetailLoadingSkeleton(presentation: DetailPresentation.pane),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.byKey(const ValueKey('detail-skeleton-body-content')),
+      findsNothing,
+    );
+  });
 }
