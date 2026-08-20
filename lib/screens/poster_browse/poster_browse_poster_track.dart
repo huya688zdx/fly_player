@@ -5,6 +5,8 @@ import 'poster_browse_display_item.dart';
 import 'poster_browse_poster_card.dart';
 
 class PosterBrowsePosterTrack extends StatelessWidget {
+  static const double verticalPadding = 12;
+
   final List<PosterBrowseDisplayItem> items;
   final int focusedIndex;
   final bool showProgress;
@@ -12,6 +14,11 @@ class PosterBrowsePosterTrack extends StatelessWidget {
   final String Function(PosterBrowseDisplayItem item) secondaryLabelOf;
   final void Function(int index) onItemTap;
   final double? cardWidth;
+  final double? cardHeight;
+  final int titleMaxLines;
+  final bool showSecondary;
+  final bool showTitle;
+  final double focusScale;
 
   const PosterBrowsePosterTrack({
     super.key,
@@ -22,6 +29,11 @@ class PosterBrowsePosterTrack extends StatelessWidget {
     required this.secondaryLabelOf,
     required this.onItemTap,
     this.cardWidth,
+    this.cardHeight,
+    this.titleMaxLines = 2,
+    this.showSecondary = true,
+    this.showTitle = true,
+    this.focusScale = 1.025,
   });
 
   @override
@@ -32,7 +44,10 @@ class PosterBrowsePosterTrack extends StatelessWidget {
 
     return ListView.separated(
       scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 2,
+        vertical: verticalPadding / 2,
+      ),
       itemCount: items.length,
       separatorBuilder: (context, index) => const SizedBox(width: 18),
       itemBuilder: (context, index) {
@@ -49,6 +64,11 @@ class PosterBrowsePosterTrack extends StatelessWidget {
           secondaryLabel: secondaryLabelOf(item),
           onTap: () => onItemTap(index),
           width: cardWidth ?? PosterBrowsePosterCard.defaultWidth,
+          availableHeight: cardHeight,
+          titleMaxLines: titleMaxLines,
+          showSecondary: showSecondary,
+          showTitle: showTitle,
+          focusScale: focusScale,
         );
       },
     );
