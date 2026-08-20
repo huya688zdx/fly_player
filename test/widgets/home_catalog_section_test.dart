@@ -171,8 +171,15 @@ void main() {
     }
     final overlap = first.intersect(second);
     final overlapArea = overlap.width * overlap.height;
-    final singlePosterArea = first.width * first.height;
-    expect(overlapArea / singlePosterArea, lessThanOrEqualTo(.30));
+    final firstArea = first.width * first.height;
+    final secondArea = second.width * second.height;
+    final overlapRatio = overlapArea / firstArea;
+    expect(overlapRatio, greaterThanOrEqualTo(.10));
+    expect(overlapRatio, lessThanOrEqualTo(.30));
+    final artworkArea = artwork.width * artwork.height;
+    final visibleAreaRatio =
+        (firstArea + secondArea - overlapArea) / artworkArea;
+    expect(visibleAreaRatio, greaterThanOrEqualTo(.60));
     expect(
       first.expandToInclude(second).width / artwork.width,
       greaterThanOrEqualTo(.70),
