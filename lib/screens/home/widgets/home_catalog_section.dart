@@ -171,7 +171,7 @@ class _CatalogArtwork extends StatelessWidget {
                   offset: posterCount == 1
                       ? Offset.zero
                       : Offset(
-                          (index == 0 ? -.18 : .18) * posterWidth,
+                          (index == 0 ? -.38 : .38) * posterWidth,
                           index == 0 ? 3 : -3,
                         ),
                   child: SizedBox(

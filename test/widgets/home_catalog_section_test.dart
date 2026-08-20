@@ -136,6 +136,50 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('双海报轻微叠放且完整位于图片舞台内', (tester) async {
+    await tester.pumpWidget(
+      testApp(
+        HomeCatalogSection(
+          items: const <HomeCatalogCardData>[
+            HomeCatalogCardData(
+              id: 'geometry',
+              title: '几何约束',
+              mediaType: HomeCatalogMediaType.movies,
+              imageRequests: <MediaImageRequest>[loadableImage, loadableImage],
+            ),
+          ],
+          onTap: (_) {},
+        ),
+      ),
+    );
+
+    final artwork = tester.getRect(
+      find.byKey(const ValueKey<String>('catalog-artwork-geometry')),
+    );
+    final first = tester.getRect(
+      find.byKey(const ValueKey<String>('catalog-poster-geometry-0')),
+    );
+    final second = tester.getRect(
+      find.byKey(const ValueKey<String>('catalog-poster-geometry-1')),
+    );
+
+    for (final poster in <Rect>[first, second]) {
+      expect(poster.left, greaterThanOrEqualTo(artwork.left - 1));
+      expect(poster.top, greaterThanOrEqualTo(artwork.top - 1));
+      expect(poster.right, lessThanOrEqualTo(artwork.right + 1));
+      expect(poster.bottom, lessThanOrEqualTo(artwork.bottom + 1));
+    }
+    final overlap = first.intersect(second);
+    final overlapArea = overlap.width * overlap.height;
+    final singlePosterArea = first.width * first.height;
+    expect(overlapArea / singlePosterArea, lessThanOrEqualTo(.30));
+    expect(
+      first.expandToInclude(second).width / artwork.width,
+      greaterThanOrEqualTo(.70),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('缺图媒体库卡显示媒体类型图标并可点击', (tester) async {
     var tapped = '';
     await tester.pumpWidget(
