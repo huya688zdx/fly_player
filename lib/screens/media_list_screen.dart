@@ -12,6 +12,7 @@ import '../l10n/generated/app_localizations.dart';
 import '../models/media_item.dart';
 import '../models/media_library_item.dart';
 import '../media_backend/action/media_library_item_action_target.dart';
+import '../media_backend/home_catalog_presentation.dart';
 import '../media_backend/media_backend.dart';
 import '../media_backend/media_backend_kind.dart';
 import '../media_backend/media_catalog.dart';
