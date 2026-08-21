@@ -29,6 +29,7 @@ import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
 import '../utils/swallowed_error_logger.dart';
 import '../widgets/common/app_error_state.dart';
+import '../widgets/app_atmospheric_background.dart';
 import '../widgets/library/media_collection_layout_sheet.dart';
 import '../widgets/library/media_library_list_tile.dart';
 import 'search_screen.dart';

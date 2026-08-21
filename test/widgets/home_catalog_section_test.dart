@@ -312,7 +312,7 @@ void main() {
       ),
     );
 
-    await tester.pumpWidget(section(280, 1));
+    await tester.pumpWidget(section(200, 1));
     final narrowCardWidth = tester
         .getSize(find.byKey(const ValueKey<String>('catalog-card-stable-0')))
         .width;

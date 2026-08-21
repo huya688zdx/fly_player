@@ -20,8 +20,9 @@ class HomeSectionHeader extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: colors.textPrimary,
-              fontSize: 22,
+              fontSize: 16,
               fontWeight: FontWeight.w600,
+              height: 1.15,
             ),
           ),
         ),

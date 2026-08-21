@@ -4,6 +4,10 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
   Widget _buildTabButton(_FavoriteTab tab, String text) {
     final selected = _selectedTab == tab;
     final colors = context.appColors;
+    final selectedColors = AppTonalControlPalette.resolve(
+      colors: colors,
+      active: true,
+    );
     return Expanded(
       child: InkWell(
         onTap: () => _switchTab(tab),
@@ -15,7 +19,9 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
               Text(
                 text,
                 style: TextStyle(
-                  color: selected ? colors.selectionStrong : colors.textPrimary,
+                  color: selected
+                      ? selectedColors.foreground
+                      : colors.textPrimary,
                   fontSize: 16,
                   fontWeight: FontWeight.w500,
                 ),
@@ -26,7 +32,9 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
                 width: 16,
                 height: 3,
                 decoration: BoxDecoration(
-                  color: selected ? colors.selection : Colors.transparent,
+                  color: selected
+                      ? selectedColors.foreground
+                      : Colors.transparent,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -56,82 +64,90 @@ extension _FavoriteItemsScreenWidgets on _FavoriteItemsScreenState {
     final provider = context.read<NasProvider>();
     final layout = MediaLayoutProfile.of(context);
     final colors = context.appColors;
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      appBar: AppBar(
-        backgroundColor: colors.backgroundBase,
-        surfaceTintColor: Colors.transparent,
-        foregroundColor: colors.textPrimary,
-        iconTheme: IconThemeData(color: colors.textPrimary),
-        actionsIconTheme: IconThemeData(color: colors.textPrimary),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            unawaited(
-              widget.secondaryHost
-                  ? EmbeddedDetailLauncher.closeHostOrPop(context)
-                  : Navigator.of(context).maybePop(),
-            );
-          },
-        ),
-        titleTextStyle: TextStyle(
-          color: colors.textPrimary,
-          fontSize: 20,
-          fontWeight: FontWeight.w700,
-        ),
-        title: Text(AppLocalizations.of(context).actionFavoriteAdd),
-        actions: <Widget>[
-          IconButton(
-            icon: const Icon(Icons.search),
+    final atmosphere = AppAtmospherePalette.resolve(
+      baseColors: context.baseAppColors,
+      effectiveColors: colors,
+      hasDynamicTheme: context.hasRuntimeAppColors,
+    );
+    return AppAtmosphericBackground(
+      palette: atmosphere,
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          foregroundColor: colors.textPrimary,
+          iconTheme: IconThemeData(color: colors.textPrimary),
+          actionsIconTheme: IconThemeData(color: colors.textPrimary),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
             onPressed: () {
-              Navigator.of(context).push(
-                AppTransitions.fadeSlideRoute(
-                  SearchScreen(initialLocaleMap: _localeMap),
-                ),
+              unawaited(
+                widget.secondaryHost
+                    ? EmbeddedDetailLauncher.closeHostOrPop(context)
+                    : Navigator.of(context).maybePop(),
               );
             },
           ),
-        ],
-      ),
-      body: Column(
-        children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Row(
-              children: <Widget>[
-                _buildTabButton(
-                  _FavoriteTab.all,
-                  AppLocalizations.of(context).commonAll,
-                ),
-                _buildTabButton(
-                  _FavoriteTab.movie,
-                  AppLocalizations.of(context).listTypeMovie,
-                ),
-                _buildTabButton(
-                  _FavoriteTab.tv,
-                  AppLocalizations.of(context).listTypeTv,
-                ),
-                _buildTabButton(
-                  _FavoriteTab.episode,
-                  AppLocalizations.of(context).favoriteTabEpisodes,
-                ),
-                _buildTabButton(
-                  _FavoriteTab.person,
-                  AppLocalizations.of(context).favoriteTabPeople,
-                ),
-              ],
-            ),
+          titleTextStyle: TextStyle(
+            color: colors.textPrimary,
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
           ),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              physics: const BouncingScrollPhysics(),
-              children: _FavoriteTab.values
-                  .map((tab) => _buildCurrentTabPage(layout, provider, tab))
-                  .toList(),
+          title: Text(AppLocalizations.of(context).actionFavoriteAdd),
+          actions: <Widget>[
+            IconButton(
+              icon: const Icon(Icons.search),
+              onPressed: () {
+                Navigator.of(context).push(
+                  AppTransitions.fadeSlideRoute(
+                    SearchScreen(initialLocaleMap: _localeMap),
+                  ),
+                );
+              },
             ),
-          ),
-        ],
+          ],
+        ),
+        body: Column(
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Row(
+                children: <Widget>[
+                  _buildTabButton(
+                    _FavoriteTab.all,
+                    AppLocalizations.of(context).commonAll,
+                  ),
+                  _buildTabButton(
+                    _FavoriteTab.movie,
+                    AppLocalizations.of(context).listTypeMovie,
+                  ),
+                  _buildTabButton(
+                    _FavoriteTab.tv,
+                    AppLocalizations.of(context).listTypeTv,
+                  ),
+                  _buildTabButton(
+                    _FavoriteTab.episode,
+                    AppLocalizations.of(context).favoriteTabEpisodes,
+                  ),
+                  _buildTabButton(
+                    _FavoriteTab.person,
+                    AppLocalizations.of(context).favoriteTabPeople,
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                physics: const BouncingScrollPhysics(),
+                children: _FavoriteTab.values
+                    .map((tab) => _buildCurrentTabPage(layout, provider, tab))
+                    .toList(),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -432,6 +448,10 @@ class _FavoriteToolButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final control = AppTonalControlPalette.resolve(
+      colors: colors,
+      active: active,
+    );
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
@@ -439,17 +459,11 @@ class _FavoriteToolButton extends StatelessWidget {
         width: 40,
         height: 40,
         decoration: BoxDecoration(
-          color: active ? colors.selectionSoft : colors.backgroundElevated,
+          color: control.fill,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: active ? colors.selection : colors.borderSubtle,
-          ),
+          border: Border.all(color: control.border),
         ),
-        child: Icon(
-          icon,
-          color: active ? colors.selectionStrong : colors.textSecondary,
-          size: 21,
-        ),
+        child: Icon(icon, color: control.foreground, size: 21),
       ),
     );
   }
