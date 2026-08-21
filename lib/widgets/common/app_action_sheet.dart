@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../../l10n/generated/app_localizations.dart';
 import '../../theme/app_theme.dart';
+import 'app_modal_surface.dart';
 
 class AppActionSheetOption<T> {
   final T value;
@@ -63,69 +64,66 @@ Future<T?> showAppActionSheet<T>(
         child: Padding(
           padding: EdgeInsets.only(bottom: viewInsetsBottom),
           child: Container(
-            padding: EdgeInsets.fromLTRB(
-              horizontalPadding,
-              topPadding,
-              horizontalPadding,
-              bottomInset,
-            ),
-            decoration: BoxDecoration(
-              color: colors.surface,
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(28),
+            key: const ValueKey<String>('app-modal-surface-action-sheet'),
+            child: AppModalSurface(
+              padding: EdgeInsets.fromLTRB(
+                horizontalPadding,
+                topPadding,
+                horizontalPadding,
+                bottomInset,
               ),
-              border: Border.all(color: colors.borderSubtle),
-            ),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxHeight: availableHeight * 0.82),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      title,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: colors.textPrimary,
-                        fontSize: titleFontSize,
-                        fontWeight: FontWeight.w500,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: availableHeight * 0.82),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          color: colors.textPrimary,
+                          fontSize: titleFontSize,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -0.2,
+                        ),
                       ),
-                    ),
-                    SizedBox(height: titleBottomGap),
-                    GridView.builder(
-                      key: ValueKey('action-sheet-grid-$columns'),
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: columns,
-                        mainAxisExtent: buttonHeight,
-                        crossAxisSpacing: buttonGap,
-                        mainAxisSpacing: buttonGap,
+                      SizedBox(height: titleBottomGap),
+                      GridView.builder(
+                        key: ValueKey('action-sheet-grid-$columns'),
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: columns,
+                          mainAxisExtent: buttonHeight,
+                          crossAxisSpacing: buttonGap,
+                          mainAxisSpacing: buttonGap,
+                        ),
+                        itemCount: options.length,
+                        itemBuilder: (context, index) {
+                          final option = options[index];
+                          return _ActionSheetButton(
+                            label: option.label,
+                            destructive: option.destructive,
+                            height: buttonHeight,
+                            radius: buttonRadius,
+                            fontSize: buttonFontSize,
+                            onTap: () =>
+                                Navigator.of(context).pop(option.value),
+                          );
+                        },
                       ),
-                      itemCount: options.length,
-                      itemBuilder: (context, index) {
-                        final option = options[index];
-                        return _ActionSheetButton(
-                          label: option.label,
-                          destructive: option.destructive,
-                          height: buttonHeight,
-                          radius: buttonRadius,
-                          fontSize: buttonFontSize,
-                          onTap: () => Navigator.of(context).pop(option.value),
-                        );
-                      },
-                    ),
-                    SizedBox(height: buttonGap),
-                    _ActionSheetButton(
-                      label: cancelText ?? l10n.commonCancel,
-                      secondary: true,
-                      height: buttonHeight,
-                      radius: buttonRadius,
-                      fontSize: buttonFontSize,
-                      onTap: () => Navigator.of(context).pop(),
-                    ),
-                  ],
+                      SizedBox(height: buttonGap),
+                      _ActionSheetButton(
+                        label: cancelText ?? l10n.commonCancel,
+                        secondary: true,
+                        height: buttonHeight,
+                        radius: buttonRadius,
+                        fontSize: buttonFontSize,
+                        onTap: () => Navigator.of(context).pop(),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -163,13 +161,14 @@ class _ActionSheetButton extends StatelessWidget {
             colors.danger.withValues(alpha: .14),
             colors.surfaceStrong,
           )
-        : colors.surfaceStrong;
-    final foregroundColor = destructive
-        ? (ThemeData.estimateBrightnessForColor(backgroundColor) ==
-                  Brightness.dark
-              ? Colors.white
-              : const Color(0xFF1B1B1B))
-        : colors.textPrimary;
+        : appModalTileColor(colors, stronger: secondary);
+    final foregroundColor = destructive ? Colors.white : colors.textPrimary;
+    final borderColor = destructive
+        ? Color.alphaBlend(
+            colors.danger.withValues(alpha: .42),
+            colors.borderSubtle,
+          )
+        : appModalTileBorderColor(colors, selected: !secondary);
 
     return SizedBox(
       height: height,
@@ -181,9 +180,7 @@ class _ActionSheetButton extends StatelessWidget {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(radius),
           ),
-          side: BorderSide(
-            color: secondary ? colors.borderSubtle : Colors.transparent,
-          ),
+          side: BorderSide(color: borderColor),
           elevation: 0,
           padding: EdgeInsets.zero,
         ),
