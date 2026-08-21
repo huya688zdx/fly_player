@@ -39,6 +39,18 @@ class DynamicThemeMapper {
       contrastLevel: _contrastLevelFor(intensity),
     );
     _schemeFromSeed(
+      seedColor: seed.selectionSeed,
+      brightness: brightness,
+      variant: _variantFor(intensity),
+      contrastLevel: _contrastLevelFor(intensity),
+    );
+    _schemeFromSeed(
+      seedColor: seed.linkSeed,
+      brightness: brightness,
+      variant: _variantFor(intensity),
+      contrastLevel: _contrastLevelFor(intensity),
+    );
+    _schemeFromSeed(
       seedColor: seed.backgroundSeed,
       brightness: brightness,
       variant: DynamicSchemeVariant.tonalSpot,
@@ -58,6 +70,18 @@ class DynamicThemeMapper {
     final brightness = _brightnessFor(baseColors);
     return _isSchemeCached(
           seedColor: seed.accentSeed,
+          brightness: brightness,
+          variant: _variantFor(intensity),
+          contrastLevel: _contrastLevelFor(intensity),
+        ) &&
+        _isSchemeCached(
+          seedColor: seed.selectionSeed,
+          brightness: brightness,
+          variant: _variantFor(intensity),
+          contrastLevel: _contrastLevelFor(intensity),
+        ) &&
+        _isSchemeCached(
+          seedColor: seed.linkSeed,
           brightness: brightness,
           variant: _variantFor(intensity),
           contrastLevel: _contrastLevelFor(intensity),
@@ -126,6 +150,18 @@ class DynamicThemeMapper {
       variant: DynamicSchemeVariant.tonalSpot,
       contrastLevel: -0.15,
     );
+    final selectionScheme = _schemeFromSeed(
+      seedColor: seed.selectionSeed,
+      brightness: brightness,
+      variant: DynamicSchemeVariant.tonalSpot,
+      contrastLevel: -0.15,
+    );
+    final linkScheme = _schemeFromSeed(
+      seedColor: seed.linkSeed,
+      brightness: brightness,
+      variant: DynamicSchemeVariant.tonalSpot,
+      contrastLevel: -0.15,
+    );
     final isLight = brightness == Brightness.light;
     return baseColors.copyWith(
       surfaceStrong: _toneSurface(
@@ -150,17 +186,21 @@ class DynamicThemeMapper {
         alpha: isLight ? 0.16 : 0.20,
       ),
       accentStrong: scheme.primary,
-      selection: scheme.secondary,
+      selection: selectionScheme.primary,
       selectionSoft: _toneSurface(
         baseColors.selectionSoft,
-        tint: scheme.secondaryContainer,
+        tint: selectionScheme.primaryContainer,
         alpha: isLight ? 0.14 : 0.18,
       ),
-      selectionStrong: scheme.secondary,
-      link: scheme.tertiary,
+      selectionStrong: Color.lerp(
+        baseColors.textPrimary,
+        selectionScheme.primary,
+        .46,
+      ),
+      link: linkScheme.primary,
       chipBackground: _toneSurface(
         baseColors.chipBackground,
-        tint: scheme.tertiaryContainer,
+        tint: linkScheme.primaryContainer,
         alpha: isLight ? 0.14 : 0.18,
       ),
       chipBorder: _toneSurface(
@@ -168,7 +208,7 @@ class DynamicThemeMapper {
         tint: scheme.outlineVariant,
         alpha: isLight ? 0.18 : 0.22,
       ),
-      chipText: isLight ? scheme.onTertiaryContainer : baseColors.chipText,
+      chipText: isLight ? linkScheme.onPrimaryContainer : baseColors.chipText,
       overlayScrim: _toneSurface(
         baseColors.overlayScrim,
         tint: scheme.scrim,
@@ -183,9 +223,23 @@ class DynamicThemeMapper {
     required AppDynamicThemeIntensity intensity,
   }) {
     final brightness = _brightnessFor(baseColors);
-    final backdropColors = _baseSurfacesFor(seed, brightness: brightness);
+    // 动态图像只提供氛围和交互色，不再把整套页面底色改成海报主色。
+    // 这样首页、收藏、分类和详情页都保持主题本身的中性层级。
+    final backdropColors = baseColors;
     final scheme = _schemeFromSeed(
       seedColor: seed.accentSeed,
+      brightness: brightness,
+      variant: _variantFor(intensity),
+      contrastLevel: _contrastLevelFor(intensity),
+    );
+    final selectionScheme = _schemeFromSeed(
+      seedColor: seed.selectionSeed,
+      brightness: brightness,
+      variant: _variantFor(intensity),
+      contrastLevel: _contrastLevelFor(intensity),
+    );
+    final linkScheme = _schemeFromSeed(
+      seedColor: seed.linkSeed,
       brightness: brightness,
       variant: _variantFor(intensity),
       contrastLevel: _contrastLevelFor(intensity),
@@ -198,12 +252,12 @@ class DynamicThemeMapper {
     );
 
     final isLight = brightness == Brightness.light;
-    final backgroundTintAlpha = isLight ? 0.04 : 0.10;
-    final elevatedTintAlpha = isLight ? 0.06 : 0.12;
-    final surfaceTintAlpha = isLight ? 0.08 : 0.14;
-    final subtleSurfaceTintAlpha = isLight ? 0.06 : 0.12;
-    final strongSurfaceTintAlpha = isLight ? 0.12 : 0.18;
-    final navBlendAlpha = isLight ? 0.04 : 0.08;
+    final backgroundTintAlpha = isLight ? 0.02 : 0.04;
+    final elevatedTintAlpha = isLight ? 0.04 : 0.07;
+    final surfaceTintAlpha = isLight ? 0.06 : 0.10;
+    final subtleSurfaceTintAlpha = isLight ? 0.05 : 0.08;
+    final strongSurfaceTintAlpha = isLight ? 0.09 : 0.14;
+    final navBlendAlpha = isLight ? 0.03 : 0.05;
     final borderSubtleAlpha = isLight ? 0.22 : 0.28;
     final borderStrongAlpha = isLight ? 0.30 : 0.38;
 
@@ -255,17 +309,21 @@ class DynamicThemeMapper {
         alpha: isLight ? 0.24 : 0.28,
       ),
       accentStrong: scheme.primary,
-      selection: scheme.secondary,
+      selection: selectionScheme.primary,
       selectionSoft: _toneSurface(
         backdropColors.selectionSoft,
-        tint: scheme.secondaryContainer,
+        tint: selectionScheme.primaryContainer,
         alpha: isLight ? 0.20 : 0.24,
       ),
-      selectionStrong: scheme.secondary,
-      link: scheme.tertiary,
+      selectionStrong: Color.lerp(
+        baseColors.textPrimary,
+        selectionScheme.primary,
+        .46,
+      ),
+      link: linkScheme.primary,
       chipBackground: _toneSurface(
         backdropColors.chipBackground,
-        tint: scheme.tertiaryContainer,
+        tint: linkScheme.primaryContainer,
         alpha: isLight ? 0.20 : 0.22,
       ),
       chipBorder: _toneSurface(
@@ -273,12 +331,18 @@ class DynamicThemeMapper {
         tint: backdropScheme.outlineVariant,
         alpha: borderSubtleAlpha,
       ),
-      chipText: scheme.onTertiaryContainer,
-      textPrimary: scheme.onSurface,
-      textSecondary: scheme.onSurfaceVariant,
-      textMuted: scheme.onSurfaceVariant.withValues(
-        alpha: isLight ? 0.76 : 0.84,
+      chipText: linkScheme.onPrimaryContainer,
+      textPrimary: Color.lerp(baseColors.textPrimary, scheme.onSurface, .22),
+      textSecondary: Color.lerp(
+        baseColors.textSecondary,
+        scheme.onSurfaceVariant,
+        .28,
       ),
+      textMuted: Color.lerp(
+        baseColors.textMuted,
+        scheme.onSurfaceVariant,
+        .24,
+      )!.withValues(alpha: isLight ? 0.76 : 0.84),
       overlayScrim: scheme.scrim.withValues(alpha: isLight ? 0.30 : 0.68),
     );
   }
@@ -321,45 +385,6 @@ class DynamicThemeMapper {
     return baseColors.backgroundBase.computeLuminance() >= 0.58
         ? Brightness.light
         : Brightness.dark;
-  }
-
-  static AppThemeColors _baseSurfacesFor(
-    DynamicThemeSeed seed, {
-    required Brightness brightness,
-  }) {
-    final neutralColors = AppThemePalette.neutralForBrightness(brightness);
-    final source = HSLColor.fromColor(seed.backgroundSeed);
-    final isLight = brightness == Brightness.light;
-    final saturation = isLight
-        ? (source.saturation * 0.34).clamp(0.04, 0.16)
-        : (source.saturation * 0.52).clamp(0.08, 0.26);
-    final toned = source.withSaturation(saturation);
-
-    Color tone(double lightness) => toned.withLightness(lightness).toColor();
-
-    if (isLight) {
-      final baseLightness = source.lightness.clamp(0.76, 0.90);
-      return neutralColors.copyWith(
-        backgroundBase: tone((baseLightness + 0.06).clamp(0.84, 0.94)),
-        backgroundElevated: tone((baseLightness + 0.03).clamp(0.82, 0.92)),
-        surface: tone((baseLightness + 0.09).clamp(0.88, 0.97)),
-        surfaceSubtle: tone((baseLightness + 0.05).clamp(0.84, 0.93)),
-        surfaceStrong: tone((baseLightness - 0.02).clamp(0.76, 0.88)),
-        navBarBackground: tone((baseLightness + 0.01).clamp(0.81, 0.90)),
-        chipBackground: tone((baseLightness + 0.02).clamp(0.82, 0.91)),
-      );
-    }
-
-    final baseLightness = source.lightness.clamp(0.16, 0.38);
-    return neutralColors.copyWith(
-      backgroundBase: tone((baseLightness - 0.06).clamp(0.10, 0.24)),
-      backgroundElevated: tone((baseLightness - 0.01).clamp(0.13, 0.28)),
-      surface: tone((baseLightness + 0.03).clamp(0.16, 0.32)),
-      surfaceSubtle: tone((baseLightness + 0.06).clamp(0.19, 0.36)),
-      surfaceStrong: tone((baseLightness + 0.10).clamp(0.23, 0.42)),
-      navBarBackground: tone((baseLightness - 0.02).clamp(0.12, 0.26)),
-      chipBackground: tone((baseLightness + 0.04).clamp(0.18, 0.34)),
-    );
   }
 
   static Color _toneSurface(

@@ -18,12 +18,11 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     final accessCode = imageCredentials.accessCode;
     final colors = context.appColors;
     final hasRuntimeDynamicTheme = context.hasRuntimeAppColors;
-    final topSurfaceColor = hasRuntimeDynamicTheme
-        ? Color.alphaBlend(
-            colors.accentSoft.withValues(alpha: 0.16),
-            colors.backgroundElevated,
-          )
-        : colors.backgroundBase;
+    final atmosphere = AppAtmospherePalette.resolve(
+      baseColors: context.baseAppColors,
+      effectiveColors: colors,
+      hasDynamicTheme: hasRuntimeDynamicTheme,
+    );
 
     final body = _buildBody(
       baseUrl,
@@ -32,66 +31,47 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
       hasRuntimeDynamicTheme: hasRuntimeDynamicTheme,
     );
 
-    return Scaffold(
-      backgroundColor: topSurfaceColor,
-      appBar: AppBar(
-        backgroundColor: topSurfaceColor,
-        surfaceTintColor: Colors.transparent,
-        foregroundColor: colors.textPrimary,
-        iconTheme: IconThemeData(color: colors.textPrimary),
-        actionsIconTheme: IconThemeData(color: colors.textPrimary),
-        titleTextStyle: TextStyle(
-          color: colors.textPrimary,
-          fontSize: 20,
-          fontWeight: FontWeight.w600,
-        ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: widget.secondaryHost
-              ? () => EmbeddedDetailLauncher.closeHostOrPop(context)
-              : _confirmLogout,
-        ),
-        title: Text(AppLocalizations.of(context).homeTitle),
-        actions: <Widget>[
-          if (!widget.secondaryHost)
+    return AppAtmosphericBackground(
+      palette: atmosphere,
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          foregroundColor: colors.textPrimary,
+          iconTheme: IconThemeData(color: colors.textPrimary),
+          actionsIconTheme: IconThemeData(color: colors.textPrimary),
+          titleTextStyle: TextStyle(
+            color: colors.textPrimary,
+            fontSize: 20,
+            fontWeight: FontWeight.w600,
+          ),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: widget.secondaryHost
+                ? () => EmbeddedDetailLauncher.closeHostOrPop(context)
+                : _confirmLogout,
+          ),
+          title: Text(AppLocalizations.of(context).homeTitle),
+          actions: <Widget>[
+            if (!widget.secondaryHost)
+              IconButton(
+                icon: const Icon(Icons.connected_tv_outlined),
+                tooltip: AppLocalizations.of(context).posterBrowseEntryTooltip,
+                onPressed: () {
+                  Navigator.of(context).pushNamed('/screen/poster-browse');
+                },
+              ),
             IconButton(
-              icon: const Icon(Icons.connected_tv_outlined),
-              tooltip: AppLocalizations.of(context).posterBrowseEntryTooltip,
+              icon: const Icon(Icons.search),
               onPressed: () {
-                Navigator.of(context).pushNamed('/screen/poster-browse');
+                unawaited(_openSearchAsync());
               },
             ),
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () {
-              unawaited(_openSearchAsync());
-            },
-          ),
-        ],
+          ],
+        ),
+        body: body,
       ),
-      body: hasRuntimeDynamicTheme
-          ? DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: <Color>[
-                    Color.alphaBlend(
-                      colors.accentSoft.withValues(alpha: 0.16),
-                      colors.backgroundElevated,
-                    ),
-                    Color.alphaBlend(
-                      colors.selectionSoft.withValues(alpha: 0.10),
-                      colors.backgroundBase,
-                    ),
-                    colors.backgroundBase,
-                  ],
-                  stops: const <double>[0.0, 0.28, 0.68],
-                ),
-              ),
-              child: body,
-            )
-          : body,
     );
   }
 
