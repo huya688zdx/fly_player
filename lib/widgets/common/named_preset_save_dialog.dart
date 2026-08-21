@@ -127,7 +127,7 @@ class _NamedPresetSaveDialogState extends State<_NamedPresetSaveDialog> {
     final l10n = AppLocalizations.of(context);
     final suggestedName = widget.suggestedName?.trim() ?? '';
     return AlertDialog(
-      backgroundColor: colors.surfaceSubtle,
+      backgroundColor: context.appModalBackgroundColor,
       title: Text(
         widget.title,
         style: TextStyle(

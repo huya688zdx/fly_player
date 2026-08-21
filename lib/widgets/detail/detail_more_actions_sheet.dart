@@ -7,6 +7,7 @@ import '../../l10n/generated/app_localizations.dart';
 import '../../providers/app_theme_provider.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/app_top_tip.dart';
+import '../common/app_modal_surface.dart';
 import '../common/named_preset_save_dialog.dart';
 
 class DetailMoreActionItem {
@@ -55,16 +56,15 @@ Future<void> showDetailMoreActionsSheet(
 
   final selectedAction = await showModalBottomSheet<_DetailMoreSheetResult>(
     context: context,
-    backgroundColor: colors.surface,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-    ),
+    backgroundColor: Colors.transparent,
+    barrierColor: colors.overlayScrim,
     builder: (sheetContext) {
       final sheetColors = sheetContext.appColors;
       final sheetL10n = AppLocalizations.of(sheetContext);
       return SafeArea(
         top: false,
-        child: Padding(
+        child: AppModalSurface(
+          key: const ValueKey<String>('app-modal-surface-detail-more'),
           padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -238,9 +238,9 @@ class _DetailMoreActionTile extends StatelessWidget {
           margin: const EdgeInsets.only(bottom: 10),
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: colors.surfaceSubtle,
+            color: appModalTileColor(colors),
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: colors.borderSubtle),
+            border: Border.all(color: appModalTileBorderColor(colors)),
           ),
           child: Row(
             children: <Widget>[
@@ -248,8 +248,11 @@ class _DetailMoreActionTile extends StatelessWidget {
                 width: 38,
                 height: 38,
                 decoration: BoxDecoration(
-                  color: colors.backgroundElevated,
+                  color: appModalTileColor(colors, selected: true),
                   borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: appModalTileBorderColor(colors, selected: true),
+                  ),
                 ),
                 alignment: Alignment.center,
                 child: Icon(icon, color: colors.accentStrong, size: 20),

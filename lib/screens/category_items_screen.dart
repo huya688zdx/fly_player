@@ -523,7 +523,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     final colors = context.appColors;
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: colors.surface,
+      backgroundColor: context.appModalBackgroundColor,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -636,7 +636,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: colors.surface,
+      backgroundColor: context.appModalBackgroundColor,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
