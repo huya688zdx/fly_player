@@ -40,7 +40,6 @@ import 'screens/settings_destination_routes.dart';
 import 'theme/app_theme.dart';
 import 'theme/dynamic_theme_runtime_controller.dart';
 import 'theme/dynamic_theme_seed_extractor.dart';
-import 'theme/glass_quality.dart';
 import 'ui/adaptive_text.dart';
 import 'ui/app_transitions.dart';
 import 'ui/media_poster_card.dart';
@@ -1049,9 +1048,12 @@ class _MainNavigationState extends State<MainNavigation> {
         currentIndex: _selectedTab.tabIndex,
         onTap: (index) => unawaited(_handleNavigationTap(index)),
         destinations: <_LiquidGlassNavDestination>[
-          _LiquidGlassNavDestination(icon: Icons.movie, label: l10n.navMovies),
           _LiquidGlassNavDestination(
-            icon: Icons.settings_rounded,
+            icon: Icons.video_library_outlined,
+            label: l10n.navMovies,
+          ),
+          _LiquidGlassNavDestination(
+            icon: Icons.tune_rounded,
             label: l10n.navSettings,
           ),
         ],
@@ -1084,138 +1086,100 @@ class _LiquidGlassBottomNavigation extends StatelessWidget {
     final isLightSurface = colors.backgroundBase.computeLuminance() >= 0.58;
     final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
     final safeIndex = currentIndex.clamp(0, destinations.length - 1);
-    final horizontalPadding = MediaQuery.sizeOf(context).width >= 700
-        ? 96.0
-        : 38.0;
+    final viewportWidth = MediaQuery.sizeOf(context).width;
+    final barWidth = MainNavigationMetrics.barWidthFor(viewportWidth);
     final bottomPadding = MainNavigationMetrics.outerBottomPadding(bottomInset);
-    final inactive = colors.textMuted.withValues(alpha: 0.86);
-    final active = colors.selectionStrong;
+    final inactive = colors.textSecondary.withValues(alpha: .72);
+    final active = Color.lerp(colors.textPrimary, colors.selection, .28)!;
+    final outerSurface = Color.alphaBlend(
+      colors.selection.withValues(alpha: isLightSurface ? .06 : .10),
+      colors.navBarBackground.withValues(alpha: isLightSurface ? .92 : .88),
+    );
 
     return Material(
       type: MaterialType.transparency,
       child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          horizontalPadding,
-          8,
-          horizontalPadding,
-          bottomPadding,
-        ),
-        child: SizedBox(
-          height: MainNavigationMetrics.barHeight,
-          child: ValueListenableBuilder<LiquidGlassLevel>(
-            valueListenable: liquidGlassLevel,
-            builder: (context, level, child) {
-              // 纯色化：回归纯色风格后导航条永不走 BackdropFilter（去实时模糊，避免
-              // 转场/滚动逐帧重栅格），仅保留半透明渐变磨砂观感（沿用原非模糊态底色）。
-              final Widget surface = DecoratedBox(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(36),
-                  border: Border.all(
-                    color: Colors.white.withValues(
-                      alpha: isLightSurface ? 0.58 : 0.16,
-                    ),
-                    width: 0.8,
+        padding: EdgeInsets.only(top: 6, bottom: bottomPadding),
+        child: Center(
+          heightFactor: 1,
+          child: SizedBox(
+            width: barWidth,
+            height: MainNavigationMetrics.barHeight,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: outerSurface,
+                borderRadius: BorderRadius.circular(25),
+                border: Border.all(
+                  color: Color.alphaBlend(
+                    colors.selection.withValues(alpha: .24),
+                    Colors.white.withValues(alpha: isLightSurface ? .42 : .10),
                   ),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: <Color>[
-                      Colors.white.withValues(
-                        alpha: isLightSurface ? 0.66 : 0.18,
-                      ),
-                      colors.navBarBackground.withValues(
-                        alpha: isLightSurface ? 0.90 : 0.84,
-                      ),
-                      colors.accentSoft.withValues(
-                        alpha: isLightSurface ? 0.22 : 0.16,
-                      ),
-                    ],
-                  ),
+                  width: .8,
                 ),
-                child: child,
-              );
-              return ClipRRect(
-                borderRadius: BorderRadius.circular(36),
-                child: surface,
-              );
-            },
-            child: Stack(
-              fit: StackFit.expand,
-              children: <Widget>[
-                Positioned.fill(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: RadialGradient(
-                        center: const Alignment(-0.86, -1.08),
-                        radius: 1.1,
-                        colors: <Color>[
-                          Colors.white.withValues(
-                            alpha: isLightSurface ? 0.58 : 0.22,
+                boxShadow: <BoxShadow>[
+                  BoxShadow(
+                    color: Colors.black.withValues(
+                      alpha: isLightSurface ? .12 : .34,
+                    ),
+                    blurRadius: 22,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Stack(
+                fit: StackFit.expand,
+                children: <Widget>[
+                  AnimatedAlign(
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    alignment: destinations.length <= 1
+                        ? Alignment.center
+                        : Alignment(
+                            -1.0 +
+                                safeIndex * (2.0 / (destinations.length - 1)),
+                            0,
                           ),
-                          Colors.transparent,
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                AnimatedAlign(
-                  duration: const Duration(milliseconds: 260),
-                  curve: Curves.easeOutCubic,
-                  alignment: destinations.length <= 1
-                      ? Alignment.center
-                      : Alignment(
-                          -1.0 + safeIndex * (2.0 / (destinations.length - 1)),
-                          0,
-                        ),
-                  child: FractionallySizedBox(
-                    widthFactor: 1 / destinations.length,
-                    heightFactor: 1,
-                    child: Padding(
-                      padding: const EdgeInsets.all(7),
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(31),
-                          border: Border.all(
-                            color: Colors.white.withValues(
-                              alpha: isLightSurface ? 0.80 : 0.22,
+                    child: FractionallySizedBox(
+                      widthFactor: 1 / destinations.length,
+                      heightFactor: 1,
+                      child: Padding(
+                        padding: const EdgeInsets.all(6),
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(19),
+                            border: Border.all(
+                              color: colors.selection.withValues(
+                                alpha: isLightSurface ? .34 : .42,
+                              ),
+                              width: .8,
                             ),
-                            width: 0.8,
-                          ),
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: <Color>[
-                              Colors.white.withValues(
-                                alpha: isLightSurface ? 0.84 : 0.24,
+                            color: Color.alphaBlend(
+                              colors.selection.withValues(alpha: .14),
+                              colors.surface.withValues(
+                                alpha: isLightSurface ? .86 : .72,
                               ),
-                              Color.alphaBlend(
-                                active.withValues(alpha: 0.16),
-                                colors.surface.withValues(
-                                  alpha: isLightSurface ? 0.56 : 0.30,
-                                ),
-                              ),
-                            ],
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
-                ),
-                Row(
-                  children: List.generate(destinations.length, (index) {
-                    final selected = index == safeIndex;
-                    return Expanded(
-                      child: _LiquidGlassNavItem(
-                        destination: destinations[index],
-                        selected: selected,
-                        activeColor: active,
-                        inactiveColor: inactive,
-                        onTap: () => onTap(index),
-                      ),
-                    );
-                  }),
-                ),
-              ],
+                  Row(
+                    children: List.generate(destinations.length, (index) {
+                      final selected = index == safeIndex;
+                      return Expanded(
+                        child: _LiquidGlassNavItem(
+                          destination: destinations[index],
+                          selected: selected,
+                          activeColor: active,
+                          inactiveColor: inactive,
+                          onTap: () => onTap(index),
+                        ),
+                      );
+                    }),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -1256,22 +1220,24 @@ class _LiquidGlassNavItem extends StatelessWidget {
           curve: Curves.easeOutCubic,
           style: TextStyle(
             color: color,
-            fontSize: selected ? 13 : 12,
+            fontSize: selected ? 13 : 12.5,
             fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
             height: 1.0,
           ),
           child: IconTheme(
-            data: IconThemeData(color: color, size: selected ? 30 : 28),
-            child: Column(
+            data: IconThemeData(color: color, size: selected ? 21 : 20),
+            child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
                 Icon(destination.icon),
-                const SizedBox(height: 5),
-                Text(
-                  destination.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textScaler: const TextScaler.linear(1.0),
+                const SizedBox(width: 7),
+                Flexible(
+                  child: Text(
+                    destination.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textScaler: const TextScaler.linear(1.0),
+                  ),
                 ),
               ],
             ),
