@@ -95,7 +95,11 @@ void main() {
 
     expect(widgetsSource, contains('HomeCatalogSection('));
     expect(widgetsSource, isNot(contains('catalogStyle')));
-    expect(widgetsSource, contains('const limit = 2;'));
+    expect(widgetsSource, contains('const limit = 3;'));
+    expect(widgetsSource, contains('presentation: catalogPresentation'));
+    expect(widgetsSource, contains('homeCatalogImageRequestsForPresentation('));
+    expect(widgetsSource, contains('previewBackdropRequests:'));
+    expect(widgetsSource, contains('previewPrimaryRequests:'));
     expect(widgetsSource, contains('HomeContinueWatchingSection('));
     expect(widgetsSource, contains('HomeLandscapeMediaSection('));
     expect(widgetsSource, contains('visibleHomeSections('));
@@ -313,11 +317,12 @@ void main() {
 
     expect(source, contains('HomeHorizontalShelf<HomeCatalogCardData>('));
     expect(source, contains("storageKey: 'catalogs'"));
-    expect(source, contains('minItemWidth: 156'));
-    expect(source, contains('maxItemWidth: 184'));
-    expect(source, contains('idealItemWidth: 184'));
-    expect(source, contains('itemAspectRatio: 1.08'));
-    expect(source, contains('.take(2)'));
+    expect(source, contains('minItemWidth: shelfMetrics.minWidth'));
+    expect(source, contains('itemAspectRatio: shelfMetrics.aspectRatio'));
+    expect(source, contains('class _FeiniuCatalogCardBody'));
+    expect(source, contains('class _EmbyCatalogCardBody'));
+    expect(source, contains('class _JellyfinCatalogCardBody'));
+    expect(source, contains('.take(3)'));
     expect(
       source,
       isNot(

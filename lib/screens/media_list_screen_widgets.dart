@@ -282,6 +282,12 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
     required String accessCode,
     required MediaLayoutProfile layout,
   }) {
+    final backendKind = context
+        .read<MediaBackendProvider>()
+        .backend
+        .capabilities
+        .kind;
+    final catalogPresentation = backendKind.homeCatalogPresentation;
     final categoriesById = <String, MediaItem>{
       for (final category in _categories) category.id: category,
     };
@@ -293,6 +299,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
             mediaType: _homeCatalogMediaType(category),
             imageRequests: _homeCatalogImageRequests(
               category,
+              presentation: catalogPresentation,
               baseUrl: baseUrl,
               token: token,
               accessCode: accessCode,
@@ -303,6 +310,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
         .toList(growable: false);
     return HomeCatalogSection(
       title: AppLocalizations.of(context).posterBrowseRowCatalogs,
+      presentation: catalogPresentation,
       items: items,
       stableImageCacheWidth: layout.homeCatalogDecodeWidth,
       onTap: (item) {
@@ -314,6 +322,7 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
 
   List<MediaImageRequest> _homeCatalogImageRequests(
     MediaItem category, {
+    required HomeCatalogPresentation presentation,
     required String baseUrl,
     required String token,
     required String accessCode,
@@ -325,12 +334,14 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
         ? <String>[category.path!.trim()]
         : const <String>[];
     final preserved = _catalogImageRequests[category.id] ?? const [];
-    const limit = 2;
+    const limit = 3;
     final candidateCount = min(
       max(sourcePaths.length, preserved.length),
       limit,
     );
-    return List<MediaImageRequest>.generate(candidateCount, (index) {
+    final catalogRequests = List<MediaImageRequest>.generate(candidateCount, (
+      index,
+    ) {
       final preservedRequest = index < preserved.length
           ? preserved[index]
           : null;
@@ -345,6 +356,21 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
         fallbackBaseUrl: baseUrl,
       );
     }).where((request) => request.canLoad).toList(growable: false);
+    final previewItems = _itemsByCategory[category.id] ?? const [];
+    return homeCatalogImageRequestsForPresentation(
+      presentation: presentation,
+      catalogRequests: catalogRequests,
+      previewBackdropRequests: <MediaImageRequest>[
+        for (final item in previewItems)
+          if (_backdropImageRequests[item.guid]?.canLoad == true)
+            _backdropImageRequests[item.guid]!,
+      ],
+      previewPrimaryRequests: <MediaImageRequest>[
+        for (final item in previewItems)
+          if (_itemImageRequests[item.guid]?.canLoad == true)
+            _itemImageRequests[item.guid]!,
+      ],
+    );
   }
 
   HomeCatalogMediaType _homeCatalogMediaType(MediaItem category) {

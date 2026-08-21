@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fly_player/media_backend/home_catalog_presentation.dart';
 import 'package:fly_player/media_backend/media_image_request.dart';
 import 'package:fly_player/screens/home/widgets/home_catalog_section.dart';
 import 'package:fly_player/theme/app_theme.dart';
@@ -75,116 +76,53 @@ Future<void> _withPendingNetworkImageClient(
 }
 
 void main() {
-  testWidgets('媒体库卡最多展示两张严格 2:3 海报且标题位于图片区下方', (tester) async {
-    await tester.pumpWidget(
-      testApp(
-        HomeCatalogSection(
-          items: const <HomeCatalogCardData>[
-            HomeCatalogCardData(
-              id: 'lib-1',
-              title: '动漫 TV',
-              mediaType: HomeCatalogMediaType.series,
-              imageRequests: <MediaImageRequest>[
-                loadableImage,
-                loadableImage,
-                loadableImage,
-              ],
-            ),
-          ],
-          onTap: (_) {},
-        ),
-      ),
+  test('媒体库图片按后端选择真实可用来源并保留加载回退', () {
+    const catalog = MediaImageRequest(
+      urls: <String>['https://example.test/catalog.jpg'],
+      selfAuthenticated: true,
+    );
+    const backdrop = MediaImageRequest(
+      urls: <String>['https://example.test/backdrop.jpg'],
+      selfAuthenticated: true,
+    );
+    const primary = MediaImageRequest(
+      urls: <String>['https://example.test/primary.jpg'],
+      selfAuthenticated: true,
     );
 
-    final firstPoster = find.byKey(
-      const ValueKey<String>('catalog-poster-lib-1-0'),
+    final feiniu = homeCatalogImageRequestsForPresentation(
+      presentation: HomeCatalogPresentation.officialCollage,
+      catalogRequests: const <MediaImageRequest>[
+        catalog,
+        backdrop,
+        primary,
+        catalog,
+      ],
     );
-    final secondPoster = find.byKey(
-      const ValueKey<String>('catalog-poster-lib-1-1'),
+    final emby = homeCatalogImageRequestsForPresentation(
+      presentation: HomeCatalogPresentation.cinematicBackdrop,
+      catalogRequests: const <MediaImageRequest>[catalog],
+      previewBackdropRequests: const <MediaImageRequest>[backdrop],
+      previewPrimaryRequests: const <MediaImageRequest>[primary],
     );
-    expect(firstPoster, findsOneWidget);
-    expect(secondPoster, findsOneWidget);
-    expect(
-      find.byKey(const ValueKey<String>('catalog-poster-lib-1-2')),
-      findsNothing,
-    );
-    for (final poster in <Finder>[firstPoster, secondPoster]) {
-      final size = tester.getSize(poster);
-      expect(size.height / size.width, closeTo(1.5, .01));
-    }
-    expect(find.byType(Image), findsNWidgets(2));
-    for (final image in tester.widgetList<Image>(find.byType(Image))) {
-      expect(image.fit, BoxFit.cover);
-    }
-    final firstImage = tester.widget<Image>(
-      find.byKey(const ValueKey<String>('catalog-image-lib-1')),
-    );
-    expect(networkImageOf(firstImage).headers, loadableImage.headers);
-    expect((firstImage.image as ResizeImage).width, greaterThan(0));
-    expect((firstImage.image as ResizeImage).height, isNull);
-
-    final artworkRect = tester.getRect(
-      find.byKey(const ValueKey<String>('catalog-artwork-lib-1')),
-    );
-    final titleRect = tester.getRect(
-      find.byKey(const ValueKey<String>('catalog-title-lib-1')),
-    );
-    expect(titleRect.top, greaterThanOrEqualTo(artworkRect.bottom - 1));
-    expect(find.byType(PageView), findsNothing);
-    expect(find.byType(Scrollbar), findsNothing);
-    expect(find.textContaining('个'), findsNothing);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('双海报轻微叠放且完整位于图片舞台内', (tester) async {
-    await tester.pumpWidget(
-      testApp(
-        HomeCatalogSection(
-          items: const <HomeCatalogCardData>[
-            HomeCatalogCardData(
-              id: 'geometry',
-              title: '几何约束',
-              mediaType: HomeCatalogMediaType.movies,
-              imageRequests: <MediaImageRequest>[loadableImage, loadableImage],
-            ),
-          ],
-          onTap: (_) {},
-        ),
-      ),
+    final jellyfin = homeCatalogImageRequestsForPresentation(
+      presentation: HomeCatalogPresentation.clearGallery,
+      catalogRequests: const <MediaImageRequest>[catalog],
+      previewBackdropRequests: const <MediaImageRequest>[backdrop],
+      previewPrimaryRequests: const <MediaImageRequest>[primary],
     );
 
-    final artwork = tester.getRect(
-      find.byKey(const ValueKey<String>('catalog-artwork-geometry')),
-    );
-    final first = tester.getRect(
-      find.byKey(const ValueKey<String>('catalog-poster-geometry-0')),
-    );
-    final second = tester.getRect(
-      find.byKey(const ValueKey<String>('catalog-poster-geometry-1')),
-    );
-
-    for (final poster in <Rect>[first, second]) {
-      expect(poster.left, greaterThanOrEqualTo(artwork.left - 1));
-      expect(poster.top, greaterThanOrEqualTo(artwork.top - 1));
-      expect(poster.right, lessThanOrEqualTo(artwork.right + 1));
-      expect(poster.bottom, lessThanOrEqualTo(artwork.bottom + 1));
-    }
-    final overlap = first.intersect(second);
-    final overlapArea = overlap.width * overlap.height;
-    final firstArea = first.width * first.height;
-    final secondArea = second.width * second.height;
-    final overlapRatio = overlapArea / firstArea;
-    expect(overlapRatio, greaterThanOrEqualTo(.10));
-    expect(overlapRatio, lessThanOrEqualTo(.30));
-    final artworkArea = artwork.width * artwork.height;
-    final visibleAreaRatio =
-        (firstArea + secondArea - overlapArea) / artworkArea;
-    expect(visibleAreaRatio, greaterThanOrEqualTo(.60));
-    expect(
-      first.expandToInclude(second).width / artwork.width,
-      greaterThanOrEqualTo(.70),
-    );
-    expect(tester.takeException(), isNull);
+    expect(feiniu, hasLength(3));
+    expect(emby.single.urls, <String>[
+      'https://example.test/backdrop.jpg',
+      'https://example.test/catalog.jpg',
+      'https://example.test/primary.jpg',
+    ]);
+    expect(jellyfin.single.urls, <String>[
+      'https://example.test/catalog.jpg',
+      'https://example.test/backdrop.jpg',
+      'https://example.test/primary.jpg',
+    ]);
   });
 
   testWidgets('缺图媒体库卡显示媒体类型图标并可点击', (tester) async {
@@ -213,7 +151,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('媒体库卡使用动态主题背景与半透明强调色边框', (tester) async {
+  testWidgets('媒体库卡保持透明外层并使用动态主题强调色', (tester) async {
     const accent = Color(0xFF12A4D9);
     const surface = Color(0xFF24313A);
     final baseColors = AppThemeBuilder.build(
@@ -227,6 +165,7 @@ void main() {
     await tester.pumpWidget(
       testApp(
         HomeCatalogSection(
+          presentation: HomeCatalogPresentation.cinematicBackdrop,
           items: const <HomeCatalogCardData>[
             HomeCatalogCardData(
               id: 'themed',
@@ -244,14 +183,12 @@ void main() {
     final material = tester.widget<Material>(
       find.byKey(const ValueKey<String>('catalog-card-themed')),
     );
-    final shape = material.shape! as RoundedRectangleBorder;
-    expect(material.color, surface);
-    expect(shape.side.color, accent.withValues(alpha: .18));
-    expect(shape.borderRadius, BorderRadius.circular(15));
-    expect(
-      tester.widget<Text>(find.text('动态主题')).style?.color,
-      runtimeColors.textPrimary,
+    expect(material.color, Colors.transparent);
+    final accentBox = tester.widget<ColoredBox>(
+      find.byKey(const ValueKey<String>('catalog-accent-themed')),
     );
+    expect(accentBox.color, accent);
+    expect(tester.widget<Text>(find.text('动态主题')).style?.color, Colors.white);
   });
 
   testWidgets('媒体库图片候选失败时不连跳且限制解码尺寸', (tester) async {
