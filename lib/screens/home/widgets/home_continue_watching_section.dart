@@ -104,10 +104,11 @@ class _ContinueCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final playForeground =
-        ThemeData.estimateBrightnessForColor(colors.accent) == Brightness.dark
-        ? Colors.white
-        : const Color(0xFF1B1B1B);
+    final playForeground = Color.lerp(Colors.white, colors.accent, .12)!;
+    final playFill = Color.alphaBlend(
+      colors.accent.withValues(alpha: .18),
+      colors.overlayScrim.withValues(alpha: .82),
+    );
     final radius = BorderRadius.circular(14);
     final imageHeight = width / (16 / 10);
     final compactDownloaded = item.downloaded && width < 176;
@@ -166,12 +167,27 @@ class _ContinueCard extends StatelessWidget {
                             'continue-play-visual-${item.id}',
                           ),
                           decoration: BoxDecoration(
-                            color: colors.accent,
+                            color: playFill,
                             shape: BoxShape.circle,
+                            border: Border.all(
+                              color: colors.accent.withValues(alpha: .58),
+                              width: .8,
+                            ),
+                            boxShadow: <BoxShadow>[
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: .30),
+                                blurRadius: 10,
+                                offset: const Offset(0, 3),
+                              ),
+                              BoxShadow(
+                                color: colors.accent.withValues(alpha: .14),
+                                blurRadius: 12,
+                              ),
+                            ],
                           ),
                           child: const SizedBox.square(
-                            dimension: 38,
-                            child: Icon(Icons.play_arrow_rounded, size: 22),
+                            dimension: 36,
+                            child: Icon(Icons.play_arrow_rounded, size: 21),
                           ),
                         ),
                         style: IconButton.styleFrom(
@@ -189,7 +205,7 @@ class _ContinueCard extends StatelessWidget {
                       child: LinearProgressIndicator(
                         key: ValueKey<String>('continue-progress-${item.id}'),
                         value: item.progress.clamp(0.0, 1.0).toDouble(),
-                        minHeight: 3,
+                        minHeight: 2.5,
                         color: colors.accent,
                         backgroundColor: Colors.white.withValues(alpha: .20),
                       ),
