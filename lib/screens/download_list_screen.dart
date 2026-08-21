@@ -576,7 +576,7 @@ class _DownloadListScreenState extends State<DownloadListScreen> {
           child: Container(
             padding: const EdgeInsets.fromLTRB(22, 26, 22, 22),
             decoration: BoxDecoration(
-              color: colors.backgroundElevated,
+              color: sheetContext.appModalBackgroundColor,
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(28),
               ),
@@ -1282,7 +1282,7 @@ class _DownloadGroupDetailScreenState extends State<DownloadGroupDetailScreen> {
           child: Container(
             padding: const EdgeInsets.fromLTRB(22, 26, 22, 22),
             decoration: BoxDecoration(
-              color: colors.backgroundElevated,
+              color: sheetContext.appModalBackgroundColor,
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(28),
               ),
@@ -1880,7 +1880,7 @@ class _DownloadRecordRow extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.fromLTRB(22, 26, 22, 22),
               decoration: BoxDecoration(
-                color: sheetColors.backgroundElevated,
+                color: sheetContext.appModalBackgroundColor,
                 borderRadius: const BorderRadius.vertical(
                   top: Radius.circular(28),
                 ),

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../theme/app_theme.dart';
 import '../../ui/app_sheet_transitions.dart';
+import 'app_modal_surface.dart';
 
 class TrackOptionSheetItem {
   final String id;
@@ -85,17 +86,12 @@ class _TrackOptionSheetBody extends StatelessWidget {
     final child = SafeArea(
       top: false,
       bottom: false,
-      child: Container(
-        decoration: BoxDecoration(
-          color: colors.surface,
-          borderRadius: BorderRadius.vertical(
-            top: const Radius.circular(24),
-            bottom: Radius.circular(floating ? 24 : 0),
-          ),
-        ),
+      child: AppModalSurface(
+        key: const ValueKey<String>('app-modal-surface-track-options'),
+        floating: floating,
         padding: EdgeInsets.fromLTRB(
           floating ? 22 : 16,
-          floating ? 20 : 12,
+          floating ? 20 : 16,
           floating ? 22 : 16,
           bottomContentPadding,
         ),
@@ -104,38 +100,57 @@ class _TrackOptionSheetBody extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const SizedBox(height: 4),
-              Text(
-                title,
-                style: TextStyle(
-                  color: colors.textPrimary,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w500,
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    color: colors.textPrimary,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.2,
+                  ),
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
               Flexible(
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  itemCount: items.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 16),
-                  itemBuilder: (context, index) {
-                    final item = items[index];
-                    final selected = item.id == selectedId;
-                    return _OptionTile(
-                      item: item,
-                      selected: selected,
-                      onTap: () {
-                        if (AppSheetTransitions.maybeClose<String>(
-                          context,
-                          item.id,
-                        )) {
-                          return;
-                        }
-                        Navigator.of(context).pop(item.id);
+                child: DecoratedBox(
+                  key: const ValueKey<String>('track-option-group'),
+                  decoration: BoxDecoration(
+                    color: appModalTileColor(colors),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: appModalTileBorderColor(colors)),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(18),
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: items.length,
+                      separatorBuilder: (_, __) => Divider(
+                        height: 1,
+                        thickness: 1,
+                        indent: 54,
+                        color: colors.borderSubtle.withValues(alpha: 0.72),
+                      ),
+                      itemBuilder: (context, index) {
+                        final item = items[index];
+                        final selected = item.id == selectedId;
+                        return _OptionTile(
+                          item: item,
+                          selected: selected,
+                          onTap: () {
+                            if (AppSheetTransitions.maybeClose<String>(
+                              context,
+                              item.id,
+                            )) {
+                              return;
+                            }
+                            Navigator.of(context).pop(item.id);
+                          },
+                        );
                       },
-                    );
-                  },
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -171,59 +186,72 @@ class _OptionTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final onDelete = item.onDelete;
-    return Material(
-      color: colors.surfaceSubtle,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(14, 16, 14, 16),
-          child: Row(
-            children: [
-              _SelectionDot(selected: selected),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.title,
-                      style: TextStyle(
-                        color: colors.textPrimary,
-                        fontSize: 35 / 2,
-                        fontWeight: FontWeight.w500,
-                        height: 1.15,
-                      ),
-                    ),
-                    if (item.subtitle.trim().isNotEmpty) ...[
-                      const SizedBox(height: 6),
+    return AnimatedContainer(
+      key: ValueKey<String>('track-option-tile-${item.id}'),
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+      decoration: BoxDecoration(
+        color: selected ? appModalTileColor(colors, selected: true) : null,
+        border: Border.all(
+          color: selected
+              ? appModalTileBorderColor(colors, selected: true)
+              : Colors.transparent,
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 13, 12, 13),
+            child: Row(
+              children: [
+                _SelectionDot(id: item.id, selected: selected),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                       Text(
-                        item.subtitle,
+                        item.title,
                         style: TextStyle(
-                          color: colors.textSecondary,
-                          fontSize: 30 / 2,
-                          fontWeight: FontWeight.w500,
-                          height: 1.1,
+                          color: colors.textPrimary,
+                          fontSize: 16,
+                          fontWeight: selected
+                              ? FontWeight.w600
+                              : FontWeight.w500,
+                          height: 1.25,
                         ),
                       ),
+                      if (item.subtitle.trim().isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          item.subtitle,
+                          style: TextStyle(
+                            color: colors.textSecondary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w400,
+                            height: 1.25,
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
-                ),
-              ),
-              if (onDelete != null)
-                IconButton(
-                  onPressed: onDelete,
-                  icon: Icon(
-                    Icons.delete_outline,
-                    color: colors.textSecondary,
-                    size: 20,
                   ),
-                  tooltip: MaterialLocalizations.of(
-                    context,
-                  ).deleteButtonTooltip,
                 ),
-            ],
+                if (onDelete != null)
+                  IconButton(
+                    onPressed: onDelete,
+                    icon: Icon(
+                      Icons.delete_outline,
+                      color: colors.textSecondary,
+                      size: 19,
+                    ),
+                    tooltip: MaterialLocalizations.of(
+                      context,
+                    ).deleteButtonTooltip,
+                  ),
+              ],
+            ),
           ),
         ),
       ),
@@ -232,9 +260,10 @@ class _OptionTile extends StatelessWidget {
 }
 
 class _SelectionDot extends StatelessWidget {
+  final String id;
   final bool selected;
 
-  const _SelectionDot({required this.selected});
+  const _SelectionDot({required this.id, required this.selected});
 
   @override
   Widget build(BuildContext context) {
@@ -242,15 +271,16 @@ class _SelectionDot extends StatelessWidget {
     final active = colors.selection;
     final inactive = colors.chipBorder;
     return Container(
-      width: 28,
-      height: 28,
+      key: ValueKey<String>('track-selection-$id'),
+      width: 22,
+      height: 22,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        border: Border.all(color: selected ? active : inactive, width: 2.2),
+        border: Border.all(color: selected ? active : inactive, width: 1.8),
         color: selected ? active : Colors.transparent,
       ),
       child: selected
-          ? Icon(Icons.check, color: colors.textPrimary, size: 16)
+          ? Icon(Icons.check_rounded, color: colors.textPrimary, size: 14)
           : null,
     );
   }

@@ -17,7 +17,7 @@ Future<String?> showBookmarkNoteDialog(
         final colors = dialogContext.appColors;
         final l10n = AppLocalizations.of(dialogContext);
         return AlertDialog(
-          backgroundColor: colors.surfaceSubtle,
+          backgroundColor: dialogContext.appModalBackgroundColor,
           title: Text(
             title ?? l10n.bookmarkNoteDialogTitle,
             style: TextStyle(
