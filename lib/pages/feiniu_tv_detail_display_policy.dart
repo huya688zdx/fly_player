@@ -15,6 +15,9 @@ class FeiniuTvDetailDisplayState {
     required this.showTitleFallback,
     required this.showOverview,
   });
+
+  /// 背景只由已解析出的真实图片路径决定，不再受季列表或入场动画计时器影响。
+  bool get showArtwork => heroPath.isNotEmpty;
 }
 
 class FeiniuTvDetailDisplayPolicy {
