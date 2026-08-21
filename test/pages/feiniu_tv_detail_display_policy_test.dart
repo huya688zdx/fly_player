@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fly_player/pages/feiniu_tv_detail_display_policy.dart';
 
@@ -56,7 +58,9 @@ void main() {
       );
 
       expect(loading.heroPath, '/series-backdrop.jpg');
+      expect(loading.showArtwork, isTrue);
       expect(resolved.heroPath, loading.heroPath);
+      expect(resolved.showArtwork, isTrue);
       expect(resolved.showTitleFallback, isTrue);
       expect(resolved.showOverview, isTrue);
     });
@@ -73,7 +77,18 @@ void main() {
       );
 
       expect(state.heroPath, '/still.jpg');
+      expect(state.showArtwork, isTrue);
       expect(state.showOverview, isFalse);
+    });
+
+    test('系列页直接消费详情可见性，不再由延迟动画隐藏背景和简介', () {
+      final source = File('lib/pages/tv_detail_page.dart').readAsStringSync();
+
+      expect(
+        source,
+        contains(': _loading || !feiniuDisplayState.showArtwork;'),
+      );
+      expect(source, contains('if (displayState.showOverview)'));
     });
   });
 }
