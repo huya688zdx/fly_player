@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../theme/app_theme.dart';
 import '../ui/app_sheet_transitions.dart';
+import '../widgets/common/app_modal_surface.dart';
 
 class LongTextOverlayPage extends StatelessWidget {
   final String title;
@@ -25,6 +26,7 @@ class LongTextOverlayPage extends StatelessWidget {
     required String content,
   }) async {
     final inheritedTheme = Theme.of(context);
+    final colors = context.appColors;
 
     final media = MediaQuery.of(context);
     final isLandscape = media.size.width > media.size.height;
@@ -40,7 +42,7 @@ class LongTextOverlayPage extends StatelessWidget {
         context: context,
         useRootNavigator: false,
         barrierDismissible: true,
-        barrierColor: const Color(0xBF020812),
+        barrierColor: colors.overlayScrim,
         builder: (_) => Theme(data: inheritedTheme, child: page),
       );
     }
@@ -49,7 +51,7 @@ class LongTextOverlayPage extends StatelessWidget {
       context,
       barrierDismissible: true,
       barrierLabel: sectionTitle,
-      barrierColor: const Color(0xBF020812),
+      barrierColor: colors.overlayScrim,
       builder: (_) => Theme(data: inheritedTheme, child: page),
     );
   }
@@ -65,13 +67,10 @@ class LongTextOverlayPage extends StatelessWidget {
         ? AppLocalizations.of(context).detailOverviewEmpty
         : content;
 
-    final child = Container(
-      decoration: BoxDecoration(
-        color: colors.backgroundElevated,
-        borderRadius: floating
-            ? BorderRadius.circular(28)
-            : const BorderRadius.vertical(top: Radius.circular(26)),
-      ),
+    final child = AppModalSurface(
+      key: const ValueKey<String>('app-modal-surface-long-text'),
+      floating: floating,
+      borderRadius: floating ? BorderRadius.circular(28) : null,
       child: SafeArea(
         top: false,
         child: Padding(
@@ -85,17 +84,38 @@ class LongTextOverlayPage extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Spacer(),
-                  Text(
-                    sectionTitle,
-                    style: TextStyle(
-                      color: colors.textPrimary,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w500,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: colors.textMuted,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            height: 1.25,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          sectionTitle,
+                          style: TextStyle(
+                            color: colors.textPrimary,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            height: 1.25,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const Spacer(),
+                  const SizedBox(width: 12),
                   InkWell(
                     onTap: () {
                       if (AppSheetTransitions.maybeClose<void>(context)) {
@@ -103,29 +123,31 @@ class LongTextOverlayPage extends StatelessWidget {
                       }
                       Navigator.of(context).maybePop();
                     },
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(20),
                     child: Padding(
-                      padding: const EdgeInsets.all(4),
+                      padding: const EdgeInsets.all(8),
                       child: Icon(
-                        Icons.close,
+                        Icons.close_rounded,
                         color: colors.textSecondary,
-                        size: 28,
+                        size: 22,
                       ),
                     ),
                   ),
                 ],
               ),
-              SizedBox(height: floating ? 22 : 18),
+              SizedBox(height: floating ? 18 : 14),
               Expanded(
                 child: SingleChildScrollView(
                   physics: const BouncingScrollPhysics(),
                   child: Text(
+                    key: const ValueKey<String>('long-text-content'),
                     bodyText,
                     style: TextStyle(
                       color: colors.textSecondary,
-                      fontSize: 19,
-                      height: 1.42,
-                      fontWeight: FontWeight.w500,
+                      fontSize: 16,
+                      height: 1.65,
+                      fontWeight: FontWeight.w400,
+                      letterSpacing: 0.08,
                     ),
                   ),
                 ),

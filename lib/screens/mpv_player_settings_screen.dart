@@ -25,7 +25,7 @@ Future<bool> _showMpvPerformanceWarningDialog(
     context: context,
     builder: (dialogContext) {
       return AlertDialog(
-        backgroundColor: colors.surface,
+        backgroundColor: dialogContext.appModalBackgroundColor,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
           side: BorderSide(color: colors.borderSubtle),
@@ -1796,7 +1796,7 @@ class _MpvSettingChoiceScreenState extends State<_MpvSettingChoiceScreen> {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          backgroundColor: colors.surface,
+          backgroundColor: dialogContext.appModalBackgroundColor,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
             side: BorderSide(color: colors.borderSubtle),

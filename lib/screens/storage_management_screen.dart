@@ -439,12 +439,11 @@ class _StorageManagementScreenState extends State<StorageManagementScreen> {
     required String title,
     required String message,
   }) {
-    final colors = context.appColors;
     return showDialog<bool>(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          backgroundColor: colors.backgroundElevated,
+          backgroundColor: dialogContext.appModalBackgroundColor,
           title: Text(title),
           content: Text(message),
           actions: <Widget>[
@@ -675,10 +674,9 @@ class _StorageAppDataScreenState extends State<StorageAppDataScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
-        final colors = context.appColors;
         final l10n = AppLocalizations.of(context);
         return AlertDialog(
-          backgroundColor: colors.backgroundElevated,
+          backgroundColor: dialogContext.appModalBackgroundColor,
           title: Text(title),
           content: Text(message),
           actions: <Widget>[

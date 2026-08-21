@@ -1015,6 +1015,12 @@ class AppThemeBuilder {
       focusColor: Colors.transparent,
       extensions: <ThemeExtension<dynamic>>[colors],
     );
+    final modalBackground = Color.alphaBlend(
+      colors.accent.withValues(
+        alpha: brightness == Brightness.light ? 0.055 : 0.085,
+      ),
+      colors.surface,
+    );
 
     return base.copyWith(
       appBarTheme: AppBarTheme(
@@ -1043,9 +1049,18 @@ class AppThemeBuilder {
         displayColor: colors.textPrimary,
       ),
       dialogTheme: DialogThemeData(
-        backgroundColor: colors.surface,
+        backgroundColor: modalBackground,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: modalBackground,
+        modalBackgroundColor: modalBackground,
+        surfaceTintColor: Colors.transparent,
+        modalBarrierColor: colors.overlayScrim,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+        ),
       ),
       cardTheme: CardThemeData(
         color: colors.surface,
@@ -1313,6 +1328,16 @@ extension AppThemeBuildContextX on BuildContext {
       return pageSnapshot!.effectiveColors;
     }
     return AppRuntimeColorScope.maybeColorsOf(this) ?? baseAppColors;
+  }
+
+  /// 未使用 [AppModalSurface] 的旧弹层也统一获得当前页面动态取色后的低饱和底色。
+  Color get appModalBackgroundColor {
+    final colors = appColors;
+    final isLight = colors.backgroundBase.computeLuminance() >= 0.58;
+    return Color.alphaBlend(
+      colors.accent.withValues(alpha: isLight ? 0.055 : 0.085),
+      colors.surface,
+    );
   }
 
   bool get hasRuntimeAppColors => AppRuntimeColorScope.hasRuntimeColorsOf(this);

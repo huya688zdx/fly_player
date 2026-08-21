@@ -740,7 +740,7 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
   Future<void> _openSortSheet() async {
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: const Color(0xFF141C29),
+      backgroundColor: context.appModalBackgroundColor,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -892,7 +892,7 @@ class _MediaCollectionDetailPageState extends State<MediaCollectionDetailPage> {
 
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: const Color(0xFF141C29),
+      backgroundColor: context.appModalBackgroundColor,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),

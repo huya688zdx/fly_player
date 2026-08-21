@@ -295,9 +295,13 @@ void main() {
     expect(find.byKey(const ValueKey('action-sheet-grid-2')), findsNothing);
   });
 
-  testWidgets('普通按钮使用surfaceStrong背景和textPrimary前景色', (tester) async {
+  testWidgets('普通按钮使用低饱和取色背景、细描边和协调前景色', (tester) async {
     await _openSheet(tester, width: 390, textScale: 1);
 
+    expect(
+      find.byKey(const ValueKey<String>('app-modal-surface-action-sheet')),
+      findsOneWidget,
+    );
     final button = tester.widget<FilledButton>(
       find
           .ancestor(of: find.text('查看详情'), matching: find.byType(FilledButton))
@@ -306,8 +310,12 @@ void main() {
     final colors = Theme.of(
       tester.element(find.text('查看详情')),
     ).extension<AppThemeColors>()!;
-    expect(button.style?.backgroundColor?.resolve({}), colors.surfaceStrong);
+    expect(
+      button.style?.backgroundColor?.resolve({}),
+      isNot(colors.surfaceStrong),
+    );
     expect(button.style?.foregroundColor?.resolve({}), colors.textPrimary);
+    expect(button.style?.side?.resolve({})?.color, isNot(Colors.transparent));
   });
 
   testWidgets('危险按钮使用混合背景和亮度语义前景色', (tester) async {
