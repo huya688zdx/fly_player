@@ -53,6 +53,7 @@ import '../widgets/detail/immersive_detail_background.dart';
 import '../widgets/detail/link_section.dart';
 import '../widgets/detail/play_control_row.dart';
 import '../widgets/detail/theme_save_name_helper.dart';
+import 'feiniu_tv_detail_display_policy.dart';
 import 'long_text_overlay_page.dart';
 
 class TvDetailPage extends StatefulWidget {
@@ -492,7 +493,9 @@ class _TvDetailPageState extends State<TvDetailPage>
       if (!mounted) return;
       setState(() {
         _descriptionVisible = true;
-        _artworkReady = _seasonItemsResolved;
+        // 顶部 hero 不依赖季列表；季列表仍在加载时也应让完整详情的 backdrop
+        // 正常进入图片请求链。转场闸门和 180ms 延迟仍保持不变。
+        _artworkReady = true;
       });
       _descriptionPopController.forward(from: 0);
     });
@@ -584,27 +587,20 @@ class _TvDetailPageState extends State<TvDetailPage>
     return tvTitle.isNotEmpty ? tvTitle : title;
   }
 
-  String _overview(Map<String, dynamic> item) {
-    return (item['overview'] ?? '').toString();
-  }
-
-  String _backdrops(Map<String, dynamic> item) {
-    final backdrops = (item['backdrops'] ?? '').toString();
-    if (backdrops.isNotEmpty) return backdrops;
-    final still = (item['still_path'] ?? '').toString();
-    if (still.isNotEmpty) return still;
-    return (item['posters'] ?? '').toString();
-  }
-
   // hero 背景 / 取色 / 季卡 backdrop 专用取图：完整详情才允许 still/posters
   // 回退；initial（列表卡片级）数据只认真 backdrop——单集卡的 still_path 是
   // 剧集封面，先当 hero 显示会在完整数据到达时被系列 backdrop 替换（错图闪，
   // 对齐 play_detail `_persistentHeroPath` 的同款教训：宁可空底色一次到位）。
   String _heroBackdropsFor(Map<String, dynamic> item) {
-    if (_baseDetailIsFull) {
-      return _backdrops(item);
-    }
-    return (item['backdrops'] ?? '').toString();
+    return FeiniuTvDetailDisplayPolicy.resolve(
+      detailIsFull: _baseDetailIsFull,
+      detailBackdrop: (item['backdrops'] ?? '').toString(),
+      initialBackdrop: (item['backdrops'] ?? '').toString(),
+      detailStill: (item['still_path'] ?? '').toString(),
+      detailPoster: (item['posters'] ?? '').toString(),
+      detailOverview: (item['overview'] ?? '').toString(),
+      seasonListResolved: _seasonItemsResolved,
+    ).heroPath;
   }
 
   String _tvPrimaryLabel(Map<String, dynamic> item) {
@@ -1654,8 +1650,17 @@ class _TvDetailPageState extends State<TvDetailPage>
             ? _detail['item'] as Map<String, dynamic>
             : _detail;
 
+        final displayState = FeiniuTvDetailDisplayPolicy.resolve(
+          detailIsFull: _baseDetailIsFull,
+          detailBackdrop: (item['backdrops'] ?? '').toString(),
+          initialBackdrop: (item['backdrops'] ?? '').toString(),
+          detailStill: (item['still_path'] ?? '').toString(),
+          detailPoster: (item['posters'] ?? '').toString(),
+          detailOverview: (item['overview'] ?? '').toString(),
+          seasonListResolved: _seasonItemsResolved,
+        );
         final title = _title(item);
-        final overview = _overview(item);
+        final overview = displayState.overview;
         final primaryText = _tvPrimaryLabel(item);
         final seasons = _asInt(item['number_of_seasons']);
         final localSeasons = _asInt(item['local_number_of_seasons']);
@@ -1711,7 +1716,7 @@ class _TvDetailPageState extends State<TvDetailPage>
                 baseUrl: provider.baseUrl,
               );
         final heroTitleChild = deferArtwork
-            ? const SizedBox.shrink()
+            ? (displayState.showTitleFallback ? null : const SizedBox.shrink())
             : (logoImages.isNotEmpty
                   ? DetailHeroLogoTitle(
                       images: logoImages,
@@ -1824,19 +1829,21 @@ class _TvDetailPageState extends State<TvDetailPage>
                                 ),
                               );
                             },
-                            child: DetailDescriptionSection(
-                              text: overview,
-                              onMoreTap: () {
-                                LongTextOverlayPage.show(
-                                  context,
-                                  title: title,
-                                  sectionTitle: AppLocalizations.of(
-                                    context,
-                                  ).detailOverviewTitle,
-                                  content: overview,
-                                );
-                              },
-                            ),
+                            child: displayState.showOverview
+                                ? DetailDescriptionSection(
+                                    text: overview,
+                                    onMoreTap: () {
+                                      LongTextOverlayPage.show(
+                                        context,
+                                        title: title,
+                                        sectionTitle: AppLocalizations.of(
+                                          context,
+                                        ).detailOverviewTitle,
+                                        content: overview,
+                                      );
+                                    },
+                                  )
+                                : const SizedBox.shrink(),
                           ),
                           const SizedBox(height: 16),
                           Text(
