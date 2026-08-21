@@ -61,6 +61,8 @@ void main() {
       final artwork = tester.getRect(
         find.byKey(const ValueKey<String>('catalog-artwork-library')),
       );
+      expect(artwork.width, lessThanOrEqualTo(120));
+      expect(artwork.height, lessThanOrEqualTo(92));
       final posters = <Rect>[
         for (var index = 0; index < 3; index++)
           tester.getRect(
@@ -81,8 +83,13 @@ void main() {
       final title = tester.getRect(
         find.byKey(const ValueKey<String>('catalog-title-library')),
       );
+      final titleWidget = tester.widget<Text>(
+        find.byKey(const ValueKey<String>('catalog-title-library')),
+      );
+      expect(titleWidget.style?.fontSize, 13);
       expect(title.bottom, lessThanOrEqualTo(artwork.bottom));
       expect(title.top, greaterThan(artwork.center.dy));
+      expect(tester.widget<Text>(find.text('媒体库')).style?.fontSize, 16);
       expect(tester.takeException(), isNull);
     });
   });
@@ -95,6 +102,7 @@ void main() {
       final artwork = tester.getRect(
         find.byKey(const ValueKey<String>('catalog-artwork-library')),
       );
+      expect(artwork.width, lessThanOrEqualTo(196));
       expect(artwork.width / artwork.height, closeTo(16 / 9, .03));
       final title = tester.getRect(
         find.byKey(const ValueKey<String>('catalog-title-library')),
@@ -116,6 +124,7 @@ void main() {
       final artwork = tester.getRect(
         find.byKey(const ValueKey<String>('catalog-artwork-library')),
       );
+      expect(artwork.width, lessThanOrEqualTo(160));
       expect(artwork.width / artwork.height, closeTo(16 / 9, .03));
       final title = tester.getRect(
         find.byKey(const ValueKey<String>('catalog-title-library')),
