@@ -96,23 +96,23 @@ class HomeCatalogSection extends StatelessWidget {
 
     final shelfMetrics = switch (presentation) {
       HomeCatalogPresentation.officialCollage => const (
-        minWidth: 156.0,
-        maxWidth: 184.0,
-        idealWidth: 184.0,
-        aspectRatio: 1.27,
+        minWidth: 108.0,
+        maxWidth: 120.0,
+        idealWidth: 120.0,
+        aspectRatio: 1.34,
         textHeight: 0.0,
       ),
       HomeCatalogPresentation.cinematicBackdrop => const (
-        minWidth: 224.0,
-        maxWidth: 280.0,
-        idealWidth: 280.0,
+        minWidth: 180.0,
+        maxWidth: 196.0,
+        idealWidth: 196.0,
         aspectRatio: 16 / 9,
         textHeight: 0.0,
       ),
       HomeCatalogPresentation.clearGallery => const (
-        minWidth: 184.0,
-        maxWidth: 216.0,
-        idealWidth: 216.0,
+        minWidth: 148.0,
+        maxWidth: 160.0,
+        idealWidth: 160.0,
         aspectRatio: 16 / 9,
         textHeight: 26.0,
       ),
@@ -122,7 +122,7 @@ class HomeCatalogSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         HomeSectionHeader(title: title),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
         HomeHorizontalShelf<HomeCatalogCardData>(
           storageKey: 'catalogs',
           items: items,
@@ -138,7 +138,7 @@ class HomeCatalogSection extends StatelessWidget {
           idealItemWidth: shelfMetrics.idealWidth,
           itemAspectRatio: shelfMetrics.aspectRatio,
           textLinesHeight: shelfMetrics.textHeight,
-          gap: 12,
+          gap: 10,
         ),
       ],
     );
@@ -230,6 +230,7 @@ class _FeiniuCatalogCardBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final baseColors = context.baseAppColors;
     final loadable = item.imageRequests
         .where((request) => request.canLoad)
         .take(3)
@@ -238,8 +239,16 @@ class _FeiniuCatalogCardBody extends StatelessWidget {
     return DecoratedBox(
       key: ValueKey<String>('catalog-frame-${item.id}'),
       decoration: BoxDecoration(
-        color: colors.surfaceStrong,
-        border: Border.all(color: colors.textPrimary.withValues(alpha: .30)),
+        color: Color.alphaBlend(
+          colors.accent.withValues(alpha: .06),
+          baseColors.surface,
+        ),
+        border: Border.all(
+          color: Color.alphaBlend(
+            colors.accent.withValues(alpha: .24),
+            baseColors.borderStrong,
+          ),
+        ),
         borderRadius: BorderRadius.circular(13),
       ),
       child: ClipRRect(
@@ -313,8 +322,8 @@ class _FeiniuCatalogCardBody extends StatelessWidget {
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
                     height: 1.1,
                     shadows: <Shadow>[
                       Shadow(color: Colors.black87, blurRadius: 8),
@@ -375,8 +384,8 @@ class _EmbyCatalogCardBody extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 color: Colors.white,
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
                 height: 1.1,
                 shadows: <Shadow>[Shadow(color: Colors.black87, blurRadius: 8)],
               ),
@@ -441,7 +450,7 @@ class _JellyfinCatalogCardBody extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
             color: colors.textPrimary,
-            fontSize: 15,
+            fontSize: 14,
             fontWeight: FontWeight.w600,
             height: 1.12,
           ),

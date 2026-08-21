@@ -61,6 +61,7 @@ import 'poster_browse/poster_browse_artwork_prewarmer.dart';
 import 'poster_browse/poster_browse_loader.dart';
 import 'poster_browse/poster_browse_session_key.dart';
 import 'search_screen.dart';
+import '../widgets/app_atmospheric_background.dart';
 
 part 'media_list_screen_actions.dart';
 part 'media_list_screen_widgets.dart';
