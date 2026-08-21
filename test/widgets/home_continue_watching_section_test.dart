@@ -233,12 +233,22 @@ void main() {
     );
     expect(
       playButton.style?.foregroundColor?.resolve(<WidgetState>{}),
-      const Color(0xFF1B1B1B),
+      Color.lerp(Colors.white, accent, .12),
     );
     final visual = tester.widget<DecoratedBox>(
       find.byKey(const ValueKey<String>('continue-play-visual-image-item')),
     );
-    expect((visual.decoration as BoxDecoration).color, accent);
+    final decoration = visual.decoration as BoxDecoration;
+    expect(decoration.color, isNot(accent));
+    expect(decoration.color!.a, lessThan(1));
+    expect(decoration.border, isNotNull);
+    expect(decoration.boxShadow, isNotEmpty);
+    expect(
+      tester.getSize(
+        find.byKey(const ValueKey<String>('continue-play-visual-image-item')),
+      ),
+      const Size.square(36),
+    );
     expect(find.text('已下载'), findsOneWidget);
     expect(
       find.byWidgetPredicate(
@@ -275,12 +285,14 @@ void main() {
     );
     expect(
       darkPlayButton.style?.foregroundColor?.resolve(<WidgetState>{}),
-      Colors.white,
+      Color.lerp(Colors.white, darkAccent, .12),
     );
     final darkVisual = tester.widget<DecoratedBox>(
       find.byKey(const ValueKey<String>('continue-play-visual-image-item')),
     );
-    expect((darkVisual.decoration as BoxDecoration).color, darkAccent);
+    final darkDecoration = darkVisual.decoration as BoxDecoration;
+    expect(darkDecoration.color, isNot(darkAccent));
+    expect(darkDecoration.border, isNotNull);
   });
 
   testWidgets('常规卡宽的下载文字在图片右上且播放键在右下', (tester) async {
