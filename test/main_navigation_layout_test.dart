@@ -26,9 +26,14 @@ void main() {
       source.indexOf('class _LiquidGlassBottomNavigation'),
     );
     expect(navigationSource, contains('MainNavigationMetrics.barHeight'));
+    expect(navigationSource, contains('MainNavigationMetrics.barWidthFor'));
     expect(
       navigationSource,
       contains('MainNavigationMetrics.outerBottomPadding'),
+    );
+    expect(
+      navigationSource,
+      isNot(contains('ValueListenableBuilder<LiquidGlassLevel>')),
     );
 
     final homeSource = File(

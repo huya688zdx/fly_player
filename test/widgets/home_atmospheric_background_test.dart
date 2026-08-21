@@ -31,9 +31,9 @@ void main() {
     );
 
     expect(palette.base.computeLuminance(), lessThan(.06));
-    expect(palette.accentGlow, warmRed.withValues(alpha: .22));
-    expect(palette.selectionGlow, coldBlue.withValues(alpha: .17));
-    expect(palette.linkGlow, amber.withValues(alpha: .13));
+    expect(palette.accentGlow, warmRed.withValues(alpha: .30));
+    expect(palette.selectionGlow, coldBlue.withValues(alpha: .24));
+    expect(palette.linkGlow, amber.withValues(alpha: .18));
     expect(
       find.byKey(const ValueKey<String>('app-atmosphere-accent')),
       findsOneWidget,
@@ -46,6 +46,12 @@ void main() {
       find.byKey(const ValueKey<String>('app-atmosphere-link')),
       findsOneWidget,
     );
+    final vignette = tester.widget<DecoratedBox>(
+      find.byKey(const ValueKey<String>('app-atmosphere-vignette')),
+    );
+    final gradient = (vignette.decoration as BoxDecoration).gradient;
+    expect(gradient, isA<LinearGradient>());
+    expect((gradient! as LinearGradient).colors.last.a, closeTo(.32, .001));
     expect(tester.takeException(), isNull);
   });
 

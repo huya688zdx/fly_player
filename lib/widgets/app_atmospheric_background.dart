@@ -27,11 +27,11 @@ class AppAtmospherePalette {
     if (!hasDynamicTheme) {
       return AppAtmospherePalette(
         base: baseColors.backgroundBase,
-        accentGlow: baseColors.accent.withValues(alpha: isLight ? .05 : .11),
+        accentGlow: baseColors.accent.withValues(alpha: isLight ? .08 : .15),
         selectionGlow: baseColors.selection.withValues(
-          alpha: isLight ? .04 : .08,
+          alpha: isLight ? .06 : .11,
         ),
-        linkGlow: baseColors.link.withValues(alpha: isLight ? .03 : .06),
+        linkGlow: baseColors.link.withValues(alpha: isLight ? .05 : .08),
         hasDynamicTheme: false,
       );
     }
@@ -41,11 +41,11 @@ class AppAtmospherePalette {
         effectiveColors.backgroundBase.withValues(alpha: isLight ? .06 : .10),
         baseColors.backgroundBase,
       ),
-      accentGlow: effectiveColors.accent.withValues(alpha: isLight ? .12 : .22),
+      accentGlow: effectiveColors.accent.withValues(alpha: isLight ? .16 : .30),
       selectionGlow: effectiveColors.selection.withValues(
-        alpha: isLight ? .10 : .17,
+        alpha: isLight ? .13 : .24,
       ),
-      linkGlow: effectiveColors.link.withValues(alpha: isLight ? .08 : .13),
+      linkGlow: effectiveColors.link.withValues(alpha: isLight ? .10 : .18),
       hasDynamicTheme: true,
     );
   }
@@ -73,34 +73,35 @@ class AppAtmosphericBackground extends StatelessWidget {
           _AtmosphereGlow(
             glowKey: const ValueKey<String>('app-atmosphere-accent'),
             color: palette.accentGlow,
-            center: const Alignment(-1.10, -.96),
-            radius: 1.02,
+            center: const Alignment(-1.02, -.92),
+            radius: .92,
           ),
           _AtmosphereGlow(
             glowKey: const ValueKey<String>('app-atmosphere-selection'),
             color: palette.selectionGlow,
-            center: const Alignment(1.12, -.22),
-            radius: 1.04,
+            center: const Alignment(1.04, -.16),
+            radius: .96,
           ),
           _AtmosphereGlow(
             glowKey: const ValueKey<String>('app-atmosphere-link'),
             color: palette.linkGlow,
-            center: const Alignment(-.76, .84),
-            radius: 1.12,
+            center: const Alignment(-.72, .74),
+            radius: 1.02,
           ),
           Positioned.fill(
             child: IgnorePointer(
               child: DecoratedBox(
+                key: const ValueKey<String>('app-atmosphere-vignette'),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: <Color>[
                       Colors.transparent,
-                      palette.base.withValues(alpha: .10),
-                      palette.base.withValues(alpha: .46),
+                      palette.base.withValues(alpha: .06),
+                      palette.base.withValues(alpha: .32),
                     ],
-                    stops: const <double>[0, .58, 1],
+                    stops: const <double>[0, .64, 1],
                   ),
                 ),
               ),
