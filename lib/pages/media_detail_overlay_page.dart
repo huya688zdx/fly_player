@@ -5,6 +5,7 @@ import '../media_backend/detail/media_detail_variant.dart';
 import '../media_backend/detail/media_source_info.dart';
 import '../theme/app_theme.dart';
 import '../ui/app_sheet_transitions.dart';
+import '../widgets/common/app_modal_surface.dart';
 
 // 中立模型（MediaDetailVariant / MediaInfoCard）已迁至 media_backend/detail/，
 // 调用方直接 import；飞牛 DTO 映射见 `mapFeiniuMediaDetailVariant`
@@ -29,6 +30,7 @@ class MediaDetailOverlayPage extends StatefulWidget {
     ValueChanged<int>? onVariantChanged,
   }) async {
     final media = MediaQuery.of(context);
+    final colors = context.appColors;
     final isLandscape = media.size.width > media.size.height;
     final page = MediaDetailOverlayPage(
       variants: variants,
@@ -40,7 +42,7 @@ class MediaDetailOverlayPage extends StatefulWidget {
         context: context,
         useRootNavigator: false,
         barrierDismissible: true,
-        barrierColor: const Color(0xBF020812),
+        barrierColor: colors.overlayScrim,
         builder: (_) => page,
       );
     }
@@ -48,7 +50,7 @@ class MediaDetailOverlayPage extends StatefulWidget {
       context,
       barrierDismissible: true,
       barrierLabel: AppLocalizations.of(context).mediaDetailsTitle,
-      barrierColor: const Color(0xBF020812),
+      barrierColor: colors.overlayScrim,
       builder: (_) => page,
     );
   }
@@ -103,14 +105,9 @@ class _MediaDetailOverlayPageState extends State<MediaDetailOverlayPage> {
     final panelDialogHeight = (media.size.height * 0.86).clamp(500.0, 840.0);
     final panelDialogWidth = (media.size.width * 0.72).clamp(700.0, 980.0);
 
-    final child = Container(
-      decoration: BoxDecoration(
-        color: colors.backgroundElevated,
-        borderRadius: BorderRadius.vertical(
-          top: const Radius.circular(24),
-          bottom: Radius.circular(isLandscape ? 24 : 0),
-        ),
-      ),
+    final child = AppModalSurface(
+      key: const ValueKey<String>('app-modal-surface-media-details'),
+      floating: isLandscape,
       child: SafeArea(
         top: false,
         child: Padding(
@@ -124,16 +121,17 @@ class _MediaDetailOverlayPageState extends State<MediaDetailOverlayPage> {
             children: [
               Row(
                 children: [
-                  const Spacer(),
-                  Text(
-                    l10n.mediaDetailsTitle,
-                    style: TextStyle(
-                      color: colors.textPrimary,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
+                  Expanded(
+                    child: Text(
+                      l10n.mediaDetailsTitle,
+                      style: TextStyle(
+                        color: colors.textPrimary,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.2,
+                      ),
                     ),
                   ),
-                  const Spacer(),
                   InkWell(
                     onTap: () {
                       if (AppSheetTransitions.maybeClose<void>(context)) {
@@ -141,13 +139,13 @@ class _MediaDetailOverlayPageState extends State<MediaDetailOverlayPage> {
                       }
                       Navigator.of(context).maybePop();
                     },
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(20),
                     child: Padding(
-                      padding: const EdgeInsets.all(4),
+                      padding: const EdgeInsets.all(8),
                       child: Icon(
-                        Icons.close,
+                        Icons.close_rounded,
                         color: colors.textSecondary,
-                        size: 28,
+                        size: 22,
                       ),
                     ),
                   ),
@@ -294,8 +292,9 @@ class _InfoCard extends StatelessWidget {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: colors.surface,
+        color: appModalTileColor(colors),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: appModalTileBorderColor(colors)),
       ),
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
       child: Column(

@@ -5,7 +5,7 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
     final nasProvider = context.read<NasProvider>();
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: const Color(0xFF141C29),
+      backgroundColor: context.appModalBackgroundColor,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -96,7 +96,7 @@ extension _FavoriteItemsScreenSheets on _FavoriteItemsScreenState {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF141C29),
+      backgroundColor: context.appModalBackgroundColor,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),

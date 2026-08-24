@@ -1747,13 +1747,9 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
               imageAlignment: heroImageAlignment,
               parallaxFactor: 1.0,
               fillGapsWithImage: false,
-              enableBottomFade: true,
-              fadeStart: 0.16,
-              fadeMid: 0.42,
               ambientTintOverride: ambientTint,
-              bottomFadeTintColor: heroFogBase,
-              bottomFadeBackgroundColor: colors.backgroundBase,
-              bottomFadeExtraHeight: 340,
+              transitionTintColor: heroFogBase,
+              transitionBodyColor: colors.backgroundBase,
               overlayOpacity: 0.0,
             );
           },
@@ -1806,7 +1802,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                 children: [
                   const SizedBox(height: 4),
                   Container(
-                    color: colors.backgroundBase,
+                    color: Colors.transparent,
                     padding: const EdgeInsets.fromLTRB(
                       DetailTokens.screenHorizontalPadding,
                       0,
@@ -3124,13 +3120,9 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                         imageAlignment: heroImageAlignment,
                         parallaxFactor: 1.0,
                         fillGapsWithImage: false,
-                        enableBottomFade: true,
-                        fadeStart: 0.16,
-                        fadeMid: 0.42,
                         ambientTintOverride: ambientTint,
-                        bottomFadeTintColor: heroFogBase,
-                        bottomFadeBackgroundColor: colors.backgroundBase,
-                        bottomFadeExtraHeight: 340,
+                        transitionTintColor: heroFogBase,
+                        transitionBodyColor: colors.backgroundBase,
                         overlayOpacity: 0.0,
                       );
                     },
@@ -3214,7 +3206,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                           children: [
                             const SizedBox(height: 4),
                             Container(
-                              color: colors.backgroundBase,
+                              color: Colors.transparent,
                               padding: const EdgeInsets.fromLTRB(
                                 DetailTokens.screenHorizontalPadding,
                                 0,

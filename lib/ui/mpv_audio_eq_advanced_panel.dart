@@ -207,7 +207,7 @@ class _MpvAudioEqAdvancedPanelState extends State<MpvAudioEqAdvancedPanel> {
           final colors = dialogContext.appColors;
           final l10n = AppLocalizations.of(dialogContext);
           return AlertDialog(
-            backgroundColor: colors.surface,
+            backgroundColor: dialogContext.appModalBackgroundColor,
             title: Text(
               l10n.mpvEqSavePresetTitle,
               style: TextStyle(color: colors.textPrimary),
