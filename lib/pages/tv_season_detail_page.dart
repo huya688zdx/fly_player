@@ -17,6 +17,7 @@ import '../media_backend/detail/media_episode_summary.dart';
 import '../media_backend/detail/media_season_summary.dart';
 import '../media_backend/media_backend.dart';
 import '../media_backend/media_backend_kind.dart';
+import '../media_backend/media_image_ref.dart';
 import '../models/media_library_item.dart';
 import '../models/person_credit.dart';
 import '../models/tv_episode_browser_models.dart';
@@ -1587,10 +1588,6 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
       ),
       colors.backgroundBase,
     );
-    final heroFogShadow = Color.alphaBlend(
-      colors.overlayScrim.withValues(alpha: 0.12),
-      heroFogBase,
-    );
 
     final title = widget.seriesTitle.trim().isNotEmpty
         ? widget.seriesTitle.trim()
@@ -1751,41 +1748,6 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
               transitionTintColor: heroFogBase,
               transitionBodyColor: colors.backgroundBase,
               overlayOpacity: 0.0,
-            );
-          },
-        ),
-        ValueListenableBuilder<double>(
-          valueListenable: _scrollOffsetNotifier,
-          builder: (context, offset, _) {
-            final parallaxMax = (screenSize.height * 0.85).clamp(180.0, 560.0);
-            final collapseShift = offset
-                .clamp(0.0, double.infinity)
-                .clamp(0.0, parallaxMax);
-            final pullDownShift = (-offset).clamp(0.0, 180.0);
-            return Positioned(
-              left: 0,
-              right: 0,
-              top: pullDownShift - collapseShift,
-              height: topContentInset + 10 + pullDownShift,
-              child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.transparent,
-                        heroFogBase.withValues(alpha: 0.05),
-                        heroFogBase.withValues(alpha: 0.11),
-                        heroFogShadow.withValues(alpha: 0.22),
-                        heroFogShadow.withValues(alpha: 0.34),
-                        colors.backgroundBase,
-                      ],
-                      stops: const [0.0, 0.36, 0.56, 0.74, 0.88, 1.0],
-                    ),
-                  ),
-                ),
-              ),
             );
           },
         ),
@@ -2929,27 +2891,60 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
 
   @override
   Widget build(BuildContext context) {
-    final dynamicThemeIntensity = context
-        .select<AppThemeProvider, AppDynamicThemeIntensity>(
-          (themeProvider) => themeProvider.dynamicThemeIntensity,
+    final (
+      dynamicThemeEnabled: dynamicThemeEnabled,
+      dynamicThemeIntensity: dynamicThemeIntensity,
+    ) = context
+        .select<
+          AppThemeProvider,
+          ({
+            bool dynamicThemeEnabled,
+            AppDynamicThemeIntensity dynamicThemeIntensity,
+          })
+        >(
+          (themeProvider) => (
+            dynamicThemeEnabled: themeProvider.dynamicThemeEnabled,
+            dynamicThemeIntensity: themeProvider.dynamicThemeIntensity,
+          ),
         );
     final inPlayerPaneHost = PlayerPaneHostScope.maybeOf(context) != null;
     final dynamicThemeKey = _seasonDynamicThemeKey();
+    final nasProvider = context.read<NasProvider>();
+    final dynamicThemeResolver = DetailArtworkResolver(
+      baseUrl: _neutralDisplayOnly ? '' : nasProvider.baseUrl,
+      token: _neutralDisplayOnly ? '' : nasProvider.token,
+      accessCode: _neutralDisplayOnly ? '' : nasProvider.accessCode,
+    );
+    final currentSeason = _currentSeason();
+    final dynamicThemeImages = _neutralDisplayOnly && _neutralDetail != null
+        ? dynamicThemeResolver.resolveRefs(<MediaImageRef>[
+            _neutralDetail!.backdropImage,
+            _neutralDetail!.primaryImage,
+          ])
+        : dynamicThemeResolver.resolvePath(
+            widget.backdropPath.trim().isNotEmpty
+                ? widget.backdropPath
+                : currentSeason.poster,
+            width: 360,
+          );
+    final dynamicThemeImageUrl = dynamicThemeImages.urls.isNotEmpty
+        ? dynamicThemeImages.urls.first
+        : '';
+    final allowRuntimeThemeSync = dynamicThemeIntensity
+        .allowsGlobalRuntimeThemeSync(
+          inPlayerPaneHost: inPlayerPaneHost,
+          isPane: _isPane,
+        );
+    final syncGlobalTheme = dynamicThemeEnabled && allowRuntimeThemeSync;
 
     return DynamicPageThemeScope(
       pageKey: dynamicThemeKey,
-      // 季页不自取色(enabled:false),无图无 header。
-      imageUrl: '',
-      // Season pages never sample their own color. They display the sticky
-      // global runtime color carried over from whatever episode/detail page
-      // last sampled it, so popping back from an episode keeps the episode's
-      // color instead of switching to the season's own palette. enabled:false
-      // makes this scope produce no local seed and fall through to that global
-      // color (via context.appColors → AppRuntimeColorScope).
-      enabled: false,
-      allowLiveResolve: false,
-      syncGlobalTheme: false,
-      deferLocalThemeApplyUntilGlobalSync: false,
+      imageUrl: dynamicThemeImageUrl,
+      imageHeaders: dynamicThemeImages.headers,
+      enabled: dynamicThemeEnabled,
+      allowLiveResolve: !_loading && dynamicThemeImageUrl.isNotEmpty,
+      syncGlobalTheme: syncGlobalTheme,
+      deferLocalThemeApplyUntilGlobalSync: _isPane && allowRuntimeThemeSync,
       intensity: dynamicThemeIntensity,
       builder: (context, ambientTint) {
         final colors = context.appColors;
@@ -2960,10 +2955,6 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                 : 0.28,
           ),
           colors.backgroundBase,
-        );
-        final heroFogShadow = Color.alphaBlend(
-          colors.overlayScrim.withValues(alpha: 0.12),
-          heroFogBase,
         );
         if (_error != null) {
           return Scaffold(
@@ -3124,70 +3115,6 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                         transitionTintColor: heroFogBase,
                         transitionBodyColor: colors.backgroundBase,
                         overlayOpacity: 0.0,
-                      );
-                    },
-                  ),
-                  ValueListenableBuilder<double>(
-                    valueListenable: _scrollOffsetNotifier,
-                    builder: (context, offset, _) {
-                      final parallaxMax = (screenSize.height * 0.85).clamp(
-                        180.0,
-                        560.0,
-                      );
-                      final collapseShift = offset
-                          .clamp(0.0, double.infinity)
-                          .clamp(0.0, parallaxMax);
-                      final pullDownShift = (-offset).clamp(0.0, 180.0);
-                      return Positioned(
-                        left: 0,
-                        right: 0,
-                        top: pullDownShift - collapseShift,
-                        height: topContentInset + 10 + pullDownShift,
-                        child: IgnorePointer(
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              DecoratedBox(
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
-                                    colors: [
-                                      Colors.transparent,
-                                      heroFogBase.withValues(alpha: 0.05),
-                                      heroFogBase.withValues(alpha: 0.11),
-                                      heroFogShadow.withValues(alpha: 0.22),
-                                      heroFogShadow.withValues(alpha: 0.34),
-                                      colors.backgroundBase,
-                                    ],
-                                    stops: const [
-                                      0.0,
-                                      0.36,
-                                      0.56,
-                                      0.74,
-                                      0.88,
-                                      1.0,
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              DecoratedBox(
-                                decoration: BoxDecoration(
-                                  gradient: RadialGradient(
-                                    center: const Alignment(0.18, 0.72),
-                                    radius: 0.92,
-                                    colors: [
-                                      heroFogShadow.withValues(alpha: 0.16),
-                                      heroFogBase.withValues(alpha: 0.07),
-                                      Colors.transparent,
-                                    ],
-                                    stops: const [0.0, 0.42, 1.0],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
                       );
                     },
                   ),
