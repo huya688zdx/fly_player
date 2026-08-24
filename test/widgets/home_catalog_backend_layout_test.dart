@@ -70,14 +70,14 @@ void main() {
           ),
       ];
       expect(find.byType(Image), findsNWidgets(3));
-      expect(posters.first.left, closeTo(artwork.left, 1));
-      expect(posters.last.right, closeTo(artwork.right, 1));
+      expect(posters.first.left - artwork.left, greaterThanOrEqualTo(6));
+      expect(artwork.right - posters.last.right, greaterThanOrEqualTo(6));
       for (var index = 1; index < posters.length; index++) {
         expect(posters[index - 1].right, closeTo(posters[index].left, 1));
       }
       for (final poster in posters) {
         expect(poster.width / poster.height, closeTo(2 / 3, .03));
-        expect(poster.top, closeTo(artwork.top, 1));
+        expect(poster.top - artwork.top, greaterThanOrEqualTo(6));
         expect(poster.bottom, lessThan(artwork.bottom));
       }
       final title = tester.getRect(

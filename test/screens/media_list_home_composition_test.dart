@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:fly_player/media_backend/media_backend_capabilities.dart';
 import 'package:fly_player/media_backend/media_backend_kind.dart';
 import 'package:fly_player/screens/home/home_presentation_profile.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,7 +9,11 @@ void main() {
   group('visibleHomeSections', () {
     test('Jellyfin 只按配置顺序保留有内容的区块', () {
       final sections = visibleHomeSections(
-        profile: HomePresentationProfile.forKind(MediaBackendKind.jellyfin),
+        profile: HomePresentationProfile.forCapabilities(
+          const MediaBackendCapabilities.server(
+            kind: MediaBackendKind.jellyfin,
+          ),
+        ),
         hasCatalogs: true,
         hasContinueWatching: true,
         hasSummary: false,
@@ -24,9 +29,11 @@ void main() {
       ]);
     });
 
-    test('飞牛也按统一顺序展示有内容的 NextUp 和最近添加', () {
+    test('飞牛忽略已返回的最近添加并保留其他可用区块', () {
       final sections = visibleHomeSections(
-        profile: HomePresentationProfile.forKind(MediaBackendKind.feiniu),
+        profile: HomePresentationProfile.forCapabilities(
+          const MediaBackendCapabilities.feiniu(),
+        ),
         hasCatalogs: true,
         hasContinueWatching: true,
         hasSummary: true,
@@ -38,7 +45,6 @@ void main() {
         HomeSectionKind.catalogs,
         HomeSectionKind.continueWatching,
         HomeSectionKind.nextUp,
-        HomeSectionKind.latest,
         HomeSectionKind.summary,
         HomeSectionKind.catalogPreviews,
       ]);
@@ -46,7 +52,9 @@ void main() {
 
     test('Emby 隐藏空续看和最近添加并保留有内容的摘要', () {
       final sections = visibleHomeSections(
-        profile: HomePresentationProfile.forKind(MediaBackendKind.emby),
+        profile: HomePresentationProfile.forCapabilities(
+          const MediaBackendCapabilities.server(kind: MediaBackendKind.emby),
+        ),
         hasCatalogs: true,
         hasContinueWatching: false,
         hasSummary: true,
@@ -64,7 +72,11 @@ void main() {
 
     test('所有数据为空时不产生首页区块', () {
       final sections = visibleHomeSections(
-        profile: HomePresentationProfile.forKind(MediaBackendKind.jellyfin),
+        profile: HomePresentationProfile.forCapabilities(
+          const MediaBackendCapabilities.server(
+            kind: MediaBackendKind.jellyfin,
+          ),
+        ),
         hasCatalogs: false,
         hasContinueWatching: false,
         hasSummary: false,
