@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import '../danmaku/api/dandanplay_api.dart';
 import '../danmaku/api/dandanplay_config.dart';
 import '../danmaku/api/dandanplay_resolver.dart';
+import '../danmaku/cache/dandanplay_comment_cache_store.dart';
 import '../danmaku/parser/danmaku_import_parser.dart';
 import '../danmaku/models/dandanplay_episode_search_item.dart';
 import '../danmaku/models/danmaku_comment.dart';
@@ -27,7 +28,7 @@ import '../danmaku/settings/danmaku_settings_store.dart';
 class NativeDanmakuPrefetch {
   const NativeDanmakuPrefetch._();
 
-  static const Duration _commentCacheTtl = Duration(days: 7);
+  static const Duration _commentCacheTtl = DanDanPlayCommentCacheStore.cacheTtl;
   static const Duration _payloadFileTtl = Duration(hours: 24);
   static DateTime? _lastTempCleanupAt;
   static Future<void>? _tempCleanupFuture;
@@ -109,11 +110,7 @@ class NativeDanmakuPrefetch {
             .cast<DanmakuSavedSource?>()
             .firstWhere((s) => s != null, orElse: () => null);
         // 3) 自动匹配被屏蔽 → 不再在线请求，但仍可落到随片下载兜底（离线可用）。
-        final blocked = await store.loadAutoMatchBlockedReason(mediaKey);
-        final autoBlocked =
-            blocked != null &&
-            blocked.isNotEmpty &&
-            blocked != 'auto_no_result';
+        final autoBlocked = await store.isAutoMatchBlocked(mediaKey);
 
         // 4) 在线自动匹配（网络源），拿到即覆盖旧的随片下载缓存优先使用。
         debugPrint(
@@ -193,17 +190,16 @@ class NativeDanmakuPrefetch {
       if (mediaKey.isNotEmpty) {
         await store.saveAutoMatchBlockedReason(
           mediaKey: mediaKey,
-          reason: 'auto_no_result',
+          reason: DanmakuSavedSourceStore.autoNoResultReason(),
         );
       }
       return null;
     }
     // 自动匹配命中即登记进弹幕源库，使「弹幕源」面板（原生壳 + Flutter）能看到当前正在用的
     // 弹幕、并可重选/切换。此前这条路径只写 payload 注入播放器、从不 saveSource，导致用户在
-    // 源面板里看不到自动匹配到的弹幕。口径与旧 Flutter 播放器自动加载一致（sourceKey=episodeId，
-    // saveSource 顺带把它设为该媒体的 active，源面板即标「当前生效」）。
+    // 源面板里看不到自动匹配到的弹幕。统一使用 dandan:<episodeId>，并明确激活当前命中源。
     final matchedItem = resolved.item;
-    final sourceKey = matchedItem.episodeId.toString();
+    final sourceKey = 'dandan:${matchedItem.episodeId}';
     if (mediaKey.isNotEmpty && matchedItem.episodeId > 0) {
       await store.saveSource(
         DanmakuSavedSource(
@@ -213,6 +209,7 @@ class NativeDanmakuPrefetch {
           label: matchedItem.displayTitle,
           detail: matchedItem.displaySubtitle,
           seriesTitle: seriesTitle.trim(),
+          itemTitle: itemTitle.trim(),
           itemGuid: itemGuid.trim(),
           seasonGuid: seasonGuid.trim(),
           mediaGuid: mediaGuid.trim(),
@@ -221,6 +218,7 @@ class NativeDanmakuPrefetch {
           commentCount: comments.length,
           updatedAtMs: DateTime.now().millisecondsSinceEpoch,
         ),
+        activate: true,
       );
     }
     if (matchedItem.episodeId > 0) {
@@ -260,6 +258,7 @@ class NativeDanmakuPrefetch {
     }
     final title = (seriesTitle.trim().isNotEmpty ? seriesTitle : itemTitle)
         .trim();
+    if (title.isEmpty) return '';
     return 'fallback:v2:$title:$seasonNumber:$episodeNumber';
   }
 
@@ -297,6 +296,7 @@ class NativeDanmakuPrefetch {
   static Future<List<Map<String, dynamic>>> searchCandidates({
     required String keyword,
     int episodeNumber = 0,
+    int seasonNumber = 0,
     String tmdbId = '',
   }) async {
     try {
@@ -311,8 +311,12 @@ class NativeDanmakuPrefetch {
         tmdbId: tmdbId,
         allowLooseTitleFallback: true,
       );
+      final sortedItems = DanDanPlayResolver.sortCandidatesForSeason(
+        items,
+        seasonNumber: seasonNumber,
+      );
       return <Map<String, dynamic>>[
-        for (final item in items)
+        for (final item in sortedItems)
           <String, dynamic>{
             'episodeId': item.episodeId,
             'animeTitle': item.animeTitle,
@@ -333,6 +337,13 @@ class NativeDanmakuPrefetch {
     String animeTitle = '',
     String episodeTitle = '',
     int episodeNumber = 0,
+    String itemGuid = '',
+    String mediaGuid = '',
+    String seasonGuid = '',
+    int seasonNumber = 0,
+    int currentEpisodeNumber = 0,
+    String seriesTitle = '',
+    String mediaItemTitle = '',
   }) async {
     try {
       if (episodeId <= 0) return null;
@@ -351,6 +362,42 @@ class NativeDanmakuPrefetch {
       final sourceKey = 'dandan:$episodeId';
       // 取到评论即落持久缓存：下次断网重放/选集可直接命中，无需再联网。
       await _cacheComments(sourceKey, comments);
+      final mediaKey = _buildMediaKey(
+        itemGuid: itemGuid,
+        mediaGuid: mediaGuid,
+        seasonGuid: seasonGuid,
+        seasonNumber: seasonNumber,
+        episodeNumber: currentEpisodeNumber,
+        seriesTitle: seriesTitle,
+        itemTitle: mediaItemTitle,
+      );
+      if (mediaKey.isNotEmpty) {
+        final savedSeriesTitle = seriesTitle.trim().isNotEmpty
+            ? seriesTitle.trim()
+            : animeTitle.trim();
+        final savedItemTitle = mediaItemTitle.trim().isNotEmpty
+            ? mediaItemTitle.trim()
+            : episodeTitle.trim();
+        await const DanmakuSavedSourceStore().saveSource(
+          DanmakuSavedSource(
+            type: DanmakuSavedSourceType.danDanPlay,
+            mediaKey: mediaKey,
+            sourceKey: sourceKey,
+            label: item.displayTitle,
+            detail: item.displaySubtitle,
+            seriesTitle: savedSeriesTitle,
+            itemTitle: savedItemTitle,
+            itemGuid: itemGuid.trim(),
+            seasonGuid: seasonGuid.trim(),
+            mediaGuid: mediaGuid.trim(),
+            seasonNumber: seasonNumber,
+            episodeNumber: currentEpisodeNumber,
+            commentCount: comments.length,
+            updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+          ),
+          activate: true,
+        );
+      }
       final path = await _writePayloadFile(
         buildPayload(settings, comments, sourceKey: sourceKey),
       );

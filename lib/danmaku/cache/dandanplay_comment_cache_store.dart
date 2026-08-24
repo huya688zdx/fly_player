@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 class DanDanPlayCommentCacheStore {
   static const String databaseName = 'dandanplay_comment_cache.db';
   static const int databaseVersion = 1;
+  static const Duration cacheTtl = Duration(hours: 6);
   static const int _maxEntries = 24;
 
   static Database? _database;
@@ -38,22 +39,39 @@ CREATE TABLE IF NOT EXISTS dandanplay_comment_cache (
     final database = await rawDatabase;
     final rows = await database.query(
       'dandanplay_comment_cache',
-      columns: const <String>['content'],
+      columns: const <String>['content', 'fetched_at_ms'],
       where: 'episode_id = ?',
       whereArgs: <Object>[episodeId],
       limit: 1,
     );
     if (rows.isEmpty) return null;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final fetchedAtMs = (rows.first['fetched_at_ms'] as num?)?.toInt() ?? 0;
+    if (!isFresh(fetchedAtMs: fetchedAtMs, nowMs: now)) {
+      await database.delete(
+        'dandanplay_comment_cache',
+        where: 'episode_id = ?',
+        whereArgs: <Object>[episodeId],
+      );
+      return null;
+    }
     await database.update(
       'dandanplay_comment_cache',
-      <String, Object>{
-        'last_accessed_at_ms': DateTime.now().millisecondsSinceEpoch,
-      },
+      <String, Object>{'last_accessed_at_ms': now},
       where: 'episode_id = ?',
       whereArgs: <Object>[episodeId],
     );
     final content = rows.first['content']?.toString().trim() ?? '';
     return content.isEmpty ? null : content;
+  }
+
+  static bool isFresh({
+    required int fetchedAtMs,
+    required int nowMs,
+    Duration ttl = cacheTtl,
+  }) {
+    if (fetchedAtMs <= 0 || nowMs < fetchedAtMs) return false;
+    return nowMs - fetchedAtMs <= ttl.inMilliseconds;
   }
 
   Future<void> saveComments({
@@ -65,16 +83,12 @@ CREATE TABLE IF NOT EXISTS dandanplay_comment_cache (
     final database = await rawDatabase;
     final now = DateTime.now().millisecondsSinceEpoch;
     await database.transaction<void>((txn) async {
-      await txn.insert(
-        'dandanplay_comment_cache',
-        <String, Object>{
-          'episode_id': episodeId,
-          'content': normalizedContent,
-          'fetched_at_ms': now,
-          'last_accessed_at_ms': now,
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      await txn.insert('dandanplay_comment_cache', <String, Object>{
+        'episode_id': episodeId,
+        'content': normalizedContent,
+        'fetched_at_ms': now,
+        'last_accessed_at_ms': now,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
       await _prune(txn);
     });
   }

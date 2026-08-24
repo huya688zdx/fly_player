@@ -15,12 +15,17 @@ class DanmakuSavedSourceStore {
   static const String _prefKey = 'player_danmaku_saved_sources_v1';
   static const String _fileName = 'danmaku_saved_sources_v1.json';
   static const String _autoMatchBlockedByMediaKey = 'autoMatchBlockedByMedia';
+  static const String _autoNoResultUntilPrefix = 'auto_no_result_until:';
+  static const Duration autoNoResultRetryDelay = Duration(hours: 6);
   static final ValueNotifier<int> _revision = ValueNotifier<int>(0);
   // 所有写方法（读整体 payload → 改 → 整体写回）串行化到同一条队列上，
   // 避免并发写入时后完成的整体覆盖写丢失先完成的改动。
   static Future<void> _mutationQueue = Future<void>.value();
 
-  const DanmakuSavedSourceStore();
+  const DanmakuSavedSourceStore({this.directoryPath});
+
+  /// 测试时可注入独立目录，生产环境仍使用 sqflite 的数据库目录。
+  final String? directoryPath;
 
   ValueListenable<int> get changes => _revision;
 
@@ -75,7 +80,7 @@ class DanmakuSavedSourceStore {
       payload['activeByMedia'] as Map? ?? const {},
     );
     final value = activeByMedia[mediaKey]?.toString().trim() ?? '';
-    return value.isEmpty ? null : value;
+    return value.isEmpty ? null : _normalizeActiveSourceKey(value);
   }
 
   Future<String?> loadAutoMatchBlockedReason(String mediaKey) async {
@@ -88,11 +93,34 @@ class DanmakuSavedSourceStore {
     return value.isEmpty ? null : value;
   }
 
-  Future<void> saveSource(DanmakuSavedSource source) {
-    return _enqueueMutation(() => _saveSource(source));
+  static String autoNoResultReason({int? nowMs}) {
+    final currentMs = nowMs ?? DateTime.now().millisecondsSinceEpoch;
+    return '$_autoNoResultUntilPrefix'
+        '${currentMs + autoNoResultRetryDelay.inMilliseconds}';
   }
 
-  Future<void> _saveSource(DanmakuSavedSource source) async {
+  Future<bool> isAutoMatchBlocked(String mediaKey, {int? nowMs}) async {
+    final reason = await loadAutoMatchBlockedReason(mediaKey);
+    if (reason == null || reason.isEmpty || reason == 'auto_no_result') {
+      return false;
+    }
+    if (!reason.startsWith(_autoNoResultUntilPrefix)) return true;
+    final retryAtMs = int.tryParse(
+      reason.substring(_autoNoResultUntilPrefix.length),
+    );
+    if (retryAtMs == null) return false;
+    final currentMs = nowMs ?? DateTime.now().millisecondsSinceEpoch;
+    return currentMs < retryAtMs;
+  }
+
+  Future<void> saveSource(DanmakuSavedSource source, {bool activate = false}) {
+    return _enqueueMutation(() => _saveSource(source, activate: activate));
+  }
+
+  Future<void> _saveSource(
+    DanmakuSavedSource source, {
+    required bool activate,
+  }) async {
     final payload = await _loadPayload();
     final sources = (payload['sources'] as List<dynamic>? ?? const <dynamic>[])
         .whereType<Map>()
@@ -121,16 +149,18 @@ class DanmakuSavedSourceStore {
     payload['sources'] = limited
         .map((item) => item.toJson())
         .toList(growable: false);
-    final activeByMedia = Map<String, dynamic>.from(
-      payload['activeByMedia'] as Map? ?? const {},
-    );
-    activeByMedia[source.mediaKey] = source.sourceKey;
-    payload['activeByMedia'] = activeByMedia;
-    final blockedByMedia = Map<String, dynamic>.from(
-      payload[_autoMatchBlockedByMediaKey] as Map? ?? const {},
-    );
-    blockedByMedia.remove(source.mediaKey);
-    payload[_autoMatchBlockedByMediaKey] = blockedByMedia;
+    if (activate) {
+      final activeByMedia = Map<String, dynamic>.from(
+        payload['activeByMedia'] as Map? ?? const {},
+      );
+      activeByMedia[source.mediaKey] = source.sourceKey;
+      payload['activeByMedia'] = activeByMedia;
+      final blockedByMedia = Map<String, dynamic>.from(
+        payload[_autoMatchBlockedByMediaKey] as Map? ?? const {},
+      );
+      blockedByMedia.remove(source.mediaKey);
+      payload[_autoMatchBlockedByMediaKey] = blockedByMedia;
+    }
     await _savePayload(payload);
     _notifyChanged();
   }
@@ -165,7 +195,8 @@ class DanmakuSavedSourceStore {
     final activeByMedia = Map<String, dynamic>.from(
       payload['activeByMedia'] as Map? ?? const {},
     );
-    if ((activeByMedia[mediaKey]?.toString() ?? '') == sourceKey) {
+    if (_normalizeActiveSourceKey(activeByMedia[mediaKey]?.toString() ?? '') ==
+        _normalizeActiveSourceKey(sourceKey)) {
       activeByMedia.remove(mediaKey);
     }
     payload['activeByMedia'] = activeByMedia;
@@ -190,7 +221,7 @@ class DanmakuSavedSourceStore {
     final activeByMedia = Map<String, dynamic>.from(
       payload['activeByMedia'] as Map? ?? const {},
     );
-    final normalized = sourceKey?.trim() ?? '';
+    final normalized = _normalizeActiveSourceKey(sourceKey?.trim() ?? '');
     if (normalized.isEmpty) {
       activeByMedia.remove(mediaKey);
     } else {
@@ -264,6 +295,10 @@ class DanmakuSavedSourceStore {
 
   static Future<String>? _pathFuture;
   Future<File> _file() async {
+    final injectedDirectory = directoryPath?.trim() ?? '';
+    if (injectedDirectory.isNotEmpty) {
+      return File('$injectedDirectory/$_fileName');
+    }
     final path = await (_pathFuture ??= () async {
       final dir = await getDatabasesPath();
       return '$dir/$_fileName';
@@ -341,6 +376,16 @@ class DanmakuSavedSourceStore {
 
   void _notifyChanged() {
     _revision.value++;
+  }
+
+  /// 旧版本的弹弹play来源直接把 episodeId 存成纯数字；统一补上命名空间，避免与
+  /// 新版 `dandan:<episodeId>` 来源查找时失配。
+  static String _normalizeActiveSourceKey(String value) {
+    final normalized = value.trim();
+    if (RegExp(r'^\d+$').hasMatch(normalized)) {
+      return 'dandan:$normalized';
+    }
+    return normalized;
   }
 
   /// 把一次"读整体 payload → 改 → 整体写回"的操作串行化排队执行，
