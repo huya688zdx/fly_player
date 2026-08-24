@@ -19,6 +19,11 @@ class MediaBackendCapabilities {
   /// 是否支持服务端转码会话重载（画质 / 音轨 / 字幕切换走服务端会话）。
   final bool supportsServerTranscodeSession;
 
+  /// 是否在普通首页展示“最近添加”。
+  ///
+  /// 飞牛目前没有稳定的官方后端能力，先保留接口但关闭首页入口；服务器族开启。
+  final bool supportsHomeLatestItems;
+
   const MediaBackendCapabilities({
     required this.kind,
     required this.supportsDownloadTasks,
@@ -27,6 +32,7 @@ class MediaBackendCapabilities {
     this.supportsFavorite = false,
     this.supportsWatched = false,
     this.supportsServerTranscodeSession = false,
+    this.supportsHomeLatestItems = false,
   });
 
   /// 飞牛后端当前能力预设：NAS 专属功能全部开启。
@@ -37,7 +43,8 @@ class MediaBackendCapabilities {
       supportsIntroOutroConfig = true,
       supportsFavorite = true,
       supportsWatched = true,
-      supportsServerTranscodeSession = false;
+      supportsServerTranscodeSession = false,
+      supportsHomeLatestItems = false;
 
   /// 服务器族后端能力预设：关闭飞牛专属能力，保留公共收藏 / 已看能力。
   const MediaBackendCapabilities.server({
@@ -45,6 +52,7 @@ class MediaBackendCapabilities {
     this.supportsFavorite = true,
     this.supportsWatched = true,
     this.supportsServerTranscodeSession = false,
+    this.supportsHomeLatestItems = true,
   }) : supportsDownloadTasks = false,
        supportsFnConnect = false,
        supportsIntroOutroConfig = false;

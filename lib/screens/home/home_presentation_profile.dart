@@ -1,4 +1,4 @@
-import '../../media_backend/media_backend_kind.dart';
+import '../../media_backend/media_backend_capabilities.dart';
 
 /// 首页可展示的内容区块。
 enum HomeSectionKind {
@@ -18,14 +18,16 @@ class HomePresentationProfile {
   /// 首页区块从上到下的展示顺序。
   final List<HomeSectionKind> sectionOrder;
 
-  /// 返回指定后端对应的首页展示配置。
-  static HomePresentationProfile forKind(MediaBackendKind kind) {
+  /// 返回指定后端能力对应的首页展示配置。
+  static HomePresentationProfile forCapabilities(
+    MediaBackendCapabilities capabilities,
+  ) {
     return HomePresentationProfile(
-      sectionOrder: const <HomeSectionKind>[
+      sectionOrder: <HomeSectionKind>[
         HomeSectionKind.catalogs,
         HomeSectionKind.continueWatching,
         HomeSectionKind.nextUp,
-        HomeSectionKind.latest,
+        if (capabilities.supportsHomeLatestItems) HomeSectionKind.latest,
         HomeSectionKind.summary,
         HomeSectionKind.catalogPreviews,
       ],

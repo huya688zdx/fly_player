@@ -1,12 +1,20 @@
+import 'package:fly_player/media_backend/media_backend_capabilities.dart';
 import 'package:fly_player/media_backend/media_backend_kind.dart';
 import 'package:fly_player/screens/home/home_presentation_profile.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  MediaBackendCapabilities capabilitiesFor(MediaBackendKind kind) =>
+      kind == MediaBackendKind.feiniu
+      ? const MediaBackendCapabilities.feiniu()
+      : MediaBackendCapabilities.server(kind: kind);
+
   group('HomePresentationProfile', () {
-    test('三平台共同区块都保持媒体库、续看、下一集与最近添加顺序', () {
+    test('三平台共同区块都保持媒体库、续看与可用扩展区顺序', () {
       for (final kind in MediaBackendKind.values) {
-        final order = HomePresentationProfile.forKind(kind).sectionOrder;
+        final order = HomePresentationProfile.forCapabilities(
+          capabilitiesFor(kind),
+        ).sectionOrder;
         final catalogs = order.indexOf(HomeSectionKind.catalogs);
         final continueWatching = order.indexOf(
           HomeSectionKind.continueWatching,
@@ -24,7 +32,22 @@ void main() {
       }
     });
 
-    test('三平台采用同一套完整首页顺序', () {
+    test('飞牛预留最近添加能力但现阶段不放入首页配置', () {
+      expect(
+        HomePresentationProfile.forCapabilities(
+          const MediaBackendCapabilities.feiniu(),
+        ).sectionOrder,
+        <HomeSectionKind>[
+          HomeSectionKind.catalogs,
+          HomeSectionKind.continueWatching,
+          HomeSectionKind.nextUp,
+          HomeSectionKind.summary,
+          HomeSectionKind.catalogPreviews,
+        ],
+      );
+    });
+
+    test('Emby 与 Jellyfin 保持完整首页顺序', () {
       const expected = <HomeSectionKind>[
         HomeSectionKind.catalogs,
         HomeSectionKind.continueWatching,
@@ -34,9 +57,14 @@ void main() {
         HomeSectionKind.catalogPreviews,
       ];
 
-      for (final kind in MediaBackendKind.values) {
+      for (final kind in <MediaBackendKind>[
+        MediaBackendKind.emby,
+        MediaBackendKind.jellyfin,
+      ]) {
         expect(
-          HomePresentationProfile.forKind(kind).sectionOrder,
+          HomePresentationProfile.forCapabilities(
+            capabilitiesFor(kind),
+          ).sectionOrder,
           expected,
           reason: kind.name,
         );

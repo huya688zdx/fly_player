@@ -549,8 +549,8 @@ class _MediaListScreenState extends State<MediaListScreen>
         token: imageCredentials.token,
         accessCode: imageCredentials.accessCode,
       );
-      final profile = HomePresentationProfile.forKind(
-        backend.capabilities.kind,
+      final profile = HomePresentationProfile.forCapabilities(
+        backend.capabilities,
       );
       final needsNextUp = profile.sectionOrder.contains(HomeSectionKind.nextUp);
       final needsLatest = profile.sectionOrder.contains(HomeSectionKind.latest);
@@ -783,8 +783,8 @@ class _MediaListScreenState extends State<MediaListScreen>
       );
 
       // 鍒嗙被鍏ュ彛/姒傝璧板叕鍏?MediaBackend锛涚户缁鐪嬩笌鍒嗙被鏉＄洰鎸夊悗绔兘鍔涢€夋簮锛堝悓 _fetchHomeData锛夈€?
-      final profile = HomePresentationProfile.forKind(
-        backend.capabilities.kind,
+      final profile = HomePresentationProfile.forCapabilities(
+        backend.capabilities,
       );
       final needsNextUp = profile.sectionOrder.contains(HomeSectionKind.nextUp);
       final needsLatest = profile.sectionOrder.contains(HomeSectionKind.latest);

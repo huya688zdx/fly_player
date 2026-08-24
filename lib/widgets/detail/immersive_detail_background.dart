@@ -259,55 +259,54 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
             left: 0,
             right: 0,
             height: expandedHeroHeight,
-            child: ClipRect(
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  Transform.translate(
-                    offset: Offset(0, -parallaxShift),
-                    child: SizedBox(
-                      width: screenWidth,
-                      height: heroImageHeight,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          if (_gapImageLayer != null) _gapImageLayer!,
-                          // 低清铺底，与主图同一 Transform.scale 对齐，垫在主图之下；
-                          // 主图就绪（淡入完成）后卸载，不再参与每帧合成。
-                          if (_lowResImageLayer != null && !_mainImageReady)
+            child: Transform.translate(
+              key: const ValueKey<String>('detail-hero-region-scroll-follow'),
+              offset: Offset(0, -collapseOffset),
+              child: ClipRect(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Transform.translate(
+                      key: const ValueKey<String>('detail-hero-image-parallax'),
+                      offset: Offset(0, collapseOffset - parallaxShift),
+                      child: SizedBox(
+                        width: screenWidth,
+                        height: heroImageHeight,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            if (_gapImageLayer != null) _gapImageLayer!,
+                            // 低清铺底，与主图同一 Transform.scale 对齐，垫在主图之下；
+                            // 主图就绪（淡入完成）后卸载，不再参与每帧合成。
+                            if (_lowResImageLayer != null && !_mainImageReady)
+                              Transform.scale(
+                                scale: widget.imageScale * scrollZoom,
+                                alignment: widget.imageAlignment,
+                                child: _lowResImageLayer,
+                              ),
                             Transform.scale(
                               scale: widget.imageScale * scrollZoom,
                               alignment: widget.imageAlignment,
-                              child: _lowResImageLayer,
+                              child: _mainImageLayer,
                             ),
-                          Transform.scale(
-                            scale: widget.imageScale * scrollZoom,
-                            alignment: widget.imageAlignment,
-                            child: _mainImageLayer,
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
-                  ),
 
-                  Positioned.fill(
-                    child: ColoredBox(
-                      color: colors.overlayScrim.withValues(
-                        alpha: baseScrimAlpha,
+                    Positioned.fill(
+                      child: ColoredBox(
+                        color: colors.overlayScrim.withValues(
+                          alpha: baseScrimAlpha,
+                        ),
                       ),
                     ),
-                  ),
-                  Positioned(
-                    key: const ValueKey<String>('detail-hero-transition'),
-                    left: 0,
-                    right: 0,
-                    top: transitionTop,
-                    height: transitionImageBlend,
-                    child: Transform.translate(
-                      key: const ValueKey<String>(
-                        'detail-hero-transition-scroll-follow',
-                      ),
-                      offset: Offset(0, -collapseOffset),
+                    Positioned(
+                      key: const ValueKey<String>('detail-hero-transition'),
+                      left: 0,
+                      right: 0,
+                      top: transitionTop,
+                      height: transitionImageBlend,
                       child: RepaintBoundary(
                         child: IgnorePointer(
                           child: Stack(
@@ -370,8 +369,8 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
                         ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
