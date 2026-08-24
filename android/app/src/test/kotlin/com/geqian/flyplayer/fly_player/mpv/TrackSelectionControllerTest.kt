@@ -129,6 +129,40 @@ class TrackSelectionControllerTest {
         )
     }
 
+    @Test
+    fun internalReloadKeepsActiveExternalSubtitlePending() {
+        val path = "/data/code_cache/fly_player_sub_reload.ass"
+        val fake = FakeTrackListFacade(
+            trackListCount = 2L,
+            tracks = mapOf(
+                0 to mapOf("type" to "video"),
+                1 to mapOf("type" to "audio"),
+            ),
+        )
+        val controller = TrackSelectionController(fake)
+
+        controller.queueExternalSubtitle(path, initialized = true)
+        assertTrue(controller.applyPendingExternalSubtitle())
+        fake.commands.clear()
+
+        controller.onLoadRequested(
+            MpvSource.fromMap(
+                mapOf(
+                    "url" to "https://example.com/video.mkv",
+                    "preferExternalSubtitle" to true,
+                    "subtitleTrackGuid" to "subtitle-guid",
+                ),
+            ),
+        )
+
+        assertTrue("内部重载后应保留外挂字幕路径等待重挂", controller.hasPendingExternalSubtitle())
+        assertTrue(controller.applyPendingExternalSubtitle())
+        assertTrue(
+            "新文件就绪后应重新 sub-add 当前外挂字幕",
+            fake.commands.any { it.firstOrNull() == "sub-add" && it.contains(path) },
+        )
+    }
+
     private class FakeTrackListFacade(
         private val trackListCount: Long,
         private val tracks: Map<Int, Map<String, String>>,

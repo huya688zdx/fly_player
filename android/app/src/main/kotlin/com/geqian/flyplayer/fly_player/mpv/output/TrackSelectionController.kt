@@ -33,19 +33,22 @@ class TrackSelectionController(
     private var lastExternalSubAddElapsedMs: Long = 0L
 
     fun onLoadRequested(source: MpvSource) {
+        // 新影片在进入这里前会 reset；只有播放器为恢复视频输出而内部重载时，才会带着
+        // 当前外挂路径进来。先记住它，清理旧 mpv 轨道后再排队重挂。
+        val externalSubtitlePathToRestore =
+            if (source.preferExternalSubtitle) {
+                pendingExternalSubtitlePath ?: activeExternalSubtitlePath
+            } else {
+                null
+            }
         purgeExternalSubtitleTracks()
-        // External subtitle restoration is driven by the Flutter side after the
-        // new source is ready. Carrying the previous external path across loads
-        // here causes the native restore coordinator to sub-add the same file a
-        // second time, which then triggers extra refresh seeks and visible
-        // subtitle stutter.
         activeExternalSubtitlePath = null
         pendingPlaybackSpeed = source.playbackSpeed
         pendingAudioTrackIndex = source.audioTrackIndex
         pendingSubtitleTrackIndex = source.subtitleTrackIndex
         pendingPreferExternalSubtitle = source.preferExternalSubtitle
         pendingSubtitleGuid = source.subtitleTrackGuid
-        pendingExternalSubtitlePath = null
+        pendingExternalSubtitlePath = externalSubtitlePathToRestore
         // 新源：清掉重挂冷却记忆，避免跨集复用同一 .ass 路径时误跳过首次挂载。
         lastExternalSubAddPath = null
         lastExternalSubAddElapsedMs = 0L
