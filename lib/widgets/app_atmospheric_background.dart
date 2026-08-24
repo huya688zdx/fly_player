@@ -64,52 +64,62 @@ class AppAtmosphericBackground extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ColoredBox(
-      key: const ValueKey<String>('app-atmosphere-base'),
-      color: palette.base,
-      child: Stack(
-        fit: StackFit.expand,
-        children: <Widget>[
-          _AtmosphereGlow(
-            glowKey: const ValueKey<String>('app-atmosphere-accent'),
-            color: palette.accentGlow,
-            center: const Alignment(-1.02, -.92),
-            radius: .92,
-          ),
-          _AtmosphereGlow(
-            glowKey: const ValueKey<String>('app-atmosphere-selection'),
-            color: palette.selectionGlow,
-            center: const Alignment(1.04, -.16),
-            radius: .96,
-          ),
-          _AtmosphereGlow(
-            glowKey: const ValueKey<String>('app-atmosphere-link'),
-            color: palette.linkGlow,
-            center: const Alignment(-.72, .74),
-            radius: 1.02,
-          ),
-          Positioned.fill(
-            child: IgnorePointer(
-              child: DecoratedBox(
-                key: const ValueKey<String>('app-atmosphere-vignette'),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: <Color>[
-                      Colors.transparent,
-                      palette.base.withValues(alpha: .06),
-                      palette.base.withValues(alpha: .32),
-                    ],
-                    stops: const <double>[0, .64, 1],
+    return Stack(
+      fit: StackFit.expand,
+      children: <Widget>[
+        Positioned.fill(
+          child: RepaintBoundary(
+            key: const ValueKey<String>('app-atmosphere-static-layer'),
+            child: ColoredBox(
+              key: const ValueKey<String>('app-atmosphere-base'),
+              color: palette.base,
+              child: Stack(
+                fit: StackFit.expand,
+                children: <Widget>[
+                  _AtmosphereGlow(
+                    glowKey: const ValueKey<String>('app-atmosphere-accent'),
+                    color: palette.accentGlow,
+                    center: const Alignment(-1.02, -.92),
+                    radius: .92,
                   ),
-                ),
+                  _AtmosphereGlow(
+                    glowKey: const ValueKey<String>('app-atmosphere-selection'),
+                    color: palette.selectionGlow,
+                    center: const Alignment(1.04, -.16),
+                    radius: .96,
+                  ),
+                  _AtmosphereGlow(
+                    glowKey: const ValueKey<String>('app-atmosphere-link'),
+                    color: palette.linkGlow,
+                    center: const Alignment(-.72, .74),
+                    radius: 1.02,
+                  ),
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: DecoratedBox(
+                        key: const ValueKey<String>('app-atmosphere-vignette'),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: <Color>[
+                              Colors.transparent,
+                              palette.base.withValues(alpha: .06),
+                              palette.base.withValues(alpha: .32),
+                            ],
+                            stops: const <double>[0, .64, 1],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
-          child,
-        ],
-      ),
+        ),
+        child,
+      ],
     );
   }
 }

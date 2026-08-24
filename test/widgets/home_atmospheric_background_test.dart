@@ -91,6 +91,48 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('全屏氛围渐变缓存在独立静态层且不包含滚动内容', (tester) async {
+    final base = AppThemePalette.colorsFor(AppThemePreset.midnight);
+    final palette = AppAtmospherePalette.resolve(
+      baseColors: base,
+      effectiveColors: base,
+      hasDynamicTheme: false,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AppAtmosphericBackground(
+          palette: palette,
+          child: const SizedBox.expand(
+            key: ValueKey<String>('atmosphere-scroll-content'),
+          ),
+        ),
+      ),
+    );
+
+    final staticLayer = find.byKey(
+      const ValueKey<String>('app-atmosphere-static-layer'),
+    );
+    expect(staticLayer, findsOneWidget);
+    expect(tester.widget(staticLayer), isA<RepaintBoundary>());
+    expect(
+      find.descendant(
+        of: staticLayer,
+        matching: find.byKey(const ValueKey<String>('app-atmosphere-accent')),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: staticLayer,
+        matching: find.byKey(
+          const ValueKey<String>('atmosphere-scroll-content'),
+        ),
+      ),
+      findsNothing,
+    );
+  });
+
   test('选中图标按钮使用低饱和填充和协调前景，而不是直铺原始取色', () {
     final base = AppThemePalette.colorsFor(AppThemePreset.midnight);
     final colors = base.copyWith(selection: const Color(0xFF35C8F2));
