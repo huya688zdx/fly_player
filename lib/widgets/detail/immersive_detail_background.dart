@@ -178,6 +178,7 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
         !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
     final colors = context.appColors;
     final isLightSurface = colors.backgroundBase.computeLuminance() >= 0.58;
+    final ambientTint = widget.ambientTintOverride;
 
     final mediaSize = MediaQuery.of(context).size;
     final screenWidth = mediaSize.width;
@@ -243,6 +244,34 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
       child: Stack(
         children: [
           Positioned.fill(child: ColoredBox(color: colors.backgroundBase)),
+          if (ambientTint != null)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  key: const ValueKey<String>('detail-background-ambient-wash'),
+                  decoration: BoxDecoration(
+                    gradient: RadialGradient(
+                      center: const Alignment(-0.35, -0.72),
+                      radius: 1.52,
+                      colors: <Color>[
+                        ambientTint.withValues(
+                          alpha: isLightSurface ? 0.14 : 0.22,
+                        ),
+                        ambientTint.withValues(
+                          alpha: isLightSurface ? 0.07 : 0.11,
+                        ),
+                        // 页面下半部仍保留微弱色相，避免正文退回固定深蓝底；
+                        // 强度足够辨认取色差异，同时不影响正文对比度。
+                        ambientTint.withValues(
+                          alpha: isLightSurface ? 0.025 : 0.045,
+                        ),
+                      ],
+                      stops: const <double>[0, 0.54, 1],
+                    ),
+                  ),
+                ),
+              ),
+            ),
 
           Positioned(
             top: 0,
