@@ -514,6 +514,68 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('大屏海报轨在 701×331 超矮横屏下自适应高度且不溢出', (tester) async {
+    final card = _card(
+      id: 'ultra-short-landscape',
+      title: '辉夜大小姐想让我告白',
+      resumePositionSeconds: 30,
+      durationSeconds: 120,
+    );
+
+    await tester.binding.setSurfaceSize(const Size(701, 331));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      _localizedApp(
+        MediaQuery(
+          data: const MediaQueryData(size: Size(701, 331)),
+          child: PosterBrowseLargeLayout(
+            rows: <PosterBrowseRow>[
+              PosterBrowseRow(
+                kind: PosterBrowseRowKind.continueWatching,
+                items: <MediaItemCard>[card],
+              ),
+            ],
+            displayItemOf: _displayItem,
+            selectedRow: 0,
+            focusedIndex: 0,
+            focusedItem: _displayItem(card),
+            logoRequest: MediaImageRequest.empty,
+            secondaryLabel: '第 1 季 第 1 集',
+            metaWidgets: const <Widget>[],
+            imageOf: _loadableImageOf,
+            secondaryLabelOf: (_) => '第 1 季 第 1 集',
+            onSelectRow: (_) {},
+            onSelectItem: (_) {},
+            onRetryCurrentRow: () {},
+            onPlay: () {},
+            onDetail: () {},
+            onBack: () {},
+          ),
+        ),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(
+      tester.getSize(find.byType(PosterBrowsePosterTrack)).height,
+      lessThan(264),
+    );
+    expect(
+      tester
+          .widget<PosterBrowsePosterCard>(find.byType(PosterBrowsePosterCard))
+          .width,
+      lessThan(116),
+    );
+
+    await tester.timedDrag(
+      find.byKey(const ValueKey('poster_browse_landscape_gesture_panel')),
+      const Offset(0, 80),
+      const Duration(milliseconds: 200),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('高分辨率横屏收起后只保留一份媒体信息并隐藏分类栏', (tester) async {
     final card = _card(id: 'collapse-info', title: '辉夜大小姐');
 
