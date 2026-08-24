@@ -285,6 +285,7 @@ class NativePlayerBridge {
           return await NativeDanmakuPrefetch.searchCandidates(
             keyword: (args['keyword'] ?? '').toString(),
             episodeNumber: (args['episodeNumber'] as num?)?.toInt() ?? 0,
+            seasonNumber: (args['seasonNumber'] as num?)?.toInt() ?? 0,
             tmdbId: (args['tmdbId'] ?? '').toString(),
           );
         case 'loadDanmakuEpisode':
@@ -296,6 +297,14 @@ class NativePlayerBridge {
             animeTitle: (args['animeTitle'] ?? '').toString(),
             episodeTitle: (args['episodeTitle'] ?? '').toString(),
             episodeNumber: (args['episodeNumber'] as num?)?.toInt() ?? 0,
+            itemGuid: (args['itemGuid'] ?? '').toString(),
+            mediaGuid: (args['mediaGuid'] ?? '').toString(),
+            seasonGuid: (args['seasonGuid'] ?? '').toString(),
+            seasonNumber: (args['seasonNumber'] as num?)?.toInt() ?? 0,
+            currentEpisodeNumber:
+                (args['currentEpisodeNumber'] as num?)?.toInt() ?? 0,
+            seriesTitle: (args['seriesTitle'] ?? '').toString(),
+            mediaItemTitle: (args['mediaItemTitle'] ?? '').toString(),
           );
         case 'importDanmakuFile':
           // 原生壳已用 SAF 选好弹幕文件并拷到可读路径，这里解析并落 payload 文件回传。

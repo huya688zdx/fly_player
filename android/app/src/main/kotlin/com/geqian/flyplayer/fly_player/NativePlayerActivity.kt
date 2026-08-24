@@ -8304,15 +8304,6 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     /** 3 级页：在线弹幕搜索（DanDanPlay）。搜索/导入走反向通道，Flutter 侧已接入。 */
-    /** 搜索框默认关键词归一化：剥离「第N季 / Season N」噪声，对齐解析器的搜索口径。 */
-    private fun normalizeDanmakuKeyword(raw: String): String {
-        var t = raw.trim()
-        if (t.isEmpty()) return t
-        t = t.replace(Regex("第\\s*\\d+\\s*季"), "")
-        t = t.replace(Regex("(?i)Season\\s*\\d+"), "")
-        return t.trim()
-    }
-
     /** 从文本里解析集号：「第N话/第N集」优先，其次「EP/E/Episode N」；拿不到返回 0。 */
     private fun extractEpisodeNumber(text: String?): Int {
         if (text.isNullOrBlank()) return 0
@@ -8344,7 +8335,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
 
     private fun buildDanmakuSearchPage() {
         val seriesTitle = loadArgsMap["seriesTitle"]?.toString().orEmpty()
-        val initial = danmakuSearchKeyword.ifEmpty { normalizeDanmakuKeyword(seriesTitle) }
+        // 保留标题中的季度标记；Flutter 解析器会先精确搜索，再自动尝试去季名的回退词。
+        val initial = danmakuSearchKeyword.ifEmpty { seriesTitle.trim() }
         val input = android.widget.EditText(this).apply {
             setText(initial)
             setSelection(text?.length ?: 0)
@@ -8451,7 +8443,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         val mediaKey: String,
         val type: String, // dandan | local
         val label: String,
-        val episodeId: Int,
+        val episodeId: Long,
         val animeTitle: String,
         val episodeTitle: String,
         val episodeNumber: Int,
@@ -8477,6 +8469,23 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         "episodeNumber" to ((loadArgsMap["episodeNumber"] as? Number)?.toInt() ?: 0),
         "seriesTitle" to loadArgsMap["seriesTitle"]?.toString().orEmpty(),
     )
+
+    /** 在线选集除了弹弹play条目，还要带上当前媒体身份，让 Flutter 保存为当前激活源。 */
+    private fun dandanEpisodeLoadArgs(
+        episodeId: Long,
+        animeTitle: String,
+        episodeTitle: String,
+        episodeNumber: Int,
+    ): Map<String, Any?> {
+        val args = danmakuMediaArgs().toMutableMap()
+        args["currentEpisodeNumber"] = args["episodeNumber"]
+        args["mediaItemTitle"] = loadArgsMap["title"]?.toString().orEmpty()
+        args["episodeId"] = episodeId
+        args["animeTitle"] = animeTitle
+        args["episodeTitle"] = episodeTitle
+        args["episodeNumber"] = episodeNumber
+        return args
+    }
 
     /** 进弹幕源页时拉一次 Flutter 弹幕源库；拿到后仅当仍停在该页时刷新。 */
     private fun ensureFlutterDanmakuSourcesLoaded() {
@@ -8511,12 +8520,12 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         return if (series.isNotEmpty()) "$series::$ep" else ""
     }
 
-    private fun danmakuSourceIdentity(type: String, episodeId: Int, uri: String): String =
+    private fun danmakuSourceIdentity(type: String, episodeId: Long, uri: String): String =
         if (type == "dandan") "dandan:$episodeId" else "local:$uri"
 
     private fun jsonToDanmakuSource(o: JSONObject): DanmakuSource = DanmakuSource(
         mediaKey = o.optString("mediaKey"), type = o.optString("type"), label = o.optString("label"),
-        episodeId = o.optInt("episodeId"), animeTitle = o.optString("animeTitle"),
+        episodeId = o.optLong("episodeId"), animeTitle = o.optString("animeTitle"),
         episodeTitle = o.optString("episodeTitle"), episodeNumber = o.optInt("episodeNumber"),
         uri = o.optString("uri"), updatedAt = o.optLong("updatedAt"),
     )
@@ -8546,7 +8555,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         for (i in 0 until existing.length()) {
             val o = existing.optJSONObject(i) ?: continue
             val same = o.optString("mediaKey") == rec.mediaKey &&
-                danmakuSourceIdentity(o.optString("type"), o.optInt("episodeId"), o.optString("uri")) == identity
+                danmakuSourceIdentity(o.optString("type"), o.optLong("episodeId"), o.optString("uri")) == identity
             if (!same) kept.put(o) // 去重：同 mediaKey 同来源覆盖
         }
         kept.put(JSONObject().apply {
@@ -8566,7 +8575,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
             val same = o.optString("mediaKey") == rec.mediaKey &&
-                danmakuSourceIdentity(o.optString("type"), o.optInt("episodeId"), o.optString("uri")) == identity
+                danmakuSourceIdentity(o.optString("type"), o.optLong("episodeId"), o.optString("uri")) == identity
             if (!same) kept.put(o)
         }
         settingsStore.saveString(NativePlayerSettingsStore.KEY_DANMAKU_SOURCES, kept.toString())
@@ -8579,11 +8588,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 showCenterHint(localizedString(R.string.player_text_0254))
                 NativePlayerReverseBridge.dispatch(
                     method = "loadDanmakuEpisode",
-                    args = mapOf(
-                        "episodeId" to rec.episodeId,
-                        "animeTitle" to rec.animeTitle,
-                        "episodeTitle" to rec.episodeTitle,
-                        "episodeNumber" to rec.episodeNumber,
+                    args = dandanEpisodeLoadArgs(
+                        episodeId = rec.episodeId,
+                        animeTitle = rec.animeTitle,
+                        episodeTitle = rec.episodeTitle,
+                        episodeNumber = rec.episodeNumber,
                     ),
                     onResult = { res -> runOnUiThread { applyDanmakuLoadResult(res) } },
                     onError = { runOnUiThread { pendingDanmakuSource = null; hideCenterHint(); showTransientHint(localizedString(R.string.player_text_0255)) } },
@@ -8626,6 +8635,7 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
                 // 手动搜索故意不传集号：让接口返回整部全集，避免合季/双季集号对不上时翻不到正确
                 // 的那一集。集号只在本地用于排序/高亮（见 onResult），不收窄结果。
                 "episodeNumber" to 0,
+                "seasonNumber" to ((loadArgsMap["seasonNumber"] as? Number)?.toInt() ?: 0),
                 "tmdbId" to loadArgsMap["tmdbId"]?.toString().orEmpty(),
             ),
             onResult = { result ->
@@ -8699,8 +8709,8 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
     }
 
     private fun loadDanmakuFromResult(item: Map<String, Any?>) {
-        val episodeId = (item["episodeId"] as? Number)?.toInt() ?: 0
-        if (episodeId <= 0) {
+        val episodeId = (item["episodeId"] as? Number)?.toLong() ?: 0L
+        if (episodeId <= 0L) {
             showTransientHint(localizedString(R.string.player_text_0271))
             return
         }
@@ -8721,11 +8731,11 @@ class NativePlayerActivity : Activity(), NativeMediaCommandCoordinator.Handler {
         showCenterHint(localizedString(R.string.player_text_0254))
         NativePlayerReverseBridge.dispatch(
             method = "loadDanmakuEpisode",
-            args = mapOf(
-                "episodeId" to episodeId,
-                "animeTitle" to animeTitle,
-                "episodeTitle" to episodeTitle,
-                "episodeNumber" to episodeNumber,
+            args = dandanEpisodeLoadArgs(
+                episodeId = episodeId,
+                animeTitle = animeTitle,
+                episodeTitle = episodeTitle,
+                episodeNumber = episodeNumber,
             ),
             onResult = { res -> runOnUiThread { applyDanmakuLoadResult(res) } },
             onError = { runOnUiThread { pendingDanmakuSource = null; hideCenterHint(); showTransientHint(localizedString(R.string.player_text_0255)) } },

@@ -115,6 +115,7 @@ class DanDanPlayApi {
           if (anime.trim().isNotEmpty) 'anime': anime.trim(),
           if (episode != null) 'episode': episode,
           if (tmdbId != null) 'tmdbId': tmdbId,
+          'v2': true,
         },
         options: Options(headers: _buildHeaders(secret, path)),
       ),

@@ -57,13 +57,14 @@ class DanDanPlayResolver {
       );
     }
     if (results.isEmpty) return null;
-    final item =
-        _pickPlaybackCandidate(
-          results,
-          itemTitle: itemTitle,
-          episodeNumber: episodeNumber,
-        ) ??
-        results.first;
+    final item = _pickPlaybackCandidate(
+      results,
+      seriesTitle: seriesTitle,
+      seasonNumber: seasonNumber,
+      itemTitle: itemTitle,
+      episodeNumber: episodeNumber,
+    );
+    if (item == null) return null;
     final result = await importEpisodeById(item);
     if (result == null) return null;
     return DanDanPlayPlaybackResolveResult(item: item, result: result);
@@ -79,29 +80,38 @@ class DanDanPlayResolver {
     bool allowLooseTitleFallback = false,
   }) async {
     if (!_api.ready) return const <DanDanPlayEpisodeSearchItem>[];
-    final normalizedKeyword = _normalizeSeriesTitle(keyword);
+    final rawKeyword = keyword.trim();
+    final normalizedKeyword = _normalizeSeriesTitle(rawKeyword);
     final tmdbNumericId = _normalizeTmdbId(tmdbId);
-    if (normalizedKeyword.isEmpty && tmdbNumericId == null) {
+    if (rawKeyword.isEmpty && tmdbNumericId == null) {
       return const <DanDanPlayEpisodeSearchItem>[];
     }
 
     final filteredEpisodeNumber = episodeNumber > 0 ? episodeNumber : null;
-    final exactResults = await _searchEpisodeCandidatesOnce(
-      keyword: normalizedKeyword,
-      episodeNumber: filteredEpisodeNumber,
-      tmdbId: tmdbNumericId,
-    );
-    if (exactResults.isNotEmpty) {
-      return exactResults;
+    final keywords = <String>{
+      if (rawKeyword.isNotEmpty) rawKeyword,
+      if (normalizedKeyword.isNotEmpty) normalizedKeyword,
+    };
+    for (final searchKeyword in keywords) {
+      final exactResults = await _searchEpisodeCandidatesOnce(
+        keyword: searchKeyword,
+        episodeNumber: filteredEpisodeNumber,
+        tmdbId: tmdbNumericId,
+      );
+      if (exactResults.isNotEmpty) {
+        return exactResults;
+      }
     }
 
-    if (normalizedKeyword.isNotEmpty && tmdbNumericId != null) {
-      final fallbackWithoutTmdb = await _searchEpisodeCandidatesOnce(
-        keyword: normalizedKeyword,
-        episodeNumber: filteredEpisodeNumber,
-      );
-      if (fallbackWithoutTmdb.isNotEmpty) {
-        return fallbackWithoutTmdb;
+    if (tmdbNumericId != null) {
+      for (final searchKeyword in keywords) {
+        final fallbackWithoutTmdb = await _searchEpisodeCandidatesOnce(
+          keyword: searchKeyword,
+          episodeNumber: filteredEpisodeNumber,
+        );
+        if (fallbackWithoutTmdb.isNotEmpty) {
+          return fallbackWithoutTmdb;
+        }
       }
     }
 
@@ -207,9 +217,33 @@ class DanDanPlayResolver {
   static String _normalizeSeriesTitle(String value) {
     var title = value.trim();
     if (title.isEmpty) return '';
-    title = title.replaceAll(RegExp(r'第\s*\d+\s*季'), '');
+    title = title.replaceAll(RegExp(r'第\s*[零〇一二三四五六七八九十百\d]+\s*[季期]'), '');
     title = title.replaceAll(RegExp(r'Season\s*\d+', caseSensitive: false), '');
+    title = title.replaceAll(
+      RegExp(r'(?:^|[\s._-])S\s*0*\d{1,2}\s*$', caseSensitive: false),
+      '',
+    );
     return title.trim();
+  }
+
+  /// 手动搜索不丢弃其他季度，只把当前季度放到前面，方便用户核对并纠正自动结果。
+  static List<DanDanPlayEpisodeSearchItem> sortCandidatesForSeason(
+    List<DanDanPlayEpisodeSearchItem> items, {
+    required int seasonNumber,
+  }) {
+    if (seasonNumber <= 0 || items.length < 2) {
+      return List<DanDanPlayEpisodeSearchItem>.of(items);
+    }
+    final matched = <DanDanPlayEpisodeSearchItem>[];
+    final remaining = <DanDanPlayEpisodeSearchItem>[];
+    for (final item in items) {
+      final candidateSeason = _extractSeasonNumber(item.animeTitle);
+      final isRequestedSeason =
+          candidateSeason == seasonNumber ||
+          (seasonNumber == 1 && candidateSeason == 0);
+      (isRequestedSeason ? matched : remaining).add(item);
+    }
+    return <DanDanPlayEpisodeSearchItem>[...matched, ...remaining];
   }
 
   static int? _normalizeTmdbId(String trimId) {
@@ -249,35 +283,90 @@ class DanDanPlayResolver {
 
   static DanDanPlayEpisodeSearchItem? _pickPlaybackCandidate(
     List<DanDanPlayEpisodeSearchItem> items, {
+    required String seriesTitle,
+    required int seasonNumber,
     required String itemTitle,
     required int episodeNumber,
   }) {
     if (items.isEmpty) return null;
-    final normalizedTitle = _normalizeComparableEpisodeTitle(itemTitle);
-    if (normalizedTitle.isNotEmpty) {
-      for (final item in items) {
-        final candidate = _normalizeComparableEpisodeTitle(item.episodeTitle);
-        if (candidate.isNotEmpty && candidate == normalizedTitle) {
-          return item;
+    var candidates = items;
+    var seasonResolved = seasonNumber <= 0;
+    if (seasonNumber > 0) {
+      final sameSeason = items
+          .where(
+            (item) => _extractSeasonNumber(item.animeTitle) == seasonNumber,
+          )
+          .toList(growable: false);
+      if (sameSeason.isNotEmpty) {
+        candidates = sameSeason;
+        seasonResolved = true;
+      } else if (seasonNumber == 1) {
+        final normalizedSeries = _normalizeSeriesTitle(seriesTitle);
+        final unmarkedFirstSeason = items
+            .where(
+              (item) =>
+                  _extractSeasonNumber(item.animeTitle) == 0 &&
+                  _normalizeSeriesTitle(item.animeTitle) == normalizedSeries,
+            )
+            .toList(growable: false);
+        if (unmarkedFirstSeason.isNotEmpty) {
+          candidates = unmarkedFirstSeason;
+          seasonResolved = true;
         }
       }
-      for (final item in items) {
-        final candidate = _normalizeComparableEpisodeTitle(item.episodeTitle);
-        if (candidate.isNotEmpty &&
-            (candidate.contains(normalizedTitle) ||
-                normalizedTitle.contains(candidate))) {
-          return item;
+    }
+    // DandanPlay 没有 season 查询参数；无法从作品名确认当前季时，继续按单集标题匹配
+    // 可能把 S2E1 选成 S1E1。宁可交给手动候选，也不自动套用错误季度。
+    if (!seasonResolved) return null;
+    final normalizedTitle = _normalizeComparableEpisodeTitle(itemTitle);
+    if (normalizedTitle.isNotEmpty) {
+      final exactTitleMatches = candidates
+          .where(
+            (item) =>
+                _normalizeComparableEpisodeTitle(item.episodeTitle) ==
+                normalizedTitle,
+          )
+          .toList(growable: false);
+      if (exactTitleMatches.length == 1) {
+        return exactTitleMatches.first;
+      }
+      if (exactTitleMatches.isNotEmpty) {
+        candidates = exactTitleMatches;
+      } else {
+        final partialTitleMatches = candidates
+            .where((item) {
+              final candidate = _normalizeComparableEpisodeTitle(
+                item.episodeTitle,
+              );
+              return candidate.isNotEmpty &&
+                  (candidate.contains(normalizedTitle) ||
+                      normalizedTitle.contains(candidate));
+            })
+            .toList(growable: false);
+        if (partialTitleMatches.length == 1) {
+          return partialTitleMatches.first;
+        }
+        if (partialTitleMatches.isNotEmpty) {
+          candidates = partialTitleMatches;
         }
       }
     }
     if (episodeNumber > 0) {
-      for (final item in items) {
-        if (item.episodeNumber == episodeNumber ||
-            _extractEpisodeNumber(item.episodeTitle) == episodeNumber) {
-          return item;
-        }
+      final episodeMatches = candidates
+          .where(
+            (item) =>
+                item.episodeNumber == episodeNumber ||
+                _extractEpisodeNumber(item.episodeTitle) == episodeNumber,
+          )
+          .toList(growable: false);
+      if (episodeMatches.length == 1) {
+        return episodeMatches.first;
+      }
+      if (episodeMatches.isNotEmpty) {
+        candidates = episodeMatches;
       }
     }
+    if (candidates.length == 1) return candidates.first;
     return null;
   }
 
@@ -298,14 +387,55 @@ class DanDanPlayResolver {
 
   static DanDanPlayEpisodeSearchItem? pickPlaybackCandidateForTest(
     List<DanDanPlayEpisodeSearchItem> items, {
+    String seriesTitle = '',
+    int seasonNumber = 0,
     required String itemTitle,
     required int episodeNumber,
   }) {
     return _pickPlaybackCandidate(
       items,
+      seriesTitle: seriesTitle,
+      seasonNumber: seasonNumber,
       itemTitle: itemTitle,
       episodeNumber: episodeNumber,
     );
+  }
+
+  static int _extractSeasonNumber(String value) {
+    final title = value.trim();
+    if (title.isEmpty) return 0;
+    for (final pattern in <RegExp>[
+      RegExp(r'第\s*0*(\d{1,2})\s*[季期]'),
+      RegExp(r'Season\s*0*(\d{1,2})', caseSensitive: false),
+      RegExp(r'(?:^|[\s._-])S0*(\d{1,2})(?:$|[\s._-])', caseSensitive: false),
+    ]) {
+      final match = pattern.firstMatch(title);
+      if (match != null) return int.tryParse(match.group(1) ?? '') ?? 0;
+    }
+    final chinese = RegExp(r'第\s*([一二三四五六七八九十]{1,3})\s*[季期]').firstMatch(title);
+    return _parseChineseNumber(chinese?.group(1) ?? '');
+  }
+
+  static int _parseChineseNumber(String value) {
+    if (value.isEmpty) return 0;
+    const digits = <String, int>{
+      '一': 1,
+      '二': 2,
+      '三': 3,
+      '四': 4,
+      '五': 5,
+      '六': 6,
+      '七': 7,
+      '八': 8,
+      '九': 9,
+    };
+    if (!value.contains('十')) return digits[value] ?? 0;
+    final parts = value.split('十');
+    final tens = parts.first.isEmpty ? 1 : (digits[parts.first] ?? 0);
+    final ones = parts.length < 2 || parts[1].isEmpty
+        ? 0
+        : (digits[parts[1]] ?? 0);
+    return (tens * 10) + ones;
   }
 
   static int _extractEpisodeNumber(String value) {
