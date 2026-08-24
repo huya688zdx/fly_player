@@ -906,7 +906,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
               ),
               SliverToBoxAdapter(
                 child: Container(
-                  color: colors.backgroundBase,
+                  color: Colors.transparent,
                   padding: const EdgeInsets.fromLTRB(
                     DetailTokens.screenHorizontalPadding,
                     8,
@@ -997,7 +997,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                 SliverToBoxAdapter(
                   child: _sectionReveal(
                     child: Container(
-                      color: colors.backgroundBase,
+                      color: Colors.transparent,
                       padding: const EdgeInsets.fromLTRB(
                         DetailTokens.screenHorizontalPadding,
                         8,
@@ -1026,7 +1026,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                 SliverToBoxAdapter(
                   child: _sectionReveal(
                     child: Container(
-                      color: colors.backgroundBase,
+                      color: Colors.transparent,
                       padding: const EdgeInsets.fromLTRB(
                         DetailTokens.screenHorizontalPadding,
                         8,
@@ -1091,7 +1091,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     return SliverToBoxAdapter(
       child: _sectionReveal(
         child: Container(
-          color: colors.backgroundBase,
+          color: Colors.transparent,
           padding: const EdgeInsets.fromLTRB(
             DetailTokens.screenHorizontalPadding,
             8,
@@ -1139,7 +1139,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           );
         },
         child: Container(
-          color: colors.backgroundBase,
+          color: Colors.transparent,
           padding: EdgeInsets.fromLTRB(
             DetailTokens.screenHorizontalPadding,
             4,
@@ -1197,7 +1197,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
     return SliverToBoxAdapter(
       child: _sectionReveal(
         child: Container(
-          color: colors.backgroundBase,
+          color: Colors.transparent,
           padding: const EdgeInsets.fromLTRB(
             DetailTokens.screenHorizontalPadding,
             8,
@@ -3357,7 +3357,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                     ),
                     SliverToBoxAdapter(
                       child: Container(
-                        color: colors.backgroundBase,
+                        color: Colors.transparent,
                         padding: const EdgeInsets.fromLTRB(
                           DetailTokens.screenHorizontalPadding,
                           8,
@@ -3539,7 +3539,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                       SliverToBoxAdapter(
                         child: _sectionReveal(
                           child: Container(
-                            color: colors.backgroundBase,
+                            color: Colors.transparent,
                             padding: const EdgeInsets.fromLTRB(
                               DetailTokens.screenHorizontalPadding,
                               8,
@@ -3576,7 +3576,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                       SliverToBoxAdapter(
                         child: _sectionReveal(
                           child: Container(
-                            color: colors.backgroundBase,
+                            color: Colors.transparent,
                             padding: const EdgeInsets.fromLTRB(
                               DetailTokens.screenHorizontalPadding,
                               8,

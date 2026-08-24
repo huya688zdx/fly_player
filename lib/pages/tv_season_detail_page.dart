@@ -1806,7 +1806,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                 children: [
                   const SizedBox(height: 4),
                   Container(
-                    color: colors.backgroundBase,
+                    color: Colors.transparent,
                     padding: const EdgeInsets.fromLTRB(
                       DetailTokens.screenHorizontalPadding,
                       0,
@@ -3214,7 +3214,7 @@ class _TvSeasonDetailPageState extends State<TvSeasonDetailPage>
                           children: [
                             const SizedBox(height: 4),
                             Container(
-                              color: colors.backgroundBase,
+                              color: Colors.transparent,
                               padding: const EdgeInsets.fromLTRB(
                                 DetailTokens.screenHorizontalPadding,
                                 0,

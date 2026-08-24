@@ -90,5 +90,15 @@ void main() {
       );
       expect(source, contains('if (displayState.showOverview)'));
     });
+
+    test('季列表数据到达后不再播放整块透明缩放动画', () {
+      final source = File('lib/pages/tv_detail_page.dart').readAsStringSync();
+
+      expect(source, isNot(contains('_seasonCardPopController')));
+      expect(source, isNot(contains('_seasonCardsVisible')));
+      expect(source, isNot(contains('_seasonCardOpacity')));
+      expect(source, isNot(contains('_seasonCardScale')));
+      expect(source, isNot(contains('_seasonCardTranslateY')));
+    });
   });
 }
