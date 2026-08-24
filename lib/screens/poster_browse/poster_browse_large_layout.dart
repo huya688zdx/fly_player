@@ -55,6 +55,11 @@ class PosterBrowseLargeLayout extends StatefulWidget {
 class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
   static const _horizontalVelocityThreshold = 360.0;
   static const _horizontalDistanceThreshold = 48.0;
+  static const _maxTrackHeight = 264.0;
+  static const _maxCardWidth = 116.0;
+  static const _minCardWidth = 72.0;
+  // 标题最多两行、剧集副标题一行，再加两段间距约占 80px。
+  static const _cardVerticalBudget = 80.0;
 
   double _collapseProgress = 0;
   double _horizontalDragDistance = 0;
@@ -101,14 +106,30 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
             final compressChrome = viewportHeight < 412;
             final verticalInset = compressChrome ? 8.0 : null;
             final collapseProgress = _collapseProgress.clamp(0.0, 1.0);
+            final topInset = verticalInset ?? 16.0;
+            final bottomInset = verticalInset ?? 22.0;
+            final selectorSpacing = compressChrome ? 8.0 : 14.0;
+            final expandedTrackHeight = _trackHeightFor(
+              viewportHeight: viewportHeight,
+              topInset: topInset,
+              bottomInset: bottomInset,
+              selectorSpacing: selectorSpacing,
+              collapseProgress: 0,
+            );
+            final trackHeight = _trackHeightFor(
+              viewportHeight: viewportHeight,
+              topInset: topInset,
+              bottomInset: bottomInset,
+              selectorSpacing: selectorSpacing,
+              collapseProgress: collapseProgress,
+            );
+            final cardWidth =
+                ((expandedTrackHeight - _cardVerticalBudget) / 1.5)
+                    .clamp(_minCardWidth, _maxCardWidth)
+                    .toDouble();
 
             return Padding(
-              padding: EdgeInsets.fromLTRB(
-                28,
-                verticalInset ?? 16,
-                28,
-                verticalInset ?? 22,
-              ),
+              padding: EdgeInsets.fromLTRB(28, topInset, 28, bottomInset),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -176,12 +197,15 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
                     )
                   else
                     const SizedBox.shrink(),
+                  SizedBox(height: selectorSpacing * (1 - collapseProgress)),
                   SizedBox(
-                    height: (compressChrome ? 8 : 14) * (1 - collapseProgress),
-                  ),
-                  SizedBox(
-                    height: 264,
-                    child: _buildTrackArea(context, currentRow, currentItems),
+                    height: trackHeight,
+                    child: _buildTrackArea(
+                      context,
+                      currentRow,
+                      currentItems,
+                      cardWidth,
+                    ),
                   ),
                 ],
               ),
@@ -206,6 +230,7 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
     BuildContext context,
     PosterBrowseRow? currentRow,
     List<PosterBrowseDisplayItem> currentItems,
+    double cardWidth,
   ) {
     if (currentItems.isNotEmpty) {
       return PosterBrowseLandscapeGesturePanel(
@@ -216,6 +241,7 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
         secondaryLabelOf: widget.secondaryLabelOf,
         onItemTap: widget.onSelectItem,
         onCollapseProgressChanged: _handleCollapseProgressChanged,
+        cardWidth: cardWidth,
         collapsedContent: widget.focusedItem == null
             ? const SizedBox.shrink()
             : Padding(
@@ -255,6 +281,19 @@ class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
   void _handleCollapseProgressChanged(double progress) {
     if ((_collapseProgress - progress).abs() < 0.0001) return;
     setState(() => _collapseProgress = progress);
+  }
+
+  double _trackHeightFor({
+    required double viewportHeight,
+    required double topInset,
+    required double bottomInset,
+    required double selectorSpacing,
+    required double collapseProgress,
+  }) {
+    final selectorExtent = (48 + selectorSpacing) * (1 - collapseProgress);
+    return (viewportHeight - topInset - bottomInset - 48 - selectorExtent)
+        .clamp(0.0, _maxTrackHeight)
+        .toDouble();
   }
 
   Widget _buildAnimatedPrimaryMediaInfo(double viewportHeight) {
