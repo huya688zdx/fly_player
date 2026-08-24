@@ -161,4 +161,41 @@ void main() {
 
     expect(opaqueY, closeTo(150, 0.01));
   });
+
+  testWidgets('正常上滑时交接遮罩用合成位移跟随海报底边', (tester) async {
+    final baseColors = AppThemeBuilder.build(
+      AppThemePreset.midnight,
+    ).extension<AppThemeColors>()!;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppThemeBuilder.build(AppThemePreset.midnight),
+        home: AppRuntimeColorScope(
+          colors: baseColors,
+          hasRuntimeColors: true,
+          child: const Scaffold(
+            body: ImmersiveDetailBackground(
+              images: MediaImageRequest.empty,
+              scrollOffset: 96,
+              posterHeight: 400,
+              ambientTintOverride: Color(0xFF65A85D),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final followFinder = find.byKey(
+      const ValueKey<String>('detail-hero-transition-scroll-follow'),
+    );
+    expect(followFinder, findsOneWidget);
+    final followTransform = tester.widget<Transform>(followFinder);
+    final visualShiftY = followTransform.transform.storage[13];
+    final bridge = tester.widget<Positioned>(
+      find.byKey(const ValueKey<String>('detail-hero-transition')),
+    );
+
+    expect(visualShiftY, closeTo(-96, 0.01));
+    expect(bridge.top! + bridge.height! + visualShiftY, closeTo(304, 0.01));
+  });
 }

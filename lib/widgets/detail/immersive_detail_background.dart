@@ -303,63 +303,71 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
                     right: 0,
                     top: transitionTop,
                     height: transitionImageBlend,
-                    child: IgnorePointer(
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          DecoratedBox(
-                            key: const ValueKey<String>(
-                              'detail-hero-transition-veil',
-                            ),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: <Color>[
-                                  Colors.transparent,
-                                  transitionTint.withValues(
-                                    alpha: isLightSurface ? 0.025 : 0.04,
+                    child: Transform.translate(
+                      key: const ValueKey<String>(
+                        'detail-hero-transition-scroll-follow',
+                      ),
+                      offset: Offset(0, -collapseOffset),
+                      child: RepaintBoundary(
+                        child: IgnorePointer(
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              DecoratedBox(
+                                key: const ValueKey<String>(
+                                  'detail-hero-transition-veil',
+                                ),
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: <Color>[
+                                      Colors.transparent,
+                                      transitionTint.withValues(
+                                        alpha: isLightSurface ? 0.025 : 0.04,
+                                      ),
+                                      transitionTint.withValues(
+                                        alpha: isLightSurface ? 0.07 : 0.10,
+                                      ),
+                                    ],
+                                    stops: const <double>[0.0, 0.58, 1.0],
                                   ),
-                                  transitionTint.withValues(
-                                    alpha: isLightSurface ? 0.07 : 0.10,
-                                  ),
-                                ],
-                                stops: const <double>[0.0, 0.58, 1.0],
+                                ),
                               ),
-                            ),
-                          ),
-                          DecoratedBox(
-                            key: const ValueKey<String>(
-                              'detail-hero-transition-gradient',
-                            ),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: <Color>[
-                                  Colors.transparent,
-                                  colors.overlayScrim.withValues(
-                                    alpha: isLightSurface ? 0.03 : 0.08,
+                              DecoratedBox(
+                                key: const ValueKey<String>(
+                                  'detail-hero-transition-gradient',
+                                ),
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: <Color>[
+                                      Colors.transparent,
+                                      colors.overlayScrim.withValues(
+                                        alpha: isLightSurface ? 0.03 : 0.08,
+                                      ),
+                                      transitionSurface.withValues(
+                                        alpha: isLightSurface ? 0.16 : 0.22,
+                                      ),
+                                      transitionSurface.withValues(
+                                        alpha: isLightSurface ? 0.52 : 0.62,
+                                      ),
+                                      transitionSurface,
+                                    ],
+                                    stops: const <double>[
+                                      0.0,
+                                      0.28,
+                                      0.56,
+                                      0.82,
+                                      1.0,
+                                    ],
                                   ),
-                                  transitionSurface.withValues(
-                                    alpha: isLightSurface ? 0.16 : 0.22,
-                                  ),
-                                  transitionSurface.withValues(
-                                    alpha: isLightSurface ? 0.52 : 0.62,
-                                  ),
-                                  transitionSurface,
-                                ],
-                                stops: const <double>[
-                                  0.0,
-                                  0.28,
-                                  0.56,
-                                  0.82,
-                                  1.0,
-                                ],
+                                ),
                               ),
-                            ),
+                            ],
                           ),
-                        ],
+                        ),
                       ),
                     ),
                   ),
