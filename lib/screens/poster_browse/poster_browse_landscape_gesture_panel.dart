@@ -13,6 +13,8 @@ class PosterBrowseLandscapeGesturePanel extends StatefulWidget {
   final void Function(int index) onItemTap;
   final Widget collapsedContent;
   final ValueChanged<double>? onCollapseProgressChanged;
+  final double cardWidth;
+  final double itemSpacing;
 
   const PosterBrowseLandscapeGesturePanel({
     super.key,
@@ -24,6 +26,8 @@ class PosterBrowseLandscapeGesturePanel extends StatefulWidget {
     required this.onItemTap,
     required this.collapsedContent,
     this.onCollapseProgressChanged,
+    this.cardWidth = 116,
+    this.itemSpacing = 18,
   });
 
   @override
@@ -40,7 +44,6 @@ class _PosterBrowseLandscapeGesturePanelState
   static const _horizontalSettleDuration = Duration(milliseconds: 240);
   static const _horizontalVelocityThreshold = 420.0;
   static const _horizontalDistanceThreshold = 64.0;
-  static const _itemExtent = 134.0;
 
   late final AnimationController _collapseController;
   late final ScrollController _scrollController;
@@ -70,6 +73,8 @@ class _PosterBrowseLandscapeGesturePanelState
     }
     if (widget.focusedIndex != oldWidget.focusedIndex ||
         widget.items.length != oldWidget.items.length ||
+        widget.cardWidth != oldWidget.cardWidth ||
+        widget.itemSpacing != oldWidget.itemSpacing ||
         _focusedItemId(widget) != _focusedItemId(oldWidget)) {
       _scheduleFocusedItemSync(jump: false);
     }
@@ -129,6 +134,8 @@ class _PosterBrowseLandscapeGesturePanelState
                           onItemTap: widget.onItemTap,
                           controller: _scrollController,
                           physics: const NeverScrollableScrollPhysics(),
+                          cardWidth: widget.cardWidth,
+                          itemSpacing: widget.itemSpacing,
                         ),
                       ),
                     ),
@@ -331,6 +338,8 @@ class _PosterBrowseLandscapeGesturePanelState
     if (widget.items.isEmpty) return 0;
     return widget.focusedIndex.clamp(0, widget.items.length - 1);
   }
+
+  double get _itemExtent => widget.cardWidth + widget.itemSpacing;
 
   String? _focusedItemId(PosterBrowseLandscapeGesturePanel panel) {
     if (panel.items.isEmpty) return null;
