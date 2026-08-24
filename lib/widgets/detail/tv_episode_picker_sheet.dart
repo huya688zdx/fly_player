@@ -9,6 +9,7 @@ import '../../theme/app_theme.dart';
 import '../../ui/app_transitions.dart';
 import '../../ui/detail_artwork_resolver.dart';
 import '../../ui/media_detail_components.dart';
+import '../common/app_modal_surface.dart';
 import '../common/liquid_glass.dart';
 
 typedef TvEpisodePickerLoader =
@@ -181,219 +182,219 @@ class _TvEpisodePickerSheetBodyState extends State<_TvEpisodePickerSheetBody> {
     return SafeArea(
       top: false,
       bottom: false,
-      child: Container(
+      child: SizedBox(
         height: height,
-        padding: EdgeInsets.only(
-          left: 16,
-          right: 16,
-          top: 10,
-          bottom: media.padding.bottom > 0 ? media.padding.bottom : 16,
-        ),
-        decoration: BoxDecoration(
-          color: colors.backgroundElevated,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: colors.borderStrong,
-                  borderRadius: BorderRadius.circular(999),
+        child: AppModalSurface(
+          key: const ValueKey<String>('app-modal-surface-episode-picker'),
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 10,
+            bottom: media.padding.bottom > 0 ? media.padding.bottom : 16,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: colors.borderStrong,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    widget.title,
-                    style: TextStyle(
-                      color: colors.accent,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      widget.title,
+                      style: TextStyle(
+                        color: colors.accent,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
-                ),
-                IconButton(
-                  onPressed: _modeUpdating
-                      ? null
-                      : () {
-                          unawaited(_toggleMode());
-                        },
-                  splashRadius: 22,
-                  icon: AnimatedSwitcher(
-                    duration: AppTransitions.switchDuration,
-                    switchInCurve: Curves.easeOutCubic,
-                    switchOutCurve: Curves.easeOutCubic,
-                    child: _modeUpdating
-                        ? SizedBox(
-                            key: const ValueKey<String>('saving'),
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: colors.accent,
-                            ),
-                          )
-                        : Icon(
-                            key: ValueKey<TvEpisodePickerMode>(_mode),
-                            _mode == TvEpisodePickerMode.list
-                                ? Icons.grid_view_rounded
-                                : Icons.view_list_rounded,
-                            color: colors.textSecondary,
-                          ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            if (widget.seasons.isNotEmpty)
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    for (int i = 0; i < widget.seasons.length; i++) ...[
-                      if (i > 0)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          child: Text(
-                            '/',
-                            style: TextStyle(
+                  IconButton(
+                    onPressed: _modeUpdating
+                        ? null
+                        : () {
+                            unawaited(_toggleMode());
+                          },
+                    splashRadius: 22,
+                    icon: AnimatedSwitcher(
+                      duration: AppTransitions.switchDuration,
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeOutCubic,
+                      child: _modeUpdating
+                          ? SizedBox(
+                              key: const ValueKey<String>('saving'),
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: colors.accent,
+                              ),
+                            )
+                          : Icon(
+                              key: ValueKey<TvEpisodePickerMode>(_mode),
+                              _mode == TvEpisodePickerMode.list
+                                  ? Icons.grid_view_rounded
+                                  : Icons.view_list_rounded,
                               color: colors.textSecondary,
-                              fontSize: 17,
-                              fontWeight: FontWeight.w500,
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (widget.seasons.isNotEmpty)
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (int i = 0; i < widget.seasons.length; i++) ...[
+                        if (i > 0)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            child: Text(
+                              '/',
+                              style: TextStyle(
+                                color: colors.textSecondary,
+                                fontSize: 17,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
                           ),
-                        ),
-                      InkWell(
-                        onTap: () {
-                          final guid = widget.seasons[i].guid;
-                          if (guid == _selectedSeasonGuid) return;
-                          setState(() => _selectedSeasonGuid = guid);
-                          _loadSeason(guid);
-                        },
-                        child: Text(
-                          widget.seasons[i].label,
-                          style: TextStyle(
-                            color: widget.seasons[i].guid == _selectedSeasonGuid
-                                ? colors.selection
-                                : colors.textSecondary,
-                            fontSize: 17,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            const SizedBox(height: 14),
-            if (ranges.length > 1)
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: colors.surface,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: SizedBox(
-                  height: 38,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: ranges.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 8),
-                    itemBuilder: (context, index) {
-                      final start = index * widget.rangeSize + 1;
-                      final end = start + ranges[index].length - 1;
-                      final selected = index == safeRangeIndex;
-                      return InkWell(
-                        onTap: () => setState(() => _rangeIndex = index),
-                        borderRadius: BorderRadius.circular(10),
-                        child: AnimatedContainer(
-                          duration: AppTransitions.switchDuration,
-                          curve: Curves.easeOutCubic,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
-                          ),
-                          decoration: liquidGlassDecoration(
-                            context,
-                            radius: 10,
-                            tone: selected
-                                ? LiquidGlassTone.accent
-                                : LiquidGlassTone.neutral,
-                            selected: selected,
-                          ),
+                        InkWell(
+                          onTap: () {
+                            final guid = widget.seasons[i].guid;
+                            if (guid == _selectedSeasonGuid) return;
+                            setState(() => _selectedSeasonGuid = guid);
+                            _loadSeason(guid);
+                          },
                           child: Text(
-                            '$start - $end',
+                            widget.seasons[i].label,
                             style: TextStyle(
-                              color: selected
-                                  ? colors.selectionStrong
+                              color:
+                                  widget.seasons[i].guid == _selectedSeasonGuid
+                                  ? colors.selection
                                   : colors.textSecondary,
-                              fontSize: 15,
+                              fontSize: 17,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
                         ),
-                      );
-                    },
+                      ],
+                    ],
                   ),
                 ),
-              ),
-            const SizedBox(height: 14),
-            Expanded(
-              child: AnimatedSwitcher(
-                duration: AppTransitions.contentSwitchDuration,
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeOutCubic,
-                child: _loading
-                    ? Center(
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: colors.accent,
-                        ),
-                      )
-                    : visibleEntries.isEmpty
-                    ? _EmptySheetState(text: widget.emptyText)
-                    : _mode == TvEpisodePickerMode.list
-                    ? _EpisodeListView(
-                        key: ValueKey<String>(
-                          'list-${visibleEntries.length}-$_selectedSeasonGuid',
-                        ),
-                        entries: visibleEntries,
-                        token: widget.token,
-                        accessCode: widget.accessCode,
-                        baseUrl: widget.baseUrl,
-                        onTap: (guid) => Navigator.of(context).pop(
-                          TvEpisodePickerSheetResult(
-                            seasonGuid: _selectedSeasonGuid,
-                            episodeGuid: guid,
-                            mode: _mode,
-                            openDetail: true,
+              const SizedBox(height: 14),
+              if (ranges.length > 1)
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: colors.surface,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: SizedBox(
+                    height: 38,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: ranges.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 8),
+                      itemBuilder: (context, index) {
+                        final start = index * widget.rangeSize + 1;
+                        final end = start + ranges[index].length - 1;
+                        final selected = index == safeRangeIndex;
+                        return InkWell(
+                          onTap: () => setState(() => _rangeIndex = index),
+                          borderRadius: BorderRadius.circular(10),
+                          child: AnimatedContainer(
+                            duration: AppTransitions.switchDuration,
+                            curve: Curves.easeOutCubic,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
+                            ),
+                            decoration: liquidGlassDecoration(
+                              context,
+                              radius: 10,
+                              tone: selected
+                                  ? LiquidGlassTone.accent
+                                  : LiquidGlassTone.neutral,
+                              selected: selected,
+                            ),
+                            child: Text(
+                              '$start - $end',
+                              style: TextStyle(
+                                color: selected
+                                    ? colors.selectionStrong
+                                    : colors.textSecondary,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 14),
+              Expanded(
+                child: AnimatedSwitcher(
+                  duration: AppTransitions.contentSwitchDuration,
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeOutCubic,
+                  child: _loading
+                      ? Center(
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: colors.accent,
+                          ),
+                        )
+                      : visibleEntries.isEmpty
+                      ? _EmptySheetState(text: widget.emptyText)
+                      : _mode == TvEpisodePickerMode.list
+                      ? _EpisodeListView(
+                          key: ValueKey<String>(
+                            'list-${visibleEntries.length}-$_selectedSeasonGuid',
+                          ),
+                          entries: visibleEntries,
+                          token: widget.token,
+                          accessCode: widget.accessCode,
+                          baseUrl: widget.baseUrl,
+                          onTap: (guid) => Navigator.of(context).pop(
+                            TvEpisodePickerSheetResult(
+                              seasonGuid: _selectedSeasonGuid,
+                              episodeGuid: guid,
+                              mode: _mode,
+                              openDetail: true,
+                            ),
+                          ),
+                        )
+                      : _EpisodeGridView(
+                          key: ValueKey<String>(
+                            'grid-${visibleEntries.length}-$_selectedSeasonGuid',
+                          ),
+                          entries: visibleEntries,
+                          onTap: (guid) => Navigator.of(context).pop(
+                            TvEpisodePickerSheetResult(
+                              seasonGuid: _selectedSeasonGuid,
+                              episodeGuid: guid,
+                              mode: _mode,
+                              openDetail: true,
+                            ),
                           ),
                         ),
-                      )
-                    : _EpisodeGridView(
-                        key: ValueKey<String>(
-                          'grid-${visibleEntries.length}-$_selectedSeasonGuid',
-                        ),
-                        entries: visibleEntries,
-                        onTap: (guid) => Navigator.of(context).pop(
-                          TvEpisodePickerSheetResult(
-                            seasonGuid: _selectedSeasonGuid,
-                            episodeGuid: guid,
-                            mode: _mode,
-                            openDetail: true,
-                          ),
-                        ),
-                      ),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

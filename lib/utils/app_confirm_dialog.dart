@@ -27,7 +27,7 @@ Future<bool> showAppConfirmDialog(
           ? 640.0
           : 560.0;
       return Dialog(
-        backgroundColor: colors.surface,
+        backgroundColor: context.appModalBackgroundColor,
         insetPadding: EdgeInsets.symmetric(horizontal: horizontalInset),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         child: ConstrainedBox(

@@ -29,6 +29,7 @@ import '../utils/api_url_helper.dart';
 import '../utils/app_exception.dart';
 import '../utils/swallowed_error_logger.dart';
 import '../widgets/common/app_error_state.dart';
+import '../widgets/app_atmospheric_background.dart';
 import '../widgets/library/media_collection_layout_sheet.dart';
 import '../widgets/library/media_library_list_tile.dart';
 
@@ -522,7 +523,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     final colors = context.appColors;
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: colors.surface,
+      backgroundColor: context.appModalBackgroundColor,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -635,7 +636,7 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: colors.surface,
+      backgroundColor: context.appModalBackgroundColor,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -818,35 +819,43 @@ class _CategoryItemsScreenState extends State<CategoryItemsScreen> {
     final provider = context.read<NasProvider>();
     final isFeiniu = _isFeiniuBackend;
     final colors = context.appColors;
-    return Scaffold(
-      backgroundColor: colors.backgroundBase,
-      appBar: AppBar(
-        backgroundColor: colors.backgroundBase,
-        surfaceTintColor: Colors.transparent,
-        foregroundColor: colors.textPrimary,
-        iconTheme: IconThemeData(color: colors.textPrimary),
-        actionsIconTheme: IconThemeData(color: colors.textPrimary),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            unawaited(
-              widget.secondaryHost
-                  ? EmbeddedDetailLauncher.closeHostOrPop(context)
-                  : Navigator.of(context).maybePop(),
-            );
-          },
+    final atmosphere = AppAtmospherePalette.resolve(
+      baseColors: context.baseAppColors,
+      effectiveColors: colors,
+      hasDynamicTheme: context.hasRuntimeAppColors,
+    );
+    return AppAtmosphericBackground(
+      palette: atmosphere,
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          foregroundColor: colors.textPrimary,
+          iconTheme: IconThemeData(color: colors.textPrimary),
+          actionsIconTheme: IconThemeData(color: colors.textPrimary),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () {
+              unawaited(
+                widget.secondaryHost
+                    ? EmbeddedDetailLauncher.closeHostOrPop(context)
+                    : Navigator.of(context).maybePop(),
+              );
+            },
+          ),
+          titleTextStyle: TextStyle(
+            color: colors.textPrimary,
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+          ),
+          title: Text(widget.category.name),
         ),
-        titleTextStyle: TextStyle(
-          color: colors.textPrimary,
-          fontSize: 20,
-          fontWeight: FontWeight.w700,
+        body: _buildBody(
+          isFeiniu ? provider.baseUrl : '',
+          isFeiniu ? provider.token : '',
+          isFeiniu ? provider.accessCode : '',
         ),
-        title: Text(widget.category.name),
-      ),
-      body: _buildBody(
-        isFeiniu ? provider.baseUrl : '',
-        isFeiniu ? provider.token : '',
-        isFeiniu ? provider.accessCode : '',
       ),
     );
   }
@@ -1162,6 +1171,10 @@ class _CategoryToolButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final control = AppTonalControlPalette.resolve(
+      colors: colors,
+      active: active,
+    );
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
@@ -1169,17 +1182,11 @@ class _CategoryToolButton extends StatelessWidget {
         width: 40,
         height: 40,
         decoration: BoxDecoration(
-          color: active ? colors.selectionSoft : colors.backgroundElevated,
+          color: control.fill,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: active ? colors.selection : colors.chipBorder,
-          ),
+          border: Border.all(color: control.border),
         ),
-        child: Icon(
-          icon,
-          color: active ? colors.selectionStrong : colors.textSecondary,
-          size: 21,
-        ),
+        child: Icon(icon, color: control.foreground, size: 21),
       ),
     );
   }

@@ -78,7 +78,7 @@ class AppSettingsScreen extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: colors.surface,
+              color: sheetContext.appModalBackgroundColor,
               borderRadius: BorderRadius.circular(24),
               border: Border.all(color: colors.borderSubtle),
             ),

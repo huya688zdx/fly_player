@@ -940,7 +940,7 @@ class _ScreenshotSearchSheetState extends State<_ScreenshotSearchSheet> {
         padding: EdgeInsets.only(bottom: bottomInset),
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: colors.backgroundElevated,
+            color: context.appModalBackgroundColor,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
             border: Border.all(color: colors.borderSubtle),
           ),
@@ -1038,7 +1038,7 @@ class _ScreenshotFilterSheet extends StatelessWidget {
       top: false,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: colors.backgroundElevated,
+          color: context.appModalBackgroundColor,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
           border: Border.all(color: colors.borderSubtle),
         ),
@@ -1214,7 +1214,7 @@ class _ScreenshotSortSheetState extends State<_ScreenshotSortSheet> {
       top: false,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: colors.backgroundElevated,
+          color: context.appModalBackgroundColor,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
           border: Border.all(color: colors.borderSubtle),
         ),
@@ -1951,7 +1951,7 @@ class _ScreenshotLightboxState extends State<_ScreenshotLightbox>
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: context.appColors.surface,
+      backgroundColor: context.appModalBackgroundColor,
       builder: (context) {
         final colors = context.appColors;
         final l10n = AppLocalizations.of(context);

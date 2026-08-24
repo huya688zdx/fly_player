@@ -1,0 +1,104 @@
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:fly_player/pages/feiniu_tv_detail_display_policy.dart';
+
+void main() {
+  group('FeiniuTvDetailDisplayPolicy', () {
+    test('初始阶段缺少 backdrop 或季列表仍加载时保留标题和简介', () {
+      final state = FeiniuTvDetailDisplayPolicy.resolve(
+        detailIsFull: false,
+        detailBackdrop: '',
+        initialBackdrop: '',
+        detailStill: '',
+        detailPoster: '',
+        detailOverview: '这是一段系列简介。',
+        seasonListResolved: false,
+      );
+
+      expect(state.showTitleFallback, isTrue);
+      expect(state.showOverview, isTrue);
+      expect(state.heroPath, isEmpty);
+    });
+
+    test('刷新数据无 backdrop 时不把空背景误认为已就绪', () {
+      final state = FeiniuTvDetailDisplayPolicy.resolve(
+        detailIsFull: true,
+        detailBackdrop: '',
+        initialBackdrop: '',
+        detailStill: '',
+        detailPoster: '',
+        detailOverview: '刷新后的系列简介。',
+        seasonListResolved: false,
+      );
+
+      expect(state.showTitleFallback, isTrue);
+      expect(state.showOverview, isTrue);
+      expect(state.heroPath, isEmpty);
+    });
+
+    test('飞牛详情返回 backdrop 后使用它淡入，且不依赖季列表状态', () {
+      final loading = FeiniuTvDetailDisplayPolicy.resolve(
+        detailIsFull: true,
+        detailBackdrop: '/series-backdrop.jpg',
+        initialBackdrop: '',
+        detailStill: '/episode-still.jpg',
+        detailPoster: '/series-poster.jpg',
+        detailOverview: '完整系列简介。',
+        seasonListResolved: false,
+      );
+      final resolved = FeiniuTvDetailDisplayPolicy.resolve(
+        detailIsFull: true,
+        detailBackdrop: '/series-backdrop.jpg',
+        initialBackdrop: '',
+        detailStill: '/episode-still.jpg',
+        detailPoster: '/series-poster.jpg',
+        detailOverview: '完整系列简介。',
+        seasonListResolved: true,
+      );
+
+      expect(loading.heroPath, '/series-backdrop.jpg');
+      expect(loading.showArtwork, isTrue);
+      expect(resolved.heroPath, loading.heroPath);
+      expect(resolved.showArtwork, isTrue);
+      expect(resolved.showTitleFallback, isTrue);
+      expect(resolved.showOverview, isTrue);
+    });
+
+    test('完整详情无 backdrop 时按安全顺序回退 still 再海报', () {
+      final state = FeiniuTvDetailDisplayPolicy.resolve(
+        detailIsFull: true,
+        detailBackdrop: '',
+        initialBackdrop: '',
+        detailStill: '/still.jpg',
+        detailPoster: '/poster.jpg',
+        detailOverview: '',
+        seasonListResolved: false,
+      );
+
+      expect(state.heroPath, '/still.jpg');
+      expect(state.showArtwork, isTrue);
+      expect(state.showOverview, isFalse);
+    });
+
+    test('系列页直接消费详情可见性，不再由延迟动画隐藏背景和简介', () {
+      final source = File('lib/pages/tv_detail_page.dart').readAsStringSync();
+
+      expect(
+        source,
+        contains(': _loading || !feiniuDisplayState.showArtwork;'),
+      );
+      expect(source, contains('if (displayState.showOverview)'));
+    });
+
+    test('季列表数据到达后不再播放整块透明缩放动画', () {
+      final source = File('lib/pages/tv_detail_page.dart').readAsStringSync();
+
+      expect(source, isNot(contains('_seasonCardPopController')));
+      expect(source, isNot(contains('_seasonCardsVisible')));
+      expect(source, isNot(contains('_seasonCardOpacity')));
+      expect(source, isNot(contains('_seasonCardScale')));
+      expect(source, isNot(contains('_seasonCardTranslateY')));
+    });
+  });
+}

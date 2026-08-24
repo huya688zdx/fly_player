@@ -22,16 +22,10 @@ class ImmersiveDetailBackground extends StatefulWidget {
   final BoxFit imageFit;
   final Alignment imageAlignment;
 
-  final bool enableBottomFade;
-
-  final double fadeStart;
-  final double fadeMid;
-
   final bool fillGapsWithImage;
   final Color? ambientTintOverride;
-  final Color? bottomFadeTintColor;
-  final Color? bottomFadeBackgroundColor;
-  final double bottomFadeExtraHeight;
+  final Color? transitionTintColor;
+  final Color? transitionBodyColor;
 
   final double parallaxFactor;
   final double overlayOpacity;
@@ -46,14 +40,10 @@ class ImmersiveDetailBackground extends StatefulWidget {
     this.imageScale = 1.0,
     this.imageFit = BoxFit.cover,
     this.imageAlignment = Alignment.topCenter,
-    this.enableBottomFade = false,
-    this.fadeStart = 0.58,
-    this.fadeMid = 0.82,
     this.fillGapsWithImage = false,
     this.ambientTintOverride,
-    this.bottomFadeTintColor,
-    this.bottomFadeBackgroundColor,
-    this.bottomFadeExtraHeight = 180,
+    this.transitionTintColor,
+    this.transitionBodyColor,
     this.parallaxFactor = 0.40,
     this.overlayOpacity = 1.0,
     this.maxScrollZoom = 1.24,
@@ -178,6 +168,7 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
         !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
     final colors = context.appColors;
     final isLightSurface = colors.backgroundBase.computeLuminance() >= 0.58;
+    final ambientTint = widget.ambientTintOverride;
 
     final mediaSize = MediaQuery.of(context).size;
     final screenWidth = mediaSize.width;
@@ -204,36 +195,26 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
     final scrollZoom =
         1.0 + ((widget.maxScrollZoom.clamp(1.0, 1.3) - 1.0) * zoomT);
 
-    final fusionStart = widget.fadeStart.clamp(0.30, 0.86).toDouble();
-    final fusionMid = widget.fadeMid.clamp(fusionStart + 0.06, 0.94).toDouble();
     final overlayOpacity = widget.overlayOpacity.clamp(0.0, 1.0);
-    final layerA = (fusionStart + ((fusionMid - fusionStart) * 0.36))
-        .clamp(fusionStart + 0.04, fusionMid - 0.02)
-        .toDouble();
-    final layerB = fusionMid.toDouble();
-    final layerC = (fusionMid + ((1.0 - fusionMid) * 0.42))
-        .clamp(layerB + 0.04, 0.98)
-        .toDouble();
-    final layerD = (layerC + ((1.0 - layerC) * 0.52))
-        .clamp(layerC + 0.04, 0.995)
-        .toDouble();
-
-    final bottomFadeBackground =
-        widget.bottomFadeBackgroundColor ?? colors.backgroundBase;
-    // tint 来源已统一为调用方（DynamicPageThemeScope）传入的 ambientTintOverride /
-    // bottomFadeTintColor；本组件内部不再自取 monet tint（已删）。
-    final bottomFadeTint =
-        widget.bottomFadeTintColor ??
-        widget.ambientTintOverride ??
+    final transitionBody = widget.transitionBodyColor ?? colors.backgroundBase;
+    final transitionTint =
+        widget.transitionTintColor ??
+        ambientTint ??
         (isLightSurface ? colors.backgroundElevated : colors.overlayScrim);
-    final bottomFogColor = Color.alphaBlend(
-      bottomFadeTint.withValues(alpha: isLightSurface ? 0.42 : 0.56),
-      bottomFadeBackground,
+    final transitionSurface = Color.alphaBlend(
+      transitionTint.withValues(alpha: isLightSurface ? 0.08 : 0.12),
+      transitionBody,
     );
-
-    final baseScrimAlpha =
-        ((widget.enableBottomFade ? 0.0 : (isLightSurface ? 0.0 : 0.03))) *
-        overlayOpacity;
+    // 交接层必须是海报裁切区域的一部分，不能作为兄弟层延伸到正文；
+    // 这样滚动时烟雾遮罩始终附着在图片上，正文只承接稳定的取色底面。
+    final minimumImageBlend = heroHeight < 168.0 ? heroHeight : 168.0;
+    final transitionImageBlend = (heroHeight * 0.42)
+        .clamp(minimumImageBlend, 252.0)
+        .toDouble();
+    final transitionTop = (expandedHeroHeight - transitionImageBlend)
+        .clamp(0.0, double.infinity)
+        .toDouble();
+    final baseScrimAlpha = (isLightSurface ? 0.0 : 0.03) * overlayOpacity;
 
     final heroImageHeight = expandedHeroHeight + parallaxMax + 80;
 
@@ -243,100 +224,156 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
       child: Stack(
         children: [
           Positioned.fill(child: ColoredBox(color: colors.backgroundBase)),
-
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: expandedHeroHeight,
-            child: ClipRect(
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  Transform.translate(
-                    offset: Offset(0, -parallaxShift),
-                    child: SizedBox(
-                      width: screenWidth,
-                      height: heroImageHeight,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          if (_gapImageLayer != null) _gapImageLayer!,
-                          // 低清铺底，与主图同一 Transform.scale 对齐，垫在主图之下；
-                          // 主图就绪（淡入完成）后卸载，不再参与每帧合成。
-                          if (_lowResImageLayer != null && !_mainImageReady)
-                            Transform.scale(
-                              scale: widget.imageScale * scrollZoom,
-                              alignment: widget.imageAlignment,
-                              child: _lowResImageLayer,
-                            ),
-                          Transform.scale(
-                            scale: widget.imageScale * scrollZoom,
-                            alignment: widget.imageAlignment,
-                            child: _mainImageLayer,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  Positioned.fill(
-                    child: ColoredBox(
-                      color: colors.overlayScrim.withValues(
-                        alpha: baseScrimAlpha,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          if (widget.enableBottomFade)
-            Positioned(
-              left: 0,
-              right: 0,
-              top: 0,
-              height: expandedHeroHeight + widget.bottomFadeExtraHeight,
+          if (ambientTint != null)
+            Positioned.fill(
               child: IgnorePointer(
                 child: DecoratedBox(
+                  key: const ValueKey<String>('detail-background-ambient-wash'),
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.transparent,
-                        bottomFogColor.withValues(
-                          alpha: isLightSurface ? 0.08 : 0.10,
+                    gradient: RadialGradient(
+                      center: const Alignment(-0.35, -0.72),
+                      radius: 1.52,
+                      colors: <Color>[
+                        ambientTint.withValues(
+                          alpha: isLightSurface ? 0.14 : 0.22,
                         ),
-                        bottomFogColor.withValues(
-                          alpha: isLightSurface ? 0.18 : 0.22,
+                        ambientTint.withValues(
+                          alpha: isLightSurface ? 0.07 : 0.11,
                         ),
-                        bottomFogColor.withValues(
-                          alpha: isLightSurface ? 0.34 : 0.40,
+                        // 页面下半部仍保留微弱色相，避免正文退回固定深蓝底；
+                        // 强度足够辨认取色差异，同时不影响正文对比度。
+                        ambientTint.withValues(
+                          alpha: isLightSurface ? 0.025 : 0.045,
                         ),
-                        bottomFadeBackground.withValues(
-                          alpha: isLightSurface ? 0.68 : 0.62,
-                        ),
-                        bottomFadeBackground.withValues(
-                          alpha: isLightSurface ? 0.90 : 0.86,
-                        ),
-                        bottomFadeBackground,
                       ],
-                      stops: [
-                        0.0,
-                        fusionStart,
-                        layerA,
-                        layerB,
-                        layerC,
-                        layerD,
-                        1.0,
-                      ],
+                      stops: const <double>[0, 0.54, 1],
                     ),
                   ),
                 ),
               ),
             ),
+
+          Positioned(
+            key: const ValueKey<String>('detail-hero-image-region'),
+            top: 0,
+            left: 0,
+            right: 0,
+            height: expandedHeroHeight,
+            child: Transform.translate(
+              key: const ValueKey<String>('detail-hero-region-scroll-follow'),
+              offset: Offset(0, -collapseOffset),
+              child: ClipRect(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Transform.translate(
+                      key: const ValueKey<String>('detail-hero-image-parallax'),
+                      offset: Offset(0, collapseOffset - parallaxShift),
+                      child: SizedBox(
+                        width: screenWidth,
+                        height: heroImageHeight,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            if (_gapImageLayer != null) _gapImageLayer!,
+                            // 低清铺底，与主图同一 Transform.scale 对齐，垫在主图之下；
+                            // 主图就绪（淡入完成）后卸载，不再参与每帧合成。
+                            if (_lowResImageLayer != null && !_mainImageReady)
+                              Transform.scale(
+                                scale: widget.imageScale * scrollZoom,
+                                alignment: widget.imageAlignment,
+                                child: _lowResImageLayer,
+                              ),
+                            Transform.scale(
+                              scale: widget.imageScale * scrollZoom,
+                              alignment: widget.imageAlignment,
+                              child: _mainImageLayer,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    Positioned.fill(
+                      child: ColoredBox(
+                        color: colors.overlayScrim.withValues(
+                          alpha: baseScrimAlpha,
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      key: const ValueKey<String>('detail-hero-transition'),
+                      left: 0,
+                      right: 0,
+                      top: transitionTop,
+                      height: transitionImageBlend,
+                      child: RepaintBoundary(
+                        child: IgnorePointer(
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              DecoratedBox(
+                                key: const ValueKey<String>(
+                                  'detail-hero-transition-veil',
+                                ),
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: <Color>[
+                                      Colors.transparent,
+                                      transitionTint.withValues(
+                                        alpha: isLightSurface ? 0.025 : 0.04,
+                                      ),
+                                      transitionTint.withValues(
+                                        alpha: isLightSurface ? 0.07 : 0.10,
+                                      ),
+                                    ],
+                                    stops: const <double>[0.0, 0.58, 1.0],
+                                  ),
+                                ),
+                              ),
+                              DecoratedBox(
+                                key: const ValueKey<String>(
+                                  'detail-hero-transition-gradient',
+                                ),
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: <Color>[
+                                      Colors.transparent,
+                                      colors.overlayScrim.withValues(
+                                        alpha: isLightSurface ? 0.03 : 0.08,
+                                      ),
+                                      transitionSurface.withValues(
+                                        alpha: isLightSurface ? 0.16 : 0.22,
+                                      ),
+                                      transitionSurface.withValues(
+                                        alpha: isLightSurface ? 0.52 : 0.62,
+                                      ),
+                                      transitionSurface,
+                                    ],
+                                    stops: const <double>[
+                                      0.0,
+                                      0.28,
+                                      0.56,
+                                      0.82,
+                                      1.0,
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
