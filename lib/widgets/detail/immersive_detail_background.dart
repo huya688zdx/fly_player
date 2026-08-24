@@ -22,16 +22,10 @@ class ImmersiveDetailBackground extends StatefulWidget {
   final BoxFit imageFit;
   final Alignment imageAlignment;
 
-  final bool enableBottomFade;
-
-  final double fadeStart;
-  final double fadeMid;
-
   final bool fillGapsWithImage;
   final Color? ambientTintOverride;
-  final Color? bottomFadeTintColor;
-  final Color? bottomFadeBackgroundColor;
-  final double bottomFadeExtraHeight;
+  final Color? transitionTintColor;
+  final Color? transitionBodyColor;
 
   final double parallaxFactor;
   final double overlayOpacity;
@@ -46,14 +40,10 @@ class ImmersiveDetailBackground extends StatefulWidget {
     this.imageScale = 1.0,
     this.imageFit = BoxFit.cover,
     this.imageAlignment = Alignment.topCenter,
-    this.enableBottomFade = false,
-    this.fadeStart = 0.58,
-    this.fadeMid = 0.82,
     this.fillGapsWithImage = false,
     this.ambientTintOverride,
-    this.bottomFadeTintColor,
-    this.bottomFadeBackgroundColor,
-    this.bottomFadeExtraHeight = 180,
+    this.transitionTintColor,
+    this.transitionBodyColor,
     this.parallaxFactor = 0.40,
     this.overlayOpacity = 1.0,
     this.maxScrollZoom = 1.24,
@@ -205,36 +195,31 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
     final scrollZoom =
         1.0 + ((widget.maxScrollZoom.clamp(1.0, 1.3) - 1.0) * zoomT);
 
-    final fusionStart = widget.fadeStart.clamp(0.30, 0.86).toDouble();
-    final fusionMid = widget.fadeMid.clamp(fusionStart + 0.06, 0.94).toDouble();
     final overlayOpacity = widget.overlayOpacity.clamp(0.0, 1.0);
-    final layerA = (fusionStart + ((fusionMid - fusionStart) * 0.36))
-        .clamp(fusionStart + 0.04, fusionMid - 0.02)
-        .toDouble();
-    final layerB = fusionMid.toDouble();
-    final layerC = (fusionMid + ((1.0 - fusionMid) * 0.42))
-        .clamp(layerB + 0.04, 0.98)
-        .toDouble();
-    final layerD = (layerC + ((1.0 - layerC) * 0.52))
-        .clamp(layerC + 0.04, 0.995)
-        .toDouble();
-
-    final bottomFadeBackground =
-        widget.bottomFadeBackgroundColor ?? colors.backgroundBase;
-    // tint 来源已统一为调用方（DynamicPageThemeScope）传入的 ambientTintOverride /
-    // bottomFadeTintColor；本组件内部不再自取 monet tint（已删）。
-    final bottomFadeTint =
-        widget.bottomFadeTintColor ??
-        widget.ambientTintOverride ??
+    final transitionBody = widget.transitionBodyColor ?? colors.backgroundBase;
+    final transitionTint =
+        widget.transitionTintColor ??
+        ambientTint ??
         (isLightSurface ? colors.backgroundElevated : colors.overlayScrim);
-    final bottomFogColor = Color.alphaBlend(
-      bottomFadeTint.withValues(alpha: isLightSurface ? 0.42 : 0.56),
-      bottomFadeBackground,
+    final transitionFog = Color.alphaBlend(
+      transitionTint.withValues(alpha: isLightSurface ? 0.18 : 0.26),
+      transitionBody,
     );
-
-    final baseScrimAlpha =
-        ((widget.enableBottomFade ? 0.0 : (isLightSurface ? 0.0 : 0.03))) *
-        overlayOpacity;
+    // 交接层的前段位于海报内，正好在海报底边达到不透明；后段越过分界
+    // 延伸到正文，再逐渐退回透明，让同一张取色背景自然接管。
+    final minimumImageBlend = heroHeight < 168.0 ? heroHeight : 168.0;
+    final transitionImageBlend = (heroHeight * 0.42)
+        .clamp(minimumImageBlend, 252.0)
+        .toDouble();
+    final transitionBodyOverlap = (heroHeight * 0.18)
+        .clamp(64.0, 96.0)
+        .toDouble();
+    final transitionHeight = transitionImageBlend + transitionBodyOverlap;
+    final transitionTop = (expandedHeroHeight - transitionImageBlend)
+        .clamp(0.0, double.infinity)
+        .toDouble();
+    final boundaryStop = transitionImageBlend / transitionHeight;
+    final baseScrimAlpha = (isLightSurface ? 0.0 : 0.03) * overlayOpacity;
 
     final heroImageHeight = expandedHeroHeight + parallaxMax + 80;
 
@@ -321,51 +306,50 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
             ),
           ),
 
-          if (widget.enableBottomFade)
-            Positioned(
-              left: 0,
-              right: 0,
-              top: 0,
-              height: expandedHeroHeight + widget.bottomFadeExtraHeight,
-              child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.transparent,
-                        bottomFogColor.withValues(
-                          alpha: isLightSurface ? 0.08 : 0.10,
-                        ),
-                        bottomFogColor.withValues(
-                          alpha: isLightSurface ? 0.18 : 0.22,
-                        ),
-                        bottomFogColor.withValues(
-                          alpha: isLightSurface ? 0.34 : 0.40,
-                        ),
-                        bottomFadeBackground.withValues(
-                          alpha: isLightSurface ? 0.68 : 0.62,
-                        ),
-                        bottomFadeBackground.withValues(
-                          alpha: isLightSurface ? 0.90 : 0.86,
-                        ),
-                        bottomFadeBackground,
-                      ],
-                      stops: [
-                        0.0,
-                        fusionStart,
-                        layerA,
-                        layerB,
-                        layerC,
-                        layerD,
-                        1.0,
-                      ],
-                    ),
+          Positioned(
+            key: const ValueKey<String>('detail-hero-transition'),
+            left: 0,
+            right: 0,
+            top: transitionTop,
+            height: transitionHeight,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                key: const ValueKey<String>('detail-hero-transition-gradient'),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: <Color>[
+                      Colors.transparent,
+                      colors.overlayScrim.withValues(
+                        alpha: isLightSurface ? 0.04 : 0.10,
+                      ),
+                      transitionFog.withValues(
+                        alpha: isLightSurface ? 0.24 : 0.30,
+                      ),
+                      transitionFog.withValues(
+                        alpha: isLightSurface ? 0.64 : 0.72,
+                      ),
+                      transitionFog,
+                      transitionFog.withValues(
+                        alpha: isLightSurface ? 0.48 : 0.56,
+                      ),
+                      Colors.transparent,
+                    ],
+                    stops: <double>[
+                      0.0,
+                      0.22,
+                      0.48,
+                      boundaryStop - 0.06,
+                      boundaryStop,
+                      0.88,
+                      1.0,
+                    ],
                   ),
                 ),
               ),
             ),
+          ),
         ],
       ),
     );
