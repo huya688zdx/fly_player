@@ -144,6 +144,40 @@ void main() {
 
     expect(selected, <int>[2]);
   });
+
+  testWidgets('横屏海报面板收起后信息按切换方向位移过渡', (tester) async {
+    const firstKey = ValueKey('collapsed-info-1');
+    const secondKey = ValueKey('collapsed-info-2');
+    await _pumpPanel(
+      tester,
+      focusedIndex: 1,
+      onItemTap: (_) {},
+      collapsedContent: const Text('影片详情一', key: firstKey),
+    );
+    await tester.timedDrag(
+      _panelFinder,
+      const Offset(0, 180),
+      const Duration(milliseconds: 300),
+    );
+    await tester.pumpAndSettle();
+    final restingLeft = tester.getTopLeft(find.byKey(firstKey)).dx;
+
+    await _pumpPanel(
+      tester,
+      focusedIndex: 2,
+      onItemTap: (_) {},
+      collapsedContent: const Text('影片详情二', key: secondKey),
+    );
+    await tester.pump(const Duration(milliseconds: 80));
+
+    expect(find.byKey(firstKey), findsOneWidget);
+    expect(find.byKey(secondKey), findsOneWidget);
+    expect(tester.getTopLeft(find.byKey(firstKey)).dx, lessThan(restingLeft));
+    expect(
+      tester.getTopLeft(find.byKey(secondKey)).dx,
+      greaterThan(restingLeft),
+    );
+  });
 }
 
 final Finder _panelFinder = find.byKey(
@@ -154,6 +188,7 @@ Future<void> _pumpPanel(
   WidgetTester tester, {
   required int focusedIndex,
   required void Function(int index) onItemTap,
+  Widget collapsedContent = const Text('影片详情'),
 }) async {
   await tester.binding.setSurfaceSize(const Size(853, 384));
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -166,7 +201,7 @@ Future<void> _pumpPanel(
         imageOf: (_) => MediaImageRequest.empty,
         secondaryLabelOf: (_) => '第 1 季',
         onItemTap: onItemTap,
-        collapsedContent: const Text('影片详情'),
+        collapsedContent: collapsedContent,
       ),
     ),
   );

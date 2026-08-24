@@ -562,6 +562,79 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('高分辨率横屏上下拖动时信息和分类栏跟随手指位移淡出', (tester) async {
+    final card = _card(id: 'vertical-motion', title: '上下联动影片');
+
+    await tester.binding.setSurfaceSize(const Size(1920, 1080));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      _localizedApp(
+        PosterBrowseLargeLayout(
+          rows: <PosterBrowseRow>[
+            PosterBrowseRow(
+              kind: PosterBrowseRowKind.continueWatching,
+              items: <MediaItemCard>[card],
+            ),
+          ],
+          displayItemOf: _displayItem,
+          selectedRow: 0,
+          focusedIndex: 0,
+          focusedItem: _displayItem(card, overview: '验证上下拖动跟手动画。'),
+          logoRequest: MediaImageRequest.empty,
+          secondaryLabel: '第 1 集',
+          metaWidgets: const <Widget>[],
+          imageOf: _loadableImageOf,
+          secondaryLabelOf: (_) => '',
+          onSelectRow: (_) {},
+          onSelectItem: (_) {},
+          onRetryCurrentRow: () {},
+          onPlay: () {},
+          onDetail: () {},
+          onBack: () {},
+        ),
+      ),
+    );
+
+    final initialInfoTop = tester
+        .getTopLeft(find.byType(PosterBrowseMediaInfo))
+        .dy;
+    final initialSelectorTop = tester.getTopLeft(find.text('继续观看')).dy;
+    final gesture = await tester.startGesture(
+      tester.getCenter(
+        find.byKey(const ValueKey('poster_browse_landscape_gesture_panel')),
+      ),
+    );
+    await gesture.moveBy(const Offset(0, 80));
+    await tester.pump();
+
+    final infoOpacity = tester.widget<Opacity>(
+      find.byKey(const ValueKey('poster_browse_primary_collapse_opacity')),
+    );
+    final selectorOpacity = tester.widget<Opacity>(
+      find.byKey(const ValueKey('poster_browse_row_selector_collapse_opacity')),
+    );
+    expect(infoOpacity.opacity, inExclusiveRange(0, 1));
+    expect(selectorOpacity.opacity, inExclusiveRange(0, 1));
+    expect(
+      tester
+          .getTopLeft(
+            find.byKey(
+              const ValueKey('poster_browse_primary_info_vertical-motion'),
+            ),
+          )
+          .dy,
+      greaterThan(initialInfoTop),
+    );
+    expect(
+      tester.getTopLeft(find.text('继续观看')).dy,
+      greaterThan(initialSelectorTop),
+    );
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('大屏主内容区左右滑动也能切换影视', (tester) async {
     final first = _card(id: 'wide-swipe-1', title: '影片一');
     final second = _card(id: 'wide-swipe-2', title: '影片二');
@@ -606,6 +679,128 @@ void main() {
 
     expect(selectedIndex, 1);
   });
+
+  testWidgets('大屏横滑切换时媒体信息按滑动方向位移过渡', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1920, 1080));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      _localizedApp(const _InteractiveLargeLayoutHarness()),
+    );
+
+    const firstKey = ValueKey('poster_browse_primary_info_animated-1');
+    const secondKey = ValueKey('poster_browse_primary_info_animated-2');
+    final restingLeft = tester.getTopLeft(find.byKey(firstKey)).dx;
+
+    await tester.timedDragFrom(
+      const Offset(1000, 300),
+      const Offset(-120, 0),
+      const Duration(milliseconds: 300),
+    );
+    await tester.pump(const Duration(milliseconds: 80));
+
+    expect(find.byKey(firstKey), findsOneWidget);
+    expect(find.byKey(secondKey), findsOneWidget);
+    expect(tester.getTopLeft(find.byKey(firstKey)).dx, lessThan(restingLeft));
+    expect(
+      tester.getTopLeft(find.byKey(secondKey)).dx,
+      greaterThan(restingLeft),
+    );
+
+    await tester.pumpAndSettle();
+    expect(find.byKey(firstKey), findsNothing);
+    expect(find.byKey(secondKey), findsOneWidget);
+
+    await tester.timedDragFrom(
+      const Offset(1000, 300),
+      const Offset(120, 0),
+      const Duration(milliseconds: 300),
+    );
+    await tester.pump(const Duration(milliseconds: 80));
+
+    expect(
+      tester.getTopLeft(find.byKey(secondKey)).dx,
+      greaterThan(restingLeft),
+    );
+    expect(tester.getTopLeft(find.byKey(firstKey)).dx, lessThan(restingLeft));
+  });
+
+  testWidgets('大屏收起后从屏幕顶部空白区域横滑也能切换影视', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1920, 1080));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      _localizedApp(const _InteractiveLargeLayoutHarness()),
+    );
+
+    await tester.timedDrag(
+      find.byKey(const ValueKey('poster_browse_landscape_gesture_panel')),
+      const Offset(0, 180),
+      const Duration(milliseconds: 300),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('动画影片一'), findsWidgets);
+    final fullSwipeSurface = find.byKey(
+      const ValueKey('poster_browse_full_horizontal_swipe_surface'),
+    );
+    expect(fullSwipeSurface, findsOneWidget);
+    expect(tester.getSize(fullSwipeSurface), const Size(1920, 1080));
+
+    await tester.timedDragFrom(
+      const Offset(1000, 30),
+      const Offset(-120, 0),
+      const Duration(milliseconds: 300),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('动画影片二'), findsWidgets);
+  });
+}
+
+class _InteractiveLargeLayoutHarness extends StatefulWidget {
+  const _InteractiveLargeLayoutHarness();
+
+  @override
+  State<_InteractiveLargeLayoutHarness> createState() =>
+      _InteractiveLargeLayoutHarnessState();
+}
+
+class _InteractiveLargeLayoutHarnessState
+    extends State<_InteractiveLargeLayoutHarness> {
+  late final List<MediaItemCard> _cards = <MediaItemCard>[
+    _card(id: 'animated-1', title: '动画影片一'),
+    _card(id: 'animated-2', title: '动画影片二'),
+  ];
+  int _focusedIndex = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final focused = _displayItem(
+      _cards[_focusedIndex],
+      overview: '验证媒体信息的横向位移动画。',
+    );
+    return PosterBrowseLargeLayout(
+      rows: <PosterBrowseRow>[
+        PosterBrowseRow(
+          kind: PosterBrowseRowKind.continueWatching,
+          items: _cards,
+        ),
+      ],
+      displayItemOf: _displayItem,
+      selectedRow: 0,
+      focusedIndex: _focusedIndex,
+      focusedItem: focused,
+      logoRequest: MediaImageRequest.empty,
+      secondaryLabel: '第 ${_focusedIndex + 1} 集',
+      metaWidgets: const <Widget>[],
+      imageOf: _loadableImageOf,
+      secondaryLabelOf: (_) => '',
+      onSelectRow: (_) {},
+      onSelectItem: (index) => setState(() => _focusedIndex = index),
+      onRetryCurrentRow: () {},
+      onPlay: () {},
+      onDetail: () {},
+      onBack: () {},
+    );
+  }
 }
 
 Widget _localizedApp(Widget child) {
