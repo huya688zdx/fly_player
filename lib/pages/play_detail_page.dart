@@ -1163,7 +1163,7 @@ class _PlayDetailPageState extends State<PlayDetailPage>
   }
 
   /// Hero sliver(飞牛 + Emby 共享):复刻飞牛树(`FadeTransition(_headerTitleOpacity)` 入场 +
-  /// `DetailHeroOverlay`,`useSoftGradient: true` 恒定)。各参数由调用方传(飞牛剧集态有
+  /// `DetailHeroOverlay`)。各参数由调用方传(飞牛剧集态有
   /// `titleFontSize`/较小 `bottomInset`/副标题,Emby 传裸标题 + logo)。Emby 顺带获得标题淡入
   /// (`_headerFadeController` 在中立加载路径已 `forward`)。
   Widget _buildHeroSliver({
@@ -1183,7 +1183,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
           subtitle: subtitle,
           titleFontSize: titleFontSize,
           bottomInset: bottomInset,
-          useSoftGradient: true,
           titleChild: titleChild,
         ),
       ),
@@ -3106,7 +3105,6 @@ class _PlayDetailPageState extends State<PlayDetailPage>
                       subtitle: episodeHeroSubtitle,
                       titleFontSize: initialItemType == 'episode' ? 28 : null,
                       bottomInset: initialItemType == 'episode' ? 20 : 36,
-                      useSoftGradient: true,
                       titleChild: initialHeroTitleChild,
                     ),
                   ),
