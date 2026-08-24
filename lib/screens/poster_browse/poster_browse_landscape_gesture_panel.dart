@@ -12,6 +12,7 @@ class PosterBrowseLandscapeGesturePanel extends StatefulWidget {
   final String Function(PosterBrowseDisplayItem item) secondaryLabelOf;
   final void Function(int index) onItemTap;
   final Widget collapsedContent;
+  final ValueChanged<bool>? onCollapsedChanged;
 
   const PosterBrowseLandscapeGesturePanel({
     super.key,
@@ -22,6 +23,7 @@ class PosterBrowseLandscapeGesturePanel extends StatefulWidget {
     required this.secondaryLabelOf,
     required this.onItemTap,
     required this.collapsedContent,
+    this.onCollapsedChanged,
   });
 
   @override
@@ -211,6 +213,7 @@ class _PosterBrowseLandscapeGesturePanelState
     final collapse = velocity.abs() > _velocityThreshold
         ? velocity > 0
         : _collapseController.value >= 0.45;
+    widget.onCollapsedChanged?.call(collapse);
     _collapseController.animateTo(
       collapse ? 1 : 0,
       duration: _settleDuration,
