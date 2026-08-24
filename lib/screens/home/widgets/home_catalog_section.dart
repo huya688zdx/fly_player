@@ -257,44 +257,51 @@ class _FeiniuCatalogCardBody extends StatelessWidget {
           key: ValueKey<String>('catalog-artwork-${item.id}'),
           fit: StackFit.expand,
           children: <Widget>[
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final posterWidth = constraints.maxWidth / 3;
-                final posterHeight = posterWidth * 1.5;
-                return Align(
-                  alignment: Alignment.topCenter,
-                  child: SizedBox(
-                    width: posterWidth * imageCount,
-                    height: posterHeight,
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: <Widget>[
-                        for (var index = 0; index < imageCount; index++)
-                          SizedBox(
-                            key: ValueKey<String>(
-                              'catalog-poster-${item.id}-$index',
-                            ),
-                            width: posterWidth,
-                            child: index < loadable.length
-                                ? _CatalogNetworkImage(
-                                    imageKey: ValueKey<String>(
-                                      index == 0
-                                          ? 'catalog-image-${item.id}'
-                                          : 'catalog-image-${item.id}-$index',
-                                    ),
-                                    request: loadable[index],
-                                    stableImageCacheWidth:
-                                        stableImageCacheWidth,
-                                  )
-                                : _CatalogPlaceholder(
-                                    mediaType: item.mediaType,
-                                  ),
-                          ),
-                      ],
+            Padding(
+              key: ValueKey<String>('catalog-image-inset-${item.id}'),
+              padding: const EdgeInsets.fromLTRB(6, 6, 6, 0),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final posterWidth = constraints.maxWidth / 3;
+                  final posterHeight = posterWidth * 1.5;
+                  return Align(
+                    alignment: Alignment.topCenter,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: SizedBox(
+                        width: posterWidth * imageCount,
+                        height: posterHeight,
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: <Widget>[
+                            for (var index = 0; index < imageCount; index++)
+                              SizedBox(
+                                key: ValueKey<String>(
+                                  'catalog-poster-${item.id}-$index',
+                                ),
+                                width: posterWidth,
+                                child: index < loadable.length
+                                    ? _CatalogNetworkImage(
+                                        imageKey: ValueKey<String>(
+                                          index == 0
+                                              ? 'catalog-image-${item.id}'
+                                              : 'catalog-image-${item.id}-$index',
+                                        ),
+                                        request: loadable[index],
+                                        stableImageCacheWidth:
+                                            stableImageCacheWidth,
+                                      )
+                                    : _CatalogPlaceholder(
+                                        mediaType: item.mediaType,
+                                      ),
+                              ),
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
             const DecoratedBox(
               decoration: BoxDecoration(

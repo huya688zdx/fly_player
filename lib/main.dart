@@ -1042,7 +1042,7 @@ class _MainNavigationState extends State<MainNavigation> {
     final l10n = AppLocalizations.of(context);
 
     return Scaffold(
-      extendBody: true,
+      extendBody: false,
       body: IndexedStack(index: _selectedTab.tabIndex, children: pages),
       bottomNavigationBar: _LiquidGlassBottomNavigation(
         currentIndex: _selectedTab.tabIndex,
@@ -1092,12 +1092,16 @@ class _LiquidGlassBottomNavigation extends StatelessWidget {
     final inactive = colors.textSecondary.withValues(alpha: .72);
     final active = Color.lerp(colors.textPrimary, colors.selection, .28)!;
     final outerSurface = Color.alphaBlend(
-      colors.selection.withValues(alpha: isLightSurface ? .06 : .10),
-      colors.navBarBackground.withValues(alpha: isLightSurface ? .92 : .88),
+      colors.selection.withValues(alpha: isLightSurface ? .08 : .12),
+      colors.navBarBackground,
+    );
+    final selectedSurface = Color.alphaBlend(
+      colors.selection.withValues(alpha: isLightSurface ? .16 : .20),
+      outerSurface,
     );
 
     return Material(
-      type: MaterialType.transparency,
+      color: colors.backgroundBase,
       child: Padding(
         padding: EdgeInsets.only(top: 6, bottom: bottomPadding),
         child: Center(
@@ -1112,19 +1116,10 @@ class _LiquidGlassBottomNavigation extends StatelessWidget {
                 border: Border.all(
                   color: Color.alphaBlend(
                     colors.selection.withValues(alpha: .24),
-                    Colors.white.withValues(alpha: isLightSurface ? .42 : .10),
+                    outerSurface,
                   ),
                   width: .8,
                 ),
-                boxShadow: <BoxShadow>[
-                  BoxShadow(
-                    color: Colors.black.withValues(
-                      alpha: isLightSurface ? .12 : .34,
-                    ),
-                    blurRadius: 22,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
               ),
               child: Stack(
                 fit: StackFit.expand,
@@ -1148,17 +1143,15 @@ class _LiquidGlassBottomNavigation extends StatelessWidget {
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(19),
                             border: Border.all(
-                              color: colors.selection.withValues(
-                                alpha: isLightSurface ? .34 : .42,
+                              color: Color.alphaBlend(
+                                colors.selection.withValues(
+                                  alpha: isLightSurface ? .34 : .42,
+                                ),
+                                selectedSurface,
                               ),
                               width: .8,
                             ),
-                            color: Color.alphaBlend(
-                              colors.selection.withValues(alpha: .14),
-                              colors.surface.withValues(
-                                alpha: isLightSurface ? .86 : .72,
-                              ),
-                            ),
+                            color: selectedSurface,
                           ),
                         ),
                       ),

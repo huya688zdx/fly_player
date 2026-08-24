@@ -162,7 +162,7 @@ void main() {
     expect(opaqueY, closeTo(150, 0.01));
   });
 
-  testWidgets('正常上滑时交接遮罩用合成位移跟随海报底边', (tester) async {
+  testWidgets('正常上滑时整块海报裁切层移动且图片仍保持视差', (tester) async {
     final baseColors = AppThemeBuilder.build(
       AppThemePreset.midnight,
     ).extension<AppThemeColors>()!;
@@ -185,17 +185,28 @@ void main() {
       ),
     );
 
-    final followFinder = find.byKey(
-      const ValueKey<String>('detail-hero-transition-scroll-follow'),
+    final regionFollowFinder = find.byKey(
+      const ValueKey<String>('detail-hero-region-scroll-follow'),
     );
-    expect(followFinder, findsOneWidget);
-    final followTransform = tester.widget<Transform>(followFinder);
-    final visualShiftY = followTransform.transform.storage[13];
+    expect(regionFollowFinder, findsOneWidget);
+    final regionTransform = tester.widget<Transform>(regionFollowFinder);
+    final regionShiftY = regionTransform.transform.storage[13];
+    final imageTransform = tester.widget<Transform>(
+      find.byKey(const ValueKey<String>('detail-hero-image-parallax')),
+    );
+    final imageCompensationY = imageTransform.transform.storage[13];
     final bridge = tester.widget<Positioned>(
       find.byKey(const ValueKey<String>('detail-hero-transition')),
     );
 
-    expect(visualShiftY, closeTo(-96, 0.01));
-    expect(bridge.top! + bridge.height! + visualShiftY, closeTo(304, 0.01));
+    expect(regionShiftY, closeTo(-96, 0.01));
+    expect(bridge.top! + bridge.height! + regionShiftY, closeTo(304, 0.01));
+    expect(regionShiftY + imageCompensationY, closeTo(-38.4, 0.01));
+    expect(
+      find.byKey(
+        const ValueKey<String>('detail-hero-transition-scroll-follow'),
+      ),
+      findsNothing,
+    );
   });
 }

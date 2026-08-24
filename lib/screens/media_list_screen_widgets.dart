@@ -114,12 +114,11 @@ extension _MediaListScreenWidgets on _MediaListScreenState {
       );
     }
 
-    final backendKind = context
+    final capabilities = context
         .read<MediaBackendProvider>()
         .backend
-        .capabilities
-        .kind;
-    final profile = HomePresentationProfile.forKind(backendKind);
+        .capabilities;
+    final profile = HomePresentationProfile.forCapabilities(capabilities);
     final sections = visibleHomeSections(
       profile: profile,
       hasCatalogs: _categories.isNotEmpty,
