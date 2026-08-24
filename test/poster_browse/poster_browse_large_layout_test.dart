@@ -513,6 +513,99 @@ void main() {
     expect(find.byType(PosterBrowseMediaInfo), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('高分辨率横屏收起后只保留一份媒体信息并隐藏分类栏', (tester) async {
+    final card = _card(id: 'collapse-info', title: '辉夜大小姐');
+
+    await tester.binding.setSurfaceSize(const Size(1920, 1080));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      _localizedApp(
+        PosterBrowseLargeLayout(
+          rows: <PosterBrowseRow>[
+            PosterBrowseRow(
+              kind: PosterBrowseRowKind.continueWatching,
+              items: <MediaItemCard>[card],
+            ),
+          ],
+          displayItemOf: _displayItem,
+          selectedRow: 0,
+          focusedIndex: 0,
+          focusedItem: _displayItem(card, overview: '用于验证收起态信息不会重复。'),
+          logoRequest: MediaImageRequest.empty,
+          secondaryLabel: '第 1 季 第 1 集',
+          metaWidgets: const <Widget>[Text('1080p')],
+          imageOf: _loadableImageOf,
+          secondaryLabelOf: (_) => '第 1 季 第 1 集',
+          onSelectRow: (_) {},
+          onSelectItem: (_) {},
+          onRetryCurrentRow: () {},
+          onPlay: () {},
+          onDetail: () {},
+          onBack: () {},
+        ),
+      ),
+    );
+
+    expect(find.byType(PosterBrowseMediaInfo), findsOneWidget);
+    expect(find.text('继续观看'), findsOneWidget);
+
+    await tester.timedDrag(
+      find.byKey(const ValueKey('poster_browse_landscape_gesture_panel')),
+      const Offset(0, 180),
+      const Duration(milliseconds: 300),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PosterBrowseMediaInfo), findsOneWidget);
+    expect(find.text('继续观看'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('大屏主内容区左右滑动也能切换影视', (tester) async {
+    final first = _card(id: 'wide-swipe-1', title: '影片一');
+    final second = _card(id: 'wide-swipe-2', title: '影片二');
+    var selectedIndex = -1;
+
+    await tester.binding.setSurfaceSize(const Size(1920, 1080));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      _localizedApp(
+        PosterBrowseLargeLayout(
+          rows: <PosterBrowseRow>[
+            PosterBrowseRow(
+              kind: PosterBrowseRowKind.continueWatching,
+              items: <MediaItemCard>[first, second],
+            ),
+          ],
+          displayItemOf: _displayItem,
+          selectedRow: 0,
+          focusedIndex: 0,
+          focusedItem: _displayItem(first, overview: '从主内容区横滑切换。'),
+          logoRequest: MediaImageRequest.empty,
+          secondaryLabel: '第 1 集',
+          metaWidgets: const <Widget>[],
+          imageOf: _loadableImageOf,
+          secondaryLabelOf: (_) => '',
+          onSelectRow: (_) {},
+          onSelectItem: (index) => selectedIndex = index,
+          onRetryCurrentRow: () {},
+          onPlay: () {},
+          onDetail: () {},
+          onBack: () {},
+        ),
+      ),
+    );
+
+    await tester.timedDragFrom(
+      const Offset(1000, 300),
+      const Offset(-120, 0),
+      const Duration(milliseconds: 300),
+    );
+    await tester.pumpAndSettle();
+
+    expect(selectedIndex, 1);
+  });
 }
 
 Widget _localizedApp(Widget child) {

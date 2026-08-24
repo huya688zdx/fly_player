@@ -9,7 +9,7 @@ import 'poster_browse_media_info.dart';
 import 'poster_browse_row_status.dart';
 import 'poster_browse_rows.dart';
 
-class PosterBrowseLargeLayout extends StatelessWidget {
+class PosterBrowseLargeLayout extends StatefulWidget {
   final List<PosterBrowseRow> rows;
   final PosterBrowseDisplayItem Function(MediaItemCard card) displayItemOf;
   final int selectedRow;
@@ -48,11 +48,23 @@ class PosterBrowseLargeLayout extends StatelessWidget {
   });
 
   @override
+  State<PosterBrowseLargeLayout> createState() =>
+      _PosterBrowseLargeLayoutState();
+}
+
+class _PosterBrowseLargeLayoutState extends State<PosterBrowseLargeLayout> {
+  static const _horizontalVelocityThreshold = 360.0;
+  static const _horizontalDistanceThreshold = 48.0;
+
+  bool _isTrackCollapsed = false;
+  double _horizontalDragDistance = 0;
+
+  @override
   Widget build(BuildContext context) {
-    final currentRow = _selectedRowOrNull(rows);
+    final currentRow = _selectedRowOrNull(widget.rows);
     final currentItems = currentRow == null
         ? const <PosterBrowseDisplayItem>[]
-        : currentRow.items.map(displayItemOf).toList(growable: false);
+        : currentRow.items.map(widget.displayItemOf).toList(growable: false);
 
     return SafeArea(
       child: LayoutBuilder(
@@ -72,41 +84,87 @@ class PosterBrowseLargeLayout extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _BackButton(onPressed: onBack),
+                _BackButton(onPressed: widget.onBack),
                 Expanded(
-                  child: showMediaInfo
-                      ? Padding(
-                          padding: const EdgeInsets.only(
-                            left: 36,
-                            right: 36,
-                            top: 24,
-                          ),
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: ConstrainedBox(
-                              constraints: const BoxConstraints(maxWidth: 560),
-                              child: focusedItem == null
-                                  ? const SizedBox.shrink()
-                                  : PosterBrowseMediaInfo(
-                                      item: focusedItem!,
-                                      logoRequest: logoRequest,
-                                      secondaryLabel: secondaryLabel,
-                                      metaWidgets: metaWidgets,
-                                      compact: viewportHeight < 900,
-                                      onPlay: onPlay,
-                                      onDetail: onDetail,
-                                    ),
+                  child: GestureDetector(
+                    key: const ValueKey(
+                      'poster_browse_primary_horizontal_swipe_surface',
+                    ),
+                    behavior: HitTestBehavior.opaque,
+                    onHorizontalDragStart: currentItems.length > 1
+                        ? (_) => _horizontalDragDistance = 0
+                        : null,
+                    onHorizontalDragUpdate: currentItems.length > 1
+                        ? (details) {
+                            _horizontalDragDistance +=
+                                details.primaryDelta ?? details.delta.dx;
+                          }
+                        : null,
+                    onHorizontalDragEnd: currentItems.length > 1
+                        ? (details) => _handlePrimaryHorizontalDragEnd(
+                            details,
+                            currentItems.length,
+                          )
+                        : null,
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 220),
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeInCubic,
+                      child: showMediaInfo && !_isTrackCollapsed
+                          ? Padding(
+                              key: const ValueKey(
+                                'poster_browse_primary_media_info',
+                              ),
+                              padding: const EdgeInsets.only(
+                                left: 36,
+                                right: 36,
+                                top: 24,
+                              ),
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: ConstrainedBox(
+                                  constraints: const BoxConstraints(
+                                    maxWidth: 560,
+                                  ),
+                                  child: widget.focusedItem == null
+                                      ? const SizedBox.shrink()
+                                      : PosterBrowseMediaInfo(
+                                          item: widget.focusedItem!,
+                                          logoRequest: widget.logoRequest,
+                                          secondaryLabel: widget.secondaryLabel,
+                                          metaWidgets: widget.metaWidgets,
+                                          compact: viewportHeight < 900,
+                                          onPlay: widget.onPlay,
+                                          onDetail: widget.onDetail,
+                                        ),
+                                ),
+                              ),
+                            )
+                          : const SizedBox.shrink(
+                              key: ValueKey(
+                                'poster_browse_primary_media_info_hidden',
+                              ),
                             ),
-                          ),
-                        )
-                      : const SizedBox.shrink(),
+                    ),
+                  ),
                 ),
-                _RowSelector(
-                  rows: rows,
-                  selectedRow: selectedRow,
-                  onSelectRow: onSelectRow,
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  alignment: Alignment.bottomLeft,
+                  child: _isTrackCollapsed
+                      ? const SizedBox.shrink()
+                      : _RowSelector(
+                          rows: widget.rows,
+                          selectedRow: widget.selectedRow,
+                          onSelectRow: widget.onSelectRow,
+                        ),
                 ),
-                SizedBox(height: compressChrome ? 8 : 14),
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  height: _isTrackCollapsed ? 0 : (compressChrome ? 8 : 14),
+                ),
                 SizedBox(
                   height: 264,
                   child: _buildTrackArea(context, currentRow, currentItems),
@@ -123,10 +181,10 @@ class PosterBrowseLargeLayout extends StatelessWidget {
     if (visibleRows.isEmpty) {
       return null;
     }
-    if (selectedRow < 0 || selectedRow >= visibleRows.length) {
+    if (widget.selectedRow < 0 || widget.selectedRow >= visibleRows.length) {
       return visibleRows.first;
     }
-    return visibleRows[selectedRow];
+    return visibleRows[widget.selectedRow];
   }
 
   Widget _buildTrackArea(
@@ -137,12 +195,13 @@ class PosterBrowseLargeLayout extends StatelessWidget {
     if (currentItems.isNotEmpty) {
       return PosterBrowseLandscapeGesturePanel(
         items: currentItems,
-        focusedIndex: focusedIndex,
+        focusedIndex: widget.focusedIndex,
         showProgress: currentRow?.kind == PosterBrowseRowKind.continueWatching,
-        imageOf: imageOf,
-        secondaryLabelOf: secondaryLabelOf,
-        onItemTap: onSelectItem,
-        collapsedContent: focusedItem == null
+        imageOf: widget.imageOf,
+        secondaryLabelOf: widget.secondaryLabelOf,
+        onItemTap: widget.onSelectItem,
+        onCollapsedChanged: _handleCollapsedChanged,
+        collapsedContent: widget.focusedItem == null
             ? const SizedBox.shrink()
             : Padding(
                 padding: const EdgeInsets.fromLTRB(36, 0, 36, 4),
@@ -152,16 +211,16 @@ class PosterBrowseLargeLayout extends StatelessWidget {
                     constraints: const BoxConstraints(maxWidth: 560),
                     child: PosterBrowseMediaInfo(
                       key: ValueKey(
-                        'poster_browse_collapsed_info_${focusedItem!.card.id}',
+                        'poster_browse_collapsed_info_${widget.focusedItem!.card.id}',
                       ),
-                      item: focusedItem!,
-                      logoRequest: logoRequest,
-                      secondaryLabel: secondaryLabel,
-                      metaWidgets: metaWidgets,
+                      item: widget.focusedItem!,
+                      logoRequest: widget.logoRequest,
+                      secondaryLabel: widget.secondaryLabel,
+                      metaWidgets: widget.metaWidgets,
                       compact: true,
                       collapsed: true,
-                      onPlay: onPlay,
-                      onDetail: onDetail,
+                      onPlay: widget.onPlay,
+                      onDetail: widget.onDetail,
                     ),
                   ),
                 ),
@@ -169,7 +228,36 @@ class PosterBrowseLargeLayout extends StatelessWidget {
       );
     }
 
-    return PosterBrowseRowStatus(row: currentRow, onRetry: onRetryCurrentRow);
+    return PosterBrowseRowStatus(
+      row: currentRow,
+      onRetry: widget.onRetryCurrentRow,
+    );
+  }
+
+  void _handleCollapsedChanged(bool collapsed) {
+    if (_isTrackCollapsed == collapsed) return;
+    setState(() => _isTrackCollapsed = collapsed);
+  }
+
+  void _handlePrimaryHorizontalDragEnd(DragEndDetails details, int itemCount) {
+    final velocity =
+        details.primaryVelocity ?? details.velocity.pixelsPerSecond.dx;
+    final shouldMove =
+        velocity.abs() > _horizontalVelocityThreshold ||
+        _horizontalDragDistance.abs() >= _horizontalDistanceThreshold;
+    if (!shouldMove) return;
+
+    final moveForward = velocity.abs() > _horizontalVelocityThreshold
+        ? velocity < 0
+        : _horizontalDragDistance < 0;
+    final focusedIndex = widget.focusedIndex.clamp(0, itemCount - 1);
+    final targetIndex = (focusedIndex + (moveForward ? 1 : -1)).clamp(
+      0,
+      itemCount - 1,
+    );
+    if (targetIndex != focusedIndex) {
+      widget.onSelectItem(targetIndex);
+    }
   }
 }
 
