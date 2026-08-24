@@ -56,10 +56,16 @@ class DownloadSheetThemeData {
     return DownloadSheetThemeData(
       barrierColor: colors.overlayScrim.withValues(alpha: 0.56),
       panelBackground: Color.alphaBlend(
-        colors.surface.withValues(alpha: 0.96),
-        colors.backgroundElevated,
+        colors.accent.withValues(alpha: 0.085),
+        Color.alphaBlend(
+          colors.surface.withValues(alpha: 0.96),
+          colors.backgroundElevated,
+        ),
       ),
-      panelBorder: colors.borderSubtle,
+      panelBorder: Color.alphaBlend(
+        colors.accent.withValues(alpha: 0.18),
+        colors.borderSubtle,
+      ),
       handleColor: colors.borderStrong,
       titleColor: colors.textPrimary,
       subtitleColor: colors.textSecondary,
@@ -67,8 +73,11 @@ class DownloadSheetThemeData {
       qualityValueColor: colors.textPrimary,
       qualityIconColor: colors.textSecondary,
       cardBackground: Color.alphaBlend(
-        colors.surfaceStrong.withValues(alpha: 0.22),
-        colors.surface,
+        colors.accent.withValues(alpha: 0.045),
+        Color.alphaBlend(
+          colors.surfaceStrong.withValues(alpha: 0.22),
+          colors.surface,
+        ),
       ),
       cardBorder: colors.borderSubtle,
       badgeBackground: colors.overlayScrim.withValues(alpha: 0.72),

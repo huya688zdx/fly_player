@@ -1,21 +1,15 @@
 import 'package:flutter/widgets.dart';
 
 class MediaLayoutProfile {
+  /// 首页目录图片请求的稳定宽度，供布局 fallback 与数据层 fresh 请求共用。
+  static const int homeCatalogRequestWidthValue = 440;
+
   final double screenWidth;
   final bool isTablet;
 
   final double pageHorizontalPadding;
   final double sectionGap;
   final double itemGap;
-
-  final double categoryStripHeight;
-  final double categoryCardWidth;
-  final double categoryMiniPosterWidth;
-  final double categoryMiniPosterHeight;
-
-  final double continueCardWidth;
-  final double continueImageHeight;
-  final double continueRowHeight;
 
   final double homePosterCardWidth;
   final double homePosterImageHeight;
@@ -35,13 +29,6 @@ class MediaLayoutProfile {
     required this.pageHorizontalPadding,
     required this.sectionGap,
     required this.itemGap,
-    required this.categoryStripHeight,
-    required this.categoryCardWidth,
-    required this.categoryMiniPosterWidth,
-    required this.categoryMiniPosterHeight,
-    required this.continueCardWidth,
-    required this.continueImageHeight,
-    required this.continueRowHeight,
     required this.homePosterCardWidth,
     required this.homePosterImageHeight,
     required this.homePosterRowHeight,
@@ -55,27 +42,41 @@ class MediaLayoutProfile {
   });
 
   static const int _homeContinueRequestWidth = 520;
-  static const int _homePosterRequestWidth = 440;
-  static const int _categoryMiniPosterRequestWidth = 156;
+  static const int _homePosterRequestWidth = homeCatalogRequestWidthValue;
   static const int _continueDecodeWidth = 520;
   static const int _homePosterDecodeWidth = 352;
-  static const int _miniPosterDecodeWidth = 104;
+  static const int _homeCatalogDecodeWidth = 440;
 
   // 首页海报的网络请求宽度固定取卡片上界，避免飞牛 ?w= 随分屏宽度变化。
   int get homeContinueRequestWidth => _homeContinueRequestWidth;
   int get homePosterRequestWidth => _homePosterRequestWidth;
-  int get categoryMiniPosterRequestWidth => _categoryMiniPosterRequestWidth;
+  // 首页目录大卡的网络请求宽度固定取首页海报请求上界，避免首帧缩略图
+  // 与后台刷新后的图片使用不同 URL/cache key。
+  int get homeCatalogRequestWidth => homeCatalogRequestWidthValue;
 
-  // 稳定解码宽度(像素)：仅取「卡片宽度上界(下方 of() 里 clamp 的 ceiling) × 2」，
-  // **刻意不依赖当前窗口/分屏宽度**。进/退分屏时卡片会随 pane 缩放，但解码尺寸恒定，
-  // 于是 Image 的 ResizeImage(cacheWidth) 缓存 key 不变 → 命中图片缓存、海报不重解码闪烁。
-  // (dpr 在同机型上恒定，这里用固定 ×2 作代理；上界变更需同步这几个常量。)
+  // 共享首页区块直接消费稳定物理像素宽度，不再乘设备 DPR；
+  // 旋转和分屏只改变视觉卡宽，不改变图片缓存键。
   int get continueDecodeWidth => _continueDecodeWidth;
+  int get homeCatalogDecodeWidth => _homeCatalogDecodeWidth;
+
+  // 传统海报行仍直接消费固定物理解码宽度。
   int get homePosterDecodeWidth => _homePosterDecodeWidth;
-  int get miniPosterDecodeWidth => _miniPosterDecodeWidth;
 
   int get categoryGridRequestWidth =>
       (categoryGridCardWidth * 2.5).round().clamp(240, 960);
+
+  /// 首页横向海报行高：图片高度固定，文字区随系统真实缩放扩展。
+  double homePosterRowHeightFor(TextScaler textScaler) {
+    final titleLineHeight = textScaler.scale(homePosterTitleFontSize) * 1.4;
+    final subtitleLineHeight =
+        textScaler.scale(homePosterSubtitleFontSize) * 1.4;
+    final requiredTextHeight = 3 + titleLineHeight + subtitleLineHeight + 4;
+    final baselineTextHeight = homePosterRowHeight - homePosterImageHeight;
+    final textHeight = requiredTextHeight > baselineTextHeight
+        ? requiredTextHeight
+        : baselineTextHeight;
+    return homePosterImageHeight + textHeight;
+  }
 
   double get categoryGridCardWidth {
     final availableWidth =
@@ -111,17 +112,10 @@ class MediaLayoutProfile {
 
     final hp = tablet ? 12.0 : 8.0;
     final gap = tablet ? 10.0 : 8.0;
-    final continueW = tablet ? (width * 0.19).clamp(180.0, 260.0) : 188.0;
-    final continueImgH = continueW * 0.56;
-
     final posterW = tablet
         ? (width / (columns + 0.8)).clamp(122.0, 176.0)
         : 115.0;
     final posterImgH = posterW * 1.48;
-
-    final categoryW = tablet ? (width * 0.135).clamp(138.0, 198.0) : 138.0;
-    final miniPosterW = (categoryW * 0.29).clamp(36.0, 52.0);
-    final miniPosterH = miniPosterW * 1.48;
 
     return MediaLayoutProfile(
       screenWidth: width,
@@ -129,13 +123,6 @@ class MediaLayoutProfile {
       pageHorizontalPadding: hp,
       sectionGap: tablet ? 14 : 12,
       itemGap: gap,
-      categoryStripHeight: tablet ? 108 : 98,
-      categoryCardWidth: categoryW,
-      categoryMiniPosterWidth: miniPosterW,
-      categoryMiniPosterHeight: miniPosterH,
-      continueCardWidth: continueW,
-      continueImageHeight: continueImgH,
-      continueRowHeight: continueImgH + (tablet ? 66 : 60),
       homePosterCardWidth: posterW,
       homePosterImageHeight: posterImgH,
       homePosterRowHeight: posterImgH + (tablet ? 62 : 60),

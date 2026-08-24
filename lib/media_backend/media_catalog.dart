@@ -7,7 +7,7 @@ class MediaCatalog {
   final String type;
   final MediaImageRef primaryImage;
 
-  /// 入口封面图集合。首页分类条会叠展示前若干张（飞牛主机上最多 2 张），
+  /// 入口封面图集合。飞牛首页连续展示前 3 张；其它后端按各自布局选择主图，
   /// 为空时回退 [primaryImage]。属于前端展示概念，各后端在适配层填充。
   final List<MediaImageRef> posters;
 

@@ -20,6 +20,8 @@ class MediaPosterCard extends StatelessWidget {
   final double imageHeight;
   final double titleFontSize;
   final double subtitleFontSize;
+  final FontWeight titleFontWeight;
+  final FontWeight subtitleFontWeight;
   final bool expandImageToFit;
   final BoxFit imageFit;
   final bool autoFitByImageAspect;
@@ -43,6 +45,8 @@ class MediaPosterCard extends StatelessWidget {
     this.watched = false,
     this.titleFontSize = 12,
     this.subtitleFontSize = 11,
+    this.titleFontWeight = FontWeight.w700,
+    this.subtitleFontWeight = FontWeight.w700,
     this.expandImageToFit = false,
     this.imageFit = BoxFit.cover,
     this.autoFitByImageAspect = false,
@@ -107,7 +111,7 @@ class MediaPosterCard extends StatelessWidget {
                 style: TextStyle(
                   color: colors.textPrimary,
                   fontSize: titleFontSize,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: titleFontWeight,
                 ),
               ),
             ),
@@ -120,7 +124,7 @@ class MediaPosterCard extends StatelessWidget {
                 style: TextStyle(
                   color: colors.textMuted,
                   fontSize: subtitleFontSize,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: subtitleFontWeight,
                 ),
               ),
             ),

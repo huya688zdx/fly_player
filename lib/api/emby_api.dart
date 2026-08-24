@@ -403,8 +403,9 @@ class EmbyApi {
   /// 剧集「下一集」——系列起播的目标集直取。`GET /Shows/NextUp`，`api_key` 自鉴权。
   ///
   /// MediaBrowser 家族通用端点（Emby / Jellyfin 同形，故留在内核、无风味缝隙）：服务端按
-  /// 该用户在本剧的观看进度算出「接下来该看哪一集」，一次请求即定位，省掉客户端逐季拉集的
-  /// N 次往返。[seriesId] 把范围限定到本剧；[limit] 通常取 1（只要首条）。
+  /// 该用户的观看进度算出「接下来该看哪一集」，一次请求即定位，省掉客户端逐季拉集的
+  /// N 次往返。[seriesId] 非空时把范围限定到本剧；为空时返回全局下一集列表。
+  /// [limit] 在单剧查询时通常取 1（只要首条）。
   ///
   /// 空结果是正常语义（全剧看完 / 服务端不给推荐），调用方须自备回退——本端点只是快路径。
   /// `UserData` 显式请求：列表端点默认不回 `PlaybackPositionTicks`/`Played`；`MediaStreams`
@@ -413,7 +414,7 @@ class EmbyApi {
     required String serverUrl,
     required String userId,
     required String accessToken,
-    required String seriesId,
+    String seriesId = '',
     int limit = 1,
     String fields = 'Overview,UserData,MediaStreams',
   }) async {
@@ -421,7 +422,7 @@ class EmbyApi {
     final query = <String, Object?>{
       'api_key': accessToken,
       'UserId': userId.trim(),
-      'SeriesId': seriesId.trim(),
+      if (seriesId.trim().isNotEmpty) 'SeriesId': seriesId.trim(),
       'Limit': limit,
       if (fields.trim().isNotEmpty) 'Fields': fields.trim(),
     };

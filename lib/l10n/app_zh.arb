@@ -3675,5 +3675,58 @@
   "nativePlayerText0280": "未检测到片头/片尾信息",
   "nativePlayerText0281": "在当前位置添加书签",
   "nativePlayerText0282": "暂无书签",
-  "nativePlayerText0283": "删除"
+  "nativePlayerText0283": "删除",
+  "commonClose": "关闭",
+  "routeErrorInvalidFormat": "路由格式无效",
+  "routeErrorPageNotFound": "页面不存在",
+  "fnConnectWebLoginTitle": "FN Connect：{id}",
+  "@fnConnectWebLoginTitle": {
+    "placeholders": {
+      "id": {}
+    }
+  },
+  "fnConnectWebRequestingAuthorization": "正在请求 FN Connect 授权...",
+  "mpvCacheSliderMinimum": "最小 {value}",
+  "@mpvCacheSliderMinimum": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "mpvCacheSliderMaximum": "最大 {value}",
+  "@mpvCacheSliderMaximum": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "mediaInfoViewerTitle": "媒体信息查看器",
+  "mediaInfoGuidLabel": "媒体 GUID",
+  "mediaInfoGuidHint": "输入 media_guid",
+  "mediaInfoFilename": "文件名",
+  "mediaInfoUnknown": "未知",
+  "mediaInfoVideoCodec": "视频编码",
+  "mediaInfoAudioStreams": "音频流",
+  "mediaInfoSubtitleStreams": "字幕流",
+  "mediaInfoStreamTitle": "流 {index}：{codec}",
+  "@mediaInfoStreamTitle": {
+    "placeholders": {
+      "index": {},
+      "codec": {}
+    }
+  },
+  "mediaInfoLanguage": "语言：{language}",
+  "@mediaInfoLanguage": {
+    "placeholders": {
+      "language": {}
+    }
+  },
+  "mediaInfoNotAvailable": "不可用",
+  "mediaInfoStreamUrlGenerated": "播放地址（已生成）",
+  "detailLinksTitle": "链接",
+  "themePresetMidnightTitle": "午夜",
+  "themePresetOceanTitle": "海洋",
+  "themePresetForestTitle": "森林",
+  "themePresetGraphiteTitle": "石墨",
+  "themePresetSunsetTitle": "日落",
+  "themePresetAuroraTitle": "极光",
+  "themePresetLatteTitle": "拿铁"
 }
