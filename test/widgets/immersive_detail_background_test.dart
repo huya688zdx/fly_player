@@ -72,7 +72,19 @@ void main() {
     final top = bridge.top!;
     final height = bridge.height!;
     expect(top, lessThan(400));
-    expect(top + height, greaterThan(400 + 48));
+    expect(top + height, greaterThan(400 + 20));
+    expect(top + height, lessThanOrEqualTo(400 + 40));
+    expect(
+      find.byKey(const ValueKey<String>('detail-hero-transition-blur')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('detail-hero-transition-blur')),
+        matching: find.byType(BackdropFilter),
+      ),
+      findsOneWidget,
+    );
 
     final decoration =
         tester

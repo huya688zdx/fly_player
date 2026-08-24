@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -201,18 +202,18 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
         widget.transitionTintColor ??
         ambientTint ??
         (isLightSurface ? colors.backgroundElevated : colors.overlayScrim);
-    final transitionFog = Color.alphaBlend(
-      transitionTint.withValues(alpha: isLightSurface ? 0.18 : 0.26),
+    final transitionSurface = Color.alphaBlend(
+      transitionTint.withValues(alpha: isLightSurface ? 0.08 : 0.12),
       transitionBody,
     );
-    // 交接层的前段位于海报内，正好在海报底边达到不透明；后段越过分界
-    // 延伸到正文，再逐渐退回透明，让同一张取色背景自然接管。
+    // 模糊只发生在海报内部并由上到下渐强；颜色在海报底边完全接管，
+    // 正文侧仅保留一小段同色收尾，避免形成横跨内容的大块雾带。
     final minimumImageBlend = heroHeight < 168.0 ? heroHeight : 168.0;
     final transitionImageBlend = (heroHeight * 0.42)
         .clamp(minimumImageBlend, 252.0)
         .toDouble();
-    final transitionBodyOverlap = (heroHeight * 0.18)
-        .clamp(64.0, 96.0)
+    final transitionBodyOverlap = (heroHeight * 0.08)
+        .clamp(24.0, 40.0)
         .toDouble();
     final transitionHeight = transitionImageBlend + transitionBodyOverlap;
     final transitionTop = (expandedHeroHeight - transitionImageBlend)
@@ -313,40 +314,74 @@ class _ImmersiveDetailBackgroundState extends State<ImmersiveDetailBackground> {
             top: transitionTop,
             height: transitionHeight,
             child: IgnorePointer(
-              child: DecoratedBox(
-                key: const ValueKey<String>('detail-hero-transition-gradient'),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: <Color>[
-                      Colors.transparent,
-                      colors.overlayScrim.withValues(
-                        alpha: isLightSurface ? 0.04 : 0.10,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Positioned(
+                    key: const ValueKey<String>('detail-hero-transition-blur'),
+                    left: 0,
+                    right: 0,
+                    top: 0,
+                    height: transitionImageBlend,
+                    child: ClipRect(
+                      child: ShaderMask(
+                        blendMode: BlendMode.dstIn,
+                        shaderCallback: (bounds) => LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: <Color>[
+                            Colors.transparent,
+                            Colors.black.withValues(alpha: 0.22),
+                            Colors.black.withValues(alpha: 0.72),
+                            Colors.black,
+                          ],
+                          stops: const <double>[0.0, 0.36, 0.68, 1.0],
+                        ).createShader(bounds),
+                        child: BackdropFilter(
+                          filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+                          child: const ColoredBox(color: Colors.transparent),
+                        ),
                       ),
-                      transitionFog.withValues(
-                        alpha: isLightSurface ? 0.24 : 0.30,
-                      ),
-                      transitionFog.withValues(
-                        alpha: isLightSurface ? 0.64 : 0.72,
-                      ),
-                      transitionFog,
-                      transitionFog.withValues(
-                        alpha: isLightSurface ? 0.48 : 0.56,
-                      ),
-                      Colors.transparent,
-                    ],
-                    stops: <double>[
-                      0.0,
-                      0.22,
-                      0.48,
-                      boundaryStop - 0.06,
-                      boundaryStop,
-                      0.88,
-                      1.0,
-                    ],
+                    ),
                   ),
-                ),
+                  DecoratedBox(
+                    key: const ValueKey<String>(
+                      'detail-hero-transition-gradient',
+                    ),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: <Color>[
+                          Colors.transparent,
+                          colors.overlayScrim.withValues(
+                            alpha: isLightSurface ? 0.03 : 0.08,
+                          ),
+                          transitionSurface.withValues(
+                            alpha: isLightSurface ? 0.16 : 0.22,
+                          ),
+                          transitionSurface.withValues(
+                            alpha: isLightSurface ? 0.52 : 0.62,
+                          ),
+                          transitionSurface,
+                          transitionSurface.withValues(
+                            alpha: isLightSurface ? 0.42 : 0.50,
+                          ),
+                          Colors.transparent,
+                        ],
+                        stops: <double>[
+                          0.0,
+                          0.24,
+                          0.50,
+                          boundaryStop - 0.08,
+                          boundaryStop,
+                          0.94,
+                          1.0,
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
