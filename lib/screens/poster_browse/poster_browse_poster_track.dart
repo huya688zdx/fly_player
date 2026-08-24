@@ -13,6 +13,8 @@ class PosterBrowsePosterTrack extends StatelessWidget {
   final void Function(int index) onItemTap;
   final ScrollController? controller;
   final ScrollPhysics? physics;
+  final double cardWidth;
+  final double itemSpacing;
 
   const PosterBrowsePosterTrack({
     super.key,
@@ -24,6 +26,8 @@ class PosterBrowsePosterTrack extends StatelessWidget {
     required this.onItemTap,
     this.controller,
     this.physics,
+    this.cardWidth = 116,
+    this.itemSpacing = 18,
   });
 
   @override
@@ -38,7 +42,7 @@ class PosterBrowsePosterTrack extends StatelessWidget {
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
       itemCount: items.length,
-      separatorBuilder: (context, index) => const SizedBox(width: 18),
+      separatorBuilder: (context, index) => SizedBox(width: itemSpacing),
       itemBuilder: (context, index) {
         final item = items[index];
         final request = imageOf(item);
@@ -52,6 +56,7 @@ class PosterBrowsePosterTrack extends StatelessWidget {
           imageHeaders: canLoad ? request.headers : const <String, String>{},
           secondaryLabel: secondaryLabelOf(item),
           onTap: () => onItemTap(index),
+          width: cardWidth,
         );
       },
     );

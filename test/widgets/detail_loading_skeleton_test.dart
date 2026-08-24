@@ -22,6 +22,27 @@ void main() {
     expect(hero.height, lessThanOrEqualTo(254));
   });
 
+  testWidgets('详情加载骨架在 701×331 超矮横屏下不发生纵向溢出', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(701, 331));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      const MediaQuery(
+        data: MediaQueryData(
+          size: Size(701, 331),
+          padding: EdgeInsets.only(top: 24),
+        ),
+        child: MaterialApp(home: DetailLoadingSkeleton()),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    final hero = tester.getSize(
+      find.byKey(const ValueKey('detail-skeleton-hero')),
+    );
+    expect(hero.height, lessThanOrEqualTo(201));
+  });
+
   testWidgets('详情加载骨架在嵌入窗格及极短高度不发生纵向溢出', (tester) async {
     await tester.binding.setSurfaceSize(const Size(853, 320));
     addTearDown(() => tester.binding.setSurfaceSize(null));
