@@ -5,6 +5,8 @@ import android.content.res.Resources
 import android.app.Application
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NativePlayerActivityPanelModelsTest {
@@ -44,6 +46,24 @@ class NativePlayerActivityPanelModelsTest {
         }
 
         override fun getResources(): Resources = testResources
+    }
+
+    @Test
+    fun danmakuCurrentResultRequiresSameSeasonAndEpisode() {
+        assertFalse(
+            nativePanelDanmakuResultIsCurrent(
+                resultEpisodeNumber = 1,
+                currentEpisodeNumber = 1,
+                matchesCurrentSeason = false,
+            ),
+        )
+        assertTrue(
+            nativePanelDanmakuResultIsCurrent(
+                resultEpisodeNumber = 1,
+                currentEpisodeNumber = 1,
+                matchesCurrentSeason = true,
+            ),
+        )
     }
 
     @Test
