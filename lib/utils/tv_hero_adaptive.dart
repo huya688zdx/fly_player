@@ -5,16 +5,12 @@ class TvHeroAdaptiveMetrics {
   final double imageScale;
   final double imageAlignX;
   final double imageAlignY;
-  final double fadeStart;
-  final double fadeMid;
 
   const TvHeroAdaptiveMetrics({
     required this.posterHeightRatio,
     required this.imageScale,
     required this.imageAlignX,
     required this.imageAlignY,
-    required this.fadeStart,
-    required this.fadeMid,
   });
 }
 
@@ -49,8 +45,6 @@ class TvHeroAdaptive {
           imageScale: imageScale.toDouble(),
           imageAlignX: imageAlignX.toDouble(),
           imageAlignY: -0.18,
-          fadeStart: 0.64,
-          fadeMid: 0.86,
         );
       }
 
@@ -67,8 +61,6 @@ class TvHeroAdaptive {
         imageScale: imageScale.toDouble(),
         imageAlignX: imageAlignX.toDouble(),
         imageAlignY: -0.08,
-        fadeStart: 0.64,
-        fadeMid: 0.88,
       );
     }
 
@@ -79,8 +71,6 @@ class TvHeroAdaptive {
         imageScale: 1.00,
         imageAlignX: 0.50,
         imageAlignY: -0.10,
-        fadeStart: 0.62,
-        fadeMid: 0.84,
       );
     }
 
@@ -90,16 +80,12 @@ class TvHeroAdaptive {
     );
     final imageScale = (1.00 - (aspectRatio - 0.56) * 0.06).clamp(0.88, 1.03);
     final imageAlignX = (0.32 + (aspectRatio - 0.56) * 0.20).clamp(0.18, 0.62);
-    final fadeStart = (0.58 + (aspectRatio - 0.56) * 0.04).clamp(0.54, 0.68);
-    final fadeMid = (fadeStart + 0.22).clamp(0.76, 0.90);
 
     return TvHeroAdaptiveMetrics(
       posterHeightRatio: posterHeightRatio.toDouble(),
       imageScale: imageScale.toDouble(),
       imageAlignX: imageAlignX.toDouble(),
       imageAlignY: -0.12,
-      fadeStart: fadeStart.toDouble(),
-      fadeMid: fadeMid.toDouble(),
     );
   }
 }
