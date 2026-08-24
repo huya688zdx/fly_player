@@ -31,6 +31,44 @@ void main() {
     expect(sorted.map((item) => item.episodeId), <int>[169610002, 154210002]);
   });
 
+  test('跨季同集号候选只标记当前季度', () {
+    const firstSeason = DanDanPlayEpisodeSearchItem(
+      episodeId: 134570001,
+      animeTitle: '轻音少女',
+      episodeTitle: '第1话 废部！',
+      episodeNumber: 1,
+    );
+    const secondSeason = DanDanPlayEpisodeSearchItem(
+      episodeId: 142670001,
+      animeTitle: '轻音少女 第二季',
+      episodeTitle: '第1话 高三！',
+      episodeNumber: 1,
+    );
+
+    expect(
+      DanDanPlayResolver.candidateMatchesSeason(firstSeason, seasonNumber: 2),
+      isFalse,
+    );
+    expect(
+      DanDanPlayResolver.candidateMatchesSeason(secondSeason, seasonNumber: 2),
+      isTrue,
+    );
+  });
+
+  test('缺少当前季度信息时不猜测候选季度', () {
+    const candidate = DanDanPlayEpisodeSearchItem(
+      episodeId: 134570001,
+      animeTitle: '轻音少女',
+      episodeTitle: '第1话 废部！',
+      episodeNumber: 1,
+    );
+
+    expect(
+      DanDanPlayResolver.candidateMatchesSeason(candidate, seasonNumber: 0),
+      isFalse,
+    );
+  });
+
   test('playback candidate prefers episode title over numeric episode', () {
     final candidates = <DanDanPlayEpisodeSearchItem>[
       const DanDanPlayEpisodeSearchItem(
